@@ -24,12 +24,8 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: pnpm/action-setup@v6.1.0
-
-      - uses: actions/setup-node@v6
-        with:
-          node-version: '24'
-          cache: pnpm
+      # Node + pnpm come from mise.toml (`node = "26"`, `pnpm = "12"`), not a packageManager pin.
+      - uses: jdx/mise-action@v4
 
       - run: pnpm install --frozen-lockfile
 
@@ -113,12 +109,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: pnpm/action-setup@v6.1.0
-
-      - uses: actions/setup-node@v6
-        with:
-          node-version: '24'
-          cache: pnpm
+      - uses: jdx/mise-action@v4
 
       - name: Wipe node_modules (prove a clean tree)
         run: rm -rf node_modules
@@ -151,12 +142,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: pnpm/action-setup@v6.1.0
-
-      - uses: actions/setup-node@v6
-        with:
-          node-version: '24'
-          cache: pnpm
+      - uses: jdx/mise-action@v4
 
       - run: pnpm install --frozen-lockfile
 

@@ -27,13 +27,8 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: pnpm/action-setup@v6.1.0
-
-      - uses: actions/setup-node@v6
-        with:
-          node-version: '24'
-          cache: pnpm
-          registry-url: 'https://registry.npmjs.org'
+      # Node + pnpm come from mise.toml (`node = "26"`, `pnpm = "12"`), not a packageManager pin.
+      - uses: jdx/mise-action@v4
 
       # Tag / version / changelog gates run FIRST: none of them needs node_modules, and a bad
       # tag or a missing release-notes heading should fail in seconds rather than after a full
@@ -170,9 +165,12 @@ jobs:
           printf '%s\n' "$prompts" | grep -q '^implement'
 
       - name: Publish to npm
-        run: pnpm publish --no-git-checks --provenance --tag "${{ steps.version.outputs.npm_tag }}"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_CONFIG_USERCONFIG: ${{ runner.temp }}/.npmrc
+        run: |
+          printf '//registry.npmjs.org/:_authToken=%s\n' "$NODE_AUTH_TOKEN" > "$NPM_CONFIG_USERCONFIG"
+          pnpm publish --no-git-checks --provenance --tag "${{ steps.version.outputs.npm_tag }}"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3

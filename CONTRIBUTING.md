@@ -21,8 +21,8 @@ the process smooth for everyone.
 
 ### Prerequisites
 
-- [Node.js](https://nodejs.org/) **>= 24.0.0** (we use [mise](https://mise.jdx.dev/) for version management)
-- [pnpm](https://pnpm.io/) **>= 10**
+- [mise](https://mise.jdx.dev/) — this repo's Node and pnpm come from `mise.toml` (`node = "26"`, `pnpm = "12"`).
+  Do not install them via Homebrew, Corepack, or the standalone pnpm installer; those fight mise.
 - [Claude CLI](https://docs.anthropic.com/en/docs/claude-code) installed and configured (only needed for integration
   testing)
 
@@ -31,10 +31,9 @@ the process smooth for everyone.
 ```bash
 git clone https://github.com/lukas-grigis/ralphctl.git
 cd ralphctl
+mise install
 pnpm install
 ```
-
-If you use `mise`, tool versions are pinned in `mise.toml` — just run `mise install`.
 
 ### Verify everything works
 
