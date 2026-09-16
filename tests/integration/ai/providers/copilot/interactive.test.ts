@@ -1,7 +1,11 @@
-import { describe, expect, it } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { absolutePath } from '@tests/fixtures/domain.ts';
 import { createCapturingBus } from '@tests/fixtures/capturing-event-bus.ts';
 import { makeInteractiveSpawn } from '@tests/fixtures/interactive-spawn-fake.ts';
+import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { COPILOT_MODELS } from '@src/domain/value/settings-models/copilot.ts';
 import { createInteractiveCopilotProvider } from '@src/integration/ai/providers/copilot/interactive.ts';
 
@@ -10,8 +14,23 @@ import { createInteractiveCopilotProvider } from '@src/integration/ai/providers/
 // in tests/integration/ai/providers/_engine/run-interactive-session.test.ts. What stays here is
 // the part that is genuinely Copilot-specific: the argv it builds.
 
-const PROMPT_FILE = absolutePath('/tmp/copilot-prompt.md');
-const OUTPUT_FILE = absolutePath('/tmp/copilot-output.md');
+// `run()` drops a spawn-context.json beside `outputFile` and the probe has no test seam, so the io
+// paths are a per-test tmpdir — a fixed `/tmp/copilot-output.md` made every suite run rewrite a
+// world-readable /tmp/spawn-context.json and never clean it up.
+let ioDir: string;
+let PROMPT_FILE: AbsolutePath;
+let OUTPUT_FILE: AbsolutePath;
+
+beforeEach(() => {
+  ioDir = mkdtempSync(join(tmpdir(), 'copilot-interactive-'));
+  PROMPT_FILE = absolutePath(join(ioDir, 'copilot-prompt.md'));
+  OUTPUT_FILE = absolutePath(join(ioDir, 'copilot-output.md'));
+});
+
+afterEach(() => {
+  rmSync(ioDir, { recursive: true, force: true });
+});
+
 const CWD = absolutePath('/tmp/copilot-interactive-cwd');
 const PROMPT_CONTENT = '# Test prompt\n\nDo a thing.';
 const stubReadFile = (): Promise<string> => Promise.resolve(PROMPT_CONTENT);
@@ -58,7 +77,7 @@ describe('createInteractiveCopilotProvider', () => {
     expect(args).toContain(`--add-dir=${String(CWD)}`);
     // Adapter auto-mounts the output-file and prompt-file dirs so the harness's writes
     // don't trigger a per-file approval prompt mid-session.
-    expect(args).toContain('--add-dir=/tmp');
+    expect(args).toContain(`--add-dir=${ioDir}`);
     expect(args).toContain(`--model=${COPILOT_MODELS[0]!}`);
     expect(args).not.toContain('--add-dir');
     expect(args).not.toContain('--model');

@@ -1,15 +1,34 @@
-import { describe, expect, it } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { absolutePath } from '@tests/fixtures/domain.ts';
 import { createCapturingBus } from '@tests/fixtures/capturing-event-bus.ts';
 import { makeInteractiveSpawn } from '@tests/fixtures/interactive-spawn-fake.ts';
+import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { GROK_MODELS } from '@src/domain/value/settings-models/grok.ts';
 import { createInteractiveGrokProvider } from '@src/integration/ai/providers/grok/interactive.ts';
 
 const STUB_PROMPT = 'Refine this Grok task.';
 const stubReadFile = (): Promise<string> => Promise.resolve(STUB_PROMPT);
 
-const PROMPT_FILE = absolutePath('/tmp/grok-prompt.md');
-const OUTPUT_FILE = absolutePath('/tmp/grok-output.md');
+// `run()` drops a spawn-context.json beside `outputFile` and the probe has no test seam, so the io
+// paths are a per-test tmpdir — a fixed `/tmp/grok-output.md` made every suite run rewrite a
+// world-readable /tmp/spawn-context.json and never clean it up.
+let ioDir: string;
+let PROMPT_FILE: AbsolutePath;
+let OUTPUT_FILE: AbsolutePath;
+
+beforeEach(() => {
+  ioDir = mkdtempSync(join(tmpdir(), 'grok-interactive-'));
+  PROMPT_FILE = absolutePath(join(ioDir, 'grok-prompt.md'));
+  OUTPUT_FILE = absolutePath(join(ioDir, 'grok-output.md'));
+});
+
+afterEach(() => {
+  rmSync(ioDir, { recursive: true, force: true });
+});
+
 const CWD = absolutePath('/tmp/grok-interactive-cwd');
 
 describe('createInteractiveGrokProvider', () => {
@@ -43,6 +62,8 @@ describe('createInteractiveGrokProvider', () => {
     expect(calls[0]!.command).toBe('grok');
     const args = calls[0]!.args;
     expect(args).toContain('--no-auto-update');
+    // Untrusted folders skip AGENTS.md and `.grok/skills` at startup — both written by ralphctl.
+    expect(args).toContain('--trust');
     expect(args).toContain('--cwd');
     expect(args).toContain(String(CWD));
     expect(args).toContain('-m');
@@ -85,7 +106,7 @@ describe('createInteractiveGrokProvider', () => {
     const args = calls[0]!.args;
     const idx = args.indexOf('--debug-file');
     expect(idx).toBeGreaterThanOrEqual(0);
-    expect(args[idx + 1]).toBe('/tmp/grok-debug.log');
+    expect(args[idx + 1]).toBe(join(ioDir, 'grok-debug.log'));
     // `--debug` is deliberately NOT passed — it also changes what Grok puts on screen.
     expect(args).not.toContain('--debug');
   });

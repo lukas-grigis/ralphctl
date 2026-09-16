@@ -1,10 +1,12 @@
+import { mkdtempSync } from 'node:fs';
 import { mkdtemp, readFile as readFileFs, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { absolutePath } from '@tests/fixtures/domain.ts';
 import { createCapturingBus } from '@tests/fixtures/capturing-event-bus.ts';
 import { makeInteractiveSpawn } from '@tests/fixtures/interactive-spawn-fake.ts';
+import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { Result } from '@src/domain/result.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import { argvByteLength } from '@src/integration/ai/providers/_engine/argv-budget.ts';
@@ -24,8 +26,13 @@ vi.mock('@src/domain/value/settings-models/suspended-models.ts', () => ({
 const STUB_PROMPT = 'Do the thing.';
 const stubReadFile = (): Promise<string> => Promise.resolve(STUB_PROMPT);
 
-const PROMPT_FILE = absolutePath('/tmp/engine-prompt.md');
-const OUTPUT_FILE = absolutePath('/tmp/engine-output.md');
+// `run()` drops a spawn-context.json beside `outputFile` and the probe has no test seam, so the io
+// paths are a per-test tmpdir — a fixed `/tmp/engine-output.md` made every suite run rewrite a
+// world-readable /tmp/spawn-context.json and never clean it up.
+let ioDir: string;
+let PROMPT_FILE: AbsolutePath;
+let OUTPUT_FILE: AbsolutePath;
+
 const CWD = absolutePath('/tmp/engine-cwd');
 const MODEL = 'known-model';
 
@@ -52,6 +59,13 @@ const makeTempDir = async (): Promise<string> => {
   tempDirs.push(dir);
   return dir;
 };
+
+beforeEach(() => {
+  ioDir = mkdtempSync(join(tmpdir(), 'engine-interactive-'));
+  tempDirs.push(ioDir);
+  PROMPT_FILE = absolutePath(join(ioDir, 'engine-prompt.md'));
+  OUTPUT_FILE = absolutePath(join(ioDir, 'engine-output.md'));
+});
 
 afterEach(async () => {
   await Promise.all(tempDirs.splice(0).map(async (dir) => rm(dir, { recursive: true, force: true })));
@@ -183,8 +197,9 @@ describe('createInteractiveProvider', () => {
 
     const args = calls[0]!.args;
     const roots = args.filter((_, i) => args[i - 1] === '--add-dir');
-    // dirname(promptFile) === dirname(outputFile) === '/tmp' → one entry; CWD listed twice → one.
-    expect(roots).toEqual([String(CWD), String(extraRepo), '/tmp']);
+    // dirname(promptFile) === dirname(outputFile) === the per-test io dir → one entry; CWD listed
+    // twice → one.
+    expect(roots).toEqual([String(CWD), String(extraRepo), ioDir]);
   });
 
   it('pre-generates a session id, passes it to the CLI, and mirrors it next to the output file', async () => {

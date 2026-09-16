@@ -5,6 +5,7 @@ import {
   createGrokAttemptTracker,
   extractGrokMetaUpdate,
   parseGrokJsonLine,
+  publishGrokStreamLineEvents,
 } from '@src/integration/ai/providers/grok/parse-stream.ts';
 
 const drive = (chunks: readonly string[]) => {
@@ -75,7 +76,55 @@ describe('createGrokAttemptTracker', () => {
     expect(tracker.getOutputTokens()).toBe(4);
   });
 
-  it('last-write-wins on usage and first sessionId wins', () => {
+  it('accumulates per-response usage lines when no end aggregate arrives', () => {
+    // `usage` is a per-response boundary, one per model response — summing them is the only way a
+    // turn cut short of its `end` (or an `end` without spend fields) reports the whole turn.
+    const { tracker } = drive([
+      '{"type":"usage","usage":{"input_tokens":3,"output_tokens":2,"cache_read_input_tokens":1}}\n',
+      '{"type":"usage","usage":{"input_tokens":4,"output_tokens":1,"cache_read_input_tokens":2}}\n',
+    ]);
+    expect(tracker.getInputTokens()).toBe(7);
+    expect(tracker.getOutputTokens()).toBe(3);
+    expect(tracker.getCacheReadTokens()).toBe(3);
+  });
+
+  it('lets the end aggregate replace the accumulated usage rather than adding to it', () => {
+    const { tracker } = drive([
+      '{"type":"usage","usage":{"input_tokens":3,"output_tokens":2}}\n',
+      '{"type":"usage","usage":{"input_tokens":4,"output_tokens":1}}\n',
+      '{"type":"end","sessionId":"sid-agg","usage":{"input_tokens":12,"output_tokens":4}}\n',
+    ]);
+    expect(tracker.getInputTokens()).toBe(12);
+    expect(tracker.getOutputTokens()).toBe(4);
+  });
+
+  it('lets a partial end usage object replace ALL four counters, never mixing accounting bases', () => {
+    // The `end` prices the whole turn; the `usage` lines price one model response each. Adopting
+    // input/output from the turn while keeping the cache counters at their per-response sum would
+    // emit one ledger row on two bases — so a field the `end` omits is reported as absent.
+    const { tracker } = drive([
+      '{"type":"usage","usage":{"input_tokens":3,"output_tokens":2,"cache_read_input_tokens":5,"cache_creation_input_tokens":6}}\n',
+      '{"type":"usage","usage":{"input_tokens":4,"output_tokens":1,"cache_read_input_tokens":7,"cache_creation_input_tokens":8}}\n',
+      '{"type":"end","sessionId":"sid-partial","usage":{"input_tokens":12,"output_tokens":4}}\n',
+    ]);
+    expect(tracker.getInputTokens()).toBe(12);
+    expect(tracker.getOutputTokens()).toBe(4);
+    expect(tracker.getCacheReadTokens()).toBeUndefined();
+    expect(tracker.getCacheCreationTokens()).toBeUndefined();
+  });
+
+  it('keeps the accumulated usage when end carries no spend fields', () => {
+    const { tracker } = drive([
+      '{"type":"usage","usage":{"input_tokens":3,"output_tokens":2}}\n',
+      '{"type":"usage","usage":{"input_tokens":4,"output_tokens":1}}\n',
+      '{"type":"end","sessionId":"sid-no-spend"}\n',
+    ]);
+    expect(tracker.getSessionId()).toBe('sid-no-spend');
+    expect(tracker.getInputTokens()).toBe(7);
+    expect(tracker.getOutputTokens()).toBe(3);
+  });
+
+  it('last end wins on usage and first sessionId wins', () => {
     const { tracker } = drive([
       '{"type":"usage","usage":{"input_tokens":1,"output_tokens":1}}\n',
       '{"type":"end","sessionId":"first","usage":{"input_tokens":9,"output_tokens":8}}\n',
@@ -166,6 +215,22 @@ describe('createGrokAttemptTracker', () => {
     const results = cap.logs.filter((e) => e.message === 'grok-provider: tool_result');
     expect(results).toHaveLength(1);
     expect(results[0]?.meta).toMatchObject({ tool: 'write', status: 'ok' });
+  });
+
+  it('drops the toolCallId → toolName entry once a call reaches a terminal update', () => {
+    const cap = createCapturingBus();
+    const toolNames = new Map<string, string>();
+    const feed = (line: string): void => publishGrokStreamLineEvents(cap.bus, JSON.parse(line), toolNames);
+
+    feed('{"type":"tool_call","toolCallId":"t4","toolName":"search_replace","status":"running"}');
+    feed('{"type":"tool_call_update","toolCallId":"t4","status":"in_progress"}');
+    expect(toolNames.size).toBe(1);
+
+    feed('{"type":"tool_call_update","toolCallId":"t4","status":"completed","rawOutput":{"ok":true}}');
+    expect(toolNames.size).toBe(0);
+    // The name still reached the event — the delete happens after the lookup.
+    const result = cap.logs.find((e) => e.message === 'grok-provider: tool_result');
+    expect(result?.meta).toMatchObject({ tool: 'search_replace', status: 'ok' });
   });
 
   it('flushes an unterminated end line so sessionId is not dropped', () => {

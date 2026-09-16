@@ -1,7 +1,11 @@
-import { describe, expect, it } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { absolutePath } from '@tests/fixtures/domain.ts';
 import { createCapturingBus } from '@tests/fixtures/capturing-event-bus.ts';
 import { makeInteractiveSpawn } from '@tests/fixtures/interactive-spawn-fake.ts';
+import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { CODEX_MODELS } from '@src/domain/value/settings-models/codex.ts';
 import { createInteractiveCodexProvider } from '@src/integration/ai/providers/codex/interactive.ts';
 
@@ -13,8 +17,23 @@ import { createInteractiveCodexProvider } from '@src/integration/ai/providers/co
 const STUB_PROMPT = 'Refine this Codex task.';
 const stubReadFile = (): Promise<string> => Promise.resolve(STUB_PROMPT);
 
-const PROMPT_FILE = absolutePath('/tmp/codex-prompt.md');
-const OUTPUT_FILE = absolutePath('/tmp/codex-output.md');
+// `run()` drops a spawn-context.json beside `outputFile` and the probe has no test seam, so the io
+// paths are a per-test tmpdir — a fixed `/tmp/codex-output.md` made every suite run rewrite a
+// world-readable /tmp/spawn-context.json and never clean it up.
+let ioDir: string;
+let PROMPT_FILE: AbsolutePath;
+let OUTPUT_FILE: AbsolutePath;
+
+beforeEach(() => {
+  ioDir = mkdtempSync(join(tmpdir(), 'codex-interactive-'));
+  PROMPT_FILE = absolutePath(join(ioDir, 'codex-prompt.md'));
+  OUTPUT_FILE = absolutePath(join(ioDir, 'codex-output.md'));
+});
+
+afterEach(() => {
+  rmSync(ioDir, { recursive: true, force: true });
+});
+
 const CWD = absolutePath('/tmp/codex-interactive-cwd');
 
 describe('createInteractiveCodexProvider', () => {
@@ -120,10 +139,10 @@ describe('createInteractiveCodexProvider', () => {
     expect(args).toContain(String(CWD));
     expect(args).toContain(String(repoA));
     expect(args).toContain(String(repoB));
-    // dirname(promptFile) === dirname(outputFile) === '/tmp' — dedupe collapses them
+    // dirname(promptFile) === dirname(outputFile) === the io dir — dedupe collapses them
     // to a single --add-dir entry. Count via flag occurrences stays load-bearing.
     const addDirCount = args.filter((a) => a === '--add-dir').length;
-    expect(addDirCount).toBe(4); // cwd + repoA + repoB + /tmp (deduped prompt/output dir)
+    expect(addDirCount).toBe(4); // cwd + repoA + repoB + ioDir (deduped prompt/output dir)
   });
 
   it('leaves sessionId unset — codex accepts no harness-supplied id at launch', async () => {

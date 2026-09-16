@@ -1,7 +1,11 @@
-import { describe, expect, it } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { absolutePath } from '@tests/fixtures/domain.ts';
 import { createCapturingBus } from '@tests/fixtures/capturing-event-bus.ts';
 import { makeInteractiveSpawn } from '@tests/fixtures/interactive-spawn-fake.ts';
+import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { CLAUDE_MODELS } from '@src/domain/value/settings-models/claude.ts';
 import { createInteractiveClaudeProvider } from '@src/integration/ai/providers/claude/interactive.ts';
 
@@ -13,8 +17,23 @@ import { createInteractiveClaudeProvider } from '@src/integration/ai/providers/c
 const STUB_PROMPT = 'You are helping refine a ticket. Do X.';
 const stubReadFile = (): Promise<string> => Promise.resolve(STUB_PROMPT);
 
-const PROMPT_FILE = absolutePath('/tmp/claude-prompt.md');
-const OUTPUT_FILE = absolutePath('/tmp/claude-output.md');
+// `run()` drops a spawn-context.json beside `outputFile` and the probe has no test seam, so the io
+// paths are a per-test tmpdir — a fixed `/tmp/claude-output.md` made every suite run rewrite a
+// world-readable /tmp/spawn-context.json and never clean it up.
+let ioDir: string;
+let PROMPT_FILE: AbsolutePath;
+let OUTPUT_FILE: AbsolutePath;
+
+beforeEach(() => {
+  ioDir = mkdtempSync(join(tmpdir(), 'claude-interactive-'));
+  PROMPT_FILE = absolutePath(join(ioDir, 'claude-prompt.md'));
+  OUTPUT_FILE = absolutePath(join(ioDir, 'claude-output.md'));
+});
+
+afterEach(() => {
+  rmSync(ioDir, { recursive: true, force: true });
+});
+
 const CWD = absolutePath('/tmp/claude-interactive-cwd');
 
 describe('createInteractiveClaudeProvider', () => {
@@ -147,8 +166,8 @@ describe('createInteractiveClaudeProvider', () => {
     const args = calls[0]!.args;
     expect(args).toContain(String(CWD));
     expect(args).toContain(String(extraRepo));
-    // dirname of /tmp/claude-prompt.md and /tmp/claude-output.md is /tmp
-    expect(args).toContain('/tmp');
+    // dirname of the prompt and output files is the shared per-test io dir
+    expect(args).toContain(ioDir);
     // CWD must appear once even though additionalRoots also lists it.
     const cwdHits = args.filter((a) => a === String(CWD));
     expect(cwdHits).toHaveLength(1);

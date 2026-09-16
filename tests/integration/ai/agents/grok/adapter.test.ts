@@ -1,17 +1,25 @@
-import { describe, expect, it } from 'vitest';
-import { mkdtemp, readFile } from 'node:fs/promises';
+import { afterEach, describe, expect, it } from 'vitest';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { AgentDefinition } from '@src/integration/ai/agents/_engine/agent-definition.ts';
 import { createGrokAgentDefinitionAdapter } from '@src/integration/ai/agents/grok/adapter.ts';
 
+/** Every session dir this file made, so the suite leaves no tmpdir behind (issue #303). */
+const sessionDirs: string[] = [];
+
 const makeSession = async (): Promise<AbsolutePath> => {
   const dir = await mkdtemp(join(tmpdir(), 'grok-agents-'));
+  sessionDirs.push(dir);
   const parsed = AbsolutePath.parse(dir);
   if (!parsed.ok) throw new Error(parsed.error.message);
   return parsed.value;
 };
+
+afterEach(async () => {
+  for (const dir of sessionDirs.splice(0)) await rm(dir, { recursive: true, force: true });
+});
 
 const definition = (overrides: Partial<AgentDefinition> = {}): AgentDefinition => ({
   name: 'implementer',

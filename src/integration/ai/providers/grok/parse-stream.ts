@@ -13,7 +13,10 @@ import {
 } from '@src/integration/ai/providers/_engine/stream-debug-events.ts';
 
 /**
- * Parser for Grok Build CLI `--output-format streaming-json` (grok 1.0.5).
+ * Parser for Grok Build CLI `--output-format streaming-json`.
+ *
+ * Record types and event semantics verified against Grok Build CLI 1.0.30's shipped CLI reference
+ * on 2026-09-15; minimum supported version is 1.0.13.
  *
  * NDJSON. Switch on `type`. Observed record types:
  *
@@ -21,8 +24,8 @@ import {
  *   - `thought`              — skip for body
  *   - `tool_call`            — tool_use debug (`toolName` + `rawInput`)
  *   - `tool_call_update`     — tool_result debug (`status` + `rawOutput`)
- *   - `usage`                — token counters; last-write-wins
- *   - `end`                  — `sessionId` (first wins) + final usage
+ *   - `usage`                — per-response token counters; accumulate
+ *   - `end`                  — turn aggregate: `sessionId` (first wins) + authoritative usage
  *   - `error`                — CLI error message
  *   - `available_commands`   — skip
  *
@@ -66,6 +69,14 @@ const usageUpdate = (usage: Record<string, unknown>): Omit<GrokMetaUpdate, 'sess
     ...(cacheCreationTokens !== undefined ? { cacheCreationTokens } : {}),
   };
 };
+
+/**
+ * Does this record carry the turn's authoritative usage object? Only an `end` that actually ships
+ * `usage` replaces the running totals — see {@link createGrokAttemptTracker}'s merge note for why
+ * the decision is per-RECORD rather than per-field.
+ */
+const carriesTurnUsage = (obj: Record<string, unknown>): boolean =>
+  stringField(obj, 'type') === 'end' && usageOf(obj) !== undefined;
 
 export const extractGrokMetaUpdate = (obj: Record<string, unknown>): GrokMetaUpdate | undefined => {
   const type = stringField(obj, 'type');
@@ -138,6 +149,8 @@ export const publishGrokStreamLineEvents = (
   // error so a failed tool call is never invisible in the trace.
   const id = stringField(obj, 'toolCallId');
   const tool = (id !== undefined ? toolNames.get(id) : undefined) ?? 'unknown';
+  // Terminal update — drop the name so the map only ever holds in-flight calls.
+  if (id !== undefined) toolNames.delete(id);
   publishToolResultEvent(
     eventBus,
     PROVIDER_NAME,
@@ -177,13 +190,40 @@ export const createGrokAttemptTracker = (eventBus: EventBus): GrokAttemptTracker
   const toolNames = new Map<string, string>();
   const lineFeed = createCappedLineFeed<Record<string, unknown>>('grok-stream', emitGrokLine);
 
-  const onMeta = (update: GrokMetaUpdate): void => {
+  /** Per-response `usage` lines sum; a first value wins over nothing. */
+  const addTokens = (current: number | undefined, next: number | undefined): number | undefined => {
+    if (next === undefined) return current;
+    if (current === undefined) return next;
+    return current + next;
+  };
+
+  /**
+   * `usage` is a per-response boundary — one per model response — while `end` carries the turn
+   * aggregate and is the only authoritative total. So `usage` lines accumulate and an `end` that
+   * ships a usage object replaces the running total.
+   *
+   * The replace/accumulate decision is made at RECORD level, not per field: an `end` whose usage
+   * object carries only some of the four counters (they are documented "when available") switches
+   * ALL of them to the turn basis, a missing one becoming absent rather than keeping its
+   * accumulated per-response sum. Deciding per field would emit one ledger row mixing two
+   * accounting bases — input/output on the turn total, cache counters on the per-response sum —
+   * which is worse than reporting the cache counters not at all. An `end` with no usage object at
+   * all is not a usage record: the accumulated totals stand, so a turn cut short of a priced `end`
+   * still reports the whole turn rather than its last model response.
+   */
+  const onMeta = (update: GrokMetaUpdate, replacesTotals: boolean): void => {
     if (update.sessionId !== undefined && sessionId === undefined) sessionId = update.sessionId;
-    // Last-write-wins: both `usage` and `end` carry cumulative counters; the last one is current.
-    if (update.inputTokens !== undefined) inputTokens = update.inputTokens;
-    if (update.outputTokens !== undefined) outputTokens = update.outputTokens;
-    if (update.cacheReadTokens !== undefined) cacheReadTokens = update.cacheReadTokens;
-    if (update.cacheCreationTokens !== undefined) cacheCreationTokens = update.cacheCreationTokens;
+    if (replacesTotals) {
+      inputTokens = update.inputTokens;
+      outputTokens = update.outputTokens;
+      cacheReadTokens = update.cacheReadTokens;
+      cacheCreationTokens = update.cacheCreationTokens;
+      return;
+    }
+    inputTokens = addTokens(inputTokens, update.inputTokens);
+    outputTokens = addTokens(outputTokens, update.outputTokens);
+    cacheReadTokens = addTokens(cacheReadTokens, update.cacheReadTokens);
+    cacheCreationTokens = addTokens(cacheCreationTokens, update.cacheCreationTokens);
   };
 
   const onLine = (obj: Record<string, unknown>): void => {
@@ -198,8 +238,13 @@ export const createGrokAttemptTracker = (eventBus: EventBus): GrokAttemptTracker
 
   const dispatch = (obj: Record<string, unknown>): void => {
     onLine(obj);
+    // A priced `end` reaches `onMeta` even when `extractGrokMetaUpdate` found nothing in it (a
+    // `usage: {}` with no sessionId), so the record-level replace still clears the per-response
+    // basis rather than silently leaving it standing.
+    const replacesTotals = carriesTurnUsage(obj);
     const update = extractGrokMetaUpdate(obj);
-    if (update !== undefined) onMeta(update);
+    if (update === undefined && !replacesTotals) return;
+    onMeta(update ?? {}, replacesTotals);
   };
 
   return {

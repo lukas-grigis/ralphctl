@@ -1,8 +1,11 @@
-import { dirname } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { absolutePath } from '@tests/fixtures/domain.ts';
 import { createCapturingBus } from '@tests/fixtures/capturing-event-bus.ts';
 import { type InteractiveSpawnCall, makeInteractiveSpawn } from '@tests/fixtures/interactive-spawn-fake.ts';
+import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { AiProvider } from '@src/domain/entity/settings.ts';
 import { argvByteLength } from '@src/integration/ai/providers/_engine/argv-budget.ts';
 import type { InteractiveAiProvider } from '@src/integration/ai/providers/_engine/interactive-ai-provider.ts';
@@ -31,12 +34,26 @@ import { createInteractiveGrokProvider } from '@src/integration/ai/providers/gro
 
 const CWD = absolutePath('/tmp/conformance-interactive-cwd');
 const SIBLING = absolutePath('/tmp/conformance-interactive-sibling');
-const PROMPT_FILE = absolutePath('/tmp/conformance-interactive-io/prompt.md');
-const OUTPUT_FILE = absolutePath('/tmp/conformance-interactive-io/output.md');
-const IO_DIR = dirname(String(PROMPT_FILE));
+// `run()` drops a spawn-context.json + session-id.txt beside `outputFile` and the probe has no test
+// seam, so the io paths are a per-test tmpdir — a fixed `/tmp/conformance-interactive-io/` made
+// every row of every run rewrite those files there and never clean them up.
+let IO_DIR: string;
+let PROMPT_FILE: AbsolutePath;
+let OUTPUT_FILE: AbsolutePath;
 
-/** Roots the shared engine folds from the input above — what every row must end up granting. */
-const EXPECTED_ROOTS = new Set([String(CWD), String(SIBLING), IO_DIR]);
+/** Roots the shared engine folds from the input below — what every row must end up granting. */
+let EXPECTED_ROOTS: ReadonlySet<string>;
+
+beforeEach(() => {
+  IO_DIR = mkdtempSync(join(tmpdir(), 'conformance-interactive-io-'));
+  PROMPT_FILE = absolutePath(join(IO_DIR, 'prompt.md'));
+  OUTPUT_FILE = absolutePath(join(IO_DIR, 'output.md'));
+  EXPECTED_ROOTS = new Set([String(CWD), String(SIBLING), IO_DIR]);
+});
+
+afterEach(() => {
+  rmSync(IO_DIR, { recursive: true, force: true });
+});
 
 /**
  * A path that cannot be written as a glob pattern matching exactly itself. Adapters with an
