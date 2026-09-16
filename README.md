@@ -128,7 +128,8 @@ ralphctl ticket list
 
 # Manage sprint state
 ralphctl sprint activate <sprint-id>
-ralphctl sprint close <sprint-id>           # review → done
+ralphctl sprint close <sprint-id> [-y]      # review → done (-y skips the blocked-task confirm)
+ralphctl sprint reopen <sprint-id>          # done → review (makes blocked work reachable again)
 ralphctl sprint remove <sprint-id>
 
 # Open a PR for the sprint branch
@@ -249,12 +250,15 @@ that file in sequence; each later pass keeps the previous body at `AGENTS.md.bak
   so path scope is the fine-grained safety envelope.
 - **OpenCode** — vendor-neutral: it fronts 75+ providers and local runtimes on a bring-your-own-key model, so
   you can run a specific model, a local model, or no account at all.
-- **Grok Build CLI** — xAI's coding CLI (`grok-4.6` / `grok-4.5`). Read-only flows deny edit and shell; the
-  `write` tool stays open so `signals.json` can land. Extra roots are a named over-grant — Grok has no
-  `--add-dir` and `--sandbox off` is forced.
+- **Grok Build CLI** — xAI's coding CLI (`grok-4.6` / `grok-4.5`). Read-only flows deny edit and shell by
+  permission rule (`--deny 'Edit(./**)'`, cwd-rooted, plus `--deny 'Bash(*)'` and both shell tool ids); Grok
+  has no separate `write` tool, so creating `signals.json` outside the denied path stays possible. Both Grok
+  surfaces pass `--trust`, since the `AGENTS.md` and `.grok/skills` it loads at startup are files ralphctl
+  wrote itself. Extra roots are a named over-grant — Grok has no `--add-dir` and `--sandbox off` is forced.
 
-On every backend the `Write` tool stays open by design — the harness's `signals.json` lands through it — so
-path scope (cwd + mounted roots) is always part of the safety envelope. See the
+On every backend the agent can always create the harness's `signals.json` — four keep the `Write` tool open,
+and Grok, which has no `write` tool, scopes its edit deny rule to `--cwd` instead — so path scope (cwd +
+mounted roots) is always part of the safety envelope. See the
 [provider reference](./docs/providers.md#permission-model-per-backend) for the exact mapping.
 
 Bundled skill injection and forensic capture work on all five; only the on-disk skills directory differs
@@ -477,11 +481,12 @@ readiness / create sprint) stay TUI-only by design. The CLI exposes inspection +
 
 ### Sprint Lifecycle
 
-| Command                         | Description                     |
-| ------------------------------- | ------------------------------- |
-| `ralphctl sprint activate <id>` | Flip a draft sprint to `active` |
-| `ralphctl sprint close <id>`    | Transition `review` → `done`    |
-| `ralphctl sprint remove <id>`   | Delete a sprint permanently     |
+| Command                           | Description                                                                                                 |
+| --------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `ralphctl sprint activate <id>`   | Flip a draft sprint to `active`                                                                             |
+| `ralphctl sprint close <id> [-y]` | Transition `review` → `done`; confirms first when any task is still blocked (`-y`/`--yes` skips the prompt) |
+| `ralphctl sprint reopen <id>`     | Reopen a closed sprint `done` → `review` so its blocked work is reachable again (idempotent)                |
+| `ralphctl sprint remove <id>`     | Delete a sprint permanently                                                                                 |
 
 ### Export & PR
 

@@ -217,11 +217,14 @@ every `ai` row plus `harness.escalateOnPlateau` in one transaction; subsequent p
   cannot answer (binary absent, not authenticated, 15 s cap, abort) the picker falls back to the
   free-tier floor — a lossy fallback, unlike the other four backends — so every fail-open is logged
   at warn (`model-probe: opencode fell back to the shipped free-tier catalog`) with a reason.
-- Grok — verified against Grok Build CLI v1.0.5 (`grok models`). Catalog is `grok-4.6` (flagship /
+- Grok — flag surface and permission semantics verified against Grok Build CLI 1.0.30's shipped CLI
+  reference on 2026-09-15; minimum supported version 1.0.13 (`-s`). Catalog is `grok-4.6` (flagship /
   default) and `grok-4.5` (previous generation); both publish a 500k context window. The availability
   probe is passthrough — the CLI exposes `grok models` but no cheap non-interactive per-account
-  filter, so the static catalog is the picker source. Off-catalog strings still round-trip via
-  `CustomModelStringSchema` and are the CLI's problem at spawn.
+  filter, so the static catalog is the picker source. An off-catalog id persists fine via
+  `CustomModelStringSchema`, but the adapter rejects it at argv-build time rather than forwarding it,
+  so a model xAI ships between ralphctl releases needs a catalog update (forwarding an unknown id to
+  the CLI is OpenCode's contract, not Grok's).
 
 **Default escalation posture (effort rung, no model ladder).** `DEFAULT_SETTINGS.ai.implement.generator` is
 `claude-opus-5`, which has no key in `DEFAULT_ESCALATION_MAP` — so the shipped default never

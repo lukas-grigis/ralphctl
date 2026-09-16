@@ -8,18 +8,20 @@
 `additionalRoots` + `outputDir` on the `AiSession` define **topology** (which paths the AI
 can read / write). Topology is the primary defense; capabilities are the secondary filter.
 
-The `Write` tool is **always allowed** under every profile — the file-based signals contract requires
-the AI to land `signals.json` in `outputDir`. To deny writes to a tree, don't mount it.
+The ability to **create a file is never denied** under any profile — the file-based signals contract
+requires the AI to land `signals.json` in `outputDir`. On four backends that means the `Write` tool
+stays allowed; Grok has no `write` tool at all (see the Grok caveat below), so there the edit gate is
+a path-scoped deny rule instead. To deny writes to a tree, don't mount it.
 `outputDir` is auto-included as a writable root in every provider (see
 `providers/_engine/resolve-roots.ts`).
 
-| Provider         | Always passes                                       | Read-only profile maps to                                                                                                                                                              | Native context file               |
-| ---------------- | --------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------- |
-| `claude-code`    | `--permission-mode bypassPermissions`               | `--disallowedTools Edit,MultiEdit,NotebookEdit,Bash`                                                                                                                                   | `CLAUDE.md` at repo root          |
-| `github-copilot` | `--no-ask-user --autopilot --silent`                | `--allow-all-tools --deny-tool=shell`                                                                                                                                                  | `.github/copilot-instructions.md` |
-| `openai-codex`   | `-s workspace-write` (no `-a` flag)                 | `-s workspace-write` (topology-scoped)                                                                                                                                                 | `AGENTS.md`                       |
-| `opencode`       | `run --format json --dir <cwd> -m <provider/model>` | **nothing — no argv spelling exists**                                                                                                                                                  | `AGENTS.md`                       |
-| `xai-grok`       | `--always-approve --sandbox off`                    | `--always-approve --sandbox off --disallowed-tools search_replace,run_terminal_command,run_terminal_cmd --no-subagents` (plus `web_search,web_fetch` when `canAccessNetwork` is false) | `AGENTS.md`                       |
+| Provider         | Always passes                                             | Read-only profile maps to                                                                                                                                                     | Native context file               |
+| ---------------- | --------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------- |
+| `claude-code`    | `--permission-mode bypassPermissions`                     | `--disallowedTools Edit,MultiEdit,NotebookEdit,Bash`                                                                                                                          | `CLAUDE.md` at repo root          |
+| `github-copilot` | `--no-ask-user --autopilot --silent`                      | `--allow-all-tools --deny-tool=shell`                                                                                                                                         | `.github/copilot-instructions.md` |
+| `openai-codex`   | `-s workspace-write` (no `-a` flag)                       | `-s workspace-write` (topology-scoped)                                                                                                                                        | `AGENTS.md`                       |
+| `opencode`       | `run --format json --dir <cwd> -m <provider/model>`       | **nothing — no argv spelling exists**                                                                                                                                         | `AGENTS.md`                       |
+| `xai-grok`       | `--no-auto-update --trust --always-approve --sandbox off` | `--deny 'Edit(./**)' --deny 'Bash(*)' --disallowed-tools run_terminal_command,run_terminal_cmd --no-subagents` (plus `web_search,web_fetch` when `canAccessNetwork` is false) | `AGENTS.md`                       |
 
 Codex caveat: `codex exec` has only two sandbox modes (`read-only` / `workspace-write`), and
 `read-only` blocks every write (incl. signals.json). Every profile maps to `workspace-write`;
@@ -60,18 +62,58 @@ session) were mounted nowhere and OpenCode refused them with no error surfaced (
 Grok caveat: the Grok Build CLI (`grok`) has no `--add-dir`. The adapter forces `--sandbox off` so
 an operator's `~/.grok/config.toml` cannot re-enable workspace/strict and block `grok-prompt.md` /
 `signals.json` outside cwd. Extra roots are a named over-grant (same posture as OpenCode `--auto`)
-rather than an `InvalidStateError`. Full-auto and read-only both pass `--always-approve`; the
-denylist is per-gate (`search_replace` when `!canModifyRepoFiles`, both shell ids when
-`!canRunShell`, `web_search,web_fetch` when `!canAccessNetwork`) plus `--no-subagents` so a child
-cannot recover a denied class. The `write` tool stays allowed so `signals.json` can land. Never
-`--permission-mode plan` (blocks signals.json).
+rather than an `InvalidStateError` — and because the read-only edit rule is cwd-rooted, an extra
+root stays writable in a read-only flow too. Full-auto and read-only both pass `--always-approve`.
 
-This denylist is deny-by-name against a CLI that has already renamed a tool once
-(`run_terminal_command` live vs `run_terminal_cmd` in the docs) and pairs it with `--sandbox off`,
-so a renamed or newly spelled tool silently escapes its gate — there is no sandbox behind the
-list. **Maintenance contract:** on every grok version bump, re-verify the tool ids in
-`disallowedToolsFor` (`providers/grok/headless.ts`) against the shipped CLI (e.g. `grok models`
-docs / a read-only smoke run) before trusting the read-only profile.
+Grok has **no `write` tool**: its file tools are `read_file` / `search_replace` / `list_dir`, and
+`Edit`, `Write` and `MultiEdit` are aliases of `search_replace`, which creates a file when the old
+string is empty. `--disallowed-tools` REMOVES a tool, so denying `search_replace` in a read-only
+session would strip the only tool that can create `signals.json` and leave every headless read-only
+flow (readiness, detect-scripts, detect-skills, the best-of-n judge) with no contract envelope. The
+gates are therefore split by mechanism:
+
+- `!canModifyRepoFiles` → `--deny 'Edit(./**)'`. Tool paths are lexically normalized (`.`/`..`
+  collapsed) and relative ones joined with the session working directory (`--cwd`), so a rooted
+  pattern like `Edit(./**)` scopes to it and cannot be escaped by traversal, while the session
+  directory outside cwd stays writable.
+- `!canRunShell` → `--disallowed-tools run_terminal_command,run_terminal_cmd` AND `--deny 'Bash(*)'`.
+- `!canAccessNetwork` → `--disallowed-tools web_search,web_fetch`.
+- any closed gate → `--no-subagents`, so a child cannot recover a denied class.
+
+Never `--permission-mode plan` (blocks signals.json). Deny rules win over allow rules and over
+`--always-approve`, and an `Edit` deny also applies to paths a shell command touches — but they are
+the CLI's own permission layer, not an OS sandbox, and the tool-removal half is still deny-by-name
+against a CLI that has renamed a tool once (`run_terminal_command` live vs `run_terminal_cmd` in the
+docs); the `Bash(*)` rule is what stands behind that rename. The mapping is verified against Grok
+Build CLI 1.0.30's shipped CLI reference (2026-09-15), not against a live model call; its failure
+direction is an over-grant, never a blocked `signals.json` — see the topology paragraph below for
+what enforces that. **Maintenance contract:** on every grok
+version bump, re-verify the tool ids AND the rule spellings in `disallowedToolsFor` / `denyRulesFor`
+(`providers/grok/headless.ts`) against the shipped CLI reference before trusting the read-only
+profile.
+
+"Never a blocked `signals.json`" holds only while the session directory sits OUTSIDE `--cwd`, which
+is the default topology but not an enforced one: `resolveStoragePaths` honours `RALPHCTL_HOME`
+verbatim, so `RALPHCTL_HOME=<repo>/.ralphctl` would put the envelope under the denied tree. The
+adapter makes the invariant structural rather than assumed — `buildGrokArgs` resolves
+`dirname(signalsFile)` against `cwd` and, when it lands at or under it, SKIPS `--deny 'Edit(./**)'`
+and publishes a `warn` naming the over-grant. A read-only flow that runs edit-capable is the
+documented failure direction; a read-only flow with no contract envelope is not. The shell and
+network gates are topology-independent and close either way, as does `--no-subagents`.
+
+Both Grok surfaces also pass `--trust`, and Grok's folder trust is **unified**: one grant trusts the
+folder for project instructions (`AGENTS.md`), project skills (`.grok/skills`), project permission
+rules (`.grok/config.toml`, `.claude/settings.json`), project hooks (`.grok/hooks/*.json`,
+`.claude/settings.json`, `.cursor/hooks.json`) and repo-local MCP / LSP servers **together**
+(10-hooks.md, 22-permissions-and-safety.md); project hooks specifically require it "to prevent
+supply-chain attacks from malicious repos". ralphctl writes the `AGENTS.md` / `.grok/skills` half
+itself and an untrusted folder skips it silently, so the grant is passed unconditionally and the
+rest of the blast radius is accepted: a ralphctl run executes the checkout's own hooks and
+repo-local MCP / LSP servers, on both surfaces, in the repo and in every per-task worktree. The
+posture is explicit — **ralphctl runs a checkout the way you would by opening it in Grok yourself;
+run it only against repos you would trust there.** Grok persists the decision in its trust store,
+per folder, so each repo and each per-task worktree path ralphctl runs in is left trusted afterwards
+(a nested checkout is a separate workspace and needs its own grant).
 
 The `readiness` flow fans out across every uniquely referenced provider in `settings.ai` — one native
 context file per provider (claude-code → `CLAUDE.md`, github-copilot → `.github/copilot-instructions.md`,
@@ -177,9 +219,13 @@ persisted field but refine no longer consults it.
 **Bundled skills (13 total) always lose to project skills.** When `<cwd>/.claude/skills/<name>/` already
 exists, the bundled copy is skipped and the project copy is left untouched. The skills adapter
 (`src/integration/ai/skills/adapter-factory.ts`) tracks only what it installed; uninstall removes only
-those entries. Every bundled `SKILL.md` is validated by `skill-contract-checker.ts` against six harness
-rules (signal contract, git ownership, one-PR, package-manager agnosticism, subagent control, verify gate);
-the contract test hard-fails on any violation, keeping bundled skills safe to auto-install.
+those entries. Every bundled `SKILL.md` is validated by `skill-contract-checker.ts` against seven harness
+rules (signal contract, git ownership, one-PR, package-manager agnosticism, subagent control, verify gate,
+angle-bracket signal-tag syntax); the contract test hard-fails on any violation, keeping bundled skills
+safe to auto-install. The seventh (S7) is a syntax rule, not an imperative-command one: the shipped output
+contract is a typed `signals.json` object, so a skill telling the AI to emit `<task-complete>` or `<note>`
+teaches a contract the harness never parses. It therefore runs on every line rather than only instruction
+lines, and its pattern is bounded on both sides so a generic type (`Array<Change>`) is not read as a tag.
 
 **Operator drop-in skills.** Global, provider-specific skills under `~/.ralphctl/skills/{claude,copilot,codex,opencode,grok}/<name>/SKILL.md`
 are discovered by `createOperatorSkillSource` and installed through the same `ralphctl-` namespace and
