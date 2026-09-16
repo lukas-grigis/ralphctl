@@ -209,12 +209,12 @@ describe('ImplementSidebar — navigation only', () => {
       trace: [
         { elementName: 'load-tasks', status: 'completed', durationMs: 1 },
         {
-          elementName: 'working-tree-clean',
+          elementName: 'preflight-task-1',
           status: 'failed',
           durationMs: 4,
           error: {
             message:
-              'working-tree-dirty at /Users/grigis/Workzone/github/lukas-grigis/mindvaults (3 uncommitted change(s))',
+              'cannot start a task: 3 uncommitted change(s) in /Users/grigis/Workzone/github/lukas-grigis/mindvaults',
           },
         },
         { elementName: 'setup-script', status: 'skipped', durationMs: 0 },
@@ -236,7 +236,7 @@ describe('ImplementSidebar — navigation only', () => {
     const frame = lastFrame() ?? '';
 
     // The step name still renders…
-    expect(frame).toContain('working-tree-clean');
+    expect(frame).toContain('preflight-task-1');
     // …but the failed step's error message is NEVER shown in the compact sidebar steps
     // (it would wrap across many lines in the narrow column — it lives in the log/footer).
     expect(frame).not.toContain('uncommitted');

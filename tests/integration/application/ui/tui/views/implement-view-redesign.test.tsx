@@ -100,7 +100,7 @@ const makeDescriptor = (): SessionDescriptor => ({
   startedAt: BASE_MS,
   trace: [
     { elementName: 'load-tasks', status: 'completed', durationMs: 50 },
-    { elementName: 'working-tree-clean', status: 'completed', durationMs: 30 },
+    { elementName: 'preflight-task-1', status: 'completed', durationMs: 30 },
     { elementName: `install-skills-${TASK_ID_A}`, status: 'completed', durationMs: 120 },
     { elementName: `generator-${TASK_ID_A}`, status: 'completed', durationMs: 8500 },
   ] as unknown as SessionDescriptor['trace'],
@@ -113,7 +113,7 @@ const makeDescriptor = (): SessionDescriptor => ({
   pinnedSprintLabel: 'sprint-2026-06',
   plannedLeaves: [
     'load-tasks',
-    'working-tree-clean',
+    'preflight-task-1',
     // Per-task leaves for TASK_ID_A
     `install-skills-${TASK_ID_A}`,
     `branch-preflight-${TASK_ID_A}`,

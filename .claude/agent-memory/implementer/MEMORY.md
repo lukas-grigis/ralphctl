@@ -7,6 +7,7 @@
 - [seams_attempt_ctx_and_telemetry.md](seams_attempt_ctx_and_telemetry.md) — Per-attempt ctx lifecycle: reset sites, the ctx-field classification guard, cost telemetry, round numbering, round display
 - [seams_prompt_feedforward.md](seams_prompt_feedforward.md) — Criteria history, dimension trajectory, prior learnings: where each is composed and which prompt it rides
 - [seams_memory_ledger_and_mutex.md](seams_memory_ledger_and_mutex.md) — Raw-line preservation, the correct dedup asymmetry, the three shared-file mutexes, the RMW-race test pattern
+- [seams_implement_prologue_gates.md](seams_implement_prologue_gates.md) — One dirty-tree gate, placed before setup; the e2e `preflightStatusesRemaining` counters that encode its call count
 - [seams_verify_gates.md](seams_verify_gates.md) — Per-module verify gates: precedence, multi-gate representation, diff-footprint scoping + coverage flag, fresh-setup skip, detect-scripts emission
 - [seams_provider_engine_streaming.md](seams_provider_engine_streaming.md) — One shared rate-limit retry loop, empirical stream field names, stdout OOM caps, kill escalation
 - [seams_provider_conformance_and_demo.md](seams_provider_conformance_and_demo.md) — The src-side scripted-spawn builder shared by conformance suites and `demo --script`; buildEnv / effortForwarding contracts

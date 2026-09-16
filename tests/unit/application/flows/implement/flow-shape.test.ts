@@ -28,7 +28,6 @@ import { resolveRepoOrThrow } from '@src/application/flows/implement/leaves/reso
 import { setupScriptRunnerLeaf } from '@src/application/flows/implement/leaves/setup-script-runner.ts';
 import {
   buildPreflightLeaves,
-  buildWorkingTreeCleanLeaves,
   setupRepoEntriesForTasks,
   uniqueRepoCwdsForTasks,
 } from '@src/application/flows/implement/leaves/sprint-repo-plan.ts';
@@ -198,11 +197,6 @@ const reconstructPreRefactorSerialFlow = (
     uniqueRepoCwds,
     dirtyTreePolicy
   );
-  const workingTreeCleanLeaves = buildWorkingTreeCleanLeaves(
-    { gitRunner: deps.gitRunner, logger: deps.logger },
-    uniqueRepoCwds
-  );
-
   const inner = sequential<ImplementCtx>('implement-locked', [
     loadAndAssertSprintSubChain<ImplementCtx>({ sprintRepo: deps.sprintRepo }, ['planned', 'active']),
     activateSprintLeaf({ sprintRepo: deps.sprintRepo, clock: deps.clock, logger: deps.logger }),
@@ -228,7 +222,7 @@ const reconstructPreRefactorSerialFlow = (
       },
       { cwds: uniqueRepoCwds }
     ),
-    sequential<ImplementCtx>('working-tree-clean-checks', workingTreeCleanLeaves),
+    sequential<ImplementCtx>('preflight-tasks', preflightLeaves),
     appendJournalSeparatorLeaf<ImplementCtx>(
       { appendFile: deps.appendFile, clock: deps.clock, logger: deps.logger },
       { progressFile: opts.progressFile, status: 'activated', name: 'progress-journal-activate' }
@@ -243,7 +237,6 @@ const reconstructPreRefactorSerialFlow = (
       },
       { repos: setupRepoEntries, sprintDir: opts.sprintDir }
     ),
-    sequential<ImplementCtx>('preflight-tasks', preflightLeaves),
     sequential<ImplementCtx>('implement-tasks', perTaskChains),
     saveTasksLeaf<ImplementCtx>({ taskRepo: deps.taskRepo }),
     guard<ImplementCtx>(

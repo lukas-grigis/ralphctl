@@ -13,8 +13,8 @@ export const okGit = (stdout = '', exitCode = 0): Result<GitRunResult, StorageEr
 
 /**
  * A `GitRunner` whose `run()` always resolves the same scripted `okGit(...)` result regardless of
- * the args it's called with — the shape `working-tree-clean-check.test.ts` needs (a single
- * canned porcelain/exit-code pair per test case, not a per-arg script).
+ * the args it's called with — for tests that need a single canned porcelain/exit-code pair per
+ * case rather than a per-arg script.
  */
 export const stubGitRunner = (stdout = '', exitCode = 0): GitRunner => ({
   async run() {

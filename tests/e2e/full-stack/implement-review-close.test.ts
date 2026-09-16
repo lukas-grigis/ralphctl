@@ -130,7 +130,7 @@ function runTests(): void {
 
   const makeScriptedGit = (): GitRunner => {
     let head = SPRINT_BRANCH;
-    let preflightStatusesRemaining = 2; // working-tree-clean-check + preflight-task
+    let preflightStatusesRemaining = 1; // pre-setup preflight-task (dirty-tree gate)
     let cleanAfterCommit = false;
     let taskCommits = 0;
     const sha = (i: number): string =>

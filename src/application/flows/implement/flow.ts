@@ -25,7 +25,6 @@ import { type RepoExecConfig, resolveRepoOrThrow } from '@src/application/flows/
 import { setupScriptRunnerLeaf } from '@src/application/flows/implement/leaves/setup-script-runner.ts';
 import {
   buildPreflightLeaves,
-  buildWorkingTreeCleanLeaves,
   setupRepoEntriesForTasks,
   uniqueRepoCwdsForTasks,
 } from '@src/application/flows/implement/leaves/sprint-repo-plan.ts';
@@ -162,10 +161,9 @@ export interface CreateImplementFlowOpts {
  *         load-tasks,
  *         load-learnings,                  // cross-sprint procedural memory (read side) → ctx.priorLearnings
  *         resolve-branch,                  // assigns ralphctl/<id> on first run, persists, checks out
- *         working-tree-clean-checks,       // one per repo: hard-abort if dirty (no recovery menu)
- *         progress-journal-activate,       // separator line in progress.md
- *         setup-script-runner,             // runs only after branch + clean check pass
  *         preflight-tasks,                 // interactive dirty-tree menu — one per repo, one-shot
+ *         progress-journal-activate,       // separator line in progress.md
+ *         setup-script-runner,             // runs only after branch + preflight are settled
  *         implement-tasks,                 // sequential task-<id> sub-chains
  *         save-tasks,
  *         transition-sprint-to-review(when every task settled AND ≥1 done)
@@ -173,7 +171,7 @@ export interface CreateImplementFlowOpts {
  *     ),
  *   ])
  *
- * The prologue leaves (`load-and-assert-sprint` … `preflight-tasks`) and epilogue leaves
+ * The prologue leaves (`load-and-assert-sprint` … `setup-script-runner`) and epilogue leaves
  * (`save-tasks`, the review-transition guard) are sourced from {@link buildImplementPrologue} /
  * {@link buildImplementEpilogue} — the SAME leaf instances the parallel launcher consumes via
  * {@link planImplementWaves}, spliced INLINE here (not nested) so the serial `implement-locked`
@@ -197,14 +195,18 @@ export interface CreateImplementFlowOpts {
  * Running preflight ONCE at the outer level also lets `install-skills` materialise its files
  * afterwards without tripping the check.
  *
- * Pre-setup gate rationale: branch resolution + a hard `working-tree-clean-check` (no recovery
- * menu) run BEFORE `setup-script-runner`. Setup commands typically assume a "ready" tree —
- * `pnpm install --frozen-lockfile`, schema migrations, etc — and can fail in confusing ways
- * against a dirty repo. Front-loading the branch + clean check means the user kicks off the
- * implement chain, sees branch + setup turn green, and can step away from the computer with
- * confidence the run won't fail at a stupid place. The interactive preflight-task leaf (Keep /
- * Stash / Reset / Cancel) still runs downstream of setup so the user has a recovery seam for
- * any drift that arose between sprint creation and implement launch.
+ * Pre-setup placement rationale: `preflight-tasks` sits directly after `resolve-branch` and
+ * BEFORE `setup-script-runner`. A dirty tree always ASKS (Keep / Stash / Reset / Cancel); there
+ * is no stricter hard gate ahead of it. There used to be one — a `working-tree-clean-check` that
+ * aborted the launch outright and exempted only the "resume" signature (an `in_progress` task
+ * whose last attempt is still `running`). Any dirt outside that narrow signature — a run the
+ * operator cancelled, or a task they unblocked, which archives the very attempts the signature
+ * keyed on — killed the launch before the recovery menu the operator needed ever fired. Asking
+ * up front also preserves the "answer once, then walk away" property: branch and dirty tree are
+ * the only two questions the run has, both are asked before the multi-minute setup script, and
+ * setup then runs against a tree the operator has already resolved — setup commands typically
+ * assume a "ready" tree (`pnpm install --frozen-lockfile`, schema migrations, …) and fail in
+ * confusing ways against a dirty repo.
  *
  * Branch preflight rationale: the dirty-tree check is one-shot but the branch can drift mid-run
  * (an AI generator turn with shell access could `git checkout` away). `resolve-branch` pins the
@@ -237,12 +239,11 @@ export interface CreateImplementFlowOpts {
  *   the chain.
  */
 /**
- * Build the prologue segment — everything from `load-and-assert-sprint` through `preflight-tasks`,
+ * Build the prologue segment — everything from `load-and-assert-sprint` through `setup-script-runner`,
  * the once-per-run setup that runs BEFORE any task executes:
  *
  *   load-and-assert-sprint → activate → load-execution → load-tasks → load-learnings →
- *   resolve-branch → working-tree-clean-checks → progress-journal-activate → setup-script-runner →
- *   preflight-tasks
+ *   resolve-branch → preflight-tasks → progress-journal-activate → setup-script-runner
  *
  * Returned as `sequential('implement-prologue', [...])` so the parallel launcher can run it
  * once on a dedicated runner under the held lock before fanning the task waves out. The serial
@@ -252,9 +253,9 @@ export interface CreateImplementFlowOpts {
  * @public
  */
 export const buildImplementPrologue = (deps: ImplementDeps, opts: CreateImplementFlowOpts): Element<ImplementCtx> => {
-  // Per-repo derived shapes — unique cwds drive `resolve-branch`, the clean-check fan-out, and
-  // the per-repo preflight; the setup-script entries are repo + setupScript pairs scoped to the
-  // tasks the sprint actually runs. See `sprint-repo-plan.ts` for the rationale.
+  // Per-repo derived shapes — unique cwds drive `resolve-branch` and the per-repo preflight fan-out;
+  // the setup-script entries are repo + setupScript pairs scoped to the tasks the sprint actually
+  // runs. See `sprint-repo-plan.ts` for the rationale.
   const uniqueRepoCwds = uniqueRepoCwdsForTasks(opts.repositories, opts.todoTasks);
   const setupRepoEntries = setupRepoEntriesForTasks(opts.repositories, opts.todoTasks);
 
@@ -270,10 +271,6 @@ export const buildImplementPrologue = (deps: ImplementDeps, opts: CreateImplemen
     },
     uniqueRepoCwds,
     dirtyTreePolicy
-  );
-  const workingTreeCleanLeaves = buildWorkingTreeCleanLeaves(
-    { gitRunner: deps.gitRunner, logger: deps.logger },
-    uniqueRepoCwds
   );
 
   return sequential<ImplementCtx>('implement-prologue', [
@@ -310,7 +307,10 @@ export const buildImplementPrologue = (deps: ImplementDeps, opts: CreateImplemen
       },
       { cwds: uniqueRepoCwds }
     ),
-    sequential<ImplementCtx>('working-tree-clean-checks', workingTreeCleanLeaves),
+    // Dirty-tree resolution runs BEFORE setup: one interactive menu per repo, and the operator's
+    // answer settles the tree the setup script is about to run against. See the placement
+    // rationale on `createImplementFlow`.
+    sequential<ImplementCtx>('preflight-tasks', preflightLeaves),
     // Record sprint activation in the journal — fires after the implement chain activated the
     // sprint (or noop'd because it was already active). The separator gives the operator + AI
     // a chronological marker between "before this run" and "first task of this run."
@@ -328,7 +328,6 @@ export const buildImplementPrologue = (deps: ImplementDeps, opts: CreateImplemen
       },
       { repos: setupRepoEntries, sprintDir: opts.sprintDir }
     ),
-    sequential<ImplementCtx>('preflight-tasks', preflightLeaves),
   ]);
 };
 
@@ -405,7 +404,7 @@ export const buildImplementEpilogue = (deps: ImplementDeps, opts: CreateImplemen
  */
 export interface ImplementWavePlan {
   /**
-   * `sequential('implement-prologue', [...])` — the once-per-run setup (load → setup → preflight).
+   * `sequential('implement-prologue', [...])` — the once-per-run setup (load → preflight → setup).
    * Run once on its own runner before the waves.
    */
   readonly prologue: Element<ImplementCtx>;

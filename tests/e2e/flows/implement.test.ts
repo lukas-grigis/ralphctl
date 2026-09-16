@@ -186,8 +186,7 @@ interface CommitCapturingGit {
  * `status --porcelain` post-commit must return clean, otherwise settle (correctly) refuses
  * to mark the task done. Sequence for one task:
  *
- *   working-tree-clean-check `status` → clean (pre-setup hard gate)
- *   preflight-task `status`           → clean (interactive dirty-tree gate; clean → no prompt)
+ *   preflight-task `status`           → clean (pre-setup dirty-tree gate; clean → no prompt)
  *   commit-task `status` (gate 1) → dirty   (the AI just wrote files)
  *   commit-task `add -A`
  *   commit-task `status` (gate 2) → dirty   (staged but not committed yet)
@@ -198,13 +197,12 @@ interface CommitCapturingGit {
 const commitCapturingGit = (taskCount: number): CommitCapturingGit => {
   const messages: string[] = [];
   let taskCommits = 0;
-  // Worktree starts clean — the chain's pre-setup hard gate (working-tree-clean-check) +
-  // post-setup interactive gate (preflight-task) both expect a clean tree at sprint start.
-  // After those upfront preflight calls we're "in a per-task window": status returns dirty
-  // until commit-task's `commit -m` lands, then clean again (settle-attempt's worktree-clean
-  // guardrail relies on the clean response). The next task re-enters the dirty window when
-  // its status calls start.
-  let preflightStatusesRemaining = 2;
+  // Worktree starts clean — the chain's one pre-setup dirty-tree gate (preflight-task) expects
+  // a clean tree at sprint start (clean → no prompt). After that upfront preflight call we're
+  // "in a per-task window": status returns dirty until commit-task's `commit -m` lands, then
+  // clean again (settle-attempt's worktree-clean guardrail relies on the clean response). The
+  // next task re-enters the dirty window when its status calls start.
+  let preflightStatusesRemaining = 1;
   let cleanAfterCommit = false;
   const sha = (i: number): string =>
     String(i)
@@ -218,7 +216,7 @@ const commitCapturingGit = (taskCount: number): CommitCapturingGit => {
       if (args[0] === 'status' && args[1] === '--porcelain') {
         if (preflightStatusesRemaining > 0) {
           preflightStatusesRemaining -= 1;
-          return okGit('', 0); // upfront preflight (working-tree-clean-check + preflight-task): clean
+          return okGit('', 0); // upfront preflight (preflight-task): clean
         }
         // After a successful commit the tree is clean (settle guardrail check). The next
         // task's first status starts a new dirty window automatically because we flip the
@@ -951,7 +949,7 @@ describe('createImplementFlow — gen-eval loop', () => {
     const idxLoadExec = elementNames.indexOf('load-sprint-execution');
     const idxLoadTasks = elementNames.indexOf('load-tasks');
     const idxResolveBranch = elementNames.indexOf('resolve-branch');
-    const idxWorkingTreeClean = elementNames.findIndex((n) => n.startsWith('working-tree-clean-check-'));
+    const idxPreflight = elementNames.findIndex((n) => n.startsWith('preflight-task-'));
     const idxSetupScript = elementNames.indexOf('setup-script-runner');
     const idxSaveTasks = elementNames.indexOf('save-tasks');
     const idxTransition = elementNames.indexOf('transition-sprint-to-review');
@@ -959,12 +957,12 @@ describe('createImplementFlow — gen-eval loop', () => {
     expect(idxAssert).toBeGreaterThan(idxLoadSprint);
     expect(idxLoadExec).toBeGreaterThan(idxAssert);
     expect(idxLoadTasks).toBeGreaterThan(idxLoadExec);
-    // Pre-setup gate: resolve-branch + working-tree-clean-check land BEFORE setup-script-runner
-    // so the user sees branch + dirty-tree problems surfaced before a multi-minute setup script
-    // runs. The interactive preflight-task gate stays downstream of setup as a recovery seam.
+    // Pre-setup gate: resolve-branch + the interactive preflight-task dirty-tree gate both land
+    // BEFORE setup-script-runner, so every question the run has for the operator is asked up
+    // front and the multi-minute setup script runs against a tree they already resolved.
     expect(idxResolveBranch).toBeGreaterThan(idxLoadTasks);
-    expect(idxWorkingTreeClean).toBeGreaterThan(idxResolveBranch);
-    expect(idxSetupScript).toBeGreaterThan(idxWorkingTreeClean);
+    expect(idxPreflight).toBeGreaterThan(idxResolveBranch);
+    expect(idxSetupScript).toBeGreaterThan(idxPreflight);
     expect(idxSaveTasks).toBeGreaterThan(idxSetupScript);
     expect(idxTransition).toBeGreaterThan(idxSaveTasks);
 
@@ -1761,7 +1759,7 @@ describe('createImplementFlow — gen-eval loop', () => {
     // either a commit OR a quarantine stash consumes the diff, then clean for the settle guardrail.
     const commitMessages: string[] = [];
     let head = 'main';
-    let preflightStatusesRemaining = 2; // working-tree-clean-check + preflight-task (both clean)
+    let preflightStatusesRemaining = 1; // pre-setup preflight-task (clean)
     let treeClean = false; // flips true after a commit or a quarantine stash consumes the diff
     const retryGit: GitRunner = {
       async run(_, args) {
