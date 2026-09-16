@@ -129,10 +129,13 @@ const offsetWithin = (node: DOMElement, container: DOMElement): number | undefin
 /**
  * Smallest offset change that brings `[top, top + height)` fully inside the viewport — scroll up
  * when the anchor sits above the fold, down when it sits below, and leave the offset alone when
- * it is already visible (so reveal never fights a deliberate mouse-wheel scroll).
+ * it is already visible.
  *
  * An anchor TALLER than the viewport (an expanded card on a short terminal) can't fit; aligning
- * its top is the useful answer there — the operator reads a card from the top down.
+ * its top is the useful answer there — the operator reads a card from the top down. Below the
+ * fold that is `Math.min`: a short anchor's bottom-aligned offset (`bottom - viewport`) never
+ * exceeds its top, a tall one's always does. Picking the larger one instead bottom-aligned a tall
+ * anchor, which put its top above the fold and sent the next pass back up — forever.
  */
 const revealOffset = (args: {
   readonly top: number;
@@ -143,31 +146,31 @@ const revealOffset = (args: {
   const { top, height, offset, viewport } = args;
   if (top < offset) return top;
   const bottom = top + height;
-  if (bottom > offset + viewport) return Math.max(top, bottom - viewport);
+  if (bottom > offset + viewport) return Math.min(top, bottom - viewport);
   return offset;
 };
 
+/** Where the anchor sits inside the scrolled content — the inputs a reveal decision depends on. */
+interface AnchorPlacement {
+  readonly node: DOMElement;
+  readonly top: number;
+  readonly height: number;
+}
+
 /**
- * Offset that brings the registered anchor into view, or `undefined` when there is nothing to do
- * — no anchor, no laid-out position, or the anchor is already fully visible. Split out of the
- * measurement effect so the component body stays readable and the decision is testable as data.
- *
- * Returning `undefined` for the already-visible case is what keeps reveal from fighting a
- * mouse-wheel scroll the operator made deliberately: the common path writes no state at all.
+ * The registered anchor's placement, or `undefined` when there is none to act on — no anchor, or
+ * no laid-out position yet. `top` is measured against the content box, whose own `marginTop` is
+ * the scroll offset, so a scroll alone never changes a placement.
  */
-const offsetRevealing = (args: {
-  readonly anchor: DOMElement | null;
-  readonly content: DOMElement | null;
-  readonly offset: number;
-  readonly viewport: number;
-}): number | undefined => {
-  const { anchor, content, offset, viewport } = args;
+const placementOf = (anchor: DOMElement | null, content: DOMElement | null): AnchorPlacement | undefined => {
   if (anchor === null || content === null) return undefined;
   const top = offsetWithin(anchor, content);
   if (top === undefined) return undefined;
-  const next = revealOffset({ top, height: measureElement(anchor).height, offset, viewport });
-  return next === offset ? undefined : next;
+  return { node: anchor, top, height: measureElement(anchor).height };
 };
+
+const samePlacement = (a: AnchorPlacement | undefined, b: AnchorPlacement | undefined): boolean =>
+  a !== undefined && b !== undefined && a.node === b.node && a.top === b.top && a.height === b.height;
 
 /** Three terminal rows per wheel notch — feels right for most trackpads / mice. */
 const WHEEL_STEP = 3;
@@ -272,6 +275,10 @@ export const ScrollRegion = ({
     anchorRef.current = node;
   }, []);
   const anchorRegistry = React.useMemo<ScrollAnchorRegistry>(() => ({ register }), [register]);
+  // The anchor placement the last reveal pass looked at. Reveal only runs when the placement
+  // differs — a different card, or the same card moved or resized — so a render caused purely by
+  // an offset change (a mouse-wheel scroll, or reveal's own scroll) leaves the offset alone.
+  const revealedRef = useRef<AnchorPlacement | undefined>(undefined);
 
   // Memoised because `useWheelScroll` lists it as a dependency: `maxOffset` only reads a ref, so
   // it has no inputs of its own, and a fresh identity each render would re-arm the mouse-tracking
@@ -281,10 +288,11 @@ export const ScrollRegion = ({
 
   // No dep array: runs after every render so sizeRef stays current as content grows or
   // shrinks (e.g. live trace entries arriving during an Implement run). The concern about
-  // "every render → setOffset → render" looping does NOT apply here: setOffset only fires
-  // when offset > max, i.e. when we need to clamp down. Once clamped, offset ≤ max on the
-  // next render so setOffset is not called again. Measurement reads Yoga computed heights
-  // which change only when layout changes; reading them is side-effect-free and cheap.
+  // "every render → setOffset → render" looping does NOT apply here: setOffset fires only to
+  // clamp down (offset > max; once clamped, offset ≤ max on the next render) or to reveal a
+  // changed anchor placement (recorded before the scroll, so the render it causes sees the same
+  // placement and does nothing). Measurement reads Yoga computed heights which change only
+  // when layout changes; reading them is side-effect-free and cheap.
   //
   // Hidden-subtree guard: a document overlay (progress `g` / evaluation `v`) hides the active
   // view with `display: "none"` while keeping it MOUNTED, and a hidden subtree measures 0 rows.
@@ -308,9 +316,15 @@ export const ScrollRegion = ({
       return;
     }
     // Reveal-on-focus. Runs after the commit that moved the cursor, so the anchor's yoga box is
-    // laid out at its new position.
-    const next = offsetRevealing({ anchor: anchorRef.current, content: contentRef.current, offset, viewport });
-    if (next !== undefined && next !== offset) setOffset(Math.min(next, max));
+    // laid out at its new position. An unchanged placement means nothing about the focus moved,
+    // so whatever brought the offset here — typically the wheel — wins. Losing the anchor clears
+    // the record, so a card that regains focus is revealed again even though it never moved.
+    const placement = placementOf(anchorRef.current, contentRef.current);
+    if (samePlacement(placement, revealedRef.current)) return;
+    revealedRef.current = placement;
+    if (placement === undefined) return;
+    const next = revealOffset({ top: placement.top, height: placement.height, offset, viewport });
+    if (next !== offset) setOffset(Math.min(next, max));
   });
 
   useInput(

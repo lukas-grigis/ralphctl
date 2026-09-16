@@ -225,6 +225,7 @@ describe('unblockTaskUseCase', () => {
     if (!result.ok) return;
     expect(result.value.task.status).toBe('todo');
     expect(repo.saved()).toHaveLength(0);
+    expect(result.value.sprintReopened).toBeUndefined();
   });
 
   it('rejects an in_progress task with InvalidStateError', async () => {
@@ -351,6 +352,8 @@ describe('unblockTaskUseCase', () => {
     const saved = sprintRepo.saved();
     expect(saved?.status).toBe('active');
     expect(saved?.reviewAt).toBeNull();
+    if (!result.ok) return;
+    expect(result.value.sprintReopened?.from).toBe('review');
   });
 
   it('leaves a non-review sprint untouched (active passes through, no save)', async () => {
@@ -369,6 +372,8 @@ describe('unblockTaskUseCase', () => {
 
     expect(result.ok).toBe(true);
     expect(sprintRepo.saved()).toBeUndefined();
+    if (!result.ok) return;
+    expect(result.value.sprintReopened).toBeUndefined();
   });
 
   it('reopens the review sprint on the cascade path too', async () => {
@@ -412,6 +417,152 @@ describe('unblockTaskUseCase', () => {
 
     expect(result.ok).toBe(true);
     expect(sprintRepo.saved()?.status).toBe('active');
+    if (!result.ok) return;
+    expect(result.value.sprintReopened?.from).toBe('review');
+    expect(result.value.sprintReopened?.sprint.status).toBe('active');
+  });
+
+  // Closing a sprint with `todo` work left is a legitimate descope. An unblock that revives
+  // nothing (a wrong id, a scripted retry) has no business undoing that close.
+  it('leaves a done sprint closed when the task is already todo — nothing was revived', async () => {
+    const todo = makeTodoTask();
+    const taskRepo = repoOk([todo]);
+    const sprintRepo = sprintRepoWith(makeDoneSprint());
+
+    const result = await unblockTaskUseCase({
+      task: todo,
+      sprintId: SPRINT_ID,
+      taskRepo: taskRepo.repo,
+      sprintRepo: sprintRepo.repo,
+      clock: FIXED_CLOCK,
+      logger: noopLogger,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.task.status).toBe('todo');
+    expect(sprintRepo.savedHistory()).toHaveLength(0);
+    expect(result.value.sprintReopened).toBeUndefined();
+    expect(result.value.sprintReopenConflict).toBeUndefined();
+  });
+
+  // Crash safety for the done hop: it lands BEFORE the task write, so a process that dies between
+  // the two leaves a `review` sprint with the task still blocked (the same state a mixed run
+  // settles to) and a retry walks the full path again. The reverse order would leave `todo` work
+  // behind a `done` sprint, which the already-todo leg above deliberately refuses to reopen.
+  it('carries a done sprint to review before persisting the revived task', async () => {
+    const blocked = makeBlockedTask();
+    const calls: string[] = [];
+    const doneSprint = makeDoneSprint();
+    const taskRepo: Repo = {
+      async update() {
+        calls.push('task');
+        return Result.ok(undefined);
+      },
+      async findBySprintId() {
+        return Result.ok([blocked]);
+      },
+      async saveAll() {
+        calls.push('task');
+        return Result.ok(undefined);
+      },
+    };
+    const sprintRepo: SprintRepo = {
+      async findById() {
+        return Result.ok(doneSprint);
+      },
+      async save(s) {
+        calls.push(`sprint:${s.status}`);
+        return Result.ok(undefined);
+      },
+      async list() {
+        return Result.ok([doneSprint]);
+      },
+    };
+
+    const result = await unblockTaskUseCase({
+      task: blocked,
+      sprintId: SPRINT_ID,
+      taskRepo,
+      sprintRepo,
+      clock: FIXED_CLOCK,
+      logger: noopLogger,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(calls).toEqual(['sprint:review', 'task', 'sprint:active']);
+  });
+
+  it('puts a closed sprint back when the task write fails after the done → review hop', async () => {
+    const blocked = makeBlockedTask();
+    const doneSprint = makeDoneSprint();
+    const sprintRepo = sprintRepoWith(doneSprint);
+
+    const result = await unblockTaskUseCase({
+      task: blocked,
+      sprintId: SPRINT_ID,
+      taskRepo: repoFailing([blocked]),
+      sprintRepo: sprintRepo.repo,
+      clock: FIXED_CLOCK,
+      logger: noopLogger,
+    });
+
+    // A failed unblock must not leave the operator's closed sprint sitting in `review`, holding
+    // the project, with nothing revived.
+    expect(result.ok).toBe(false);
+    expect(sprintRepo.savedHistory().map((s) => s.status)).toEqual(['review', 'done']);
+    expect(sprintRepo.saved()).toBe(doneSprint);
+  });
+
+  it('reports done → review when only the review → active step fails, and a retry finishes it', async () => {
+    const blocked = makeBlockedTask();
+    const taskRepo = repoOk([blocked]);
+    let current: Sprint = makeDoneSprint();
+    let saves = 0;
+    const sprintRepo: SprintRepo = {
+      async findById() {
+        return Result.ok(current);
+      },
+      async save(s) {
+        saves += 1;
+        if (saves === 2) return Result.error(new StorageError({ subCode: 'io', message: 'disk full', path: 'sprint' }));
+        current = s;
+        return Result.ok(undefined);
+      },
+      async list() {
+        return Result.ok([current]);
+      },
+    };
+
+    const first = await unblockTaskUseCase({
+      task: blocked,
+      sprintId: SPRINT_ID,
+      taskRepo: taskRepo.repo,
+      sprintRepo,
+      clock: FIXED_CLOCK,
+      logger: noopLogger,
+    });
+
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    expect(current.status).toBe('review');
+    expect(first.value.sprintReopened?.from).toBe('done');
+    expect(first.value.sprintReopened?.sprint.status).toBe('review');
+
+    // The retry sees the revived `todo` task on a `review` sprint and completes the reopen.
+    const retry = await unblockTaskUseCase({
+      task: first.value.task,
+      sprintId: SPRINT_ID,
+      taskRepo: taskRepo.repo,
+      sprintRepo,
+      clock: FIXED_CLOCK,
+      logger: noopLogger,
+    });
+
+    expect(retry.ok).toBe(true);
+    if (!retry.ok) return;
+    expect(current.status).toBe('active');
+    expect(retry.value.sprintReopened?.from).toBe('review');
   });
 
   it('reopens a done sprint all the way to active — closed-and-blocked work becomes runnable again', async () => {
@@ -437,9 +588,12 @@ describe('unblockTaskUseCase', () => {
     expect(history.map((s) => s.status)).toEqual(['review', 'active']);
     expect(sprintRepo.saved()?.status).toBe('active');
     expect(sprintRepo.saved()?.doneAt).toBeNull();
+    // ...and the caller is told, so a closed sprint never reopens without the operator seeing it.
+    expect(result.value.sprintReopened?.from).toBe('done');
+    expect(result.value.sprintReopened?.sprint.status).toBe('active');
   });
 
-  it('best-effort — unblock still succeeds when a done sprint fails to reopen to review', async () => {
+  it('fails without touching the task when a done sprint cannot be carried to review', async () => {
     const blocked = makeBlockedTask();
     const taskRepo = repoOk([blocked]);
     const doneSprint = makeDoneSprint();
@@ -464,11 +618,13 @@ describe('unblockTaskUseCase', () => {
       logger: noopLogger,
     });
 
-    // The task is already revived — a failed done → review hop must not roll that back, and the
-    // review → active hop never even attempts against a sprint still stuck at 'done'.
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.task.status).toBe('todo');
+    // Reviving the task anyway would leave `todo` work behind a `done` sprint — a state a retry can
+    // no longer tell apart from a deliberate close-with-descoped-work. So the unblock fails as a
+    // whole and the task stays blocked: re-running it takes the same path from the start.
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe('storage-error');
+    expect(taskRepo.saved()).toHaveLength(0);
   });
 
   it('best-effort reopen — unblock still succeeds when the sprint save fails', async () => {
@@ -501,6 +657,7 @@ describe('unblockTaskUseCase', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.value.task.status).toBe('todo');
+    expect(result.value.sprintReopened).toBeUndefined();
   });
 
   // Single-active-per-project invariant on the `done` → `review` hop — the same one
@@ -536,6 +693,7 @@ describe('unblockTaskUseCase', () => {
     expect(conflict?.message).toContain(String(activePeer.slug));
     expect(conflict?.message).toContain('active');
     expect(conflict?.hint).toContain('ralphctl sprint close');
+    expect(result.value.sprintReopened).toBeUndefined();
   });
 
   // The log is the ONLY channel some surfaces have for this outcome (the TUI's Recent-log panel
@@ -589,7 +747,7 @@ describe('unblockTaskUseCase', () => {
     expect(sprintRepo.savedHistory().map((s) => s.status)).toEqual(['review', 'active']);
   });
 
-  it('skips the reopen (without a conflict) when the peer check cannot read the sprint list', async () => {
+  it('fails without touching the task when the peer check cannot read the sprint list', async () => {
     const blocked = makeBlockedTask();
     const taskRepo = repoOk([blocked]);
     const doneSprint = makeDoneSprint();
@@ -614,12 +772,42 @@ describe('unblockTaskUseCase', () => {
       logger: noopLogger,
     });
 
-    // An unreadable sprint list cannot establish that nobody holds the project, so the reopen is
-    // skipped — but it is not a ConflictError either: there is no peer to name.
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.task.status).toBe('todo');
-    expect(result.value.sprintReopenConflict).toBeUndefined();
+    // An unreadable sprint list cannot establish that nobody holds the project, so the reopen
+    // cannot run — and reviving the task without it would strand the work behind a closed sprint.
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe('storage-error');
+    expect(taskRepo.saved()).toHaveLength(0);
+  });
+
+  it('fails without touching the task when the sprint cannot be loaded', async () => {
+    const blocked = makeBlockedTask();
+    const taskRepo = repoOk([blocked]);
+    const sprintRepo: SprintRepo = {
+      async findById() {
+        return Result.error(new StorageError({ subCode: 'io', message: 'unreadable', path: 'sprint' }));
+      },
+      async save() {
+        return Result.ok(undefined);
+      },
+      async list() {
+        return Result.ok([]);
+      },
+    };
+
+    const result = await unblockTaskUseCase({
+      task: blocked,
+      sprintId: SPRINT_ID,
+      taskRepo: taskRepo.repo,
+      sprintRepo,
+      clock: FIXED_CLOCK,
+      logger: noopLogger,
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe('storage-error');
+    expect(taskRepo.saved()).toHaveLength(0);
   });
 
   it('does not run the peer check for a review sprint — review → active adds no second holder', async () => {

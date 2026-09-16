@@ -299,6 +299,19 @@ describe('inferBlockCause — text/blockKind-based classification', () => {
     ).toBe('generator-self-block');
   });
 
+  it('does NOT misclassify a generator self-block whose free-form prose merely MENTIONS a broken baseline', () => {
+    // Regression: a bare `.includes('broken baseline')` used to match this before the anchored
+    // `startsWith` checks against the real pre-task-verify producer literals ran, stamping a
+    // model-caused self-block as the environment-attributed `pre-verify-red` instead.
+    expect(
+      inferBlockCause(
+        'own',
+        'the integration suite has a broken baseline on CI, need the fixture repaired',
+        'generator-self-block'
+      )
+    ).toBe('generator-self-block');
+  });
+
   it('classifies the exact crash producer text even with a differently-worded prefix around it', () => {
     expect(inferBlockCause('own', 'AI process repeatedly crashed; attempt budget exhausted')).toBe('budget-exhausted');
   });

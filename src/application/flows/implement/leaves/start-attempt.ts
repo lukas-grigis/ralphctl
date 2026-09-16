@@ -1,4 +1,6 @@
 import { type StartAttemptProps, startAttemptUseCase } from '@src/business/task/start-attempt.ts';
+import { publishingBlockedWrites } from '@src/business/task/publish-task-blocked.ts';
+import type { EventBus } from '@src/business/observability/event-bus.ts';
 import type { InProgressTask, Task } from '@src/domain/entity/task.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { TaskId } from '@src/domain/value/id/task-id.ts';
@@ -14,14 +16,29 @@ import { resetAttemptScratch } from '@src/application/flows/implement/sprint-sco
  * leaf adds chain-construction guards (task present in ctx) and projects the new in-progress
  * task back onto ctx alongside cleared per-task verdict state.
  */
-export type StartAttemptLeafDeps = Omit<StartAttemptProps, 'task' | 'sprintId'>;
+export type StartAttemptLeafDeps = Omit<StartAttemptProps, 'task' | 'sprintId'> & {
+  /**
+   * Announces the one block this leaf can produce: resume recovery settling a leftover `running`
+   * attempt pushes the task past its attempt budget, and the use case persists that block before
+   * returning an error — so the chain never sees a blocked task to report. The use case's task
+   * repo is wrapped in {@link publishingBlockedWrites} so that write publishes `TaskBlockedEvent`
+   * the moment it is durable.
+   */
+  readonly eventBus: EventBus;
+};
 
-export const startAttemptLeaf = (deps: StartAttemptLeafDeps, taskId: TaskId): Element<ImplementCtx> =>
-  leaf<ImplementCtx, { readonly task: Task; readonly sprintId: SprintId }, InProgressTask>(
+export const startAttemptLeaf = (deps: StartAttemptLeafDeps, taskId: TaskId): Element<ImplementCtx> => {
+  const { eventBus, ...useCaseDeps } = deps;
+  const publishing = publishingBlockedWrites(deps.taskRepo, eventBus, deps.clock);
+  const taskRepo: StartAttemptProps['taskRepo'] = {
+    findById: (sprintId, id) => deps.taskRepo.findById(sprintId, id),
+    update: (sprintId, task) => publishing.update(sprintId, task),
+  };
+  return leaf<ImplementCtx, { readonly task: Task; readonly sprintId: SprintId }, InProgressTask>(
     `start-attempt-${String(taskId)}`,
     {
       useCase: {
-        execute: async (input) => startAttemptUseCase({ ...deps, ...input }),
+        execute: async (input) => startAttemptUseCase({ ...useCaseDeps, taskRepo, ...input }),
       },
       input: (ctx) => {
         if (ctx.tasks === undefined) {
@@ -64,3 +81,4 @@ export const startAttemptLeaf = (deps: StartAttemptLeafDeps, taskId: TaskId): El
       }),
     }
   );
+};

@@ -317,6 +317,55 @@ describe('SprintsView', () => {
     result.unmount();
   });
 
+  it('pressing u on a CLOSED sprint with no live peer reports that the sprint reopened', async () => {
+    // With nothing else holding the project the unblock carries the closed sprint back to
+    // `active` — a state change the toast has to name, or the sprint reopens behind the
+    // operator's back.
+    const closed = makeSprint({ id: 'sprint-z-closed', name: 'Closed Sprint', slug: 'closed', status: 'done' });
+    const blocked: Task = {
+      id: 'task-closed2' as never,
+      name: 'stuck-when-closed',
+      status: 'blocked',
+      blockedReason: 'verify timed out',
+      dependsOn: [],
+      attempts: [],
+      ticketId: 'tkt-closed' as never,
+      repositoryId: 'r1' as never,
+      order: 1,
+      steps: [],
+      verificationCriteria: [],
+    } as never;
+
+    let stored: readonly Task[] = [blocked];
+    const deps = {
+      sprintRepo: fakeSprintRepo([closed]),
+      taskRepo: {
+        async findBySprintId() {
+          return Result.ok(stored);
+        },
+        async update() {
+          stored = [{ ...(blocked as object), status: 'todo' } as unknown as Task];
+          return Result.ok(undefined);
+        },
+      } as unknown as TaskRepository,
+      projectRepo: {} as never,
+      sprintExecutionRepo: {} as never,
+      settingsRepo: {} as never,
+      clock: () => IsoTimestamp.now(),
+      logger: noopLogger,
+    } as unknown as AppDeps;
+
+    const { result } = renderView(<SprintsView />, { deps, initial: { id: 'sprints' } });
+    await waitForViewReady(result, (f) => f.includes('Closed Sprint') && f.includes('unblock'));
+    result.stdin.write('u');
+    await waitForPredicate(() => /unblocked 1 task/.test(result.lastFrame() ?? ''));
+
+    const frame = (result.lastFrame() ?? '').replace(/\s+/g, ' ');
+    expect(frame).toContain('unblocked 1 task in "Closed Sprint" — sprint reopened done → active');
+    expect(frame).not.toContain('stayed closed');
+    result.unmount();
+  });
+
   it("pressing u refreshes the row's own '· N blocked' badge, not just the footer hint", async () => {
     // Regression: the row's blocked sub-count is a SEPARATE snapshot (`SprintListEntry.health`,
     // owned by this view's list loader) from the footer hint's stuck count (owned by

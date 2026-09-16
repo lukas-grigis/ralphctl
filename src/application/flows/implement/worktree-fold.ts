@@ -4,6 +4,7 @@ import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import type { BlockedTask, Task } from '@src/domain/entity/task.ts';
 import type { TaskId } from '@src/domain/value/id/task-id.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
+import { publishTaskBlocked } from '@src/business/task/publish-task-blocked.ts';
 
 import type { Element, ElementResult } from '@src/application/chain/element.ts';
 import type { OnTrace, TraceEntry } from '@src/application/chain/trace.ts';
@@ -83,6 +84,9 @@ const blockTaskForFoldConflict = (task: Task, reason: string): BlockedTask => {
  * `runner.ctx` carries the block — `mergeImplementWave` overlays a `completed` branch's task copy.
  * (A `Result.error` here would leave `runner.ctx` at its pre-fold value, re-surfacing the task as
  * `done` in the merge, which would orphan the unmerged commit.)
+ *
+ * This is the one place the conflict block is decided, so it is also where the operator is told:
+ * the task settled `done` (no notification), and nothing downstream re-announces it.
  */
 const conflictFold = (
   deps: BuildWaveBranchesDeps,
@@ -99,6 +103,7 @@ const conflictFold = (
   const blocked = blockTaskForFoldConflict(task, reason);
   const tasks = ctx.tasks?.map((t) => (t.id === taskId ? blocked : t)) ?? [blocked];
   deps.implement.logger.warn('fold conflict — task blocked', { taskId: String(taskId), branchRef });
+  publishTaskBlocked(deps.eventBus, blocked, deps.implement.clock());
   const entry: TraceEntry = { elementName: name, status: 'failed', durationMs, error };
   onTrace?.(entry);
   return Result.ok({ ctx: { ...ctx, tasks }, trace: [entry] });

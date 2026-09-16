@@ -45,6 +45,23 @@ const replaceLastAttempt = (task: TodoTask | InProgressTask, attempt: Attempt): 
 };
 
 /**
+ * The harness-owned history a task carries into `done`: the escalation and best-of-N grant stamps,
+ * plus the runs an operator unblock archived. Dropping `retiredAttempts` here would erase exactly
+ * the history `foldOutcomeStats` counts for a task that needed intervention.
+ */
+const runHistoryOf = (task: TodoTask | InProgressTask): Partial<DoneTask> => ({
+  ...(task.escalatedFromModel !== undefined ? { escalatedFromModel: task.escalatedFromModel } : {}),
+  ...(task.escalatedToModel !== undefined ? { escalatedToModel: task.escalatedToModel } : {}),
+  ...(task.escalatedToEffort !== undefined ? { escalatedToEffort: task.escalatedToEffort } : {}),
+  ...(task.escalatedToEvaluatorEffort !== undefined
+    ? { escalatedToEvaluatorEffort: task.escalatedToEvaluatorEffort }
+    : {}),
+  ...(task.bestOfNGranted !== undefined ? { bestOfNGranted: task.bestOfNGranted } : {}),
+  ...(task.bestOfNGrantedCandidates !== undefined ? { bestOfNGrantedCandidates: task.bestOfNGrantedCandidates } : {}),
+  ...(task.retiredAttempts !== undefined ? { retiredAttempts: task.retiredAttempts } : {}),
+});
+
+/**
  * Settle the current attempt as `verified` and transition the task to `done`. Requires the
  * running attempt to carry a `Verification` (call `recordRunningAttemptVerification` first).
  * `finalAttemptN` points at the verified attempt for cheap lookup.
@@ -84,16 +101,7 @@ export const markTaskDone = (task: Task, now: IsoTimestamp): Result<DoneTask, In
     ...(guard.value.maxAttempts !== undefined ? { maxAttempts: guard.value.maxAttempts } : {}),
     ...(guard.value.extraDimensions !== undefined ? { extraDimensions: guard.value.extraDimensions } : {}),
     ...(guard.value.externalRefs !== undefined ? { externalRefs: guard.value.externalRefs } : {}),
-    ...(guard.value.escalatedFromModel !== undefined ? { escalatedFromModel: guard.value.escalatedFromModel } : {}),
-    ...(guard.value.escalatedToModel !== undefined ? { escalatedToModel: guard.value.escalatedToModel } : {}),
-    ...(guard.value.escalatedToEffort !== undefined ? { escalatedToEffort: guard.value.escalatedToEffort } : {}),
-    ...(guard.value.escalatedToEvaluatorEffort !== undefined
-      ? { escalatedToEvaluatorEffort: guard.value.escalatedToEvaluatorEffort }
-      : {}),
-    ...(guard.value.bestOfNGranted !== undefined ? { bestOfNGranted: guard.value.bestOfNGranted } : {}),
-    ...(guard.value.bestOfNGrantedCandidates !== undefined
-      ? { bestOfNGrantedCandidates: guard.value.bestOfNGrantedCandidates }
-      : {}),
+    ...runHistoryOf(guard.value),
     status: 'done',
     attempts,
     finalAttemptN: verified.n,

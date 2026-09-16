@@ -229,10 +229,13 @@ export interface BlockedTask extends TaskBase {
    */
   readonly blockCause?: BlockCause;
   /**
-   * WHO the repair belongs to — orthogonal to {@link blockCause} (WHAT happened). Lets the
-   * escalation policy (`business/task/escalation-policy.ts`) and any future triage surface skip
-   * spending a model-competency remedy (a model bump, an effort raise, a change-of-approach nudge)
-   * on a failure the model never caused:
+   * WHO the repair belongs to — orthogonal to {@link blockCause} (WHAT happened). Derived and
+   * persisted on every block, but nothing in the harness reads it back yet:
+   * `business/task/escalation-policy.ts` does not consult it today, and neither does any other
+   * consumer — it round-trips through `task.schema.ts` and is available on disk for a human
+   * reading `tasks.json`, or for a future triage surface (e.g. the escalation policy skipping a
+   * model-competency remedy — a model bump, an effort raise, a change-of-approach nudge — on a
+   * failure the model never caused) to consume without re-deriving it from prose:
    *
    *  - `model`       — the generator's own output is what needs to change (a self-block, a real
    *    post-verify regression, plain budget exhaustion after genuine quality plateaus).

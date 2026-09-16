@@ -15,10 +15,12 @@
  * assert the tree is clean, then restore it and assert the SAME content is back — with the stash
  * consumed (popped, not merely inspected).
  *
- * The second case covers the other half of the leaf's contract against the same real repo: a pop
- * that CONFLICTS. Everything that undo rests on is git semantics a scripted fake cannot establish —
- * that a conflicted pop half-applies the merge into the tree, that `--diff-filter=U` is what names
- * it, that the stash entry survives, and that `reset --hard HEAD` + `clean -fd` clears it.
+ * The remaining cases cover the other half of the leaf's contract against the same real repo: a pop
+ * that FAILS. Everything that undo rests on is git semantics a scripted fake cannot establish —
+ * that a conflicted pop half-applies the merge into the tree, that a pop git reports as refused can
+ * still apply part of the stash, that the stash entry survives either way, that `reset --hard HEAD`
+ * + `clean -fd` clears it — and that a tree which already held uncommitted work is never popped
+ * onto, since that undo could not tell the two apart.
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -67,6 +69,25 @@ const captureRepo = (): UpdateTask & { saved: () => Task | undefined } => {
       return Result.ok(undefined);
     },
   };
+};
+
+/**
+ * Quarantine a diff to `conflict.ts` under the task's message, then advance the SAME line on the
+ * branch — so popping the stash conflicts, the way production hits it (the diff was stashed against
+ * the prior attempt's tree and pops into one whose branch has since moved).
+ */
+const arrangeConflictingStash = async (project: FakeProject, cwd: AbsolutePath, message: string): Promise<void> => {
+  await project.writeFile('conflict.ts', 'export const value = "base";\n');
+  await project.git('add', '-A');
+  await project.git('commit', '-q', '-m', 'feat: base');
+
+  await project.writeFile('conflict.ts', 'export const value = "attempt";\n');
+  const pushed = await gitStashPush(createGitRunner(), cwd, message);
+  if (!pushed.ok || !pushed.value.stashed) throw new Error('test setup: quarantine push failed');
+
+  await project.writeFile('conflict.ts', 'export const value = "advanced";\n');
+  await project.git('add', '-A');
+  await project.git('commit', '-q', '-m', 'feat: advance the same line');
 };
 
 describe('restore-blocked-diff — real git round trip with quarantine', () => {
@@ -137,31 +158,16 @@ describe('restore-blocked-diff — real git round trip with quarantine', () => {
 
   it('a CONFLICTED pop leaves no markers in the tree — real git keeps the entry and the reset clears the half-merge', async () => {
     // The undo path's three load-bearing git semantics, none of which a scripted fake can prove:
-    //  1. a content-conflicting `git stash pop` half-applies the merge and exits non-zero, so
-    //     `git diff --name-only --diff-filter=U` is what actually names the damage;
+    //  1. a content-conflicting `git stash pop` half-applies the merge and exits non-zero, leaving
+    //     changes in a tree that was clean a moment earlier — which is what the post-pop probe sees;
     //  2. git KEEPS the stash entry on that conflict — which is what makes the reset non-destructive;
     //  3. `reset --hard HEAD` + `clean -fd` really does clear the `<<<<<<<` markers.
-    // The conflict is arranged the way production hits it: the diff was stashed against the prior
-    // attempt's tree and pops into one whose branch has since advanced the same line.
     const cwd = abs(project.path);
     const gitRunner = createGitRunner();
     const a = blockedTaskA('verify failed: conflict.ts breaks the build');
     const message = quarantineStashMessage(sprintId, a.id);
     const ctx: ImplementCtx = { sprintId, tasks: [a] };
-
-    await project.writeFile('conflict.ts', 'export const value = "base";\n');
-    await project.git('add', '-A');
-    await project.git('commit', '-q', '-m', 'feat: base');
-
-    // ── The blocked attempt's rejected diff, quarantined under the deterministic message.
-    await project.writeFile('conflict.ts', 'export const value = "attempt";\n');
-    const pushed = await gitStashPush(gitRunner, cwd, message);
-    expect(pushed.ok && pushed.value.stashed).toBe(true);
-
-    // ── The branch advanced the SAME line while the diff sat in the stash.
-    await project.writeFile('conflict.ts', 'export const value = "advanced";\n');
-    await project.git('add', '-A');
-    await project.git('commit', '-q', '-m', 'feat: advance the same line');
+    await arrangeConflictingStash(project, cwd, message);
 
     const restored = await restoreBlockedDiffLeaf({ gitRunner, logger: noopLogger }, { cwd }, a.id).execute(ctx);
     // Best-effort as ever — the attempt proceeds, just from the pre-pop tree.
@@ -179,5 +185,91 @@ describe('restore-blocked-diff — real git round trip with quarantine', () => {
     // the reset never touched it.
     const stashList = await project.git('stash', 'list', '--format=%s');
     expect(stashList).toContain(message);
+  });
+
+  it('never pops onto a tree that already holds uncommitted work — that work survives a pop that would have conflicted', async () => {
+    // The undo is `reset --hard HEAD` + `clean -fd`, which cannot tell the pop's half-merge from
+    // work that was already in the tree and sits in no stash — changes the operator kept at the
+    // preflight prompt, or the test the reproduce step writes before the first attempt. Popping
+    // here would conflict, and the reset would take both with it.
+    const cwd = abs(project.path);
+    const gitRunner = createGitRunner();
+    const a = blockedTaskA('verify failed: conflict.ts breaks the build');
+    const message = quarantineStashMessage(sprintId, a.id);
+    const ctx: ImplementCtx = { sprintId, tasks: [a] };
+    await arrangeConflictingStash(project, cwd, message);
+
+    const keptEdit = '# fake-project\n\nAn edit the operator kept at preflight.\n';
+    const keptFile = 'repro.test.ts — written before the attempt, in no stash\n';
+    await project.writeFile('README.md', keptEdit);
+    await project.writeFile('repro.test.ts', keptFile);
+
+    const restored = await restoreBlockedDiffLeaf({ gitRunner, logger: noopLogger }, { cwd }, a.id).execute(ctx);
+    expect(restored.ok).toBe(true);
+
+    expect(await project.readFile('README.md')).toBe(keptEdit);
+    expect(await project.readFile('repro.test.ts')).toBe(keptFile);
+    expect(await project.readFile('conflict.ts')).toBe('export const value = "advanced";\n');
+    const status = await gitStatusPorcelain(gitRunner, cwd);
+    expect(status.ok && status.value.map((e) => e.path).sort()).toStrictEqual(['README.md', 'repro.test.ts']);
+    // The diff is where the operator can find it, under its own message.
+    expect(await project.git('stash', 'list', '--format=%s')).toContain(message);
+  });
+
+  it('sees untracked work even when the repo hides untracked files from `git status`', async () => {
+    // `status.showUntrackedFiles=no` makes a plain `git status --porcelain` report a tree holding
+    // only untracked files as clean — and `clean -fd` would then delete them after a conflict.
+    const cwd = abs(project.path);
+    const gitRunner = createGitRunner();
+    const a = blockedTaskA('verify failed: conflict.ts breaks the build');
+    const message = quarantineStashMessage(sprintId, a.id);
+    const ctx: ImplementCtx = { sprintId, tasks: [a] };
+    await arrangeConflictingStash(project, cwd, message);
+    await project.git('config', 'status.showUntrackedFiles', 'no');
+
+    const keptFile = 'untracked work the operator kept\n';
+    await project.writeFile('kept-notes.md', keptFile);
+
+    const restored = await restoreBlockedDiffLeaf({ gitRunner, logger: noopLogger }, { cwd }, a.id).execute(ctx);
+    expect(restored.ok).toBe(true);
+
+    expect(await project.readFile('kept-notes.md')).toBe(keptFile);
+    expect(await project.readFile('conflict.ts')).toBe('export const value = "advanced";\n');
+    expect(await project.git('stash', 'list', '--format=%s')).toContain(message);
+  });
+
+  it('undoes a pop git reports as refused when it still applied part of the stash to a clean tree', async () => {
+    // No unmerged path is left behind here, yet the tree moved: git lands the stash's tracked change,
+    // then fails restoring an untracked file whose path is ignored and occupied by now. Left alone,
+    // the attempt would build on — and commit — half of the prior diff.
+    const cwd = abs(project.path);
+    const gitRunner = createGitRunner();
+    const a = blockedTaskA();
+    const message = quarantineStashMessage(sprintId, a.id);
+    const ctx: ImplementCtx = { sprintId, tasks: [a] };
+
+    await project.writeFile('README.md', '# fake-project\n\nAn edit from the prior attempt.\n');
+    await project.writeFile('out/generated.txt', 'stashed while out/ was still tracked-eligible\n');
+    const pushed = await gitStashPush(gitRunner, cwd, message);
+    expect(pushed.ok && pushed.value.stashed).toBe(true);
+
+    await project.writeFile('.gitignore', 'node_modules/\n.DS_Store\nout/\n');
+    await project.git('add', '-A');
+    await project.git('commit', '-q', '-m', 'chore: ignore out/');
+    const buildOutput = 'a build product that is ignored now\n';
+    await project.writeFile('out/generated.txt', buildOutput);
+    const readmeAtHead = await project.readFile('README.md');
+    const cleanBefore = await gitStatusPorcelain(gitRunner, cwd);
+    expect(cleanBefore.ok && cleanBefore.value).toStrictEqual([]);
+
+    const restored = await restoreBlockedDiffLeaf({ gitRunner, logger: noopLogger }, { cwd }, a.id).execute(ctx);
+    expect(restored.ok).toBe(true);
+
+    expect(await project.readFile('README.md')).toBe(readmeAtHead);
+    const status = await gitStatusPorcelain(gitRunner, cwd);
+    expect(status.ok && status.value).toStrictEqual([]);
+    // Ignored paths are outside the undo's reach — the build product is untouched.
+    expect(await project.readFile('out/generated.txt')).toBe(buildOutput);
+    expect(await project.git('stash', 'list', '--format=%s')).toContain(message);
   });
 });

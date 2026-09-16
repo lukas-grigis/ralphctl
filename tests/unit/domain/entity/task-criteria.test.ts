@@ -3,7 +3,8 @@ import type { Result } from '@src/domain/result.ts';
 import type { InProgressTask, VerificationCriterion } from '@src/domain/entity/task.ts';
 import { createTask } from '@src/domain/entity/task-factory.ts';
 import { recordRunningAttemptVerification, startNextAttempt } from '@src/domain/entity/task-attempts.ts';
-import { markTaskDone } from '@src/domain/entity/task-settle.ts';
+import { failCurrentAttempt, markTaskDone } from '@src/domain/entity/task-settle.ts';
+import { markTaskBlocked, unblockTask } from '@src/domain/entity/task-lifecycle.ts';
 import { applyCriteriaVerdicts } from '@src/domain/entity/task-criteria.ts';
 import type { CriterionVerdict } from '@src/domain/signal.ts';
 import { FIXED_LATER, FIXED_NOW, FIXED_REPOSITORY_ID, makeApprovedTicket } from '@tests/fixtures/domain.ts';
@@ -97,5 +98,26 @@ describe('markTaskDone — criteriaVerdicts carry-through (clone semantics)', ()
     const verified = unwrap(recordRunningAttemptVerification(task));
     const done = unwrap(markTaskDone(verified, FIXED_LATER));
     expect(done.criteriaVerdicts).toBeUndefined();
+  });
+});
+
+describe('markTaskDone — retiredAttempts carry-through', () => {
+  it('keeps the runs an operator unblock archived when the revived task then passes', () => {
+    const first = inProgressWithCriteria(THREE_CRITERIA);
+    const failed = unwrap(failCurrentAttempt(first, FIXED_LATER, 'failed'));
+    const blocked = unwrap(markTaskBlocked(failed, 'stuck on the fixture', 'own'));
+    const revived = unwrap(unblockTask(blocked));
+    expect(revived.retiredAttempts).toHaveLength(1);
+
+    const retry = unwrap(startNextAttempt(revived, FIXED_LATER, 'session-2'));
+    const done = unwrap(markTaskDone(unwrap(recordRunningAttemptVerification(retry)), FIXED_LATER));
+
+    expect(done.finalAttemptN).toBe(1);
+    expect(done.retiredAttempts).toEqual(revived.retiredAttempts);
+  });
+
+  it('leaves retiredAttempts absent on a task that was never unblocked', () => {
+    const verified = unwrap(recordRunningAttemptVerification(inProgressWithCriteria(THREE_CRITERIA)));
+    expect(unwrap(markTaskDone(verified, FIXED_LATER))).not.toHaveProperty('retiredAttempts');
   });
 });

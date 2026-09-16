@@ -27,7 +27,7 @@ trade-offs, not pushing back when the request conflicts with what the code shows
 
 The counter-habit:
 
-- When the task is ambiguous, name the ambiguity before acting. With an interactive channel, ask; without one, state the interpretation you chose and why as a `note` signal in `signals.json` (generator role: a `decision` signal instead — the evaluator's contract has no `decision` schema), then proceed with the least-surprising reading.
+- When the task is ambiguous, name the ambiguity before acting. With an interactive channel, ask; without one, state the interpretation you chose and why, then proceed with the least-surprising reading — as a `note` signal in `signals.json` when the prompt's output-contract section lists it (generator role: a `decision` signal instead — the evaluator's contract has no `decision` schema), otherwise fold the interpretation into the required signal's own fields.
 - When the task's description contradicts what you find in the code, surface the contradiction — do not quietly pick a side.
 - When two implementations satisfy the words of the task but differ in consequence, present the trade-off rather than silently committing to one.
 - Push back when the request is likely a mistake. Deference that ships a wrong change is not helpfulness.

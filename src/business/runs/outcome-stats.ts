@@ -404,14 +404,27 @@ const absorbStatus = (acc: Accumulator, task: Task): void => {
 
 /**
  * Attempts spent reaching `done`: the stamped `finalAttemptN` when it is a sane 1-indexed
- * pointer, else the attempt-history length. `undefined` for a done task with neither (a legacy
- * record) — it still counts in the outcome mix, just not in the distribution.
+ * pointer, else the live attempt-history length, PLUS every archived run's attempt count —
+ * mirrors {@link allAttempts} / {@link absorbEscalation}'s reasoning. `finalAttemptN` is
+ * `attempts.length + 1` at stamp time, and `unblockTask` resets the live `attempts` ledger to
+ * `[]` on every intervention, so a task that plateaued out, got unblocked, and then passed on
+ * its very next attempt would otherwise report `finalAttemptN=1` — a first-pass task, when it
+ * actually cost every attempt the archive remembers plus that last one. `undefined` for a done
+ * task with no live pointer/history AND no archive (a legacy record) — it still counts in the
+ * outcome mix, just not in the distribution.
  */
 const attemptsSpent = (task: DoneTask): number | undefined => {
+  const retired = readArray<RetiredRun>(task.retiredAttempts).reduce(
+    (sum, run) => sum + (isRecord(run) ? readArray<Attempt>(run.attempts).length : 0),
+    0
+  );
   const stamped = task.finalAttemptN;
-  if (typeof stamped === 'number' && Number.isInteger(stamped) && stamped >= 1) return stamped;
-  const length = readArray<Attempt>(task.attempts).length;
-  return length >= 1 ? length : undefined;
+  const live =
+    typeof stamped === 'number' && Number.isInteger(stamped) && stamped >= 1
+      ? stamped
+      : readArray<Attempt>(task.attempts).length;
+  const total = live + retired;
+  return total >= 1 ? total : undefined;
 };
 
 const absorbDone = (acc: Accumulator, task: DoneTask): void => {

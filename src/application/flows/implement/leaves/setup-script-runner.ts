@@ -21,6 +21,7 @@ import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
 import type { ShellScriptResult, ShellScriptRunner } from '@src/integration/io/shell-script-runner.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
+import type { SetupTreeCheck, SetupTreeGuard } from '@src/application/flows/implement/leaves/setup-tree-guard.ts';
 
 /** Per-line cap for setup-script tail rows surfaced to the TUI. JS code units; see comment
  *  on the call site for why graphemes are overkill for ralphctl's actual content. */
@@ -68,6 +69,14 @@ const BANNER_SHOW = 'banner-show';
  * The resume-path skip does NOT append a new audit row; the prior success entry stays
  * canonical. Each fresh run appends one row.
  *
+ * **Post-setup tree check**: the dirty-tree menu runs BEFORE this leaf, so dirt a script creates
+ * (a rewritten lockfile, generated files that aren't ignored) would otherwise reach the first task
+ * unannounced — swept into its commit by `git add -A`, or misread as a broken baseline. When the
+ * flow injects a {@link SetupTreeGuard}, every script that actually spawns is bracketed by it: a
+ * snapshot right before the spawn, and — only if the script exits green — a check that resolves
+ * whatever the script introduced. The resume-skip and no-script paths spawn nothing, so they probe
+ * nothing.
+ *
  * Aborts surface as `Result.error(InvalidStateError)` from the use case; the chain framework
  * turns that into a failed trace entry and short-circuits the remaining elements.
  */
@@ -79,6 +88,9 @@ const BANNER_SHOW = 'banner-show';
  * See pnpm/pnpm#9966 for the breaking-change context.
  */
 const PNPM_NO_TTY_ERROR_MARKER = 'ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY';
+
+/** Stand-in when no guard is wired — every script counts as leaving the tree alone. */
+const noTreeCheck: SetupTreeCheck = () => Promise.resolve(Result.ok({ dirtied: false }));
 
 export interface SetupScriptRunnerLeafDeps {
   readonly shellScriptRunner: ShellScriptRunner;
@@ -92,6 +104,11 @@ export interface SetupScriptRunnerLeafDeps {
    * {@link defaultWriteFile}, so behaviour is unchanged either way.
    */
   readonly writeFile?: WriteFile;
+  /**
+   * Post-setup working-tree check — see {@link SetupTreeGuard}. The implement flow always wires
+   * it; absent → scripts run unbracketed.
+   */
+  readonly treeGuard?: SetupTreeGuard;
 }
 
 /** Fallback `WriteFile` for callers that don't (yet) wire the port — same atomic adapter either way. */
@@ -125,9 +142,11 @@ interface LeafOutput {
   readonly execution: SprintExecution;
   /**
    * Repository ids whose setup script ran green DURING THIS invocation. Excludes the
-   * resume-skip path (whose success belongs to an earlier launch) and the no-script `'skipped'`
-   * path (nothing was validated). Lifted onto `ctx.setupVerifiedRepoIdsThisRun` so the first
-   * pre-task-verify of the run can seed a green baseline under `skipPreVerifyOnFreshSetup`.
+   * resume-skip path (whose success belongs to an earlier launch), the no-script `'skipped'`
+   * path (nothing was validated), and repos whose script changed the working tree (the green
+   * verdict described a tree the operator may since have stashed or reset). Lifted onto
+   * `ctx.setupVerifiedRepoIdsThisRun` so the first pre-task-verify of the run can seed a green
+   * baseline under `skipPreVerifyOnFreshSetup`.
    */
   readonly verifiedThisRun: readonly RepositoryId[];
 }
@@ -415,6 +434,8 @@ const persistSetupLog = async (
 type RepoSetupOutcome =
   | { readonly kind: 'skipped'; readonly execution: SprintExecution }
   | { readonly kind: 'succeeded'; readonly execution: SprintExecution; readonly repositoryId: RepositoryId }
+  /** Ran green but changed the working tree — see {@link SetupTreeCheck}. Not a verified tree. */
+  | { readonly kind: 'dirtied'; readonly execution: SprintExecution }
   | { readonly kind: 'failed'; readonly error: DomainError };
 
 /**
@@ -422,7 +443,7 @@ type RepoSetupOutcome =
  * documented above the leaf, folding the result into a single {@link RepoSetupOutcome}. Split out
  * of `executeSetupScriptRunner` so the per-repo branch count (already-run guard, script-missing
  * guard, spawn + audit + failure classification) doesn't accumulate onto that function's own
- * cognitive-complexity budget — the loop body becomes one call plus a 3-way fold.
+ * cognitive-complexity budget — the loop body becomes one call plus a small fold.
  */
 const runRepoSetup = async (
   repo: SetupRepoEntry,
@@ -441,6 +462,11 @@ const runRepoSetup = async (
   if (command.length === 0) {
     return { kind: 'skipped', execution: await runNoScriptSkip(execution, repo, deps) };
   }
+
+  // Snapshot the tree right before the spawn so the post-setup check attributes exactly what this
+  // script changed — nothing else runs in between.
+  const treeCheck = deps.treeGuard === undefined ? Result.ok(noTreeCheck) : await deps.treeGuard(repo.path);
+  if (!treeCheck.ok) return { kind: 'failed', error: treeCheck.error };
 
   const startedAt = deps.clock();
   const spawnResult = await runSetupSpawn(repo, command, opts, execution, deps, signal);
@@ -471,6 +497,9 @@ const runRepoSetup = async (
     message: `setup-script ${String(repo.path)}: success (exit=0, ${String(durationMs)}ms)`,
     at: deps.clock(),
   });
+  const settled = await treeCheck.value({ command });
+  if (!settled.ok) return { kind: 'failed', error: settled.error };
+  if (settled.value.dirtied) return { kind: 'dirtied', execution: nextExecution };
   return { kind: 'succeeded', execution: nextExecution, repositoryId: repo.repositoryId };
 };
 
@@ -488,7 +517,7 @@ const executeSetupScriptRunner = async (
   // Repos whose setup ran green in THIS invocation. Seeds the
   // `skipPreVerifyOnFreshSetup` fast path on the first pre-task-verify. The resume-skip
   // and no-script paths deliberately do NOT contribute — only a fresh green run proves
-  // the tree was verified by this launch.
+  // the tree was verified by this launch — and neither does a run that changed the tree.
   const verifiedThisRun: RepositoryId[] = [];
   for (const repo of opts.repos) {
     const outcome = await runRepoSetup(repo, execution, opts, deps, signal);

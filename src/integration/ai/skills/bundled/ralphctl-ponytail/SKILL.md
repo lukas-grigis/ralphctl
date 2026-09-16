@@ -51,7 +51,10 @@ through.
 - No boilerplate, no scaffolding "for later" — later can scaffold for itself.
 - Deletion over addition. Boring over clever — clever is what someone decodes at 3am.
 - Fewest files possible. Shortest working diff wins — but only once you understand the problem. The smallest change in the wrong place isn't lazy, it's a second bug.
-- Complex request? Ship the lazy version and question the rest in a `note` signal in `signals.json`: "Did X; Y covers it. Need full X? Say so." Never stall on an answer you can default.
+- Complex request? Ship the lazy version and question the rest: "Did X; Y covers it. Need full X? Say
+  so." Write it as a `note` signal in `signals.json` when the prompt's output-contract section lists it,
+  otherwise fold the question into the required signal's own fields. Never stall on an answer you can
+  default.
 - Two standard-library options, same size? Take the one that's correct on edge cases. Lazy means writing less code, not picking the flimsier algorithm.
 - Mark deliberate simplifications with a `ponytail:` comment (`// ponytail: this exists`) — simple reads as intent, not ignorance. Shortcut with a known ceiling (global lock, O(n²) scan, naive heuristic)? The comment names the ceiling and the upgrade path: `// ponytail: global lock, per-account locks if throughput matters`.
 
@@ -61,8 +64,9 @@ Code first. Keep any accompanying explanation to a few short lines: what was ski
 add it. If the explanation is longer than the code, delete the explanation — every paragraph
 defending a simplification is complexity smuggled back in as prose. Explanation the task
 explicitly asked for (a report, a walkthrough, per-step notes) is not debt — give it in full;
-the rule is only against unrequested prose. Deliberate skips worth remembering belong in a
-`note` signal in `signals.json`: skipped X, add when Y.
+the rule is only against unrequested prose. Deliberate skips worth remembering: skipped X, add
+when Y — as a `note` signal in `signals.json` when the prompt's output-contract section lists
+it, otherwise inside the required signal's own fields.
 
 ## When NOT to be lazy
 

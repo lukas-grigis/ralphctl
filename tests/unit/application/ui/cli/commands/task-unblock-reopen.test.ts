@@ -43,11 +43,32 @@ describe('ralphctl task unblock — sprint reopen', () => {
     const result = await runCliCaptured(cli, ['task', 'unblock', '--sprint', String(done.id), String(blocked.id)]);
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain(`unblocked task 'stuck-task'`);
+    // A closed sprint coming back is a state change the operator must see, not just a log line.
+    expect(result.stdout).toContain(`reopened sprint '${String(done.slug)}' (${String(done.id)}) done → active`);
     expect(result.stderr).not.toContain('note:');
 
     const reloaded = await sprintRepo.findById(done.id);
     expect(reloaded.ok).toBe(true);
     if (reloaded.ok) expect(reloaded.value.status).toBe('active');
+  });
+
+  // Closing a sprint with `todo` work left is a legitimate descope; an unblock that revives
+  // nothing (a wrong id, a scripted retry) must not undo it.
+  it('leaves a done sprint closed when the task is already todo', async () => {
+    const sprintRepo = createFsSprintRepository({ root: cli.paths.dataRoot });
+    const done = makeDoneSprint();
+    await sprintRepo.save(done);
+    const todo = makeTodoTask({ name: 'descoped-task' });
+    await createFsTaskRepository({ root: cli.paths.dataRoot }).saveAll(done.id, [todo]);
+
+    const result = await runCliCaptured(cli, ['task', 'unblock', '--sprint', String(done.id), String(todo.id)]);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain(`unblocked task 'descoped-task'`);
+    expect(result.stdout).not.toContain('reopened');
+
+    const reloaded = await sprintRepo.findById(done.id);
+    expect(reloaded.ok).toBe(true);
+    if (reloaded.ok) expect(reloaded.value.status).toBe('done');
   });
 
   // The name echoed back is planner-authored prose off the same generator as the blocked reason —
@@ -94,6 +115,11 @@ describe('ralphctl task unblock — sprint reopen', () => {
     expect(result.stderr).toContain('note:');
     expect(result.stderr).toContain(String(activePeer.slug));
     expect(result.stderr).toContain('ralphctl sprint close');
+    // Re-running unblock on the now-todo task does not reopen a closed sprint, so the note has to
+    // name the two commands that do, in order.
+    expect(result.stderr).toContain(`ralphctl sprint reopen ${String(done.id)}`);
+    expect(result.stderr).toContain(`ralphctl task unblock --sprint ${String(done.id)} ${String(blocked.id)}`);
+    expect(result.stdout).not.toContain('reopened');
 
     const reloadedDone = await sprintRepo.findById(done.id);
     expect(reloadedDone.ok).toBe(true);

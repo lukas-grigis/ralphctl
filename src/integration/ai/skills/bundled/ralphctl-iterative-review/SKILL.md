@@ -37,9 +37,11 @@ deployed form — but the same posture also belongs **inside** each phase's work
 3. **Treat the check gate as a loop, not a finish line.** A failing gate is feedback, not a verdict. Apply
    the fix and re-run; do not signal completion against a red gate.
 4. **When a fix attempt repeats the same failure, escalate rather than retry.** Two iterations of the same
-   error is a plateau — the next fix is a guess. Surface the blocker as a `note` signal in `signals.json`, or
-   through whichever blocked signal the prompt's output contract lists, rather than burning the budget — this
-   skill loads in every phase, and the phases differ in which signals they accept.
+   error is a plateau — the next fix is a guess. Surface the blocker rather than burning the budget on a
+   third attempt: write a `note` signal in `signals.json` when the prompt's output-contract section lists
+   it as an accepted kind; when it does not, use whichever blocked or narrative signal the contract does
+   list, or fold the blocker into the required signal's own fields — this skill loads in every phase, and
+   the phases differ in which signals they accept.
 
 ## Anti-patterns
 

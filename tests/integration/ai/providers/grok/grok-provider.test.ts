@@ -593,6 +593,23 @@ describe('createGrokProvider — retry and stream errors', () => {
     expect(calls[1]!.args).not.toContain('-r');
   });
 
+  it('does not cold-retry when the only error record is the informational "restoring from remote" line', async () => {
+    const cap = createCapturingBus();
+    const { spawn, calls } = makeSpawn([
+      {
+        stdoutChunks: [
+          '{"type":"error","message":"Session \\"gone-id\\" not found locally, restoring conversation from remote..."}\n',
+        ],
+        exitCode: 1,
+      },
+    ]);
+    const provider = createGrokProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
+    const out = await provider.generate(session({ resume: 'gone-id' as unknown as SessionId }));
+    expect(out.ok).toBe(false);
+    expect(calls).toHaveLength(1);
+    expect(cap.logs.some((l) => l.level === 'warn' && /resume thread not found/i.test(l.message))).toBe(false);
+  });
+
   it('does not cold-retry a session-not-found crash when resume is unset', async () => {
     const cap = createCapturingBus();
     const { spawn, calls } = makeSpawn([

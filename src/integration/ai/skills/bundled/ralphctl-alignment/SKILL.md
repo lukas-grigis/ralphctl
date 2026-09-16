@@ -21,8 +21,9 @@ the whole change.
 - **Plan** — confirm the planner's read of the requirements before generating tasks. Repo selection, scope
   boundaries, and dependency assumptions all need to land before task decomposition starts.
 - **Execute** — re-read the task spec's verification criteria before writing code. The contract is the
-  arbiter; if your read of it differs from what's written, surface the conflict as a `note` signal in
-  `signals.json` rather than guessing.
+  arbiter; if your read of it differs from what's written, surface the conflict rather than guessing —
+  write a `note` signal in `signals.json` when the prompt's output-contract section lists it, otherwise
+  fold the conflict into the required signal's own fields.
 
 ## What to do
 

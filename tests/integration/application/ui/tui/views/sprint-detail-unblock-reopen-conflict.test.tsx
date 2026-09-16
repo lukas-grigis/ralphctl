@@ -1,12 +1,11 @@
 /**
- * Sprint-detail `u` on a task inside a CLOSED sprint, when the reopen is refused.
+ * Sprint-detail `u` on a task inside a CLOSED sprint — both outcomes of the reopen it triggers.
  *
- * Unblocking normally carries a `done` sprint back to `active` (`done` → `review` → `active`, see
- * `business/task/unblock-task.ts`), so the plain `✓ unblocked "…"` toast reads as "this task can
- * run again". It can't when the single-active-per-project check refuses the reopen: the task is
- * revived but its sprint stays closed, and the use case reports that on
- * `UnblockTaskOutput.sprintReopenConflict`. The CLI already prints it as a `note:` line; this
- * pins the TUI's half, which used to drop it on the floor.
+ * Unblocking carries a `done` sprint back to `active` (`done` → `review` → `active`, see
+ * `business/task/unblock-task.ts`). That is a state change the operator must see, so the toast
+ * names it (`UnblockTaskOutput.sprintReopened`). When the single-active-per-project check refuses
+ * the reopen instead, the task is revived but its sprint stays closed, and the use case reports
+ * that on `UnblockTaskOutput.sprintReopenConflict`. The CLI prints both; this pins the TUI's half.
  */
 
 import { describe, expect, it } from 'vitest';
@@ -48,14 +47,14 @@ const blockedTask = (): Task => {
   return r.value;
 };
 
-const stubDeps = (updated: Task[]): AppDeps =>
+const stubDeps = (updated: Task[], sprints: readonly Sprint[] = [CLOSED, PEER]): AppDeps =>
   ({
     sprintRepo: {
       async findById(id: SprintId) {
         return Result.ok(id === PEER_ID ? PEER : CLOSED);
       },
       async list() {
-        return Result.ok([CLOSED, PEER]);
+        return Result.ok([...sprints]);
       },
       async save() {
         return Result.ok(undefined);
@@ -117,6 +116,24 @@ describe('SprintDetailView — u on a closed sprint whose reopen is refused', ()
     const frame = flat(result.lastFrame() ?? '');
     expect(frame).toContain('⚠ unblocked "wedged"');
     expect(frame).not.toContain('✓ unblocked "wedged"');
+    result.unmount();
+  });
+});
+
+describe('SprintDetailView — u on a closed sprint that reopens', () => {
+  it('says the sprint reopened, not just that the task was unblocked', async () => {
+    const updated: Task[] = [];
+    const { result } = renderView(<SprintDetailView />, { deps: stubDeps(updated, [CLOSED]), initial });
+    await waitForViewReady(result, (f) => f.includes('wedged'));
+
+    result.stdin.write('j');
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('unbl'));
+    result.stdin.write('u');
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('unblocked'));
+
+    const frame = flat(result.lastFrame() ?? '');
+    expect(updated[0]?.status).toBe('todo');
+    expect(frame).toContain('✓ unblocked "wedged" — sprint reopened done → active');
     result.unmount();
   });
 });

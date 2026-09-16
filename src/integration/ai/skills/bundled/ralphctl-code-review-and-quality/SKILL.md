@@ -141,7 +141,10 @@ JSON signal objects in the run's `signals.json` (each has a `type` discriminant;
 section names the exact file and shape):
 
 - Write a `note` signal for informational observations, Minor/Nit findings, and anything that does not
-  change the verdict but is worth recording.
+  change the verdict but is worth recording — only when the prompt's output-contract section lists `note`
+  as an accepted kind. Some turns (a best-of-N judge comparing candidates, for example) accept a single
+  narrow verdict signal and nothing else; when that is the active contract, fold the observation into
+  that signal's own rationale or findings field instead.
 - When acting as the **generator**, write a `decision` signal when a Critical or Major finding changes the
   approach — record what was found and why the current direction was adjusted. This signal is
   generator-only: the evaluator's contract has no `decision` schema, so emitting one there fails the whole
@@ -186,7 +189,8 @@ two changes. Small cleanups (variable renaming) can be included at reviewer disc
 After any refactoring or implementation change, check for orphaned code:
 
 - Identify code that is now unreachable or unused.
-- List it explicitly in a `note` signal.
+- List it explicitly — as a `note` signal when the prompt's output-contract section lists it, otherwise
+  in the required signal's own fields.
 - Confirm before deleting — do not silently remove things you are not certain about.
 
 Dead code confuses future readers. But silent deletion of uncertain artefacts is worse than leaving them in
@@ -241,7 +245,7 @@ Before signalling completion or a passing evaluator verdict, run through:
 - [ ] Follows existing architectural patterns.
 - [ ] No secrets in code; input validated at boundaries.
 - [ ] No N+1 patterns or unbounded operations.
-- [ ] Findings surfaced as `note` signals in `signals.json` (generator role: `decision` too), with severity labels.
+- [ ] Findings surfaced per Step 4's signal guidance, with severity labels intact.
 
 ## Red Flags
 
