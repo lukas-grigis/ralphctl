@@ -3,12 +3,19 @@
  * anchored on the FOCUSED card (with the active task only as a fallback) instead of exclusively
  * the active task — which used to go dead the instant a run settled (no active task) even while
  * the card cursor sat right on a blocked card.
+ *
+ * Lives under `tests/integration/.../tui/` with the other nineteen `tasks-panel-*` render tests:
+ * that path is the `tui` vitest project, which runs `fileParallelism: false` precisely because
+ * sequential keystroke flows over Ink reconciliation are sensitive to fork contention. Written
+ * under `tests/unit/` it ran in the `default` project at full parallelism and went red on the
+ * v0.22.0 release-candidate gate.
  */
 
 import { describe, expect, it, vi } from 'vitest';
 import { render } from 'ink-testing-library';
 import { TasksPanel } from '@src/application/ui/tui/components/tasks-panel.tsx';
 import type { BucketedExecution } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
+import { glyphs } from '@src/application/ui/tui/theme/tokens.ts';
 import { ENTER, tick, UP } from '@tests/integration/application/ui/tui/_keys.ts';
 import { waitForPredicate } from '@tests/integration/application/ui/tui/_wait.ts';
 
@@ -19,6 +26,17 @@ const bucketed = (): BucketedExecution => ({
   ],
   orphanSignals: [],
 });
+
+/**
+ * Collapse every braille spinner frame onto the first one so two frames captured either side of a
+ * settle window can be compared for real change. The running card's spinner advances on its own
+ * 90 ms timer (`use-spinner-frame.ts`), so a raw whole-frame equality flaps for a reason that has
+ * nothing to do with the key under test. Derived from `glyphs.spinner` rather than a literal glyph
+ * run, so re-picking the spinner palette can't silently re-introduce the flake.
+ */
+const SPINNER_STANDIN = glyphs.spinner[0] ?? '⠋';
+const withoutSpinnerFrames = (frame: string): string =>
+  glyphs.spinner.reduce((acc, glyph) => acc.split(glyph).join(SPINNER_STANDIN), frame);
 
 describe('TasksPanel — u unblock chord', () => {
   it('fires onUnblock with the focused card id when it is blocked', async () => {
@@ -75,12 +93,14 @@ describe('TasksPanel — u unblock chord', () => {
     // the frame (cursor caret), so `before` must be captured after settling on the target card.
     r.stdin.write(UP);
     await tick(30);
-    const before = r.lastFrame() ?? '';
+    const before = withoutSpinnerFrames(r.lastFrame() ?? '');
 
     r.stdin.write('u');
     await tick(50);
 
-    expect(r.lastFrame() ?? '').toBe(before);
+    // With no `onUnblock` there is nothing to observe but the frame, so the assertion is "the
+    // panel did not react" — spinner animation normalised out on both sides.
+    expect(withoutSpinnerFrames(r.lastFrame() ?? '')).toBe(before);
     r.unmount();
   });
 });

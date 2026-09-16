@@ -10,6 +10,7 @@ import { render } from 'ink-testing-library';
 import { describe, expect, it } from 'vitest';
 import { TasksPanel } from '@src/application/ui/tui/components/tasks-panel.tsx';
 import type { BucketedExecution, TaskBucket } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
+import { waitForPredicate } from '@tests/integration/application/ui/tui/_wait.ts';
 
 const bucket = (id: string, status: TaskBucket['status']): TaskBucket => ({
   id,
@@ -84,6 +85,33 @@ describe('TasksPanel — settled cursor anchors on the first blocked task', () =
 
     expect(frame).toContain('the blocked-only criterion');
     expect(frame).not.toContain('the completed-only criterion');
+    r.unmount();
+  });
+
+  it('auto-expands the blocked card when a live run SETTLES, with no keypress', async () => {
+    // The mount path above seeds `expandedTaskIds` directly; this is the other arm — the effect
+    // that fires when `activeTaskId` goes from a running id to `undefined`. It only runs on a
+    // transition, so it needs a rerender: nothing that renders settled from the start reaches it.
+    const running: BucketedExecution = {
+      tasks: [bucket('t-blocked', 'blocked'), bucket('t-live', 'running')],
+      orphanSignals: [],
+    };
+    const settled: BucketedExecution = {
+      tasks: [bucket('t-blocked', 'blocked'), bucket('t-live', 'completed')],
+      orphanSignals: [],
+    };
+    const criteria = new Map([['t-blocked', ['[C1] manual — the blocked-only criterion']]]);
+
+    const r = render(<TasksPanel bucketed={running} running={true} taskCriteriaById={criteria} />);
+    // While the run is live the seed is the ACTIVE card, so the blocked card stays collapsed.
+    expect(r.lastFrame() ?? '').not.toContain('the blocked-only criterion');
+
+    r.rerender(<TasksPanel bucketed={settled} running={false} taskCriteriaById={criteria} />);
+    await waitForPredicate(() => (r.lastFrame() ?? '').includes('the blocked-only criterion'), {
+      label: 'settled run auto-expands the blocked card',
+    });
+
+    expect(r.lastFrame() ?? '').toContain('the blocked-only criterion');
     r.unmount();
   });
 

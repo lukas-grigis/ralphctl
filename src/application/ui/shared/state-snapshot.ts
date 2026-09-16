@@ -205,6 +205,11 @@ const computeTriggerInputs = (
     pendingTicketCount,
     approvedTicketCount,
     resumableTaskCount,
+    // Not a gate — the ONLY consumer is the `minResumableTasks` failure sentence, which needs to
+    // tell "no task list yet, run Plan" apart from "the list exists and every remaining task is
+    // blocked". Derived from the same helper every other blocked-work surface uses so the Flows
+    // menu cannot disagree with Home / Sprints / sprint-detail about how many tasks are stuck.
+    blockedTaskCount: computeTaskHealthCounts(tasks).blockedTaskCount,
   };
 };
 

@@ -278,6 +278,18 @@ interface UseExecuteRunControlsInput {
   readonly hasPinnedSprint: boolean;
   /** Gates the `v evaluation` hint — the chord no-ops until some task has recorded a verdict. */
   readonly hasEvaluation: boolean;
+  /**
+   * Gates the settled-only `u unblock` hint — read off the SAME polled entities the Tasks panel's
+   * own chord resolves against (`taskState`), never the bucketed chain signals, so the hint and
+   * the handler can never disagree about what counts as blocked.
+   *
+   * The caller ALSO has to subtract `pinnedSprintStale`: the poll behind `taskState` is not gated
+   * on the availability probe, so a closed/removed pin keeps reporting blocked tasks long after
+   * {@link deriveTasksPanel} has replaced the whole panel — handler and all — with the
+   * pick-a-sprint notice. Reachable on the ordinary path: a settled review run closes its sprint,
+   * and the Execute view is left sitting on a `done` pin.
+   */
+  readonly hasBlockedTask: boolean;
 }
 
 export interface ExecuteRunControls {
@@ -298,6 +310,7 @@ const useExecuteRunControls = ({
   router,
   hasPinnedSprint,
   hasEvaluation,
+  hasBlockedTask,
 }: UseExecuteRunControlsInput): ExecuteRunControls => {
   const isRunning = descriptor?.status === 'running';
 
@@ -315,6 +328,7 @@ const useExecuteRunControls = ({
     router,
     hasPinnedSprint,
     hasEvaluation,
+    hasBlockedTask,
   });
 
   const now = useLiveClock(isRunning);
@@ -444,6 +458,9 @@ export const ExecuteView = (): React.JSX.Element => {
     router,
     hasPinnedSprint: pinnedSprintId !== undefined,
     hasEvaluation: evaluation.hasAny,
+    // `!pinnedSprintStale` mirrors the panel's own gate below — a stale pin unmounts the
+    // `TasksPanelHost` that owns the `u` handler, so the hint must go with it.
+    hasBlockedTask: !pinnedSprintStale && (taskState?.some((t) => t.status === 'blocked') ?? false),
   });
 
   const bucketedTasks = useBucketedTasks({ descriptor, chainEvents, signals, eventBus });
@@ -465,7 +482,6 @@ export const ExecuteView = (): React.JSX.Element => {
     currentTask: bucketedTasks.currentTask,
     bucketed: bucketedTasks.bucketed,
   });
-  const attemptElapsedMs = computeAttemptElapsedMs(cancelStats.attemptStartedAt, runControls.now);
 
   const cancelHandlers = useCancelHandlers({
     sessions,
@@ -515,7 +531,7 @@ export const ExecuteView = (): React.JSX.Element => {
       tasksPanelDerivation={tasksPanelDerivation}
       tokenUsage={tokenUsage}
       logEntries={logEntries}
-      attemptElapsedMs={attemptElapsedMs}
+      attemptElapsedMs={computeAttemptElapsedMs(cancelStats.attemptStartedAt, runControls.now)}
       remainingTaskCount={cancelStats.remainingTaskCount}
       cancelHandlers={cancelHandlers}
       pinnedSprintStale={pinnedSprintStale}

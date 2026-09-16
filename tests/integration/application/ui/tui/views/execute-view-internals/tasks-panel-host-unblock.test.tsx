@@ -7,9 +7,13 @@
  * would silently overwrite a mid-run unblock with its stale in-memory snapshot regardless — so a
  * live run must force the chord inert, not merely race it.
  *
- * `useUnblockTask` is mocked so this stays a fast, dependency-free unit test — the use case's own
+ * `useUnblockTask` is mocked so this stays a fast, dependency-free wiring test — the use case's own
  * behaviour (archiving, cascade-unblock, sprint reopen) belongs to `unblock-task.ts`'s own suite,
- * not this wiring layer.
+ * not this layer.
+ *
+ * Lives under `tests/integration/.../tui/` because it drives sequential keystrokes through Ink:
+ * that path is the `tui` vitest project, which runs `fileParallelism: false` for exactly this
+ * class of test. Under `tests/unit/` it ran in the `default` project at full fork parallelism.
  */
 
 import { render } from 'ink-testing-library';

@@ -43,16 +43,48 @@ import { useBreakpoint } from '@src/application/ui/tui/runtime/use-breakpoint.ts
 import type { Task } from '@src/domain/entity/task.ts';
 import { ROW_HEIGHT, SprintRow } from '@src/application/ui/tui/views/sprints-view-internals/row-views.tsx';
 
-/** Pure `succeeded`/`total`/`lastError` → toast-message formatter for a bulk-unblock run. */
-const formatUnblockFeedback = (
-  succeeded: number,
-  total: number,
-  lastError: string | undefined,
-  sprintName: string
-): string =>
-  succeeded === total
-    ? `${glyphs.check} unblocked ${String(succeeded)} task${succeeded === 1 ? '' : 's'} in "${sprintName}"`
-    : `${succeeded > 0 ? glyphs.check : glyphs.cross} unblocked ${String(succeeded)} of ${String(total)}${lastError !== undefined ? ` — ${lastError}` : ''}`;
+interface UnblockFeedbackInput {
+  readonly succeeded: number;
+  readonly total: number;
+  readonly lastError: string | undefined;
+  readonly sprintName: string;
+  /**
+   * Unblocks that revived their task but left the sprint CLOSED, because another sprint of the
+   * same project already holds it (`UnblockTaskOutput.sprintReopenConflict` — see
+   * `business/task/unblock-task.ts`). Counted on its own because it is not a failure: those
+   * unblocks are in `succeeded` too, and without this the toast would read as a clean recovery
+   * while the revived work stays unreachable behind a `done` sprint.
+   */
+  readonly reopenRefused: number;
+  /** The last refusal's message — it names the peer holding the project. */
+  readonly reopenReason: string | undefined;
+}
+
+/**
+ * Pure `succeeded`/`total`/`lastError` → toast-message formatter for a bulk-unblock run.
+ *
+ * Every task in one run belongs to the SAME sprint, so N refusals describe one sprint that stayed
+ * closed, not N of them: the count gates the clause, and the conflict's own message says which
+ * sprint holds the project instead.
+ */
+const formatUnblockFeedback = ({
+  succeeded,
+  total,
+  lastError,
+  sprintName,
+  reopenRefused,
+  reopenReason,
+}: UnblockFeedbackInput): string => {
+  const stayedClosed =
+    reopenRefused > 0
+      ? ` ${glyphs.emDash} sprint stayed closed${reopenReason !== undefined ? `: ${reopenReason}` : ''}`
+      : '';
+  const head =
+    succeeded === total
+      ? `${glyphs.check} unblocked ${String(succeeded)} task${succeeded === 1 ? '' : 's'} in "${sprintName}"`
+      : `${succeeded > 0 ? glyphs.check : glyphs.cross} unblocked ${String(succeeded)} of ${String(total)}${lastError !== undefined ? ` ${glyphs.emDash} ${lastError}` : ''}`;
+  return `${head}${stayedClosed}`;
+};
 
 interface UseStuckSprintTasksResult {
   readonly stuckCount: number;
@@ -109,17 +141,27 @@ const useStuckSprintTasks = (sprintId: Sprint['id'] | undefined): UseStuckSprint
     setFeedback(undefined);
     let succeeded = 0;
     let lastError: string | undefined;
+    // Counted apart from `lastError`: a refused reopen is not a failed unblock (the task IS
+    // revived), so folding it into the error path would under-report `succeeded`.
+    let reopenRefused = 0;
+    let reopenReason: string | undefined;
     for (const task of stuckTasks) {
       const r = await unblockTask(task, sprint.id);
       if (r.ok) {
         succeeded += 1;
+        if (r.value.sprintReopenConflict !== undefined) {
+          reopenRefused += 1;
+          reopenReason = r.value.sprintReopenConflict.message;
+        }
       } else {
         lastError = r.error.message;
       }
     }
     const total = stuckTasks.length;
     if (!mountedRef.current) return;
-    setFeedback(formatUnblockFeedback(succeeded, total, lastError, sprint.name));
+    setFeedback(
+      formatUnblockFeedback({ succeeded, total, lastError, sprintName: sprint.name, reopenRefused, reopenReason })
+    );
     // At least one task actually cleared: re-run the list loader so `SprintListEntry.health`
     // (the row's `· N blocked` badge and status chip) stops reporting the pre-unblock state.
     if (succeeded > 0) reload();

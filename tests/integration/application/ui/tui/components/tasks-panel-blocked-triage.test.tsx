@@ -21,6 +21,12 @@ const bucket = (id: string, status: TaskBucket['status']): TaskBucket => ({
 
 const ID = '01933fbb-0000-7000-8000-000000000001';
 
+/** Control bytes built by code point — a literal ESC here would be invisible in a diff. */
+const chr = (code: number): string => String.fromCharCode(code);
+const ESC = chr(0x1b);
+const BEL = chr(0x07);
+const DEL = chr(0x7f);
+
 describe('TasksPanel blocked triage', () => {
   it('renders the question and what-unblocks-it lines on the (auto-expanded) card', () => {
     const bucketed: BucketedExecution = { tasks: [bucket(ID, 'blocked')], orphanSignals: [] };
@@ -48,6 +54,30 @@ describe('TasksPanel blocked triage', () => {
     expect(frame).toContain('blocked upstream');
     expect(frame).not.toContain('unblocks');
     r.unmount();
+  });
+
+  it('renders nothing at all for fields that are only control bytes', () => {
+    // These three are MODEL-authored, off a generator that just read the target repository. A
+    // reason of nothing but ESC/BEL survives `.trim()` (JS whitespace does not cover C0), so
+    // without sanitising BEFORE the emptiness gate the card renders a notice whose whole body
+    // the strip then removes — a bare `⚠` with no text, plus a `?` and a `→` for the triage
+    // pair. Asserted as frame equality against the same card with the fields absent.
+    const bucketed: BucketedExecution = { tasks: [bucket(ID, 'blocked')], orphanSignals: [] };
+    const reasonById = new Map([[ID, `${ESC}${BEL}`]]);
+    const triageById = new Map([[ID, { question: `${ESC}${DEL}`, whatUnblocksMe: chr(0x00) }]]);
+
+    const noisy = render(
+      <TasksPanel bucketed={bucketed} running={false} blockedReasonById={reasonById} blockedTriageById={triageById} />
+    );
+    const noisyFrame = noisy.lastFrame() ?? '';
+    noisy.unmount();
+
+    const bare = render(<TasksPanel bucketed={bucketed} running={false} />);
+    const bareFrame = bare.lastFrame() ?? '';
+    bare.unmount();
+
+    expect(noisyFrame).toBe(bareFrame);
+    expect(noisyFrame).not.toContain(ESC);
   });
 
   it('does not render the triage lines while the card is collapsed', () => {
