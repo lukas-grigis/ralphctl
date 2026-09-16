@@ -54,7 +54,7 @@ const PARALLEL_ELEMENT_NAME = 'implement-parallel';
  *
  * Sequence inside the lock:
  *
- *   1. prologue runner — `plan.prologue` over the incoming ctx (load → setup → preflight). On
+ *   1. prologue runner — `plan.prologue` over the incoming ctx (load → preflight → setup). On
  *      failure the prologue's error propagates; the epilogue still runs (below) so any pre-existing
  *      `tasks.json` survives, but no waves ran.
  *   2. `runWaves(branches, prologueCtx, { merge: mergeImplementWave, onFatal: 'drain', … }, signal)`

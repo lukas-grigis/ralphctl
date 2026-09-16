@@ -110,7 +110,7 @@ export const preflightTaskUseCase = async (
       currentState: 'dirty',
       attemptedAction: 'preflight-task',
       message: `cannot start a task: ${String(count.value)} uncommitted change(s) in ${String(props.cwd)}`,
-      hint: 'commit or stash your work, or pass --dirty=continue to override',
+      hint: 'Commit or stash your work, or launch implement from the TUI, which offers keep / stash / reset.',
     })
   );
 };

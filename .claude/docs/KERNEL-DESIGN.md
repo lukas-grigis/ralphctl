@@ -374,10 +374,9 @@ sequential('implement', [
       loadTasksLeaf,
       loadLearningsLeaf, // cross-sprint procedural memory (read side) → ctx.priorLearnings
       resolveBranchLeaf, // assign + checkout the sprint branch first
-      sequential('working-tree-clean-checks', cleanLeaves), // hard-abort if any repo is dirty
+      sequential('preflight-tasks', preflightLeaves), // dirty tree → keep / stash / reset / cancel, BEFORE setup
       appendJournalSeparatorLeaf, // appends the 'activated' separator to the append-only progress.md journal
-      setupScriptRunnerLeaf, // runs after branch + clean checks pass; appends SetupRun entries to SprintExecution.setupRanAt
-      sequential('preflight-tasks', preflightLeaves),
+      setupScriptRunnerLeaf, // runs after branch + preflight settle; appends SetupRun entries to SprintExecution.setupRanAt
       sequential(
         'implement-tasks',
         orderedTasks.map(() => perTask)

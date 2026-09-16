@@ -138,6 +138,15 @@ to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **A dirty working tree asks instead of killing the launch.** Implement ran two dirty-tree checks:
+  a hard gate before the setup script that aborted the run outright, and the interactive keep /
+  stash / reset / cancel menu after it. The hard gate waived only one narrow case — a task still
+  `in_progress` with a running attempt — so a tree left dirty by a cancelled run, or by a task an
+  operator unblocked (which archives the very attempts that waiver keyed on), failed the launch
+  before the menu that would have resolved it ever appeared. The hard gate is gone and the menu now
+  runs before the setup script, right after branch resolution: every question the run has for you is
+  asked up front, and the multi-minute setup script runs against a tree you already settled.
+
 - **Sprint detail's lower half is reachable again on a normal-height terminal.** The view hands
   ↑/↓ to its own card cursor, which left the page itself with no keyboard scroll at all — so on
   any terminal where the banner and header cards already fill the viewport, the whole Tasks
