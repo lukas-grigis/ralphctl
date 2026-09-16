@@ -1,11 +1,11 @@
 ---
 name: seams-implement-prologue-gates
-description: The implement prologue's dirty-tree gate — why it asks instead of aborting, where it sits relative to setup, and the scripted-git call counters in e2e tests that silently encode its call count
+description: The implement prologue's dirty-tree gates — the pre-setup menu (why it asks instead of aborting), the in-leaf post-setup check, and the scripted-git call counters in e2e tests that silently encode the call count
 metadata:
   type: project
 ---
 
-The implement prologue has exactly ONE dirty-tree gate: `sequential('preflight-tasks', …)` (the
+The implement prologue has exactly ONE up-front dirty-tree menu: `sequential('preflight-tasks', …)` (the
 interactive keep / stash / reset / cancel menu), placed directly after `resolve-branch` and BEFORE
 `progress-journal-activate` / `setup-script-runner`.
 
@@ -28,3 +28,25 @@ failure surfaces later, in `settle-attempt`'s worktree-clean guardrail or `commi
 `preflightStatusesRemaining` before touching prologue git calls. The flow topology fence is
 `tests/unit/application/flows/implement/flow-shape.test.ts`, which rebuilds the expected
 `implement-locked` child list by hand. See [[seams_chain_runner_core]].
+
+**Setup-created dirt has its own check, and it lives INSIDE `setup-script-runner`.** It's an
+injected `treeGuard` (`leaves/setup-tree-guard.ts`), not a separate step, so the element list is
+unchanged. It takes a porcelain snapshot right before each script that actually spawns, then
+compares after a green exit, and re-offers the menu only for lines the script ADDED. A resume-skipped
+or unconfigured script makes zero git calls, which is why the e2e counters above are unaffected: none
+of them configures a `setupScript`. A repo whose setup dirtied the tree is left out of
+`setupVerifiedRepoIdsThisRun`, because a stash or reset would otherwise let
+`skipPreVerifyOnFreshSetup` seed a green baseline for a tree setup never verified. The wiring fence
+runs the real `buildImplementPrologue`
+(`tests/integration/application/flows/implement/prologue-post-setup-tree-check.test.ts`), because
+the guard dep is optional on the leaf and the shape fence can't see deps.
+
+**A dirty tree at attempt start is a normal state, not an anomaly.** The sources are the operator
+choosing "keep", the per-task reproduce leaf (FULL_AUTO, writes a new test BEFORE the attempt loop
+on both paths for bugfix tasks), and setup output that isn't ignored. `restore-blocked-diff` only
+pops onto a tree it probed clean, because its undo is `reset --hard` + `clean -fd`. A failed
+`git stash pop` can still have changed the tree (verified on git 2.54): an untracked collision
+applies the tracked part first, and an "overwritten" refusal still restores untracked files. So
+"no unmerged paths" does NOT mean "tree unchanged". Probe with
+`--untracked-files=normal --ignore-submodules=none`, because a plain `gitStatusPorcelain` inherits
+`status.showUntrackedFiles=no`.

@@ -203,7 +203,10 @@ const attemptWorkLeaves = (
   repo: RepoExecConfig,
   readConfig: AttemptReadConfig
 ): Array<Element<ImplementCtx>> => [
-  startAttemptLeaf({ taskRepo: deps.taskRepo, clock: deps.clock, logger: deps.logger }, taskId),
+  startAttemptLeaf(
+    { taskRepo: deps.taskRepo, clock: deps.clock, logger: deps.logger, eventBus: deps.eventBus },
+    taskId
+  ),
   // Restore a prior blocked diff (if any) at the START of each attempt so an escalation /
   // retry continues from the prior AI work plus the evaluator critique instead of from a
   // clean tree. A no-op when no matching stash exists (the common case); the quarantine

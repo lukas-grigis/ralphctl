@@ -13,10 +13,11 @@ import { ideateOutputContract } from '@src/application/flows/ideate/leaves/ideat
 import { planOutputContract } from '@src/application/flows/plan/leaves/plan.contract.ts';
 import { readinessOutputContract } from '@src/application/flows/readiness/leaves/readiness.contract.ts';
 import { refineOutputContract } from '@src/application/flows/refine/leaves/refine.contract.ts';
+import { selectCandidateOutputContract } from '@src/application/flows/implement/leaves/select-candidate.contract.ts';
 
 /**
  * Cross-check: every signal kind a bundled SKILL.md names in backticks must be one the output
- * contract of EVERY flow that skill can mount into will tolerate.
+ * contract of EVERY flow AND TURN that skill can mount into will tolerate.
  *
  * `skillsForFlow` installs a skill's single SKILL.md verbatim into each phase listed in its
  * `defaultFor`, and the opt-in catalog offers the same body for each phase in `recommendedFor`
@@ -33,11 +34,28 @@ import { refineOutputContract } from '@src/application/flows/refine/leaves/refin
  * reject outright, and `ralphctl-test-driven-development` / `ralphctl-debugging-and-error-recovery`
  * named `task-complete` and `decision` in prose offered to plan and readiness.
  *
- * The implement flow runs two AI turns — generator and evaluator — against two DIFFERENT
- * contracts from the one installed SKILL.md, so it appears twice in `FLOW_CONTRACTS` and a
- * mention has to survive both. The sibling `evaluator-signal-kind-mentions.test.ts` scans two
- * named skills heading-by-heading against the evaluator contract; it is the narrower check, not
- * the one that covers the evaluator turn for the other implement-mounted skills.
+ * The implement flow runs THREE AI turns against three DIFFERENT contracts from the same
+ * installed SKILL.md, and a mention has to survive all three: the generator, the evaluator, and
+ * — when best-of-N is granted — the judge turn (`select-candidate.contract.ts`), spawned from
+ * inside the same per-task skill-install bracket the generator/evaluator turns share. The judge's
+ * contract is the narrowest in the whole harness: a one-shot pairwise verdict with no narrative
+ * fan-out at all, so it rejects `note` / `decision` / `learning` / everything except
+ * `candidate-selection` outright. This regressed once too — `ralphctl-code-review-and-quality`
+ * and `ralphctl-iterative-review` both instructed writing a `note` signal unconditionally, which
+ * the judge turn silently discarded via the quality-ordering fallback (`readJudgeVerdict` logs a
+ * warning and returns `undefined` on a schema failure — non-fatal, but the judge's real verdict is
+ * lost). The sibling `evaluator-signal-kind-mentions.test.ts` scans two named skills
+ * heading-by-heading against the evaluator contract; it is the narrower check, not the one that
+ * covers the evaluator (or judge) turn for the other implement-mounted skills.
+ *
+ * A skill can make a mention harmless everywhere by gating it on the ACTIVE contract instead of
+ * naming a kind unconditionally — "write a `note` signal … when the prompt's output-contract
+ * section lists it; otherwise fold the observation into the required signal's own fields". Such a
+ * mention can never sink an array it isn't offered into, so `isContractGated` below exempts the
+ * whole passage from the mention scan, the same way `isGeneratorScoped` already exempts a
+ * generator-only aside. The marker phrase is deliberately literal and narrow (mirrors `NEGATION`'s
+ * small fixed vocabulary) — a skill earns the exemption by using the recognised phrase, not by
+ * merely intending one.
  */
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -66,14 +84,20 @@ const probe = <TSig extends AiSignal>(turn: string, contract: AiOutputContract<T
 
 /**
  * Every contract a skill's prose can land in front of, per flow. `skillsForFlow` is keyed by
- * flow, not by role, so the implement flow's two AI turns receive the same SKILL.md and both
- * contracts have to tolerate what it names — a kind only the generator accepts needs the
- * `(generator role: …)` aside that `stripGeneratorAsides` below carves out.
+ * flow, not by role, so the implement flow's three AI turns receive the same SKILL.md and all
+ * three contracts have to tolerate what it names — a kind only the generator accepts needs the
+ * `(generator role: …)` aside that `stripGeneratorAsides` below carves out. The judge turn only
+ * runs when best-of-N is granted, but a skill's prose has no way to know that at mount time, so
+ * it is checked unconditionally here, the same as generator and evaluator.
  */
 const FLOW_CONTRACTS: Readonly<Record<FlowId, readonly ContractProbe[]>> = {
   refine: [probe('refine', refineOutputContract)],
   plan: [probe('plan', planOutputContract)],
-  implement: [probe('generator', generatorOutputContract), probe('evaluator', evaluatorOutputContract)],
+  implement: [
+    probe('generator', generatorOutputContract),
+    probe('evaluator', evaluatorOutputContract),
+    probe('judge', selectCandidateOutputContract),
+  ],
   readiness: [probe('readiness', readinessOutputContract)],
   ideate: [probe('ideate', ideateOutputContract)],
   createPr: [probe('create-pr', generatePrContentOutputContract)],
@@ -191,6 +215,14 @@ const mentionedKinds = (text: string): readonly string[] => {
 const stripGeneratorAsides = (passage: string): string => passage.replace(/\([^()]*generator[^()]*\)/giu, ' ');
 const isGeneratorScoped = (strippedPassage: string): boolean => /generator/iu.test(strippedPassage);
 
+// A mention gated on the active contract — "write a `note` signal … when the prompt's
+// output-contract section lists it; otherwise fold the observation into the required signal's
+// own fields" — can never sink an array it isn't offered into, so the whole passage is exempt
+// from the scan. The phrase is literal on purpose: a skill earns the exemption by using it, the
+// same way `NEGATION` only demotes a small fixed vocabulary rather than trying to parse intent.
+const CONTRACT_GATE_PHRASE = "when the prompt's output-contract section lists";
+const isContractGated = (passage: string): boolean => passage.toLowerCase().includes(CONTRACT_GATE_PHRASE);
+
 /**
  * Phase labels the skills use in their "When this applies" bullets, mapped onto the flow each
  * one names. "Execute" is the skills' prose name for the implement flow.
@@ -219,12 +251,19 @@ const scopedFlow = (passage: string): FlowId | undefined => {
   return label === undefined ? undefined : PHASE_LABEL_TO_FLOW[label];
 };
 
-/** One (skill, flow, kind) obligation derived from one passage of one SKILL.md. */
+/**
+ * One (skill, flow, kind) obligation derived from one passage of one SKILL.md. `gated` is true
+ * when the passage carries the {@link CONTRACT_GATE_PHRASE} — such a mention is kept in the case
+ * list (so the "vacuous pass" sanity check below still sees it), but never treated as a
+ * violation: a mention conditioned on the active contract can never sink an array it isn't
+ * offered into, whichever turn actually runs.
+ */
 interface MentionCase {
   readonly skill: string;
   readonly flow: FlowId;
   readonly kind: string;
   readonly passage: string;
+  readonly gated: boolean;
 }
 
 const casesForSkill = (skill: string, flows: readonly FlowId[]): readonly MentionCase[] => {
@@ -233,10 +272,11 @@ const casesForSkill = (skill: string, flows: readonly FlowId[]): readonly Mentio
   for (const rawPassage of splitPassages(content)) {
     const passage = stripGeneratorAsides(rawPassage);
     if (isGeneratorScoped(passage)) continue;
+    const gated = isContractGated(passage);
     const scope = scopedFlow(passage);
     const targets = scope === undefined ? flows : flows.filter((flow) => flow === scope);
     for (const kind of mentionedKinds(passage)) {
-      for (const flow of targets) cases.push({ skill, flow, kind, passage: rawPassage });
+      for (const flow of targets) cases.push({ skill, flow, kind, passage: rawPassage, gated });
     }
   }
   return cases;
@@ -256,10 +296,13 @@ describe('bundled skills — every signal kind a skill names is tolerated by eve
     for (const { kind } of ALL_CASES) expect(Object.keys(PROBE_SIGNALS)).toContain(kind);
   });
 
-  it.each(ALL_CASES.map((c) => [c.skill, c.flow, c.kind, c.passage] as const))(
+  it.each(ALL_CASES.map((c) => [c.skill, c.flow, c.kind, c.passage, c.gated] as const))(
     '%s in flow "%s": a `%s` signal does not sink the array — from: %s',
-    (skill, flow, kind) => {
-      const rejected = rejectingTurns(flow, kind);
+    (skill, flow, kind, _passage, gated) => {
+      // A gated mention is conditioned on the contract that is actually shown to the model, so
+      // it can never instruct writing a kind a given turn rejects — it is exempt by construction,
+      // not merely untested. See the `CONTRACT_GATE_PHRASE` doc comment above.
+      const rejected = gated ? [] : rejectingTurns(flow, kind);
       expect(
         rejected,
         `${skill} names a \`${kind}\` signal, but the ${flow} flow's ${rejected.join(' / ')} contract rejects ` +
@@ -307,12 +350,24 @@ describe('bundled skills — the pre-fix wordings this check exists to catch', (
       flow: 'implement',
       scope: 'implement',
     },
+    {
+      // Unscoped and unconditional — mounted into implement by default, so the SAME bullet also
+      // reaches the best-of-N judge turn (`select-candidate.contract.ts`), whose contract accepts
+      // only `candidate-selection`. Both generator and evaluator already tolerated `note`, so this
+      // case fails ONLY once `FLOW_CONTRACTS.implement` carries the judge probe — pinning it keeps
+      // that addition covered even if the live wording moves on again.
+      label: 'ralphctl-code-review-and-quality — unconditional `note` in Step 4, which the judge turn also receives',
+      passage:
+        '- Write a `note` signal for informational observations, Minor/Nit findings, and anything that does not change the verdict but is worth recording.',
+      flow: 'implement',
+    },
   ];
 
   for (const { label, passage, flow, scope } of preFix) {
     it(`would have failed: ${label}`, () => {
       const stripped = stripGeneratorAsides(passage);
       expect(isGeneratorScoped(stripped)).toBe(false);
+      expect(isContractGated(stripped)).toBe(false);
       expect(scopedFlow(stripped)).toBe(scope);
       const rejected = mentionedKinds(stripped).filter((kind) => rejectingTurns(flow, kind).length > 0);
       expect(rejected.length).toBeGreaterThan(0);

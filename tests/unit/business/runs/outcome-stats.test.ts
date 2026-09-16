@@ -242,6 +242,37 @@ describe('foldOutcomeStats — per-rung escalation efficacy', () => {
     expect(totals.attemptCount).toBe(1);
   });
 
+  it('folds a task’s retired attempts into attempts-to-done and first-pass after an unblock', () => {
+    // Three plateaued attempts exhaust a maxAttempts=3 budget, auto-blocking the task. The
+    // operator unblocks it — the three attempts retire into the archive and the live ledger
+    // resets — and it passes clean on the very next attempt.
+    const first = failAttempt(beginAttempt(makeTodoTask({ name: 'unblocked', maxAttempts: 3 })), PLATEAU_THRESHOLD);
+    const second = failAttempt(beginAttempt(first), PLATEAU_DIVERSITY);
+    const third = failAttempt(beginAttempt(second), PLATEAU_ENTROPY);
+    expect(third.status).toBe('blocked'); // precondition: the budget auto-blocked it
+    const revived = unwrap(unblockTask(third));
+    const settled = completeDone(beginAttempt(revived));
+    // `markTaskDone` (task-settle.ts) does not carry `retiredAttempts` onto the `DoneTask` it
+    // constructs — a separate gap from the one under test here. Restamp it the way a round-trip
+    // through the persisted `tasks.json` shape would, so this test exercises the fold in
+    // isolation, matching `DoneTask`'s own (inherited, optional) `retiredAttempts` field.
+    const done: DoneTask = {
+      ...settled,
+      ...(revived.retiredAttempts !== undefined ? { retiredAttempts: revived.retiredAttempts } : {}),
+    };
+
+    // The stamped pointer restarts at 1 — the very thing that makes this bug possible.
+    expect(done.finalAttemptN).toBe(1);
+    expect(done.retiredAttempts?.[0]?.attempts).toHaveLength(3);
+
+    const { totals } = foldOutcomeStats([sprintWith([done])]);
+
+    // Four attempts total (3 retired + this one), so it is NOT a first-pass task and belongs in
+    // the `4` bucket, not the `1` bucket `finalAttemptN` alone would report.
+    expect(totals.firstPass).toEqual({ doneOnFirstAttempt: 0, doneTotal: 1, rate: 0 });
+    expect(totals.attemptsToDone).toEqual([{ attempts: 4, tasks: 1 }]);
+  });
+
   it('counts the permanent best-of-N marker once across an unblock, not once per retired run', () => {
     const granted = unwrap(recordTaskBestOfNGrant(beginAttempt(makeTodoTask({ name: 'kept' })), 3));
     const blocked = unwrap(markTaskBlocked(failAttempt(granted), 'still failing', 'own'));

@@ -38,10 +38,11 @@ import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
  * preflight assumes: between tasks the tree is clean.
  *
  * Worktree isolation does NOT mean the parallel path needs no quarantine of its own, though: a
- * worktree that ends up `blocked` still gets force-removed by `wave-branch.ts`'s `cleanupWorktree`,
- * which destroys that same rejected diff unless it too was quarantined first. `wave-branch.ts`
- * calls {@link runQuarantineBlockedDiff} directly (outside the chain) from its `withWorktree`
- * teardown, ahead of the removal, for exactly this reason — see that file.
+ * worktree that ends up `blocked` still gets force-removed by `worktree-teardown.ts`'s
+ * `cleanupWorktree`, which destroys that same rejected diff unless it too was quarantined first.
+ * `worktree-teardown.ts`'s `teardownWorktree` (run from `wave-branch.ts`'s `withWorktree`) calls
+ * {@link runQuarantineBlockedDiff} directly, outside the chain, ahead of the removal, for exactly
+ * this reason — see that file.
  *
  * ## Placement & guard
  *
@@ -104,11 +105,11 @@ export const quarantineStashMessage = (sprintId: SprintId, taskId: TaskId): stri
  * Core quarantine operation — stash the rejected diff (`git stash push -u` under the deterministic
  * message), record the durable `blockedReason` pointer, and append the journal breadcrumb. Shared
  * by the in-chain leaf below (the serial path, via `useCase.execute`) AND by the parallel path's
- * `wave-branch.ts`, which calls this directly — outside the chain — from the worktree-teardown
+ * `worktree-teardown.ts`, which calls this directly — outside the chain — from the worktree-teardown
  * sequence, BEFORE `git worktree remove --force` destroys the worktree's working tree. `opts.cwd`
  * must be the worktree path in that case: worktrees share `.git` with the main repo, so a stash
  * pushed there is stored in the shared object database and survives the worktree's removal (see
- * `wave-branch.ts` for the verification this relies on).
+ * `worktree-teardown.ts` for the verification this relies on).
  *
  * Never returns `Result.error` — every failure (stash push, record, journal append) is logged at
  * `warn` and swallowed as `Result.ok(undefined)`; see the module docstring above for the best-effort

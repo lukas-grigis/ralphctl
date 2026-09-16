@@ -16,6 +16,8 @@ import {
   makeInProgressTaskWithRunningAttempt,
   makeTodoTask,
 } from '@tests/fixtures/domain.ts';
+import type { AppEvent } from '@src/business/observability/events.ts';
+import type { EventBus } from '@src/business/observability/event-bus.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import { startAttemptLeaf } from '@src/application/flows/implement/leaves/start-attempt.ts';
 
@@ -27,6 +29,15 @@ const captureLogEvents = (
     if (e.type === 'log') captured.push({ level: e.level, message: e.message });
   });
   return captured;
+};
+
+/** A bus for tests that don't observe events. */
+const silentBus: EventBus = { publish: () => {}, subscribe: () => () => {} };
+
+/** A bus that records every published event, for the task-blocked notification assertions. */
+const recordingBus = (): { bus: EventBus; events: AppEvent[] } => {
+  const events: AppEvent[] = [];
+  return { events, bus: { publish: (e) => events.push(e), subscribe: () => () => {} } };
 };
 
 interface RecordedUpdate {
@@ -63,7 +74,7 @@ describe('startAttemptLeaf', () => {
     const eventBus = createInMemoryEventBus();
     const eventLog = captureLogEvents(eventBus);
     const logger = createEventBusLogger({ eventBus, clock: () => FIXED_LATER });
-    const leafEl = startAttemptLeaf({ taskRepo: repo, clock: () => FIXED_LATER, logger }, todo.id);
+    const leafEl = startAttemptLeaf({ taskRepo: repo, clock: () => FIXED_LATER, logger, eventBus }, todo.id);
 
     const initial: ImplementCtx = { sprintId: 'sprint-x' as SprintId, tasks: [todo] };
     const result = await leafEl.execute(initial);
@@ -87,7 +98,10 @@ describe('startAttemptLeaf', () => {
   it('clears prior generator + evaluator session ids at the per-task boundary (new task → new "devs")', async () => {
     const todo = makeTodoTask();
     const { repo } = fakeUpdateTask();
-    const leafEl = startAttemptLeaf({ taskRepo: repo, clock: () => FIXED_LATER, logger: noopLogger }, todo.id);
+    const leafEl = startAttemptLeaf(
+      { taskRepo: repo, clock: () => FIXED_LATER, logger: noopLogger, eventBus: silentBus },
+      todo.id
+    );
 
     const initial: ImplementCtx = {
       sprintId: 'sprint-x' as SprintId,
@@ -108,7 +122,10 @@ describe('startAttemptLeaf', () => {
   it('clears a stale proposedCommitMessage on attempt re-entry (next attempt proposes its own)', async () => {
     const todo = makeTodoTask();
     const { repo } = fakeUpdateTask();
-    const leafEl = startAttemptLeaf({ taskRepo: repo, clock: () => FIXED_LATER, logger: noopLogger }, todo.id);
+    const leafEl = startAttemptLeaf(
+      { taskRepo: repo, clock: () => FIXED_LATER, logger: noopLogger, eventBus: silentBus },
+      todo.id
+    );
 
     const initial: ImplementCtx = {
       sprintId: 'sprint-x' as SprintId,
@@ -127,7 +144,10 @@ describe('startAttemptLeaf', () => {
   it('throws an InvalidStateError when ctx.tasks is undefined (chain-construction error)', async () => {
     const todo = makeTodoTask();
     const { repo } = fakeUpdateTask();
-    const leafEl = startAttemptLeaf({ taskRepo: repo, clock: () => FIXED_LATER, logger: noopLogger }, todo.id);
+    const leafEl = startAttemptLeaf(
+      { taskRepo: repo, clock: () => FIXED_LATER, logger: noopLogger, eventBus: silentBus },
+      todo.id
+    );
 
     const result = await leafEl.execute({ sprintId: 'sprint-x' as SprintId });
 
@@ -142,7 +162,10 @@ describe('startAttemptLeaf', () => {
     const todo = makeTodoTask();
     const otherTodo = makeTodoTask({ name: 'other' });
     const { repo } = fakeUpdateTask();
-    const leafEl = startAttemptLeaf({ taskRepo: repo, clock: () => FIXED_LATER, logger: noopLogger }, todo.id);
+    const leafEl = startAttemptLeaf(
+      { taskRepo: repo, clock: () => FIXED_LATER, logger: noopLogger, eventBus: silentBus },
+      todo.id
+    );
 
     const result = await leafEl.execute({ sprintId: 'sprint-x' as SprintId, tasks: [otherTodo] });
 
@@ -153,7 +176,10 @@ describe('startAttemptLeaf', () => {
   it('surfaces a domain failure when the task is not in todo/in_progress status', async () => {
     const done = makeDoneTask();
     const { repo, calls } = fakeUpdateTask();
-    const leafEl = startAttemptLeaf({ taskRepo: repo, clock: () => FIXED_LATER, logger: noopLogger }, done.id);
+    const leafEl = startAttemptLeaf(
+      { taskRepo: repo, clock: () => FIXED_LATER, logger: noopLogger, eventBus: silentBus },
+      done.id
+    );
 
     const result = await leafEl.execute({ sprintId: 'sprint-x' as SprintId, tasks: [done] });
 
@@ -176,7 +202,10 @@ describe('startAttemptLeaf', () => {
     const eventBus = createInMemoryEventBus();
     const eventLog = captureLogEvents(eventBus);
     const logger = createEventBusLogger({ eventBus, clock: () => FIXED_LATER });
-    const leafEl = startAttemptLeaf({ taskRepo: repo, clock: () => FIXED_LATER, logger }, inProgressWithRunning.id);
+    const leafEl = startAttemptLeaf(
+      { taskRepo: repo, clock: () => FIXED_LATER, logger, eventBus },
+      inProgressWithRunning.id
+    );
 
     const result = await leafEl.execute({
       sprintId: 'sprint-x' as SprintId,
@@ -208,7 +237,7 @@ describe('startAttemptLeaf', () => {
       tasksById: new Map([[String(inProgressMaxed.id), inProgressMaxed]]),
     });
     const leafEl = startAttemptLeaf(
-      { taskRepo: repo, clock: () => FIXED_LATER, logger: noopLogger },
+      { taskRepo: repo, clock: () => FIXED_LATER, logger: noopLogger, eventBus: silentBus },
       inProgressMaxed.id
     );
 
@@ -235,7 +264,10 @@ describe('startAttemptLeaf', () => {
     const { repo, calls } = fakeUpdateTask({
       tasksById: new Map([[String(inMemory.id), persistedDivergent]]),
     });
-    const leafEl = startAttemptLeaf({ taskRepo: repo, clock: () => FIXED_LATER, logger: noopLogger }, inMemory.id);
+    const leafEl = startAttemptLeaf(
+      { taskRepo: repo, clock: () => FIXED_LATER, logger: noopLogger, eventBus: silentBus },
+      inMemory.id
+    );
 
     const result = await leafEl.execute({ sprintId: 'sprint-x' as SprintId, tasks: [inMemory] });
     expect(result.ok).toBe(false);
@@ -258,7 +290,10 @@ describe('startAttemptLeaf', () => {
     const { repo, calls } = fakeUpdateTask({
       tasksById: new Map([[String(inMemory.id), persistedSameShape]]),
     });
-    const leafEl = startAttemptLeaf({ taskRepo: repo, clock: () => FIXED_LATER, logger: noopLogger }, inMemory.id);
+    const leafEl = startAttemptLeaf(
+      { taskRepo: repo, clock: () => FIXED_LATER, logger: noopLogger, eventBus: silentBus },
+      inMemory.id
+    );
 
     const result = await leafEl.execute({ sprintId: 'sprint-x' as SprintId, tasks: [inMemory] });
     expect(result.ok).toBe(false);
@@ -271,11 +306,78 @@ describe('startAttemptLeaf', () => {
     const todo = makeTodoTask();
     const failure = new StorageError({ subCode: 'io', message: 'disk full' });
     const { repo } = fakeUpdateTask({ fail: failure });
-    const leafEl = startAttemptLeaf({ taskRepo: repo, clock: () => FIXED_LATER, logger: noopLogger }, todo.id);
+    const leafEl = startAttemptLeaf(
+      { taskRepo: repo, clock: () => FIXED_LATER, logger: noopLogger, eventBus: silentBus },
+      todo.id
+    );
 
     const result = await leafEl.execute({ sprintId: 'sprint-x' as SprintId, tasks: [todo] });
 
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.error).toBe(failure);
+  });
+});
+
+describe('startAttemptLeaf — task-blocked notification', () => {
+  it('publishes exactly one task-blocked event when resume recovery exhausts the attempt budget', async () => {
+    const inProgressMaxed = makeInProgressTaskWithRunningAttempt({ maxAttempts: 1 });
+    const { repo, calls } = fakeUpdateTask({
+      tasksById: new Map([[String(inProgressMaxed.id), inProgressMaxed]]),
+    });
+    const { bus, events } = recordingBus();
+    const leafEl = startAttemptLeaf(
+      { taskRepo: repo, clock: () => FIXED_LATER, logger: noopLogger, eventBus: bus },
+      inProgressMaxed.id
+    );
+
+    const result = await leafEl.execute({ sprintId: 'sprint-x' as SprintId, tasks: [inProgressMaxed] });
+
+    expect(result.ok).toBe(false);
+    expect(calls[0]?.task.status).toBe('blocked');
+    const blocked = events.filter((e) => e.type === 'task-blocked');
+    expect(blocked).toHaveLength(1);
+    expect(blocked[0]).toMatchObject({
+      type: 'task-blocked',
+      taskId: String(inProgressMaxed.id),
+      taskName: inProgressMaxed.name,
+      blockKind: 'own',
+      at: FIXED_LATER,
+    });
+  });
+
+  it('publishes nothing when the blocked write fails — the block never became durable', async () => {
+    const inProgressMaxed = makeInProgressTaskWithRunningAttempt({ maxAttempts: 1 });
+    const { repo } = fakeUpdateTask({
+      fail: new StorageError({ subCode: 'io', message: 'disk full' }),
+      tasksById: new Map([[String(inProgressMaxed.id), inProgressMaxed]]),
+    });
+    const { bus, events } = recordingBus();
+    const leafEl = startAttemptLeaf(
+      { taskRepo: repo, clock: () => FIXED_LATER, logger: noopLogger, eventBus: bus },
+      inProgressMaxed.id
+    );
+
+    const result = await leafEl.execute({ sprintId: 'sprint-x' as SprintId, tasks: [inProgressMaxed] });
+
+    expect(result.ok).toBe(false);
+    expect(events.filter((e) => e.type === 'task-blocked')).toHaveLength(0);
+  });
+
+  it('publishes nothing when an attempt starts normally or resumes within budget', async () => {
+    const todo = makeTodoTask();
+    const resumable = makeInProgressTaskWithRunningAttempt();
+    const { repo } = fakeUpdateTask({ tasksById: new Map([[String(resumable.id), resumable]]) });
+    const { bus, events } = recordingBus();
+    const deps = { taskRepo: repo, clock: () => FIXED_LATER, logger: noopLogger, eventBus: bus };
+
+    const fresh = await startAttemptLeaf(deps, todo.id).execute({ sprintId: 'sprint-x' as SprintId, tasks: [todo] });
+    const resumed = await startAttemptLeaf(deps, resumable.id).execute({
+      sprintId: 'sprint-x' as SprintId,
+      tasks: [resumable],
+    });
+
+    expect(fresh.ok).toBe(true);
+    expect(resumed.ok).toBe(true);
+    expect(events.filter((e) => e.type === 'task-blocked')).toHaveLength(0);
   });
 });

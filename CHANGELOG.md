@@ -76,10 +76,11 @@ to [Semantic Versioning](https://semver.org/).
   alongside the reason in both `ralphctl task list` and the TUI, instead of free-form reason
   prose being the only clue. All three are optional — a plain reason-only block still works.
 
-- **A settled block now raises a banner and an OS notification**, the moment
-  `settleAttemptUseCase` transitions a task to `blocked` — previously the only signs were the
-  Tasks panel and `progress.md`, which meant an unattended run's most common failure mode was
-  also its quietest.
+- **A block now raises a banner and an OS notification** the moment a task is saved as
+  `blocked` — whether an attempt settled that way, a parallel task's worktree could not be set up,
+  its branch hit a fold conflict, or a resumed run found the task's attempt budget already spent.
+  Previously the only signs were the Tasks panel and `progress.md`, which meant an unattended run's
+  most common failure mode was also its quietest.
 
 ### Changed
 
@@ -97,10 +98,12 @@ to [Semantic Versioning](https://semver.org/).
   before, but the cleared attempts, per-criterion verdicts, and escalation stamps are now packaged
   into one entry on the task's new `retiredAttempts` list rather than discarded — so
   `ralphctl runs stats` and the TUI's outcome card keep counting a task's full attempt history
-  after an operator intervenes, not just what happened since the last unblock. `runs stats` folds
-  those archived runs into its escalation-efficacy table too: a retired attempt's model and effort
-  rungs count as granted and fell-through, so the attempt totals and the escalation rows no longer
-  disagree about a task that was unblocked. Existing `tasks.json` files load unchanged; nothing
+  after an operator intervenes, not just what happened since the last unblock. The archive survives the
+  revived task passing, and `runs stats` folds those runs into everything it reports: a task that
+  failed three times, was unblocked and then passed counts as a four-attempt task, not a first-pass
+  one, and a retired attempt's model and effort rungs count as granted and fell-through, so the
+  attempt totals, the first-pass rate and the escalation rows no longer disagree about a task that
+  was unblocked. Existing `tasks.json` files load unchanged; nothing
   needs migrating.
 
 - **Unblocking a task on a `done` sprint reopens it** (`done` → `review` → `active`) instead of
@@ -112,7 +115,10 @@ to [Semantic Versioning](https://semver.org/).
   operator is told so: the CLI prints a note naming the peer that holds the project and the
   `ralphctl sprint close` that releases it, sprint-detail's `u` appends the same reason to its
   toast, and the Sprints list's bulk `u` counts how many sprints stayed closed instead of
-  reporting N/N. Two sprints of one project can never both hold the working tree — their repo locks
+  reporting N/N. Whenever an unblock does reopen a sprint, the CLI and the TUI toast say so
+  (`done → active`). A reopen that fails for any other reason (the sprint can't be read or saved)
+  fails the unblock and leaves the task blocked, so a plain retry works. Unblocking a task that is
+  already `todo` never reopens a closed sprint — nothing is revived, so the close stands. Two sprints of one project can never both hold the working tree — their repo locks
   key on the sprint directory, not the project, so they would not mutually exclude.
 
 - **Prompt templates reworked against Anthropic's prompt-engineering guidance.** New shared
@@ -145,7 +151,11 @@ to [Semantic Versioning](https://semver.org/).
   operator unblocked (which archives the very attempts that waiver keyed on), failed the launch
   before the menu that would have resolved it ever appeared. The hard gate is gone and the menu now
   runs before the setup script, right after branch resolution: every question the run has for you is
-  asked up front, and the multi-minute setup script runs against a tree you already settled.
+  asked up front, and the multi-minute setup script runs against a tree you already settled. If the
+  setup script itself changes the tree (a rewritten lockfile, generated files that aren't ignored),
+  the same menu comes back for those changes, naming the script — otherwise they would have been
+  swept into the first task's commit. A setup script that leaves the tree alone adds no prompt, and
+  changes you already chose to keep aren't asked about again.
 
 - **Sprint detail's lower half is reachable again on a normal-height terminal.** The view hands
   ↑/↓ to its own card cursor, which left the page itself with no keyboard scroll at all — so on
@@ -197,7 +207,9 @@ to [Semantic Versioning](https://semver.org/).
   path also keeps the task's worktree branch ref alive instead of deleting it whenever the task
   ends blocked or the branch never completed its fold — a Ctrl-C landing between a task settling
   `done` and its fold used to delete the very ref holding that task's unfolded, already-verified
-  commits. The kept ref is a recovery window, not permanence: the next launch of that task
+  commits. That holds even when Ctrl-C lands after the block is saved but before the task's chain
+  has finished: the teardown checks the task's saved state before removing the worktree, and leaves
+  the worktree on disk when that state can't be read. The kept ref is a recovery window, not permanence: the next launch of that task
   force-deletes it. Past that point a blocked task's commit SHA is still in `tasks.json` (an
   unblock archives it into `retiredAttempts`) and on `progress.md`'s `- Commit:` line; an
   interrupted fold's SHA survives on `progress.md` only, because the run's epilogue resets that
@@ -215,9 +227,11 @@ to [Semantic Versioning](https://semver.org/).
   diff from a blocked attempt could not be re-applied cleanly, git had already written the
   conflicted, marker-laden merge into the working tree while the harness logged that the retry
   would start from a clean tree and carried on — so the next verify read the markers as a broken
-  baseline and the following commit could contain them. A conflicting restore is now detected and
-  the tree is reset to its pre-restore state; the diff stays in the stash, recoverable under the
-  same message.
+  baseline and the following commit could contain them. The diff is now only restored onto a clean
+  tree, and a restore that fails is undone back to that clean state; the diff stays in the stash,
+  recoverable under the same message. On a tree that already has changes (kept at the dirty-tree
+  prompt, say) the diff is left in its stash with a warning naming it, rather than risk an undo that
+  would wipe those changes too.
 
 - **Resuming a parallel implement run no longer silently does nothing.** A dependent task whose
   prerequisite had already settled `done` in an earlier session read as a dangling dependency once
@@ -250,7 +264,10 @@ to [Semantic Versioning](https://semver.org/).
   signal fails validation for the whole `signals.json`, so a fully approved plan, ideate,
   readiness or evaluation session was silently discarded. The iterative-review skill now points
   at whichever blocked/note signal the flow it was loaded into actually accepts, and all three
-  qualify `task-complete` and `decision` as generator-role kinds. A compatibility test now checks
+  qualify `task-complete` and `decision` as generator-role kinds. Skills that suggested writing a
+  `note` now do so only when the active output contract accepts one — the best-of-N judge turn,
+  which runs with the same skills mounted, accepts only its verdict, and a coached `note` there
+  silently discarded the judge's choice. A compatibility test now checks
   every bundled skill's signal mentions against the contract of every flow and turn it mounts in.
   The evaluator-checkpoint and decisions prompt partials now show a real ISO-8601 timestamp
   instead of a `<ISO-8601 timestamp>` placeholder, so a model copying the block verbatim writes a

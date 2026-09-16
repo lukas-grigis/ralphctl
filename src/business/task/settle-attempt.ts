@@ -1,18 +1,17 @@
 import { Result } from '@src/domain/result.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
-import type { TaskBlockedEvent } from '@src/business/observability/events.ts';
 import type { Logger, LogMeta } from '@src/business/observability/logger.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { AbortCause, AbortMetadata, AttemptUsage, AttemptWarning } from '@src/domain/entity/attempt.ts';
 import type { UpdateTask } from '@src/domain/repository/task/update-task.ts';
 import type { BlockedTask, DoneTask, FaultSide, InProgressTask } from '@src/domain/entity/task.ts';
+import { publishTaskBlocked } from '@src/business/task/publish-task-blocked.ts';
 import { recordRunningAttemptUsage, recordRunningAttemptWarning } from '@src/domain/entity/task-attempts.ts';
 import { failCurrentAttempt, markTaskDone } from '@src/domain/entity/task-settle.ts';
 import { applyCriteriaVerdicts } from '@src/domain/entity/task-criteria.ts';
 import { classifyBlock, markTaskBlocked } from '@src/domain/entity/task-lifecycle.ts';
 import type { CriterionVerdict, TaskBlockerClass } from '@src/domain/signal.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
-import { sanitizeDisplayText } from '@src/domain/value/display-text.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import type { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
 import type { StorageError } from '@src/domain/value/error/storage-error.ts';
@@ -101,7 +100,7 @@ export interface SettleAttemptProps {
   readonly clock: () => IsoTimestamp;
   readonly logger: Logger;
   /**
-   * Publishes {@link TaskBlockedEvent} the moment this use case persists a task as `blocked` —
+   * Publishes `TaskBlockedEvent` the moment this use case persists a task as `blocked` —
    * see {@link publishTaskBlocked}. Optional so existing callers (and every test that doesn't
    * care about notifications) keep working unchanged; omitted → the settle still happens, it
    * just stays as silent as it was before this event existed.
@@ -139,40 +138,14 @@ const abortMetaFor = (props: Pick<SettleAttemptProps, 'abortCause' | 'signalOrEx
   ...(props.signalOrExitCode !== undefined ? { signalOrExitCode: props.signalOrExitCode } : {}),
 });
 
-/** The first newline-delimited line of `text` — a banner/notification-sized summary, never the
- * full multi-line `blockedReason` (which can carry a quarantine-stash pointer on later lines). */
-const firstLine = (text: string): string => text.split('\n', 1)[0] ?? text;
-
 /**
- * Display budget for the event's two text fields. Every subscriber renders them on one short line
- * (the TUI attention banner, the OS notification body), so the clamp belongs here — at the single
- * producer — rather than being re-derived by each of them.
+ * Publish the operator-attention event for a settle that landed in `blocked` (see
+ * `publishTaskBlocked`). A no-op for every other outcome and for callers that wired no bus — kept
+ * as one guarded call so the use case's happy path reads as a single line, not a branch.
  */
-const EVENT_TEXT_MAX_CHARS = 200;
-
-/**
- * Publish {@link TaskBlockedEvent} for a task that just settled into `blocked`, so
- * `notification-subscriber`'s `classify()` can raise the operator-attention banner / OS
- * notification. A no-op when no `eventBus` was wired (legacy / test callers) or when the settled
- * task isn't actually blocked — kept as a single guarded call so the use case's happy path below
- * reads as one line, not a branch.
- *
- * `taskName` is planner-authored and `blockedReason` generator-authored — both come off a model
- * that has read the target repository, and both land on an operator's terminal (and, via the
- * notification dispatcher, in an OS notification). {@link sanitizeDisplayText} at this single
- * producer means no subscriber has to remember to do it.
- */
-const publishTaskBlocked = (eventBus: EventBus | undefined, task: SettleAttemptOutput, at: IsoTimestamp): void => {
+const announceIfBlocked = (eventBus: EventBus | undefined, task: SettleAttemptOutput, at: IsoTimestamp): void => {
   if (eventBus === undefined || task.status !== 'blocked') return;
-  const event: TaskBlockedEvent = {
-    type: 'task-blocked',
-    taskId: String(task.id),
-    taskName: sanitizeDisplayText(task.name, EVENT_TEXT_MAX_CHARS),
-    blockKind: task.blockKind,
-    reason: sanitizeDisplayText(firstLine(task.blockedReason), EVENT_TEXT_MAX_CHARS),
-    at,
-  };
-  eventBus.publish(event);
+  publishTaskBlocked(eventBus, task, at);
 };
 
 /** Structured detail for the entry-point log line; kept out of the use case's own branch budget. */
@@ -385,7 +358,7 @@ export const settleAttemptUseCase = async (
     ...(folded.status === 'blocked' ? { blockCause: folded.blockCause, faultSide: folded.faultSide } : {}),
   });
   // Only once the block is durable (persisted above) does the operator-facing notification fire —
-  // see `publishTaskBlocked`. No-ops for every non-blocked outcome and for callers with no bus.
-  publishTaskBlocked(props.eventBus, folded, now);
+  // see `announceIfBlocked`.
+  announceIfBlocked(props.eventBus, folded, now);
   return Result.ok(folded);
 };

@@ -19,19 +19,22 @@ const TASK_ID = 'task-1' as TaskId;
  * caller wants to test — real git never renders the bare message (see the `On <branch>: ` tests
  * below), so callers proving the production shape must supply that prefix themselves.
  *
- * `unmerged` scripts the post-pop conflict probe (`git diff --name-only --diff-filter=U`): a
- * non-empty list is what real git leaves behind when a pop CONFLICTS — it half-applies the merge
- * into the working tree and keeps the stash entry. Default empty, i.e. the "git refused before
- * applying anything" shape.
+ * `git status` is the tree probe, and it answers from two scripts: `dirtyBefore` until a pop has
+ * run, `dirtyAfter` once one has. Both default to empty (a clean tree). A conflicted pop leaves
+ * `UU` entries behind — git half-applies the merge and keeps the stash entry — while a pop git
+ * refused can still leave plain ` M` / `??` entries, because it applies part of the stash first.
  */
 const fakeGit = (opts?: {
   stashed?: string[];
   popFails?: boolean;
   listFails?: boolean;
-  unmerged?: string[];
-  probeFails?: boolean;
+  dirtyBefore?: string[];
+  dirtyAfter?: string[];
+  probeFailsBefore?: boolean;
+  probeFailsAfter?: boolean;
 }): { runner: GitRunner; calls: string[][] } => {
   const calls: string[][] = [];
+  let popRan = false;
   const runner: GitRunner = {
     async run(_cwd, args) {
       calls.push([...args]);
@@ -40,12 +43,15 @@ const fakeGit = (opts?: {
         return Result.ok({ stdout: (opts?.stashed ?? []).join('\n'), stderr: '', exitCode: 0 });
       }
       if (args[0] === 'stash' && args[1] === 'pop') {
+        popRan = true;
         if (opts?.popFails === true) return Result.ok({ stdout: '', stderr: 'merge conflict', exitCode: 1 });
         return Result.ok({ stdout: '', stderr: '', exitCode: 0 });
       }
-      if (args[0] === 'diff' && args[2] === '--diff-filter=U') {
-        if (opts?.probeFails === true) return Result.ok({ stdout: '', stderr: 'not a git repo', exitCode: 128 });
-        return Result.ok({ stdout: (opts?.unmerged ?? []).join('\n'), stderr: '', exitCode: 0 });
+      if (args[0] === 'status') {
+        const fails = popRan ? opts?.probeFailsAfter : opts?.probeFailsBefore;
+        if (fails === true) return Result.ok({ stdout: '', stderr: 'not a git repo', exitCode: 128 });
+        const lines = (popRan ? opts?.dirtyAfter : opts?.dirtyBefore) ?? [];
+        return Result.ok({ stdout: lines.join('\n'), stderr: '', exitCode: 0 });
       }
       return Result.ok({ stdout: '', stderr: '', exitCode: 0 });
     },
@@ -54,6 +60,8 @@ const fakeGit = (opts?: {
 };
 
 const didReset = (calls: string[][]): boolean => calls.some((c) => c[0] === 'reset' && c[1] === '--hard');
+const didPop = (calls: string[][]): boolean => calls.some((c) => c[0] === 'stash' && c[1] === 'pop');
+const probeCount = (calls: string[][]): number => calls.filter((c) => c[0] === 'status').length;
 
 const ctx: ImplementCtx = { sprintId: SPRINT_ID };
 
@@ -120,7 +128,7 @@ describe('restoreBlockedDiffLeaf', () => {
     expect(out.ok).toBe(true);
   });
 
-  it('a CONFLICTED pop resets the tree — the half-applied merge never reaches the next commit', async () => {
+  it('a CONFLICTED pop on a clean tree resets it — the half-applied merge never reaches the next commit', async () => {
     // Regression: a non-zero `git stash pop` was swallowed with 'retry will start from a clean
     // tree', but on a content conflict git has already written the `<<<<<<<`-marked merge into the
     // working tree (and kept the stash entry). Left there, `pre-task-verify` reads it as a red
@@ -131,7 +139,7 @@ describe('restoreBlockedDiffLeaf', () => {
     const { runner, calls } = fakeGit({
       stashed: [`On main: ${message}`],
       popFails: true,
-      unmerged: ['src/a.ts', 'src/b.ts'],
+      dirtyAfter: ['UU src/a.ts', 'UU src/b.ts'],
     });
     const el = restoreBlockedDiffLeaf(
       { gitRunner: runner, logger: noopLogger },
@@ -143,19 +151,38 @@ describe('restoreBlockedDiffLeaf', () => {
 
     // Still best-effort — the attempt proceeds, just from the pre-pop tree.
     expect(out.ok).toBe(true);
-    // The probe ran, then the reset: `reset --hard HEAD` plus the `clean -fd` that also drops the
-    // untracked files a `-u` stash restores.
-    expect(calls.some((c) => c[0] === 'diff' && c[2] === '--diff-filter=U')).toBe(true);
+    // Probed before the pop and after it, then reset: `reset --hard HEAD` plus the `clean -fd`
+    // that also drops the untracked files a `-u` stash restores.
+    expect(probeCount(calls)).toBe(2);
     expect(didReset(calls)).toBe(true);
     expect(calls.some((c) => c[0] === 'clean' && c[1] === '-fd')).toBe(true);
   });
 
-  it('a pop that failed WITHOUT conflicting leaves the tree alone — no reset', async () => {
-    // 'Your local changes would be overwritten' and friends: git refuses before applying anything,
-    // so the tree is exactly as this leaf found it. Resetting there would destroy work the leaf
-    // never put at risk — hence the unmerged-path gate rather than a blind reset.
+  it('a failed pop that still changed a clean tree resets it — git applies part of a stash it reports as refused', async () => {
+    // No unmerged path anywhere, yet the tree moved: an untracked-file collision still lands the
+    // stash's tracked changes before git gives up. The tree was clean before the pop, so every
+    // change the probe sees now is the pop's.
     const message = quarantineStashMessage(SPRINT_ID, TASK_ID);
-    const { runner, calls } = fakeGit({ stashed: [`On main: ${message}`], popFails: true, unmerged: [] });
+    const { runner, calls } = fakeGit({
+      stashed: [`On main: ${message}`],
+      popFails: true,
+      dirtyAfter: [' M src/a.ts'],
+    });
+    const el = restoreBlockedDiffLeaf(
+      { gitRunner: runner, logger: noopLogger },
+      { cwd: absolutePath('/repos/main') },
+      TASK_ID
+    );
+
+    const out = await el.execute(ctx);
+
+    expect(out.ok).toBe(true);
+    expect(didReset(calls)).toBe(true);
+  });
+
+  it('a failed pop that left the tree clean needs no undo — no reset', async () => {
+    const message = quarantineStashMessage(SPRINT_ID, TASK_ID);
+    const { runner, calls } = fakeGit({ stashed: [`On main: ${message}`], popFails: true, dirtyAfter: [] });
     const el = restoreBlockedDiffLeaf(
       { gitRunner: runner, logger: noopLogger },
       { cwd: absolutePath('/repos/main') },
@@ -168,9 +195,9 @@ describe('restoreBlockedDiffLeaf', () => {
     expect(didReset(calls)).toBe(false);
   });
 
-  it('a failed conflict probe does not reset either — the tree state is unknown', async () => {
+  it('a failed probe after the pop does not reset — the tree state is unknown', async () => {
     const message = quarantineStashMessage(SPRINT_ID, TASK_ID);
-    const { runner, calls } = fakeGit({ stashed: [`On main: ${message}`], popFails: true, probeFails: true });
+    const { runner, calls } = fakeGit({ stashed: [`On main: ${message}`], popFails: true, probeFailsAfter: true });
     const el = restoreBlockedDiffLeaf(
       { gitRunner: runner, logger: noopLogger },
       { cwd: absolutePath('/repos/main') },
@@ -181,6 +208,61 @@ describe('restoreBlockedDiffLeaf', () => {
 
     expect(out.ok).toBe(true);
     expect(didReset(calls)).toBe(false);
+  });
+
+  it('leaves the stash alone when the tree already holds uncommitted work — the undo could not tell that work from the pop', async () => {
+    // Work that sits in no stash — changes the operator kept at preflight, a test the reproduce step
+    // just wrote — would go down with a `reset --hard` + `clean -fd` if the pop then failed. So a
+    // dirty tree is never popped onto: the diff stays recoverable under its message instead.
+    const message = quarantineStashMessage(SPRINT_ID, TASK_ID);
+    const { runner, calls } = fakeGit({
+      stashed: [`On main: ${message}`],
+      dirtyBefore: [' M notes.md', '?? scratch.txt'],
+      popFails: true,
+      dirtyAfter: ['UU src/a.ts', ' M notes.md', '?? scratch.txt'],
+    });
+    const el = restoreBlockedDiffLeaf(
+      { gitRunner: runner, logger: noopLogger },
+      { cwd: absolutePath('/repos/main') },
+      TASK_ID
+    );
+
+    const out = await el.execute(ctx);
+
+    expect(out.ok).toBe(true);
+    expect(didPop(calls)).toBe(false);
+    expect(didReset(calls)).toBe(false);
+  });
+
+  it('a failed probe before the pop skips the restore — no pop, no reset', async () => {
+    const message = quarantineStashMessage(SPRINT_ID, TASK_ID);
+    const { runner, calls } = fakeGit({ stashed: [`On main: ${message}`], probeFailsBefore: true });
+    const el = restoreBlockedDiffLeaf(
+      { gitRunner: runner, logger: noopLogger },
+      { cwd: absolutePath('/repos/main') },
+      TASK_ID
+    );
+
+    const out = await el.execute(ctx);
+
+    expect(out.ok).toBe(true);
+    expect(didPop(calls)).toBe(false);
+    expect(didReset(calls)).toBe(false);
+  });
+
+  it('never probes the tree when there is nothing to restore', async () => {
+    // The common case stays at one git call — the e2e scripted runners count `status` calls.
+    const { runner, calls } = fakeGit({ stashed: [] });
+    const el = restoreBlockedDiffLeaf(
+      { gitRunner: runner, logger: noopLogger },
+      { cwd: absolutePath('/repos/main') },
+      TASK_ID
+    );
+
+    const out = await el.execute(ctx);
+
+    expect(out.ok).toBe(true);
+    expect(calls).toStrictEqual([['stash', 'list', '--format=%s']]);
   });
 
   it('a CLEAN pop never resets — the restored diff is exactly what the retry is meant to build on', async () => {
@@ -195,9 +277,9 @@ describe('restoreBlockedDiffLeaf', () => {
     const out = await el.execute(ctx);
 
     expect(out.ok).toBe(true);
-    expect(calls.some((c) => c[0] === 'stash' && c[1] === 'pop')).toBe(true);
-    // Neither the probe nor the reset runs on the happy path.
-    expect(calls.some((c) => c[0] === 'diff')).toBe(false);
+    expect(didPop(calls)).toBe(true);
+    // Only the pre-pop probe runs on the happy path — no post-pop probe, no reset.
+    expect(probeCount(calls)).toBe(1);
     expect(didReset(calls)).toBe(false);
   });
 });

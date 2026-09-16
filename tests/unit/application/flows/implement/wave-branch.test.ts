@@ -27,7 +27,7 @@ import {
   type BuildWaveBranchesDeps,
 } from '@src/application/flows/implement/wave-branch.ts';
 
-import { absolutePath, makeDoneTask, makePlannedSprint, makeTodoTask } from '@tests/fixtures/domain.ts';
+import { absolutePath, FIXED_LATER, makeDoneTask, makePlannedSprint, makeTodoTask } from '@tests/fixtures/domain.ts';
 
 // ── createFoldQueue ─────────────────────────────────────────────────────────────────────────
 
@@ -123,6 +123,7 @@ const makeBranchDeps = (
   implement: {
     gitRunner: runner,
     logger: noopLogger,
+    clock: () => FIXED_LATER,
     ...(shellScriptRunner !== undefined ? { shellScriptRunner } : {}),
   } as unknown as ImplementDeps,
   eventBus,
@@ -183,6 +184,8 @@ const baseCtx = (tasks: readonly Task[]): ImplementCtx => {
   return { sprintId: sprint.id, sprint, tasks };
 };
 
+const taskBlockedEvents = (events: readonly AppEvent[]): AppEvent[] => events.filter((e) => e.type === 'task-blocked');
+
 describe('buildWorktreeBranch — happy path', () => {
   it('sets up the worktree, runs the subchain on the worktree repo, folds the done task, and cleans up', async () => {
     const task = makeTodoTask();
@@ -234,7 +237,8 @@ describe('buildWorktreeBranch — fold conflict → blocked', () => {
     const task = makeTodoTask();
     const done: Task = { ...makeDoneTask(), id: task.id };
     const { runner, calls } = fakeGit({ foldConflict: true });
-    const deps = makeBranchDeps(runner, stubBus([]));
+    const events: AppEvent[] = [];
+    const deps = makeBranchDeps(runner, stubBus(events));
     const wt = worktreePathFor(absolutePath('/data/sprints/s1'), task.id);
 
     const branch = buildWorktreeBranch(deps, repo, task, wt, 'ref', PROGRESS, settlingSubchain(task.id, done));
@@ -247,6 +251,31 @@ describe('buildWorktreeBranch — fold conflict → blocked', () => {
     expect(settled?.status).toBe('blocked');
     // Cleanup ran even on the conflict path.
     expect(calls.some((c) => c[0] === 'worktree' && c[1] === 'remove')).toBe(true);
+    // The operator is told about the block exactly once.
+    expect(taskBlockedEvents(events)).toStrictEqual([
+      {
+        type: 'task-blocked',
+        taskId: String(task.id),
+        taskName: done.name,
+        blockKind: 'own',
+        reason: expect.stringMatching(/^fold conflict — worktree branch 'ref' could not land/),
+        at: FIXED_LATER,
+      },
+    ]);
+  });
+
+  it('announces nothing when the fold lands cleanly', async () => {
+    const task = makeTodoTask();
+    const done: Task = { ...makeDoneTask(), id: task.id };
+    const events: AppEvent[] = [];
+    const deps = makeBranchDeps(fakeGit().runner, stubBus(events));
+    const wt = worktreePathFor(absolutePath('/data/sprints/s1'), task.id);
+
+    const branch = buildWorktreeBranch(deps, repo, task, wt, 'ref', PROGRESS, settlingSubchain(task.id, done));
+    const { status } = await runBranch(branch, baseCtx([task]));
+
+    expect(status).toBe('completed');
+    expect(taskBlockedEvents(events)).toHaveLength(0);
   });
 });
 
@@ -364,7 +393,8 @@ describe('buildWorktreeBranch — per-worktree setup script', () => {
     const done: Task = { ...makeDoneTask(), id: task.id };
     const { runner, calls } = fakeGit();
     const shell = fakeShell(okShell(true));
-    const deps = makeBranchDeps(runner, stubBus([]), shell.runner);
+    const events: AppEvent[] = [];
+    const deps = makeBranchDeps(runner, stubBus(events), shell.runner);
     const wt = worktreePathFor(absolutePath('/data/sprints/s1'), task.id);
 
     const branch = buildWorktreeBranch(deps, repoWithSetup, task, wt, 'ref', PROGRESS, settlingSubchain(task.id, done));
@@ -379,6 +409,7 @@ describe('buildWorktreeBranch — per-worktree setup script', () => {
     expect(shell.calls[0]!.script).toBe('pnpm install');
     // The fold still ran because the task settled `done`.
     expect(calls.some((c) => c[0] === 'merge' && c[1] === '--ff-only')).toBe(true);
+    expect(taskBlockedEvents(events)).toHaveLength(0);
   });
 
   it('threads the chain abort signal into the setup-script runner (prompt Ctrl-C kill, not timeout)', async () => {
@@ -412,7 +443,8 @@ describe('buildWorktreeBranch — per-worktree setup script', () => {
         return Result.ok({ ctx, trace: [] });
       },
     });
-    const deps = makeBranchDeps(runner, stubBus([]), shell.runner);
+    const events: AppEvent[] = [];
+    const deps = makeBranchDeps(runner, stubBus(events), shell.runner);
     const wt = worktreePathFor(absolutePath('/data/sprints/s1'), task.id);
 
     const branch = buildWorktreeBranch(deps, repoWithSetup, task, wt, 'ref', PROGRESS, trackingSubchain);
@@ -426,6 +458,17 @@ describe('buildWorktreeBranch — per-worktree setup script', () => {
     expect(bodyRan).toBe(false); // subchain skipped — never ran in an unprepared worktree
     expect(calls.some((c) => c[0] === 'merge')).toBe(false); // no fold for a blocked task
     expect(calls.some((c) => c[0] === 'worktree' && c[1] === 'remove')).toBe(true); // cleanup ran
+    // The operator is told about the block exactly once.
+    expect(taskBlockedEvents(events)).toStrictEqual([
+      {
+        type: 'task-blocked',
+        taskId: String(task.id),
+        taskName: task.name,
+        blockKind: 'own',
+        reason: 'worktree setup script failed (exit 1) — the task could not be prepared in its isolated worktree',
+        at: FIXED_LATER,
+      },
+    ]);
   });
 
   it('blocks the task when setupScript cannot even spawn (Result.error)', async () => {

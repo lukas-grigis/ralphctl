@@ -18,6 +18,7 @@ import { glyphs } from '@src/application/ui/tui/theme/tokens.ts';
 import { createTicketRemoveFlow } from '@src/application/flows/remove-ticket/flow.ts';
 import type { TicketRemoveDeps } from '@src/application/flows/remove-ticket/deps.ts';
 import type { UnblockTask } from '@src/application/ui/tui/runtime/use-unblock-task.ts';
+import type { UnblockTaskOutput } from '@src/business/task/unblock-task.ts';
 import { runEdit } from '@src/application/ui/tui/views/sprint-detail-internals/field-editors.ts';
 import type { FocusModel } from '@src/application/ui/tui/views/sprint-detail-internals/detail-body.tsx';
 
@@ -31,16 +32,35 @@ interface RunUnblockArgs {
 }
 
 /**
+ * The `u` toast for one unblocked task. Unblocking on a settled sprint normally REOPENS it
+ * (`done` → `review` → `active`, or `review` → `active`), and that state change is named here —
+ * `UnblockTaskOutput.sprintReopened` — so a closed sprint never comes back open without the
+ * operator seeing it. When the single-active-per-project check refused that reopen,
+ * `UnblockTaskOutput.sprintReopenConflict` carries the reason instead; it is appended the same way
+ * the CLI prints its `note:` line (`ui/cli/commands/task.ts`), so this surface never goes silent
+ * about a sprint that stayed closed.
+ */
+const unblockedToast = (name: string, out: UnblockTaskOutput): string => {
+  const head = `unblocked "${name}"`;
+  const conflict = out.sprintReopenConflict;
+  // The task IS revived, but its sprint stayed closed — so this is not a plain success. Lead
+  // with the warning glyph rather than `✓`: the operator has to act on this (close the peer,
+  // then `sprint reopen`), and a tick in front of "cannot reopen" reads as "all done".
+  if (conflict !== undefined) return `${glyphs.warningGlyph} ${head} ${glyphs.emDash} ${conflict.message}`;
+  const reopened = out.sprintReopened;
+  if (reopened === undefined) return `${glyphs.check} ${head}`;
+  const hop = `sprint reopened ${reopened.from} ${glyphs.arrowRight} ${reopened.sprint.status}`;
+  // Stopped short of `active` (the second hop failed to persist), implement still can't run it.
+  return reopened.sprint.status === 'active'
+    ? `${glyphs.check} ${head} ${glyphs.emDash} ${hop}`
+    : `${glyphs.warningGlyph} ${head} ${glyphs.emDash} ${hop}, not active`;
+};
+
+/**
  * Run the unblock use case (via the shared `useUnblockTask` hook) for one stuck task (the `u`
  * chord) and thread the result to feedback + reload. `mountedRef` guards the post-await writes —
  * dismissing the confirm overlay (or firing `u`) unblocks the router, so the operator can
  * navigate away (unmounting the view) before the awaited use-case resolves.
- *
- * Unblocking on a `done` sprint normally REOPENS it (`done` → `review` → `active`), so a bare
- * success toast would imply the revived task is runnable again. When the single-active-per-project
- * check refused that reopen, `UnblockTaskOutput.sprintReopenConflict` carries the reason — it is
- * appended here the same way the CLI prints its `note:` line (`ui/cli/commands/task.ts`), so this
- * surface never goes silent about a sprint that stayed closed.
  */
 const runUnblock = async (args: RunUnblockArgs): Promise<void> => {
   const { target, sprintId, unblockTask, mountedRef, setFeedback, reload } = args;
@@ -50,16 +70,7 @@ const runUnblock = async (args: RunUnblockArgs): Promise<void> => {
     return;
   }
   if (!mountedRef.current) return;
-  const conflict = r.value.sprintReopenConflict;
-  if (conflict !== undefined) {
-    // The task IS revived, but its sprint stayed closed — so this is not a plain success. Lead
-    // with the warning glyph rather than `✓`: the operator has to act on this (close the peer,
-    // or `sprint reopen` later), and a tick in front of "cannot reopen" reads as "all done".
-    setFeedback(`${glyphs.warningGlyph} unblocked "${target.name}" ${glyphs.emDash} ${conflict.message}`);
-    reload();
-    return;
-  }
-  setFeedback(`${glyphs.check} unblocked "${target.name}"`);
+  setFeedback(unblockedToast(target.name, r.value));
   reload();
 };
 

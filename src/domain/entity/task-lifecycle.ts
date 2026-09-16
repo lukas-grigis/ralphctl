@@ -66,7 +66,14 @@ export const inferBlockCause = (
   if (reason.startsWith('AI process repeatedly crashed')) return BUDGET_EXHAUSTED_BLOCK_CAUSE;
   if (reason.startsWith('fold conflict')) return 'fold-conflict';
   if (reason.startsWith('worktree setup script failed')) return 'worktree-setup-failure';
-  if (reason.includes('broken baseline') || reason.includes('baseline already red')) return 'pre-verify-red';
+  // Anchored to `pre-task-verify-internals/verify-execution.ts`'s two exact literals
+  // (`'baseline already red at task start …'`, `'operator skipped task on broken baseline'`)
+  // rather than a bare `.includes('broken baseline')` — the latter matched ANY reason text that
+  // merely mentions a broken baseline, including a generator self-block whose prose happens to
+  // describe one (e.g. "the integration suite has a broken baseline on CI").
+  if (reason.startsWith('baseline already red') || reason.startsWith('operator skipped task on broken baseline')) {
+    return 'pre-verify-red';
+  }
   if (reason.startsWith('verify script')) return 'post-verify-regression';
   // Anchored to `cancel-active-task.ts` / the TUI cancel handler's exact literal (`'user cancel'`)
   // rather than a bare `.includes('cancel')` — the latter matched a self-block reason that merely

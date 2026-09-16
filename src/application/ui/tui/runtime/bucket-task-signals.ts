@@ -394,23 +394,70 @@ export const isInFlightBucket = (bucket: { readonly status: TaskBucketStatus }):
   bucket.status === 'running' || bucket.status === 'pending';
 
 /**
+ * The shape `unblockTask` (`domain/entity/task-lifecycle.ts`) leaves on a task that has already
+ * run: back on `todo` with an empty live attempt ledger and the run it just cleared archived
+ * under `retiredAttempts`. A task that traced all the way to its terminal leaf always started
+ * at least one attempt, so its unblock always archives one.
+ *
+ * `todo` alone is not enough. A task fast enough to run start to finish between two polls (the
+ * scripted demo has no pacing) can finish while the snapshot still holds its pre-run `todo`.
+ * That snapshot has no retired run, unless an earlier session already unblocked the task. That
+ * leftover case only shows `pending` for one poll interval.
+ */
+const isRevivedAfterRun = (task: Task): boolean =>
+  task.status === 'todo' && task.attempts.length === 0 && (task.retiredAttempts?.length ?? 0) > 0;
+
+/**
+ * Reconcile one trace-derived bucket with the polled entity sets. The trace's own settled
+ * verdicts win outright: a chain-level `failed`/`aborted` (an abort landing mid-subchain outranks
+ * a settle that happened to complete after it) and the dependency gate's `blocked` (the gate
+ * decides in milliseconds, far inside the poll lag, so a `todo` snapshot there is usually stale).
+ */
+const reconcileBucket = (
+  task: TaskBucket,
+  blockedIds: ReadonlySet<string>,
+  revivedIds: ReadonlySet<string>
+): TaskBucket => {
+  if (task.status === 'blocked' || task.status === 'failed' || task.status === 'aborted') return task;
+  if (blockedIds.has(task.id)) return { ...task, status: 'blocked' };
+  if (task.status !== 'completed' || !revivedIds.has(task.id)) return task;
+  // Drop the finished run's duration. On a pending card it would read as time spent waiting,
+  // and `bucketTaskSignals` never puts a duration on a `pending` bucket either.
+  const { durationMs: _finishedRunDuration, ...rest } = task;
+  void _finishedRunDuration;
+  return { ...rest, status: 'pending' };
+};
+
+/**
  * Correct the trace-only blind spot the module docstring names: a task blocked on its own merits
  * (budget exhausted, red post-task-verify, generator self-block) leaves an all-`completed` trace
  * indistinguishable from a genuine pass, because `settleAttemptUseCase` records the block on the
- * task ENTITY, not on the chain. This overlays that entity truth back onto the bucket — any bucket
- * whose id names a polled `blocked` task entity is stamped `blocked` here, UNLESS the trace already
- * recorded something that must win: a chain-level `failed`/`aborted` (an abort landing mid-subchain
- * outranks a settle that happened to complete after it), or the trace's own dependency-gate
- * `blocked` (already correct, nothing to overlay).
+ * task ENTITY, not on the chain. This overlays that entity truth back onto the bucket.
+ *
+ * For a bucket the trace says is `completed`, the polled entity status overrides it like this:
+ *
+ *  - `blocked`     → `blocked`. The own-failure block above. The same stamp applies to a
+ *    `running`/`pending` bucket whose entity already reads blocked.
+ *  - `todo` after an unblock (see {@link isRevivedAfterRun}) → `pending`. The operator pressed `u`
+ *    after the run settled, so the task is waiting for a re-run. Left on the trace's verdict,
+ *    the card, the done/total count and the sidebar minimap would all count it as done.
+ *  - `in_progress` → trace wins (`completed`). The poll lags the trace by up to 3 s:
+ *    `start-attempt` persists `in_progress` and `settle-attempt` persists the final status
+ *    before the terminal leaf runs. So a task that just finished can read `in_progress` for one
+ *    poll. `unblockTask` never produces `in_progress`, so this is always that lag.
+ *  - `done`        → trace wins (`completed`). The entity agrees.
+ *
+ * Buckets the trace already settled as `failed`/`aborted`/`blocked` are never touched (see
+ * {@link reconcileBucket}).
  *
  * Callers apply this at every boundary where a trace-derived `BucketedExecution` meets the polled
  * task list, right before the result drives a status-sensitive surface — a card's glyph/status
  * word, a done/total count, the sidebar minimap. `bucketTaskSignals` itself stays pure and
  * trace-only (see the module docstring); it has no entity access to do this correction itself.
  *
- * Pure and reference-stable: returns the SAME `BucketedExecution` when no task needed correcting
- * (no `taskState`, no task in it reads `blocked`, or every blocked entity's bucket already agrees),
- * so a memoized consumer downstream doesn't re-render on every 3s baseline-health poll tick.
+ * Pure and reference-stable: returns the SAME `BucketedExecution` when no task needed correcting.
+ * That covers no `taskState`, no entity blocked or revived, or every bucket already agreeing.
+ * A memoized consumer downstream then doesn't re-render on every 3 s baseline-health poll tick.
  *
  * @public
  */
@@ -420,17 +467,18 @@ export const overlayEntityBlockedStatus = (
 ): BucketedExecution => {
   if (taskState === undefined || taskState.length === 0) return bucketed;
   const blockedIds = new Set<string>();
+  const revivedIds = new Set<string>();
   for (const t of taskState) {
     if (t.status === 'blocked') blockedIds.add(String(t.id));
+    else if (isRevivedAfterRun(t)) revivedIds.add(String(t.id));
   }
-  if (blockedIds.size === 0) return bucketed;
+  if (blockedIds.size === 0 && revivedIds.size === 0) return bucketed;
 
   let changed = false;
   const tasks = bucketed.tasks.map((task) => {
-    if (task.status === 'blocked' || task.status === 'failed' || task.status === 'aborted') return task;
-    if (!blockedIds.has(task.id)) return task;
-    changed = true;
-    return { ...task, status: 'blocked' as const };
+    const reconciled = reconcileBucket(task, blockedIds, revivedIds);
+    if (reconciled !== task) changed = true;
+    return reconciled;
   });
   return changed ? { ...bucketed, tasks } : bucketed;
 };

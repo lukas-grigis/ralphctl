@@ -378,10 +378,10 @@ export const createPerTaskSubchain = (
         //
         // The parallel launcher does NOT need this in-chain leaf, but it is NOT "already isolated"
         // from the same data loss either — a worktree that ends up `blocked` still carries a rejected
-        // diff, and `wave-branch.ts`'s `cleanupWorktree` used to force-remove that worktree with
-        // nothing quarantined first. `wave-branch.ts`'s `withWorktree` now calls the SAME underlying
+        // diff, and the parallel teardown used to force-remove that worktree with nothing
+        // quarantined first. `worktree-teardown.ts`'s `teardownWorktree` now calls the SAME underlying
         // operation (`runQuarantineBlockedDiff`, factored out of this leaf in `quarantine-blocked-
-        // diff.ts`) directly from its `finally`, ahead of `git worktree remove --force`, with `cwd`
+        // diff.ts`) directly, ahead of `git worktree remove --force`, with `cwd`
         // pointed at the worktree instead of the shared tree — see that file for why a stash pushed
         // there survives the worktree's removal. Stays INSIDE the body guard + AFTER the loop so it
         // runs once per task, and BEFORE `uninstall-skills` so that leaf remains the subchain's

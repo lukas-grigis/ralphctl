@@ -122,11 +122,15 @@ const PROVIDER_NAME = 'grok-provider';
 const GROK_PROMPT_FILENAME = 'grok-prompt.md';
 
 /**
- * Stale-resume detection. A `-r <id>` naming a session the CLI no longer has locally fails with
- * "Session "…" not found locally, restoring conversation from remote..." then
- * "Failed to restore session from remote: fetching session record: session get failed: 404".
+ * Stale-resume detection. A `-r <id>` naming a session the CLI no longer has locally first emits
+ * "Session "…" not found locally, restoring conversation from remote..." — informational, since the
+ * remote restore that follows may still succeed — then, only if that restore itself fails,
+ * "Failed to restore session from remote: fetching session record: session get failed: 404". Only
+ * the second line proves the session is gone, so the first alternative below excludes the
+ * "restoring … from remote" continuation and requires the bare "not found" text instead.
  */
-const RESUME_STALE_RE = /session(?: .+)? not found|failed to restore session|session get failed: 404/i;
+const RESUME_STALE_RE =
+  /session(?: .+)? not found(?! locally, restoring)|failed to restore session|session get failed: 404/i;
 
 const TOOL_SHELL = ['run_terminal_command', 'run_terminal_cmd'] as const;
 const TOOL_NETWORK = ['web_search', 'web_fetch'] as const;

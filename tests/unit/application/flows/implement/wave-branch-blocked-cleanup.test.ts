@@ -2,27 +2,36 @@ import { describe, expect, it } from 'vitest';
 
 import { Result } from '@src/domain/result.ts';
 import { AbortError } from '@src/domain/value/error/abort-error.ts';
-import type { StorageError } from '@src/domain/value/error/storage-error.ts';
+import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
+import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import type { Task } from '@src/domain/entity/task.ts';
 import { markTaskBlocked } from '@src/domain/entity/task-lifecycle.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
+import type { TaskId } from '@src/domain/value/id/task-id.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
+import type { AppEvent } from '@src/business/observability/events.ts';
 import type { AppendFile } from '@src/business/io/append-file.ts';
-import type { UpdateTask } from '@src/domain/repository/task/update-task.ts';
+import type { TaskRepository } from '@src/domain/repository/task/task-repository.ts';
 import type { GitRunResult, GitRunner } from '@src/integration/io/git-runner.ts';
 import { createRunner } from '@src/application/chain/run/runner.ts';
+import { leaf } from '@src/application/chain/build/leaf.ts';
+import { sequential } from '@src/application/chain/build/sequential.ts';
 import type { Element, ElementResult } from '@src/application/chain/element.ts';
+import type { TraceEntry } from '@src/application/chain/trace.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import type { ImplementDeps } from '@src/application/flows/implement/deps.ts';
 import type { RepoExecConfig } from '@src/application/flows/implement/leaves/resolve-repo.ts';
 import { quarantineStashMessage } from '@src/application/flows/implement/leaves/quarantine-blocked-diff.ts';
+import { dependencyGateLeaf } from '@src/application/flows/implement/leaves/dependency-gate.ts';
+import { settleAttemptLeaf } from '@src/application/flows/implement/leaves/settle-attempt.ts';
+import { startAttemptLeaf } from '@src/application/flows/implement/leaves/start-attempt.ts';
 import {
   buildWorktreeBranch,
   createFoldQueue,
   worktreePathFor,
   type BuildWaveBranchesDeps,
 } from '@src/application/flows/implement/wave-branch.ts';
-import { absolutePath, makeDoneTask, makePlannedSprint, makeTodoTask } from '@tests/fixtures/domain.ts';
+import { absolutePath, FIXED_LATER, makeDoneTask, makePlannedSprint, makeTodoTask } from '@tests/fixtures/domain.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 
 /**
@@ -42,7 +51,10 @@ import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 const repo: RepoExecConfig = { path: absolutePath('/repos/main'), name: 'main-repo' };
 const PROGRESS = absolutePath('/tmp/sprint/progress.md');
 
-const stubBus = (): EventBus => ({ publish: () => {}, subscribe: () => () => {} });
+const stubBus = (events: AppEvent[] = []): EventBus => ({
+  publish: (e) => events.push(e),
+  subscribe: () => () => {},
+});
 
 /** Capturing AppendFile — records every (path, text) append for journal-pointer assertions. */
 const capturingAppend = (): { fn: AppendFile; appended: Array<{ path: string; text: string }> } => {
@@ -56,18 +68,38 @@ const capturingAppend = (): { fn: AppendFile; appended: Array<{ path: string; te
   };
 };
 
-/** Records every (sprintId, task) passed to `update` — the pointer-persistence side of quarantine. */
-const recordingTaskRepo = (): UpdateTask & { calls: number; saved: Task[] } => {
+type RecordingTaskRepo = TaskRepository & { calls: number; saved: Task[] };
+
+/**
+ * An in-memory task store seeded with `seed`: records every (sprintId, task) passed to `update` —
+ * the pointer-persistence side of quarantine — and serves the latest written copy from `findById`,
+ * which is what the worktree teardown reads when no settled ctx reached it. `lookup` makes that
+ * read fail (a `StorageError` result) or throw outright.
+ */
+const recordingTaskRepo = (
+  seed: readonly Task[] = [],
+  lookup: { readonly fails?: StorageError; readonly throws?: Error } = {}
+): RecordingTaskRepo => {
+  const rows = new Map<string, Task>(seed.map((t) => [String(t.id), t]));
   const state = {
     calls: 0,
     saved: [] as Task[],
     async update(_sprintId: SprintId, task: Task) {
       state.calls += 1;
       state.saved.push(task);
+      rows.set(String(task.id), task);
       return Result.ok(undefined);
     },
+    async findById(_sprintId: SprintId, taskId: TaskId) {
+      if (lookup.throws !== undefined) throw lookup.throws;
+      if (lookup.fails !== undefined) return Result.error(lookup.fails);
+      const row = rows.get(String(taskId));
+      return row !== undefined
+        ? Result.ok(row)
+        : Result.error(new NotFoundError({ entity: 'task', id: String(taskId) }));
+    },
   };
-  return state as unknown as UpdateTask & { calls: number; saved: Task[] };
+  return state as unknown as RecordingTaskRepo;
 };
 
 /**
@@ -97,9 +129,21 @@ const fakeGitRecordingCwd = (
   return { runner, calls };
 };
 
-const makeDeps = (runner: GitRunner, taskRepo: UpdateTask, appendFile: AppendFile): BuildWaveBranchesDeps => ({
-  implement: { gitRunner: runner, taskRepo, appendFile, logger: noopLogger } as unknown as ImplementDeps,
-  eventBus: stubBus(),
+const makeDeps = (
+  runner: GitRunner,
+  taskRepo: TaskRepository,
+  appendFile: AppendFile,
+  eventBus: EventBus = stubBus()
+): BuildWaveBranchesDeps => ({
+  implement: {
+    gitRunner: runner,
+    taskRepo,
+    appendFile,
+    logger: noopLogger,
+    clock: () => FIXED_LATER,
+    eventBus,
+  } as unknown as ImplementDeps,
+  eventBus,
   foldQueue: createFoldQueue(),
 });
 
@@ -264,7 +308,8 @@ describe('wave-branch worktree teardown — blocked-task quarantine + branch ret
     const git = fakeGitRecordingCwd({ foldConflict: true }); // dirty defaults false — worktree is clean.
     const taskRepo = recordingTaskRepo();
     const append = capturingAppend();
-    const deps = makeDeps(git.runner, taskRepo, append.fn);
+    const events: AppEvent[] = [];
+    const deps = makeDeps(git.runner, taskRepo, append.fn, stubBus(events));
 
     // `genEvalTurn: 2` mirrors production: the subchain ran turns and committed BEFORE the fold
     // conflict re-blocked the already-`done` task, so the zero-turn discriminant does NOT skip this
@@ -277,6 +322,11 @@ describe('wave-branch worktree teardown — blocked-task quarantine + branch ret
     const settled = ctx.tasks?.find((t) => t.id === task.id);
     expect(settled?.status).toBe('blocked');
     expect((settled as { blockedReason: string }).blockedReason).toContain('fold conflict');
+    // The fold conflict is announced exactly once, at the fold step that decided it.
+    const blockedEvents = events.filter((e) => e.type === 'task-blocked');
+    expect(blockedEvents).toHaveLength(1);
+    expect(blockedEvents[0]).toMatchObject({ taskId: String(task.id), blockKind: 'own', at: FIXED_LATER });
+    expect(blockedEvents[0]).toMatchObject({ reason: expect.stringMatching(/^fold conflict/) });
 
     expect(git.calls.some((c) => c.args[0] === 'status')).toBe(true); // the dirty-tree check ran…
     expect(git.calls.some((c) => c.args[0] === 'stash')).toBe(false); // …but found nothing to stash.
@@ -352,17 +402,18 @@ describe('wave-branch worktree teardown — blocked-task quarantine + branch ret
     expect(append.appended[0]?.path).not.toBe(String(decoyProgressFile));
   });
 
-  it('a user abort landing right after the subchain settles the task blocked STILL quarantines the dirty diff, and the AbortError still propagates', async () => {
+  it('a user abort landing between the subchain returning and the fold step STILL quarantines the dirty diff, and the AbortError still propagates', async () => {
     // Regression: on abort, the quarantine used to be skipped while `cleanupWorktree`'s force-remove ran
     // unconditionally — destroying an already-settled, already-persisted block's rejected diff for
     // no reason. `foldStep` (`worktree-fold.ts`) checks `signal?.aborted` FIRST, before it even
     // looks at the task's status, so a blocked task — which never reaches real fold work — still
     // turns the branch's OVERALL result into `Result.error(AbortError)` once the signal fires in
-    // the tail between the subchain settling and the fold step running. This fakes exactly that
-    // tail: the subchain settles the task `blocked` (one turn ran, dirty tree) and fires the abort
-    // BEFORE returning, so by the time `withWorktree`'s body reaches the fold step the signal is
-    // already set — `buildWorktreeBranch`'s `onSettled` side-channel is what lets the teardown
-    // still see the settled ctx despite that.
+    // the tail between the subchain returning and the fold step running. This fakes exactly that
+    // tail: the subchain settles the task `blocked` (one turn ran, dirty tree), fires the abort,
+    // and still returns ok — the abort landed after its last leaf's own signal check — so the
+    // teardown reads the settled ctx off `buildWorktreeBranch`'s `onSettled` side-channel. An abort
+    // landing INSIDE the subchain is a different window (the subchain itself errors); see the
+    // persisted-state tests below.
     const task = makeTodoTask();
     const ref = 'ralphctl/s1/wt-abort-blocked';
     const wt = worktreePathFor(absolutePath('/data/sprints/s1'), task.id);
@@ -427,7 +478,7 @@ describe('wave-branch worktree teardown — blocked-task quarantine + branch ret
     const ref = 'ralphctl/s1/wt-throw';
     const wt = worktreePathFor(absolutePath('/data/sprints/s1'), task.id);
     const git = fakeGitRecordingCwd();
-    const taskRepo = recordingTaskRepo();
+    const taskRepo = recordingTaskRepo([task]);
     const deps = makeDeps(git.runner, taskRepo, capturingAppend().fn);
 
     const throwingSubchain = (): Element<ImplementCtx> => ({
@@ -522,5 +573,249 @@ describe('wave-branch worktree teardown — blocked-task quarantine + branch ret
     // Nothing to quarantine — the task settled `done`, not `blocked`.
     expect(git.calls.some((c) => c.args[0] === 'stash')).toBe(false);
     expect(taskRepo.calls).toBe(0);
+  });
+});
+
+/**
+ * The abort window INSIDE the per-task subchain. The real subchain is `sequential` / `loop` all the
+ * way down, and `settle-attempt` (which persists `blocked`) is followed by more leaves —
+ * append-learnings, progress-journal, the uninstall leaves. An abort that lands in any of them makes
+ * the whole subchain return `Result.error(AbortError)`, so no settled ctx ever reaches the teardown.
+ * The persisted task is then the only record of how the task ended, and the teardown must read it
+ * before `git worktree remove --force` destroys the diff.
+ *
+ * These subchains are built from the real `sequential` / `leaf` primitives and the real
+ * start-attempt / settle-attempt / dependency-gate leaves, so they return exactly what production
+ * returns once the signal fires.
+ */
+describe('wave-branch worktree teardown — abort inside the subchain, after the block is persisted', () => {
+  const BLOCK_REASON = 'verify script failed: 3 tests red';
+
+  /** A real leaf whose use case is where the Ctrl-C lands: `leaf.ts` then reports it as aborted. */
+  const abortLandsIn = (name: string, controller: AbortController): Element<ImplementCtx> =>
+    leaf<ImplementCtx, undefined, undefined>(name, {
+      useCase: {
+        execute: async () => {
+          controller.abort();
+          return Result.ok(undefined);
+        },
+      },
+      input: () => undefined,
+      output: (ctx) => ctx,
+    });
+
+  /** Stand-in for a post-settle leaf that must never run once the abort landed. */
+  const mustNotRun = (name: string, ran: { value: boolean }): Element<ImplementCtx> => ({
+    name,
+    async execute(ctx): Promise<ElementResult<ImplementCtx>> {
+      ran.value = true;
+      return Result.ok({ ctx, trace: [] });
+    },
+  });
+
+  /** What the gen-eval loop + finalize leave on ctx for a turn that ended in a block. */
+  const turnEndedBlocked: Element<ImplementCtx> = {
+    name: 'fake-gen-eval',
+    async execute(ctx): Promise<ElementResult<ImplementCtx>> {
+      return Result.ok({
+        ctx: { ...ctx, genEvalTurn: 1, lastVerdict: 'failed', lastBlockReason: BLOCK_REASON },
+        trace: [],
+      });
+    },
+  };
+
+  const startAttempt = (taskRepo: TaskRepository, id: TaskId): Element<ImplementCtx> =>
+    startAttemptLeaf({ taskRepo, clock: () => FIXED_LATER, logger: noopLogger, eventBus: stubBus() }, id);
+
+  const collectTrace = (): { onTrace: (entry: TraceEntry) => void; entries: TraceEntry[] } => {
+    const entries: TraceEntry[] = [];
+    return { entries, onTrace: (entry) => entries.push(entry) };
+  };
+
+  const worktreeRemoved = (calls: Array<{ cwd: string; args: string[] }>): boolean =>
+    calls.some((c) => c.args[0] === 'worktree' && c.args[1] === 'remove');
+
+  it('an abort landing in a post-settle leaf still quarantines the persisted block and keeps the ref', async () => {
+    const task = makeTodoTask();
+    const ref = 'ralphctl/s1/wt-abort-post-settle';
+    const wt = worktreePathFor(absolutePath('/data/sprints/s1'), task.id);
+    const git = fakeGitRecordingCwd({ dirty: true });
+    const taskRepo = recordingTaskRepo([task]);
+    const append = capturingAppend();
+    const events: AppEvent[] = [];
+    const bus = stubBus(events);
+    const deps = makeDeps(git.runner, taskRepo, append.fn, bus);
+    const controller = new AbortController();
+    const journalRan = { value: false };
+
+    const subchain = (): Element<ImplementCtx> =>
+      sequential<ImplementCtx>(`task-${String(task.id)}`, [
+        startAttempt(taskRepo, task.id),
+        turnEndedBlocked,
+        settleAttemptLeaf(
+          { taskRepo, clock: () => FIXED_LATER, logger: noopLogger, eventBus: bus },
+          { cwd: wt },
+          task.id
+        ),
+        abortLandsIn(`append-learnings-${String(task.id)}`, controller),
+        mustNotRun(`progress-journal-${String(task.id)}`, journalRan),
+      ]);
+
+    const branch = buildWorktreeBranch(deps, repo, task, wt, ref, PROGRESS, subchain);
+    const result = await branch.execute(baseCtx([task]), controller.signal);
+
+    // The subchain really did error out mid-way — no settled ctx reached the teardown.
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.error).toBeInstanceOf(AbortError);
+    expect(journalRan.value).toBe(false);
+
+    // Quarantined from the worktree anyway, off the persisted `blocked` row.
+    const message = quarantineStashMessage(sprint.id, task.id);
+    const stashCall = git.calls.find((c) => c.args[0] === 'stash' && c.args[1] === 'push');
+    expect(stashCall?.cwd).toBe(String(wt));
+    expect(stashCall?.args).toStrictEqual(['stash', 'push', '-u', '-m', message]);
+    const lastWrite = taskRepo.saved.at(-1);
+    expect(lastWrite?.status).toBe('blocked');
+    expect((lastWrite as { blockedReason: string }).blockedReason).toContain(BLOCK_REASON);
+    expect((lastWrite as { blockedReason: string }).blockedReason).toContain(message);
+    expect(append.appended).toHaveLength(1);
+    expect(append.appended[0]?.text).toContain(message);
+
+    // The stash was pushed BEFORE the worktree was removed, and the ref survives.
+    const stashIdx = git.calls.findIndex((c) => c.args[0] === 'stash' && c.args[1] === 'push');
+    const removeIdx = git.calls.findIndex((c) => c.args[0] === 'worktree' && c.args[1] === 'remove');
+    expect(stashIdx).toBeGreaterThanOrEqual(0);
+    expect(removeIdx).toBeGreaterThan(stashIdx);
+    expect(branchDeleteCount(git.calls, ref)).toBe(1);
+
+    // Settle announced the block; the teardown's pointer write did not announce it again.
+    expect(events.filter((e) => e.type === 'task-blocked')).toHaveLength(1);
+  });
+
+  it('an abort before the task blocked quarantines nothing — the persisted task is still in progress', async () => {
+    const task = makeTodoTask();
+    const ref = 'ralphctl/s1/wt-abort-mid-attempt';
+    const wt = worktreePathFor(absolutePath('/data/sprints/s1'), task.id);
+    const git = fakeGitRecordingCwd({ dirty: true });
+    const taskRepo = recordingTaskRepo([task]);
+    const deps = makeDeps(git.runner, taskRepo, capturingAppend().fn);
+    const controller = new AbortController();
+
+    const subchain = (): Element<ImplementCtx> =>
+      sequential<ImplementCtx>(`task-${String(task.id)}`, [
+        startAttempt(taskRepo, task.id),
+        abortLandsIn(`generator-${String(task.id)}`, controller),
+      ]);
+
+    const branch = buildWorktreeBranch(deps, repo, task, wt, ref, PROGRESS, subchain);
+    const result = await branch.execute(baseCtx([task]), controller.signal);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.error).toBeInstanceOf(AbortError);
+    expect(taskRepo.saved.at(-1)?.status).toBe('in_progress');
+    expect(git.calls.some((c) => c.args[0] === 'stash')).toBe(false);
+    expect(worktreeRemoved(git.calls)).toBe(true);
+    // The fold never ran, so the ref is kept for whatever the attempt may have committed.
+    expect(branchDeleteCount(git.calls, ref)).toBe(1);
+  });
+
+  it('a block this branch reached without opening an attempt is not quarantined', async () => {
+    // The dependency gate blocks before any attempt starts, so nothing in this worktree is AI work —
+    // a dirty tree here is setup-script output, not a rejected diff.
+    const prerequisite = makeTodoTask({ name: 'prerequisite' });
+    const task = makeTodoTask({ name: 'dependent', dependsOn: [prerequisite.id] });
+    const ref = 'ralphctl/s1/wt-abort-upstream';
+    const wt = worktreePathFor(absolutePath('/data/sprints/s1'), task.id);
+    const git = fakeGitRecordingCwd({ dirty: true });
+    const taskRepo = recordingTaskRepo([prerequisite, task]);
+    const append = capturingAppend();
+    const deps = makeDeps(git.runner, taskRepo, append.fn);
+    const controller = new AbortController();
+
+    const subchain = (): Element<ImplementCtx> =>
+      sequential<ImplementCtx>(`task-${String(task.id)}`, [
+        dependencyGateLeaf({ taskRepo, logger: noopLogger }, task.id),
+        abortLandsIn(`task-runnable-${String(task.id)}`, controller),
+      ]);
+
+    const branch = buildWorktreeBranch(deps, repo, task, wt, ref, PROGRESS, subchain);
+    const result = await branch.execute(baseCtx([prerequisite, task]), controller.signal);
+
+    expect(result.ok).toBe(false);
+    expect(taskRepo.saved.at(-1)).toMatchObject({ id: task.id, status: 'blocked', blockKind: 'upstream' });
+    expect(git.calls.some((c) => c.args[0] === 'stash')).toBe(false);
+    expect(append.appended).toHaveLength(0);
+    expect(worktreeRemoved(git.calls)).toBe(true);
+    expect(branchDeleteCount(git.calls, ref)).toBe(1);
+  });
+
+  it('a failed task lookup leaves a dirty worktree on disk, and the AbortError still propagates', async () => {
+    const task = makeTodoTask();
+    const ref = 'ralphctl/s1/wt-lookup-fails';
+    const wt = worktreePathFor(absolutePath('/data/sprints/s1'), task.id);
+    const git = fakeGitRecordingCwd({ dirty: true });
+    const lookupError = new StorageError({ subCode: 'io', message: 'tasks.json unreadable' });
+    const taskRepo = recordingTaskRepo([task], { fails: lookupError });
+    const deps = makeDeps(git.runner, taskRepo, capturingAppend().fn);
+    const controller = new AbortController();
+    const trace = collectTrace();
+
+    const subchain = (): Element<ImplementCtx> =>
+      sequential<ImplementCtx>(`task-${String(task.id)}`, [abortLandsIn('uninstall-skills', controller)]);
+
+    const branch = buildWorktreeBranch(deps, repo, task, wt, ref, PROGRESS, subchain);
+    const result = await branch.execute(baseCtx([task]), controller.signal, trace.onTrace);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.error).toBeInstanceOf(AbortError);
+    // Nothing destroyed and nothing invented: no remove, no stash, no ref delete past setup's own.
+    expect(worktreeRemoved(git.calls)).toBe(false);
+    expect(git.calls.some((c) => c.args[0] === 'stash')).toBe(false);
+    expect(branchDeleteCount(git.calls, ref)).toBe(1);
+    // The skipped cleanup is visible on the trace, carrying the lookup failure.
+    const cleanup = trace.entries.find((e) => e.elementName === `worktree-cleanup-${String(task.id)}`);
+    expect(cleanup).toMatchObject({ status: 'failed', error: lookupError });
+  });
+
+  it('a task lookup that throws is handled the same way, and the original AbortError still propagates', async () => {
+    const task = makeTodoTask();
+    const ref = 'ralphctl/s1/wt-lookup-throws';
+    const wt = worktreePathFor(absolutePath('/data/sprints/s1'), task.id);
+    const git = fakeGitRecordingCwd({ dirty: true });
+    const taskRepo = recordingTaskRepo([task], { throws: new Error('adapter exploded') });
+    const deps = makeDeps(git.runner, taskRepo, capturingAppend().fn);
+    const controller = new AbortController();
+
+    const subchain = (): Element<ImplementCtx> =>
+      sequential<ImplementCtx>(`task-${String(task.id)}`, [abortLandsIn('uninstall-skills', controller)]);
+
+    const branch = buildWorktreeBranch(deps, repo, task, wt, ref, PROGRESS, subchain);
+    const result = await branch.execute(baseCtx([task]), controller.signal);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.error).toBeInstanceOf(AbortError);
+    expect(worktreeRemoved(git.calls)).toBe(false);
+    expect(branchDeleteCount(git.calls, ref)).toBe(1);
+  });
+
+  it('a failed task lookup on a clean worktree removes it as usual and keeps the ref', async () => {
+    const task = makeTodoTask();
+    const ref = 'ralphctl/s1/wt-lookup-fails-clean';
+    const wt = worktreePathFor(absolutePath('/data/sprints/s1'), task.id);
+    const git = fakeGitRecordingCwd({ dirty: false });
+    const taskRepo = recordingTaskRepo([task], { fails: new StorageError({ subCode: 'io', message: 'unreadable' }) });
+    const deps = makeDeps(git.runner, taskRepo, capturingAppend().fn);
+    const controller = new AbortController();
+
+    const subchain = (): Element<ImplementCtx> =>
+      sequential<ImplementCtx>(`task-${String(task.id)}`, [abortLandsIn('uninstall-skills', controller)]);
+
+    const branch = buildWorktreeBranch(deps, repo, task, wt, ref, PROGRESS, subchain);
+    const result = await branch.execute(baseCtx([task]), controller.signal);
+
+    expect(result.ok).toBe(false);
+    expect(git.calls.some((c) => c.args[0] === 'stash')).toBe(false);
+    expect(worktreeRemoved(git.calls)).toBe(true);
+    expect(branchDeleteCount(git.calls, ref)).toBe(1);
   });
 });

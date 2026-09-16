@@ -2,6 +2,7 @@ import { promises as fs } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createFsTaskRepository } from '@src/integration/persistence/task/repository.ts';
+import { createFsSprintRepository } from '@src/integration/persistence/sprint/repository.ts';
 import { createLastSelectionStore } from '@src/integration/persistence/selection/last-selection-store.ts';
 import { markTaskBlocked } from '@src/domain/entity/task-lifecycle.ts';
 import { recordRunningAttemptEvaluation, startNextAttempt } from '@src/domain/entity/task-attempts.ts';
@@ -106,6 +107,7 @@ describe('ralphctl task', () => {
   describe('unblock <taskId>', () => {
     it('flips a blocked task back to todo and persists', async () => {
       const sprint = makeDraftSprint();
+      await createFsSprintRepository({ root: cli.paths.dataRoot }).save(sprint);
       const repo = createFsTaskRepository({ root: cli.paths.dataRoot });
       const blocked = markTaskBlocked(makeTodoTask({ name: 'wedged' }), 'flaky verify', 'own');
       if (!blocked.ok) throw new Error(`fixture: ${blocked.error.message}`);
@@ -127,6 +129,31 @@ describe('ralphctl task', () => {
       expect(reloaded.ok).toBe(true);
       if (!reloaded.ok) return;
       expect(reloaded.value.status).toBe('todo');
+    });
+
+    // Whether reviving the task must also reopen a closed sprint can only be answered from the
+    // sprint itself, so an unreadable one fails the unblock rather than guessing.
+    it('exits 1 and leaves the task blocked when the sprint cannot be loaded', async () => {
+      const sprint = makeDraftSprint();
+      const repo = createFsTaskRepository({ root: cli.paths.dataRoot });
+      const blocked = markTaskBlocked(makeTodoTask({ name: 'orphan' }), 'flaky verify', 'own');
+      if (!blocked.ok) throw new Error(`fixture: ${blocked.error.message}`);
+      await repo.saveAll(sprint.id, [blocked.value]);
+
+      const result = await runCliCaptured(cli, [
+        'task',
+        'unblock',
+        String(blocked.value.id),
+        '--sprint',
+        String(sprint.id),
+      ]);
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain('error:');
+      const reloaded = await repo.findById(sprint.id, blocked.value.id);
+      expect(reloaded.ok).toBe(true);
+      if (!reloaded.ok) return;
+      expect(reloaded.value.status).toBe('blocked');
     });
 
     it('idempotent — already-todo task is a no-op success', async () => {

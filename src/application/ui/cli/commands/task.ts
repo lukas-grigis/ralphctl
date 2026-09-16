@@ -154,16 +154,36 @@ const unblockTaskAction = async (rawTaskId: string, opts: SprintOpt): Promise<vo
     return;
   }
   // Planner-authored name echoed back at the terminal — same neutering as the list rows.
+  const taskRef = String(result.value.task.id);
   process.stdout.write(
-    `unblocked task '${sanitizeDisplayText(result.value.task.name, DISPLAY_TEXT_MAX_CHARS)}' (${String(result.value.task.id)})\n`
+    `unblocked task '${sanitizeDisplayText(result.value.task.name, DISPLAY_TEXT_MAX_CHARS)}' (${taskRef})\n`
   );
+  const sprintRef = String(sprintId.value.sprintId);
+  const retry = `ralphctl task unblock --sprint ${sprintRef} ${taskRef}`;
+  // A settled sprint coming back open changes what the operator can do with it (a closed one
+  // holds the project again), so it is reported, never left to a log line the CLI doesn't render.
+  // Same wording as `sprint reopen`'s own confirmation.
+  const reopened = result.value.sprintReopened;
+  if (reopened !== undefined) {
+    process.stdout.write(
+      `reopened sprint '${reopened.sprint.slug}' (${sprintRef}) ${reopened.from} → ${reopened.sprint.status}\n`
+    );
+    if (reopened.sprint.status !== 'active') {
+      process.stderr.write(`note: the review → active step did not persist — run '${retry}' again to finish it\n`);
+    }
+  }
   // The reopen is best-effort, so an unblock that revived the task but left the sprint closed
   // still exits 0 — it must not also report as if the sprint had reopened. The conflict message
-  // names the peer holding the project and its hint names the command that releases it.
+  // names the peer holding the project and its hint names the command that releases it. Re-running
+  // unblock on the now-`todo` task does not reopen a closed sprint, so the last line names the two
+  // commands that do.
   const conflict = result.value.sprintReopenConflict;
   if (conflict !== undefined) {
     process.stderr.write(`note: ${conflict.message}\n`);
     if (conflict.hint !== undefined) process.stderr.write(`      ${conflict.hint}\n`);
+    process.stderr.write(
+      `      then 'ralphctl sprint reopen ${sprintRef}' and '${retry}' to make this task runnable\n`
+    );
   }
 };
 

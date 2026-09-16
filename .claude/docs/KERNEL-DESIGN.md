@@ -376,7 +376,8 @@ sequential('implement', [
       resolveBranchLeaf, // assign + checkout the sprint branch first
       sequential('preflight-tasks', preflightLeaves), // dirty tree → keep / stash / reset / cancel, BEFORE setup
       appendJournalSeparatorLeaf, // appends the 'activated' separator to the append-only progress.md journal
-      setupScriptRunnerLeaf, // runs after branch + preflight settle; appends SetupRun entries to SprintExecution.setupRanAt
+      setupScriptRunnerLeaf, // runs after branch + preflight settle; appends SetupRun entries to SprintExecution.setupRanAt;
+      //                        re-offers the dirty-tree menu only for entries a script itself added (setup-tree-guard.ts)
       sequential(
         'implement-tasks',
         orderedTasks.map(() => perTask)

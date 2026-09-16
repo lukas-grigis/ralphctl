@@ -23,6 +23,7 @@ import { type DirtyTreePolicy } from '@src/application/flows/implement/leaves/pr
 import { resolveBranchLeaf } from '@src/application/flows/implement/leaves/resolve-branch.ts';
 import { type RepoExecConfig, resolveRepoOrThrow } from '@src/application/flows/implement/leaves/resolve-repo.ts';
 import { setupScriptRunnerLeaf } from '@src/application/flows/implement/leaves/setup-script-runner.ts';
+import { createSetupTreeGuard } from '@src/application/flows/implement/leaves/setup-tree-guard.ts';
 import {
   buildPreflightLeaves,
   setupRepoEntriesForTasks,
@@ -163,7 +164,8 @@ export interface CreateImplementFlowOpts {
  *         resolve-branch,                  // assigns ralphctl/<id> on first run, persists, checks out
  *         preflight-tasks,                 // interactive dirty-tree menu — one per repo, one-shot
  *         progress-journal-activate,       // separator line in progress.md
- *         setup-script-runner,             // runs only after branch + preflight are settled
+ *         setup-script-runner,             // runs only after branch + preflight are settled;
+ *                                          // re-asks only about dirt a script itself created
  *         implement-tasks,                 // sequential task-<id> sub-chains
  *         save-tasks,
  *         transition-sprint-to-review(when every task settled AND ≥1 done)
@@ -188,7 +190,9 @@ export interface CreateImplementFlowOpts {
  * `.git/info/exclude` keeps `git status` clean of harness-managed context.
  *
  * Preflight rationale: the dirty-tree check is a precondition for the whole invocation, not for
- * each task. Between tasks the tree is kept clean — a `done` task is committed by `commit-task`,
+ * each task. The tree the first task sees is exactly what the operator settled — the up-front menu
+ * for what was there before the run, the post-setup check (below) for anything the setup script
+ * added. Between tasks the tree is kept clean — a `done` task is committed by `commit-task`,
  * and a `blocked` task's rejected diff (which `settle-attempt`'s guardrail deliberately leaves in
  * the shared serial tree for inspection) is moved aside by the per-task `quarantine-blocked-diff`
  * leaf into a recoverable stash. So a per-task preflight would just re-assert what's already known.
@@ -203,10 +207,23 @@ export interface CreateImplementFlowOpts {
  * operator cancelled, or a task they unblocked, which archives the very attempts the signature
  * keyed on — killed the launch before the recovery menu the operator needed ever fired. Asking
  * up front also preserves the "answer once, then walk away" property: branch and dirty tree are
- * the only two questions the run has, both are asked before the multi-minute setup script, and
- * setup then runs against a tree the operator has already resolved — setup commands typically
- * assume a "ready" tree (`pnpm install --frozen-lockfile`, schema migrations, …) and fail in
- * confusing ways against a dirty repo.
+ * the only two questions a well-behaved run has, both are asked before the multi-minute setup
+ * script, and setup then runs against a tree the operator has already resolved — setup commands
+ * typically assume a "ready" tree (`pnpm install --frozen-lockfile`, schema migrations, …) and
+ * fail in confusing ways against a dirty repo.
+ *
+ * Post-setup check: asking first means the menu cannot see dirt the setup script itself creates
+ * (a rewritten lockfile, generated files that aren't ignored). Left alone, that dirt would be
+ * swept into the first task's commit by `git add -A`, or turn its pre-task verify red and be
+ * written off as a broken baseline, without the operator ever hearing of it. So
+ * `setup-script-runner` brackets every script that actually spawns with a `git status` snapshot
+ * (`setup-tree-guard.ts`) and, only when the script introduced entries that weren't there before,
+ * re-offers the same keep / stash / reset / cancel choice for that repo, naming the script as the
+ * cause (non-interactive policies: `continue` logs and proceeds, `cancel` fails the run). Dirt the
+ * operator already chose to keep is never asked about again, and a setup that leaves the tree
+ * alone adds no prompt. The check lives inside the setup leaf rather than as its own step so the
+ * snapshot is taken immediately before the spawn and a resume-skipped or unconfigured script
+ * costs no git call.
  *
  * Branch preflight rationale: the dirty-tree check is one-shot but the branch can drift mid-run
  * (an AI generator turn with shell access could `git checkout` away). `resolve-branch` pins the
@@ -262,16 +279,13 @@ export const buildImplementPrologue = (deps: ImplementDeps, opts: CreateImplemen
   // Default to 'prompt' so the interactive recovery menu (Keep / Stash / Reset / Cancel) fires;
   // the business-layer default stays 'cancel' for non-interactive callers in isolation.
   const dirtyTreePolicy: DirtyTreePolicy = opts.dirtyTreePolicy ?? 'prompt';
-  const preflightLeaves = buildPreflightLeaves(
-    {
-      gitRunner: deps.gitRunner,
-      interactive: deps.interactive,
-      clock: deps.clock,
-      logger: deps.logger,
-    },
-    uniqueRepoCwds,
-    dirtyTreePolicy
-  );
+  const treeDeps = {
+    gitRunner: deps.gitRunner,
+    interactive: deps.interactive,
+    clock: deps.clock,
+    logger: deps.logger,
+  };
+  const preflightLeaves = buildPreflightLeaves(treeDeps, uniqueRepoCwds, dirtyTreePolicy);
 
   return sequential<ImplementCtx>('implement-prologue', [
     loadAndAssertSprintSubChain<ImplementCtx>({ sprintRepo: deps.sprintRepo }, ['planned', 'active']),
@@ -318,6 +332,9 @@ export const buildImplementPrologue = (deps: ImplementDeps, opts: CreateImplemen
       { appendFile: deps.appendFile, clock: deps.clock, logger: deps.logger },
       { progressFile: opts.progressFile, status: 'activated', name: 'progress-journal-activate' }
     ),
+    // Brackets every script that spawns with a porcelain snapshot, and re-offers the dirty-tree
+    // choice only for what the script itself changed. See the placement rationale on
+    // `createImplementFlow`.
     setupScriptRunnerLeaf(
       {
         shellScriptRunner: deps.shellScriptRunner,
@@ -325,6 +342,7 @@ export const buildImplementPrologue = (deps: ImplementDeps, opts: CreateImplemen
         eventBus: deps.eventBus,
         sprintExecutionRepo: deps.sprintExecutionRepo,
         logger: deps.logger,
+        treeGuard: createSetupTreeGuard(treeDeps, { policy: dirtyTreePolicy, sprintId: String(opts.sprintId) }),
       },
       { repos: setupRepoEntries, sprintDir: opts.sprintDir }
     ),

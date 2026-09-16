@@ -50,11 +50,13 @@ unblocked task's sprint is `done`; or explicitly via `ralphctl sprint reopen <id
 already-`review` sprint prints "nothing to reopen" rather than erroring). Both paths enforce the
 single-active-per-project invariant (`assertNoActivePeer` — a different sprint on the same project
 already holding `active` or `review`): the explicit CLI path refuses with a `ConflictError`, while
-the automatic hop inside unblock calls that same helper and stays best-effort about the outcome — the
+the automatic hop inside unblock calls that same helper and treats a conflict as data — the
 task is still revived, the sprint stays `done`, and the conflict rides out on
 `UnblockTaskOutput.sprintReopenConflict` so the CLI can name the peer and the `sprint close` that
-releases it. Everything else on that hop is best-effort too: a failed persist is logged, not
-surfaced as an unblock failure, and re-running unblock retries it.
+releases it (then `ralphctl sprint reopen <id>` + another unblock finishes the job). Every other
+failure on that hop is part of the unblock: the `done → review` write runs BEFORE the task write, so
+a failed sprint load, peer-list read or persist fails the unblock with the task untouched, and a
+failed task write puts the sprint back to `done` — a plain retry starts over.
 
 **Unblock — the operator's recovery path.** A task blocks when its own attempt budget or verify
 gate exhausts (`blocked`, `blockKind: 'own'`) or when a prerequisite it depends on never finished
@@ -98,8 +100,11 @@ ones). Unblocking one task also cascades: every task the dependency gate parked 
 that subtree is left untouched, since that one needs a real fix, not a cascade. And unblocking
 re-arms the SPRINT, not only the task: a `review` sprint reopens to `active` (`revertSprintToActive`
 clears `reviewAt`, re-stamps `activatedAt`) and a `done` sprint reopens through `review` first (see
-the reopen footnotes above) before that same `review → active` hop runs on top of it — both hops
-best-effort and idempotent, so a failed persist is logged and simply retried on the next unblock call.
+the reopen footnotes above) before that same `review → active` hop runs on top of it. Only the
+`review → active` hop is best-effort: it runs after the task write, a failed persist is logged, and
+the next unblock call (the already-`todo` short-circuit) retries it. That short-circuit never reopens
+a `done` sprint — a closed sprint holding `todo` work was closed that way on purpose. Every reopen an
+unblock performs is reported on `UnblockTaskOutput.sprintReopened`, and the CLI / TUI say so.
 
 The rejected diff survives the block too. When a task settles `blocked` after at least one gen-eval
 turn ran, its uncommitted diff is stashed under a deterministic message keyed on sprint + task
@@ -252,15 +257,16 @@ worktree shares with the main repo; `gitStashPush` / `gitStashList` / `gitStashP
 (`integration/io/git-operations.ts`) are funnelled through an in-process FIFO mutex so a sibling's
 concurrent push can never shift the index a pop is about to act on out from under it. A missing stash
 is a silent no-op and a failed pop never fails the attempt — restoration is a convenience, not a
-correctness requirement. A pop that CONFLICTS is not left half-applied, though: git keeps the stash
-entry but writes the `<<<<<<<`-marked merge into the tree, so the leaf probes for unmerged paths
-(`git diff --name-only --diff-filter=U`) and, when it finds any, resets the tree to HEAD
-(`reset --hard HEAD` + `clean -fd`, which also drops the untracked files a `-u` stash restores)
-before carrying on — the pre-pop state, since the leaf runs at attempt start on a tree the
-quarantine step already emptied; any unrelated uncommitted work is discarded with the half-merge. Without that, `pre-task-verify` reads the markers as a `baseline-broken` red —
-which sets no block — and `commit-task`'s `git add -A` can commit them. A pop git refuses before
-applying anything leaves the tree untouched and is NOT reset. Either way the diff stays recoverable
-by hand via `git stash list`.
+correctness requirement. The leaf only pops onto a tree that `git status --porcelain
+--untracked-files=normal` reports clean: changes the operator kept at the dirty-tree prompt, the
+failing test the reproduce step writes, or non-ignored setup output are in no stash, so on a dirty
+tree (or a failed probe) the stash is left in place and its message logged. A pop that FAILS is not
+left half-applied, though: git keeps the stash entry but can still write a `<<<<<<<`-marked merge or
+part of the diff into the tree, so the leaf re-probes and, when the tree changed, resets it to HEAD
+(`reset --hard HEAD` + `clean -fd`, which also drops the untracked files a `-u` stash restores) —
+an exact undo, since the tree was clean a moment before. Without that, `pre-task-verify` reads the
+markers as a `baseline-broken` red — which sets no block — and `commit-task`'s `git add -A` can
+commit them. Either way the diff stays recoverable by hand via `git stash list`.
 
 **Legacy `implement` promotion.** Settings files written by ralphctl ≤ 0.7.0 stored `ai.implement`
 as a flat `{ provider, model, effort? }` row. Such files are silently promoted at load time into the
@@ -298,7 +304,13 @@ Global keys: `b` banner, `g` progress,
 **`setupScript` vs `verifyScript` / `verifyGates`.** Setup runs unconditionally once per affected repo at
 sprint start; each attempt is recorded as a structured `SetupRun` (outcome: `success` / `failed` /
 `spawn-error` / `skipped`) persisted on `SprintExecution.setupRanAt`. Non-zero exit or spawn failure
-hard-aborts the chain. Verify runs both **pre-task** (before the AI) and **post-task** (after commit) with
+hard-aborts the chain. The dirty-tree menu runs before setup, so every script that spawns is bracketed
+by a `git status --porcelain` snapshot: only when the script adds entries that weren't there before
+(a rewritten lockfile, generated files that aren't ignored) does the run re-offer keep / stash / reset /
+cancel for that repo, naming the script. The non-interactive policies behave as they do at preflight:
+`continue` logs the change and proceeds, `cancel` fails the run. Dirt the operator already kept is
+never asked about again, a setup that leaves the tree alone adds no prompt, and a repo whose setup
+changed the tree never seeds the `skipPreVerifyOnFreshSetup` baseline. Verify runs both **pre-task** (before the AI) and **post-task** (after commit) with
 an attribution algorithm (`clean` / `regressed` / `baseline-broken` / `fixed-baseline`) that avoids
 blocking the AI for pre-existing failures. `Repository.verifyTimeout` caps both verify calls as `timeoutMs`
 on the shell runner; absent → `DEFAULT_SHELL_TIMEOUT_MS` (5 min). Scripts are collected during

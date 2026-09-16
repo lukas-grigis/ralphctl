@@ -32,6 +32,62 @@ interface PreflightTaskInput {
 
 const ELEMENT_NAME = 'preflight-task';
 
+/** The menu's headline, given the dirty cwd and its porcelain entry count. */
+export type DirtyTreeQuestion = (input: { readonly cwd: AbsolutePath; readonly dirtyEntries: number }) => string;
+
+const defaultQuestion: DirtyTreeQuestion = ({ cwd, dirtyEntries }) =>
+  `Working tree at ${String(cwd)} has ${String(dirtyEntries)} uncommitted change(s). How do you want to handle it?`;
+
+export interface DirtyTreeMenuOpts {
+  /** Element name stamped on the `AbortError` when the operator dismisses the menu. */
+  readonly elementName: string;
+  readonly question?: DirtyTreeQuestion;
+}
+
+/**
+ * The keep / stash / reset / cancel menu plus the git operations that carry out the answer, in
+ * the function shape `preflightTaskUseCase` expects. Shared by the pre-setup preflight and the
+ * post-setup tree guard so both offer the operator the identical choice — only the question
+ * differs.
+ */
+export const dirtyTreeMenu = (
+  deps: Pick<PreflightTaskLeafDeps, 'gitRunner' | 'interactive'>,
+  opts: DirtyTreeMenuOpts
+): Required<Pick<PreflightTaskProps, 'askDirtyTreeChoice' | 'gitStash' | 'gitReset'>> => {
+  const question = opts.question ?? defaultQuestion;
+  return {
+    gitStash: (path, message) => gitStashPush(deps.gitRunner, path, message),
+    gitReset: (path) => gitResetHard(deps.gitRunner, path),
+    askDirtyTreeChoice: async (input) => {
+      const choice = await deps.interactive.askChoice<DirtyTreeChoice>(question(input), [
+        {
+          label: 'Keep changes — proceed on the dirty tree',
+          value: 'keep',
+          description: 'AI may build on / overwrite the pending diff',
+        },
+        { label: 'Stash — save changes to a recoverable stash, then proceed', value: 'stash' },
+        {
+          label: 'Reset — discard all uncommitted + untracked changes, then proceed',
+          value: 'reset',
+          description: 'git reset --hard && git clean -fd',
+        },
+        { label: 'Cancel — abort the implement run', value: 'cancel' },
+      ]);
+      if (!choice.ok) {
+        // User cancelled the menu (Ctrl-C / Esc). Surface as AbortError so the chain runner
+        // treats it as explicit user cancellation rather than a configuration bug.
+        return Result.error(
+          new AbortError({
+            elementName: opts.elementName,
+            reason: `dirty-tree prompt cancelled — ${choice.error.message}`,
+          })
+        );
+      }
+      return Result.ok(choice.value);
+    },
+  };
+};
+
 /**
  * Chain leaf — adapts ctx → preflightTaskUseCase → ctx. Wires the gitRunner to function-shape
  * dependencies (`gitStatusEntryCount`, `gitStash`, `gitReset`) and translates the
@@ -50,41 +106,7 @@ export const preflightTaskLeaf = (
     if (!status.ok) return status;
     return { ok: true, value: status.value.length } as Awaited<ReturnType<PreflightTaskProps['gitStatusEntryCount']>>;
   };
-
-  const gitStash: NonNullable<PreflightTaskProps['gitStash']> = (path, message) =>
-    gitStashPush(deps.gitRunner, path, message);
-  const gitReset: NonNullable<PreflightTaskProps['gitReset']> = (path) => gitResetHard(deps.gitRunner, path);
-
-  const askDirtyTreeChoice: NonNullable<PreflightTaskProps['askDirtyTreeChoice']> = async ({
-    cwd: dirtyCwd,
-    dirtyEntries,
-  }) => {
-    const choice = await deps.interactive.askChoice<DirtyTreeChoice>(
-      `Working tree at ${String(dirtyCwd)} has ${String(dirtyEntries)} uncommitted change(s). How do you want to handle it?`,
-      [
-        {
-          label: 'Keep changes — proceed on the dirty tree',
-          value: 'keep',
-          description: 'AI may build on / overwrite the pending diff',
-        },
-        { label: 'Stash — save changes to a recoverable stash, then proceed', value: 'stash' },
-        {
-          label: 'Reset — discard all uncommitted + untracked changes, then proceed',
-          value: 'reset',
-          description: 'git reset --hard && git clean -fd',
-        },
-        { label: 'Cancel — abort the implement run', value: 'cancel' },
-      ]
-    );
-    if (!choice.ok) {
-      // User cancelled the menu (Ctrl-C / Esc). Surface as AbortError so the chain runner
-      // treats it as explicit user cancellation rather than a configuration bug.
-      return Result.error(
-        new AbortError({ elementName: ELEMENT_NAME, reason: `dirty-tree prompt cancelled — ${choice.error.message}` })
-      );
-    }
-    return Result.ok(choice.value);
-  };
+  const menu = dirtyTreeMenu(deps, { elementName: ELEMENT_NAME });
 
   return leaf<ImplementCtx, PreflightTaskInput, void>(
     name,
@@ -94,9 +116,7 @@ export const preflightTaskLeaf = (
           preflightTaskUseCase({
             cwd,
             gitStatusEntryCount,
-            gitStash,
-            gitReset,
-            askDirtyTreeChoice,
+            ...menu,
             clock: deps.clock,
             sprintId: input.sprintId,
             logger: deps.logger,
