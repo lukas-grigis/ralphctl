@@ -20,6 +20,15 @@ const SWITCH_SPRINT_SECTION = 'switch sprint';
 
 export interface BuildMenuItemsInput {
   readonly hasProject: boolean;
+  /**
+   * Total projects in storage — NOT whether one is selected. The "create your first project" row
+   * gates on this: `hasProject` only says a project is currently picked, so gating the row on it
+   * offered to create a first project to someone who already had several and had merely not
+   * picked one. The state card next to the menu has always drawn this distinction
+   * (`state-card.tsx` renders "N projects in storage. press p to select one"); the menu now
+   * agrees with it.
+   */
+  readonly projectCount: number;
   /** State.kind === 'ok' — gates the "create your first project" row so it only appears on a loaded empty snapshot. */
   readonly stateLoaded: boolean;
   /**
@@ -40,10 +49,11 @@ export interface BuildMenuItemsInput {
   readonly onLaunchCreateSprint: () => void;
 }
 
-/** "Create your first project" — only shown once the snapshot has loaded and confirmed there's
- *  no project yet; before that, showing it would be a false positive on a still-fetching state. */
+/** "Create your first project" — only shown once the snapshot has loaded and confirmed storage
+ *  holds no project at all; before that, showing it would be a false positive on a still-fetching
+ *  state, and gating on the SELECTED project would show it to anyone browsing without a pick. */
 const buildGetStartedItems = (input: BuildMenuItemsInput): readonly MenuItem[] => {
-  if (input.hasProject || !input.stateLoaded) return [];
+  if (input.projectCount > 0 || !input.stateLoaded) return [];
   return [
     {
       id: 'create-project',

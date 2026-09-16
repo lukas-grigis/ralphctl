@@ -18,7 +18,11 @@ export const fmtDuration = (ms: number): string => {
  * sessions. Differs from {@link fmtDuration} only in the sub-second/minute formatting choices.
  */
 export const fmtElapsed = (startedAt: number, end: number): string => {
-  const ms = end - startedAt;
+  // Clamped at zero: several callers pass a COARSE `end` (the shared 1 Hz clock tick) against a
+  // timestamp written moments ago, so `end - startedAt` goes briefly negative and rendered as
+  // `-95ms ago` in the Baseline card right after a verify ran. An elapsed span is never negative
+  // on any call site — the ordered start/end callers are unaffected by the clamp.
+  const ms = Math.max(0, end - startedAt);
   if (ms < 1000) return `${String(ms)}ms`;
   const s = Math.floor(ms / 1000);
   if (s < 60) return `${String(s)}s`;

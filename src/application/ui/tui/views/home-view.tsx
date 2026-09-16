@@ -139,6 +139,8 @@ interface HomeMenuItemsArgs {
   readonly router: ReturnType<typeof useRouter>;
   readonly selection: SelectionApi;
   readonly hasProject: boolean;
+  /** Projects in storage, regardless of which (if any) is selected — see `BuildMenuItemsInput`. */
+  readonly projectCount: number;
   readonly stateLoaded: boolean;
   readonly snapshotLoading: boolean;
   readonly currentSprint: Sprint | undefined;
@@ -155,6 +157,7 @@ const useHomeMenuItems = ({
   router,
   selection,
   hasProject,
+  projectCount,
   stateLoaded,
   snapshotLoading,
   currentSprint,
@@ -167,6 +170,7 @@ const useHomeMenuItems = ({
     () =>
       buildMenuItems({
         hasProject,
+        projectCount,
         stateLoaded,
         loading: snapshotLoading,
         currentSprint,
@@ -184,6 +188,7 @@ const useHomeMenuItems = ({
     [
       router,
       hasProject,
+      projectCount,
       stateLoaded,
       snapshotLoading,
       switchSprintDisabled,
@@ -289,6 +294,7 @@ export const HomeView = (): React.JSX.Element => {
     router,
     selection,
     hasProject,
+    projectCount: snapshot?.projectCount ?? 0,
     stateLoaded: state.kind === 'ok',
     snapshotLoading,
     currentSprint,
