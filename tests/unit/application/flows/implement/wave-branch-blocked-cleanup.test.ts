@@ -414,4 +414,113 @@ describe('wave-branch worktree teardown — blocked-task quarantine + branch ret
     );
     expect(branchDeleteCount(git.calls, ref)).toBe(1);
   });
+
+  it('a subchain that THROWS still tears the worktree down, and the ORIGINAL error propagates', async () => {
+    // Regression: the teardown used to read a definite-assignment `let result!` before running
+    // cleanup. The chain primitives re-throw every non-DomainError verbatim (`leaf.ts`) and
+    // `buildSubchain` is constructed inside the body, so a projection bug anywhere in the per-task
+    // subchain leaves that `result` unassigned — the read then raised
+    // `TypeError: Cannot read properties of undefined (reading 'ok')`, which BOTH replaced the real
+    // error AND skipped `cleanupWorktree`. The stranded `wt-<task>` dir + ref then wedged every
+    // later launch of the task in `git worktree add` until an operator removed them by hand.
+    const task = makeTodoTask();
+    const ref = 'ralphctl/s1/wt-throw';
+    const wt = worktreePathFor(absolutePath('/data/sprints/s1'), task.id);
+    const git = fakeGitRecordingCwd();
+    const taskRepo = recordingTaskRepo();
+    const deps = makeDeps(git.runner, taskRepo, capturingAppend().fn);
+
+    const throwingSubchain = (): Element<ImplementCtx> => ({
+      name: 'fake-throwing-subchain',
+      execute(): Promise<ElementResult<ImplementCtx>> {
+        throw new Error('projection bug');
+      },
+    });
+
+    const branch = buildWorktreeBranch(deps, repo, task, wt, ref, PROGRESS, throwingSubchain);
+
+    // The ORIGINAL error, not a TypeError from the teardown reading an unassigned result.
+    await expect(branch.execute(baseCtx([task]))).rejects.toThrow('projection bug');
+
+    // …and the worktree was still force-removed, so the next launch can recreate it.
+    expect(git.calls.some((c) => c.args[0] === 'worktree' && c.args[1] === 'remove' && c.args[2] === '--force')).toBe(
+      true
+    );
+    // The ref is kept: a throw means the fold never completed, so anything the subchain had already
+    // committed lives on this ref alone (only `setupWorktree`'s defensive pre-delete ran).
+    expect(branchDeleteCount(git.calls, ref)).toBe(1);
+  });
+
+  it('a teardown that THROWS on the success path runs exactly once — it never re-enters through the throw arm', async () => {
+    // Regression: the settled-path teardown used to sit INSIDE the try that guards the body, so a
+    // raw throw out of the teardown itself (`onTrace` / `taskRepo` / `appendFile` / the git runner —
+    // the same class the throw arm exists for) was caught by that arm and ran the WHOLE teardown a
+    // second time, with `result` lost: a second `git stash push` against a now-clean tree, a second
+    // `worktree remove` against a removed dir, and `keepBranchRefReason` flipped to
+    // `fold-incomplete` on a branch whose ref should have been deleted.
+    const task = makeTodoTask();
+    const ref = 'ralphctl/s1/wt-teardown-throw';
+    const wt = worktreePathFor(absolutePath('/data/sprints/s1'), task.id);
+    const removeCalls: string[] = [];
+    const git = fakeGitRecordingCwd();
+    const runner: GitRunner = {
+      async run(cwd, args) {
+        if (args[0] === 'worktree' && args[1] === 'remove') {
+          removeCalls.push(String(cwd));
+          // A raw throw, not a `Result.error`: this is what an adapter blowing up looks like.
+          throw new Error('git spawn exploded');
+        }
+        return git.runner.run(cwd, args);
+      },
+    };
+    const deps = makeDeps(runner, recordingTaskRepo(), capturingAppend().fn);
+
+    const branch = buildWorktreeBranch(deps, repo, task, wt, ref, PROGRESS, doneSubchain(task.id));
+
+    // The teardown's own error propagates verbatim — nothing re-runs and re-throws in its place.
+    await expect(branch.execute(baseCtx([task]))).rejects.toThrow('git spawn exploded');
+    expect(removeCalls).toHaveLength(1);
+  });
+
+  it('an abort between a task settling done and its fold KEEPS the ref that holds the unfolded commits', async () => {
+    // Regression: `foldStep` returns `abortedStep` on an already-aborted signal BEFORE folding, so
+    // the branch's overall result is `Result.error(AbortError)` while the task itself settled
+    // `done` — its verified commits are on THIS ref and nowhere else (nothing folded them onto the
+    // sprint branch, and `captureDurableFold` skips a non-completed branch, so the epilogue rewrites
+    // the task back to its pre-wave status). Cleanup used to delete the ref anyway, orphaning that
+    // work and paying a full generator/evaluator spend to redo it on the next launch.
+    const task = makeTodoTask();
+    const ref = 'ralphctl/s1/wt-abort-done';
+    const wt = worktreePathFor(absolutePath('/data/sprints/s1'), task.id);
+    const git = fakeGitRecordingCwd();
+    const taskRepo = recordingTaskRepo();
+    const deps = makeDeps(git.runner, taskRepo, capturingAppend().fn);
+    const controller = new AbortController();
+
+    const doneThenAbort = (): Element<ImplementCtx> => ({
+      name: 'fake-done-then-abort',
+      async execute(ctx): Promise<ElementResult<ImplementCtx>> {
+        const done: Task = { ...makeDoneTask(), id: task.id };
+        const tasks = (ctx.tasks ?? []).map((t) => (t.id === task.id ? done : t));
+        // Fire the abort the instant the subchain settles — the fold step never gets to fold.
+        controller.abort();
+        return Result.ok({ ctx: { ...ctx, tasks, genEvalTurn: 2 }, trace: [] });
+      },
+    });
+
+    const branch = buildWorktreeBranch(deps, repo, task, wt, ref, PROGRESS, doneThenAbort);
+    const result = await branch.execute(baseCtx([task]), controller.signal);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.error).toBeInstanceOf(AbortError);
+    // The fold really did not run…
+    expect(git.calls.some((c) => c.args[0] === 'merge')).toBe(false);
+    // …the worktree was still removed…
+    expect(git.calls.some((c) => c.args[0] === 'worktree' && c.args[1] === 'remove')).toBe(true);
+    // …and the ref survived: only `setupWorktree`'s defensive pre-delete ran, never a cleanup one.
+    expect(branchDeleteCount(git.calls, ref)).toBe(1);
+    // Nothing to quarantine — the task settled `done`, not `blocked`.
+    expect(git.calls.some((c) => c.args[0] === 'stash')).toBe(false);
+    expect(taskRepo.calls).toBe(0);
+  });
 });
