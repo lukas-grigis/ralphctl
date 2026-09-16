@@ -22,6 +22,7 @@ const makeSprint = (n: number): Sprint =>
 const buildWith = (recentSprints: readonly Sprint[]): ReturnType<typeof buildMenuItems> =>
   buildMenuItems({
     hasProject: true,
+    projectCount: 1,
     stateLoaded: true,
     loading: false,
     currentSprint: undefined,
@@ -54,6 +55,7 @@ describe('buildMenuItems — recent-sprint digit hotkeys', () => {
     const sprints = [makeSprint(1), makeSprint(2)];
     const items = buildMenuItems({
       hasProject: true,
+      projectCount: 1,
       stateLoaded: true,
       loading: false,
       currentSprint: undefined,
@@ -77,6 +79,7 @@ describe('buildMenuItems — loading placeholder', () => {
   const buildLoading = (loading: boolean, recentSprints: readonly Sprint[] = []): ReturnType<typeof buildMenuItems> =>
     buildMenuItems({
       hasProject: false,
+      projectCount: 0,
       stateLoaded: false,
       loading,
       currentSprint: undefined,
@@ -108,5 +111,47 @@ describe('buildMenuItems — loading placeholder', () => {
   it('omits the loading row when recent sprints are already known (a settled reload mid-flight)', () => {
     const items = buildLoading(true, [makeSprint(1)]);
     expect(items.find((i) => i.id === 'sprint-loading')).toBeUndefined();
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────────────────────────
+// "Create your first project" — gated on storage being empty, not on a project being SELECTED
+//
+// `hasProject` means "a project is currently picked". Gating the get-started row on it offered
+// to create a *first* project to anyone who had several and had simply not picked one yet —
+// contradicting the state card beside it, which correctly read "N projects in storage".
+// ────────────────────────────────────────────────────────────────────────────────────────────
+
+describe('buildMenuItems — get-started row', () => {
+  const build = (projectCount: number, hasProject: boolean): ReturnType<typeof buildMenuItems> =>
+    buildMenuItems({
+      hasProject,
+      projectCount,
+      stateLoaded: true,
+      loading: false,
+      currentSprint: undefined,
+      recentSprints: [],
+      selectionSprintId: undefined,
+      switchSprintDisabled: undefined,
+      addTicketDisabled: undefined,
+      onPushHome: vi.fn(),
+      onPushAddTicket: vi.fn(),
+      onSwitchSprint: vi.fn(),
+      onLaunchCreateSprint: vi.fn(),
+    });
+
+  const hasCreateRow = (items: ReturnType<typeof buildMenuItems>): boolean =>
+    items.some((i) => i.id === 'create-project');
+
+  it('offers it when storage holds no project at all', () => {
+    expect(hasCreateRow(build(0, false))).toBe(true);
+  });
+
+  it('withholds it when projects exist but none is selected', () => {
+    expect(hasCreateRow(build(3, false))).toBe(false);
+  });
+
+  it('withholds it when a project is selected', () => {
+    expect(hasCreateRow(build(3, true))).toBe(false);
   });
 });

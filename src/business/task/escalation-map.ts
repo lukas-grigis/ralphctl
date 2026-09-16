@@ -262,8 +262,8 @@ const claudeEffortRung = (model: string, currentEffort: string | undefined): str
  *     escalatable (its CLI default sits ~medium), and `high | xhigh | max` are spent. Non-OpenAI
  *     models' effort semantics are opaque, so Copilot stays conservative rather than climbing further.
  *   - **openai-codex** and **xai-grok** — fixed target {@link CODEX_EFFORT_ESCALATION_TARGET}
- *     (`xhigh`, universal across the codex catalog since the vocabulary change, and the top rung
- *     Grok's `--reasoning-effort` accepts); `unset` and a legacy `minimal` (retired, pre-migration)
+ *     (`xhigh`, universal across the codex catalog since the vocabulary change, and the rung below
+ *     the `max` that Grok's `--effort` tops out at); `unset` and a legacy `minimal` (retired, pre-migration)
  *     count as escalatable, and `xhigh | max | ultra` are spent. `model` plays no role on the
  *     Copilot, Codex, or Grok path — they are the fallthrough once the two model-aware providers
  *     above have been handled.

@@ -15,6 +15,7 @@
 import React, { useMemo } from 'react';
 import { Box, Text } from 'ink';
 import { resolveAttemptCoords, type TaskBucket } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
+import { sanitizeDisplayText } from '@src/domain/value/display-text.ts';
 import type { BlockedTriage, TaskProjection } from '@src/application/ui/tui/components/tasks-projection.ts';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { fmtDuration } from '@src/application/ui/tui/theme/duration.ts';
@@ -222,6 +223,16 @@ const OptionalNotice = ({
   text.length > 0 ? <IndentedNotice tone={tone} icon={icon} text={collapseWhitespace(text)} truncate /> : null;
 
 /**
+ * Trim for the three MODEL-authored notice fields, sanitised BEFORE the emptiness gate rather
+ * than only on the way into `collapseWhitespace` at render time. A field of nothing but control
+ * bytes survives `.trim()` (JS whitespace does not cover C0 / DEL / C1), so the gate would score
+ * it non-empty and render a notice whose entire body the strip then removes — a lone warning
+ * glyph on the card, courtesy of a generator that just read an attacker-controllable repository.
+ * See {@link sanitizeDisplayText}. `warningSummary` is harness-authored and keeps a plain trim.
+ */
+const cleanNotice = (text: string | undefined): string => sanitizeDisplayText(text ?? '').trim();
+
+/**
  * Resolve the (possibly empty) text for each notice line {@link HeaderNotices} can show. Guards
  * an empty / whitespace-only `blockedReason` (both `BlockedTask.blockedReason` and the
  * task-blocked signal permit ''): without this an AI that self-blocks with a blank reason renders
@@ -241,9 +252,9 @@ const resolveNoticeTexts = (
   readonly whatUnblocksMeText: string;
   readonly warningSummaryText: string;
 } => ({
-  blockedReasonText: blockedReason?.trim() ?? '',
-  questionText: cardExpanded ? (blockedTriage?.question?.trim() ?? '') : '',
-  whatUnblocksMeText: cardExpanded ? (blockedTriage?.whatUnblocksMe?.trim() ?? '') : '',
+  blockedReasonText: cleanNotice(blockedReason),
+  questionText: cardExpanded ? cleanNotice(blockedTriage?.question) : '',
+  whatUnblocksMeText: cardExpanded ? cleanNotice(blockedTriage?.whatUnblocksMe) : '',
   warningSummaryText: task.status === 'completed' ? (warningSummary?.trim() ?? '') : '',
 });
 

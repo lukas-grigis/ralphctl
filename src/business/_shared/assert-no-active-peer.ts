@@ -17,9 +17,13 @@ import type { StorageError } from '@src/domain/value/error/storage-error.ts';
  * (`'activate'` / `'reopen'`) so the log line and error message read naturally regardless of
  * which transition invoked it.
  *
- * Originally private to {@link activateSprintUseCase}; extracted so
- * {@link reopenDoneSprintUseCase}'s `done → review` hop enforces the same invariant instead of
- * reopening a closed sprint unconditionally next to a live peer.
+ * Originally private to {@link activateSprintUseCase}, then shared with
+ * {@link reopenDoneSprintUseCase}'s `done → review` hop. It lives under `business/_shared/`
+ * rather than `business/sprint/` because the THIRD caller is `unblockTaskUseCase`, whose own
+ * `done → review` hop performs the identical transition: the sibling-business ESLint fence keeps
+ * `business/task` out of `business/sprint`, and its own comment names `_shared/` as where an
+ * abstraction shared across business siblings belongs. One implementation, so the three callers
+ * cannot drift apart.
  */
 export const assertNoActivePeer = async (
   candidate: Sprint,

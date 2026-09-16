@@ -3,7 +3,7 @@ import type { Logger } from '@src/business/observability/logger.ts';
 import { activateSprint as activateSprintEntity, type ActiveSprint, type Sprint } from '@src/domain/entity/sprint.ts';
 import type { ListAll } from '@src/domain/repository/_base/list-all.ts';
 import type { Save } from '@src/domain/repository/_base/save.ts';
-import { assertNoActivePeer } from '@src/business/sprint/assert-no-active-peer.ts';
+import { assertNoActivePeer } from '@src/business/_shared/assert-no-active-peer.ts';
 import type { ConflictError } from '@src/domain/value/error/conflict-error.ts';
 import type { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import type { StorageError } from '@src/domain/value/error/storage-error.ts';
@@ -17,8 +17,9 @@ import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
  * `projectId` and rejects with `ConflictError` if another sprint is already `active` or `review`
  * (both states hold the sprint branch checked out — running two implement loops on one project
  * would race on the working tree). The user must close the colliding sprint first. The check
- * itself lives in {@link assertNoActivePeer} — shared with {@link reopenDoneSprintUseCase}, the
- * other transition that can land a sprint in one of those two states.
+ * itself lives in {@link assertNoActivePeer} (`business/_shared/`) — shared with
+ * {@link reopenDoneSprintUseCase} and `unblockTaskUseCase`'s own reopen hop, the other two
+ * transitions that can land a sprint in one of those two states.
  *
  * Policy: domain transition + persist + log. Pure orchestration; the chain leaf adapts ctx → props
  * → ctx and supplies deps.

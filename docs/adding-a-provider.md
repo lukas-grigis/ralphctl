@@ -28,11 +28,15 @@ export interface HeadlessAiProvider {
 this contract decide most of the work:
 
 1. **You do not parse harness signals from stdout.** Under the audit-[09] contract the agent
-   writes its own `signals.json` via its `Write` tool into `session.outputDir`; the harness
-   validates that file post-spawn. Your adapter spawns the process, captures meta (session id,
-   exit code, token usage), and returns the path — it never scrapes the model's text for
+   writes its own `signals.json` into `session.outputDir` with whatever file-creating tool the CLI
+   has (`Write` on most; Grok has no `write` tool at all — `search_replace` creates the file); the
+   harness validates that file post-spawn. Your adapter spawns the process, captures meta (session
+   id, exit code, token usage), and returns the path — it never scrapes the model's text for
    structured output. Parsing the body string and retaining it on a domain entity is the source
-   of a known multi-hour OOM; don't reintroduce it.
+   of a known multi-hour OOM; don't reintroduce it. It also constrains your permission mapping: a
+   read-only profile must never remove the only tool that can create a file, or every read-only
+   flow ends with no signals envelope and reads as an empty run — gate edits with a path-scoped
+   deny rule instead, as `grok/headless.ts` does.
 
 2. **Intent in, not mechanism.** `AiSession`
    (`src/integration/ai/providers/_engine/ai-session.ts`) is provider-neutral: `model`,
@@ -59,15 +63,15 @@ whenever you start:
 grep -rn 'Record<AiProvider' src | grep -v Partial
 ```
 
-Today that is fifteen tables plus the registry in `wire.ts` (typed through
-`ModelAvailabilityProbeRegistry`), grouped by layer:
+Today that grep finds fifteen tables; with the registry in `wire.ts` (typed through
+`ModelAvailabilityProbeRegistry`, so the grep cannot see it) that is sixteen, grouped by layer:
 
-| Layer         | Table                                                                                                                                                                                                                                                                                                                                                                                                            |
-| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `domain`      | `PROVIDER_EFFORT_LEVELS` (`value/settings-models/effort.ts`)                                                                                                                                                                                                                                                                                                                                                     |
-| `business`    | `DEFAULT_MODELS_BY_PROVIDER` (`settings/defaults.ts`)                                                                                                                                                                                                                                                                                                                                                            |
-| `integration` | `PROVIDER_BINARY` + `PROVIDER_INSTALL_GUIDANCE` (`system/detect-cli.ts`), `PROVIDER_TRAITS` (`ai/providers/_engine/provider-traits.ts`), `AGENT_ADAPTERS` (`ai/agents/adapter-factory.ts`), `SKILLS_ADAPTERS` (`ai/skills/adapter-factory.ts`), `OPERATOR_PROVIDER_DIR` (`ai/skills/operator/source.ts`)                                                                                                         |
-| `application` | `HEADLESS_FACTORIES` (`bootstrap/provider-factory.ts`), `INTERACTIVE_FACTORIES` (`bootstrap/interactive-provider-factory.ts`), `MODEL_AVAILABILITY_PROBES` (`bootstrap/wire.ts`), `PROVIDER_AUTH_CHECK` (`flows/doctor/provider-auth.ts`), `PROVIDER_LABEL` (`flows/doctor/probe-helpers.ts` and `ui/shared/launch/readiness.ts` — two separate tables), `PRESET_FOR_PROVIDER` (`ui/tui/views/welcome-view.tsx`) |
+| Layer         | Table                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `domain`      | `PROVIDER_EFFORT_LEVELS` (`value/settings-models/effort.ts`)                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `business`    | `DEFAULT_MODELS_BY_PROVIDER` (`settings/defaults.ts`)                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `integration` | `PROVIDER_BINARY` + `PROVIDER_INSTALL_GUIDANCE` (`system/detect-cli.ts`), `PROVIDER_TRAITS` (`ai/providers/_engine/provider-traits.ts`), `AGENT_ADAPTERS` (`ai/agents/adapter-factory.ts`), `SKILLS_ADAPTERS` (`ai/skills/adapter-factory.ts`), `OPERATOR_PROVIDER_DIR` (`ai/skills/operator/source.ts`)                                                                                                                                                           |
+| `application` | `HEADLESS_FACTORIES` (`bootstrap/provider-factory.ts`), `INTERACTIVE_FACTORIES` (`bootstrap/interactive-provider-factory.ts`), `MODEL_AVAILABILITY_PROBES` (`bootstrap/wire.ts`), `PROVIDER_AUTH_CHECK` (`flows/doctor/provider-auth.ts`), `PROVIDER_LABEL` (`flows/doctor/probe-helpers.ts` and `ui/shared/launch/readiness.ts` — two separate tables), `PRESET_FOR_PROVIDER` (`ui/tui/views/welcome-view.tsx` and `demo/seed-settings.ts` — two separate tables) |
 
 One **exhaustive `switch` with no `default`** also breaks: `toolForProvider` in
 `src/integration/ai/readiness/_engine/tool.ts`. If your CLI reads its own context file you will
@@ -375,13 +379,14 @@ else is following the compiler from one missing record key to the next.
 ## Files at a glance
 
 The files you author are few — the count comes from the provider-keyed registries the compiler
-forces you through. New code is five files (`settings-models/<p>.ts`, `<p>/headless.ts`,
-`<p>/parse-stream.ts`, `<p>/model-availability-probe.ts`, `skills/<p>/adapter.ts`) plus tests;
-everything else is a one-line row in an existing table. Deps come from the shared
-`HeadlessProviderDeps` — do not add `_engine/<p>-provider-deps.ts`.
+forces you through. New code is seven files (`settings-models/<p>.ts`, `<p>/headless.ts`,
+`<p>/interactive.ts`, `<p>/parse-stream.ts`, `<p>/model-availability-probe.ts`,
+`skills/<p>/adapter.ts`, `agents/<p>/adapter.ts`) plus tests; everything else is a one-line row in
+an existing table. Deps come from the shared `HeadlessProviderDeps` — do not add
+`_engine/<p>-provider-deps.ts`.
 
 Full parity with the built-in five — readiness context-file support, a skills directory,
-availability filtering, and the test suites — lands around **23 files**:
+availability filtering, and the test suites — lands around **25 files**:
 
 1. `src/domain/value/settings-models/gemini.ts` — _new_
 2. `src/domain/entity/settings.ts` — _edit_ (union, enum, effort/model/row schemas, discriminated union)
@@ -389,22 +394,24 @@ availability filtering, and the test suites — lands around **23 files**:
 4. `src/business/settings/defaults.ts` — _edit_ (`DEFAULT_MODELS_BY_PROVIDER`)
 5. `src/integration/ai/providers/_engine/provider-traits.ts` — _edit_ (`PROVIDER_TRAITS`)
 6. `src/integration/ai/providers/gemini/headless.ts` — _new_
-7. `src/integration/ai/providers/gemini/parse-stream.ts` — _new_ (or fold inline)
-8. `src/integration/ai/providers/gemini/model-availability-probe.ts` — _new_ (passthrough)
-9. `src/integration/system/detect-cli.ts` — _edit_ (`PROVIDER_BINARY` + `PROVIDER_INSTALL_GUIDANCE`)
-10. `src/integration/ai/readiness/_engine/tool.ts` — _edit_ (`AssistantTool` + `toolForProvider` + `providerForTool`)
-11. `src/integration/ai/readiness/gemini/probe.ts` — _new_
-12. `src/integration/ai/readiness/gemini/artifacts.ts` — _new_
-13. `src/integration/ai/skills/adapter-factory.ts` — _edit_ (`SKILLS_ADAPTERS`)
-14. `src/integration/ai/skills/gemini/adapter.ts` — _new_
-15. `src/integration/ai/skills/operator/source.ts` — _edit_ (`OPERATOR_PROVIDER_DIR`)
-16. `src/integration/ai/agents/adapter-factory.ts` — _edit_ (`AGENT_ADAPTERS`)
-17. `src/application/bootstrap/provider-factory.ts` — _edit_ (`HEADLESS_FACTORIES`)
-18. `src/application/bootstrap/interactive-provider-factory.ts` — _edit_ (`INTERACTIVE_FACTORIES`)
-19. `src/application/bootstrap/wire.ts` — _edit_ (`MODEL_AVAILABILITY_PROBES` + `PROBES`)
-20. `src/application/flows/doctor/provider-auth.ts` + `probe-helpers.ts` — _edit_ (auth check + label)
-21. `src/application/flows/readiness/leaves/propose.ts` — _edit_ (only when you widen `AssistantTool`)
-22. `src/application/ui/shared/launch/readiness.ts` + `ui/tui/views/welcome-view.tsx` — _edit_ (label + first-run preset)
-23. tests under `tests/integration/ai/providers/gemini/` and `tests/unit/…` — _new_
+7. `src/integration/ai/providers/gemini/interactive.ts` — _new_ (feeds `INTERACTIVE_FACTORIES`; see `grok/interactive.ts` for the `createInteractiveProvider` shape)
+8. `src/integration/ai/providers/gemini/parse-stream.ts` — _new_ (or fold inline)
+9. `src/integration/ai/providers/gemini/model-availability-probe.ts` — _new_ (passthrough)
+10. `src/integration/system/detect-cli.ts` — _edit_ (`PROVIDER_BINARY` + `PROVIDER_INSTALL_GUIDANCE`)
+11. `src/integration/ai/readiness/_engine/tool.ts` — _edit_ (`AssistantTool` + `toolForProvider` + `providerForTool`)
+12. `src/integration/ai/readiness/gemini/probe.ts` — _new_
+13. `src/integration/ai/readiness/gemini/artifacts.ts` — _new_
+14. `src/integration/ai/skills/adapter-factory.ts` — _edit_ (`SKILLS_ADAPTERS`)
+15. `src/integration/ai/skills/gemini/adapter.ts` — _new_
+16. `src/integration/ai/skills/operator/source.ts` — _edit_ (`OPERATOR_PROVIDER_DIR`)
+17. `src/integration/ai/agents/adapter-factory.ts` — _edit_ (`AGENT_ADAPTERS`)
+18. `src/integration/ai/agents/gemini/adapter.ts` + `agents/_engine/render-gemini-agent.ts` — _new_ (what `AGENT_ADAPTERS` points at)
+19. `src/application/bootstrap/provider-factory.ts` — _edit_ (`HEADLESS_FACTORIES`)
+20. `src/application/bootstrap/interactive-provider-factory.ts` — _edit_ (`INTERACTIVE_FACTORIES`)
+21. `src/application/bootstrap/wire.ts` — _edit_ (`MODEL_AVAILABILITY_PROBES` + `PROBES`)
+22. `src/application/flows/doctor/provider-auth.ts` + `probe-helpers.ts` — _edit_ (auth check + label)
+23. `src/application/flows/readiness/leaves/propose.ts` — _edit_ (only when you widen `AssistantTool`)
+24. `src/application/ui/shared/launch/readiness.ts` + `ui/tui/views/welcome-view.tsx` + `demo/seed-settings.ts` — _edit_ (label + first-run preset + demo seed preset)
+25. tests under `tests/integration/ai/providers/gemini/` and `tests/unit/…` — _new_
 
 See also `CONTRIBUTING.md` — open an issue first, keep the PR focused, all checks pass.

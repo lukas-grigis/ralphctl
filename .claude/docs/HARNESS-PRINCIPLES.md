@@ -175,11 +175,15 @@ worktree teardown does:
   `git worktree remove --force` would otherwise destroy the same rejected diff. Both call sites
   stash under the identical deterministic message (`quarantineStashMessage`) and record the same
   durable `blockedReason` pointer.
-- The parallel path additionally KEEPS the blocked task's worktree branch ref (`cleanupWorktree`
-  skips `git branch -D`) rather than deleting it — a fold-conflict block re-projects an already-
-  `done` task whose commits landed ONLY on that ref, so deleting it would strand verified work in
-  the reflog until GC. `setupWorktree`'s defensive `gitDeleteBranch` already tolerates a leftover
-  ref on relaunch, so keeping it uniformly (own-failure blocks too) is cheap.
+- The parallel path additionally KEEPS the worktree branch ref whenever the task ended blocked OR
+  the branch never completed its fold (abort/throw) (`cleanupWorktree` skips `git branch -D`) rather
+  than deleting it — a fold-conflict block re-projects an already-`done` task whose commits landed
+  ONLY on that ref, and an interrupted fold leaves an already-`done` task's commits equally ref-only,
+  so deleting it would strand verified work in the reflog until GC. `setupWorktree`'s defensive
+  `gitDeleteBranch` already tolerates a leftover ref on relaunch, so keeping it uniformly
+  (own-failure blocks too) is cheap — and bounded: that same defensive delete closes the recovery
+  window at the task's next launch, after which the commit SHA in tasks.json/progress.md is the only
+  handle left.
 - Restoring a quarantined diff (`restore-blocked-diff.ts`) matches the stash by its message key
   (`stashEntryMatchesMessage`), never a numeric stash index. On the parallel path this alone was
   not enough: several worktrees can push/list/pop against the ONE shared `refs/stash` ref

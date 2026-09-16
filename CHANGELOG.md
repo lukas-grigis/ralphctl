@@ -14,20 +14,37 @@ to [Semantic Versioning](https://semver.org/).
   `ralphctl settings apply-preset grok-only` (or pick `xai-grok` per flow). Catalog models
   are `grok-4.6` (flagship) and `grok-4.5`. Doctor cannot check Grok login (no auth-status
   command). Readiness writes the shared `AGENTS.md` (same file as Codex and OpenCode; later
-  writes keep a `.bak.<timestamp>` copy). Skills/agents live under `.grok/`. Grok has no
-  `--add-dir` — extra roots are a named over-grant (`--sandbox off` is forced so operator
-  config cannot re-enable a workspace sandbox). Read-only flows deny edit and shell; a
-  no-network session also denies `web_search` / `web_fetch`; `write` stays open so
-  `signals.json` can land. No grok-economic / fast / frontier / strong-gate presets; mixed
-  was not rerouted onto Grok.
+  writes keep a `.bak.<timestamp>` copy). Skills/agents live under `.grok/`. No
+  grok-economic / fast / frontier / strong-gate presets; mixed was not rerouted onto Grok.
 
-  Two things an interactive Grok session leaves on disk are worth knowing about. It writes
+  Read-only flows deny edit and shell, while creating a file stays possible so `signals.json`
+  can land. Grok has no `write` tool — `Write` and `Edit` are aliases of `search_replace`, the
+  only tool that can create a file — so the edit gate is the permission rule `--deny 'Edit(./**)'`,
+  rooted at `--cwd`: the repo (or per-task worktree) is edit-denied while the session
+  directory outside it, where `grok-prompt.md` and `signals.json` live, stays writable. Shell
+  is gated twice, by removing both tool spellings (`run_terminal_command,run_terminal_cmd`)
+  and by `--deny 'Bash(*)'`, so a renamed tool id cannot slip through. A no-network session
+  also removes `web_search` / `web_fetch`, and any closed gate adds `--no-subagents`. Grok has
+  no `--add-dir` — extra roots stay a named over-grant (`--sandbox off` is forced so operator
+  config cannot re-enable a workspace sandbox, and the edit rule is cwd-rooted, so an extra
+  root stays writable even in a read-only flow). Because that edit rule is rooted at `--cwd`, a
+  `RALPHCTL_HOME` pointed inside the repo would put `signals.json` under it; the adapter detects
+  that topology, drops the rule rather than blocking the envelope, and logs the over-grant — a
+  read-only flow there runs edit-capable. Both Grok surfaces now pass `--trust`:
+  without it Grok skips the `AGENTS.md` and `.grok/skills` that ralphctl itself writes. Grok's
+  folder trust is one grant, though — it also enables a checkout's own project permission
+  rules, hooks and repo-local MCP/LSP servers, exactly as opening that repo in Grok yourself
+  would, and Grok persists the decision in its trust store per folder (the repo and every
+  per-task worktree path a run uses). Run ralphctl on Grok only against checkouts you would
+  trust in Grok. Grok's flag surface and permission semantics are verified against
+  Grok Build CLI 1.0.30's shipped CLI reference (2026-09-15); the minimum supported version is
+  1.0.13, where the interactive `-s` lands.
+
+  One thing an interactive Grok session leaves on disk is worth knowing about: it writes
   `grok-debug.log` beside the session's other artifacts — a `stdio: 'inherit'` child hands
   the terminal over and the harness can observe nothing about it, so when a session
   misbehaves that log is the only account of what happened, and it is pruned with the rest
-  of the unit. It also gets its own `--leader-socket` under the temp directory rather than
-  sharing `~/.grok/leader.sock`: Grok kills every leader process it discovers at startup, so
-  a shared socket lets a harness run and a Grok you already have open tear each other down.
+  of the unit.
 
 - **`ralphctl sprint reopen <id>`** — the deliberate exit from an otherwise-terminal `done`
   sprint. Lands it back in `review` (idempotent — an already-`review` sprint passes through
@@ -41,11 +58,16 @@ to [Semantic Versioning](https://semver.org/).
   once a sprint is `done`, since unblocking there reopens it (see Changed) rather than leaving the
   count meaningless. Sprint-detail gets a `B` chord that cycles the cursor to the next blocked
   item; `u` (unblock) is now reachable from the Execute view's own tasks panel, not only
-  sprint-detail and the sprints list; and a blocked card can no longer be windowed off-screen. On
-  the CLI, `sprint progress` groups blocked tasks by root cause instead of listing a whole cascade
-  as equal-weight rows — an upstream-blocked chain collapses under the task that's actually
-  broken, each with its reason and a `ralphctl task unblock <id>` hint — and `task list` prints a
-  blocked task's reason plus a recovery hint the same way.
+  sprint-detail and the sprints list, and once a run settles with a task left blocked the Execute
+  view's hint strip names that chord instead of leaving it discoverable only through the `?`
+  overlay; and a blocked card can no longer be windowed off-screen. The Flows menu stops
+  disagreeing with every other surface about an all-blocked sprint: where it used to advise
+  running Plan for a sprint that already has a full task list — a flow the menu doesn't even offer
+  at `planned`/`active` — it now says that every remaining task is blocked and unblocking one
+  makes it runnable again. On the CLI, `sprint progress` groups blocked tasks by root cause
+  instead of listing a whole cascade as equal-weight rows — an upstream-blocked chain collapses
+  under the task that's actually broken, each with its reason and a `ralphctl task unblock <id>`
+  hint — and `task list` prints a blocked task's reason plus a recovery hint the same way.
 
 - **The generator can say what, specifically, it's stuck on.** The `task-blocked` signal gains
   optional `blockerClass` (`missing-information` / `ambiguous-request` /
@@ -75,13 +97,23 @@ to [Semantic Versioning](https://semver.org/).
   before, but the cleared attempts, per-criterion verdicts, and escalation stamps are now packaged
   into one entry on the task's new `retiredAttempts` list rather than discarded — so
   `ralphctl runs stats` and the TUI's outcome card keep counting a task's full attempt history
-  after an operator intervenes, not just what happened since the last unblock. Existing
-  `tasks.json` files load unchanged; nothing needs migrating.
+  after an operator intervenes, not just what happened since the last unblock. `runs stats` folds
+  those archived runs into its escalation-efficacy table too: a retired attempt's model and effort
+  rungs count as granted and fell-through, so the attempt totals and the escalation rows no longer
+  disagree about a task that was unblocked. Existing `tasks.json` files load unchanged; nothing
+  needs migrating.
 
 - **Unblocking a task on a `done` sprint reopens it** (`done` → `review` → `active`) instead of
   reviving a task with nowhere to run — closing a sprint with blocked work is a legitimate
   descoping call, but it shouldn't make that work permanently unreachable if someone later
-  supplies what it needed.
+  supplies what it needed. The reopen obeys the same single-active-per-project invariant
+  `sprint reopen` does, rather than walking around it: when another sprint of the project is
+  already `active` or in `review`, the task is still revived but the sprint stays `done`, and the
+  operator is told so: the CLI prints a note naming the peer that holds the project and the
+  `ralphctl sprint close` that releases it, sprint-detail's `u` appends the same reason to its
+  toast, and the Sprints list's bulk `u` counts how many sprints stayed closed instead of
+  reporting N/N. Two sprints of one project can never both hold the working tree — their repo locks
+  key on the sprint directory, not the project, so they would not mutually exclude.
 
 - **Prompt templates reworked against Anthropic's prompt-engineering guidance.** New shared
   partials — instructing autonomous operation (decide and proceed instead of asking a question
@@ -99,9 +131,50 @@ to [Semantic Versioning](https://semver.org/).
   tags now teach the actual contract: typed objects in `signals.json`.** The tags were never
   parsed by the harness — a skill following that guidance produced a tag nothing read. The
   skill-contract checker gained a rule (S7) that flags the old tag syntax in any SKILL.md, bundled
-  or operator-authored, so the mistake can't ship silently again.
+  or operator-authored, so the mistake can't ship silently again. S7 matches only the tag syntax
+  it's after: generic type parameters like `Array<Change>`, `Set<Note>` or `Promise<Evaluation>`
+  in a TypeScript- or Java-oriented operator skill no longer raise a spurious "skill contract
+  violation" warning.
 
 ### Fixed
+
+- **Sprint detail's lower half is reachable again on a normal-height terminal.** The view hands
+  ↑/↓ to its own card cursor, which left the page itself with no keyboard scroll at all — so on
+  any terminal where the banner and header cards already fill the viewport, the whole Tasks
+  section sat below the fold, the cursor walked through rows nobody could see, and the new
+  `B` jump-to-next-blocked chord looked like it did nothing. The page now follows the focused
+  card: whichever card holds the cursor registers itself with the scroll region, which scrolls
+  exactly as far as it takes to bring it into view and no further, so a deliberate mouse-wheel
+  scroll is never fought. Pressing `b` for the compact banner is no longer a prerequisite for
+  seeing your own tasks.
+
+- **Action results on sprint detail are pinned instead of scrolling away.** `✓ unblocked "…"` was
+  rendered inside the page body, at the tail of the Tickets pane — which on an overflowing view
+  is below the fold, so unblocking a task appeared to do nothing at all. The message now sits in
+  the shell's pinned status row next to the banner stack. This matters most for the case it was
+  added for: unblocking a task on a closed sprint whose reopen the single-active-per-project
+  check refuses reports that the task was revived but its sprint stayed closed, and that note was
+  exactly the one nobody could see. It also now leads with `⚠` rather than `✓`, because a tick in
+  front of "cannot reopen sprint" reads as "all done" when the operator still has work to do.
+
+- **The breadcrumb's sprint status chip no longer goes stale on sprint detail.** Home and Flows
+  both re-stamp the cached status from every snapshot they load; sprint detail did not — and it
+  is the one view that transitions the sprint under you, since unblocking a task on a `review`
+  sprint reopens it to `active`. The header card read ACTIVE while the breadcrumb still claimed
+  REVIEW.
+
+- **The Baseline card no longer reports a negative age.** `✓ Pre verify -95ms ago` showed up right
+  after a verify ran, because the elapsed helper subtracted a just-written timestamp from a
+  coarser 1 Hz clock reading and never clamped the result.
+
+- **The footer no longer runs its two hint groups together.** The view's own hints and the global
+  tail were joined by a bare space, so `u unblock (3) esc back` read as one hint whose key was
+  `(3)`. They are separated by the same `·` both groups already use internally.
+
+- **Home stops offering to create your first project when you already have several.** The
+  get-started row gated on whether a project was _selected_ rather than whether any exist, so
+  browsing without a current pick contradicted the card beside it reading "3 projects in storage".
+  The same card also now says "1 ticket" rather than "1 tickets".
 
 - **A blocked task's rejected diff is no longer destroyed on the parallel implement path.** The
   serial path already quarantined a self-block's rejected diff to `git stash` so the shared
@@ -109,10 +182,33 @@ to [Semantic Versioning](https://semver.org/).
   step, so a worktree that ended up blocked was force-removed with its uncommitted diff still in
   it — verified, committed-then-unlandable work included, since a fold conflict re-blocks an
   already-`done` task after its commits landed. Both paths now stash the rejected diff before the
-  tree is touched again, keyed on sprint + task and restored by matching the stash's own message
-  (never a positional index, which a concurrent stash on the same repo would invalidate). The
-  parallel path also keeps the task's worktree branch ref alive instead of deleting it when the
-  task ends blocked, so a fold-conflicted commit stays reachable rather than reflog-only.
+  tree is touched again, keyed on sprint + task and located by its own message rather than by a
+  caller-remembered index, with every push / list / pop in the run serialised through one
+  in-process queue; a stash pushed by another process mid-run stays out of scope. The parallel
+  path also keeps the task's worktree branch ref alive instead of deleting it whenever the task
+  ends blocked or the branch never completed its fold — a Ctrl-C landing between a task settling
+  `done` and its fold used to delete the very ref holding that task's unfolded, already-verified
+  commits. The kept ref is a recovery window, not permanence: the next launch of that task
+  force-deletes it. Past that point a blocked task's commit SHA is still in `tasks.json` (an
+  unblock archives it into `retiredAttempts`) and on `progress.md`'s `- Commit:` line; an
+  interrupted fold's SHA survives on `progress.md` only, because the run's epilogue resets that
+  task to its pre-wave copy — either one feeds a manual `git cherry-pick` until gc prunes the
+  object.
+
+- **A crash inside a parallel task's chain no longer strands its worktree.** An error thrown
+  (rather than returned) anywhere in a task's per-task chain was swallowed and replaced by an
+  unrelated `TypeError`, and the worktree teardown was skipped entirely — so the task's
+  `wt-<task>` directory and branch ref survived on disk and every later launch of that task failed
+  while creating its worktree, until someone removed them by hand. The teardown now runs on that
+  path too, and the original error surfaces unchanged.
+
+- **Restoring a quarantined diff can no longer leave conflict markers behind.** When the stashed
+  diff from a blocked attempt could not be re-applied cleanly, git had already written the
+  conflicted, marker-laden merge into the working tree while the harness logged that the retry
+  would start from a clean tree and carried on — so the next verify read the markers as a broken
+  baseline and the following commit could contain them. A conflicting restore is now detected and
+  the tree is reset to its pre-restore state; the diff stays in the stash, recoverable under the
+  same message.
 
 - **Resuming a parallel implement run no longer silently does nothing.** A dependent task whose
   prerequisite had already settled `done` in an earlier session read as a dangling dependency once
@@ -121,6 +217,35 @@ to [Semantic Versioning](https://semver.org/).
   nothing. Resuming now tells the scheduler which ids outside the queue are already satisfied, and
   a task graph that's genuinely unschedulable (a real cycle or dangling id) is reported to the
   operator as a launch failure instead of a quiet no-op.
+
+- **`ralphctl sprint close` on a sprint that isn't in `review` fails immediately** with the
+  invalid-state error, instead of first prompting `N task(s) are blocked … Close anyway?` for a
+  close that was never valid — and, in a script, instead of exiting with a confirmation-missing
+  error that named the wrong problem.
+
+- **Model-authored task text can no longer drive the operator's terminal.** A `task-blocked`
+  signal's reason, question and "what unblocks me" come off a generator that has just read an
+  attacker-controllable repository, and a task's name comes off the planner, so all of them are
+  now stripped of terminal control characters and length-clamped before they reach the CLI, the
+  Tasks panel or an OS notification — a prompt-injected name or answer can't emit ANSI/OSC escapes
+  into the terminal or flood a list row with a multi-megabyte field. `task list`, `task unblock`,
+  `sprint progress` and `sprint close` neuter every name they echo. The same normalisation runs
+  when the signal is read, and it never rejects one: an over-long field is truncated, not refused,
+  so a single bad field can't sink a whole run.
+
+- **A bundled skill can no longer talk a phase — or a turn — into an invalid signal.** The
+  cross-phase iterative-review skill hardcoded `task-blocked`, and the TDD and debugging skills
+  named `task-complete` and `decision`, in prose that is also loaded into `plan`, `ideate` and
+  `readiness` — phases whose contract accepts none of them — and, inside `implement`, into the
+  evaluator turn, which is installed with the same file and has no schema for either. One stray
+  signal fails validation for the whole `signals.json`, so a fully approved plan, ideate,
+  readiness or evaluation session was silently discarded. The iterative-review skill now points
+  at whichever blocked/note signal the flow it was loaded into actually accepts, and all three
+  qualify `task-complete` and `decision` as generator-role kinds. A compatibility test now checks
+  every bundled skill's signal mentions against the contract of every flow and turn it mounts in.
+  The evaluator-checkpoint and decisions prompt partials now show a real ISO-8601 timestamp
+  instead of a `<ISO-8601 timestamp>` placeholder, so a model copying the block verbatim writes a
+  file that validates.
 
 - **Interactive sessions no longer hang on a black screen after the TUI hands over the terminal.**
   Seen with Grok but provider-agnostic: an interactive CLI queries the terminal for its capabilities

@@ -120,8 +120,10 @@ dependency waves (Kahn-by-level over `Task.dependsOn`), each wave's tasks run co
 worktree (`<sprintDir>/worktrees/wt-<taskId>`, `flows/implement/wave-branch.ts`) with a fresh `setupScript`;
 commits fold back onto the single shared sprint branch through one serialised in-process queue
 (`flows/implement/merge-wave.ts`), so a parallel sprint still lands as one PR. A branch whose fold conflicts
-re-projects the task to `blocked` and KEEPS its worktree branch ref instead of deleting it — the commits
-already landed there and nowhere else. A worktree branch that settles `blocked` for any reason also
+re-projects the task to `blocked` and KEEPS its worktree branch ref instead of deleting it, as does a branch
+that never completed its fold at all (an abort or a throw after the task settled `done`) — the commits
+already landed there and nowhere else. The keep lasts until that task's next launch, when `setupWorktree`
+force-deletes the ref. A worktree branch that settles `blocked` for any reason also
 quarantines the rejected working-tree diff, via the same deterministic `git stash` entry (keyed on
 `sprintId` + `taskId`) the serial path quarantines a blocked task's diff with between tasks sharing one tree
 (`flows/implement/leaves/quarantine-blocked-diff.ts` — `wave-branch.ts`'s teardown calls its
@@ -575,7 +577,9 @@ and the non-obvious mutators.
   into `revertSprintToActive` so there is only ever one review → active step to keep in sync). Both reopen
   hops enforce the same single-active-per-project invariant `activateSprint` already enforced — only one
   sprint per project may sit in `active` or `review` at a time, since both hold the sprint branch checked
-  out — via the shared `assertNoActivePeer` (`business/sprint/assert-no-active-peer.ts`).
+  out — via the shared `assertNoActivePeer` (`business/_shared/assert-no-active-peer.ts` — it sits under
+  `_shared/` rather than `sprint/` because the third caller is `unblockTaskUseCase`, and the
+  sibling-business fence keeps `business/task` out of `business/sprint`).
 - **`SprintExecution`** (`sprint-execution.ts`) — identified by the parent `SprintId`; carries `branch`,
   `pullRequestUrl`, `setupRanAt` (array of `SetupRun` — one structured entry per repo per chain run,
   outcome: `success` / `failed` / `spawn-error` / `skipped`). Separate from `Sprint` so runtime-mutating

@@ -143,7 +143,7 @@ const ActiveSprintCard = ({ state }: { readonly state: AppStateSnapshot }): Reac
         <Box marginTop={spacing.section}>
           <Text>
             <Text bold>{String(sprint.tickets.length)}</Text>
-            <Text dimColor> tickets </Text>
+            <Text dimColor> ticket{sprint.tickets.length === 1 ? '' : 's'} </Text>
             <Text bold color={inkColors.warning}>
               {String(state.triggerInputs.pendingTicketCount)}
             </Text>

@@ -1,8 +1,11 @@
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { absolutePath } from '@tests/fixtures/domain.ts';
 import { createCapturingBus } from '@tests/fixtures/capturing-event-bus.ts';
 import { type InteractiveSpawnCall, makeInteractiveSpawn } from '@tests/fixtures/interactive-spawn-fake.ts';
+import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { OPENCODE_MODELS } from '@src/domain/value/settings-models/opencode.ts';
 import { createInteractiveOpencodeProvider } from '@src/integration/ai/providers/opencode/interactive.ts';
 
@@ -14,8 +17,23 @@ import { createInteractiveOpencodeProvider } from '@src/integration/ai/providers
 const STUB_PROMPT = 'Refine this OpenCode task.';
 const stubReadFile = (): Promise<string> => Promise.resolve(STUB_PROMPT);
 
-const PROMPT_FILE = absolutePath('/tmp/opencode-prompt.md');
-const OUTPUT_FILE = absolutePath('/tmp/opencode-output.md');
+// `run()` drops a spawn-context.json beside `outputFile` and the probe has no test seam, so the io
+// paths are a per-test tmpdir — a fixed `/tmp/opencode-output.md` made every suite run rewrite a
+// world-readable /tmp/spawn-context.json and never clean it up.
+let ioDir: string;
+let PROMPT_FILE: AbsolutePath;
+let OUTPUT_FILE: AbsolutePath;
+
+beforeEach(() => {
+  ioDir = mkdtempSync(join(tmpdir(), 'opencode-interactive-'));
+  PROMPT_FILE = absolutePath(join(ioDir, 'opencode-prompt.md'));
+  OUTPUT_FILE = absolutePath(join(ioDir, 'opencode-output.md'));
+});
+
+afterEach(() => {
+  rmSync(ioDir, { recursive: true, force: true });
+});
+
 const CWD = absolutePath('/tmp/opencode-interactive-cwd');
 const MODEL = OPENCODE_MODELS[0]!;
 

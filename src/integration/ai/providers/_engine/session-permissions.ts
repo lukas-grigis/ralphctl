@@ -14,12 +14,16 @@
  * --add-dir. Topology is the primary defense; permissions are the secondary capability
  * filter.
  *
- * ## Write tool is always allowed
+ * ## Creating a file is always possible
  *
- * Every contract-path leaf (audit-[09]) requires the AI to land a `signals.json` envelope
- * in its `outputDir` via the Write tool. The Write tool therefore stays allowed regardless
- * of `canModifyRepoFiles`. To prevent writes to a particular tree, don't mount it
- * (don't list it in `additionalRoots`).
+ * Every contract-path leaf (audit-[09]) requires the AI to land a `signals.json` envelope in its
+ * `outputDir`, so every profile must leave it SOME way to create that file, regardless of
+ * `canModifyRepoFiles`. Four backends satisfy that by keeping the `Write` tool open; Grok has no
+ * `write` tool at all (`Write` / `Edit` / `MultiEdit` are aliases of `search_replace`, the only
+ * tool that can create a file), so it scopes its edit deny rule to `--cwd` instead and leaves the
+ * session directory outside it writable. The rule is the intent, not the mechanism — an adapter
+ * that denies file creation outright cannot satisfy the contract. To prevent writes to a
+ * particular tree, don't mount it (don't list it in `additionalRoots`).
  *
  * ## Profile mapping
  *
@@ -46,9 +50,10 @@
 export interface SessionPermissions {
   /**
    * When `false`, deny `Edit` / `MultiEdit` / `NotebookEdit` tools — the AI cannot modify
-   * existing files. The `Write` tool stays open so signals.json (the contract envelope) can
-   * land in `outputDir`; path scope (cwd + additionalRoots) is what keeps the AI from
-   * Writing into trees it shouldn't touch.
+   * existing files. Creating signals.json (the contract envelope) in `outputDir` stays possible
+   * either way — four backends keep the `Write` tool open, Grok scopes its edit deny rule to
+   * `--cwd` — and path scope (cwd + additionalRoots) is what keeps the AI out of trees it
+   * shouldn't touch.
    */
   readonly canModifyRepoFiles: boolean;
   /** When `false`, the AI must not run shell commands. Denies Claude `Bash`, Copilot `shell`. */
@@ -64,8 +69,8 @@ export interface SessionPermissions {
 }
 
 /**
- * Read-only profile — used by every non-implement headless chain. The AI may write the
- * audit-[09] `signals.json` envelope to its `outputDir` (Write tool is always permitted)
+ * Read-only profile — used by every non-implement headless chain. The AI may create the
+ * audit-[09] `signals.json` envelope in its `outputDir` (every adapter leaves that possible)
  * but cannot Edit existing files or run shell commands. Path scope (cwd + additionalRoots)
  * defines what the AI can actually see / write to.
  */

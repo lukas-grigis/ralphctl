@@ -47,11 +47,14 @@ carries it the rest of the way instead of the sprint gaining a second, parallel 
 transition to keep in sync with.
 Reached two ways: automatically, as the first hop of `unblockTaskUseCase`'s own reopen when the
 unblocked task's sprint is `done`; or explicitly via `ralphctl sprint reopen <id>` (idempotent — an
-already-`review` sprint prints "nothing to reopen" rather than erroring). Only the explicit CLI path
-enforces the single-active-per-project invariant (`assertNoActivePeer` — refuses when a different
-sprint on the same project already holds `active` or `review`); the automatic hop inside unblock
-skips that check and is best-effort — a failed persist is logged, not surfaced as an unblock
-failure, and re-running unblock retries it.
+already-`review` sprint prints "nothing to reopen" rather than erroring). Both paths enforce the
+single-active-per-project invariant (`assertNoActivePeer` — a different sprint on the same project
+already holding `active` or `review`): the explicit CLI path refuses with a `ConflictError`, while
+the automatic hop inside unblock calls that same helper and stays best-effort about the outcome — the
+task is still revived, the sprint stays `done`, and the conflict rides out on
+`UnblockTaskOutput.sprintReopenConflict` so the CLI can name the peer and the `sprint close` that
+releases it. Everything else on that hop is best-effort too: a failed persist is logged, not
+surfaced as an unblock failure, and re-running unblock retries it.
 
 **Unblock — the operator's recovery path.** A task blocks when its own attempt budget or verify
 gate exhausts (`blocked`, `blockKind: 'own'`) or when a prerequisite it depends on never finished
@@ -65,9 +68,10 @@ block is never a silent event.
 
 Blocked work is then visible everywhere an operator orients: the Home active-sprint card and the
 settled-run summary both add a `· N blocked` count beside the pending count (a sprint whose entire
-remainder was blocked used to read as "0 tasks pending" — nothing left to do); the Sprints list and
-the cross-project sprint picker each carry a `N blocked` badge per sprint (batch-loaded via
-`loadTaskHealthBySprintId`, `application/ui/shared/state-snapshot.ts`); sprint-detail's header and
+remainder was blocked used to read as "0 tasks pending" — nothing left to do); the Sprints list
+carries a `N blocked` badge per sprint and the cross-project sprint picker shows the same count on the
+focused row (both batch-loaded via `loadTaskHealthBySprintId`,
+`application/ui/shared/state-snapshot.ts`); sprint-detail's header and
 its `NextPhaseCard` name the blocked tasks and switch to a warning presentation instead of the dim
 all-clear checkmark, even once the sprint is `done`; and the Execute view's Tasks panel anchors its
 post-run card cursor and auto-expansion on the first `blocked` task rather than the last one, so a
@@ -220,14 +224,24 @@ SHARED serial worktree is clean before the next task's subchain runs — without
 land a corrupt commit mis-attributed `baseline-broken`. The parallel path calls it directly from
 `wave-branch.ts`'s per-worktree teardown, `cwd` pointed at the worktree (which shares `.git` with the
 main repo, so the stash survives the worktree's removal), BEFORE `git worktree remove --force` —
-previously that removal silently destroyed a rejected diff with nothing quarantined first. A blocked
-worktree's branch ref is also kept rather than deleted on cleanup: a fold-conflict block means the
-worktree's commits are real and landed on that ref and nowhere else, so removing it would strand
-verified work in the reflog until GC; an own-failure block's ref may hold nothing of value, but
-keeping it uniformly is cheap (`setupWorktree` already tolerates and drops a leftover ref on
-relaunch). Intermediate commits from earlier green-verify attempts of a later-blocked task remain on
-the sprint branch by design — each passed its own verify; only the final blocked attempt's
-uncommitted diff moves to the stash.
+previously that removal silently destroyed a rejected diff with nothing quarantined first. The
+worktree's branch ref is also kept rather than deleted on cleanup whenever the task ended `blocked`
+OR the branch never completed its fold (an abort — or a throw — landing between the subchain settling
+`done` and the fold step): a fold-conflict block means the worktree's commits are real and landed on
+that ref and nowhere else, and an interrupted fold leaves already-verified commits equally ref-only
+while the epilogue rewrites the task back to its pre-wave status, so removing the ref would strand
+that work in the reflog until GC. An own-failure block's ref may hold nothing of value, but keeping
+it uniformly is cheap. The keep is a recovery WINDOW, not permanence, and the window is one launch
+wide: `setupWorktree` force-deletes the ref (`git branch -D`) the next time THAT task starts — for a
+blocked task, the first relaunch after the operator unblocks it. Past that point the commit survives
+only as a SHA — and where depends on the reason for the keep. A blocked task's SHA is in `tasks.json`
+(an unblock archives the attempts into `retiredAttempts` rather than deleting them) and on
+`progress.md`'s `- Commit: <sha>` line. An interrupted fold's SHA is on `progress.md` ONLY: an aborted
+branch never emits `completed`, so `captureDurableFold` skips it and the epilogue's `saveAll` rewrites
+the task back to its pre-wave copy, clobbering the attempt row that held `commitSha`. Either still
+feeds a manual `git cherry-pick` until gc prunes the object. Intermediate commits from earlier green-verify attempts
+of a later-blocked task remain on the sprint branch by design — each passed its own verify; only the
+final blocked attempt's uncommitted diff moves to the stash.
 
 On the task's next attempt — a relaunch, or a same-run retry within budget — `restore-blocked-
 diff.ts` looks the stash up by that SAME message key (never a raw stash index) and pops it back
@@ -236,9 +250,17 @@ instead of starting from zero. Matching by message, not position, matters becaus
 can push/list/pop several worktrees' stashes concurrently against the ONE `refs/stash` ref every
 worktree shares with the main repo; `gitStashPush` / `gitStashList` / `gitStashPop`
 (`integration/io/git-operations.ts`) are funnelled through an in-process FIFO mutex so a sibling's
-concurrent push can never shift the index a pop is about to act on out from under it. A missing or
-unpoppable stash is a silent no-op — restoration is a convenience, not a correctness requirement; the
-diff, if it was ever stashed, stays recoverable by hand via `git stash list`.
+concurrent push can never shift the index a pop is about to act on out from under it. A missing stash
+is a silent no-op and a failed pop never fails the attempt — restoration is a convenience, not a
+correctness requirement. A pop that CONFLICTS is not left half-applied, though: git keeps the stash
+entry but writes the `<<<<<<<`-marked merge into the tree, so the leaf probes for unmerged paths
+(`git diff --name-only --diff-filter=U`) and, when it finds any, resets the tree to HEAD
+(`reset --hard HEAD` + `clean -fd`, which also drops the untracked files a `-u` stash restores)
+before carrying on — the pre-pop state, since the leaf runs at attempt start on a tree the
+quarantine step already emptied; any unrelated uncommitted work is discarded with the half-merge. Without that, `pre-task-verify` reads the markers as a `baseline-broken` red —
+which sets no block — and `commit-task`'s `git add -A` can commit them. A pop git refuses before
+applying anything leaves the tree untouched and is NOT reset. Either way the diff stays recoverable
+by hand via `git stash list`.
 
 **Legacy `implement` promotion.** Settings files written by ralphctl ≤ 0.7.0 stored `ai.implement`
 as a flat `{ provider, model, effort? }` row. Such files are silently promoted at load time into the

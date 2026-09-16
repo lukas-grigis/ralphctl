@@ -58,6 +58,32 @@ describe('ralphctl sprint progress — blocked-cascade rollup', () => {
     expect(result.stdout).toContain('dep-c');
   });
 
+  // Task names are planner-authored prose off a generator that has just read the target repo, so
+  // they carry the same injection surface as the blocked reason one line below them. Both the root
+  // bullet and the joined "waiting on this" names go through the display sanitiser.
+  it('strips terminal escape sequences out of the blocked task names', async () => {
+    const esc = String.fromCharCode(0x1b);
+    const bel = String.fromCharCode(0x07);
+    const sprint = makeDraftSprint();
+    await createFsSprintRepository({ root: cli.paths.dataRoot }).save(sprint);
+    const repo = createFsTaskRepository({ root: cli.paths.dataRoot });
+
+    const root = markTaskBlocked(makeTodoTask({ name: `${esc}]0;pwned${bel}root-task` }), 'verify failed', 'own');
+    if (!root.ok) throw new Error(`fixture: ${root.error.message}`);
+    const depTodo = makeTodoTask({ name: `${esc}[2Jdep-b`, dependsOn: [root.value.id] });
+    const dep = markTaskBlocked(depTodo, 'blocked upstream — prerequisite not done: root-task (blocked)', 'upstream');
+    if (!dep.ok) throw new Error(`fixture: ${dep.error.message}`);
+    await repo.saveAll(sprint.id, [root.value, dep.value]);
+
+    const result = await runCliCaptured(cli, ['sprint', 'progress', String(sprint.id)]);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).not.toContain(esc);
+    expect(result.stdout).not.toContain(bel);
+    // Neutered, not dropped — the operator still sees which tasks these are.
+    expect(result.stdout).toContain(']0;pwnedroot-task');
+    expect(result.stdout).toContain('[2Jdep-b');
+  });
+
   it('reports independent blocked tasks as independent roots (no false grouping)', async () => {
     const sprint = makeDraftSprint();
     await createFsSprintRepository({ root: cli.paths.dataRoot }).save(sprint);

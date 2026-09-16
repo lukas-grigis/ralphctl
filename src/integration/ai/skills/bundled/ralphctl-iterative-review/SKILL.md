@@ -24,8 +24,9 @@ deployed form — but the same posture also belongs **inside** each phase's work
 - **Plan** — re-read the generated task list against the requirements. Are the tasks independently
   shippable? Do dependencies match the actual data flow? Reorder, merge, or drop before importing.
 - **Execute** — run the project's check gate (lint, typecheck, tests) after each meaningful change, not
-  after the whole diff. Re-read your own diff once before you write a `task-complete` signal. You are the
-  cheapest reviewer the change ever gets.
+  after the whole diff. Re-read your own diff once before you signal the work complete (generator role: a
+  `task-complete` signal — the evaluator's contract has no `task-complete` schema). You are the cheapest
+  reviewer the change ever gets.
 
 ## What to do
 
@@ -36,8 +37,9 @@ deployed form — but the same posture also belongs **inside** each phase's work
 3. **Treat the check gate as a loop, not a finish line.** A failing gate is feedback, not a verdict. Apply
    the fix and re-run; do not signal completion against a red gate.
 4. **When a fix attempt repeats the same failure, escalate rather than retry.** Two iterations of the same
-   error is a plateau — the next fix is a guess. Surface the blocker as a `task-blocked` or `note` signal in
-   `signals.json` rather than burning the budget.
+   error is a plateau — the next fix is a guess. Surface the blocker as a `note` signal in `signals.json`, or
+   through whichever blocked signal the prompt's output contract lists, rather than burning the budget — this
+   skill loads in every phase, and the phases differ in which signals they accept.
 
 ## Anti-patterns
 

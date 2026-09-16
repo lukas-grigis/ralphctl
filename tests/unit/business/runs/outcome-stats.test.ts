@@ -9,7 +9,7 @@ import {
   recordRunningAttemptWarning,
 } from '@src/domain/entity/task-attempts.ts';
 import { applyCriteriaVerdicts } from '@src/domain/entity/task-criteria.ts';
-import { markTaskBlocked } from '@src/domain/entity/task-lifecycle.ts';
+import { markTaskBlocked, unblockTask } from '@src/domain/entity/task-lifecycle.ts';
 import {
   failCurrentAttempt,
   markTaskDone,
@@ -217,6 +217,42 @@ describe('foldOutcomeStats — per-rung escalation efficacy', () => {
     expect(totals.escalation.nudge.resolved).toBe(1);
     expect(totals.escalation['best-of-n'].resolved).toBe(1);
     expect(totals.outcomes.doneWithWarning).toBe(1);
+  });
+
+  // `unblockTask` retires the four model / effort stamps into `retiredAttempts` and resets the live
+  // fields. `allAttempts` already folds the archived ATTEMPTS back into every other table, so
+  // reading only the live stamps here reported the rungs of an intervened-on task as never granted
+  // while still counting the attempts those rungs paid for — an internally inconsistent report.
+  it('keeps a retired run’s rungs after an unblock, counted as fell-through', () => {
+    const bumped = unwrap(recordTaskEscalation(beginAttempt(makeTodoTask({ name: 'retired' })), 'sonnet', 'opus'));
+    const effort = unwrap(recordTaskEffortEscalation(bumped, 'high'));
+    const blocked = unwrap(markTaskBlocked(failAttempt(effort), 'attempt budget exhausted', 'own'));
+    const revived = unwrap(unblockTask(blocked));
+
+    const { totals } = foldOutcomeStats([sprintWith([revived])]);
+
+    // The revived task carries no live stamps any more — the archive is the only record left.
+    expect(revived.escalatedToModel).toBeUndefined();
+    expect(revived.escalatedToEffort).toBeUndefined();
+    // That run ended in a block by definition (only a blocked task can be unblocked), so its rungs
+    // are `fellThrough` — never `unsettled` just because the live task is back to `todo`.
+    expect(totals.escalation.model).toEqual({ granted: 1, resolved: 0, fellThrough: 1, unsettled: 0 });
+    expect(totals.escalation.effort).toEqual({ granted: 1, resolved: 0, fellThrough: 1, unsettled: 0 });
+    // ...and the attempt those rungs paid for is still counted, so both halves of the report agree.
+    expect(totals.attemptCount).toBe(1);
+  });
+
+  it('counts the permanent best-of-N marker once across an unblock, not once per retired run', () => {
+    const granted = unwrap(recordTaskBestOfNGrant(beginAttempt(makeTodoTask({ name: 'kept' })), 3));
+    const blocked = unwrap(markTaskBlocked(failAttempt(granted), 'still failing', 'own'));
+    const revived = unwrap(unblockTask(blocked));
+
+    const { totals } = foldOutcomeStats([sprintWith([revived])]);
+
+    // `bestOfNGranted` is the once-per-task gate and deliberately stays LIVE across the unblock —
+    // it is not archived, so it is read off the live task alone and follows the live outcome.
+    expect(revived.bestOfNGranted).toBe(true);
+    expect(totals.escalation['best-of-n']).toEqual({ granted: 1, resolved: 0, fellThrough: 0, unsettled: 1 });
   });
 });
 

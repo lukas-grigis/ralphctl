@@ -262,6 +262,61 @@ describe('SprintsView', () => {
     result.unmount();
   });
 
+  it('pressing u on a CLOSED sprint reports that the sprint stayed closed', async () => {
+    // Unblocking normally reopens a `done` sprint (`done` → `review` → `active`), so a plain
+    // "unblocked 1 task" toast would read as "it can run again". Here the single-active-per-project
+    // check refuses the reopen because a peer sprint already holds the project: the task IS
+    // revived, but the sprint stays closed, and the use case says so on
+    // `UnblockTaskOutput.sprintReopenConflict`. The toast must not swallow that.
+    // Ids sort newest-first, so 'sprint-z…' is the focused row and 'sprint-a…' the live peer.
+    const closed = makeSprint({ id: 'sprint-z-closed', name: 'Closed Sprint', slug: 'closed', status: 'done' });
+    const peer = makeSprint({ id: 'sprint-a-peer', name: 'Live Sprint', slug: 'live', status: 'active' });
+    const blocked: Task = {
+      id: 'task-closed1' as never,
+      name: 'stuck-when-closed',
+      status: 'blocked',
+      blockedReason: 'verify timed out',
+      dependsOn: [],
+      attempts: [],
+      ticketId: 'tkt-closed' as never,
+      repositoryId: 'r1' as never,
+      order: 1,
+      steps: [],
+      verificationCriteria: [],
+    } as never;
+
+    let stored: readonly Task[] = [blocked];
+    const deps = {
+      sprintRepo: fakeSprintRepo([closed, peer]),
+      taskRepo: {
+        async findBySprintId(id: SprintId) {
+          return Result.ok(String(id) === 'sprint-z-closed' ? stored : ([] as readonly Task[]));
+        },
+        async update() {
+          stored = [{ ...(blocked as object), status: 'todo' } as unknown as Task];
+          return Result.ok(undefined);
+        },
+      } as unknown as TaskRepository,
+      projectRepo: {} as never,
+      sprintExecutionRepo: {} as never,
+      settingsRepo: {} as never,
+      clock: () => IsoTimestamp.now(),
+      logger: noopLogger,
+    } as unknown as AppDeps;
+
+    const { result } = renderView(<SprintsView />, { deps, initial: { id: 'sprints' } });
+    await waitForViewReady(result, (f) => f.includes('Closed Sprint') && f.includes('unblock'));
+    result.stdin.write('u');
+    await waitForPredicate(() => /unblocked 1 task/.test(result.lastFrame() ?? ''));
+
+    // Ink soft-wraps the toast across the frame width, so flatten before matching.
+    const frame = (result.lastFrame() ?? '').replace(/\s+/g, ' ');
+    expect(frame).toContain('unblocked 1 task in "Closed Sprint"');
+    expect(frame).toContain('sprint stayed closed');
+    expect(frame).toContain("sprint 'live' is already active in this project");
+    result.unmount();
+  });
+
   it("pressing u refreshes the row's own '· N blocked' badge, not just the footer hint", async () => {
     // Regression: the row's blocked sub-count is a SEPARATE snapshot (`SprintListEntry.health`,
     // owned by this view's list loader) from the footer hint's stuck count (owned by

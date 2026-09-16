@@ -9,8 +9,11 @@ import { resetTaskToTodo, unblockTask } from '@src/domain/entity/task-lifecycle.
 import { upstreamBlockedDependents } from '@src/domain/entity/task-graph.ts';
 import { reopenDoneSprint, type Sprint, revertSprintToActive } from '@src/domain/entity/sprint.ts';
 import type { FindById } from '@src/domain/repository/_base/find-by-id.ts';
+import type { ListAll } from '@src/domain/repository/_base/list-all.ts';
 import type { Save } from '@src/domain/repository/_base/save.ts';
+import { assertNoActivePeer } from '@src/business/_shared/assert-no-active-peer.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
+import type { ConflictError } from '@src/domain/value/error/conflict-error.ts';
 import type { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import type { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
 import type { StorageError } from '@src/domain/value/error/storage-error.ts';
@@ -48,6 +51,19 @@ const PERSIST_FAILED_MSG = 'persist failed';
  * already revived, and re-running unblock retries the reopen (the already-`todo` short-circuit
  * still reopens).
  *
+ * **Single-active-per-project invariant.** `done` is NOT one of the two states that hold the
+ * project (the check scans `active` / `review`), so a project may legally hold one `active` sprint
+ * next to a closed one. The `done` → `review` hop above would pull the closed sprint back in
+ * alongside that live peer, and the two would not mutually exclude on the shared working tree —
+ * the cross-process repo lock is keyed per sprint dir, not per project. So the hop runs the SAME
+ * check `reopenDoneSprintUseCase` runs before the identical transition — literally the same
+ * function, {@link assertNoActivePeer}, which lives under `business/_shared/` rather than
+ * `business/sprint/` so this module can reach it past the sibling-business ESLint fence
+ * (`ralphctl sprint reopen` refuses the transition; `task unblock` must not perform it silently).
+ * On conflict the reopen is skipped, not the unblock: the task is still revived, and the
+ * `ConflictError` rides out on {@link UnblockTaskOutput.sprintReopenConflict} so the CLI / TUI can
+ * tell the operator the sprint stayed closed and which peer holds the project.
+ *
  * **TOCTOU precondition.** The cascade path does an UNLOCKED `findBySprintId` read whose result
  * seeds the (now-locked) `saveAll` rewrite — the read that feeds the rewrite happens before any
  * lock is taken. So this use case MUST NOT run while an Implement run is active on the same sprint:
@@ -65,14 +81,34 @@ export interface UnblockTaskProps {
   readonly sprintId: SprintId;
   /** Composite is supplied by callers; the use case needs read + atomic-rewrite for the cascade. */
   readonly taskRepo: UpdateTask & FindTasksBySprintId & SaveAllTasks;
-  /** Used to reopen a `review` sprint to `active` once there is `todo` work again. */
-  readonly sprintRepo: FindById<Sprint, SprintId> & Save<Sprint>;
+  /**
+   * Used to reopen a `review` sprint to `active` once there is `todo` work again. `list` is the
+   * peer check's read — reopening a `done` sprint is subject to the single-active-per-project
+   * invariant, which can only be answered by scanning the project's other sprints.
+   */
+  readonly sprintRepo: FindById<Sprint, SprintId> & Save<Sprint> & ListAll<Sprint>;
   /** Wall-clock for the reopen's `activatedAt` re-stamp. */
   readonly clock: () => IsoTimestamp;
   readonly logger: Logger;
 }
 
-export type UnblockTaskOutput = TodoTask;
+export interface UnblockTaskOutput {
+  /** The revived task. Always present — every reopen outcome below is best-effort. */
+  readonly task: TodoTask;
+  /**
+   * Set when the sprint stayed closed because another sprint of the same project is already
+   * `active` / `review`. The unblock itself succeeded; this is the operator-facing "and the sprint
+   * did NOT reopen, because …" half, which would otherwise be visible only in a log line the CLI
+   * never renders (`bootstrapCli` attaches no log subscriber).
+   */
+  readonly sprintReopenConflict?: ConflictError;
+}
+
+/** Assemble the output envelope — the conflict key is omitted entirely when there was none. */
+const outputWith = (task: TodoTask, sprintReopenConflict: ConflictError | undefined): UnblockTaskOutput => ({
+  task,
+  ...(sprintReopenConflict !== undefined ? { sprintReopenConflict } : {}),
+});
 
 /** Persist one reopen hop. Best-effort: a failure is logged and swallowed — see below. */
 const persistReopen = async (
@@ -102,42 +138,67 @@ const persistReopen = async (
  * unblock has already persisted by the time this runs, so a failed reopen is logged and swallowed
  * rather than failing the operation — re-running unblock retries it from wherever the sprint ended
  * up.
+ *
+ * Returns the `ConflictError` when the `done` hop was refused by the single-active-per-project
+ * check, and `undefined` for every other outcome (reopened, nothing to reopen, or a failure the
+ * operator can only act on via the log). Only the conflict is worth surfacing: it is the one case
+ * where the sprint is left closed BY DESIGN and the operator has a concrete next action (close the
+ * peer first).
  */
-const reopenSprintIfReview = async (props: UnblockTaskProps, log: Logger): Promise<void> => {
+const reopenSprintIfReview = async (props: UnblockTaskProps, log: Logger): Promise<ConflictError | undefined> => {
   const loaded = await props.sprintRepo.findById(props.sprintId);
   if (!loaded.ok) {
     log.warn('could not load sprint to reopen after unblock', {
       sprintId: props.sprintId,
       error: loaded.error.message,
     });
-    return;
+    return undefined;
   }
 
   let sprint: Sprint = loaded.value;
   if (sprint.status === 'done') {
+    // `review` holds the sprint branch checked out, so carrying a closed sprint back into it next
+    // to a live peer would put two sprints of one project on the shared working tree — see the
+    // invariant note in the use-case docblock. Same function `ralphctl sprint reopen` calls.
+    // The verb is 'reopen', NOT 'unblock': it names the transition that is refused here. The
+    // unblock itself has already succeeded by this point, so a log line or error message reading
+    // "refusing to unblock" would tell the operator the opposite of what happened.
+    const checked = await assertNoActivePeer(sprint, props.sprintRepo, log, 'reopen');
+    if (!checked.ok) {
+      // A ConflictError is the by-design refusal the caller must hear about; a StorageError is an
+      // unreadable sprint list, which cannot establish that nobody holds the project either — the
+      // hop is skipped both ways, but only the conflict names a peer and a next action.
+      if (checked.error.code === 'conflict') return checked.error;
+      log.warn('could not check for an active peer sprint after unblock', {
+        sprintId: props.sprintId,
+        error: checked.error.message,
+      });
+      return undefined;
+    }
     const toReview = reopenDoneSprint(sprint, props.clock());
     if (!toReview.ok) {
       log.warn('could not reopen closed sprint after unblock', {
         sprintId: props.sprintId,
         error: toReview.error.message,
       });
-      return;
+      return undefined;
     }
     const persisted = await persistReopen(props, toReview.value, 'done → review', log);
-    if (persisted === undefined) return;
+    if (persisted === undefined) return undefined;
     sprint = persisted;
   }
 
-  if (sprint.status !== 'review') return;
+  if (sprint.status !== 'review') return undefined;
   const toActive = revertSprintToActive(sprint, props.clock());
   if (!toActive.ok) {
     log.warn('could not reopen sprint after unblock', {
       sprintId: props.sprintId,
       error: toActive.error.message,
     });
-    return;
+    return undefined;
   }
   await persistReopen(props, toActive.value, 'review → active', log);
+  return undefined;
 };
 
 /** Persist only the revived task via the single-task `update` — no whole-list rewrite needed. */
@@ -152,8 +213,7 @@ const persistPrimaryOnly = async (
     return Result.error(persisted.error);
   }
   log.info(`unblocked task '${primary.name}'`, { taskId: primary.id, sprintId: props.sprintId });
-  await reopenSprintIfReview(props, log);
-  return Result.ok(primary);
+  return Result.ok(outputWith(primary, await reopenSprintIfReview(props, log)));
 };
 
 /**
@@ -191,8 +251,7 @@ const persistCascade = async (
       cascaded: cascaded.map((t) => String(t.id)),
     }
   );
-  await reopenSprintIfReview(props, log);
-  return Result.ok(primary);
+  return Result.ok(outputWith(primary, await reopenSprintIfReview(props, log)));
 };
 
 export const unblockTaskUseCase = async (
@@ -202,8 +261,7 @@ export const unblockTaskUseCase = async (
 
   if (props.task.status === 'todo') {
     log.debug('already todo, skipping task transition', { taskId: props.task.id, sprintId: props.sprintId });
-    await reopenSprintIfReview(props, log);
-    return Result.ok(props.task);
+    return Result.ok(outputWith(props.task, await reopenSprintIfReview(props, log)));
   }
 
   log.debug('unblocking task', { taskId: props.task.id, sprintId: props.sprintId, from: props.task.status });

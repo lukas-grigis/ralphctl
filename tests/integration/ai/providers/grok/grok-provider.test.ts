@@ -2,7 +2,7 @@ import { EventEmitter } from 'node:events';
 import { promises as fs } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session.ts';
 import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts';
@@ -101,17 +101,23 @@ const END_LINE = JSON.stringify({
   usage: { input_tokens: 12, output_tokens: 4 },
 });
 
+/** Every session dir this file minted, so the suite leaves no tmpdir behind (issue #303). */
+const sessionDirs: string[] = [];
+
 let signalsCounter = 0;
 const tempSignalsFile = () => {
   signalsCounter += 1;
-  return absolutePath(
-    join(
-      tmpdir(),
-      `ralphctl-grok-test-${String(process.pid)}-${String(Date.now())}-${String(signalsCounter)}`,
-      'signals.json'
-    )
+  const dir = join(
+    tmpdir(),
+    `ralphctl-grok-test-${String(process.pid)}-${String(Date.now())}-${String(signalsCounter)}`
   );
+  sessionDirs.push(dir);
+  return absolutePath(join(dir, 'signals.json'));
 };
+
+afterEach(async () => {
+  for (const dir of sessionDirs.splice(0)) await fs.rm(dir, { recursive: true, force: true });
+});
 
 const session = (overrides: Partial<AiSession> = {}): AiSession => ({
   prompt: PROMPT,
@@ -194,6 +200,51 @@ describe('createGrokProvider', () => {
     expect(out.value.sessionId).toBe('01a047e3-cfea-7b83-8047-31c8c2a39cc8');
   });
 
+  it('validates the model before writing grok-prompt.md — an argv failure leaves no artifact', async () => {
+    // Mirrors the copilot sibling: paying for an mkdir + atomic write for a spawn that never
+    // happens would leave a stray grok-prompt.md on every attempt of a row pinned off-catalog.
+    const cap = createCapturingBus();
+    const sess = session({ model: 'grok-4.7' });
+    const { spawn, calls } = makeSpawn([{ exitCode: 0, stdoutChunks: [`${END_LINE}\n`] }]);
+    const provider = createGrokProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
+
+    const out = await provider.generate(sess);
+    expect(out.ok).toBe(false);
+    if (out.ok) return;
+    expect(out.error.code).toBe('invalid-state');
+    expect(calls).toHaveLength(0);
+    // Neither the prompt file nor the directory the atomic write would have created exists.
+    await expect(fs.stat(dirname(String(sess.signalsFile)))).rejects.toThrow();
+  });
+
+  it('warns when a read-only session ships without the edit deny because its envelope is inside --cwd', async () => {
+    const cap = createCapturingBus();
+    const repo = String(tempSignalsFile()).replace(/\/signals\.json$/, '');
+    const sess = session({
+      cwd: absolutePath(repo),
+      signalsFile: absolutePath(join(repo, '.ralphctl', 'signals.json')),
+      permissions: READ_ONLY,
+    });
+    const { spawn, calls } = makeSpawn([{ stdoutChunks: [`${END_LINE}\n`], exitCode: 0 }]);
+    const provider = createGrokProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
+    const out = await provider.generate(sess);
+    expect(out.ok).toBe(true);
+
+    expect(calls[0]!.args).not.toContain('Edit(./**)');
+    const warn = cap.logs.find((l) => l.level === 'warn' && l.message.includes('Edit(./**)'));
+    expect(warn).toBeDefined();
+    expect(warn?.meta).toMatchObject({ cwd: repo, sessionDir: join(repo, '.ralphctl') });
+  });
+
+  it('logs no such warning when the envelope sits outside --cwd (the default topology)', async () => {
+    const cap = createCapturingBus();
+    const { spawn } = makeSpawn([{ stdoutChunks: [`${END_LINE}\n`], exitCode: 0 }]);
+    const provider = createGrokProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
+    const out = await provider.generate(session({ permissions: READ_ONLY }));
+    expect(out.ok).toBe(true);
+    expect(cap.logs.some((l) => l.level === 'warn' && l.message.includes('Edit(./**)'))).toBe(false);
+  });
+
   it('fails the spawn when grok-prompt.md cannot be written — never inlines -p', async () => {
     const cap = createCapturingBus();
     const { spawn, calls } = makeSpawn([{ exitCode: 0, stdoutChunks: [`${END_LINE}\n`] }]);
@@ -237,19 +288,41 @@ describe('buildGrokArgs — AiSession → CLI flag translation', () => {
     expect(args[idx + 1]).toBe('sess-abc');
   });
 
-  it('READ_ONLY includes --disallowed-tools with search_replace and run_terminal_command', () => {
+  it('READ_ONLY gates edits with a cwd-rooted --deny rule, never by removing search_replace', () => {
+    // `search_replace` is the ONLY tool that can create a file (`Write` is an alias of it), so
+    // removing it would strip the tool signals.json lands through. The deny rule is cwd-rooted,
+    // leaving the session directory outside --cwd writable.
     const args = unwrapArgs(session({ permissions: READ_ONLY }));
     expect(args).toContain('--always-approve');
+    expect(args.join('\x00')).not.toContain('search_replace');
+    const denyIdx = args.indexOf('--deny');
+    expect(denyIdx).toBeGreaterThanOrEqual(0);
+    expect(args[denyIdx + 1]).toBe('Edit(./**)');
     const idx = args.indexOf('--disallowed-tools');
     expect(idx).toBeGreaterThanOrEqual(0);
-    expect(args[idx + 1]).toBe('search_replace,run_terminal_command,run_terminal_cmd');
+    expect(args[idx + 1]).toBe('run_terminal_command,run_terminal_cmd');
     expect(args).toContain('--no-subagents');
   });
 
-  it('FULL_AUTO does not include --disallowed-tools', () => {
+  it('shell-denied sessions pair the dual-spelled tool removal with --deny Bash(*)', () => {
+    const args = unwrapArgs(session({ permissions: READ_ONLY }));
+    const denied = args[args.indexOf('--disallowed-tools') + 1];
+    expect(denied).toBe('run_terminal_command,run_terminal_cmd');
+    const rules = args.filter((_, i) => args[i - 1] === '--deny');
+    expect(rules).toContain('Bash(*)');
+  });
+
+  it('always passes --trust so AGENTS.md and .grok/skills are discovered', () => {
+    for (const permissions of [FULL_AUTO, READ_ONLY]) {
+      expect(unwrapArgs(session({ permissions }))).toContain('--trust');
+    }
+  });
+
+  it('FULL_AUTO does not include --disallowed-tools, --deny or --no-subagents', () => {
     const args = unwrapArgs(session({ permissions: FULL_AUTO }));
     expect(args).toContain('--always-approve');
     expect(args).not.toContain('--disallowed-tools');
+    expect(args).not.toContain('--deny');
     expect(args).not.toContain('--no-subagents');
   });
 
@@ -264,7 +337,7 @@ describe('buildGrokArgs — AiSession → CLI flag translation', () => {
     }
   });
 
-  it('denies only the closed gates — shell-off keeps search_replace, network-off keeps shell', () => {
+  it('gates only the closed gates — shell-off keeps edits, edit-off keeps the shell', () => {
     const shellOff = unwrapArgs(
       session({
         permissions: { autoApprove: true, canModifyRepoFiles: true, canRunShell: false, canAccessNetwork: true },
@@ -272,24 +345,60 @@ describe('buildGrokArgs — AiSession → CLI flag translation', () => {
     );
     const shellDenied = shellOff[shellOff.indexOf('--disallowed-tools') + 1];
     expect(shellDenied).toBe('run_terminal_command,run_terminal_cmd');
+    expect(shellOff.filter((_, i) => shellOff[i - 1] === '--deny')).toEqual(['Bash(*)']);
     expect(shellOff).toContain('--no-subagents');
 
-    const networkOff = unwrapArgs(
+    const editAndNetworkOff = unwrapArgs(
       session({
         permissions: { autoApprove: true, canModifyRepoFiles: false, canRunShell: true, canAccessNetwork: false },
       })
     );
-    const networkDenied = networkOff[networkOff.indexOf('--disallowed-tools') + 1];
-    expect(networkDenied).toBe('search_replace,web_search,web_fetch');
+    const networkDenied = editAndNetworkOff[editAndNetworkOff.indexOf('--disallowed-tools') + 1];
+    expect(networkDenied).toBe('web_search,web_fetch');
     expect(networkDenied).not.toMatch(/run_terminal_command/);
-    expect(networkOff).toContain('--no-subagents');
+    expect(editAndNetworkOff.filter((_, i) => editAndNetworkOff[i - 1] === '--deny')).toEqual(['Edit(./**)']);
+    expect(editAndNetworkOff).toContain('--no-subagents');
   });
 
-  it('READ_ONLY denylist does not include write — signals.json lands through it', () => {
-    const args = unwrapArgs(session({ permissions: READ_ONLY }));
-    const idx = args.indexOf('--disallowed-tools');
-    expect(idx).toBeGreaterThanOrEqual(0);
-    expect(args[idx + 1]).not.toMatch(/\bwrite\b/);
+  it('skips the cwd-rooted edit deny when the session directory sits INSIDE --cwd', () => {
+    // `RALPHCTL_HOME=<repo>/.ralphctl` puts signals.json under --cwd, where `Edit(./**)` would deny
+    // its creation and every headless READ_ONLY flow would end with no envelope. The over-grant is
+    // the documented failure direction; a blocked envelope is not.
+    const repo = join(tmpdir(), 'ralphctl-grok-inside-repo');
+    const args = unwrapArgs(
+      session({
+        cwd: absolutePath(repo),
+        signalsFile: absolutePath(join(repo, '.ralphctl', 'runs', 'r1', 'signals.json')),
+        permissions: READ_ONLY,
+      })
+    );
+    expect(args.filter((_, i) => args[i - 1] === '--deny')).toEqual(['Bash(*)']);
+    // The topology-independent gates are untouched.
+    expect(args[args.indexOf('--disallowed-tools') + 1]).toBe('run_terminal_command,run_terminal_cmd');
+    expect(args).toContain('--no-subagents');
+  });
+
+  it('keeps the edit deny when the session directory only shares a prefix with --cwd', () => {
+    // `/tmp/repo-sibling` is not inside `/tmp/repo`; a plain string prefix test would say it is.
+    const args = unwrapArgs(
+      session({
+        cwd: absolutePath(join(tmpdir(), 'repo')),
+        signalsFile: absolutePath(join(tmpdir(), 'repo-sibling', 'signals.json')),
+        permissions: READ_ONLY,
+      })
+    );
+    expect(args.filter((_, i) => args[i - 1] === '--deny')).toEqual(['Edit(./**)', 'Bash(*)']);
+  });
+
+  it('an edit-denied session still emits --no-subagents with no --disallowed-tools to carry it', () => {
+    const args = unwrapArgs(
+      session({
+        permissions: { autoApprove: true, canModifyRepoFiles: false, canRunShell: true, canAccessNetwork: true },
+      })
+    );
+    expect(args).not.toContain('--disallowed-tools');
+    expect(args.filter((_, i) => args[i - 1] === '--deny')).toEqual(['Edit(./**)']);
+    expect(args).toContain('--no-subagents');
   });
 });
 

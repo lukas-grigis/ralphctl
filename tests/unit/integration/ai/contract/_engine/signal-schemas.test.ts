@@ -307,6 +307,35 @@ describe('signal schemas (happy-path parses)', () => {
       expect(parsed.data.blockerClass).toBe(blockerClass);
     }
   });
+  it('task-blocked — normalises the triage prose instead of rejecting it', () => {
+    // The three prose fields are model-authored and land on an operator's terminal, so control
+    // characters are stripped and a runaway field is clamped AT THE TRUST BOUNDARY. Deliberately a
+    // transform, never a `.max()`: `validate-signals-file` is all-or-nothing, so a refusal here
+    // would sink the whole run — every other signal in the file included — over cosmetics.
+    const esc = String.fromCharCode(0x1b);
+    const parsed = taskBlockedSignalSchema.safeParse({
+      type: 'task-blocked',
+      reason: `${esc}[2Jneeds a decision`,
+      question: `${esc}]0;pwned${String.fromCharCode(0x07)}Which approach?`,
+      whatUnblocksMe: 'w'.repeat(10_000),
+      timestamp: ts,
+    });
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) return;
+    expect(parsed.data.reason).toBe('[2Jneeds a decision');
+    expect(parsed.data.question).toBe(']0;pwnedWhich approach?');
+    expect(parsed.data.whatUnblocksMe?.length).toBeLessThan(10_000);
+    expect(parsed.data.whatUnblocksMe?.endsWith('…')).toBe(true);
+  });
+  it('task-blocked — leaves ordinary multi-line prose exactly as written', () => {
+    // The clamp sits orders of magnitude above real triage text, and `\n` / `\t` survive the strip —
+    // the quarantine-stash pointer a reason carries on its second line must not be mangled.
+    const reason = 'generator self-blocked\nstash: ralphctl/sprint/wedged/blocked-diff';
+    const parsed = taskBlockedSignalSchema.safeParse({ type: 'task-blocked', reason, timestamp: ts });
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) return;
+    expect(parsed.data.reason).toBe(reason);
+  });
   it('task-blocked — rejects a blockerClass outside the closed HiL-Bench three-value enum', () => {
     const parsed = taskBlockedSignalSchema.safeParse({
       type: 'task-blocked',

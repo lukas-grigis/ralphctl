@@ -518,7 +518,11 @@ applied. If Grok is not yet configured, apply the preset first, then re-run doct
    `<sprintDir>/refinement/<ticket-slug>/`. Confirm the file exists and is non-empty
 6. Approve the requirements; ticket transitions to `approved`
 
-**20b — headless flow (readiness):**
+**20b — headless flow (readiness), and the read-only gate:**
+
+Readiness is a READ-ONLY headless flow, so it is the scenario that proves Grok's split gate: the edit
+deny rule (`--deny 'Edit(./**)'`) is rooted at `--cwd`, so the repo must be edit-denied while
+`signals.json` — which lives in the session directory outside cwd — still lands.
 
 1. From the same project, run the **Run readiness** flow (Projects → repository detail → "Run readiness")
 2. Confirm the project/repo selection prompt
@@ -526,8 +530,18 @@ applied. If Grok is not yet configured, apply the preset first, then re-run doct
    prompt with the AI's suggested content shown as the default
 4. **Pass condition:** a `signals.json` file exists under the run's output directory
    (`ralphctl runs list --flow readiness` to find it) and the readiness result card shows
-   `✓ Readiness — <project-name> — completed`
-5. Submit the confirm prompt; verify `AGENTS.md` is written at the repo root
+   `✓ Readiness — <project-name> — completed`. An empty output directory means the envelope could not
+   be created — the failure mode the deny-rule mapping exists to prevent
+5. **Edit gate:** `git status --porcelain` in the repo is clean afterwards — a read-only pass must not
+   have modified a tracked file. Any `search_replace` the model aimed at a repo path shows in the run's
+   debug rail as a denied tool call rather than a success
+6. **Shell gate:** no shell call succeeds in the same trace — the run's debug rail shows any
+   `run_terminal_command` attempt as a denied tool call, or shows no shell call at all. The argv
+   itself is not persisted for a headless run (`recordSpawnContext` writes `spawn-context.json` on
+   the interactive surface only), so do not look for a snapshot beside the output; the flags are
+   asserted in `tests/integration/ai/providers/grok/grok-provider.test.ts` instead
+7. Submit the confirm prompt; verify `AGENTS.md` is written at the repo root (written by ralphctl after
+   the session, not by the agent)
 
 **Negative test:** if `grok` is on PATH but not authenticated, the run should fail with a clear provider
 error — not a silent hang or an empty `signals.json`. `ralphctl doctor` reports Grok auth as `unknown`
@@ -595,8 +609,9 @@ as-is …`
    `ralphctl sprint list`
 2. From the sprint-detail view, press `n` to open Flows and select **Close sprint** (only offered on a
    `review` sprint)
-3. **Expected:** routed to Execute view; a confirm prompt reads `1 task(s) are blocked and will stay
-unreachable once this sprint is done:` followed by `Task A`, then `Close anyway?`
+3. **Expected:** routed to Execute view; a confirm prompt whose first line reads
+   `1 task(s) are blocked and won't run again until this sprint is reopened (unblocking one reopens it):`,
+   then `Task A`, a blank line, and `Close anyway?`
 4. Press `y` — **Expected:** the chain completes, the sprint transitions to `done`
 5. Back in sprint-detail, **Expected:** the all-clear checkmark line under the header is gone; in its
    place, a warning-glyph (⚠) line in amber reads `Press B to jump to one, then u to reopen this sprint

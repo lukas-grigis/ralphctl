@@ -1,9 +1,11 @@
 import { join } from 'node:path';
 import type { Command } from 'commander';
-import type { Sprint } from '@src/domain/entity/sprint.ts';
+import { assertSprintStatus, type Sprint } from '@src/domain/entity/sprint.ts';
 import type { BlockedTask, Task } from '@src/domain/entity/task.ts';
+import type { FindTasksBySprintId } from '@src/domain/repository/task/find-tasks-by-sprint-id.ts';
 import { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
+import { DISPLAY_TEXT_MAX_CHARS, sanitizeDisplayText } from '@src/domain/value/display-text.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import { bootstrapCli } from '@src/application/ui/cli/bootstrap.ts';
 import { confirmDestructive } from '@src/application/ui/cli/confirm-destructive.ts';
@@ -13,6 +15,7 @@ import { activateSprintUseCase } from '@src/business/sprint/activate-sprint.ts';
 import { reopenDoneSprintUseCase } from '@src/business/sprint/reopen-sprint.ts';
 import { createCloseSprintFlow } from '@src/application/flows/close-sprint/flow.ts';
 import type { CloseSprintCtx } from '@src/application/flows/close-sprint/ctx.ts';
+import { ASSERT_SPRINT_STATUS } from '@src/application/flows/_shared/sprint/assert-status.ts';
 import { createRunner } from '@src/application/chain/run/runner.ts';
 import { sprintDir as buildSprintDir } from '@src/integration/persistence/storage.ts';
 import { createLastSelectionStore } from '@src/integration/persistence/selection/last-selection-store.ts';
@@ -29,8 +32,12 @@ interface CloseOpts {
  *  close-sprint's own in-chain `confirm-blocked-tasks` leaf so the CLI and TUI read the same. */
 const MAX_NAMED_BLOCKED_TASKS = 5;
 
+/** Task names are planner-authored prose on their way to the terminal — see `formatTaskLine` in
+ *  commands/task.ts for why every one of them is neutered first. */
+const showName = (name: string): string => sanitizeDisplayText(name, DISPLAY_TEXT_MAX_CHARS);
+
 const nameBlockedTasks = (blocked: readonly Task[]): string => {
-  const named = blocked.slice(0, MAX_NAMED_BLOCKED_TASKS).map((t) => t.name);
+  const named = blocked.slice(0, MAX_NAMED_BLOCKED_TASKS).map((t) => showName(t.name));
   const remainder = blocked.length - named.length;
   return remainder > 0 ? `${named.join(', ')}, and ${String(remainder)} more` : named.join(', ');
 };
@@ -170,6 +177,40 @@ const reopenSprintAction = async (raw: string): Promise<void> => {
 };
 
 /**
+ * The CLI's stand-in for the chain's `confirm-blocked-tasks` gate (which needs an
+ * `InteractivePrompt` the CLI has no implementation of). Loads the task list and, when anything is
+ * blocked, asks before proceeding. Returns the blocked tasks — possibly an empty list — on
+ * proceed, and `undefined` when the close must stop: either the read failed (already reported via
+ * {@link fail}, exit 1) or the operator declined (silent, nothing written).
+ *
+ * The caller asserts the sprint's status BEFORE calling this — a sprint that cannot be closed at
+ * all must not be met with a "close anyway?" prompt first.
+ */
+const confirmBlockedTasksOrStop = async (
+  sprint: Sprint,
+  taskRepo: FindTasksBySprintId,
+  yes: boolean
+): Promise<readonly Task[] | undefined> => {
+  const tasksLoaded = await taskRepo.findBySprintId(sprint.id);
+  if (!tasksLoaded.ok) {
+    // A failed read is not evidence the sprint is clean — proceeding as if nothing were blocked
+    // would silently close over a task list we never actually looked at. Refuse loudly instead,
+    // matching every other repo read in this file (e.g. progressSprintAction below).
+    fail(tasksLoaded.error.message);
+    return undefined;
+  }
+  const blockedTasks = tasksLoaded.value.filter((t) => t.status === 'blocked');
+  if (blockedTasks.length === 0) return blockedTasks;
+
+  const confirmed = await confirmDestructive({
+    yes,
+    action: `close sprint ${String(sprint.id)} with ${String(blockedTasks.length)} task(s) still blocked: ${nameBlockedTasks(blockedTasks)}`,
+    confirmPrompt: `${String(blockedTasks.length)} task(s) are blocked: ${nameBlockedTasks(blockedTasks)}. Closing won't refuse, but a done sprint needs reopening (unblock one to do that) before they can run again. Close anyway? [y/N] `,
+  });
+  return confirmed ? blockedTasks : undefined;
+};
+
+/**
  * `sprint close` shares the same `close-sprint` chain the TUI's `launchCloseSprint` builds
  * (load-and-assert-sprint → refresh-memory-mirror → transition-to-done → journal separator) so
  * closing from the CLI leaves the exact same on-disk state — including the always-on
@@ -202,23 +243,20 @@ const closeSprintAction = async (raw: string, opts: CloseOpts): Promise<void> =>
   }
   const sprint = loaded.value;
 
-  const tasksLoaded = await deps.taskRepo.findBySprintId(sprint.id);
-  if (!tasksLoaded.ok) {
-    // A failed read is not evidence the sprint is clean — proceeding as if nothing were blocked
-    // would silently close over a task list we never actually looked at. Refuse loudly instead,
-    // matching every other repo read in this file (e.g. progressSprintAction below).
-    fail(tasksLoaded.error.message);
+  // Status first, confirm second. The chain's own `load-and-assert-sprint(['review'])` step rejects
+  // any other status anyway, but it runs AFTER the gate below — so a `planned` / `active` sprint
+  // with blocked tasks used to be met with a scary "close anyway?" prompt (or, on a non-TTY without
+  // `--yes`, a confirmation-missing exit 1) before being told the close was never valid. Same
+  // assertion, same message as the leaf — it reuses the leaf's own default name rather than a
+  // hand-copied string, so a rename there cannot silently diverge the two error texts.
+  const closable = assertSprintStatus(sprint, ['review'], ASSERT_SPRINT_STATUS);
+  if (!closable.ok) {
+    fail(closable.error.message);
     return;
   }
-  const blockedTasks = tasksLoaded.value.filter((t) => t.status === 'blocked');
-  if (blockedTasks.length > 0) {
-    const confirmed = await confirmDestructive({
-      yes: opts.yes === true,
-      action: `close sprint ${String(sprint.id)} with ${String(blockedTasks.length)} task(s) still blocked: ${nameBlockedTasks(blockedTasks)}`,
-      confirmPrompt: `${String(blockedTasks.length)} task(s) are blocked: ${nameBlockedTasks(blockedTasks)}. Closing won't refuse, but a done sprint needs reopening (unblock one to do that) before they can run again. Close anyway? [y/N] `,
-    });
-    if (!confirmed) return;
-  }
+
+  const blockedTasks = await confirmBlockedTasksOrStop(sprint, deps.taskRepo, opts.yes === true);
+  if (blockedTasks === undefined) return;
 
   const sprintDir = buildSprintDir(storage.dataRoot, sprint.id, sprint.slug);
   const progressPath = AbsolutePath.parse(join(sprintDir, 'progress.md'));
@@ -472,11 +510,13 @@ const formatProgress = (sprint: Sprint, tasks: readonly Task[], branchLine: stri
     lines.push(`Blockers (${String(blocked.length)})`);
     for (const group of groupBlockedTasks(tasks)) {
       const reasonFirstLine = group.root.blockedReason.split('\n')[0] ?? group.root.blockedReason;
-      lines.push(`  ✗ ${group.root.name}`);
-      lines.push(`      ${reasonFirstLine}`);
+      // Model-authored prose on its way to stdout — see `formatTaskLine` in commands/task.ts.
+      // The names go through the same sanitiser as the reason: they come off the same generator.
+      lines.push(`  ✗ ${showName(group.root.name)}`);
+      lines.push(`      ${sanitizeDisplayText(reasonFirstLine, DISPLAY_TEXT_MAX_CHARS)}`);
       lines.push(`      recover with: ralphctl task unblock ${String(group.root.id)}`);
       if (group.waiting.length > 0) {
-        const names = group.waiting.map((t) => t.name).join(', ');
+        const names = group.waiting.map((t) => showName(t.name)).join(', ');
         lines.push(`      ↳ ${String(group.waiting.length)} upstream-blocked task(s) waiting on this: ${names}`);
       }
     }

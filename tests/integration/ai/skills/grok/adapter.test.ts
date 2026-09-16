@@ -1,17 +1,25 @@
-import { describe, expect, it } from 'vitest';
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { afterEach, describe, expect, it } from 'vitest';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { Skill } from '@src/integration/ai/skills/_engine/skill.ts';
 import { createGrokSkillsAdapter } from '@src/integration/ai/skills/grok/adapter.ts';
 
+/** Every session dir this file made, so the suite leaves no tmpdir behind (issue #303). */
+const sessionDirs: string[] = [];
+
 const makeSession = async (): Promise<AbsolutePath> => {
   const dir = await mkdtemp(join(tmpdir(), 'grok-skills-'));
+  sessionDirs.push(dir);
   const parsed = AbsolutePath.parse(dir);
   if (!parsed.ok) throw new Error(parsed.error.message);
   return parsed.value;
 };
+
+afterEach(async () => {
+  for (const dir of sessionDirs.splice(0)) await rm(dir, { recursive: true, force: true });
+});
 
 const skill = (name: string, body: string): Skill => ({
   name,

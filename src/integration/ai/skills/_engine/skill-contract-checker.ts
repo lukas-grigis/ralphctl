@@ -227,11 +227,19 @@ const S7_SIGNAL_TAG_NAMES = [
   'commit-message',
 ] as const;
 
-// Matches `<name`, `</name`, or the self-closing `<name/` form, with the tag name terminated by
-// whitespace, `/`, `>`, or end-of-line — so `<note>`, `</note>`, `<note/>`, and `<note severity="minor">`
-// all match, while a longer identifier that merely starts with a listed name (`<decision-tree>`)
-// does not, since the character after `decision` there is `-`, not a boundary.
-const S7_SIGNAL_TAG_REGEX = new RegExp(`<\\/?(?:${S7_SIGNAL_TAG_NAMES.join('|')})(?=[\\s/>]|$)`, 'u');
+// Matches `<name`, `</name`, or the self-closing `<name/` form, bounded on BOTH sides:
+//
+//   - Right — the tag name is terminated by whitespace, `/`, `>`, or end-of-line, so `<note>`,
+//     `</note>`, `<note/>`, and `<note severity="minor">` all match, while a longer identifier
+//     that merely starts with a listed name (`<decision-tree>`) does not: the character after
+//     `decision` there is `-`, not a boundary.
+//   - Left — the `<` must not follow an identifier character, so generic type syntax
+//     (`Array<Change>`, `Set<Note>`, `Promise<Evaluation>`, `List<Change>`) is not a tag. A real
+//     tag literal is always preceded by a space, a backtick, or the start of the line, so the
+//     lookbehind drops the generics without losing a single genuine catch. The scan runs on the
+//     lowercased line, so only the lowercase half of the class can ever fire — the full class is
+//     spelled out anyway so the pattern reads correctly on its own.
+const S7_SIGNAL_TAG_REGEX = new RegExp(`(?<![A-Za-z0-9_])<\\/?(?:${S7_SIGNAL_TAG_NAMES.join('|')})(?=[\\s/>]|$)`, 'u');
 
 /** S7's matcher: the index of the first angle-bracket signal tag in `lowerLine`, else -1. */
 const matchSignalTag = (lowerLine: string): number => S7_SIGNAL_TAG_REGEX.exec(lowerLine)?.index ?? -1;

@@ -16,6 +16,7 @@ import React from 'react';
 import { Box, Text } from 'ink';
 import { Card } from '@src/application/ui/tui/components/card.tsx';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
+import { useScrollAnchor } from '@src/application/ui/tui/components/scroll-region.tsx';
 
 export interface ListCardProps {
   readonly focused: boolean;
@@ -25,26 +26,34 @@ export interface ListCardProps {
   readonly children?: React.ReactNode;
 }
 
-export const ListCard = ({ focused, rightSlot, indexLabel, title, children }: ListCardProps): React.JSX.Element => (
-  // The outer wrapper uses `flexDirection="column"` so the inner Card stretches to the parent
-  // column's full width on the cross-axis. A default row wrapper would let the bordered Card
-  // shrink to its content width, producing visually mismatched border edges between ticket
-  // and task cards stacked in the same section.
-  <Box flexDirection="column" marginBottom={spacing.section}>
-    <Card tone={focused ? 'info' : 'rule'}>
-      <Box flexDirection="column" paddingX={spacing.indent}>
-        <Box justifyContent="space-between">
-          <Box>
-            <Text {...(focused ? { color: inkColors.primary } : { dimColor: true })}>
-              {focused ? `${glyphs.actionCursor} ` : `  `}
-              {indexLabel}
-            </Text>
-            <Text bold> {title}</Text>
+export const ListCard = ({ focused, rightSlot, indexLabel, title, children }: ListCardProps): React.JSX.Element => {
+  // Registering the focused card as the page's scroll anchor is what makes a cursor move on a
+  // tall view scroll the page to follow it. Attached to the shared frame rather than to each
+  // list, so the ticket and task panes cannot drift on it — the same reason the border tone and
+  // title row live here. Today that is sprint-detail's two sections; any future list built on
+  // this frame inherits the behaviour. Inert outside a ScrollRegion and while `focused` is false.
+  const anchorRef = useScrollAnchor(focused);
+  return (
+    // The outer wrapper uses `flexDirection="column"` so the inner Card stretches to the parent
+    // column's full width on the cross-axis. A default row wrapper would let the bordered Card
+    // shrink to its content width, producing visually mismatched border edges between ticket
+    // and task cards stacked in the same section.
+    <Box ref={anchorRef} flexDirection="column" marginBottom={spacing.section}>
+      <Card tone={focused ? 'info' : 'rule'}>
+        <Box flexDirection="column" paddingX={spacing.indent}>
+          <Box justifyContent="space-between">
+            <Box>
+              <Text {...(focused ? { color: inkColors.primary } : { dimColor: true })}>
+                {focused ? `${glyphs.actionCursor} ` : `  `}
+                {indexLabel}
+              </Text>
+              <Text bold> {title}</Text>
+            </Box>
+            {rightSlot !== undefined && <Box>{rightSlot}</Box>}
           </Box>
-          {rightSlot !== undefined && <Box>{rightSlot}</Box>}
+          {children}
         </Box>
-        {children}
-      </Box>
-    </Card>
-  </Box>
-);
+      </Card>
+    </Box>
+  );
+};

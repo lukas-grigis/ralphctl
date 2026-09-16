@@ -3,7 +3,7 @@ import type { Logger } from '@src/business/observability/logger.ts';
 import { reopenDoneSprint, type ReviewSprint, type Sprint } from '@src/domain/entity/sprint.ts';
 import type { ListAll } from '@src/domain/repository/_base/list-all.ts';
 import type { Save } from '@src/domain/repository/_base/save.ts';
-import { assertNoActivePeer } from '@src/business/sprint/assert-no-active-peer.ts';
+import { assertNoActivePeer } from '@src/business/_shared/assert-no-active-peer.ts';
 import type { ConflictError } from '@src/domain/value/error/conflict-error.ts';
 import type { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import type { StorageError } from '@src/domain/value/error/storage-error.ts';
@@ -22,7 +22,11 @@ import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
  * to keep in sync with it. Today's only caller is the CLI `sprint reopen` action
  * (`reopenSprintAction`); `unblockTaskUseCase`'s own `done → review` hop calls the domain
  * `reopenDoneSprint` transition directly and persists through its own logging, so it does NOT
- * route through this use case (and, notably, does not get the peer check below for free).
+ * route through this use case — but it enforces the same invariant, calling the same shared
+ * {@link assertNoActivePeer} before its hop (that helper lives under `business/_shared/` precisely
+ * so `business/task` can reach it past the sibling-business fence). Where the two differ is the
+ * outcome, not the check: a conflict FAILS this use case, and only skips the hop in unblock —
+ * the task is still revived and the conflict rides out on `UnblockTaskOutput.sprintReopenConflict`.
  *
  * Single-active-per-project invariant: `review` is one of the two states (with `active`) that
  * hold the sprint branch checked out, so reopening a `done` sprint back into `review` is subject

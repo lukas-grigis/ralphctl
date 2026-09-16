@@ -63,8 +63,12 @@ export const StatusBar = (): React.JSX.Element => {
       */}
       <Box paddingX={spacing.indent}>
         {localHints.length > 0 && (
-          <Box flexShrink={0} marginRight={spacing.gutter}>
+          <Box flexShrink={0}>
             <KeyboardHints hints={localHints} />
+            {/* Same bullet the hints use between themselves. Without it the two groups ran
+                together on a single space (`u unblock (3) esc back`), reading as one hint whose
+                key was `(3)`. */}
+            <Text dimColor> {glyphs.bullet} </Text>
           </Box>
         )}
         <KeyboardHints hints={visibleGlobalHints} />

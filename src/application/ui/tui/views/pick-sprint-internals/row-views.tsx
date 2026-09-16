@@ -177,13 +177,24 @@ const SprintRowView = ({
       </Box>
       {focused && (
         <Box paddingLeft={3}>
-          <Text dimColor>
-            {glyphs.activityArrow} {String(sprint.tickets.length)} ticket
-            {sprint.tickets.length === 1 ? '' : 's'}
+          {/* `dimColor` covers the ticket text ONLY. Ink composes `internal_transform` outward, so
+              a badge nested inside a dim parent would render dim+bold+red (and `bold`'s own reset
+              clears dim on some terminals) where the Sprints list renders bold+red. The rollup
+              shape below is `TicketSubCount`'s verbatim (DESIGN-SYSTEM §5.1): bullet separator,
+              bold `inkColors.error` count, dim label — no `warningGlyph`, which made the two
+              sprint lists render one datum in two visual languages. */}
+          <Text>
+            <Text dimColor>
+              {glyphs.activityArrow} {String(sprint.tickets.length)} ticket
+              {sprint.tickets.length === 1 ? '' : 's'}
+            </Text>
             {blockedTaskCount > 0 && (
-              <Text color={inkColors.error}>
-                {' '}
-                {glyphs.warningGlyph} {String(blockedTaskCount)} blocked
+              <Text>
+                <Text dimColor> {glyphs.bullet} </Text>
+                <Text bold color={inkColors.error}>
+                  {String(blockedTaskCount)}
+                </Text>
+                <Text dimColor> blocked</Text>
               </Text>
             )}
           </Text>

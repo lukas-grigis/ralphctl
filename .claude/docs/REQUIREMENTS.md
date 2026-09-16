@@ -114,9 +114,12 @@ and `done → review` — that keep `done` from being a genuine dead end for the
       deliberate exit from an otherwise-terminal `done`. Reached automatically as the first hop of
       `unblockTaskUseCase`'s own reopen when the unblocked task's sprint is `done` (chaining straight
       into the `review → active` step above), or explicitly via `ralphctl sprint reopen <id>`
-      (idempotent — an already-`review` sprint reports "nothing to reopen" rather than erroring). Only
-      the explicit CLI path enforces the single-active-per-project invariant (`assertNoActivePeer`);
-      the automatic hop is best-effort and skips that check.
+      (idempotent — an already-`review` sprint reports "nothing to reopen" rather than erroring). Both
+      paths enforce the single-active-per-project invariant: the explicit CLI path fails with the
+      `ConflictError` from `assertNoActivePeer`, and the automatic hop calls that same `assertNoActivePeer` and stays
+      best-effort about the result — the task is still revived, the sprint stays `done`, and the
+      conflict rides out on `UnblockTaskOutput.sprintReopenConflict` so the CLI can name the peer
+      holding the project and the `sprint close` that releases it.
 - [x] **No `task add / edit / remove`** — bulk task mutation outside the planner is intentional. The CLI
       task surface is read-only plus the single recovery action `task unblock` (blocked → todo); there is no
       `task add` / `task edit` / `task remove`.
@@ -159,11 +162,14 @@ and `done → review` — that keep `done` from being a genuine dead end for the
       `ralphctl task list`. The rejected diff is captured — a deterministic `git stash` keyed on
       sprint + task, on both the serial (in-chain) and parallel (`wave-branch.ts` worktree-teardown)
       implement paths — and restored on the task's next attempt by that same message key, never a raw
-      stash index; a blocked worktree's branch ref is kept rather than deleted.
+      stash index (a restore that conflicts resets the tree and leaves the diff in the stash); a
+      worktree's branch ref is kept rather than deleted whenever its task ends blocked or the branch
+      never completed its fold, and survives until that task's next launch force-deletes it.
       `ralphctl task unblock <id>` (or the TUI's `u` / `B` chords) archives the prior attempts, per-criterion
       verdicts, and escalation stamps onto `Task.retiredAttempts` (folded back into
       `foldOutcomeStats`) instead of discarding them, resets the attempt budget, cascades to every
-      upstream-blocked dependent, and reopens the sprint when needed. Blocked work is counted on
+      upstream-blocked dependent, and reopens the sprint when needed (skipped, with a note naming the
+      peer, when another sprint of the project already holds it). Blocked work is counted on
       every orientation surface (Home card, Sprints list, sprint picker, sprint-detail, settled-run
       summary, next-steps) and cannot be windowed off-screen in the Tasks panel. See `WORKFLOWS.md`
       for the end-to-end walk-through.

@@ -24,8 +24,9 @@ sequential task execution, and check-script gating — see `CLAUDE.md`.
 - Signal contract:
   `src/integration/ai/contract/_engine/{validate-signals-file,render-sidecars,render-contract-section}.ts`
   with per-kind Zod schemas under `src/integration/ai/contract/_engine/signals/<kind>/schema.ts`.
-  Each AI-spawning leaf composes `<leaf>.contract.ts` from these primitives; the AI writes
-  `signals.json` via its Write tool, the harness Zod-validates post-spawn.
+  Each AI-spawning leaf composes `<leaf>.contract.ts` from these primitives; the AI creates
+  `signals.json` with whatever file-creating tool its CLI has (`Write` on four backends,
+  `search_replace` on Grok, which has no `write` tool), the harness Zod-validates post-spawn.
 - Composition: `src/application/bootstrap/provider-factory.ts` (`createAiProvider`) picks the concrete
   adapter from `settings.ai.provider`.
 
@@ -81,13 +82,13 @@ The per-spawn audit / sandbox layout is:
 
 ## Permission modes (per-tool, NOT portable)
 
-| Provider         | Headless permission flag              | Why                                                                                                                                                                                          |
-| ---------------- | ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `claude-code`    | `--permission-mode bypassPermissions` | Piped stdin can't answer prompts; `acceptEdits` hangs                                                                                                                                        |
-| `github-copilot` | `--allow-all-tools`                   | Copilot's permission model is all-or-nothing                                                                                                                                                 |
-| `openai-codex`   | per-session approval flow             | Codex prompts for approval inline; sandbox handles it                                                                                                                                        |
-| `opencode`       | `--auto` (or nothing)                 | No enforceable read-only mode — see the over-grant below                                                                                                                                     |
-| `xai-grok`       | `--always-approve --sandbox off`      | Per-gate `--disallowed-tools` (`search_replace` / both shell ids / `web_search,web_fetch`) plus `--no-subagents`; `write` stays allowed. No `--add-dir` — extra roots are a named over-grant |
+| Provider         | Headless permission flag                 | Why                                                                                                                                                                                                                                                                                                                                                                                                    |
+| ---------------- | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `claude-code`    | `--permission-mode bypassPermissions`    | Piped stdin can't answer prompts; `acceptEdits` hangs                                                                                                                                                                                                                                                                                                                                                  |
+| `github-copilot` | `--allow-all-tools`                      | Copilot's permission model is all-or-nothing                                                                                                                                                                                                                                                                                                                                                           |
+| `openai-codex`   | per-session approval flow                | Codex prompts for approval inline; sandbox handles it                                                                                                                                                                                                                                                                                                                                                  |
+| `opencode`       | `--auto` (or nothing)                    | No enforceable read-only mode — see the over-grant below                                                                                                                                                                                                                                                                                                                                               |
+| `xai-grok`       | `--trust --always-approve --sandbox off` | One mechanism per gate — `--deny 'Edit(./**)'` (cwd-rooted) for edits, `--disallowed-tools run_terminal_command,run_terminal_cmd` + `--deny 'Bash(*)'` for shell, `--disallowed-tools web_search,web_fetch` for network — plus `--no-subagents`. Grok has no `write` tool: `search_replace` must stay present or `signals.json` cannot be created. No `--add-dir` — extra roots are a named over-grant |
 
 **OpenCode has no enforceable permission gate.** `opencode run` exposes one approval control, `--auto`, and
 omitting it does NOT make the run read-only — writes inside `--dir` land either way. The adapter forwards

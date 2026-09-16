@@ -598,7 +598,7 @@ const reservedSignalsPath: Linter.RuleEntry = [
 
 export default [
   {
-    ignores: ['dist/**', 'node_modules/**', '.claude/worktrees/**', 'coverage/**'],
+    ignores: ['dist/**', 'node_modules/**', '.claude/worktrees/**', 'coverage/**', 'tmp/**', '.tmp/**'],
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,

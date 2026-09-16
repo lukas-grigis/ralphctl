@@ -8,13 +8,30 @@ import { isGrokModel } from '@src/domain/value/settings-models/grok.ts';
  * Interactive `grok` adapter. Spawns the Grok Build CLI with `stdio: 'inherit'` so the user sees
  * Grok's TUI directly.
  *
- *   grok --no-auto-update --cwd <cwd> --sandbox off -m <model>
+ *   grok --no-auto-update --trust --cwd <cwd> --sandbox off -m <model>
  *        --permission-mode acceptEdits --debug-file <unitDir>/grok-debug.log
  *        [--effort <level>] [-s <uuid>] <pointer at promptFile>
  *
- * `-s` (grok 1.0.13) sets the id of the session about to start — Claude's `--session-id`, not the
- * resume flag. The harness pre-generates it so it can mirror `sessionId.txt` for later re-attach;
- * resume of an existing session is the headless adapter's `-r <id>`.
+ * Flag surface verified against Grok Build CLI 1.0.30's shipped CLI reference on 2026-09-15;
+ * minimum supported version is 1.0.13, because `-s` lands there and is emitted unconditionally.
+ *
+ * `-s` sets the id of the session about to start — Claude's `--session-id`, not the resume flag.
+ * The harness pre-generates it so it can mirror `sessionId.txt` for later re-attach; resume of an
+ * existing session is the headless adapter's `-r <id>`.
+ *
+ * `--trust` is unconditional, and Grok's folder trust is UNIFIED: the one grant covers project
+ * instructions (`AGENTS.md`), project skills (`.grok/skills`), project permission rules
+ * (`.grok/config.toml`, `.claude/settings.json`), project hooks (`.grok/hooks/*.json`,
+ * `.claude/settings.json`, `.cursor/hooks.json`) and repo-local MCP / LSP servers together
+ * (10-hooks.md, 22-permissions-and-safety.md). ralphctl writes the `AGENTS.md` / `.grok/skills`
+ * half itself and an untrusted folder skips it silently, so the grant is passed and the rest of
+ * the blast radius accepted: the session runs the checkout's own hooks and repo-local MCP servers.
+ * The posture is explicit — this runs a checkout the way you would by opening it in Grok yourself,
+ * so run ralphctl only against repos you would trust there. Grok PERSISTS the decision in its
+ * trust store, for the repo and for every per-task worktree path (a nested checkout is a separate
+ * workspace). The interactive surface carries no read-only profile to gate:
+ * `InteractiveAiProviderInput` has no `permissions` field on any backend, so there is no gate here
+ * to mirror the headless `--deny` rules onto.
  *
  * `--prompt-file` is deliberately omitted — it forces headless. The prompt slot is a positional
  * pointer from `buildPromptPointer`, never the body.
@@ -54,6 +71,7 @@ export const createInteractiveGrokProvider = (deps: InteractiveProviderDeps): In
       supportsSessionId: true,
       buildArgs: (input, { promptArg, sessionId }) => [
         '--no-auto-update',
+        '--trust',
         '--cwd',
         String(input.cwd),
         '--sandbox',

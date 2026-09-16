@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Result } from '@src/domain/result.ts';
+import type { Logger } from '@src/business/observability/logger.ts';
 import { unblockTaskUseCase } from '@src/business/task/unblock-task.ts';
 import { foldTaskRollup } from '@src/business/runs/outcome-stats.ts';
 import type { BlockedTask, Task } from '@src/domain/entity/task.ts';
@@ -11,6 +12,7 @@ import type { UpdateTask } from '@src/domain/repository/task/update-task.ts';
 import type { FindTasksBySprintId } from '@src/domain/repository/task/find-tasks-by-sprint-id.ts';
 import type { SaveAllTasks } from '@src/domain/repository/task/save-all-tasks.ts';
 import type { FindById } from '@src/domain/repository/_base/find-by-id.ts';
+import type { ListAll } from '@src/domain/repository/_base/list-all.ts';
 import type { Save } from '@src/domain/repository/_base/save.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
@@ -23,6 +25,7 @@ import {
   makeInProgressTaskWithRunningAttempt,
   makeReviewSprint,
   makeTodoTask,
+  projectId,
 } from '@tests/fixtures/domain.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 
@@ -30,7 +33,7 @@ const SPRINT_ID = '01900000-0000-7000-8000-0000000000aa' as unknown as SprintId;
 
 const FIXED_CLOCK = (): IsoTimestamp => FIXED_LATEST;
 
-type SprintRepo = FindById<Sprint, SprintId> & Save<Sprint>;
+type SprintRepo = FindById<Sprint, SprintId> & Save<Sprint> & ListAll<Sprint>;
 interface SprintRepoDouble {
   readonly repo: SprintRepo;
   /** The sprint handed to the most recent `save()` call, or undefined if reopen never persisted. */
@@ -39,9 +42,11 @@ interface SprintRepoDouble {
   readonly savedHistory: () => readonly Sprint[];
 }
 
-// Sprint repo double: `findById` returns the seeded sprint, `save` records it. Default seed is an
-// ACTIVE sprint, so the reopen-on-unblock path is a no-op unless a test seeds a `review` sprint.
-const sprintRepoWith = (sprint: Sprint = makeActiveSprint()): SprintRepoDouble => {
+// Sprint repo double: `findById` returns the seeded sprint, `save` records it, and `list` answers
+// the single-active-per-project peer check the `done` → `review` hop runs. Default seed is an
+// ACTIVE sprint, so the reopen-on-unblock path is a no-op unless a test seeds a `review` / `done`
+// one; `peers` defaults to the seeded sprint alone, which trivially satisfies the peer check.
+const sprintRepoWith = (sprint: Sprint = makeActiveSprint(), peers?: readonly Sprint[]): SprintRepoDouble => {
   const history: Sprint[] = [];
   const repo: SprintRepo = {
     async findById() {
@@ -51,8 +56,28 @@ const sprintRepoWith = (sprint: Sprint = makeActiveSprint()): SprintRepoDouble =
       history.push(s);
       return Result.ok(undefined);
     },
+    async list() {
+      return Result.ok(peers ?? [sprint]);
+    },
   };
   return { repo, saved: () => history.at(-1), savedHistory: () => history };
+};
+
+/** Captures `warn` lines so a test can assert WHICH operation a refusal names. */
+const warnRecordingLogger = (): { logger: Logger; warnings: readonly string[] } => {
+  const warnings: string[] = [];
+  const logger: Logger = {
+    debug() {},
+    info() {},
+    warn(message) {
+      warnings.push(message);
+    },
+    error() {},
+    named() {
+      return logger;
+    },
+  };
+  return { logger, warnings };
 };
 
 const makeBlockedTask = (reason = 'flaky pre-task verify'): BlockedTask => {
@@ -116,8 +141,8 @@ describe('unblockTaskUseCase', () => {
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.value.status).toBe('todo');
-    expect((result.value as unknown as { blockedReason?: string }).blockedReason).toBeUndefined();
+    expect(result.value.task.status).toBe('todo');
+    expect((result.value.task as unknown as { blockedReason?: string }).blockedReason).toBeUndefined();
     expect(repo.saved()).toHaveLength(1);
     expect(repo.saved()[0]?.status).toBe('todo');
   });
@@ -142,7 +167,7 @@ describe('unblockTaskUseCase', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     // Live budget resets...
-    expect(result.value.attempts).toHaveLength(0);
+    expect(result.value.task.attempts).toHaveLength(0);
     // ...but the persisted result — what actually lands in tasks.json — still carries the forensic
     // record instead of the operator's intervention silently erasing it.
     const persisted = repo.saved()[0];
@@ -173,7 +198,7 @@ describe('unblockTaskUseCase', () => {
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.value.attempts).toHaveLength(0); // live ledger really is reset
+    expect(result.value.task.attempts).toHaveLength(0); // live ledger really is reset
 
     const persisted = repo.saved()[0];
     if (persisted === undefined) throw new Error('expected a persisted task');
@@ -198,7 +223,7 @@ describe('unblockTaskUseCase', () => {
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.value.status).toBe('todo');
+    expect(result.value.task.status).toBe('todo');
     expect(repo.saved()).toHaveLength(0);
   });
 
@@ -405,7 +430,7 @@ describe('unblockTaskUseCase', () => {
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.value.status).toBe('todo'); // the task itself is revived either way
+    expect(result.value.task.status).toBe('todo'); // the task itself is revived either way
     // The sprint hops done → review → active in the same unblock call, re-using the existing
     // review → active step rather than a parallel done → active transition — both saves land.
     const history = sprintRepo.savedHistory();
@@ -425,6 +450,9 @@ describe('unblockTaskUseCase', () => {
       async save() {
         return Result.error(new StorageError({ subCode: 'io', message: 'disk full', path: 'sprint' }));
       },
+      async list() {
+        return Result.ok([doneSprint]);
+      },
     };
 
     const result = await unblockTaskUseCase({
@@ -440,7 +468,7 @@ describe('unblockTaskUseCase', () => {
     // review → active hop never even attempts against a sprint still stuck at 'done'.
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.value.status).toBe('todo');
+    expect(result.value.task.status).toBe('todo');
   });
 
   it('best-effort reopen — unblock still succeeds when the sprint save fails', async () => {
@@ -453,6 +481,9 @@ describe('unblockTaskUseCase', () => {
       },
       async save() {
         return Result.error(new StorageError({ subCode: 'io', message: 'disk full', path: 'sprint' }));
+      },
+      async list() {
+        return Result.ok([reviewSprint]);
       },
     };
 
@@ -469,6 +500,156 @@ describe('unblockTaskUseCase', () => {
     // that back or surface as an error. The operator can re-run unblock to retry the reopen.
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.value.status).toBe('todo');
+    expect(result.value.task.status).toBe('todo');
+  });
+
+  // Single-active-per-project invariant on the `done` → `review` hop — the same one
+  // `reopenDoneSprintUseCase` enforces (see reopen-sprint.test.ts's ConflictError case). `done`
+  // does NOT hold the project, so a closed sprint may legally sit next to an active peer; carrying
+  // it back to `review` next to that peer would put two sprints of one project on the shared
+  // working tree, which the per-sprint-dir repo lock does not mutually exclude.
+  it('leaves a done sprint closed when another sprint of the project is already active', async () => {
+    const blocked = makeBlockedTask();
+    const taskRepo = repoOk([blocked]);
+    const doneSprint = makeDoneSprint();
+    const activePeer = makeActiveSprint();
+    const sprintRepo = sprintRepoWith(doneSprint, [doneSprint, activePeer]);
+
+    const result = await unblockTaskUseCase({
+      task: blocked,
+      sprintId: SPRINT_ID,
+      taskRepo: taskRepo.repo,
+      sprintRepo: sprintRepo.repo,
+      clock: FIXED_CLOCK,
+      logger: noopLogger,
+    });
+
+    // The task IS revived — the reopen is best-effort, the unblock is not.
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.task.status).toBe('todo');
+    // ...but the sprint stays closed, and the caller is told why + which peer holds the project,
+    // so the CLI/TUI can report the outcome truthfully instead of implying a reopen happened.
+    expect(sprintRepo.savedHistory()).toHaveLength(0);
+    const conflict = result.value.sprintReopenConflict;
+    expect(conflict?.code).toBe('conflict');
+    expect(conflict?.message).toContain(String(activePeer.slug));
+    expect(conflict?.message).toContain('active');
+    expect(conflict?.hint).toContain('ralphctl sprint close');
+  });
+
+  // The log is the ONLY channel some surfaces have for this outcome (the TUI's Recent-log panel
+  // renders it; `bootstrapCli` attaches no log subscriber at all). A line saying the UNBLOCK was
+  // refused would state the opposite of what happened — the task is revived, only the reopen is
+  // refused — so the verb has to name the transition, not the command the operator typed.
+  it('names the refused reopen — not the unblock — in the conflict log line', async () => {
+    const blocked = makeBlockedTask();
+    const taskRepo = repoOk([blocked]);
+    const doneSprint = makeDoneSprint();
+    const sprintRepo = sprintRepoWith(doneSprint, [doneSprint, makeActiveSprint()]);
+    const { logger, warnings } = warnRecordingLogger();
+
+    const result = await unblockTaskUseCase({
+      task: blocked,
+      sprintId: SPRINT_ID,
+      taskRepo: taskRepo.repo,
+      sprintRepo: sprintRepo.repo,
+      clock: FIXED_CLOCK,
+      logger,
+    });
+
+    expect(result.ok).toBe(true);
+    const refusal = warnings.find((w) => w.startsWith('refusing to '));
+    expect(refusal).toBe('refusing to reopen: another sprint already holds the project');
+    // Same for the error the CLI prints as `note: …` — the unblock is not what was refused.
+    if (!result.ok) return;
+    expect(result.value.sprintReopenConflict?.message).toContain('cannot reopen sprint');
+    expect(result.value.sprintReopenConflict?.message).not.toContain('cannot unblock');
+  });
+
+  it('reports no conflict — and reopens — when the only active sprint is in another project', async () => {
+    const blocked = makeBlockedTask();
+    const taskRepo = repoOk([blocked]);
+    const doneSprint = makeDoneSprint();
+    const otherProjectActive = { ...makeActiveSprint(), projectId: projectId('01900000-0000-7000-8000-0000000000bb') };
+    const sprintRepo = sprintRepoWith(doneSprint, [doneSprint, otherProjectActive]);
+
+    const result = await unblockTaskUseCase({
+      task: blocked,
+      sprintId: SPRINT_ID,
+      taskRepo: taskRepo.repo,
+      sprintRepo: sprintRepo.repo,
+      clock: FIXED_CLOCK,
+      logger: noopLogger,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.sprintReopenConflict).toBeUndefined();
+    expect(sprintRepo.savedHistory().map((s) => s.status)).toEqual(['review', 'active']);
+  });
+
+  it('skips the reopen (without a conflict) when the peer check cannot read the sprint list', async () => {
+    const blocked = makeBlockedTask();
+    const taskRepo = repoOk([blocked]);
+    const doneSprint = makeDoneSprint();
+    const sprintRepo: SprintRepo = {
+      async findById() {
+        return Result.ok(doneSprint);
+      },
+      async save() {
+        return Result.ok(undefined);
+      },
+      async list() {
+        return Result.error(new StorageError({ subCode: 'io', message: 'disk full', path: 'sprints' }));
+      },
+    };
+
+    const result = await unblockTaskUseCase({
+      task: blocked,
+      sprintId: SPRINT_ID,
+      taskRepo: taskRepo.repo,
+      sprintRepo,
+      clock: FIXED_CLOCK,
+      logger: noopLogger,
+    });
+
+    // An unreadable sprint list cannot establish that nobody holds the project, so the reopen is
+    // skipped — but it is not a ConflictError either: there is no peer to name.
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.task.status).toBe('todo');
+    expect(result.value.sprintReopenConflict).toBeUndefined();
+  });
+
+  it('does not run the peer check for a review sprint — review → active adds no second holder', async () => {
+    const blocked = makeBlockedTask();
+    const taskRepo = repoOk([blocked]);
+    const reviewSprint = makeReviewSprint();
+    let listCalls = 0;
+    const sprintRepo: SprintRepo = {
+      async findById() {
+        return Result.ok(reviewSprint);
+      },
+      async save() {
+        return Result.ok(undefined);
+      },
+      async list() {
+        listCalls += 1;
+        return Result.ok([reviewSprint]);
+      },
+    };
+
+    const result = await unblockTaskUseCase({
+      task: blocked,
+      sprintId: SPRINT_ID,
+      taskRepo: taskRepo.repo,
+      sprintRepo,
+      clock: FIXED_CLOCK,
+      logger: noopLogger,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(listCalls).toBe(0);
   });
 });

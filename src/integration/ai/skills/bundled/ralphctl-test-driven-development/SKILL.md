@@ -16,8 +16,9 @@ AI agent's superpower; a codebase without tests is a liability.
 ## When this applies
 
 - **Execute** — any new logic, bug fix, or behavioural change. Follow the RED→GREEN→REFACTOR cycle for each
-  unit of work. Run the project's narrow check after each step; write a `task-complete` signal once the
-  task's acceptance criteria are met. The harness runs the post-task verify gate — you do not own that verdict.
+  unit of work. Run the project's narrow check after each step; signal the work complete once the task's
+  acceptance criteria are met (generator role: a `task-complete` signal — the evaluator's contract has no
+  `task-complete` schema). The harness runs the post-task verify gate — you do not own that verdict.
 
 **When NOT to use:** Pure configuration changes, documentation updates, or static content changes with no
 behavioural impact.
@@ -328,7 +329,7 @@ describe('TaskService', () => {
 
 ## Verification Checklist
 
-Before writing the `task-complete` signal, confirm:
+Before you signal the work complete, confirm:
 
 - Every new behaviour introduced by this task has a corresponding test
 - Run the project's narrow check (consult the project's AI context file — `CLAUDE.md`, `AGENTS.md`,

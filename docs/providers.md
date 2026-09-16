@@ -23,20 +23,27 @@ provider-agnostic — it works with whichever provider each implement role is co
 Each CLI exposes a different vocabulary for "let the agent work without asking". ralphctl maps its own
 permission model onto whatever the backend offers:
 
-| Provider           | Headless mapping (full-auto)           | Read-only mapping                                                                                         | Fine-grained gate?                                 |
-| ------------------ | -------------------------------------- | --------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
-| **Claude Code**    | `--permission-mode bypassPermissions`  | `--disallowedTools` on edit / shell / network                                                             | Yes — per-tool deny list                           |
-| **GitHub Copilot** | `--autopilot` + `--allow-all`          | `--allow-all-tools --deny-tool=shell`                                                                     | Partial — shell deny only                          |
-| **OpenAI Codex**   | `-s workspace-write` (topology-scoped) | same — two sandbox modes only                                                                             | No — two sandbox modes only                        |
-| **OpenCode**       | `--auto` (topology-scoped)             | same — no read-only mode                                                                                  | No — permission is all-or-nothing                  |
-| **Grok Build CLI** | `--always-approve`                     | `--always-approve --disallowed-tools search_replace,run_terminal_command,run_terminal_cmd --no-subagents` | Partial — edit + shell deny; `write` stays allowed |
+| Provider           | Headless mapping (full-auto)           | Read-only mapping                                                                                                               | Fine-grained gate?                                               |
+| ------------------ | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| **Claude Code**    | `--permission-mode bypassPermissions`  | `--disallowedTools` on edit / shell / network                                                                                   | Yes — per-tool deny list                                         |
+| **GitHub Copilot** | `--autopilot` + `--allow-all`          | `--allow-all-tools --deny-tool=shell`                                                                                           | Partial — shell deny only                                        |
+| **OpenAI Codex**   | `-s workspace-write` (topology-scoped) | same — two sandbox modes only                                                                                                   | No — two sandbox modes only                                      |
+| **OpenCode**       | `--auto` (topology-scoped)             | same — no read-only mode                                                                                                        | No — permission is all-or-nothing                                |
+| **Grok Build CLI** | `--always-approve`                     | `--always-approve --deny 'Edit(./**)' --deny 'Bash(*)' --disallowed-tools run_terminal_command,run_terminal_cmd --no-subagents` | Partial — edit + shell deny by rule; file creation stays allowed |
 
-**The `Write` tool is never denied, on any backend.** The harness's contract envelope (`signals.json`) lands
-through it, so path scope — cwd plus the mounted roots (`--add-dir` and equivalents) — is always part of the
-safety envelope, not an alternative to the deny list. Claude Code denies the tools that modify _existing_
-files (`Edit` / `MultiEdit` / `NotebookEdit`) plus shell and network; Copilot denies only `shell`; Grok
-denies `search_replace` (edit) and both shell ids (`run_terminal_command` / `run_terminal_cmd`) plus `--no-subagents` while `write` stays allowed; Codex and
-OpenCode have no per-tool gate at all.
+**The ability to create a file is never denied, on any backend.** The harness's contract envelope
+(`signals.json`) lands through it, so path scope — cwd plus the mounted roots (`--add-dir` and equivalents) —
+is always part of the safety envelope, not an alternative to the deny list. Claude Code denies the tools that
+modify _existing_ files (`Edit` / `MultiEdit` / `NotebookEdit`) plus shell and network, keeping `Write`;
+Copilot denies only `shell`; Codex and OpenCode have no per-tool gate at all.
+
+Grok is the exception that proves the rule: it has **no `write` tool**. Its file tools are `read_file` /
+`search_replace` / `list_dir`, and `Edit`, `Write` and `MultiEdit` are all aliases of `search_replace`, which
+creates a file when the old string is empty. Removing `search_replace` from a read-only session would
+therefore strip the only tool that can create `signals.json`, so Grok's edit gate is a permission **rule**
+instead: `--deny 'Edit(./**)'`, rooted at the session working directory (`--cwd`), which leaves the session
+directory outside it writable. Shell is gated twice — the dual-spelled tool removal plus `--deny 'Bash(*)'` —
+so a renamed tool id cannot slip the gate.
 
 For Codex and OpenCode, **path topology is the whole safety envelope**. Codex's sandbox has only two modes
 (read-only / workspace-write), so the cwd plus `--add-dir` set defines the scope. OpenCode has no
@@ -49,8 +56,10 @@ the session directory is the real boundary.
 Grok has no `--add-dir`. The adapter forces `--sandbox off` so an operator's `~/.grok/config.toml`
 cannot re-enable workspace/strict and block `grok-prompt.md` / `signals.json` outside cwd. Extra
 roots are a **named over-grant** (same posture as OpenCode `--auto`) rather than an error: writes
-outside cwd already work, so the adapter does not pretend it can mount a subset. Path topology is
-therefore not a Grok CLI envelope either; the deny list is the only gate.
+outside cwd already work, so the adapter does not pretend it can mount a subset. The edit deny rule
+is cwd-rooted, so an extra root stays writable even in a read-only flow — that is the over-grant.
+Deny rules win over allow rules and over `--always-approve`, and an `Edit` deny also covers paths a
+shell command touches, but they are the CLI's own gate, not an OS sandbox.
 
 ## Claude Code
 
@@ -182,7 +191,9 @@ opencode models | grep free
 ## Grok Build CLI
 
 Runs every flow, backed by an xAI account. Catalog models are `grok-4.6` (flagship / default) and
-`grok-4.5`, each with a 500k context window. Verified against Grok Build CLI v1.0.5.
+`grok-4.5`, each with a 500k context window. Flag surface and permission semantics verified against
+Grok Build CLI 1.0.30's shipped CLI reference on 2026-09-15; the minimum supported version is
+1.0.13, where the interactive adapter's `-s` lands.
 
 ```bash
 # macOS / Linux
@@ -196,17 +207,33 @@ grok login
 ralphctl settings apply-preset grok-only
 ```
 
-Headless delivers the prompt via `--prompt-file grok-prompt.md` (never stdin, never an inline `-p`
-fallback — a failed write fails the spawn). Interactive never passes `--prompt-file` (that forces
-headless); it uses `--permission-mode acceptEdits` plus a positional prompt pointer. Headless
-resume is `-r` (interactive session id is `-s`); a stale session ("session not found" / 404 restore)
-falls back to a cold spawn.
+Headless delivers the prompt via `--prompt-file grok-prompt.md` (never stdin — a failed write fails
+the spawn). `-p` / `--single` triggers headless too, but it inlines the prompt body into the command
+line, which a rendered harness prompt overruns on Windows, so the file form is unconditional.
+Interactive never passes `--prompt-file` (that forces headless); it uses `--permission-mode
+acceptEdits` plus a positional prompt pointer. Headless resume is `-r` (interactive session id is
+`-s`); a stale session ("session not found" / 404 restore) falls back to a cold spawn.
 
-Read-only flows deny `search_replace` (edit) and both shell ids (`run_terminal_command` live,
-`run_terminal_cmd` docs), plus `--no-subagents`. A no-network session also denies `web_search` /
-`web_fetch`. The `write` tool stays allowed so `signals.json` can land. `--sandbox off` is forced
-and there is no `--add-dir` — extra roots are a named over-grant. Never `--permission-mode plan`
-(blocks `signals.json`).
+Read-only flows deny edit and shell; creating a file stays allowed so `signals.json` can land. The
+edit gate is `--deny 'Edit(./**)'` — rooted at `--cwd`, so the repo (or the per-task worktree) is
+edit-denied while the session directory outside it stays writable. Shell is denied twice:
+`--disallowed-tools run_terminal_command,run_terminal_cmd` removes both spellings of the tool, and
+`--deny 'Bash(*)'` blocks any command that would survive a rename. A no-network session also removes
+`web_search` / `web_fetch`, and any closed gate adds `--no-subagents`. `--sandbox off` is forced and
+there is no `--add-dir` — extra roots are a named over-grant. Never `--permission-mode plan` (blocks
+`signals.json`).
+
+Both surfaces pass `--trust`. Without it, Grok skips project instructions (`AGENTS.md`) and
+`.grok/skills` at startup in any folder you have not trusted inside Grok's own TUI — which is every
+fresh clone and every per-task worktree — and ralphctl writes exactly those files. Know what the
+grant covers before you point ralphctl at an unfamiliar repo: Grok's folder trust is unified, so one
+`--trust` covers project instructions, project skills, project permission rules
+(`.grok/config.toml`, `.claude/settings.json`), project hooks (`.grok/hooks/*.json`,
+`.claude/settings.json`, `.cursor/hooks.json`) and repo-local MCP / LSP servers together. A ralphctl
+run therefore executes that checkout's own hooks and MCP servers — it runs the repo the way you
+would by opening it in Grok yourself, so run it only against repos you would trust there. Grok
+persists the decision in its trust store, so a ralphctl run leaves the repo (and each worktree path
+it used) trusted for your own later `grok` sessions.
 
 Effort is forwarded as `--effort` on both surfaces, so plateau escalation can raise effort on the
 same model, then climb `grok-4.5` → `grok-4.6`. Doctor cannot check whether you are signed in —
@@ -216,6 +243,24 @@ Reads `AGENTS.md` (shared with Codex and OpenCode). Codex, OpenCode, and Grok sh
 `AGENTS.md`. Readiness for more than one of them writes that file in sequence; each later pass
 keeps the previous body at `AGENTS.md.bak.<timestamp>`. Skills and agent definitions live under
 `.grok/`; operator skills under `~/.ralphctl/skills/grok/`. Docs: https://docs.x.ai/build/overview.
+
+### Grok limitations
+
+- No `--add-dir`. Extra roots are a named over-grant: `--sandbox off` already makes writes outside
+  cwd work, and the read-only edit rule is cwd-rooted, so an extra root stays writable.
+- The read-only gate is the CLI's own permission layer, not an OS sandbox. It is verified against
+  the 1.0.30 CLI reference rather than a live model call, and its failure direction is an over-grant
+  — an edit slipping through — never a blocked `signals.json`. The edit rule is cwd-rooted, so
+  pointing `RALPHCTL_HOME` inside the repo would put `signals.json` under it; the adapter detects
+  that and drops the rule (logging a warning) rather than blocking the envelope, which means a
+  read-only flow there runs edit-capable.
+- `--trust` persists and is unified. ralphctl trusts the folder it just wrote `AGENTS.md` /
+  `.grok/skills` into, which also trusts that folder's permission rules, hooks and repo-local MCP /
+  LSP servers; Grok remembers the decision for the repo and for every per-task worktree path.
+- No version pre-flight: `ralphctl doctor` checks only that `grok` is on PATH. A binary older than
+  1.0.13 fails with an unknown-flag error on `-s` rather than a clear message.
+- Doctor cannot check authentication either — xAI exposes no non-interactive auth-status verb, so
+  auth reports `unknown`.
 
 ## Choosing between them
 

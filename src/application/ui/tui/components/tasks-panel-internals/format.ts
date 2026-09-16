@@ -6,6 +6,7 @@
 
 import type { AbortCause } from '@src/domain/entity/attempt.ts';
 import type { ContextCompactedSignal, HarnessSignal } from '@src/domain/signal.ts';
+import { sanitizeDisplayText } from '@src/domain/value/display-text.ts';
 import type { TaskProjection } from '@src/application/ui/tui/components/tasks-projection.ts';
 import { fmtTokens } from '@src/application/ui/tui/components/format.ts';
 import { glyphs } from '@src/application/ui/tui/theme/tokens.ts';
@@ -15,8 +16,13 @@ import { glyphs } from '@src/application/ui/tui/theme/tokens.ts';
  * signal's `output`) renders as one row before Ink ellides on width. We deliberately do not
  * char-clip here — Ink's `wrap="truncate-end"` handles width-based ellision based on actual
  * terminal columns.
+ *
+ * Every caller feeds this MODEL-authored text, and it is the panel's one choke point for it, so
+ * the control-character strip rides along: JS `\s` does not match ESC / BEL / the rest of C0, so
+ * the collapse alone would hand an intact OSC or CSI sequence straight to Ink's `<Text>`. See
+ * {@link sanitizeDisplayText} — no length clamp here, that stays Ink's job.
  */
-export const collapseWhitespace = (s: string): string => s.replace(/\s+/g, ' ');
+export const collapseWhitespace = (s: string): string => sanitizeDisplayText(s).replace(/\s+/g, ' ');
 
 /** Fixed label column so timestamps and bodies line up across signals. */
 export const SIGNAL_LABEL_WIDTH = 16;

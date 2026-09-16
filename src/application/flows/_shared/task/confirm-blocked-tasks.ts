@@ -40,8 +40,13 @@ const confirmBlockedTasksUseCase = async (
   input: ConfirmBlockedTasksInput
 ): Promise<Result<void, DomainError>> => {
   const { blockedTasks } = input;
+  // `done` is not a dead end — `reopenDoneSprint` exists, `ralphctl sprint reopen` uses it, and
+  // unblocking a task from a done sprint reopens it automatically. So the sentence states what
+  // closing actually costs (the work stops until the sprint is reopened), not the permanent loss
+  // it used to claim. Kept in step with the CLI's own confirm (`commands/sprint.ts`) — the two
+  // gates guard the same transition and must not describe it differently.
   const message = [
-    `${String(blockedTasks.length)} task(s) are blocked and will stay unreachable once this sprint is done:`,
+    `${String(blockedTasks.length)} task(s) are blocked and won't run again until this sprint is reopened (unblocking one reopens it):`,
     nameBlockedTasks(blockedTasks),
     '',
     'Close anyway?',

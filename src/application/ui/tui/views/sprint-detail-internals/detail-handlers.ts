@@ -35,6 +35,12 @@ interface RunUnblockArgs {
  * chord) and thread the result to feedback + reload. `mountedRef` guards the post-await writes —
  * dismissing the confirm overlay (or firing `u`) unblocks the router, so the operator can
  * navigate away (unmounting the view) before the awaited use-case resolves.
+ *
+ * Unblocking on a `done` sprint normally REOPENS it (`done` → `review` → `active`), so a bare
+ * success toast would imply the revived task is runnable again. When the single-active-per-project
+ * check refused that reopen, `UnblockTaskOutput.sprintReopenConflict` carries the reason — it is
+ * appended here the same way the CLI prints its `note:` line (`ui/cli/commands/task.ts`), so this
+ * surface never goes silent about a sprint that stayed closed.
  */
 const runUnblock = async (args: RunUnblockArgs): Promise<void> => {
   const { target, sprintId, unblockTask, mountedRef, setFeedback, reload } = args;
@@ -44,6 +50,15 @@ const runUnblock = async (args: RunUnblockArgs): Promise<void> => {
     return;
   }
   if (!mountedRef.current) return;
+  const conflict = r.value.sprintReopenConflict;
+  if (conflict !== undefined) {
+    // The task IS revived, but its sprint stayed closed — so this is not a plain success. Lead
+    // with the warning glyph rather than `✓`: the operator has to act on this (close the peer,
+    // or `sprint reopen` later), and a tick in front of "cannot reopen" reads as "all done".
+    setFeedback(`${glyphs.warningGlyph} unblocked "${target.name}" ${glyphs.emDash} ${conflict.message}`);
+    reload();
+    return;
+  }
   setFeedback(`${glyphs.check} unblocked "${target.name}"`);
   reload();
 };

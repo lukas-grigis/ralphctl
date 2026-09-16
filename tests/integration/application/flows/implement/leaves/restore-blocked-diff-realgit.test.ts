@@ -14,12 +14,17 @@
  * `quarantine-blocked-diff-realgit.test.ts` uses for the capture half: quarantine a dirty diff,
  * assert the tree is clean, then restore it and assert the SAME content is back — with the stash
  * consumed (popped, not merely inspected).
+ *
+ * The second case covers the other half of the leaf's contract against the same real repo: a pop
+ * that CONFLICTS. Everything that undo rests on is git semantics a scripted fake cannot establish —
+ * that a conflicted pop half-applies the merge into the tree, that `--diff-filter=U` is what names
+ * it, that the stash entry survives, and that `reset --hard HEAD` + `clean -fd` clears it.
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { createGitRunner } from '@src/integration/io/git-runner.ts';
-import { gitStatusPorcelain } from '@src/integration/io/git-operations.ts';
+import { gitStashPush, gitStatusPorcelain } from '@src/integration/io/git-operations.ts';
 import { markTaskBlocked } from '@src/domain/entity/task-lifecycle.ts';
 import type { BlockedTask, Task } from '@src/domain/entity/task.ts';
 import type { UpdateTask } from '@src/domain/repository/task/update-task.ts';
@@ -128,5 +133,51 @@ describe('restore-blocked-diff — real git round trip with quarantine', () => {
     // actually ran rather than the pre-check silently no-op-ing the way it did before the fix.
     const stashListAfterRestore = await project.git('stash', 'list');
     expect(stashListAfterRestore.trim()).toBe('');
+  });
+
+  it('a CONFLICTED pop leaves no markers in the tree — real git keeps the entry and the reset clears the half-merge', async () => {
+    // The undo path's three load-bearing git semantics, none of which a scripted fake can prove:
+    //  1. a content-conflicting `git stash pop` half-applies the merge and exits non-zero, so
+    //     `git diff --name-only --diff-filter=U` is what actually names the damage;
+    //  2. git KEEPS the stash entry on that conflict — which is what makes the reset non-destructive;
+    //  3. `reset --hard HEAD` + `clean -fd` really does clear the `<<<<<<<` markers.
+    // The conflict is arranged the way production hits it: the diff was stashed against the prior
+    // attempt's tree and pops into one whose branch has since advanced the same line.
+    const cwd = abs(project.path);
+    const gitRunner = createGitRunner();
+    const a = blockedTaskA('verify failed: conflict.ts breaks the build');
+    const message = quarantineStashMessage(sprintId, a.id);
+    const ctx: ImplementCtx = { sprintId, tasks: [a] };
+
+    await project.writeFile('conflict.ts', 'export const value = "base";\n');
+    await project.git('add', '-A');
+    await project.git('commit', '-q', '-m', 'feat: base');
+
+    // ── The blocked attempt's rejected diff, quarantined under the deterministic message.
+    await project.writeFile('conflict.ts', 'export const value = "attempt";\n');
+    const pushed = await gitStashPush(gitRunner, cwd, message);
+    expect(pushed.ok && pushed.value.stashed).toBe(true);
+
+    // ── The branch advanced the SAME line while the diff sat in the stash.
+    await project.writeFile('conflict.ts', 'export const value = "advanced";\n');
+    await project.git('add', '-A');
+    await project.git('commit', '-q', '-m', 'feat: advance the same line');
+
+    const restored = await restoreBlockedDiffLeaf({ gitRunner, logger: noopLogger }, { cwd }, a.id).execute(ctx);
+    // Best-effort as ever — the attempt proceeds, just from the pre-pop tree.
+    expect(restored.ok).toBe(true);
+
+    // No conflict markers survive for `pre-task-verify` to read as a broken baseline or for
+    // `commit-task`'s `git add -A` to absorb into a commit.
+    const content = await project.readFile('conflict.ts');
+    expect(content).not.toContain('<<<<<<<');
+    expect(content).toBe('export const value = "advanced";\n');
+    const status = await gitStatusPorcelain(gitRunner, cwd);
+    expect(status.ok && status.value).toStrictEqual([]);
+
+    // …and the rejected diff is still recoverable by hand: git kept the entry on the conflict, and
+    // the reset never touched it.
+    const stashList = await project.git('stash', 'list', '--format=%s');
+    expect(stashList).toContain(message);
   });
 });

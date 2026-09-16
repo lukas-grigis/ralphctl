@@ -34,7 +34,6 @@ export interface SprintDetailContentProps {
   readonly cursorIdx: number;
   readonly openIds: ReadonlySet<string>;
   readonly ticketsEditable: boolean;
-  readonly feedback: string | undefined;
   readonly currentSprintId: SprintId | undefined;
 }
 
@@ -54,7 +53,6 @@ export const SprintDetailContent = ({
   cursorIdx,
   openIds,
   ticketsEditable,
-  feedback,
   currentSprintId,
 }: SprintDetailContentProps): React.JSX.Element => {
   if (helpOpen) return <HelpOverlay />;
@@ -82,7 +80,6 @@ export const SprintDetailContent = ({
       cursorIdx={Math.min(cursorIdx, Math.max(0, focusList.length - 1))}
       openIds={openIds}
       ticketsEditable={ticketsEditable}
-      feedback={feedback}
       isCurrent={currentSprintId === state.value.sprint.id}
     />
   );
@@ -95,7 +92,6 @@ interface BodyProps {
   readonly cursorIdx: number;
   readonly openIds: ReadonlySet<string>;
   readonly ticketsEditable: boolean;
-  readonly feedback: string | undefined;
   readonly isCurrent: boolean;
 }
 
@@ -106,7 +102,6 @@ const Body = ({
   cursorIdx,
   openIds,
   ticketsEditable,
-  feedback,
   isCurrent,
 }: BodyProps): React.JSX.Element => {
   const { sprint, tasks } = bundle;
@@ -121,7 +116,6 @@ const Body = ({
         focusList={focusList}
         cursorIdx={cursorIdx}
         ticketsEditable={ticketsEditable}
-        feedback={feedback}
         openIds={openIds}
       />
       <TasksSection

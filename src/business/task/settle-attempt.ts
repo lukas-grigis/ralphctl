@@ -12,6 +12,7 @@ import { applyCriteriaVerdicts } from '@src/domain/entity/task-criteria.ts';
 import { classifyBlock, markTaskBlocked } from '@src/domain/entity/task-lifecycle.ts';
 import type { CriterionVerdict, TaskBlockerClass } from '@src/domain/signal.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
+import { sanitizeDisplayText } from '@src/domain/value/display-text.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import type { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
 import type { StorageError } from '@src/domain/value/error/storage-error.ts';
@@ -143,20 +144,32 @@ const abortMetaFor = (props: Pick<SettleAttemptProps, 'abortCause' | 'signalOrEx
 const firstLine = (text: string): string => text.split('\n', 1)[0] ?? text;
 
 /**
+ * Display budget for the event's two text fields. Every subscriber renders them on one short line
+ * (the TUI attention banner, the OS notification body), so the clamp belongs here — at the single
+ * producer — rather than being re-derived by each of them.
+ */
+const EVENT_TEXT_MAX_CHARS = 200;
+
+/**
  * Publish {@link TaskBlockedEvent} for a task that just settled into `blocked`, so
  * `notification-subscriber`'s `classify()` can raise the operator-attention banner / OS
  * notification. A no-op when no `eventBus` was wired (legacy / test callers) or when the settled
  * task isn't actually blocked — kept as a single guarded call so the use case's happy path below
  * reads as one line, not a branch.
+ *
+ * `taskName` is planner-authored and `blockedReason` generator-authored — both come off a model
+ * that has read the target repository, and both land on an operator's terminal (and, via the
+ * notification dispatcher, in an OS notification). {@link sanitizeDisplayText} at this single
+ * producer means no subscriber has to remember to do it.
  */
 const publishTaskBlocked = (eventBus: EventBus | undefined, task: SettleAttemptOutput, at: IsoTimestamp): void => {
   if (eventBus === undefined || task.status !== 'blocked') return;
   const event: TaskBlockedEvent = {
     type: 'task-blocked',
     taskId: String(task.id),
-    taskName: task.name,
+    taskName: sanitizeDisplayText(task.name, EVENT_TEXT_MAX_CHARS),
     blockKind: task.blockKind,
-    reason: firstLine(task.blockedReason),
+    reason: sanitizeDisplayText(firstLine(task.blockedReason), EVENT_TEXT_MAX_CHARS),
     at,
   };
   eventBus.publish(event);

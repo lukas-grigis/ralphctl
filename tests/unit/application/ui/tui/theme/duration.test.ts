@@ -130,3 +130,25 @@ describe('fmtIsoAbsolute (local timezone)', () => {
     expect(fmtIsoAbsolute('not-a-date')).toBe('not-a-date');
   });
 });
+
+// ────────────────────────────────────────────────────────────────────────────────────────────
+// fmtElapsed — negative spans
+//
+// Several callers pass a COARSE `end` (the shared 1 Hz clock tick) against a timestamp written
+// moments ago, so `end - startedAt` goes briefly negative. Unclamped that rendered as
+// `✓ Pre verify -95ms ago` in the Execute view's Baseline card right after a verify ran.
+// ────────────────────────────────────────────────────────────────────────────────────────────
+
+describe('fmtElapsed — clamped at zero', () => {
+  it('renders a stale clock reading as 0ms rather than a negative span', () => {
+    expect(fmtElapsed(1500, 1000)).toBe('0ms');
+  });
+
+  it('clamps a multi-second skew too', () => {
+    expect(fmtElapsed(60_000, 0)).toBe('0ms');
+  });
+
+  it('leaves an ordered span untouched', () => {
+    expect(fmtElapsed(1000, 1500)).toBe('500ms');
+  });
+});
