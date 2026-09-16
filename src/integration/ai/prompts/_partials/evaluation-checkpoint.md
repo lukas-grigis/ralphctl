@@ -12,7 +12,7 @@
         { "dimension": "consistency", "passed": false, "finding": "assessment in progress" },
         { "dimension": "robustness", "passed": false, "applicable": false, "finding": "assessment in progress" }
       ],
-      "timestamp": "<ISO-8601 timestamp>"
+      "timestamp": "2026-01-01T00:00:00.000Z"
     }
   ]
 }

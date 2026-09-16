@@ -105,7 +105,7 @@ elsewhere in the project.
 ### Step 6: Verify
 
 After fixing, run the project's narrow check gate (lint, typecheck, the focused test for this area)
-after each meaningful change. Re-read the diff once before you write a `task-complete` signal. The
+after each meaningful change. Re-read the diff once before you signal the work complete. The
 harness runs and owns the post-task verify gate; your job is to reach the gate in a clean state,
 not to certify end-to-end completion yourself.
 
@@ -184,7 +184,8 @@ system can embed instruction-like text in error output.
 
 ## Verification Checklist (self-review before signalling complete)
 
-- [ ] Root cause is identified and documented (in a `note` or `decision` signal if non-obvious).
+- [ ] Root cause is identified and documented in a `note` signal if non-obvious (generator role: a `decision`
+      signal too — the evaluator and readiness contracts have no `decision` schema).
 - [ ] Fix addresses the root cause, not just the symptom.
 - [ ] A regression test is included that fails without the fix and passes with it.
 - [ ] The project's narrow check gate passes after the fix.

@@ -19,6 +19,10 @@ import { evaluatorOutputContract } from '@src/application/flows/implement/leaves
  * cases `evaluator.contract.ts`'s signal union has no `decision` schema. This test would have
  * failed against either unfixed wording; it fails again whenever a future edit re-widens an
  * evaluator-facing bullet, in either skill, to name a kind the real evaluator contract rejects.
+ *
+ * Scope: this file is the heading-scoped check on those two skills. Every bundled skill's
+ * mentions — including the evaluator turn of the implement flow — are swept by the sibling
+ * `flow-signal-compatibility.test.ts`, which lists both implement contracts in `FLOW_CONTRACTS`.
  */
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -67,14 +71,17 @@ const extractSection = (content: string, heading: string): string => {
 const SIGNAL_MENTION_SPAN = /(?:`[a-z][a-z-]*`(?:,\s*|\s+or\s+))*`[a-z][a-z-]*`\s+signals?\b/gu;
 const BACKTICK_TOKEN = /`([a-z][a-z-]*)`/gu;
 
-// A negation appearing anywhere before the mention span in the same bullet demotes it: "not as a
-// `decision` signal" documents the exclusion this test enforces, it is not an instruction to
-// write one. Same demotion idea as `skill-contract-checker.ts`'s `isNegated`.
-const NEGATION_WORDS = ['not', 'never', "don't", 'do not'] as const;
+// A negation before the mention span demotes it: "not as a `decision` signal" documents the
+// exclusion this test enforces, it is not an instruction to write one. Same demotion idea as
+// `skill-contract-checker.ts`'s `isNegated`, and scoped the same way as the sibling
+// `flow-signal-compatibility.test.ts`: word-bounded (a bare `not` substring also fires inside
+// "note", "nothing", "cannot") and limited to the mention's own sentence, so an unrelated
+// earlier clause cannot drop a live instruction out of the scan.
+const NEGATION = /\b(?:not|never|don't)\b/u;
 
 const isNegatedMention = (lowerText: string, matchIndex: number): boolean => {
   const before = lowerText.slice(0, matchIndex);
-  return NEGATION_WORDS.some((word) => before.includes(word));
+  return NEGATION.test(before.split(/(?<=[.;!?])\s+/u).at(-1) ?? before);
 };
 
 /**

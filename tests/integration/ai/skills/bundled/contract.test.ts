@@ -145,6 +145,26 @@ describe('checkSkillContract — synthetic rule detection', () => {
     expect(ruleIds('- Draft the steps as a `<task-plan>` signal.')).toContain('S7');
   });
 
+  it('S7 — generic type syntax naming a signal kind is not a tag', () => {
+    // `Array<Change>` / `Set<Note>` / `Promise<Evaluation>` are type parameters, not signal tags.
+    // Without a LEFT boundary on the pattern each of these reported a spurious S7, so any
+    // operator-authored skill about TypeScript or Java that named a type `Change`, `Note`,
+    // `Evaluation`, `Learning` or `Decision` emitted a warn line on every session — the noise
+    // that trains an operator to ignore the rule. `Record<Decision, Handler>` never tripped it
+    // (the char after the name is `,`, not a boundary), so it is not repeated here.
+    expect(ruleIds('- Return a `ReadonlyArray<Change>` from the reducer.')).not.toContain('S7');
+    expect(ruleIds('- The store holds a `Set<Note>` keyed by id.')).not.toContain('S7');
+    expect(ruleIds('- Prefer `Promise<Evaluation>` over a callback.')).not.toContain('S7');
+    expect(ruleIds('- Generic parameter `List<Change>` in Java.')).not.toContain('S7');
+  });
+
+  it('S7 — a real tag literal still matches after a backtick and after a space', () => {
+    // The two shapes the left boundary must never block: the backticked form the bundled skills
+    // carried before the tag-syntax fix, and the bare form in running prose.
+    expect(ruleIds('- Emit `<note>` when the finding is informational.')).toContain('S7');
+    expect(ruleIds('- Emit <note> when the finding is informational.')).toContain('S7');
+  });
+
   it('S7 — negation still demotes an angle-bracket tag in anti-pattern prose', () => {
     expect(
       checkSkillContract('synthetic', '- Never write `<task-complete>` yourself; write a plain signal.').pass

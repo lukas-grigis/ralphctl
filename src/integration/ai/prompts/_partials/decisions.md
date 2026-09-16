@@ -7,7 +7,7 @@ with or need to understand — append a `decision` signal to `signals.json` so t
 in the sprint's decisions log.
 
 ```json
-{ "type": "decision", "text": "Used X over Y because Z.", "timestamp": "<ISO 8601 timestamp>" }
+{ "type": "decision", "text": "Used X over Y because Z.", "timestamp": "2026-05-22T10:00:00.000Z" }
 ```
 
 - **Emit sparingly** — only for choices a future maintainer could not recover from the diff alone (e.g.
