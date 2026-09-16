@@ -8,8 +8,8 @@
  * glyphs or string-prefix branching at call sites.
  *
  * Legacy plain-string form: accepted for gradual migration. A leading {@link glyphs.cross}
- * selects the error tone; a leading {@link glyphs.refresh} selects the info tone; all other
- * strings render in the primary color. Call sites should migrate to the structured form.
+ * selects the error tone; a leading {@link glyphs.warningGlyph} the warning tone; a leading
+ * {@link glyphs.refresh} the info tone; all other strings render in the primary color. Call sites should migrate to the structured form.
  *
  * Renders nothing when `text` is `undefined`, so callers can unconditionally render
  * `<FeedbackLine … />` without a conditional guard.
@@ -52,6 +52,9 @@ const toneConfig = (tone: FeedbackTone): { glyph: string; color: string } => {
 const resolveStructured = (raw: string): { glyph: string; color: string; body: string } => {
   if (raw.startsWith(glyphs.cross)) {
     return { glyph: '', color: inkColors.error, body: raw };
+  }
+  if (raw.startsWith(glyphs.warningGlyph)) {
+    return { glyph: '', color: inkColors.warning, body: raw };
   }
   if (raw.startsWith(glyphs.refresh)) {
     return { glyph: '', color: inkColors.info, body: raw };

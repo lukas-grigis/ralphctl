@@ -101,4 +101,22 @@ describe('SprintDetailView — u on a closed sprint whose reopen is refused', ()
     expect(frame).toContain("sprint 'live-sprint' is already active in this project");
     result.unmount();
   });
+
+  it('leads with the warning glyph, not the success tick', async () => {
+    const updated: Task[] = [];
+    const { result } = renderView(<SprintDetailView />, { deps: stubDeps(updated), initial });
+    await waitForViewReady(result, (f) => f.includes('wedged'));
+
+    result.stdin.write('j');
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('unbl'));
+    result.stdin.write('u');
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('unblocked'));
+
+    // The task IS revived but its sprint stayed closed, so the operator still has something to
+    // do. A `✓` in front of "cannot reopen" reads as "all done" and is the wrong signal.
+    const frame = flat(result.lastFrame() ?? '');
+    expect(frame).toContain('⚠ unblocked "wedged"');
+    expect(frame).not.toContain('✓ unblocked "wedged"');
+    result.unmount();
+  });
 });

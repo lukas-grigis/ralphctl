@@ -43,6 +43,7 @@ import { Breadcrumb } from '@src/application/ui/tui/components/breadcrumb.tsx';
 import { SectionStamp } from '@src/application/ui/tui/components/section-stamp.tsx';
 import { StatusBar } from '@src/application/ui/tui/components/status-bar.tsx';
 import { StatusBanner } from '@src/application/ui/tui/components/status-banner.tsx';
+import { FeedbackLine, type StructuredFeedback } from '@src/application/ui/tui/components/feedback-line.tsx';
 import { ScrollRegion } from '@src/application/ui/tui/components/scroll-region.tsx';
 import { PromptHost } from '@src/application/ui/tui/prompts/prompt-host.tsx';
 import { usePromptQueue } from '@src/application/ui/tui/prompts/prompt-context.tsx';
@@ -69,6 +70,17 @@ export interface ViewShellProps {
    * unaffected. Default `undefined` / false — every current caller keeps the page-scroll keys.
    */
   readonly suppressScrollArrows?: boolean;
+  /**
+   * Result of the last action the operator took in this view (`✓ unblocked "…"`, `✗ <error>`),
+   * rendered in the PINNED status row rather than inside the scroll body.
+   *
+   * Pinned because the scroll body is not a place a one-shot message can be trusted to land: on
+   * a view tall enough to overflow, an inline result line sits wherever its section happens to
+   * fall, which on a default-height terminal is below the fold — so the operator performs an
+   * action and sees nothing. Views that overflow (sprint detail) pass their feedback here; short
+   * list views that render {@link FeedbackLine} inline are unaffected.
+   */
+  readonly feedback?: string | StructuredFeedback;
   readonly children: React.ReactNode;
 }
 
@@ -78,6 +90,7 @@ export const ViewShell = ({
   right,
   compactBanner,
   suppressScrollArrows,
+  feedback,
   children,
 }: ViewShellProps): React.JSX.Element => {
   const ui = useUiState();
@@ -105,6 +118,7 @@ export const ViewShell = ({
           footer-adjacent surfaces (the keyboard hint `press d to dismiss` is closer to the
           footer hotkey rail), and collapses to zero height when nothing is published. */}
       <Box flexDirection="column" flexShrink={0}>
+        <FeedbackLine text={feedback} />
         <StatusBanner />
       </Box>
 

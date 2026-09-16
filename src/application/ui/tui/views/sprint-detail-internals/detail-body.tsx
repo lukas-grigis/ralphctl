@@ -285,6 +285,14 @@ const buildShortcutsActions = (args: BuildShortcutsActionsArgs) => {
 export interface UseSprintDetailBodyResult {
   readonly subtitle: string;
   readonly suppressScrollArrows: boolean;
+  /**
+   * Last action result (`u` unblock, `m` mark-current, an inline field edit). Handed to
+   * `ViewShell`'s PINNED status row rather than rendered inside the page body — this view
+   * routinely overflows the viewport, and an inline line would land below the fold exactly when
+   * it matters most (the reopen-refused note that explains why a revived task's sprint stayed
+   * closed).
+   */
+  readonly feedback: string | undefined;
   readonly contentProps: SprintDetailContentProps;
 }
 
@@ -385,6 +393,7 @@ const buildSprintDetailResult = (args: BuildSprintDetailResultArgs): UseSprintDe
   } = args;
   return {
     subtitle: state.kind === 'ok' ? state.value.sprint.name : 'loading',
+    feedback: feedback ?? edit.feedback,
     // The ticket + task panes own the focus cursor (↑/↓ / j/k drive the windowed lists), so the
     // page ScrollRegion must NOT also consume arrows once the list is visible — otherwise both
     // would move on a single keypress. During loading / error the list isn't mounted, so the
@@ -401,10 +410,27 @@ const buildSprintDetailResult = (args: BuildSprintDetailResultArgs): UseSprintDe
       cursorIdx: focus.cursorIdx,
       openIds,
       ticketsEditable,
-      feedback: feedback ?? edit.feedback,
       currentSprintId: selection.sprintId,
     },
   };
+};
+
+/**
+ * Refresh the cached breadcrumb status chip from every bundle this view loads — the same call
+ * Home and Flows already make on their own loads, for the same reason.
+ *
+ * This view needs it MORE than they do: it is the one screen that can transition the sprint
+ * under the operator's feet, because `u` on a `review` sprint reopens it to `active`. Without
+ * the sync the header card reads ACTIVE while the breadcrumb still claims REVIEW.
+ *
+ * `syncSprintStatus` no-ops unless the loaded sprint is still the selected one, so firing on
+ * every load is safe even while browsing a sprint that is not the current pick.
+ */
+const useSprintStatusChipSync = (sprint: Sprint | undefined, selection: ReturnType<typeof useSelection>): void => {
+  const syncSprintStatus = selection.syncSprintStatus;
+  useEffect(() => {
+    if (sprint !== undefined) syncSprintStatus(sprint.id, sprint.status);
+  }, [sprint, syncSprintStatus]);
 };
 
 /**
@@ -430,6 +456,8 @@ export const useSprintDetailBody = (): UseSprintDetailBodyResult => {
 
   const edit = useEditField();
   const queue = usePromptQueue();
+
+  useSprintStatusChipSync(sprint, selection);
 
   useViewHints(
     buildDetailHints({

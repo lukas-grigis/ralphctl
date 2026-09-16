@@ -51,8 +51,15 @@ const runUnblock = async (args: RunUnblockArgs): Promise<void> => {
   }
   if (!mountedRef.current) return;
   const conflict = r.value.sprintReopenConflict;
-  const stayedClosed = conflict !== undefined ? ` ${glyphs.emDash} ${conflict.message}` : '';
-  setFeedback(`${glyphs.check} unblocked "${target.name}"${stayedClosed}`);
+  if (conflict !== undefined) {
+    // The task IS revived, but its sprint stayed closed — so this is not a plain success. Lead
+    // with the warning glyph rather than `✓`: the operator has to act on this (close the peer,
+    // or `sprint reopen` later), and a tick in front of "cannot reopen" reads as "all done".
+    setFeedback(`${glyphs.warningGlyph} unblocked "${target.name}" ${glyphs.emDash} ${conflict.message}`);
+    reload();
+    return;
+  }
+  setFeedback(`${glyphs.check} unblocked "${target.name}"`);
   reload();
 };
 

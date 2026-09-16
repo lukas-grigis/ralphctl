@@ -13,7 +13,7 @@ import { ListCard } from '@src/application/ui/tui/components/list-card.tsx';
 import { EmptyState } from '@src/application/ui/tui/components/empty-state.tsx';
 import { StatusChip, taskStatusKind, ticketStatusKind } from '@src/application/ui/tui/components/status-chip.tsx';
 import { computeListWindow, OverflowRow } from '@src/application/ui/tui/components/windowed-list.tsx';
-import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
+import { glyphs, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { useBreakpoint } from '@src/application/ui/tui/runtime/use-breakpoint.ts';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { Task } from '@src/domain/entity/task.ts';
@@ -30,7 +30,6 @@ interface TicketsSectionProps {
   readonly focusList: readonly FocusItem[];
   readonly cursorIdx: number;
   readonly ticketsEditable: boolean;
-  readonly feedback: string | undefined;
   readonly openIds: ReadonlySet<string>;
 }
 
@@ -40,7 +39,6 @@ export const TicketsSection = ({
   focusList,
   cursorIdx,
   ticketsEditable,
-  feedback,
   openIds,
 }: TicketsSectionProps): React.JSX.Element => {
   const { rows } = useBreakpoint();
@@ -92,11 +90,6 @@ export const TicketsSection = ({
             : `${glyphs.bullet} tickets frozen (sprint not in draft) ${glyphs.bullet} ↵/o expand/collapse`}
         </Text>
       </Box>
-      {feedback !== undefined && (
-        <Box paddingX={spacing.indent} marginTop={spacing.section}>
-          <Text color={feedback.startsWith(glyphs.cross) ? inkColors.error : inkColors.primary}>{feedback}</Text>
-        </Box>
-      )}
     </Box>
   );
 };

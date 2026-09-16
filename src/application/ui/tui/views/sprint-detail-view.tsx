@@ -39,10 +39,15 @@ import { useSprintDetailBody } from '@src/application/ui/tui/views/sprint-detail
 import { SprintDetailContent } from '@src/application/ui/tui/views/sprint-detail-internals/detail-content.tsx';
 
 export const SprintDetailView = (): React.JSX.Element => {
-  const { subtitle, suppressScrollArrows, contentProps } = useSprintDetailBody();
+  const { subtitle, suppressScrollArrows, feedback, contentProps } = useSprintDetailBody();
 
   return (
-    <ViewShell title="Sprint" subtitle={subtitle} suppressScrollArrows={suppressScrollArrows}>
+    <ViewShell
+      title="Sprint"
+      subtitle={subtitle}
+      suppressScrollArrows={suppressScrollArrows}
+      {...(feedback !== undefined ? { feedback } : {})}
+    >
       <SprintDetailContent {...contentProps} />
     </ViewShell>
   );
