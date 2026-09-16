@@ -76,6 +76,70 @@ describe('ralphctl task list — blocked reason + recover hint', () => {
     expect(result.stdout).toContain('unblocks with: Confirm the target database name.');
   });
 
+  // The triage fields — and the task NAME, which the planner writes off the same generator — are
+  // model-authored prose off a run that has just read the target repository, so a prompt-injected
+  // answer can carry terminal escape sequences. `task list` writes them to stdout, which is where
+  // the operator's terminal would EXECUTE them — window title, screen clear, OSC 52 clipboard
+  // write. They are stripped on the way out.
+  it('strips terminal escape sequences out of the model-authored name and triage text', async () => {
+    const esc = String.fromCharCode(0x1b);
+    const bel = String.fromCharCode(0x07);
+    const sprint = makeDraftSprint();
+    const repo = createFsTaskRepository({ root: cli.paths.dataRoot });
+    const blocked = markTaskBlocked(
+      makeTodoTask({ name: `${esc}]0;owned${bel}injected` }),
+      `${esc}[2Jcleared your screen`,
+      'own'
+    );
+    if (!blocked.ok) throw new Error(`fixture: ${blocked.error.message}`);
+    await repo.saveAll(sprint.id, [
+      {
+        ...blocked.value,
+        question: `${esc}]0;pwned${bel}Which database?`,
+        whatUnblocksMe: `${esc}[31mConfirm the name.${esc}[0m`,
+      },
+    ]);
+
+    const result = await runCliCaptured(cli, ['task', 'list', '--sprint', String(sprint.id)]);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).not.toContain(esc);
+    expect(result.stdout).not.toContain(bel);
+    // Neutered, not dropped — the operator still reads what the generator actually said.
+    expect(result.stdout).toContain(']0;ownedinjected');
+    expect(result.stdout).toContain('Which database?');
+    expect(result.stdout).toContain('Confirm the name.');
+    expect(result.stdout).toContain('cleared your screen');
+  });
+
+  // The name rides on EVERY row, not just blocked ones — a `todo` task never reaches the triage
+  // branch of `formatTaskLine`, so its head line is the only thing printed for it.
+  it('strips escape sequences from the name of a non-blocked task too', async () => {
+    const esc = String.fromCharCode(0x1b);
+    const sprint = makeDraftSprint();
+    const repo = createFsTaskRepository({ root: cli.paths.dataRoot });
+    await repo.saveAll(sprint.id, [makeTodoTask({ name: `${esc}[2Jwipe-the-screen` })]);
+
+    const result = await runCliCaptured(cli, ['task', 'list', '--sprint', String(sprint.id)]);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).not.toContain(esc);
+    expect(result.stdout).toContain('[2Jwipe-the-screen');
+  });
+
+  it('clamps a runaway triage field instead of flooding the row', async () => {
+    const sprint = makeDraftSprint();
+    const repo = createFsTaskRepository({ root: cli.paths.dataRoot });
+    const blocked = markTaskBlocked(makeTodoTask({ name: 'flooded' }), 'own failure', 'own');
+    if (!blocked.ok) throw new Error(`fixture: ${blocked.error.message}`);
+    await repo.saveAll(sprint.id, [{ ...blocked.value, question: 'q'.repeat(50_000) }]);
+
+    const result = await runCliCaptured(cli, ['task', 'list', '--sprint', String(sprint.id)]);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('…');
+    expect(result.stdout.length).toBeLessThan(2_000);
+    // The footer is still reachable — the point of clamping per field rather than per line.
+    expect(result.stdout).toContain('recover with: ralphctl task unblock');
+  });
+
   it('omits the triage lines when the task carries no structured block triage', async () => {
     const sprint = makeDraftSprint();
     const repo = createFsTaskRepository({ root: cli.paths.dataRoot });

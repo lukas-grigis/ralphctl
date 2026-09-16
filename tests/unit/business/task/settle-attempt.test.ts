@@ -62,6 +62,44 @@ describe('settleAttemptUseCase — task-blocked notification', () => {
     });
   });
 
+  // The reason is generator-authored and the name planner-authored; every subscriber renders them
+  // — the TUI attention banner and, via the notification dispatcher, an OS notification.
+  // Sanitising at this single producer is what keeps each of them from having to remember: a
+  // prompt-injected reason must not carry ANSI/OSC bytes into a terminal, and a runaway one must
+  // not become the notification body.
+  it('strips control characters and clamps the reason before publishing', async () => {
+    const esc = String.fromCharCode(0x1b);
+    const ip = makeInProgressTaskWithRunningAttempt();
+    const { repo } = fakeUpdateTask();
+    const bus = createInMemoryEventBus();
+    const seen: AppEvent[] = [];
+    bus.subscribe((e) => seen.push(e));
+
+    const result = await settleAttemptUseCase({
+      task: ip,
+      sprintId: SPRINT_ID,
+      verdict: 'failed',
+      blockedReason: `${esc}]0;pwned${String.fromCharCode(0x07)}needs a decision ${'x'.repeat(500)}`,
+      taskRepo: repo,
+      clock: () => FIXED_LATER,
+      logger: noopLogger,
+      eventBus: bus,
+    });
+
+    expect(result.ok).toBe(true);
+    const published = seen.filter((e) => e.type === 'task-blocked')[0];
+    if (published?.type !== 'task-blocked') throw new Error('expected a task-blocked event');
+    expect(published.reason).not.toContain(esc);
+    expect(published.reason).toContain(']0;pwnedneeds a decision');
+    expect(published.reason).toHaveLength(200);
+    expect(published.reason.endsWith('…')).toBe(true);
+    // The persisted task keeps the full reason — only the one-line event body is clamped. A throw,
+    // not an early return: the published event above already proves the task settled to `blocked`,
+    // so a `return` here would silently drop this assertion if that ever stopped being true.
+    if (!result.ok || result.value.status !== 'blocked') throw new Error('expected a blocked task');
+    expect(result.value.blockedReason.length).toBeGreaterThan(200);
+  });
+
   it('publishes a task-blocked event when the attempt budget is exhausted (no explicit blockedReason)', async () => {
     const ip = makeInProgressTaskWithRunningAttempt({ maxAttempts: 1 });
     const { repo } = fakeUpdateTask();

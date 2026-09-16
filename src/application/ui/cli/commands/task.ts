@@ -8,6 +8,7 @@ import { fail } from '@src/application/ui/cli/report-cli-error.ts';
 import { pinFallbackNotice, resolveSprintId } from '@src/application/ui/cli/resolve-sprint-selection.ts';
 import { unblockTaskUseCase } from '@src/business/task/unblock-task.ts';
 import { evaluationArtifactSprintPath, latestRecordedEvaluation } from '@src/business/task/evaluation-artifact.ts';
+import { DISPLAY_TEXT_MAX_CHARS, sanitizeDisplayText } from '@src/domain/value/display-text.ts';
 import { resolveSprintDir } from '@src/integration/persistence/storage.ts';
 
 interface SprintOpt {
@@ -152,7 +153,18 @@ const unblockTaskAction = async (rawTaskId: string, opts: SprintOpt): Promise<vo
     fail(result.error.message);
     return;
   }
-  process.stdout.write(`unblocked task '${result.value.name}' (${String(result.value.id)})\n`);
+  // Planner-authored name echoed back at the terminal — same neutering as the list rows.
+  process.stdout.write(
+    `unblocked task '${sanitizeDisplayText(result.value.task.name, DISPLAY_TEXT_MAX_CHARS)}' (${String(result.value.task.id)})\n`
+  );
+  // The reopen is best-effort, so an unblock that revived the task but left the sprint closed
+  // still exits 0 — it must not also report as if the sprint had reopened. The conflict message
+  // names the peer holding the project and its hint names the command that releases it.
+  const conflict = result.value.sprintReopenConflict;
+  if (conflict !== undefined) {
+    process.stderr.write(`note: ${conflict.message}\n`);
+    if (conflict.hint !== undefined) process.stderr.write(`      ${conflict.hint}\n`);
+  }
 };
 
 /**
@@ -212,16 +224,26 @@ export const registerTaskCommand = (program: Command): void => {
  * recovery hatch was discoverable only by reading `--help`. The three triage fields are all
  * optional (absent for non-self-block paths, and for a self-block whose signal omitted them), so
  * `ralphctl task list` degrades to the reason-only line whenever they weren't recorded.
+ *
+ * The task NAME, the reason, the question and `whatUnblocksMe` are all MODEL-authored prose off a
+ * generator that just read the target repository, so each goes through {@link sanitizeDisplayText}
+ * on the way to stdout: ANSI/OSC bytes in a prompt-injected answer would otherwise be executed by
+ * the operator's terminal, and an unbounded field would flood the row. The clamp is per field, so a
+ * long question cannot push the `recover with:` footer off the screen either. `blockerClass` is the
+ * one value pushed out raw — a closed three-value enum the signal schema already validates, so
+ * there is nothing to neuter. The name is sanitised on EVERY row, blocked or not: the planner
+ * authors it for every task, so a `todo` row carries the same injection surface as a blocked one.
  */
 const formatTaskLine = (t: Task): string => {
   const orderStr = String(t.order).padStart(3, ' ');
-  const head = `${orderStr}.  ${String(t.id)}  [${t.status.padEnd(8)}]  ${t.name}`;
+  const show = (text: string): string => sanitizeDisplayText(text, DISPLAY_TEXT_MAX_CHARS);
+  const head = `${orderStr}.  ${String(t.id)}  [${t.status.padEnd(8)}]  ${show(t.name)}`;
   if (t.status !== 'blocked') return head;
   const reasonFirstLine = t.blockedReason.split('\n')[0] ?? t.blockedReason;
-  const lines = [head, `       ${reasonFirstLine}`];
+  const lines = [head, `       ${show(reasonFirstLine)}`];
   if (t.blockerClass !== undefined) lines.push(`       blocker: ${t.blockerClass}`);
-  if (t.question !== undefined) lines.push(`       question: ${t.question}`);
-  if (t.whatUnblocksMe !== undefined) lines.push(`       unblocks with: ${t.whatUnblocksMe}`);
+  if (t.question !== undefined) lines.push(`       question: ${show(t.question)}`);
+  if (t.whatUnblocksMe !== undefined) lines.push(`       unblocks with: ${show(t.whatUnblocksMe)}`);
   lines.push(`       recover with: ralphctl task unblock ${String(t.id)}`);
   return lines.join('\n');
 };

@@ -126,6 +126,11 @@ export interface AbortStats {
  *  - `nudge`            — the model pair is stamped and EQUAL (top-of-ladder same-model nudge).
  *  - `best-of-n`        — the permanent `bestOfNGranted` marker is set.
  *
+ * Counted off the live task AND off every archived run in `retiredAttempts` — an unblock retires
+ * the four model/effort stamps into the archive (the permanent `bestOfNGranted` marker is the one
+ * that stays live), so reading only the live fields would report the rungs of every intervened-on
+ * task as never granted while still counting the attempts they paid for.
+ *
  * Known limitation, stated so readers don't over-trust the number: the model pair is re-stamped
  * on every climb, so a task that bumped models twice and was then nudged reports `nudge` only.
  * The counts are therefore "rungs still visible in the final record", which is the strongest
@@ -477,14 +482,30 @@ const absorbAttempts = (acc: Accumulator, task: Task): void => {
   if (regressed) acc.tasksWithRegression += 1;
 };
 
+/**
+ * The four re-stampable model / effort rungs visible in ONE stamped record — the live task's own
+ * fields, or an archived {@link RetiredRun}'s copy of them (the archive mirrors exactly these
+ * four). `best-of-n` is not among them: its marker is permanent and stays on the live task across
+ * an unblock, so {@link rungsGranted} adds it once rather than per retired run.
+ */
+type EscalationStamps = Pick<
+  RetiredRun,
+  'escalatedFromModel' | 'escalatedToModel' | 'escalatedToEffort' | 'escalatedToEvaluatorEffort'
+>;
+
+const rungsFromStamps = (stamps: EscalationStamps): readonly EscalationRung[] => {
+  const rungs: EscalationRung[] = [];
+  const from = readString(stamps.escalatedFromModel);
+  const to = readString(stamps.escalatedToModel);
+  if (to !== undefined) rungs.push(from === to ? 'nudge' : 'model');
+  if (readString(stamps.escalatedToEffort) !== undefined) rungs.push('effort');
+  if (readString(stamps.escalatedToEvaluatorEffort) !== undefined) rungs.push('evaluator-effort');
+  return rungs;
+};
+
 /** Rungs still visible in the task's final record. See {@link EscalationRung} for the caveat. */
 const rungsGranted = (task: Task): readonly EscalationRung[] => {
-  const rungs: EscalationRung[] = [];
-  const from = readString(task.escalatedFromModel);
-  const to = readString(task.escalatedToModel);
-  if (to !== undefined) rungs.push(from === to ? 'nudge' : 'model');
-  if (readString(task.escalatedToEffort) !== undefined) rungs.push('effort');
-  if (readString(task.escalatedToEvaluatorEffort) !== undefined) rungs.push('evaluator-effort');
+  const rungs = [...rungsFromStamps(task)];
   if (task.bestOfNGranted === true) rungs.push('best-of-n');
   return rungs;
 };
@@ -494,12 +515,27 @@ const rungOutcome = (task: Task): RungOutcome => {
   return task.status === 'blocked' ? 'fellThrough' : 'unsettled';
 };
 
+/**
+ * Fold the live stamps under the task's current outcome, then every retired run's stamps under
+ * `fellThrough`. The archive's outcome is not in question: a run is retired only by `unblockTask`,
+ * which runs on a task that ENDED that cycle `blocked` — so a rung granted inside it demonstrably
+ * did not resolve the task. Mirrors {@link allAttempts}: the same intervention that keeps the
+ * retired attempts in `attemptCount` keeps the rungs those attempts consumed in this table.
+ */
 const absorbEscalation = (acc: Accumulator, task: Task): void => {
   const outcome = rungOutcome(task);
   for (const rung of rungsGranted(task)) {
     const efficacy = acc.escalation[rung];
     efficacy.granted += 1;
     efficacy[outcome] += 1;
+  }
+  for (const run of readArray<RetiredRun>(task.retiredAttempts)) {
+    if (!isRecord(run)) continue;
+    for (const rung of rungsFromStamps(run)) {
+      const efficacy = acc.escalation[rung];
+      efficacy.granted += 1;
+      efficacy.fellThrough += 1;
+    }
   }
 };
 

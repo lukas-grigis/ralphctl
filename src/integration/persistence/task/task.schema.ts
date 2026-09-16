@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { Result } from '@src/domain/result.ts';
-import type { BlockCause, FaultSide, Task } from '@src/domain/entity/task.ts';
+import type { BlockCause, FaultSide, RetiredRun, Task } from '@src/domain/entity/task.ts';
 import type { TaskBlockerClass } from '@src/domain/signal.ts';
 import { BLOCKED_UPSTREAM_REASON_PREFIX, classifyBlock } from '@src/domain/entity/task-lifecycle.ts';
 import type { MigrationGapError } from '@src/domain/value/error/migration-gap-error.ts';
@@ -169,6 +169,17 @@ const _faultSideCheck: Compatible<z.infer<typeof FaultSideSchema>, FaultSide> = 
 void _faultSideCheck;
 const _blockerClassCheck: Compatible<z.infer<typeof TaskBlockerClassSchema>, TaskBlockerClass> = true;
 void _blockerClassCheck;
+/**
+ * Same drift guard for the archive's own shape — the one member of this file that mirrors a domain
+ * INTERFACE rather than a closed enum. `toJsonTask` is a bare pass-through and zod strips
+ * undeclared keys on read, so a field added to the domain {@link RetiredRun} and forgotten in
+ * {@link RetiredRunSchema} would be dropped silently on the next load, deleting the forensic record
+ * `unblockTask` archives instead of losing. Soft tripwire only;
+ * `tests/unit/integration/persistence/task/retired-attempts-schema.test.ts` is the authoritative
+ * round-trip check.
+ */
+const _retiredRunCheck: Compatible<z.infer<typeof RetiredRunSchema>, RetiredRun> = true;
+void _retiredRunCheck;
 
 /**
  * `blockKind` is the structural discriminant between an upstream-cascade block (auto-clearable)

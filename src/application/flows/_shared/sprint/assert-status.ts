@@ -10,17 +10,26 @@ export interface AssertSprintStatusCtx {
 }
 
 /**
+ * Default trace name of the leaf below — and the `attemptedAction` the `InvalidStateError` it
+ * raises carries. Exported because `ralphctl sprint close` runs the SAME `assertSprintStatus`
+ * check early (before its blocked-task confirm) and must report it with the identical verb:
+ * hand-copying the string let a rename here silently diverge the CLI's error text from the
+ * chain's.
+ */
+export const ASSERT_SPRINT_STATUS = 'assert-sprint-status';
+
+/**
  * Parameterised guard leaf — fails the chain unless the loaded sprint is in one of `allowed`.
  * Replaces per-flow `assertDraftLeaf` / `assertActiveLeaf` variants with a single shared form;
  * each flow passes its own status set.
  *
  * Generic over `<TCtx extends AssertSprintStatusCtx>` so any chain whose context carries a
- * loaded `sprint` can reuse the leaf. The default name is `'assert-sprint-status'`; flows that
+ * loaded `sprint` can reuse the leaf. The default name is {@link ASSERT_SPRINT_STATUS}; flows that
  * want a more specific trace name pass it explicitly (e.g. `'assert-draft'`).
  */
 export const assertSprintStatusLeaf = <TCtx extends AssertSprintStatusCtx>(
   allowed: readonly SprintStatus[],
-  name = 'assert-sprint-status'
+  name: string = ASSERT_SPRINT_STATUS
 ): Element<TCtx> =>
   leaf<TCtx, Sprint, void>(name, {
     useCase: {
