@@ -138,6 +138,44 @@ to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **Sprint detail's lower half is reachable again on a normal-height terminal.** The view hands
+  ↑/↓ to its own card cursor, which left the page itself with no keyboard scroll at all — so on
+  any terminal where the banner and header cards already fill the viewport, the whole Tasks
+  section sat below the fold, the cursor walked through rows nobody could see, and the new
+  `B` jump-to-next-blocked chord looked like it did nothing. The page now follows the focused
+  card: whichever card holds the cursor registers itself with the scroll region, which scrolls
+  exactly as far as it takes to bring it into view and no further, so a deliberate mouse-wheel
+  scroll is never fought. Pressing `b` for the compact banner is no longer a prerequisite for
+  seeing your own tasks.
+
+- **Action results on sprint detail are pinned instead of scrolling away.** `✓ unblocked "…"` was
+  rendered inside the page body, at the tail of the Tickets pane — which on an overflowing view
+  is below the fold, so unblocking a task appeared to do nothing at all. The message now sits in
+  the shell's pinned status row next to the banner stack. This matters most for the case it was
+  added for: unblocking a task on a closed sprint whose reopen the single-active-per-project
+  check refuses reports that the task was revived but its sprint stayed closed, and that note was
+  exactly the one nobody could see. It also now leads with `⚠` rather than `✓`, because a tick in
+  front of "cannot reopen sprint" reads as "all done" when the operator still has work to do.
+
+- **The breadcrumb's sprint status chip no longer goes stale on sprint detail.** Home and Flows
+  both re-stamp the cached status from every snapshot they load; sprint detail did not — and it
+  is the one view that transitions the sprint under you, since unblocking a task on a `review`
+  sprint reopens it to `active`. The header card read ACTIVE while the breadcrumb still claimed
+  REVIEW.
+
+- **The Baseline card no longer reports a negative age.** `✓ Pre verify -95ms ago` showed up right
+  after a verify ran, because the elapsed helper subtracted a just-written timestamp from a
+  coarser 1 Hz clock reading and never clamped the result.
+
+- **The footer no longer runs its two hint groups together.** The view's own hints and the global
+  tail were joined by a bare space, so `u unblock (3) esc back` read as one hint whose key was
+  `(3)`. They are separated by the same `·` both groups already use internally.
+
+- **Home stops offering to create your first project when you already have several.** The
+  get-started row gated on whether a project was _selected_ rather than whether any exist, so
+  browsing without a current pick contradicted the card beside it reading "3 projects in storage".
+  The same card also now says "1 ticket" rather than "1 tickets".
+
 - **A blocked task's rejected diff is no longer destroyed on the parallel implement path.** The
   serial path already quarantined a self-block's rejected diff to `git stash` so the shared
   worktree stayed clean for the next task; the parallel path's per-task worktree had no such
