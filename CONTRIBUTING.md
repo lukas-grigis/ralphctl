@@ -23,6 +23,8 @@ the process smooth for everyone.
 
 - [mise](https://mise.jdx.dev/) — this repo's Node and pnpm come from `mise.toml` (`node = "26"`, `pnpm = "12"`).
   Do not install them via Homebrew, Corepack, or the standalone pnpm installer; those fight mise.
+  `package.json#engines.pnpm` deliberately says `>=11`, not `>=12`: Dependabot picks its pnpm from that
+  field and runs an 11.x, and a pnpm-11-written lockfile installs unchanged under pnpm 12 `--frozen-lockfile`.
 - [Claude CLI](https://docs.anthropic.com/en/docs/claude-code) installed and configured (only needed for integration
   testing)
 
