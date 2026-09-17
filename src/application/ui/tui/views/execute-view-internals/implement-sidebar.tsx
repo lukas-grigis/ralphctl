@@ -325,8 +325,8 @@ export const ImplementSidebar = ({
   // `completed` (see `bucket-task-signals.ts`'s module docstring), so without this the minimap
   // would paint it the same green `phaseDone` glyph as a task that actually finished.
   const tasks = useMemo(
-    () => (bucketed !== undefined ? overlayEntityBlockedStatus(bucketed, taskState).tasks : []),
-    [bucketed, taskState]
+    () => (bucketed !== undefined ? overlayEntityBlockedStatus(bucketed, taskState, isRunning).tasks : []),
+    [bucketed, taskState, isRunning]
   );
 
   return (

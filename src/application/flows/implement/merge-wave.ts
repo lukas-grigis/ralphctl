@@ -8,34 +8,89 @@ import type { RepoExecConfig } from '@src/application/flows/implement/leaves/res
 import { projectSprintScopedFields } from '@src/application/flows/implement/sprint-scoped-projection.ts';
 
 /**
- * Whether a branch genuinely SETTLED its task, versus the scheduler killing it before it advanced.
+ * The one place the `task-<id>` branch-id convention is spelled out. `buildOneBranch`
+ * (`wave-branch.ts`) stamps every `WaveBranch.id` with this, and {@link ownedTask} decodes it back
+ * to find the task a branch's outcome ctx actually settled. Keeping both directions behind one
+ * function makes branch ↔ task ownership a single source of truth instead of two call sites that
+ * happen to agree on a string template.
  *
- * Per the {@link runWaves} contract, a branch the scheduler killed (fatal-sibling kill, or a wave
- * the launcher never reached) surfaces as `{ status: 'failed', error: undefined }`. That is "did
- * not complete" — NOT a real `blocked`. Only branches that actually ran their chain to a terminal
- * state carry an authoritative task copy worth overlaying:
- *
- *  - `status: 'completed'`                  → the branch's chain settled the task (done OR blocked).
- *  - `status: 'failed'` WITH an `error`     → a non-fatal branch error was absorbed; the branch's
- *                                             ctx holds the task transition (typically `blocked`).
- *  - `status: 'failed'` WITHOUT an `error`  → killed mid-flight / never started; leave base as-is so
- *                                             the launcher resets the task to `todo` and re-runs it.
+ * @public
  */
-const branchSettled = <TCtx>(outcome: BranchOutcome<TCtx>): boolean =>
-  outcome.status === 'completed' || outcome.error !== undefined;
+export const implementBranchId = (taskId: TaskId): string => `task-${String(taskId)}`;
+
+/**
+ * The task a branch's outcome ctx OWNS, keyed by decoding {@link implementBranchId} against
+ * `ctx.tasks`. A branch's ctx nominally carries the FULL task list (`forkCtx` seeds it that way so
+ * per-task leaves can look up sibling dependencies), but only the branch's own task is ever an
+ * authoritative transition — every reader that wants a branch's settled task goes through this
+ * function rather than trusting the whole list.
+ *
+ * @public
+ */
+export const ownedTask = (branchId: string, ctx: ImplementCtx): Task | undefined =>
+  ctx.tasks?.find((t) => implementBranchId(t.id) === branchId);
+
+/**
+ * Reconcile the in-memory (post-merge) task list against what is DURABLY persisted on disk, for
+ * exactly one class of divergence: a task a non-completed branch left `todo` / `in_progress` in
+ * memory, whose persisted row is `blocked`. That divergence is not a race — it is the documented
+ * shape of a branch whose chain persisted a block (`start-attempt`'s resume-budget exhaustion,
+ * `settle-attempt`'s block, the dependency gate's `blocked upstream` write) and THEN errored or
+ * aborted before its runner reached `completed`: `mergeImplementWave` skips a non-`completed`
+ * outcome entirely, so the in-memory copy reverts to the wave's pre-branch base while the leaf's
+ * own write already landed the block (and, for a quarantined diff, its stash pointer) on disk.
+ * Without this step the epilogue's `saveTasksLeaf` overwrites that persisted block with the stale
+ * in-memory copy, and the next launch re-enters the same task, re-blocks, and re-notifies forever.
+ *
+ * A fold-conflict block is not one of these. `conflictFold` (`worktree-fold.ts`) writes nothing to
+ * the task repository and lets the branch complete, so that block lives only in the completed
+ * branch's ctx and reaches disk through the {@link mergeImplementWave} overlay and `saveTasksLeaf`.
+ *
+ * Deliberately narrow, in both directions:
+ *  - only a persisted `'blocked'` row is ever adopted — a persisted `'done'` is NEVER pulled in
+ *    over an in-memory `todo`/`in_progress`, because that would let an unfolded commit skip
+ *    re-running instead of retrying (the same "only a `completed` branch's fold is durable"
+ *    contract `worktree-teardown.ts` relies on for `keepBranchRefReason`);
+ *  - an in-memory task that is already `'done'` or `'blocked'` is left untouched — it settled
+ *    inside THIS run and is authoritative over whatever an older disk row says.
+ *
+ * @public
+ */
+export const adoptPersistedBlocks = (tasks: readonly Task[], persisted: readonly Task[]): readonly Task[] => {
+  const persistedBlocked = new Map<TaskId, Task>();
+  for (const task of persisted) {
+    if (task.status === 'blocked') persistedBlocked.set(task.id, task);
+  }
+  return tasks.map((task) => {
+    if (task.status !== 'todo' && task.status !== 'in_progress') return task;
+    return persistedBlocked.get(task.id) ?? task;
+  });
+};
 
 /**
  * Fan-in reducer for one implement wave. Matches `WaveScheduleConfig<ImplementCtx>['merge']` so the
  * launcher can hand it straight to `runWaves`.
  *
- * Every wave partitions tasks DISJOINTLY (the scheduler runs one branch per task, and a wave only
- * groups tasks with no intra-wave dependency), so the task overlay is commutative: shuffling
- * `outcomes` produces an identical merged ctx. The reducer therefore needs no ordering guarantees
- * from the scheduler beyond "these outcomes all belong to the same wave."
+ * Overlays base.tasks with ONLY the tasks that a branch genuinely, durably settled — every other
+ * task (including any in a `failed` branch's ctx) carries straight through from `base` untouched:
+ *
+ *  - `status === 'completed'` → the branch's chain ran to a real terminal state (done, a
+ *    self-block, or a fold conflict). Its {@link ownedTask} is the one and only task this branch
+ *    contributes.
+ *  - `status === 'failed'` → per the {@link runWaves} / {@link BranchOutcome} contract, `ctx` here
+ *    is the runner's OWN `initialCtx` (the runner never advances `ctx` on a failed step) — it is
+ *    NOT a transition, whether or not `error` is present. Overlaying it would revert this branch's
+ *    task to its pre-wave status and — because `initialCtx` carries the FULL base task list, not
+ *    just this branch's own task — would ALSO revert every sibling the branch's ctx happens to
+ *    still be carrying, including one that another branch in the SAME wave already completed. A
+ *    `failed` branch therefore contributes NOTHING; a leaf that persisted a block before the branch
+ *    errored is picked back up by `adoptPersistedBlocksLeaf` in the epilogue, not here.
+ *
+ * This overlay-only-`completed` rule is exactly what makes the merge disjoint and commutative:
+ * shuffling `outcomes` produces an identical merged ctx, because each `completed` branch
+ * contributes exactly the one task it owns and nothing else can collide with it.
  *
  *  - sprint-scoped fields → carried verbatim from `base` via {@link projectSprintScopedFields}.
- *  - `tasks` → `base.tasks` with each settled branch's task copy overlaid by id; an unsettled
- *    (killed) branch contributes nothing, leaving its base task untouched for reset/re-run.
  *  - per-task + signal-accum fields → reset to `undefined`; they have no meaning between waves.
  *
  * @public
@@ -44,12 +99,11 @@ export const mergeImplementWave = (
   base: ImplementCtx,
   outcomes: ReadonlyArray<BranchOutcome<ImplementCtx>>
 ): ImplementCtx => {
-  // Build the task-keyed overlay ONLY from branches that genuinely settled their task. A killed
-  // branch (`failed` / no error) is skipped so its base task survives untouched and re-runs.
   const byId = new Map<TaskId, Task>();
   for (const outcome of outcomes) {
-    if (!branchSettled(outcome)) continue;
-    for (const task of outcome.ctx.tasks ?? []) byId.set(task.id, task);
+    if (outcome.status !== 'completed') continue;
+    const owned = ownedTask(outcome.id, outcome.ctx);
+    if (owned !== undefined) byId.set(owned.id, owned);
   }
 
   const tasks = base.tasks?.map((t) => byId.get(t.id) ?? t);

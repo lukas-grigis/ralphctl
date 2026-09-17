@@ -148,7 +148,11 @@ fails — a reproduction that passes proves nothing. The validated test path, ru
 session's own list of relevant existing tests then ride into every generator and evaluator turn of that
 task's gen-eval loop via the `<reproduction>` prompt section. A failed session, an invalid signal, or a
 claimed command that turns out to pass on re-run all degrade silently to today's behaviour — no
-reproduction context, task proceeds unaffected.
+reproduction context, task proceeds unaffected. The accepted artifact is also saved to
+`implement/<task-id>/reproduce/artifact.json`. On a relaunch whose earlier work is still quarantined
+(see "Blocked-diff quarantine & restore" below), the leaf never spawns a second session: it adopts the
+saved reproduction, or continues without one when nothing was saved, since the failing test it would
+otherwise write is already part of the quarantined diff.
 
 **Per-task generator-evaluator** inside `implement` uses the `loop` primitive. Each gen-eval turn runs
 `generator-leaf` then — if the generator did not already set `ctx.lastExit` — the guarded
@@ -240,33 +244,70 @@ it uniformly is cheap. The keep is a recovery WINDOW, not permanence, and the wi
 wide: `setupWorktree` force-deletes the ref (`git branch -D`) the next time THAT task starts — for a
 blocked task, the first relaunch after the operator unblocks it. Past that point the commit survives
 only as a SHA — and where depends on the reason for the keep. A blocked task's SHA is in `tasks.json`
-(an unblock archives the attempts into `retiredAttempts` rather than deleting them) and on
-`progress.md`'s `- Commit: <sha>` line. An interrupted fold's SHA is on `progress.md` ONLY: an aborted
-branch never emits `completed`, so `captureDurableFold` skips it and the epilogue's `saveAll` rewrites
-the task back to its pre-wave copy, clobbering the attempt row that held `commitSha`. Either still
-feeds a manual `git cherry-pick` until gc prunes the object. Intermediate commits from earlier green-verify attempts
-of a later-blocked task remain on the sprint branch by design — each passed its own verify; only the
-final blocked attempt's uncommitted diff moves to the stash.
+either way: whether the branch's own runner reached `completed` (a fold conflict — `captureDurableFold`
+records the settled task directly) or it errored / aborted right after a leaf had already saved the
+block to disk (a resume-budget exhaustion, or a settle-then-abort) — the epilogue's
+`adopt-persisted-blocks` step re-reads that persisted row, stash pointer included, before
+`saveTasksLeaf` writes the run's task list, so a non-`completed` branch's block is recovered rather than
+overwritten with its pre-wave copy (an unblock still archives the attempts into `retiredAttempts` rather
+than deleting them). It's also on `progress.md`'s `- Commit: <sha>` line. An interrupted fold's SHA is on
+`progress.md` ONLY: an aborted branch never emits `completed`, so `captureDurableFold` skips it and the
+epilogue's `saveTasksLeaf` rewrites the task back to its pre-wave copy, clobbering the attempt row that
+held `commitSha`. Either still feeds a manual `git cherry-pick` until gc prunes the object.
+Intermediate commits from earlier green-verify attempts of a later-blocked task remain on the sprint
+branch by design — each passed its own verify; only the final blocked attempt's uncommitted diff moves
+to the stash. The wave's fan-in itself only ever updates the ONE task a branch actually settled (never a
+branch's whole task list), so one branch failing mid-wave can no longer revert an already-`done` sibling
+the same wave already completed back to `todo`.
 
 On the task's next attempt — a relaunch, or a same-run retry within budget — `restore-blocked-
-diff.ts` looks the stash up by that SAME message key (never a raw stash index) and pops it back
-before the generator runs, so the retry builds on the prior diff plus the evaluator's critique
-instead of starting from zero. Matching by message, not position, matters because the parallel path
-can push/list/pop several worktrees' stashes concurrently against the ONE `refs/stash` ref every
-worktree shares with the main repo; `gitStashPush` / `gitStashList` / `gitStashPop`
-(`integration/io/git-operations.ts`) are funnelled through an in-process FIFO mutex so a sibling's
-concurrent push can never shift the index a pop is about to act on out from under it. A missing stash
-is a silent no-op and a failed pop never fails the attempt — restoration is a convenience, not a
-correctness requirement. The leaf only pops onto a tree that `git status --porcelain
---untracked-files=normal` reports clean: changes the operator kept at the dirty-tree prompt, the
-failing test the reproduce step writes, or non-ignored setup output are in no stash, so on a dirty
-tree (or a failed probe) the stash is left in place and its message logged. A pop that FAILS is not
-left half-applied, though: git keeps the stash entry but can still write a `<<<<<<<`-marked merge or
-part of the diff into the tree, so the leaf re-probes and, when the tree changed, resets it to HEAD
-(`reset --hard HEAD` + `clean -fd`, which also drops the untracked files a `-u` stash restores) —
-an exact undo, since the tree was clean a moment before. Without that, `pre-task-verify` reads the
-markers as a `baseline-broken` red — which sets no block — and `commit-task`'s `git add -A` can
-commit them. Either way the diff stays recoverable by hand via `git stash list`.
+diff.ts` looks the stash up by that SAME message key (never a raw stash index) and pops it back, so the
+retry builds on the prior diff plus the evaluator's critique instead of starting from zero. The pop runs
+AFTER `pre-task-verify`, and only when pre-task-verify actually let the attempt through (guarded on no
+terminal exit being set yet): the baseline must measure HEAD, not HEAD plus a diff that was already
+rejected once, and a diff popped ahead of a hard pre-verify block would sit in the tree with zero AI
+turns behind it — too early for the block to re-quarantine it (see "Pre-blocked task skip" above), so
+before this reordering that diff was lost to the parallel teardown or the next task's `git add -A`.
+Matching by message, not position, matters because the parallel path can push/list/pop several
+worktrees' stashes concurrently against the ONE `refs/stash` ref every worktree shares with the main
+repo; `gitStashPush` / `gitStashList` / `gitStashPop` (`integration/io/git-operations.ts`) are funnelled
+through an in-process FIFO mutex so a sibling's concurrent push can never shift the index a pop is about
+to act on out from under it. A missing stash is a silent no-op and a failed pop never fails the attempt —
+restoration is a convenience, not a correctness requirement. The leaf only pops onto a tree that
+`git status --porcelain --untracked-files=normal` reports clean — `gitStashPush` and every dirty-tree
+check in the flow already read through `gitStatusPorcelain`, which itself now passes that same flag, so
+this probe's own `--ignore-submodules=none` is the only override still specific to it. A tree can
+legitimately be dirty here: changes the operator kept at the dirty-tree prompt, non-ignored setup
+output, or artifacts a verify script left behind — none of that sits in any stash, so on a dirty tree (or
+a failed probe) the stash is left in place and its message logged. A pop that FAILS is not left
+half-applied, though: git keeps the stash entry but can still write a `<<<<<<<`-marked merge or part of
+the diff into the tree, so the leaf re-probes and, when the tree changed, resets it to HEAD
+(`reset --hard HEAD` + `clean -fd`, which also drops the untracked files a `-u` stash restores) — an
+exact undo, since the tree was clean a moment before. Without that, the generator would build on a
+half-merged tree and `commit-task`'s `git add -A` could commit conflict markers whenever the verify gate
+doesn't catch them. Either way the diff stays recoverable by hand via `git stash list`. On a relaunch
+that reuses a saved reproduction (see "Reproduction-first leaf" above), the leaf also re-checksums that
+reproduction's test once the pop has settled. A match keeps the artifact as-is. A mismatch is KEPT —
+with the evaluator's tamper note, so it re-runs the reproduction and reports the tampering — when the pop
+itself restored a change to that test (an earlier launch weakened it before blocking, and this launch
+continues that work); it is DROPPED only when the test genuinely isn't in the tree: missing, unreadable,
+or the committed copy because the pop was skipped, undone, or restored an entry that never touched it
+(the reproducer prefers adding its case to an existing test file, so the committed copy is common). With
+no matching stash at all, ctx is left alone — an edit to the test during this launch is the evaluator's
+to flag, not this leaf's to hide.
+
+An interrupted PARALLEL branch (Ctrl-C, an error, a throw) that popped this stash but then never
+committed and never re-blocked the task leaves the restored diff sitting only in the worktree, with no
+other copy — the pop already dropped the stash entry. Each worktree branch snapshots, before the
+worktree itself exists, HOW MANY stash entries its task's key holds (a count, not a boolean — the key can
+hold more than one: a failed pop keeps its entry, and the block that attempt then reaches quarantines a
+second diff under the same message). At teardown, when the task's last opened attempt committed nothing
+and that count has DROPPED versus the branch-start snapshot — an attempt popped an entry and never put it
+back — the teardown pushes the worktree's changes back under the same message before removing it, even
+when an older entry under the same key is still listed in the stash (an older entry still being there
+proves nothing about the one that left; the count is exact because nothing else touches this key while
+the branch runs). When that re-stash itself can't be confirmed, the worktree (and its ref) is kept on
+disk instead — the same fail-safe "leave it for inspection" the unreadable-task-state case already uses.
 
 **Legacy `implement` promotion.** Settings files written by ralphctl ≤ 0.7.0 stored `ai.implement`
 as a flat `{ provider, model, effort? }` row. Such files are silently promoted at load time into the
@@ -310,13 +351,45 @@ by a `git status --porcelain` snapshot: only when the script adds entries that w
 cancel for that repo, naming the script. The non-interactive policies behave as they do at preflight:
 `continue` logs the change and proceeds, `cancel` fails the run. Dirt the operator already kept is
 never asked about again, a setup that leaves the tree alone adds no prompt, and a repo whose setup
-changed the tree never seeds the `skipPreVerifyOnFreshSetup` baseline. Verify runs both **pre-task** (before the AI) and **post-task** (after commit) with
+changed the tree never seeds the `skipPreVerifyOnFreshSetup` baseline. A green run's `SetupRun` also
+carries the check's durable answer (`SetupRun.tree` — outcome plus the paths the operator has now seen,
+script-introduced ones listed before pre-existing dirt) once the check settles. Past 200 paths the list
+is no longer cut: it collapses into `/`-terminated directory entries that each stand for everything
+under them — deepest directories first, then whichever directory covers the most paths at each depth,
+stopping as soon as it fits — and only a list that still doesn't fit even then is truncated
+(`seenPathsTruncated`). Resume then skips a repo only when its LATEST run for that repo — ignoring
+no-script `'skipped'` rows, which record that nothing touched the tree at that launch, same as a
+resume-skip itself — is ITSELF a success of the current command and, whenever a tree check is wired
+(which the implement flow always does), carries a complete (non-truncated) answer; a failed or
+spawn-error run written after an earlier success, command drift, a row missing the answer, or a
+truncated record all force a re-run on the next launch, each logged at info naming the reason. That
+answer — this launch's own setup run, or carried forward from the persisted `SetupRun.tree` when setup
+was resume-skipped — is what a parallel run's own per-worktree check reads (see below); it is never read
+by re-inspecting the main checkout, which sibling folds keep changing mid-wave. Verify runs both
+**pre-task** (before the AI) and **post-task** (after commit) with
 an attribution algorithm (`clean` / `regressed` / `baseline-broken` / `fixed-baseline`) that avoids
 blocking the AI for pre-existing failures. `Repository.verifyTimeout` caps both verify calls as `timeoutMs`
 on the shell runner; absent → `DEFAULT_SHELL_TIMEOUT_MS` (5 min). Scripts are collected during
 `detect-scripts` and persisted on `Repository.{setupScript,verifyScript,verifyTimeout}`. Persisted
 `project.json` files written before v0.7.0 used `checkScript` / `checkTimeout`; the schema accepts those
 legacy keys on read and rewrites the canonical names on the next save (no manual migration step).
+
+**Per-worktree setup check (parallel).** Each parallel task's isolated worktree re-runs the repo's
+`setupScript` from a fresh checkout (a worktree starts with none of the main repo's build state) and is
+bracketed by the same before/after `git status` snapshot — but its verdict is matched against the main
+checkout's recorded `SetupRun.tree` answer instead of asking the operator again: a path the main checkout
+already saw (kept, stashed, or reset there, or introduced by that same script) is discarded from the
+worktree right after setup, before the task's own `git add -A` commit runs, so it can neither ride into
+that commit nor re-conflict the fold — logged at WARN, naming the discarded paths and the remedy (have
+setup write generated output to git-ignored paths, or run tasks one at a time via
+`concurrency.maxParallelTasks 1`), since a red verify in that worktree can trace back to the discard when
+the build actually needed what was dropped; a path the main checkout never showed blocks that task alone
+(`worktree-setup-failure`, `faultSide: 'environment'`) — kept with a warning instead, only under
+dirty-tree policy `continue` — naming the script and the same fix. No recorded answer for the repo blocks
+the task outright, since there is nothing to match against. The main checkout itself is never re-read for
+this — sibling folds change it mid-wave — only the recorded answer on `ctx.setupTreeRecords`, whether it
+came from this launch's own setup run or was carried forward from the persisted `SetupRun.tree` when
+setup was resume-skipped.
 
 **Structured verify gates.** `Repository.verifyGates` (`VerifyGate[]` — `{ pathPrefix, command, timeoutMs? }`)
 wins over `verifyScript` when present and non-empty. Pre-task verify runs ALL gates (full attribution

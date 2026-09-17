@@ -14,6 +14,10 @@ import type { HeadlessAiProvider, ProviderOutput } from '@src/integration/ai/pro
 import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session.ts';
 import type { ShellScriptRunner, ShellScriptResult } from '@src/integration/io/shell-script-runner.ts';
 import { writeJsonAtomic } from '@src/integration/io/fs.ts';
+import type { GitRunner } from '@src/integration/io/git-runner.ts';
+import type { WriteFile } from '@src/business/io/write-file.ts';
+import { createAtomicWriteFile } from '@src/integration/io/write-file-atomic.ts';
+import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import { createFsTemplateLoader, defaultTemplatesDir } from '@src/integration/ai/prompts/_engine/fs-template-loader.ts';
 import {
   buildEvaluatorReproductionSection,
@@ -28,12 +32,19 @@ import {
   type ReproduceLeafOpts,
   type ReproductionArtifact,
 } from '@src/application/flows/implement/leaves/reproduce.ts';
+import {
+  loadReproductionArtifact,
+  reproductionArtifactFile,
+  saveReproductionArtifact,
+} from '@src/application/flows/implement/leaves/reproduction-artifact.ts';
+import { quarantineStashMessage } from '@src/application/flows/implement/leaves/quarantine-blocked-diff.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import { absolutePath, makeTodoTask } from '@tests/fixtures/domain.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import { makeTmpRoot } from '@tests/fixtures/tmp-root.ts';
 
 const TS = '2026-05-22T10:00:00.000Z' as IsoTimestamp;
+const SPRINT_ID = 'sprint-x' as SprintId;
 
 /**
  * Integration tests for `reproduce.ts` — the guarded, once-per-task headless AI session that
@@ -79,6 +90,28 @@ const fakeShellRunner = (
   },
 });
 
+/**
+ * Git fake for the reproduce leaf's one git read — `stash list --format=%s`, answered in real git's
+ * `On <branch>: <message>` subject shape. Matched on the first two args only, so a flag change
+ * elsewhere in the argv never silently turns a scripted answer into an unscripted one.
+ */
+const fakeStashGit = (
+  opts: { readonly subjects?: readonly string[]; readonly listFails?: boolean } = {}
+): GitRunner & { readonly calls: string[][] } => {
+  const calls: string[][] = [];
+  return {
+    calls,
+    async run(_cwd, args) {
+      calls.push([...args]);
+      if (args[0] === 'stash' && args[1] === 'list') {
+        if (opts.listFails === true) return Result.error(new StorageError({ subCode: 'io', message: 'git broke' }));
+        return Result.ok({ stdout: (opts.subjects ?? []).join('\n'), stderr: '', exitCode: 0 });
+      }
+      throw new Error(`unscripted git args: ${args.join(' ')}`);
+    },
+  };
+};
+
 const passResult = (output = ''): Result<ShellScriptResult, StorageError | AbortError> =>
   Result.ok({ passed: true, exitCode: 0, output, durationMs: 0 });
 
@@ -122,7 +155,8 @@ describe('reproduceLeaf — guarded reproduction-first leaf', () => {
   const buildDeps = (
     provider: HeadlessAiProvider,
     shellScriptRunner: ShellScriptRunner,
-    published: HarnessSignal[] = []
+    published: HarnessSignal[] = [],
+    io: { readonly gitRunner?: GitRunner; readonly writeFile?: WriteFile } = {}
   ): ReproduceLeafDeps => ({
     provider,
     templateLoader: createFsTemplateLoader(defaultTemplatesDir()),
@@ -130,6 +164,8 @@ describe('reproduceLeaf — guarded reproduction-first leaf', () => {
       published.push(signal);
     },
     shellScriptRunner,
+    gitRunner: io.gitRunner ?? fakeStashGit(),
+    writeFile: io.writeFile ?? createAtomicWriteFile(),
     logger: noopLogger,
   });
 
@@ -141,6 +177,7 @@ describe('reproduceLeaf — guarded reproduction-first leaf', () => {
 
   const buildCtx = (task: ReturnType<typeof makeTodoTask>): ImplementCtx =>
     ({
+      sprintId: SPRINT_ID,
       tasks: [task],
       taskWorkspaceRoot: workspaceRoot,
     }) as unknown as ImplementCtx;
@@ -339,6 +376,222 @@ describe('reproduceLeaf — guarded reproduction-first leaf', () => {
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.error.error).toBeInstanceOf(InvalidStateError);
+  });
+
+  // ── 5. Saved reproduction, and the relaunch that reuses it ─────────────────
+
+  /** Counts spawns; a relaunch that reuses its saved reproduction must never reach one. */
+  const countingProvider = (inner: HeadlessAiProvider): HeadlessAiProvider & { readonly calls: () => number } => {
+    let calls = 0;
+    return {
+      calls: () => calls,
+      async generate(session) {
+        calls += 1;
+        return inner.generate(session);
+      },
+    };
+  };
+
+  const artifactFile = (): AbsolutePath => {
+    const file = reproductionArtifactFile(absolutePath(join(String(workspaceRoot), 'reproduce')));
+    if (!file.ok) throw file.error;
+    return file.value;
+  };
+
+  const saved: ReproductionArtifact = {
+    testPath: 'tests/unit/foo.test.ts',
+    runCommand: 'npx vitest run tests/unit/foo.test.ts',
+    observedFailure: 'AssertionError: expected 200 to equal 404 (earlier launch)',
+    relevantTests: ['tests/unit/bar.test.ts'],
+    checksum: createHash('sha256').update('earlier launch test', 'utf-8').digest('hex'),
+  };
+
+  const seedSaved = async (): Promise<void> => {
+    const wrote = await saveReproductionArtifact(createAtomicWriteFile(), artifactFile(), saved);
+    if (!wrote.ok) throw wrote.error;
+  };
+
+  const quarantined = (task: ReturnType<typeof makeTodoTask>): string =>
+    `On ralphctl/sprint: ${quarantineStashMessage(SPRINT_ID, task.id)}`;
+
+  it('saves an accepted reproduction next to the session files, so a later launch can reuse it', async () => {
+    const task = makeTodoTask({ name: 'fix the null pointer' });
+    await writeTestFile('tests/unit/foo.test.ts', 'describe/it stub content');
+    const provider = fakeProvider({ kind: 'signals', signals: [reproductionSignal()] });
+    const shellScriptRunner = fakeShellRunner(async () => failResult('AssertionError: expected 200 to equal 404'));
+
+    const result = await reproduceLeaf(buildDeps(provider, shellScriptRunner), buildOpts(), task.id).execute(
+      buildCtx(task)
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const loaded = await loadReproductionArtifact(artifactFile());
+    expect(loaded.ok && loaded.value).toStrictEqual(result.value.ctx.reproductionArtifact);
+  });
+
+  it('a failed save never costs the task its reproduction', async () => {
+    const task = makeTodoTask({ name: 'fix the null pointer' });
+    await writeTestFile('tests/unit/foo.test.ts', 'x');
+    const provider = fakeProvider({ kind: 'signals', signals: [reproductionSignal()] });
+    const shellScriptRunner = fakeShellRunner(async () => failResult('boom'));
+    const writeFile: WriteFile = async () => Result.error(new StorageError({ subCode: 'io', message: 'disk full' }));
+
+    const result = await reproduceLeaf(
+      buildDeps(provider, shellScriptRunner, [], { writeFile }),
+      buildOpts(),
+      task.id
+    ).execute(buildCtx(task));
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.ctx.reproductionArtifact?.testPath).toBe('tests/unit/foo.test.ts');
+  });
+
+  it("reuses the saved reproduction when the task's quarantined work is waiting in the stash — no spawn, no re-run, no write to the repo", async () => {
+    const task = makeTodoTask({ name: 'fix the null pointer' });
+    await seedSaved();
+    const provider = countingProvider(fakeProvider({ kind: 'signals', signals: [reproductionSignal()] }));
+    const shellCalls: Array<{ readonly cwd: string; readonly script: string }> = [];
+    const shellScriptRunner = fakeShellRunner(async () => failResult('boom'), shellCalls);
+    const gitRunner = fakeStashGit({ subjects: ['On main: ralphctl/other/task/blocked-diff', quarantined(task)] });
+
+    const result = await reproduceLeaf(
+      buildDeps(provider, shellScriptRunner, [], { gitRunner }),
+      buildOpts(),
+      task.id
+    ).execute(buildCtx(task));
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.ctx.reproductionArtifact).toStrictEqual(saved);
+    expect(provider.calls()).toBe(0);
+    expect(shellCalls).toStrictEqual([]);
+    // The failing test lives in the stash with the rest of the earlier work — writing a new one
+    // here would dirty the tree and keep the restore from popping that work back.
+    expect(await fs.readdir(String(cwd))).toStrictEqual([]);
+    expect(gitRunner.calls).toStrictEqual([['stash', 'list', '--format=%s']]);
+  });
+
+  it('continues without a reproduction when the quarantined work has no saved one — still no spawn', async () => {
+    const task = makeTodoTask({ name: 'fix the null pointer' });
+    const provider = countingProvider(fakeProvider({ kind: 'signals', signals: [reproductionSignal()] }));
+    const gitRunner = fakeStashGit({ subjects: [quarantined(task)] });
+
+    const result = await reproduceLeaf(
+      buildDeps(
+        provider,
+        fakeShellRunner(async () => failResult('boom')),
+        [],
+        { gitRunner }
+      ),
+      buildOpts(),
+      task.id
+    ).execute(buildCtx(task));
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.ctx.reproductionArtifact).toBeUndefined();
+    expect(provider.calls()).toBe(0);
+    expect(await fs.readdir(String(cwd))).toStrictEqual([]);
+  });
+
+  it('continues without a reproduction when the saved one is unreadable — still no spawn', async () => {
+    const task = makeTodoTask({ name: 'fix the null pointer' });
+    await fs.mkdir(join(String(workspaceRoot), 'reproduce'), { recursive: true });
+    await fs.writeFile(String(artifactFile()), '{ "schemaVersion": 1, "testPath": ', 'utf8');
+    const provider = countingProvider(fakeProvider({ kind: 'signals', signals: [reproductionSignal()] }));
+    const gitRunner = fakeStashGit({ subjects: [quarantined(task)] });
+
+    const result = await reproduceLeaf(
+      buildDeps(
+        provider,
+        fakeShellRunner(async () => failResult('boom')),
+        [],
+        { gitRunner }
+      ),
+      buildOpts(),
+      task.id
+    ).execute(buildCtx(task));
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.ctx.reproductionArtifact).toBeUndefined();
+    expect(provider.calls()).toBe(0);
+  });
+
+  it('spawns as usual when the stash cannot be listed', async () => {
+    const task = makeTodoTask({ name: 'fix the null pointer' });
+    await seedSaved();
+    await writeTestFile('tests/unit/foo.test.ts', 'fresh test');
+    const provider = countingProvider(fakeProvider({ kind: 'signals', signals: [reproductionSignal()] }));
+    const gitRunner = fakeStashGit({ listFails: true });
+
+    const result = await reproduceLeaf(
+      buildDeps(
+        provider,
+        fakeShellRunner(async () => failResult('fresh failure')),
+        [],
+        { gitRunner }
+      ),
+      buildOpts(),
+      task.id
+    ).execute(buildCtx(task));
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(provider.calls()).toBe(1);
+    expect(result.value.ctx.reproductionArtifact?.observedFailure).toBe('fresh failure');
+  });
+
+  it("ignores a saved reproduction when none of the task's work is quarantined — a fresh launch always spawns", async () => {
+    const task = makeTodoTask({ name: 'fix the null pointer' });
+    await seedSaved();
+    await writeTestFile('tests/unit/foo.test.ts', 'fresh test');
+    const provider = countingProvider(fakeProvider({ kind: 'signals', signals: [reproductionSignal()] }));
+    const gitRunner = fakeStashGit({ subjects: ['On main: ralphctl/sprint-x/some-other-task/blocked-diff'] });
+
+    const result = await reproduceLeaf(
+      buildDeps(
+        provider,
+        fakeShellRunner(async () => failResult('fresh failure')),
+        [],
+        { gitRunner }
+      ),
+      buildOpts(),
+      task.id
+    ).execute(buildCtx(task));
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(provider.calls()).toBe(1);
+    expect(result.value.ctx.reproductionArtifact?.checksum).toBe(
+      createHash('sha256').update('fresh test', 'utf-8').digest('hex')
+    );
+    const loaded = await loadReproductionArtifact(artifactFile());
+    expect(loaded.ok && loaded.value?.observedFailure).toBe('fresh failure');
+  });
+
+  it('drops an older saved reproduction when a fresh spawn yields none, so a later relaunch never reuses it', async () => {
+    const task = makeTodoTask({ name: 'fix the null pointer' });
+    await seedSaved();
+    await writeTestFile('tests/unit/foo.test.ts', 'x');
+    const provider = fakeProvider({ kind: 'signals', signals: [reproductionSignal()] });
+
+    const result = await reproduceLeaf(
+      buildDeps(
+        provider,
+        fakeShellRunner(async () => passResult('all green'))
+      ),
+      buildOpts(),
+      task.id
+    ).execute(buildCtx(task));
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.ctx.reproductionArtifact).toBeUndefined();
+    const loaded = await loadReproductionArtifact(artifactFile());
+    expect(loaded.ok && loaded.value).toBeUndefined();
   });
 });
 

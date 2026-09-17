@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import { projectSprintScopedFields } from '@src/application/flows/implement/sprint-scoped-projection.ts';
 
-import { absolutePath, makeExecution, makePlannedSprint } from '@tests/fixtures/domain.ts';
+import { absolutePath, FIXED_REPOSITORY_ID, makeExecution, makePlannedSprint } from '@tests/fixtures/domain.ts';
 
 const sprint = makePlannedSprint();
 
@@ -15,6 +15,9 @@ describe('projectSprintScopedFields', () => {
       execution: makeExecution(sprint.id),
       progressFile: absolutePath('/sprints/s1/progress.md'),
       setupVerifiedRepoIdsThisRun: [],
+      setupTreeRecords: new Map([
+        [FIXED_REPOSITORY_ID, { outcome: 'kept', seenPaths: ['pnpm-lock.yaml'], seenPathsTruncated: false }],
+      ]),
       priorLearnings: [],
     };
 
@@ -26,8 +29,10 @@ describe('projectSprintScopedFields', () => {
       execution: ctx.execution,
       progressFile: ctx.progressFile,
       setupVerifiedRepoIdsThisRun: ctx.setupVerifiedRepoIdsThisRun,
+      setupTreeRecords: ctx.setupTreeRecords,
       priorLearnings: ctx.priorLearnings,
     });
+    expect(projected.setupTreeRecords).toBe(ctx.setupTreeRecords);
   });
 
   it('projects an unset optional field as an explicitly-present undefined key (Required<>, not omission)', () => {

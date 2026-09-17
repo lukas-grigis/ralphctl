@@ -232,6 +232,11 @@ export const quarantineBlockedDiffLeaf = (
  * attempt ran zero turns" — any earlier attempt's AI work was either committed or blocked that
  * same attempt with `genEvalTurn ≥ 1`.
  *
+ * A zero-turn block never holds restored AI work either: `restore-blocked-diff` pops a quarantined
+ * diff only past pre-task-verify, when a generator turn is guaranteed to follow (see
+ * `restoreBeforeFirstTurn`), so a block that ran zero turns — pre-task-verify's, or any earlier
+ * one — always leaves that diff untouched in its stash.
+ *
  * `AbortError` is irrelevant here (a pure predicate cannot abort); the leaf body handles propagation.
  *
  * @public

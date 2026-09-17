@@ -27,7 +27,13 @@ import {
   type BuildWaveBranchesDeps,
 } from '@src/application/flows/implement/wave-branch.ts';
 
+import type { SetupTreeRecord } from '@src/domain/entity/sprint-execution.ts';
+import type { DirtyTreePolicy } from '@src/business/task/preflight-task.ts';
+import { createEventBusLogger } from '@src/business/observability/event-bus-logger.ts';
+
 import { absolutePath, FIXED_LATER, makeDoneTask, makePlannedSprint, makeTodoTask } from '@tests/fixtures/domain.ts';
+import { createCapturingBus } from '@tests/fixtures/capturing-event-bus.ts';
+import { scriptedWorktreeTree, type ScriptedWorktreeTreeOpts } from '@tests/fixtures/implement-parallel.ts';
 
 // ── createFoldQueue ─────────────────────────────────────────────────────────────────────────
 
@@ -228,7 +234,8 @@ describe('buildWorktreeBranch — happy path', () => {
       settlingSubchain(task.id, { ...makeDoneTask(), id: task.id })
     );
     await runBranch(branch, baseCtx([task]));
-    expect(calls.some((c) => c[0] === 'stash')).toBe(false);
+    // The branch-start snapshot LISTS the stash; nothing may ever change it from the main repo.
+    expect(calls.some((c) => c[0] === 'stash' && c[1] !== 'list')).toBe(false);
   });
 });
 
@@ -381,7 +388,7 @@ describe('buildWorktreeBranch — abort runs cleanup', () => {
     // Cleanup MUST have run despite the abort; no fold (task never settled done); no stash.
     expect(calls.some((c) => c[0] === 'worktree' && c[1] === 'remove')).toBe(true);
     expect(calls.some((c) => c[0] === 'merge')).toBe(false);
-    expect(calls.some((c) => c[0] === 'stash')).toBe(false);
+    expect(calls.some((c) => c[0] === 'stash' && c[1] === 'push')).toBe(false);
   });
 });
 
@@ -503,6 +510,226 @@ describe('buildWorktreeBranch — per-worktree setup script', () => {
 
     expect(status).toBe('completed');
     expect(shell.calls).toHaveLength(0); // no setupScript → setup step is a no-op
+  });
+});
+
+// ── per-worktree setup script: working-tree check ─────────────────────────────────────────────
+
+describe('buildWorktreeBranch — per-worktree setup working-tree check', () => {
+  const SETUP_WRITES = [' M pnpm-lock.yaml', '?? gen/'] as const;
+  const SEEN_BOTH = ['pnpm-lock.yaml', 'gen/'] as const;
+
+  interface Harness {
+    readonly task: Task;
+    readonly tree: ReturnType<typeof scriptedWorktreeTree>;
+    readonly mainCalls: string[][];
+    readonly shellCalls: string[];
+    readonly events: AppEvent[];
+    readonly logs: ReturnType<typeof createCapturingBus>['logs'];
+    /** The worktree records the subchain saw when it ran — `undefined` when it never ran. */
+    readonly seenBySubchain: () => readonly string[] | undefined;
+    readonly run: (
+      records?: ReadonlyMap<Task['repositoryId'], SetupTreeRecord>,
+      policy?: DirtyTreePolicy
+    ) => Promise<{ status: string; ctx: ImplementCtx }>;
+  }
+
+  /**
+   * A branch over a modelled worktree tree: the fake setup script writes `writes` into it, and the
+   * subchain snapshots it before settling the task `done`. `records` / `policy` are the main
+   * checkout's recorded answer and the run's dirty-tree policy.
+   */
+  const harness = (
+    opts: { writes?: readonly string[]; tree?: Omit<ScriptedWorktreeTreeOpts, 'cwd' | 'inner'> } = {}
+  ): Harness => {
+    const task = makeTodoTask();
+    const wt = worktreePathFor(absolutePath('/data/sprints/s1'), task.id);
+    const main = fakeGit();
+    const tree = scriptedWorktreeTree({ cwd: String(wt), inner: main.runner, ...opts.tree });
+    const shellCalls: string[] = [];
+    const shell: ShellScriptRunner = {
+      async run(cwd) {
+        shellCalls.push(String(cwd));
+        if (String(cwd) === String(wt)) for (const w of opts.writes ?? []) tree.lines.add(w);
+        return okShell(true);
+      },
+    };
+    const events: AppEvent[] = [];
+    const capture = createCapturingBus();
+    const logger = createEventBusLogger({ eventBus: capture.bus, clock: () => FIXED_LATER });
+    const deps: BuildWaveBranchesDeps = {
+      implement: {
+        gitRunner: tree.runner,
+        logger,
+        clock: () => FIXED_LATER,
+        shellScriptRunner: shell,
+      } as unknown as ImplementDeps,
+      eventBus: stubBus(events),
+      foldQueue: createFoldQueue(),
+    };
+    let seen: readonly string[] | undefined;
+    const done: Task = { ...makeDoneTask(), id: task.id };
+    const subchain = (worktreeRepo: RepoExecConfig): Element<ImplementCtx> => ({
+      name: 'observing-subchain',
+      async execute(ctx): Promise<ElementResult<ImplementCtx>> {
+        seen = [...tree.lines];
+        return settlingSubchain(task.id, done)(worktreeRepo).execute(ctx);
+      },
+    });
+    return {
+      task,
+      tree,
+      mainCalls: main.calls,
+      shellCalls,
+      events,
+      logs: capture.logs,
+      seenBySubchain: () => seen,
+      run: (records, policy) => {
+        const branch =
+          policy === undefined
+            ? buildWorktreeBranch(deps, repoWithSetup, task, wt, 'ref', PROGRESS, subchain)
+            : buildWorktreeBranch(deps, repoWithSetup, task, wt, 'ref', PROGRESS, subchain, policy);
+        const ctx: ImplementCtx = {
+          ...baseCtx([task]),
+          ...(records !== undefined ? { setupTreeRecords: records } : {}),
+        };
+        return runBranch(branch, ctx);
+      },
+    };
+  };
+
+  const recordFor = (task: Task, record: SetupTreeRecord): ReadonlyMap<Task['repositoryId'], SetupTreeRecord> =>
+    new Map([[task.repositoryId, record]]);
+  const seenRecord = (
+    outcome: SetupTreeRecord['outcome'],
+    seenPaths: readonly string[] = SEEN_BOTH
+  ): SetupTreeRecord => ({
+    outcome,
+    seenPaths,
+    seenPathsTruncated: false,
+  });
+  const statusOf = (ctx: ImplementCtx, task: Task) => ctx.tasks?.find((t) => t.id === task.id);
+
+  it.each(['stashed', 'reset', 'kept', 'unchanged'] as const)(
+    "discards what setup wrote in the worktree when main's check already showed those paths (main: '%s')",
+    async (outcome) => {
+      const h = harness({ writes: SETUP_WRITES });
+
+      const { status, ctx } = await h.run(recordFor(h.task, seenRecord(outcome)));
+
+      expect(status).toBe('completed');
+      expect(statusOf(ctx, h.task)?.status).toBe('done');
+      // The subchain — and so the task commit — never saw the setup output.
+      expect(h.seenBySubchain()).toStrictEqual([]);
+      // The discard ran IN the worktree (the tree fake only models that cwd) …
+      expect(h.tree.calls.some((c) => c[0] === 'restore')).toBe(true);
+      expect(h.tree.calls.some((c) => c[0] === 'clean')).toBe(true);
+      // … and never against the main checkout, which keeps whatever the operator chose.
+      expect(h.mainCalls.some((c) => c[0] === 'restore' || c[0] === 'clean' || c[0] === 'reset')).toBe(false);
+      expect(h.mainCalls.some((c) => c[0] === 'stash' && c[1] !== 'list')).toBe(false);
+      expect(taskBlockedEvents(h.events)).toHaveLength(0);
+    }
+  );
+
+  it("blocks the task when setup wrote a path main's check never showed (policy 'prompt')", async () => {
+    const h = harness({ writes: SETUP_WRITES });
+
+    const { status, ctx } = await h.run(recordFor(h.task, seenRecord('unchanged', [])));
+
+    expect(status).toBe('completed');
+    const settled = statusOf(ctx, h.task);
+    expect(settled?.status).toBe('blocked');
+    if (settled?.status === 'blocked') {
+      expect(settled.blockedReason).toMatch(/^worktree setup script `pnpm install`/);
+      expect(settled.blockedReason).toContain('pnpm-lock.yaml');
+      expect(settled.blockCause).toBe('worktree-setup-failure');
+      expect(settled.faultSide).toBe('environment');
+    }
+    expect(h.seenBySubchain()).toBeUndefined();
+    expect(taskBlockedEvents(h.events)).toHaveLength(1);
+    expect(h.mainCalls.some((c) => c[0] === 'merge')).toBe(false);
+    expect(h.mainCalls.some((c) => c[0] === 'worktree' && c[1] === 'remove')).toBe(true);
+    expect(h.logs.some((l) => l.level === 'warn' && /worktree setup blocked the task/.test(l.message))).toBe(true);
+  });
+
+  it('blocks the task when main recorded no answer for the repo', async () => {
+    const h = harness({ writes: SETUP_WRITES });
+
+    const { ctx } = await h.run();
+
+    expect(statusOf(ctx, h.task)?.status).toBe('blocked');
+    expect(h.seenBySubchain()).toBeUndefined();
+  });
+
+  it("keeps a path main never showed under policy 'continue', with a warning", async () => {
+    const h = harness({ writes: SETUP_WRITES });
+
+    const { ctx } = await h.run(recordFor(h.task, seenRecord('unchanged', [])), 'continue');
+
+    expect(statusOf(ctx, h.task)?.status).toBe('done');
+    expect(h.seenBySubchain()).toStrictEqual([...SETUP_WRITES]);
+    expect(h.tree.calls.some((c) => c[0] === 'restore' || c[0] === 'clean')).toBe(false);
+    expect(h.logs.some((l) => l.level === 'warn' && /policy=continue/.test(l.message))).toBe(true);
+  });
+
+  it("still blocks under policy 'continue' when main recorded no answer", async () => {
+    const h = harness({ writes: SETUP_WRITES });
+
+    const { ctx } = await h.run(undefined, 'continue');
+
+    expect(statusOf(ctx, h.task)?.status).toBe('blocked');
+  });
+
+  it('blocks without spawning setup when the worktree status cannot be read first', async () => {
+    const h = harness({ writes: SETUP_WRITES, tree: { statusFailsOn: [1] } });
+
+    const { ctx } = await h.run(recordFor(h.task, seenRecord('stashed')));
+
+    const settled = statusOf(ctx, h.task);
+    expect(settled?.status).toBe('blocked');
+    if (settled?.status === 'blocked') {
+      expect(settled.blockedReason).toMatch(
+        /^worktree setup script not run — could not read the worktree's git status/
+      );
+    }
+    expect(h.shellCalls).toHaveLength(0);
+  });
+
+  it('blocks when the worktree status cannot be read after setup — never read as clean', async () => {
+    const h = harness({ writes: [], tree: { statusFailsOn: [2] } });
+
+    const { ctx } = await h.run(recordFor(h.task, seenRecord('stashed')));
+
+    expect(statusOf(ctx, h.task)?.status).toBe('blocked');
+    expect(h.seenBySubchain()).toBeUndefined();
+  });
+
+  it('blocks when the discard fails', async () => {
+    const h = harness({ writes: SETUP_WRITES, tree: { restoreFails: true } });
+
+    const { ctx } = await h.run(recordFor(h.task, seenRecord('stashed')));
+
+    expect(statusOf(ctx, h.task)?.status).toBe('blocked');
+    expect(h.seenBySubchain()).toBeUndefined();
+  });
+
+  it('blocks when a discarded entry is still there afterwards', async () => {
+    const h = harness({ writes: SETUP_WRITES, tree: { discardIsNoop: true } });
+
+    const { ctx } = await h.run(recordFor(h.task, seenRecord('stashed')));
+
+    expect(statusOf(ctx, h.task)?.status).toBe('blocked');
+  });
+
+  it('reads the worktree twice and changes nothing when setup leaves it alone — even with no answer on record', async () => {
+    const h = harness({ writes: [] });
+
+    const { ctx } = await h.run();
+
+    expect(statusOf(ctx, h.task)?.status).toBe('done');
+    expect(h.tree.calls.map((c) => c[0])).toStrictEqual(['status', 'status']);
+    expect(h.tree.calls.every((c) => c.includes('-z'))).toBe(true);
+    expect(h.shellCalls).toHaveLength(1);
   });
 });
 

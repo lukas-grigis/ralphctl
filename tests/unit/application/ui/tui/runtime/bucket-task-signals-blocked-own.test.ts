@@ -64,7 +64,7 @@ describe('overlayEntityBlockedStatus', () => {
     );
     if (!blockedResult.ok) throw new Error('fixture setup failed');
 
-    const corrected = overlayEntityBlockedStatus(bucketed, [blockedResult.value]);
+    const corrected = overlayEntityBlockedStatus(bucketed, [blockedResult.value], false);
 
     expect(corrected.tasks[0]?.status).toBe('blocked');
     // Nothing else on the bucket is touched — this is a status-only correction.
@@ -74,7 +74,7 @@ describe('overlayEntityBlockedStatus', () => {
   it('leaves a genuinely completed task alone when the polled entity confirms it done', () => {
     const bucketed = bucketTaskSignals(cleanRunTrace(SIBLING), [], []);
 
-    const corrected = overlayEntityBlockedStatus(bucketed, [doneEntity(SIBLING)]);
+    const corrected = overlayEntityBlockedStatus(bucketed, [doneEntity(SIBLING)], false);
 
     expect(corrected.tasks[0]?.status).toBe('completed');
     // No task needed correcting — same reference back out (memoization contract).
@@ -84,7 +84,7 @@ describe('overlayEntityBlockedStatus', () => {
   it('reads a task the operator unblocked after the run as pending, not completed', () => {
     const bucketed = bucketTaskSignals(cleanRunTrace(SELF_BLOCKED), [], []);
 
-    const corrected = overlayEntityBlockedStatus(bucketed, [revivedEntity(SELF_BLOCKED)]);
+    const corrected = overlayEntityBlockedStatus(bucketed, [revivedEntity(SELF_BLOCKED)], false);
 
     expect(corrected.tasks[0]?.status).toBe('pending');
     // The finished run's duration would read as time spent pending — dropped, like any pending bucket.
@@ -97,7 +97,7 @@ describe('overlayEntityBlockedStatus', () => {
     const bucketed = bucketTaskSignals(cleanRunTrace(SIBLING), [], []);
     const lagging = { ...makeInProgressTaskWithRunningAttempt(), id: SIBLING as TaskId };
 
-    const corrected = overlayEntityBlockedStatus(bucketed, [lagging]);
+    const corrected = overlayEntityBlockedStatus(bucketed, [lagging], false);
 
     expect(corrected.tasks[0]?.status).toBe('completed');
     expect(corrected).toBe(bucketed);
@@ -109,7 +109,7 @@ describe('overlayEntityBlockedStatus', () => {
     const bucketed = bucketTaskSignals(cleanRunTrace(SIBLING), [], []);
     const preRun = { ...makeTodoTask({ name: 'Fast task' }), id: SIBLING as TaskId };
 
-    const corrected = overlayEntityBlockedStatus(bucketed, [preRun]);
+    const corrected = overlayEntityBlockedStatus(bucketed, [preRun], false);
 
     expect(corrected.tasks[0]?.status).toBe('completed');
     expect(corrected).toBe(bucketed);
@@ -119,7 +119,7 @@ describe('overlayEntityBlockedStatus', () => {
     const abortedTrace: Trace = [{ elementName: `generator-${SELF_BLOCKED}`, status: 'aborted', durationMs: 5 }];
     const bucketed = bucketTaskSignals(abortedTrace, [], []);
 
-    const corrected = overlayEntityBlockedStatus(bucketed, [revivedEntity(SELF_BLOCKED)]);
+    const corrected = overlayEntityBlockedStatus(bucketed, [revivedEntity(SELF_BLOCKED)], false);
 
     expect(corrected.tasks[0]?.status).toBe('aborted');
     expect(corrected).toBe(bucketed);
@@ -132,7 +132,7 @@ describe('overlayEntityBlockedStatus', () => {
     const blockedResult = markTaskBlocked({ ...todo, id: SELF_BLOCKED as TaskId }, 'crashed', 'own');
     if (!blockedResult.ok) throw new Error('fixture setup failed');
 
-    const corrected = overlayEntityBlockedStatus(bucketed, [blockedResult.value]);
+    const corrected = overlayEntityBlockedStatus(bucketed, [blockedResult.value], false);
 
     expect(corrected.tasks[0]?.status).toBe('failed');
   });
@@ -147,7 +147,7 @@ describe('overlayEntityBlockedStatus', () => {
     const blockedResult = markTaskBlocked({ ...todo, id: SELF_BLOCKED as TaskId }, 'blocked upstream', 'upstream');
     if (!blockedResult.ok) throw new Error('fixture setup failed');
 
-    const corrected = overlayEntityBlockedStatus(bucketed, [blockedResult.value]);
+    const corrected = overlayEntityBlockedStatus(bucketed, [blockedResult.value], false);
 
     expect(corrected.tasks[0]?.status).toBe('blocked');
     expect(corrected).toBe(bucketed);
@@ -155,8 +155,8 @@ describe('overlayEntityBlockedStatus', () => {
 
   it('returns the same reference when taskState is undefined or empty', () => {
     const bucketed = bucketTaskSignals(cleanRunTrace(SELF_BLOCKED), [], []);
-    expect(overlayEntityBlockedStatus(bucketed, undefined)).toBe(bucketed);
-    expect(overlayEntityBlockedStatus(bucketed, [])).toBe(bucketed);
+    expect(overlayEntityBlockedStatus(bucketed, undefined, false)).toBe(bucketed);
+    expect(overlayEntityBlockedStatus(bucketed, [], false)).toBe(bucketed);
   });
 
   it('corrects only the sibling that is actually blocked, in a run with several tasks', () => {
@@ -166,7 +166,7 @@ describe('overlayEntityBlockedStatus', () => {
     const blockedResult = markTaskBlocked({ ...todo, id: SELF_BLOCKED as TaskId }, 'budget exhausted', 'own');
     if (!blockedResult.ok) throw new Error('fixture setup failed');
 
-    const corrected = overlayEntityBlockedStatus(bucketed, [blockedResult.value, doneEntity(SIBLING)]);
+    const corrected = overlayEntityBlockedStatus(bucketed, [blockedResult.value, doneEntity(SIBLING)], false);
 
     const byId = new Map(corrected.tasks.map((t) => [t.id, t.status]));
     expect(byId.get(SELF_BLOCKED)).toBe('blocked');

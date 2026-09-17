@@ -29,7 +29,10 @@ import {
   quarantineRetryDiffLeaf,
 } from '@src/application/flows/implement/leaves/quarantine-retry-diff.ts';
 import { progressJournalLeaf } from '@src/application/flows/implement/leaves/progress-journal.ts';
-import { restoreBlockedDiffLeaf } from '@src/application/flows/implement/leaves/restore-blocked-diff.ts';
+import {
+  restoreBeforeFirstTurn,
+  restoreBlockedDiffLeaf,
+} from '@src/application/flows/implement/leaves/restore-blocked-diff.ts';
 import type { RepoExecConfig } from '@src/application/flows/implement/leaves/resolve-repo.ts';
 import { settleAttemptLeaf } from '@src/application/flows/implement/leaves/settle-attempt.ts';
 import { startAttemptLeaf } from '@src/application/flows/implement/leaves/start-attempt.ts';
@@ -192,8 +195,8 @@ const buildGenEvalSegment = (
 };
 
 /**
- * The productive half of one attempt: open the attempt, restore any quarantined diff so a retry
- * continues from the prior AI work, capture the pre-verify baseline, run the gen-eval loop, and
+ * The productive half of one attempt: open the attempt, capture the pre-verify baseline, restore
+ * any quarantined diff so a retry continues from the prior AI work, run the gen-eval loop, and
  * finalize its exit into an escalation / retry decision.
  */
 const attemptWorkLeaves = (
@@ -207,17 +210,12 @@ const attemptWorkLeaves = (
     { taskRepo: deps.taskRepo, clock: deps.clock, logger: deps.logger, eventBus: deps.eventBus },
     taskId
   ),
-  // Restore a prior blocked diff (if any) at the START of each attempt so an escalation /
-  // retry continues from the prior AI work plus the evaluator critique instead of from a
-  // clean tree. A no-op when no matching stash exists (the common case); the quarantine
-  // stash is keyed on (sprintId, taskId) and shared across git worktrees, so this is safe
-  // on BOTH the serial and parallel paths — no conditional spread.
-  restoreBlockedDiffLeaf({ gitRunner: deps.gitRunner, logger: deps.logger }, { cwd: repo.path }, taskId),
   // PRE-task verify — captures the baseline state of the working tree BEFORE the AI runs
   // so the post-task-verify can attribute correctly: a red post on a green pre means the
   // AI regressed; a red post on a red pre is a pre-existing failure (don't blame the AI).
-  // Non-blocking by policy — a red baseline just stamps `baselineBroken: true` on the
-  // attempt and lets the AI try anyway.
+  // A red baseline either blocks the task (non-interactive / operator 'skip') or, under the
+  // operator's 'proceed' amnesty, stamps `baselineBroken: true` on the attempt and lets the
+  // AI try anyway.
   preTaskVerifyLeaf(
     {
       shellScriptRunner: deps.shellScriptRunner,
@@ -241,6 +239,18 @@ const attemptWorkLeaves = (
       ...(repo.verifyTimeout !== undefined ? { timeoutMs: repo.verifyTimeout } : {}),
     },
     taskId
+  ),
+  // Restore a prior blocked diff (if any) so an escalation / retry continues from the prior AI
+  // work plus the evaluator critique instead of from a clean tree. AFTER pre-task-verify, so the
+  // baseline measures HEAD rather than previously rejected work, and guarded so the stash is only
+  // popped when a generator turn is guaranteed to follow: a pre-verify block leaves the diff where
+  // it is (see `restoreBeforeFirstTurn`). A no-op when no matching stash exists (the common case);
+  // the quarantine stash is keyed on (sprintId, taskId) and shared across git worktrees, so this is
+  // safe on BOTH the serial and parallel paths — no conditional spread.
+  guard<ImplementCtx>(
+    `restore-blocked-diff-guard-${String(taskId)}`,
+    restoreBeforeFirstTurn,
+    restoreBlockedDiffLeaf({ gitRunner: deps.gitRunner, logger: deps.logger }, { cwd: repo.path }, taskId)
   ),
   // Composite: per-turn generator + evaluator, repeated until a terminal exit is set on ctx
   // or the configured `maxTurns` budget is hit. The evaluator is guarded — if the generator
@@ -399,13 +409,16 @@ const attemptSettleLeaves = (
  * One attempt of a task, as the `sequential('task-attempt-body-<id>', [...])` the surrounding
  * attempt loop re-enters until the task settles terminal or the attempt cap fires:
  *
- *   start-attempt → restore-blocked-diff → pre-task-verify → gen-eval loop → finalize →
+ *   start-attempt → pre-task-verify → restore-blocked-diff (guarded) → gen-eval loop → finalize →
  *   post-task-verify → commit (guarded) → quarantine-retry-diff (guarded) → settle-attempt →
  *   append-learnings → progress-journal
  *
- * Two orderings inside are load-bearing and called out where they sit: the verify gate runs
- * BEFORE commit so a red verify script can never land broken code, and the retry quarantine runs
- * BEFORE settle-attempt because settle's output projection clears both flags its guard reads.
+ * Three orderings inside are load-bearing and called out where they sit: the restore runs AFTER
+ * pre-task-verify and only when a generator turn follows, so the baseline never includes
+ * previously rejected work and a pre-verify block never pops a diff nothing would quarantine
+ * again; the verify gate runs BEFORE commit so a red verify script can never land broken code; and
+ * the retry quarantine runs BEFORE settle-attempt because settle's output projection clears both
+ * flags its guard reads.
  */
 export const buildAttemptBody = (
   deps: ImplementDeps,

@@ -27,14 +27,23 @@
  *  - any substep recorded, but not yet `uninstall-skills` → `running`
  *  - no substeps recorded → `pending`
  *
- * KNOWN BLIND SPOT — a task blocked on its OWN merits (budget exhausted, a red post-task-verify,
- * a generator self-block) runs its ENTIRE subchain to the terminal `uninstall-skills` leaf with no
- * failed/aborted/skipped substep anywhere: `settleAttemptUseCase` records the block on the task
- * ENTITY and returns `Result.ok` so the chain can continue to the next task. The trace alone
- * cannot distinguish that from a genuine `done` — both look identical here. `bucketTaskSignals`
- * stays trace-only and pure (it has no entity access), so this blind spot is corrected by callers
- * via {@link overlayEntityBlockedStatus}, applied wherever a `BucketedExecution` is about to drive
- * a status-sensitive surface (a card glyph, a done/total count, the sidebar minimap).
+ * KNOWN BLIND SPOTS — two shapes the trace alone cannot resolve, both corrected by callers via
+ * {@link overlayEntityBlockedStatus}, applied wherever a `BucketedExecution` is about to drive a
+ * status-sensitive surface (a card glyph, a done/total count, the sidebar minimap):
+ *
+ *  - a task blocked on its OWN merits (budget exhausted, a red post-task-verify, a generator
+ *    self-block) runs its ENTIRE subchain to the terminal `uninstall-skills` leaf with no
+ *    failed/aborted/skipped substep anywhere: `settleAttemptUseCase` records the block on the task
+ *    ENTITY and returns `Result.ok` so the chain can continue to the next task. The trace alone
+ *    cannot distinguish that from a genuine `done` — both look identical here.
+ *  - a CASCADE dependent — blocked only because its prerequisite never finished — traces to
+ *    `blocked` correctly (the dependency-gate case below), but once the operator unblocks its
+ *    root task, `unblockTaskUseCase`'s cascade clears the dependent too, back to `todo`. That
+ *    entity transition alone is indistinguishable from the gate's own in-flight, not-yet-polled
+ *    block, so the trace's frozen `blocked` verdict must keep winning while the run is live and
+ *    only defer to the entity once it has settled.
+ *
+ * `bucketTaskSignals` stays trace-only and pure (it has no entity access) for both.
  *
  * The function is pure and total — empty inputs yield `{ tasks: [], orphanSignals: [] }`.
  * The execute view re-runs it on every render; that's fine because the cost is linear and the
@@ -408,17 +417,38 @@ const isRevivedAfterRun = (task: Task): boolean =>
   task.status === 'todo' && task.attempts.length === 0 && (task.retiredAttempts?.length ?? 0) > 0;
 
 /**
+ * The shape `unblockTask` leaves on a CASCADE dependent — a task blocked only because its
+ * prerequisite never finished, not on its own merits. `unblockTaskUseCase`'s cascade calls
+ * `unblockTask` on every upstream-blocked dependent it finds, but a pure dependent never ran an
+ * attempt of its own, so `hasArchivableState` (`task-lifecycle.ts`) never archives a
+ * `RetiredRun` for it — it lands on `todo` with an empty `attempts` AND an empty/unchanged
+ * `retiredAttempts`. That is the SAME shape {@link isRevivedAfterRun} requires, minus the
+ * archived-run half — checking for it is safe ONLY once the producing run has settled: while
+ * still running, a `todo`+empty-attempts snapshot is indistinguishable from the dependency
+ * gate's own in-flight block not yet having reached the next poll (see {@link reconcileBucket}).
+ */
+const isCascadeClearedTodo = (task: Task): boolean => task.status === 'todo' && task.attempts.length === 0;
+
+/**
  * Reconcile one trace-derived bucket with the polled entity sets. The trace's own settled
  * verdicts win outright: a chain-level `failed`/`aborted` (an abort landing mid-subchain outranks
- * a settle that happened to complete after it) and the dependency gate's `blocked` (the gate
- * decides in milliseconds, far inside the poll lag, so a `todo` snapshot there is usually stale).
+ * a settle that happened to complete after it). The dependency gate's `blocked` trace verdict wins
+ * too, UNLESS the run has since settled and the entity confirms a cascade-clear (`cascadeClearedIds`)
+ * — while running, the gate decides in milliseconds, far inside the poll lag, so a `todo` snapshot
+ * there is usually stale; once settled, that same frozen verdict is stale HISTORY instead, and the
+ * polled entity is the only truth left.
  */
 const reconcileBucket = (
   task: TaskBucket,
   blockedIds: ReadonlySet<string>,
-  revivedIds: ReadonlySet<string>
+  revivedIds: ReadonlySet<string>,
+  cascadeClearedIds: ReadonlySet<string>
 ): TaskBucket => {
-  if (task.status === 'blocked' || task.status === 'failed' || task.status === 'aborted') return task;
+  if (task.status === 'failed' || task.status === 'aborted') return task;
+  if (task.status === 'blocked') {
+    if (!cascadeClearedIds.has(task.id)) return task;
+    return { ...task, status: 'pending' };
+  }
   if (blockedIds.has(task.id)) return { ...task, status: 'blocked' };
   if (task.status !== 'completed' || !revivedIds.has(task.id)) return task;
   // Drop the finished run's duration. On a pending card it would read as time spent waiting,
@@ -447,36 +477,54 @@ const reconcileBucket = (
  *    poll. `unblockTask` never produces `in_progress`, so this is always that lag.
  *  - `done`        → trace wins (`completed`). The entity agrees.
  *
- * Buckets the trace already settled as `failed`/`aborted`/`blocked` are never touched (see
- * {@link reconcileBucket}).
+ * A bucket the trace settled as `blocked` (the dependency-gate case) gets a SECOND, narrower
+ * reconciliation once the producing run is no longer live (`isRunning` is `false`): if the entity
+ * now reads `todo` with an empty attempt ledger (see {@link isCascadeClearedTodo}) — the shape
+ * `unblockTaskUseCase`'s cascade leaves on a dependent that never ran an attempt of its own, so its
+ * unblock never archives a `RetiredRun` and `isRevivedAfterRun` can never catch it — the bucket
+ * reconciles to `pending`, the same as an own-failure-unblocked root. While `isRunning` is `true`
+ * this arm is skipped: a `todo`+empty-attempts snapshot there is indistinguishable from the
+ * dependency gate's own in-flight block not yet having reached the next poll. One residual window:
+ * right after a run settles, a dependency-gate-blocked task whose most recent (up to 3 s stale)
+ * snapshot still reads its pre-run `todo` briefly renders `pending` too — the same class of window
+ * {@link isRevivedAfterRun} already documents and accepts.
+ *
+ * Buckets the trace already settled as `failed`/`aborted` are never touched, and `blocked` is
+ * touched only by the cascade-clear arm above (see {@link reconcileBucket}).
  *
  * Callers apply this at every boundary where a trace-derived `BucketedExecution` meets the polled
  * task list, right before the result drives a status-sensitive surface — a card's glyph/status
  * word, a done/total count, the sidebar minimap. `bucketTaskSignals` itself stays pure and
  * trace-only (see the module docstring); it has no entity access to do this correction itself.
+ * `isRunning` is already threaded to every one of these call sites for other reasons, so this adds
+ * no new plumbing.
  *
  * Pure and reference-stable: returns the SAME `BucketedExecution` when no task needed correcting.
- * That covers no `taskState`, no entity blocked or revived, or every bucket already agreeing.
- * A memoized consumer downstream then doesn't re-render on every 3 s baseline-health poll tick.
+ * That covers no `taskState`, no entity blocked/revived/cascade-cleared, or every bucket already
+ * agreeing. A memoized consumer downstream then doesn't re-render on every 3 s baseline-health
+ * poll tick.
  *
  * @public
  */
 export const overlayEntityBlockedStatus = (
   bucketed: BucketedExecution,
-  taskState: readonly Task[] | undefined
+  taskState: readonly Task[] | undefined,
+  isRunning: boolean
 ): BucketedExecution => {
   if (taskState === undefined || taskState.length === 0) return bucketed;
   const blockedIds = new Set<string>();
   const revivedIds = new Set<string>();
+  const cascadeClearedIds = new Set<string>();
   for (const t of taskState) {
     if (t.status === 'blocked') blockedIds.add(String(t.id));
     else if (isRevivedAfterRun(t)) revivedIds.add(String(t.id));
+    else if (!isRunning && isCascadeClearedTodo(t)) cascadeClearedIds.add(String(t.id));
   }
-  if (blockedIds.size === 0 && revivedIds.size === 0) return bucketed;
+  if (blockedIds.size === 0 && revivedIds.size === 0 && cascadeClearedIds.size === 0) return bucketed;
 
   let changed = false;
   const tasks = bucketed.tasks.map((task) => {
-    const reconciled = reconcileBucket(task, blockedIds, revivedIds);
+    const reconciled = reconcileBucket(task, blockedIds, revivedIds, cascadeClearedIds);
     if (reconciled !== task) changed = true;
     return reconciled;
   });

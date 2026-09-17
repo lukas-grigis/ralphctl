@@ -11,7 +11,6 @@
  */
 
 import { useEffect, useMemo, useState } from 'react';
-import type { Dispatch, SetStateAction } from 'react';
 import { useEditField } from '@src/application/ui/tui/runtime/use-edit-field.ts';
 import { useIsMounted } from '@src/application/ui/tui/runtime/use-is-mounted.ts';
 import { usePromptQueue } from '@src/application/ui/tui/prompts/prompt-context.tsx';
@@ -19,11 +18,9 @@ import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import type { Project } from '@src/domain/entity/project.ts';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
-import type { Task } from '@src/domain/entity/task.ts';
+import type { Task, TaskStatus } from '@src/domain/entity/task.ts';
 import type { Ticket } from '@src/domain/entity/ticket.ts';
-import { glyphs } from '@src/application/ui/tui/theme/tokens.ts';
 import { latestRecordedEvaluation } from '@src/business/task/evaluation-artifact.ts';
-import type { EvaluationTarget } from '@src/application/ui/tui/runtime/evaluation-target.ts';
 import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { useRouter, useViewProps } from '@src/application/ui/tui/runtime/router.tsx';
 import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
@@ -50,6 +47,7 @@ import {
   buildSprintDetailHandlers,
   type SprintDetailHandlers,
 } from '@src/application/ui/tui/views/sprint-detail-internals/detail-handlers.ts';
+import { buildShortcutsActions } from '@src/application/ui/tui/views/sprint-detail-internals/detail-shortcuts-actions.ts';
 import type { SprintDetailContentProps } from '@src/application/ui/tui/views/sprint-detail-internals/detail-content.tsx';
 
 export interface SprintDetailProps extends Readonly<Record<string, unknown>> {
@@ -66,24 +64,32 @@ interface FocusedSelection {
 }
 
 /**
+ * True for a task status `u` can act on. Covers `blocked` (maxAttempts exhausted / verify
+ * failed), `in_progress` with a settled last attempt (crash recovery after Ctrl-C / watchdog
+ * kill), AND a `todo` task stranded on a still-`review` sprint — the state left behind when
+ * `unblockTaskUseCase`'s `review` → `active` hop revives the task but fails to persist the
+ * sprint's second hop (see `finishInterruptedReopen` in `business/task/unblock-task.ts`). All
+ * three map to the same operator action: press `u`.
+ */
+const isStuckTaskStatus = (status: TaskStatus, sprintStatus: Sprint['status'] | undefined): boolean =>
+  status === 'blocked' || status === 'in_progress' || (status === 'todo' && sprintStatus === 'review');
+
+/**
  * Derive the "what's under the cursor" selection from the flat focus list. Feeds the `e` edit
  * gate, the `u` unblock gate, and the hint row — all three read off this one pass. Pure: same
- * `focusList` + `cursorIdx` + `ticketsEditable` always yields the same selection, so it lives
- * outside the component body as a plain helper rather than a hook.
+ * `focusList` + `cursorIdx` + `ticketsEditable` + `sprintStatus` always yields the same selection,
+ * so it lives outside the component body as a plain helper rather than a hook.
  */
 const deriveFocusedSelection = (
   focusList: readonly FocusItem[],
   cursorIdx: number,
-  ticketsEditable: boolean
+  ticketsEditable: boolean,
+  sprintStatus: Sprint['status'] | undefined
 ): FocusedSelection => {
   const focusedNow = focusList[Math.min(cursorIdx, Math.max(0, focusList.length - 1))];
-  // "Stuck" covers both `blocked` (maxAttempts exhausted / verify failed) and `in_progress`
-  // with a settled last attempt (crash recovery after Ctrl-C / watchdog kill). Both map to the
-  // same operator action: press `u` to reset to `todo` and retry on the next implement run.
+  const focusedNowTask = focusedNow?.kind === 'task' ? focusedNow.task : undefined;
   const focusedStuckTask =
-    focusedNow?.kind === 'task' && (focusedNow.task.status === 'blocked' || focusedNow.task.status === 'in_progress')
-      ? focusedNow.task
-      : undefined;
+    focusedNowTask !== undefined && isStuckTaskStatus(focusedNowTask.status, sprintStatus) ? focusedNowTask : undefined;
   const focusedTicket = focusedNow?.kind === 'ticket' && ticketsEditable ? focusedNow.ticket : undefined;
   const focusedTodoTask =
     focusedNow?.kind === 'task' && focusedNow.task.status === 'todo' ? focusedNow.task : undefined;
@@ -106,6 +112,8 @@ interface UseFocusModelArgs {
   readonly ticketsEditable: boolean;
   readonly modalOpen: boolean;
   readonly loaded: boolean;
+  /** Feeds the third `focusedStuckTask` case — a `todo` task stranded on a `review` sprint. */
+  readonly sprintStatus: Sprint['status'] | undefined;
 }
 
 export interface FocusModel extends FocusedSelection {
@@ -128,7 +136,7 @@ export interface FocusModel extends FocusedSelection {
  * not unmounted) so it never double-handles a keypress once the override engages.
  */
 const useFocusModel = (args: UseFocusModelArgs): FocusModel => {
-  const { focusList, ticketsEditable, modalOpen, loaded } = args;
+  const { focusList, ticketsEditable, modalOpen, loaded, sprintStatus } = args;
   const { rows } = useBreakpoint();
   const focusVisibleRows = Math.max(8, sectionWindowCards(rows) * 2);
   // Id-stable cursor over the flat focus list. Items are keyed as `ticket:<id>` / `task:<id>`
@@ -166,7 +174,12 @@ const useFocusModel = (args: UseFocusModelArgs): FocusModel => {
     moveToEdge: (edge) => setJumpOverrideIdx(edge === 'start' ? 0 : Math.max(0, focusList.length - 1)),
   };
 
-  return { cursorIdx, blockedCount, jump, ...deriveFocusedSelection(focusList, cursorIdx, ticketsEditable) };
+  return {
+    cursorIdx,
+    blockedCount,
+    jump,
+    ...deriveFocusedSelection(focusList, cursorIdx, ticketsEditable, sprintStatus),
+  };
 };
 
 interface BuildDetailHintsArgs {
@@ -225,61 +238,10 @@ const buildDetailHints = (args: BuildDetailHintsArgs): readonly ViewHint[] => {
     { keys: 'u', label: 'unblock', enabledWhen: focusedStuckTask !== undefined },
     { keys: 'B', label: 'next blocked', enabledWhen: blockedCount > 0 },
     { keys: 'v', label: 'evaluation', enabledWhen: focusedEvaluatedTask !== undefined },
+    // No `r reload` hint although the chord is always live: this non-shrinking strip already
+    // reaches 89 columns with `u` + `B` showing, and another hint would push it past 100. The
+    // help overlay lists `r`, and the reopen-conflict toast (the one moment it matters) names it.
   ];
-};
-
-interface BuildShortcutsActionsArgs {
-  readonly selection: ReturnType<typeof useSelection>;
-  readonly router: ReturnType<typeof useRouter>;
-  readonly setOpenIds: Dispatch<SetStateAction<ReadonlySet<string>>>;
-  readonly setConfirmRemove: (ticket: Ticket | undefined) => void;
-  readonly setFeedback: (message: string) => void;
-  readonly onUnblock: (task: Task) => Promise<void>;
-  readonly sprintId: SprintId | undefined;
-  readonly openEvaluationOverlay: (target: EvaluationTarget) => void;
-}
-
-/**
- * Build the `useSprintDetailShortcuts` action closures (`a`/`m`/↵/`d`/`u`) — spread into the
- * hook's config alongside the plain gate fields so the call site stays a flat list.
- */
-const buildShortcutsActions = (args: BuildShortcutsActionsArgs) => {
-  const { selection, router, setOpenIds, setConfirmRemove, setFeedback, onUnblock, sprintId, openEvaluationOverlay } =
-    args;
-  return {
-    closeAllExpanded: () => setOpenIds(new Set()),
-    openAddTicket: (id: SprintId) => router.push({ id: 'add-ticket', props: { sprintId: id } }),
-    toggleExpand: (id: string) =>
-      setOpenIds((prev) => {
-        const next = new Set(prev);
-        if (next.has(id)) next.delete(id);
-        else next.add(id);
-        return next;
-      }),
-    beginRemove: (ticket: Ticket) => setConfirmRemove(ticket),
-    markCurrent: (s: Sprint) => {
-      selection.setSprint(s.id, s.name, s.status);
-      setFeedback(`${glyphs.check} now on ${s.name}`);
-    },
-    handleUnblock: (task: Task) => {
-      void onUnblock(task);
-    },
-    // The full target is assembled here (not inside the overlay) so its degrade arms never need a
-    // second repository read — see `runtime/evaluation-target.ts`.
-    openEvaluation: (task: Task) => {
-      const latest = latestRecordedEvaluation(task);
-      if (sprintId === undefined || latest === undefined) return;
-      openEvaluationOverlay({
-        sprintId,
-        taskId: String(task.id),
-        taskLabel: task.name,
-        attemptN: latest.attemptN,
-        status: latest.status,
-        ...(latest.file.length > 0 ? { file: latest.file } : {}),
-        ...(latest.finishedAt !== undefined ? { finishedAt: latest.finishedAt } : {}),
-      });
-    },
-  };
 };
 
 export interface UseSprintDetailBodyResult {
@@ -341,6 +303,7 @@ const useSprintDetailData = (): SprintDetailData => {
     ticketsEditable: ticketsEditable === true,
     modalOpen: ui.modalOpen,
     loaded: state.kind === 'ok',
+    sprintStatus: sprint?.status,
   });
 
   return {
@@ -508,6 +471,7 @@ export const useSprintDetailBody = (): UseSprintDetailBodyResult => {
       onUnblock: handlers.handleUnblock,
       sprintId: sprint?.id,
       openEvaluationOverlay: ui.openEvaluation,
+      reload,
     }),
     handleEdit: handlers.handleEdit,
   });

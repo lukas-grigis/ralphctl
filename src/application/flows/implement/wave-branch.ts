@@ -2,6 +2,7 @@ import { Result } from '@src/domain/result.ts';
 import type { Task } from '@src/domain/entity/task.ts';
 import { markTaskBlocked } from '@src/domain/entity/task-lifecycle.ts';
 import type { TaskId } from '@src/domain/value/id/task-id.ts';
+import type { RepositoryId } from '@src/domain/value/id/repository-id.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { join } from 'node:path';
 
@@ -9,6 +10,7 @@ import type { Element, ElementResult } from '@src/application/chain/element.ts';
 import type { OnTrace, TraceEntry } from '@src/application/chain/trace.ts';
 import type { WaveBranch } from '@src/application/chain/run/wave-scheduler.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
+import type { DirtyTreePolicy } from '@src/business/task/preflight-task.ts';
 import { publishTaskBlocked } from '@src/business/task/publish-task-blocked.ts';
 import { createPublishSignal, type PublishSignal } from '@src/application/flows/_shared/publish-signal.ts';
 import type { GitRunner } from '@src/integration/io/git-runner.ts';
@@ -22,8 +24,12 @@ import {
 import type { AppendFile } from '@src/business/io/append-file.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import type { ImplementDeps } from '@src/application/flows/implement/deps.ts';
-import type { CreateImplementFlowOpts, RepoExecConfig } from '@src/application/flows/implement/flow.ts';
-import { forkCtx } from '@src/application/flows/implement/merge-wave.ts';
+import {
+  type CreateImplementFlowOpts,
+  effectiveDirtyTreePolicy,
+  type RepoExecConfig,
+} from '@src/application/flows/implement/flow.ts';
+import { forkCtx, implementBranchId } from '@src/application/flows/implement/merge-wave.ts';
 import { resolveRepoOrThrow } from '@src/application/flows/implement/leaves/resolve-repo.ts';
 import {
   createPerTaskSubchain,
@@ -32,9 +38,11 @@ import {
 import { abortedStep, foldStep } from '@src/application/flows/implement/worktree-fold.ts';
 import {
   foldQuarantinePointer,
+  snapshotQuarantinedDiff,
   teardownWorktree,
   type WorktreeTeardownArgs,
 } from '@src/application/flows/implement/worktree-teardown.ts';
+import { beginWorktreeSetupTreeCheck } from '@src/application/flows/implement/worktree-setup-tree.ts';
 
 /**
  * Async mutex serialising worktree folds onto the shared sprint branch. Folds MUST be
@@ -135,17 +143,24 @@ export interface BuildWaveBranchesDeps {
 }
 
 /**
- * One git worktree per task: setup → per-worktree setup script → forked per-task subchain → fold →
- * quarantine-if-blocked → cleanup. The element is a hand-written {@link Element} (NOT a chain
- * primitive — §14) rather than a plain `sequential`, because worktree-cleanup MUST run on EVERY exit
- * path including abort: a plain `sequential` skips downstream children once a child aborts, which
- * would strand the worktree. This adapter runs the teardown on every exit path — settled result,
- * abort, AND a throw out of the body — and forwards the inner result (AbortError verbatim).
+ * One git worktree per task: start snapshot → setup → per-worktree setup script → forked per-task
+ * subchain → fold → quarantine-if-blocked → re-stash-if-interrupted → cleanup. The element is a
+ * hand-written {@link Element} (NOT a chain primitive — §14) rather than a plain `sequential`,
+ * because worktree-cleanup MUST run on EVERY exit path including abort: a plain `sequential` skips
+ * downstream children once a child aborts, which would strand the worktree. This adapter runs the
+ * teardown on every exit path — settled result, abort, AND a throw out of the body — and forwards
+ * the inner result (AbortError verbatim).
  *
+ *  - start snapshot: how many entries this task's quarantine key holds in the stash, read before
+ *    anything in the branch can pop one — and before the worktree exists, so a raw throw out of it
+ *    has nothing to strand. The teardown needs it to tell a restored diff an interrupted attempt left
+ *    in the worktree from work that never sat in any stash — see `snapshotQuarantinedDiff`.
  *  - setup: prune stale bookkeeping + drop any leaked ref (both defensive), then
  *    `git worktree add -b <ref> <path>` forked from the sprint branch tip.
  *  - setup script: run the repo's `setupScript` IN the worktree (a fresh checkout has no build
- *    deps). Failure blocks ONLY this task; it never hard-aborts the wave. Skipped when the repo
+ *    deps), bracketed by a working-tree check that settles whatever the script changed against
+ *    the main checkout's recorded answer (`worktree-setup-tree.ts`). A failure, or a change the
+ *    check refuses, blocks ONLY this task; it never hard-aborts the wave. Skipped when the repo
  *    configures no setup script.
  *  - body: the forked per-task subchain (rooted on the worktree via `forkCtx`, branch-preflight
  *    omitted) followed by the serialised fold. `buildBody` (see `buildWorktreeBranch`) is a
@@ -162,6 +177,11 @@ export interface BuildWaveBranchesDeps {
  *    and the PERSISTED task when the subchain itself errored (an abort landing in a leaf after
  *    `settle-attempt` already persisted `blocked`) — when that read fails and the worktree may hold
  *    work, the worktree is left on disk instead. See `worktree-teardown.ts`.
+ *  - re-stash (before cleanup): a branch interrupted mid-attempt (abort, error, throw) whose task key
+ *    now holds fewer stash entries than at branch start, and whose last attempt committed nothing,
+ *    pushes the worktree's changes back under the same message — `restore-blocked-diff` popped that
+ *    diff, and the pop dropped the only other copy. When that can't be confirmed, the worktree is
+ *    left on disk instead. See `requarantineRestoredDiff` in `worktree-teardown.ts`.
  *  - cleanup: `git worktree remove --force`; `git branch -D <ref>` UNLESS the task ended
  *    `blocked` or the branch never completed its fold (see `keepBranchRefReason` in
  *    `worktree-teardown.ts`) — a fold conflict blocks a task whose commits are already verified and
@@ -179,7 +199,7 @@ const withWorktree = (
   worktreePath: AbsolutePath,
   branchRef: string,
   taskId: TaskId,
-  setupScript: string | undefined,
+  setup: WorktreeSetupSpec | undefined,
   progressFile: AbsolutePath,
   buildBody: (onSettled: (ctx: ImplementCtx) => void) => Element<ImplementCtx>
 ): Element<ImplementCtx> => {
@@ -194,6 +214,7 @@ const withWorktree = (
     children: [bodyShape],
     async execute(ctx, signal, onTrace): Promise<ElementResult<ImplementCtx>> {
       const gitRunner = deps.implement.gitRunner;
+      const quarantinedAtStart = await snapshotQuarantinedDiff(deps, repoRoot, ctx.sprintId, taskId);
       const setupError = await setupWorktree(gitRunner, repoRoot, worktreePath, branchRef, taskId, onTrace);
       if (setupError !== undefined) {
         // A worktree that never got created has nothing to clean up — return the setup failure as-is
@@ -215,6 +236,7 @@ const withWorktree = (
         taskId,
         sprintId: ctx.sprintId,
         attemptsAtStart: ctx.tasks?.find((t) => t.id === taskId)?.attempts.length ?? 0,
+        quarantinedAtStart,
         progressFile,
         onTrace,
       };
@@ -233,15 +255,7 @@ const withWorktree = (
         // A git worktree is an empty checkout with no build artefacts, so the per-task verifyScript
         // would fail spuriously without it. `undefined` (block this task) short-circuits the body;
         // the teardown below still runs.
-        const setupBlocked = await runWorktreeSetupScript(
-          deps,
-          worktreePath,
-          setupScript,
-          taskId,
-          ctx,
-          signal,
-          onTrace
-        );
+        const setupBlocked = await runWorktreeSetupScript(deps, worktreePath, setup, taskId, ctx, signal, onTrace);
         result = setupBlocked ?? (await body.execute(ctx, signal, onTrace));
       } catch (error) {
         // A THROW, not a `Result.error`: `leaf.ts` re-throws every non-DomainError verbatim and
@@ -261,6 +275,14 @@ const withWorktree = (
   };
 };
 
+/** The per-worktree setup a branch runs: the repo's script plus what its working-tree check needs. */
+interface WorktreeSetupSpec {
+  readonly script: string;
+  /** Keys the main checkout's recorded answer in `ctx.setupTreeRecords`. */
+  readonly repositoryId: RepositoryId;
+  readonly policy: DirtyTreePolicy;
+}
+
 /**
  * Run the repo's `setupScript` inside the freshly-created worktree, before the per-task subchain.
  * A git worktree is a bare checkout: `node_modules`, `target/`, `.venv`, build caches — none of it
@@ -269,9 +291,16 @@ const withWorktree = (
  * `baseline-broken` / `regressed` and block legitimate work. The prologue's once-per-repo setup
  * preps the MAIN repo, not these throwaway worktrees, so it cannot cover this.
  *
- * Returns `undefined` when there is no setup script or it succeeds (the caller proceeds to the
- * body). On failure (non-zero exit, timeout, or spawn error) it BLOCKS only this task and returns a
- * narrowed `Result.ok` carrying the blocked task — siblings run in their own worktrees and are
+ * The script is bracketed by a working-tree check (`beginWorktreeSetupTreeCheck`): anything it
+ * writes that git doesn't ignore would otherwise be swept into the task commit by `git add -A`.
+ * What the operator already saw in the main checkout is discarded here; anything else blocks the
+ * task (or, under policy `continue`, stays with a warning). The main checkout itself is never read
+ * — sibling folds change it mid-wave — only its recorded answer on `ctx.setupTreeRecords`.
+ *
+ * Returns `undefined` when there is no setup script, or it succeeded and the check let the task
+ * through (the caller proceeds to the body). Otherwise it BLOCKS only this task and returns a
+ * narrowed `Result.ok` carrying the blocked task — on a non-zero exit, timeout or spawn error, a
+ * refused change, or a git status that can't be read — siblings run in their own worktrees and are
  * untouched, and the wave is NEVER hard-aborted (unlike the prologue's main-repo setup gate, whose
  * hard-abort semantics are wrong for one isolated worktree). A user abort that races the setup
  * propagates verbatim, never a block.
@@ -279,49 +308,69 @@ const withWorktree = (
 const runWorktreeSetupScript = async (
   deps: BuildWaveBranchesDeps,
   worktreePath: AbsolutePath,
-  setupScript: string | undefined,
+  setup: WorktreeSetupSpec | undefined,
   taskId: TaskId,
   ctx: ImplementCtx,
   signal: AbortSignal | undefined,
   onTrace: OnTrace | undefined
 ): Promise<ElementResult<ImplementCtx> | undefined> => {
-  if (setupScript === undefined || setupScript.trim() === '') return undefined;
+  if (setup === undefined) return undefined;
   const name = `worktree-setup-script-${String(taskId)}`;
+  const aborted = (): boolean => signal?.aborted === true;
   // Don't burn an install while the user is already aborting.
-  if (signal?.aborted) return abortedStep(name, 0, onTrace);
+  if (aborted()) return abortedStep(name, 0, onTrace);
 
   const start = performance.now();
+  const elapsed = (): number => performance.now() - start;
+  const blockTask = (reason: string): ElementResult<ImplementCtx> =>
+    blockTaskInWorktree(deps, ctx, taskId, name, elapsed(), reason, onTrace);
+  const settleTree = await beginWorktreeSetupTreeCheck(deps.implement, {
+    cwd: worktreePath,
+    command: setup.script,
+    policy: setup.policy,
+    record: ctx.setupTreeRecords?.get(setup.repositoryId),
+  });
+  if (!settleTree.ok) {
+    return blockTask(
+      `worktree setup script not run — could not read the worktree's git status: ${settleTree.error.message}`
+    );
+  }
+  const failure = await spawnWorktreeSetup(deps, worktreePath, setup.script, signal);
+  // A user abort surfaces as the runner's AbortError (signal threaded into the spawn) — and may also
+  // race the setup's natural failure — so check the signal before treating anything as a real outcome.
+  if (aborted()) return abortedStep(name, elapsed(), onTrace);
+  if (failure !== undefined) return blockTask(failure);
+  const verdict = await settleTree.value();
+  if (aborted()) return abortedStep(name, elapsed(), onTrace);
+  if (verdict.kind === 'block') return blockTask(verdict.reason);
+  onTrace?.({ elementName: name, status: 'completed', durationMs: elapsed() });
+  return undefined;
+};
+
+/** Spawn the worktree's setup script. Returns the block reason when it didn't pass, else `undefined`. */
+const spawnWorktreeSetup = async (
+  deps: BuildWaveBranchesDeps,
+  worktreePath: AbsolutePath,
+  script: string,
+  signal: AbortSignal | undefined
+): Promise<string | undefined> => {
   // Thread the chain abort signal into the runner so a Ctrl-C mid-setup kills the child promptly
   // instead of waiting out the shell timeout while the wave holds its worktree.
-  const ran = await deps.implement.shellScriptRunner.run(
-    worktreePath,
-    setupScript,
-    signal !== undefined ? { signal } : {}
-  );
-  const durationMs = performance.now() - start;
-
-  if (ran.ok && ran.value.passed) {
-    onTrace?.({ elementName: name, status: 'completed', durationMs });
-    return undefined;
-  }
-  // A user abort surfaces as the runner's AbortError (signal threaded above) — and may also race
-  // the setup's natural failure — so re-check the signal before treating it as a real failure.
-  if (signal?.aborted) return abortedStep(name, durationMs, onTrace);
-
+  const ran = await deps.implement.shellScriptRunner.run(worktreePath, script, signal !== undefined ? { signal } : {});
+  if (ran.ok && ran.value.passed) return undefined;
   const detail = ran.ok ? `exit ${String(ran.value.exitCode ?? 'null')}` : ran.error.message;
-  const reason = `worktree setup script failed (${detail}) — the task could not be prepared in its isolated worktree`;
-  return blockTaskInWorktree(deps, ctx, taskId, name, durationMs, reason, onTrace);
+  return `worktree setup script failed (${detail}) — the task could not be prepared in its isolated worktree`;
 };
 
 /**
- * Block THIS task after a per-worktree setup failure and narrow the ctx to it. Setup runs before
- * the subchain, so the task is still `todo`/`in_progress` — `markTaskBlocked` (which accepts only
- * those states) is the clean domain transition (no hand-projection like `worktree-fold.ts`'s
- * `blockTaskForFoldConflict`, which exists only because a fold conflict re-blocks an already-`done`
- * task). Returns `Result.ok`
- * so the branch runner COMPLETES with the block in its ctx — `mergeImplementWave` overlays it and
- * `captureDurableFold` records it, so the block survives even an abort of a sibling wave. The
- * subchain never runs, so this is the only place the operator is told about the block.
+ * Block THIS task after its per-worktree setup failed or its working-tree check refused, and
+ * narrow the ctx to it. Setup runs before the subchain, so the task is still `todo`/`in_progress` —
+ * `markTaskBlocked` (which accepts only those states) is the clean domain transition (no
+ * hand-projection like `worktree-fold.ts`'s `blockTaskForFoldConflict`, which exists only because a
+ * fold conflict re-blocks an already-`done` task). Returns `Result.ok` so the branch runner COMPLETES with the block in its ctx — `mergeImplementWave` overlays this
+ * branch's OWNED task (see `ownedTask` / `implementBranchId`) and `captureDurableFold` records it
+ * the same way, so the block survives even an abort of a sibling wave. The subchain never runs, so
+ * this is the only place the operator is told about the block.
  */
 const blockTaskInWorktree = (
   deps: BuildWaveBranchesDeps,
@@ -332,24 +381,26 @@ const blockTaskInWorktree = (
   reason: string,
   onTrace: OnTrace | undefined
 ): ElementResult<ImplementCtx> => {
-  deps.implement.logger.warn('worktree setup script failed — task blocked', { taskId: String(taskId), reason });
+  deps.implement.logger.warn('worktree setup blocked the task', { taskId: String(taskId), reason });
   const entry: TraceEntry = { elementName: name, status: 'failed', durationMs };
   onTrace?.(entry);
   const task = ctx.tasks?.find((t) => t.id === taskId);
   // No task in ctx (shouldn't happen — the wave carries the full list), or the task isn't in a
   // blockable state: carry ctx through so the reducer leaves base untouched and it resets/re-runs.
   if (task === undefined) return Result.ok({ ctx, trace: [entry] });
-  // Per-worktree setup failure is an own-failure block — the task couldn't be prepared, which a
+  // A per-worktree setup block is an own-failure block — the task couldn't be prepared, which a
   // relaunch / operator fix must address; it never cascade-clears via upstream unblock. Classified
-  // explicitly: the repo/runtime state in the fresh worktree is what needs fixing, not the model.
+  // explicitly: the setup script / repo state in the fresh worktree is what needs fixing, not the
+  // model.
   const blocked = markTaskBlocked(task, reason, 'own', {
     blockCause: 'worktree-setup-failure',
     faultSide: 'environment',
   });
   if (!blocked.ok) return Result.ok({ ctx, trace: [entry] });
   publishTaskBlocked(deps.eventBus, blocked.value, deps.implement.clock());
-  // Narrow to THIS task only — the merge overlay is by-id; emitting siblings risks clobbering a
-  // concurrently-merged copy (the same narrowing contract the branch body applies after its subchain).
+  // Narrow to THIS task only — belt-and-braces: the merge already reads only `ownedTask(branch.id,
+  // ctx)`, so emitting siblings here can no longer clobber a concurrently-merged copy, but keeping
+  // the ctx small costs nothing and matches the narrowing contract the branch body applies below.
   return Result.ok({ ctx: { ...ctx, tasks: [blocked.value] }, trace: [entry] });
 };
 
@@ -473,8 +524,17 @@ const buildOneBranch = (
     createPerTaskSubchain(branchDeps, subchainOpts, task, worktreeRepo, readConfig);
 
   return {
-    id: `task-${String(task.id)}`,
-    element: buildWorktreeBranch(deps, repo, task, worktreePath, branchRef, opts.progressFile, buildSubchain),
+    id: implementBranchId(task.id),
+    element: buildWorktreeBranch(
+      deps,
+      repo,
+      task,
+      worktreePath,
+      branchRef,
+      opts.progressFile,
+      buildSubchain,
+      effectiveDirtyTreePolicy(opts)
+    ),
   };
 };
 
@@ -496,6 +556,9 @@ const buildOneBranch = (
  * in); the worktree adapter runs setup, then the body (`subchain → fold`), then cleanup-on-every-
  * path (including abort).
  *
+ * `policy` is the run's dirty-tree policy, applied by the per-worktree setup check to a change the
+ * main checkout's setup never showed (see `worktree-setup-tree.ts`); it defaults like the flow's.
+ *
  * @public
  */
 export const buildWorktreeBranch = (
@@ -505,7 +568,8 @@ export const buildWorktreeBranch = (
   worktreePath: AbsolutePath,
   branchRef: string,
   progressFile: AbsolutePath,
-  buildSubchain: (worktreeRepo: RepoExecConfig) => Element<ImplementCtx>
+  buildSubchain: (worktreeRepo: RepoExecConfig) => Element<ImplementCtx>,
+  policy: DirtyTreePolicy = effectiveDirtyTreePolicy({})
 ): Element<ImplementCtx> => {
   // A FACTORY, not a built element: `withWorktree` calls this once per execution so each run gets
   // its own `onSettled` side-channel. `onSettled` fires with the subchain's OWN settled ctx right
@@ -528,10 +592,11 @@ export const buildWorktreeBranch = (
       if (!foldResult.ok) return foldResult;
       // Narrow this branch's outcome ctx to carry ONLY its OWN task. `forkCtx` seeds `tasks` with the
       // full base list (so the subchain leaves can look up sibling deps), but the subchain only
-      // settles THIS task; the others remain at their pre-wave status. `mergeImplementWave` overlays
-      // EVERY task in each branch's outcome ctx onto `base.tasks` by id — so leaving the siblings in
-      // would let a later-processed branch overwrite an earlier branch's settled task with a stale
-      // copy. Emitting only the owned task makes the overlay disjoint + commutative (the wave-merge contract).
+      // settles THIS task; the others remain at their pre-wave status. Belt-and-braces: ownership is
+      // now enforced by the merge itself (`mergeImplementWave` / `captureDurableFold` both read only
+      // `ownedTask(branch.id, ctx)`), so a wider ctx here can no longer let a later-processed branch
+      // overwrite an earlier branch's settled task — but narrowing at the source keeps that
+      // guarantee structural in two places instead of relying on the reader alone.
       const own = foldResult.value.ctx.tasks?.find((t) => t.id === task.id);
       const narrowed: ImplementCtx = { ...foldResult.value.ctx, ...(own !== undefined ? { tasks: [own] } : {}) };
       return Result.ok({
@@ -540,7 +605,9 @@ export const buildWorktreeBranch = (
       });
     },
   });
-  return withWorktree(deps, repo.path, worktreePath, branchRef, task.id, repo.setupScript, progressFile, buildBody);
+  const script = repo.setupScript?.trim() ?? '';
+  const setup = script.length > 0 ? { script, repositoryId: task.repositoryId, policy } : undefined;
+  return withWorktree(deps, repo.path, worktreePath, branchRef, task.id, setup, progressFile, buildBody);
 };
 
 /**

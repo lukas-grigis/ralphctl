@@ -69,7 +69,15 @@ export interface PreflightTaskProps {
   readonly sprintId?: string;
 }
 
-export type PreflightTaskOutput = void;
+/**
+ * How the tree was settled: `'clean'` (nothing to settle), `'kept'` (policy `continue`, or the
+ * operator's Keep), `'stashed'` (also when the stash then found nothing left to save — the tree is
+ * clean either way) or `'reset'`. Callers that record the answer (the post-setup working-tree
+ * check) read it; the per-repo preflight leaf ignores it.
+ */
+export type DirtyTreeResolution = 'clean' | 'kept' | 'stashed' | 'reset';
+
+export type PreflightTaskOutput = DirtyTreeResolution;
 
 const ELEMENT_NAME = 'preflight-task';
 
@@ -86,7 +94,7 @@ export const preflightTaskUseCase = async (
   }
   if (count.value === 0) {
     log.debug('working tree clean', { cwd: props.cwd });
-    return Result.ok(undefined);
+    return Result.ok('clean');
   }
 
   const policy: DirtyTreePolicy = props.dirtyTreePolicy ?? 'cancel';
@@ -96,7 +104,7 @@ export const preflightTaskUseCase = async (
       cwd: props.cwd,
       dirtyEntries: count.value,
     });
-    return Result.ok(undefined);
+    return Result.ok('kept');
   }
 
   if (policy === 'prompt') {
@@ -153,7 +161,7 @@ const resolveViaPrompt = async (
         cwd: props.cwd,
         dirtyEntries,
       });
-      return Result.ok(undefined);
+      return Result.ok('kept');
 
     case 'stash': {
       const sprintLabel = props.sprintId !== undefined && props.sprintId.length > 0 ? props.sprintId : 'unknown';
@@ -165,17 +173,17 @@ const resolveViaPrompt = async (
         // reports nothing-to-stash anyway (race against an external process), don't block —
         // the tree is now clean enough to proceed.
         log.warn('stash reported no changes despite dirty status — proceeding', { cwd: props.cwd });
-        return Result.ok(undefined);
+        return Result.ok('stashed');
       }
       log.info(`stashed working tree — recoverable as: ${message}`, { cwd: props.cwd, stashMessage: message });
-      return Result.ok(undefined);
+      return Result.ok('stashed');
     }
 
     case 'reset': {
       const reset = await props.gitReset(props.cwd);
       if (!reset.ok) return Result.error(reset.error);
       log.info('reset working tree — discarded uncommitted + untracked changes', { cwd: props.cwd });
-      return Result.ok(undefined);
+      return Result.ok('reset');
     }
 
     case 'cancel':

@@ -8,13 +8,15 @@
  * the reopen is best-effort while the unblock is not, it has to SAY that the sprint stayed closed.
  */
 
+import { chmod, readdir } from 'node:fs/promises';
+import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { BlockedTask } from '@src/domain/entity/task.ts';
 import { markTaskBlocked } from '@src/domain/entity/task-lifecycle.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import { createFsSprintRepository } from '@src/integration/persistence/sprint/repository.ts';
 import { createFsTaskRepository } from '@src/integration/persistence/task/repository.ts';
-import { makeActiveSprint, makeDoneSprint, makeTodoTask } from '@tests/fixtures/domain.ts';
+import { makeActiveSprint, makeDoneSprint, makeReviewSprint, makeTodoTask } from '@tests/fixtures/domain.ts';
 import { type CliHome, createCliHome, runCliCaptured } from '@tests/e2e/cli/_harness.ts';
 
 describe('ralphctl task unblock — sprint reopen', () => {
@@ -133,4 +135,31 @@ describe('ralphctl task unblock — sprint reopen', () => {
     expect(tasks.ok).toBe(true);
     if (tasks.ok) expect(tasks.value[0]?.status).toBe('todo');
   });
+
+  // A todo task left on a `review` sprint (an earlier reopen stopped short of `active`) whose
+  // retried review → active hop fails AGAIN: nothing moved, so the CLI must not print
+  // "reopened … review → review". A read-only sprint dir makes the sprint save fail for real.
+  it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)(
+    'says the sprint is still review when the retried reopen fails again',
+    async () => {
+      const sprintRepo = createFsSprintRepository({ root: cli.paths.dataRoot });
+      const review = makeReviewSprint();
+      await sprintRepo.save(review);
+      const todo = makeTodoTask({ name: 'stranded-task' });
+      await createFsTaskRepository({ root: cli.paths.dataRoot }).saveAll(review.id, [todo]);
+      const sprintsDir = join(String(cli.paths.dataRoot), 'sprints');
+      const sprintDirName = (await readdir(sprintsDir)).find((d) => d.startsWith(String(review.id)));
+      if (sprintDirName === undefined) throw new Error('fixture: sprint dir not found');
+      const sprintDir = join(sprintsDir, sprintDirName);
+      await chmod(sprintDir, 0o555);
+      try {
+        const result = await runCliCaptured(cli, ['task', 'unblock', '--sprint', String(review.id), String(todo.id)]);
+        expect(result.stdout).not.toContain('reopened sprint');
+        expect(result.stdout).toContain(`sprint '${String(review.slug)}' (${String(review.id)}) is still review`);
+        expect(result.stderr).toContain('the review → active step did not persist');
+      } finally {
+        await chmod(sprintDir, 0o755);
+      }
+    }
+  );
 });

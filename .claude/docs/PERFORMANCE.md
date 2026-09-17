@@ -20,8 +20,13 @@ When `maxParallelTasks > 1` (range 1–5, Zod-clamped), the above-the-chain orch
 that cap; waves stay strictly sequential (wave k+1 starts only after every branch of wave k settled and
 merged). Each task runs in its own isolated git worktree at `<sprintDir>/worktrees/wt-<taskId>`,
 forked from the sprint-branch tip; the repo's `setupScript` runs inside each fresh worktree (a
-worktree has none of the main repo's build artefacts). A setup failure blocks only that task — it
-never hard-aborts the wave. Each worktree's commit is folded onto the single shared sprint branch
+worktree has none of the main repo's build artefacts), bracketed by a working-tree check
+(`worktree-setup-tree.ts`, a status snapshot before + after, plus a discard-and-reread only when the
+script actually introduced something): what the script changes there is matched against the main
+checkout's own recorded post-setup answer, never by re-reading the main checkout (sibling folds change it
+mid-wave). A path the main checkout already saw is discarded before the task's commit; an unseen path
+(or a status that can't be read) blocks only that task — it never hard-aborts the wave. Each worktree's
+commit is folded onto the single shared sprint branch
 (`git merge --ff-only`, else `cherry-pick`) through one serialised in-process fold queue, so a
 multi-task parallel sprint lands as one PR. When two same-wave tasks touch the same file the first
 folds cleanly; the second's cherry-pick conflicts → that task transitions to `blocked` (`cherry-pick
@@ -29,9 +34,13 @@ folds cleanly; the second's cherry-pick conflicts → that task transitions to `
 Waves partition on dependency edges, not file overlap — conflict is resolved at fold time, not
 scheduling time. The sprint lock (`repoLockFile(locksRoot, sprintDir)`) spans prologue + waves +
 epilogue using the same lock key as the serial path, so a serial and a parallel run of the same
-sprint mutually exclude. Commits durably folded before an abort are preserved by the epilogue and
-never re-executed on relaunch. Concurrent appends to `progress.md` and the learnings ledger are
-serialised through one in-process mutex (no torn lines under fan-out). Launch then applies a
+sprint mutually exclude. The wave fan-in updates only the one task each branch actually settled, so a
+branch that fails or aborts mid-wave can neither revert itself nor an already-`done` sibling the same
+wave already completed; a block that branch had already saved to disk right before failing is picked
+back up by the epilogue's `adopt-persisted-blocks` step ahead of its task-list write. Commits durably
+folded before an abort are preserved by the epilogue and never re-executed on relaunch. Concurrent appends
+to `progress.md` and the learnings ledger are serialised through one in-process mutex (no torn lines
+under fan-out). Launch then applies a
 status-only stable override: `in_progress` tasks first (so a resumed sprint picks up the previously
 aborted task before any fresh work), then `todo`; V8's stable sort preserves dependency order within
 each status group. A `dependency-gate` leaf at the head of every per-task subchain enforces the

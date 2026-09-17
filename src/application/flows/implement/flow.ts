@@ -16,6 +16,7 @@ import { loadAndAssertSprintSubChain } from '@src/application/flows/_shared/spri
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import type { ImplementDeps } from '@src/application/flows/implement/deps.ts';
 import { activateSprintLeaf } from '@src/application/flows/implement/leaves/activate-sprint.ts';
+import { adoptPersistedBlocksLeaf } from '@src/application/flows/implement/leaves/adopt-persisted-blocks.ts';
 import { appendJournalSeparatorLeaf } from '@src/application/flows/_shared/progress/append-journal-separator.ts';
 import { createPerTaskSubchain } from '@src/application/flows/implement/leaves/per-task-subchain.ts';
 import { buildAttemptReadConfig } from '@src/application/flows/implement/leaves/attempt-body.ts';
@@ -175,10 +176,14 @@ export interface CreateImplementFlowOpts {
  *
  * The prologue leaves (`load-and-assert-sprint` … `setup-script-runner`) and epilogue leaves
  * (`save-tasks`, the review-transition guard) are sourced from {@link buildImplementPrologue} /
- * {@link buildImplementEpilogue} — the SAME leaf instances the parallel launcher consumes via
- * {@link planImplementWaves}, spliced INLINE here (not nested) so the serial `implement-locked`
- * shape is byte-for-byte unchanged. The `implement-prologue` / `implement-epilogue` wrapper names
- * exist only in the parallel plan, never in this serial tree.
+ * {@link buildImplementEpilogue}, spliced INLINE here (not nested) so the serial `implement-locked`
+ * shape is byte-for-byte unchanged. `planImplementWaves` hands the SAME prologue leaves to the
+ * parallel launcher, but wraps its epilogue leaves in one extra `adopt-persisted-blocks` leaf (see
+ * {@link buildParallelImplementEpilogue}) that this serial tree has no need for — the per-task
+ * sub-chains below run against one shared `ctx.tasks` in a single flat `sequential`, so no sibling
+ * branch can ever drop a persisted transition the way the parallel fan-in can. The
+ * `implement-prologue` / `implement-epilogue` wrapper names exist only in the parallel plan, never
+ * in this serial tree.
  *
  * See `per-task-subchain.ts` for the per-task body and `gen-eval-loop.ts` for the inner
  * generator-evaluator loop.
@@ -223,7 +228,10 @@ export interface CreateImplementFlowOpts {
  * operator already chose to keep is never asked about again, and a setup that leaves the tree
  * alone adds no prompt. The check lives inside the setup leaf rather than as its own step so the
  * snapshot is taken immediately before the spawn and a resume-skipped or unconfigured script
- * costs no git call.
+ * costs no git call. Its answer — the outcome plus the paths the operator has seen — is recorded
+ * on the `SetupRun` row and on `ctx.setupTreeRecords`: a relaunch resume-skips setup only when
+ * that answer is on record, and each parallel task worktree matches its own setup output against
+ * it (`worktree-setup-tree.ts`).
  *
  * Branch preflight rationale: the dirty-tree check is one-shot but the branch can drift mid-run
  * (an AI generator turn with shell access could `git checkout` away). `resolve-branch` pins the
@@ -256,6 +264,17 @@ export interface CreateImplementFlowOpts {
  *   the chain.
  */
 /**
+ * The run's dirty-tree policy. Defaults to `'prompt'` so the interactive recovery menu (Keep /
+ * Stash / Reset / Cancel) fires; the business-layer default stays `'cancel'` for non-interactive
+ * callers in isolation. One place, because the prologue's checks and every parallel task
+ * worktree's setup check must apply the same policy.
+ *
+ * @public
+ */
+export const effectiveDirtyTreePolicy = (opts: Pick<CreateImplementFlowOpts, 'dirtyTreePolicy'>): DirtyTreePolicy =>
+  opts.dirtyTreePolicy ?? 'prompt';
+
+/**
  * Build the prologue segment — everything from `load-and-assert-sprint` through `setup-script-runner`,
  * the once-per-run setup that runs BEFORE any task executes:
  *
@@ -276,9 +295,7 @@ export const buildImplementPrologue = (deps: ImplementDeps, opts: CreateImplemen
   const uniqueRepoCwds = uniqueRepoCwdsForTasks(opts.repositories, opts.todoTasks);
   const setupRepoEntries = setupRepoEntriesForTasks(opts.repositories, opts.todoTasks);
 
-  // Default to 'prompt' so the interactive recovery menu (Keep / Stash / Reset / Cancel) fires;
-  // the business-layer default stays 'cancel' for non-interactive callers in isolation.
-  const dirtyTreePolicy: DirtyTreePolicy = opts.dirtyTreePolicy ?? 'prompt';
+  const dirtyTreePolicy = effectiveDirtyTreePolicy(opts);
   const treeDeps = {
     gitRunner: deps.gitRunner,
     interactive: deps.interactive,
@@ -409,6 +426,33 @@ export const buildImplementEpilogue = (deps: ImplementDeps, opts: CreateImplemen
   ]);
 
 /**
+ * The PARALLEL launcher's epilogue — {@link buildImplementEpilogue}'s leaves, prefixed with
+ * `adopt-persisted-blocks`. The serial `createImplementFlow` never needs this: its per-task
+ * sub-chains run against the SAME `ctx.tasks` the epilogue later saves, one task at a time inside
+ * one flat `sequential`, so a task's own persisted transition is never trampled by a sibling's
+ * outcome. The parallel path's `mergeImplementWave` fan-in has no such guarantee — a branch that
+ * errors or aborts AFTER persisting a block (a resume-budget exhaustion, a settle-then-abort) is
+ * skipped by the merge entirely, so without this leaf `saveTasksLeaf` below would overwrite that
+ * persisted block with the branch's pre-wave copy on every relaunch. See `adopt-persisted-blocks.ts`
+ * and `merge-wave.ts` for the full contract.
+ *
+ * Only ever wrapped in `sequential('implement-epilogue', …)` here — reusing the SAME name as
+ * {@link buildImplementEpilogue}'s own wrapper is deliberate: this segment is a drop-in replacement
+ * for that one in {@link planImplementWaves}, and the parallel launcher's `runSubElement` /
+ * TUI rail read the element's own `.name`, never a caller-side label.
+ *
+ * @public
+ */
+export const buildParallelImplementEpilogue = (
+  deps: ImplementDeps,
+  opts: CreateImplementFlowOpts
+): Element<ImplementCtx> =>
+  sequential<ImplementCtx>('implement-epilogue', [
+    adoptPersistedBlocksLeaf({ taskRepo: deps.taskRepo, logger: deps.logger }),
+    ...(buildImplementEpilogue(deps, opts).children ?? []),
+  ]);
+
+/**
  * The decomposed implement run — prologue / per-task waves / epilogue as separate elements plus
  * the sprint-wide lock key. Produced by {@link planImplementWaves}; consumed by the parallel
  * launcher to run the prologue, then `runWaves` over the per-task waves, then the epilogue,
@@ -434,9 +478,11 @@ export interface ImplementWavePlan {
    */
   readonly waves: ReadonlyArray<readonly Task[]>;
   /**
-   * `sequential('implement-epilogue', [...])` — the once-per-run teardown (save → transition).
-   * Run once on its own runner after the waves (including on the abort/fatal path, so folded
-   * commits are durably persisted).
+   * `sequential('implement-epilogue', [...])` — the once-per-run teardown, built by
+   * {@link buildParallelImplementEpilogue} as `adopt-persisted-blocks` (reconcile) followed by
+   * every leaf {@link buildImplementEpilogue} produces (save → transition). Run once on its own
+   * runner after the waves (including on the abort/fatal path, so folded commits AND any block a
+   * non-completed branch already persisted are both durably recorded).
    */
   readonly epilogue: Element<ImplementCtx>;
   /**
@@ -450,8 +496,8 @@ export interface ImplementWavePlan {
 /**
  * Decompose an implement run into its reusable segments for the parallel launcher.
  *
- * Returns the extracted {@link buildImplementPrologue} / {@link buildImplementEpilogue} segments,
- * the dependency-scheduled task waves (`scheduleIntoWaves(opts.todoTasks, opts.satisfiedDependencyIds)`),
+ * Returns the extracted {@link buildImplementPrologue} / {@link buildParallelImplementEpilogue}
+ * segments, the dependency-scheduled task waves (`scheduleIntoWaves(opts.todoTasks, opts.satisfiedDependencyIds)`),
  * and the sprint-wide lock key — wrapped in a `Result` so an unschedulable task set is a loud,
  * distinguishable failure rather than a silent empty plan. Lands NO parallel behaviour itself — it
  * only computes the plan; the parallel launcher is the consumer that runs the prologue, fans the
@@ -483,7 +529,7 @@ export const planImplementWaves = (
   return Result.ok({
     prologue: buildImplementPrologue(deps, opts),
     waves: schedule.value,
-    epilogue: buildImplementEpilogue(deps, opts),
+    epilogue: buildParallelImplementEpilogue(deps, opts),
     lockKey: opts.sprintDir,
   });
 };

@@ -8,16 +8,47 @@ import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { AppEvent } from '@src/business/observability/events.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
 import type { FileLocker } from '@src/integration/io/file-locker.ts';
+import type { GitRunner } from '@src/integration/io/git-runner.ts';
 import type { Element, ElementResult } from '@src/application/chain/element.ts';
 import type { WaveBranch } from '@src/application/chain/run/wave-scheduler.ts';
+import { sequential } from '@src/application/chain/build/sequential.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
+import type { ImplementDeps } from '@src/application/flows/implement/deps.ts';
 import type { ImplementWavePlan } from '@src/application/flows/implement/flow.ts';
 import {
   createParallelImplementElement,
   type ParallelImplementConfig,
 } from '@src/application/flows/implement/parallel-element.ts';
+import { implementBranchId } from '@src/application/flows/implement/merge-wave.ts';
+import {
+  buildWorktreeBranch,
+  createFoldQueue,
+  worktreePathFor,
+  type BuildWaveBranchesDeps,
+} from '@src/application/flows/implement/wave-branch.ts';
+import type { RepoExecConfig } from '@src/application/flows/implement/leaves/resolve-repo.ts';
+import { startAttemptLeaf } from '@src/application/flows/implement/leaves/start-attempt.ts';
+import { settleAttemptLeaf } from '@src/application/flows/implement/leaves/settle-attempt.ts';
+import { adoptPersistedBlocksLeaf } from '@src/application/flows/implement/leaves/adopt-persisted-blocks.ts';
+import { quarantineStashMessage } from '@src/application/flows/implement/leaves/quarantine-blocked-diff.ts';
+import { saveTasksLeaf } from '@src/application/flows/_shared/task/save.ts';
 
-import { absolutePath, makeDoneTask, makePlannedSprint, makeTodoTask } from '@tests/fixtures/domain.ts';
+import {
+  absolutePath,
+  FIXED_LATER,
+  makeDoneTask,
+  makeInProgressTaskWithRunningAttempt,
+  makePlannedSprint,
+  makeTodoTask,
+} from '@tests/fixtures/domain.ts';
+import { noopLogger } from '@tests/fixtures/noop-logger.ts';
+import {
+  abortLandsIn,
+  fakeGitRecordingCwd,
+  recordingTaskRepo,
+  type RecordingTaskRepo,
+  turnEndedBlocked,
+} from '@tests/fixtures/implement-parallel.ts';
 
 const SPRINT_DIR = absolutePath('/data/sprints/s1');
 const LOCKS_ROOT = absolutePath('/state/locks');
@@ -526,5 +557,140 @@ describe('createParallelImplementElement — 2-wave durable fold survives abort 
 
     // Everything stayed inside the single held lock.
     expect(lockLog).toEqual(['lock-acquire', 'lock-release']);
+  });
+});
+
+describe('createParallelImplementElement — durable blocks survive the epilogue', () => {
+  // These cases run the REAL per-task leaves (`start-attempt` / `settle-attempt`) inside the REAL
+  // `buildWorktreeBranch` worktree adapter, over a fake git runner + an in-memory task repository —
+  // only the AI-facing gen-eval body is faked. The epilogue is the real `adopt-persisted-blocks` +
+  // `save-tasks` pair (what `buildParallelImplementEpilogue` produces), so these prove the fix at
+  // the SAME seam production wires it at, not just at the pure `mergeImplementWave` / leaf level.
+  const repo: RepoExecConfig = { path: absolutePath('/repos/main'), name: 'main-repo' };
+  const PROGRESS = absolutePath('/data/sprints/s1/progress.md');
+
+  const realEpilogue = (taskRepo: BuildWaveBranchesDeps['implement']['taskRepo']): Element<ImplementCtx> =>
+    sequential<ImplementCtx>('implement-epilogue', [
+      adoptPersistedBlocksLeaf({ taskRepo, logger: noopLogger }),
+      saveTasksLeaf<ImplementCtx>({ taskRepo }),
+    ]);
+
+  const branchDeps = (git: GitRunner, taskRepo: RecordingTaskRepo, bus: EventBus): BuildWaveBranchesDeps => ({
+    implement: {
+      gitRunner: git,
+      taskRepo,
+      appendFile: async () => Result.ok(undefined),
+      logger: noopLogger,
+      clock: () => FIXED_LATER,
+      eventBus: bus,
+    } as unknown as ImplementDeps,
+    eventBus: bus,
+    foldQueue: createFoldQueue(),
+  });
+
+  it('a task resumed at its attempt budget stays blocked, and a sibling that already completed keeps its done status', async () => {
+    const sprint = makePlannedSprint();
+    const resumed = makeInProgressTaskWithRunningAttempt({ maxAttempts: 1 });
+    const sibling = makeTodoTask({ name: 'sibling' });
+    const taskRepo = recordingTaskRepo([sibling, resumed]);
+    const git = fakeGitRecordingCwd(); // clean tree throughout — nothing to quarantine.
+    const events: AppEvent[] = [];
+    const bus = stubBus(events);
+    const log: string[] = [];
+    const deps = branchDeps(git.runner, taskRepo, bus);
+
+    // Sibling declared FIRST — the sibling-clobber regression this fix also closes only shows up
+    // when a completed branch is processed before the branch that fails.
+    const siblingBranch = doneBranch(sibling, log);
+    const resumedBranch: WaveBranch<ImplementCtx> = {
+      id: implementBranchId(resumed.id),
+      element: buildWorktreeBranch(
+        deps,
+        repo,
+        resumed,
+        worktreePathFor(SPRINT_DIR, resumed.id),
+        'ralphctl/s1/wt-resumed',
+        PROGRESS,
+        () =>
+          sequential<ImplementCtx>('task', [
+            startAttemptLeaf({ taskRepo, clock: () => FIXED_LATER, logger: noopLogger, eventBus: bus }, resumed.id),
+          ])
+      ),
+    };
+
+    const element = createParallelImplementElement(
+      plan(tagElement('implement-prologue', log), realEpilogue(taskRepo), [[sibling, resumed]]),
+      baseConfig({ buildWaves: () => [[siblingBranch, resumedBranch]] }, recordingLocker([]), bus)
+    );
+
+    const result = await element.execute({ sprintId: sprint.id, sprint, tasks: [sibling, resumed] });
+
+    expect(result.ok).toBe(true);
+
+    const persisted = await taskRepo.findBySprintId(sprint.id);
+    expect(persisted.ok).toBe(true);
+    if (!persisted.ok) return;
+    const persistedResumed = persisted.value.find((t) => t.id === resumed.id) as
+      (Task & { blockedReason?: string; blockKind?: string }) | undefined;
+    const persistedSibling = persisted.value.find((t) => t.id === sibling.id);
+
+    // Today this comes back `in_progress` and re-blocks/re-notifies on every relaunch.
+    expect(persistedResumed?.status).toBe('blocked');
+    expect(persistedResumed?.blockKind).toBe('own');
+    expect(persistedResumed?.blockedReason).toBe('attempt budget exhausted (maxAttempts=1)');
+    // Today the sibling comes back `todo` — clobbered by the failed branch's pre-wave ctx.
+    expect(persistedSibling?.status).toBe('done');
+
+    // Exactly one notification for the resume block — no duplicate re-block/re-notify.
+    expect(events.filter((e) => e.type === 'task-blocked')).toHaveLength(1);
+  });
+
+  it('an abort landing after settle already persisted a block keeps the block AND its stash pointer', async () => {
+    const sprint = makePlannedSprint();
+    const task = makeTodoTask();
+    const taskRepo = recordingTaskRepo([task]);
+    const git = fakeGitRecordingCwd({ dirty: true }); // a rejected diff is sitting in the worktree.
+    const bus = stubBus([]);
+    const wt = worktreePathFor(SPRINT_DIR, task.id);
+    const controller = new AbortController();
+    const deps = branchDeps(git.runner, taskRepo, bus);
+
+    const branch = buildWorktreeBranch(deps, repo, task, wt, 'ralphctl/s1/wt-abort', PROGRESS, () =>
+      sequential<ImplementCtx>('task', [
+        startAttemptLeaf({ taskRepo, clock: () => FIXED_LATER, logger: noopLogger, eventBus: bus }, task.id),
+        turnEndedBlocked('verify red'),
+        settleAttemptLeaf(
+          { taskRepo, clock: () => FIXED_LATER, logger: noopLogger, gitRunner: git.runner, eventBus: bus },
+          { cwd: wt },
+          task.id
+        ),
+        abortLandsIn(`append-learnings-${String(task.id)}`, controller),
+      ])
+    );
+
+    const element = createParallelImplementElement(
+      plan(tagElement('implement-prologue', []), realEpilogue(taskRepo), [[task]]),
+      baseConfig(
+        { buildWaves: () => [[{ id: implementBranchId(task.id), element: branch }]] },
+        recordingLocker([]),
+        bus
+      )
+    );
+
+    const result = await element.execute({ sprintId: sprint.id, sprint, tasks: [task] }, controller.signal);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.error).toBeInstanceOf(AbortError);
+
+    const persisted = await taskRepo.findBySprintId(sprint.id);
+    expect(persisted.ok).toBe(true);
+    if (!persisted.ok) return;
+    const persistedTask = persisted.value.find((t) => t.id === task.id) as
+      (Task & { blockedReason?: string }) | undefined;
+
+    // Today this comes back `todo` — both the block and the stash pointer are lost.
+    expect(persistedTask?.status).toBe('blocked');
+    expect(persistedTask?.blockedReason).toContain(quarantineStashMessage(sprint.id, task.id));
   });
 });

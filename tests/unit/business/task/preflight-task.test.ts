@@ -326,4 +326,47 @@ describe('preflightTaskUseCase', () => {
       expect(stash.calls[0]?.message).toContain('sprint unknown');
     });
   });
+
+  describe('reports how the tree was settled', () => {
+    const promptProps = (choice: DirtyTreeChoice, stashed = true) => ({
+      cwd: CWD,
+      gitStatusEntryCount: okCount(2),
+      dirtyTreePolicy: 'prompt' as const,
+      askDirtyTreeChoice: recordingAsk(okChoice(choice)).fn,
+      gitStash: recordingStash(Result.ok({ stashed })).fn,
+      gitReset: recordingReset(Result.ok(undefined)).fn,
+      clock: clockNow,
+      sprintId: SPRINT_ID,
+      logger: noopLogger,
+    });
+
+    it("'clean' when there was nothing to settle", async () => {
+      const result = await preflightTaskUseCase({ cwd: CWD, gitStatusEntryCount: okCount(0), logger: noopLogger });
+      expect(result.ok && result.value).toBe('clean');
+    });
+
+    it("'kept' when policy 'continue' proceeds on the dirt", async () => {
+      const result = await preflightTaskUseCase({
+        cwd: CWD,
+        gitStatusEntryCount: okCount(2),
+        dirtyTreePolicy: 'continue',
+        logger: noopLogger,
+      });
+      expect(result.ok && result.value).toBe('kept');
+    });
+
+    it.each([
+      ['keep', 'kept'],
+      ['stash', 'stashed'],
+      ['reset', 'reset'],
+    ] as const)("maps the operator's '%s' to '%s'", async (choice, expected) => {
+      const result = await preflightTaskUseCase(promptProps(choice));
+      expect(result.ok && result.value).toBe(expected);
+    });
+
+    it("'stashed' even when the stash found nothing left to save", async () => {
+      const result = await preflightTaskUseCase(promptProps('stash', false));
+      expect(result.ok && result.value).toBe('stashed');
+    });
+  });
 });

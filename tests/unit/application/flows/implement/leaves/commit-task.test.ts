@@ -69,7 +69,7 @@ describe('commitTaskLeaf', () => {
   it('skips when working tree is clean', async () => {
     const repo = fakeRepo();
     const task = makeInProgressTaskWithRunningAttempt();
-    const runner = scriptedRunner([{ args: ['status', '--porcelain'], result: ok('') }]);
+    const runner = scriptedRunner([{ args: ['status', '--porcelain', '--untracked-files=normal'], result: ok('') }]);
     const leaf = commitTaskLeaf({ gitRunner: runner, taskRepo: repo, logger: noopLogger }, { cwd: CWD }, task.id);
     const out = await leaf.execute(baseCtx(task));
     expect(out.ok).toBe(true);
@@ -82,9 +82,9 @@ describe('commitTaskLeaf', () => {
     const task = makeInProgressTaskWithRunningAttempt();
     const message = task.name;
     const runner = scriptedRunner([
-      { args: ['status', '--porcelain'], result: ok(' M file\n') },
+      { args: ['status', '--porcelain', '--untracked-files=normal'], result: ok(' M file\n') },
       { args: ['add', '-A'], result: ok() },
-      { args: ['status', '--porcelain'], result: ok('M  file\n') },
+      { args: ['status', '--porcelain', '--untracked-files=normal'], result: ok('M  file\n') },
       { args: ['commit', '-m', message], result: ok() },
       { args: ['rev-parse', 'HEAD'], result: ok(`${sha}\n`) },
     ]);
@@ -111,9 +111,9 @@ describe('commitTaskLeaf', () => {
     const task = makeInProgressTaskWithRunningAttempt();
     const message = task.name;
     const runner = scriptedRunner([
-      { args: ['status', '--porcelain'], result: ok(' M file\n') },
+      { args: ['status', '--porcelain', '--untracked-files=normal'], result: ok(' M file\n') },
       { args: ['add', '-A'], result: ok() },
-      { args: ['status', '--porcelain'], result: ok('M  file\n') },
+      { args: ['status', '--porcelain', '--untracked-files=normal'], result: ok('M  file\n') },
       { args: ['commit', '-m', message], result: ok('hook rejected', 1) },
     ]);
     const leaf = commitTaskLeaf({ gitRunner: runner, taskRepo: repo, logger }, { cwd: CWD }, task.id);
@@ -133,9 +133,9 @@ describe('commitTaskLeaf', () => {
     const task = makeInProgressTaskWithRunningAttempt();
     const message = 'feedback(round-1): user-driven';
     const runner = scriptedRunner([
-      { args: ['status', '--porcelain'], result: ok(' M file\n') },
+      { args: ['status', '--porcelain', '--untracked-files=normal'], result: ok(' M file\n') },
       { args: ['add', '-A'], result: ok() },
-      { args: ['status', '--porcelain'], result: ok('M  file\n') },
+      { args: ['status', '--porcelain', '--untracked-files=normal'], result: ok('M  file\n') },
       { args: ['commit', '-m', message], result: ok() },
       { args: ['rev-parse', 'HEAD'], result: ok(`${sha}\n`) },
     ]);

@@ -77,7 +77,130 @@ export interface SetupRun {
   /** Total wall-clock duration in ms. `0` for `'skipped'`. */
   readonly durationMs: number;
   readonly outcome: SetupRunOutcome;
+  /**
+   * What the post-setup working-tree check settled for this run. Present only on a `'success'`
+   * row whose check completed. Absent on failed / skipped rows, on rows written before the check
+   * recorded anything, and when the check errored or the operator dismissed its menu — an absent
+   * (or truncated) record makes the next launch run setup again instead of resume-skipping it.
+   */
+  readonly tree?: SetupTreeRecord;
 }
+
+/** How the post-setup working-tree check settled what a setup script changed. */
+export type SetupTreeOutcome =
+  /** The script introduced no working-tree entry. */
+  | 'unchanged'
+  /** The script's changes stayed in the tree — the operator chose Keep, or the policy is `continue`. */
+  | 'kept'
+  /** The operator stashed the tree. */
+  | 'stashed'
+  /** The operator reset the tree. */
+  | 'reset';
+
+/**
+ * The durable answer of a repo's post-setup working-tree check. Parallel task worktrees run the
+ * same setup script on a fresh checkout and match what it changes against `seenPaths`, without
+ * re-reading the main checkout (sibling folds change it mid-wave).
+ */
+export interface SetupTreeRecord {
+  readonly outcome: SetupTreeOutcome;
+  /**
+   * Repo-relative paths the operator has already seen: every entry that was in the tree right
+   * before setup (dirt they kept at the dirty-tree menu, or that policy `continue` let through)
+   * plus every entry the script introduced, whatever was then done with it. Entries the script
+   * introduced come first. An entry ending in `/` stands for everything under that directory — an
+   * untracked directory as git lists it, or a directory {@link recordSetupTree} collapsed paths
+   * into to stay within {@link SETUP_TREE_SEEN_PATHS_MAX}. Read it through
+   * {@link setupTreeRecordCovers}.
+   */
+  readonly seenPaths: readonly string[];
+  /**
+   * `true` when even collapsed to top-level directories the paths did not fit, so the list was cut
+   * — a path missing from it may still have been seen. Such a record is never resumed from.
+   */
+  readonly seenPathsTruncated: boolean;
+}
+
+/** Upper bound on {@link SetupTreeRecord.seenPaths}, so a huge dirty tree can't bloat `execution.json`. */
+export const SETUP_TREE_SEEN_PATHS_MAX = 200;
+
+/** `path` is on the record, or sits under one of its `/`-terminated directory entries. */
+export const setupTreeRecordCovers = (record: SetupTreeRecord, path: string): boolean =>
+  record.seenPaths.some((seen) => seen === path || (seen.endsWith('/') && path.startsWith(seen)));
+
+/**
+ * Build a {@link SetupTreeRecord}: de-duplicates `seenPaths` keeping first occurrences in order.
+ * A list longer than {@link SETUP_TREE_SEEN_PATHS_MAX} is collapsed into directory entries rather
+ * than cut, so every path stays covered — see {@link collapseSeenPaths}. Only a list that doesn't fit
+ * even then is cut, and flagged.
+ */
+export const recordSetupTree = (outcome: SetupTreeOutcome, seenPaths: readonly string[]): SetupTreeRecord => {
+  const unique = [...new Set(seenPaths)];
+  if (unique.length <= SETUP_TREE_SEEN_PATHS_MAX) return { outcome, seenPaths: unique, seenPathsTruncated: false };
+  const collapsed = collapseSeenPaths(unique, SETUP_TREE_SEEN_PATHS_MAX);
+  return {
+    outcome,
+    seenPaths: collapsed.slice(0, SETUP_TREE_SEEN_PATHS_MAX),
+    seenPathsTruncated: collapsed.length > SETUP_TREE_SEEN_PATHS_MAX,
+  };
+};
+
+/**
+ * The `/`-terminated directories holding `path`, outermost first — `a/b/c.ts` and the directory
+ * entry `a/b/c/` both sit in `['a/', 'a/b/']`. A top-level entry sits in none.
+ */
+const ancestorsOf = (path: string): readonly string[] => {
+  const parents = (path.endsWith('/') ? path.slice(0, -1) : path).split('/').slice(0, -1);
+  return parents.map((_, i) => `${parents.slice(0, i + 1).join('/')}/`);
+};
+
+/** Drops duplicates and entries a directory entry already covers, keeping first positions. */
+const withoutCovered = (paths: readonly string[]): readonly string[] => {
+  const unique = [...new Set(paths)];
+  const dirs = new Set(unique.filter((path) => path.endsWith('/')));
+  return unique.filter((path) => !ancestorsOf(path).some((dir) => dirs.has(dir)));
+};
+
+/**
+ * Replace paths with the directory that holds them until at most `max` entries remain, going no
+ * coarser than it has to: the deepest directories are tried first, and at each depth the ones
+ * holding the most entries go first, stopping as soon as the list fits. The result keeps the
+ * input's order (a collapsed directory takes its first path's place) and may still exceed `max`
+ * when there are more top-level entries than that.
+ */
+const collapseSeenPaths = (paths: readonly string[], max: number): readonly string[] => {
+  let current = withoutCovered(paths);
+  const deepest = current.reduce((depth, path) => Math.max(depth, ancestorsOf(path).length), 0);
+  for (let depth = deepest; depth >= 1 && current.length > max; depth -= 1) {
+    current = collapseAtDepth(current, depth, max);
+  }
+  return current;
+};
+
+/**
+ * One collapse pass: group the entries by the directory `depth` levels down that holds them, and
+ * collapse the biggest groups until the list fits. A directory holding a single entry is never
+ * collapsed — that would widen what counts as seen and save nothing.
+ */
+const collapseAtDepth = (paths: readonly string[], depth: number, max: number): readonly string[] => {
+  const dirAt = (path: string): string | undefined => ancestorsOf(path)[depth - 1];
+  const largestFirst = [...Map.groupBy(paths, dirAt)]
+    .flatMap(([dir, members]) => (dir !== undefined && members.length > 1 ? [{ dir, saves: members.length - 1 }] : []))
+    .sort((a, b) => b.saves - a.saves);
+  const collapse = new Set<string>();
+  let remaining = paths.length;
+  for (const { dir, saves } of largestFirst) {
+    if (remaining <= max) break;
+    collapse.add(dir);
+    remaining -= saves;
+  }
+  return withoutCovered(
+    paths.map((path) => {
+      const dir = dirAt(path);
+      return dir !== undefined && collapse.has(dir) ? dir : path;
+    })
+  );
+};
 
 export interface SprintExecutionCreateInput {
   readonly sprintId: SprintId;

@@ -217,6 +217,10 @@ const buildAgentDefinitionInstallLeaves = (
  * in `pre-task-verify-internals/verify-execution.ts`) — without that exclusion the harness's own
  * fixture would masquerade as a pre-existing broken baseline (`attributeVerify` → always
  * `'baseline-broken'`), defeating never-commit-on-red for every defect-shaped task.
+ *
+ * A relaunch whose earlier work sits in the quarantine stash is the exception: the reproduce leaf
+ * then writes nothing and reuses the reproduction that launch saved, because its test is in that
+ * stash and `restore-blocked-diff` pops it back only onto a clean tree, after `pre-task-verify`.
  */
 const buildReproduceLeaves = (
   deps: ImplementDeps,
@@ -234,6 +238,8 @@ const buildReproduceLeaves = (
         templateLoader: deps.templateLoader,
         publishSignal: deps.publishSignal,
         shellScriptRunner: deps.shellScriptRunner,
+        gitRunner: deps.gitRunner,
+        writeFile: deps.writeFile,
         logger: deps.logger,
       },
       {

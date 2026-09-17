@@ -86,6 +86,54 @@ describe('codec round-trip', () => {
     expect(roundTrip(withPr, fromJsonSprintExecution)).toEqual(withPr);
   });
 
+  describe('SprintExecution — setup-run working-tree record', () => {
+    const successRun = {
+      repositoryId: FIXED_REPOSITORY_ID,
+      ranAt: isoTimestamp('2026-01-01T00:00:00Z'),
+      command: 'pnpm install',
+      exitCode: 0,
+      durationMs: 1500,
+      outcome: 'success' as const,
+    };
+    const rowJson = (tree: unknown): unknown => {
+      const execution = appendExecutionSetupRun(makeDraftSprintBundle().execution, successRun);
+      const json = JSON.parse(JSON.stringify(execution)) as { setupRanAt: Array<Record<string, unknown>> };
+      const row = json.setupRanAt[0];
+      if (row === undefined) throw new Error('seed');
+      row['tree'] = tree;
+      return json;
+    };
+
+    it('round-trips the outcome and the seen paths', () => {
+      const execution = appendExecutionSetupRun(makeDraftSprintBundle().execution, {
+        ...successRun,
+        tree: { outcome: 'kept', seenPaths: ['pnpm-lock.yaml', 'gen/'], seenPathsTruncated: false },
+      });
+      expect(roundTrip(execution, fromJsonSprintExecution)).toEqual(execution);
+    });
+
+    it('reads a row written without the record as having none', () => {
+      const r = fromJsonSprintExecution(rowJson(undefined));
+      expect(r.ok).toBe(true);
+      if (r.ok) expect(r.value.setupRanAt[0]?.tree).toBeUndefined();
+    });
+
+    it.each([
+      ['an unknown outcome', { outcome: 'archived', seenPaths: [], seenPathsTruncated: false }],
+      ['a missing path list', { outcome: 'kept', seenPathsTruncated: false }],
+      ['a malformed path list', { outcome: 'stashed', seenPaths: [42], seenPathsTruncated: false }],
+      ['a non-object record', 'kept'],
+    ])('drops a record with %s instead of failing the whole file', (_label, tree) => {
+      const r = fromJsonSprintExecution(rowJson(tree));
+      expect(r.ok).toBe(true);
+      if (r.ok) {
+        expect(r.value.setupRanAt).toHaveLength(1);
+        expect(r.value.setupRanAt[0]?.outcome).toBe('success');
+        expect(r.value.setupRanAt[0]?.tree).toBeUndefined();
+      }
+    });
+  });
+
   it('Task todo — round-trips with empty attempts', () => {
     const original = makeTodoTask();
     expect(roundTrip(original, fromJsonTask)).toEqual(original);

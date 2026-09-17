@@ -165,8 +165,13 @@ const unblockTaskAction = async (rawTaskId: string, opts: SprintOpt): Promise<vo
   // Same wording as `sprint reopen`'s own confirmation.
   const reopened = result.value.sprintReopened;
   if (reopened !== undefined) {
+    // A retried review → active hop that failed again reports `from === status`: nothing moved,
+    // so "reopened … review → review" would misstate it.
+    const moved = reopened.from !== reopened.sprint.status;
     process.stdout.write(
-      `reopened sprint '${reopened.sprint.slug}' (${sprintRef}) ${reopened.from} → ${reopened.sprint.status}\n`
+      moved
+        ? `reopened sprint '${reopened.sprint.slug}' (${sprintRef}) ${reopened.from} → ${reopened.sprint.status}\n`
+        : `sprint '${reopened.sprint.slug}' (${sprintRef}) is still ${reopened.sprint.status}\n`
     );
     if (reopened.sprint.status !== 'active') {
       process.stderr.write(`note: the review → active step did not persist — run '${retry}' again to finish it\n`);

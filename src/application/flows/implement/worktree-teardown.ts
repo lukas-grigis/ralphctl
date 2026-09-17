@@ -10,11 +10,19 @@ import { StorageError } from '@src/domain/value/error/storage-error.ts';
 
 import type { ElementResult } from '@src/application/chain/element.ts';
 import type { OnTrace } from '@src/application/chain/trace.ts';
-import { gitDeleteBranch, gitHasUncommittedChanges, gitWorktreeRemove } from '@src/integration/io/git-operations.ts';
+import {
+  gitDeleteBranch,
+  gitHasUncommittedChanges,
+  gitStashList,
+  gitStashPush,
+  gitWorktreeRemove,
+  stashEntryMatchesMessage,
+} from '@src/integration/io/git-operations.ts';
 
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import {
   isSettledBlocked,
+  quarantineStashMessage,
   runQuarantineBlockedDiff,
 } from '@src/application/flows/implement/leaves/quarantine-blocked-diff.ts';
 import type { BuildWaveBranchesDeps } from '@src/application/flows/implement/wave-branch.ts';
@@ -22,9 +30,44 @@ import type { BuildWaveBranchesDeps } from '@src/application/flows/implement/wav
 /**
  * The worktree teardown, split out of `wave-branch.ts` as its own module (the same way
  * `worktree-fold.ts` is): deciding how a branch's task ended, quarantining a rejected diff,
- * choosing whether the throwaway ref survives, and removing the worktree is one self-contained
- * concern that `wave-branch.ts`'s `withWorktree` runs exactly once on every exit path.
+ * re-stashing a restored diff an interrupted attempt left behind, choosing whether the throwaway ref
+ * survives, and removing the worktree is one self-contained concern that `wave-branch.ts`'s
+ * `withWorktree` runs exactly once on every exit path.
  */
+
+/**
+ * How many stash entries sit under `message` — `taskId`'s quarantine key — in `listed`. The key can
+ * hold more than one: when a restore's pop fails, git keeps the entry, and the block that attempt
+ * then reaches quarantines a second diff under the same message.
+ */
+const countQuarantined = (listed: readonly string[], message: string): number =>
+  listed.filter((entry) => stashEntryMatchesMessage(entry, message)).length;
+
+/**
+ * How many entries `taskId`'s quarantine key holds in the stash right now — taken once when a branch
+ * starts, before anything in it can pop one (see {@link WorktreeTeardownArgs}). The stash is shared
+ * by every worktree of the repo, so the main repo's listing is the worktree's too.
+ *
+ * A failed listing counts as zero: the teardown then behaves as it did before it knew about
+ * restored diffs, which is also what it does for every branch whose task had nothing quarantined.
+ */
+export const snapshotQuarantinedDiff = async (
+  deps: BuildWaveBranchesDeps,
+  repoRoot: AbsolutePath,
+  sprintId: SprintId,
+  taskId: TaskId
+): Promise<number> => {
+  const listed = await gitStashList(deps.implement.gitRunner, repoRoot);
+  if (listed.ok) return countQuarantined(listed.value, quarantineStashMessage(sprintId, taskId));
+  deps.implement.logger.warn(
+    "stash list failed at branch start — a restored diff can't be re-stashed if this branch is interrupted",
+    {
+      taskId: String(taskId),
+      error: listed.error.message,
+    }
+  );
+  return 0;
+};
 
 /** Everything the worktree teardown needs, closed over once per branch execution. */
 export interface WorktreeTeardownArgs {
@@ -36,6 +79,12 @@ export interface WorktreeTeardownArgs {
   readonly sprintId: SprintId;
   /** Attempts the task carried when the branch started — see {@link readPersistedOutcome}. */
   readonly attemptsAtStart: number;
+  /**
+   * How many entries the task's quarantine key held in the stash when the branch started
+   * ({@link snapshotQuarantinedDiff}). Only an entry listed then can an attempt of this branch have
+   * popped into the worktree — see {@link requarantineRestoredDiff}.
+   */
+  readonly quarantinedAtStart: number;
   readonly progressFile: AbsolutePath;
   readonly onTrace: OnTrace | undefined;
 }
@@ -44,11 +93,18 @@ export interface WorktreeTeardownArgs {
  * How the branch's task ended, as far as the teardown can tell.
  *
  *  - `known`: `blocked` is the task's copy when it ended `blocked`; `quarantine` says whether that
- *    block may have left a rejected AI diff in the worktree.
+ *    block may have left a rejected AI diff in the worktree; `restoredDiffAtRisk` says whether the
+ *    last attempt this branch opened was interrupted before it committed anything, so a diff
+ *    `restore-blocked-diff` popped may still sit in the worktree with no other copy.
  *  - `unknown`: no settled ctx reached the teardown AND the persisted task could not be read.
  */
 type TaskOutcome =
-  | { readonly kind: 'known'; readonly blocked: BlockedTask | undefined; readonly quarantine: boolean }
+  | {
+      readonly kind: 'known';
+      readonly blocked: BlockedTask | undefined;
+      readonly quarantine: boolean;
+      readonly restoredDiffAtRisk: boolean;
+    }
   | { readonly kind: 'unknown'; readonly error: DomainError };
 
 /** `taskId`'s copy off a ctx, if it's there AND ended `blocked`. */
@@ -57,10 +113,20 @@ const findBlockedTask = (ctx: ImplementCtx, taskId: TaskId): BlockedTask | undef
   return task?.status === 'blocked' ? task : undefined;
 };
 
-/** A settled ctx is authoritative — the same `isSettledBlocked` gate the serial path's guard uses. */
+/**
+ * A settled ctx is authoritative — the same `isSettledBlocked` gate the serial path's guard uses. A
+ * subchain that settled consumed any diff it restored: the restore only runs when a generator turn
+ * follows, so that diff was committed, stashed for a granted retry, or blocked with a turn on
+ * record, which this `quarantine` covers.
+ */
 const outcomeFromCtx = (ctx: ImplementCtx, taskId: TaskId): TaskOutcome => {
   const blocked = findBlockedTask(ctx, taskId);
-  return { kind: 'known', blocked, quarantine: blocked !== undefined && isSettledBlocked(ctx, taskId) };
+  return {
+    kind: 'known',
+    blocked,
+    quarantine: blocked !== undefined && isSettledBlocked(ctx, taskId),
+    restoredDiffAtRisk: false,
+  };
 };
 
 /**
@@ -89,15 +155,27 @@ const findPersistedTask = async (args: WorktreeTeardownArgs): Promise<Result<Tas
  * resume recovery block without opening one, so their worktree holds setup-script output at most.
  * A block inside an opened attempt IS quarantined even when zero turns ran (the persisted task
  * can't tell), which is the safe side: that gate protects operator WIP in the serial path's shared
- * tree, a fresh worktree carries none, and the attempt may have restored an earlier rejected diff —
- * the worst case is a spurious stash, never lost work.
+ * tree, a fresh worktree carries none, and whatever the worktree holds past setup is the attempt's
+ * own — the worst case is a spurious stash, never lost work.
+ *
+ * A task still `in_progress` was interrupted mid-attempt. `restoredDiffAtRisk` is set when the
+ * last attempt this branch opened recorded no commit: the restore runs after that attempt's
+ * `start-attempt`, so a diff it popped is still uncommitted in the worktree. An EARLIER attempt's
+ * commit says nothing about it — attempt 1 can commit the entry it popped, and attempt 2 can pop
+ * another entry under the same key and be interrupted.
  */
 const readPersistedOutcome = async (args: WorktreeTeardownArgs): Promise<TaskOutcome> => {
   const found = await findPersistedTask(args);
   if (!found.ok) return { kind: 'unknown', error: found.error };
   const task = found.value;
-  if (task.status !== 'blocked') return { kind: 'known', blocked: undefined, quarantine: false };
-  return { kind: 'known', blocked: task, quarantine: task.attempts.length > args.attemptsAtStart };
+  const opened = task.attempts.slice(args.attemptsAtStart);
+  if (task.status !== 'blocked') {
+    const lastOpened = opened.at(-1);
+    const interruptedUncommitted =
+      task.status === 'in_progress' && lastOpened !== undefined && lastOpened.commitSha === undefined;
+    return { kind: 'known', blocked: undefined, quarantine: false, restoredDiffAtRisk: interruptedUncommitted };
+  }
+  return { kind: 'known', blocked: task, quarantine: opened.length > 0, restoredDiffAtRisk: false };
 };
 
 /**
@@ -121,16 +199,20 @@ const worktreeMayHoldWork = async (args: WorktreeTeardownArgs): Promise<boolean>
 };
 
 /**
- * The fail-safe exit for an `unknown` outcome over a worktree that may hold work: leave the
- * worktree AND its ref on disk rather than guess. Removing it could destroy a rejected diff.
- * Stashing it blind has no blocked task to record the pointer on, and `restore-blocked-diff` could
- * then pop that stash into the next attempt of a task that may never have blocked. Leaving it
- * destroys nothing: the task's next launch fails loudly at `git worktree add` until the operator
- * has looked at the worktree and removed it, which the warning below spells out.
+ * The fail-safe exit whenever the teardown can't tell that removing the worktree destroys nothing:
+ * leave the worktree AND its ref on disk rather than guess. `reason` names what it couldn't tell.
+ *
+ *  - An `unknown` outcome over a worktree that may hold work. Removing it could destroy a rejected
+ *    diff. Stashing it blind has no blocked task to record the pointer on, and `restore-blocked-diff`
+ *    could then pop that stash into the next attempt of a task that may never have blocked.
+ *  - A restored diff {@link requarantineRestoredDiff} could not confirm is back in the stash.
+ *
+ * Leaving it destroys nothing: the task's next launch fails loudly at `git worktree add` until the
+ * operator has looked at the worktree and removed it, which the warning below spells out.
  */
-const keepWorktreeForInspection = (args: WorktreeTeardownArgs, error: DomainError): void => {
+const keepWorktreeForInspection = (args: WorktreeTeardownArgs, error: DomainError, reason: string): void => {
   const worktreePath = String(args.worktreePath);
-  args.deps.implement.logger.warn('worktree kept — could not read the task to tell whether it ended blocked', {
+  args.deps.implement.logger.warn(`worktree kept — ${reason}`, {
     taskId: String(args.taskId),
     worktreePath,
     branchRef: args.branchRef,
@@ -175,10 +257,68 @@ const quarantineDiff = async (args: WorktreeTeardownArgs, task: BlockedTask): Pr
 };
 
 /**
- * The worktree teardown — quarantine-if-blocked, then cleanup. Runs EXACTLY ONCE on EVERY exit path
- * of a branch: a settled result, a non-fatal failure, an abort, and a throw out of the body. The
- * once-ness is structural, not incidental — see the call sites in `wave-branch.ts`'s
- * `withWorktree`.
+ * Put a diff `restore-blocked-diff` popped back in the stash before an interrupted branch's worktree
+ * is removed. A successful pop drops the stash entry, so the worktree holds the only copy, and an
+ * abort / error / throw that lands before the attempt commits it or quarantines it again leaves the
+ * persisted task `in_progress` — no block for the regular quarantine to act on.
+ *
+ * Runs against the WORKTREE (where the diff sits; the stash itself is shared with the main repo),
+ * and compares how many entries the task's key holds now with {@link WorktreeTeardownArgs}'s
+ * `quarantinedAtStart`:
+ *  - as many as at branch start → nothing was popped (the restore found a dirty tree, conflicted,
+ *    or never ran), so there is nothing to put back;
+ *  - fewer → an attempt popped one, so `git stash push -u` under the same message — a no-op on a
+ *    clean tree. It also takes whatever the interrupted attempt wrote on top, since the two can't be
+ *    told apart; the next attempt resumes from both.
+ *
+ * A count, not "is any entry listed": the key can hold several entries, the pop takes the newest,
+ * and an older one still listed says nothing about the one that left. The count is exact because
+ * nothing else moves this key while the branch runs. Keys are per task, a launch runs one branch per
+ * task, siblings only push and pop their own keys, and the only push under this key on the parallel
+ * path is the teardown's own — the blocked-task quarantine, which never runs together with this.
+ *
+ * No `blockedReason` pointer is written — the task isn't blocked — and the journal breadcrumb from
+ * the original quarantine already names the same key. A failed listing or push returns the error:
+ * the caller then keeps the worktree instead of removing a diff it could not save.
+ */
+const requarantineRestoredDiff = async (args: WorktreeTeardownArgs): Promise<Result<void, StorageError>> => {
+  const { gitRunner, logger } = args.deps.implement;
+  const message = quarantineStashMessage(args.sprintId, args.taskId);
+  const listed = await gitStashList(gitRunner, args.worktreePath);
+  if (!listed.ok) return Result.error(listed.error);
+  if (countQuarantined(listed.value, message) >= args.quarantinedAtStart) return Result.ok(undefined);
+  const pushed = await gitStashPush(gitRunner, args.worktreePath, message);
+  if (!pushed.ok) return Result.error(pushed.error);
+  if (pushed.value.stashed) {
+    logger.warn("interrupted attempt's restored diff re-quarantined", {
+      taskId: String(args.taskId),
+      stashMessage: message,
+    });
+  }
+  return Result.ok(undefined);
+};
+
+/**
+ * `true` when the worktree is safe to remove as far as a restored diff goes: nothing was at risk,
+ * or {@link requarantineRestoredDiff} put it back. `false` after keeping the worktree instead.
+ */
+const protectRestoredDiff = async (args: WorktreeTeardownArgs, atRisk: boolean): Promise<boolean> => {
+  if (!atRisk || args.quarantinedAtStart === 0) return true;
+  const saved = await requarantineRestoredDiff(args);
+  if (saved.ok) return true;
+  keepWorktreeForInspection(
+    args,
+    saved.error,
+    "could not confirm an interrupted attempt's restored diff is back in the stash"
+  );
+  return false;
+};
+
+/**
+ * The worktree teardown — quarantine-if-blocked, re-stash an interrupted attempt's restored diff,
+ * then cleanup. Runs EXACTLY ONCE on EVERY exit path of a branch: a settled result, a non-fatal
+ * failure, an abort, and a throw out of the body. The once-ness is structural, not incidental — see
+ * the call sites in `wave-branch.ts`'s `withWorktree`.
  *
  * `result` is the branch's own outcome, or `undefined` when the body THREW. It is a PARAMETER
  * rather than a definite-assignment `let` read from an enclosing `finally` for exactly that case:
@@ -199,7 +339,7 @@ export const teardownWorktree = async (
 ): Promise<BlockedTask | undefined> => {
   const outcome = await resolveOutcome(args, result, settledCtx);
   if (outcome.kind === 'unknown' && (await worktreeMayHoldWork(args))) {
-    keepWorktreeForInspection(args, outcome.error);
+    keepWorktreeForInspection(args, outcome.error, 'could not read the task to tell whether it ended blocked');
     return undefined;
   }
   const blocked = outcome.kind === 'known' ? outcome.blocked : undefined;
@@ -207,6 +347,7 @@ export const teardownWorktree = async (
     blocked !== undefined && outcome.kind === 'known' && outcome.quarantine
       ? await quarantineDiff(args, blocked)
       : undefined;
+  if (!(await protectRestoredDiff(args, outcome.kind === 'known' && outcome.restoredDiffAtRisk))) return undefined;
   // Cleanup runs on every other path — success, non-fatal failure, abort, or throw. The worktree's
   // commits are already folded by the body's fold step (or this ref is the only place they live, if
   // the fold itself is what blocked the task, or never ran to completion at all), so a forced remove
@@ -221,10 +362,10 @@ export const teardownWorktree = async (
  * persists the SAME pointer `recordQuarantineUseCase` already wrote to disk — otherwise the
  * epilogue's later `tasks.json` write would clobber it. Only meaningful on a successful result: an
  * errored / aborted / thrown one has no ctx slot to fold into, and `recordQuarantineUseCase` already
- * persisted the pointer straight to `taskRepo` regardless. The epilogue rewrites such a task back to
- * its pre-wave copy, which drops that pointer again — the stash itself (found by its deterministic
- * message, both by `git stash list` and by `restore-blocked-diff` on the task's next attempt) and
- * the `progress.md` breadcrumb are what survive.
+ * persisted the pointer straight to `taskRepo` regardless. On THAT path (the branch's overall result
+ * errors or aborts after the pointer already landed on disk), `mergeImplementWave` contributes
+ * nothing for this branch, so the epilogue's `adopt-persisted-blocks` leaf is what re-reads the
+ * persisted block AND its pointer before `saveTasksLeaf` runs — neither is simply dropped anymore.
  */
 export const foldQuarantinePointer = (
   result: ElementResult<ImplementCtx>,
@@ -285,10 +426,12 @@ const cleanupWorktree = async (args: WorktreeTeardownArgs, keep: KeepBranchRefRe
     // drops the ref unconditionally the next time THIS task starts — which for a blocked task is
     // the first relaunch after the operator unblocks it. Past that point the commit survives only
     // through its SHA, and WHERE that SHA still is depends on which reason kept the ref:
-    //  - `task-blocked`: the branch completed, so `captureDurableFold` recorded the settled task and
-    //    the epilogue persists it — the SHA `commitTaskUseCase` wrote is still in `tasks.json` (an
-    //    operator unblock archives the attempts into `retiredAttempts` rather than deleting them)
-    //    AND on `progress.md`'s `- Commit: <sha>` line.
+    //  - `task-blocked`: whether the branch itself completed (a fold conflict, `captureDurableFold`
+    //    records the settled task and the epilogue persists it directly) or errored/aborted AFTER a
+    //    leaf had already persisted the block (`adopt-persisted-blocks` re-reads it into the epilogue
+    //    — see that leaf and `foldQuarantinePointer`'s docstring) — the SHA `commitTaskUseCase` wrote
+    //    is still in `tasks.json` (an operator unblock archives the attempts into `retiredAttempts`
+    //    rather than deleting them) AND on `progress.md`'s `- Commit: <sha>` line.
     //  - `fold-incomplete`: the branch never emitted `completed`, so `captureDurableFold` skips it
     //    and the epilogue writes that task back to its PRE-WAVE copy — clobbering the mid-run
     //    attempt row that held `commitSha`. `progress.md`'s `- Commit:` line is then the only

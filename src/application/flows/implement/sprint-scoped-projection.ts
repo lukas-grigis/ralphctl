@@ -77,6 +77,8 @@ const CTX_FIELD_CLASS = {
   execution: { merge: SPRINT, attempt: CARRY },
   progressFile: { merge: SPRINT, attempt: CARRY },
   setupVerifiedRepoIdsThisRun: { merge: SPRINT, attempt: CARRY },
+  // The main checkout's recorded post-setup answer — every task worktree of every wave reads it.
+  setupTreeRecords: { merge: SPRINT, attempt: CARRY },
   // Loaded once in the prologue; every branch reads the same cross-sprint memory → run-scoped.
   priorLearnings: { merge: SPRINT, attempt: CARRY },
   // task list → each merge caller projects its own value (overlay vs straight carry); never
@@ -209,6 +211,7 @@ export const projectSprintScopedFields = (ctx: ImplementCtx): Required<Pick<Impl
   execution: ctx.execution,
   progressFile: ctx.progressFile,
   setupVerifiedRepoIdsThisRun: ctx.setupVerifiedRepoIdsThisRun,
+  setupTreeRecords: ctx.setupTreeRecords,
   priorLearnings: ctx.priorLearnings,
 });
 

@@ -98,6 +98,13 @@ describe('SprintDetailView — u on a closed sprint whose reopen is refused', ()
     expect(frame).toContain('unblocked "wedged"');
     expect(frame).toContain('cannot reopen sprint');
     expect(frame).toContain("sprint 'live-sprint' is already active in this project");
+    // The conflict's hint (names the command that releases the peer) and the two-step follow-up
+    // (reopen the sprint, then `u` again) must both survive — dropping either leaves the operator
+    // with a task that IS revived but no way back to knowing how to make it runnable again.
+    expect(frame).toContain("close sprint 'live-sprint' first");
+    expect(frame).toContain("'ralphctl sprint close sprint-peer-fixture'");
+    expect(frame).toContain("'ralphctl sprint reopen sprint-closed-fixture'");
+    expect(frame).toContain('u again');
     result.unmount();
   });
 

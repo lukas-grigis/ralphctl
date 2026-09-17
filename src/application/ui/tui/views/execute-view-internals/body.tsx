@@ -221,9 +221,10 @@ export const ExecuteBody = (props: ExecuteBodyProps): React.JSX.Element => {
   const effectiveTasksDone = useMemo(
     () =>
       bucketed !== undefined
-        ? overlayEntityBlockedStatus(bucketed, taskState).tasks.filter((t) => t.status === 'completed').length
+        ? overlayEntityBlockedStatus(bucketed, taskState, isRunning).tasks.filter((t) => t.status === 'completed')
+            .length
         : tasksDone,
-    [bucketed, taskState, tasksDone]
+    [bucketed, taskState, tasksDone, isRunning]
   );
   return (
     <Box flexDirection="column">

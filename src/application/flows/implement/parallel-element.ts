@@ -17,7 +17,7 @@ import { repoLockFile } from '@src/integration/io/lock-paths.ts';
 
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import type { ImplementWavePlan } from '@src/application/flows/implement/flow.ts';
-import { mergeImplementWave } from '@src/application/flows/implement/merge-wave.ts';
+import { mergeImplementWave, ownedTask } from '@src/application/flows/implement/merge-wave.ts';
 
 /** Static config the parallel orchestrator needs beyond the wave plan + branch builder. */
 export interface ParallelImplementConfig {
@@ -61,9 +61,14 @@ const PARALLEL_ELEMENT_NAME = 'implement-parallel';
  *      — fans one branch per task per wave; each branch folds onto the shared sprint branch through
  *      the single fold queue.
  *   3. epilogue runner — ALWAYS runs, on the partially-merged ctx, even when `runWaves` returned an
- *      abort / fatal error (THE B4 durability gate). The epilogue's `saveTasksLeaf` persists every
- *      task whose commit was folded before the failure, so those commits are recorded in
- *      `tasks.json` and never re-execute as duplicates on relaunch.
+ *      abort / fatal error (THE B4 durability gate). Its FIRST leaf, `adopt-persisted-blocks`,
+ *      re-reads `tasks.json` and pulls back any `blocked` row a non-`completed` branch already
+ *      persisted (a resume-budget exhaustion, a settle-then-abort, a dependency-gate block) before
+ *      `saveTasksLeaf` runs — `mergeImplementWave` skips a non-`completed` branch entirely, so
+ *      without this the epilogue would clobber that persisted block with the branch's pre-wave
+ *      copy and the next launch would re-enter, re-block, and re-notify forever. `saveTasksLeaf`
+ *      then persists every task whose commit was folded before the failure, so those commits are
+ *      recorded in `tasks.json` and never re-execute as duplicates on relaunch.
  *
  * After the epilogue, the `runWaves` error (AbortError verbatim, or a rate-limit) propagates so the
  * sprint stays runnable — in-progress / un-settled tasks reset to `todo` on the next launch via the
@@ -158,11 +163,11 @@ const runUnderLock = async (
         maxConcurrency: config.maxConcurrency,
         merge: mergeImplementWave,
         onFatal: 'drain',
-        onBranchRunner: (runner) => {
+        onBranchRunner: (runner, branch) => {
           branchUnsubs.add(
             bridgeRunnerToEventBus(runner as Runner<unknown>, config.eventBus, { flowId: config.flowId })
           );
-          branchUnsubs.add(captureDurableFold(runner, durablyFolded));
+          branchUnsubs.add(captureDurableFold(runner, branch.id, durablyFolded));
         },
       },
       signal
@@ -194,29 +199,43 @@ const runUnderLock = async (
 };
 
 /**
- * Subscribe to a branch runner and capture its DURABLY-SETTLED task copies into the shared overlay
+ * Subscribe to a branch runner and capture its DURABLY-SETTLED task copy into the shared overlay
  * once it reaches a terminal state. ONLY a runner that `completed` is captured: a `completed`
  * branch ran its fold step to the end, so its task either folded (`done`) or fold-conflicted
  * (`blocked`) — either way the transition is durable. An `aborted` / `failed` branch is skipped so
  * its task falls back to `base` (resets to `todo` and re-runs).
  *
+ * Captures ONLY the task the branch OWNS (via {@link ownedTask}, keyed off the branch's stable
+ * `id`) — never the whole `event.ctx.tasks` list. A branch's ctx nominally carries every task
+ * (`forkCtx` seeds the full list so per-task leaves can read sibling dependencies), so recording
+ * the full list here would let a branch that completed EARLIER be overwritten, on this abort-path
+ * overlay, by a LATER-completing sibling's still-pre-wave copy of that same task — the exact
+ * sibling-clobber this map exists to avoid.
+ *
  * Returns the runner-subscription unsub so the wave-level guaranteed teardown can force-detach it
  * if the branch never delivered a terminal event. The listener self-detaches on a clean terminal;
  * the returned unsub is the belt to that braces (idempotent — calling it twice is a no-op).
  */
-const captureDurableFold = (runner: Runner<ImplementCtx>, into: Map<TaskId, Task>): (() => void) => {
+const captureDurableFold = (runner: Runner<ImplementCtx>, branchId: string, into: Map<TaskId, Task>): (() => void) => {
   const unsub = runner.subscribe((event) => {
     if (event.type !== 'completed') {
       if (event.type === 'failed' || event.type === 'aborted') unsub();
       return;
     }
-    for (const task of event.ctx.tasks ?? []) into.set(task.id, task);
+    const owned = ownedTask(branchId, event.ctx);
+    if (owned !== undefined) into.set(owned.id, owned);
     unsub();
   });
   return unsub;
 };
 
-/** Overlay the durably-folded task copies onto a base ctx's `tasks` by id (the abort-path epilogue ctx). */
+/**
+ * Overlay the durably-folded task copies onto a base ctx's `tasks` by id — the abort-path epilogue
+ * ctx. `folded` holds only tasks OWNED by a branch that reached `completed` (see
+ * {@link captureDurableFold}), so this can only ever advance a task, never revert one; any block a
+ * non-`completed` branch persisted to disk (and is therefore NOT in `folded`) is picked back up
+ * separately by the epilogue's `adopt-persisted-blocks` leaf, not here.
+ */
 const overlayDurable = (base: ImplementCtx, folded: ReadonlyMap<TaskId, Task>): ImplementCtx => {
   if (base.tasks === undefined) return base;
   return { ...base, tasks: base.tasks.map((t) => folded.get(t.id) ?? t) };

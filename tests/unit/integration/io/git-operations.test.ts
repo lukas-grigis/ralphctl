@@ -88,7 +88,7 @@ describe('gitDiffFootprint', () => {
 
 describe('gitStatusPorcelain', () => {
   it('returns empty list on clean tree', async () => {
-    const { runner } = scriptRunner([{ args: ['status', '--porcelain'], result: ok('') }]);
+    const { runner } = scriptRunner([{ args: ['status', '--porcelain', '--untracked-files=normal'], result: ok('') }]);
     const result = await gitStatusPorcelain(runner, cwd);
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.value).toEqual([]);
@@ -96,7 +96,9 @@ describe('gitStatusPorcelain', () => {
 
   it('parses entries including renames', async () => {
     const stdout = ' M src/a.ts\nA  src/b.ts\nR  src/old.ts -> src/new.ts\n?? untracked.txt\n';
-    const { runner } = scriptRunner([{ args: ['status', '--porcelain'], result: ok(stdout) }]);
+    const { runner } = scriptRunner([
+      { args: ['status', '--porcelain', '--untracked-files=normal'], result: ok(stdout) },
+    ]);
     const result = await gitStatusPorcelain(runner, cwd);
     expect(result.ok).toBe(true);
     if (result.ok) {
@@ -111,7 +113,7 @@ describe('gitStatusPorcelain', () => {
 
   it('surfaces non-zero exit as StorageError', async () => {
     const { runner } = scriptRunner([
-      { args: ['status', '--porcelain'], result: ok('', 128, 'fatal: not a git repo') },
+      { args: ['status', '--porcelain', '--untracked-files=normal'], result: ok('', 128, 'fatal: not a git repo') },
     ]);
     const result = await gitStatusPorcelain(runner, cwd);
     expect(result.ok).toBe(false);
@@ -121,13 +123,15 @@ describe('gitStatusPorcelain', () => {
 
 describe('gitHasUncommittedChanges', () => {
   it('false on clean tree', async () => {
-    const { runner } = scriptRunner([{ args: ['status', '--porcelain'], result: ok('') }]);
+    const { runner } = scriptRunner([{ args: ['status', '--porcelain', '--untracked-files=normal'], result: ok('') }]);
     const result = await gitHasUncommittedChanges(runner, cwd);
     expect(result.ok && result.value).toBe(false);
   });
 
   it('true when status has any entry', async () => {
-    const { runner } = scriptRunner([{ args: ['status', '--porcelain'], result: ok(' M file\n') }]);
+    const { runner } = scriptRunner([
+      { args: ['status', '--porcelain', '--untracked-files=normal'], result: ok(' M file\n') },
+    ]);
     const result = await gitHasUncommittedChanges(runner, cwd);
     expect(result.ok && result.value).toBe(true);
   });
@@ -161,7 +165,9 @@ describe('gitCommitWithMessage', () => {
   const sha = 'b'.repeat(40);
 
   it('returns committed:false on clean tree (no commit attempted)', async () => {
-    const { runner, received } = scriptRunner([{ args: ['status', '--porcelain'], result: ok('') }]);
+    const { runner, received } = scriptRunner([
+      { args: ['status', '--porcelain', '--untracked-files=normal'], result: ok('') },
+    ]);
     const result = await gitCommitWithMessage(runner, cwd, 'task(abc): hello');
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.value.committed).toBe(false);
@@ -170,9 +176,9 @@ describe('gitCommitWithMessage', () => {
 
   it('stages, commits, and resolves new HEAD on a dirty tree', async () => {
     const { runner } = scriptRunner([
-      { args: ['status', '--porcelain'], result: ok(' M file\n') },
+      { args: ['status', '--porcelain', '--untracked-files=normal'], result: ok(' M file\n') },
       { args: ['add', '-A'], result: ok() },
-      { args: ['status', '--porcelain'], result: ok('M  file\n') },
+      { args: ['status', '--porcelain', '--untracked-files=normal'], result: ok('M  file\n') },
       { args: ['commit', '-m', 'task(abc): hello'], result: ok() },
       { args: ['rev-parse', 'HEAD'], result: ok(`${sha}\n`) },
     ]);
@@ -183,9 +189,9 @@ describe('gitCommitWithMessage', () => {
 
   it('returns committed:false when index is empty after add (e.g. all .gitignored)', async () => {
     const { runner } = scriptRunner([
-      { args: ['status', '--porcelain'], result: ok(' M file\n') },
+      { args: ['status', '--porcelain', '--untracked-files=normal'], result: ok(' M file\n') },
       { args: ['add', '-A'], result: ok() },
-      { args: ['status', '--porcelain'], result: ok('') },
+      { args: ['status', '--porcelain', '--untracked-files=normal'], result: ok('') },
     ]);
     const result = await gitCommitWithMessage(runner, cwd, 'task(abc): hello');
     expect(result.ok).toBe(true);
@@ -205,9 +211,9 @@ describe('gitCommitWithMessage', () => {
     // argv with ARG_MAX headroom in the hundreds of KB; git itself has no length limit.
     const message = `feat(x): a fat conventional commit\n\n${'lorem ipsum '.repeat(200).trim()}`;
     const { runner, received } = scriptRunner([
-      { args: ['status', '--porcelain'], result: ok(' M file\n') },
+      { args: ['status', '--porcelain', '--untracked-files=normal'], result: ok(' M file\n') },
       { args: ['add', '-A'], result: ok() },
-      { args: ['status', '--porcelain'], result: ok('M  file\n') },
+      { args: ['status', '--porcelain', '--untracked-files=normal'], result: ok('M  file\n') },
       { args: ['commit', '-m', message], result: ok() },
       { args: ['rev-parse', 'HEAD'], result: ok(`${sha}\n`) },
     ]);
@@ -219,9 +225,9 @@ describe('gitCommitWithMessage', () => {
   it('preserves quotes and special chars verbatim through argv', async () => {
     const message = `task(x): \`$foo\` "quotes"`;
     const { runner, received } = scriptRunner([
-      { args: ['status', '--porcelain'], result: ok(' M file\n') },
+      { args: ['status', '--porcelain', '--untracked-files=normal'], result: ok(' M file\n') },
       { args: ['add', '-A'], result: ok() },
-      { args: ['status', '--porcelain'], result: ok('M  file\n') },
+      { args: ['status', '--porcelain', '--untracked-files=normal'], result: ok('M  file\n') },
       { args: ['commit', '-m', message], result: ok() },
       { args: ['rev-parse', 'HEAD'], result: ok(`${sha}\n`) },
     ]);
@@ -233,7 +239,7 @@ describe('gitCommitWithMessage', () => {
 
 describe('gitStashPush', () => {
   it('returns stashed:false on clean tree', async () => {
-    const { runner } = scriptRunner([{ args: ['status', '--porcelain'], result: ok('') }]);
+    const { runner } = scriptRunner([{ args: ['status', '--porcelain', '--untracked-files=normal'], result: ok('') }]);
     const result = await gitStashPush(runner, cwd, 'preflight-stash');
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.value.stashed).toBe(false);
@@ -241,7 +247,7 @@ describe('gitStashPush', () => {
 
   it('stashes when dirty', async () => {
     const { runner } = scriptRunner([
-      { args: ['status', '--porcelain'], result: ok(' M file\n') },
+      { args: ['status', '--porcelain', '--untracked-files=normal'], result: ok(' M file\n') },
       { args: ['stash', 'push', '-u', '-m', 'preflight-stash'], result: ok() },
     ]);
     const result = await gitStashPush(runner, cwd, 'preflight-stash');

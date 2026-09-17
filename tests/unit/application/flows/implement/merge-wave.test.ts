@@ -17,7 +17,13 @@ import {
 import type { BranchOutcome } from '@src/application/chain/run/wave-scheduler.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import type { RepoExecConfig } from '@src/application/flows/implement/leaves/resolve-repo.ts';
-import { forkCtx, mergeImplementWave } from '@src/application/flows/implement/merge-wave.ts';
+import {
+  adoptPersistedBlocks,
+  forkCtx,
+  implementBranchId,
+  mergeImplementWave,
+  ownedTask,
+} from '@src/application/flows/implement/merge-wave.ts';
 
 const blockedFrom = (task: ReturnType<typeof makeInProgressTaskWithRunningAttempt>): Task => {
   const result = markTaskBlocked(task, 'plateau persists after escalation', 'own');
@@ -50,69 +56,81 @@ const makeBaseCtx = (tasks: readonly Task[]): ImplementCtx => ({
   currentAttemptNotes: ['noted Z'],
 });
 
-/** A completed branch whose chain settled `task` into its final state. */
-const completedBranch = (id: string, base: ImplementCtx, settled: Task): BranchOutcome<ImplementCtx> => ({
-  id,
+/**
+ * A completed branch whose chain settled `settled` into its final state — the branch's outcome ctx
+ * carries ONLY its own task, exactly like the real branch body (`buildWorktreeBranch`) narrows it.
+ */
+const completedBranch = (base: ImplementCtx, settled: Task): BranchOutcome<ImplementCtx> => ({
+  id: implementBranchId(settled.id),
   status: 'completed',
   ctx: { ...base, tasks: [settled] },
 });
 
-/** A non-fatal failed branch: an absorbed error, branch ctx carries the (blocked) task transition. */
-const absorbedFailureBranch = (
-  id: string,
-  base: ImplementCtx,
-  settled: Task,
-  error: DomainError
-): BranchOutcome<ImplementCtx> => ({
-  id,
+/**
+ * A NON-fatal failed branch, shaped exactly as the real scheduler produces it (`toOutcome` passes
+ * `runner.ctx`, which the runner never advances past `initialCtx` on a failed step — see
+ * `runner.ts`): `ctx` is `base` VERBATIM, carrying every task at its pre-branch status, not just the
+ * one this branch was working on.
+ */
+const failedBranch = (taskId: Task['id'], base: ImplementCtx, error: DomainError): BranchOutcome<ImplementCtx> => ({
+  id: implementBranchId(taskId),
   status: 'failed',
-  ctx: { ...base, tasks: [settled] },
+  ctx: base,
   error,
 });
 
-/** A killed branch per the wave-scheduler contract: `failed` with NO error — did not complete. */
-const killedBranch = (id: string, base: ImplementCtx, untouched: Task): BranchOutcome<ImplementCtx> => ({
-  id,
-  status: 'failed',
-  ctx: { ...base, tasks: [untouched] },
+const absorbedError = new InvalidStateError({
+  entity: 'task',
+  currentState: 'x',
+  attemptedAction: 'y',
+  message: 'absorbed',
 });
 
 describe('mergeImplementWave', () => {
-  it('overlays each settled branch task onto base.tasks by id', () => {
+  it('overlays each completed branch task onto base.tasks by id', () => {
     const t1 = makeTodoTask({ name: 't1' });
     const t2 = makeTodoTask({ name: 't2' });
     const base = makeBaseCtx([t1, t2]);
 
-    const t1Done = makeDoneTask({ name: 't1' });
-    const t2Done = makeDoneTask({ name: 't2' });
-    // Re-key the settled copies onto the base task ids so the overlay matches.
-    const t1Settled: Task = { ...t1Done, id: t1.id };
-    const t2Settled: Task = { ...t2Done, id: t2.id };
+    const t1Settled: Task = { ...makeDoneTask({ name: 't1' }), id: t1.id };
+    const t2Settled: Task = { ...makeDoneTask({ name: 't2' }), id: t2.id };
 
-    const merged = mergeImplementWave(base, [
-      completedBranch('task-1', base, t1Settled),
-      completedBranch('task-2', base, t2Settled),
-    ]);
+    const merged = mergeImplementWave(base, [completedBranch(base, t1Settled), completedBranch(base, t2Settled)]);
 
     expect(merged.tasks?.find((t) => t.id === t1.id)?.status).toBe('done');
     expect(merged.tasks?.find((t) => t.id === t2.id)?.status).toBe('done');
   });
 
-  it('is commutative over disjoint branches — shuffling outcomes yields an identical merged ctx', () => {
+  it('is commutative over disjoint completed branches — shuffling outcomes yields an identical merged ctx', () => {
     const t1 = makeTodoTask({ name: 't1' });
     const t2 = makeTodoTask({ name: 't2' });
     const t3 = makeTodoTask({ name: 't3' });
     const base = makeBaseCtx([t1, t2, t3]);
 
     const settle = (src: Task, model: Task): Task => ({ ...model, id: src.id });
-    const o1 = completedBranch('task-1', base, settle(t1, makeDoneTask({ name: 't1' })));
-    const o2 = absorbedFailureBranch(
-      'task-2',
-      base,
-      settle(t2, blockedFrom(makeInProgressTaskWithRunningAttempt())),
-      new InvalidStateError({ entity: 'task', currentState: 'x', attemptedAction: 'y', message: 'absorbed' })
-    );
-    const o3 = completedBranch('task-3', base, settle(t3, makeDoneTask({ name: 't3' })));
+    const o1 = completedBranch(base, settle(t1, makeDoneTask({ name: 't1' })));
+    const o2 = completedBranch(base, settle(t2, blockedFrom(makeInProgressTaskWithRunningAttempt())));
+    const o3 = completedBranch(base, settle(t3, makeDoneTask({ name: 't3' })));
+
+    const inOrder = mergeImplementWave(base, [o1, o2, o3]);
+    const shuffledA = mergeImplementWave(base, [o3, o1, o2]);
+    const shuffledB = mergeImplementWave(base, [o2, o3, o1]);
+
+    expect(shuffledA).toStrictEqual(inOrder);
+    expect(shuffledB).toStrictEqual(inOrder);
+  });
+
+  it('is commutative even with a REALISTIC failed outcome mixed in (its full-base ctx contributes nothing)', () => {
+    const t1 = makeTodoTask({ name: 't1' });
+    const t2 = makeTodoTask({ name: 't2' });
+    const t3 = makeTodoTask({ name: 't3' });
+    const base = makeBaseCtx([t1, t2, t3]);
+
+    const t1Settled: Task = { ...makeDoneTask({ name: 't1' }), id: t1.id };
+    const t3Settled: Task = { ...makeDoneTask({ name: 't3' }), id: t3.id };
+    const o1 = completedBranch(base, t1Settled);
+    const o2 = failedBranch(t2.id, base, absorbedError);
+    const o3 = completedBranch(base, t3Settled);
 
     const inOrder = mergeImplementWave(base, [o1, o2, o3]);
     const shuffledA = mergeImplementWave(base, [o3, o1, o2]);
@@ -125,7 +143,7 @@ describe('mergeImplementWave', () => {
   it('carries sprint-scoped fields straight from base', () => {
     const t1 = makeTodoTask();
     const base = makeBaseCtx([t1]);
-    const merged = mergeImplementWave(base, [completedBranch('task-1', base, { ...makeDoneTask(), id: t1.id })]);
+    const merged = mergeImplementWave(base, [completedBranch(base, { ...makeDoneTask(), id: t1.id })]);
 
     expect(merged.sprintId).toBe(base.sprintId);
     expect(merged.sprint).toBe(base.sprint);
@@ -136,7 +154,7 @@ describe('mergeImplementWave', () => {
   it('clears per-task single-slot and signal-accum fields in the merged ctx', () => {
     const t1 = makeTodoTask();
     const base = makeBaseCtx([t1]);
-    const merged = mergeImplementWave(base, [completedBranch('task-1', base, { ...makeDoneTask(), id: t1.id })]);
+    const merged = mergeImplementWave(base, [completedBranch(base, { ...makeDoneTask(), id: t1.id })]);
 
     // per-task single-slot
     expect(merged.currentTaskId).toBeUndefined();
@@ -151,43 +169,74 @@ describe('mergeImplementWave', () => {
     expect(merged.currentAttemptNotes).toBeUndefined();
   });
 
-  it('leaves a killed branch task untouched (failed / no error) so it resets/re-runs', () => {
+  it('a failed branch (no error — killed mid-flight) leaves its task untouched so it resets/re-runs', () => {
     const t1 = makeTodoTask({ name: 't1' });
     const t2 = makeTodoTask({ name: 't2' });
     const base = makeBaseCtx([t1, t2]);
 
-    // task-1 genuinely settled to done; task-2 was killed mid-flight.
     const t1Settled: Task = { ...makeDoneTask({ name: 't1' }), id: t1.id };
-    // A killed branch's ctx still nominally carries SOME task copy — but it must be ignored.
-    const t2Stale: Task = { ...makeDoneTask({ name: 't2-should-be-ignored' }), id: t2.id };
+    const killed: BranchOutcome<ImplementCtx> = { id: implementBranchId(t2.id), status: 'failed', ctx: base };
 
-    const merged = mergeImplementWave(base, [
-      completedBranch('task-1', base, t1Settled),
-      killedBranch('task-2', base, t2Stale),
-    ]);
+    const merged = mergeImplementWave(base, [completedBranch(base, t1Settled), killed]);
 
     expect(merged.tasks?.find((t) => t.id === t1.id)?.status).toBe('done');
-    // task-2 must be the ORIGINAL base task (still todo), not the killed branch's stale copy.
+    // task-2 must be the ORIGINAL base task (still todo) — the killed branch's `ctx` (== base)
+    // contributes nothing, even though it nominally still carries a `t2` entry.
     const t2Merged = merged.tasks?.find((t) => t.id === t2.id);
     expect(t2Merged).toBe(t2);
     expect(t2Merged?.status).toBe('todo');
   });
 
-  it('overlays an absorbed non-fatal failure (failed WITH error) — it genuinely settled the task', () => {
+  it('a NON-fatal failed branch (error present) still contributes nothing — its task keeps the base copy', () => {
     const t1 = makeTodoTask();
     const base = makeBaseCtx([t1]);
-    const blocked: Task = { ...blockedFrom(makeInProgressTaskWithRunningAttempt()), id: t1.id };
 
-    const merged = mergeImplementWave(base, [
-      absorbedFailureBranch(
-        'task-1',
-        base,
-        blocked,
-        new InvalidStateError({ entity: 'task', currentState: 'x', attemptedAction: 'y', message: 'absorbed' })
-      ),
-    ]);
+    const merged = mergeImplementWave(base, [failedBranch(t1.id, base, absorbedError)]);
 
-    expect(merged.tasks?.find((t) => t.id === t1.id)?.status).toBe('blocked');
+    // Per the real scheduler contract a failed outcome's `ctx` is the runner's `initialCtx` — never
+    // a transition — so the merge must NOT read `blocked` (or any other status) out of it. Any block
+    // this branch's leaves already persisted to disk is picked up separately by the epilogue's
+    // `adopt-persisted-blocks` leaf, not by this reducer.
+    expect(merged.tasks?.find((t) => t.id === t1.id)).toBe(t1);
+    expect(merged.tasks?.find((t) => t.id === t1.id)?.status).toBe('todo');
+  });
+
+  it('a failed branch never reverts a sibling that a DIFFERENT branch already completed earlier in declaration order', () => {
+    const t1 = makeTodoTask({ name: 't1' });
+    const t2 = makeInProgressTaskWithRunningAttempt();
+    const base = makeBaseCtx([t1, t2]);
+
+    const t1Done: Task = { ...makeDoneTask({ name: 't1' }), id: t1.id };
+    const outcomes: ReadonlyArray<BranchOutcome<ImplementCtx>> = [
+      completedBranch(base, t1Done),
+      failedBranch(t2.id, base, absorbedError),
+    ];
+
+    const merged = mergeImplementWave(base, outcomes);
+
+    expect(merged.tasks?.find((t) => t.id === t1.id)?.status).toBe('done');
+    expect(merged.tasks?.find((t) => t.id === t2.id)).toBe(t2);
+  });
+
+  it('a completed outcome contributes ONLY the task its branch owns, even if its ctx nominally carries a sibling too', () => {
+    const t1 = makeTodoTask({ name: 't1' });
+    const t2 = makeTodoTask({ name: 't2' });
+    const base = makeBaseCtx([t1, t2]);
+
+    const t1Done: Task = { ...makeDoneTask({ name: 't1' }), id: t1.id };
+    // A stale, DIFFERENT-OBJECT copy of t2 sitting on the same outcome ctx (as `forkCtx` would leave
+    // it before narrowing) — the merge must never read it.
+    const staleT2: Task = { ...t2, name: 'should-not-be-read' };
+    const outcome: BranchOutcome<ImplementCtx> = {
+      id: implementBranchId(t1.id),
+      status: 'completed',
+      ctx: { ...base, tasks: [t1Done, staleT2] },
+    };
+
+    const merged = mergeImplementWave(base, [outcome]);
+
+    expect(merged.tasks?.find((t) => t.id === t1.id)?.status).toBe('done');
+    expect(merged.tasks?.find((t) => t.id === t2.id)).toBe(t2);
   });
 
   it('returns base.tasks unchanged when there are no outcomes', () => {
@@ -197,6 +246,65 @@ describe('mergeImplementWave', () => {
 
     expect(merged.tasks?.map((t) => t.id)).toStrictEqual([t1.id]);
     expect(merged.tasks?.[0]?.status).toBe('todo');
+  });
+});
+
+describe('ownedTask', () => {
+  it('finds the task whose id encodes to the given branch id', () => {
+    const t1 = makeTodoTask({ name: 't1' });
+    const t2 = makeTodoTask({ name: 't2' });
+    const ctx = makeBaseCtx([t1, t2]);
+
+    expect(ownedTask(implementBranchId(t1.id), ctx)).toBe(t1);
+    expect(ownedTask(implementBranchId(t2.id), ctx)).toBe(t2);
+  });
+
+  it('returns undefined when no task matches or tasks is undefined', () => {
+    const t1 = makeTodoTask();
+    expect(ownedTask('task-does-not-exist', makeBaseCtx([t1]))).toBeUndefined();
+    expect(ownedTask(implementBranchId(t1.id), { sprintId: sprint.id })).toBeUndefined();
+  });
+});
+
+describe('adoptPersistedBlocks', () => {
+  it('substitutes the persisted row when an in-memory in_progress/todo task is BLOCKED on disk', () => {
+    const inMemory = makeInProgressTaskWithRunningAttempt();
+    const persistedBlocked = blockedFrom(inMemory);
+
+    const result = adoptPersistedBlocks([inMemory], [persistedBlocked]);
+
+    expect(result[0]).toBe(persistedBlocked);
+  });
+
+  it('leaves a todo task unchanged when its persisted row is also todo', () => {
+    const t = makeTodoTask();
+    const result = adoptPersistedBlocks([t], [t]);
+    expect(result[0]).toBe(t);
+  });
+
+  it('never adopts a persisted done over an in-memory blocked (fold-conflict) task', () => {
+    const inProgress = makeInProgressTaskWithRunningAttempt();
+    const blocked = blockedFrom(inProgress);
+    const persistedDone: Task = { ...makeDoneTask(), id: blocked.id };
+
+    const result = adoptPersistedBlocks([blocked], [persistedDone]);
+
+    expect(result[0]).toBe(blocked);
+  });
+
+  it('never adopts a persisted done over an in-memory in_progress task (an unfolded commit must re-run)', () => {
+    const inProgress = makeInProgressTaskWithRunningAttempt();
+    const persistedDone: Task = { ...makeDoneTask(), id: inProgress.id };
+
+    const result = adoptPersistedBlocks([inProgress], [persistedDone]);
+
+    expect(result[0]).toBe(inProgress);
+  });
+
+  it('leaves a task unchanged when it has no persisted row at all', () => {
+    const t = makeInProgressTaskWithRunningAttempt();
+    const result = adoptPersistedBlocks([t], []);
+    expect(result[0]).toBe(t);
   });
 });
 
@@ -321,5 +429,32 @@ describe('exhaustiveness guard (compile-time)', () => {
     expect(merged.priorLearnings).toBeUndefined();
     expect(forked.setupVerifiedRepoIdsThisRun).toBeUndefined();
     expect(forked.priorLearnings).toBeUndefined();
+    expect(merged.setupTreeRecords).toBeUndefined();
+    expect(forked.setupTreeRecords).toBeUndefined();
+  });
+
+  it("carries the main checkout's recorded setup answer into every fork and across every merge", () => {
+    const t1 = makeTodoTask();
+    const setupTreeRecords: ImplementCtx['setupTreeRecords'] = new Map([
+      [t1.repositoryId, { outcome: 'stashed', seenPaths: ['pnpm-lock.yaml'], seenPathsTruncated: false }],
+    ]);
+    const base: ImplementCtx = { ...makeBaseCtx([t1]), setupTreeRecords };
+    const settled: Task = { ...makeDoneTask(), id: t1.id };
+
+    const { ctx: forked } = forkCtx(
+      base,
+      { path: absolutePath('/repos/main'), name: 'main-repo' },
+      absolutePath('/repos/.worktrees/wt-1')
+    );
+    const merged = mergeImplementWave(base, [completedBranch(base, settled)]);
+    const nextFork = forkCtx(
+      merged,
+      { path: absolutePath('/repos/main'), name: 'main-repo' },
+      absolutePath('/repos/.worktrees/wt-2')
+    ).ctx;
+
+    expect(forked.setupTreeRecords).toBe(setupTreeRecords);
+    expect(merged.setupTreeRecords).toBe(setupTreeRecords);
+    expect(nextFork.setupTreeRecords).toBe(setupTreeRecords);
   });
 });

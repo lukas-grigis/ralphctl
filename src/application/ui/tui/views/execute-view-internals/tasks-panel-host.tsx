@@ -304,8 +304,8 @@ const TasksPanelHostImpl = ({
   // from a clean completion. Stable reference when nothing needed correcting (no blocked entity,
   // or the trace already agrees), so this doesn't defeat `TasksPanel`'s internal memoization.
   const correctedBucketed = useMemo(
-    () => (bucketed !== undefined ? overlayEntityBlockedStatus(bucketed, taskState) : undefined),
-    [bucketed, taskState]
+    () => (bucketed !== undefined ? overlayEntityBlockedStatus(bucketed, taskState, isRunning) : undefined),
+    [bucketed, taskState, isRunning]
   );
   // Absent when `plannedLeaves` is not available (legacy sessions / non-implement flows).
   const plannedLeaves = descriptor.plannedLeaves;
