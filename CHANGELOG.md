@@ -7,6 +7,8 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-09-17
+
 ### Added
 
 - **Grok Build CLI (`xai-grok`) as a fifth backend**, joining Claude Code, GitHub Copilot,

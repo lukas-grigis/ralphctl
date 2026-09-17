@@ -1,6 +1,6 @@
 {
   "name": "ralphctl",
-  "version": "0.21.0",
+  "version": "0.22.0",
   "description": "A ralph harness for long-running AI coding tasks — a generator-evaluator loop that drives Claude Code, GitHub Copilot CLI, OpenAI Codex CLI, OpenCode or Grok Build CLI across one or more repositories",
   "homepage": "https://github.com/lukas-grigis/ralphctl",
   "type": "module",
