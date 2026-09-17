@@ -9,7 +9,8 @@
  *
  * The git fake models the working tree as a set of porcelain lines: the shell fake adds the
  * setup script's output to it, and stash / reset clear it — so every status probe sees a
- * consistent tree.
+ * consistent tree. The tree guard's `-z` snapshot gets NUL-terminated records, the preflight's
+ * plain status newline-terminated ones, as real git prints them.
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
@@ -64,8 +65,9 @@ const workingTree = (initial: readonly string[]): WorkingTree => {
     async run(_cwd, args) {
       calls.push([...args]);
       const [verb, sub] = args;
-      if (verb === 'status' && sub === '--porcelain') {
-        return okGit([...lines].map((l) => `${l}\n`).join(''), 0);
+      if (verb === 'status') {
+        const terminator = args.includes('-z') ? '\0' : '\n';
+        return okGit([...lines].map((l) => `${l}${terminator}`).join(''), 0);
       }
       if (verb === 'rev-parse' && sub === '--abbrev-ref') return okGit(`${BRANCH}\n`, 0);
       if (verb === 'stash' && sub === 'push') {
@@ -83,8 +85,9 @@ const workingTree = (initial: readonly string[]): WorkingTree => {
 };
 
 /** A setup script that writes `writes` into the tree when it runs (empty → well-behaved). */
-const setupWriting = (tree: WorkingTree, writes: readonly string[]): ShellScriptRunner => ({
+const setupWriting = (tree: WorkingTree, writes: readonly string[], spawns: { count: number }): ShellScriptRunner => ({
   async run() {
+    spawns.count += 1;
     for (const w of writes) tree.lines.add(w);
     return Result.ok({ passed: true, exitCode: 0, output: 'bootstrapped\n', durationMs: 5 });
   },
@@ -120,6 +123,8 @@ interface Harness {
   readonly deps: ImplementDeps;
   readonly opts: CreateImplementFlowOpts;
   readonly initialCtx: ImplementCtx;
+  readonly execution: () => SprintExecution;
+  readonly spawns: { count: number };
 }
 
 const buildHarness = (
@@ -134,6 +139,7 @@ const buildHarness = (
   const tasks: readonly Task[] = [
     makeTodoTask({ name: 'task-1', order: 1, ticketId: ticket.id, repositoryId: FIXED_REPOSITORY_ID }),
   ];
+  const spawns = { count: 0 };
   const repositories = new Map<RepositoryId, RepoExecConfig>([
     [FIXED_REPOSITORY_ID, { path: REPO, name: 'repo', setupScript: SETUP_COMMAND }],
   ]);
@@ -159,7 +165,7 @@ const buildHarness = (
     logger: noopLogger,
     clock: () => FIXED_LATER,
     gitRunner: tree.runner,
-    shellScriptRunner: setupWriting(tree, setupWrites),
+    shellScriptRunner: setupWriting(tree, setupWrites, spawns),
     interactive: prompt.interactive,
     appendFile: async () => Result.ok(undefined),
   } as unknown as ImplementDeps;
@@ -178,7 +184,7 @@ const buildHarness = (
     projectId: 'proj-post-setup',
     projectSlug: slug('proj-post-setup'),
   };
-  return { deps, opts, initialCtx: { sprintId: sprint.id } };
+  return { deps, opts, initialCtx: { sprintId: sprint.id }, execution: () => execution, spawns };
 };
 
 describe('buildImplementPrologue — post-setup working-tree check', () => {
@@ -205,6 +211,62 @@ describe('buildImplementPrologue — post-setup working-tree check', () => {
     // The green setup verdict described a tree the operator then stashed — it must not seed a
     // fresh-setup baseline for the first pre-task-verify.
     if (out.ok) expect(out.value.ctx.setupVerifiedRepoIdsThisRun).toBeUndefined();
+    // The answer is durable and reaches the task waves.
+    const recorded = { outcome: 'stashed', seenPaths: ['src/generated.ts'], seenPathsTruncated: false };
+    expect(h.execution().setupRanAt.at(-1)?.tree).toStrictEqual(recorded);
+    if (out.ok) expect(out.value.ctx.setupTreeRecords?.get(FIXED_REPOSITORY_ID)).toStrictEqual(recorded);
+  });
+
+  it('a relaunch reuses the recorded answer — setup is not run again and nothing is asked', async () => {
+    const tree = workingTree([]);
+    const prompt = answering(['stash']);
+    const h = buildHarness(root, tree, ['?? src/generated.ts'], prompt);
+    const first = await buildImplementPrologue(h.deps, h.opts).execute(h.initialCtx);
+    expect(first.ok).toBe(true);
+
+    const second = await buildImplementPrologue(h.deps, h.opts).execute(h.initialCtx);
+
+    expect(second.ok).toBe(true);
+    expect(h.spawns.count).toBe(1);
+    expect(prompt.questions).toHaveLength(1);
+    if (second.ok) {
+      expect(second.value.ctx.setupTreeRecords?.get(FIXED_REPOSITORY_ID)).toStrictEqual({
+        outcome: 'stashed',
+        seenPaths: ['src/generated.ts'],
+        seenPathsTruncated: false,
+      });
+    }
+  });
+
+  it('a relaunch after a success with no recorded answer runs setup once more to record one', async () => {
+    const tree = workingTree([]);
+    const prompt = answering([]);
+    const h = buildHarness(root, tree, [], prompt);
+    const legacy: SprintExecution = {
+      ...h.execution(),
+      setupRanAt: [
+        {
+          repositoryId: FIXED_REPOSITORY_ID,
+          ranAt: FIXED_LATER,
+          command: SETUP_COMMAND,
+          exitCode: 0,
+          durationMs: 5,
+          outcome: 'success',
+        },
+      ],
+    };
+    await h.deps.sprintExecutionRepo.save(legacy);
+
+    const out = await buildImplementPrologue(h.deps, h.opts).execute(h.initialCtx);
+
+    expect(out.ok).toBe(true);
+    expect(h.spawns.count).toBe(1);
+    expect(h.execution().setupRanAt).toHaveLength(2);
+    expect(h.execution().setupRanAt.at(-1)?.tree).toStrictEqual({
+      outcome: 'unchanged',
+      seenPaths: [],
+      seenPathsTruncated: false,
+    });
   });
 
   it('asks nothing when setup leaves the tree unchanged', async () => {
@@ -230,6 +292,14 @@ describe('buildImplementPrologue — post-setup working-tree check', () => {
     // The one question is the up-front dirty-tree menu — not a second one after setup.
     expect(prompt.questions).toHaveLength(1);
     expect(prompt.questions[0]).not.toContain(SETUP_COMMAND);
+    // The kept dirt is on record as seen, so a task worktree whose setup touches it drops it.
+    if (out.ok) {
+      expect(out.value.ctx.setupTreeRecords?.get(FIXED_REPOSITORY_ID)).toStrictEqual({
+        outcome: 'unchanged',
+        seenPaths: ['src/wip.ts'],
+        seenPathsTruncated: false,
+      });
+    }
   });
 
   it('asks again when setup adds dirt on top of kept changes, and a cancel aborts the run', async () => {

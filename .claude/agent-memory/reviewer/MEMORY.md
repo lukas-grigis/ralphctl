@@ -11,3 +11,6 @@
 - [project_unwired_ratelimit_jitter.md](project_unwired_ratelimit_jitter.md) — RESOLVED: applyJitter wired; durable lesson — knip stays green on test-only exports, so grep `src/` for a real caller
 - [project_eslint_sibling_isolation_dead.md](project_eslint_sibling_isolation_dead.md) — RESOLVED via mergeRestrictedImports; durable lesson — flat config REPLACES same-key rule entries, verify fences by probe
 - [project_plan_checks_conformance_firstrun_review.md](project_plan_checks_conformance_firstrun_review.md) — Literal NUL bytes in a test file (git renders it binary) and demo `--script`'s checkCli skip scoped to implement only
+- [project_parallel_setup_tree_check_review.md](project_parallel_setup_tree_check_review.md) — Binding decision replaced design's self-defeating outcome-based "kept" mapping with seen-paths; check binding text against design's own `risks` section
+- [project_worktree_teardown_quarantine_count_review.md](project_worktree_teardown_quarantine_count_review.md) — Verified quarantine boolean→count fix, tamper-note-on-restore keep/drop split, two stale scheduler comments, adopt-persisted-blocks doc, no-op vitest assertion
+- [project_unblock_reopen_review.md](project_unblock_reopen_review.md) — Unblock/reopen toast fixes verified; a shared business fn feeds 3 presentation layers (sprint-detail, bulk toast, CLI) — check all three

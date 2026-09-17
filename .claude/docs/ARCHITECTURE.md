@@ -119,7 +119,12 @@ dependency waves (Kahn-by-level over `Task.dependsOn`), each wave's tasks run co
 (`flows/implement/parallel-element.ts`), and waves stay strictly sequential. Each task runs in its own git
 worktree (`<sprintDir>/worktrees/wt-<taskId>`, `flows/implement/wave-branch.ts`) with a fresh `setupScript`;
 commits fold back onto the single shared sprint branch through one serialised in-process queue
-(`flows/implement/merge-wave.ts`), so a parallel sprint still lands as one PR. A branch whose fold conflicts
+(`flows/implement/merge-wave.ts`), so a parallel sprint still lands as one PR. The fan-in (`mergeImplementWave`)
+overlays `base.tasks` with ONLY the one task a `completed` branch owns (`ownedTask`, keyed off the branch's
+`task-<id>` id) — never a branch's whole `ctx.tasks` list, which `forkCtx` seeds with every task so per-task
+leaves can read sibling dependencies. A `failed` branch (killed, errored, or aborted before reaching
+`completed`) contributes nothing, so it can neither revert its own task nor, via that full list, an
+already-`done` sibling the same wave already completed. A branch whose fold conflicts
 re-projects the task to `blocked` and KEEPS its worktree branch ref instead of deleting it, as does a branch
 that never completed its fold at all (an abort or a throw after the task settled `done`) — the commits
 already landed there and nowhere else. The keep lasts until that task's next launch, when `setupWorktree`
@@ -128,13 +133,34 @@ quarantines the rejected working-tree diff, via the same deterministic `git stas
 `sprintId` + `taskId`) the serial path quarantines a blocked task's diff with between tasks sharing one tree
 (`flows/implement/leaves/quarantine-blocked-diff.ts` — `wave-branch.ts`'s teardown calls its
 `runQuarantineBlockedDiff` directly, ahead of `git worktree remove --force`, so a worktree's stash survives
-the worktree's own removal). `restore-blocked-diff.ts` pops that same-keyed stash back in at the start of a
-later attempt on either path — matched by the message key, never by stash index, so a sibling branch's
-concurrent push can't shift the wrong entry into the wrong worktree. `planImplementWaves`
+the worktree's own removal). The PARALLEL epilogue (`buildParallelImplementEpilogue`) runs one extra leaf,
+`adopt-persisted-blocks`, before its `saveTasksLeaf`: it re-reads `tasks.json` and substitutes the persisted
+row for any in-memory `todo` / `in_progress` task whose disk row is `blocked` — recovering a block (and a
+quarantined diff's stash pointer) that a non-`completed` branch had already saved to disk right before
+erroring or aborting, which the disjoint fan-in above now drops from ctx. It never adopts a persisted `done`
+(an unfolded commit must still re-run), and it exempts `AbortError`. `restore-blocked-diff.ts` pops that
+same-keyed stash back in, after `pre-task-verify`, only when a generator turn is guaranteed to follow —
+matched by the message key, never by stash index, so a sibling branch's concurrent push can't shift the
+wrong entry into the wrong worktree. A parallel branch interrupted after that pop but before it commits or
+re-blocks the task re-stashes the restored diff under the same message before its worktree is removed
+(`worktree-teardown.ts`'s `requarantineRestoredDiff`, gated on a stash-entry COUNT snapshotted at branch
+start rather than a boolean, so an older entry an earlier failed restore left under the same key can't
+hide a later one); when that can't be confirmed, the worktree is kept on disk instead. `planImplementWaves`
 (`flows/implement/flow.ts`) returns `Result.error` on an unschedulable task graph (cycle, self-edge, a
 genuinely dangling dependency) rather than an empty wave list, so a bad graph is a reported launch failure,
 not a run that silently does nothing. `maxParallelTasks === 1` (the default) flattens the waves into the
 serial queue — byte-for-byte the prior behaviour.
+
+Each worktree's `setupScript` is also bracketed by a working-tree check (`worktree-setup-tree.ts`) matched
+against the main checkout's own post-setup answer (`SetupTreeRecord`, carried on `ctx.setupTreeRecords` —
+see § Data Models and `WORKFLOWS.md § Per-worktree setup check`) rather than by re-reading the main
+checkout, which sibling folds keep changing mid-wave: a path the main checkout already saw is discarded
+from the worktree right after setup, before its task commit — logged at warn, naming the paths and the
+remedy — and an unseen path blocks that task (`blockCause: 'worktree-setup-failure'`), or is kept with a
+warning under dirty-tree policy `continue`; no recorded answer for the repo blocks the task outright. Past
+`SETUP_TREE_SEEN_PATHS_MAX` (200) seen paths, `recordSetupTree` collapses them into covering `/`-terminated
+directory entries rather than dropping any; only a list that still doesn't fit is truncated
+(`seenPathsTruncated`), and a truncated record is never resumed from.
 
 See [KERNEL-DESIGN.md](./KERNEL-DESIGN.md) for the full contract.
 
@@ -523,6 +549,8 @@ of the stack — the leaf or use-case wrapping them catches and converts to `Res
 │           ├── ideate/                    ← sandbox for ideate AI session
 │           ├── implement/<task-id>/       ← per-task sandbox
 │           │   ├── prompt.md
+│           │   ├── reproduce/artifact.json       ← saved reproduction (bugfix tasks only); a relaunch with
+│           │   │                                    quarantined work adopts this instead of re-spawning
 │           │   └── rounds/<N>/                   ← done-criteria.md was removed; criteria live on Task.verificationCriteria and in each round prompt.md
 │           │       ├── outcome.md              ← settle-attempt verdict (written after settlement)
 │           │       ├── generator/
@@ -582,8 +610,13 @@ and the non-obvious mutators.
   sibling-business fence keeps `business/task` out of `business/sprint`).
 - **`SprintExecution`** (`sprint-execution.ts`) — identified by the parent `SprintId`; carries `branch`,
   `pullRequestUrl`, `setupRanAt` (array of `SetupRun` — one structured entry per repo per chain run,
-  outcome: `success` / `failed` / `spawn-error` / `skipped`). Separate from `Sprint` so runtime-mutating
-  fields don't collide with planning writes.
+  outcome: `success` / `failed` / `spawn-error` / `skipped`). A `success` row whose post-setup check
+  settled also carries optional `tree: SetupTreeRecord` — the check's outcome (`unchanged` / `kept` /
+  `stashed` / `reset`) plus the repo-relative paths the operator has now seen, introduced-first and
+  collapsed into covering directory entries (never cut) past `SETUP_TREE_SEEN_PATHS_MAX` (200), truncated
+  only when even that doesn't fit. Parsed tolerantly (`.optional().catch(undefined)`, no
+  `schemaVersion` bump): a record this version can't read is dropped, which only costs the next launch one
+  extra setup run. Separate from `Sprint` so runtime-mutating fields don't collide with planning writes.
 - **`Ticket`** (nested inside `Sprint`) — identified by `TicketId`; `status: pending → approved` flipped by the
   refine flow, which also fills the `requirements` body that `ApprovedTicket` requires.
 - **`Task`** (`task.ts`) — identified by `TaskId`; status `todo | in_progress | done | blocked`; references

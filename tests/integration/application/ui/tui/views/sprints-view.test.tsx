@@ -311,9 +311,19 @@ describe('SprintsView', () => {
 
     // Ink soft-wraps the toast across the frame width, so flatten before matching.
     const frame = (result.lastFrame() ?? '').replace(/\s+/g, ' ');
-    expect(frame).toContain('unblocked 1 task in "Closed Sprint"');
+    // A refused reopen is not a clean recovery — the head glyph must say so, matching
+    // sprint-detail's `u` toast for the identical conflict.
+    expect(frame).toContain('⚠ unblocked 1 task in "Closed Sprint"');
+    expect(frame).not.toContain('✓ unblocked 1 task in "Closed Sprint"');
     expect(frame).toContain('sprint stayed closed');
     expect(frame).toContain("sprint 'live' is already active in this project");
+    // CHANGELOG claims this list explains `sprint reopen` the same way sprint-detail's `u` toast
+    // does — the hint (names the command that releases the peer) and the retry steps that
+    // actually work on THIS list (it already has `r`) must both survive.
+    expect(frame).toContain("close sprint 'live' first");
+    expect(frame).toContain("'ralphctl sprint close sprint-a-peer'");
+    expect(frame).toContain("'ralphctl sprint reopen sprint-z-closed'");
+    expect(frame).toContain('then r to reload, then u again');
     result.unmount();
   });
 
@@ -363,6 +373,49 @@ describe('SprintsView', () => {
     const frame = (result.lastFrame() ?? '').replace(/\s+/g, ' ');
     expect(frame).toContain('unblocked 1 task in "Closed Sprint" — sprint reopened done → active');
     expect(frame).not.toContain('stayed closed');
+    result.unmount();
+  });
+
+  it('bulk-unblocks a lone todo task stranded on a review sprint (interrupted reopen)', async () => {
+    // No `blocked`/`in_progress` task exists here — just one `todo` task on a still-`review`
+    // sprint, the state an interrupted `unblockTaskUseCase` `review` → `active` hop leaves behind
+    // (`finishInterruptedReopen`, `business/task/unblock-task.ts`). Before this fix `stuckTasks`
+    // only recognised `blocked`/`in_progress`, so this row never counted and `u` never fired.
+    const review = makeSprint({ id: 'sprint-review', name: 'Review Sprint', slug: 'review', status: 'review' });
+    const stray: Task = {
+      id: 'task-stray' as never,
+      name: 'stray-todo',
+      status: 'todo',
+      dependsOn: [],
+      attempts: [],
+      ticketId: 'tkt-review' as never,
+      repositoryId: 'r1' as never,
+      order: 1,
+      steps: [],
+      verificationCriteria: [],
+    } as never;
+
+    const deps = {
+      sprintRepo: fakeSprintRepo([review]),
+      taskRepo: {
+        async findBySprintId() {
+          return Result.ok([stray] as readonly Task[]);
+        },
+      } as unknown as TaskRepository,
+      projectRepo: {} as never,
+      sprintExecutionRepo: {} as never,
+      settingsRepo: {} as never,
+      clock: () => IsoTimestamp.now(),
+      logger: noopLogger,
+    } as unknown as AppDeps;
+
+    const { result } = renderView(<SprintsView />, { deps, initial: { id: 'sprints' } });
+    await waitForViewReady(result, (f) => f.includes('Review Sprint') && f.includes('unblock'));
+    result.stdin.write('u');
+    await waitForPredicate(() => /unblocked 1 task/.test(result.lastFrame() ?? ''));
+
+    const frame = (result.lastFrame() ?? '').replace(/\s+/g, ' ');
+    expect(frame).toContain('unblocked 1 task in "Review Sprint" — sprint reopened review → active');
     result.unmount();
   });
 

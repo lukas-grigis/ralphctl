@@ -38,6 +38,7 @@ import type { ImplementDeps } from '@src/application/flows/implement/deps.ts';
 import {
   buildImplementEpilogue,
   buildImplementPrologue,
+  buildParallelImplementEpilogue,
   type CreateImplementFlowOpts,
   createImplementFlow,
   IMPLEMENT_TASK_TERMINAL_LEAF,
@@ -423,11 +424,17 @@ describe('createPerTaskSubchain — quarantine-blocked-diff placement (serial-pa
     expect(guardNode?.children?.[0]?.name).toMatch(/^quarantine-blocked-diff-/);
   });
 
-  it('splices restore-blocked-diff as the second element of the attempt body (serial and parallel)', () => {
+  it('restores a quarantined diff only after pre-task-verify, guarded, right before the first gen-eval element (serial and parallel)', () => {
+    // Order is load-bearing: a pre-verify block must never find the quarantined diff already popped
+    // (the zero-turn block would skip re-quarantine and the diff would be lost), and the baseline
+    // must measure HEAD, not HEAD plus previously rejected work.
     for (const serial of [true, false]) {
       const body = attemptBodyChildren(buildSubchain(serial));
       expect(body[0]?.name).toMatch(/^start-attempt-/);
-      expect(body[1]?.name).toMatch(/^restore-blocked-diff-/);
+      expect(body[1]?.name).toMatch(/^pre-task-verify-/);
+      expect(body[2]?.name).toMatch(/^restore-blocked-diff-guard-/);
+      expect(body[2]?.children?.[0]?.name).toMatch(/^restore-blocked-diff-/);
+      expect(body[3]?.name).toMatch(/^gen-eval-/);
     }
   });
 
@@ -722,14 +729,31 @@ describe('planImplementWaves', () => {
     expect(plan.value.waves.map((w) => w.map((t) => String(t.id)))).toStrictEqual([[String(task.id)]]);
   });
 
-  it('its prologue/epilogue segments equal the standalone segment builders', () => {
+  it('its prologue segment equals the standalone segment builder', () => {
     const opts = makeOpts([makeTodoTask({ name: 'do-work' })]);
     const plan = planImplementWaves(stubDeps(), opts);
 
     expect(plan.ok).toBe(true);
     if (!plan.ok) return;
     expect(snapshot(plan.value.prologue)).toStrictEqual(snapshot(buildImplementPrologue(stubDeps(), opts)));
-    expect(snapshot(plan.value.epilogue)).toStrictEqual(snapshot(buildImplementEpilogue(stubDeps(), opts)));
+  });
+
+  it('its epilogue segment equals buildParallelImplementEpilogue — adopt-persisted-blocks PREFIXED onto buildImplementEpilogue', () => {
+    const opts = makeOpts([makeTodoTask({ name: 'do-work' })]);
+    const plan = planImplementWaves(stubDeps(), opts);
+
+    expect(plan.ok).toBe(true);
+    if (!plan.ok) return;
+    expect(snapshot(plan.value.epilogue)).toStrictEqual(snapshot(buildParallelImplementEpilogue(stubDeps(), opts)));
+
+    const epilogueChildren = (plan.value.epilogue.children ?? []).map((c) => c.name);
+    const standaloneChildren = (buildImplementEpilogue(stubDeps(), opts).children ?? []).map((c) => c.name);
+    expect(epilogueChildren).toStrictEqual(['adopt-persisted-blocks', ...standaloneChildren]);
+
+    // The serial tree has no analogous gap (one shared ctx.tasks, one flat sequential) and never
+    // gains this leaf.
+    const serialNames = names(snapshot(createImplementFlow(stubDeps(), opts)));
+    expect(serialNames).not.toContain('adopt-persisted-blocks');
   });
 
   it('schedules tasks into dependency layers (diamond → 3 waves)', () => {

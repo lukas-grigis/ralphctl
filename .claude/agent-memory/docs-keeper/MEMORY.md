@@ -10,3 +10,5 @@
 - [reference_mermaid_validation_entities.md](reference_mermaid_validation_entities.md) — `&lt;`/`&gt;` in a mermaid block is a real parse error; use raw angle brackets and validate with `mermaid.parse()`
 - [reference_opencode_headless_vs_interactive.md](reference_opencode_headless_vs_interactive.md) — OpenCode's two directory-grant mechanisms (`--auto` headless vs `buildOpencodeEnv` interactive) must never be conflated
 - [reference_provider_fanout_registries.md](reference_provider_fanout_registries.md) — Provider fan-out is `Record<AiProvider,…>` tables, not switches; regenerate the list by grep
+- [reference_restore_quarantine_doc_homes.md](reference_restore_quarantine_doc_homes.md) — restore-blocked-diff/quarantine/epilogue facts live in 3-6 docs (+SECURITY/DESIGN-SYSTEM) that must move together
+- [feedback_no_linebreak_inside_codespan.md](feedback_no_linebreak_inside_codespan.md) — never hand-wrap an inline code span across two lines in a doc bullet; the format hook mangles the indent

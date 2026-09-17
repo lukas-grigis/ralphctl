@@ -6,13 +6,19 @@
  *
  * Behaviour (identical across providers, only `parentDir` and the {@link describeSkillsConvention}
  * text differ):
- *  - **Project skills win.** If `<sessionDir>/<parentDir>/skills/<name>/` already exists, the
- *    user authored their own copy — leave it untouched and exclude `<name>` from the manifest.
+ *  - **Project skills win.** If `<sessionDir>/<parentDir>/skills/<name>/` already exists without
+ *    an install marker (`skill-install-marker.ts`), it's the project's own copy. Leave it untouched,
+ *    keep `<name>` out of the manifest, and warn once when its content differs from the skill being
+ *    installed, since that's also what a leftover from before markers existed looks like.
+ *  - **Stale leftovers are refreshed.** Every folder `install` writes carries a marker naming this
+ *    process. The manifest below doesn't survive a crash, so a later run that finds a marked folder
+ *    whose process is gone deletes it, writes the current skill, and tracks it. A marked folder
+ *    whose process is still alive belongs to another live run and is left alone.
  *  - **Manifest-tracked uninstall.** `install` records names it actually wrote into a
- *    per-`sessionDir` Set. `uninstall` removes only those, then attempts to clean up the
- *    `<parentDir>/skills` and `<parentDir>` directories when they end up empty.
- *  - **Idempotent.** A second `install` adds only the still-missing skills; double-`uninstall`
- *    is a no-op.
+ *    per-`sessionDir` Set. `uninstall` removes only those folders (marker included), then attempts
+ *    to clean up the `<parentDir>/skills` and `<parentDir>` directories when they end up empty.
+ *  - **Idempotent.** A second `install` from the same adapter adds only the still-missing skills;
+ *    double-`uninstall` is a no-op.
  *
  * Why one helper instead of three near-identical adapters: the only inter-provider differences
  * are the `parentDir` constant (`.claude` vs `.agents` vs `.github`) and the convention prose.
@@ -20,7 +26,7 @@
  */
 
 import { existsSync } from 'node:fs';
-import { mkdir, rm, rmdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, rmdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Result } from '@src/domain/result.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
@@ -28,6 +34,11 @@ import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
 import { ensureGitExcludeWildcard } from '@src/integration/io/git-exclude.ts';
 import { SkillNameSchema, type Skill } from '@src/integration/ai/skills/_engine/skill.ts';
+import {
+  classifySkillFolder,
+  INSTALL_MARKER_FILENAME,
+  writeInstallMarker,
+} from '@src/integration/ai/skills/_engine/skill-install-marker.ts';
 import type { SkillsAdapter } from '@src/integration/ai/skills/_engine/skills-port.ts';
 
 export interface FilesystemSkillsAdapterDeps {
@@ -100,33 +111,118 @@ const tryRmdirIfEmpty = async (path: string): Promise<void> => {
   }
 };
 
+/** What `writeAllSkills` does with one skill, given what's already at its destination. */
+type InstallAction = 'write' | 'replace-stale' | 'keep-project-copy' | 'keep';
+
+/** {@link installActionFor}'s verdict, plus the dead pid a `'replace-stale'` verdict can name. */
+interface InstallDecision {
+  readonly action: InstallAction;
+  readonly deadPid?: number;
+}
+
+const installActionFor = async (dst: string, name: string, tracked: ReadonlySet<string>): Promise<InstallDecision> => {
+  // Our own copy from earlier in this run: skip the marker read unless it vanished meanwhile.
+  if (tracked.has(name)) return { action: existsSync(dst) ? 'keep' : 'write' };
+  const { ownership, deadPid } = await classifySkillFolder(dst);
+  if (ownership === 'absent') return { action: 'write' };
+  if (ownership === 'stale-install') return { action: 'replace-stale', ...(deadPid !== undefined ? { deadPid } : {}) };
+  return { action: ownership === 'project-owned' ? 'keep-project-copy' : 'keep' };
+};
+
+const writeSkillFolder = async (dst: string, skill: Skill): Promise<void> => {
+  await mkdir(dst, { recursive: true });
+  // Marker first: a crash before `SKILL.md` lands leaves a folder the next run can reclaim, never
+  // an unmarked half-install that passes for a project copy.
+  await writeInstallMarker(dst, skill.name);
+  await writeFile(join(dst, 'SKILL.md'), renderSkill(skill), 'utf-8');
+};
+
+/** Per-adapter state for the unmarked-shadow warning. */
+interface ShadowWarnings {
+  readonly providerId: string;
+  readonly logger: Logger | undefined;
+  /** Destinations already warned about by this adapter, so repeated installs stay quiet. */
+  readonly warned: Set<string>;
+}
+
 /**
- * Write every skill not already present as a project copy, tracking each written name into
- * `tracked`. Stops at the first write failure and returns that error — whatever was already
- * added to `tracked` before the failure stays there for the caller to persist.
+ * Warn once per destination when an unmarked folder shadows `skill` with different content. That
+ * folder is either a deliberate project override or a leftover from a version that didn't write
+ * markers, and nothing on disk tells the two apart, so the operator gets to decide. An unreadable
+ * `SKILL.md` isn't worth failing the install over and is skipped.
+ */
+const warnIfShadowing = async (shadow: ShadowWarnings, dst: string, skill: Skill): Promise<void> => {
+  if (shadow.logger === undefined || shadow.warned.has(dst)) return;
+  shadow.warned.add(dst);
+  let existing: string;
+  try {
+    existing = await readFile(join(dst, 'SKILL.md'), 'utf-8');
+  } catch {
+    return;
+  }
+  if (existing === renderSkill(skill)) return;
+  shadow.logger
+    .named('skills.shadow')
+    .warn(
+      `${shadow.providerId}: kept ${dst} instead of installing the current "${skill.name}" skill — the folder has no ${INSTALL_MARKER_FILENAME} and its content differs. Delete it if an older ralphctl run left it behind; keep it if it's your own override.`,
+      { path: dst, skill: skill.name }
+    );
+};
+
+/**
+ * Log (info level) before a stale-marked folder is deleted and rewritten. No content comparison
+ * against what it would render: version drift is the normal reason a bundled skill's text differs
+ * run to run, so that check would just be noise. What's worth a trace line is the destructive
+ * step itself — naming the path, the skill, and the dead process the marker blamed it on — so a
+ * `rm -rf` of something an operator later swears they never touched isn't silent.
+ */
+const logStaleReplacement = (shadow: ShadowWarnings, dst: string, skill: Skill, deadPid: number | undefined): void => {
+  const holder = deadPid !== undefined ? `pid ${deadPid}, no longer running` : 'an unreadable install marker';
+  shadow.logger
+    ?.named('skills.stale')
+    .info(`${shadow.providerId}: replacing stale skill folder ${dst} for "${skill.name}" — left by ${holder}`, {
+      path: dst,
+      skill: skill.name,
+      ...(deadPid !== undefined ? { deadPid } : {}),
+    });
+};
+
+/**
+ * Write every skill whose destination is free or holds a stale leftover of ours, tracking each
+ * written name into `tracked`. Project copies and folders held by a live run are skipped. Stops at
+ * the first write failure and returns that error — whatever was already added to `tracked` before
+ * the failure stays there for the caller to persist.
  */
 const writeAllSkills = async (
-  providerId: string,
   skillsDir: string,
   skills: readonly Skill[],
-  tracked: Set<string>
+  tracked: Set<string>,
+  shadow: ShadowWarnings
 ): Promise<Result<void, StorageError>> => {
   for (const skill of skills) {
-    const unsafe = rejectUnsafeSkillName(providerId, skillsDir, skill.name);
+    const unsafe = rejectUnsafeSkillName(shadow.providerId, skillsDir, skill.name);
     if (unsafe !== undefined) return Result.error(unsafe);
 
     const dst = join(skillsDir, skill.name);
-    if (existsSync(dst)) continue; // project copy wins
+    const { action, deadPid } = await installActionFor(dst, skill.name, tracked);
+    if (action === 'keep') continue;
+    if (action === 'keep-project-copy') {
+      await warnIfShadowing(shadow, dst, skill);
+      continue;
+    }
 
     try {
-      await mkdir(dst, { recursive: true });
-      await writeFile(join(dst, 'SKILL.md'), renderSkill(skill), 'utf-8');
+      if (action === 'replace-stale') {
+        logStaleReplacement(shadow, dst, skill, deadPid);
+        await rm(dst, { recursive: true, force: true });
+      }
+      await writeSkillFolder(dst, skill);
       tracked.add(skill.name);
     } catch (cause) {
       return Result.error(
         new StorageError({
           subCode: 'io',
-          message: `${providerId}: failed to install skill ${skill.name}: ${cause instanceof Error ? cause.message : String(cause)}`,
+          message: `${shadow.providerId}: failed to install skill ${skill.name}: ${cause instanceof Error ? cause.message : String(cause)}`,
           path: dst,
           cause,
         })
@@ -169,6 +265,9 @@ export const createFilesystemSkillsAdapter = (deps: FilesystemSkillsAdapterDeps)
   // exclude. Idempotent against the file regardless, but the in-memory check avoids re-
   // reading the file on every install call across a long-running session.
   const excludeAttempted = new Set<string>();
+  // Unmarked folders already warned about (see `warnIfShadowing`). Never cleared: one warning per
+  // folder per adapter, i.e. per launch, is enough.
+  const shadow: ShadowWarnings = { providerId: deps.providerId, logger: deps.logger, warned: new Set<string>() };
   const skillsSubdir = join(deps.parentDir, 'skills');
   const excludePattern = `${skillsSubdir}/ralphctl-*`;
 
@@ -190,7 +289,7 @@ export const createFilesystemSkillsAdapter = (deps: FilesystemSkillsAdapterDeps)
       const skillsDir = join(String(sessionDir), skillsSubdir);
       const tracked = installed.get(String(sessionDir)) ?? new Set<string>();
 
-      const written = await writeAllSkills(deps.providerId, skillsDir, skills, tracked);
+      const written = await writeAllSkills(skillsDir, skills, tracked, shadow);
       if (tracked.size > 0) installed.set(String(sessionDir), tracked);
       if (!written.ok) return written;
 

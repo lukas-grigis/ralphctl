@@ -23,6 +23,7 @@
  * onto, since that undo could not tell the two apart.
  */
 
+import { createHash } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { createGitRunner } from '@src/integration/io/git-runner.ts';
@@ -37,6 +38,11 @@ import {
   quarantineStashMessage,
 } from '@src/application/flows/implement/leaves/quarantine-blocked-diff.ts';
 import { restoreBlockedDiffLeaf } from '@src/application/flows/implement/leaves/restore-blocked-diff.ts';
+import {
+  buildEvaluatorReproductionSection,
+  REPRODUCTION_TAMPER_NOTE,
+  type ReproductionArtifact,
+} from '@src/application/flows/implement/leaves/reproduce.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import { createFakeProject, type FakeProject } from '@tests/helpers/fake-project.ts';
 import { absolutePath, makeTodoTask } from '@tests/fixtures/domain.ts';
@@ -140,7 +146,8 @@ describe('restore-blocked-diff — real git round trip with quarantine', () => {
     expect(stashListRaw).toContain(message);
     expect(stashListRaw).not.toBe(message); // never the bare message — the whole point of the fix
 
-    // ── Restore: the leaf runs at the start of a retry attempt, against the SAME cwd + task.
+    // ── Restore: the leaf runs in a retry attempt, before its first generator turn, against the SAME
+    // cwd + task.
     const restored = await restoreBlockedDiffLeaf({ gitRunner, logger: noopLogger }, { cwd }, a.id).execute(ctx);
     expect(restored.ok).toBe(true);
 
@@ -173,8 +180,8 @@ describe('restore-blocked-diff — real git round trip with quarantine', () => {
     // Best-effort as ever — the attempt proceeds, just from the pre-pop tree.
     expect(restored.ok).toBe(true);
 
-    // No conflict markers survive for `pre-task-verify` to read as a broken baseline or for
-    // `commit-task`'s `git add -A` to absorb into a commit.
+    // No conflict markers survive for the generator to build on or for `commit-task`'s `git add -A`
+    // to absorb into a commit.
     const content = await project.readFile('conflict.ts');
     expect(content).not.toContain('<<<<<<<');
     expect(content).toBe('export const value = "advanced";\n');
@@ -271,5 +278,126 @@ describe('restore-blocked-diff — real git round trip with quarantine', () => {
     // Ignored paths are outside the undo's reach — the build product is untouched.
     expect(await project.readFile('out/generated.txt')).toBe(buildOutput);
     expect(await project.git('stash', 'list', '--format=%s')).toContain(message);
+  });
+});
+
+/**
+ * The reproduction a relaunch reuses: the reproduce leaf adopted it from an earlier launch, and its
+ * test only reaches the tree through the pop. Which copy of the test ends up on disk after the pop
+ * settles — the restored one, the committed one, or none — is git's doing, so these run for real.
+ */
+describe('restore-blocked-diff — the reproduction a relaunch reuses (real git)', () => {
+  let project: FakeProject;
+  const TEST_PATH = 'tests/crash.test.ts';
+  const EXISTING_SUITE = "describe('crash', () => {});\n";
+  const VALIDATED = `${EXISTING_SUITE}it('reproduces the crash', () => { throw new Error('boom'); });\n`;
+  const WEAKENED = `${EXISTING_SUITE}it.skip('reproduces the crash', () => { throw new Error('boom'); });\n`;
+
+  const artifact: ReproductionArtifact = {
+    testPath: TEST_PATH,
+    runCommand: `npx vitest run ${TEST_PATH}`,
+    observedFailure: 'Error: boom',
+    relevantTests: [],
+    checksum: createHash('sha256').update(VALIDATED, 'utf-8').digest('hex'),
+  };
+
+  beforeEach(async () => {
+    project = await createFakeProject();
+  });
+
+  afterEach(async () => {
+    await project.cleanup();
+  });
+
+  /** Quarantine whatever the tree holds right now under task A's key. */
+  const quarantine = async (cwd: AbsolutePath, message: string): Promise<void> => {
+    const pushed = await gitStashPush(createGitRunner(), cwd, message);
+    if (!pushed.ok || !pushed.value.stashed) throw new Error('test setup: quarantine push failed');
+  };
+
+  const restore = async (cwd: AbsolutePath, a: BlockedTask): Promise<ImplementCtx> => {
+    const ctx: ImplementCtx = { sprintId, tasks: [a], reproductionArtifact: artifact };
+    const out = await restoreBlockedDiffLeaf(
+      { gitRunner: createGitRunner(), logger: noopLogger },
+      { cwd },
+      a.id
+    ).execute(ctx);
+    if (!out.ok) throw new Error(`restore failed: ${out.error.error.message}`);
+    return out.value.ctx;
+  };
+
+  it('keeps it when the restored diff carries a weakened copy of a new test file — the evaluator gets the tamper note', async () => {
+    const cwd = abs(project.path);
+    const a = blockedTaskA();
+    await project.writeFile(TEST_PATH, WEAKENED);
+    await project.writeFile('src/fix.ts', 'export const fixed = false;\n');
+    await quarantine(cwd, quarantineStashMessage(sprintId, a.id));
+
+    const after = await restore(cwd, a);
+
+    expect(await project.readFile(TEST_PATH)).toBe(WEAKENED);
+    expect(after.reproductionArtifact).toStrictEqual(artifact);
+    expect(await buildEvaluatorReproductionSection(cwd, artifact)).toContain(REPRODUCTION_TAMPER_NOTE);
+  });
+
+  it('keeps it when the restored diff weakened the case the reproduction added to a committed test file', async () => {
+    const cwd = abs(project.path);
+    const a = blockedTaskA();
+    await project.writeFile(TEST_PATH, EXISTING_SUITE);
+    await project.git('add', '-A');
+    await project.git('commit', '-q', '-m', 'test: existing suite');
+    await project.writeFile(TEST_PATH, WEAKENED);
+    await quarantine(cwd, quarantineStashMessage(sprintId, a.id));
+
+    const after = await restore(cwd, a);
+
+    expect(await project.readFile(TEST_PATH)).toBe(WEAKENED);
+    expect(after.reproductionArtifact).toStrictEqual(artifact);
+  });
+
+  it('drops it when the restored diff does not carry its test', async () => {
+    const cwd = abs(project.path);
+    const a = blockedTaskA();
+    await project.writeFile('src/fix.ts', 'export const fixed = false;\n');
+    await quarantine(cwd, quarantineStashMessage(sprintId, a.id));
+
+    const after = await restore(cwd, a);
+
+    expect(await project.readFile('src/fix.ts')).toBe('export const fixed = false;\n');
+    expect(after.reproductionArtifact).toBeUndefined();
+  });
+
+  it('drops it when the restored diff leaves a committed test file without the added case', async () => {
+    // An older entry under the same key still holds the reproduction; the one popped here doesn't.
+    const cwd = abs(project.path);
+    const a = blockedTaskA();
+    await project.writeFile(TEST_PATH, EXISTING_SUITE);
+    await project.git('add', '-A');
+    await project.git('commit', '-q', '-m', 'test: existing suite');
+    await project.writeFile('src/fix.ts', 'export const fixed = false;\n');
+    await quarantine(cwd, quarantineStashMessage(sprintId, a.id));
+
+    const after = await restore(cwd, a);
+
+    expect(await project.readFile(TEST_PATH)).toBe(EXISTING_SUITE);
+    expect(after.reproductionArtifact).toBeUndefined();
+  });
+
+  it('drops it when a dirty tree keeps the quarantined diff in the stash and the test file is the committed one', async () => {
+    const cwd = abs(project.path);
+    const a = blockedTaskA();
+    const message = quarantineStashMessage(sprintId, a.id);
+    await project.writeFile(TEST_PATH, EXISTING_SUITE);
+    await project.git('add', '-A');
+    await project.git('commit', '-q', '-m', 'test: existing suite');
+    await project.writeFile(TEST_PATH, VALIDATED);
+    await quarantine(cwd, message);
+    await project.writeFile('README.md', '# fake-project\n\nAn edit the operator kept at preflight.\n');
+
+    const after = await restore(cwd, a);
+
+    expect(await project.readFile(TEST_PATH)).toBe(EXISTING_SUITE);
+    expect(await project.git('stash', 'list', '--format=%s')).toContain(message);
+    expect(after.reproductionArtifact).toBeUndefined();
   });
 });

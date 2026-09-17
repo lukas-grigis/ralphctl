@@ -50,14 +50,17 @@ export interface StashOutcome {
 
 /**
  * Read the porcelain status of the working tree. Returns a parsed list of entries; an empty
- * list means clean. Bubbles unexpected git failures (e.g. not a git repo) as StorageError —
- * the preflight gate is explicit, so silent defaults would hide real problems.
+ * list means clean. Includes untracked files (via `--untracked-files=normal`) so the result
+ * is independent of any repo or global `status.showUntrackedFiles` config — ensures all
+ * callers see the same dirty-tree view, preventing silent omissions of new files.
+ * Bubbles unexpected git failures (e.g. not a git repo) as StorageError — the preflight
+ * gate is explicit, so silent defaults would hide real problems.
  */
 export const gitStatusPorcelain = async (
   runner: GitRunner,
   cwd: AbsolutePath
 ): Promise<Result<readonly GitStatusEntry[], StorageError>> => {
-  const result = await runner.run(cwd, ['status', '--porcelain']);
+  const result = await runner.run(cwd, ['status', '--porcelain', '--untracked-files=normal']);
   if (!result.ok) return Result.error(result.error);
   if (result.value.exitCode !== 0) {
     return Result.error(

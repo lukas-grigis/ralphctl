@@ -38,10 +38,16 @@ export interface WaveBranch<TCtx> {
  * The settled result of one {@link WaveBranch}. The caller's `merge` reducer folds an array of
  * these (in branch-declaration order) back into the carried ctx between waves.
  *
- *  - `status === 'completed'` → `ctx` is the branch's final ctx; `error` is absent.
- *  - `status === 'failed'`    → a NON-fatal branch error was absorbed; `ctx` is the branch's
- *                               last ctx (its `initialCtx` if it never advanced), `error` carries
- *                               the absorbed `DomainError` so the reducer can record the block.
+ *  - `status === 'completed'` → the branch's chain ran to a genuine terminal state; `ctx` is its
+ *    real final ctx and `error` is absent. This is the ONLY status whose `ctx` is a transition
+ *    worth overlaying onto anything.
+ *  - `status === 'failed'`    → a NON-fatal branch error was absorbed. `ctx` here is the runner's
+ *    OWN `initialCtx` — the runner (`runner.ts`) only ever reassigns its `ctx` on an ok step, so a
+ *    failure NEVER partially advances it, whether or not `error` is present. A `merge` reducer must
+ *    NOT read this `ctx` as if the branch settled something: it is the wave's PRE-branch state, not
+ *    a transition, and it still carries every OTHER task in the wave too — overlaying it would
+ *    revert not just this branch's own task but any sibling the branch's ctx happens to still be
+ *    carrying, including one a DIFFERENT branch in the same wave already completed.
  *
  * Fatal errors (`aborted` / `rate-limit`) never surface as a `BranchOutcome` — they short-circuit
  * the whole wave (see {@link runWaves}).
@@ -120,8 +126,9 @@ interface BranchRun<TCtx> {
  *    all waves — never completion order — so the trace is reproducible run to run.
  *
  * Failure contract (CLAUDE.md "AbortError is the one error chains propagate transparently"):
- *  - A NON-fatal branch failure is absorbed: siblings keep running, the error is captured in that
- *    branch's {@link BranchOutcome} (`status: 'failed'`) for the reducer to record as a block.
+ *  - A NON-fatal branch failure is absorbed: siblings keep running, and the error is captured in
+ *    that branch's {@link BranchOutcome} (`status: 'failed'`) for diagnostics only. A reducer must
+ *    not read a failed outcome's `ctx` or `error` as a task transition — see {@link BranchOutcome}.
  *  - **Abort:** when `signal` aborts — OR when a branch's own chain settles with an `aborted`-coded
  *    error (the operator answered "abort" at an in-branch prompt, with no outer signal) — forward
  *    it into every in-flight branch via `runner.abort()`, await all branches to settle
@@ -349,10 +356,12 @@ const toOutcome = <TCtx>(run: BranchRun<TCtx>): BranchOutcome<TCtx> => {
   if (run.runner.status === 'completed') {
     return { id: run.branch.id, status: 'completed', ctx: run.runner.ctx };
   }
-  // A NON-fatal failure is absorbed: capture the error so the reducer can record the block. A
-  // runner that reports 'aborted' without a captured error was a fatal-sibling kill in 'kill'
-  // mode (or an outer-signal abort) — surface it as a no-op `failed` with no error rather than
-  // pretending it completed, so the reducer can leave the task to be reset/re-run.
+  // A NON-fatal failure is absorbed; its error rides along for diagnostics only. A runner that
+  // reports 'aborted' without a captured error was a fatal-sibling kill in 'kill' mode (or an
+  // outer-signal abort) — surfaced as a `failed` outcome with no error rather than as completed.
+  // Either way `ctx` is the runner's untouched `initialCtx`, so a failed outcome contributes
+  // nothing to the merge. Anything durable the branch wrote before it failed is recovered out of
+  // band, from persisted state (the implement flow's `adopt-persisted-blocks` leaf), never here.
   return {
     id: run.branch.id,
     status: 'failed',

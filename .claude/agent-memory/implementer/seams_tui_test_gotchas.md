@@ -40,6 +40,14 @@ re-running the test with the fix reverted.
    behaviour at 160 AND 100 cols**, driving widths through `useResponsiveLayout({ columns })` props or
    mocking `useTerminalSize` the way `execute-view-width-regimes.test.tsx` does.
 
+6. **The `MaxListenersExceededWarning: 11 resize listeners added to [Stdout]` in a full `pnpm test`
+   run is known noise, not a leak.** `sprint-detail-blocked-jump.test.tsx` mounts the sprint-detail
+   tree, where 11 `useTerminalSize` consumers (mostly through `useBreakpoint`) all subscribe to the
+   same per-render fake stdout. The hook's cleanup is correct. Confirmed on 2026-09-17 that it also
+   fires on a clean `git archive HEAD` export. **Don't blame a diff for it.** To pin a warning to a
+   specific file, run a scratch vitest config whose `setupFiles` hooks `process.on('warning')` and
+   prints `expect.getState().testPath`.
+
 ## Row-count windowing invariant
 
 Any surface that slices `lines[offset, offset + bodyRows]` and derives `maxOffset` from `lines.length`

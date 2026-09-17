@@ -24,10 +24,11 @@ import { promises as fs } from 'node:fs';
 import { realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { Result } from '@src/domain/result.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
+import { AbortError } from '@src/domain/value/error/abort-error.ts';
 import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
 import type { StorageError } from '@src/domain/value/error/storage-error.ts';
 
@@ -42,7 +43,11 @@ import type { TaskId } from '@src/domain/value/id/task-id.ts';
 import type { HarnessSignal } from '@src/domain/signal.ts';
 import { unblockTask } from '@src/domain/entity/task-lifecycle.ts';
 
-import { createSprintExecution, setExecutionBranch } from '@src/domain/entity/sprint-execution.ts';
+import {
+  createSprintExecution,
+  setExecutionBaselineBrokenPolicy,
+  setExecutionBranch,
+} from '@src/domain/entity/sprint-execution.ts';
 import type { HeadlessAiProvider, ProviderOutput } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
 import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
@@ -303,11 +308,12 @@ function runTests(): void {
     cleanup(): Promise<void>;
   }
 
-  const buildParallelFixture = async (): Promise<ParallelFixture> => {
+  const buildParallelFixture = async (extraSeed: Readonly<Record<string, string>> = {}): Promise<ParallelFixture> => {
     const repo = await createFakeProject({
       seed: {
         'README.md': '# parallel-test-repo\n',
         '.gitignore': 'node_modules/\n',
+        ...extraSeed,
       },
     });
 
@@ -345,7 +351,8 @@ function runTests(): void {
     taskRepo: TaskRepository,
     provider: HeadlessAiProvider,
     locksRootPath: string,
-    shellScriptRunner: ShellScriptRunner = passingShell
+    shellScriptRunner: ShellScriptRunner = passingShell,
+    interactive?: ImplementDeps['interactive']
   ): ImplementDeps => {
     const realGit = createGitRunner();
     return {
@@ -379,7 +386,7 @@ function runTests(): void {
       skillSource: emptySkillSource,
       generatorAgentDefinitionAdapter: noopAgentDefinitionAdapter,
       evaluatorAgentDefinitionAdapter: noopAgentDefinitionAdapter,
-      interactive: {
+      interactive: interactive ?? {
         async askText() {
           throw new Error('askText not expected in parallel real-git test');
         },
@@ -935,6 +942,19 @@ function runTests(): void {
       const execStore = inMemoryExecutionRepo(execution);
       const taskStore = inMemoryTaskRepo(tasks);
 
+      // Both generator turns wait here until both have started. A worktree is created before its
+      // generator runs, so this guarantees both forked from the same sprint-branch tip. Without the
+      // barrier, a loaded runner can create B's worktree only after A has already folded: B then
+      // builds on A's change, fast-forwards cleanly, and both tasks end `done` — correct product
+      // behaviour, but not the conflict this test exists to exercise. The timeout keeps a broken
+      // run from hanging; the assertions below then fail loudly.
+      const generatorsStarted = new Set<string>();
+      let releaseGenerators: () => void = () => {};
+      const bothGeneratorsStarted = new Promise<void>((resolve) => {
+        releaseGenerators = resolve;
+      });
+      const BARRIER_TIMEOUT_MS = 10_000;
+
       // Fake provider: both tasks write to the SAME file (`shared.txt`) with conflicting content.
       // No additional unique file — the conflict on `shared.txt` must be real.
       const conflictProvider: HeadlessAiProvider = {
@@ -954,6 +974,12 @@ function runTests(): void {
             // conflicts on `shared.txt`.
             const cwd = String(session.cwd);
             const isTaskA = cwd.includes(`wt-${String(taskA.id)}`);
+            generatorsStarted.add(isTaskA ? 'a' : 'b');
+            if (generatorsStarted.size === 2) releaseGenerators();
+            await Promise.race([
+              bothGeneratorsStarted,
+              new Promise<void>((resolve) => setTimeout(resolve, BARRIER_TIMEOUT_MS)),
+            ]);
             const sharedFile = join(cwd, 'shared.txt');
             const content = isTaskA ? 'modified by task-a\n' : 'modified by task-b\n';
             await fs.writeFile(sharedFile, content, 'utf8');
@@ -1398,6 +1424,519 @@ function runTests(): void {
       const worktreesAfterRound2 = await listWorktrees(repoPath);
       expect(worktreesAfterRound2).toHaveLength(1);
       expect(worktreesAfterRound2[0]).toBe(repoPath);
+    }, 120_000);
+  });
+
+  /**
+   * A relaunch of a task whose rejected diff sits quarantined in the stash. `restore-blocked-diff`
+   * pops that stash — and a successful pop DROPS the entry — so from then on the worktree holds
+   * the only copy. These cases pin, against real git, that the diff is popped only once
+   * pre-task-verify let the attempt through, and that no exit path force-removes a worktree whose
+   * restored diff nothing consumed.
+   */
+  describe('parallel implement — relaunch with a quarantined diff (real git)', () => {
+    let cleanupFns: Array<() => Promise<void>>;
+
+    beforeEach(() => {
+      cleanupFns = [];
+      // Deterministic non-interactive red-baseline handling, even when the suite runs from a TTY.
+      vi.stubEnv('RALPHCTL_NO_TUI', '1');
+    });
+
+    afterEach(async () => {
+      vi.unstubAllEnvs();
+      for (const fn of cleanupFns) await fn().catch(() => undefined);
+    });
+
+    interface Seeded {
+      readonly fixture: ParallelFixture;
+      readonly sprint: Sprint;
+      readonly task: Task;
+      readonly marker: string;
+      readonly content: string;
+      readonly message: string;
+    }
+
+    /** One todo task whose earlier rejected diff (one untracked file) is quarantined in the stash. */
+    const seedQuarantinedTask = async (name: string): Promise<Seeded> => {
+      const fixture = await buildParallelFixture();
+      cleanupFns.push(() => fixture.cleanup());
+      const ticket = makeApprovedTicket({ title: `${name}-ticket` });
+      const sprint = makePlannedSprint({ tickets: [ticket] });
+      const task = makeTodoTask({ name, order: 1, ticketId: ticket.id, repositoryId: FIXED_REPOSITORY_ID });
+      const marker = `${String(task.id)}-rejected.txt`;
+      const content = `rejected diff belonging to ${String(task.id)}\n`;
+      const message = quarantineStashMessage(sprint.id, task.id);
+      await fixture.repo.writeFile(marker, content);
+      await fixture.repo.git('stash', 'push', '-u', '-m', message);
+      return { fixture, sprint, task, marker, content, message };
+    };
+
+    /** A verify script fake that records whether the restored file was in the tree it verified. */
+    const markerAwareShell = (
+      marker: string,
+      passes: (markerPresent: boolean) => boolean
+    ): ShellScriptRunner & { readonly sawMarker: boolean[] } => {
+      const sawMarker: boolean[] = [];
+      return {
+        sawMarker,
+        async run(cwd: AbsolutePath) {
+          const present = await fs
+            .access(join(String(cwd), marker))
+            .then(() => true)
+            .catch(() => false);
+          sawMarker.push(present);
+          const passed = passes(present);
+          return Result.ok({ passed, exitCode: passed ? 0 : 1, output: passed ? 'ok' : 'FAIL', durationMs: 0 });
+        },
+      };
+    };
+
+    const runSingleBranch = async (
+      seeded: Seeded,
+      provider: HeadlessAiProvider,
+      shell: ShellScriptRunner,
+      execution: SprintExecution,
+      onRunner: (runner: { abort(): void }) => void = () => undefined
+    ): Promise<{ status: string; taskStore: ReturnType<typeof inMemoryTaskRepo> }> => {
+      const { fixture, sprint, task } = seeded;
+      const taskStore = inMemoryTaskRepo([task]);
+      const locksRoot = join(fixture.ralphctlRoot, 'locks');
+      await fs.mkdir(locksRoot, { recursive: true });
+      const deps = buildRealGitDeps(
+        inMemorySprintRepo(sprint).repo,
+        inMemoryExecutionRepo(execution).repo,
+        taskStore.repo,
+        provider,
+        locksRoot,
+        shell
+      );
+      const repoConfig: RepoExecConfig = { path: ap(fixture.repo.path), name: 'test-repo', verifyScript: 'run-verify' };
+      const opts = {
+        sprintId: sprint.id,
+        todoTasks: [task],
+        repositories: new Map([[FIXED_REPOSITORY_ID, repoConfig]]),
+        progressFile: ap(fixture.progressFile),
+        sprintDir: ap(fixture.sprintDir),
+        generatorProviderId: 'claude-code',
+        generatorModel: 'claude-opus-4-8',
+        evaluatorProviderId: 'claude-code',
+        evaluatorModel: 'claude-opus-4-8',
+        memoryRoot: ap(fixture.memoryRoot),
+        projectId: FAKE_PROJECT_ID,
+        projectSlug: FAKE_PROJECT_SLUG,
+        dirtyTreePolicy: 'cancel' as const,
+      };
+      const readConfig = () =>
+        Promise.resolve({ maxTurns: 5, escalateOnPlateau: false, escalationMap: {}, maxAttempts: 1 });
+      const branchDeps = { implement: deps, eventBus: createInMemoryEventBus(), foldQueue: createFoldQueue() };
+      const branch = buildWaveBranches(branchDeps, opts, [[task]], readConfig)[0]![0]!;
+      const runner = createRunner<ImplementCtx>({
+        id: `r-${branch.id}`,
+        element: branch.element,
+        initialCtx: { sprintId: sprint.id, sprint, execution, tasks: [task] },
+      });
+      onRunner(runner);
+      await runner.start();
+      return { status: runner.status, taskStore };
+    };
+
+    const stashSubjects = async (repo: FakeProject): Promise<string[]> =>
+      (await repo.git('stash', 'list', '--format=%s')).split('\n').filter((l) => l.length > 0);
+
+    /** The quarantined file as the newest stash entry holds it (`^3` is a `-u` stash's untracked tree). */
+    const stashedMarker = (repo: FakeProject, marker: string): Promise<string> =>
+      repo.git('show', `stash@{0}^3:${marker}`);
+
+    const branchExecution = (sprint: Sprint): SprintExecution =>
+      setExecutionBranch(createSprintExecution({ sprintId: sprint.id }), SPRINT_BRANCH);
+
+    it('a pre-task-verify block leaves the quarantined diff in its stash — never popped into a worktree that is then removed', async () => {
+      const seeded = await seedQuarantinedTask('relaunch-baseline-block');
+      const { fixture, task, marker, content, message } = seeded;
+      let providerCalls = 0;
+      const provider: HeadlessAiProvider = {
+        async generate() {
+          providerCalls += 1;
+          throw new Error('no AI turn may run once pre-task-verify blocked the attempt');
+        },
+      };
+      const shell = markerAwareShell(marker, () => false);
+
+      const { status, taskStore } = await runSingleBranch(seeded, provider, shell, branchExecution(seeded.sprint));
+
+      expect(status).toBe('completed');
+      const settled = taskStore.tasks().find((t) => t.id === task.id);
+      expect(settled?.status).toBe('blocked');
+      expect((settled as BlockedTask).blockedReason).toContain('baseline already red');
+      expect(providerCalls).toBe(0);
+
+      // The entry is still there, exactly once, with the rejected file in it.
+      const subjects = await stashSubjects(fixture.repo);
+      expect(subjects).toHaveLength(1);
+      expect(subjects[0]).toMatch(new RegExp(`^On \\S+: ${message.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`));
+      expect(await stashedMarker(fixture.repo, marker)).toBe(content);
+
+      // The worktree is gone, and the baseline was measured without the rejected file in it.
+      expect(await listWorktrees(fixture.repo.path)).toStrictEqual([fixture.repo.path]);
+      expect(shell.sawMarker.length).toBeGreaterThan(0);
+      expect(shell.sawMarker.every((present) => !present)).toBe(true);
+    }, 120_000);
+
+    it('a restored diff that is still red never commits under the proceed amnesty — it blocks as regressed and goes back to the stash', async () => {
+      const seeded = await seedQuarantinedTask('relaunch-red-restore');
+      const { fixture, task, marker, content, message } = seeded;
+      // The generator changes nothing, so the only red in the tree is the restored diff itself.
+      const provider: HeadlessAiProvider = {
+        async generate(session: AiSession): Promise<Result<ProviderOutput, DomainError>> {
+          const isEvaluate = session.prompt.includes(MARKERS.evaluate);
+          const signals: HarnessSignal[] = isEvaluate ? [evaluationPassed()] : [taskVerified('nothing to add')];
+          const wrote = await writeJsonAtomic(String(session.signalsFile), signals);
+          if (!wrote.ok) return Result.error(wrote.error) as Result<ProviderOutput, DomainError>;
+          return Result.ok({ signalsFile: session.signalsFile, exitCode: 0 }) as Result<ProviderOutput, DomainError>;
+        },
+      };
+      const shell = markerAwareShell(marker, (present) => !present);
+      const execution = setExecutionBaselineBrokenPolicy(branchExecution(seeded.sprint), 'proceed');
+
+      const { status, taskStore } = await runSingleBranch(seeded, provider, shell, execution);
+
+      expect(status).toBe('completed');
+      const settled = taskStore.tasks().find((t) => t.id === task.id);
+      expect(settled?.status).toBe('blocked');
+      expect((settled as BlockedTask).blockedReason).toContain('regressed');
+      const lastAttempt = settled?.attempts.at(-1);
+      expect(lastAttempt?.verifyRuns?.map((r) => [r.phase, r.outcome])).toStrictEqual([
+        ['pre', 'success'],
+        ['post', 'failed'],
+      ]);
+      expect(lastAttempt?.attribution).toBe('regressed');
+
+      // Nothing of the rejected diff reached the sprint branch…
+      const committed = await fixture.repo.git('log', '--name-only', '--format=%H', SPRINT_BRANCH);
+      expect(committed).not.toContain(marker);
+      // …and the block quarantined it again, under the same key.
+      const subjects = await stashSubjects(fixture.repo);
+      expect(subjects.filter((l) => l.endsWith(`: ${message}`))).toHaveLength(1);
+      expect(await stashedMarker(fixture.repo, marker)).toBe(content);
+      expect(await listWorktrees(fixture.repo.path)).toStrictEqual([fixture.repo.path]);
+    }, 120_000);
+
+    it('an abort mid-generator after the restore puts the diff back in the stash before the worktree is removed', async () => {
+      const seeded = await seedQuarantinedTask('relaunch-abort');
+      const { fixture, task, marker, content, message } = seeded;
+      let runnerRef: { abort(): void } | undefined;
+      const provider: HeadlessAiProvider = {
+        async generate(session: AiSession): Promise<Result<ProviderOutput, DomainError>> {
+          // The restored diff is in the tree the generator got.
+          await fs.access(join(String(session.cwd), marker));
+          runnerRef?.abort();
+          return Result.error(new AbortError({ elementName: 'generator', reason: 'operator pressed Ctrl-C' }));
+        },
+      };
+      const shell = markerAwareShell(marker, () => true);
+
+      const { status, taskStore } = await runSingleBranch(
+        seeded,
+        provider,
+        shell,
+        branchExecution(seeded.sprint),
+        (runner) => {
+          runnerRef = runner;
+        }
+      );
+
+      expect(status).toBe('aborted');
+      expect(taskStore.tasks().find((t) => t.id === task.id)?.status).toBe('in_progress');
+      const subjects = await stashSubjects(fixture.repo);
+      expect(subjects.filter((l) => l.endsWith(`: ${message}`))).toHaveLength(1);
+      expect(await stashedMarker(fixture.repo, marker)).toBe(content);
+      expect(await listWorktrees(fixture.repo.path)).toStrictEqual([fixture.repo.path]);
+    }, 120_000);
+
+    it('with an older entry still under the same key, an abort after the restore puts the newer diff back too', async () => {
+      const seeded = await seedQuarantinedTask('relaunch-abort-two-entries');
+      const { fixture, task, marker: olderMarker, content: olderContent, message } = seeded;
+      // A later launch's pop of the older entry failed, so git kept it, and that launch's block
+      // then quarantined a second diff under the same key. The stash lists the newer one first.
+      const newerMarker = `${String(task.id)}-newer.txt`;
+      const newerContent = `newer rejected diff belonging to ${String(task.id)}\n`;
+      await fixture.repo.writeFile(newerMarker, newerContent);
+      await fixture.repo.git('stash', 'push', '-u', '-m', message);
+      const attemptFile = 'interrupted-attempt.txt';
+      const inTree: { newer?: boolean; older?: boolean } = {};
+      const exists = (path: string): Promise<boolean> =>
+        fs
+          .access(path)
+          .then(() => true)
+          .catch(() => false);
+      let runnerRef: { abort(): void } | undefined;
+      const provider: HeadlessAiProvider = {
+        async generate(session: AiSession): Promise<Result<ProviderOutput, DomainError>> {
+          const cwd = String(session.cwd);
+          inTree.newer = await exists(join(cwd, newerMarker));
+          inTree.older = await exists(join(cwd, olderMarker));
+          await fs.writeFile(join(cwd, attemptFile), 'work of the interrupted attempt\n');
+          runnerRef?.abort();
+          return Result.error(new AbortError({ elementName: 'generator', reason: 'operator pressed Ctrl-C' }));
+        },
+      };
+
+      const { status, taskStore } = await runSingleBranch(
+        seeded,
+        provider,
+        markerAwareShell(newerMarker, () => true),
+        branchExecution(seeded.sprint),
+        (runner) => {
+          runnerRef = runner;
+        }
+      );
+
+      expect(status).toBe('aborted');
+      expect(taskStore.tasks().find((t) => t.id === task.id)?.status).toBe('in_progress');
+      // The restore popped only the newest entry.
+      expect(inTree).toStrictEqual({ newer: true, older: false });
+      // Both entries are back under the key: the newest holds the restored diff plus what the
+      // interrupted attempt wrote on top, and the older one is untouched.
+      expect((await stashSubjects(fixture.repo)).filter((l) => l.endsWith(`: ${message}`))).toHaveLength(2);
+      expect(await stashedMarker(fixture.repo, newerMarker)).toBe(newerContent);
+      expect(await stashedMarker(fixture.repo, attemptFile)).toBe('work of the interrupted attempt\n');
+      expect(await fixture.repo.git('show', `stash@{1}^3:${olderMarker}`)).toBe(olderContent);
+      expect(await listWorktrees(fixture.repo.path)).toStrictEqual([fixture.repo.path]);
+    }, 120_000);
+  });
+
+  /**
+   * A setup script that changes files git doesn't ignore. The main checkout's post-setup check asks
+   * the operator once and records the answer; every task worktree then runs the same script on a
+   * fresh checkout and must follow that answer instead of committing the change — against real git,
+   * because only real git shows whether the folds still land with the operator's kept change
+   * sitting uncommitted in the main checkout.
+   */
+  describe('parallel implement — a setup script that changes the tree (real git)', () => {
+    let cleanupFns: Array<() => Promise<void>>;
+
+    beforeEach(() => {
+      cleanupFns = [];
+    });
+
+    afterEach(async () => {
+      for (const fn of cleanupFns) await fn().catch(() => undefined);
+    });
+
+    const SETUP = 'install-deps';
+    const LOCK = 'lock.txt';
+    const GENERATED = 'gen/out.txt';
+
+    /**
+     * Really writes into whatever cwd it runs in: appends to the tracked lockfile and, when asked,
+     * writes an untracked generated file. `onlyWorktrees` limits the writes to task worktrees.
+     */
+    const treeChangingShell = (opts: { generated?: boolean; onlyWorktrees?: boolean }): RecordingShellScriptRunner => {
+      const calls: RecordingShellCall[] = [];
+      return {
+        get calls(): readonly RecordingShellCall[] {
+          return calls;
+        },
+        async run(cwd: AbsolutePath, script: string) {
+          calls.push({ cwd: String(cwd), script });
+          if (opts.onlyWorktrees !== true || String(cwd).includes('/worktrees/wt-')) {
+            await fs.appendFile(join(String(cwd), LOCK), 'resolved by setup\n', 'utf8');
+            if (opts.generated === true) {
+              await fs.mkdir(join(String(cwd), 'gen'), { recursive: true });
+              await fs.writeFile(join(String(cwd), GENERATED), 'generated\n', 'utf8');
+            }
+          }
+          return Result.ok({ passed: true, exitCode: 0, output: '', durationMs: 0 });
+        },
+      };
+    };
+
+    /** Answers the dirty-tree menu with `answer` and records each question. */
+    const answering = (
+      answer: string | undefined
+    ): { interactive: ImplementDeps['interactive']; questions: string[] } => {
+      const questions: string[] = [];
+      const unexpected = async (): Promise<never> => {
+        throw new Error('only the dirty-tree menu may ask anything here');
+      };
+      return {
+        questions,
+        interactive: {
+          askText: unexpected,
+          askTextArea: unexpected,
+          askMultiChoice: unexpected,
+          askConfirm: unexpected,
+          async askChoice<T>(question: string) {
+            questions.push(question);
+            if (answer === undefined) throw new Error(`unexpected question: ${question}`);
+            return Result.ok(answer as T) as Result<T, StorageError>;
+          },
+        },
+      };
+    };
+
+    /** Writes `<task name>.txt` into whichever task worktree the generator runs in. */
+    const perTaskFileProvider = (tasks: readonly Task[]): HeadlessAiProvider => ({
+      async generate(session: AiSession): Promise<Result<ProviderOutput, DomainError>> {
+        const task = tasks.find((t) => String(session.cwd).includes(`wt-${String(t.id)}`));
+        if (task === undefined) throw new Error(`generator ran outside a task worktree: ${String(session.cwd)}`);
+        return createRealFileWritingProvider(task.name).generate(session);
+      },
+    });
+
+    interface SetupRun {
+      readonly fixture: ParallelFixture;
+      readonly tasks: readonly Task[];
+      readonly status: string;
+      readonly taskStore: ReturnType<typeof inMemoryTaskRepo>;
+      readonly execStore: ReturnType<typeof inMemoryExecutionRepo>;
+      readonly sprintStore: ReturnType<typeof inMemorySprintRepo>;
+      readonly questions: readonly string[];
+      readonly shell: RecordingShellScriptRunner;
+    }
+
+    /** Two independent tasks in one wave — the second fold is a cherry-pick onto the first. */
+    const runWithSetup = async (shell: RecordingShellScriptRunner, answer: string | undefined): Promise<SetupRun> => {
+      const fixture = await buildParallelFixture({ [LOCK]: 'lock v1\n' });
+      cleanupFns.push(() => fixture.cleanup());
+      const ticket = makeApprovedTicket({ title: 'setup-tree-ticket' });
+      const sprint = makePlannedSprint({ tickets: [ticket] });
+      const execution = setExecutionBranch(createSprintExecution({ sprintId: sprint.id }), SPRINT_BRANCH);
+      const tasks = [
+        makeTodoTask({ name: 'task-one', order: 1, ticketId: ticket.id, repositoryId: FIXED_REPOSITORY_ID }),
+        makeTodoTask({ name: 'task-two', order: 2, ticketId: ticket.id, repositoryId: FIXED_REPOSITORY_ID }),
+      ];
+      const sprintStore = inMemorySprintRepo(sprint);
+      const execStore = inMemoryExecutionRepo(execution);
+      const taskStore = inMemoryTaskRepo(tasks);
+      const locksRoot = join(fixture.ralphctlRoot, 'locks');
+      await fs.mkdir(locksRoot, { recursive: true });
+      const prompt = answering(answer);
+      const deps = buildRealGitDeps(
+        sprintStore.repo,
+        execStore.repo,
+        taskStore.repo,
+        perTaskFileProvider(tasks),
+        locksRoot,
+        shell,
+        prompt.interactive
+      );
+      const repoConfig: RepoExecConfig = { path: ap(fixture.repo.path), name: 'test-repo', setupScript: SETUP };
+      const opts = {
+        sprintId: sprint.id,
+        todoTasks: tasks,
+        repositories: new Map([[FIXED_REPOSITORY_ID, repoConfig]]),
+        progressFile: ap(fixture.progressFile),
+        sprintDir: ap(fixture.sprintDir),
+        generatorProviderId: 'claude-code',
+        generatorModel: 'claude-opus-4-8',
+        evaluatorProviderId: 'claude-code',
+        evaluatorModel: 'claude-opus-4-8',
+        memoryRoot: ap(fixture.memoryRoot),
+        projectId: FAKE_PROJECT_ID,
+        projectSlug: FAKE_PROJECT_SLUG,
+        dirtyTreePolicy: 'prompt' as const,
+      };
+      const plan = expectPlan(planImplementWaves(deps, opts));
+      const readConfig = () =>
+        Promise.resolve({ maxTurns: 5, escalateOnPlateau: false, escalationMap: {}, maxAttempts: 1 });
+      const branchDeps = { implement: deps, eventBus: createInMemoryEventBus(), foldQueue: createFoldQueue() };
+      const element = createParallelImplementElement(plan, {
+        fileLocker: deps.fileLocker,
+        locksRoot: deps.locksRoot,
+        eventBus: deps.eventBus,
+        maxConcurrency: 2,
+        flowId: 'implement',
+        sessionId: () => `session-setup-tree-${String(Math.random()).slice(2, 8)}`,
+        buildWaves: () => buildWaveBranches(branchDeps, opts, plan.waves, readConfig),
+      });
+      const runner = createRunner<ImplementCtx>({
+        id: 'r-parallel-setup-tree',
+        element,
+        initialCtx: { sprintId: sprint.id },
+      });
+      await runner.start();
+      return {
+        fixture,
+        tasks,
+        status: runner.status,
+        taskStore,
+        execStore,
+        sprintStore,
+        questions: prompt.questions,
+        shell,
+      };
+    };
+
+    /** Every path the run's own commits touched — the seed commit on `main` excluded. */
+    const committedPaths = (run: SetupRun): Promise<string> =>
+      run.fixture.repo.git('log', '--name-only', '--format=', `main..${SPRINT_BRANCH}`);
+
+    it('a lockfile the operator kept in the main checkout stays out of every task commit, and every fold lands', async () => {
+      const run = await runWithSetup(treeChangingShell({}), 'keep');
+
+      expect(run.status).toBe('completed');
+      expect(run.questions).toHaveLength(1);
+      expect(run.questions[0]).toContain(SETUP);
+      for (const task of run.taskStore.tasks()) expect(task.status).toBe('done');
+      expect(run.sprintStore.current().status).toBe('review');
+      // Both tasks landed — one fast-forward, one cherry-pick past the kept change.
+      expect(await countCommitsOnBranch(run.fixture.repo.path, SPRINT_BRANCH)).toBe(3);
+      const paths = await committedPaths(run);
+      expect(paths).toContain('task-one.txt');
+      expect(paths).toContain('task-two.txt');
+      expect(paths).not.toContain(LOCK);
+      // The operator's kept change is still in the main checkout, untouched, and nothing was stashed.
+      expect(await run.fixture.repo.git('status', '--porcelain')).toBe(` M ${LOCK}\n`);
+      expect(await run.fixture.repo.readFile(LOCK)).toBe('lock v1\nresolved by setup\n');
+      expect(await run.fixture.repo.git('stash', 'list')).toBe('');
+      // Setup ran in the main checkout once and in each worktree once.
+      expect(run.shell.calls.filter((c) => c.cwd.includes('/worktrees/wt-'))).toHaveLength(2);
+      expect(run.execStore.current().setupRanAt.at(-1)?.tree).toStrictEqual({
+        outcome: 'kept',
+        seenPaths: [LOCK],
+        seenPathsTruncated: false,
+      });
+      expect(await listWorktrees(run.fixture.repo.path)).toStrictEqual([run.fixture.repo.path]);
+    }, 120_000);
+
+    it('setup output the operator stashed never reaches the sprint branch through a task worktree', async () => {
+      const run = await runWithSetup(treeChangingShell({ generated: true }), 'stash');
+
+      expect(run.status).toBe('completed');
+      expect(run.questions).toHaveLength(1);
+      for (const task of run.taskStore.tasks()) expect(task.status).toBe('done');
+      const paths = await committedPaths(run);
+      expect(paths).toContain('task-one.txt');
+      expect(paths).toContain('task-two.txt');
+      expect(paths).not.toContain(LOCK);
+      expect(paths).not.toContain(GENERATED);
+      expect(await run.fixture.repo.git('status', '--porcelain')).toBe('');
+      const stashes = (await run.fixture.repo.git('stash', 'list', '--format=%s')).split('\n').filter(Boolean);
+      expect(stashes).toHaveLength(1);
+      expect(stashes[0]).toContain('ralphctl preflight stash');
+      expect(await listWorktrees(run.fixture.repo.path)).toStrictEqual([run.fixture.repo.path]);
+    }, 120_000);
+
+    it('a change only a fresh worktree gets blocks each task instead of being committed unannounced', async () => {
+      const run = await runWithSetup(treeChangingShell({ onlyWorktrees: true }), undefined);
+
+      expect(run.status).toBe('completed');
+      // The main checkout's setup changed nothing, so nobody was asked anything.
+      expect(run.questions).toHaveLength(0);
+      const settled = run.taskStore.tasks();
+      expect(settled).toHaveLength(2);
+      for (const task of settled) {
+        expect(task.status).toBe('blocked');
+        const blocked = task as BlockedTask;
+        expect(blocked.blockCause).toBe('worktree-setup-failure');
+        expect(blocked.blockedReason).toMatch(/^worktree setup script `install-deps` changed 1 path \(lock\.txt\)/);
+      }
+      expect(run.sprintStore.current().status).toBe('active');
+      expect(await countCommitsOnBranch(run.fixture.repo.path, SPRINT_BRANCH)).toBe(1);
+      expect(await run.fixture.repo.git('status', '--porcelain')).toBe('');
+      expect(await listWorktrees(run.fixture.repo.path)).toStrictEqual([run.fixture.repo.path]);
     }, 120_000);
   });
 }

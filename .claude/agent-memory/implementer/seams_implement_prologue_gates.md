@@ -1,6 +1,6 @@
 ---
 name: seams-implement-prologue-gates
-description: The implement prologue's dirty-tree gates — the pre-setup menu (why it asks instead of aborting), the in-leaf post-setup check, and the scripted-git call counters in e2e tests that silently encode the call count
+description: The implement prologue's dirty-tree gates (pre-setup menu, in-leaf post-setup check, e2e scripted-git call counters) plus where restore-blocked-diff sits in the attempt and why
 metadata:
   type: project
 ---
@@ -43,10 +43,51 @@ the guard dep is optional on the leaf and the shape fence can't see deps.
 
 **A dirty tree at attempt start is a normal state, not an anomaly.** The sources are the operator
 choosing "keep", the per-task reproduce leaf (FULL_AUTO, writes a new test BEFORE the attempt loop
-on both paths for bugfix tasks), and setup output that isn't ignored. `restore-blocked-diff` only
+on both paths for bugfix tasks, except on a relaunch with a quarantined stash), and setup output
+that isn't ignored. `restore-blocked-diff` only
 pops onto a tree it probed clean, because its undo is `reset --hard` + `clean -fd`. A failed
 `git stash pop` can still have changed the tree (verified on git 2.54): an untracked collision
 applies the tracked part first, and an "overwritten" refusal still restores untracked files. So
-"no unmerged paths" does NOT mean "tree unchanged". Probe with
-`--untracked-files=normal --ignore-submodules=none`, because a plain `gitStatusPorcelain` inherits
-`status.showUntrackedFiles=no`.
+"no unmerged paths" does NOT mean "tree unchanged". The probe keeps `--ignore-submodules=none` on top
+of what `gitStatusPorcelain` passes (that one already forces `--untracked-files=normal`).
+
+**Restore order is load-bearing: `start-attempt → pre-task-verify → guard(restoreBeforeFirstTurn,
+restore-blocked-diff) → gen-eval`.** A successful pop DROPS the stash entry. Restoring before
+pre-verify (the old order) lost the diff on a pre-verify block (zero turns → `isSettledBlocked`
+false → no re-quarantine → parallel worktree force-removed) and let a red restored diff make the
+baseline red, so the red post read `baseline-broken` and committed under the `proceed` amnesty. The
+guard is `ctx.lastExit === undefined`, i.e. "a generator turn is guaranteed to follow". Proposals to
+restore "once, ahead of reproduce" re-open both bugs — keep restore after pre-verify.
+**Why:** real-git repros, 2026-09-17. **How to apply:** the parallel teardown also needs a
+branch-start stash snapshot (`snapshotQuarantinedDiff`, taken before `worktree add`) so an
+interrupted in_progress attempt whose LAST attempt has no commit re-stashes the popped diff before
+`worktree remove`; any reshape of `withWorktree` must keep that snapshot and the `quarantinedAtStart`
+teardown arg. It is a COUNT of entries under the task key, not a boolean: a key can hold several
+entries (a failed pop keeps one, the next block pushes another), the pop takes the newest, so "an
+entry is still listed" proves nothing. Compare counts (fewer now → re-stash). The count is exact only
+because nothing else pushes under that key mid-branch on the parallel path — adding an in-branch push
+under `quarantineStashMessage` would break it. The serial-path abort-after-pop case is still open
+(diff only in the shared tree).
+
+**A bugfix relaunch is solved in the reproduce leaf, not by moving the restore.** The reproduce
+leaf lists the stash first. When the task's quarantine entry is there, it never spawns and never
+writes into the tree: it adopts `<sprintDir>/implement/<id>/reproduce/artifact.json` (saved after
+every accepted spawn, deleted before every fresh spawn), or continues with no reproduction. The
+restore then re-checksums the test (listed stash only). A mismatch KEEPS `ctx.reproductionArtifact`
+only when the pop restored a change to that path (a prior launch's edit — the evaluator's tamper note
+must fire); it drops it when the file is missing or is the committed copy (pop skipped/undone, or the
+popped entry never touched it — the reproducer prefers appending a case to an existing test file, so
+"present but different" is often just HEAD). **Why:** a fresh spawn dirtied the tree, so the
+clean-tree-only restore never popped the earlier work. **How to apply:** any fake `GitRunner` that drives a defect-shaped
+task ("fix"/"bug"/"crash" in the name) must answer `stash list` BEFORE `start-attempt`. Still open:
+`quarantine-retry-diff` stashes the whole tree, reproduction test included, on a red-verify retry.
+
+**Parallel worktree setup output is discarded at setup time, not excluded at commit time.** That was
+a user decision on 2026-09-17. A commit-time path exclusion would also drop the task's own change to
+the same path, like a lockfile when the task adds a dependency, and it would leave the worktree dirty
+after the commit. The cost is that a build needing that output goes red in the worktree, so the
+discard is logged at warn with the remedy. The `SetupTreeRecord` is lossless: past the 200 cap,
+`recordSetupTree` collapses paths into `/`-terminated directories (deepest first, then largest
+first). It only truncates past 200 top-level entries, and a truncated record is never resumed from.
+Only the repo's latest setup row gates the resume. A `'skipped'` no-script row doesn't count because
+nothing ran, so it behaves like a resume-skip.

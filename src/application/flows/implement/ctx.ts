@@ -1,5 +1,5 @@
 import type { Sprint } from '@src/domain/entity/sprint.ts';
-import type { SprintExecution } from '@src/domain/entity/sprint-execution.ts';
+import type { SetupTreeRecord, SprintExecution } from '@src/domain/entity/sprint-execution.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { AttemptWarning, VerifyRunOutcome } from '@src/domain/entity/attempt.ts';
 import type { Task } from '@src/domain/entity/task.ts';
@@ -149,6 +149,16 @@ export interface ImplementCtx {
    * Undefined before setup runs / when no setup succeeded this launch.
    */
   readonly setupVerifiedRepoIdsThisRun?: readonly RepositoryId[] | undefined;
+  /**
+   * Per repo, the answer of the main checkout's post-setup working-tree check — what setup
+   * changed, how it was settled, and which paths the operator has already seen. Set by
+   * `setup-script-runner` from a fresh run or, on the resume-skip path, from the persisted
+   * `SetupRun.tree` the skipped run recorded. Read by every parallel task worktree's own setup
+   * step (`worktree-setup-tree.ts`) to decide what to do with the same script's output in a fresh
+   * checkout. Run-scoped, like `execution`: survives `forkCtx` and `mergeImplementWave`. Undefined
+   * when no repo recorded an answer (no setup script, or no tree guard wired).
+   */
+  readonly setupTreeRecords?: ReadonlyMap<RepositoryId, SetupTreeRecord> | undefined;
   readonly lastCommitSha?: string | undefined;
   readonly proposedCommitMessage?: ProposedCommitMessage | undefined;
   readonly expectedBranch?: string | undefined;
@@ -256,6 +266,10 @@ export interface ImplementCtx {
    * is never cleared by `settle-attempt`. Cleared unconditionally at the START of every task by
    * `clearReproductionArtifactLeaf` (see `reproduce.ts`) — without that reset a defect-shaped
    * task's artifact would otherwise leak into a later non-defect task of the same run.
+   *
+   * On a relaunch whose earlier work is quarantined, the leaf adopts the reproduction that launch
+   * saved instead of spawning, and `restore-blocked-diff` clears it again when the test it names
+   * is not in the tree as validated once the restore has run.
    */
   readonly reproductionArtifact?: ReproductionArtifact | undefined;
   /**

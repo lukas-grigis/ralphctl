@@ -283,6 +283,62 @@ to [Semantic Versioning](https://semver.org/).
   artifacts recording the stdin state it was handed, so a future hang can be diagnosed from disk.
   Full writeup in `.claude/docs/INTERACTIVE-HANDOFF-HANG.md`.
 
+- **A parallel task that hits its attempt budget while resuming now stays blocked**, instead of quietly
+  coming back `in_progress` and re-blocking (and re-notifying) on every relaunch. The same fix closes a
+  worse sibling bug: a task that failed or was interrupted mid-wave could reset an unrelated, already
+  finished task in that same wave back to `todo`, discarding a completed and folded result. Merging a
+  wave's results now only ever updates the one task each part of the wave actually settled, and a block
+  already saved to disk right before an error or an abort is recovered rather than overwritten.
+
+- **A relaunched task with quarantined work no longer loses it.** Two related fixes: a baseline check
+  that blocks the very first thing an attempt does no longer restores that quarantined work first and
+  then leaves it stranded, and a Ctrl-C or crash landing in a parallel run right after that work was
+  restored — but before it was committed or blocked again — now puts it back where it can be recovered,
+  instead of removing the task's worktree with it still inside, even when an earlier failed restore had
+  already left an older, unrelated quarantined entry for that same task sitting in the stash. The
+  quarantined work also no longer counts toward the baseline check itself, which previously could let it
+  be committed once the operator chose to proceed past a check it had turned red.
+
+- **Relaunching a bugfix task after it's unblocked now continues from the failing test it already wrote**,
+  instead of silently writing and validating a second one on top of the same quarantined work. If the
+  restored work brought back a change to that test too — a weakened assertion from the attempt that
+  blocked, say — the test is kept rather than discarded, so the evaluator re-checks it and reports the
+  tampering instead of the retry looking like it validated a fresh, untouched test; it's dropped only when
+  the test genuinely isn't in the tree.
+
+- **A parallel task's isolated worktree now checks what its setup script changes there against what the
+  operator already saw in the main checkout**, instead of letting it ride along unremarked. A change the
+  operator already dealt with (kept, stashed, or reset) is discarded from the worktree right after setup —
+  logged with the paths and a remedy, since a red verify in that worktree can trace back to it — before
+  the task's commit; a change they never saw blocks the task — or is kept with a warning, under the
+  "continue" dirty-tree setting — naming the script. The answer is remembered past 200 seen paths too,
+  collapsing into the directories that cover the most of them rather than losing paths off the end, and it
+  no longer trusts a stale success: a later run for that repo that actually failed or errored now forces
+  setup to run again on the next launch instead of skipping it. A sprint started before this shipped runs
+  setup once more on its next launch either way, to record an answer for the first time.
+
+- **A working tree with only new, untracked files is no longer treated as clean.** A repository or global
+  git setting that hides untracked files from `git status` (`status.showUntrackedFiles=no`) could make
+  ralphctl's dirty-tree checks, its commit step, and its quarantine stash all miss brand-new files —
+  silently skipping a commit of the AI's own work.
+
+- **A dependent task that's only blocked because it's waiting on another blocked task no longer stays
+  shown as blocked in the Execute view once that other task is unblocked.** It now correctly renders as
+  runnable again, matching what already happens for a task unblocked directly.
+
+- **A task left behind by a sprint reopen that didn't fully complete is reachable again.** If unblocking
+  one task revived it but couldn't finish reopening its closed sprint, that task used to look like
+  ordinary, un-flagged `todo` work — and a retry that failed the same way a second time still reported
+  success. Sprint-detail's `u` and the Sprints list's bulk unblock both now recognize this case, lead with
+  a warning instead of a success tick while it's still stuck, and spell out the fix: run
+  `ralphctl sprint reopen <id>`, reload — sprint-detail gains the same `r` chord the Sprints list already
+  had, since this view never polls for changes made outside it — then unblock again.
+
+- **A skill folder left behind by a run that was killed or crashed mid-launch no longer permanently
+  shadows a newer bundled skill.** ralphctl now marks every skill folder it installs with the run that
+  created it, so a later run can tell an abandoned leftover from a project's own copy and refresh it,
+  instead of treating it as a deliberate override forever.
+
 ## [0.21.0] - 2026-08-24
 
 ### Changed

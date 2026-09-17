@@ -2,6 +2,7 @@ import { Result } from '@src/domain/result.ts';
 import {
   type DirtyTreeChoice,
   type DirtyTreePolicy,
+  type PreflightTaskOutput,
   type PreflightTaskProps,
   preflightTaskUseCase,
 } from '@src/business/task/preflight-task.ts';
@@ -108,7 +109,7 @@ export const preflightTaskLeaf = (
   };
   const menu = dirtyTreeMenu(deps, { elementName: ELEMENT_NAME });
 
-  return leaf<ImplementCtx, PreflightTaskInput, void>(
+  return leaf<ImplementCtx, PreflightTaskInput, PreflightTaskOutput>(
     name,
     {
       useCase: {

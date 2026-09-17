@@ -316,7 +316,14 @@ runs only — see [§6.2](#62-execute-view-keys--active-when-execute-view-owns-t
 sprint-detail task list (no such gate — it's a browse view, never a live run). Sprint-detail also binds
 `B` (jump to the next blocked task, wrapping) so an operator doesn't have to arrow-key past a long task
 list to reach a row the header already flagged; its footer hint reads `u unblock` / `B next blocked`,
-both gated on a blocked task actually existing.
+both gated on a blocked task actually existing. Sprint-detail also binds `r` (always available, mirroring
+the Sprints list) to re-read the sprint bundle from disk: this view never polls, so an out-of-process
+mutation — `ralphctl sprint reopen <id>` run from another terminal, say — stays invisible here until `r`
+re-fetches it. The chord has no footer hint (the strip is already near its 100-column budget when `u` and
+`B` show); the help overlay lists it, and the one toast that needs it names it. When an unblock's own sprint reopen is refused (another sprint of the project already holds
+it) or stalls short of `active`, the `u` toast's retry clause names the fix in order: run
+`ralphctl sprint reopen <id>`, press `r` to reload, then `u` again — the Sprints list's bulk `u` mirrors
+the same clause (`unblock-feedback.ts`).
 
 **Anchoring.** Once a run settles (no task left in flight), the Tasks panel's card cursor — and with
 it the windowed list's visible slice — anchors on the FIRST `blocked` task instead of unconditionally
@@ -324,6 +331,19 @@ the last one. Without this, a task blocked early in a long list would fall behin
 cue the instant the run finished, exactly the failure mode a blocked task's added attention-color exists
 to prevent. The same fallback seeds which card auto-expands as the settled summary. Only when nothing
 is blocked does the cursor fall through to the last card (unchanged pre-existing behaviour).
+
+**Reconciling a live trace against the polled entity.** The Execute view's bucketed trace and the polled
+task list can disagree for two reasons, both corrected wherever a bucket drives a status-sensitive
+surface (a card glyph, a done/total count, the sidebar minimap): an own-failure block renders `pending`
+once `u` revives the task with an empty attempt ledger and an archived `retiredAttempts` entry to show
+for it, and a CASCADE-cleared dependent — blocked only because its prerequisite never finished — also
+renders `pending` once `u` on the root clears it back to `todo`, even though a pure dependent archives
+no `retiredAttempts` (it never ran an attempt of its own). The cascade-clear correction applies only
+once the producing run has settled; while a run is still live, a `todo` snapshot there is
+indistinguishable from the dependency gate's own in-flight block not yet reaching the next poll. The
+revived-root correction has no such gate — it fires live-run or not, since unblocking (Sprint-detail's
+`u` is never gated on run liveness) can happen while other tasks in the same run are still executing,
+e.g. after `D` (Detach) backgrounds a run whose own-failure block already settled that task's trace.
 
 ## 6. Navigation contract
 

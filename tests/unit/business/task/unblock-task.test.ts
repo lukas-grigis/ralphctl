@@ -657,7 +657,81 @@ describe('unblockTaskUseCase', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.value.task.status).toBe('todo');
-    expect(result.value.sprintReopened).toBeUndefined();
+    // The sprint never moved off `review` — report it (not `undefined`), or a caller that treats a
+    // missing `sprintReopened` as "nothing to say" would show a plain success while the sprint is
+    // still stuck short of `active`.
+    expect(result.value.sprintReopened?.from).toBe('review');
+    expect(result.value.sprintReopened?.sprint.status).toBe('review');
+  });
+
+  // The exact gap this covers: a `review` sprint's second hop failing is otherwise indistinguishable
+  // from "nothing needed reopening" (both report `sprintReopened: undefined`), so a caller renders a
+  // plain success toast while the sprint sits stuck short of `active`.
+  it('reports the still-review sprint (not undefined) when the review → active step fails on a task that was already blocked', async () => {
+    const blocked = makeBlockedTask();
+    const taskRepo = repoOk([blocked]);
+    const reviewSprint = makeReviewSprint();
+    const sprintRepo: SprintRepo = {
+      async findById() {
+        return Result.ok(reviewSprint);
+      },
+      async save() {
+        return Result.error(new StorageError({ subCode: 'io', message: 'disk full', path: 'sprint' }));
+      },
+      async list() {
+        return Result.ok([reviewSprint]);
+      },
+    };
+
+    const result = await unblockTaskUseCase({
+      task: blocked,
+      sprintId: SPRINT_ID,
+      taskRepo: taskRepo.repo,
+      sprintRepo,
+      clock: FIXED_CLOCK,
+      logger: noopLogger,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.sprintReopened).toBeDefined();
+    expect(result.value.sprintReopened?.from).toBe('review');
+    expect(result.value.sprintReopened?.sprint.status).toBe('review');
+  });
+
+  // Same gap on the already-todo short-circuit (`finishInterruptedReopen`) — a SECOND failed
+  // review → active retry must not read as "nothing left to do" either.
+  it('reports the still-review sprint (not undefined) when a retried review → active step fails again', async () => {
+    const todo = makeTodoTask();
+    const taskRepo = repoOk([todo]);
+    const reviewSprint = makeReviewSprint();
+    const sprintRepo: SprintRepo = {
+      async findById() {
+        return Result.ok(reviewSprint);
+      },
+      async save() {
+        return Result.error(new StorageError({ subCode: 'io', message: 'disk full', path: 'sprint' }));
+      },
+      async list() {
+        return Result.ok([reviewSprint]);
+      },
+    };
+
+    const result = await unblockTaskUseCase({
+      task: todo,
+      sprintId: SPRINT_ID,
+      taskRepo: taskRepo.repo,
+      sprintRepo,
+      clock: FIXED_CLOCK,
+      logger: noopLogger,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.task.status).toBe('todo');
+    expect(result.value.sprintReopened).toBeDefined();
+    expect(result.value.sprintReopened?.from).toBe('review');
+    expect(result.value.sprintReopened?.sprint.status).toBe('review');
   });
 
   // Single-active-per-project invariant on the `done` → `review` hop — the same one

@@ -171,11 +171,18 @@ and `done → review` — that keep `done` from being a genuine dead end for the
       upstream-blocked dependent, and reopens the sprint when needed (skipped, with a note naming the
       peer, when another sprint of the project already holds it). Blocked work is counted on
       every orientation surface (Home card, Sprints list, sprint picker, sprint-detail, settled-run
-      summary, next-steps) and cannot be windowed off-screen in the Tasks panel. See `WORKFLOWS.md`
-      for the end-to-end walk-through.
+      summary, next-steps) and cannot be windowed off-screen in the Tasks panel. On the parallel path, a
+      block a task already persisted to disk survives even when its own branch then errors or aborts
+      (`adopt-persisted-blocks` re-reads it ahead of the run's task-list write, and the fan-in itself only
+      ever updates the one task each branch settled, never a sibling's), and a diff `restore-blocked-diff`
+      had already popped back into a worktree is re-quarantined if that branch is interrupted before it
+      commits — even when an older, already-quarantined entry for that same task is still sitting in the
+      stash from an earlier failed restore. See `WORKFLOWS.md` for the end-to-end walk-through.
 - [x] **Per-task generator-evaluator loop** — the attempt body is
-      `start-attempt → pre-task-verify → gen-eval inner loop (generator/evaluator per turn) → finalize → post-task-verify → commit (guarded) → settle-attempt → append-learnings → progress-journal`,
-      wrapped in an outer `loop` over attempts.
+      `start-attempt → pre-task-verify → restore-blocked-diff (guarded) → gen-eval inner loop (generator/evaluator per turn) → finalize → post-task-verify → commit (guarded) → quarantine-retry-diff (guarded) → settle-attempt → append-learnings → progress-journal`,
+      wrapped in an outer `loop` over attempts. The restore is guarded on no terminal exit being set yet, so
+      a pre-task-verify block never pops a diff nothing would quarantine again, and the verify baseline
+      never includes previously rejected work.
       Exits when the evaluator passes, `maxAttempts` is hit (transition to `blocked`), or a red post-verify
       with attribution `regressed` exhausts the attempt budget (also `blocked`; within budget it retries with
       the failing evidence in the generator prompt via `RETRY_FEEDBACK_SECTION`).
@@ -185,8 +192,19 @@ and `done → review` — that keep `done` from being a genuine dead end for the
       role carries its own `{ provider, model, effort? }` row, so the produce and score sessions can run on
       different providers / models / effort levels.
 - [x] **`setupScript` runs once per affected repo per sprint** — outcome recorded as a structured `SetupRun`
-      on `SprintExecution.setupRanAt`; on resume a repo with a prior matching `success` row is skipped
-      (command drift forces a re-run); any failure hard-aborts the chain with the failing repo named.
+      on `SprintExecution.setupRanAt`, including the post-setup working-tree check's durable answer
+      (`SetupRun.tree`, once the check is wired) — outcome plus the paths the operator has seen (past 200,
+      collapsed into covering directory entries rather than cut). On resume, a repo is skipped only when
+      its LATEST row for that repo — ignoring no-script `skipped` rows — is ITSELF a `success` of the
+      current command and also carries a complete answer (a later failed/spawn-error row, command drift,
+      or a row missing or truncating the answer forces a re-run); any failure hard-aborts the chain with
+      the failing repo named.
+- [x] **Parallel worktree setup matches the main checkout's answer** — each task's isolated worktree re-runs
+      the repo's `setupScript` and checks its own working-tree change against the main checkout's recorded
+      `SetupRun.tree` (never by re-reading the main checkout, which sibling folds keep changing mid-wave): a
+      path the main checkout already saw is discarded before the task's commit; an unseen path blocks only
+      that task (kept with a warning under dirty-tree policy `continue`); no recorded answer for the repo
+      blocks the task outright.
 - [x] **`verifyScript` / `verifyGates` gates per-task settlement with pre/post attribution** — runs before the
       AI (pre-task) and after commit (post-task). Attribution: `clean` / `regressed` / `baseline-broken` /
       `fixed-baseline`. A `baseline-broken` result does not block the AI; a `regressed` result triggers a

@@ -58,17 +58,26 @@ interface UseStuckSprintTasksResult {
 
 /**
  * Loads the focused sprint's tasks (cancel-safe on sprint change / unmount) and derives the
- * blocked + in_progress subset that `u` can bulk-unblock. `unblockAll` mirrors the original
- * inline handler's mounted-ref-gated ordering: the unblock loop runs unconditionally, a mount
- * check gates the feedback write, and a second mount check (after the further awaited refresh)
- * gates the task-list write — mount state can change between the two awaits.
+ * bulk-unblockable subset. That's `blocked` + `in_progress`, plus — only when neither of those
+ * exist and the sprint itself is still `review` — the single stray `todo` task an interrupted
+ * `unblockTaskUseCase` `review` → `active` hop can leave behind (`finishInterruptedReopen` in
+ * `business/task/unblock-task.ts`). Capped at ONE `todo` task on purpose: that use case's
+ * already-`todo` short-circuit persists no task write, so folding every `todo` task on the sprint
+ * in here would call it N times over and report "unblocked N tasks" for a run that revived none of
+ * them. `unblockAll` mirrors the original inline handler's mounted-ref-gated ordering: the unblock
+ * loop runs unconditionally, a mount check gates the feedback write, and a second mount check
+ * (after the further awaited refresh) gates the task-list write — mount state can change between
+ * the two awaits.
  *
  * `reload` is the outer list loader's own reload (same one `e` / `d` already call on success) —
  * this hook's `tasks` state only feeds the footer hint's stuck count; the card's `· N blocked`
  * sub-count and status chip come from the separate `SprintListEntry` snapshot that loader owns,
  * so without this call a successful bulk unblock left that badge stale until `r` or a remount.
  */
-const useStuckSprintTasks = (sprintId: Sprint['id'] | undefined): UseStuckSprintTasksResult => {
+const useStuckSprintTasks = (
+  sprintId: Sprint['id'] | undefined,
+  sprintStatus: Sprint['status'] | undefined
+): UseStuckSprintTasksResult => {
   const deps = useDeps();
   const unblockTask = useUnblockTask();
   const mountedRef = useIsMounted();
@@ -91,7 +100,11 @@ const useStuckSprintTasks = (sprintId: Sprint['id'] | undefined): UseStuckSprint
     };
   }, [sprintId, deps.taskRepo]);
 
-  const stuckTasks = tasks.filter((t) => t.status === 'blocked' || t.status === 'in_progress');
+  const activeStuck = tasks.filter((t) => t.status === 'blocked' || t.status === 'in_progress');
+  // At most one — see the doc comment above for why more would misreport the toast.
+  const strandedTodo =
+    activeStuck.length === 0 && sprintStatus === 'review' ? tasks.filter((t) => t.status === 'todo').slice(0, 1) : [];
+  const stuckTasks = [...activeStuck, ...strandedTodo];
 
   const unblockAll = async (
     sprint: Sprint | undefined,
@@ -106,6 +119,7 @@ const useStuckSprintTasks = (sprintId: Sprint['id'] | undefined): UseStuckSprint
     // revived), so folding it into the error path would under-report `succeeded`.
     let reopenRefused = 0;
     let reopenReason: string | undefined;
+    let reopenHint: string | undefined;
     let reopened: UnblockFeedbackInput['reopened'];
     for (const task of stuckTasks) {
       const r = await unblockTask(task, sprint.id);
@@ -114,6 +128,7 @@ const useStuckSprintTasks = (sprintId: Sprint['id'] | undefined): UseStuckSprint
         if (r.value.sprintReopenConflict !== undefined) {
           reopenRefused += 1;
           reopenReason = r.value.sprintReopenConflict.message;
+          reopenHint = r.value.sprintReopenConflict.hint;
         }
         const hop = r.value.sprintReopened;
         if (hop !== undefined) reopened = { from: reopened?.from ?? hop.from, to: hop.sprint.status };
@@ -129,8 +144,10 @@ const useStuckSprintTasks = (sprintId: Sprint['id'] | undefined): UseStuckSprint
         total,
         lastError,
         sprintName: sprint.name,
+        sprintId: sprint.id,
         reopenRefused,
         reopenReason,
+        reopenHint,
         reopened,
       })
     );
@@ -443,9 +460,10 @@ export const SprintsView = (): React.JSX.Element => {
   });
 
   const focusedSprint = (list.focusedItem ?? items[0])?.sprint;
-  // Keyed by sprint id (not the full object) so a reload with semantically-identical data doesn't
-  // re-trigger the fetch.
-  const stuck = useStuckSprintTasks(focusedSprint?.id);
+  // Keyed by sprint id + status (not the full object) so a reload with semantically-identical
+  // data doesn't re-trigger the fetch; status is included because it gates the stranded-`todo`
+  // case above.
+  const stuck = useStuckSprintTasks(focusedSprint?.id, focusedSprint?.status);
 
   // The shared sprint-bound launcher owns the post-completion `selection.setSprint` reseat —
   // wiring it inline here would duplicate the subscriber across every sprint-bound view.

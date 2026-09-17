@@ -81,9 +81,11 @@ const blockTaskForFoldConflict = (task: Task, reason: string): BlockedTask => {
 /**
  * Handle a non-abort fold failure (a cherry-pick conflict). Blocks THIS task, leaves siblings
  * folded. Returns `Result.ok` with the blocked task so the branch runner COMPLETES and its
- * `runner.ctx` carries the block — `mergeImplementWave` overlays a `completed` branch's task copy.
- * (A `Result.error` here would leave `runner.ctx` at its pre-fold value, re-surfacing the task as
- * `done` in the merge, which would orphan the unmerged commit.)
+ * `runner.ctx` carries the block — `mergeImplementWave` overlays a `completed` branch's OWNED task
+ * copy. (A `Result.error` here would make the branch `failed`, and the merge overlays NOTHING for a
+ * non-`completed` branch — the task would fall back to its PRE-WAVE base copy instead of carrying
+ * the fold-conflict block, silently losing the block and letting a relaunch redo already-landed
+ * work rather than merely "re-surfacing as done".)
  *
  * This is the one place the conflict block is decided, so it is also where the operator is told:
  * the task settled `done` (no notification), and nothing downstream re-announces it.

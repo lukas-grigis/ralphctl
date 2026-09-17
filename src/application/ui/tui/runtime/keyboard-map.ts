@@ -116,6 +116,7 @@ export const contextualKeys = {
   updateSkill: { keys: ['u'], label: 'update skill from bundle' },
   updateAllSkills: { keys: ['U'], label: 'update every out-of-date skill' },
   openEvaluation: { keys: ['v'], label: "open the focused task's evaluation verdict" },
+  reloadFromDisk: { keys: ['r'], label: 're-read the sprint list / sprint detail from disk' },
 } as const satisfies Record<string, KeyBinding>;
 
 /**

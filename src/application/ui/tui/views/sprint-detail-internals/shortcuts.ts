@@ -43,6 +43,13 @@ interface SprintDetailShortcutArgs {
   readonly handleEdit: () => void;
   readonly handleUnblock: (task: Task) => void;
   readonly openEvaluation: (task: Task) => void;
+  /**
+   * Re-read the sprint bundle from disk. Mirrors `sprints-view.tsx`'s `r` — the fix for the
+   * conflict toast's "then u again here" instruction: this view never polls, so an out-of-process
+   * `ralphctl sprint reopen` (or any other external mutation) is invisible here until something
+   * re-triggers `useSprintBundle`'s loader. `r` is that trigger.
+   */
+  readonly reloadSprint: () => void;
 }
 
 /** One keymap row — `guard` gates whether `key` fires in the current state; `action` runs on a match. */
@@ -120,6 +127,14 @@ const SHORTCUT_ROWS: readonly ShortcutRow[] = [
     key: (input) => input === 'u',
     guard: (args) => args.focusedStuckTask !== undefined,
     action: (args) => args.handleUnblock(args.focusedStuckTask!),
+  },
+  {
+    // Always available, like `sprints-view.tsx`'s `r` — re-fetches the sprint bundle so an
+    // out-of-process mutation (e.g. `ralphctl sprint reopen`) becomes visible here without
+    // leaving and re-entering the view.
+    key: (input) => input === 'r',
+    guard: () => true,
+    action: (args) => args.reloadSprint(),
   },
   {
     // Uppercase `B` — lowercase `b` is the GLOBAL banner toggle (`use-global-keys.ts`), so the

@@ -112,14 +112,17 @@ export interface UnblockTaskProps {
   readonly logger: Logger;
 }
 
-/** A reopen this unblock call performed. */
+/** A reopen this unblock call performed — or attempted and left unfinished. */
 export interface SprintReopened {
   /** Where the sprint stood before this call. */
   readonly from: 'done' | 'review';
   /**
-   * The sprint as persisted. `active` normally; a `review` sprint only when a closed sprint's
-   * `done` → `review` hop landed but the `review` → `active` step failed to persist — re-running
-   * unblock finishes it.
+   * The sprint as persisted. `active` normally; a `review` sprint in two cases, both meaning the
+   * `review` → `active` step did not persist: a closed sprint's `done` → `review` hop landed but
+   * the second hop failed (`from: 'done'`), or the sprint was already `review` when this call
+   * started and the same hop failed again on this attempt (`from: 'review'`). Either way
+   * `sprint.status === 'review'` here is the caller's signal that nothing was actually resolved —
+   * re-running unblock retries the hop.
    */
   readonly sprint: ActiveSprint | ReviewSprint;
 }
@@ -273,7 +276,18 @@ const finishInterruptedReopen = async (
     return Result.ok(outputOf(task, undefined, undefined));
   }
   const active = await activateReviewSprint(props, loaded.value, log);
-  return Result.ok(outputOf(task, active !== undefined ? { from: 'review', sprint: active } : undefined, undefined));
+  // `activateReviewSprint` no-ops (returns `undefined`) both when the sprint isn't `review` (this
+  // short-circuit only ever reopens a `review` sprint, so that can't happen here) and when the
+  // hop failed to persist. Report the still-`review` sprint in the latter case so the caller never
+  // renders a plain success while the retry hop is still stuck — see `SprintReopened`'s doc
+  // comment.
+  const reopened: SprintReopened | undefined =
+    active !== undefined
+      ? { from: 'review', sprint: active }
+      : loaded.value.status === 'review'
+        ? { from: 'review', sprint: loaded.value }
+        : undefined;
+  return Result.ok(outputOf(task, reopened, undefined));
 };
 
 /** Persist only the revived task via the single-task `update` — no whole-list rewrite needed. */
@@ -388,6 +402,16 @@ export const unblockTaskUseCase = async (
   if (before.value.kind === 'reopened') {
     return Result.ok(outputOf(primary, { from: 'done', sprint: active ?? before.value.sprint }, undefined));
   }
-  const reopened: SprintReopened | undefined = active !== undefined ? { from: 'review', sprint: active } : undefined;
+  // The sprint was already `review` (not `done`) when loaded — no first hop was needed. If the
+  // second hop still failed to persist, report the residual `review` sprint (see
+  // `SprintReopened`'s doc comment) so the caller never shows a plain success while the sprint is
+  // still stuck short of `active`. A conflict-refused `done` sprint stays `done`, not `review`, so
+  // this branch never fires for that case — `sprintReopenConflict` alone reports it.
+  const reopened: SprintReopened | undefined =
+    active !== undefined
+      ? { from: 'review', sprint: active }
+      : before.value.sprint.status === 'review'
+        ? { from: 'review', sprint: before.value.sprint }
+        : undefined;
   return Result.ok(outputOf(primary, reopened, before.value.conflict));
 };

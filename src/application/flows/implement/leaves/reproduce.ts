@@ -20,6 +20,10 @@ import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts'
 import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/template-loader.ts';
 import type { ShellScriptRunner } from '@src/integration/io/shell-script-runner.ts';
 import { writeTextAtomic } from '@src/integration/io/fs.ts';
+import { gitStashList, stashEntryMatchesMessage } from '@src/integration/io/git-operations.ts';
+import type { GitRunner } from '@src/integration/io/git-runner.ts';
+import type { WriteFile } from '@src/business/io/write-file.ts';
+import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import { rootSessionId } from '@src/application/session/session.ts';
 import { deriveTaskKind } from '@src/business/task/derive-task-kind.ts';
 import { buildReproducePrompt } from '@src/integration/ai/prompts/reproduce/definition.ts';
@@ -29,6 +33,13 @@ import { reproduceOutputContract } from '@src/application/flows/implement/leaves
 import { runPathsFor } from '@src/application/flows/_shared/allocate-run-dir.ts';
 import { readCappedProgress } from '@src/application/flows/implement/leaves/_shared/run-role-turn.ts';
 import { VERIFY_TAIL_MAX_CHARS } from '@src/application/flows/implement/leaves/_shared/verify-run-summary.ts';
+import { quarantineStashMessage } from '@src/application/flows/implement/leaves/quarantine-blocked-diff.ts';
+import {
+  loadReproductionArtifact,
+  removeReproductionArtifact,
+  reproductionArtifactFile,
+  saveReproductionArtifact,
+} from '@src/application/flows/implement/leaves/reproduction-artifact.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 
 /**
@@ -59,12 +70,28 @@ import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
  * `reproduction` signal, or a claimed command that turns out to pass on re-run all degrade to
  * today's behaviour — no reproduction context, logged at warn, task proceeds unaffected. Only a
  * fatal chain error (abort / exhausted rate limit) propagates.
+ *
+ * ## A relaunch reuses the reproduction it already has
+ *
+ * An accepted reproduction is saved beside the session files (see `reproduction-artifact.ts`).
+ * When the task blocked on an earlier launch, its uncommitted work, failing test included, sits in
+ * the quarantine stash, and `restore-blocked-diff` pops it back only onto a clean tree. So before
+ * spawning, this leaf lists the stash. When the task's quarantined work is there, it never spawns
+ * and never writes into the tree: it adopts the saved reproduction, or, when none can be read,
+ * lets the relaunch continue from that work without one. The saved command is not re-run here —
+ * its test is still in the stash, so there is nothing to run yet. Instead `restore-blocked-diff`
+ * drops the adopted reproduction when the test that comes back (or doesn't) no longer matches the
+ * validated checksum. A stash that can't be listed falls through to a normal spawn.
  */
 export interface ReproduceLeafDeps {
   readonly provider: HeadlessAiProvider;
   readonly templateLoader: TemplateLoader;
   readonly publishSignal: PublishSignal;
   readonly shellScriptRunner: ShellScriptRunner;
+  /** Lists the stash, which is how a relaunch with quarantined work is told apart from a fresh one. */
+  readonly gitRunner: GitRunner;
+  /** Saves an accepted reproduction so a later launch of the same task can reuse it. */
+  readonly writeFile: WriteFile;
   readonly logger: Logger;
 }
 
@@ -100,6 +127,7 @@ export interface ReproductionArtifact {
 
 interface ReproduceInput {
   readonly task: Task;
+  readonly sprintId: SprintId;
   readonly workspaceRoot: AbsolutePath;
 }
 
@@ -153,6 +181,8 @@ export const isDefectShapedTask = (ctx: ImplementCtx, taskId: TaskId): boolean =
   const task = ctx.tasks?.find((t) => t.id === taskId);
   return task !== undefined && deriveTaskKind(task) === 'bugfix';
 };
+
+const LOG_SCOPE = 'implement.reproduce';
 
 const CHECKSUM_ALGORITHM = 'sha256';
 
@@ -305,7 +335,7 @@ const runReproduceSession = async (
   reproduceDir: AbsolutePath,
   abortSignal: AbortSignal | undefined
 ): Promise<Result<ReproductionSignal | undefined, DomainError>> => {
-  const log = deps.logger.named('implement.reproduce');
+  const log = deps.logger.named(LOG_SCOPE);
 
   const paths = runPathsFor(reproduceDir);
   if (!paths.ok) return Result.error(paths.error);
@@ -370,21 +400,23 @@ const runReproduceSession = async (
   return Result.ok(reproduction);
 };
 
-const reproduceUseCase = async (
+/**
+ * Spawn the session, re-run its claimed command and checksum its test — the full first-launch path.
+ * `undefined` for every degrade (see the module docstring); only a fatal chain error is an error.
+ */
+const spawnReproduction = async (
   deps: ReproduceLeafDeps,
   opts: ReproduceLeafOpts,
   taskId: TaskId,
-  input: ReproduceInput,
-  abortSignal?: AbortSignal
-): Promise<Result<ReproduceOutput, DomainError>> => {
-  const log = deps.logger.named('implement.reproduce');
-  const reproduceDir = AbsolutePath.parse(join(String(input.workspaceRoot), 'reproduce'));
-  if (!reproduceDir.ok) return Result.error(reproduceDir.error);
-
-  const session = await runReproduceSession(deps, opts, taskId, input.task, reproduceDir.value, abortSignal);
+  task: Task,
+  reproduceDir: AbsolutePath,
+  abortSignal: AbortSignal | undefined
+): Promise<Result<ReproductionArtifact | undefined, DomainError>> => {
+  const log = deps.logger.named(LOG_SCOPE);
+  const session = await runReproduceSession(deps, opts, taskId, task, reproduceDir, abortSignal);
   if (!session.ok) return Result.error(session.error);
   const reproduction = session.value;
-  if (reproduction === undefined) return Result.ok({});
+  if (reproduction === undefined) return Result.ok(undefined);
 
   const verified = await verifyReproductionFails(deps, opts.cwd, reproduction.runCommand, abortSignal);
   if (verified.kind === 'fatal') return Result.error(verified.error);
@@ -393,7 +425,7 @@ const reproduceUseCase = async (
       `reproduce command for task '${String(taskId)}' did not fail on re-run — a reproduction that passes proves nothing, discarding`,
       { taskId: String(taskId), runCommand: reproduction.runCommand }
     );
-    return Result.ok({});
+    return Result.ok(undefined);
   }
 
   const checksum = await checksumTestFile(opts.cwd, reproduction.testPath);
@@ -402,20 +434,107 @@ const reproduceUseCase = async (
       taskId: String(taskId),
       testPath: reproduction.testPath,
     });
-    return Result.ok({});
+    return Result.ok(undefined);
   }
 
-  const artifact: ReproductionArtifact = {
+  log.info(`reproduction verified for task '${String(taskId)}'`, {
+    taskId: String(taskId),
+    testPath: reproduction.testPath,
+  });
+  return Result.ok({
     testPath: reproduction.testPath,
     runCommand: reproduction.runCommand,
     observedFailure: verified.observedFailure,
     relevantTests: reproduction.relevantTests,
     checksum,
-  };
-  log.info(`reproduction verified for task '${String(taskId)}'`, {
-    taskId: String(taskId),
-    testPath: artifact.testPath,
   });
+};
+
+/**
+ * Whether this task's blocked diff from an earlier launch is waiting in the stash. Matched with
+ * `stashEntryMatchesMessage`, since real git renders the subject as `On <branch>: <message>`. A
+ * list failure reads as "no", so the leaf spawns exactly as it would on a first launch.
+ */
+const hasQuarantinedWork = async (
+  deps: ReproduceLeafDeps,
+  cwd: AbsolutePath,
+  sprintId: SprintId,
+  taskId: TaskId
+): Promise<boolean> => {
+  const stashes = await gitStashList(deps.gitRunner, cwd);
+  if (!stashes.ok) {
+    deps.logger.named(LOG_SCOPE).warn('stash list failed — reproducing as on a first launch', {
+      taskId: String(taskId),
+      cwd: String(cwd),
+      error: stashes.error.message,
+    });
+    return false;
+  }
+  const message = quarantineStashMessage(sprintId, taskId);
+  return stashes.value.some((entry) => stashEntryMatchesMessage(entry, message));
+};
+
+/** The relaunch path: adopt the saved reproduction, or continue without one. Never spawns. */
+const reuseSavedReproduction = async (
+  deps: ReproduceLeafDeps,
+  taskId: TaskId,
+  file: AbsolutePath
+): Promise<ReproduceOutput> => {
+  const log = deps.logger.named(LOG_SCOPE);
+  const loaded = await loadReproductionArtifact(file);
+  if (loaded.ok && loaded.value !== undefined) {
+    log.info(`reusing the reproduction an earlier launch of task '${String(taskId)}' validated`, {
+      taskId: String(taskId),
+      testPath: loaded.value.testPath,
+    });
+    return { artifact: loaded.value };
+  }
+  const message = `task '${String(taskId)}' continues from its quarantined work without a reproduction — none was saved that can be reused`;
+  if (loaded.ok) log.info(message, { taskId: String(taskId) });
+  else log.warn(message, { taskId: String(taskId), error: loaded.error.message });
+  return {};
+};
+
+const reproduceUseCase = async (
+  deps: ReproduceLeafDeps,
+  opts: ReproduceLeafOpts,
+  taskId: TaskId,
+  input: ReproduceInput,
+  abortSignal?: AbortSignal
+): Promise<Result<ReproduceOutput, DomainError>> => {
+  const log = deps.logger.named(LOG_SCOPE);
+  const reproduceDir = AbsolutePath.parse(join(String(input.workspaceRoot), 'reproduce'));
+  if (!reproduceDir.ok) return Result.error(reproduceDir.error);
+  const artifactFile = reproductionArtifactFile(reproduceDir.value);
+  if (!artifactFile.ok) return Result.error(artifactFile.error);
+
+  if (await hasQuarantinedWork(deps, opts.cwd, input.sprintId, taskId)) {
+    return Result.ok(await reuseSavedReproduction(deps, taskId, artifactFile.value));
+  }
+
+  // The saved file describes the latest spawn, and only an accepted one: whatever this spawn leaves
+  // in the tree is what a later relaunch finds in the stash.
+  const forgot = await removeReproductionArtifact(artifactFile.value);
+  if (!forgot.ok) {
+    log.warn('could not remove the reproduction an earlier launch saved', {
+      taskId: String(taskId),
+      error: forgot.error.message,
+    });
+  }
+
+  const spawned = await spawnReproduction(deps, opts, taskId, input.task, reproduceDir.value, abortSignal);
+  if (!spawned.ok) return Result.error(spawned.error);
+  const artifact = spawned.value;
+  if (artifact === undefined) return Result.ok({});
+
+  // Best-effort: a relaunch without the saved copy only loses its reproduction block.
+  const saved = await saveReproductionArtifact(deps.writeFile, artifactFile.value, artifact);
+  if (!saved.ok) {
+    log.warn('could not save the reproduction for a later launch of this task', {
+      taskId: String(taskId),
+      error: saved.error.message,
+    });
+  }
   return Result.ok({ artifact });
 };
 
@@ -446,7 +565,7 @@ export const reproduceLeaf = (
           message: `reproduce-${String(taskId)}: ctx.taskWorkspaceRoot is undefined — build-task-workspace must run first`,
         });
       }
-      return { task, workspaceRoot: ctx.taskWorkspaceRoot };
+      return { task, sprintId: ctx.sprintId, workspaceRoot: ctx.taskWorkspaceRoot };
     },
     output: (ctx, out) => (out.artifact !== undefined ? { ...ctx, reproductionArtifact: out.artifact } : ctx),
   });

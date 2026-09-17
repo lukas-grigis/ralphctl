@@ -216,10 +216,18 @@ non-interactive runs. The earlier "approve & update" / "approve & create" review
 `defaultIssueOrigin`-driven create path were removed — `Project.defaultIssueOrigin` survives as a
 persisted field but refine no longer consults it.
 
-**Bundled skills (13 total) always lose to project skills.** When `<cwd>/.claude/skills/<name>/` already
-exists, the bundled copy is skipped and the project copy is left untouched. The skills adapter
-(`src/integration/ai/skills/adapter-factory.ts`) tracks only what it installed; uninstall removes only
-those entries. Every bundled `SKILL.md` is validated by `skill-contract-checker.ts` against seven harness
+**Bundled skills (13 total) always lose to project skills — unless the folder is a leftover of ralphctl's
+own.** When `<cwd>/.claude/skills/<name>/` already exists, the bundled copy is skipped and the project
+copy is left untouched, UNLESS that folder itself carries a `.ralphctl-install.json` ownership marker
+(`skill-install-marker.ts`) naming a process that is no longer running — a leftover from a run that was
+killed or crashed between install and uninstall — in which case it's deleted and rewritten with the
+current skill instead of shadowing it forever, logged at info naming the folder, the skill, and the dead
+pid the marker blamed (or, when the marker's JSON can't be parsed, the replacement without a pid); a
+marker naming a still-live process is left alone. No content comparison against the rendered skill is
+made before replacing — version drift between the leftover and the current bundle is normal and not
+itself a signal. The skills adapter (`src/integration/ai/skills/adapter-factory.ts`) tracks only what it
+installed; uninstall removes only those entries. Every bundled `SKILL.md` is validated by
+`skill-contract-checker.ts` against seven harness
 rules (signal contract, git ownership, one-PR, package-manager agnosticism, subagent control, verify gate,
 angle-bracket signal-tag syntax); the contract test hard-fails on any violation, keeping bundled skills
 safe to auto-install. The seventh (S7) is a syntax rule, not an imperative-command one: the shipped output

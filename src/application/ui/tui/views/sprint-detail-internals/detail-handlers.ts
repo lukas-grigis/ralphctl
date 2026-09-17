@@ -36,20 +36,35 @@ interface RunUnblockArgs {
  * (`done` → `review` → `active`, or `review` → `active`), and that state change is named here —
  * `UnblockTaskOutput.sprintReopened` — so a closed sprint never comes back open without the
  * operator seeing it. When the single-active-per-project check refused that reopen,
- * `UnblockTaskOutput.sprintReopenConflict` carries the reason instead; it is appended the same way
- * the CLI prints its `note:` line (`ui/cli/commands/task.ts`), so this surface never goes silent
- * about a sprint that stayed closed.
+ * `UnblockTaskOutput.sprintReopenConflict` carries the reason instead; the toast now mirrors all
+ * three lines the CLI prints for the same conflict (`ui/cli/commands/task.ts`'s `note:` /
+ * `conflict.hint` / retry line) so this surface never goes silent about a sprint that stayed
+ * closed. The follow-up names `r` (this view's reload chord, see `shortcuts.ts`) before `u` again
+ * rather than the CLI's `ralphctl task unblock` retry command: `useSprintBundle` never polls, so
+ * an out-of-process `ralphctl sprint reopen` is invisible here until `r` re-reads the sprint — only
+ * then does the stuck-task gate in `detail-body.tsx` (a `todo` task on a `review` sprint) make `u`
+ * reachable again.
  */
-const unblockedToast = (name: string, out: UnblockTaskOutput): string => {
+const unblockedToast = (name: string, sprintId: SprintId, out: UnblockTaskOutput): string => {
   const head = `unblocked "${name}"`;
   const conflict = out.sprintReopenConflict;
   // The task IS revived, but its sprint stayed closed — so this is not a plain success. Lead
   // with the warning glyph rather than `✓`: the operator has to act on this (close the peer,
   // then `sprint reopen`), and a tick in front of "cannot reopen" reads as "all done".
-  if (conflict !== undefined) return `${glyphs.warningGlyph} ${head} ${glyphs.emDash} ${conflict.message}`;
+  if (conflict !== undefined) {
+    const hintClause = conflict.hint !== undefined ? ` ${glyphs.emDash} ${conflict.hint}` : '';
+    const retry = `then 'ralphctl sprint reopen ${String(sprintId)}', then r to reload, then u again`;
+    return `${glyphs.warningGlyph} ${head} ${glyphs.emDash} ${conflict.message}${hintClause} ${glyphs.emDash} ${retry}`;
+  }
   const reopened = out.sprintReopened;
   if (reopened === undefined) return `${glyphs.check} ${head}`;
-  const hop = `sprint reopened ${reopened.from} ${glyphs.arrowRight} ${reopened.sprint.status}`;
+  // `from === sprint.status` means the retried hop failed AGAIN (see `SprintReopened`'s doc
+  // comment in `business/task/unblock-task.ts`) — nothing actually moved, so "reopened X → X"
+  // would misstate what happened. Say the sprint is still stuck instead.
+  const hop =
+    reopened.from === reopened.sprint.status
+      ? `sprint still ${reopened.sprint.status}`
+      : `sprint reopened ${reopened.from} ${glyphs.arrowRight} ${reopened.sprint.status}`;
   // Stopped short of `active` (the second hop failed to persist), implement still can't run it.
   return reopened.sprint.status === 'active'
     ? `${glyphs.check} ${head} ${glyphs.emDash} ${hop}`
@@ -70,7 +85,7 @@ const runUnblock = async (args: RunUnblockArgs): Promise<void> => {
     return;
   }
   if (!mountedRef.current) return;
-  setFeedback(unblockedToast(target.name, r.value));
+  setFeedback(unblockedToast(target.name, sprintId, r.value));
   reload();
 };
 
