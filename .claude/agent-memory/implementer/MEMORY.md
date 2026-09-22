@@ -15,7 +15,7 @@
 - [seams_parallel_runner_architecture.md](seams_parallel_runner_architecture.md) — runWaves above the chain, the nested-runner sub-chain adapter, rootSessionId vs currentSessionId, the ALS import fence
 - [seams_tui_architecture_patterns.md](seams_tui_architecture_patterns.md) — Modal overlays, global hotkeys over view-local data, clip markers, one hint source, the commit-storm coalescer, cancel-vs-abort
 - [seams_tui_test_gotchas.md](seams_tui_test_gotchas.md) — Test setups that pass for the wrong reason (batched stdin, 100x24 stub, spinner flap, vacuous scroll); known resize-listener warning noise
-- [seams_model_catalog_refresh.md](seams_model_catalog_refresh.md) — Catalog-refresh checklist: fingerprint gate, where the retired-model remap is tested, prose restatement, the settings.ts lint hazard
+- [seams_model_catalog_refresh.md](seams_model_catalog_refresh.md) — Catalog-refresh checklist: fingerprint gate, remap tests, persisted escalatedToModel/escalationMap remaps, settings.ts lint hazard
 
 ## Standalone
 
