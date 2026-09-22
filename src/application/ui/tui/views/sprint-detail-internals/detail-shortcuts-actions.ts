@@ -1,7 +1,7 @@
 /**
  * Sprint detail — shortcut action closures.
  *
- * `buildShortcutsActions` assembles the `a`/`m`/↵/`d`/`u`/`r` closures `useSprintDetailShortcuts`
+ * `buildShortcutsActions` assembles the `a`/`m`/↵/`d`/`p`/`u`/`r` closures `useSprintDetailShortcuts`
  * needs, spread into its config alongside the plain gate fields `detail-body.tsx` computes
  * directly. Split out purely to keep `detail-body.tsx` under the file line budget — same
  * behaviour, just relocated.
@@ -25,6 +25,7 @@ export interface BuildShortcutsActionsArgs {
   readonly setConfirmRemove: (ticket: Ticket | undefined) => void;
   readonly setFeedback: (message: string) => void;
   readonly onUnblock: (task: Task) => Promise<void>;
+  readonly onPublish: (ticket: Ticket) => Promise<void>;
   readonly sprintId: SprintId | undefined;
   readonly openEvaluationOverlay: (target: EvaluationTarget) => void;
   /** Re-reads the sprint bundle — threaded through to the `r` chord's `reloadSprint` action. */
@@ -32,7 +33,7 @@ export interface BuildShortcutsActionsArgs {
 }
 
 /**
- * Build the `useSprintDetailShortcuts` action closures (`a`/`m`/↵/`d`/`u`/`r`) — spread into the
+ * Build the `useSprintDetailShortcuts` action closures (`a`/`m`/↵/`d`/`p`/`u`/`r`) — spread into the
  * hook's config alongside the plain gate fields so the call site stays a flat list.
  */
 export const buildShortcutsActions = (args: BuildShortcutsActionsArgs) => {
@@ -43,6 +44,7 @@ export const buildShortcutsActions = (args: BuildShortcutsActionsArgs) => {
     setConfirmRemove,
     setFeedback,
     onUnblock,
+    onPublish,
     sprintId,
     openEvaluationOverlay,
     reload,
@@ -64,6 +66,9 @@ export const buildShortcutsActions = (args: BuildShortcutsActionsArgs) => {
     },
     handleUnblock: (task: Task) => {
       void onUnblock(task);
+    },
+    handlePublish: (ticket: Ticket) => {
+      void onPublish(ticket);
     },
     // The full target is assembled here (not inside the overlay) so its degrade arms never need a
     // second repository read — see `runtime/evaluation-target.ts`.

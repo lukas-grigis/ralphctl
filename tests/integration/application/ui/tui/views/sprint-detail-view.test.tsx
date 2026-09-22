@@ -12,13 +12,23 @@ import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { SprintRepository } from '@src/domain/repository/sprint/sprint-repository.ts';
 import type { TaskRepository } from '@src/domain/repository/task/task-repository.ts';
+import type { ProjectRepository } from '@src/domain/repository/project/project-repository.ts';
 import type { Task } from '@src/domain/entity/task.ts';
+import type { IssuePusher } from '@src/business/scm/issue-pusher.ts';
+import { StorageError } from '@src/domain/value/error/storage-error.ts';
+import { setTicketLink } from '@src/domain/entity/ticket.ts';
 import { tick } from '@tests/integration/application/ui/tui/_keys.ts';
 import { waitForPredicate } from '@tests/integration/application/ui/tui/_wait.ts';
 import { renderView, waitForViewReady } from '@tests/integration/application/ui/tui/_harness.tsx';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import { createPromptQueue } from '@src/application/ui/tui/prompts/prompt-queue.ts';
-import { makeDraftSprint, makePendingTicket, makeTodoTask } from '@tests/fixtures/domain.ts';
+import {
+  makeApprovedTicket,
+  makeDraftSprint,
+  makePendingTicket,
+  makeProject,
+  makeTodoTask,
+} from '@tests/fixtures/domain.ts';
 import { startNextAttempt } from '@src/domain/entity/task-attempts.ts';
 import { failCurrentAttempt } from '@src/domain/entity/task-settle.ts';
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
@@ -525,6 +535,213 @@ describe('SprintDetailView — phase workspace', () => {
     result.stdin.write('u');
     await tick(40);
     expect(updateCalls).toHaveLength(0);
+    result.unmount();
+  });
+
+  it("shows 'p publish' hint when a ticket is focused", async () => {
+    const ticket = makePendingTicket({ title: 'publish-me' });
+    const sprint = { ...makeDraftSprint(), tickets: [ticket] } as unknown as Sprint;
+    const { result } = renderView(<SprintDetailView />, { deps: stubDeps(sprint, []), initial });
+    await waitForViewReady(result, (f) => f.includes('publish-me'));
+    expect(result.lastFrame() ?? '').toContain('p publish');
+    result.unmount();
+  });
+
+  it("hides the 'p publish' hint when a task is focused", async () => {
+    const sprint = makeSprint({
+      status: 'active',
+      tickets: [{ id: 't1' as never, title: 'first', status: 'approved' } as never],
+    });
+    const todoTask: Task = {
+      id: 'task-no-publish' as never,
+      name: 'not-a-ticket',
+      status: 'todo',
+      dependsOn: [],
+      attempts: [],
+      ticketId: 't1' as never,
+      repositoryId: 'r1' as never,
+      order: 1,
+      steps: [],
+      verificationCriteria: [],
+    } as never;
+    const { result } = renderView(<SprintDetailView />, { deps: stubDeps(sprint, [todoTask]), initial });
+    await waitForViewReady(result, (f) => f.includes('not-a-ticket'));
+    result.stdin.write('j');
+    await tick(40);
+    const frame = result.lastFrame() ?? '';
+    expect(frame).toContain('not-a-ticket');
+    expect(frame).not.toContain('p publish');
+    result.unmount();
+  });
+
+  it('pressing p on a focused ticket with no link creates the issue and stores the link', async () => {
+    const ticket = makePendingTicket({ title: 'ship it' });
+    let stored = { ...makeDraftSprint(), tickets: [ticket] } as unknown as Sprint;
+    const createCalls: Array<{ title: string; body: string }> = [];
+    const commentCalls: string[] = [];
+    const pusher: IssuePusher = {
+      async resolveOrigin() {
+        return Result.ok({ provider: 'github', hostname: 'github.com', owner: 'x', repo: 'y' });
+      },
+      async create(args) {
+        createCalls.push({ title: args.title, body: args.body });
+        return Result.ok({ url: 'https://github.com/x/y/issues/7' });
+      },
+      async listComments() {
+        return Result.ok([]);
+      },
+      async comment(url) {
+        commentCalls.push(url);
+        return Result.ok(undefined);
+      },
+    };
+    const deps = {
+      sprintRepo: {
+        async findById() {
+          return Result.ok(stored);
+        },
+        async save(next: Sprint) {
+          stored = next;
+          return Result.ok(undefined);
+        },
+      } as unknown as SprintRepository,
+      taskRepo: {
+        async findBySprintId() {
+          return Result.ok([] as readonly Task[]);
+        },
+      } as unknown as TaskRepository,
+      projectRepo: {
+        async findById() {
+          return Result.ok(makeProject());
+        },
+      } as unknown as ProjectRepository,
+      sprintExecutionRepo: {} as never,
+      settingsRepo: {} as never,
+      logger: noopLogger,
+      issuePusher: pusher,
+    } as unknown as AppDeps;
+    const initialWithId: ViewEntry = { id: 'sprint-detail', props: { sprintId: stored.id } };
+    const { result } = renderView(<SprintDetailView />, { deps, initial: initialWithId });
+    await waitForViewReady(result, (f) => f.includes('ship it'));
+    result.stdin.write('p');
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('created'));
+    expect(createCalls).toEqual([{ title: 'ship it', body: '' }]);
+    expect(commentCalls).toEqual([]);
+    expect(stored.tickets[0]?.link).toBe('https://github.com/x/y/issues/7');
+    expect(result.lastFrame() ?? '').toContain('ship it');
+    result.unmount();
+  });
+
+  it('pressing p on a linked approved ticket comments and does not create', async () => {
+    const approved = makeApprovedTicket({ title: 'linked ticket', requirements: 'do the thing well' });
+    const linked = setTicketLink(approved, 'https://github.com/x/y/issues/42');
+    if (!linked.ok) throw new Error('fixture: setTicketLink failed');
+    let stored = { ...makeDraftSprint(), tickets: [linked.value] } as unknown as Sprint;
+    const createCalls: string[] = [];
+    const commentCalls: Array<{ url: string; body: string }> = [];
+    const pusher: IssuePusher = {
+      async resolveOrigin() {
+        return Result.ok({ provider: 'github', hostname: 'github.com', owner: 'x', repo: 'y' });
+      },
+      async create() {
+        createCalls.push('create');
+        return Result.ok({ url: 'https://github.com/x/y/issues/99' });
+      },
+      async listComments() {
+        return Result.ok([]);
+      },
+      async comment(url, args) {
+        commentCalls.push({ url, body: args.body });
+        return Result.ok(undefined);
+      },
+    };
+    const deps = {
+      sprintRepo: {
+        async findById() {
+          return Result.ok(stored);
+        },
+        async save(next: Sprint) {
+          stored = next;
+          return Result.ok(undefined);
+        },
+      } as unknown as SprintRepository,
+      taskRepo: {
+        async findBySprintId() {
+          return Result.ok([] as readonly Task[]);
+        },
+      } as unknown as TaskRepository,
+      projectRepo: {
+        async findById() {
+          return Result.ok(makeProject());
+        },
+      } as unknown as ProjectRepository,
+      sprintExecutionRepo: {} as never,
+      settingsRepo: {} as never,
+      logger: noopLogger,
+      issuePusher: pusher,
+    } as unknown as AppDeps;
+    const initialWithId: ViewEntry = { id: 'sprint-detail', props: { sprintId: stored.id } };
+    const { result } = renderView(<SprintDetailView />, { deps, initial: initialWithId });
+    await waitForViewReady(result, (f) => f.includes('linked ticket'));
+    result.stdin.write('p');
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('commented'));
+    expect(createCalls).toEqual([]);
+    expect(commentCalls).toHaveLength(1);
+    expect(commentCalls[0]?.url).toBe('https://github.com/x/y/issues/42');
+    result.unmount();
+  });
+
+  it('pressing p on tracker failure shows the error and keeps the ticket', async () => {
+    const ticket = makePendingTicket({ title: 'stays put' });
+    const sprint = { ...makeDraftSprint(), tickets: [ticket] } as unknown as Sprint;
+    const saveCalls: Sprint[] = [];
+    const pusher: IssuePusher = {
+      async resolveOrigin() {
+        return Result.error(new StorageError({ subCode: 'io', message: 'gh is down' }));
+      },
+      async create() {
+        return Result.error(new StorageError({ subCode: 'io', message: 'gh is down' }));
+      },
+      async listComments() {
+        return Result.ok([]);
+      },
+      async comment() {
+        return Result.ok(undefined);
+      },
+    };
+    const deps = {
+      sprintRepo: {
+        async findById() {
+          return Result.ok(sprint);
+        },
+        async save(next: Sprint) {
+          saveCalls.push(next);
+          return Result.ok(undefined);
+        },
+      } as unknown as SprintRepository,
+      taskRepo: {
+        async findBySprintId() {
+          return Result.ok([] as readonly Task[]);
+        },
+      } as unknown as TaskRepository,
+      projectRepo: {
+        async findById() {
+          return Result.ok(makeProject());
+        },
+      } as unknown as ProjectRepository,
+      sprintExecutionRepo: {} as never,
+      settingsRepo: {} as never,
+      logger: noopLogger,
+      issuePusher: pusher,
+    } as unknown as AppDeps;
+    const initialWithId: ViewEntry = { id: 'sprint-detail', props: { sprintId: sprint.id } };
+    const { result } = renderView(<SprintDetailView />, { deps, initial: initialWithId });
+    await waitForViewReady(result, (f) => f.includes('stays put'));
+    result.stdin.write('p');
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('gh is down'));
+    const frame = result.lastFrame() ?? '';
+    expect(frame).toContain('stays put');
+    expect(saveCalls).toHaveLength(0);
     result.unmount();
   });
 });

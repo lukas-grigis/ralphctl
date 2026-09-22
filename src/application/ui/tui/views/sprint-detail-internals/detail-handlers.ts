@@ -15,6 +15,8 @@ import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { Task } from '@src/domain/entity/task.ts';
 import type { Ticket } from '@src/domain/entity/ticket.ts';
 import { glyphs } from '@src/application/ui/tui/theme/tokens.ts';
+import { createTicketPublishFlow } from '@src/application/flows/publish-ticket/flow.ts';
+import type { TicketPublishDeps } from '@src/application/flows/publish-ticket/deps.ts';
 import { createTicketRemoveFlow } from '@src/application/flows/remove-ticket/flow.ts';
 import type { TicketRemoveDeps } from '@src/application/flows/remove-ticket/deps.ts';
 import type { UnblockTask } from '@src/application/ui/tui/runtime/use-unblock-task.ts';
@@ -116,6 +118,40 @@ const runRemoveTicket = async (args: RunRemoveTicketArgs): Promise<void> => {
   reload();
 };
 
+interface RunPublishTicketArgs {
+  readonly target: Ticket;
+  readonly sprintId: SprintId;
+  readonly sprintRepo: TicketPublishDeps['sprintRepo'];
+  readonly projectRepo: TicketPublishDeps['projectRepo'];
+  readonly issuePusher: TicketPublishDeps['issuePusher'] | undefined;
+  readonly mountedRef: RefObject<boolean>;
+  readonly setFeedback: (message: string) => void;
+  readonly reload: () => void;
+}
+
+/**
+ * Run the ticket-publish flow for the focused ticket (the `p` chord) and thread the result
+ * to feedback. Reloads only after a successful write so a tracker failure leaves the ticket
+ * on screen unchanged. Same `mountedRef` guard as {@link runUnblock}.
+ */
+const runPublishTicket = async (args: RunPublishTicketArgs): Promise<void> => {
+  const { target, sprintId, sprintRepo, projectRepo, issuePusher, mountedRef, setFeedback, reload } = args;
+  if (issuePusher === undefined) {
+    if (mountedRef.current) setFeedback(`${glyphs.cross} issue tracker is unavailable`);
+    return;
+  }
+  const flow = createTicketPublishFlow({ sprintRepo, projectRepo, issuePusher });
+  const r = await flow.execute({ input: { sprintId, ticketId: target.id } });
+  if (!r.ok) {
+    if (mountedRef.current) setFeedback(`${glyphs.cross} ${r.error.error.message}`);
+    return;
+  }
+  if (!mountedRef.current) return;
+  const out = r.value.ctx.output!;
+  setFeedback(`${glyphs.check} ${out.outcome} "${target.title}"`);
+  reload();
+};
+
 export interface BuildSprintDetailHandlersArgs {
   readonly sprint: Sprint | undefined;
   readonly deps: AppDeps;
@@ -132,10 +168,11 @@ export interface BuildSprintDetailHandlersArgs {
 export interface SprintDetailHandlers {
   readonly handleEdit: () => void;
   readonly handleUnblock: (task: Task) => Promise<void>;
+  readonly handlePublish: (ticket: Ticket) => Promise<void>;
   readonly handleRemoveConfirmed: (target: Ticket, confirmed: boolean) => Promise<void>;
 }
 
-/** Build the `e` / `u` / confirmed-`d` handlers — thin wrappers over `runEdit` / `runUnblock` / `runRemoveTicket`. */
+/** Build the `e` / `u` / `p` / confirmed-`d` handlers — thin wrappers over `runEdit` / `runUnblock` / `runPublishTicket` / `runRemoveTicket`. */
 export const buildSprintDetailHandlers = (args: BuildSprintDetailHandlersArgs): SprintDetailHandlers => {
   const { sprint, deps, focus, queue, edit, reload, mountedRef, setFeedback, unblockTask, setConfirmRemove } = args;
 
@@ -158,6 +195,20 @@ export const buildSprintDetailHandlers = (args: BuildSprintDetailHandlersArgs): 
     await runUnblock({ target, sprintId: sprint.id, unblockTask, mountedRef, setFeedback, reload });
   };
 
+  const handlePublish = async (target: Ticket): Promise<void> => {
+    if (sprint === undefined) return;
+    await runPublishTicket({
+      target,
+      sprintId: sprint.id,
+      sprintRepo: deps.sprintRepo,
+      projectRepo: deps.projectRepo,
+      issuePusher: deps.issuePusher,
+      mountedRef,
+      setFeedback,
+      reload,
+    });
+  };
+
   const handleRemoveConfirmed = async (target: Ticket, confirmed: boolean): Promise<void> => {
     setConfirmRemove(undefined);
     if (!confirmed || sprint === undefined) return;
@@ -171,5 +222,5 @@ export const buildSprintDetailHandlers = (args: BuildSprintDetailHandlersArgs): 
     });
   };
 
-  return { handleEdit, handleUnblock, handleRemoveConfirmed };
+  return { handleEdit, handleUnblock, handlePublish, handleRemoveConfirmed };
 };

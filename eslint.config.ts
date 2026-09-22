@@ -256,6 +256,7 @@ const FLOWS = [
   'settings-set-provider',
   'settings-show',
   'add-ticket',
+  'publish-ticket',
   'remove-ticket',
 ] as const;
 

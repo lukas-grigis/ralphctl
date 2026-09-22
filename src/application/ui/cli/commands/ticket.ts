@@ -2,6 +2,7 @@ import type { Command } from 'commander';
 import type { Ticket } from '@src/domain/entity/ticket.ts';
 import { TicketId } from '@src/domain/value/id/ticket-id.ts';
 import { createTicketAddFlow } from '@src/application/flows/add-ticket/flow.ts';
+import { createTicketPublishFlow } from '@src/application/flows/publish-ticket/flow.ts';
 import { createTicketRemoveFlow } from '@src/application/flows/remove-ticket/flow.ts';
 import { bootstrapCli } from '@src/application/ui/cli/bootstrap.ts';
 import { confirmDestructive } from '@src/application/ui/cli/confirm-destructive.ts';
@@ -139,21 +140,59 @@ const removeTicketAction = async (rawTicketId: string, opts: RemoveOpts): Promis
   );
 };
 
+const publishTicketAction = async (rawTicketId: string, opts: SprintOpt): Promise<void> => {
+  const { deps, storage } = await bootstrapCli();
+  const sprintId = await resolveSprintId(opts.sprint, storage.stateRoot);
+  if (!sprintId.ok) {
+    fail(sprintId.error.message);
+    return;
+  }
+  const ticketId = TicketId.parse(rawTicketId);
+  if (!ticketId.ok) {
+    fail(`invalid ticket id: ${ticketId.error.message}`);
+    return;
+  }
+  if (sprintId.value.fromPin) process.stderr.write(pinFallbackNotice(sprintId.value.sprintId));
+  if (deps.issuePusher === undefined) {
+    fail('issue tracker is unavailable');
+    return;
+  }
+
+  const flow = createTicketPublishFlow({
+    sprintRepo: deps.sprintRepo,
+    projectRepo: deps.projectRepo,
+    issuePusher: deps.issuePusher,
+  });
+  const result = await flow.execute({
+    input: { sprintId: sprintId.value.sprintId, ticketId: ticketId.value },
+  });
+  if (!result.ok) {
+    fail(result.error.error.message);
+    return;
+  }
+  const out = result.value.ctx.output!;
+  process.stdout.write(
+    `published ticket ${rawTicketId} on sprint ${String(sprintId.value.sprintId)} — ${out.outcome}\n`
+  );
+};
+
 /**
  * Register the `ticket` command group. Tickets are nested in the Sprint aggregate (no separate
- * repo), so list/show route through `sprintRepo.findById` directly; add/remove dispatch to
- * use-cases because they carry domain invariants (only-when-draft, conflict on duplicate id).
+ * repo), so list/show route through `sprintRepo.findById` directly; add/remove/publish dispatch to
+ * use-cases because they carry domain invariants (only-when-draft, conflict on duplicate id) or
+ * tracker I/O (create issue / idempotent comment).
  *
- *   ralphctl ticket list   [--sprint <id>]
- *   ralphctl ticket show   [--sprint <id>] <ticket-id>
- *   ralphctl ticket add    [--sprint <id>] --title <title> [--description <text>] [--link <url>]
- *   ralphctl ticket remove [--sprint <id>] <ticket-id>
+ *   ralphctl ticket list    [--sprint <id>]
+ *   ralphctl ticket show    [--sprint <id>] <ticket-id>
+ *   ralphctl ticket add     [--sprint <id>] --title <title> [--description <text>] [--link <url>]
+ *   ralphctl ticket publish [--sprint <id>] <ticket-id>
+ *   ralphctl ticket remove  [--sprint <id>] <ticket-id>
  *
  * `--sprint` defaults to the pinned current sprint (`ralphctl sprint set-current <id>` or any
  * TUI sprint pick); the fallback path prints a one-line stderr notice naming the substituted
- * sprint, and the add/remove success lines always name the resolved sprint so the mutation
+ * sprint, and the add/remove/publish success lines always name the resolved sprint so the mutation
  * target is never ambiguous. A stale pin fails naturally downstream (`findById` not-found /
- * the only-when-draft invariant).
+ * the only-when-draft invariant). Publish does not prompt.
  */
 export const registerTicketCommand = (program: Command): void => {
   const ticketCmd = program.command('ticket').description('inspect and manage tickets within a sprint');
@@ -178,6 +217,12 @@ export const registerTicketCommand = (program: Command): void => {
     .option('-d, --description <text>', 'optional description')
     .option('-l, --link <url>', 'optional issue link (http/https)')
     .action(addTicketAction);
+
+  ticketCmd
+    .command('publish <ticketId>')
+    .description('create a tracker issue or post an approved-requirements comment')
+    .option(SPRINT_OPTION_FLAGS, SPRINT_OPTION_DESC)
+    .action(publishTicketAction);
 
   ticketCmd
     .command('remove <ticketId>')
