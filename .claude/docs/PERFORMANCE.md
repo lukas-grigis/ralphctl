@@ -135,32 +135,37 @@ settles done-with-warning. Two `settings.harness` knobs tune it:
 
 The escalation policy is a **graduated remedy ladder** (`src/business/task/escalation-policy.ts`)
 spent cheapest-first across successive plateau or budget-exhausted exits:
-(1) **model escalation** — climbs **one rung per exit** up `DEFAULT_ESCALATION_MAP`
-(`src/business/task/escalation-map.ts`): dash-form Claude-Code ids climb Haiku → Sonnet 5 → Opus 5, with
-the legacy Sonnet 4.6 / Opus 4.8 generation chaining through its own tier and converging at the same
-flagship; dot-form Copilot ids climb Haiku → Sonnet 4.6 → Opus 4.8 (the ladder deliberately tops out below
-Opus 5, which is plan-gated on Copilot); Codex / Copilot GPT minis (`gpt-5-mini`, `gpt-5.4-mini`) step to
-the `gpt-5.5` full tier, which itself climbs into the GPT-5.6 family (`gpt-5.5 → gpt-5.6-sol`,
-`gpt-5.6-luna → gpt-5.6-terra → gpt-5.6-sol`) — kept in lockstep with `domain/value/settings-models/` by
-the catalog-fingerprint verify gate. Each exit re-reads the most-recent
+(1) **model escalation** — climbs **one rung per exit** up the generator provider's entry in
+`DEFAULT_ESCALATION_LADDERS` (`src/business/task/escalation-map.ts`), merged with any
+`settings.harness.escalationMap` override: **claude-code** climbs Haiku → Sonnet 5 → Opus 5.5, with the
+legacy Sonnet 4.6 / Opus 4.8 generation chaining through its own tier and Opus 5 stepping straight across,
+all converging at the same flagship; **github-copilot** climbs Haiku → Sonnet 5 → Opus 4.8 (Opus 4.7 also
+steps to 4.8; the ladder deliberately tops out below Opus 5 / 5.5, both plan-gated on Copilot), and its
+GPT minis (`gpt-5-mini`, `gpt-5.4-mini`, `gpt-5.4`) step to `gpt-5.5`, which climbs into the GPT-5.6
+family (`gpt-5.5 → gpt-5.6-sol`, `gpt-5.6-luna → gpt-5.6-terra → gpt-5.6-sol`); **openai-codex** climbs
+`gpt-6-luna → gpt-6-sol` directly, with the pinned 5.5/5.6 generation chaining through its own tier and
+then `gpt-5.6-sol → gpt-6-sol`; **xai-grok** climbs `grok-4.5 → grok-4.6 → grok-4.7`; **opencode** has no
+built-in ladder — only user `escalationMap` rungs apply. Kept in lockstep with
+`domain/value/settings-models/` by the catalog-fingerprint verify gate. Each exit re-reads the most-recent
 `Task.escalatedToModel` as the generator model, so the policy returns `escalate` repeatedly and the
 task climbs through every intermediate rung (bounded by `maxAttempts`).
 (2) **effort escalation** — when the generator reaches the top of the model ladder (no stronger rung) the
 policy tries a cheaper same-model remedy BEFORE the nudge: raise reasoning effort (`escalate-effort`) to a
 **provider- and model-aware target** (`nextEffortRung` in `escalation-map.ts`) when the provider/model
-exposes an effort dimension and the generator still has headroom. Claude is model-aware — Claude Code's own
-CLI default is `xhigh` on xhigh-capable models (Opus 4.7/4.8, Sonnet 5, Opus 5, Fable 5), so the rung climbs
-Claude's own tiers (`…→ xhigh → max`) rather than stamping a fixed `high` that would be a no-op or a
-downgrade of the implicit default; an explicit `low|medium|high` climbs to `xhigh`, and `unset` (the CLI
-default) or `xhigh` climbs to `max`, capping there. A non-xhigh-capable Claude model (Sonnet 4.6, CLI
-default `high`) climbs straight to `max`. Copilot keeps the fixed target `EFFORT_ESCALATION_TARGET`
+exposes an effort dimension and the generator still has headroom. Claude is model-aware — the rung climbs
+one tier above the EFFECTIVE effort: the explicit level, or — only when genuinely unset — the model's own
+Claude Code CLI default (`medium` on Opus 5.5, `high` on every other effort-capable Claude model). An
+explicit or defaulted `low|medium|high` climbs to `xhigh` (skipped on the few models without an `xhigh`
+tier, e.g. Sonnet 4.6, which climb straight to `max`), and `xhigh` climbs to `max`, capping there. Copilot
+keeps the fixed target `EFFORT_ESCALATION_TARGET`
 (`high`); Codex and Grok keep the same fixed target `CODEX_EFFORT_ESCALATION_TARGET` (`xhigh`) —
 `xhigh` is accepted by every codex catalog model and by every Grok catalog id, unlike the old shared
 `high` target, which every codex preset already stamped on implement and so left the rung permanently
 spent for them. It stamps
 `Task.escalatedToEffort` (no model change), the generator leaf prefers that over the configured `effort` at
-spawn, and the next plateau sees the raised effort. Fires once for the shipped default (unset `→ max` in a
-single step) and is strictly bounded generally — the stamped effort climbs monotonically to the terminal
+spawn, and the next plateau sees the raised effort. Fires twice for the shipped default (`high → xhigh` on
+the first plateau, `xhigh → max` on the second — see **Default posture** below) and is strictly bounded
+generally — the stamped effort climbs monotonically to the terminal
 `max`, from which the rung is spent and falls through to the nudge. Skipped gracefully — straight to the
 nudge — when the provider/model has no effort knob (e.g. Claude Haiku) or the generator is already at its
 ceiling. `opencode` is excluded from both rungs by design (`EFFORT_CAPABLE_PROVIDERS` in
@@ -199,12 +204,15 @@ while the attempt budget remains, falling back to done-with-warning at the cap.
 introduced have `task.maxAttempts === undefined`; `decideEscalation` and the per-task loop cap both fall
 back to `settings.harness.maxAttempts` so the attempt budget binds for them too.
 
-**Default posture: effort rung, nudge, then best-of-N.** The shipped default generator model (`claude-opus-5`)
-has no key in `DEFAULT_ESCALATION_MAP`, so the harness never model-escalates it. But the effort rung IS live
-for the default posture: opus is xhigh-capable and its effort is unset (Claude Code's implicit default is
-`xhigh`), so on a plateau at the top of the ladder the rung raises reasoning effort to `max` on the same
-model in a single step (a live remedy, not just a directive) — a fixed `high` would be a no-op or a downgrade
-of that implicit `xhigh`. A further plateau (opus already at `max`, rung spent) fires the same-model nudge.
+**Default posture: effort rung (twice), nudge, then best-of-N.** The shipped default generator model
+(`claude-opus-5-5`) has no key in `DEFAULT_ESCALATION_LADDERS['claude-code']`, so the harness never
+model-escalates it. The effort rung IS live for the default posture, though, and fires twice: the
+generator's effort is left unset in `DEFAULT_SETTINGS`, so it resolves through the `implement` flow's
+shipped default (`high`, not Opus 5.5's own `medium` CLI default — see
+`AI-SETTINGS.md § Effort resolution`); the first plateau at the top of the model ladder raises it to
+`xhigh`, and a second plateau (rung still live) raises it to `max` — two live remedies, not just a
+directive, where a fixed `high` on an earlier, `xhigh`-defaulting Opus generation would have been a no-op.
+A further plateau (opus now at `max`, rung spent) fires the same-model nudge.
 Because `bestOfNCandidates` defaults to `2`, a further plateau after the nudge grants a best-of-N attempt
 (rung (4) above) before the ladder settles done-with-warning; the four `*-economic` presets pin it to `0`,
 so a further plateau after the nudge settles done-with-warning directly for them. See `AI-SETTINGS.md §
@@ -221,7 +229,7 @@ attempt, consuming budget), not by a once-per-task cap on retries — the best-o
 once-per-task (`task.bestOfNGranted`). A non-passing exit with no attempt budget left, or after the
 top-of-ladder nudge with the best-of-N remedy off/spent, preserves the work (done-with-warning) — never
 blocks.
-Cross-provider escalation (e.g. `claude-opus-5` → `gpt-5.6-sol`) is intentionally deferred — switching
+Cross-provider escalation (e.g. `claude-opus-5-5` → `gpt-6-sol`) is intentionally deferred — switching
 providers mid-task carries auth / context / tool-availability hazards.
 
 **Verify-gate cost and scoping.** In a measured 23-min single-task sprint, the repo-wide verify script ran four

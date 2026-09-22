@@ -161,7 +161,7 @@ Nothing forces a whole sprint onto one backend. A local model can draft while a 
 ralphctl settings set ai.implement.generator.provider opencode
 ralphctl settings set ai.implement.generator.model    ollama/<your-local-model>
 ralphctl settings set ai.implement.evaluator.provider claude-code
-ralphctl settings set ai.implement.evaluator.model    claude-opus-5
+ralphctl settings set ai.implement.evaluator.model    claude-opus-5-5
 ```
 
 ### Zero-auth path

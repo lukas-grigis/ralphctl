@@ -45,10 +45,13 @@ that starts or stops forwarding effort without updating its row fails at `pnpm t
 (identity in `clampEffortToProvider` — the native vocabulary includes the global superset plus
 `none` / `minimal`). Grok is in `EFFORT_CAPABLE_PROVIDERS`. The implement generator's
 resolved effort also feeds the escalation policy's same-model effort rung,
-whose target is provider- and model-aware: a Claude generator at the top of the model ladder climbs its own
-effort tiers (Claude Code's default is `xhigh` on xhigh-capable models, so the shipped default
-`claude-opus-5` with effort unset escalates to `max`, not `high`), while Copilot escalates to a fixed
-`high` and Codex and Grok to a fixed `xhigh` — see `PERFORMANCE.md § plateau escalation`).
+whose target is provider- and model-aware: a Claude generator at the top of the model ladder climbs one
+tier above its EFFECTIVE effort — the explicit level, or, only when genuinely unset, the model's own
+Claude Code CLI default (`medium` on Opus 5.5, `high` on every other effort-capable Claude model — the gap
+between the two is exactly why ralphctl stamps an explicit effort on every flow now) — while Copilot
+escalates to a fixed `high` and Codex and Grok to a fixed `xhigh` — see
+`PERFORMANCE.md § plateau escalation` and `§ Default escalation posture` below for the shipped default's
+own trace.
 
 **Single-provider configurations are first-class.** Every row may point at the same provider, or every row
 at a different one; the launcher rebuilds the provider / interactive-AI / skills-adapter trio per launch
@@ -99,54 +102,75 @@ neither the definition nor the row set one explicitly.
 **Twenty-six presets across five families** stamp the entire `ai` section plus `harness.escalateOnPlateau`
 in one shot — all equally first-class (none is marked default). Economic, strong-gate, fast, and frontier
 each carry five variants: `mixed` (best-fit provider per flow), `claude-only`, `copilot-only`, `codex-only`,
-and `grok-*`. The standard family also carries `opencode-only`. The families:
+and `grok-*`. The standard family also carries `opencode-only`. Every row of every preset now pins an
+explicit effort — none inherits the global preset effort or a provider CLI default (see **Effort
+resolution** above). The families:
 
 - **standard** (`mixed`, `claude-only`, `copilot-only`, `codex-only`, `opencode-only`, `grok-only`) —
-  flagship model per flow at `xhigh` effort for `implement`/`plan`; `readiness` at `medium`;
-  `refine`/`ideate` inherit global `high`. `opencode-only` is a single-member extra by design: every
-  OpenCode free-tier model sits at the same (zero) price point, so economic / fast / frontier variants
-  would differ in name only. Operators who authenticate an upstream provider through `opencode providers`
-  should pin rows directly rather than reach for a preset (see the `OPENCODE_ONLY` note in
-  `src/business/settings/opencode-preset-matrices.ts`). Its rows leave `effort` unset for the reason given under
-  **Effort resolution** above. `grok-only` stamps that same effort matrix onto `grok-4.7` (implement /
-  plan / ideate), `grok-4.6` (refine), and `grok-4.5` (readiness / createPr). Mixed presets were not
-  rerouted onto Grok — `mixed` and `mixed-frontier` keep the Claude author / Codex critic split.
+  flagship model at `xhigh` effort on `plan`/`implement`; `refine` and `readiness` at `medium` (Codex's
+  cheap-tier `refine` is the exception: `codex-only` and `mixed` both run it on `gpt-6-luna` and compensate
+  with `high`); `ideate` at `high`; `createPr` at `low`. `opencode-only` is a single-member extra by
+  design: every OpenCode free-tier model sits at the same (zero) price point, so economic / fast / frontier
+  variants would differ in name only. Operators who authenticate an upstream provider should pin rows
+  directly via `opencode providers` rather than reach for a preset (see the `OPENCODE_ONLY` note in
+  `src/business/settings/opencode-preset-matrices.ts`). Its rows leave `effort` unset for the reason given
+  under **Effort resolution** above. `grok-only` stamps that same matrix onto `grok-4.7` (implement / plan
+  / ideate, at `xhigh`/`xhigh`/`high`), `grok-4.6` (refine, at `medium` like Claude/Copilot), and `grok-4.5`
+  (readiness / createPr). Mixed presets were not rerouted onto Grok — `mixed` and `mixed-frontier` keep the
+  Claude author / Codex critic split.
 - **economic** (`mixed-economic`, `claude-economic`, `copilot-economic`, `codex-economic`, `grok-economic`) —
-  same routing as standard but `implement` starts one tier below the flagship at `high` effort; the
-  escalation ladder climbs to the flagship only when a task plateaus — cheaper tokens on easy tasks, same
-  quality gate on hard ones. `grok-economic` starts implement on `grok-4.6`. That model publishes the same
-  token price as `grok-4.7`, so the saving is the lower effort plus staying off the flagship until a plateau.
+  same routing as standard but `implement` starts one tier below the flagship at `high` effort (Sonnet /
+  Copilot Sonnet / `grok-4.6`); the escalation ladder climbs to the flagship only when a task plateaus —
+  cheaper tokens on easy tasks, same quality gate on hard ones. `codex-economic` is the exception: it stays
+  on `gpt-6-luna` — two tiers below `gpt-6-sol` — and buys back quality with `xhigh` effort instead of a
+  model bump; `gpt-6-luna` at `xhigh` is reported to match `gpt-5.6-sol` at roughly 1/20 of the sol price.
+  `mixed-economic` pairs a Sonnet generator with that same Codex-luna-at-`xhigh` critic — a cross-provider
+  second opinion at near-zero cost. `grok-economic` starts implement on `grok-4.6`, which publishes the
+  same token price as `grok-4.7`, so the saving there is the lower effort plus staying off the flagship
+  until a plateau.
 - **strong-gate** (`mixed-strong-gate`, `claude-strong-gate`, `copilot-strong-gate`, `codex-strong-gate`,
-  `grok-strong-gate`) — cheap generate tier paired with a permanently-flagship evaluator gate — the only
+  `grok-strong-gate`) — cheap generator tier paired with a permanently-flagship evaluator gate — the only
   family that intentionally splits `implement.generator` and `implement.evaluator` onto different models. The
   generator climbs to the flagship on plateau via the escalation ladder (`escalateOnPlateau` stamped `true`).
-  The Codex variant (`gpt-5.6-terra` gen → `gpt-5.6-sol` gate) and the Grok variant (`grok-4.6` → `grok-4.7`)
-  are both a single rung.
+  `mixed-strong-gate` keeps both roles on Claude rather than mixing providers — the family already splits by
+  tier. The Codex variant (`gpt-6-luna` gen → `gpt-6-sol` gate) and the Grok variant (`grok-4.6` →
+  `grok-4.7`) are both a single ladder rung; Codex's generator additionally runs at `xhigh` rather than
+  `high` — the same effort-compensates-for-tier pattern as `codex-economic`.
 - **fast** (`mixed-fast`, `claude-fast`, `copilot-fast`, `codex-fast`, `grok-fast`) — cheapest viable tier at
-  `low` effort across the board; the family differentiates by EFFORT rather than by model. Implement stays on
-  a code-capable tier (sonnet / the cheapest 5.6 tier / `grok-4.5`), never a sub-coding model — too weak to
-  author code reliably. `claude-fast` is uniformly sonnet across every row (Haiku 4.5 is retiring with no
-  Haiku 5 successor, so it left every preset default — see the Claude Code catalog note below) and buys its
-  speed entirely from `low` effort; the gpt-side light flows (refine/readiness/ideate/createPr) additionally
-  drop a model tier further. `grok-fast` is uniformly `grok-4.5` at `low`. This is the only family with
-  `escalateOnPlateau` stamped **`false`** — a plateau settles (done-with-warning) rather than climbing the
-  ladder, which is what keeps the family genuinely cheap and predictable.
+  `low` effort across the board; implement always stays on a code-capable tier, never a sub-coding model —
+  too weak to author code reliably. `claude-fast`, `codex-fast`, and `grok-fast` are uniformly one model
+  (Sonnet / `gpt-6-luna` / `grok-4.5`) at `low` across every row — Haiku 4.5 is retiring with no Haiku 5
+  successor, so it left every preset default (see the Claude Code catalog note below), and `gpt-6-luna` is
+  itself code-capable, so Codex needs no separate implement tier. `copilot-fast` and `mixed-fast` still mix
+  models even at this tier: Copilot's light flows (refine/readiness/ideate/createPr) drop to
+  `gpt-5.6-luna` while `plan`/`implement` stay on Claude Sonnet (Copilot's cheapest code-capable model);
+  `mixed-fast` likewise keeps Claude Sonnet on `plan`/`implement` and Codex/Copilot Luna on the light flows.
+  This is the only family with `escalateOnPlateau` stamped **`false`** — a plateau settles
+  (done-with-warning) rather than climbing the ladder, which is what keeps the family genuinely cheap and
+  predictable.
 - **frontier** (`mixed-frontier`, `claude-frontier`, `copilot-frontier`, `codex-frontier`, `grok-frontier`) —
-  flagship everywhere at `max` effort. Codex now genuinely stamps `max` too (`gpt-5.6-sol` is the only tier
-  that accepts it); `ultra` is deliberately not used (plan-gated to Plus+, would brick spawns on lower plans).
-  Tops out at Opus 5 / GPT-5.6 Sol / Grok 4.7. `claude-fable-5` is intentionally not referenced — it is
-  priced at 2× Opus and stays opt-in only (not a suspension — see below). `grok-4.7-build-fast` is the same
-  exclusion: same model, twice the token price.
+  the vendor's top model on the deep flows (`plan`/`implement`) at `max` effort; `refine`/`readiness` at
+  `high`, `ideate` at `high`, `createPr` at `medium` — no row runs a light flow at `max`. Frontier now means
+  Claude's flagship is Fable 5.1, not Opus: `claude-frontier` and `mixed-frontier` run `plan`/`implement` on
+  `claude-fable-5-1` (2.5× the Opus 5.5 price, needs a non-ZDR org) while `refine`/`readiness`/`createPr`
+  stay on Opus 5.5. `codex-frontier` steps up to `gpt-6-astra` (5× the `gpt-6-sol` price) on the deep flows,
+  with `gpt-6-sol` on the light ones; `ultra` is deliberately not used (plan-gated to Plus+, would brick
+  spawns on lower plans). `copilot-frontier` and `grok-frontier` have no equivalent premium tier available
+  by default, so they stay on their existing flagship (`claude-opus-4.8` — Opus 5 / 5.5 are plan-gated on
+  Copilot — and `grok-4.7`) and differentiate purely by effort. `grok-4.7-build-fast` is the same exclusion
+  as Fable / Astra: same model, twice the token price, never a preset pick.
 
 **`applyPreset` stamps `harness.escalateOnPlateau`** alongside the AI section. Standard / economic /
 strong-gate / frontier all stamp it `true`; fast stamps it `false`. The rest of `harness` (`maxTurns`,
 `escalationMap`, `plateauThreshold`, …) plus all other top-level settings keys are preserved verbatim.
 
 **Model-tier ordering.** The ladders each family relies on are grounded in SWE-bench rankings (June
-2026 data): Claude sonnet < opus < fable (Haiku 4.5 sits below sonnet but is no longer part of any preset
-ladder — it faces an Anthropic retirement horizon with no Haiku 5 successor, see the **fast** family note
-above); GPT mini < 5.4 < 5.5 < 5.6 (luna < terra < sol); Grok `grok-4.5` < `grok-4.6` < `grok-4.7`
-(`grok-4.6` and `grok-4.7` publish the same token price). These
+2026 data): Claude sonnet < opus 5.5 < fable (Haiku 4.5 sits below sonnet but is no longer part of any
+preset ladder — it faces an Anthropic retirement horizon with no Haiku 5 successor, see the **fast** family
+note above); GPT mini < 5.5 < 5.6 (luna < terra < sol) < GPT-6 (luna < sol < astra) — `gpt-5.4` /
+`gpt-5.4-mini` are gone from Codex (retired 2026-08-31, remapped to `gpt-6-sol` / `gpt-6-luna`) but remain
+in the Copilot catalog; Grok `grok-4.5` < `grok-4.6` < `grok-4.7` (`grok-4.6` and `grok-4.7` publish the
+same token price). These
 orderings explain why the cheap-to-strong tier progressions are wired the way they are — not as
 guaranteed scores (OpenAI stopped publishing SWE-bench Verified after contamination concerns, and
 results swing significantly with scaffolding). Treat this as relative-ordering rationale, not a
@@ -159,63 +183,78 @@ every `ai` row plus `harness.escalateOnPlateau` in one transaction; subsequent p
 **Model catalog versions used by the presets** (verified against the tool versions noted per row):
 
 - Claude Code — `claude-haiku-4-5` / `claude-sonnet-4-6` / `claude-sonnet-5` / `claude-opus-4-8` /
-  `claude-opus-5` (verified against Claude Code v2.1.197; `claude-sonnet-5` requires v2.1.197+;
-  `claude-haiku-4-5` stays in the catalog for manual selection only — it left every preset default
-  ahead of its Anthropic retirement horizon, which has no Haiku 5 successor;
-  `claude-opus-5` ships at the same price as Opus 4.8 — vendor-stated drop-in). `claude-opus-5` is the
-  Opus 4.8 successor and the **default Opus** across presets, the new-install defaults, and the
-  escalation ladder; `claude-opus-4-8` is kept alongside it (both Active at Anthropic) so pinned 4.8
-  configs keep working, and now carries a ladder rung up to Opus 5. Like Sonnet 5, Opus 5 has
-  **no `[1m]` variant** — on the Anthropic API it always runs at its native 1M window in Claude Code, so
-  the 1M figure is recorded against the bare id in the context-window tables (Sonnet 5 and Opus 5 are now
-  both base ids, not `[1m]` variants, that carry native 1M); 128K output; a separate rate-limit bucket
-  from the Opus 4.x family. The catalog additionally lists the frontier tier `claude-fable-5` plus the
-  1M-context variants `claude-opus-4-8[1m]` and `claude-fable-5[1m]` (the `[1m]` suffix is Claude Code's
-  long-context syntax for models whose Claude-Code default is 200K, passed through verbatim — on large
-  repos the 1M window avoids mid-session compaction during deep implement runs) as **opt-in only** — no
-  preset, default, or built-in escalation rung references them; pick per row or add a
-  `'claude-opus-5': 'claude-fable-5'` rung via `settings.harness.escalationMap`. Fable is **GA as of July
-  2026** — the 2026-06-12 export-control suspension has been lifted (`settings-models/suspended-models.ts`
-  keeps the kill-switch mechanism, now empty) — it stays opt-in for a different reason: 2× the Opus price
-  is an operator spend decision, not a capability gate.
-- GitHub Copilot — lists 31 models reconciled to GitHub's supported-models doc (as of 2026-08-18):
-  OpenAI `gpt-5-mini`, `gpt-5.3-codex`, `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.4-nano`, `gpt-5.5`,
-  `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`; Anthropic `claude-haiku-4.5`, `claude-opus-4.5`,
-  `claude-opus-4.6`, `claude-opus-4.7`, `claude-opus-4.8`, `claude-opus-4.8-fast`, `claude-opus-5`,
-  `claude-fable-5`, `claude-sonnet-4.5` (default), `claude-sonnet-4.6`, `claude-sonnet-5`; Google
-  `gemini-3.1-pro`, `gemini-3.5-flash`, `gemini-3.6-flash`, `gemini-3.7-flash`; Microsoft
-  `mai-code-1-flash`, `mai-code-1.1-flash`; Moonshot `kimi-k2.7-code`, `kimi-k3`; xAI `grok-4.5`,
-  `grok-4.6`; fine-tuned `raptor-mini`. Added since the last reconciliation: `gemini-3.7-flash`,
-  `mai-code-1.1-flash`, `kimi-k3`, and the first xAI entries `grok-4.5` / `grok-4.6` — all
-  convention-derived from the doc's display names and NOT validated against the live CLI
-  (github/copilot-cli issue #700 still blocks non-interactive enumeration); of the whole catalog only
-  `gpt-5.6-sol` has been CLI-verified (Copilot CLI 1.0.75). Renamed: two preview
-  graduations whose display name — and therefore derived slug — changed, `gemini-3.1-pro-preview` →
-  `gemini-3.1-pro` (the doc's release-status column still reads "Public preview"; the slug tracks the
-  display name) and `raptor-mini-preview` → `raptor-mini` (GA). Removed: `claude-opus-4.6-fast`
-  (delisted 2026-07-26; remaps to `claude-opus-4.8-fast`), `gemini-2.5-pro` and `gemini-3-flash`
-  (delisted 2026-08-18; remap to `gemini-3.1-pro` and `gemini-3.5-flash`). Every rename/delisting is
-  covered by `RETIRED_MODEL_REMAPS`, so a pinned settings row loads on its successor rather than on a
-  slug the adapter rejects at spawn. Note: `claude-opus-5`'s Copilot slug carries no dot/date, so — like Sonnet 5
-  and Fable 5 — it is the SAME string (`claude-opus-5`) as the Claude-Code id; it is also plan-gated
-  (Pro+/Max/Business/Enterprise) on Copilot, and per the existing passthrough-probe policy fails at spawn
-  with a clear error on gated accounts, so Copilot's curated presets and the dot-form escalation ladder
+  `claude-opus-5` / `claude-opus-5-5` (verified against Claude Code v2.1.197; `claude-opus-5-5` and
+  `claude-fable-5-1` were live-probed on Claude Code 2.1.280, 2026-09-22 — Opus 5.5 requires that
+  version or later; `claude-haiku-4-5` stays in the catalog for manual selection only — it left every
+  preset default ahead of its Anthropic retirement horizon, which has no Haiku 5 successor).
+  `claude-opus-5-5` is the Opus 5 successor and the **default Opus** across presets, the new-install
+  defaults, and the escalation ladder — and it's cheaper, not pricier: $4/$20 per MTok against Opus 5's
+  $5/$25. Its Claude Code CLI default effort is `medium`, unlike every earlier Opus's `high` — the reason
+  ralphctl stamps an explicit effort on every flow rather than relying on the CLI default (see **Effort
+  resolution** above). `claude-opus-5` and `claude-opus-4-8` are kept alongside it (all Active at
+  Anthropic) so pinned configs keep working; both now carry a ladder rung up to Opus 5.5. Like Sonnet 5,
+  Opus 5.5 has **no `[1m]` variant** — on the Anthropic API it always runs at its native 1M window in
+  Claude Code (default AND max), so the 1M figure is recorded against the bare id in the context-window
+  tables; 128K output. The catalog additionally lists the frontier tier `claude-fable-5-1` (successor to
+  `claude-fable-5`, same $10/$50 price — 2.5× Opus 5.5 now, and requires 30-day data retention: a
+  zero-data-retention org gets a 400) plus the 1M-context variants `claude-opus-4-8[1m]` and
+  `claude-fable-5[1m]` (the `[1m]` suffix is Claude Code's long-context syntax for models whose
+  Claude-Code default is 200K, passed through verbatim — on large repos the 1M window avoids mid-session
+  compaction during deep implement runs) as **opt-in only** outside the frontier presets — no default or
+  built-in escalation rung references Fable; pick per row or add a `'claude-opus-5-5': 'claude-fable-5-1'`
+  rung via `settings.harness.escalationMap`. Fable is **GA** (the 2026-06-12 export-control suspension has
+  been lifted — `settings-models/suspended-models.ts` keeps the kill-switch mechanism, now empty) — it
+  stays opt-in outside the frontier presets for a different reason: 2.5× the Opus 5.5 price is an operator
+  spend decision, not a capability gate.
+- GitHub Copilot — lists 31 models reconciled to GitHub's supported-models doc + changelog and
+  live-probed with the Copilot CLI (1.0.79 / 1.0.88) on a reference account (as of 2026-09-22): OpenAI
+  `gpt-5-mini`, `gpt-5.3-codex`, `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.4-nano`, `gpt-5.5`, `gpt-5.6-sol`,
+  `gpt-5.6-terra`, `gpt-5.6-luna`, `gpt-6-astra`, `gpt-6-sol`, `gpt-6-luna`; Anthropic `claude-haiku-4.5`,
+  `claude-opus-4.7`, `claude-opus-4.8`, `claude-opus-4.8-fast`, `claude-opus-5`, `claude-opus-5.5`,
+  `claude-fable-5`, `claude-fable-5.1`, `claude-sonnet-5`; Google `gemini-3.5-flash`, `gemini-3.6-flash`,
+  `gemini-3.7-flash`, `gemini-3.8-flash`; Microsoft `mai-code-1.1-flash`; Moonshot `kimi-k2.7-code`,
+  `kimi-k3`; xAI `grok-4.5`, `grok-4.6`, `grok-4.7`. The 2026-09-01 GitHub deprecation (changelog
+  2026-08-31) removed `claude-opus-4.5`, `claude-opus-4.6`, `claude-sonnet-4.5` (the former default),
+  `claude-sonnet-4.6` (kept upstream only for individual annual-plan subscribers), `gemini-3.1-pro`, and
+  `raptor-mini`; `mai-code-1-flash` was dropped as superseded by `mai-code-1.1-flash`. New in the 2026-09
+  changelog: `claude-opus-5.5` (09-22, Pro+/Max/Business/Enterprise), `claude-fable-5.1` (09-01, Pro+ and
+  up, off by default for Business/Enterprise), `gpt-6-astra` (09-04, Pro+ and up), `gpt-6-sol` /
+  `gpt-6-luna` (09-22; luna includes Pro), `gemini-3.8-flash` (09-03), and `grok-4.7` (09-21, gradual
+  rollout) — none of these six answered on the reference account yet, so they are catalog + pin-only.
+  Verified available on the reference account: `claude-sonnet-5`, `claude-opus-4.8`, `claude-opus-4.7`,
+  `claude-opus-5`, `claude-haiku-4.5`, `gpt-5-mini`, `gpt-5.4-mini`, `gpt-5.3-codex`, `gpt-5.5`,
+  `gpt-5.6-sol` / `-terra` / `-luna`, `gemini-3.8-flash`, `mai-code-1.1-flash`, and `grok-4.6`; the
+  remaining entries are convention-derived slugs from the doc's display names — the Copilot CLI still
+  cannot enumerate its catalog non-interactively (github/copilot-cli issue #700) — and are not validated
+  against the live CLI. Every rename/delisting is covered by `RETIRED_MODEL_REMAPS`, so a pinned settings
+  row loads on its successor rather than on a slug the adapter rejects at spawn. Note: `claude-sonnet-5`,
+  `claude-opus-5`, and `claude-fable-5` carry no dot/date, so their Copilot slugs are the SAME string as
+  the Claude-Code ids — the escalation ladder is scoped per provider now (`escalation-map.ts`), so the
+  collision no longer constrains either climb. `claude-opus-5` / `claude-opus-5.5` are plan-gated
+  (Pro+/Max/Business/Enterprise) on Copilot and, per the existing passthrough-probe policy, fail at spawn
+  with a clear error on gated accounts, so Copilot's curated presets and default escalation ladder
   deliberately stay on `claude-opus-4.8` (see `escalation-map.ts`).
-- OpenAI Codex — verified against the live CLI model cache (codex CLI v0.145.0,
-  `~/.codex/models_cache.json`, 2026-07-26). `gpt-5.6-sol` is the flagship and the top rung of the Codex
-  escalation ladder — the model `codex-only` / `codex-frontier` run implement on; `gpt-5.6-terra` is the
-  balanced everyday tier (`codex-economic` / `codex-strong-gate`'s author role); `gpt-5.6-luna` is the
-  most cost-efficient 5.6 tier (ladder: luna → terra → sol). `gpt-5.5` / `gpt-5.4` / `gpt-5.4-mini` remain
-  in the catalog for pinned configs and chain into the 5.6 family (`gpt-5.5 → gpt-5.6-sol`). The 5.6
-  family requires codex CLI ≥ ~0.145 — older CLIs reject with "requires a newer version of Codex". Bare
-  `gpt-5.6` is an API-only alias rejected under ChatGPT auth and is deliberately NOT listed. `gpt-5.2` /
-  `gpt-5.3-codex` / `gpt-5.3-codex-spark` are gone from the CLI entirely and were REMOVED from the
-  catalog; persisted rows silently remap to `gpt-5.5` at parse time (`gpt-5.3-codex` stays in the
-  **Copilot** catalog — GitHub still lists it — so the remap is codex-provider-guarded). Effort
-  vocabulary is now `low..ultra`; `minimal` was retired and persisted rows migrate to `low`.
+- OpenAI Codex — verified against the live CLI model cache (codex CLI v0.155.1,
+  `~/.codex/models_cache.json`, 2026-09-22). `gpt-6-sol` is the flagship and the top rung of the Codex
+  escalation ladder — $2/$10 per MTok, half the `gpt-5.6-sol` price, and the model `codex-only` /
+  `codex-frontier` run implement on; `gpt-6-luna` is the cheap tier ($0.10/$0.50); `gpt-6-astra` is the
+  premium tier ($10/$50, frontier presets only, never a default or ladder rung). All three run
+  `low..max`; `ultra` exists on astra and sol but NOT luna — per-model narrowing is left to the codex CLI
+  at spawn. `gpt-5.6-sol` / `gpt-5.6-terra` / `gpt-5.6-luna` and `gpt-5.5` remain in the catalog for
+  pinned configs and chain into the GPT-6 family (`gpt-5.6-sol` / `gpt-5.6-terra` → `gpt-6-sol`,
+  `gpt-5.6-luna` → `gpt-6-luna`, `gpt-5.5 → gpt-5.6-sol`); `gpt-5.5` itself retires from Codex on
+  2026-10-14 — drop it (with a parse-time remap) once that date passes. `gpt-5.4` / `gpt-5.4-mini`
+  retired from Codex on 2026-08-31 and were REMOVED from this catalog; persisted rows remap to
+  `gpt-6-sol` / `gpt-6-luna` at parse time (`gpt-5.4` stays in the **Copilot** catalog, so the remap is
+  codex-provider-guarded). Bare `gpt-5.6` is an API-only alias rejected under ChatGPT auth and is
+  deliberately NOT listed. `gpt-5.2` / `gpt-5.3-codex` / `gpt-5.3-codex-spark` are gone from the CLI
+  entirely and stay REMOVED, remapping to `gpt-5.5` at parse time (`gpt-5.3-codex` stays in the
+  **Copilot** catalog, so that remap is codex-provider-guarded too). Effort vocabulary is `low..ultra`;
+  `minimal` was retired and persisted rows migrate to `low`; `max` now covers the 5.6 AND GPT-6 families,
+  `ultra` every non-luna tier of those two families.
 - OpenCode — structurally unlike the other four: `OPENCODE_MODELS`
   (`src/domain/value/settings-models/opencode.ts`, verified against `opencode models`, opencode-ai
-  v1.18.15) is the **zero-auth free-tier floor**, not a vendor catalog. Ids are namespaced
+  v1.18.32, 2026-09-22) is the **zero-auth free-tier floor**, not a vendor catalog. Ids are namespaced
   `<provider>/<model>` (an aggregator upstream may add further segments), and the adapter validates only
   that SHAPE — it does **not** reject off-catalog ids, because doing so would make every authenticated
   model un-runnable. The runtime `opencode models` probe
@@ -236,31 +275,33 @@ every `ai` row plus `harness.escalateOnPlateau` in one transaction; subsequent p
   so a model xAI ships between ralphctl releases needs a catalog update (forwarding an unknown id to
   the CLI is OpenCode's contract, not Grok's).
 
-**Default escalation posture (effort rung, no model ladder).** `DEFAULT_SETTINGS.ai.implement.generator` is
-`claude-opus-5`, which has no key in `DEFAULT_ESCALATION_MAP` — so the shipped default never
-model-escalates. (A pinned `claude-opus-4-8` generator DOES model-escalate now — it carries a live rung up
-to `claude-opus-5` — before the effort rung below applies.) The default's effort rung is NOT inert, though:
-at the top of the model ladder the graduated policy first raises reasoning effort on the same model (the
-`escalate-effort` rung). opus is xhigh-capable and its effort is unset, so Claude Code's implicit default is
-already `xhigh` — the rung therefore climbs to `max` in a single step (a fixed `high` would be a no-op or a
-downgrade). Then — on a further plateau, opus now at `max` — it fires the same-model nudge (a
+**Default escalation posture (effort rung twice, no model ladder).**
+`DEFAULT_SETTINGS.ai.implement.generator` is `claude-opus-5-5`, which has no key in
+`DEFAULT_ESCALATION_LADDERS['claude-code']` — so the shipped default never model-escalates. (A pinned
+`claude-opus-4-8` or `claude-opus-5` generator DOES model-escalate — both carry a live rung up to
+`claude-opus-5-5` — before the effort rung below applies.) The default's effort rung is NOT inert, though,
+and now fires twice: the generator's effort is left unset in `DEFAULT_SETTINGS`, so it resolves through
+the `implement` flow's shipped default (`high` — see **Effort resolution** above), not through Opus 5.5's
+own `medium` CLI default. On the first plateau at the top of the model ladder the graduated policy raises
+reasoning effort (the `escalate-effort` rung) from `high` to `xhigh`; a second plateau raises it again,
+`xhigh` to `max` — two live remedies where a fixed `high` on an earlier, `xhigh`-defaulting Opus would have
+been a no-op. Then — on a further plateau, opus now at `max` — it fires the same-model nudge (a
 change-of-approach directive), then — since `harness.bestOfNCandidates` now defaults to `2` — one best-of-N
 attempt that samples two candidates and selects by verification then judging, and only then settles
-`done-with-warning`. For the shipped default the effort rung
-fires exactly once (unset `→ max`; the next plateau sees `max` and falls through to the nudge). To also
-activate a live MODEL ladder, use one of the `*-economic` presets (where `implement.generator` starts on
-Sonnet and escalates to Opus) or add a custom rung via `settings.harness.escalationMap`:
+`done-with-warning`. To also activate a live MODEL ladder, use one of the `*-economic` presets (where
+`implement.generator` starts on Sonnet and escalates to Opus 5.5) or add a custom rung via
+`settings.harness.escalationMap`:
 
 ```json
-"escalationMap": { "claude-opus-5": "claude-fable-5" }
+"escalationMap": { "claude-opus-5-5": "claude-fable-5-1" }
 ```
 
-`claude-fable-5` and its 1M-context variant `claude-fable-5[1m]` are in the Claude catalog as
-**opt-in only** — no preset, default, or built-in escalation rung references them. Select per row via
-the TUI picker or `settings set`, or add an escalationMap rung as shown above. Escalation-map rungs
-can also be added and removed from the TUI's **Harness** settings section: the `map-add` row walks a
-two-step from/to model picker; each existing override appears as a `map-entry` row that can be
-retargeted or removed without leaving the TUI.
+`claude-fable-5-1` and the legacy `claude-fable-5` / `claude-fable-5[1m]` are in the Claude catalog as
+**opt-in only** outside the frontier presets — no default or built-in escalation rung references them.
+Select per row via the TUI picker or `settings set`, or add an escalationMap rung as shown above.
+Escalation-map rungs can also be added and removed from the TUI's **Harness** settings section: the
+`map-add` row walks a two-step from/to model picker; each existing override appears as a `map-entry` row
+that can be retargeted or removed without leaving the TUI.
 
 **`settings.harness` keys** (full list — see `PERFORMANCE.md § Iteration budget` for the gen-eval tuning knobs):
 
