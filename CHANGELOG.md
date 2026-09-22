@@ -7,6 +7,8 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.23.0] - 2026-09-22
+
 ### Added
 
 - **GitHub/GitLab issue tracker integration.** ralphctl can create a GitHub or GitLab issue from a
