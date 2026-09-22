@@ -8,8 +8,10 @@ describe('settings-models / grok catalog', () => {
     }
   });
 
-  it('keeps grok-4.6 as the flagship first entry', () => {
-    expect(GROK_MODELS[0]).toBe('grok-4.6');
+  it('keeps grok-4.7 as the flagship first entry', () => {
+    expect(GROK_MODELS[0]).toBe('grok-4.7');
+    expect(GROK_MODELS).toContain('grok-4.7-build-fast');
+    expect(GROK_MODELS).toContain('grok-4.6');
     expect(GROK_MODELS).toContain('grok-4.5');
   });
 

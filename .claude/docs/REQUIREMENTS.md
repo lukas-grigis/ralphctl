@@ -275,7 +275,8 @@ and `done → review` — that keep `done` from being a genuine dead end for the
       its own adapter under `integration/ai/providers/<tool>/`. Sibling-isolated; cross-tool sharing through
       `providers/_engine/`. OpenCode is the aggregator: model ids are `<provider>/<model>`, its catalog is
       discovered at runtime via `opencode models` rather than a static list, and it is the only backend with
-      a zero-auth free tier. Grok is the Grok Build CLI (`grok`); catalog `grok-4.6` / `grok-4.5`; effort
+      a zero-auth free tier. Grok is the Grok Build CLI (`grok`); catalog `grok-4.7` / `grok-4.7-build-fast` /
+      `grok-4.6` / `grok-4.5`; effort
       forwarded as `--effort` on both surfaces.
 - [x] **File-based contract** — providers write `signals.json` and `session-id.txt` files per spawn (both under
       `rounds/<N>/<role>/`); the harness reads them post-spawn. No stdout parsing for signals or session IDs.
