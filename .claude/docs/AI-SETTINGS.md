@@ -91,10 +91,10 @@ when set, else the role's own per-flow row `model` (always present); `effort` fo
 falls through to the existing per-flow-row → global-default resolution (**Effort resolution** above) when
 neither the definition nor the row set one explicitly.
 
-**Twenty-two presets across five families** stamp the entire `ai` section plus `harness.escalateOnPlateau`
-in one shot — all equally first-class (none is marked default). Four families carry four variants each:
-`mixed` (best-fit provider per flow), `claude-only`, `copilot-only`, `codex-only`; the standard family
-additionally carries `opencode-only` and `grok-only`. The families:
+**Twenty-six presets across five families** stamp the entire `ai` section plus `harness.escalateOnPlateau`
+in one shot — all equally first-class (none is marked default). Economic, strong-gate, fast, and frontier
+each carry five variants: `mixed` (best-fit provider per flow), `claude-only`, `copilot-only`, `codex-only`,
+and `grok-*`. The standard family also carries `opencode-only`. The families:
 
 - **standard** (`mixed`, `claude-only`, `copilot-only`, `codex-only`, `opencode-only`, `grok-only`) —
   flagship model per flow at `xhigh` effort for `implement`/`plan`; `readiness` at `medium`;
@@ -102,34 +102,36 @@ additionally carries `opencode-only` and `grok-only`. The families:
   OpenCode free-tier model sits at the same (zero) price point, so economic / fast / frontier variants
   would differ in name only. Operators who authenticate an upstream provider through `opencode providers`
   should pin rows directly rather than reach for a preset (see the `OPENCODE_ONLY` note in
-  `src/business/settings/presets.ts`). Its rows leave `effort` unset for the reason given under
-  **Effort resolution** above. `grok-only` is the other single-member extra in this family — it stamps
-  the same effort matrix as the other standard `*-only` presets (global `high`, `implement`/`plan` at
-  `xhigh`, `readiness` at `medium`) onto `grok-4.6` / `grok-4.5`. No grok-economic / grok-fast /
-  grok-frontier / grok-strong-gate variants ship, and mixed presets were not rerouted onto Grok.
-- **economic** (`mixed-economic`, `claude-economic`, `copilot-economic`, `codex-economic`) — same routing
-  as standard but `implement` starts one tier below the flagship at `high` effort; the escalation ladder
-  climbs to the flagship only when a task plateaus — cheaper tokens on easy tasks, same quality gate on
-  hard ones.
-- **strong-gate** (`mixed-strong-gate`, `claude-strong-gate`, `copilot-strong-gate`, `codex-strong-gate`)
-  — cheap generate tier paired with a permanently-flagship evaluator gate — the only family that
-  intentionally splits `implement.generator` and `implement.evaluator` onto different models. The generator
-  climbs to the flagship on plateau via the escalation ladder (`escalateOnPlateau` stamped `true`). The
-  Codex variant (`gpt-5.6-terra` gen → `gpt-5.6-sol` gate) has the narrowest gap of the family.
-- **fast** (`mixed-fast`, `claude-fast`, `copilot-fast`, `codex-fast`) — cheapest viable tier at `low`
-  effort across the board; the family differentiates by EFFORT rather than by model. Implement stays on a
-  code-capable tier (sonnet / the cheapest 5.6 tier), never a sub-coding model — too weak to author code
-  reliably. `claude-fast` is uniformly sonnet across every row (Haiku 4.5 is retiring with no Haiku 5
-  successor, so it left every preset default — see the Claude Code catalog note below) and buys its speed
-  entirely from `low` effort; the gpt-side light flows (refine/readiness/ideate/createPr) additionally drop
-  a model tier further. This is the only family with `escalateOnPlateau` stamped **`false`** — a plateau
-  settles (done-with-warning) rather than climbing the ladder, which is what keeps the family genuinely
-  cheap and predictable.
-- **frontier** (`mixed-frontier`, `claude-frontier`, `copilot-frontier`, `codex-frontier`) — flagship
-  everywhere at `max` effort. Codex now genuinely stamps `max` too (`gpt-5.6-sol` is the only tier that
-  accepts it); `ultra` is deliberately not used (plan-gated to Plus+, would brick spawns on lower plans).
-  Tops out at Opus 5 / GPT-5.6 Sol; `claude-fable-5` is intentionally not referenced — it is priced at 2×
-  Opus and stays opt-in only (not a suspension — see below).
+  `src/business/settings/opencode-preset-matrices.ts`). Its rows leave `effort` unset for the reason given under
+  **Effort resolution** above. `grok-only` stamps that same effort matrix onto `grok-4.7` (implement /
+  plan / ideate), `grok-4.6` (refine), and `grok-4.5` (readiness / createPr). Mixed presets were not
+  rerouted onto Grok — `mixed` and `mixed-frontier` keep the Claude author / Codex critic split.
+- **economic** (`mixed-economic`, `claude-economic`, `copilot-economic`, `codex-economic`, `grok-economic`) —
+  same routing as standard but `implement` starts one tier below the flagship at `high` effort; the
+  escalation ladder climbs to the flagship only when a task plateaus — cheaper tokens on easy tasks, same
+  quality gate on hard ones. `grok-economic` starts implement on `grok-4.6`. That model publishes the same
+  token price as `grok-4.7`, so the saving is the lower effort plus staying off the flagship until a plateau.
+- **strong-gate** (`mixed-strong-gate`, `claude-strong-gate`, `copilot-strong-gate`, `codex-strong-gate`,
+  `grok-strong-gate`) — cheap generate tier paired with a permanently-flagship evaluator gate — the only
+  family that intentionally splits `implement.generator` and `implement.evaluator` onto different models. The
+  generator climbs to the flagship on plateau via the escalation ladder (`escalateOnPlateau` stamped `true`).
+  The Codex variant (`gpt-5.6-terra` gen → `gpt-5.6-sol` gate) and the Grok variant (`grok-4.6` → `grok-4.7`)
+  are both a single rung.
+- **fast** (`mixed-fast`, `claude-fast`, `copilot-fast`, `codex-fast`, `grok-fast`) — cheapest viable tier at
+  `low` effort across the board; the family differentiates by EFFORT rather than by model. Implement stays on
+  a code-capable tier (sonnet / the cheapest 5.6 tier / `grok-4.5`), never a sub-coding model — too weak to
+  author code reliably. `claude-fast` is uniformly sonnet across every row (Haiku 4.5 is retiring with no
+  Haiku 5 successor, so it left every preset default — see the Claude Code catalog note below) and buys its
+  speed entirely from `low` effort; the gpt-side light flows (refine/readiness/ideate/createPr) additionally
+  drop a model tier further. `grok-fast` is uniformly `grok-4.5` at `low`. This is the only family with
+  `escalateOnPlateau` stamped **`false`** — a plateau settles (done-with-warning) rather than climbing the
+  ladder, which is what keeps the family genuinely cheap and predictable.
+- **frontier** (`mixed-frontier`, `claude-frontier`, `copilot-frontier`, `codex-frontier`, `grok-frontier`) —
+  flagship everywhere at `max` effort. Codex now genuinely stamps `max` too (`gpt-5.6-sol` is the only tier
+  that accepts it); `ultra` is deliberately not used (plan-gated to Plus+, would brick spawns on lower plans).
+  Tops out at Opus 5 / GPT-5.6 Sol / Grok 4.7. `claude-fable-5` is intentionally not referenced — it is
+  priced at 2× Opus and stays opt-in only (not a suspension — see below). `grok-4.7-build-fast` is the same
+  exclusion: same model, twice the token price.
 
 **`applyPreset` stamps `harness.escalateOnPlateau`** alongside the AI section. Standard / economic /
 strong-gate / frontier all stamp it `true`; fast stamps it `false`. The rest of `harness` (`maxTurns`,
@@ -138,7 +140,8 @@ strong-gate / frontier all stamp it `true`; fast stamps it `false`. The rest of 
 **Model-tier ordering.** The ladders each family relies on are grounded in SWE-bench rankings (June
 2026 data): Claude sonnet < opus < fable (Haiku 4.5 sits below sonnet but is no longer part of any preset
 ladder — it faces an Anthropic retirement horizon with no Haiku 5 successor, see the **fast** family note
-above); GPT mini < 5.4 < 5.5 < 5.6 (luna < terra < sol). These
+above); GPT mini < 5.4 < 5.5 < 5.6 (luna < terra < sol); Grok `grok-4.5` < `grok-4.6` < `grok-4.7`
+(`grok-4.6` and `grok-4.7` publish the same token price). These
 orderings explain why the cheap-to-strong tier progressions are wired the way they are — not as
 guaranteed scores (OpenAI stopped publishing SWE-bench Verified after contamination concerns, and
 results swing significantly with scaffolding). Treat this as relative-ordering rationale, not a
@@ -218,8 +221,10 @@ every `ai` row plus `harness.escalateOnPlateau` in one transaction; subsequent p
   free-tier floor — a lossy fallback, unlike the other four backends — so every fail-open is logged
   at warn (`model-probe: opencode fell back to the shipped free-tier catalog`) with a reason.
 - Grok — flag surface and permission semantics verified against Grok Build CLI 1.0.30's shipped CLI
-  reference on 2026-09-15; minimum supported version 1.0.13 (`-s`). Catalog is `grok-4.6` (flagship /
-  default) and `grok-4.5` (previous generation); both publish a 500k context window. The availability
+  reference on 2026-09-15; minimum supported version 1.0.13 (`-s`). Model ids re-probed with
+  `grok models` on CLI 1.0.40 (2026-09-22): `grok-4.7` (flagship / CLI default), `grok-4.7-build-fast`
+  (same model, faster serving, 2× token price, not on the free tier — catalogued, never a preset
+  default), `grok-4.6`, and `grok-4.5`. Each publishes a 500k context window. The availability
   probe is passthrough — the CLI exposes `grok models` but no cheap non-interactive per-account
   filter, so the static catalog is the picker source. An off-catalog id persists fine via
   `CustomModelStringSchema`, but the adapter rejects it at argv-build time rather than forwarding it,

@@ -250,7 +250,7 @@ that file in sequence; each later pass keeps the previous body at `AGENTS.md.bak
   so path scope is the fine-grained safety envelope.
 - **OpenCode** — vendor-neutral: it fronts 75+ providers and local runtimes on a bring-your-own-key model, so
   you can run a specific model, a local model, or no account at all.
-- **Grok Build CLI** — xAI's coding CLI (`grok-4.6` / `grok-4.5`). Read-only flows deny edit and shell by
+- **Grok Build CLI** — xAI's coding CLI (`grok-4.7` / `grok-4.6`). Read-only flows deny edit and shell by
   permission rule (`--deny 'Edit(./**)'`, cwd-rooted, plus `--deny 'Bash(*)'` and both shell tool ids); Grok
   has no separate `write` tool, so creating `signals.json` outside the denied path stays possible. Both Grok
   surfaces pass `--trust`, since the `AGENTS.md` and `.grok/skills` it loads at startup are files ralphctl
@@ -271,9 +271,9 @@ model ids, mixing backends, and known limitations.
 
 Hit a rough edge with any provider? Please [open an issue](https://github.com/lukas-grigis/ralphctl/issues).
 
-One-shot configuration: `ralphctl settings apply-preset <name>` where `<name>` is one of 22 presets —
+One-shot configuration: `ralphctl settings apply-preset <name>` where `<name>` is one of 26 presets —
 `standard`, `economic`, `strong-gate`, `fast`, and `frontier` families, each in `mixed` / `claude-only` /
-`copilot-only` / `codex-only` variants, plus `opencode-only` and `grok-only`.
+`copilot-only` / `codex-only` / `grok-*` variants, plus `opencode-only` in the standard family.
 
 ---
 
@@ -308,7 +308,7 @@ Configure via the TUI `Settings` view or one-shot CLI commands.
 `apply-preset`.
 
 <details>
-<summary>All 22 presets</summary>
+<summary>All 26 presets</summary>
 
 ```bash
 # Standard — flagship model per flow
@@ -324,34 +324,38 @@ ralphctl settings apply-preset mixed-economic
 ralphctl settings apply-preset claude-economic
 ralphctl settings apply-preset copilot-economic
 ralphctl settings apply-preset codex-economic
+ralphctl settings apply-preset grok-economic
 
 # Strong-gate — cheap generator, permanently-flagship evaluator gate
 ralphctl settings apply-preset mixed-strong-gate
 ralphctl settings apply-preset claude-strong-gate
 ralphctl settings apply-preset copilot-strong-gate
 ralphctl settings apply-preset codex-strong-gate
+ralphctl settings apply-preset grok-strong-gate
 
 # Fast — cheapest viable tier at low effort; plateau settles rather than escalating (escalateOnPlateau=false)
 ralphctl settings apply-preset mixed-fast
 ralphctl settings apply-preset claude-fast
 ralphctl settings apply-preset copilot-fast
 ralphctl settings apply-preset codex-fast
+ralphctl settings apply-preset grok-fast
 
 # Frontier — flagship everywhere at max effort
 ralphctl settings apply-preset mixed-frontier
 ralphctl settings apply-preset claude-frontier
 ralphctl settings apply-preset copilot-frontier
 ralphctl settings apply-preset codex-frontier
+ralphctl settings apply-preset grok-frontier
 ```
 
-Twenty-two presets ship, all equally first-class — none is marked default. `opencode-only` and `grok-only`
-sit in the standard family as single-member extras: `opencode-only` because every free-tier model is at the
-same (zero) price point, so `economic` / `frontier` variants of it would differ in name only; `grok-only`
-because mixed presets were not rerouted onto Grok and no grok-economic / fast / frontier / strong-gate
-variants ship. Applying a
-preset stamps the entire `ai` section plus `harness.escalateOnPlateau` in one transaction (`fast` stamps it
-`false` so a plateau settles; all others stamp it `true`). On a fresh install the welcome view silently
-auto-seeds a preset based on which provider CLIs it detects on `PATH`.
+Twenty-six presets ship, all equally first-class — none is marked default. `opencode-only` stays a
+single preset in the standard family: every free-tier model is at the same (zero) price point, so
+`economic` / `frontier` variants of it would differ in name only. Grok has a variant in every family
+(`grok-4.5` / `grok-4.6` / `grok-4.7`). Mixed presets stay a cross-provider split (Claude author,
+Codex critic) and were not rerouted onto Grok. Applying a preset stamps the entire `ai` section plus
+`harness.escalateOnPlateau` in one transaction (`fast` stamps it `false` so a plateau settles; all
+others stamp it `true`). On a fresh install the welcome view silently auto-seeds a preset based on
+which provider CLIs it detects on `PATH`.
 
 </details>
 
@@ -456,7 +460,7 @@ readiness / create sprint) stay TUI-only by design. The CLI exposes inspection +
 | `ralphctl doctor`                       | Check environment health                                                                                                                                                                      |
 | `ralphctl settings show`                | Print current settings                                                                                                                                                                        |
 | `ralphctl settings set <key> <value>`   | Set a single settings key                                                                                                                                                                     |
-| `ralphctl settings apply-preset <name>` | Stamp the entire `ai` section — 22 presets: `standard` / `economic` / `strong-gate` / `fast` / `frontier` families, each in `mixed` / `*-only` variants, plus `opencode-only` and `grok-only` |
+| `ralphctl settings apply-preset <name>` | Stamp the entire `ai` section — 26 presets: `standard` / `economic` / `strong-gate` / `fast` / `frontier` families, each in `mixed` / `*-only` variants (Grok included), plus `opencode-only` |
 | `ralphctl completion <shell>`           | Print shell tab-completion script                                                                                                                                                             |
 | `ralphctl agents list`                  | List bundled + operator agent definitions and the implement role each is bound to                                                                                                             |
 | `ralphctl skills list`                  | List bundled + manually-dropped skills — tier, enabled flows, provenance                                                                                                                      |

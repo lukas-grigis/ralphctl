@@ -7,6 +7,15 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- **Grok models.** The catalog is `grok-4.7` (flagship), `grok-4.7-build-fast` (same model,
+  twice the token price; not a preset pick), `grok-4.6`, and `grok-4.5`. Grok now has a preset
+  in every family: `grok-only`, `grok-economic`, `grok-strong-gate`, `grok-fast`, and
+  `grok-frontier`. Plateau escalation climbs `grok-4.5` → `grok-4.6` → `grok-4.7`. Probed with
+  `grok models` on Grok Build CLI 1.0.40 (2026-09-22). Mixed presets stay on the Claude author /
+  Codex critic split.
+
 ## [0.22.0] - 2026-09-17
 
 ### Added

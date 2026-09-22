@@ -25,7 +25,9 @@ describe('contextWindowFor', () => {
     expect(contextWindowFor('claude-sonnet-5')).toBe(1_000_000);
   });
 
-  it('returns 500_000 for both Grok catalog ids', () => {
+  it('returns 500_000 for every published Grok catalog id', () => {
+    expect(contextWindowFor('grok-4.7')).toBe(500_000);
+    expect(contextWindowFor('grok-4.7-build-fast')).toBe(500_000);
     expect(contextWindowFor('grok-4.6')).toBe(500_000);
     expect(contextWindowFor('grok-4.5')).toBe(500_000);
   });
@@ -60,6 +62,8 @@ describe('contextWindowLabel', () => {
   });
 
   it('formats Grok 500K models as "500K"', () => {
+    expect(contextWindowLabel('grok-4.7')).toBe('500K');
+    expect(contextWindowLabel('grok-4.7-build-fast')).toBe('500K');
     expect(contextWindowLabel('grok-4.6')).toBe('500K');
     expect(contextWindowLabel('grok-4.5')).toBe('500K');
   });

@@ -74,8 +74,13 @@ describe('DEFAULT_ESCALATION_MAP', () => {
     expect(DEFAULT_ESCALATION_MAP['gpt-5.6-terra']).toBe('gpt-5.6-sol');
   });
 
-  it('climbs grok-4.5 to the grok-4.6 flagship', () => {
+  it('climbs grok one generation at a time up to the grok-4.7 flagship', () => {
     expect(DEFAULT_ESCALATION_MAP['grok-4.5']).toBe('grok-4.6');
+    expect(DEFAULT_ESCALATION_MAP['grok-4.6']).toBe('grok-4.7');
+    expect(DEFAULT_ESCALATION_MAP['grok-4.7']).toBeUndefined();
+    // Same model at 2× price — a rung would spend more for speed, not capability.
+    expect(DEFAULT_ESCALATION_MAP['grok-4.7-build-fast']).toBeUndefined();
+    expect(Object.values(DEFAULT_ESCALATION_MAP)).not.toContain('grok-4.7-build-fast');
   });
 
   it('does not steer the dot-form Copilot ladder into the plan-gated claude-opus-5', () => {
@@ -205,7 +210,7 @@ describe('DEFAULT_ESCALATION_MAP — catalog lockstep (mechanizes the section 14
     expect(fingerprint(CLAUDE_MODELS)).toBe('7aa37ba5efb83173');
     expect(fingerprint(CODEX_MODELS)).toBe('dce39d8df173e3d8');
     expect(fingerprint(COPILOT_MODELS)).toBe('f9831a6a08104710');
-    expect(fingerprint(GROK_MODELS)).toBe('a9a78a4e6bd79286');
+    expect(fingerprint(GROK_MODELS)).toBe('2c56e449169a2ec3');
   });
 });
 

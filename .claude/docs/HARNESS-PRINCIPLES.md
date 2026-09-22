@@ -571,6 +571,13 @@ this checklist before updating the recorded hash:
 
 **Model-bump audit log.**
 
+- **2026-09-22 — Grok 4.7 refresh.** Step 1: `grok-4.6` was the ladder top and is now an intermediate
+  rung (`grok-4.5` → `grok-4.6` → `grok-4.7`); no key or destination was stranded.
+  `grok-4.7-build-fast` is catalog-only (same model, 2× token price) and has no rung. Step 2: the
+  only `partial` rows are §14 and §18, both the audit mechanism itself — a same-family tier bump
+  does not close them; there are no `gap` rows. Step 3: `applied` rows reviewed — same
+  architecture, a higher-capability model inside the existing Grok family, so no component was
+  identified as newly non-load-bearing; no removals.
 - **2026-07-26 — Claude Opus 5 / GPT-5.6 (Sol, Terra, Luna) refresh.** Step 1 (orphaned rungs) is
   mechanized and passed — `DEFAULT_ESCALATION_MAP` was updated in lockstep with the catalog edits, no
   stranded key/destination. Step 2: the only `partial`/`gap` rows in this doc are §14 and §18, both

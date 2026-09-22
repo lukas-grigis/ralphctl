@@ -75,7 +75,11 @@ export const DEFAULT_ESCALATION_MAP: Readonly<Record<string, string>> = {
   'gpt-5.5': 'gpt-5.6-sol',
   'gpt-5.6-luna': 'gpt-5.6-terra',
   'gpt-5.6-terra': 'gpt-5.6-sol',
+  // Grok — one generation per plateau. `grok-4.6` → `grok-4.7` is the same token price
+  // (docs.x.ai) and the newer flagship. `grok-4.7-build-fast` is the same model at 2× price,
+  // so it is not a rung.
   'grok-4.5': 'grok-4.6',
+  'grok-4.6': 'grok-4.7',
 };
 
 /**

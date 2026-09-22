@@ -204,7 +204,7 @@ describe('createGrokProvider', () => {
     // Mirrors the copilot sibling: paying for an mkdir + atomic write for a spawn that never
     // happens would leave a stray grok-prompt.md on every attempt of a row pinned off-catalog.
     const cap = createCapturingBus();
-    const sess = session({ model: 'grok-4.7' });
+    const sess = session({ model: 'grok-3' });
     const { spawn, calls } = makeSpawn([{ exitCode: 0, stdoutChunks: [`${END_LINE}\n`] }]);
     const provider = createGrokProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
 
