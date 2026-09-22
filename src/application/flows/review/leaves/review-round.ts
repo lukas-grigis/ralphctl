@@ -83,6 +83,8 @@ export interface ReviewRoundLeafDeps {
   readonly shellScriptRunner: ShellScriptRunner;
   readonly appendFile: AppendFile;
   readonly model: string;
+  /** Effort forwarded onto each round's AI session — see `ReviewDeps.effort`. */
+  readonly effort?: string;
 }
 
 export interface ReviewRoundLeafOpts {
@@ -323,6 +325,7 @@ const callApplyFeedbackPhase =
       cwd: paths.outputDir,
       additionalRoots: opts.additionalRoots,
       model: deps.model,
+      ...(deps.effort !== undefined ? { effort: deps.effort } : {}),
       permissions: FULL_AUTO,
       signalsFile: paths.signalsFile,
       outputDir: paths.outputDir,

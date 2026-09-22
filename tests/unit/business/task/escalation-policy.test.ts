@@ -271,8 +271,8 @@ describe('decideEscalation', () => {
 describe('decideEscalation — same-model effort rung', () => {
   it('(a) shipped defaults + plateau → effort rung fires one tier above the resolved effort', () => {
     // The shipped default generator (`claude-opus-5-5`) sits at the top of the Claude-Code model
-    // ladder with no stronger rung above it. With implement's effort unresolved, the effective level
-    // is Opus 5.5's CLI default (`medium`), so the rung climbs one tier to `high`. Reading the actual
+    // ladder with no stronger rung above it. Implement resolves to its shipped flow default (`high`),
+    // never the CLI default, so the rung climbs one tier to `xhigh`. Reading the actual
     // shipped defaults grounds this in DEFAULT_SETTINGS, so a future default that is already
     // effort-maxed would fail here rather than silently disabling the rung.
     const generatorRow = DEFAULT_SETTINGS.ai.implement.generator;
@@ -288,8 +288,8 @@ describe('decideEscalation — same-model effort rung', () => {
     expect(decision.kind).toBe('escalate-effort');
     if (decision.kind === 'escalate-effort') {
       expect(decision.model).toBe(generatorRow.model);
-      expect(decision.from).toBe('default');
-      expect(decision.to).toBe('high');
+      expect(decision.from).toBe('high');
+      expect(decision.to).toBe('xhigh');
     }
   });
 
@@ -392,9 +392,10 @@ describe('decideEscalation — same-model effort rung', () => {
 
 describe('decideEscalation — evaluator lockstep effort bump', () => {
   it('computes the evaluator target from its OWN provider/model/effort — not copied from the generator target', () => {
-    // Generator: shipped default (opus-5-5, effort unset → CLI default medium) → climbs to `high`.
-    // Evaluator: a DIFFERENT provider/model (Codex) → climbs to a DIFFERENT target (`xhigh`). If the
-    // evaluator field were ever copied from the generator's `to`, this would assert `high` and fail.
+    // Generator: shipped default (opus-5-5 at the implement flow default `high`) → climbs to `xhigh`.
+    // Evaluator: a DIFFERENT provider/model (Copilot, effort unset) → climbs to a DIFFERENT target
+    // (`high`). If the evaluator field were ever copied from the generator's `to`, this would assert
+    // `xhigh` and fail.
     const generatorRow = DEFAULT_SETTINGS.ai.implement.generator;
     const decision = decideEscalation({
       task: makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 }),
@@ -404,14 +405,14 @@ describe('decideEscalation — evaluator lockstep effort bump', () => {
       fallbackMaxAttempts: 3,
       generatorProvider: generatorRow.provider,
       generatorEffort: resolveEffort('implement', DEFAULT_SETTINGS),
-      evaluatorProvider: 'openai-codex',
-      evaluatorModel: 'gpt-6-sol',
+      evaluatorProvider: 'github-copilot',
+      evaluatorModel: 'gpt-5.6-luna',
       evaluatorEffort: undefined,
     });
     expect(decision.kind).toBe('escalate-effort');
     if (decision.kind !== 'escalate-effort') return;
-    expect(decision.to).toBe('high');
-    expect(decision.evaluator).toEqual({ from: 'default', to: 'xhigh' });
+    expect(decision.to).toBe('xhigh');
+    expect(decision.evaluator).toEqual({ from: 'default', to: 'high' });
   });
 
   it('fires in lockstep on a plain MODEL-rung escalate too — the Verification Horizon rule is not limited to escalate-effort', () => {

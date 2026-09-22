@@ -114,6 +114,7 @@ export const createReviewFlow = (deps: ReviewDeps, opts: CreateReviewFlowOpts): 
       shellScriptRunner: deps.shellScriptRunner,
       appendFile: deps.appendFile,
       model: deps.model,
+      ...(deps.effort !== undefined ? { effort: deps.effort } : {}),
     },
     {
       reviewRoot: opts.reviewRoot,

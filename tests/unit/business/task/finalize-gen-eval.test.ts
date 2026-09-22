@@ -860,8 +860,8 @@ describe('finalizeGenEvalUseCase', () => {
   it('shipped defaults + plateau at ladder top → escalate-effort: task stamped one tier above the resolved effort, shouldFailAttempt=true, NO model stamp, no model-escalated event', async () => {
     // Grounds the wiring in the real shipped defaults (Opus 5.5, no per-flow implement effort). The
     // default generator sits at the top of the Claude-Code model ladder, so a plateau bumps reasoning
-    // effort instead of settling done-with-warning. With no resolved effort the effective level is
-    // Opus 5.5's CLI default (`medium`), so the rung climbs one tier to `high`.
+    // effort instead of settling done-with-warning. Implement resolves to its shipped flow default
+    // (`high`), so the rung climbs one tier to `xhigh`.
     const generatorRow = DEFAULT_SETTINGS.ai.implement.generator;
     const task = makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 });
     const bus = newBus();
@@ -886,7 +886,7 @@ describe('finalizeGenEvalUseCase', () => {
     expect(result.value.verdict).toBe('failed');
     expect(result.value.warning).toEqual({ kind: 'plateau', dimensions: ['correctness'] });
     // The raised effort is stamped so the next generator spawn reads it; the MODEL is untouched.
-    expect(result.value.task.escalatedToEffort).toBe('high');
+    expect(result.value.task.escalatedToEffort).toBe('xhigh');
     expect(result.value.task.escalatedFromModel).toBeUndefined();
     expect(result.value.task.escalatedToModel).toBeUndefined();
     expect(result.value.shouldFailAttempt).toBe(true);
@@ -1045,11 +1045,11 @@ describe('finalizeGenEvalUseCase', () => {
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.value.task.escalatedToEffort).toBe('high');
+    expect(result.value.task.escalatedToEffort).toBe('xhigh');
     expect(result.value.task.escalatedToEvaluatorEffort).toBe('xhigh');
     // Both landed together in the single persist call — no separate write for the evaluator field.
     expect(persisted).toHaveLength(1);
-    expect(persisted[0]).toEqual({ escalatedToEffort: 'high', escalatedToEvaluatorEffort: 'xhigh' });
+    expect(persisted[0]).toEqual({ escalatedToEffort: 'xhigh', escalatedToEvaluatorEffort: 'xhigh' });
   });
 
   it('plain model escalate: escalatedToEvaluatorEffort IS stamped in lockstep when evaluator context is supplied (#256 extended to model climbs)', async () => {

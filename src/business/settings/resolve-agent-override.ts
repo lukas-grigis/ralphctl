@@ -1,4 +1,5 @@
 import type { AiFlowSettings, Settings } from '@src/domain/entity/settings.ts';
+import type { FlowId } from '@src/domain/value/flow-id.ts';
 import { clampEffortToProvider, resolveEffortForRow } from '@src/business/settings/resolve-effort.ts';
 
 /**
@@ -28,20 +29,23 @@ export interface ResolvedAgentOverride {
  *   binding-supplied `xhigh` passes through unclamped on a codex row, `max` floors to `xhigh`,
  *   and `ultra` passes through with the CLI as arbiter — same as the global-default path, see
  *   {@link clampEffortToProvider}); otherwise {@link resolveEffortForRow}'s result (per-flow row
- *   effort, falling through to the global default floored to the row's provider).
+ *   effort, then the global default floored to the row's provider, then `flow`'s shipped
+ *   default — so an unconfigured implement role still gets an explicit level rather than the
+ *   CLI's own default).
  *
  * `binding` is `undefined` when the role has no bound definition — resolution then falls
- * straight through to the per-flow row / global default, identical to `resolveEffortForRow`
- * plus the row's own model.
+ * straight through to the per-flow row / global default / flow default, identical to
+ * `resolveEffortForRow` plus the row's own model.
  */
 export const resolveAgentOverride = (
   row: AiFlowSettings,
   globalEffort: Settings['ai']['effort'],
-  binding: AgentOverrideHints | undefined
+  binding: AgentOverrideHints | undefined,
+  flow: FlowId
 ): ResolvedAgentOverride => ({
   model: binding?.model ?? row.model,
   effort:
     binding?.effort !== undefined
       ? clampEffortToProvider(binding.effort, row.provider)
-      : resolveEffortForRow(row, globalEffort),
+      : resolveEffortForRow(row, globalEffort, flow),
 });

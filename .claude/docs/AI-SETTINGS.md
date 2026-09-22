@@ -17,9 +17,14 @@ provider's native vocabulary.
 
 **Effort resolution** at every AI-spawning leaf (`src/business/settings/resolve-effort.ts`): per-flow
 `ai.<flow>.effort` wins; otherwise the global `ai.effort` floored to the row's provider ceiling;
-otherwise, for `plan` and `ideate` only, a shipped default of `high` (floored to the row's provider
-ceiling) — deliberately the lowest-precedence layer, below the global default, so an operator who has
-set `ai.effort` keeps that deliberate choice untouched; otherwise the provider CLI's default. Codex
+otherwise the flow's shipped default (`FLOW_DEFAULT_EFFORT`: plan / ideate / implement → `high`, refine /
+readiness → `medium`, createPr → `low`; review inherits implement's), floored to the row's provider
+ceiling — deliberately the lowest-precedence layer, below the global default, so an operator who has
+set `ai.effort` keeps that deliberate choice untouched. Every flow has an entry on purpose: ralphctl never
+leaves an effort-capable provider on its CLI's built-in default, which moves between model releases
+(Claude Code runs Opus 5.5 at `medium` with no `--effort`; earlier Opus models ran at `high`). The only
+path that still reaches the CLI default is an opencode row with no row or global effort. Readiness,
+distill, the implement roles, create-pr and review all resolve through the same function. Codex
 accepts `low..ultra` — from the **global** value, `max` floors
 to `xhigh` (only the GPT-5.6 family accepts `max`); `ultra` (sol/terra-only, plan-gated) is reachable only
 via an explicit per-flow effort; `minimal` no longer exists — persisted rows migrate to `low` at parse
@@ -28,7 +33,7 @@ time. OpenCode accepts `minimal | low | medium | high | xhigh | max`
 `opencode run`; it gets no entry in `clampEffortToProvider`, so the CLI is the final arbiter per upstream
 model — OpenCode aggregates other vendors, and the accepted `--variant` levels belong to whichever vendor
 sits behind the `provider/model` id. Two deliberate carve-outs follow from that: the shipped per-flow
-default (`plan` / `ideate` → `high`) is NOT stamped on an opencode row (`resolve-effort.ts`), matching
+default is NOT stamped on an opencode row (`resolve-effort.ts`), matching
 `EFFORT_CAPABLE_PROVIDERS` in `escalation-map.ts`, because a level the upstream model never supported
 would turn a working spawn into a hard failure; and `--variant` exists only on the `run` subcommand, so
 the interactive TUI path (`opencode <cwd> --model …`) forwards no effort at all. This headless/interactive

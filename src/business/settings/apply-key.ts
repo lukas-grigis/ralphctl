@@ -74,7 +74,7 @@ const updateFlowRow = (
   // native effort enum (`ClaudeEffortSchema`, `CopilotEffortSchema`, `CodexEffortSchema`).
   const trimmed = raw.trim();
   if (trimmed.length === 0) {
-    // Empty input clears the per-flow effort (falls back to global / CLI default).
+    // Empty input clears the per-flow effort (falls back to global effort, then the flow's shipped default).
     const { effort: _drop, ...rowWithoutEffort } = row;
     void _drop;
     return Result.ok(rowWithoutEffort as AiFlowSettings);

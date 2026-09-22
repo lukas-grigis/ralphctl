@@ -3,7 +3,14 @@ import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { ProjectId } from '@src/domain/value/id/project-id.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import type { ValidationError } from '@src/domain/value/error/validation-error.ts';
-import { type AiProvider, type AiSettings, uniqueProvidersFromAi } from '@src/domain/entity/settings.ts';
+import {
+  type AiFlowSettings,
+  type AiProvider,
+  type AiSettings,
+  uniqueProvidersFromAi,
+} from '@src/domain/entity/settings.ts';
+import type { FlowId } from '@src/domain/value/flow-id.ts';
+import { resolveEffortForRow } from '@src/business/settings/resolve-effort.ts';
 import type { InteractiveAiProvider } from '@src/integration/ai/providers/_engine/interactive-ai-provider.ts';
 import type { RunInTerminal } from '@src/integration/io/run-in-terminal.ts';
 import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/template-loader.ts';
@@ -72,24 +79,26 @@ export interface CreateDistillLearningsOpts {
 /**
  * Resolve the model + effort for one provider from the flat AI settings. Walks the per-flow rows
  * and returns the first whose provider matches — distillation is provider-keyed, not flow-keyed,
- * so any row referencing the provider is a valid source for the model.
+ * so any row referencing the provider is a valid source for the model. Effort goes through the
+ * shared {@link resolveEffortForRow} (clamped global, then the matched row's flow default) so
+ * distill never hands an unclamped level — or none at all — to the provider CLI.
  */
 const pickModelEffortForProvider = (
   ai: AiSettings,
   provider: AiProvider
 ): { readonly model: string; readonly effort?: string } => {
-  const rows = [
-    ai.refine,
-    ai.plan,
-    ai.implement.generator,
-    ai.implement.evaluator,
-    ai.readiness,
-    ai.ideate,
-    ai.createPr,
+  const rows: ReadonlyArray<readonly [FlowId, AiFlowSettings]> = [
+    ['refine', ai.refine],
+    ['plan', ai.plan],
+    ['implement', ai.implement.generator],
+    ['implement', ai.implement.evaluator],
+    ['readiness', ai.readiness],
+    ['ideate', ai.ideate],
+    ['createPr', ai.createPr],
   ];
-  for (const row of rows) {
+  for (const [flow, row] of rows) {
     if (row.provider === provider) {
-      const effort = row.effort ?? ai.effort;
+      const effort = resolveEffortForRow(row, ai.effort, flow);
       return effort !== undefined ? { model: row.model, effort } : { model: row.model };
     }
   }

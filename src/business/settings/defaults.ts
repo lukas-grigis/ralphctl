@@ -90,9 +90,10 @@ const DEFAULT_MODELS_BY_PROVIDER: Readonly<Record<AiProvider, Readonly<Record<Fl
 
 /**
  * Build a fully-stamped {@link AiSettings} where every per-flow row uses the supplied
- * provider with that provider's best default model. The global `ai.effort` is left unset —
- * `resolveEffort` falls through to the per-flow `effort` (also unset by default), so a fresh
- * record leaves the AI CLI to use its built-in default.
+ * provider with that provider's best default model. The global `ai.effort` and every per-flow
+ * `effort` are left unset — `resolveEffort` then lands on the flow's shipped default
+ * (`FLOW_DEFAULT_EFFORT`), so a fresh record still stamps an explicit level on every spawn
+ * rather than inheriting the AI CLI's built-in default (opencode rows excepted).
  *
  * `implement` stamps the same provider+model on both `generator` and `evaluator` so the
  * "every flow runs on one provider" preset story stays intact; cross-provider splits are
@@ -121,8 +122,8 @@ export const defaultAiSettingsForProvider = (provider: AiProvider): AiSettings =
  *
  * The implement row deliberately splits roles across providers: Claude Opus drives the
  * generator (deep coder reasoning) while Codex GPT-6 Sol drives the evaluator (independent
- * second opinion). Effort is deliberately left unset on the evaluator row per the fresh-default
- * policy above — the CLI's own default applies; raise `ai.effort` to deepen the gate.
+ * second opinion). Effort is left unset on both roles per the fresh-default policy above — the
+ * implement flow default applies to each; raise `ai.effort` or the row's effort to deepen the gate.
  * Single-provider users override via a preset.
  */
 export const DEFAULT_SETTINGS: Settings = {

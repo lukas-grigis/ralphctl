@@ -82,12 +82,14 @@ export const buildImplementProviders = (
   const generatorResolved = resolveAgentOverride(
     implementPair.generator,
     effectiveSettings.ai.effort,
-    agentDefinitions.generator
+    agentDefinitions.generator,
+    'implement'
   );
   const evaluatorResolved = resolveAgentOverride(
     implementPair.evaluator,
     effectiveSettings.ai.effort,
-    agentDefinitions.evaluator
+    agentDefinitions.evaluator,
+    'implement'
   );
   return {
     generatorProvider,

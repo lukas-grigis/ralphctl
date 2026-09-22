@@ -30,9 +30,9 @@ export interface CreateCreatePrFlowOpts {
   readonly useAi?: boolean;
   /**
    * Provider id attributed on the AI sub-chain's `meta.json` sidecar (`'claude-code'` /
-   * `'github-copilot'` / `'openai-codex'`). Optional so existing callers that construct this
-   * flow without threading `settings.ai.createPr.provider` through still compile; omitting it
-   * degrades the sidecar's `provider` field to `'unknown'` rather than failing the run.
+   * `'github-copilot'` / `'openai-codex'` / …). The CLI and TUI surfaces pass
+   * `settings.ai.createPr.provider`; omitting it (tests) degrades the sidecar's `provider` field
+   * to `'unknown'` rather than failing the run.
    */
   readonly providerId?: string;
 }
@@ -105,11 +105,11 @@ export const createCreatePrFlow = (deps: CreatePrDeps, opts: CreateCreatePrFlowO
           outputContractSection: renderContractSectionFor(generatePrContentOutputContract, currentUnitRoot),
         });
       },
-      // create-pr does not yet thread `settings.ai.createPr.provider` through as a plain string
-      // (see `CreateCreatePrFlowOpts.providerId` doc) — falls back to a placeholder rather than
-      // failing the sidecar write.
+      // The CLI / TUI surfaces thread `settings.ai.createPr.provider`; a caller that omits it
+      // (see `CreateCreatePrFlowOpts.providerId`) gets a placeholder rather than a failed write.
       providerId: opts.providerId ?? 'unknown',
       model: deps.model,
+      ...(deps.effort !== undefined ? { effort: deps.effort } : {}),
     } satisfies Parameters<typeof aiUnitPrelude<CreatePrCtx>>[1];
 
     children.push(
@@ -130,6 +130,7 @@ export const createCreatePrFlow = (deps: CreatePrDeps, opts: CreateCreatePrFlowO
         eventBus: deps.eventBus,
         logger: deps.logger,
         model: deps.model,
+        ...(deps.effort !== undefined ? { effort: deps.effort } : {}),
       }),
       ...aiUnitEpilogue<CreatePrCtx>({ skillsAdapter: deps.skillsAdapter }, unitOpts)
     );

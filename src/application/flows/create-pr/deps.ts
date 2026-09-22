@@ -15,7 +15,7 @@ import type { SkillSource } from '@src/integration/ai/skills/_engine/skill-sourc
 /**
  * Dependency contract for the create-pr flow.
  *
- * The AI-step fields (`provider`, `templateLoader`, `writeFile`, `logger`, `model`) are
+ * The AI-step fields (`provider`, `templateLoader`, `writeFile`, `logger`, `model`, `effort`) are
  * always present even though they're only exercised when `useAi=true` at flow construction.
  * Threading them unconditionally keeps the CLI / TUI surfaces symmetric — callers don't
  * inspect `useAi` to pick a dep bundle — and the AI leaves are simply not in the chain
@@ -53,6 +53,12 @@ export interface CreatePrDeps {
   readonly logger: Logger;
   /** Model identifier — picked from `settings.ai.createPr.model` by the CLI / TUI surfaces. */
   readonly model: string;
+  /**
+   * Effort level — `resolveEffort('createPr', settings)` at the CLI / TUI surfaces. Forwarded
+   * onto the AI session so the adapter stamps its effort flag; `undefined` only for an opencode
+   * row with nothing configured, where the CLI picks the upstream default.
+   */
+  readonly effort?: string;
   /**
    * Composed skill source for the `createPr` flow — the CLI / TUI surfaces build this via
    * `buildComposedSkillSource` directly (create-pr never reaches `launchFlow`'s dispatch), so it

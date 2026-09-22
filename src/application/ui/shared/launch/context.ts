@@ -31,8 +31,9 @@ export interface LaunchContext {
   readonly bridge: <T>(runner: Runner<T>) => Runner<T>;
   /**
    * Effort resolved via `resolveEffort(flowId, settings)` — undefined when the flow doesn't
-   * open an AI session or when neither per-flow nor global effort is set. Each launcher
-   * threads it into the `AiSession` it constructs; the adapter translates to its CLI flag.
+   * open an AI session, or for an opencode row with neither a per-flow nor a global effort
+   * (every other provider falls back to the flow's shipped default). Each launcher threads it
+   * into the `AiSession` it constructs; the adapter translates to its CLI flag.
    */
   readonly effort?: string;
 }
