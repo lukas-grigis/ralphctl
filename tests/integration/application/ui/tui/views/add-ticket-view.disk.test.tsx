@@ -16,8 +16,13 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { Result } from '@src/domain/result.ts';
+import type { AppDeps } from '@src/application/bootstrap/wire.ts';
+import type { IssueFetcher } from '@src/business/scm/issue-fetcher.ts';
+import type { IssuePusher, IssueTrackerOrigin } from '@src/business/scm/issue-pusher.ts';
 import { AddTicketView } from '@src/application/ui/tui/views/add-ticket-view.tsx';
-import { makeDraftSprint } from '@tests/fixtures/domain.ts';
+import { StorageError } from '@src/domain/value/error/storage-error.ts';
+import { makeDraftSprint, makeProject } from '@tests/fixtures/domain.ts';
 import { ENTER } from '@tests/integration/application/ui/tui/_keys.ts';
 import { waitFor } from '@tests/integration/application/ui/tui/_wait.ts';
 import { renderView } from '@tests/integration/application/ui/tui/_harness.tsx';
@@ -188,4 +193,202 @@ describe('AddTicketView — disk round-trip', () => {
     expect(after.files['sprint.json']).toBe(beforeMtime);
     expect(after.json<PersistedSprint>('sprint.json').tickets).toHaveLength(0);
   });
+
+  it('create prompt default No saves locally and does not call IssuePusher.create', async () => {
+    const { sprint, deps, createCalls } = await seedWithOrigin();
+    const { result } = renderView(<AddTicketView />, {
+      deps,
+      initial: { id: 'add-ticket', props: { sprintId: sprint.id } },
+    });
+
+    await fillManualTicket(result, 'Local only', 'stays on disk');
+    result.stdin.write(ENTER);
+    await waitFor(() => expect(result.lastFrame()).toContain('Create a tracker issue?'));
+    result.stdin.write(ENTER);
+
+    await waitFor(async () => {
+      const snap = await readSprintDir(await app.resolveSprintDir(sprint.id));
+      expect(snap.json<PersistedSprint>('sprint.json').tickets).toHaveLength(1);
+    });
+
+    const persisted = (await readSprintDir(await app.resolveSprintDir(sprint.id))).json<PersistedSprint>('sprint.json');
+    expect(persisted.tickets[0]?.title).toBe('Local only');
+    expect(persisted.tickets[0]?.link).toBeUndefined();
+    expect(createCalls).toEqual([]);
+    expect(result.lastFrame()).toContain('Add another ticket?');
+  });
+
+  it('create prompt Yes stores the IssuePusher.create URL as the ticket link', async () => {
+    const { sprint, deps, createCalls } = await seedWithOrigin();
+    const { result } = renderView(<AddTicketView />, {
+      deps,
+      initial: { id: 'add-ticket', props: { sprintId: sprint.id } },
+    });
+
+    await fillManualTicket(result, 'Ship it', 'open a tracker issue');
+    result.stdin.write(ENTER);
+    await waitFor(() => expect(result.lastFrame()).toContain('Create a tracker issue?'));
+    result.stdin.write('y');
+
+    await waitFor(async () => {
+      const snap = await readSprintDir(await app.resolveSprintDir(sprint.id));
+      expect(snap.json<PersistedSprint>('sprint.json').tickets[0]?.link).toBe('https://github.com/x/y/issues/7');
+    });
+
+    expect(createCalls).toEqual([{ title: 'Ship it', body: 'open a tracker issue' }]);
+  });
+
+  it('skips the create prompt when origin does not resolve', async () => {
+    const { sprint, deps, createCalls } = await seedWithOrigin({
+      origin: Result.ok(null),
+    });
+    const { result } = renderView(<AddTicketView />, {
+      deps,
+      initial: { id: 'add-ticket', props: { sprintId: sprint.id } },
+    });
+
+    await fillManualTicket(result, 'No origin', 'skip the prompt');
+    result.stdin.write(ENTER);
+
+    await waitFor(async () => {
+      const snap = await readSprintDir(await app.resolveSprintDir(sprint.id));
+      expect(snap.json<PersistedSprint>('sprint.json').tickets).toHaveLength(1);
+    });
+
+    expect(result.lastFrame()).not.toContain('Create a tracker issue?');
+    expect(createCalls).toEqual([]);
+    expect(
+      (await readSprintDir(await app.resolveSprintDir(sprint.id))).json<PersistedSprint>('sprint.json').tickets[0]?.link
+    ).toBeUndefined();
+  });
+
+  it('skips the create prompt when the ticket already has a link', async () => {
+    const issueUrl = 'https://github.com/acme/repo/issues/42';
+    const { sprint, deps, createCalls } = await seedWithOrigin({
+      issueFetcher: async () =>
+        Result.ok({
+          url: issueUrl,
+          title: 'Already linked',
+          body: 'came from the tracker',
+          state: 'open',
+          comments: [],
+        }),
+    });
+    const { result } = renderView(<AddTicketView />, {
+      deps,
+      initial: { id: 'add-ticket', props: { sprintId: sprint.id } },
+    });
+
+    await waitFor(() => expect(result.lastFrame()).toContain('Issue link'));
+    result.stdin.write(issueUrl);
+    result.stdin.write(ENTER);
+    await waitFor(() => expect(result.lastFrame()).toContain('Already linked'));
+    result.stdin.write(ENTER);
+    await waitFor(() => expect(result.lastFrame()).toContain('came from the tracker'));
+    result.stdin.write(ENTER);
+    await waitFor(() => expect(result.lastFrame()).toContain('Add this ticket?'));
+    result.stdin.write(ENTER);
+
+    await waitFor(async () => {
+      const snap = await readSprintDir(await app.resolveSprintDir(sprint.id));
+      expect(snap.json<PersistedSprint>('sprint.json').tickets).toHaveLength(1);
+    });
+
+    expect(result.lastFrame()).not.toContain('Create a tracker issue?');
+    expect(createCalls).toEqual([]);
+    expect(
+      (await readSprintDir(await app.resolveSprintDir(sprint.id))).json<PersistedSprint>('sprint.json').tickets[0]?.link
+    ).toBe(issueUrl);
+  });
+
+  it('create failure leaves the local ticket in place and says it was saved', async () => {
+    const { sprint, deps, createCalls } = await seedWithOrigin({
+      create: Result.error(new StorageError({ subCode: 'io', message: 'gh is down' })),
+    });
+    const { result } = renderView(<AddTicketView />, {
+      deps,
+      initial: { id: 'add-ticket', props: { sprintId: sprint.id } },
+    });
+
+    await fillManualTicket(result, 'Keep locally', 'tracker is down');
+    result.stdin.write(ENTER);
+    await waitFor(() => expect(result.lastFrame()).toContain('Create a tracker issue?'));
+    result.stdin.write('y');
+
+    await waitFor(() => expect(result.lastFrame()).toMatch(/saved locally/i));
+    const frame = result.lastFrame() ?? '';
+    expect(frame).toContain('gh is down');
+    expect(frame).toMatch(/ticket publish/i);
+
+    const persisted = (await readSprintDir(await app.resolveSprintDir(sprint.id))).json<PersistedSprint>('sprint.json');
+    expect(persisted.tickets).toHaveLength(1);
+    expect(persisted.tickets[0]?.title).toBe('Keep locally');
+    expect(persisted.tickets[0]?.link).toBeUndefined();
+    expect(createCalls).toEqual([{ title: 'Keep locally', body: 'tracker is down' }]);
+  });
+
+  const ORIGIN: IssueTrackerOrigin = {
+    provider: 'github',
+    hostname: 'github.com',
+    owner: 'x',
+    repo: 'y',
+  };
+
+  const fillManualTicket = async (
+    result: { stdin: { write: (s: string) => void }; lastFrame: () => string | undefined },
+    title: string,
+    description: string
+  ): Promise<void> => {
+    await waitFor(() => expect(result.lastFrame()).toContain('Issue link'));
+    result.stdin.write(ENTER);
+    await waitFor(() => expect(result.lastFrame()).toMatch(/^\s*▸\s*Title/m));
+    result.stdin.write(title);
+    result.stdin.write(ENTER);
+    await waitFor(() => expect(result.lastFrame()).toContain('Description'));
+    result.stdin.write(description);
+    result.stdin.write(ENTER);
+    await waitFor(() => expect(result.lastFrame()).toContain('Add this ticket?'));
+  };
+
+  const seedWithOrigin = async (opts?: {
+    readonly origin?: Result<IssueTrackerOrigin | null, StorageError>;
+    readonly create?: Result<{ url: string }, StorageError>;
+    readonly issueFetcher?: IssueFetcher;
+  }): Promise<{
+    readonly sprint: ReturnType<typeof makeDraftSprint>;
+    readonly deps: AppDeps;
+    readonly createCalls: Array<{ title: string; body: string }>;
+  }> => {
+    const sprint = makeDraftSprint();
+    const project = makeProject({ id: sprint.projectId });
+    expect((await app.deps.projectRepo.save(project)).ok).toBe(true);
+    expect((await app.deps.sprintRepo.save(sprint)).ok).toBe(true);
+
+    const createCalls: Array<{ title: string; body: string }> = [];
+    const pusher: IssuePusher = {
+      async resolveOrigin() {
+        return opts?.origin ?? Result.ok(ORIGIN);
+      },
+      async create(args) {
+        createCalls.push({ title: args.title, body: args.body });
+        return opts?.create ?? Result.ok({ url: 'https://github.com/x/y/issues/7' });
+      },
+      async listComments() {
+        return Result.ok([]);
+      },
+      async comment() {
+        return Result.ok(undefined);
+      },
+    };
+
+    return {
+      sprint,
+      createCalls,
+      deps: {
+        ...app.deps,
+        issuePusher: pusher,
+        ...(opts?.issueFetcher !== undefined ? { issueFetcher: opts.issueFetcher } : {}),
+      },
+    };
+  };
 });

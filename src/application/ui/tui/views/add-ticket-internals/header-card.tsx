@@ -4,10 +4,10 @@
  *  - Mid-wizard steps (`fetching` → `title` → `description`): show a "Progress" card listing
  *    fields already entered. This is the fix for "old prompts vanish so I can't see what I
  *    typed" — the data persists in the header even after each prompt unmounts.
- *  - `confirm` / `saving` / `added` / `error`: handled by the step body itself (the confirm step
- *    renders its own "Review ticket" card containing all collected fields; the `added` step renders
- *    its own success line + "Add another?" confirm); header collapses so the Title doesn't appear
- *    twice on the same screen.
+ *  - `confirm` / `ask-create` / `saving` / `added` / `error` / `create-failed`: handled by the
+ *    step body itself (the confirm step renders its own "Review ticket" card containing all
+ *    collected fields; the `added` step renders its own success line + "Add another?" confirm);
+ *    header collapses so the Title doesn't appear twice on the same screen.
  *
  * The running session count (`addedCount`) is shown on the `link` step once at least one ticket
  * has been appended this session, so a user looping back to add another sees the running total.
@@ -65,7 +65,7 @@ export const HeaderCard = ({
  * surfacing the same Title in the Progress header would duplicate it on the same screen.
  */
 const collectedFields = (step: Step): ReadonlyArray<{ readonly label: string; readonly value: React.ReactNode }> => {
-  if (step.kind === 'confirm') return [];
+  if (step.kind === 'confirm' || step.kind === 'ask-create') return [];
   const fields: Array<{ readonly label: string; readonly value: React.ReactNode }> = [];
   const linkFor = (s: Step): string | undefined => {
     if (s.kind === 'fetching' || s.kind === 'fetch-failed' || s.kind === 'title' || s.kind === 'description') {
