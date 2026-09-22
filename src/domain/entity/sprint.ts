@@ -10,9 +10,10 @@ import { parseRequiredString } from '@src/domain/value/parsers/parse-required-st
 import { requireStatus } from '@src/domain/value/require-status.ts';
 import { ConflictError } from '@src/domain/value/error/conflict-error.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
+import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
 import { ValidationError } from '@src/domain/value/error/validation-error.ts';
 import { createSprintExecution, type SprintExecution } from '@src/domain/entity/sprint-execution.ts';
-import type { Ticket } from '@src/domain/entity/ticket.ts';
+import { setTicketLink, type Ticket } from '@src/domain/entity/ticket.ts';
 
 /**
  * Planning aggregate. Holds identity, lifecycle, and the ticket set. Delivery / execution
@@ -438,6 +439,26 @@ export const replaceTicket = (
   if (!guard.ok) return Result.error(guard.error);
   const draft = guard.value;
   return Result.ok({ ...draft, tickets: draft.tickets.map((t) => (t.id === id ? updated : t)) });
+};
+
+/**
+ * Attach a tracker URL to an existing ticket on a sprint of any status. Uses
+ * {@link setTicketLink}: a derived `externalRef` is filled in only when the ticket has none.
+ * Unlike {@link replaceTicket}, this is not draft-gated — publishing an origin after plan
+ * must still stamp the link.
+ */
+export const attachTicketLink = (
+  sprint: Sprint,
+  ticketId: TicketId,
+  url: string
+): Result<Sprint, NotFoundError | ValidationError> => {
+  const ticket = sprint.tickets.find((t) => t.id === ticketId);
+  if (ticket === undefined) {
+    return Result.error(new NotFoundError({ entity: 'ticket', id: String(ticketId) }));
+  }
+  const updated = ticket.status === 'approved' ? setTicketLink(ticket, url) : setTicketLink(ticket, url);
+  if (!updated.ok) return Result.error(updated.error);
+  return Result.ok({ ...sprint, tickets: sprint.tickets.map((t) => (t.id === ticketId ? updated.value : t)) });
 };
 
 // ───────────────────────── derivations ─────────────────────────

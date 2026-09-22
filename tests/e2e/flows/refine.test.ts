@@ -329,6 +329,15 @@ describe('createRefineFlow — interactive', () => {
     }
     const commentCalls: CommentCall[] = [];
     const issuePusher: IssuePusher = {
+      async resolveOrigin() {
+        throw new Error('resolveOrigin should not be called');
+      },
+      async create() {
+        throw new Error('create should not be called');
+      },
+      async listComments() {
+        throw new Error('listComments should not be called');
+      },
       async comment(url, args) {
         commentCalls.push({ url, body: args.body });
         return Result.ok(undefined);
@@ -399,6 +408,15 @@ describe('createRefineFlow — interactive', () => {
 
     const commentCalls: Array<{ url: string; body: string }> = [];
     const issuePusher: IssuePusher = {
+      async resolveOrigin() {
+        throw new Error('resolveOrigin should not be called');
+      },
+      async create() {
+        throw new Error('create should not be called');
+      },
+      async listComments() {
+        throw new Error('listComments should not be called');
+      },
       async comment(url, args) {
         commentCalls.push({ url, body: args.body });
         return Result.ok(undefined);
@@ -462,6 +480,15 @@ describe('createRefineFlow — interactive', () => {
 
     const commentCalls: Array<{ url: string; body: string }> = [];
     const issuePusher: IssuePusher = {
+      async resolveOrigin() {
+        throw new Error('resolveOrigin should not be called');
+      },
+      async create() {
+        throw new Error('create should not be called');
+      },
+      async listComments() {
+        throw new Error('listComments should not be called');
+      },
       async comment(url, args) {
         commentCalls.push({ url, body: args.body });
         return Result.ok(undefined);
@@ -511,6 +538,15 @@ describe('createRefineFlow — interactive', () => {
 
     const commentCalls: unknown[] = [];
     const issuePusher: IssuePusher = {
+      async resolveOrigin() {
+        throw new Error('resolveOrigin should not be called');
+      },
+      async create() {
+        throw new Error('create should not be called');
+      },
+      async listComments() {
+        throw new Error('listComments should not be called');
+      },
       async comment(url, args) {
         commentCalls.push({ url, args });
         return Result.ok(undefined);

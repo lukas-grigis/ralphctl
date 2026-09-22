@@ -498,6 +498,9 @@ export const wire = (opts: WireOptions): AppDeps => {
   // Hoisted so the skill catalog's provenance-stamp writes share the exact same atomic-write
   // seam as `AppDeps.writeFile` (one factory call, two consumers).
   const atomicWriteFile = createAtomicWriteFile();
+  // Shared with IssuePusher so origin reads (`git remote get-url origin`) go through the same
+  // GitRunner instance AppDeps already exposes.
+  const gitRunner = createGitRunner();
   return {
     storage: opts.storage,
     projectRepo: createFsProjectRepository({ root: opts.storage.dataRoot }),
@@ -508,7 +511,7 @@ export const wire = (opts: WireOptions): AppDeps => {
     settingsRepo: createJsonSettingsRepository({ configRoot: opts.storage.configRoot }),
     provider: buildWireProvider(opts, eventBus, providerSpawn),
     ...(providerSpawn !== undefined ? { providerSpawn } : {}),
-    gitRunner: createGitRunner(),
+    gitRunner,
     shellScriptRunner: createShellScriptRunner(),
     fileLocker,
     writeFile: atomicWriteFile,
@@ -523,7 +526,7 @@ export const wire = (opts: WireOptions): AppDeps => {
     logger,
     pullRequestCreator: createPullRequestCreator({ gitRunner: createGitRunner(), spawn }),
     issueFetcher: createIssueFetcher({ spawn, logger }),
-    issuePusher: createIssuePusher({ spawn }),
+    issuePusher: createIssuePusher({ spawn, gitRunner }),
     versionChecker: createNpmVersionChecker({
       stateRoot: opts.storage.stateRoot,
       currentVersion: CLI_METADATA.currentVersion,
