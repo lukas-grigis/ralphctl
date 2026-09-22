@@ -34,7 +34,7 @@ describe('ralphctl settings apply-preset', () => {
     const show = await runCliCaptured(cli, ['settings', 'show']);
     const parsed = JSON.parse(show.stdout) as Settings;
     expect(parsed.ai.refine.provider).toBe('openai-codex');
-    expect(parsed.ai.plan.provider).toBe('github-copilot');
+    expect(parsed.ai.plan.provider).toBe('claude-code');
     expect(parsed.ai.implement.generator.provider).toBe('claude-code');
     // `mixed` deliberately grades the Claude author with a Codex critic — the same cross-provider
     // implement split the shipped defaults use.

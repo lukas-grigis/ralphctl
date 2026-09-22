@@ -61,12 +61,317 @@ const STRONG_GATE_PRESETS: readonly PresetName[] = [
 ];
 
 /**
- * The two presets that intentionally route implement.generator and implement.evaluator to
- * DIFFERENT providers — a Claude Opus author graded by a Codex `gpt-6-sol` critic, mirroring the
- * cross-provider split shipped in DEFAULT_SETTINGS. Every other preset keeps both roles on one
- * provider (the strong-gate family splits by tier, not by provider).
+ * The presets that intentionally route implement.generator and implement.evaluator to DIFFERENT
+ * providers — a Claude author graded by a Codex critic, mirroring the cross-provider split shipped
+ * in DEFAULT_SETTINGS. `mixed-economic` joined them when its critic moved to `gpt-6-luna` at
+ * `xhigh` (an independent second opinion at near-zero cost). Every other preset keeps both roles
+ * on one provider (the strong-gate family splits by tier, not by provider).
  */
-const CROSS_PROVIDER_IMPLEMENT_PRESETS: readonly PresetName[] = ['mixed', 'mixed-frontier'];
+const CROSS_PROVIDER_IMPLEMENT_PRESETS: readonly PresetName[] = ['mixed', 'mixed-economic', 'mixed-frontier'];
+
+/** The only presets allowed to reference a vendor's premium tier above the flagship. */
+const FRONTIER_PRESETS: readonly PresetName[] = [
+  'mixed-frontier',
+  'claude-frontier',
+  'copilot-frontier',
+  'codex-frontier',
+  'grok-frontier',
+];
+
+type Row = readonly [provider: AiProvider, model: string, effort: string];
+interface Matrix {
+  readonly effort: string;
+  readonly refine: Row;
+  readonly plan: Row;
+  readonly generator: Row;
+  readonly evaluator: Row;
+  readonly readiness: Row;
+  readonly ideate: Row;
+  readonly createPr: Row;
+}
+
+const C = 'claude-code';
+const P = 'github-copilot';
+const X = 'openai-codex';
+const G = 'xai-grok';
+const S = 'claude-sonnet-5';
+const O = 'claude-opus-5-5';
+const F = 'claude-fable-5-1';
+const CS = 'claude-sonnet-5';
+const CO = 'claude-opus-4.8';
+const L = 'gpt-5.6-luna';
+const LUNA = 'gpt-6-luna';
+const SOL = 'gpt-6-sol';
+const ASTRA = 'gpt-6-astra';
+
+/**
+ * The full shipped matrix of every preset except `opencode-only` (which carries no effort): the
+ * exact provider / model / effort of every row. Every row pins an effort — nothing may fall back
+ * to the preset's global, let alone the AI CLI's own default (Opus 5.5's is only `medium`).
+ */
+const EXPECTED_MATRICES: Readonly<Record<Exclude<PresetName, 'opencode-only'>, Matrix>> = {
+  'claude-only': {
+    effort: 'high',
+    refine: [C, S, 'medium'],
+    plan: [C, O, 'xhigh'],
+    generator: [C, O, 'xhigh'],
+    evaluator: [C, O, 'xhigh'],
+    readiness: [C, S, 'medium'],
+    ideate: [C, O, 'high'],
+    createPr: [C, S, 'low'],
+  },
+  'claude-economic': {
+    effort: 'high',
+    refine: [C, S, 'low'],
+    plan: [C, S, 'high'],
+    generator: [C, S, 'high'],
+    evaluator: [C, S, 'high'],
+    readiness: [C, S, 'low'],
+    ideate: [C, S, 'medium'],
+    createPr: [C, S, 'low'],
+  },
+  'claude-strong-gate': {
+    effort: 'high',
+    refine: [C, S, 'medium'],
+    plan: [C, O, 'xhigh'],
+    generator: [C, S, 'high'],
+    evaluator: [C, O, 'xhigh'],
+    readiness: [C, S, 'low'],
+    ideate: [C, S, 'high'],
+    createPr: [C, S, 'low'],
+  },
+  'claude-fast': {
+    effort: 'low',
+    refine: [C, S, 'low'],
+    plan: [C, S, 'low'],
+    generator: [C, S, 'low'],
+    evaluator: [C, S, 'low'],
+    readiness: [C, S, 'low'],
+    ideate: [C, S, 'low'],
+    createPr: [C, S, 'low'],
+  },
+  'claude-frontier': {
+    effort: 'max',
+    refine: [C, O, 'high'],
+    plan: [C, F, 'max'],
+    generator: [C, F, 'max'],
+    evaluator: [C, F, 'max'],
+    readiness: [C, O, 'high'],
+    ideate: [C, F, 'high'],
+    createPr: [C, O, 'medium'],
+  },
+  'codex-only': {
+    effort: 'high',
+    refine: [X, LUNA, 'high'],
+    plan: [X, SOL, 'xhigh'],
+    generator: [X, SOL, 'xhigh'],
+    evaluator: [X, SOL, 'xhigh'],
+    readiness: [X, LUNA, 'medium'],
+    ideate: [X, SOL, 'high'],
+    createPr: [X, LUNA, 'low'],
+  },
+  'codex-economic': {
+    effort: 'high',
+    refine: [X, LUNA, 'medium'],
+    plan: [X, LUNA, 'xhigh'],
+    generator: [X, LUNA, 'xhigh'],
+    evaluator: [X, LUNA, 'xhigh'],
+    readiness: [X, LUNA, 'low'],
+    ideate: [X, LUNA, 'high'],
+    createPr: [X, LUNA, 'low'],
+  },
+  'codex-strong-gate': {
+    effort: 'high',
+    refine: [X, LUNA, 'medium'],
+    plan: [X, SOL, 'xhigh'],
+    generator: [X, LUNA, 'xhigh'],
+    evaluator: [X, SOL, 'xhigh'],
+    readiness: [X, LUNA, 'medium'],
+    ideate: [X, SOL, 'high'],
+    createPr: [X, LUNA, 'low'],
+  },
+  'codex-fast': {
+    effort: 'low',
+    refine: [X, LUNA, 'low'],
+    plan: [X, LUNA, 'low'],
+    generator: [X, LUNA, 'low'],
+    evaluator: [X, LUNA, 'low'],
+    readiness: [X, LUNA, 'low'],
+    ideate: [X, LUNA, 'low'],
+    createPr: [X, LUNA, 'low'],
+  },
+  'codex-frontier': {
+    effort: 'max',
+    refine: [X, SOL, 'high'],
+    plan: [X, ASTRA, 'max'],
+    generator: [X, ASTRA, 'max'],
+    evaluator: [X, ASTRA, 'max'],
+    readiness: [X, SOL, 'high'],
+    ideate: [X, ASTRA, 'high'],
+    createPr: [X, SOL, 'medium'],
+  },
+  'copilot-only': {
+    effort: 'high',
+    refine: [P, CS, 'medium'],
+    plan: [P, CO, 'xhigh'],
+    generator: [P, CO, 'xhigh'],
+    evaluator: [P, CO, 'xhigh'],
+    readiness: [P, L, 'medium'],
+    ideate: [P, CO, 'high'],
+    createPr: [P, L, 'low'],
+  },
+  'copilot-economic': {
+    effort: 'high',
+    refine: [P, L, 'medium'],
+    plan: [P, CS, 'high'],
+    generator: [P, CS, 'high'],
+    evaluator: [P, CS, 'high'],
+    readiness: [P, L, 'medium'],
+    ideate: [P, CS, 'medium'],
+    createPr: [P, L, 'low'],
+  },
+  'copilot-strong-gate': {
+    effort: 'high',
+    refine: [P, CS, 'medium'],
+    plan: [P, CO, 'xhigh'],
+    generator: [P, CS, 'high'],
+    evaluator: [P, CO, 'xhigh'],
+    readiness: [P, L, 'medium'],
+    ideate: [P, CS, 'high'],
+    createPr: [P, L, 'low'],
+  },
+  'copilot-fast': {
+    effort: 'low',
+    refine: [P, L, 'low'],
+    plan: [P, CS, 'low'],
+    generator: [P, CS, 'low'],
+    evaluator: [P, CS, 'low'],
+    readiness: [P, L, 'low'],
+    ideate: [P, L, 'low'],
+    createPr: [P, L, 'low'],
+  },
+  'copilot-frontier': {
+    effort: 'max',
+    refine: [P, CO, 'high'],
+    plan: [P, CO, 'max'],
+    generator: [P, CO, 'max'],
+    evaluator: [P, CO, 'max'],
+    readiness: [P, CO, 'high'],
+    ideate: [P, CO, 'high'],
+    createPr: [P, CO, 'medium'],
+  },
+  'grok-only': {
+    effort: 'high',
+    refine: [G, 'grok-4.6', 'medium'],
+    plan: [G, 'grok-4.7', 'xhigh'],
+    generator: [G, 'grok-4.7', 'xhigh'],
+    evaluator: [G, 'grok-4.7', 'xhigh'],
+    readiness: [G, 'grok-4.5', 'medium'],
+    ideate: [G, 'grok-4.7', 'high'],
+    createPr: [G, 'grok-4.5', 'low'],
+  },
+  'grok-economic': {
+    effort: 'high',
+    refine: [G, 'grok-4.5', 'medium'],
+    plan: [G, 'grok-4.6', 'high'],
+    generator: [G, 'grok-4.6', 'high'],
+    evaluator: [G, 'grok-4.6', 'high'],
+    readiness: [G, 'grok-4.5', 'medium'],
+    ideate: [G, 'grok-4.6', 'medium'],
+    createPr: [G, 'grok-4.5', 'low'],
+  },
+  'grok-strong-gate': {
+    effort: 'high',
+    refine: [G, 'grok-4.5', 'medium'],
+    plan: [G, 'grok-4.7', 'xhigh'],
+    generator: [G, 'grok-4.6', 'high'],
+    evaluator: [G, 'grok-4.7', 'xhigh'],
+    readiness: [G, 'grok-4.5', 'medium'],
+    ideate: [G, 'grok-4.7', 'high'],
+    createPr: [G, 'grok-4.5', 'low'],
+  },
+  'grok-fast': {
+    effort: 'low',
+    refine: [G, 'grok-4.5', 'low'],
+    plan: [G, 'grok-4.5', 'low'],
+    generator: [G, 'grok-4.5', 'low'],
+    evaluator: [G, 'grok-4.5', 'low'],
+    readiness: [G, 'grok-4.5', 'low'],
+    ideate: [G, 'grok-4.5', 'low'],
+    createPr: [G, 'grok-4.5', 'low'],
+  },
+  'grok-frontier': {
+    effort: 'max',
+    refine: [G, 'grok-4.7', 'high'],
+    plan: [G, 'grok-4.7', 'max'],
+    generator: [G, 'grok-4.7', 'max'],
+    evaluator: [G, 'grok-4.7', 'max'],
+    readiness: [G, 'grok-4.7', 'high'],
+    ideate: [G, 'grok-4.7', 'high'],
+    createPr: [G, 'grok-4.7', 'medium'],
+  },
+  mixed: {
+    effort: 'high',
+    refine: [X, LUNA, 'high'],
+    plan: [C, O, 'xhigh'],
+    generator: [C, O, 'xhigh'],
+    evaluator: [X, SOL, 'xhigh'],
+    readiness: [P, L, 'medium'],
+    ideate: [C, O, 'high'],
+    createPr: [X, LUNA, 'low'],
+  },
+  'mixed-economic': {
+    effort: 'high',
+    refine: [X, LUNA, 'medium'],
+    plan: [P, CS, 'high'],
+    generator: [C, S, 'high'],
+    evaluator: [X, LUNA, 'xhigh'],
+    readiness: [P, L, 'medium'],
+    ideate: [C, S, 'medium'],
+    createPr: [X, LUNA, 'low'],
+  },
+  'mixed-strong-gate': {
+    effort: 'high',
+    refine: [X, LUNA, 'medium'],
+    plan: [C, O, 'xhigh'],
+    generator: [C, S, 'high'],
+    evaluator: [C, O, 'xhigh'],
+    readiness: [P, L, 'medium'],
+    ideate: [C, S, 'high'],
+    createPr: [X, LUNA, 'low'],
+  },
+  'mixed-fast': {
+    effort: 'low',
+    refine: [X, LUNA, 'low'],
+    plan: [P, CS, 'low'],
+    generator: [C, S, 'low'],
+    evaluator: [C, S, 'low'],
+    readiness: [P, L, 'low'],
+    ideate: [C, S, 'low'],
+    createPr: [X, LUNA, 'low'],
+  },
+  'mixed-frontier': {
+    effort: 'max',
+    refine: [X, SOL, 'high'],
+    plan: [C, F, 'max'],
+    generator: [C, F, 'max'],
+    evaluator: [X, ASTRA, 'max'],
+    readiness: [C, O, 'high'],
+    ideate: [C, F, 'high'],
+    createPr: [X, SOL, 'medium'],
+  },
+};
+
+/** Every row of an applied preset, labelled by flow (implement split into its two roles). */
+const rowsOf = (settings: Settings): ReadonlyArray<[string, Settings['ai']['refine']]> => [
+  ['refine', settings.ai.refine],
+  ['plan', settings.ai.plan],
+  ['generator', settings.ai.implement.generator],
+  ['evaluator', settings.ai.implement.evaluator],
+  ['readiness', settings.ai.readiness],
+  ['ideate', settings.ai.ideate],
+  ['createPr', settings.ai.createPr],
+];
 
 /** Each economic preset and the standard preset whose implement flagship it should climb to. */
 const ECONOMIC_TO_STANDARD: Readonly<Record<string, PresetName>> = {
@@ -193,60 +498,63 @@ describe('presets', () => {
     }
   });
 
-  it('claude-fable-5 (base + 1M variant) is in catalog but stays opt-in only — no preset row and no default ladder rung references it', () => {
-    // Catalog membership is what lets a per-row pick pass the adapter boundary…
-    expect(isClaudeModel('claude-fable-5')).toBe(true);
-    expect(isClaudeModel('claude-fable-5[1m]')).toBe(true);
-    expect(isClaudeModel('claude-opus-4-8[1m]')).toBe(true);
-    // …while presets and the built-in escalation ladder deliberately do NOT reference it: the
-    // catalog-top = ladder-top = preset-flagship invariant intentionally excludes the fable tier
-    // until a deliberate flagship swap. Promoting it later means deleting this fence on purpose.
-    // The frontier family tops out at Opus 5.5 for exactly this reason — fable is 2.5x the Opus
-    // price, an operator spend decision, opt-in only via a per-row pick or an escalationMap rung.
-    for (const preset of PRESET_NAMES) {
+  it('stamps the exact provider / model / effort matrix for every preset, with an explicit effort on every row', () => {
+    for (const [preset, expected] of Object.entries(EXPECTED_MATRICES) as ReadonlyArray<[PresetName, Matrix]>) {
       const out = applyPreset(preset, DEFAULT_SETTINGS);
-      for (const flow of FLOW_IDS) {
-        const rows = flow === 'implement' ? [out.ai.implement.generator, out.ai.implement.evaluator] : [out.ai[flow]];
-        for (const row of rows) {
-          expect(row.model.startsWith('claude-fable'), `${preset}/${flow}: ${row.model}`).toBe(false);
+      expect(out.ai.effort, `${preset}: global effort`).toBe(expected.effort);
+      for (const [flow, row] of rowsOf(out)) {
+        const want = expected[flow as keyof Omit<Matrix, 'effort'>];
+        expect([row.provider, row.model, row.effort], `${preset}/${flow}`).toEqual([...want]);
+      }
+    }
+    // The table covers every preset but opencode-only, so a new preset cannot skip it.
+    expect(Object.keys(EXPECTED_MATRICES).sort()).toEqual(PRESET_NAMES.filter((p) => p !== 'opencode-only').sort());
+  });
+
+  it('opencode-only leaves effort unset on every row — --variant values come from the upstream provider', () => {
+    const out = applyPreset('opencode-only', DEFAULT_SETTINGS);
+    expect(out.ai.effort).toBeUndefined();
+    for (const [flow, row] of rowsOf(out)) {
+      expect(row.provider, flow).toBe('opencode');
+      expect(row.effort, flow).toBeUndefined();
+    }
+  });
+
+  it('premium tiers (Fable 5.1, gpt-6-astra) appear only in the frontier family and are never a default-ladder rung', () => {
+    // Fable 5.1 is Anthropic's flagship above Opus and astra is Codex's premium tier (2.5x Opus 5.5
+    // and 5x gpt-6-sol respectively). The frontier family is the "no cost ceiling" preset, so it
+    // runs them on its deep flows; every other family, the provider defaults, and the built-in
+    // escalation ladders stay off them — an operator reaches them only by a deliberate pick.
+    const premium = (model: string): boolean => model.startsWith('claude-fable') || model === ASTRA;
+    for (const preset of PRESET_NAMES) {
+      for (const [flow, row] of rowsOf(applyPreset(preset, DEFAULT_SETTINGS))) {
+        if (!FRONTIER_PRESETS.includes(preset)) {
+          expect(premium(row.model), `${preset}/${flow}: ${row.model}`).toBe(false);
         }
+        // Only the current Fable, never the superseded base or a `[1m]` variant.
+        if (row.model.startsWith('claude-fable')) expect(row.model, `${preset}/${flow}`).toBe(F);
       }
     }
     for (const provider of AI_PROVIDERS) {
+      for (const [flow, row] of rowsOf({ ...DEFAULT_SETTINGS, ai: defaultAiSettingsForProvider(provider) })) {
+        expect(premium(row.model), `defaults[${provider}]/${flow}: ${row.model}`).toBe(false);
+      }
       for (const [from, to] of Object.entries(mergeEscalationMap({}, provider))) {
-        expect(from.startsWith('claude-fable'), `${provider}: ladder rung from '${from}'`).toBe(false);
-        expect(to.startsWith('claude-fable'), `${provider}: ladder rung '${from}' → '${to}'`).toBe(false);
+        expect(premium(from), `${provider}: ladder rung from '${from}'`).toBe(false);
+        expect(premium(to), `${provider}: ladder rung '${from}' → '${to}'`).toBe(false);
       }
     }
   });
 
-  it('codex-only no longer references the deprecated gpt-5.3-codex', () => {
-    const out = applyPreset('codex-only', DEFAULT_SETTINGS);
-    const models = [
-      out.ai.refine.model,
-      out.ai.plan.model,
-      out.ai.implement.generator.model,
-      out.ai.implement.evaluator.model,
-      out.ai.readiness.model,
-      out.ai.ideate.model,
-      out.ai.createPr.model,
-    ];
-    expect(models).not.toContain('gpt-5.3-codex');
-    expect(out.ai.implement.generator.model).toBe('gpt-6-sol');
-    expect(out.ai.implement.evaluator.model).toBe('gpt-6-sol');
-    expect(out.ai.implement.generator.effort).toBe('xhigh');
-    expect(out.ai.implement.evaluator.effort).toBe('xhigh');
-  });
-
   it('no preset row references a retiring cheap tier', () => {
-    // `gpt-5.4-mini` retires 2026-08-31 and `gpt-5-mini` is the generation below it; both were
-    // replaced by `gpt-5.6-luna`, which is catalogued on BOTH openai-codex and github-copilot.
-    // `claude-haiku-4-5` joins them: Anthropic has announced a retirement horizon (not before
-    // 2026-10-15) with no Haiku 5 successor, so every cheap-flow slot that used to sit on it now
-    // sits on `claude-sonnet-5` at `low` effort — Claude Code's designated cheap tier.
-    // The ids stay in the catalogs (an operator may still pin one until the shutoff) — what this
-    // fences is the curated matrices shipping a row that stops spawning on a known date.
-    const retiring = new Set(['gpt-5.4-mini', 'gpt-5-mini', 'claude-haiku-4-5']);
+    // `gpt-5.4-mini` left Codex on 2026-08-31 and `gpt-5-mini` is the generation below it; the
+    // cheap tier is now luna (`gpt-6-luna` on Codex, `gpt-5.6-luna` on Copilot). `gpt-5.5` leaves
+    // Codex on 2026-10-14. `claude-haiku-4-5` has an Anthropic retirement horizon (not before
+    // 2026-10-15) with no Haiku 5 successor, so every cheap-flow claude slot sits on
+    // `claude-sonnet-5` at `low` effort instead. Ids that remain catalogued stay pinnable until the
+    // shutoff — what this fences is the curated matrices shipping a row that stops spawning on a
+    // known date.
+    const retiring = new Set(['gpt-5.4-mini', 'gpt-5-mini', 'claude-haiku-4-5', 'gpt-5.5']);
     for (const preset of PRESET_NAMES) {
       const out = applyPreset(preset, DEFAULT_SETTINGS);
       for (const flow of FLOW_IDS) {
@@ -400,147 +708,13 @@ describe('presets', () => {
       });
     }
 
-    it('the fast presets stamp global ai.effort to low', () => {
-      for (const preset of FAST_PRESETS) {
-        const out = applyPreset(preset, DEFAULT_SETTINGS);
-        expect(out.ai.effort, preset).toBe('low');
-      }
-    });
-
-    it('the standard, economic and strong-gate presets stamp global ai.effort to high', () => {
-      const highEffort: readonly PresetName[] = [
-        'mixed',
-        'claude-only',
-        'copilot-only',
-        'codex-only',
-        'grok-only',
-        ...ECONOMIC_PRESETS,
-        ...STRONG_GATE_PRESETS,
-      ];
-      for (const preset of highEffort) {
-        const out = applyPreset(preset, DEFAULT_SETTINGS);
-        expect(out.ai.effort, preset).toBe('high');
-      }
-    });
-
-    it('frontier presets stamp global ai.effort to max — codex-frontier included, the 5.6 flagship accepts max directly', () => {
-      expect(applyPreset('mixed-frontier', DEFAULT_SETTINGS).ai.effort).toBe('max');
-      expect(applyPreset('claude-frontier', DEFAULT_SETTINGS).ai.effort).toBe('max');
-      expect(applyPreset('copilot-frontier', DEFAULT_SETTINGS).ai.effort).toBe('max');
-      expect(applyPreset('codex-frontier', DEFAULT_SETTINGS).ai.effort).toBe('max');
-      expect(applyPreset('grok-frontier', DEFAULT_SETTINGS).ai.effort).toBe('max');
-    });
-
-    describe("'mixed' preset matrix", () => {
+    it("'mixed' grades its Claude generator with the same Codex critic DEFAULT_SETTINGS ships", () => {
+      // An independent critic beats one that shares the author's blind spots — the shipped default
+      // and the flagship mixed preset make the same split, so they must name the same evaluator.
       const out = applyPreset('mixed', DEFAULT_SETTINGS);
-
-      it('routes refine to openai-codex, plan to github-copilot, the implement generator to claude-code', () => {
-        expect(out.ai.refine.provider).toBe('openai-codex');
-        expect(out.ai.plan.provider).toBe('github-copilot');
-        expect(out.ai.implement.generator.provider).toBe('claude-code');
-        expect(out.ai.readiness.provider).toBe('github-copilot');
-        expect(out.ai.ideate.provider).toBe('claude-code');
-      });
-
-      it('grades the Claude generator with a Codex evaluator, matching the shipped default split', () => {
-        // The mixed story is best-of-breed per purpose, and an independent critic beats a critic
-        // that shares the author's blind spots — same split DEFAULT_SETTINGS ships.
-        expect(out.ai.implement.generator.provider).toBe('claude-code');
-        expect(out.ai.implement.generator.model).toBe('claude-opus-5-5');
-        expect(out.ai.implement.evaluator.provider).toBe('openai-codex');
-        expect(out.ai.implement.evaluator.model).toBe('gpt-6-sol');
-        expect(DEFAULT_SETTINGS.ai.implement.evaluator.provider).toBe(out.ai.implement.evaluator.provider);
-        expect(DEFAULT_SETTINGS.ai.implement.evaluator.model).toBe(out.ai.implement.evaluator.model);
-      });
-
-      it('sets implement and plan effort to xhigh, readiness to medium, refine/ideate unset', () => {
-        expect(out.ai.implement.generator.effort).toBe('xhigh');
-        expect(out.ai.implement.evaluator.effort).toBe('xhigh');
-        expect(out.ai.plan.effort).toBe('xhigh');
-        expect(out.ai.readiness.effort).toBe('medium');
-        expect(out.ai.refine.effort).toBeUndefined();
-        expect(out.ai.ideate.effort).toBeUndefined();
-      });
-    });
-
-    describe("'claude-strong-gate' preset matrix", () => {
-      const out = applyPreset('claude-strong-gate', DEFAULT_SETTINGS);
-
-      it('routes every flow to claude-code', () => {
-        for (const flow of FLOW_IDS) {
-          if (flow === 'implement') {
-            expect(out.ai.implement.generator.provider).toBe('claude-code');
-            expect(out.ai.implement.evaluator.provider).toBe('claude-code');
-            continue;
-          }
-          expect(out.ai[flow].provider).toBe('claude-code');
-        }
-      });
-
-      it('stamps the exact model + effort matrix', () => {
-        expect(out.ai.effort).toBe('high');
-        expect(out.ai.refine.model).toBe('claude-sonnet-5');
-        expect(out.ai.refine.effort).toBeUndefined();
-        expect(out.ai.plan.model).toBe('claude-opus-5-5');
-        expect(out.ai.plan.effort).toBe('xhigh');
-        expect(out.ai.readiness.model).toBe('claude-sonnet-5');
-        expect(out.ai.readiness.effort).toBe('low');
-        expect(out.ai.ideate.model).toBe('claude-sonnet-5');
-        expect(out.ai.ideate.effort).toBeUndefined();
-        expect(out.ai.createPr.model).toBe('claude-sonnet-5');
-        expect(out.ai.createPr.effort).toBe('low');
-      });
-
-      it('splits a cheap sonnet generator against a strong opus evaluator (same provider, different model)', () => {
-        // The novel property no other family has: generator weaker than evaluator.
-        expect(out.ai.implement.generator.provider).toBe(out.ai.implement.evaluator.provider);
-        expect(out.ai.implement.generator.model).toBe('claude-sonnet-5');
-        expect(out.ai.implement.evaluator.model).toBe('claude-opus-5-5');
-        expect(out.ai.implement.generator.model).not.toBe(out.ai.implement.evaluator.model);
-        expect(out.ai.implement.generator.effort).toBe('high');
-        expect(out.ai.implement.evaluator.effort).toBe('xhigh');
-      });
-    });
-
-    describe("'codex-strong-gate' preset matrix — the narrowest gate", () => {
-      const out = applyPreset('codex-strong-gate', DEFAULT_SETTINGS);
-
-      it('pairs a gpt-5.6-terra author with a gpt-6-sol evaluator the default ladder reaches', () => {
-        expect(out.ai.implement.generator.provider).toBe('openai-codex');
-        expect(out.ai.implement.evaluator.provider).toBe('openai-codex');
-        expect(out.ai.implement.generator.model).toBe('gpt-5.6-terra');
-        expect(out.ai.implement.evaluator.model).toBe('gpt-6-sol');
-        // Cheap author at high, strong gate at xhigh — the terra→sol rung is now live (xhigh is
-        // universal across the codex catalog since the vocabulary change).
-        expect(out.ai.implement.generator.effort).toBe('high');
-        expect(out.ai.implement.evaluator.effort).toBe('xhigh');
-      });
-    });
-
-    describe("'codex-fast' preset matrix", () => {
-      const out = applyPreset('codex-fast', DEFAULT_SETTINGS);
-
-      it('light flows inherit the global low (minimal was retired) and implement stays low', () => {
-        expect(out.ai.refine.effort).toBeUndefined();
-        expect(out.ai.readiness.effort).toBeUndefined();
-        expect(out.ai.createPr.effort).toBeUndefined();
-        expect(out.ai.implement.generator.effort).toBe('low');
-        expect(out.ai.implement.evaluator.effort).toBe('low');
-      });
-
-      it('uses the cheapest 5.6 tier for implement rather than a coding-grade frontier model', () => {
-        expect(out.ai.implement.generator.model).toBe('gpt-5.6-luna');
-      });
-
-      it('references no retiring gpt-5.4-mini row', () => {
-        // gpt-5.4-mini retires 2026-08-31; gpt-5.6-luna is its successor across every codex row.
-        for (const flow of FLOW_IDS) {
-          const rows = flow === 'implement' ? [out.ai.implement.generator, out.ai.implement.evaluator] : [out.ai[flow]];
-          for (const row of rows) {
-            expect(row.model, `codex-fast/${flow}`).toBe('gpt-5.6-luna');
-          }
-        }
-      });
+      expect(out.ai.implement.generator).toMatchObject({ provider: 'claude-code', model: O });
+      expect(out.ai.implement.evaluator.provider).toBe(DEFAULT_SETTINGS.ai.implement.evaluator.provider);
+      expect(out.ai.implement.evaluator.model).toBe(DEFAULT_SETTINGS.ai.implement.evaluator.model);
     });
 
     describe('fast family does not use haiku / nano for implement', () => {
@@ -554,72 +728,6 @@ describe('presets', () => {
           }
         }
       });
-    });
-
-    describe('frontier family tops out at Opus 5.5 / gpt-6-sol (never fable)', () => {
-      it('routes implement to the provider flagship at max effort', () => {
-        // [preset, generator model, evaluator model, effort] — mixed-frontier is the one row where
-        // the two differ: it keeps the cross-provider gate `mixed` uses, at the frontier tier.
-        const cases: ReadonlyArray<[PresetName, string, string, 'max']> = [
-          ['mixed-frontier', 'claude-opus-5-5', 'gpt-6-sol', 'max'],
-          ['claude-frontier', 'claude-opus-5-5', 'claude-opus-5-5', 'max'],
-          ['copilot-frontier', 'claude-opus-4.8', 'claude-opus-4.8', 'max'],
-          ['codex-frontier', 'gpt-6-sol', 'gpt-6-sol', 'max'],
-          ['grok-frontier', 'grok-4.7', 'grok-4.7', 'max'],
-        ];
-        for (const [preset, generatorModel, evaluatorModel, effort] of cases) {
-          const out = applyPreset(preset, DEFAULT_SETTINGS);
-          expect(out.ai.implement.generator.model, preset).toBe(generatorModel);
-          expect(out.ai.implement.evaluator.model, preset).toBe(evaluatorModel);
-          expect(out.ai.implement.generator.effort, preset).toBe(effort);
-          expect(out.ai.implement.evaluator.effort, preset).toBe(effort);
-        }
-      });
-    });
-
-    const providerOnlyPresets: ReadonlyArray<[PresetName, AiProvider]> = [
-      ['claude-only', 'claude-code'],
-      ['copilot-only', 'github-copilot'],
-      ['codex-only', 'openai-codex'],
-      ['grok-only', 'xai-grok'],
-    ];
-
-    for (const [preset, provider] of providerOnlyPresets) {
-      describe(`'${preset}' preset`, () => {
-        const out = applyPreset(preset, DEFAULT_SETTINGS);
-
-        it(`routes every flow to ${provider}`, () => {
-          for (const flow of FLOW_IDS) {
-            if (flow === 'implement') {
-              expect(out.ai.implement.generator.provider).toBe(provider);
-              expect(out.ai.implement.evaluator.provider).toBe(provider);
-              continue;
-            }
-            expect(out.ai[flow].provider).toBe(provider);
-          }
-        });
-
-        it('matches the effort matrix (implement+plan xhigh, readiness medium, refine+ideate unset)', () => {
-          expect(out.ai.implement.generator.effort).toBe('xhigh');
-          expect(out.ai.implement.evaluator.effort).toBe('xhigh');
-          expect(out.ai.plan.effort).toBe('xhigh');
-          expect(out.ai.readiness.effort).toBe('medium');
-          expect(out.ai.refine.effort).toBeUndefined();
-          expect(out.ai.ideate.effort).toBeUndefined();
-        });
-      });
-    }
-
-    it('grok-only stamps grok-4.7 on implement/plan/ideate, grok-4.6 on refine, and grok-4.5 on readiness/createPr', () => {
-      const out = applyPreset('grok-only', DEFAULT_SETTINGS);
-      expect(out.ai.effort).toBe('high');
-      expect(out.ai.implement.generator.model).toBe('grok-4.7');
-      expect(out.ai.implement.evaluator.model).toBe('grok-4.7');
-      expect(out.ai.plan.model).toBe('grok-4.7');
-      expect(out.ai.ideate.model).toBe('grok-4.7');
-      expect(out.ai.refine.model).toBe('grok-4.6');
-      expect(out.ai.readiness.model).toBe('grok-4.5');
-      expect(out.ai.createPr.model).toBe('grok-4.5');
     });
 
     it('grok-4.7-build-fast stays opt-in — no preset row references it', () => {

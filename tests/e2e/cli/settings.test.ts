@@ -117,18 +117,20 @@ describe('ralphctl settings', () => {
 
     it('persists a per-flow provider via the gated settings-set-provider flow when the CLI is installed', async () => {
       detectRef.installed = new Set(['claude-code', 'github-copilot', 'openai-codex']);
-      const setResult = await runCliCaptured(cli, ['settings', 'set', 'ai.refine.provider', 'github-copilot']);
+      // readiness, not refine: both providers default refine to the same `claude-sonnet-5` slug,
+      // which would hide whether the model was rebuilt at all.
+      const setResult = await runCliCaptured(cli, ['settings', 'set', 'ai.readiness.provider', 'github-copilot']);
       expect(setResult.exitCode).toBe(0);
-      expect(setResult.stdout).toContain('ai.refine.provider = github-copilot');
+      expect(setResult.stdout).toContain('ai.readiness.provider = github-copilot');
 
       const showResult = await runCliCaptured(cli, ['settings', 'show']);
       const parsed = JSON.parse(showResult.stdout) as {
-        readonly ai: { readonly refine: { readonly provider: string; readonly model: string } };
+        readonly ai: { readonly readiness: { readonly provider: string; readonly model: string } };
       };
-      expect(parsed.ai.refine.provider).toBe('github-copilot');
+      expect(parsed.ai.readiness.provider).toBe('github-copilot');
       // Model rebuilt from the target provider's defaults — the discriminated-union schema
       // would otherwise reject the save with claude-only models still in the row.
-      expect(parsed.ai.refine.model).toContain('gpt');
+      expect(parsed.ai.readiness.model).toBe('gpt-5.6-luna');
     });
 
     it('blocks ai.<flow>.provider when the requested provider CLI is not installed', async () => {

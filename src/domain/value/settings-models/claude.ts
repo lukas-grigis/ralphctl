@@ -20,7 +20,8 @@
  * `claude-fable-5-1` is the frontier tier above Opus (successor to `claude-fable-5`, same
  * $10/$50 price — 2.5x Opus 5.5), natively 1M default AND max, so it has no `[1m]` variant. It
  * requires 30-day data retention: zero-data-retention orgs get a 400. `claude-fable-5` stays for
- * pinned configs. Fable is never a built-in escalation rung — opt in per row, or via
+ * pinned configs. Fable is never a provider default or a built-in escalation rung; only the
+ * frontier presets pick it (on their deep flows). Elsewhere opt in per row, or via
  * `settings.harness.escalationMap` (e.g. `'claude-opus-5-5': 'claude-fable-5-1'`).
  *
  * The `[1m]` suffix is Claude Code's long-context (1M-token) variant syntax for models whose

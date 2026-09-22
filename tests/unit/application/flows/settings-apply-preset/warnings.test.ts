@@ -78,8 +78,8 @@ describe('settings-apply-preset — warnings', () => {
     // implement appears under BOTH claude (generator) and codex (evaluator) — mixed splits
     // the implement roles across providers.
     expect(codex?.flows).toEqual(['refine', 'implement', 'createPr']);
-    expect(copilot?.flows).toEqual(['plan', 'readiness']);
-    expect(claude?.flows).toEqual(['implement', 'ideate']);
+    expect(copilot?.flows).toEqual(['readiness']);
+    expect(claude?.flows).toEqual(['plan', 'implement', 'ideate']);
   });
 
   it('persistence succeeds even when warnings are produced', async () => {

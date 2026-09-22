@@ -38,8 +38,10 @@ import { OPENCODE_ONLY } from '@src/business/settings/opencode-preset-matrices.t
 
 /**
  * Settings preset identifiers. Each preset is a one-shot snapshot of the AI section —
- * applying it stamps `ai.effort` plus all five per-flow rows. Preset identity is NOT
- * persisted; the next per-row edit sticks and nothing remembers which preset was applied.
+ * applying it stamps `ai.effort` plus every per-flow row. Every row of every preset except
+ * `opencode-only` pins an explicit `effort`, so no spawn falls back to the preset's global or to
+ * the AI CLI's own default (Opus 5.5's is only `medium`). OpenCode rows stay effort-less: its
+ * `--variant` values come from the upstream provider and the free tier exposes none.
  *
  * The matrices themselves live in `*-preset-matrices.ts`, one file per provider (plus mixed).
  * This module is the registry: names, order, and the harness flags each family stamps.
@@ -56,13 +58,15 @@ import { OPENCODE_ONLY } from '@src/business/settings/opencode-preset-matrices.t
  *                   flagship to save tokens, leaning on the escalation ladder to climb only when
  *                   a task plateaus. Also pins `harness.bestOfNCandidates` to `0`.
  *   strong-gate   — cheap implement generator paired with a permanently-strong evaluator — the
- *                   only family that splits generator and evaluator by TIER (`mixed` and
- *                   `mixed-frontier` split by provider, at the same tier).
+ *                   family that splits generator and evaluator by TIER on one provider
+ *                   (`mixed`, `mixed-economic` and `mixed-frontier` split by provider instead).
  *   fast          — cheapest viable tier at `low` effort, optimising speed/cost over quality;
  *                   the only family with `escalateOnPlateau` stamped OFF so a plateau settles.
- *   frontier      — flagship everywhere at `max` effort (tops out at Opus 5.5 / GPT-6 Sol /
- *                   Grok 4.7). Fable and `grok-4.7-build-fast` stay opt-in: each costs a
- *                   multiple of the flagship it sits above.
+ *   frontier      — no cost ceiling: the vendor's top model at `max` on the deep flows (Fable 5.1
+ *                   on Claude, `gpt-6-astra` on Codex, Opus 4.8 on Copilot where Opus 5 / 5.5
+ *                   are plan-gated, `grok-4.7` on Grok). Fable needs a non-zero-data-retention
+ *                   org. Neither Fable nor astra is a default-ladder rung, so a frontier
+ *                   generator never escalates; `grok-4.7-build-fast` stays opt-in.
  *
  * Applying a preset stamps the AI section AND `harness.escalateOnPlateau` — plus, for the economic
  * family only, `harness.bestOfNCandidates: 0` (its explicit cost opt-out). Preset identity is

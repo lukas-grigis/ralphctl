@@ -7,8 +7,8 @@
  *
  * The GPT-6 family is current: `gpt-6-sol` is the flagship and the top rung of the Codex
  * escalation ladder ($2/$10 per MTok — half the `gpt-5.6-sol` price); `gpt-6-luna` is the cheap
- * tier ($0.10/$0.50); `gpt-6-astra` is the premium tier ($10/$50) and is opt-in only, never a
- * built-in ladder rung. Efforts: all three accept `low..max`; `ultra` exists on astra and sol but
+ * tier ($0.10/$0.50); `gpt-6-astra` is the premium tier ($10/$50) — never a provider default or
+ * a built-in ladder rung, only the frontier presets pick it. Efforts: all three accept `low..max`; `ultra` exists on astra and sol but
  * NOT luna. Per-model narrowing is left to the codex CLI at spawn.
  *
  * `gpt-5.6-sol` / `gpt-5.6-terra` / `gpt-5.6-luna` and `gpt-5.5` stay for pinned configs (the

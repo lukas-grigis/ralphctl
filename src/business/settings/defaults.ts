@@ -5,28 +5,20 @@ import {
   type Settings,
 } from '@src/domain/entity/settings.ts';
 import type { FlowId } from '@src/domain/value/flow-id.ts';
-
-// Model identifiers referenced more than once below, hoisted to named constants so each literal
-// appears once. The dash spelling (`claude-sonnet-5`, `claude-opus-5-5`) is the claude-code
-// catalog form. Sonnet 5 is the default Sonnet for Claude Code; Opus 5.5 is the default Opus.
-const CLAUDE_SONNET = 'claude-sonnet-5';
-const CLAUDE_OPUS = 'claude-opus-5-5';
-const GPT_5_MINI = 'gpt-5-mini';
-const GPT_6_LUNA = 'gpt-6-luna';
-const GPT_6_SOL = 'gpt-6-sol';
-/**
- * OpenCode free-tier picks — the general-purpose tier and the light/code-oriented tier.
- *
- * The free tier rotates and individual ids go dark upstream (a 401 on one model while its
- * siblings answer fine). Both picks here were live-probed against opencode-ai v1.18.32 on
- * 2026-09-22; re-probe with `opencode models` before changing them.
- */
-const OPENCODE_BIG = 'opencode/big-pickle';
-const OPENCODE_MINI = 'opencode/nemotron-3.5-lightning-free';
-// Same split as `GROK_ONLY` in grok-preset-matrices.ts. Probed with `grok models` on grok 1.0.40 (2026-09-22).
-const GROK_FLAGSHIP = 'grok-4.7';
-const GROK_MID = 'grok-4.6';
-const GROK_CHEAP = 'grok-4.5';
+import {
+  COPILOT_LUNA,
+  COPILOT_OPUS,
+  COPILOT_SONNET,
+  GPT_6_LUNA,
+  GPT_6_SOL,
+  GROK_CHEAP,
+  GROK_FLAGSHIP,
+  GROK_MID,
+  OPENCODE_BIG,
+  OPENCODE_MINI,
+  OPUS,
+  SONNET,
+} from '@src/business/settings/preset-model-ids.ts';
 
 /**
  * Per-provider, per-flow default model picks. Used by the welcome flow when the user picks a
@@ -38,22 +30,25 @@ const GROK_CHEAP = 'grok-4.5';
  */
 const DEFAULT_MODELS_BY_PROVIDER: Readonly<Record<AiProvider, Readonly<Record<FlowId, string>>>> = {
   'claude-code': {
-    refine: CLAUDE_SONNET,
-    plan: CLAUDE_OPUS,
-    implement: CLAUDE_OPUS,
-    readiness: CLAUDE_SONNET,
-    ideate: CLAUDE_OPUS,
+    refine: SONNET,
+    plan: OPUS,
+    implement: OPUS,
+    readiness: SONNET,
+    ideate: OPUS,
     // PR-content drafting is a single-shot summarisation task — Sonnet matches refine's
     // light reasoning profile and avoids the Opus premium for a few-paragraph diff write-up.
-    createPr: CLAUDE_SONNET,
+    createPr: SONNET,
   },
+  // Same tiers as `copilot-only`. Opus 4.8 rather than Opus 5 / 5.5 (plan-gated on Copilot), and
+  // it tops the Copilot escalation ladder, so the reset-to-copilot implement default and the
+  // ladder top stay aligned.
   'github-copilot': {
-    refine: GPT_5_MINI,
-    plan: 'gpt-5.4',
-    implement: 'gpt-5.4',
-    readiness: GPT_5_MINI,
-    ideate: 'gpt-5.4',
-    createPr: GPT_5_MINI,
+    refine: COPILOT_SONNET,
+    plan: COPILOT_OPUS,
+    implement: COPILOT_OPUS,
+    readiness: COPILOT_LUNA,
+    ideate: COPILOT_OPUS,
+    createPr: COPILOT_LUNA,
   },
   'openai-codex': {
     refine: GPT_6_LUNA,
@@ -78,6 +73,7 @@ const DEFAULT_MODELS_BY_PROVIDER: Readonly<Record<AiProvider, Readonly<Record<Fl
     ideate: OPENCODE_BIG,
     createPr: OPENCODE_MINI,
   },
+  // Same split as `grok-only`.
   'xai-grok': {
     refine: GROK_MID,
     plan: GROK_FLAGSHIP,
@@ -131,7 +127,7 @@ export const DEFAULT_SETTINGS: Settings = {
   ai: {
     ...defaultAiSettingsForProvider('claude-code'),
     implement: {
-      generator: { provider: 'claude-code', model: CLAUDE_OPUS },
+      generator: { provider: 'claude-code', model: OPUS },
       evaluator: { provider: 'openai-codex', model: GPT_6_SOL },
     },
   },
