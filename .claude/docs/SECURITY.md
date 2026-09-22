@@ -207,14 +207,23 @@ on a multi-repo project (plan); refine would also pollute the repo with bundled 
 **every** project repository as an equal `--add-dir` source — no repo enjoys cwd privilege, so the planner
 treats every repo symmetrically. No AI session is rooted in any repo for either flow.
 
-**Refine writes back as an issue comment, never an overwrite.** Refine never rewrites the issue
-description and never opens a new issue — it posts the refined requirements as a NEW comment on the
-ticket's linked issue via the comment-only `IssuePusher` (`comment(url, { body })`; `gh issue comment`
-/ `glab issue comment`). It is opt-in: the interactive reviewer's "Post as comment" choice (offered
-only when the ticket has a linked issue), or `settings.scm.postRefinementComment` (default `false`) in
-non-interactive runs. The earlier "approve & update" / "approve & create" reviewer options and the
-`defaultIssueOrigin`-driven create path were removed — `Project.defaultIssueOrigin` survives as a
-persisted field but refine no longer consults it.
+**Tracker writes are ralphctl's, via `IssuePusher`.** Create and comment go through `gh` / `glab`
+(`create`, `comment`, `listComments`). The AI session does not open issues, post comments, or edit
+tracker issues. Neither path rewrites the issue body; older comments stay in place.
+
+Create is opt-in from the TUI add-ticket wizard (default No; offered when the new ticket has no link
+and the first configured repository resolves to GitHub or GitLab). `ralphctl ticket add` does not
+ask. `ralphctl ticket publish <ticketId>` and sprint-detail `p` retry create with no second prompt.
+Create uses that first repository origin and stores the returned URL as the ticket's link.
+
+Comment is opt-in from the refine approval menu. The default is Approve. "Post as comment" appears
+only when the ticket has a linked issue; the body is the approved requirements plus a stable
+`<!-- ralphctl:refined-requirements -->` marker. A repeat of the same approved text does not add
+another comment (`listComments` already contains that body). `settings.scm.postRefinementComment`
+does not post — a headless refine never comments. Publish retries the comment when the ticket
+already has a link; comments use the ticket link, not the create origin.
+
+`Project.defaultIssueOrigin` survives as a persisted field but these writes do not consult it.
 
 **Bundled skills (13 total) always lose to project skills — unless the folder is a leftover of ralphctl's
 own.** When `<cwd>/.claude/skills/<name>/` already exists, the bundled copy is skipped and the project

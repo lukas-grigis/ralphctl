@@ -125,6 +125,7 @@ ralphctl sprint progress <sprint-id>
 # Add / inspect tickets
 ralphctl ticket add --title "<title>"
 ralphctl ticket list
+ralphctl ticket publish <ticket-id>
 
 # Manage sprint state
 ralphctl sprint activate <sprint-id>
@@ -220,6 +221,25 @@ Key properties:
 
 For the full architectural picture see [`.claude/docs/ARCHITECTURE.md`](./.claude/docs/ARCHITECTURE.md) and [
 `.claude/docs/REQUIREMENTS.md`](./.claude/docs/REQUIREMENTS.md).
+
+### GitHub and GitLab issues
+
+ralphctl can create a GitHub or GitLab issue from a local ticket, and can post approved requirements as a
+comment on a linked issue. Both writes are opt-in. Neither rewrites the issue body.
+
+**Create on add.** The TUI add-ticket wizard asks whether to create a tracker issue (default **No**) when the
+new ticket has no link and the project's first configured repository resolves to GitHub or GitLab. Yes creates
+the issue with that ticket's title and body and stores the returned URL as the ticket's link.
+`ralphctl ticket add` saves the ticket locally and does not ask.
+
+**Comment on approval.** Refine can post approved requirements as a comment (default **No**, only when the
+ticket has a link). The approval menu default is **Approve**. **Post as comment** appears only for a linked
+ticket; choosing it posts the approved requirements as a new comment on that linked issue. Repeating the same
+approved text does not add another comment.
+
+**Retry with publish.** `ralphctl ticket publish <ticketId>` and sprint-detail `p` run the same write with no
+second prompt: create when the ticket has no link, comment when it already has a link and approved
+requirements. Create uses the first configured repository origin. Comments use the ticket's existing link.
 
 ---
 
@@ -467,21 +487,22 @@ readiness / create sprint) stay TUI-only by design. The CLI exposes inspection +
 
 ### Project & Sprint Inspection
 
-| Command                               | Description                                                                         |
-| ------------------------------------- | ----------------------------------------------------------------------------------- |
-| `ralphctl project list`               | List registered projects                                                            |
-| `ralphctl project show <id>`          | Show one project (incl. repositories)                                               |
-| `ralphctl project remove <id>`        | Delete a project registration                                                       |
-| `ralphctl sprint list`                | List all sprints                                                                    |
-| `ralphctl sprint show <id>`           | Show one sprint (tickets, status, branch)                                           |
-| `ralphctl sprint progress <id>`       | Sprint progress with blocker diagnostics                                            |
-| `ralphctl sprint set-current <id>`    | Switch the current sprint pointer                                                   |
-| `ralphctl ticket add --title <title>` | Add a ticket to the current sprint (`--sprint`, `--description`, `--link` optional) |
-| `ralphctl ticket list / show <id>`    | Inspect tickets                                                                     |
-| `ralphctl ticket remove <id>`         | Remove a ticket from a draft sprint                                                 |
-| `ralphctl task list / show <id>`      | Inspect tasks (planning generates them)                                             |
-| `ralphctl task evaluation <id>`       | Print the latest evaluator verdict (`evaluation.md`) for the task's last attempt    |
-| `ralphctl task unblock <id>`          | Reset a blocked task to `todo`                                                      |
+| Command                               | Description                                                                                                                 |
+| ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `ralphctl project list`               | List registered projects                                                                                                    |
+| `ralphctl project show <id>`          | Show one project (incl. repositories)                                                                                       |
+| `ralphctl project remove <id>`        | Delete a project registration                                                                                               |
+| `ralphctl sprint list`                | List all sprints                                                                                                            |
+| `ralphctl sprint show <id>`           | Show one sprint (tickets, status, branch)                                                                                   |
+| `ralphctl sprint progress <id>`       | Sprint progress with blocker diagnostics                                                                                    |
+| `ralphctl sprint set-current <id>`    | Switch the current sprint pointer                                                                                           |
+| `ralphctl ticket add --title <title>` | Add a ticket to the current sprint (`--sprint`, `--description`, `--link` optional); does not ask to create a tracker issue |
+| `ralphctl ticket list / show <id>`    | Inspect tickets                                                                                                             |
+| `ralphctl ticket publish <id>`        | Create a tracker issue or post the approved-requirements comment (`--sprint` optional); no second prompt                    |
+| `ralphctl ticket remove <id>`         | Remove a ticket from a draft sprint                                                                                         |
+| `ralphctl task list / show <id>`      | Inspect tasks (planning generates them)                                                                                     |
+| `ralphctl task evaluation <id>`       | Print the latest evaluator verdict (`evaluation.md`) for the task's last attempt                                            |
+| `ralphctl task unblock <id>`          | Reset a blocked task to `todo`                                                                                              |
 
 ### Sprint Lifecycle
 

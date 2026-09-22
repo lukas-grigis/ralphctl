@@ -476,6 +476,7 @@ are imported by the launcher (`application/ui/shared/launch/<flow>.ts`) or the C
 | `settings`            | use-case | yes (`settings show` / `set`) | Per-key read/write                                                                                       |
 | `remove-ticket`       | use-case | yes (`ticket remove`)         | Routes via `sprint-detail` view when launched from Flows                                                 |
 | `add-ticket`          | use-case | yes (`ticket add`)            | TUI Flows menu (draft sprints) + `a` shortcut (Home / sprint detail); backs `ralphctl ticket add`        |
+| —                     | CLI-only | `ticket publish`              | Create or comment on the tracker for one ticket; sprint-detail `p`; no second prompt                     |
 | —                     | CLI-only | `runs list` / `runs prune`    | Inspect and prune per-run forensic artifacts                                                             |
 | —                     | CLI-only | `sprint reopen`               | The one exit from `done`: reopens to `review` (idempotent) so a task blocked at close is reachable again |
 
