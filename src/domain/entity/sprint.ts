@@ -352,6 +352,8 @@ export const transitionSprintToDone = (sprint: Sprint, now: IsoTimestamp): Resul
   });
 };
 
+const DONE_IMMUTABLE_HINT = 'Done sprints are immutable.';
+
 /** Allowed in any non-terminal status; rejected once `done`. */
 export const renameSprint = (
   sprint: Sprint,
@@ -362,7 +364,7 @@ export const renameSprint = (
     sprint,
     ['draft', 'planned', 'active', 'review'] as const,
     'rename',
-    'Done sprints are immutable.'
+    DONE_IMMUTABLE_HINT
   );
   if (!guard.ok) return Result.error(guard.error);
   const name = parseRequiredString('sprint.name', newName);
@@ -380,7 +382,7 @@ export const setSprintSlug = (sprint: Sprint, slug: Slug): Result<OpenSprint, In
     sprint,
     ['draft', 'planned', 'active', 'review'] as const,
     'set-slug',
-    'Done sprints are immutable.'
+    DONE_IMMUTABLE_HINT
   );
   if (!guard.ok) return Result.error(guard.error);
   return Result.ok({ ...guard.value, slug });
@@ -442,23 +444,32 @@ export const replaceTicket = (
 };
 
 /**
- * Attach a tracker URL to an existing ticket on a sprint of any status. Uses
+ * Attach a tracker URL to an existing ticket on any non-terminal sprint. Uses
  * {@link setTicketLink}: a derived `externalRef` is filled in only when the ticket has none.
  * Unlike {@link replaceTicket}, this is not draft-gated — publishing an origin after plan
- * must still stamp the link.
+ * must still stamp the link. Rejected once `done`.
  */
 export const attachTicketLink = (
   sprint: Sprint,
   ticketId: TicketId,
   url: string
-): Result<Sprint, NotFoundError | ValidationError> => {
-  const ticket = sprint.tickets.find((t) => t.id === ticketId);
+): Result<OpenSprint, NotFoundError | ValidationError | InvalidStateError> => {
+  const guard = requireStatus(
+    'sprint',
+    sprint,
+    ['draft', 'planned', 'active', 'review'] as const,
+    'attach-ticket-link',
+    DONE_IMMUTABLE_HINT
+  );
+  if (!guard.ok) return Result.error(guard.error);
+  const open = guard.value;
+  const ticket = open.tickets.find((t) => t.id === ticketId);
   if (ticket === undefined) {
     return Result.error(new NotFoundError({ entity: 'ticket', id: String(ticketId) }));
   }
   const updated = ticket.status === 'approved' ? setTicketLink(ticket, url) : setTicketLink(ticket, url);
   if (!updated.ok) return Result.error(updated.error);
-  return Result.ok({ ...sprint, tickets: sprint.tickets.map((t) => (t.id === ticketId ? updated.value : t)) });
+  return Result.ok({ ...open, tickets: open.tickets.map((t) => (t.id === ticketId ? updated.value : t)) });
 };
 
 // ───────────────────────── derivations ─────────────────────────

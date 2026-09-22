@@ -54,7 +54,18 @@ const originResolves = async (deps: AppDeps, sprintId: SprintId): Promise<boolea
 type PersistOutcome =
   | { readonly kind: 'added' }
   | { readonly kind: 'error'; readonly message: string }
-  | { readonly kind: 'create-failed'; readonly message: string };
+  | { readonly kind: 'create-failed'; readonly message: string; readonly hint: string };
+
+/**
+ * Recovery copy for a tracker failure after the local save. When the issue was created but its
+ * link could not be saved, retrying would open a duplicate — the error message already names the
+ * URL to link by hand, so the hint says not to re-publish instead of pointing at the retry command.
+ */
+const createFailedHint = (sprintId: SprintId, ticketId: string | undefined, orphaned: boolean): string => {
+  if (orphaned) return 'The ticket was saved locally without the link — do not re-publish it.';
+  const target = ticketId ?? '<ticket-id>';
+  return `The ticket was saved locally — retry with: ralphctl ticket publish --sprint ${String(sprintId)} ${target}`;
+};
 
 const persistTicket = async (deps: AppDeps, sprintId: SprintId, draft: TicketDraft): Promise<PersistOutcome> => {
   const description = draft.description.trim();
@@ -78,7 +89,16 @@ const persistTicket = async (deps: AppDeps, sprintId: SprintId, draft: TicketDra
   }
   const trackerError = result.value.ctx.trackerError;
   if (trackerError !== undefined) {
-    return { kind: 'create-failed', message: trackerError.message };
+    const ticketId = result.value.ctx.output?.id;
+    return {
+      kind: 'create-failed',
+      message: trackerError.message,
+      hint: createFailedHint(
+        sprintId,
+        ticketId !== undefined ? String(ticketId) : undefined,
+        result.value.ctx.trackerIssueOrphaned === true
+      ),
+    };
   }
   return { kind: 'added' };
 };
@@ -122,6 +142,13 @@ export const AddTicketView = (): React.JSX.Element => {
   const persist = async (draft: TicketDraft): Promise<void> => {
     setStep({ kind: 'saving' });
     const outcome = await persistTicket(deps, sprintId, draft);
+    if (outcome.kind === 'create-failed') {
+      // The ticket itself was saved — only the tracker step failed — so it counts toward the
+      // session total the next `link` step shows.
+      setAddedCount((prev) => prev + 1);
+      setStep(outcome);
+      return;
+    }
     if (outcome.kind === 'added') {
       // Stay in the flow: increment the session count and land on the `added` step, which offers
       // "Add another ticket?". YES resets the machine to a fresh `link` (handled in StepView); NO

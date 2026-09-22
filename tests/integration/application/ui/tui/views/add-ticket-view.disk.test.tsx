@@ -215,7 +215,8 @@ describe('AddTicketView — disk round-trip', () => {
     expect(persisted.tickets[0]?.title).toBe('Local only');
     expect(persisted.tickets[0]?.link).toBeUndefined();
     expect(createCalls).toEqual([]);
-    expect(result.lastFrame()).toContain('Add another ticket?');
+    // The disk write lands before the `added` step renders — wait for the frame, don't race it.
+    await waitFor(() => expect(result.lastFrame()).toContain('Add another ticket?'));
   });
 
   it('create prompt Yes stores the IssuePusher.create URL as the ticket link', async () => {

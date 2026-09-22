@@ -10,16 +10,23 @@
  * advance the wizard. The confirm step always shows the trimmed description text.
  */
 
+import React, { useEffect, useState } from 'react';
+import { Text } from 'ink';
 import { describe, expect, it, vi } from 'vitest';
 import { Result } from '@src/domain/result.ts';
 import { AddTicketView } from '@src/application/ui/tui/views/add-ticket-view.tsx';
+import { useRouter } from '@src/application/ui/tui/runtime/router.tsx';
+import type { ProjectRepository } from '@src/domain/repository/project/project-repository.ts';
+import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
+import { StorageError } from '@src/domain/value/error/storage-error.ts';
+import type { IssuePusher } from '@src/business/scm/issue-pusher.ts';
 import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { SprintRepository } from '@src/domain/repository/sprint/sprint-repository.ts';
 import type { ExternalIssue, IssueFetcher } from '@src/business/scm/issue-fetcher.ts';
-import { makeDraftSprint } from '@tests/fixtures/domain.ts';
-import { ENTER } from '@tests/integration/application/ui/tui/_keys.ts';
-import { waitFor } from '@tests/integration/application/ui/tui/_wait.ts';
+import { makeDraftSprint, makeProject } from '@tests/fixtures/domain.ts';
+import { ENTER, ESC } from '@tests/integration/application/ui/tui/_keys.ts';
+import { waitFor, waitForPredicate } from '@tests/integration/application/ui/tui/_wait.ts';
 import { renderView } from '@tests/integration/application/ui/tui/_harness.tsx';
 
 describe('AddTicketView — wizard e2e', () => {
@@ -166,5 +173,109 @@ describe('AddTicketView — wizard e2e', () => {
     expect(saved?.tickets[0]?.title).toBe(fetched.title);
     expect(saved?.tickets[0]?.description).toBe(fetched.body);
     expect(saved?.tickets[0]?.link).toBe(fetched.url);
+  });
+});
+
+/**
+ * Mount the wizard ON TOP of a `sprints` entry so `router.pop()` is observable — a single-entry
+ * stack makes pop a no-op, which would hide exactly the dead end these tests fence.
+ */
+const PushedAddTicket = ({ sprintId }: { readonly sprintId: SprintId }): React.JSX.Element => {
+  const router = useRouter();
+  const [pushed, setPushed] = useState(false);
+  useEffect(() => {
+    router.push({ id: 'add-ticket', props: { sprintId } });
+    setPushed(true);
+    // Push exactly once on mount.
+  }, []);
+  return pushed ? <AddTicketView /> : <Text>mounting</Text>;
+};
+
+const fillTicket = async (
+  result: { stdin: { write: (s: string) => void }; lastFrame: () => string | undefined },
+  title: string
+): Promise<void> => {
+  await waitFor(() => expect(result.lastFrame()).toContain('Issue link'));
+  result.stdin.write(ENTER);
+  await waitFor(() => expect(result.lastFrame()).toMatch(/^\s*▸\s*Title/m));
+  result.stdin.write(title);
+  result.stdin.write(ENTER);
+  await waitFor(() => expect(result.lastFrame()).toContain('Description'));
+  result.stdin.write('some detail');
+  result.stdin.write(ENTER);
+  await waitFor(() => expect(result.lastFrame()).toContain('Add this ticket?'));
+  result.stdin.write(ENTER);
+};
+
+describe('AddTicketView — failure steps always have an exit', () => {
+  const failingTrackerDeps = (sprint: Sprint): AppDeps => {
+    let stored = sprint;
+    const issuePusher: IssuePusher = {
+      resolveOrigin: async () => Result.ok({ provider: 'github', hostname: 'github.com', owner: 'x', repo: 'y' }),
+      create: async () => Result.error(new StorageError({ subCode: 'io', message: 'gh is down' })),
+      listComments: async () => Result.ok([]),
+      comment: async () => Result.ok(undefined),
+    };
+    return {
+      sprintRepo: {
+        findById: async () => Result.ok(stored),
+        save: async (next: Sprint) => {
+          stored = next;
+          return Result.ok(undefined);
+        },
+      } as unknown as SprintRepository,
+      projectRepo: { findById: async () => Result.ok(makeProject()) } as unknown as ProjectRepository,
+      issuePusher,
+    } as unknown as AppDeps;
+  };
+
+  const reachCreateFailed = async (sprint: Sprint): Promise<ReturnType<typeof renderView>> => {
+    const view = renderView(<PushedAddTicket sprintId={sprint.id} />, {
+      deps: failingTrackerDeps(sprint),
+      initial: { id: 'sprints', props: { sprintId: sprint.id } },
+    });
+    await fillTicket(view.result, 'Tracker down');
+    await waitFor(() => expect(view.result.lastFrame()).toContain('Create a tracker issue?'));
+    view.result.stdin.write('y');
+    await waitFor(() => expect(view.result.lastFrame()).toContain('gh is down'));
+    return view;
+  };
+
+  it('create-failed names the retry command and esc leaves the wizard', async () => {
+    const sprint = makeDraftSprint();
+    const { result, routeIds } = await reachCreateFailed(sprint);
+    // The command is longer than the 100-column stub — compare with wrapping collapsed.
+    const frame = (result.lastFrame() ?? '').replace(/\s+/g, ' ');
+    expect(frame).toMatch(/saved locally/i);
+    expect(frame).toContain(`ralphctl ticket publish --sprint ${String(sprint.id)}`);
+    expect(frame).toContain('Add another ticket?');
+    result.stdin.write(ESC);
+    await waitForPredicate(() => routeIds().at(-1) === 'sprints');
+  });
+
+  it('create-failed: yes starts a fresh ticket and counts the saved one', async () => {
+    const { result } = await reachCreateFailed(makeDraftSprint());
+    result.stdin.write('y');
+    await waitFor(() => expect(result.lastFrame()).toContain('Issue link'));
+    expect(result.lastFrame()).toContain('1 ticket added this session');
+  });
+
+  it('error step (save failed) offers a way out instead of a dead end', async () => {
+    const sprint = makeDraftSprint();
+    const deps = {
+      sprintRepo: {
+        findById: async () => Result.ok(sprint),
+        save: async () => Result.error(new StorageError({ subCode: 'io', message: 'disk full' })),
+      } as unknown as SprintRepository,
+    } as unknown as AppDeps;
+    const { result, routeIds } = renderView(<PushedAddTicket sprintId={sprint.id} />, {
+      deps,
+      initial: { id: 'sprints', props: { sprintId: sprint.id } },
+    });
+    await fillTicket(result, 'Will not save');
+    await waitFor(() => expect(result.lastFrame()).toContain('disk full'));
+    expect(result.lastFrame()).toContain('Start over with a new ticket?');
+    result.stdin.write('n');
+    await waitForPredicate(() => routeIds().at(-1) === 'sprints');
   });
 });

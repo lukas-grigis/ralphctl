@@ -215,6 +215,8 @@ Create is opt-in from the TUI add-ticket wizard (default No; offered when the ne
 and the first configured repository resolves to GitHub or GitLab). `ralphctl ticket add` does not
 ask. `ralphctl ticket publish <ticketId>` and sprint-detail `p` retry create with no second prompt.
 Create uses that first repository origin and stores the returned URL as the ticket's link.
+Publish refuses a done sprint before any tracker call. If create succeeds but saving the link fails,
+the error names the created URL so it can be linked by hand — re-publishing would open a duplicate.
 
 Comment is opt-in from the refine approval menu. The default is Approve. "Post as comment" appears
 only when the ticket has a linked issue; the body is the approved requirements plus a stable

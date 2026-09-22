@@ -109,11 +109,11 @@ describe('createIssuePusher — comment', () => {
     expect(capture.stdinWrites).toEqual(['new body']);
   });
 
-  it('GitLab: dispatches to `glab issue comment` with --body flag', async () => {
+  it('GitLab: dispatches to `glab issue comment` with --message flag', async () => {
     const { spawn, capture } = scriptedSpawn([
       {
         command: 'glab',
-        args: ['issue', 'comment', '7', '--repo', 'gitlab.com/foo/bar', '--body', 'new body'],
+        args: ['issue', 'comment', '7', '--repo', 'gitlab.com/foo/bar', '--message', 'new body'],
         stdout: '',
         exitCode: 0,
       },
@@ -129,7 +129,7 @@ describe('createIssuePusher — comment', () => {
     const { spawn } = scriptedSpawn([
       {
         command: 'glab',
-        args: ['issue', 'comment', '55', '--repo', 'gitlab.example.internal/team/project', '--body', 'done'],
+        args: ['issue', 'comment', '55', '--repo', 'gitlab.example.internal/team/project', '--message', 'done'],
         stdout: '',
         exitCode: 0,
       },
@@ -338,7 +338,15 @@ describe('createIssuePusher — listComments', () => {
     const { spawn } = scriptedSpawn([
       {
         command: 'glab',
-        args: ['issue', 'note', 'list', '7', '--repo', 'gitlab.com/foo/bar', '--output', 'json'],
+        args: [
+          'api',
+          '--hostname',
+          'gitlab.com',
+          '--paginate',
+          '--output',
+          'json',
+          'projects/foo%2Fbar/issues/7/notes?per_page=100&sort=asc&order_by=created_at',
+        ],
         stdout: JSON.stringify(notes),
         exitCode: 0,
       },
@@ -351,5 +359,52 @@ describe('createIssuePusher — listComments', () => {
     expect(r.value).toContain('first');
     expect(r.value).not.toContain('label change');
     expect(r.value.at(-1)).toBe('n20');
+  });
+
+  it('self-hosted GitLab subgroup: targets the host and URL-encodes the full project path', async () => {
+    const { spawn } = scriptedSpawn([
+      {
+        command: 'glab',
+        args: [
+          'api',
+          '--hostname',
+          'gitlab.example.internal',
+          '--paginate',
+          '--output',
+          'json',
+          'projects/team%2Fsub%2Fproject/issues/55/notes?per_page=100&sort=asc&order_by=created_at',
+        ],
+        stdout: JSON.stringify([{ body: 'hello', system: false }]),
+        exitCode: 0,
+      },
+    ]);
+    const pusher = createIssuePusher({ spawn, gitRunner: unusedGitRunner });
+    const r = await pusher.listComments('https://gitlab.example.internal/team/sub/project/-/work_items/55');
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.value).toEqual(['hello']);
+  });
+
+  it('GitLab: a failing notes request surfaces the glab api stderr', async () => {
+    const { spawn } = scriptedSpawn([
+      {
+        command: 'glab',
+        args: [
+          'api',
+          '--hostname',
+          'gitlab.com',
+          '--paginate',
+          '--output',
+          'json',
+          'projects/foo%2Fbar/issues/7/notes?per_page=100&sort=asc&order_by=created_at',
+        ],
+        stdout: '',
+        stderr: '404 Not Found',
+        exitCode: 1,
+      },
+    ]);
+    const pusher = createIssuePusher({ spawn, gitRunner: unusedGitRunner });
+    const r = await pusher.listComments('https://gitlab.com/foo/bar/-/issues/7');
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error.message).toContain('glab api issue notes failed: 404 Not Found');
   });
 });

@@ -210,20 +210,54 @@ const renderAddedStep = (
   );
 };
 
-const renderErrorStep = (step: Extract<Step, { kind: 'error' }>): React.JSX.Element => (
-  <Box flexDirection="column" paddingX={spacing.indent}>
-    <Text color={inkColors.error}>✗ {step.message}</Text>
-    <Text dimColor>Press esc to go back.</Text>
-  </Box>
-);
-
-const renderCreateFailedStep = (step: Extract<Step, { kind: 'create-failed' }>): React.JSX.Element => (
+/**
+ * Failed save — nothing was written. The wizard claims the prompt channel, so the global Esc
+ * never reaches the router here; the confirm owns the exit instead of leaving a dead end.
+ */
+const renderErrorStep = (
+  step: Extract<Step, { kind: 'error' }>,
+  onChange: StepViewProps['onChange'],
+  onCancel: StepViewProps['onCancel']
+): React.JSX.Element => (
   <Box flexDirection="column" paddingX={spacing.indent}>
     <Text color={inkColors.error}>
       {glyphs.cross} {step.message}
     </Text>
-    <Text dimColor>The ticket was saved locally. Retry with ticket publish.</Text>
-    <Text dimColor>Press esc to go back.</Text>
+    <Text dimColor>Nothing was saved.</Text>
+    <Box marginTop={spacing.section}>
+      <ConfirmPrompt
+        message="Start over with a new ticket?"
+        onSubmit={(value) => {
+          if (value) onChange({ kind: 'link' });
+          else onCancel();
+        }}
+        onCancel={onCancel}
+      />
+    </Box>
+  </Box>
+);
+
+/** Tracker step failed after the local save — same confirm-owned exit as the `added` step. */
+const renderCreateFailedStep = (
+  step: Extract<Step, { kind: 'create-failed' }>,
+  onChange: StepViewProps['onChange'],
+  onCancel: StepViewProps['onCancel']
+): React.JSX.Element => (
+  <Box flexDirection="column" paddingX={spacing.indent}>
+    <Text color={inkColors.error}>
+      {glyphs.cross} {step.message}
+    </Text>
+    <Text dimColor>{step.hint}</Text>
+    <Box marginTop={spacing.section}>
+      <ConfirmPrompt
+        message="Add another ticket?"
+        onSubmit={(value) => {
+          if (value) onChange({ kind: 'link' });
+          else onCancel();
+        }}
+        onCancel={onCancel}
+      />
+    </Box>
   </Box>
 );
 
@@ -255,9 +289,9 @@ export const StepView = ({ step, onChange, onCancel, onSubmit }: StepViewProps):
     case 'added':
       return renderAddedStep(step, onChange, onCancel);
     case 'error':
-      return renderErrorStep(step);
+      return renderErrorStep(step, onChange, onCancel);
     case 'create-failed':
-      return renderCreateFailedStep(step);
+      return renderCreateFailedStep(step, onChange, onCancel);
   }
 };
 

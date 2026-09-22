@@ -126,10 +126,11 @@ const SHORTCUT_ROWS: readonly ShortcutRow[] = [
   },
   {
     // `p` is unused globally (`P` is pick-project) and unused elsewhere in this view. Fires
-    // on any focused ticket row — draft or not — so the comment path is reachable after
-    // the sprint leaves draft. No prompt; the flow writes or surfaces the tracker error.
+    // on any focused ticket row of an open sprint — draft or not — so the comment path is
+    // reachable after the sprint leaves draft; inert once `done` (done sprints are immutable).
+    // No prompt; the flow writes or surfaces the tracker error.
     key: (input) => input === 'p',
-    guard: (args) => focusedItem(args)?.kind === 'ticket',
+    guard: (args, sprint) => sprint.status !== 'done' && focusedItem(args)?.kind === 'ticket',
     action: (args) => {
       const focused = focusedItem(args);
       if (focused?.kind === 'ticket') args.handlePublish(focused.ticket);

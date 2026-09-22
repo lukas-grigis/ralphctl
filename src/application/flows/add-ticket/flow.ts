@@ -4,7 +4,7 @@ import { createTicket } from '@src/domain/entity/ticket.ts';
 import { addTicket, type Sprint } from '@src/domain/entity/sprint.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
-import { publishTicketToTracker } from '@src/business/ticket/publish-to-tracker.ts';
+import { publishSaveFailedError, publishTicketToTracker } from '@src/business/ticket/publish-to-tracker.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
 
@@ -14,13 +14,16 @@ import type { TicketAddDeps } from '@src/application/flows/add-ticket/deps.ts';
 interface TicketAddLeafOutput {
   readonly ticket: Ticket;
   readonly trackerError?: DomainError;
+  readonly trackerIssueOrphaned?: boolean;
 }
 
 /**
  * Append a pending ticket to a sprint. Linear: load sprint → mint ticket → addTicket guard
  * (refuses non-draft sprints, rejects duplicate ids) → save the updated sprint. When
  * `createTrackerIssue` is set, publish against the first repository path after that save;
- * a tracker failure lands on `ctx.trackerError` and does not fail the leaf.
+ * a tracker failure lands on `ctx.trackerError` and does not fail the leaf. When the issue
+ * was created but the link save failed, `ctx.trackerIssueOrphaned` is set and the error
+ * carries the created URL.
  */
 export const createTicketAddFlow = (deps: TicketAddDeps): Element<TicketAddCtx> =>
   leaf<TicketAddCtx, TicketAddInput, TicketAddLeafOutput>('add-ticket', {
@@ -56,6 +59,7 @@ export const createTicketAddFlow = (deps: TicketAddDeps): Element<TicketAddCtx> 
       ...c,
       output: o.ticket,
       ...(o.trackerError !== undefined ? { trackerError: o.trackerError } : {}),
+      ...(o.trackerIssueOrphaned === true ? { trackerIssueOrphaned: true } : {}),
     }),
   });
 
@@ -98,7 +102,13 @@ const publishAfterSave = async (deps: TicketAddDeps, sprint: Sprint, ticket: Tic
   }
 
   const relinked = await deps.sprintRepo.save(published.value.sprint);
-  if (!relinked.ok) return { ticket, trackerError: relinked.error };
+  if (!relinked.ok) {
+    return {
+      ticket,
+      trackerError: publishSaveFailedError(published.value, ticket.id, relinked.error),
+      ...(published.value.outcome === 'created' ? { trackerIssueOrphaned: true } : {}),
+    };
+  }
 
   const withLink = published.value.sprint.tickets.find((t) => t.id === ticket.id) ?? ticket;
   return { ticket: withLink };

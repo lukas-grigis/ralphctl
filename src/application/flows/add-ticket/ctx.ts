@@ -14,4 +14,9 @@ export interface TicketAddCtx {
   readonly input: TicketAddInput;
   readonly output?: Ticket;
   readonly trackerError?: DomainError;
+  /**
+   * Set with `trackerError` when the tracker issue WAS created but its link could not be saved.
+   * Re-publishing would open a duplicate, so surfaces must not suggest a retry.
+   */
+  readonly trackerIssueOrphaned?: boolean;
 }

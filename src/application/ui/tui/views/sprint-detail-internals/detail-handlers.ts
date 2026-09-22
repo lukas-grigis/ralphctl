@@ -163,6 +163,11 @@ export interface BuildSprintDetailHandlersArgs {
   readonly setFeedback: (message: string) => void;
   readonly unblockTask: UnblockTask;
   readonly setConfirmRemove: (ticket: Ticket | undefined) => void;
+  /**
+   * In-flight latch for `p`. Set synchronously before the flow's first await and cleared in
+   * `finally`, so a key-repeat or a quick double press can't create the same issue twice.
+   */
+  readonly publishInFlightRef: RefObject<boolean>;
 }
 
 export interface SprintDetailHandlers {
@@ -174,7 +179,19 @@ export interface SprintDetailHandlers {
 
 /** Build the `e` / `u` / `p` / confirmed-`d` handlers — thin wrappers over `runEdit` / `runUnblock` / `runPublishTicket` / `runRemoveTicket`. */
 export const buildSprintDetailHandlers = (args: BuildSprintDetailHandlersArgs): SprintDetailHandlers => {
-  const { sprint, deps, focus, queue, edit, reload, mountedRef, setFeedback, unblockTask, setConfirmRemove } = args;
+  const {
+    sprint,
+    deps,
+    focus,
+    queue,
+    edit,
+    reload,
+    mountedRef,
+    setFeedback,
+    unblockTask,
+    setConfirmRemove,
+    publishInFlightRef,
+  } = args;
 
   const handleEdit = (): void => {
     if (sprint === undefined) return;
@@ -196,17 +213,22 @@ export const buildSprintDetailHandlers = (args: BuildSprintDetailHandlersArgs): 
   };
 
   const handlePublish = async (target: Ticket): Promise<void> => {
-    if (sprint === undefined) return;
-    await runPublishTicket({
-      target,
-      sprintId: sprint.id,
-      sprintRepo: deps.sprintRepo,
-      projectRepo: deps.projectRepo,
-      issuePusher: deps.issuePusher,
-      mountedRef,
-      setFeedback,
-      reload,
-    });
+    if (sprint === undefined || publishInFlightRef.current) return;
+    publishInFlightRef.current = true;
+    try {
+      await runPublishTicket({
+        target,
+        sprintId: sprint.id,
+        sprintRepo: deps.sprintRepo,
+        projectRepo: deps.projectRepo,
+        issuePusher: deps.issuePusher,
+        mountedRef,
+        setFeedback,
+        reload,
+      });
+    } finally {
+      publishInFlightRef.current = false;
+    }
   };
 
   const handleRemoveConfirmed = async (target: Ticket, confirmed: boolean): Promise<void> => {

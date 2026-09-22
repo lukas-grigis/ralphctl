@@ -10,6 +10,7 @@ import {
 import type { GitRunner } from '@src/integration/io/git-runner.ts';
 import { runCli } from '@src/integration/io/run-cli.ts';
 import type { Spawn } from '@src/integration/io/spawn.ts';
+import { type GitLabIssueRef, listGitLabIssueNotes } from '@src/integration/scm/gitlab-notes.ts';
 import { parseGitRemoteUrl, parseIssueUrl } from '@src/integration/scm/issue-fetcher.ts';
 
 /**
@@ -19,8 +20,9 @@ import { parseGitRemoteUrl, parseIssueUrl } from '@src/integration/scm/issue-fet
  *
  * The body is posted as a comment — the issue's own description is never modified. GitHub
  * reads the comment body from stdin (`gh issue comment --body-file -`) so embedded newlines /
- * markdown / quotes round-trip cleanly; glab takes it as a `--body` flag value (each argv
- * element is marshalled as a separate exec arg, so no shell parsing mangles it).
+ * markdown / quotes round-trip cleanly; glab takes it as a `--message` flag value (each argv
+ * element is marshalled as a separate exec arg, so no shell parsing mangles it). GitLab notes are
+ * listed via {@link listGitLabIssueNotes} (`glab api …/notes`) — glab has no note-listing subcommand.
  *
  * Errors:
  *  - CLI not installed → `StorageError(subCode: 'io', message: '<cli> not installed …')`
@@ -37,12 +39,6 @@ interface GhComment {
 
 interface GhIssueCommentsResponse {
   readonly comments?: readonly GhComment[];
-}
-
-interface GlabNote {
-  readonly body?: string;
-  readonly system?: boolean;
-  readonly created_at?: string;
 }
 
 const cliFailed = (noun: string, stderr: string, extra?: string): StorageError =>
@@ -80,8 +76,8 @@ const commentGitLab = async (
   body: string,
   parsed: { hostname: string; owner: string; repo: string; number: number }
 ): Promise<Result<void, StorageError>> => {
-  // `glab issue comment <number> --repo <host>/<owner>/<repo> --body <body>` — glab doesn't accept
-  // the body via stdin, so we pass it as a flag value. Markdown / newlines survive because
+  // `glab issue comment <number> --repo <host>/<owner>/<repo> --message <body>` — glab doesn't
+  // accept the body via stdin (and has no `--body` flag), so we pass it as the `--message` value. Markdown / newlines survive because
   // spawn marshals each argv element as a separate exec arg (no shell parsing). The host MUST be
   // prefixed — without it glab defaults to gitlab.com and a self-hosted issue 401s / 404s.
   const r = await runCli(
@@ -93,7 +89,7 @@ const commentGitLab = async (
       String(parsed.number),
       '--repo',
       `${parsed.hostname}/${parsed.owner}/${parsed.repo}`,
-      '--body',
+      '--message',
       body,
     ],
     { timeoutMs: CLI_TIMEOUT_MS }
@@ -223,50 +219,11 @@ const listGitHubComments = async (
 
 const listGitLabComments = async (
   spawn: Spawn,
-  parsed: { hostname: string; owner: string; repo: string; number: number }
+  parsed: GitLabIssueRef
 ): Promise<Result<readonly string[], StorageError>> => {
-  const result = await runCli(
-    spawn,
-    'glab',
-    [
-      'issue',
-      'note',
-      'list',
-      String(parsed.number),
-      '--repo',
-      `${parsed.hostname}/${parsed.owner}/${parsed.repo}`,
-      '--output',
-      'json',
-    ],
-    { timeoutMs: CLI_TIMEOUT_MS }
-  );
-  if (!result.ok) return Result.error(result.error);
-  if (result.value.exitCode !== 0) {
-    return Result.error(cliFailed('glab issue note list', result.value.stderr));
-  }
-  let notes: readonly GlabNote[];
-  try {
-    notes = JSON.parse(result.value.stdout) as readonly GlabNote[];
-  } catch (cause) {
-    return Result.error(
-      new StorageError({
-        subCode: 'parse',
-        message: 'failed to parse glab issue note list response',
-        cause,
-      })
-    );
-  }
-  if (!Array.isArray(notes)) {
-    return Result.error(
-      new StorageError({
-        subCode: 'parse',
-        message: 'failed to parse glab issue note list response',
-      })
-    );
-  }
-  const filtered = notes.filter((n) => n.system !== true);
-  const sorted = [...filtered].sort((a, b) => (a.created_at ?? '').localeCompare(b.created_at ?? ''));
-  return Result.ok(sorted.map((n) => n.body ?? ''));
+  const notes = await listGitLabIssueNotes(spawn, parsed);
+  if (!notes.ok) return Result.error(notes.error);
+  return Result.ok(notes.value.map((n) => n.body));
 };
 
 export interface IssuePusherDeps {

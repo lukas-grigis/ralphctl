@@ -10,7 +10,7 @@
  * loaded card list — lives in `detail-content.tsx` (`SprintDetailContent`).
  */
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useEditField } from '@src/application/ui/tui/runtime/use-edit-field.ts';
 import { useIsMounted } from '@src/application/ui/tui/runtime/use-is-mounted.ts';
 import { usePromptQueue } from '@src/application/ui/tui/prompts/prompt-context.tsx';
@@ -207,6 +207,8 @@ interface BuildDetailHintsArgs {
 const buildDetailHints = (args: BuildDetailHintsArgs): readonly ViewHint[] => {
   const { inDetail, ticketsEditable, sprint, currentSprintId, focus } = args;
   const { canEdit, focusedTicketRow, focusedStuckTask, focusedEvaluatedTask, blockedCount } = focus;
+  // Mirrors the `p` row's guard in `shortcuts.ts` — done sprints are immutable.
+  const canPublish = focusedTicketRow !== undefined && sprint?.status !== 'done';
   return [
     { keys: '↑/↓', label: 'move' },
     { keys: 'n', label: 'flows' },
@@ -217,7 +219,7 @@ const buildDetailHints = (args: BuildDetailHintsArgs): readonly ViewHint[] => {
     { keys: 'a', label: 'add', enabledWhen: ticketsEditable },
     { keys: 'e', label: 'edit', enabledWhen: canEdit },
     { keys: 'd', label: 'remove', enabledWhen: ticketsEditable },
-    { keys: 'p', label: 'publish', enabledWhen: focusedTicketRow !== undefined },
+    { keys: 'p', label: 'publish', enabledWhen: canPublish },
     // Surface the `m` chord only when this sprint is not already the current one — once
     // they match, the action is a no-op and the hint adds noise. Suppressed while a
     // stuck task or ticket is focused so `u unblock` / `p publish` stay on one 100-column
@@ -226,10 +228,7 @@ const buildDetailHints = (args: BuildDetailHintsArgs): readonly ViewHint[] => {
       keys: 'm',
       label: 'current',
       enabledWhen:
-        sprint !== undefined &&
-        currentSprintId !== sprint.id &&
-        focusedStuckTask === undefined &&
-        focusedTicketRow === undefined,
+        sprint !== undefined && currentSprintId !== sprint.id && focusedStuckTask === undefined && !canPublish,
     },
     { keys: 'u', label: 'unblock', enabledWhen: focusedStuckTask !== undefined },
     { keys: 'B', label: 'next blocked', enabledWhen: blockedCount > 0 },
@@ -412,6 +411,8 @@ export const useSprintDetailBody = (): UseSprintDetailBodyResult => {
   // this view) before the awaited use-case / flow resolves. The guard skips the post-await
   // view-local writes (setFeedback / reload) so they never fire into an unmounted tree.
   const mountedRef = useIsMounted();
+  // Latch for the `p` publish chord — see `BuildSprintDetailHandlersArgs.publishInFlightRef`.
+  const publishInFlightRef = useRef(false);
 
   const edit = useEditField();
   const queue = usePromptQueue();
@@ -440,6 +441,7 @@ export const useSprintDetailBody = (): UseSprintDetailBodyResult => {
     setFeedback,
     unblockTask,
     setConfirmRemove,
+    publishInFlightRef,
   });
 
   useSprintDetailShortcuts({

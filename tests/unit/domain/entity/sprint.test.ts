@@ -27,6 +27,7 @@ import {
   makeReviewSprint,
   slug,
 } from '@tests/fixtures/domain.ts';
+import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 
 describe('createSprint', () => {
   it('produces a draft sprint with empty tickets and derived slug', () => {
@@ -266,6 +267,17 @@ describe('attachTicketLink', () => {
     const sprint = makeActiveSprint();
     const r = attachTicketLink(sprint, makeApprovedTicket().id, ISSUE_URL);
     expect(r.ok).toBe(false);
+  });
+
+  it('rejects a done sprint with InvalidStateError — done sprints are immutable', () => {
+    const sprint = makeDoneSprint();
+    const ticketId = sprint.tickets[0]?.id;
+    if (ticketId === undefined) throw new Error('fixture done sprint has no ticket');
+    const r = attachTicketLink(sprint, ticketId, ISSUE_URL);
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.error).toBeInstanceOf(InvalidStateError);
+    expect(sprint.tickets[0]?.link).toBeUndefined();
   });
 
   it('leaves replaceTicket draft-only: an active sprint still rejects replaceTicket', () => {

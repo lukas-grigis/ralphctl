@@ -1,6 +1,10 @@
 import { Result } from '@src/domain/result.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
-import { publishTicketToTracker, type PublishTicketToTrackerOutput } from '@src/business/ticket/publish-to-tracker.ts';
+import {
+  publishSaveFailedError,
+  publishTicketToTracker,
+  type PublishTicketToTrackerOutput,
+} from '@src/business/ticket/publish-to-tracker.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
 
@@ -42,7 +46,7 @@ export const createTicketPublishFlow = (deps: TicketPublishDeps): Element<Ticket
         if (!published.ok) return Result.error(published.error);
 
         const saved = await deps.sprintRepo.save(published.value.sprint);
-        if (!saved.ok) return Result.error(saved.error);
+        if (!saved.ok) return Result.error(publishSaveFailedError(published.value, input.ticketId, saved.error));
 
         return Result.ok(published.value);
       },

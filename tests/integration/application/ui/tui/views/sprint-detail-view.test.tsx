@@ -24,6 +24,7 @@ import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import { createPromptQueue } from '@src/application/ui/tui/prompts/prompt-queue.ts';
 import {
   makeApprovedTicket,
+  makeDoneSprint,
   makeDraftSprint,
   makePendingTicket,
   makeProject,
@@ -742,6 +743,110 @@ describe('SprintDetailView — phase workspace', () => {
     const frame = result.lastFrame() ?? '';
     expect(frame).toContain('stays put');
     expect(saveCalls).toHaveLength(0);
+    result.unmount();
+  });
+
+  it('pressing p twice while the first publish is in flight creates the issue once', async () => {
+    const ticket = makePendingTicket({ title: 'double tap' });
+    let stored = { ...makeDraftSprint(), tickets: [ticket] } as unknown as Sprint;
+    let createCalls = 0;
+    let releaseCreate: (() => void) | undefined;
+    const pusher: IssuePusher = {
+      async resolveOrigin() {
+        return Result.ok({ provider: 'github', hostname: 'github.com', owner: 'x', repo: 'y' });
+      },
+      async create() {
+        createCalls += 1;
+        await new Promise<void>((resolve) => {
+          releaseCreate = resolve;
+        });
+        return Result.ok({ url: 'https://github.com/x/y/issues/8' });
+      },
+      async listComments() {
+        return Result.ok([]);
+      },
+      async comment() {
+        return Result.ok(undefined);
+      },
+    };
+    const deps = {
+      sprintRepo: {
+        async findById() {
+          return Result.ok(stored);
+        },
+        async save(next: Sprint) {
+          stored = next;
+          return Result.ok(undefined);
+        },
+      } as unknown as SprintRepository,
+      taskRepo: {
+        async findBySprintId() {
+          return Result.ok([] as readonly Task[]);
+        },
+      } as unknown as TaskRepository,
+      projectRepo: {
+        async findById() {
+          return Result.ok(makeProject());
+        },
+      } as unknown as ProjectRepository,
+      sprintExecutionRepo: {} as never,
+      settingsRepo: {} as never,
+      logger: noopLogger,
+      issuePusher: pusher,
+    } as unknown as AppDeps;
+    const initialWithId: ViewEntry = { id: 'sprint-detail', props: { sprintId: stored.id } };
+    const { result } = renderView(<SprintDetailView />, { deps, initial: initialWithId });
+    await waitForViewReady(result, (f) => f.includes('double tap'));
+    result.stdin.write('p');
+    await waitForPredicate(() => releaseCreate !== undefined);
+    result.stdin.write('p');
+    await tick(40);
+    expect(createCalls).toBe(1);
+    releaseCreate?.();
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('created'));
+    expect(createCalls).toBe(1);
+    result.unmount();
+  });
+
+  it('hides p publish on a done sprint and pressing p never reaches the tracker', async () => {
+    const ticket = makeApprovedTicket({ title: 'closed ticket' });
+    const sprint = { ...makeDoneSprint(), tickets: [ticket] } as unknown as Sprint;
+    let trackerCalls = 0;
+    const pusher: IssuePusher = {
+      async resolveOrigin() {
+        trackerCalls += 1;
+        return Result.ok({ provider: 'github', hostname: 'github.com', owner: 'x', repo: 'y' });
+      },
+      async create() {
+        trackerCalls += 1;
+        return Result.ok({ url: 'https://github.com/x/y/issues/9' });
+      },
+      async listComments() {
+        trackerCalls += 1;
+        return Result.ok([]);
+      },
+      async comment() {
+        trackerCalls += 1;
+        return Result.ok(undefined);
+      },
+    };
+    const deps = {
+      ...stubDeps(sprint, []),
+      projectRepo: {
+        async findById() {
+          return Result.ok(makeProject());
+        },
+      } as unknown as ProjectRepository,
+      logger: noopLogger,
+      issuePusher: pusher,
+    } as unknown as AppDeps;
+    const initialWithId: ViewEntry = { id: 'sprint-detail', props: { sprintId: sprint.id } };
+    const { result } = renderView(<SprintDetailView />, { deps, initial: initialWithId });
+    await waitForViewReady(result, (f) => f.includes('closed ticket'));
+    expect(result.lastFrame() ?? '').not.toContain('p publish');
+    result.stdin.write('p');
+    await tick(40);
+    expect(trackerCalls).toBe(0);
     result.unmount();
   });
 });

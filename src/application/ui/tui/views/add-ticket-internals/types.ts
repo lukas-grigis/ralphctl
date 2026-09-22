@@ -14,9 +14,9 @@
  * `title` (for the success copy) and the `count` of tickets added this session so far.
  *
  * `backStep` returns the predecessor step the wizard should land on for Esc-as-back. Returns
- * `undefined` when Esc should cancel the whole view (first step, terminal saving/error states,
- * mid-fetch) or when the step is a confirm-driven terminal-ish branch (`added`) whose navigation
- * is owned by its own Yes/No prompt rather than Esc-as-back.
+ * `undefined` when Esc should cancel the whole view (first step, `saving`, mid-fetch) or when the
+ * step is a confirm-driven terminal-ish branch (`added` / `error` / `create-failed`) whose
+ * navigation is owned by its own Yes/No prompt rather than Esc-as-back.
  */
 
 export interface TicketDraft {
@@ -57,7 +57,12 @@ export type Step =
   | { readonly kind: 'saving' }
   | { readonly kind: 'added'; readonly title: string; readonly count: number }
   | { readonly kind: 'error'; readonly message: string }
-  | { readonly kind: 'create-failed'; readonly message: string };
+  | {
+      readonly kind: 'create-failed';
+      readonly message: string;
+      /** What happened to the local ticket and how to recover — see `persistTicket`. */
+      readonly hint: string;
+    };
 
 export const backStep = (step: Step): Step | undefined => {
   switch (step.kind) {

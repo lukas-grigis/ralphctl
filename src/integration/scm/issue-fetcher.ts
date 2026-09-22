@@ -4,6 +4,7 @@ import type { Logger } from '@src/business/observability/logger.ts';
 import type { ExternalIssue, ExternalIssueComment, IssueFetcher } from '@src/business/scm/issue-fetcher.ts';
 import { runCli } from '@src/integration/io/run-cli.ts';
 import type { Spawn } from '@src/integration/io/spawn.ts';
+import { listGitLabIssueNotes } from '@src/integration/scm/gitlab-notes.ts';
 
 /**
  * Filesystem-backed `IssueFetcher` that dispatches to the local `gh` (GitHub) or `glab`
@@ -50,13 +51,6 @@ interface GlabIssueResponse {
   readonly description?: string;
   readonly state?: string;
   readonly web_url?: string;
-}
-
-interface GlabNote {
-  readonly body?: string;
-  readonly author?: { readonly username?: string };
-  readonly system?: boolean;
-  readonly created_at?: string;
 }
 
 /**
@@ -228,52 +222,22 @@ const fetchGitHub = async (
 };
 
 /**
- * Best-effort fetch of issue notes via `glab issue note list`. Never throws —
- * every failure mode (spawn error, non-zero exit, malformed JSON) collapses to
- * `{ comments: [], failure: <description> }` so `fetchGitLab` can still return
- * the issue body and let the caller log a warning.
- *
- * System notes (label changes, assignments, …) are filtered out — they are
- * noise for refinement. Remaining notes are sorted oldest-first by
- * `created_at` (defensive — `glab` order is not contractually stable) and the
- * tail is sliced to {@link MAX_COMMENTS} so the GitLab adapter matches the
- * "last 20" behaviour of {@link fetchGitHub}.
+ * Best-effort fetch of issue notes via {@link listGitLabIssueNotes}. Never throws — every
+ * failure mode (spawn error, non-zero exit, malformed JSON) collapses to
+ * `{ comments: [], failure: <description> }` so `fetchGitLab` can still return the issue body
+ * and let the caller log a warning. The helper drops system notes and sorts oldest-first; the
+ * tail is sliced to {@link MAX_COMMENTS} so the GitLab adapter matches the "last 20" behaviour
+ * of {@link fetchGitHub}.
  */
 const fetchGitLabNotes = async (
   spawn: Spawn,
   parsed: ParsedUrl
 ): Promise<{ readonly comments: ExternalIssueComment[]; readonly failure?: string }> => {
-  const result = await runCli(
-    spawn,
-    'glab',
-    ['issue', 'note', 'list', String(parsed.number), '--repo', glabRepoArg(parsed), '--output', 'json'],
-    { timeoutMs: CLI_TIMEOUT_MS }
-  );
-  if (!result.ok) return { comments: [], failure: result.error.message };
-  if (result.value.exitCode !== 0) {
-    return {
-      comments: [],
-      failure: `glab issue note list exited ${String(result.value.exitCode)}: ${result.value.stderr.trim() || UNKNOWN_ERROR}`,
-    };
-  }
-  let notes: readonly GlabNote[];
-  try {
-    // Why: `glab issue note list --output json` produces an array of records that we
-    // narrow via the `GlabNote` interface with every field optional; downstream `?.` /
-    // `?? ''` access tolerates missing fields. Non-array payloads still parse, then
-    // `.filter()` / `.sort()` no-op cleanly.
-    notes = JSON.parse(result.value.stdout) as readonly GlabNote[];
-  } catch (cause) {
-    return {
-      comments: [],
-      failure: `failed to parse glab issue note list response: ${cause instanceof Error ? cause.message : String(cause)}`,
-    };
-  }
-  const filtered = notes.filter((n) => n.system !== true);
-  const sorted = [...filtered].sort((a, b) => (a.created_at ?? '').localeCompare(b.created_at ?? ''));
-  const comments = sorted.slice(-MAX_COMMENTS).map<ExternalIssueComment>((n) => ({
-    author: n.author?.username ?? 'unknown',
-    body: n.body ?? '',
+  const notes = await listGitLabIssueNotes(spawn, parsed);
+  if (!notes.ok) return { comments: [], failure: notes.error.message };
+  const comments = notes.value.slice(-MAX_COMMENTS).map<ExternalIssueComment>((n) => ({
+    author: n.author ?? 'unknown',
+    body: n.body,
   }));
   return { comments };
 };
@@ -316,7 +280,7 @@ const fetchGitLab = async (
   }
   const notes = await fetchGitLabNotes(spawn, parsed);
   if (notes.failure !== undefined) {
-    logger?.warn(`glab issue note list failed for ${url}: ${notes.failure} — proceeding without comments`);
+    logger?.warn(`could not list GitLab notes for ${url}: ${notes.failure} — proceeding without comments`);
   }
   return Result.ok({
     url: parsedJson.web_url ?? url,

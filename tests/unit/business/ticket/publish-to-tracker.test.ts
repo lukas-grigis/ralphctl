@@ -2,12 +2,19 @@ import { describe, expect, it } from 'vitest';
 import { Result } from '@src/domain/result.ts';
 import type { IssuePusher, IssueTrackerOrigin } from '@src/business/scm/issue-pusher.ts';
 import { refinementCommentBody } from '@src/business/scm/refinement-comment.ts';
-import { publishTicketToTracker } from '@src/business/ticket/publish-to-tracker.ts';
+import { publishSaveFailedError, publishTicketToTracker } from '@src/business/ticket/publish-to-tracker.ts';
 import { addTicket } from '@src/domain/entity/sprint.ts';
 import { setTicketLink } from '@src/domain/entity/ticket.ts';
+import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import { TicketId } from '@src/domain/value/id/ticket-id.ts';
-import { absolutePath, makeApprovedTicket, makeDraftSprint, makePendingTicket } from '@tests/fixtures/domain.ts';
+import {
+  absolutePath,
+  makeApprovedTicket,
+  makeDoneSprint,
+  makeDraftSprint,
+  makePendingTicket,
+} from '@tests/fixtures/domain.ts';
 
 const CWD = absolutePath('/repo');
 const ISSUE_URL = 'https://github.com/x/y/issues/42';
@@ -103,6 +110,20 @@ describe('publishTicketToTracker', () => {
     expect(r.ok).toBe(false);
     expect(calls.resolveOrigin).toBe(0);
     expect(calls.create).toEqual([]);
+    expect(calls.comment).toEqual([]);
+  });
+
+  it('rejects a done sprint before any tracker I/O', async () => {
+    const sprint = makeDoneSprint();
+    const ticketId = sprint.tickets[0]?.id;
+    if (ticketId === undefined) throw new Error('fixture done sprint has no ticket');
+    const { pusher, calls } = recordingPusher();
+    const r = await publishTicketToTracker({ sprint, ticketId, cwd: CWD, issuePusher: pusher });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toBeInstanceOf(InvalidStateError);
+    expect(calls.resolveOrigin).toBe(0);
+    expect(calls.create).toEqual([]);
+    expect(calls.listComments).toEqual([]);
     expect(calls.comment).toEqual([]);
   });
 
@@ -234,5 +255,32 @@ describe('publishTicketToTracker', () => {
     expect(calls.create).toEqual([]);
     expect(calls.listComments).toEqual([]);
     expect(calls.comment).toEqual([]);
+  });
+});
+
+describe('publishSaveFailedError', () => {
+  const saveError = new StorageError({ subCode: 'io', message: 'disk full' });
+
+  it('carries the created URL when the issue was just created', async () => {
+    const ticket = makeApprovedTicket();
+    const { pusher } = recordingPusher();
+    const r = await publishTicketToTracker({
+      sprint: makeDraftSprint({ tickets: [ticket] }),
+      ticketId: ticket.id,
+      cwd: CWD,
+      issuePusher: pusher,
+    });
+    if (!r.ok) throw new Error(r.error.message);
+    const err = publishSaveFailedError(r.value, ticket.id, saveError);
+    expect(err).not.toBe(saveError);
+    expect(err.message).toContain(ISSUE_URL);
+    expect(err.message).toContain('re-publishing would open a duplicate');
+  });
+
+  it('returns the save error unchanged when nothing was created', () => {
+    const ticket = makeApprovedTicket();
+    const sprint = makeDraftSprint({ tickets: [ticket] });
+    const err = publishSaveFailedError({ sprint, outcome: 'commented' }, ticket.id, saveError);
+    expect(err).toBe(saveError);
   });
 });
