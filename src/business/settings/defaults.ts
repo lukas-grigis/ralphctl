@@ -7,22 +7,22 @@ import {
 import type { FlowId } from '@src/domain/value/flow-id.ts';
 
 // Model identifiers referenced more than once below, hoisted to named constants so each literal
-// appears once. The dash spelling (`claude-sonnet-5`, `claude-opus-5`) is the claude-code
-// catalog form. Sonnet 5 is the default Sonnet for Claude Code; Opus 5 is the default Opus.
+// appears once. The dash spelling (`claude-sonnet-5`, `claude-opus-5-5`) is the claude-code
+// catalog form. Sonnet 5 is the default Sonnet for Claude Code; Opus 5.5 is the default Opus.
 const CLAUDE_SONNET = 'claude-sonnet-5';
-const CLAUDE_OPUS = 'claude-opus-5';
+const CLAUDE_OPUS = 'claude-opus-5-5';
 const GPT_5_MINI = 'gpt-5-mini';
-const GPT_5_4_MINI = 'gpt-5.4-mini';
-const GPT_5_6_SOL = 'gpt-5.6-sol';
+const GPT_6_LUNA = 'gpt-6-luna';
+const GPT_6_SOL = 'gpt-6-sol';
 /**
  * OpenCode free-tier picks — the general-purpose tier and the light/code-oriented tier.
  *
  * The free tier rotates and individual ids go dark upstream (a 401 on one model while its
- * siblings answer fine). Both picks here were live-probed against opencode-ai v1.18.15 on
- * 2026-08-08; re-probe with `opencode models` before changing them.
+ * siblings answer fine). Both picks here were live-probed against opencode-ai v1.18.32 on
+ * 2026-09-22; re-probe with `opencode models` before changing them.
  */
 const OPENCODE_BIG = 'opencode/big-pickle';
-const OPENCODE_MINI = 'opencode/deepseek-v4-flash-free';
+const OPENCODE_MINI = 'opencode/nemotron-3.5-lightning-free';
 // Same split as `GROK_ONLY` in grok-preset-matrices.ts. Probed with `grok models` on grok 1.0.40 (2026-09-22).
 const GROK_FLAGSHIP = 'grok-4.7';
 const GROK_MID = 'grok-4.6';
@@ -56,14 +56,14 @@ const DEFAULT_MODELS_BY_PROVIDER: Readonly<Record<AiProvider, Readonly<Record<Fl
     createPr: GPT_5_MINI,
   },
   'openai-codex': {
-    refine: GPT_5_4_MINI,
-    plan: GPT_5_6_SOL,
-    // `gpt-5.6-sol` is the codex flagship (codex CLI ≥ 0.145); it tops the Codex escalation
-    // ladder, so the reset-to-codex implement default and the ladder top stay aligned.
-    implement: GPT_5_6_SOL,
-    readiness: GPT_5_4_MINI,
-    ideate: GPT_5_6_SOL,
-    createPr: GPT_5_4_MINI,
+    refine: GPT_6_LUNA,
+    plan: GPT_6_SOL,
+    // `gpt-6-sol` is the codex flagship; it tops the Codex escalation ladder, so the
+    // reset-to-codex implement default and the ladder top stay aligned.
+    implement: GPT_6_SOL,
+    readiness: GPT_6_LUNA,
+    ideate: GPT_6_SOL,
+    createPr: GPT_6_LUNA,
   },
   // OpenCode aggregates upstream providers, so there is no vendor flagship to default to. These
   // are the zero-auth free-tier picks — they make a fresh install runnable with no credentials
@@ -120,7 +120,7 @@ export const defaultAiSettingsForProvider = (provider: AiProvider): AiSettings =
  * settings via the TUI settings panel or `ralphctl settings set <key> <value>`.
  *
  * The implement row deliberately splits roles across providers: Claude Opus drives the
- * generator (deep coder reasoning) while Codex GPT-5.6 Sol drives the evaluator (independent
+ * generator (deep coder reasoning) while Codex GPT-6 Sol drives the evaluator (independent
  * second opinion). Effort is deliberately left unset on the evaluator row per the fresh-default
  * policy above — the CLI's own default applies; raise `ai.effort` to deepen the gate.
  * Single-provider users override via a preset.
@@ -131,7 +131,7 @@ export const DEFAULT_SETTINGS: Settings = {
     ...defaultAiSettingsForProvider('claude-code'),
     implement: {
       generator: { provider: 'claude-code', model: CLAUDE_OPUS },
-      evaluator: { provider: 'openai-codex', model: GPT_5_6_SOL },
+      evaluator: { provider: 'openai-codex', model: GPT_6_SOL },
     },
   },
   harness: {

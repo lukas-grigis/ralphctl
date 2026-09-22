@@ -29,14 +29,15 @@ export interface IterationConfig {
    * Master switch for failure-driven generator-model escalation. Despite the name (kept for
    * backward compatibility) it gates ALL failure-driven escalation, not only plateau: on a
    * `plateau` or `budget-exhausted` exit the generator's model climbs one rung up the ladder
-   * defined by {@link escalationMap} (merged with the built-in `DEFAULT_ESCALATION_MAP` in
-   * `business/task/escalation-map.ts`) and the attempt is reissued; a `malformed` exit reissues on
+   * defined by {@link escalationMap} (merged over the generator provider's built-in
+   * `DEFAULT_ESCALATION_LADDERS` entry in `business/task/escalation-map.ts`) and the attempt is
+   * reissued; a `malformed` exit reissues on
    * the same model (the evaluator's failure never burns a ladder rung) — instead of settling the
    * task immediately. Mirrors the boolean on `settings.harness.escalateOnPlateau`.
    */
   readonly escalateOnPlateau: boolean;
   /**
-   * User overrides for `DEFAULT_ESCALATION_MAP`. Merged in
+   * User overrides for the generator provider's `DEFAULT_ESCALATION_LADDERS` entry. Merged in
    * `business/task/escalation-map.ts#mergeEscalationMap` (user keys win, user-only keys extend
    * the ladder).
    */

@@ -60,9 +60,9 @@ import { OPENCODE_ONLY } from '@src/business/settings/opencode-preset-matrices.t
  *                   `mixed-frontier` split by provider, at the same tier).
  *   fast          — cheapest viable tier at `low` effort, optimising speed/cost over quality;
  *                   the only family with `escalateOnPlateau` stamped OFF so a plateau settles.
- *   frontier      — flagship everywhere at `max` effort (tops out at Opus 5 / GPT-5.6 Sol /
- *                   Grok 4.7). `claude-fable-5` and `grok-4.7-build-fast` stay opt-in: each is
- *                   twice the price of the flagship it sits above.
+ *   frontier      — flagship everywhere at `max` effort (tops out at Opus 5.5 / GPT-6 Sol /
+ *                   Grok 4.7). Fable and `grok-4.7-build-fast` stay opt-in: each costs a
+ *                   multiple of the flagship it sits above.
  *
  * Applying a preset stamps the AI section AND `harness.escalateOnPlateau` — plus, for the economic
  * family only, `harness.bestOfNCandidates: 0` (its explicit cost opt-out). Preset identity is

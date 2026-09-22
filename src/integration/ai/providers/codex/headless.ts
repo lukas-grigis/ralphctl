@@ -170,7 +170,7 @@ export const buildCodexArgs = (
   // Forward `session.effort` verbatim via `-c model_reasoning_effort=<value>`. Codex's
   // documented levels are low | medium | high | xhigh | max | ultra; the launcher only floors
   // a global `max` to `xhigh` in `resolveEffort` before reaching the adapter — an explicit
-  // per-row `max` (5.6-family only) or `ultra` (sol/terra-only, plan-gated) arrives here
+  // per-row `max` (5.6 / GPT-6 families only) or `ultra` (not on luna, plan-gated) arrives here
   // verbatim, with the codex CLI as final arbiter. Codex itself rejects unknown or
   // model-incompatible levels — let it speak rather than re-validate here (mirrors the
   // custom-model arm policy).

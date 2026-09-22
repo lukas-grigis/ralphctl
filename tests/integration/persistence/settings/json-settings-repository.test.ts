@@ -100,14 +100,14 @@ describe('JsonSettingsRepository', () => {
       schemaVersion: CURRENT_SCHEMA_VERSION,
       ai: {
         refine: { provider: 'openai-codex', model: 'gpt-5.6-terra' },
-        plan: { provider: 'openai-codex', model: 'gpt-5.4' },
+        plan: { provider: 'openai-codex', model: 'gpt-6-sol' },
         implement: {
           generator: { provider: 'openai-codex', model: 'gpt-5.6-sol' },
           evaluator: { provider: 'openai-codex', model: 'gpt-5.6-sol' },
         },
-        readiness: { provider: 'openai-codex', model: 'gpt-5.4-mini' },
-        ideate: { provider: 'openai-codex', model: 'gpt-5.4-mini' },
-        createPr: { provider: 'openai-codex', model: 'gpt-5.4-mini' },
+        readiness: { provider: 'openai-codex', model: 'gpt-6-luna' },
+        ideate: { provider: 'openai-codex', model: 'gpt-6-luna' },
+        createPr: { provider: 'openai-codex', model: 'gpt-6-luna' },
       },
       harness: {
         maxTurns: 5,
@@ -144,7 +144,7 @@ describe('JsonSettingsRepository', () => {
           generator: { provider: 'claude-code', model: 'claude-opus-4-8', effort: 'max' },
           evaluator: { provider: 'openai-codex', model: 'gpt-5.5', effort: 'high' },
         },
-        readiness: { provider: 'openai-codex', model: 'gpt-5.4-mini' },
+        readiness: { provider: 'openai-codex', model: 'gpt-6-luna' },
         ideate: { provider: 'github-copilot', model: 'gpt-5-mini' },
         createPr: { provider: 'github-copilot', model: 'gpt-5-mini' },
       },
@@ -338,14 +338,16 @@ describe('JsonSettingsRepository', () => {
     expect(onDisk.ai['createPr']).toBeUndefined();
   });
 
-  // The 2026-08-18 Copilot catalog reconciliation renamed two preview slugs and delisted two
-  // Gemini entries. A settings file pinned to any of them predates the change, so `load()` must
-  // silently land the user on the successor rather than on a slug the adapter rejects at spawn.
+  // Copilot catalog retirements (2026-08-18 reconciliation, 2026-09-01 deprecation). A settings
+  // file pinned to any of them predates the change, so `load()` must silently land the user on the
+  // live successor rather than on a slug the adapter rejects at spawn.
   it.each([
-    ['gemini-3.1-pro-preview', 'gemini-3.1-pro'],
-    ['raptor-mini-preview', 'raptor-mini'],
-    ['gemini-2.5-pro', 'gemini-3.1-pro'],
+    ['gemini-3.1-pro-preview', 'gemini-3.8-flash'],
+    ['raptor-mini-preview', 'mai-code-1.1-flash'],
+    ['gemini-2.5-pro', 'gemini-3.8-flash'],
     ['gemini-3-flash', 'gemini-3.5-flash'],
+    ['claude-sonnet-4.6', 'claude-sonnet-5'],
+    ['claude-opus-4.6', 'claude-opus-4.8'],
   ])('load remaps a persisted copilot row pinned to the retired %s onto %s', async (retired, successor) => {
     const path = join(String(configRoot), SETTINGS_FILE_NAME);
     const pinned = {

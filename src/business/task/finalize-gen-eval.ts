@@ -68,7 +68,8 @@ export interface FinalizeGenEvalProps {
    *   - `escalateOnPlateau`  — gates the model-escalation policy. Despite the name (kept for
    *                            backward compatibility) it now gates ALL failure-driven escalation:
    *                            plateau AND budget-exhausted exits.
-   *   - `escalationMap`      — user overrides merged over `DEFAULT_ESCALATION_MAP`.
+   *   - `escalationMap`      — user overrides merged over the generator provider's built-in
+   *                            ladder (`DEFAULT_ESCALATION_LADDERS`).
    *   - `maxAttempts`        — effective attempt budget when `task.maxAttempts` is unset (legacy
    *                            tasks); wired from `settings.harness.maxAttempts`.
    *   - `bestOfNCandidates`  — opt-in best-of-N candidate count for the escalation policy's

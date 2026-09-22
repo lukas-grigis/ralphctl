@@ -62,7 +62,7 @@ const STRONG_GATE_PRESETS: readonly PresetName[] = [
 
 /**
  * The two presets that intentionally route implement.generator and implement.evaluator to
- * DIFFERENT providers — a Claude Opus author graded by a Codex `gpt-5.6-sol` critic, mirroring the
+ * DIFFERENT providers — a Claude Opus author graded by a Codex `gpt-6-sol` critic, mirroring the
  * cross-provider split shipped in DEFAULT_SETTINGS. Every other preset keeps both roles on one
  * provider (the strong-gate family splits by tier, not by provider).
  */
@@ -156,12 +156,12 @@ describe('presets', () => {
   });
 
   it('every economic preset implement.generator climbs the default ladder to its standard counterpart flagship', () => {
-    const ladder = mergeEscalationMap({});
     for (const [economic, standard] of Object.entries(ECONOMIC_TO_STANDARD)) {
       const economicOut = applyPreset(economic as PresetName, DEFAULT_SETTINGS);
       const start = economicOut.ai.implement.generator.model;
       const provider = economicOut.ai.implement.generator.provider;
-      const path = climbToLadderTop(ladder, start);
+      // The runtime climbs the generator provider's own ladder — never another provider's.
+      const path = climbToLadderTop(mergeEscalationMap({}, provider), start);
       const top = path[path.length - 1];
       const flagship = applyPreset(standard, DEFAULT_SETTINGS).ai.implement.generator.model;
       // The economic preset must escalate to EXACTLY the model its standard sibling uses for
@@ -182,10 +182,10 @@ describe('presets', () => {
     // The whole strong-gate story assumes escalateOnPlateau: the cheap author must have a real
     // default-ladder rung up to the strong evaluator model, otherwise a hard task plateau-loops
     // on the cheap generator while the strong gate keeps rejecting it.
-    const ladder = mergeEscalationMap({});
     for (const preset of STRONG_GATE_PRESETS) {
       const out = applyPreset(preset, DEFAULT_SETTINGS);
-      const path = climbToLadderTop(ladder, out.ai.implement.generator.model);
+      const generator = out.ai.implement.generator;
+      const path = climbToLadderTop(mergeEscalationMap({}, generator.provider), generator.model);
       expect(
         path,
         `${preset}: ${out.ai.implement.generator.model} must climb to ${out.ai.implement.evaluator.model}`
@@ -201,7 +201,7 @@ describe('presets', () => {
     // …while presets and the built-in escalation ladder deliberately do NOT reference it: the
     // catalog-top = ladder-top = preset-flagship invariant intentionally excludes the fable tier
     // until a deliberate flagship swap. Promoting it later means deleting this fence on purpose.
-    // The frontier family tops out at Opus 5 for exactly this reason — fable is 2x the Opus
+    // The frontier family tops out at Opus 5.5 for exactly this reason — fable is 2.5x the Opus
     // price, an operator spend decision, opt-in only via a per-row pick or an escalationMap rung.
     for (const preset of PRESET_NAMES) {
       const out = applyPreset(preset, DEFAULT_SETTINGS);
@@ -212,9 +212,11 @@ describe('presets', () => {
         }
       }
     }
-    for (const [from, to] of Object.entries(mergeEscalationMap({}))) {
-      expect(from.startsWith('claude-fable'), `ladder rung from '${from}'`).toBe(false);
-      expect(to.startsWith('claude-fable'), `ladder rung '${from}' → '${to}'`).toBe(false);
+    for (const provider of AI_PROVIDERS) {
+      for (const [from, to] of Object.entries(mergeEscalationMap({}, provider))) {
+        expect(from.startsWith('claude-fable'), `${provider}: ladder rung from '${from}'`).toBe(false);
+        expect(to.startsWith('claude-fable'), `${provider}: ladder rung '${from}' → '${to}'`).toBe(false);
+      }
     }
   });
 
@@ -230,8 +232,8 @@ describe('presets', () => {
       out.ai.createPr.model,
     ];
     expect(models).not.toContain('gpt-5.3-codex');
-    expect(out.ai.implement.generator.model).toBe('gpt-5.6-sol');
-    expect(out.ai.implement.evaluator.model).toBe('gpt-5.6-sol');
+    expect(out.ai.implement.generator.model).toBe('gpt-6-sol');
+    expect(out.ai.implement.evaluator.model).toBe('gpt-6-sol');
     expect(out.ai.implement.generator.effort).toBe('xhigh');
     expect(out.ai.implement.evaluator.effort).toBe('xhigh');
   });
@@ -444,9 +446,9 @@ describe('presets', () => {
         // The mixed story is best-of-breed per purpose, and an independent critic beats a critic
         // that shares the author's blind spots — same split DEFAULT_SETTINGS ships.
         expect(out.ai.implement.generator.provider).toBe('claude-code');
-        expect(out.ai.implement.generator.model).toBe('claude-opus-5');
+        expect(out.ai.implement.generator.model).toBe('claude-opus-5-5');
         expect(out.ai.implement.evaluator.provider).toBe('openai-codex');
-        expect(out.ai.implement.evaluator.model).toBe('gpt-5.6-sol');
+        expect(out.ai.implement.evaluator.model).toBe('gpt-6-sol');
         expect(DEFAULT_SETTINGS.ai.implement.evaluator.provider).toBe(out.ai.implement.evaluator.provider);
         expect(DEFAULT_SETTINGS.ai.implement.evaluator.model).toBe(out.ai.implement.evaluator.model);
       });
@@ -479,7 +481,7 @@ describe('presets', () => {
         expect(out.ai.effort).toBe('high');
         expect(out.ai.refine.model).toBe('claude-sonnet-5');
         expect(out.ai.refine.effort).toBeUndefined();
-        expect(out.ai.plan.model).toBe('claude-opus-5');
+        expect(out.ai.plan.model).toBe('claude-opus-5-5');
         expect(out.ai.plan.effort).toBe('xhigh');
         expect(out.ai.readiness.model).toBe('claude-sonnet-5');
         expect(out.ai.readiness.effort).toBe('low');
@@ -493,7 +495,7 @@ describe('presets', () => {
         // The novel property no other family has: generator weaker than evaluator.
         expect(out.ai.implement.generator.provider).toBe(out.ai.implement.evaluator.provider);
         expect(out.ai.implement.generator.model).toBe('claude-sonnet-5');
-        expect(out.ai.implement.evaluator.model).toBe('claude-opus-5');
+        expect(out.ai.implement.evaluator.model).toBe('claude-opus-5-5');
         expect(out.ai.implement.generator.model).not.toBe(out.ai.implement.evaluator.model);
         expect(out.ai.implement.generator.effort).toBe('high');
         expect(out.ai.implement.evaluator.effort).toBe('xhigh');
@@ -503,11 +505,11 @@ describe('presets', () => {
     describe("'codex-strong-gate' preset matrix — the narrowest gate", () => {
       const out = applyPreset('codex-strong-gate', DEFAULT_SETTINGS);
 
-      it('pairs a gpt-5.6-terra author with a gpt-5.6-sol evaluator one default-ladder rung apart', () => {
+      it('pairs a gpt-5.6-terra author with a gpt-6-sol evaluator the default ladder reaches', () => {
         expect(out.ai.implement.generator.provider).toBe('openai-codex');
         expect(out.ai.implement.evaluator.provider).toBe('openai-codex');
         expect(out.ai.implement.generator.model).toBe('gpt-5.6-terra');
-        expect(out.ai.implement.evaluator.model).toBe('gpt-5.6-sol');
+        expect(out.ai.implement.evaluator.model).toBe('gpt-6-sol');
         // Cheap author at high, strong gate at xhigh — the terra→sol rung is now live (xhigh is
         // universal across the codex catalog since the vocabulary change).
         expect(out.ai.implement.generator.effort).toBe('high');
@@ -554,15 +556,15 @@ describe('presets', () => {
       });
     });
 
-    describe('frontier family tops out at Opus 5 / gpt-5.6-sol (never fable)', () => {
+    describe('frontier family tops out at Opus 5.5 / gpt-6-sol (never fable)', () => {
       it('routes implement to the provider flagship at max effort', () => {
         // [preset, generator model, evaluator model, effort] — mixed-frontier is the one row where
         // the two differ: it keeps the cross-provider gate `mixed` uses, at the frontier tier.
         const cases: ReadonlyArray<[PresetName, string, string, 'max']> = [
-          ['mixed-frontier', 'claude-opus-5', 'gpt-5.6-sol', 'max'],
-          ['claude-frontier', 'claude-opus-5', 'claude-opus-5', 'max'],
+          ['mixed-frontier', 'claude-opus-5-5', 'gpt-6-sol', 'max'],
+          ['claude-frontier', 'claude-opus-5-5', 'claude-opus-5-5', 'max'],
           ['copilot-frontier', 'claude-opus-4.8', 'claude-opus-4.8', 'max'],
-          ['codex-frontier', 'gpt-5.6-sol', 'gpt-5.6-sol', 'max'],
+          ['codex-frontier', 'gpt-6-sol', 'gpt-6-sol', 'max'],
           ['grok-frontier', 'grok-4.7', 'grok-4.7', 'max'],
         ];
         for (const [preset, generatorModel, evaluatorModel, effort] of cases) {

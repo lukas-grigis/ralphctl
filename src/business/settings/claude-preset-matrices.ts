@@ -64,7 +64,7 @@ export const CLAUDE_FAST: AiSettings = {
   createPr: { provider: CLAUDE, model: SONNET, effort: 'low' },
 };
 
-/** Opus everywhere. `claude-fable-5` stays opt-in: it is 2× the Opus price. */
+/** Opus everywhere. Fable stays opt-in: it is 2.5× the Opus 5.5 price. */
 export const CLAUDE_FRONTIER: AiSettings = {
   effort: 'max',
   refine: { provider: CLAUDE, model: OPUS },

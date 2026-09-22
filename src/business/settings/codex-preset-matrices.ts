@@ -1,16 +1,16 @@
 import type { AiSettings } from '@src/domain/entity/settings.ts';
-import { CODEX, GPT_5_6_LUNA, GPT_5_6_SOL, GPT_5_6_TERRA } from '@src/business/settings/preset-model-ids.ts';
+import { CODEX, GPT_5_6_LUNA, GPT_6_SOL, GPT_5_6_TERRA } from '@src/business/settings/preset-model-ids.ts';
 
 export const CODEX_ONLY: AiSettings = {
   effort: 'high',
   refine: { provider: CODEX, model: GPT_5_6_TERRA },
-  plan: { provider: CODEX, model: GPT_5_6_SOL, effort: 'xhigh' },
+  plan: { provider: CODEX, model: GPT_6_SOL, effort: 'xhigh' },
   implement: {
-    generator: { provider: CODEX, model: GPT_5_6_SOL, effort: 'xhigh' },
-    evaluator: { provider: CODEX, model: GPT_5_6_SOL, effort: 'xhigh' },
+    generator: { provider: CODEX, model: GPT_6_SOL, effort: 'xhigh' },
+    evaluator: { provider: CODEX, model: GPT_6_SOL, effort: 'xhigh' },
   },
   readiness: { provider: CODEX, model: GPT_5_6_LUNA, effort: 'medium' },
-  ideate: { provider: CODEX, model: GPT_5_6_SOL },
+  ideate: { provider: CODEX, model: GPT_6_SOL },
   createPr: { provider: CODEX, model: GPT_5_6_LUNA },
 };
 
@@ -31,13 +31,13 @@ export const CODEX_ECONOMIC: AiSettings = {
 export const CODEX_STRONG_GATE: AiSettings = {
   effort: 'high',
   refine: { provider: CODEX, model: GPT_5_6_LUNA },
-  plan: { provider: CODEX, model: GPT_5_6_SOL, effort: 'xhigh' },
+  plan: { provider: CODEX, model: GPT_6_SOL, effort: 'xhigh' },
   implement: {
     generator: { provider: CODEX, model: GPT_5_6_TERRA, effort: 'high' },
-    evaluator: { provider: CODEX, model: GPT_5_6_SOL, effort: 'xhigh' },
+    evaluator: { provider: CODEX, model: GPT_6_SOL, effort: 'xhigh' },
   },
   readiness: { provider: CODEX, model: GPT_5_6_LUNA, effort: 'medium' },
-  ideate: { provider: CODEX, model: GPT_5_6_SOL },
+  ideate: { provider: CODEX, model: GPT_6_SOL },
   createPr: { provider: CODEX, model: GPT_5_6_LUNA },
 };
 
@@ -64,13 +64,13 @@ export const CODEX_FAST: AiSettings = {
  */
 export const CODEX_FRONTIER: AiSettings = {
   effort: 'max',
-  refine: { provider: CODEX, model: GPT_5_6_SOL },
-  plan: { provider: CODEX, model: GPT_5_6_SOL, effort: 'max' },
+  refine: { provider: CODEX, model: GPT_6_SOL },
+  plan: { provider: CODEX, model: GPT_6_SOL, effort: 'max' },
   implement: {
-    generator: { provider: CODEX, model: GPT_5_6_SOL, effort: 'max' },
-    evaluator: { provider: CODEX, model: GPT_5_6_SOL, effort: 'max' },
+    generator: { provider: CODEX, model: GPT_6_SOL, effort: 'max' },
+    evaluator: { provider: CODEX, model: GPT_6_SOL, effort: 'max' },
   },
-  readiness: { provider: CODEX, model: GPT_5_6_SOL, effort: 'high' },
-  ideate: { provider: CODEX, model: GPT_5_6_SOL },
-  createPr: { provider: CODEX, model: GPT_5_6_SOL },
+  readiness: { provider: CODEX, model: GPT_6_SOL, effort: 'high' },
+  ideate: { provider: CODEX, model: GPT_6_SOL },
+  createPr: { provider: CODEX, model: GPT_6_SOL },
 };

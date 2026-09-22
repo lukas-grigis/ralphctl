@@ -5,7 +5,7 @@ import {
   COPILOT,
   COPILOT_SONNET,
   GPT_5_6_LUNA,
-  GPT_5_6_SOL,
+  GPT_6_SOL,
   GPT_5_6_TERRA,
   OPUS,
   SONNET,
@@ -15,7 +15,7 @@ import {
  * Best-of-breed across providers. `implement` and `plan` at `xhigh`; `readiness` at `medium`;
  * `refine` and `ideate` inherit the global `high`.
  *
- * `mixed` and `mixed-frontier` pair a Claude Opus generator with a Codex `gpt-5.6-sol`
+ * `mixed` and `mixed-frontier` pair a Claude Opus generator with a Codex `gpt-6-sol`
  * evaluator, mirroring `DEFAULT_SETTINGS`. An independent second opinion is the point.
  * Everywhere else, splitting roles across providers is a per-row edit, not a preset.
  */
@@ -25,7 +25,7 @@ export const MIXED: AiSettings = {
   plan: { provider: COPILOT, model: COPILOT_SONNET, effort: 'xhigh' },
   implement: {
     generator: { provider: CLAUDE, model: OPUS, effort: 'xhigh' },
-    evaluator: { provider: CODEX, model: GPT_5_6_SOL, effort: 'xhigh' },
+    evaluator: { provider: CODEX, model: GPT_6_SOL, effort: 'xhigh' },
   },
   readiness: { provider: COPILOT, model: GPT_5_6_LUNA, effort: 'medium' },
   ideate: { provider: CLAUDE, model: OPUS },
@@ -75,13 +75,13 @@ export const MIXED_FAST: AiSettings = {
 /** Same cross-provider gate as {@link MIXED}, at the frontier tier. */
 export const MIXED_FRONTIER: AiSettings = {
   effort: 'max',
-  refine: { provider: CODEX, model: GPT_5_6_SOL },
+  refine: { provider: CODEX, model: GPT_6_SOL },
   plan: { provider: CLAUDE, model: OPUS, effort: 'max' },
   implement: {
     generator: { provider: CLAUDE, model: OPUS, effort: 'max' },
-    evaluator: { provider: CODEX, model: GPT_5_6_SOL, effort: 'max' },
+    evaluator: { provider: CODEX, model: GPT_6_SOL, effort: 'max' },
   },
   readiness: { provider: CLAUDE, model: OPUS, effort: 'high' },
   ideate: { provider: CLAUDE, model: OPUS },
-  createPr: { provider: CODEX, model: GPT_5_6_SOL },
+  createPr: { provider: CODEX, model: GPT_6_SOL },
 };

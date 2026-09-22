@@ -235,24 +235,32 @@ export const escalationTargetsFor = (from: string): readonly string[] => {
 };
 
 export interface EscalationChain {
-  /** Model ids in climb order, e.g. `['claude-haiku-4-5', 'claude-sonnet-5', 'claude-opus-5']`. */
+  /**
+   * The generator provider whose ladder this chain belongs to, or `undefined` for a user-only
+   * chain rooted at a custom id no catalog knows (it applies to whichever provider runs it).
+   */
+  readonly provider: AiProvider | undefined;
+  /** Model ids in climb order, e.g. `['claude-haiku-4-5', 'claude-sonnet-5', 'claude-opus-5-5']`. */
   readonly models: readonly string[];
   /** True when any rung on the chain comes from the user's overrides (not the built-in map). */
   readonly customised: boolean;
 }
 
 /**
- * The EFFECTIVE escalation ladder — user overrides merged over the built-in map — flattened
- * into display chains. A chain starts at every model that is not itself an escalation target
- * (a root) and follows the map until it ends or would revisit a model (user-authored cycles
- * are cut rather than walked forever; the runtime treats cyclic rungs as top-of-ladder too).
+ * Walk every chain of `merged` whose root passes `isRoot` — a root is a model that is not itself
+ * an escalation target. Follows the map until it ends or would revisit a model (user-authored
+ * cycles are cut rather than walked forever; the runtime treats cyclic rungs as top-of-ladder too).
  */
-export const effectiveEscalationChains = (user: Readonly<Record<string, string>>): readonly EscalationChain[] => {
-  const merged = mergeEscalationMap(user);
+const chainsOf = (
+  provider: AiProvider | undefined,
+  merged: Readonly<Record<string, string>>,
+  user: Readonly<Record<string, string>>,
+  isRoot: (model: string) => boolean
+): EscalationChain[] => {
   const targets = new Set(Object.values(merged));
   const chains: EscalationChain[] = [];
   for (const root of Object.keys(merged)) {
-    if (targets.has(root)) continue;
+    if (targets.has(root) || !isRoot(root)) continue;
     const models: string[] = [root];
     const seen = new Set<string>([root]);
     let customised = root in user;
@@ -265,9 +273,26 @@ export const effectiveEscalationChains = (user: Readonly<Record<string, string>>
       prev = cur;
       cur = merged[cur];
     }
-    chains.push({ models, customised });
+    chains.push({ provider, models, customised });
   }
   return chains;
+};
+
+/**
+ * The EFFECTIVE escalation ladders — the flat user overrides merged over each provider's built-in
+ * ladder — flattened into display chains, grouped by provider in {@link AI_PROVIDERS} order. A
+ * provider's chains start at models its own ladder or catalog knows, so a shared slug such as
+ * `claude-sonnet-5` shows the climb each backend really takes. User rungs rooted at a custom id no
+ * catalog lists come last, with no provider.
+ */
+export const effectiveEscalationChains = (user: Readonly<Record<string, string>>): readonly EscalationChain[] => {
+  const perProvider = AI_PROVIDERS.flatMap((provider) => {
+    const catalog = new Set<string>(PROVIDER_TRAITS[provider].modelCatalog);
+    return chainsOf(provider, mergeEscalationMap(user, provider), user, (m) => catalog.has(m));
+  });
+  const catalogued = new Set<string>(MODEL_CATALOGS.flat());
+  const custom = chainsOf(undefined, mergeEscalationMap(user, undefined), user, (m) => !catalogued.has(m));
+  return [...perProvider, ...custom];
 };
 
 /**

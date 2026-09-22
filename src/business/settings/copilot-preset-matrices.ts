@@ -1,7 +1,7 @@
 import type { AiSettings } from '@src/domain/entity/settings.ts';
 import { COPILOT, COPILOT_OPUS, COPILOT_SONNET, GPT_5_6_LUNA } from '@src/business/settings/preset-model-ids.ts';
 
-/** Opus 4.8 on the deep flows. Opus 5 is plan-gated on Copilot, so it stays pin-only. */
+/** Opus 4.8 on the deep flows. Opus 5 / 5.5 are plan-gated on Copilot, so they stay pin-only. */
 export const COPILOT_ONLY: AiSettings = {
   effort: 'high',
   refine: { provider: COPILOT, model: COPILOT_SONNET },

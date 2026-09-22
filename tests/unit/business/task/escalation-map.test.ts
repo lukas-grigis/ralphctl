@@ -1,9 +1,10 @@
 /**
  * Contract for `business/task/escalation-map.ts`:
  *
- *  - `DEFAULT_ESCALATION_MAP` contains the seed ladders the ticket requires.
- *  - `mergeEscalationMap` overlays user-over-default with user keys winning on conflict
- *    and user-only keys extending the default ladder.
+ *  - `DEFAULT_ESCALATION_LADDERS` holds one ladder per provider, each rung inside THAT provider's
+ *    catalog.
+ *  - `mergeEscalationMap` overlays the flat user map over the generator provider's ladder, with
+ *    user keys winning on conflict and user-only keys extending it.
  *  - `warnEscalationMapSelfLoops` logs one `warn`-level record per `{ x: x }` entry and
  *    leaves the input untouched.
  */
@@ -16,10 +17,11 @@ import { CLAUDE_MODELS } from '@src/domain/value/settings-models/claude.ts';
 import { CODEX_MODELS } from '@src/domain/value/settings-models/codex.ts';
 import { COPILOT_MODELS } from '@src/domain/value/settings-models/copilot.ts';
 import { GROK_MODELS } from '@src/domain/value/settings-models/grok.ts';
-import type { AiProvider } from '@src/domain/entity/settings.ts';
+import { OPENCODE_MODELS } from '@src/domain/value/settings-models/opencode.ts';
+import { AI_PROVIDERS, type AiProvider } from '@src/domain/entity/settings.ts';
 import {
   CODEX_EFFORT_ESCALATION_TARGET,
-  DEFAULT_ESCALATION_MAP,
+  DEFAULT_ESCALATION_LADDERS,
   EFFORT_ESCALATION_TARGET,
   escalationLadderCyclicFrom,
   mergeEscalationMap,
@@ -40,77 +42,119 @@ const fakeLogger = () => {
   return { logger, warn };
 };
 
-describe('DEFAULT_ESCALATION_MAP', () => {
-  it('seeds the ticket-mandated ladders (claude-sonnet-4-6 → claude-opus-4-8, gpt-5-mini → gpt-5.5)', () => {
-    expect(DEFAULT_ESCALATION_MAP['claude-sonnet-4-6']).toBe('claude-opus-4-8');
-    expect(DEFAULT_ESCALATION_MAP['gpt-5-mini']).toBe('gpt-5.5');
+const CLAUDE_LADDER = DEFAULT_ESCALATION_LADDERS['claude-code'];
+const COPILOT_LADDER = DEFAULT_ESCALATION_LADDERS['github-copilot'];
+const CODEX_LADDER = DEFAULT_ESCALATION_LADDERS['openai-codex'];
+const GROK_LADDER = DEFAULT_ESCALATION_LADDERS['xai-grok'];
+
+describe('DEFAULT_ESCALATION_LADDERS', () => {
+  it('climbs the Claude-Code ladder haiku → sonnet-5 → opus-5-5', () => {
+    expect(CLAUDE_LADDER['claude-haiku-4-5']).toBe('claude-sonnet-5');
+    expect(CLAUDE_LADDER['claude-sonnet-5']).toBe('claude-opus-5-5');
+    expect(CLAUDE_LADDER['claude-opus-5-5']).toBeUndefined();
   });
 
-  it('lets the economic codex/copilot full tier climb to flagship (gpt-5.4 → gpt-5.5)', () => {
-    expect(DEFAULT_ESCALATION_MAP['gpt-5.4']).toBe('gpt-5.5');
+  it('converges pinned legacy Claude-Code tiers on Opus 5.5', () => {
+    expect(CLAUDE_LADDER['claude-sonnet-4-6']).toBe('claude-opus-4-8');
+    expect(CLAUDE_LADDER['claude-opus-4-8']).toBe('claude-opus-5-5');
+    expect(CLAUDE_LADDER['claude-opus-5']).toBe('claude-opus-5-5');
   });
 
-  it('seeds the dot-form Copilot Claude rungs (haiku → sonnet → opus)', () => {
-    expect(DEFAULT_ESCALATION_MAP['claude-haiku-4.5']).toBe('claude-sonnet-4.6');
-    expect(DEFAULT_ESCALATION_MAP['claude-sonnet-4.6']).toBe('claude-opus-4.8');
+  it('never makes Fable a default rung on any provider', () => {
+    for (const provider of AI_PROVIDERS) {
+      for (const [from, to] of Object.entries(DEFAULT_ESCALATION_LADDERS[provider])) {
+        expect(from.startsWith('claude-fable'), `${provider}: ${from}`).toBe(false);
+        expect(to.startsWith('claude-fable'), `${provider}: ${from} → ${to}`).toBe(false);
+      }
+    }
   });
 
-  it('climbs the dash-form Claude-Code/Codex ladder via Sonnet 5 (haiku → sonnet-5 → opus-5)', () => {
-    expect(DEFAULT_ESCALATION_MAP['claude-haiku-4-5']).toBe('claude-sonnet-5');
-    expect(DEFAULT_ESCALATION_MAP['claude-sonnet-5']).toBe('claude-opus-5');
+  it('climbs the shared claude-sonnet-5 slug to a different Opus per provider', () => {
+    // The reason the ladder is provider-scoped: one flat map could hold only one of these.
+    expect(CLAUDE_LADDER['claude-sonnet-5']).toBe('claude-opus-5-5');
+    expect(COPILOT_LADDER['claude-sonnet-5']).toBe('claude-opus-4.8');
   });
 
-  it('retains the legacy claude-sonnet-4-6 → claude-opus-4-8 rung so pinned 4.6 configs still climb', () => {
-    expect(DEFAULT_ESCALATION_MAP['claude-sonnet-4-6']).toBe('claude-opus-4-8');
+  it('tops the Copilot Claude ladder at Opus 4.8 — Opus 5 / 5.5 are plan-gated there', () => {
+    expect(COPILOT_LADDER['claude-haiku-4.5']).toBe('claude-sonnet-5');
+    expect(COPILOT_LADDER['claude-opus-4.7']).toBe('claude-opus-4.8');
+    expect(COPILOT_LADDER['claude-opus-4.8']).toBeUndefined();
+    expect(Object.values(COPILOT_LADDER)).not.toContain('claude-opus-5');
+    expect(Object.values(COPILOT_LADDER)).not.toContain('claude-opus-5.5');
   });
 
-  it('gives pinned Opus-4.8 configs a live rung to the same-price successor (claude-opus-4-8 → claude-opus-5)', () => {
-    expect(DEFAULT_ESCALATION_MAP['claude-opus-4-8']).toBe('claude-opus-5');
+  it('climbs the Copilot GPT ladder through gpt-5.5 into the 5.6 family', () => {
+    expect(COPILOT_LADDER['gpt-5-mini']).toBe('gpt-5.5');
+    expect(COPILOT_LADDER['gpt-5.4-mini']).toBe('gpt-5.5');
+    expect(COPILOT_LADDER['gpt-5.5']).toBe('gpt-5.6-sol');
+    expect(COPILOT_LADDER['gpt-5.6-luna']).toBe('gpt-5.6-terra');
+    expect(COPILOT_LADDER['gpt-5.6-terra']).toBe('gpt-5.6-sol');
+    expect(COPILOT_LADDER['gpt-5.6-sol']).toBeUndefined();
   });
 
-  it('climbs the codex 5.6 family within itself, chaining in from the old generation', () => {
-    expect(DEFAULT_ESCALATION_MAP['gpt-5.5']).toBe('gpt-5.6-sol');
-    expect(DEFAULT_ESCALATION_MAP['gpt-5.6-luna']).toBe('gpt-5.6-terra');
-    expect(DEFAULT_ESCALATION_MAP['gpt-5.6-terra']).toBe('gpt-5.6-sol');
+  it('tops the Codex ladder at gpt-6-sol — astra stays opt-in', () => {
+    expect(CODEX_LADDER['gpt-6-luna']).toBe('gpt-6-sol');
+    expect(CODEX_LADDER['gpt-6-sol']).toBeUndefined();
+    expect(Object.values(CODEX_LADDER)).not.toContain('gpt-6-astra');
+  });
+
+  it('converges pinned older Codex tiers on gpt-6-sol', () => {
+    expect(CODEX_LADDER['gpt-5.5']).toBe('gpt-5.6-sol');
+    expect(CODEX_LADDER['gpt-5.6-luna']).toBe('gpt-5.6-terra');
+    expect(CODEX_LADDER['gpt-5.6-terra']).toBe('gpt-5.6-sol');
+    expect(CODEX_LADDER['gpt-5.6-sol']).toBe('gpt-6-sol');
   });
 
   it('climbs grok one generation at a time up to the grok-4.7 flagship', () => {
-    expect(DEFAULT_ESCALATION_MAP['grok-4.5']).toBe('grok-4.6');
-    expect(DEFAULT_ESCALATION_MAP['grok-4.6']).toBe('grok-4.7');
-    expect(DEFAULT_ESCALATION_MAP['grok-4.7']).toBeUndefined();
+    expect(GROK_LADDER['grok-4.5']).toBe('grok-4.6');
+    expect(GROK_LADDER['grok-4.6']).toBe('grok-4.7');
+    expect(GROK_LADDER['grok-4.7']).toBeUndefined();
     // Same model at 2× price — a rung would spend more for speed, not capability.
-    expect(DEFAULT_ESCALATION_MAP['grok-4.7-build-fast']).toBeUndefined();
-    expect(Object.values(DEFAULT_ESCALATION_MAP)).not.toContain('grok-4.7-build-fast');
+    expect(GROK_LADDER['grok-4.7-build-fast']).toBeUndefined();
+    expect(Object.values(GROK_LADDER)).not.toContain('grok-4.7-build-fast');
   });
 
-  it('does not steer the dot-form Copilot ladder into the plan-gated claude-opus-5', () => {
-    expect(DEFAULT_ESCALATION_MAP['claude-opus-4.8']).toBeUndefined();
+  it('has no OpenCode ladder — an aggregator has no vendor tiers to climb', () => {
+    expect(DEFAULT_ESCALATION_LADDERS.opencode).toEqual({});
   });
 });
 
 describe('mergeEscalationMap', () => {
-  it('returns the default ladder unchanged when the user map is empty', () => {
-    expect(mergeEscalationMap({})).toEqual(DEFAULT_ESCALATION_MAP);
+  it("returns the provider's default ladder unchanged when the user map is empty", () => {
+    for (const provider of AI_PROVIDERS) {
+      expect(mergeEscalationMap({}, provider)).toEqual(DEFAULT_ESCALATION_LADDERS[provider]);
+    }
+  });
+
+  it('applies only the user rungs when no provider is known', () => {
+    expect(mergeEscalationMap({}, undefined)).toEqual({});
+    expect(mergeEscalationMap({ a: 'b' }, undefined)).toEqual({ a: 'b' });
   });
 
   it('lets user keys win on conflict with the default ladder', () => {
-    const merged = mergeEscalationMap({ 'claude-sonnet-4-6': 'custom-overlord' });
+    const merged = mergeEscalationMap({ 'claude-sonnet-4-6': 'custom-overlord' }, 'claude-code');
     expect(merged['claude-sonnet-4-6']).toBe('custom-overlord');
     // Other default rungs are still present — user override does not wipe the ladder.
-    expect(merged['gpt-5-mini']).toBe('gpt-5.5');
+    expect(merged['claude-haiku-4-5']).toBe('claude-sonnet-5');
+  });
+
+  it("applies the flat user map on top of every provider's ladder", () => {
+    const user = { 'claude-sonnet-5': 'claude-fable-5' };
+    expect(mergeEscalationMap(user, 'claude-code')['claude-sonnet-5']).toBe('claude-fable-5');
+    expect(mergeEscalationMap(user, 'github-copilot')['claude-sonnet-5']).toBe('claude-fable-5');
   });
 
   it('extends the ladder when the user adds a new rung', () => {
-    const merged = mergeEscalationMap({ 'some-new-model': 'some-stronger-model' });
+    const merged = mergeEscalationMap({ 'some-new-model': 'some-stronger-model' }, 'claude-code');
     expect(merged['some-new-model']).toBe('some-stronger-model');
     // Defaults still present.
     expect(merged['claude-sonnet-4-6']).toBe('claude-opus-4-8');
   });
 
-  it('does not mutate the default map when the user override carries new entries', () => {
-    const before = { ...DEFAULT_ESCALATION_MAP };
-    void mergeEscalationMap({ 'temp-key': 'temp-value' });
-    expect(DEFAULT_ESCALATION_MAP).toEqual(before);
+  it('does not mutate the default ladders when the user override carries new entries', () => {
+    const before = structuredClone(DEFAULT_ESCALATION_LADDERS);
+    void mergeEscalationMap({ 'temp-key': 'temp-value' }, 'claude-code');
+    expect(DEFAULT_ESCALATION_LADDERS).toEqual(before);
   });
 });
 
@@ -176,28 +220,34 @@ describe('warnEscalationMapSelfLoops', () => {
   });
 });
 
-describe('DEFAULT_ESCALATION_MAP — catalog lockstep (mechanizes the section 14/18 model-bump audit)', () => {
-  // The union of every per-provider catalog id. A ladder rung that names an id outside this set
-  // would be stamped onto a task as `escalatedToModel`, then rejected by the adapter at spawn time
-  // with InvalidStateError — so every key AND value must be a member.
-  const catalogIds = new Set<string>([...CLAUDE_MODELS, ...CODEX_MODELS, ...COPILOT_MODELS, ...GROK_MODELS]);
+describe('DEFAULT_ESCALATION_LADDERS — catalog lockstep (mechanizes the section 14/18 model-bump audit)', () => {
+  // A rung that names an id outside the generator provider's OWN catalog would be stamped onto a
+  // task as `escalatedToModel`, then rejected by that provider's adapter at spawn time with
+  // InvalidStateError — so every key AND value must be a member of THAT provider's catalog, not
+  // merely of some catalog.
+  const catalogFor: Readonly<Record<AiProvider, readonly string[]>> = {
+    'claude-code': CLAUDE_MODELS,
+    'github-copilot': COPILOT_MODELS,
+    'openai-codex': CODEX_MODELS,
+    opencode: OPENCODE_MODELS,
+    'xai-grok': GROK_MODELS,
+  };
 
-  it('every ladder key is a member of some provider catalog', () => {
-    for (const from of Object.keys(DEFAULT_ESCALATION_MAP)) {
-      expect(catalogIds.has(from), `ladder key '${from}' is not in any model catalog`).toBe(true);
-    }
-  });
-
-  it('every ladder destination is a member of some provider catalog', () => {
-    for (const to of Object.values(DEFAULT_ESCALATION_MAP)) {
-      expect(catalogIds.has(to), `ladder destination '${to}' is not in any model catalog`).toBe(true);
+  it("every ladder key and destination is a member of that provider's catalog", () => {
+    for (const provider of AI_PROVIDERS) {
+      const catalog = catalogFor[provider];
+      for (const [from, to] of Object.entries(DEFAULT_ESCALATION_LADDERS[provider])) {
+        expect(catalog, `${provider}: ladder key '${from}' is not in its catalog`).toContain(from);
+        expect(catalog, `${provider}: ladder destination '${to}' is not in its catalog`).toContain(to);
+      }
     }
   });
 
   // Fingerprint each catalog (stable hash of the sorted ids). When this test fails because a catalog
   // changed, a model bump just landed: run the HARNESS-PRINCIPLES.md model-bump audit (walk the
-  // partial/gap rows, re-check the applied rows' load-bearing status, and confirm no DEFAULT_
-  // ESCALATION_MAP rung was orphaned by a catalog rename/de-list), THEN update the recorded hash.
+  // partial/gap rows, re-check the applied rows' load-bearing status, and confirm no
+  // DEFAULT_ESCALATION_LADDERS rung was orphaned by a catalog rename/de-list), THEN update the
+  // recorded hash.
   // This converts the section 18 ritual from a ticket convention into a verify-gate failure that
   // fires precisely when a model bump lands.
   const fingerprint = (ids: readonly string[]): string =>
@@ -207,47 +257,51 @@ describe('DEFAULT_ESCALATION_MAP — catalog lockstep (mechanizes the section 14
       .slice(0, 16);
 
   it('catalog fingerprints are unchanged — a failure means a model bump landed; run the model-bump audit', () => {
-    expect(fingerprint(CLAUDE_MODELS)).toBe('7aa37ba5efb83173');
-    expect(fingerprint(CODEX_MODELS)).toBe('dce39d8df173e3d8');
-    expect(fingerprint(COPILOT_MODELS)).toBe('f9831a6a08104710');
+    expect(fingerprint(CLAUDE_MODELS)).toBe('456dd7013f3e81ec');
+    expect(fingerprint(CODEX_MODELS)).toBe('e0c266c09d88d135');
+    expect(fingerprint(COPILOT_MODELS)).toBe('6f10fab67bee9487');
     expect(fingerprint(GROK_MODELS)).toBe('2c56e449169a2ec3');
   });
 });
 
 describe('nextEffortRung', () => {
-  // ── Claude is model-aware: its CLI default is `xhigh` on xhigh-capable models, so the rung
-  //    climbs Claude's own tiers (…→ xhigh → max), never re-stamping the implicit default. ──
+  // ── Claude is model-aware: the rung climbs one tier above the effective effort — the explicit
+  //    level, or the model's CLI default (`medium` on Opus 5.5, `high` elsewhere) — so it never
+  //    re-stamps the implicit default. ──
 
-  const OPUS = 'claude-opus-4-8'; // xhigh-capable frontier
-  const SONNET5 = 'claude-sonnet-5'; // xhigh-capable
+  const OPUS55 = 'claude-opus-5-5'; // CLI default `medium`
+  const OPUS = 'claude-opus-4-8'; // xhigh-capable, CLI default `high`
+  const SONNET5 = 'claude-sonnet-5'; // xhigh-capable, CLI default `high`
   const SONNET46 = 'claude-sonnet-4-6'; // effort-capable but NOT xhigh-capable (CLI default `high`)
   const HAIKU = 'claude-haiku-4-5'; // no effort dimension
 
-  it('claude xhigh-capable + unset (CLI default xhigh) → max in a single step', () => {
-    // The shipped default posture (`claude-opus-4-8`, effort unset). A fixed `high` here would be a
-    // no-op / downgrade of the implicit xhigh — the rung must climb to `max` instead.
-    expect(nextEffortRung('claude-code', OPUS, undefined)).toBe('max');
-    expect(nextEffortRung('claude-code', SONNET5, undefined)).toBe('max');
+  it('claude unset → one tier above the model CLI default (Opus 5.5 medium → high; others high → xhigh)', () => {
+    expect(nextEffortRung('claude-code', OPUS55, undefined)).toBe('high');
+    expect(nextEffortRung('claude-code', 'claude-opus-5', undefined)).toBe('xhigh');
+    expect(nextEffortRung('claude-code', OPUS, undefined)).toBe('xhigh');
+    expect(nextEffortRung('claude-code', SONNET5, undefined)).toBe('xhigh');
+    expect(nextEffortRung('claude-code', 'claude-fable-5-1', undefined)).toBe('xhigh');
   });
 
-  it('claude xhigh-capable + explicit low/medium/high → xhigh (the first power tier)', () => {
-    expect(nextEffortRung('claude-code', OPUS, 'low')).toBe('xhigh');
-    expect(nextEffortRung('claude-code', OPUS, 'medium')).toBe('xhigh');
+  it('claude xhigh-capable + explicit level → exactly one tier up', () => {
+    expect(nextEffortRung('claude-code', OPUS55, 'low')).toBe('medium');
+    expect(nextEffortRung('claude-code', OPUS55, 'medium')).toBe('high');
+    expect(nextEffortRung('claude-code', OPUS55, 'high')).toBe('xhigh');
     expect(nextEffortRung('claude-code', OPUS, 'high')).toBe('xhigh');
-    expect(nextEffortRung('claude-code', SONNET5, 'medium')).toBe('xhigh');
+    expect(nextEffortRung('claude-code', SONNET5, 'medium')).toBe('high');
   });
 
   it('claude xhigh-capable + xhigh → max; + max → spent (undefined)', () => {
+    expect(nextEffortRung('claude-code', OPUS55, 'xhigh')).toBe('max');
     expect(nextEffortRung('claude-code', OPUS, 'xhigh')).toBe('max');
-    expect(nextEffortRung('claude-code', OPUS, 'max')).toBeUndefined();
+    expect(nextEffortRung('claude-code', OPUS55, 'max')).toBeUndefined();
   });
 
-  it('claude non-xhigh-capable (Sonnet 4.6) → max, skipping the unsupported xhigh tier', () => {
-    // CLI default here is `high` (no xhigh tier), so unset AND every explicit tier below max climb
-    // straight to `max`. Never a no-op / downgrade.
+  it('claude non-xhigh-capable (Sonnet 4.6) skips the unsupported xhigh tier', () => {
+    // CLI default here is `high` and the model has no xhigh tier, so unset / high climb to `max`.
     expect(nextEffortRung('claude-code', SONNET46, undefined)).toBe('max');
-    expect(nextEffortRung('claude-code', SONNET46, 'low')).toBe('max');
     expect(nextEffortRung('claude-code', SONNET46, 'high')).toBe('max');
+    expect(nextEffortRung('claude-code', SONNET46, 'low')).toBe('medium');
     expect(nextEffortRung('claude-code', SONNET46, 'max')).toBeUndefined();
   });
 
@@ -331,9 +385,12 @@ describe('escalationLadderCyclicFrom', () => {
     expect(escalationLadderCyclicFrom({ a: 'b', b: 'c', c: 'b' }, 'a')).toBe(true);
   });
 
-  it('does not flag the acyclic DEFAULT_ESCALATION_MAP from any of its keys', () => {
-    for (const key of Object.keys(DEFAULT_ESCALATION_MAP)) {
-      expect(escalationLadderCyclicFrom(DEFAULT_ESCALATION_MAP, key), `cycle from ${key}`).toBe(false);
+  it('does not flag any acyclic DEFAULT_ESCALATION_LADDERS entry from any of its keys', () => {
+    for (const provider of AI_PROVIDERS) {
+      const ladder = DEFAULT_ESCALATION_LADDERS[provider];
+      for (const key of Object.keys(ladder)) {
+        expect(escalationLadderCyclicFrom(ladder, key), `${provider}: cycle from ${key}`).toBe(false);
+      }
     }
   });
 });

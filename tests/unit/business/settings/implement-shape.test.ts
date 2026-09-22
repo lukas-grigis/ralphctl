@@ -30,11 +30,11 @@ describe('settings.ai.implement — nested generator/evaluator shape', () => {
   it('fresh-install defaults split implement across providers (generator=Claude, evaluator=Codex)', () => {
     expect(DEFAULT_SETTINGS.ai.implement.generator).toEqual({
       provider: 'claude-code',
-      model: 'claude-opus-5',
+      model: 'claude-opus-5-5',
     });
     expect(DEFAULT_SETTINGS.ai.implement.evaluator).toEqual({
       provider: 'openai-codex',
-      model: 'gpt-5.6-sol',
+      model: 'gpt-6-sol',
     });
   });
 
@@ -208,13 +208,21 @@ describe('settings.ai — retired claude-opus-4-7 migration', () => {
     expect(parsed.data.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
   });
 
-  // 2026-08-18 Copilot reconciliation: two preview graduations that renamed the derived slug and
-  // two outright delistings. A persisted row on any of the four must load on its successor.
+  // Copilot retirements: the 2026-08-18 reconciliation (preview graduations + delistings) and the
+  // 2026-09-01 deprecation. Older entries are chain-collapsed onto the live successor, so every
+  // persisted row loads on a catalog model in one hop.
   it.each([
-    ['gemini-3.1-pro-preview', 'gemini-3.1-pro'],
-    ['raptor-mini-preview', 'raptor-mini'],
-    ['gemini-2.5-pro', 'gemini-3.1-pro'],
+    ['gemini-3.1-pro-preview', 'gemini-3.8-flash'],
+    ['raptor-mini-preview', 'mai-code-1.1-flash'],
+    ['gemini-2.5-pro', 'gemini-3.8-flash'],
     ['gemini-3-flash', 'gemini-3.5-flash'],
+    ['claude-opus-4.5', 'claude-opus-4.8'],
+    ['claude-opus-4.6', 'claude-opus-4.8'],
+    ['claude-sonnet-4.5', 'claude-sonnet-5'],
+    ['claude-sonnet-4.6', 'claude-sonnet-5'],
+    ['gemini-3.1-pro', 'gemini-3.8-flash'],
+    ['raptor-mini', 'mai-code-1.1-flash'],
+    ['mai-code-1-flash', 'mai-code-1.1-flash'],
   ])('rewrites a copilot flat row pinned to the retired %s to %s', (retired, successor) => {
     const stale = {
       ...baseRecord,
@@ -245,7 +253,7 @@ describe('settings.ai — retired claude-opus-4-7 migration', () => {
     const parsed = SettingsSchema.safeParse(stale);
     expect(parsed.success).toBe(true);
     if (!parsed.success) return;
-    expect(parsed.data.ai.implement.generator.model).toBe('gemini-3.1-pro');
+    expect(parsed.data.ai.implement.generator.model).toBe('gemini-3.8-flash');
     expect(parsed.data.ai.implement.evaluator.model).toBe('gemini-3.5-flash');
   });
 
@@ -282,6 +290,57 @@ describe('settings.ai — retired claude-opus-4-7 migration', () => {
       expect(parsed.data.ai.refine).toEqual({ provider: 'openai-codex', model: 'gpt-5.5' });
     }
   );
+
+  it.each([
+    ['gpt-5.4', 'gpt-6-sol'],
+    ['gpt-5.4-mini', 'gpt-6-luna'],
+  ])('rewrites a codex flat row pinned to the retired %s to %s', (retired, successor) => {
+    const stale = {
+      ...baseRecord,
+      ai: {
+        ...baseRecord.ai,
+        refine: { provider: 'openai-codex', model: retired },
+        implement: nestedImplement,
+      },
+    };
+    const parsed = SettingsSchema.safeParse(stale);
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) return;
+    expect(parsed.data.ai.refine).toEqual({ provider: 'openai-codex', model: successor });
+  });
+
+  it('leaves a Copilot row pinned to gpt-5.4 untouched — the codex retirement is provider-guarded', () => {
+    const stale = {
+      ...baseRecord,
+      ai: {
+        ...baseRecord.ai,
+        plan: { provider: 'github-copilot', model: 'gpt-5.4' },
+        implement: nestedImplement,
+      },
+    };
+    const parsed = SettingsSchema.safeParse(stale);
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) return;
+    expect(parsed.data.ai.plan).toEqual({ provider: 'github-copilot', model: 'gpt-5.4' });
+  });
+
+  it.each([
+    ['opencode/deepseek-v4-flash-free', 'opencode/nemotron-3.5-lightning-free'],
+    ['opencode/ling-3.0-tiny-free', 'opencode/ling-3.0-flash-fin-free'],
+  ])('rewrites an opencode row pinned to the dropped free-tier %s to %s', (retired, successor) => {
+    const stale = {
+      ...baseRecord,
+      ai: {
+        ...baseRecord.ai,
+        readiness: { provider: 'opencode', model: retired },
+        implement: nestedImplement,
+      },
+    };
+    const parsed = SettingsSchema.safeParse(stale);
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) return;
+    expect(parsed.data.ai.readiness).toEqual({ provider: 'opencode', model: successor });
+  });
 
   it('leaves a Copilot row pinned to gpt-5.3-codex untouched — still a live Copilot catalog member', () => {
     const stale = {
@@ -330,14 +389,14 @@ describe("settings.ai — retired codex effort 'minimal' migration", () => {
       ...baseRecord,
       ai: {
         ...baseRecord.ai,
-        refine: { provider: 'openai-codex', model: 'gpt-5.4-mini', effort: 'minimal' },
+        refine: { provider: 'openai-codex', model: 'gpt-6-luna', effort: 'minimal' },
         implement: nestedImplement,
       },
     };
     const parsed = SettingsSchema.safeParse(stale);
     expect(parsed.success).toBe(true);
     if (!parsed.success) return;
-    expect(parsed.data.ai.refine).toEqual({ provider: 'openai-codex', model: 'gpt-5.4-mini', effort: 'low' });
+    expect(parsed.data.ai.refine).toEqual({ provider: 'openai-codex', model: 'gpt-6-luna', effort: 'low' });
   });
 
   it("heals both nested implement roles pinned to codex effort 'minimal'", () => {
@@ -346,8 +405,8 @@ describe("settings.ai — retired codex effort 'minimal' migration", () => {
       ai: {
         ...baseRecord.ai,
         implement: {
-          generator: { provider: 'openai-codex', model: 'gpt-5.4-mini', effort: 'minimal' },
-          evaluator: { provider: 'openai-codex', model: 'gpt-5.4-mini', effort: 'minimal' },
+          generator: { provider: 'openai-codex', model: 'gpt-6-luna', effort: 'minimal' },
+          evaluator: { provider: 'openai-codex', model: 'gpt-6-luna', effort: 'minimal' },
         },
       },
     };
@@ -363,13 +422,13 @@ describe("settings.ai — retired codex effort 'minimal' migration", () => {
       ...baseRecord,
       ai: {
         ...baseRecord.ai,
-        implement: { provider: 'openai-codex', model: 'gpt-5.4-mini', effort: 'minimal' },
+        implement: { provider: 'openai-codex', model: 'gpt-6-luna', effort: 'minimal' },
       },
     };
     const parsed = SettingsSchema.safeParse(legacyFlatStale);
     expect(parsed.success).toBe(true);
     if (!parsed.success) return;
-    const expectedRow = { provider: 'openai-codex', model: 'gpt-5.4-mini', effort: 'low' };
+    const expectedRow = { provider: 'openai-codex', model: 'gpt-6-luna', effort: 'low' };
     expect(parsed.data.ai.implement).toEqual({ generator: expectedRow, evaluator: expectedRow });
   });
 
@@ -378,14 +437,14 @@ describe("settings.ai — retired codex effort 'minimal' migration", () => {
       ...baseRecord,
       ai: {
         ...baseRecord.ai,
-        refine: { provider: 'openai-codex', model: 'gpt-5.4-mini', effort: 'low' },
+        refine: { provider: 'openai-codex', model: 'gpt-6-luna', effort: 'low' },
         implement: nestedImplement,
       },
     };
     const parsed = SettingsSchema.safeParse(stable);
     expect(parsed.success).toBe(true);
     if (!parsed.success) return;
-    expect(parsed.data.ai.refine).toEqual({ provider: 'openai-codex', model: 'gpt-5.4-mini', effort: 'low' });
+    expect(parsed.data.ai.refine).toEqual({ provider: 'openai-codex', model: 'gpt-6-luna', effort: 'low' });
   });
 
   it('never rewrites effort on a claude-code row, even one carrying an off-vocabulary string', () => {

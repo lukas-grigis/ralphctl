@@ -5,9 +5,9 @@
  * plus one row per user override), with per-field one-line hints sourced from `HARNESS_HINTS`.
  * Edits route through the orchestrator's prompt-mounting machinery.
  *
- * Below the field list the EFFECTIVE escalation ladder (user overrides merged over the
- * built-in map) renders as dim chains so "defaults apply" is never a mystery — customised
- * chains carry a marker.
+ * Below the field list the EFFECTIVE escalation ladders (user overrides merged over each
+ * provider's built-in ladder) render as dim chains, each prefixed with its provider, so "defaults
+ * apply" is never a mystery — customised chains carry a marker.
  */
 
 import React from 'react';
@@ -49,9 +49,9 @@ export const HarnessRow = ({ title, fields, valueFor }: HarnessRowProps): React.
       <Box flexDirection="column" marginTop={spacing.section}>
         <Text dimColor>Effective ladder (built-in {glyphs.bullet} overrides win):</Text>
         {chains.map((chain) => (
-          <Text key={chain.models[0]} dimColor>
+          <Text key={`${chain.provider ?? 'custom'}:${chain.models[0] ?? ''}`} dimColor>
             {'  '}
-            {chain.models.join(` ${glyphs.arrowRight} `)}
+            {chain.provider ?? 'any provider'}: {chain.models.join(` ${glyphs.arrowRight} `)}
             {chain.customised ? ' (customised)' : ''}
           </Text>
         ))}

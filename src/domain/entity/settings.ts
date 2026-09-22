@@ -57,8 +57,8 @@ const AiProviderSchema = z.enum([
  * a schema error). The unified global `ai.effort` accepts the superset; `resolveEffort` floors
  * it to a provider-supported level at read time.
  *
- * Codex now carries `xhigh` (all catalog models) plus `max` / `ultra` (5.6-family /
- * sol-terra-only, CLI-enforced); `minimal` was retired by codex ≥ 0.145 and migrates to `low`
+ * Codex now carries `xhigh` (all catalog models) plus `max` / `ultra` (5.6 + GPT-6 families /
+ * every non-luna tier of those families, CLI-enforced); `minimal` was retired by codex ≥ 0.145 and migrates to `low`
  * at parse time (see {@link migrateStaleRow}).
  */
 const ClaudeEffortSchema = z.enum(['low', 'medium', 'high', 'xhigh', 'max']);
@@ -219,35 +219,64 @@ const seedLegacyCreatePrRow = (ai: unknown): unknown => {
   return { ...aiObj, createPr: { ...(refine as Record<string, unknown>) } };
 };
 
+const COPILOT_GEMINI_SUCCESSOR = 'gemini-3.8-flash';
+const COPILOT_SMALL_CODE_SUCCESSOR = 'mai-code-1.1-flash';
+
 /**
  * Retired model slugs and their catalog successors, per provider — rewritten at parse time.
  * Provider-guarded so a colliding custom string on another provider's row is never touched.
- * (Same silence/idempotence policy as {@link promoteLegacyImplementRow}. Cite each retirement:
- * `claude-opus-4-7` retired for `claude-opus-4-8`; Copilot delisted `claude-opus-4.6-fast` for
- * `claude-opus-4.8-fast`; codex ≥ 0.145 dropped `gpt-5.2` / `gpt-5.3-codex` /
- * `gpt-5.3-codex-spark` — `gpt-5.5` is the conservative successor and the default ladder climbs
- * it to `gpt-5.6-sol` on plateau.)
+ * (Same silence/idempotence policy as {@link promoteLegacyImplementRow}.)
  *
- * The 2026-08-18 Copilot reconciliation adds four more: two preview graduations that changed the
- * doc's display name — and therefore the derived slug — (`gemini-3.1-pro-preview` →
- * `gemini-3.1-pro`, `raptor-mini-preview` → `raptor-mini`) and two outright delistings
- * (`gemini-2.5-pro` → `gemini-3.1-pro`, the pro-tier successor; `gemini-3-flash` →
- * `gemini-3.5-flash`, the nearest flash successor).
+ * Every `to` is a LIVE catalog id for its provider, so one hop always lands on a runnable model:
+ * when a successor is itself retired, the older entries pointing at it are re-targeted (chain
+ * collapse) rather than left to hop twice. The test suite asserts both properties.
+ *
+ * Retirements, by provider:
+ *  - claude-code — `claude-opus-4-7` retired for `claude-opus-4-8`.
+ *  - github-copilot — the 2026-09-01 deprecation removed `claude-opus-4.5` / `claude-opus-4.6`
+ *    (→ `claude-opus-4.8`, the Copilot Opus that every plan can reach), `claude-sonnet-4.5` /
+ *    `claude-sonnet-4.6` (→ `claude-sonnet-5`), `gemini-3.1-pro` (→ `gemini-3.8-flash`, the
+ *    newest Gemini left on Copilot), and `raptor-mini` (→ `mai-code-1.1-flash`, the remaining
+ *    small code model); `mai-code-1-flash` was superseded by `mai-code-1.1-flash`. Earlier
+ *    delistings are collapsed onto the same live targets: `claude-opus-4.6-fast` →
+ *    `claude-opus-4.8-fast`, `gemini-3.1-pro-preview` and `gemini-2.5-pro` → `gemini-3.8-flash`,
+ *    `raptor-mini-preview` → `mai-code-1.1-flash`, `gemini-3-flash` → `gemini-3.5-flash`.
+ *  - openai-codex — `gpt-5.4` / `gpt-5.4-mini` retired 2026-08-31 (→ `gpt-6-sol` / `gpt-6-luna`,
+ *    the codex cache's upgrade targets); codex ≥ 0.145 dropped `gpt-5.2` / `gpt-5.3-codex` /
+ *    `gpt-5.3-codex-spark` (→ `gpt-5.5`, which the default ladder climbs on plateau).
+ *  - opencode — free-tier ids that left `opencode models` with a clear successor:
+ *    `deepseek-v4-flash-free` → `nemotron-3.5-lightning-free`, `ling-3.0-tiny-free` →
+ *    `ling-3.0-flash-fin-free`.
+ *
+ * Exported only so the lockstep test can assert every target is a live catalog id.
+ *
+ * @public
  */
-const RETIRED_MODEL_REMAPS: ReadonlyArray<{
+export const RETIRED_MODEL_REMAPS: ReadonlyArray<{
   readonly provider: AiProvider;
   readonly from: string;
   readonly to: string;
 }> = [
   { provider: PROVIDER_CLAUDE_CODE, from: 'claude-opus-4-7', to: 'claude-opus-4-8' },
+  { provider: PROVIDER_GITHUB_COPILOT, from: 'claude-opus-4.5', to: 'claude-opus-4.8' },
+  { provider: PROVIDER_GITHUB_COPILOT, from: 'claude-opus-4.6', to: 'claude-opus-4.8' },
   { provider: PROVIDER_GITHUB_COPILOT, from: 'claude-opus-4.6-fast', to: 'claude-opus-4.8-fast' },
-  { provider: PROVIDER_GITHUB_COPILOT, from: 'gemini-3.1-pro-preview', to: 'gemini-3.1-pro' },
-  { provider: PROVIDER_GITHUB_COPILOT, from: 'raptor-mini-preview', to: 'raptor-mini' },
-  { provider: PROVIDER_GITHUB_COPILOT, from: 'gemini-2.5-pro', to: 'gemini-3.1-pro' },
+  { provider: PROVIDER_GITHUB_COPILOT, from: 'claude-sonnet-4.5', to: 'claude-sonnet-5' },
+  { provider: PROVIDER_GITHUB_COPILOT, from: 'claude-sonnet-4.6', to: 'claude-sonnet-5' },
+  { provider: PROVIDER_GITHUB_COPILOT, from: 'gemini-3.1-pro', to: COPILOT_GEMINI_SUCCESSOR },
+  { provider: PROVIDER_GITHUB_COPILOT, from: 'gemini-3.1-pro-preview', to: COPILOT_GEMINI_SUCCESSOR },
+  { provider: PROVIDER_GITHUB_COPILOT, from: 'gemini-2.5-pro', to: COPILOT_GEMINI_SUCCESSOR },
   { provider: PROVIDER_GITHUB_COPILOT, from: 'gemini-3-flash', to: 'gemini-3.5-flash' },
+  { provider: PROVIDER_GITHUB_COPILOT, from: 'raptor-mini', to: COPILOT_SMALL_CODE_SUCCESSOR },
+  { provider: PROVIDER_GITHUB_COPILOT, from: 'raptor-mini-preview', to: COPILOT_SMALL_CODE_SUCCESSOR },
+  { provider: PROVIDER_GITHUB_COPILOT, from: 'mai-code-1-flash', to: COPILOT_SMALL_CODE_SUCCESSOR },
+  { provider: PROVIDER_OPENAI_CODEX, from: 'gpt-5.4', to: 'gpt-6-sol' },
+  { provider: PROVIDER_OPENAI_CODEX, from: 'gpt-5.4-mini', to: 'gpt-6-luna' },
   { provider: PROVIDER_OPENAI_CODEX, from: 'gpt-5.2', to: 'gpt-5.5' },
   { provider: PROVIDER_OPENAI_CODEX, from: 'gpt-5.3-codex', to: 'gpt-5.5' },
   { provider: PROVIDER_OPENAI_CODEX, from: 'gpt-5.3-codex-spark', to: 'gpt-5.5' },
+  { provider: PROVIDER_OPENCODE, from: 'opencode/deepseek-v4-flash-free', to: 'opencode/nemotron-3.5-lightning-free' },
+  { provider: PROVIDER_OPENCODE, from: 'opencode/ling-3.0-tiny-free', to: 'opencode/ling-3.0-flash-fin-free' },
 ];
 
 /** Codex retired the 'minimal' reasoning-effort level (codex CLI >= 0.145); 'low' succeeds it. */
@@ -472,7 +501,7 @@ export const SettingsSchema = z.object({
          * a plain same-model fresh-attempt retry — instead of settling immediately.
          *
          * On an escalatable exit the generator climbs one rung up the merged ladder ({@link
-         * escalationMap} over the built-in `DEFAULT_ESCALATION_MAP`) across successive failures, bounded
+         * escalationMap} over the generator provider's built-in ladder) across successive failures, bounded
          * by `maxAttempts`; each climb hands the targeted prior critique to the stronger model. The
          * "change your approach" directive is NOT injected on a model bump — it fires only once the
          * generator reaches the top of the ladder, as a same-model nudge (one more attempt on the same
@@ -486,10 +515,11 @@ export const SettingsSchema = z.object({
          */
         escalateOnPlateau: z.boolean().default(true),
         /**
-         * User overrides for the built-in `DEFAULT_ESCALATION_MAP` (in
+         * User overrides for the built-in per-provider `DEFAULT_ESCALATION_LADDERS` (in
          * `business/task/escalation-map.ts`). Keys are the current model id, values the model id
-         * to escalate to. Empty by default; merged at read time with user keys winning on
-         * conflict and extending the default ladder. Non-string entries fail schema validation
+         * to escalate to. Flat on purpose: it applies to whichever provider the generator runs on.
+         * Empty by default; merged at read time over the generator provider's ladder, with user
+         * keys winning on conflict and extending it. Non-string entries fail schema validation
          * with a typed Zod error naming the offending field.
          */
         escalationMap: z.record(z.string(), z.string()).default({}),

@@ -1,4 +1,4 @@
-// Verified against the live CLI (`opencode models`, opencode-ai v1.18.15, 2026-08-08).
+// Verified against the live CLI (`opencode models`, opencode-ai v1.18.32, 2026-09-22).
 // Docs: https://opencode.ai/docs/cli/
 
 /**
@@ -30,26 +30,30 @@
  * `opencode/north-mini-code-free` on opencode-ai v1.18.15, 2026-08-08). `opencode models` keeps
  * listing such ids, so enumeration is not a liveness check — health-probe before promoting an
  * id to a shipped default.
+ *
+ * The 2026-09-22 refresh (opencode-ai v1.18.32) dropped five ids that left the free tier —
+ * `deepseek-v4-flash-free`, `laguna-s-2.1-free`, `ling-3.0-tiny-free`, `longcat-2.0-free`, and
+ * `north-mini-code-free` — and added four. The two with a clear successor are remapped at parse
+ * time (`RETIRED_MODEL_REMAPS` in `domain/entity/settings.ts`); the rest are left for the CLI to
+ * reject, since the adapter forwards OpenCode ids verbatim.
  */
 export type OpencodeModel =
   | 'opencode/big-pickle'
-  | 'opencode/deepseek-v4-flash-free'
-  | 'opencode/laguna-s-2.1-free'
-  | 'opencode/ling-3.0-tiny-free'
-  | 'opencode/longcat-2.0-free'
+  | 'opencode/hy3-free'
+  | 'opencode/ling-3.0-flash-fin-free'
   | 'opencode/mimo-v2.5-free'
+  | 'opencode/muse-spark-1.2-contributor-free'
   | 'opencode/nemotron-3-ultra-free'
-  | 'opencode/north-mini-code-free';
+  | 'opencode/nemotron-3.5-lightning-free';
 
 export const OPENCODE_MODELS: readonly OpencodeModel[] = [
   'opencode/big-pickle',
-  'opencode/deepseek-v4-flash-free',
-  'opencode/laguna-s-2.1-free',
-  'opencode/ling-3.0-tiny-free',
-  'opencode/longcat-2.0-free',
+  'opencode/hy3-free',
+  'opencode/ling-3.0-flash-fin-free',
   'opencode/mimo-v2.5-free',
+  'opencode/muse-spark-1.2-contributor-free',
   'opencode/nemotron-3-ultra-free',
-  'opencode/north-mini-code-free',
+  'opencode/nemotron-3.5-lightning-free',
 ] as const;
 
 /**

@@ -18,10 +18,10 @@
  *
  *  - **Claude (Anthropic)** — 200 000 for the 4.x line (Haiku 4.5 / Sonnet 4.6 / Opus 4.8).
  *    The `[1m]` suffix IS Claude Code's 1M-token long-context selector — the figure comes from
- *    the id itself, not a model card. Sonnet 5 (`claude-sonnet-5`) and Opus 5 (`claude-opus-5`)
- *    are the exception: neither has a `[1m]` variant because on the Anthropic API both ALWAYS run
- *    at their native 1 000 000 window in Claude Code — so the 1M figure is keyed on the bare id
- *    rather than a `[1m]` selector for both.
+ *    the id itself, not a model card. Sonnet 5 (`claude-sonnet-5`), Opus 5 (`claude-opus-5`),
+ *    Opus 5.5 (`claude-opus-5-5`) and Fable 5.1 (`claude-fable-5-1`) are the exception: none has
+ *    a `[1m]` variant because each ALWAYS runs at its native 1 000 000 window in Claude Code — so
+ *    the 1M figure is keyed on the bare id rather than a `[1m]` selector.
  *  - **Copilot / Codex** — omitted; the CLIs do not surface per-model window sizes.
  *  - **Grok (xAI)** — 500 000 for `grok-4.7`, `grok-4.7-build-fast` (same model, faster serving),
  *    `grok-4.6`, and `grok-4.5` (docs.x.ai).
@@ -39,6 +39,9 @@ const CONTEXT_WINDOW: Readonly<Record<string, number>> = {
   'claude-sonnet-5': 1_000_000,
   // Opus 5 — natively 1M in Claude Code — no `[1m]` selector; the bare id carries the figure.
   'claude-opus-5': 1_000_000,
+  // Opus 5.5 and Fable 5.1 — natively 1M (default AND max) in Claude Code, no `[1m]` selector.
+  'claude-opus-5-5': 1_000_000,
+  'claude-fable-5-1': 1_000_000,
   // `[1m]` is Claude Code's 1M-token long-context selector — the window IS the id suffix.
   'claude-opus-4-8[1m]': 1_000_000,
   'claude-fable-5[1m]': 1_000_000,

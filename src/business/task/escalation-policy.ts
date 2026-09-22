@@ -39,7 +39,8 @@ const triggerLabel = (trigger: EscalationTrigger): string =>
  *   - `flagOn`              — `settings.harness.escalateOnPlateau` (gates ALL failure-driven
  *                             escalation, not only plateau — the flag name is retained for
  *                             backward compatibility).
- *   - `userMap`             — `settings.harness.escalationMap`; merged over the built-in default.
+ *   - `userMap`             — `settings.harness.escalationMap`; merged over the built-in ladder
+ *                             for `generatorProvider` (no provider → only the user's rungs).
  *   - `fallbackMaxAttempts` — effective attempt budget when `task.maxAttempts` is unset (legacy
  *                             tasks planned before the field existed); wired from
  *                             `settings.harness.maxAttempts`.
@@ -53,12 +54,12 @@ const triggerLabel = (trigger: EscalationTrigger): string =>
  * same policy returns `escalate` repeatedly until the generator reaches the top of the model ladder.
  * At the top — before spending the same-model `nudge` — the policy tries a same-model EFFORT rung
  * (`escalate-effort`) when the provider/model exposes an effort dimension and the generator has
- * headroom. The target is provider-aware ({@link nextEffortRung}): Claude climbs its own tiers (…→
- * `xhigh` → `max`) because Claude Code's default is already `xhigh` on xhigh-capable models;
- * Copilot steps to a fixed `high`; Codex to a fixed `xhigh`. A further failure then nudges, and a failure after the nudge
- * tops out. The effort rung is what activates a live remedy for the shipped default posture
- * (`claude-opus-5`, effort unset → `max`, which sits at the top of the model ladder with no
- * stronger rung above it).
+ * headroom. The target is provider-aware ({@link nextEffortRung}): Claude climbs one tier above its
+ * effective effort (the explicit level, or the model's CLI default — `medium` on Opus 5.5, `high`
+ * elsewhere); Copilot steps to a fixed `high`; Codex to a fixed `xhigh`. A further failure then
+ * nudges, and a failure after the nudge tops out. The effort rung is what gives a generator that
+ * already sits at the top of its provider's model ladder (e.g. `claude-opus-5-5`) a live remedy
+ * before the nudge.
  *
  * Outputs (discriminated):
  *   - `escalate`          — a stronger model rung exists above `generatorModel`; caller re-stamps
@@ -160,19 +161,20 @@ export interface DecideEscalationProps {
    */
   readonly fallbackMaxAttempts: number;
   /**
-   * Provider the generator role runs on — read only to decide whether the same-model EFFORT rung
-   * ({@link EscalationDecision} `escalate-effort`) is available (a provider without an effort
-   * dimension skips it). OPTIONAL: a caller that does not supply it (or supplies `undefined`) gets
-   * the pre-effort-rung behaviour unchanged — the policy never returns `escalate-effort` and falls
-   * straight through to the same-model nudge at the top of the model ladder.
+   * Provider the generator role runs on. Selects the built-in model ladder
+   * (`DEFAULT_ESCALATION_LADDERS[provider]`) the user map is merged over, and decides whether the
+   * same-model EFFORT rung ({@link EscalationDecision} `escalate-effort`) is available (a provider
+   * without an effort dimension skips it). OPTIONAL: a caller that does not supply it (or supplies
+   * `undefined`) climbs only the user's `escalationMap` rungs and never gets `escalate-effort` —
+   * the policy falls straight through to the same-model nudge at the top of that ladder.
    */
   readonly generatorProvider?: AiProvider | undefined;
   /**
    * The generator's currently-resolved reasoning effort (`resolveEffort`/`resolveEffortForRow`), or
    * `undefined` for the CLI default. Read alongside {@link generatorProvider} and
    * {@link generatorModel} to decide whether the effort rung has headroom — the target is
-   * provider/model-aware ({@link nextEffortRung}): Claude climbs its own tiers (unset on an
-   * xhigh-capable model → `max`), Copilot steps to a fixed `high`, Codex to a fixed `xhigh`, and a
+   * provider/model-aware ({@link nextEffortRung}): Claude climbs one tier above its effective effort
+   * (unset → the model's CLI default), Copilot steps to a fixed `high`, Codex to a fixed `xhigh`, and a
    * generator already at its ceiling falls through to the nudge. OPTIONAL for the same
    * backward-compatibility reason as {@link generatorProvider}.
    */
@@ -303,7 +305,7 @@ export const decideEscalation = (props: DecideEscalationProps): EscalationDecisi
 
   if (!props.flagOn) return { kind: 'flag-off' };
   if (budgetExhausted) return budgetExhaustedDecision;
-  const merged = mergeEscalationMap(props.userMap);
+  const merged = mergeEscalationMap(props.userMap, props.generatorProvider);
   const next = merged[props.generatorModel];
   if (hasStrongerModelRung(merged, props.generatorModel, next)) {
     // A stronger rung exists above the model the just-finished attempt ran on. Climb to it. This
@@ -321,10 +323,9 @@ export const decideEscalation = (props: DecideEscalationProps): EscalationDecisi
   }
   // Cheapest remedy before the change-of-approach nudge: raise reasoning effort on the SAME model
   // when the provider/model exposes an effort dimension and there is headroom. The target is
-  // provider/model-aware (nextEffortRung): Claude climbs its own tiers (unset on an xhigh-capable
-  // model → `max`, so the shipped default `claude-opus-5` gets a live escalation step instead of
-  // settling done-with-warning after one nudge), Copilot steps to a fixed `high`, Codex to a fixed
-  // `xhigh`. Skipped gracefully (falls through to the nudge) when the caller supplied no
+  // provider/model-aware (nextEffortRung): Claude climbs one tier above its effective effort (so a
+  // generator at the top of its model ladder gets a live escalation step instead of settling
+  // done-with-warning after one nudge), Copilot steps to a fixed `high`, Codex to a fixed `xhigh`. Skipped gracefully (falls through to the nudge) when the caller supplied no
   // provider/effort context, the provider/model has no effort knob, or the generator is already
   // at its ceiling.
   const effortTarget = nextEffortRung(props.generatorProvider, props.generatorModel, props.generatorEffort);
