@@ -190,8 +190,10 @@ opencode models | grep free
 
 ## Grok Build CLI
 
-Runs every flow, backed by an xAI account. Catalog models are `grok-4.6` (flagship / default) and
-`grok-4.5`, each with a 500k context window. Flag surface and permission semantics verified against
+Runs every flow, backed by an xAI account. Catalog models, probed with `grok models` on Grok Build
+CLI 1.0.40 (2026-09-22), are `grok-4.7` (flagship / CLI default), `grok-4.7-build-fast` (same model
+on faster serving, twice the token price, not on the free tier), `grok-4.6`, and `grok-4.5`. Each
+published window is 500k. Flag surface and permission semantics verified against
 Grok Build CLI 1.0.30's shipped CLI reference on 2026-09-15; the minimum supported version is
 1.0.13, where the interactive adapter's `-s` lands.
 
@@ -204,7 +206,7 @@ irm https://x.ai/cli/install.ps1 | iex
 npm i -g @xai-official/grok
 
 grok login
-ralphctl settings apply-preset grok-only
+ralphctl settings apply-preset grok-only          # or grok-economic / grok-strong-gate / grok-fast / grok-frontier
 ```
 
 Headless delivers the prompt via `--prompt-file grok-prompt.md` (never stdin — a failed write fails
@@ -236,7 +238,7 @@ persists the decision in its trust store, so a ralphctl run leaves the repo (and
 it used) trusted for your own later `grok` sessions.
 
 Effort is forwarded as `--effort` on both surfaces, so plateau escalation can raise effort on the
-same model, then climb `grok-4.5` → `grok-4.6`. Doctor cannot check whether you are signed in —
+same model, then climb `grok-4.5` → `grok-4.6` → `grok-4.7`. Doctor cannot check whether you are signed in —
 sign in with `grok login`. The availability probe is passthrough (not `grok models`).
 
 Reads `AGENTS.md` (shared with Codex and OpenCode). Codex, OpenCode, and Grok share one repo-root

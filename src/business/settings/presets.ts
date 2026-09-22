@@ -1,14 +1,23 @@
 import type { AiSettings, Settings } from '@src/domain/entity/settings.ts';
+import {
+  GROK_ECONOMIC,
+  GROK_FAST,
+  GROK_FRONTIER,
+  GROK_ONLY,
+  GROK_STRONG_GATE,
+} from '@src/business/settings/grok-preset-matrices.ts';
 
 /**
  * Settings preset identifiers. Each preset is a one-shot snapshot of the AI section —
  * applying it stamps `ai.effort` plus all five per-flow rows. Preset identity is NOT
  * persisted; the next per-row edit sticks and nothing remembers which preset was applied.
  *
- * Twenty-two shipped presets across five families (four each, plus `opencode-only` and `grok-only`
- * in the standard family), all equally first-class — no preset is marked "recommended" or
- * "default". Each family carries a `mixed` variant plus one per single provider, in that order.
- * The families:
+ * Twenty-six shipped presets across five families, all equally first-class — no preset is
+ * marked "recommended" or "default". Economic, strong-gate, fast, and frontier each carry five
+ * variants (`mixed`, then claude / copilot / codex / grok). The standard family also carries
+ * `opencode-only`: OpenCode stays a single preset because every free-tier model sits at the
+ * same (zero) price, so a cheaper or frontier variant would differ in name only. Each family
+ * lists `mixed` first, then one variant per single provider. The families:
  *   standard      — `mixed` routes each flow to the best provider for that flow's purpose;
  *                   `<provider>-only` routes every flow to that one provider.
  *   economic      — mirror the standard routings but start `implement` one tier below the
@@ -19,8 +28,9 @@ import type { AiSettings, Settings } from '@src/domain/entity/settings.ts';
  *                   `mixed-frontier` split by provider, at the same tier).
  *   fast          — cheapest viable tier at `low` effort, optimising speed/cost over quality;
  *                   the only family with `escalateOnPlateau` stamped OFF so a plateau settles.
- *   frontier      — flagship everywhere at `max` effort (tops out at Opus 5 / GPT-5.6 Sol; codex
- *                   is no longer floored — the 5.6 flagship accepts `max` directly).
+ *   frontier      — flagship everywhere at `max` effort (tops out at Opus 5 / GPT-5.6 Sol /
+ *                   Grok 4.7; codex is no longer floored — the 5.6 flagship accepts `max`
+ *                   directly). `grok-4.7-build-fast` stays opt-in: same model, twice the price.
  *
  * Applying a preset stamps the AI section AND `harness.escalateOnPlateau` — plus, for the economic
  * family only, `harness.bestOfNCandidates: 0` (its explicit cost opt-out). Preset identity is
@@ -37,18 +47,22 @@ export type PresetName =
   | 'claude-economic'
   | 'copilot-economic'
   | 'codex-economic'
+  | 'grok-economic'
   | 'mixed-strong-gate'
   | 'claude-strong-gate'
   | 'copilot-strong-gate'
   | 'codex-strong-gate'
+  | 'grok-strong-gate'
   | 'mixed-fast'
   | 'claude-fast'
   | 'copilot-fast'
   | 'codex-fast'
+  | 'grok-fast'
   | 'mixed-frontier'
   | 'claude-frontier'
   | 'copilot-frontier'
-  | 'codex-frontier';
+  | 'codex-frontier'
+  | 'grok-frontier';
 
 export const PRESET_NAMES: readonly PresetName[] = [
   'mixed',
@@ -61,18 +75,22 @@ export const PRESET_NAMES: readonly PresetName[] = [
   'claude-economic',
   'copilot-economic',
   'codex-economic',
+  'grok-economic',
   'mixed-strong-gate',
   'claude-strong-gate',
   'copilot-strong-gate',
   'codex-strong-gate',
+  'grok-strong-gate',
   'mixed-fast',
   'claude-fast',
   'copilot-fast',
   'codex-fast',
+  'grok-fast',
   'mixed-frontier',
   'claude-frontier',
   'copilot-frontier',
   'codex-frontier',
+  'grok-frontier',
 ] as const;
 
 export const isPresetName = (raw: string): raw is PresetName => (PRESET_NAMES as readonly string[]).includes(raw);
@@ -92,9 +110,6 @@ const CLAUDE = 'claude-code';
 const COPILOT = 'github-copilot';
 const CODEX = 'openai-codex';
 const OPENCODE = 'opencode';
-const GROK = 'xai-grok';
-const GROK_FLAGSHIP = 'grok-4.6';
-const GROK_PREV = 'grok-4.5';
 /** OpenCode free-tier picks — see the note on OPENCODE_ONLY. */
 const OPENCODE_BIG = 'opencode/big-pickle';
 // The free tier rotates and individual ids go dark upstream (a 401 on one model while its
@@ -207,19 +222,6 @@ const OPENCODE_ONLY: AiSettings = {
   createPr: { provider: OPENCODE, model: OPENCODE_MINI },
 };
 
-const GROK_ONLY: AiSettings = {
-  effort: 'high',
-  refine: { provider: GROK, model: GROK_PREV },
-  plan: { provider: GROK, model: GROK_FLAGSHIP, effort: 'xhigh' },
-  implement: {
-    generator: { provider: GROK, model: GROK_FLAGSHIP, effort: 'xhigh' },
-    evaluator: { provider: GROK, model: GROK_FLAGSHIP, effort: 'xhigh' },
-  },
-  readiness: { provider: GROK, model: GROK_PREV, effort: 'medium' },
-  ideate: { provider: GROK, model: GROK_FLAGSHIP },
-  createPr: { provider: GROK, model: GROK_PREV },
-};
-
 const CODEX_ONLY: AiSettings = {
   effort: 'high',
   refine: { provider: CODEX, model: GPT_5_6_TERRA },
@@ -234,7 +236,7 @@ const CODEX_ONLY: AiSettings = {
 };
 
 /**
- * Economic preset matrices — ADDITIONAL to the four standard presets above; they do not
+ * Economic preset matrices — ADDITIONAL to the standard presets above; they do not
  * replace them. Strategy: quality held, money saved. `implement` starts one tier BELOW the
  * provider's flagship at `high` effort (rather than at the flagship), the evaluator shares
  * that cheaper row, and `refine` / `readiness` / `ideate` / `createPr` route to the cheap
@@ -247,9 +249,8 @@ const CODEX_ONLY: AiSettings = {
  * column instead: its light rows pin `low` explicitly. Implement.generator and
  * implement.evaluator share the same row — splitting roles is an explicit per-row edit, not a preset.
  *
- * `refine` / `readiness` / `createPr` drop to the cheap tier across all four; `ideate` drops a
- * tier too, in every family including `codex-economic` — the GPT-5.6 family's `terra` tier is
- * the intermediate tier the cheap-ideation row needed. On `claude-economic` "cheap tier" means
+ * `refine` / `readiness` / `createPr` drop to the cheap tier across the family; `ideate` drops one
+ * tier (`gpt-5.6-terra` on Codex, `grok-4.6` on Grok). On `claude-economic` "cheap tier" means
  * sonnet pinned at `low`, since Haiku 4.5 is retiring with no Haiku 5 successor (see SONNET).
  *
  * This is also the one family that pins `harness.bestOfNCandidates` to `0` (see {@link PRESETS}).
@@ -480,7 +481,8 @@ const CODEX_FAST: AiSettings = {
  * even though it is the catalog tier above Opus 5: Fable is 2x the Opus price, an operator spend
  * decision rather than a flagship default, so the flagship-everywhere story stops at Opus 5.
  * Opting in is a one-line model swap on the implement / plan rows here, or an `escalationMap`
- * rung (`'claude-opus-5': 'claude-fable-5'`).
+ * rung (`'claude-opus-5': 'claude-fable-5'`). `grok-frontier` likewise stops at `grok-4.7`;
+ * `grok-4.7-build-fast` is the same model at 2× the token price and stays opt-in.
  */
 const MIXED_FRONTIER: AiSettings = {
   effort: 'max',
@@ -558,18 +560,22 @@ const PRESETS: Readonly<
   'claude-economic': { ai: CLAUDE_ECONOMIC, escalateOnPlateau: true, bestOfNCandidates: 0 },
   'copilot-economic': { ai: COPILOT_ECONOMIC, escalateOnPlateau: true, bestOfNCandidates: 0 },
   'codex-economic': { ai: CODEX_ECONOMIC, escalateOnPlateau: true, bestOfNCandidates: 0 },
+  'grok-economic': { ai: GROK_ECONOMIC, escalateOnPlateau: true, bestOfNCandidates: 0 },
   'mixed-strong-gate': { ai: MIXED_STRONG_GATE, escalateOnPlateau: true },
   'claude-strong-gate': { ai: CLAUDE_STRONG_GATE, escalateOnPlateau: true },
   'copilot-strong-gate': { ai: COPILOT_STRONG_GATE, escalateOnPlateau: true },
   'codex-strong-gate': { ai: CODEX_STRONG_GATE, escalateOnPlateau: true },
+  'grok-strong-gate': { ai: GROK_STRONG_GATE, escalateOnPlateau: true },
   'mixed-fast': { ai: MIXED_FAST, escalateOnPlateau: false },
   'claude-fast': { ai: CLAUDE_FAST, escalateOnPlateau: false },
   'copilot-fast': { ai: COPILOT_FAST, escalateOnPlateau: false },
   'codex-fast': { ai: CODEX_FAST, escalateOnPlateau: false },
+  'grok-fast': { ai: GROK_FAST, escalateOnPlateau: false },
   'mixed-frontier': { ai: MIXED_FRONTIER, escalateOnPlateau: true },
   'claude-frontier': { ai: CLAUDE_FRONTIER, escalateOnPlateau: true },
   'copilot-frontier': { ai: COPILOT_FRONTIER, escalateOnPlateau: true },
   'codex-frontier': { ai: CODEX_FRONTIER, escalateOnPlateau: true },
+  'grok-frontier': { ai: GROK_FRONTIER, escalateOnPlateau: true },
 };
 
 /**

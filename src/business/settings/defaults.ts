@@ -23,6 +23,10 @@ const GPT_5_6_SOL = 'gpt-5.6-sol';
  */
 const OPENCODE_BIG = 'opencode/big-pickle';
 const OPENCODE_MINI = 'opencode/deepseek-v4-flash-free';
+// Same split as `GROK_ONLY` in grok-preset-matrices.ts. Probed with `grok models` on grok 1.0.40 (2026-09-22).
+const GROK_FLAGSHIP = 'grok-4.7';
+const GROK_MID = 'grok-4.6';
+const GROK_CHEAP = 'grok-4.5';
 
 /**
  * Per-provider, per-flow default model picks. Used by the welcome flow when the user picks a
@@ -75,12 +79,12 @@ const DEFAULT_MODELS_BY_PROVIDER: Readonly<Record<AiProvider, Readonly<Record<Fl
     createPr: OPENCODE_MINI,
   },
   'xai-grok': {
-    refine: 'grok-4.5',
-    plan: 'grok-4.6',
-    implement: 'grok-4.6',
-    readiness: 'grok-4.5',
-    ideate: 'grok-4.6',
-    createPr: 'grok-4.5',
+    refine: GROK_MID,
+    plan: GROK_FLAGSHIP,
+    implement: GROK_FLAGSHIP,
+    readiness: GROK_CHEAP,
+    ideate: GROK_FLAGSHIP,
+    createPr: GROK_CHEAP,
   },
 };
 

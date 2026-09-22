@@ -10,7 +10,7 @@ import { isCopilotModel } from '@src/domain/value/settings-models/copilot.ts';
 import { isGrokModel } from '@src/domain/value/settings-models/grok.ts';
 import { mergeEscalationMap } from '@src/business/task/escalation-map.ts';
 
-/** The exact 22-preset order — 5 families × 4, plus OpenCode and Grok in the standard family (mixed-first within each family). */
+/** The exact 26-preset order — mixed first within each family; OpenCode stays standard-only. */
 const EXPECTED_PRESET_ORDER: readonly PresetName[] = [
   'mixed',
   'claude-only',
@@ -22,18 +22,22 @@ const EXPECTED_PRESET_ORDER: readonly PresetName[] = [
   'claude-economic',
   'copilot-economic',
   'codex-economic',
+  'grok-economic',
   'mixed-strong-gate',
   'claude-strong-gate',
   'copilot-strong-gate',
   'codex-strong-gate',
+  'grok-strong-gate',
   'mixed-fast',
   'claude-fast',
   'copilot-fast',
   'codex-fast',
+  'grok-fast',
   'mixed-frontier',
   'claude-frontier',
   'copilot-frontier',
   'codex-frontier',
+  'grok-frontier',
 ];
 
 const ECONOMIC_PRESETS: readonly PresetName[] = [
@@ -41,10 +45,11 @@ const ECONOMIC_PRESETS: readonly PresetName[] = [
   'claude-economic',
   'copilot-economic',
   'codex-economic',
+  'grok-economic',
 ];
 
-/** The four fast presets — the only family with escalateOnPlateau stamped OFF. */
-const FAST_PRESETS: readonly PresetName[] = ['mixed-fast', 'claude-fast', 'copilot-fast', 'codex-fast'];
+/** The fast presets — the only family with escalateOnPlateau stamped OFF. */
+const FAST_PRESETS: readonly PresetName[] = ['mixed-fast', 'claude-fast', 'copilot-fast', 'codex-fast', 'grok-fast'];
 
 /** Strong-gate presets intentionally split generator and evaluator onto different models. */
 const STRONG_GATE_PRESETS: readonly PresetName[] = [
@@ -52,6 +57,7 @@ const STRONG_GATE_PRESETS: readonly PresetName[] = [
   'claude-strong-gate',
   'copilot-strong-gate',
   'codex-strong-gate',
+  'grok-strong-gate',
 ];
 
 /**
@@ -68,6 +74,7 @@ const ECONOMIC_TO_STANDARD: Readonly<Record<string, PresetName>> = {
   'claude-economic': 'claude-only',
   'copilot-economic': 'copilot-only',
   'codex-economic': 'codex-only',
+  'grok-economic': 'grok-only',
 };
 
 /** Walk the (acyclic) default ladder from `start` to its terminal rung. */
@@ -102,9 +109,9 @@ const modelGuardFor = (provider: AiProvider): ((s: string) => boolean) => {
 };
 
 describe('presets', () => {
-  it('exposes all twenty-two preset names in the canonical five-family order', () => {
+  it('exposes all twenty-six preset names in the canonical five-family order', () => {
     expect([...PRESET_NAMES]).toEqual([...EXPECTED_PRESET_ORDER]);
-    expect(PRESET_NAMES).toHaveLength(22);
+    expect(PRESET_NAMES).toHaveLength(26);
   });
 
   it('includes each economic preset in PRESET_NAMES', () => {
@@ -287,7 +294,7 @@ describe('presets', () => {
     }
   });
 
-  it('isPresetName accepts all twenty-two preset names and rejects garbage', () => {
+  it('isPresetName accepts all twenty-six preset names and rejects garbage', () => {
     for (const preset of EXPECTED_PRESET_ORDER) {
       expect(isPresetName(preset), preset).toBe(true);
     }
@@ -391,7 +398,7 @@ describe('presets', () => {
       });
     }
 
-    it('the four fast presets stamp global ai.effort to low', () => {
+    it('the fast presets stamp global ai.effort to low', () => {
       for (const preset of FAST_PRESETS) {
         const out = applyPreset(preset, DEFAULT_SETTINGS);
         expect(out.ai.effort, preset).toBe('low');
@@ -419,6 +426,7 @@ describe('presets', () => {
       expect(applyPreset('claude-frontier', DEFAULT_SETTINGS).ai.effort).toBe('max');
       expect(applyPreset('copilot-frontier', DEFAULT_SETTINGS).ai.effort).toBe('max');
       expect(applyPreset('codex-frontier', DEFAULT_SETTINGS).ai.effort).toBe('max');
+      expect(applyPreset('grok-frontier', DEFAULT_SETTINGS).ai.effort).toBe('max');
     });
 
     describe("'mixed' preset matrix", () => {
@@ -555,6 +563,7 @@ describe('presets', () => {
           ['claude-frontier', 'claude-opus-5', 'claude-opus-5', 'max'],
           ['copilot-frontier', 'claude-opus-4.8', 'claude-opus-4.8', 'max'],
           ['codex-frontier', 'gpt-5.6-sol', 'gpt-5.6-sol', 'max'],
+          ['grok-frontier', 'grok-4.7', 'grok-4.7', 'max'],
         ];
         for (const [preset, generatorModel, evaluatorModel, effort] of cases) {
           const out = applyPreset(preset, DEFAULT_SETTINGS);
@@ -599,16 +608,28 @@ describe('presets', () => {
       });
     }
 
-    it('grok-only stamps grok-4.6 on implement/plan/ideate and grok-4.5 on refine/readiness/createPr', () => {
+    it('grok-only stamps grok-4.7 on implement/plan/ideate, grok-4.6 on refine, and grok-4.5 on readiness/createPr', () => {
       const out = applyPreset('grok-only', DEFAULT_SETTINGS);
       expect(out.ai.effort).toBe('high');
-      expect(out.ai.implement.generator.model).toBe('grok-4.6');
-      expect(out.ai.implement.evaluator.model).toBe('grok-4.6');
-      expect(out.ai.plan.model).toBe('grok-4.6');
-      expect(out.ai.ideate.model).toBe('grok-4.6');
-      expect(out.ai.refine.model).toBe('grok-4.5');
+      expect(out.ai.implement.generator.model).toBe('grok-4.7');
+      expect(out.ai.implement.evaluator.model).toBe('grok-4.7');
+      expect(out.ai.plan.model).toBe('grok-4.7');
+      expect(out.ai.ideate.model).toBe('grok-4.7');
+      expect(out.ai.refine.model).toBe('grok-4.6');
       expect(out.ai.readiness.model).toBe('grok-4.5');
       expect(out.ai.createPr.model).toBe('grok-4.5');
+    });
+
+    it('grok-4.7-build-fast stays opt-in — no preset row references it', () => {
+      for (const preset of PRESET_NAMES) {
+        const out = applyPreset(preset, DEFAULT_SETTINGS);
+        for (const flow of FLOW_IDS) {
+          const rows = flow === 'implement' ? [out.ai.implement.generator, out.ai.implement.evaluator] : [out.ai[flow]];
+          for (const row of rows) {
+            expect(row.model, `${preset}/${flow}`).not.toBe('grok-4.7-build-fast');
+          }
+        }
+      }
     });
 
     it('leaves no preset identity behind — a subsequent manual edit sticks', () => {
