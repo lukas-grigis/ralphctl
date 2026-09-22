@@ -4,8 +4,9 @@
  * `Step` is a discriminated union covering the full lifecycle, which now LOOPS so the user can
  * append several tickets without re-entering the view each time:
  *   link → (fetching → title prefilled OR fetch-failed → title manual) → description → confirm
+ *   then (ask-create, when the ticket has no link and the first repo origin resolves)
  *   then saving → added → (YES: back to a fresh `link` for the next ticket) OR (NO: pop)
- *                       OR error.
+ *                       OR error / create-failed.
  *
  * The `added` step is the success branch of a save: it shows a one-line acknowledgement plus the
  * running session count and an "Add another ticket?" confirm. Answering YES resets the machine to
@@ -13,10 +14,17 @@
  * `title` (for the success copy) and the `count` of tickets added this session so far.
  *
  * `backStep` returns the predecessor step the wizard should land on for Esc-as-back. Returns
- * `undefined` when Esc should cancel the whole view (first step, terminal saving/error states,
- * mid-fetch) or when the step is a confirm-driven terminal-ish branch (`added`) whose navigation
- * is owned by its own Yes/No prompt rather than Esc-as-back.
+ * `undefined` when Esc should cancel the whole view (first step, `saving`, mid-fetch) or when the
+ * step is a confirm-driven terminal-ish branch (`added` / `error` / `create-failed`) whose
+ * navigation is owned by its own Yes/No prompt rather than Esc-as-back.
  */
+
+export interface TicketDraft {
+  readonly title: string;
+  readonly description: string;
+  readonly link: string;
+  readonly createTrackerIssue?: boolean;
+}
 
 export type Step =
   | { readonly kind: 'link' }
@@ -40,9 +48,21 @@ export type Step =
       readonly title: string;
       readonly description: string;
     }
+  | {
+      readonly kind: 'ask-create';
+      readonly link: string;
+      readonly title: string;
+      readonly description: string;
+    }
   | { readonly kind: 'saving' }
   | { readonly kind: 'added'; readonly title: string; readonly count: number }
-  | { readonly kind: 'error'; readonly message: string };
+  | { readonly kind: 'error'; readonly message: string }
+  | {
+      readonly kind: 'create-failed';
+      readonly message: string;
+      /** What happened to the local ticket and how to recover — see `persistTicket`. */
+      readonly hint: string;
+    };
 
 export const backStep = (step: Step): Step | undefined => {
   switch (step.kind) {
@@ -69,9 +89,17 @@ export const backStep = (step: Step): Step | undefined => {
         title: step.title,
         descriptionInitial: step.description,
       };
+    case 'ask-create':
+      return {
+        kind: 'confirm',
+        link: step.link,
+        title: step.title,
+        description: step.description,
+      };
     case 'saving':
     case 'added':
     case 'error':
+    case 'create-failed':
       return undefined;
   }
 };

@@ -1,8 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createFsSprintRepository } from '@src/integration/persistence/sprint/repository.ts';
+import { createFsProjectRepository } from '@src/integration/persistence/project/repository.ts';
 import { createLastSelectionStore } from '@src/integration/persistence/selection/last-selection-store.ts';
 import { addTicket } from '@src/domain/entity/sprint.ts';
-import { makeApprovedTicket, makeDraftSprint, makePendingTicket, makePlannedSprint } from '@tests/fixtures/domain.ts';
+import {
+  makeApprovedTicket,
+  makeDraftSprint,
+  makePendingTicket,
+  makePlannedSprint,
+  makeProject,
+} from '@tests/fixtures/domain.ts';
 import { type CliHome, createCliHome, runCliCaptured } from '@tests/e2e/cli/_harness.ts';
 
 describe('ralphctl ticket', () => {
@@ -228,6 +235,78 @@ describe('ralphctl ticket', () => {
       const reloaded = await repo.findById(sprint.id);
       if (!reloaded.ok) throw new Error('reload failed');
       expect(reloaded.value.tickets.map((t) => t.id)).toEqual([ticket.id]);
+    });
+  });
+
+  describe('publish <ticketId>', () => {
+    it('exits 1 when the ticket does not exist on the sprint', async () => {
+      const sprintRepo = createFsSprintRepository({ root: cli.paths.dataRoot });
+      const projectRepo = createFsProjectRepository({ root: cli.paths.dataRoot });
+      const sprint = makeDraftSprint();
+      await sprintRepo.save(sprint);
+      await projectRepo.save(makeProject());
+
+      const result = await runCliCaptured(cli, [
+        'ticket',
+        'publish',
+        '01900000-0000-7000-8000-00000000ffff',
+        '--sprint',
+        String(sprint.id),
+      ]);
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain('not found');
+    });
+
+    it('exits 1 when the ticket id is not a UUIDv7', async () => {
+      const sprintRepo = createFsSprintRepository({ root: cli.paths.dataRoot });
+      const sprint = makeDraftSprint();
+      await sprintRepo.save(sprint);
+
+      const result = await runCliCaptured(cli, ['ticket', 'publish', 'not-a-uuid', '--sprint', String(sprint.id)]);
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain('invalid ticket id');
+    });
+
+    it('exits 1 on tracker failure and leaves the ticket unlinked', async () => {
+      const sprintRepo = createFsSprintRepository({ root: cli.paths.dataRoot });
+      const projectRepo = createFsProjectRepository({ root: cli.paths.dataRoot });
+      const ticket = makePendingTicket({ title: 'needs a tracker' });
+      const seeded = addTicket(makeDraftSprint(), ticket);
+      if (!seeded.ok) throw new Error('fixture: addTicket failed');
+      await sprintRepo.save(seeded.value);
+      await projectRepo.save(makeProject());
+
+      const result = await runCliCaptured(cli, [
+        'ticket',
+        'publish',
+        String(ticket.id),
+        '--sprint',
+        String(seeded.value.id),
+      ]);
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain('error:');
+
+      const reloaded = await sprintRepo.findById(seeded.value.id);
+      if (!reloaded.ok) throw new Error('reload failed');
+      expect(reloaded.value.tickets).toHaveLength(1);
+      expect(reloaded.value.tickets[0]?.link).toBeUndefined();
+    });
+
+    it('names the resolved sprint when falling back to the pin', async () => {
+      const sprintRepo = createFsSprintRepository({ root: cli.paths.dataRoot });
+      const projectRepo = createFsProjectRepository({ root: cli.paths.dataRoot });
+      const sprint = makeDraftSprint();
+      await sprintRepo.save(sprint);
+      await projectRepo.save(makeProject());
+      await createLastSelectionStore(cli.paths.stateRoot).write({
+        projectId: sprint.projectId,
+        sprintId: sprint.id,
+      });
+
+      const result = await runCliCaptured(cli, ['ticket', 'publish', '01900000-0000-7000-8000-00000000ffff']);
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain(`using current sprint ${String(sprint.id)}`);
+      expect(result.stderr).toContain('not found');
     });
   });
 });

@@ -324,6 +324,8 @@ const applyFixedSettingsKey = (current: Settings, key: string, raw: string): Res
       return Result.ok({ ...current, logging: { level: raw as Settings['logging']['level'] } });
     case 'concurrency.maxParallelTasks':
       return applyNumberField(current, key, raw, (c, n) => ({ ...c, concurrency: { maxParallelTasks: n } }));
+    // Key is still addressable so existing settings files and `settings set` keep parsing;
+    // the flag does not post a comment.
     case 'scm.postRefinementComment':
       return applyBooleanField(current, key, raw, (c, b) => ({
         ...c,

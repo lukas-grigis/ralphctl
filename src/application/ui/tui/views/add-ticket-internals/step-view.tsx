@@ -15,14 +15,14 @@ import { TextAreaPrompt } from '@src/application/ui/tui/prompts/text-area-prompt
 import { ConfirmPrompt } from '@src/application/ui/tui/prompts/confirm-prompt.tsx';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import type { IssueFetcher } from '@src/business/scm/issue-fetcher.ts';
-import { backStep, type Step } from '@src/application/ui/tui/views/add-ticket-internals/types.ts';
+import { backStep, type Step, type TicketDraft } from '@src/application/ui/tui/views/add-ticket-internals/types.ts';
 import { ReviewScrollableDescription } from '@src/application/ui/tui/views/add-ticket-internals/review-scrollable-description.tsx';
 
 interface StepViewProps {
   readonly step: Step;
   readonly onChange: (next: Step) => void;
   readonly onCancel: () => void;
-  readonly onSubmit: (s: Extract<Step, { kind: 'confirm' }>) => Promise<void>;
+  readonly onSubmit: (s: TicketDraft) => Promise<void>;
 }
 
 /** Shared context every per-step renderer below needs: how to step back (or cancel on the first
@@ -166,6 +166,23 @@ const renderConfirmStep = (
   );
 };
 
+const renderAskCreateStep = (
+  step: Extract<Step, { kind: 'ask-create' }>,
+  ctx: StepRenderCtx,
+  onSubmit: StepViewProps['onSubmit']
+): React.JSX.Element => (
+  <Box flexDirection="column" paddingX={spacing.indent}>
+    <ConfirmPrompt
+      message="Create a tracker issue?"
+      defaultYes={false}
+      onSubmit={(value) => {
+        void onSubmit({ ...step, createTrackerIssue: value });
+      }}
+      onCancel={ctx.cancelOrBack}
+    />
+  </Box>
+);
+
 const renderSavingStep = (): React.JSX.Element => <Spinner label="saving sprint…" />;
 
 const renderAddedStep = (
@@ -193,10 +210,54 @@ const renderAddedStep = (
   );
 };
 
-const renderErrorStep = (step: Extract<Step, { kind: 'error' }>): React.JSX.Element => (
+/**
+ * Failed save — nothing was written. The wizard claims the prompt channel, so the global Esc
+ * never reaches the router here; the confirm owns the exit instead of leaving a dead end.
+ */
+const renderErrorStep = (
+  step: Extract<Step, { kind: 'error' }>,
+  onChange: StepViewProps['onChange'],
+  onCancel: StepViewProps['onCancel']
+): React.JSX.Element => (
   <Box flexDirection="column" paddingX={spacing.indent}>
-    <Text color={inkColors.error}>✗ {step.message}</Text>
-    <Text dimColor>Press esc to go back.</Text>
+    <Text color={inkColors.error}>
+      {glyphs.cross} {step.message}
+    </Text>
+    <Text dimColor>Nothing was saved.</Text>
+    <Box marginTop={spacing.section}>
+      <ConfirmPrompt
+        message="Start over with a new ticket?"
+        onSubmit={(value) => {
+          if (value) onChange({ kind: 'link' });
+          else onCancel();
+        }}
+        onCancel={onCancel}
+      />
+    </Box>
+  </Box>
+);
+
+/** Tracker step failed after the local save — same confirm-owned exit as the `added` step. */
+const renderCreateFailedStep = (
+  step: Extract<Step, { kind: 'create-failed' }>,
+  onChange: StepViewProps['onChange'],
+  onCancel: StepViewProps['onCancel']
+): React.JSX.Element => (
+  <Box flexDirection="column" paddingX={spacing.indent}>
+    <Text color={inkColors.error}>
+      {glyphs.cross} {step.message}
+    </Text>
+    <Text dimColor>{step.hint}</Text>
+    <Box marginTop={spacing.section}>
+      <ConfirmPrompt
+        message="Add another ticket?"
+        onSubmit={(value) => {
+          if (value) onChange({ kind: 'link' });
+          else onCancel();
+        }}
+        onCancel={onCancel}
+      />
+    </Box>
   </Box>
 );
 
@@ -221,12 +282,16 @@ export const StepView = ({ step, onChange, onCancel, onSubmit }: StepViewProps):
       return renderDescriptionStep(step, ctx);
     case 'confirm':
       return renderConfirmStep(step, ctx, onSubmit);
+    case 'ask-create':
+      return renderAskCreateStep(step, ctx, onSubmit);
     case 'saving':
       return renderSavingStep();
     case 'added':
       return renderAddedStep(step, onChange, onCancel);
     case 'error':
-      return renderErrorStep(step);
+      return renderErrorStep(step, onChange, onCancel);
+    case 'create-failed':
+      return renderCreateFailedStep(step, onChange, onCancel);
   }
 };
 

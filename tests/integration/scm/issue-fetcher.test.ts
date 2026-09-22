@@ -5,6 +5,17 @@ import type { Logger } from '@src/business/observability/logger.ts';
 import { createIssueFetcher, parseGitRemoteUrl, parseIssueUrl } from '@src/integration/scm/issue-fetcher.ts';
 import type { Spawn } from '@src/integration/io/spawn.ts';
 
+/** `glab api` notes read for gitlab.com/foo/bar#5 — glab has no `issue note list` subcommand. */
+const GITLAB_NOTES_ARGS_5 = [
+  'api',
+  '--hostname',
+  'gitlab.com',
+  '--paginate',
+  '--output',
+  'json',
+  'projects/foo%2Fbar/issues/5/notes?per_page=100&sort=asc&order_by=created_at',
+];
+
 const createRecordingLogger = (): {
   readonly logger: Logger;
   readonly warns: string[];
@@ -214,7 +225,7 @@ describe('createIssueFetcher', () => {
       },
       {
         command: 'glab',
-        args: ['issue', 'note', 'list', '5', '--repo', 'gitlab.com/foo/bar', '--output', 'json'],
+        args: GITLAB_NOTES_ARGS_5,
         stdout: '[]',
         exitCode: 0,
       },
@@ -240,7 +251,15 @@ describe('createIssueFetcher', () => {
       },
       {
         command: 'glab',
-        args: ['issue', 'note', 'list', '55', '--repo', 'gitlab.example.internal/team/project', '--output', 'json'],
+        args: [
+          'api',
+          '--hostname',
+          'gitlab.example.internal',
+          '--paginate',
+          '--output',
+          'json',
+          'projects/team%2Fproject/issues/55/notes?per_page=100&sort=asc&order_by=created_at',
+        ],
         stdout: '[]',
         exitCode: 0,
       },
@@ -267,7 +286,7 @@ describe('createIssueFetcher', () => {
       },
       {
         command: 'glab',
-        args: ['issue', 'note', 'list', '5', '--repo', 'gitlab.com/foo/bar', '--output', 'json'],
+        args: GITLAB_NOTES_ARGS_5,
         stdout: JSON.stringify([
           { body: 'first reply', author: { username: 'alice' }, system: false, created_at: '2026-01-01T00:00:00Z' },
           {
@@ -301,7 +320,7 @@ describe('createIssueFetcher', () => {
       },
       {
         command: 'glab',
-        args: ['issue', 'note', 'list', '5', '--repo', 'gitlab.com/foo/bar', '--output', 'json'],
+        args: GITLAB_NOTES_ARGS_5,
         stdout: JSON.stringify([
           { body: 'closed', author: { username: 'bot' }, system: true, created_at: '2026-01-01T00:00:00Z' },
           { body: 'reopened', author: { username: 'bot' }, system: true, created_at: '2026-01-02T00:00:00Z' },
@@ -337,7 +356,7 @@ describe('createIssueFetcher', () => {
       },
       {
         command: 'glab',
-        args: ['issue', 'note', 'list', '5', '--repo', 'gitlab.com/foo/bar', '--output', 'json'],
+        args: GITLAB_NOTES_ARGS_5,
         stdout: JSON.stringify(raw),
         exitCode: 0,
       },
@@ -352,7 +371,7 @@ describe('createIssueFetcher', () => {
     expect(out.value.comments[19]).toEqual({ author: 'u24', body: 'note 24' });
   });
 
-  it('GitLab note-list non-zero exit — issue still returned, comments: [], one warn, no throw', async () => {
+  it('GitLab notes non-zero exit — issue still returned, comments: [], one warn, no throw', async () => {
     const spawn = scriptedSpawn([
       {
         command: 'glab',
@@ -367,7 +386,7 @@ describe('createIssueFetcher', () => {
       },
       {
         command: 'glab',
-        args: ['issue', 'note', 'list', '5', '--repo', 'gitlab.com/foo/bar', '--output', 'json'],
+        args: GITLAB_NOTES_ARGS_5,
         stdout: '',
         stderr: 'permission denied',
         exitCode: 1,
@@ -384,11 +403,11 @@ describe('createIssueFetcher', () => {
     expect(out.value.url).toBe('https://gitlab.com/foo/bar/-/issues/5');
     expect(out.value.comments).toEqual([]);
     expect(warns).toHaveLength(1);
-    expect(warns[0]).toContain('glab issue note list failed');
+    expect(warns[0]).toContain('glab api issue notes failed');
     expect(warns[0]).toContain('permission denied');
   });
 
-  it('GitLab note-list JSON parse error — issue still returned, comments: [], one warn', async () => {
+  it('GitLab notes JSON parse error — issue still returned, comments: [], one warn', async () => {
     const spawn = scriptedSpawn([
       {
         command: 'glab',
@@ -403,7 +422,7 @@ describe('createIssueFetcher', () => {
       },
       {
         command: 'glab',
-        args: ['issue', 'note', 'list', '5', '--repo', 'gitlab.com/foo/bar', '--output', 'json'],
+        args: GITLAB_NOTES_ARGS_5,
         stdout: 'not json',
         exitCode: 0,
       },
@@ -420,7 +439,7 @@ describe('createIssueFetcher', () => {
     expect(warns[0]).toContain('failed to parse');
   });
 
-  it('GitLab note-list spawn error — issue still returned, comments: [], one warn', async () => {
+  it('GitLab notes spawn error — issue still returned, comments: [], one warn', async () => {
     let call = 0;
     const spawn: Spawn = (command, args) => {
       call += 1;
@@ -437,7 +456,7 @@ describe('createIssueFetcher', () => {
           0
         );
       }
-      // Second spawn (`glab issue note list ...`) blows up before producing a child.
+      // Second spawn (`glab api …/notes`) blows up before producing a child.
       throw new Error(`spawn EACCES ${command} ${args.join(' ')}`);
     };
     const { logger, warns } = createRecordingLogger();
@@ -449,7 +468,7 @@ describe('createIssueFetcher', () => {
     expect(out.value.body).toBe('D');
     expect(out.value.comments).toEqual([]);
     expect(warns).toHaveLength(1);
-    expect(warns[0]).toContain('glab issue note list failed');
+    expect(warns[0]).toContain('could not list GitLab notes');
   });
 
   it('unrecognised host → Result.ok(null) without spawning', async () => {

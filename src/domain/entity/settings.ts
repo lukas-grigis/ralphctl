@@ -599,10 +599,9 @@ export const SettingsSchema = z.object({
   scm: z
     .object({
       /**
-       * Governs the default reviewer choice for the refine flow's "Post as comment" action,
-       * and — in non-interactive (CI / headless) runs — whether the refined requirements are
-       * posted as a comment on the linked issue at all. Defaults `false`: the original issue
-       * description is never touched, and posting a comment is strictly opt-in.
+       * Retained so existing settings files parse. Does not select the refine approval default
+       * and does not post a comment — Approve always leads, and commenting is an explicit
+       * "Post as comment" choice on a linked ticket.
        */
       postRefinementComment: z.boolean().default(false),
     })

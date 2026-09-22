@@ -18,7 +18,9 @@ import type {
 } from '@src/integration/ai/providers/_engine/interactive-ai-provider.ts';
 import type { IssueFetcher } from '@src/business/scm/issue-fetcher.ts';
 import type { IssuePusher } from '@src/business/scm/issue-pusher.ts';
+import { refinementCommentBody } from '@src/business/scm/refinement-comment.ts';
 import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
+import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import { parseHttpUrl } from '@src/domain/value/parsers/parse-http-url.ts';
@@ -112,6 +114,43 @@ const fakeInteractiveAiRaw = (payload: (input: InteractiveAiProviderInput) => un
   },
 });
 
+const ISSUE_URL = 'https://github.com/x/y/issues/42';
+
+const parseLink = (url: string) => {
+  const r = parseHttpUrl('link', url);
+  if (!r.ok) throw new Error('test setup');
+  return r.value;
+};
+
+const recordingPusher = (opts?: {
+  comments?: Result<readonly string[], StorageError>;
+  comment?: Result<void, StorageError>;
+}): {
+  pusher: IssuePusher;
+  commentCalls: Array<{ readonly url: string; readonly body: string }>;
+  listCalls: string[];
+} => {
+  const commentCalls: Array<{ readonly url: string; readonly body: string }> = [];
+  const listCalls: string[] = [];
+  const pusher: IssuePusher = {
+    async resolveOrigin() {
+      throw new Error('resolveOrigin should not be called');
+    },
+    async create() {
+      throw new Error('create should not be called');
+    },
+    async listComments(url) {
+      listCalls.push(url);
+      return opts?.comments ?? Result.ok([]);
+    },
+    async comment(url, args) {
+      commentCalls.push({ url, body: args.body });
+      return opts?.comment ?? Result.ok(undefined);
+    },
+  };
+  return { pusher, commentCalls, listCalls };
+};
+
 describe('createRefineFlow — interactive', () => {
   let dir: string;
   beforeEach(async () => {
@@ -152,6 +191,57 @@ describe('createRefineFlow — interactive', () => {
       'sprint.json'
     );
     return json.tickets;
+  };
+
+  const startRefine = async (args: {
+    sprint: Sprint;
+    tickets: PendingTicket[];
+    repo: SprintRepository;
+    interactiveAi: InteractiveAiProvider;
+    issuePusher?: IssuePusher;
+    reviewBeforeApprove?: (
+      proposed: string,
+      ticket: PendingTicket
+    ) => Promise<{ readonly accept: boolean; readonly alsoUpdateOrigin?: boolean; readonly body?: string }>;
+    runnerId: string;
+  }) => {
+    const eventBus = createInMemoryEventBus();
+    const banners: Array<{ readonly tier: string; readonly message: string; readonly cause?: string }> = [];
+    eventBus.subscribe((e) => {
+      if (e.type === 'banner-show') {
+        banners.push({
+          tier: e.tier,
+          message: e.message,
+          ...(e.cause !== undefined ? { cause: e.cause } : {}),
+        });
+      }
+    });
+    const flow = createRefineFlow(
+      {
+        sprintRepo: args.repo,
+        interactiveAi: args.interactiveAi,
+        templateLoader: createFsTemplateLoader(defaultTemplatesDir()),
+        writeFile: createAtomicWriteFile(),
+        runInTerminal: passthroughRunInTerminal,
+        eventBus,
+        logger: noopLogger,
+        skillsAdapter: noopSkillsAdapter,
+        skillSource: emptySkillSource,
+        clock: () => '2026-01-01T00:00:00Z' as IsoTimestamp,
+        ...(args.issuePusher !== undefined ? { issuePusher: args.issuePusher } : {}),
+        ...(args.reviewBeforeApprove !== undefined ? { reviewBeforeApprove: args.reviewBeforeApprove } : {}),
+      },
+      {
+        sprintId: args.sprint.id,
+        pendingTickets: args.tickets,
+        providerId: 'claude-code',
+        model: 'claude-sonnet-4-6',
+        refinementRoot: refinementRoot(),
+      }
+    );
+    const runner = createRunner({ id: args.runnerId, element: flow, initialCtx: { sprintId: args.sprint.id } });
+    await runner.start();
+    return { runner, banners };
   };
 
   it('refines every pending ticket via interactive session, persists after each one', async () => {
@@ -310,242 +400,196 @@ describe('createRefineFlow — interactive', () => {
     expect(eventLog.some((e) => e.level === 'warn' && e.message.includes('fetch failed'))).toBe(true);
   });
 
-  it('reviewer picks "Post as comment" → IssuePusher.comment is called with body + signature', async () => {
-    const link = (() => {
-      const r = parseHttpUrl('link', 'https://github.com/x/y/issues/42');
-      if (!r.ok) throw new Error('test setup');
-      return r.value;
-    })();
-    const { sprint, tickets } = draftWithPending(1, (_i, t) => ({ ...t, link }));
+  it('default Approve on a linked ticket does not comment', async () => {
+    const { sprint, tickets } = draftWithPending(1, (_i, t) => ({ ...t, link: parseLink(ISSUE_URL) }));
     const { repo, saves } = inMemoryRepo(sprint);
-    const eventBus = createInMemoryEventBus();
+    const { pusher, commentCalls, listCalls } = recordingPusher();
+    const fake = fakeInteractiveAi(() => '# refined requirements\n- a real acceptance criterion');
 
+    const { runner } = await startRefine({
+      sprint,
+      tickets,
+      repo,
+      interactiveAi: fake.session,
+      issuePusher: pusher,
+      reviewBeforeApprove: async () => ({ accept: true }),
+      runnerId: 'r-refine-default-approve',
+    });
+
+    expect(runner.status).toBe('completed');
+    expect(commentCalls).toHaveLength(0);
+    expect(listCalls).toHaveLength(0);
+    expect(saves[0]?.tickets[0]?.status).toBe('approved');
+  });
+
+  it('opt-in Post as comment posts the stable refinementCommentBody', async () => {
+    const { sprint, tickets } = draftWithPending(1, (_i, t) => ({ ...t, link: parseLink(ISSUE_URL) }));
+    const { repo, saves } = inMemoryRepo(sprint);
+    const { pusher, commentCalls, listCalls } = recordingPusher();
     const refinedBody = '# refined requirements\n- a real acceptance criterion';
     const fake = fakeInteractiveAi(() => refinedBody);
 
-    interface CommentCall {
-      readonly url: string;
-      readonly body: string;
-    }
-    const commentCalls: CommentCall[] = [];
-    const issuePusher: IssuePusher = {
-      async comment(url, args) {
-        commentCalls.push({ url, body: args.body });
-        return Result.ok(undefined);
-      },
-    };
-
-    const reviewBeforeApprove = async () => ({ accept: true, alsoUpdateOrigin: true });
-
-    const flow = createRefineFlow(
-      {
-        sprintRepo: repo,
-        interactiveAi: fake.session,
-        templateLoader: createFsTemplateLoader(defaultTemplatesDir()),
-        writeFile: createAtomicWriteFile(),
-        runInTerminal: passthroughRunInTerminal,
-        eventBus,
-        logger: noopLogger,
-        skillsAdapter: noopSkillsAdapter,
-        skillSource: emptySkillSource,
-        clock: () => '2026-01-01T00:00:00Z' as IsoTimestamp,
-        issuePusher,
-        reviewBeforeApprove,
-      },
-      {
-        sprintId: sprint.id,
-        pendingTickets: tickets,
-        providerId: 'claude-code',
-        model: 'claude-sonnet-4-6',
-        refinementRoot: refinementRoot(),
-      }
-    );
-
-    const runner = createRunner({ id: 'r-refine-comment', element: flow, initialCtx: { sprintId: sprint.id } });
-    await runner.start();
+    const { runner } = await startRefine({
+      sprint,
+      tickets,
+      repo,
+      interactiveAi: fake.session,
+      issuePusher: pusher,
+      reviewBeforeApprove: async () => ({ accept: true, alsoUpdateOrigin: true }),
+      runnerId: 'r-refine-comment',
+    });
 
     expect(runner.status).toBe('completed');
-    // The pusher posted a comment exactly once, on the existing link.
-    expect(commentCalls).toHaveLength(1);
-    const call = commentCalls[0];
-    expect(call?.url).toBe('https://github.com/x/y/issues/42');
-    // Body carries the AI's content plus the ralphctl signature naming the sprint.
-    expect(call?.body).toContain(refinedBody);
-    expect(call?.body).toMatch(/Posted by \[ralphctl\]/);
-    expect(call?.body).toContain(`Sprint ${String(sprint.id)}`);
-    // Local sprint persisted with the approved ticket — the link is untouched (no create path).
+    expect(listCalls).toEqual([ISSUE_URL]);
+    expect(commentCalls).toEqual([{ url: ISSUE_URL, body: refinementCommentBody(refinedBody) }]);
     expect(saves).toHaveLength(1);
     const persistedTicket = saves[0]?.tickets[0];
     expect(persistedTicket?.status).toBe('approved');
-    expect(String(persistedTicket?.link)).toBe('https://github.com/x/y/issues/42');
+    expect(String(persistedTicket?.link)).toBe(ISSUE_URL);
   });
 
   it('reviewer EDITS the body then posts → the comment carries the edited body, not the AI original', async () => {
-    // Regression for the silent-divergence bug: a reviewer who edits the AI's proposal and then
-    // posts a comment must publish the EDITED text (the locally-persisted requirements), never the
-    // AI's discarded pre-edit body.
-    const link = (() => {
-      const r = parseHttpUrl('link', 'https://github.com/x/y/issues/42');
-      if (!r.ok) throw new Error('test setup');
-      return r.value;
-    })();
-    const { sprint, tickets } = draftWithPending(1, (_i, t) => ({ ...t, link }));
+    const { sprint, tickets } = draftWithPending(1, (_i, t) => ({ ...t, link: parseLink(ISSUE_URL) }));
     const { repo, saves } = inMemoryRepo(sprint);
-    const eventBus = createInMemoryEventBus();
-
-    const refinedBody = '# refined requirements\n- a WRONG criterion the reviewer deletes';
+    const { pusher, commentCalls } = recordingPusher();
     const editedBody = '# refined requirements\n- the corrected acceptance criterion';
-    const fake = fakeInteractiveAi(() => refinedBody);
+    const fake = fakeInteractiveAi(() => '# refined requirements\n- a WRONG criterion the reviewer deletes');
 
-    const commentCalls: Array<{ url: string; body: string }> = [];
-    const issuePusher: IssuePusher = {
-      async comment(url, args) {
-        commentCalls.push({ url, body: args.body });
-        return Result.ok(undefined);
-      },
-    };
-
-    // The reviewer accepts but supplies an edited body — the use case persists it on the ticket.
-    const reviewBeforeApprove = async () => ({ accept: true, alsoUpdateOrigin: true, body: editedBody });
-
-    const flow = createRefineFlow(
-      {
-        sprintRepo: repo,
-        interactiveAi: fake.session,
-        templateLoader: createFsTemplateLoader(defaultTemplatesDir()),
-        writeFile: createAtomicWriteFile(),
-        runInTerminal: passthroughRunInTerminal,
-        eventBus,
-        logger: noopLogger,
-        skillsAdapter: noopSkillsAdapter,
-        skillSource: emptySkillSource,
-        clock: () => '2026-01-01T00:00:00Z' as IsoTimestamp,
-        issuePusher,
-        reviewBeforeApprove,
-      },
-      {
-        sprintId: sprint.id,
-        pendingTickets: tickets,
-        providerId: 'claude-code',
-        model: 'claude-sonnet-4-6',
-        refinementRoot: refinementRoot(),
-      }
-    );
-
-    const runner = createRunner({ id: 'r-refine-edit-comment', element: flow, initialCtx: { sprintId: sprint.id } });
-    await runner.start();
+    const { runner } = await startRefine({
+      sprint,
+      tickets,
+      repo,
+      interactiveAi: fake.session,
+      issuePusher: pusher,
+      reviewBeforeApprove: async () => ({ accept: true, alsoUpdateOrigin: true, body: editedBody }),
+      runnerId: 'r-refine-edit-comment',
+    });
 
     expect(runner.status).toBe('completed');
-    expect(commentCalls).toHaveLength(1);
-    const call = commentCalls[0];
-    // The posted comment carries the EDITED body and NOT the AI's discarded original.
-    expect(call?.body).toContain(editedBody);
-    expect(call?.body).not.toContain('WRONG criterion');
-    // …and the locally-persisted requirements match what was posted (no divergence).
+    expect(commentCalls).toEqual([{ url: ISSUE_URL, body: refinementCommentBody(editedBody) }]);
+    expect(commentCalls[0]?.body).not.toContain('WRONG criterion');
     const persistedTicket = saves[0]?.tickets[0];
     expect(persistedTicket?.status).toBe('approved');
     expect(persistedTicket?.requirements).toBe(editedBody);
   });
 
-  it('non-interactive run with postRefinementComment → comments on a linked ticket without prompting', async () => {
-    const link = (() => {
-      const r = parseHttpUrl('link', 'https://github.com/x/y/issues/99');
-      if (!r.ok) throw new Error('test setup');
-      return r.value;
-    })();
-    const { sprint, tickets } = draftWithPending(1, (_i, t) => ({ ...t, link }));
-    const { repo } = inMemoryRepo(sprint);
-    const eventBus = createInMemoryEventBus();
-
-    const refinedBody = '# refined\n- something';
+  it('skips posting when listComments already contains the stable body', async () => {
+    const refinedBody = '# refined requirements\n- a real acceptance criterion';
+    const { sprint, tickets } = draftWithPending(1, (_i, t) => ({ ...t, link: parseLink(ISSUE_URL) }));
+    const { repo, saves } = inMemoryRepo(sprint);
+    const { pusher, commentCalls } = recordingPusher({
+      comments: Result.ok([refinementCommentBody(refinedBody)]),
+    });
     const fake = fakeInteractiveAi(() => refinedBody);
 
-    const commentCalls: Array<{ url: string; body: string }> = [];
-    const issuePusher: IssuePusher = {
-      async comment(url, args) {
-        commentCalls.push({ url, body: args.body });
-        return Result.ok(undefined);
-      },
-    };
-
-    const flow = createRefineFlow(
-      {
-        sprintRepo: repo,
-        interactiveAi: fake.session,
-        templateLoader: createFsTemplateLoader(defaultTemplatesDir()),
-        writeFile: createAtomicWriteFile(),
-        runInTerminal: passthroughRunInTerminal,
-        eventBus,
-        logger: noopLogger,
-        skillsAdapter: noopSkillsAdapter,
-        skillSource: emptySkillSource,
-        clock: () => '2026-01-01T00:00:00Z' as IsoTimestamp,
-        issuePusher,
-        // No reviewBeforeApprove — headless. The setting alone governs.
-        postRefinementComment: true,
-      },
-      {
-        sprintId: sprint.id,
-        pendingTickets: tickets,
-        providerId: 'claude-code',
-        model: 'claude-sonnet-4-6',
-        refinementRoot: refinementRoot(),
-      }
-    );
-
-    const runner = createRunner({ id: 'r-refine-headless', element: flow, initialCtx: { sprintId: sprint.id } });
-    await runner.start();
-
-    expect(runner.status).toBe('completed');
-    expect(commentCalls).toHaveLength(1);
-    expect(commentCalls[0]?.url).toBe('https://github.com/x/y/issues/99');
-    expect(commentCalls[0]?.body).toContain(refinedBody);
-  });
-
-  it('non-interactive run with postRefinementComment but no ticket link → posts nothing', async () => {
-    const { sprint, tickets } = draftWithPending(1);
-    const { repo } = inMemoryRepo(sprint);
-    const eventBus = createInMemoryEventBus();
-
-    const fake = fakeInteractiveAi(() => '# refined\n- something');
-
-    const commentCalls: unknown[] = [];
-    const issuePusher: IssuePusher = {
-      async comment(url, args) {
-        commentCalls.push({ url, args });
-        return Result.ok(undefined);
-      },
-    };
-
-    const flow = createRefineFlow(
-      {
-        sprintRepo: repo,
-        interactiveAi: fake.session,
-        templateLoader: createFsTemplateLoader(defaultTemplatesDir()),
-        writeFile: createAtomicWriteFile(),
-        runInTerminal: passthroughRunInTerminal,
-        eventBus,
-        logger: noopLogger,
-        skillsAdapter: noopSkillsAdapter,
-        skillSource: emptySkillSource,
-        clock: () => '2026-01-01T00:00:00Z' as IsoTimestamp,
-        issuePusher,
-        postRefinementComment: true,
-      },
-      {
-        sprintId: sprint.id,
-        pendingTickets: tickets,
-        providerId: 'claude-code',
-        model: 'claude-sonnet-4-6',
-        refinementRoot: refinementRoot(),
-      }
-    );
-
-    const runner = createRunner({ id: 'r-refine-nolink', element: flow, initialCtx: { sprintId: sprint.id } });
-    await runner.start();
+    const { runner, banners } = await startRefine({
+      sprint,
+      tickets,
+      repo,
+      interactiveAi: fake.session,
+      issuePusher: pusher,
+      reviewBeforeApprove: async () => ({ accept: true, alsoUpdateOrigin: true }),
+      runnerId: 'r-refine-comment-skip',
+    });
 
     expect(runner.status).toBe('completed');
     expect(commentCalls).toHaveLength(0);
+    expect(saves[0]?.tickets[0]?.status).toBe('approved');
+    expect(banners.some((b) => b.tier === 'info' && b.message.toLowerCase().includes('already up to date'))).toBe(true);
+  });
+
+  it('posts a new comment when the approved text changed', async () => {
+    const previous = '# previous requirements\n- old criterion';
+    const refinedBody = '# refined requirements\n- a new acceptance criterion';
+    const { sprint, tickets } = draftWithPending(1, (_i, t) => ({ ...t, link: parseLink(ISSUE_URL) }));
+    const { repo } = inMemoryRepo(sprint);
+    const { pusher, commentCalls } = recordingPusher({
+      comments: Result.ok([refinementCommentBody(previous)]),
+    });
+    const fake = fakeInteractiveAi(() => refinedBody);
+
+    const { runner } = await startRefine({
+      sprint,
+      tickets,
+      repo,
+      interactiveAi: fake.session,
+      issuePusher: pusher,
+      reviewBeforeApprove: async () => ({ accept: true, alsoUpdateOrigin: true }),
+      runnerId: 'r-refine-comment-changed',
+    });
+
+    expect(runner.status).toBe('completed');
+    expect(commentCalls).toEqual([{ url: ISSUE_URL, body: refinementCommentBody(refinedBody) }]);
+  });
+
+  it('saves the approved ticket when the tracker rejects the comment', async () => {
+    const refinedBody = '# refined requirements\n- a real acceptance criterion';
+    const { sprint, tickets } = draftWithPending(1, (_i, t) => ({ ...t, link: parseLink(ISSUE_URL) }));
+    const { repo, saves } = inMemoryRepo(sprint);
+    const { pusher, commentCalls } = recordingPusher({
+      comment: Result.error(new StorageError({ subCode: 'io', message: 'issue is locked' })),
+    });
+    const fake = fakeInteractiveAi(() => refinedBody);
+
+    const { runner, banners } = await startRefine({
+      sprint,
+      tickets,
+      repo,
+      interactiveAi: fake.session,
+      issuePusher: pusher,
+      reviewBeforeApprove: async () => ({ accept: true, alsoUpdateOrigin: true }),
+      runnerId: 'r-refine-comment-rejected',
+    });
+
+    expect(runner.status).toBe('completed');
+    expect(commentCalls).toEqual([{ url: ISSUE_URL, body: refinementCommentBody(refinedBody) }]);
+    expect(saves[0]?.tickets[0]?.status).toBe('approved');
+    expect(saves[0]?.tickets[0]?.requirements).toBe(refinedBody);
+    expect(banners.some((b) => b.tier === 'error' && b.cause === 'issue is locked')).toBe(true);
+  });
+
+  it('headless refine with a linked ticket does not comment', async () => {
+    const { sprint, tickets } = draftWithPending(1, (_i, t) => ({
+      ...t,
+      link: parseLink('https://github.com/x/y/issues/99'),
+    }));
+    const { repo, saves } = inMemoryRepo(sprint);
+    const { pusher, commentCalls, listCalls } = recordingPusher();
+    const fake = fakeInteractiveAi(() => '# refined\n- something');
+
+    const { runner } = await startRefine({
+      sprint,
+      tickets,
+      repo,
+      interactiveAi: fake.session,
+      issuePusher: pusher,
+      runnerId: 'r-refine-headless',
+    });
+
+    expect(runner.status).toBe('completed');
+    expect(commentCalls).toHaveLength(0);
+    expect(listCalls).toHaveLength(0);
+    expect(saves[0]?.tickets[0]?.status).toBe('approved');
+  });
+
+  it('headless refine without a ticket link posts nothing', async () => {
+    const { sprint, tickets } = draftWithPending(1);
+    const { repo } = inMemoryRepo(sprint);
+    const { pusher, commentCalls, listCalls } = recordingPusher();
+    const fake = fakeInteractiveAi(() => '# refined\n- something');
+
+    const { runner } = await startRefine({
+      sprint,
+      tickets,
+      repo,
+      interactiveAi: fake.session,
+      issuePusher: pusher,
+      runnerId: 'r-refine-nolink',
+    });
+
+    expect(runner.status).toBe('completed');
+    expect(commentCalls).toHaveLength(0);
+    expect(listCalls).toHaveLength(0);
   });
 
   it('halts the chain when the AI exits without writing the output file', async () => {

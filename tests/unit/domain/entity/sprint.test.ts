@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
   activateSprint,
+  attachTicketLink,
   createSprint,
   createSprintWithExecution,
   planSprint,
   renameSprint,
   reopenDoneSprint,
+  replaceTicket,
   revertSprintToActive,
   setSprintSlug,
   type Sprint,
@@ -25,6 +27,7 @@ import {
   makeReviewSprint,
   slug,
 } from '@tests/fixtures/domain.ts';
+import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 
 describe('createSprint', () => {
   it('produces a draft sprint with empty tickets and derived slug', () => {
@@ -234,4 +237,55 @@ describe('Sprint state-machine matrix', () => {
       expect(r.ok).toBe(c.allowed.includes('rename'));
     });
   }
+});
+
+describe('attachTicketLink', () => {
+  const ISSUE_URL = 'https://github.com/foo/bar/issues/42';
+
+  it('attaches the link on a non-draft sprint and derives externalRef when absent', () => {
+    const ticket = makeApprovedTicket();
+    const sprint = makeActiveSprint({ tickets: [ticket] });
+    const r = attachTicketLink(sprint, ticket.id, ISSUE_URL);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.value.status).toBe('active');
+    expect(r.value.tickets[0]?.link).toBe(ISSUE_URL);
+    expect(r.value.tickets[0]?.externalRef).toBe('#42');
+  });
+
+  it('preserves an existing externalRef when attaching a link', () => {
+    const ticket = makeApprovedTicket({ externalRef: 'PROJ-7' });
+    const sprint = makeActiveSprint({ tickets: [ticket] });
+    const r = attachTicketLink(sprint, ticket.id, ISSUE_URL);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.value.tickets[0]?.link).toBe(ISSUE_URL);
+    expect(r.value.tickets[0]?.externalRef).toBe('PROJ-7');
+  });
+
+  it('returns NotFoundError when the ticket is missing', () => {
+    const sprint = makeActiveSprint();
+    const r = attachTicketLink(sprint, makeApprovedTicket().id, ISSUE_URL);
+    expect(r.ok).toBe(false);
+  });
+
+  it('rejects a done sprint with InvalidStateError — done sprints are immutable', () => {
+    const sprint = makeDoneSprint();
+    const ticketId = sprint.tickets[0]?.id;
+    if (ticketId === undefined) throw new Error('fixture done sprint has no ticket');
+    const r = attachTicketLink(sprint, ticketId, ISSUE_URL);
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.error).toBeInstanceOf(InvalidStateError);
+    expect(sprint.tickets[0]?.link).toBeUndefined();
+  });
+
+  it('leaves replaceTicket draft-only: an active sprint still rejects replaceTicket', () => {
+    const ticket = makeApprovedTicket();
+    const sprint = makeActiveSprint({ tickets: [ticket] });
+    const replaced = replaceTicket(sprint, ticket.id, { ...ticket, title: 'renamed' });
+    expect(replaced.ok).toBe(false);
+    const attached = attachTicketLink(sprint, ticket.id, ISSUE_URL);
+    expect(attached.ok).toBe(true);
+  });
 });

@@ -59,9 +59,8 @@ its alt-screen behaviour differs.
    done, then exit
 6. **Expected:** ralphctl re-appears with the parsed requirements shown inline, then an approval
    prompt titled `Approve refined requirements for "<ticket title>"?` that shows the proposed body
-   inline, offering choices Approve / Edit / Reject (plus "Post as comment" when the ticket has a
-   linked issue). Pressing Enter selects the highlighted default (Approve, unless "Post as comment"
-   leads via `settings.scm.postRefinementComment` + a link)
+   inline, offering choices Approve / Edit / Reject. "Post as comment" appears only when the ticket
+   has a linked issue. Pressing Enter selects Approve (the default).
 7. Press Enter to approve
 8. **Expected:** ticket 1 transitions to `approved`, sprint saved, chain moves to ticket 2
 9. Repeat for ticket 2

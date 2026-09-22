@@ -10,7 +10,7 @@
  * loaded card list — lives in `detail-content.tsx` (`SprintDetailContent`).
  */
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useEditField } from '@src/application/ui/tui/runtime/use-edit-field.ts';
 import { useIsMounted } from '@src/application/ui/tui/runtime/use-is-mounted.ts';
 import { usePromptQueue } from '@src/application/ui/tui/prompts/prompt-context.tsx';
@@ -56,6 +56,8 @@ export interface SprintDetailProps extends Readonly<Record<string, unknown>> {
 
 interface FocusedSelection {
   readonly focusedTicket: Ticket | undefined;
+  /** Ticket under the cursor regardless of sprint status — gates the `p` publish chord. */
+  readonly focusedTicketRow: Ticket | undefined;
   readonly focusedTodoTask: Task | undefined;
   readonly focusedStuckTask: Task | undefined;
   /** Focused task carrying a recorded evaluation verdict — gates the `v` chord and its hint. */
@@ -90,7 +92,8 @@ const deriveFocusedSelection = (
   const focusedNowTask = focusedNow?.kind === 'task' ? focusedNow.task : undefined;
   const focusedStuckTask =
     focusedNowTask !== undefined && isStuckTaskStatus(focusedNowTask.status, sprintStatus) ? focusedNowTask : undefined;
-  const focusedTicket = focusedNow?.kind === 'ticket' && ticketsEditable ? focusedNow.ticket : undefined;
+  const focusedTicketRow = focusedNow?.kind === 'ticket' ? focusedNow.ticket : undefined;
+  const focusedTicket = ticketsEditable ? focusedTicketRow : undefined;
   const focusedTodoTask =
     focusedNow?.kind === 'task' && focusedNow.task.status === 'todo' ? focusedNow.task : undefined;
   // Any focused task with a verdict on some attempt — status-agnostic on purpose: a done task's
@@ -100,7 +103,7 @@ const deriveFocusedSelection = (
       ? focusedNow.task
       : undefined;
   const canEdit = focusedTicket !== undefined || focusedTodoTask !== undefined;
-  return { focusedTicket, focusedTodoTask, focusedStuckTask, focusedEvaluatedTask, canEdit };
+  return { focusedTicket, focusedTicketRow, focusedTodoTask, focusedStuckTask, focusedEvaluatedTask, canEdit };
 };
 
 /** Stable identity for the flat focus list — see the `useMemo` call site for why it matters. */
@@ -152,7 +155,7 @@ const useFocusModel = (args: UseFocusModelArgs): FocusModel => {
     visibleRows: focusVisibleRows,
     // Navigation keys (↑↓ j/k PgUp/PgDn Home/End) are owned by the hook — except once a jump
     // override is active, when `shortcuts.ts`'s `jump.moveBy` / `moveToEdge` take over instead.
-    // The shortcuts hook also provides the other view-local keys (a/e/m/d/u/B/↵/q).
+    // The shortcuts hook also provides the other view-local keys (a/e/m/d/p/u/B/↵/q).
     active: modalOpen === false && loaded && jumpOverrideIdx === undefined,
   });
 
@@ -185,13 +188,9 @@ const useFocusModel = (args: UseFocusModelArgs): FocusModel => {
 interface BuildDetailHintsArgs {
   readonly inDetail: boolean;
   readonly ticketsEditable: boolean;
-  readonly canEdit: boolean;
   readonly sprint: Sprint | undefined;
   readonly currentSprintId: SprintId | undefined;
-  readonly focusedStuckTask: Task | undefined;
-  readonly focusedEvaluatedTask: Task | undefined;
-  /** Gates the `B` next-blocked hint — see `buildDetailHints`'s doc comment. */
-  readonly blockedCount: number;
+  readonly focus: FocusModel;
 }
 
 /**
@@ -206,16 +205,10 @@ interface BuildDetailHintsArgs {
  * Pure — lives outside the component so `useViewHints` keeps a plain call site.
  */
 const buildDetailHints = (args: BuildDetailHintsArgs): readonly ViewHint[] => {
-  const {
-    inDetail,
-    ticketsEditable,
-    canEdit,
-    sprint,
-    currentSprintId,
-    focusedStuckTask,
-    focusedEvaluatedTask,
-    blockedCount,
-  } = args;
+  const { inDetail, ticketsEditable, sprint, currentSprintId, focus } = args;
+  const { canEdit, focusedTicketRow, focusedStuckTask, focusedEvaluatedTask, blockedCount } = focus;
+  // Mirrors the `p` row's guard in `shortcuts.ts` — done sprints are immutable.
+  const canPublish = focusedTicketRow !== undefined && sprint?.status !== 'done';
   return [
     { keys: '↑/↓', label: 'move' },
     { keys: 'n', label: 'flows' },
@@ -226,14 +219,16 @@ const buildDetailHints = (args: BuildDetailHintsArgs): readonly ViewHint[] => {
     { keys: 'a', label: 'add', enabledWhen: ticketsEditable },
     { keys: 'e', label: 'edit', enabledWhen: canEdit },
     { keys: 'd', label: 'remove', enabledWhen: ticketsEditable },
+    { keys: 'p', label: 'publish', enabledWhen: canPublish },
     // Surface the `m` chord only when this sprint is not already the current one — once
     // they match, the action is a no-op and the hint adds noise. Suppressed while a
-    // stuck task is focused so the `u unblock` hint (a more urgent operator action)
-    // stays prominent in the footer without competing for horizontal space.
+    // stuck task or ticket is focused so `u unblock` / `p publish` stay on one 100-column
+    // line without competing for horizontal space.
     {
       keys: 'm',
       label: 'current',
-      enabledWhen: sprint !== undefined && currentSprintId !== sprint.id && focusedStuckTask === undefined,
+      enabledWhen:
+        sprint !== undefined && currentSprintId !== sprint.id && focusedStuckTask === undefined && !canPublish,
     },
     { keys: 'u', label: 'unblock', enabledWhen: focusedStuckTask !== undefined },
     { keys: 'B', label: 'next blocked', enabledWhen: blockedCount > 0 },
@@ -416,6 +411,8 @@ export const useSprintDetailBody = (): UseSprintDetailBodyResult => {
   // this view) before the awaited use-case / flow resolves. The guard skips the post-await
   // view-local writes (setFeedback / reload) so they never fire into an unmounted tree.
   const mountedRef = useIsMounted();
+  // Latch for the `p` publish chord — see `BuildSprintDetailHandlersArgs.publishInFlightRef`.
+  const publishInFlightRef = useRef(false);
 
   const edit = useEditField();
   const queue = usePromptQueue();
@@ -426,12 +423,9 @@ export const useSprintDetailBody = (): UseSprintDetailBodyResult => {
     buildDetailHints({
       inDetail,
       ticketsEditable,
-      canEdit: focus.canEdit,
       sprint,
       currentSprintId: selection.sprintId,
-      focusedStuckTask: focus.focusedStuckTask,
-      focusedEvaluatedTask: focus.focusedEvaluatedTask,
-      blockedCount: focus.blockedCount,
+      focus,
     })
   );
 
@@ -447,6 +441,7 @@ export const useSprintDetailBody = (): UseSprintDetailBodyResult => {
     setFeedback,
     unblockTask,
     setConfirmRemove,
+    publishInFlightRef,
   });
 
   useSprintDetailShortcuts({
@@ -469,6 +464,7 @@ export const useSprintDetailBody = (): UseSprintDetailBodyResult => {
       setConfirmRemove,
       setFeedback,
       onUnblock: handlers.handleUnblock,
+      onPublish: handlers.handlePublish,
       sprintId: sprint?.id,
       openEvaluationOverlay: ui.openEvaluation,
       reload,

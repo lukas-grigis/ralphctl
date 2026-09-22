@@ -1,6 +1,6 @@
 /**
  * Keymap hook for the sprint-detail view. Encapsulates every `useInput` chord — focus
- * navigation, expand/collapse, ticket add/remove, edit field, mark-current, unblock,
+ * navigation, expand/collapse, ticket add/remove/publish, edit field, mark-current, unblock,
  * jump-to-next-blocked — into one place so the orchestrator only has to wire state and handler
  * callbacks.
  *
@@ -41,6 +41,7 @@ interface SprintDetailShortcutArgs {
   readonly beginRemove: (ticket: Ticket) => void;
   readonly markCurrent: (sprint: Sprint) => void;
   readonly handleEdit: () => void;
+  readonly handlePublish: (ticket: Ticket) => void;
   readonly handleUnblock: (task: Task) => void;
   readonly openEvaluation: (task: Task) => void;
   /**
@@ -121,6 +122,18 @@ const SHORTCUT_ROWS: readonly ShortcutRow[] = [
     action: (args) => {
       const focused = focusedItem(args);
       if (focused?.kind === 'ticket') args.beginRemove(focused.ticket);
+    },
+  },
+  {
+    // `p` is unused globally (`P` is pick-project) and unused elsewhere in this view. Fires
+    // on any focused ticket row of an open sprint — draft or not — so the comment path is
+    // reachable after the sprint leaves draft; inert once `done` (done sprints are immutable).
+    // No prompt; the flow writes or surfaces the tracker error.
+    key: (input) => input === 'p',
+    guard: (args, sprint) => sprint.status !== 'done' && focusedItem(args)?.kind === 'ticket',
+    action: (args) => {
+      const focused = focusedItem(args);
+      if (focused?.kind === 'ticket') args.handlePublish(focused.ticket);
     },
   },
   {
