@@ -102,7 +102,7 @@ and `grok-*`. The standard family also carries `opencode-only`. The families:
   OpenCode free-tier model sits at the same (zero) price point, so economic / fast / frontier variants
   would differ in name only. Operators who authenticate an upstream provider through `opencode providers`
   should pin rows directly rather than reach for a preset (see the `OPENCODE_ONLY` note in
-  `src/business/settings/presets.ts`). Its rows leave `effort` unset for the reason given under
+  `src/business/settings/opencode-preset-matrices.ts`). Its rows leave `effort` unset for the reason given under
   **Effort resolution** above. `grok-only` stamps that same effort matrix onto `grok-4.7` (implement /
   plan / ideate), `grok-4.6` (refine), and `grok-4.5` (readiness / createPr). Mixed presets were not
   rerouted onto Grok — `mixed` and `mixed-frontier` keep the Claude author / Codex critic split.

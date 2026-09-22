@@ -1,7 +1,7 @@
 import type { AiSettings } from '@src/domain/entity/settings.ts';
 
 /**
- * Grok preset matrices, split out of `presets.ts` so that file stays inside the max-lines cap.
+ * Grok preset matrices. One file per provider; `presets.ts` is only the registry.
  *
  * Tiers match the Codex 5.6 family: cheap `grok-4.5`, mid `grok-4.6`, flagship `grok-4.7`.
  * Probed with `grok models` on grok 1.0.40 (2026-09-22). `grok-4.6` and `grok-4.7` publish the
