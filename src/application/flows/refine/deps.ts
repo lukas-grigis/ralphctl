@@ -39,21 +39,14 @@ export interface RefineDeps {
   readonly issueFetcher?: IssueFetcher;
   /**
    * Optional pusher for the refine flow's "Post as comment" path. Same lifetime as
-   * `issueFetcher`. Push failures are swallowed (log + continue) so a broken push never blocks
-   * local refinement.
+   * `issueFetcher`. Push failures surface as a banner and the leaf still succeeds so a broken
+   * push never blocks local refinement.
    */
   readonly issuePusher?: IssuePusher;
   /**
-   * Non-interactive default for posting the refined requirements as a comment on the linked
-   * issue. Threaded from `settings.scm.postRefinementComment`. Consulted only when
-   * `reviewBeforeApprove` is absent (CI / headless); when the reviewer hook is wired the
-   * reviewer's explicit choice governs instead.
-   */
-  readonly postRefinementComment?: boolean;
-  /**
    * Optional approval hook fired AFTER the AI proposes refined requirements and BEFORE the
    * ticket transitions to `approved`. Production wires this to a TUI review prompt;
-   * headless / CI / tests omit it and the AI's body is auto-accepted.
+   * headless / CI / tests omit it and the AI's body is auto-accepted — and never commented.
    *
    * Return shape: `{accept, alsoUpdateOrigin?, body?}`. The "Post as comment" path sets
    * `alsoUpdateOrigin: true`; the leaf then posts the comment (best-effort). `body` carries the

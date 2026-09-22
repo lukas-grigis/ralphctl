@@ -19,6 +19,8 @@ import { validateSignalsFile } from '@src/integration/ai/contract/_engine/valida
 import type { RefineCtx } from '@src/application/flows/refine/ctx.ts';
 import { partitionRefineSignals, refineOutputContract } from '@src/application/flows/refine/leaves/refine.contract.ts';
 import type { IssuePusher } from '@src/business/scm/issue-pusher.ts';
+import { refinementCommentBody } from '@src/business/scm/refinement-comment.ts';
+import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 
 /**
  * Chain leaf — drives the user-in-the-loop AI session for one ticket. Integration work
@@ -73,33 +75,12 @@ export interface RefineTicketInteractiveDeps {
     ticket: PendingTicket
   ) => Promise<{ readonly accept: boolean; readonly alsoUpdateOrigin?: boolean; readonly body?: string }>;
   /**
-   * Optional pusher. When the reviewer picks "Post as comment" (or, in non-interactive runs,
-   * `postRefinementComment` is enabled), the leaf posts the refined requirements as a comment
-   * on the linked issue here. Any failure is swallowed (logged, but the leaf still completes
-   * successfully — local refinement always lands).
+   * Optional pusher. When the reviewer picks "Post as comment", the leaf posts the settled
+   * requirements as a comment on the linked issue here. A comment failure is surfaced as a
+   * banner and the leaf still completes successfully — local refinement always lands.
    */
   readonly issuePusher?: IssuePusher;
-  /**
-   * Sprint identifier — embedded in the comment signature so a reader can trace a posted
-   * comment back to the sprint that produced it.
-   */
-  readonly sprintId: string;
-  /**
-   * Non-interactive default for posting the refined requirements as a comment. Consulted only
-   * when `reviewBeforeApprove` is absent (CI / headless): when `true` and the ticket has a
-   * link, the comment is posted without prompting; otherwise nothing is pushed. When the
-   * reviewer hook IS wired, the reviewer's explicit choice governs instead.
-   */
-  readonly postRefinementComment?: boolean;
 }
-
-/**
- * Signature appended to every posted comment so a reader can recognise it as ralphctl-authored
- * and trace it back to the sprint that produced it. Format stays consistent across every
- * comment: a divider, the ralphctl link, the sprint id, and the post timestamp.
- */
-const REFINEMENT_COMMENT_SIGNATURE = (sprintId: string, timestamp: string): string =>
-  `\n\n---\n_🤖 Posted by [ralphctl](https://github.com/lukas-grigis/ralphctl) · Sprint ${sprintId} · ${timestamp}_`;
 
 /**
  * Refine-specific signals-missing message. The shared `validateSignalsFile` hint is generic
@@ -179,20 +160,39 @@ interface RefineTicketInteractiveOutput {
   readonly accepted: boolean;
 }
 
+const commentBannerId = (ticketId: ApprovedTicket['id']): string => `refine-comment-${String(ticketId)}`;
+
+const publishCommentBanner = (
+  deps: RefineTicketInteractiveDeps,
+  id: string,
+  tier: 'info' | 'error',
+  message: string,
+  cause?: string
+): void => {
+  deps.eventBus.publish({
+    type: 'banner-show',
+    id,
+    tier,
+    message,
+    ...(cause !== undefined ? { cause } : {}),
+    at: IsoTimestamp.now(),
+  });
+};
+
 /**
- * Best-effort comment on the linked issue. Posts the refined requirements (plus a ralphctl
- * signature) as a NEW comment — the issue description is never modified. The ticket is returned
- * unchanged either way. On failure, logs a warning. Never throws; never aborts the chain.
+ * Best-effort comment on the linked issue. Posts {@link refinementCommentBody} as a NEW comment
+ * — the issue description is never modified and older comments are never deleted. When that
+ * exact body is already present, posts nothing and surfaces an info banner. On failure,
+ * surfaces an error banner. Never throws; never aborts the chain so save-after can persist
+ * the approved ticket.
  *
  * Only the ticket's existing `link` is targeted: a ticket with no link has nothing to comment
- * on, so the leaf skips silently (the launcher already hides the option in that case).
+ * on, so the leaf skips silently (the launcher already hides the option in that case). A closed
+ * issue is still attempted — a tracker refusal is a failure, not a skip.
  */
-const maybeCommentOnOrigin = async (
-  deps: RefineTicketInteractiveDeps,
-  ticket: ApprovedTicket,
-  body: string
-): Promise<void> => {
+const maybeCommentOnOrigin = async (deps: RefineTicketInteractiveDeps, ticket: ApprovedTicket): Promise<void> => {
   const PUSH_LOGGER = 'refine.push';
+  const bannerId = commentBannerId(ticket.id);
   if (deps.issuePusher === undefined) {
     deps.logger.named(PUSH_LOGGER).warn('no IssuePusher wired — skipping issue comment');
     return;
@@ -201,15 +201,26 @@ const maybeCommentOnOrigin = async (
     deps.logger.named(PUSH_LOGGER).warn('comment requested but ticket has no link — skipping');
     return;
   }
-  const now = new Date().toISOString();
-  const fullBody = `${body}${REFINEMENT_COMMENT_SIGNATURE(deps.sprintId, now)}`;
+  const body = refinementCommentBody(ticket.requirements);
   const url = String(ticket.link);
-  const result = await deps.issuePusher.comment(url, { body: fullBody });
+  const listed = await deps.issuePusher.listComments(url);
+  if (!listed.ok) {
+    deps.logger.named(PUSH_LOGGER).warn(`list comments failed (${url}): ${listed.error.message}`);
+    publishCommentBanner(deps, bannerId, 'error', 'Could not post the refinement comment', listed.error.message);
+    return;
+  }
+  if (listed.value.includes(body)) {
+    deps.logger.named(PUSH_LOGGER).info(`tracker already up to date for ${url}`);
+    publishCommentBanner(deps, bannerId, 'info', 'Tracker is already up to date');
+    return;
+  }
+  const result = await deps.issuePusher.comment(url, { body });
   if (!result.ok) {
     deps.logger.named(PUSH_LOGGER).warn(`issue comment failed (${url}): ${result.error.message}`);
-  } else {
-    deps.logger.named(PUSH_LOGGER).info(`posted comment on issue ${url}`);
+    publishCommentBanner(deps, bannerId, 'error', 'Could not post the refinement comment', result.error.message);
+    return;
   }
+  deps.logger.named(PUSH_LOGGER).info(`posted comment on issue ${url}`);
 };
 
 /**
@@ -315,20 +326,17 @@ const applyResult = async (
   if (!useCaseResult.ok) return Result.error(useCaseResult.error);
   const out = useCaseResult.value;
   if (!out.accepted) return Result.ok(out);
-  // Decide whether to post a comment on the linked issue. With a reviewer hook wired the
-  // reviewer's explicit choice (`alsoUpdateOrigin`) governs; in non-interactive runs the
-  // `postRefinementComment` setting governs. Commenting never mutates the ticket, so the
-  // sprint is returned exactly as the use case produced it.
-  const shouldComment =
-    deps.reviewBeforeApprove !== undefined ? out.alsoUpdateOrigin : deps.postRefinementComment === true;
-  if (!shouldComment) return Result.ok(out);
+  // Commenting is an explicit reviewer opt-in (`alsoUpdateOrigin`). Headless refine never
+  // comments. Commenting never mutates the ticket, so the sprint is returned exactly as the
+  // use case produced it.
+  if (out.alsoUpdateOrigin !== true) return Result.ok(out);
   // Post the SETTLED requirements — `refineTicketUseCase` stored the reviewer's edited body
   // (when they edited it) on the approved ticket. Posting `refinedSignal.body` (the AI's raw
   // pre-edit proposal) would publish text the reviewer may have deliberately discarded to a
   // public issue tracker, diverging from the locally-persisted ticket. `out.accepted` is true
   // here, so `out.ticket` is an `ApprovedTicket` and `requirements` is a non-empty string.
   const approved = out.ticket as ApprovedTicket;
-  await maybeCommentOnOrigin(deps, approved, approved.requirements);
+  await maybeCommentOnOrigin(deps, approved);
   return Result.ok(out);
 };
 

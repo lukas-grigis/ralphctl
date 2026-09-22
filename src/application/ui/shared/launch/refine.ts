@@ -15,7 +15,8 @@ import { checkCli } from '@src/application/ui/shared/launch/check-cli.ts';
 // `<PromptHost>` is subscribed by the time we enqueue the choice. Cancel = reject.
 //
 // The reviewer picks from up to four options. Two terminate the loop, two iterate:
-//   - Approve         → terminal; persist the current body locally.
+//   - Approve         → terminal; persist the current body locally. Always listed first
+//                       so the renderer highlights it — commenting is an explicit opt-in.
 //   - Edit            → askTextArea on the current body, then re-show this prompt with the
 //                       edit applied. Cancelling the textarea keeps the previous body and
 //                       returns to the prompt — never loses the reviewer's place.
@@ -23,10 +24,6 @@ import { checkCli } from '@src/application/ui/shared/launch/check-cli.ts';
 //                       comment on the linked issue. Shown only when the ticket has a `link`;
 //                       a ticket with no linked issue has nothing to comment on.
 //   - Reject          → terminal; ticket stays pending.
-//
-// The default selection follows `settings.scm.postRefinementComment`: when enabled and the
-// ticket has a link, "Post as comment" is listed first (the renderer highlights the first
-// entry); otherwise "Approve" leads, so commenting is an explicit opt-in.
 //
 // `body` is returned on accept so the use case persists the (possibly edited) text rather
 // than re-using the AI's original proposal.
@@ -38,13 +35,11 @@ type RefineDecisionOutcome = {
 };
 
 /**
- * Build the `askChoice` options for one HITL prompt render. Lead with whichever option is the
- * configured default (`postRefinementComment`) so the renderer highlights it first; "Post as
- * comment" only appears at all when the ticket has a linked issue to comment on.
+ * Build the `askChoice` options for one HITL prompt render. Always lead with Approve so the
+ * renderer highlights it; "Post as comment" only appears when the ticket has a linked issue.
  */
 const buildRefineOptions = (
-  hasLink: boolean,
-  postRefinementComment: boolean
+  hasLink: boolean
 ): Array<{ label: string; value: RefineDecision; description?: string }> => {
   const approveOption = {
     label: 'Approve',
@@ -56,11 +51,10 @@ const buildRefineOptions = (
     value: 'post_comment' as RefineDecision,
     description: 'Save locally AND post the body as a comment on the linked issue.',
   };
-  const leadOptions = hasLink && postRefinementComment ? [commentOption, approveOption] : [approveOption];
   return [
-    ...leadOptions,
+    approveOption,
     { label: 'Edit', value: 'edit', description: 'Open the body in an editor; come back here to decide.' },
-    ...(hasLink && !postRefinementComment ? [commentOption] : []),
+    ...(hasLink ? [commentOption] : []),
     { label: 'Reject', value: 'reject', description: 'Leave the ticket pending — no changes.' },
   ];
 };
@@ -102,12 +96,12 @@ const applyRefineDecision = async (
  * as reject).
  */
 const buildReviewBeforeApprove =
-  (interactive: InteractivePrompt, postRefinementComment: boolean) =>
+  (interactive: InteractivePrompt) =>
   async (
     proposed: string,
     ticket: { readonly title: string; readonly link?: unknown }
   ): Promise<RefineDecisionOutcome> => {
-    const options = buildRefineOptions(ticket.link !== undefined, postRefinementComment);
+    const options = buildRefineOptions(ticket.link !== undefined);
 
     let body = proposed;
     while (true) {
@@ -135,10 +129,9 @@ export const launchRefine = async (ctx: LaunchContext): Promise<LaunchResult> =>
   );
   if (!refinementRoot.ok) return { ok: false, reason: refinementRoot.error.message };
   // The refine flow only ever posts the refined requirements as a comment on the ticket's
-  // existing linked issue — it never opens a new issue and never overwrites a description. The
-  // out-of-box default for the comment action is opt-in via `settings.scm.postRefinementComment`.
-  const postRefinementComment = settings.scm.postRefinementComment;
-  const reviewBeforeApprove = buildReviewBeforeApprove(deps.interactive, postRefinementComment);
+  // existing linked issue — it never opens a new issue and never overwrites a description.
+  // Commenting is an explicit opt-in from the approval menu; Approve is always the default.
+  const reviewBeforeApprove = buildReviewBeforeApprove(deps.interactive);
   const element: Element<RefineCtx> = createRefineFlow(
     {
       sprintRepo: deps.app.sprintRepo,
@@ -152,7 +145,6 @@ export const launchRefine = async (ctx: LaunchContext): Promise<LaunchResult> =>
       skillsAdapter,
       skillSource,
       reviewBeforeApprove,
-      postRefinementComment,
       ...(deps.app.issueFetcher !== undefined ? { issueFetcher: deps.app.issueFetcher } : {}),
       ...(deps.app.issuePusher !== undefined ? { issuePusher: deps.app.issuePusher } : {}),
     },
