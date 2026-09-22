@@ -26,8 +26,8 @@ leaves an effort-capable provider on its CLI's built-in default, which moves bet
 path that still reaches the CLI default is an opencode row with no row or global effort. Readiness,
 distill, the implement roles, create-pr and review all resolve through the same function. Codex
 accepts `low..ultra` — from the **global** value, `max` floors
-to `xhigh` (only the GPT-5.6 family accepts `max`); `ultra` (sol/terra-only, plan-gated) is reachable only
-via an explicit per-flow effort; `minimal` no longer exists — persisted rows migrate to `low` at parse
+to `xhigh` (only the GPT-5.6 and GPT-6 families accept `max`); `ultra` (only `gpt-6-astra`, `gpt-6-sol`,
+`gpt-5.6-sol`, and `gpt-5.6-terra`, plan-gated) is reachable only via an explicit per-flow effort; `minimal` no longer exists — persisted rows migrate to `low` at parse
 time. OpenCode accepts `minimal | low | medium | high | xhigh | max`
 (`src/domain/value/settings-models/effort.ts`) and forwards the resolved value verbatim to `--variant` on
 `opencode run`; it gets no entry in `clampEffortToProvider`, so the CLI is the final arbiter per upstream
@@ -122,7 +122,7 @@ resolution** above). The families:
   same routing as standard but `implement` starts one tier below the flagship at `high` effort (Sonnet /
   Copilot Sonnet / `grok-4.6`); the escalation ladder climbs to the flagship only when a task plateaus —
   cheaper tokens on easy tasks, same quality gate on hard ones. `codex-economic` is the exception: it stays
-  on `gpt-6-luna` — two tiers below `gpt-6-sol` — and buys back quality with `xhigh` effort instead of a
+  on `gpt-6-luna` — one tier below `gpt-6-sol` — and buys back quality with `xhigh` effort instead of a
   model bump; `gpt-6-luna` at `xhigh` is reported to match `gpt-5.6-sol` at roughly 1/20 of the sol price.
   `mixed-economic` pairs a Sonnet generator with that same Codex-luna-at-`xhigh` critic — a cross-provider
   second opinion at near-zero cost. `grok-economic` starts implement on `grok-4.6`, which publishes the
@@ -151,9 +151,10 @@ resolution** above). The families:
 - **frontier** (`mixed-frontier`, `claude-frontier`, `copilot-frontier`, `codex-frontier`, `grok-frontier`) —
   the vendor's top model on the deep flows (`plan`/`implement`) at `max` effort; `refine`/`readiness` at
   `high`, `ideate` at `high`, `createPr` at `medium` — no row runs a light flow at `max`. Frontier now means
-  Claude's flagship is Fable 5.1, not Opus: `claude-frontier` and `mixed-frontier` run `plan`/`implement` on
-  `claude-fable-5-1` (2.5× the Opus 5.5 price, needs a non-ZDR org) while `refine`/`readiness`/`createPr`
-  stay on Opus 5.5. `codex-frontier` steps up to `gpt-6-astra` (5× the `gpt-6-sol` price) on the deep flows,
+  Claude's flagship is Fable 5.1, not Opus: `claude-frontier` and `mixed-frontier` run `plan`/`implement`/
+  `ideate` on `claude-fable-5-1` (2.5× the Opus 5.5 price, needs a non-ZDR org). `claude-frontier` keeps
+  `refine`/`readiness`/`createPr` on Opus 5.5; `mixed-frontier` keeps only `readiness` there, runs
+  `refine`/`createPr` on `gpt-6-sol`, and gates implement with a `gpt-6-astra` critic. `codex-frontier` steps up to `gpt-6-astra` (5× the `gpt-6-sol` price) on the deep flows,
   with `gpt-6-sol` on the light ones; `ultra` is deliberately not used (plan-gated to Plus+, would brick
   spawns on lower plans). `copilot-frontier` and `grok-frontier` have no equivalent premium tier available
   by default, so they stay on their existing flagship (`claude-opus-4.8` — Opus 5 / 5.5 are plan-gated on
@@ -220,7 +221,9 @@ every `ai` row plus `harness.escalateOnPlateau` in one transaction; subsequent p
   changelog: `claude-opus-5.5` (09-22, Pro+/Max/Business/Enterprise), `claude-fable-5.1` (09-01, Pro+ and
   up, off by default for Business/Enterprise), `gpt-6-astra` (09-04, Pro+ and up), `gpt-6-sol` /
   `gpt-6-luna` (09-22; luna includes Pro), `gemini-3.8-flash` (09-03), and `grok-4.7` (09-21, gradual
-  rollout) — none of these six answered on the reference account yet, so they are catalog + pin-only.
+  rollout). Of these, only `gemini-3.8-flash` answered on the reference account; the other six
+  (`claude-opus-5.5`, `claude-fable-5.1`, `gpt-6-astra`, `gpt-6-sol`, `gpt-6-luna`, `grok-4.7`) did not
+  yet, so they are catalog + pin-only.
   Verified available on the reference account: `claude-sonnet-5`, `claude-opus-4.8`, `claude-opus-4.7`,
   `claude-opus-5`, `claude-haiku-4.5`, `gpt-5-mini`, `gpt-5.4-mini`, `gpt-5.3-codex`, `gpt-5.5`,
   `gpt-5.6-sol` / `-terra` / `-luna`, `gemini-3.8-flash`, `mai-code-1.1-flash`, and `grok-4.6`; the
@@ -236,8 +239,8 @@ every `ai` row plus `harness.escalateOnPlateau` in one transaction; subsequent p
   deliberately stay on `claude-opus-4.8` (see `escalation-map.ts`).
 - OpenAI Codex — verified against the live CLI model cache (codex CLI v0.155.1,
   `~/.codex/models_cache.json`, 2026-09-22). `gpt-6-sol` is the flagship and the top rung of the Codex
-  escalation ladder — $2/$10 per MTok, half the `gpt-5.6-sol` price, and the model `codex-only` /
-  `codex-frontier` run implement on; `gpt-6-luna` is the cheap tier ($0.10/$0.50); `gpt-6-astra` is the
+  escalation ladder — $2/$10 per MTok, half the `gpt-5.6-sol` price, and the model `codex-only` runs
+  implement on (`codex-frontier` runs it on `gpt-6-astra`); `gpt-6-luna` is the cheap tier ($0.10/$0.50); `gpt-6-astra` is the
   premium tier ($10/$50, frontier presets only, never a default or ladder rung). All three run
   `low..max`; `ultra` exists on astra and sol but NOT luna — per-model narrowing is left to the codex CLI
   at spawn. `gpt-5.6-sol` / `gpt-5.6-terra` / `gpt-5.6-luna` and `gpt-5.5` remain in the catalog for
@@ -284,8 +287,8 @@ and now fires twice: the generator's effort is left unset in `DEFAULT_SETTINGS`,
 the `implement` flow's shipped default (`high` — see **Effort resolution** above), not through Opus 5.5's
 own `medium` CLI default. On the first plateau at the top of the model ladder the graduated policy raises
 reasoning effort (the `escalate-effort` rung) from `high` to `xhigh`; a second plateau raises it again,
-`xhigh` to `max` — two live remedies where a fixed `high` on an earlier, `xhigh`-defaulting Opus would have
-been a no-op. Then — on a further plateau, opus now at `max` — it fires the same-model nudge (a
+`xhigh` to `max` — two live remedies where the old fixed `high` target would have been a no-op on every
+earlier Opus (their CLI default was already `high`). Then — on a further plateau, opus now at `max` — it fires the same-model nudge (a
 change-of-approach directive), then — since `harness.bestOfNCandidates` now defaults to `2` — one best-of-N
 attempt that samples two candidates and selects by verification then judging, and only then settles
 `done-with-warning`. To also activate a live MODEL ladder, use one of the `*-economic` presets (where
@@ -311,7 +314,7 @@ that can be retargeted or removed without leaving the TUI.
   are both spent, a stuck task gets ONE more attempt that samples N candidates on the unchanged model and
   selects among them by verification then judging. `2`-`4` enables it, `0` disables it. The cost is bounded —
   at most once per task, and only for a task that already exhausted the whole ladder — but that one attempt
-  spends N generator sessions instead of one, so the four `*-economic` presets pin it to `0` (applying one of
+  spends N generator sessions instead of one, so the five `*-economic` presets pin it to `0` (applying one of
   them overwrites whatever you had set; every other preset leaves the knob alone). See
   `PERFORMANCE.md § Escalation on plateau`.
 - `skipPreVerifyOnFreshSetup` (default `false`) — opt-in: skip the FIRST pre-task verify of a launch when this

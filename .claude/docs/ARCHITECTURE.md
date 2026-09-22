@@ -671,7 +671,7 @@ and the non-obvious mutators.
   per-flow skill opt-out map (`Partial<Record<FlowId, { disabled: readonly string[] }>>`) — see
   `AI-SETTINGS.md` § skill opt-out and § Skills subsystem above. `harness.bestOfNCandidates`
   (default `2` — grants one best-of-N candidate-sampling attempt at the top of the plateau escalation
-  ladder; `0` disables — the four `*-economic` presets pin it to opt out) — see `PERFORMANCE.md`
+  ladder; `0` disables — the five `*-economic` presets pin it to opt out) — see `PERFORMANCE.md`
   § Escalation on plateau.
 
 ## Harness Signals

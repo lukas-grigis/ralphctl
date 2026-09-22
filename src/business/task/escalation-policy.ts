@@ -2,9 +2,9 @@ import { Result } from '@src/domain/result.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
 import { escalationLadderCyclicFrom, mergeEscalationMap, nextEffortRung } from '@src/business/task/escalation-map.ts';
-import type { AiProvider } from '@src/domain/entity/settings.ts';
+import { type AiProvider, remapRetiredModel } from '@src/domain/entity/settings.ts';
 import type { PlateauSource } from '@src/domain/entity/attempt.ts';
-import type { InProgressTask } from '@src/domain/entity/task.ts';
+import type { InProgressTask, Task } from '@src/domain/entity/task.ts';
 import { recordTaskEscalation } from '@src/domain/entity/task-settle.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import type { ValidationError } from '@src/domain/value/error/validation-error.ts';
@@ -75,7 +75,9 @@ const triggerLabel = (trigger: EscalationTrigger): string =>
  *                           returns a target). Caller raises the generator's reasoning effort to
  *                           that target on the SAME model for one more attempt
  *                           (in_progress); no model change, so the escalation model fields are NOT
- *                           stamped. Fires at most once — the next exit sees the raised effort and
+ *                           stamped. Fires once per effort tier — the next exit sees the raised
+ *                           effort: Claude climbs one tier per exit until `max` is spent; the
+ *                           Copilot / Codex / Grok targets are fixed, so they fire once. Then it
  *                           falls through to the nudge. Requires the caller to supply
  *                           `generatorProvider` / `generatorEffort`; without them the policy behaves
  *                           exactly as before (this rung is never returned).
@@ -341,6 +343,30 @@ export const decideEscalation = (props: DecideEscalationProps): EscalationDecisi
   // Top of the ladder, no effort headroom, not yet nudged. Grant one more attempt on the same model
   // with a change-of-approach directive instead of blocking.
   return { kind: 'nudge', currentModel: props.generatorModel };
+};
+
+/**
+ * The model the generator role actually spawns with for `task`: the per-task escalation override
+ * (`task.escalatedToModel`) when a prior plateau stamped one, else the configured settings row.
+ *
+ * The override is PERSISTED in `tasks.json`, so a task escalated before an upgrade retired its
+ * target (Copilot `claude-sonnet-4.6`, codex `gpt-5.4`) would otherwise resume onto a slug the
+ * adapter rejects at spawn. It goes through the same provider-guarded one-hop remap the settings
+ * rows get at parse time; with no known provider there is nothing to guard on, so the override
+ * rides through raw. The configured model needs no remap here — the settings parse already
+ * applied it.
+ *
+ * The single resolution site for the spawn (generator leaf), the escalation policy's lookup
+ * (finalize leaf), and the `meta.json` attribution, so the three can never disagree.
+ */
+export const effectiveGeneratorModel = (
+  task: Pick<Task, 'escalatedToModel'>,
+  configuredModel: string,
+  provider: string | undefined
+): string => {
+  const override = task.escalatedToModel;
+  if (override === undefined) return configuredModel;
+  return provider === undefined ? override : remapRetiredModel(provider, override);
 };
 
 /**

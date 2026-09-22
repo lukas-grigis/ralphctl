@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { RETIRED_MODEL_REMAPS, type AiProvider } from '@src/domain/entity/settings.ts';
+import {
+  RETIRED_MODEL_REMAPS,
+  remapRetiredModel,
+  unambiguousRetiredSuccessor,
+  type AiProvider,
+} from '@src/domain/entity/settings.ts';
 import { CLAUDE_MODELS, isClaudeModel } from '@src/domain/value/settings-models/claude.ts';
 import { CODEX_MODELS, isCodexModel } from '@src/domain/value/settings-models/codex.ts';
 import { COPILOT_MODELS, isCopilotModel } from '@src/domain/value/settings-models/copilot.ts';
@@ -214,5 +219,35 @@ describe('RETIRED_MODEL_REMAPS — every remap lands on a live model in one hop'
       const chained = RETIRED_MODEL_REMAPS.some((r) => r.provider === provider && r.from === to);
       expect(chained, `${provider}: ${to} is remapped again`).toBe(false);
     }
+  });
+});
+
+describe('remapRetiredModel — provider-guarded one-hop remap', () => {
+  it('maps a retired slug to its successor on the provider that retired it', () => {
+    expect(remapRetiredModel('github-copilot', 'claude-sonnet-4.6')).toBe('claude-sonnet-5');
+    expect(remapRetiredModel('openai-codex', 'gpt-5.4')).toBe('gpt-6-sol');
+  });
+
+  it('leaves the slug alone on a provider that still serves it, and for live or unknown ids', () => {
+    expect(remapRetiredModel('github-copilot', 'gpt-5.4')).toBe('gpt-5.4');
+    expect(remapRetiredModel('claude-code', 'claude-opus-5-5')).toBe('claude-opus-5-5');
+    expect(remapRetiredModel('not-a-provider', 'gpt-5.4')).toBe('gpt-5.4');
+  });
+});
+
+describe('unambiguousRetiredSuccessor — provider-less remap', () => {
+  it('returns the successor when exactly one provider retired the slug and no catalog lists it', () => {
+    expect(unambiguousRetiredSuccessor('claude-sonnet-4.5')).toBe('claude-sonnet-5');
+    expect(unambiguousRetiredSuccessor('claude-opus-4-7')).toBe('claude-opus-4-8');
+  });
+
+  it('returns undefined for a slug retired on one provider but live on another', () => {
+    // `gpt-5.4` left codex but is still a Copilot id.
+    expect(unambiguousRetiredSuccessor('gpt-5.4')).toBeUndefined();
+  });
+
+  it('returns undefined for a live or unknown slug', () => {
+    expect(unambiguousRetiredSuccessor('claude-sonnet-5')).toBeUndefined();
+    expect(unambiguousRetiredSuccessor('made-up-model')).toBeUndefined();
   });
 });

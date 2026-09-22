@@ -37,7 +37,10 @@ to [Semantic Versioning](https://semver.org/).
   the deprecated `claude-sonnet-4.6` to `claude-sonnet-5`, adds `claude-opus-5.5` /
   `claude-fable-5.1` / `gpt-6-*` / `gemini-3.8-flash` / `grok-4.7` to its catalog, and drops six
   models GitHub deprecated on 2026-09-01 (`claude-opus-4.5`/`4.6`, `claude-sonnet-4.5`/`4.6`,
-  `gemini-3.1-pro`, `raptor-mini`) with remaps to live successors. OpenCode's free-tier picks
+  `gemini-3.1-pro`, `raptor-mini`) with remaps to live successors. The same remaps apply to a
+  task escalated before the upgrade (its stored escalated model resumes on the successor) and to
+  `harness.escalationMap` targets — an ambiguous target (retired on one backend, live on another,
+  like `gpt-5.4`) is left as written and logged as a warning at startup. OpenCode's free-tier picks
   refresh to opencode-ai 1.18.32 (`nemotron-3.5-lightning-free` replaces the retired
   `deepseek-v4-flash-free` as the mini pick).
 - **Escalation ladder is now provider-scoped.** `DEFAULT_ESCALATION_LADDERS` replaces the flat
@@ -46,9 +49,22 @@ to [Semantic Versioning](https://semver.org/).
   `settings.harness.escalationMap` is unchanged in shape (still flat, still user-overridable) and
   now merges over whichever provider the generator runs on.
 - **Every preset pins an explicit effort on every row** — no row inherits the global preset
-  effort or a provider CLI default anymore. `claude-frontier` / `mixed-frontier` move their deep
-  flows to Fable 5.1; `codex-frontier` moves to `gpt-6-astra`; every other family keeps its
-  previous routing with the new model ids and an explicit effort added.
+  effort or a provider CLI default anymore. Routing changes alongside the new model ids:
+  - `mixed` runs `plan` on Claude Code Opus 5.5 at `xhigh` (was Copilot Sonnet 4.6), and its
+    `refine` moves from `gpt-5.6-terra` to `gpt-6-luna` at `high`.
+  - `mixed-economic`'s implement critic is now Codex `gpt-6-luna` at `xhigh` — a cross-provider
+    gate (was Claude Sonnet at `high`).
+  - The frontier family puts the vendor's top model on the deep flows at `max`: `claude-frontier`
+    and `mixed-frontier` run `plan` / `implement` / `ideate` on Fable 5.1, `codex-frontier` on
+    `gpt-6-astra`, and `mixed-frontier`'s critic moves to `gpt-6-astra`. Light flows no longer
+    inherit `max`: `refine` / `readiness` / `ideate` run at `high` and `createPr` at `medium`
+    in every frontier preset.
+  - `codex-economic` drops from `gpt-5.6-terra` at `high` to `gpt-6-luna` at `xhigh`, and
+    `codex-strong-gate`'s generator follows (the gate stays on the flagship, now `gpt-6-sol`).
+  - The per-provider new-install defaults change for two backends: Copilot moves from GPT
+    (`gpt-5-mini` / `gpt-5.4`) to Claude Sonnet 5 on `refine`, Opus 4.8 on
+    `plan` / `implement` / `ideate`, and `gpt-5.6-luna` on `readiness` / `createPr`; Codex moves
+    to `gpt-6-luna` on the light flows and `gpt-6-sol` on the deep ones.
 - **Dependency maintenance.** Routine dev-tooling and lockfile bumps (`zod`, `@types/node`,
   `eslint-plugin-sonarjs`, and others); TypeScript stays held at the 6.x line.
 

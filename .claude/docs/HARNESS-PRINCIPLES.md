@@ -149,7 +149,7 @@ contracts define testable success up-front."_
   plan time, with a `settings.harness.maxAttempts` fallback for legacy tasks). The graduated remedy
   ladder (row 6) fires within this outer loop — climbing one model rung per plateau or
   budget-exhausted exit, then a top-of-ladder same-model nudge, then (on by default,
-  `settings.harness.bestOfNCandidates`; the four `*-economic` presets opt out)
+  `settings.harness.bestOfNCandidates`; the five `*-economic` presets opt out)
   one best-of-N candidate-sampling attempt, while evaluator-malformed exits get a plain same-model
   retry — each retry consuming one attempt of the budget. `maxAttempts === 1` is byte-for-byte the
   prior one-attempt-per-launch behaviour.
@@ -248,7 +248,7 @@ self into approving anyway; superficial testing."_ Plateau detection is the harn
   plateau the policy spends remedies cheapest-first — climb the model ladder **one rung per plateau**
   (`escalate`, re-stampable, bounded by `maxAttempts`), then a single top-of-ladder same-model `nudge`
   with a change-of-approach directive, then (on by default, once per task,
-  `settings.harness.bestOfNCandidates`; the four `*-economic` presets opt out) a `best-of-n` rung that
+  `settings.harness.bestOfNCandidates`; the five `*-economic` presets opt out) a `best-of-n` rung that
   samples N candidates on the unchanged model and selects among them by
   verification then judging, then `topped-out` (keep the work). See PERFORMANCE.md "Escalation on plateau".
 - **Evaluator lockstep (2026-08).** Every generator MODEL-rung climb (`escalate`) — not only the
@@ -589,10 +589,10 @@ updating the recorded hash:
   Step 3: `applied` rows reviewed — same architecture, higher-capability models inside the existing Claude
   / Codex / Copilot families (Fable 5.1 and GPT-6 Astra are new price tiers above the existing flagship,
   not a new capability class), so no component was identified as newly non-load-bearing; no removals. One
-  correctness fix outside the checklist's three steps: `claudeEffortRung`'s CLI-default table was wrong
-  for Opus 5.5 — it defaults to `medium`, not the `xhigh` every earlier effort-capable Opus ran at — caught
-  because ralphctl now stamps an explicit effort on every flow rather than trusting the CLI default (see
-  `AI-SETTINGS.md § Effort resolution`).
+  correctness fix outside the checklist's three steps: `claudeEffortRung`'s CLI-default table assumed
+  `xhigh` for Opus, which was already wrong — earlier Opus / Sonnet 5 / Fable default to `high`, and Opus
+  5.5 to `medium` — caught because ralphctl now stamps an explicit effort on every flow rather than
+  trusting the CLI default (see `AI-SETTINGS.md § Effort resolution`).
 - **2026-09-22 — Grok 4.7 refresh.** Step 1: `grok-4.6` was the ladder top and is now an intermediate
   rung (`grok-4.5` → `grok-4.6` → `grok-4.7`); no key or destination was stranded.
   `grok-4.7-build-fast` is catalog-only (same model, 2× token price) and has no rung. Step 2: the

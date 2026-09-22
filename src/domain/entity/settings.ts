@@ -279,6 +279,42 @@ export const RETIRED_MODEL_REMAPS: ReadonlyArray<{
   { provider: PROVIDER_OPENCODE, from: 'opencode/ling-3.0-tiny-free', to: 'opencode/ling-3.0-flash-fin-free' },
 ];
 
+/**
+ * The live successor of `model` on `provider` when that pair is retired (one hop — see
+ * {@link RETIRED_MODEL_REMAPS}), else `model` unchanged. Provider-guarded: a slug retired on one
+ * backend but live on another (`gpt-5.4` is gone from codex yet still a Copilot id) only remaps
+ * for the backend that retired it. Takes the provider as a plain string so callers holding a
+ * resolved provider id need no cast — an unknown provider simply matches nothing.
+ *
+ * Used by the settings-row migration below and by every reader that turns a PERSISTED model id
+ * into a spawn model outside the settings file (a task's `escalatedToModel` stamped before an
+ * upgrade retired its target).
+ */
+export const remapRetiredModel = (provider: string, model: string): string =>
+  RETIRED_MODEL_REMAPS.find((r) => r.provider === provider && r.from === model)?.to ?? model;
+
+/** Every static catalog id, across providers — the "is this slug live anywhere?" probe. */
+const LIVE_CATALOG_IDS: ReadonlySet<string> = new Set<string>([
+  ...CLAUDE_MODELS,
+  ...COPILOT_MODELS,
+  ...CODEX_MODELS,
+  ...OPENCODE_MODELS,
+  ...GROK_MODELS,
+]);
+
+/**
+ * The live successor of a retired `model` when the retirement is UNAMBIGUOUS without knowing the
+ * provider — exactly one provider retired the slug and no static catalog still lists it — else
+ * `undefined`. For provider-less model references such as `harness.escalationMap` values, which
+ * apply to whichever backend the generator runs on: rewriting `gpt-5.4` (retired on codex, live
+ * on Copilot) would break a Copilot rung, so an ambiguous slug is left for the caller to warn on.
+ */
+export const unambiguousRetiredSuccessor = (model: string): string | undefined => {
+  if (LIVE_CATALOG_IDS.has(model)) return undefined;
+  const hits = RETIRED_MODEL_REMAPS.filter((r) => r.from === model);
+  return hits.length === 1 ? hits[0]?.to : undefined;
+};
+
 /** Codex retired the 'minimal' reasoning-effort level (codex CLI >= 0.145); 'low' succeeds it. */
 const RETIRED_CODEX_EFFORT = 'minimal';
 
@@ -286,8 +322,12 @@ const RETIRED_CODEX_EFFORT = 'minimal';
 const migrateStaleRow = (row: unknown): unknown => {
   if (typeof row !== 'object' || row === null) return row;
   let next = row as Record<string, unknown>;
-  const remap = RETIRED_MODEL_REMAPS.find((r) => next['provider'] === r.provider && next['model'] === r.from);
-  if (remap !== undefined) next = { ...next, model: remap.to };
+  const provider = next['provider'];
+  const model = next['model'];
+  if (typeof provider === 'string' && typeof model === 'string') {
+    const remapped = remapRetiredModel(provider, model);
+    if (remapped !== model) next = { ...next, model: remapped };
+  }
   if (next['provider'] === PROVIDER_OPENAI_CODEX && next['effort'] === RETIRED_CODEX_EFFORT) {
     next = { ...next, effort: 'low' };
   }
@@ -367,6 +407,33 @@ const healHarnessCrossKnobs = (harness: unknown): unknown => {
   const healedTurns = Math.max(turns, healedThreshold);
   return { ...h, maxTurns: healedTurns, plateauThreshold: healedThreshold };
 };
+
+/**
+ * Parse-time remap of `escalationMap` VALUES pointing at a retired model — a user rung like
+ * `{ 'claude-haiku-4.5': 'claude-sonnet-4.5' }` would otherwise escalate into a slug the adapter
+ * rejects at spawn time. The map is provider-less, so only an unambiguous retirement is rewritten
+ * (see {@link unambiguousRetiredSuccessor}); an ambiguous one is left in place and surfaced as a
+ * load-time warning (`warnEscalationMapRetiredValues`). Keys are left alone: a key names the
+ * model the generator is RUNNING, and settings rows are already remapped, so a retired key is
+ * merely dead. Same silence policy as {@link migrateStaleAiRows} — the next `save()` persists it.
+ */
+const remapRetiredEscalationTargets = (harness: unknown): unknown => {
+  if (typeof harness !== 'object' || harness === null) return harness;
+  const h = harness as Record<string, unknown>;
+  const map = h['escalationMap'];
+  if (typeof map !== 'object' || map === null) return harness;
+  let changed = false;
+  const next: Record<string, unknown> = {};
+  for (const [from, to] of Object.entries(map)) {
+    const successor = typeof to === 'string' ? unambiguousRetiredSuccessor(to) : undefined;
+    if (successor !== undefined) changed = true;
+    next[from] = successor ?? to;
+  }
+  return changed ? { ...h, escalationMap: next } : harness;
+};
+
+/** Harness parse-time preprocessors, composed. */
+const healHarness = (harness: unknown): unknown => remapRetiredEscalationTargets(healHarnessCrossKnobs(harness));
 
 /**
  * One flow's skills opt-out row. `disabled` lists skill names (`ralphctl-*`) to SUBTRACT from
@@ -450,7 +517,7 @@ export const SettingsSchema = z.object({
   schemaVersion: z.literal(CURRENT_SCHEMA_VERSION).default(CURRENT_SCHEMA_VERSION),
   ai: AiSettingsSchema,
   harness: z.preprocess(
-    healHarnessCrossKnobs,
+    healHarness,
     z
       .object({
         /** Generator–evaluator turns budgeted per `Attempt` (1–10). */
@@ -573,7 +640,7 @@ export const SettingsSchema = z.object({
          * COST CAVEAT: the granted attempt spawns N full generator sessions instead of one,
          * multiplying spend for that one attempt. It is bounded (at most once per task, and only
          * for a task that has already exhausted the whole ladder), but cost-sensitive setups opt
-         * out with `0` — which is exactly what the four `*-economic` presets pin.
+         * out with `0` — which is exactly what the five `*-economic` presets pin.
          *
          * Research: arXiv 2604.16529 (RTV) — harness-level N-candidate selection lifted SWE-bench
          * Verified 67.4 → 73.6 at N=16 (RTV measured N=16, not the 2-4 cap used here); the tight

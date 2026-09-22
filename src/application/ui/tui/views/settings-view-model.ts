@@ -139,7 +139,7 @@ export const PRESET_FAMILY_LABEL: Readonly<Record<PresetFamily, string>> = {
   frontier: 'Frontier',
 };
 
-/** Family shared by the four strong-gate presets. */
+/** Family shared by the five strong-gate presets. */
 const STRONG_GATE: PresetFamily = 'strong-gate';
 
 /** Maps each preset to its family — single source so preset-bar and any future caller stay in sync. */

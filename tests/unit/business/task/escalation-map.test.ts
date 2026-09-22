@@ -26,6 +26,7 @@ import {
   escalationLadderCyclicFrom,
   mergeEscalationMap,
   nextEffortRung,
+  warnEscalationMapRetiredValues,
   warnEscalationMapSelfLoops,
 } from '@src/business/task/escalation-map.ts';
 
@@ -217,6 +218,49 @@ describe('warnEscalationMapSelfLoops', () => {
     warnEscalationMapSelfLoops(parsed.data.harness.escalationMap, logger);
     expect(warn).toHaveBeenCalledTimes(1);
     expect(String(warn.mock.calls[0]?.[0])).toContain('claude-opus-4-8');
+  });
+});
+
+describe('escalationMap retired targets', () => {
+  const parseWithMap = (escalationMap: Record<string, string>) => {
+    const parsed = SettingsSchema.safeParse({
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+      ai: {
+        refine: { provider: 'github-copilot', model: 'claude-sonnet-5' },
+        plan: { provider: 'github-copilot', model: 'claude-sonnet-5' },
+        implement: {
+          generator: { provider: 'github-copilot', model: 'claude-haiku-4.5' },
+          evaluator: { provider: 'github-copilot', model: 'claude-sonnet-5' },
+        },
+        readiness: { provider: 'github-copilot', model: 'claude-sonnet-5' },
+        ideate: { provider: 'github-copilot', model: 'claude-sonnet-5' },
+      },
+      harness: { maxTurns: 5, maxAttempts: 3, rateLimitRetries: 3, plateauThreshold: 2, escalationMap },
+      logging: { level: 'info' },
+      concurrency: { maxParallelTasks: 1 },
+      ui: { notifications: { enabled: true } },
+    });
+    if (!parsed.success) throw parsed.error;
+    return parsed.data.harness.escalationMap;
+  };
+
+  it('rewrites an unambiguously retired target at parse time and then warns about nothing', () => {
+    const map = parseWithMap({ 'claude-haiku-4.5': 'claude-sonnet-4.5', 'claude-sonnet-5': 'claude-opus-4.8' });
+    expect(map).toEqual({ 'claude-haiku-4.5': 'claude-sonnet-5', 'claude-sonnet-5': 'claude-opus-4.8' });
+    const { logger, warn } = fakeLogger();
+    warnEscalationMapRetiredValues(map, logger);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it('leaves an ambiguous target (retired on codex, live on Copilot) in place and warns once', () => {
+    const map = parseWithMap({ 'gpt-5-mini': 'gpt-5.4' });
+    expect(map).toEqual({ 'gpt-5-mini': 'gpt-5.4' });
+    const { logger, warn } = fakeLogger();
+    warnEscalationMapRetiredValues(map, logger);
+    expect(warn).toHaveBeenCalledTimes(1);
+    const message = String(warn.mock.calls[0]?.[0]);
+    expect(message).toContain('openai-codex');
+    expect(message).toContain('gpt-6-sol');
   });
 });
 

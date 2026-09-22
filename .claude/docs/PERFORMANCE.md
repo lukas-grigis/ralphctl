@@ -154,9 +154,9 @@ policy tries a cheaper same-model remedy BEFORE the nudge: raise reasoning effor
 **provider- and model-aware target** (`nextEffortRung` in `escalation-map.ts`) when the provider/model
 exposes an effort dimension and the generator still has headroom. Claude is model-aware — the rung climbs
 one tier above the EFFECTIVE effort: the explicit level, or — only when genuinely unset — the model's own
-Claude Code CLI default (`medium` on Opus 5.5, `high` on every other effort-capable Claude model). An
-explicit or defaulted `low|medium|high` climbs to `xhigh` (skipped on the few models without an `xhigh`
-tier, e.g. Sonnet 4.6, which climb straight to `max`), and `xhigh` climbs to `max`, capping there. Copilot
+Claude Code CLI default (`medium` on Opus 5.5, `high` on every other effort-capable Claude model). Each
+firing climbs exactly one tier on `low → medium → high → xhigh → max` (the few models without an `xhigh`
+tier, e.g. Sonnet 4.6, go `high → max`), capping at `max`. Copilot
 keeps the fixed target `EFFORT_ESCALATION_TARGET`
 (`high`); Codex and Grok keep the same fixed target `CODEX_EFFORT_ESCALATION_TARGET` (`xhigh`) —
 `xhigh` is accepted by every codex catalog model and by every Grok catalog id, unlike the old shared
@@ -190,7 +190,7 @@ reserved for the top-of-ladder case where there is no fresh capability to lean o
 `settings.harness.bestOfNCandidates` is `2`-`4` (default `2`) and the task has not already been granted one
 (the durable `task.bestOfNGranted` stamp guarantees once-per-task). The granted attempt samples N
 candidates on the unchanged model — see "Best-of-N rung" in `WORKFLOWS.md` for the candidate-sampling
-composite. A further exit after a spent or declined best-of-N grant tops out — keeping the work. The four
+composite. A further exit after a spent or declined best-of-N grant tops out — keeping the work. The five
 `*-economic` presets pin `bestOfNCandidates: 0` to opt out, in which case a further exit after the nudge
 tops out directly.
 
@@ -211,10 +211,11 @@ generator's effort is left unset in `DEFAULT_SETTINGS`, so it resolves through t
 shipped default (`high`, not Opus 5.5's own `medium` CLI default — see
 `AI-SETTINGS.md § Effort resolution`); the first plateau at the top of the model ladder raises it to
 `xhigh`, and a second plateau (rung still live) raises it to `max` — two live remedies, not just a
-directive, where a fixed `high` on an earlier, `xhigh`-defaulting Opus generation would have been a no-op.
+directive, where the old fixed `high` target would have been a no-op on every earlier Opus (their CLI
+default was already `high`).
 A further plateau (opus now at `max`, rung spent) fires the same-model nudge.
 Because `bestOfNCandidates` defaults to `2`, a further plateau after the nudge grants a best-of-N attempt
-(rung (4) above) before the ladder settles done-with-warning; the four `*-economic` presets pin it to `0`,
+(rung (4) above) before the ladder settles done-with-warning; the five `*-economic` presets pin it to `0`,
 so a further plateau after the nudge settles done-with-warning directly for them. See `AI-SETTINGS.md §
 Default escalation posture` for how to also activate a live MODEL ladder (economic presets or a custom
 escalationMap rung).

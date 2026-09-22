@@ -13,7 +13,7 @@
  * rung.
  */
 
-import type { AiProvider } from '@src/domain/entity/settings.ts';
+import { type AiProvider, RETIRED_MODEL_REMAPS } from '@src/domain/entity/settings.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
 
 /**
@@ -109,6 +109,29 @@ export const warnEscalationMapSelfLoops = (escalationMap: Readonly<Record<string
     if (from === to) {
       logger.warn(`escalationMap: '${from}' maps to itself — entry has no effect`, { from, to });
     }
+  }
+};
+
+/**
+ * Emit one warn-level log record per escalation target that is still a retired slug after the
+ * parse. Unambiguous retirements are already rewritten by the settings schema's harness
+ * preprocess, so any survivor is AMBIGUOUS — retired on one provider but live on another (e.g.
+ * `gpt-5.4`: gone from codex, still a Copilot id), or retired on several with different
+ * successors. The rung stays as written (correct for the provider that still serves it); the
+ * warning names the provider(s) whose spawn would reject it and the successor to pin instead.
+ */
+export const warnEscalationMapRetiredValues = (
+  escalationMap: Readonly<Record<string, string>>,
+  logger: Logger
+): void => {
+  for (const [from, to] of Object.entries(escalationMap)) {
+    const retirements = RETIRED_MODEL_REMAPS.filter((r) => r.from === to);
+    if (retirements.length === 0) continue;
+    const where = retirements.map((r) => `${r.provider} (successor '${r.to}')`).join(', ');
+    logger.warn(
+      `escalationMap: '${from}' escalates to '${to}', which is retired on ${where} — left unchanged because the slug is ambiguous; pin the successor if the generator runs there`,
+      { from, to }
+    );
   }
 };
 

@@ -21,9 +21,10 @@
  * New in the 2026-09 changelog and cataloged here: `claude-opus-5.5` (Pro+/Max/Business/
  * Enterprise), `claude-fable-5.1` (Pro+ and up, off by default for Business/Enterprise),
  * `gpt-6-astra` (Pro+ and up), `gpt-6-sol` / `gpt-6-luna` (luna includes Pro), `gemini-3.8-flash`,
- * and `grok-4.7` (gradual rollout). None of these answered on the reference account yet, so they
- * are catalog + pin-only: a gated account fails at spawn with a clear error (the Copilot
- * availability probe is a passthrough in v1).
+ * and `grok-4.7` (gradual rollout). Only `gemini-3.8-flash` answered on the reference account;
+ * the other six (`claude-opus-5.5`, `claude-fable-5.1`, `gpt-6-astra`, `gpt-6-sol`, `gpt-6-luna`,
+ * `grok-4.7`) did not yet, so they are catalog + pin-only: a gated account fails at spawn with a
+ * clear error (the Copilot availability probe is a passthrough in v1).
  *
  * Verified available on the reference account: `claude-sonnet-5`, `claude-opus-4.8`,
  * `claude-opus-4.7`, `claude-opus-5`, `claude-haiku-4.5`, `gpt-5-mini`, `gpt-5.4-mini`,

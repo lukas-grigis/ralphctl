@@ -8,6 +8,7 @@ import type { Element } from '@src/application/chain/element.ts';
 import { type SessionMetaInput, stampSessionMetaLeaf } from '@src/application/flows/_shared/stamp-session-meta.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import { roundSignalsPath } from '@src/application/flows/implement/leaves/round-artifacts.ts';
+import { effectiveGeneratorModel } from '@src/business/task/escalation-policy.ts';
 
 /**
  * Implement-specific wrapper around the generic {@link stampSessionMetaLeaf}. Projects the
@@ -67,11 +68,11 @@ const resolveImplementMetaInput = (
   const outputDir = AbsolutePath.parse(dirname(signalsPath));
   if (!outputDir.ok) throw outputDir.error;
   // Generator escalation: when `escalatedFromModel` is stamped, attribute the spawn to the
-  // RESOLVED model (which is `escalatedToModel`, not the configured `model` opt). For the
+  // RESOLVED model (`escalatedToModel` after the retired-model remap, not the configured `model` opt). For the
   // evaluator role we leave the configured model — the evaluator is held constant across the
   // task by design (see CLAUDE.md § Escalation).
   const task = ctx.currentTask;
-  const effectiveModel = role === 'generator' && task.escalatedToModel !== undefined ? task.escalatedToModel : model;
+  const effectiveModel = role === 'generator' ? effectiveGeneratorModel(task, model, providerId) : model;
   return {
     outputDir: outputDir.value,
     flow: `implement-${role}`,
