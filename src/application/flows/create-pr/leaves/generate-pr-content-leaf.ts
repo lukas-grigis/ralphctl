@@ -67,6 +67,8 @@ export interface GeneratePrContentLeafDeps {
   readonly logger: Logger;
   /** Per-spawn model — picked by the flow factory from settings. */
   readonly model: string;
+  /** Per-spawn effort — resolved from settings by the surface; see `CreatePrDeps.effort`. */
+  readonly effort?: string;
 }
 
 interface GeneratePrContentInput {
@@ -274,6 +276,7 @@ export const generatePrContentLeaf = (deps: GeneratePrContentLeafDeps): Element<
           cwd: input.unitRoot,
           additionalRoots: [input.repoPath],
           model: deps.model,
+          ...(deps.effort !== undefined ? { effort: deps.effort } : {}),
           permissions: PR_AUTHORING_PERMISSIONS,
           signalsFile: signalsFilePathResult.value,
           outputDir: input.unitRoot,

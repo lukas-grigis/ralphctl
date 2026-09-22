@@ -1,21 +1,43 @@
 import { describe, expect, it } from 'vitest';
+import {
+  RETIRED_MODEL_REMAPS,
+  remapRetiredModel,
+  unambiguousRetiredSuccessor,
+  type AiProvider,
+} from '@src/domain/entity/settings.ts';
+import { CLAUDE_MODELS, isClaudeModel } from '@src/domain/value/settings-models/claude.ts';
 import { CODEX_MODELS, isCodexModel } from '@src/domain/value/settings-models/codex.ts';
 import { COPILOT_MODELS, isCopilotModel } from '@src/domain/value/settings-models/copilot.ts';
+import { GROK_MODELS } from '@src/domain/value/settings-models/grok.ts';
+import { OPENCODE_MODELS, isOpencodeModel } from '@src/domain/value/settings-models/opencode.ts';
+
+describe('settings-models / claude catalog', () => {
+  it('adds Opus 5.5 and Fable 5.1 (Claude Code 2.1.280, 2026-09-22) without dropping pinned ids', () => {
+    for (const m of ['claude-opus-5-5', 'claude-fable-5-1', 'claude-opus-5', 'claude-fable-5', 'claude-opus-4-8']) {
+      expect(isClaudeModel(m), m).toBe(true);
+    }
+  });
+
+  it('does not catalog a [1m] variant for the natively-1M Opus 5.5 / Fable 5.1', () => {
+    expect(CLAUDE_MODELS).not.toContain('claude-opus-5-5[1m]');
+    expect(CLAUDE_MODELS).not.toContain('claude-fable-5-1[1m]');
+  });
+});
 
 describe('settings-models / codex catalog', () => {
-  // Verified against the live CLI model cache (codex CLI v0.145.0, 2026-07-26).
-  const kept = ['gpt-5.5', 'gpt-5.4', 'gpt-5.4-mini', 'codex-auto-review'] as const;
-  const added = ['gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna'] as const;
-  // Gone from the codex CLI entirely — persisted rows are remapped to `gpt-5.5` at parse time.
-  const removed = ['gpt-5.2', 'gpt-5.3-codex', 'gpt-5.3-codex-spark'] as const;
+  // Verified against the live CLI model cache (codex CLI v0.155.1, 2026-09-22).
+  const kept = ['gpt-5.5', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna', 'codex-auto-review'] as const;
+  const added = ['gpt-6-astra', 'gpt-6-sol', 'gpt-6-luna'] as const;
+  // Gone from the codex CLI entirely — persisted rows are remapped at parse time.
+  const removed = ['gpt-5.2', 'gpt-5.3-codex', 'gpt-5.3-codex-spark', 'gpt-5.4', 'gpt-5.4-mini'] as const;
 
-  it('keeps the previously-shipped entries plus the synthetic review id', () => {
+  it('keeps the still-served entries plus the synthetic review id', () => {
     for (const m of kept) {
       expect(CODEX_MODELS).toContain(m);
     }
   });
 
-  it('adds the GPT-5.6 family from the 0.145.0 model cache', () => {
+  it('adds the GPT-6 family from the 0.155.1 model cache', () => {
     for (const m of added) {
       expect(CODEX_MODELS).toContain(m);
       expect(isCodexModel(m)).toBe(true);
@@ -39,7 +61,7 @@ describe('settings-models / codex catalog', () => {
 });
 
 describe('settings-models / copilot catalog', () => {
-  // Reconciled to GitHub's official supported-models doc (as of 2026-08-18).
+  // Reconciled to GitHub's supported-models doc + changelog (as of 2026-09-22).
   const official = [
     // OpenAI
     'gpt-5-mini',
@@ -51,25 +73,25 @@ describe('settings-models / copilot catalog', () => {
     'gpt-5.6-sol',
     'gpt-5.6-terra',
     'gpt-5.6-luna',
+    'gpt-6-astra',
+    'gpt-6-sol',
+    'gpt-6-luna',
     // Anthropic
     'claude-haiku-4.5',
-    'claude-opus-4.5',
-    'claude-opus-4.6',
     'claude-opus-4.7',
     'claude-opus-4.8',
     'claude-opus-4.8-fast',
     'claude-opus-5',
+    'claude-opus-5.5',
     'claude-fable-5',
-    'claude-sonnet-4.5',
-    'claude-sonnet-4.6',
+    'claude-fable-5.1',
     'claude-sonnet-5',
     // Google
-    'gemini-3.1-pro',
     'gemini-3.5-flash',
     'gemini-3.6-flash',
     'gemini-3.7-flash',
+    'gemini-3.8-flash',
     // Microsoft
-    'mai-code-1-flash',
     'mai-code-1.1-flash',
     // Moonshot
     'kimi-k2.7-code',
@@ -77,24 +99,22 @@ describe('settings-models / copilot catalog', () => {
     // xAI
     'grok-4.5',
     'grok-4.6',
-    // Fine-tuned
-    'raptor-mini',
+    'grok-4.7',
   ] as const;
 
-  // Landed in the 2026-08-18 reconciliation — all convention-derived from the doc's display names.
+  // New in the 2026-09 GitHub changelog.
   const added = [
-    'gemini-3.7-flash',
-    'mai-code-1.1-flash',
-    'kimi-k3',
-    'grok-4.5',
-    'grok-4.6',
-    'gemini-3.1-pro',
-    'raptor-mini',
+    'claude-opus-5.5',
+    'claude-fable-5.1',
+    'gpt-6-astra',
+    'gpt-6-sol',
+    'gpt-6-luna',
+    'gemini-3.8-flash',
+    'grok-4.7',
   ] as const;
 
-  // De-listed by GitHub — must no longer appear in the static catalog. The last four went in the
-  // 2026-08-18 pass: two preview graduations that renamed the derived slug, two outright
-  // delistings. All are remapped for persisted settings (see `RETIRED_MODEL_REMAPS`).
+  // De-listed or deprecated by GitHub — must no longer appear in the static catalog. All the
+  // recent ones are remapped for persisted settings (see `RETIRED_MODEL_REMAPS`).
   const removed = [
     'gpt-5.1',
     'gpt-5.2',
@@ -111,6 +131,14 @@ describe('settings-models / copilot catalog', () => {
     'raptor-mini-preview',
     'gemini-2.5-pro',
     'gemini-3-flash',
+    // 2026-09-01 deprecation, plus the superseded mai-code-1-flash.
+    'claude-opus-4.5',
+    'claude-opus-4.6',
+    'claude-sonnet-4.5',
+    'claude-sonnet-4.6',
+    'gemini-3.1-pro',
+    'raptor-mini',
+    'mai-code-1-flash',
   ] as const;
 
   it('contains exactly the official supported-models list', () => {
@@ -123,7 +151,7 @@ describe('settings-models / copilot catalog', () => {
     }
   });
 
-  it('adds the 2026-08-18 entries, including the first xAI models', () => {
+  it('adds the 2026-09 entries', () => {
     for (const m of added) {
       expect(COPILOT_MODELS).toContain(m);
       expect(isCopilotModel(m)).toBe(true);
@@ -139,5 +167,87 @@ describe('settings-models / copilot catalog', () => {
 
   it('rejects unknown ids', () => {
     expect(isCopilotModel('claude-opus-9')).toBe(false);
+  });
+});
+
+describe('settings-models / opencode catalog', () => {
+  // Verified against `opencode models` on opencode-ai v1.18.32 (2026-09-22).
+  it('drops the free-tier ids that left the live listing and adds the new ones', () => {
+    for (const gone of [
+      'opencode/deepseek-v4-flash-free',
+      'opencode/laguna-s-2.1-free',
+      'opencode/ling-3.0-tiny-free',
+      'opencode/longcat-2.0-free',
+      'opencode/north-mini-code-free',
+    ]) {
+      expect(isOpencodeModel(gone), gone).toBe(false);
+    }
+    for (const added of [
+      'opencode/hy3-free',
+      'opencode/ling-3.0-flash-fin-free',
+      'opencode/muse-spark-1.2-contributor-free',
+      'opencode/nemotron-3.5-lightning-free',
+    ]) {
+      expect(isOpencodeModel(added), added).toBe(true);
+    }
+  });
+});
+
+describe('RETIRED_MODEL_REMAPS — every remap lands on a live model in one hop', () => {
+  const catalogFor: Readonly<Record<AiProvider, readonly string[]>> = {
+    'claude-code': CLAUDE_MODELS,
+    'github-copilot': COPILOT_MODELS,
+    'openai-codex': CODEX_MODELS,
+    opencode: OPENCODE_MODELS,
+    'xai-grok': GROK_MODELS,
+  };
+
+  it('every target is a member of its own provider catalog', () => {
+    for (const { provider, from, to } of RETIRED_MODEL_REMAPS) {
+      expect(catalogFor[provider], `${provider}: ${from} → ${to}`).toContain(to);
+    }
+  });
+
+  it('no source is still a live catalog id (a live id must never be silently rewritten)', () => {
+    for (const { provider, from } of RETIRED_MODEL_REMAPS) {
+      expect(catalogFor[provider], `${provider}: ${from}`).not.toContain(from);
+    }
+  });
+
+  it('no target is itself a remap source for the same provider (chain-collapsed)', () => {
+    for (const { provider, to } of RETIRED_MODEL_REMAPS) {
+      const chained = RETIRED_MODEL_REMAPS.some((r) => r.provider === provider && r.from === to);
+      expect(chained, `${provider}: ${to} is remapped again`).toBe(false);
+    }
+  });
+});
+
+describe('remapRetiredModel — provider-guarded one-hop remap', () => {
+  it('maps a retired slug to its successor on the provider that retired it', () => {
+    expect(remapRetiredModel('github-copilot', 'claude-sonnet-4.6')).toBe('claude-sonnet-5');
+    expect(remapRetiredModel('openai-codex', 'gpt-5.4')).toBe('gpt-6-sol');
+  });
+
+  it('leaves the slug alone on a provider that still serves it, and for live or unknown ids', () => {
+    expect(remapRetiredModel('github-copilot', 'gpt-5.4')).toBe('gpt-5.4');
+    expect(remapRetiredModel('claude-code', 'claude-opus-5-5')).toBe('claude-opus-5-5');
+    expect(remapRetiredModel('not-a-provider', 'gpt-5.4')).toBe('gpt-5.4');
+  });
+});
+
+describe('unambiguousRetiredSuccessor — provider-less remap', () => {
+  it('returns the successor when exactly one provider retired the slug and no catalog lists it', () => {
+    expect(unambiguousRetiredSuccessor('claude-sonnet-4.5')).toBe('claude-sonnet-5');
+    expect(unambiguousRetiredSuccessor('claude-opus-4-7')).toBe('claude-opus-4-8');
+  });
+
+  it('returns undefined for a slug retired on one provider but live on another', () => {
+    // `gpt-5.4` left codex but is still a Copilot id.
+    expect(unambiguousRetiredSuccessor('gpt-5.4')).toBeUndefined();
+  });
+
+  it('returns undefined for a live or unknown slug', () => {
+    expect(unambiguousRetiredSuccessor('claude-sonnet-5')).toBeUndefined();
+    expect(unambiguousRetiredSuccessor('made-up-model')).toBeUndefined();
   });
 });

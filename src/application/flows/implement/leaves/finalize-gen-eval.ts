@@ -9,6 +9,7 @@ import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { UpdateTask } from '@src/domain/repository/task/update-task.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
+import { effectiveGeneratorModel } from '@src/business/task/escalation-policy.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
@@ -114,7 +115,11 @@ export const finalizeGenEvalLeaf = (deps: FinalizeGenEvalLeafDeps, taskId: TaskI
       // Per-attempt generator model is the task's escalation override when present, else the
       // configured settings row — matches the resolution order in `generator.ts`. Read here
       // so the escalation policy can look up the rung above the actual model that ran.
-      const generatorModel = ctx.currentTask.escalatedToModel ?? deps.configuredGeneratorModel;
+      const generatorModel = effectiveGeneratorModel(
+        ctx.currentTask,
+        deps.configuredGeneratorModel,
+        deps.configuredGeneratorProvider
+      );
       // Per-attempt generator effort mirrors that resolution order (`task.escalatedToEffort ??
       // configured`) so the policy sees the effort the just-finished attempt actually ran at — a
       // prior effort bump reads back as the raised level, stopping the effort rung from re-firing.

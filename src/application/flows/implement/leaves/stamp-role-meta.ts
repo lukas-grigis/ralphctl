@@ -61,9 +61,9 @@ export interface StampRoleMetaOpts {
   readonly model: string;
   /**
    * Resolved effort level (after `resolveEffortForRow` ran in the launcher), or `undefined`
-   * when the row has no effort and the provider falls back to its CLI default. Persisted as
-   * `null` in `role-meta.json` — JSON has no `undefined`, and a missing key would be
-   * ambiguous with "field never written".
+   * for an opencode row with no row / global effort, where the CLI picks its own default.
+   * Persisted as `null` in `role-meta.json` — JSON has no `undefined`, and a missing key would
+   * be ambiguous with "field never written".
    */
   readonly effort?: string;
 }

@@ -91,27 +91,54 @@ describe('escalation model helpers', () => {
 });
 
 describe('effectiveEscalationChains', () => {
-  it('renders the built-in haiku→sonnet-5→opus-5 chain uncustomised with no overrides', () => {
-    const chains = effectiveEscalationChains({});
-    const claude = chains.find((c) => c.models[0] === 'claude-haiku-4-5');
-    expect(claude?.models).toEqual(['claude-haiku-4-5', 'claude-sonnet-5', 'claude-opus-5']);
-    expect(claude?.customised).toBe(false);
+  const chainFrom = (
+    chains: ReturnType<typeof effectiveEscalationChains>,
+    provider: string | undefined,
+    root: string
+  ) => chains.find((c) => c.provider === provider && c.models[0] === root);
+
+  it('renders the built-in Claude-Code haiku→sonnet-5→opus-5-5 chain uncustomised with no overrides', () => {
+    const chain = chainFrom(effectiveEscalationChains({}), 'claude-code', 'claude-haiku-4-5');
+    expect(chain?.models).toEqual(['claude-haiku-4-5', 'claude-sonnet-5', 'claude-opus-5-5']);
+    expect(chain?.customised).toBe(false);
   });
 
-  it('renders the legacy sonnet-4-6→opus-4-8→opus-5 chain uncustomised with no overrides', () => {
+  it('renders the legacy sonnet-4-6→opus-4-8→opus-5-5 chain uncustomised with no overrides', () => {
+    const chain = chainFrom(effectiveEscalationChains({}), 'claude-code', 'claude-sonnet-4-6');
+    expect(chain?.models).toEqual(['claude-sonnet-4-6', 'claude-opus-4-8', 'claude-opus-5-5']);
+    expect(chain?.customised).toBe(false);
+  });
+
+  it('shows the shared claude-sonnet-5 slug climbing differently per provider', () => {
     const chains = effectiveEscalationChains({});
-    const legacy = chains.find((c) => c.models[0] === 'claude-sonnet-4-6');
-    expect(legacy?.models).toEqual(['claude-sonnet-4-6', 'claude-opus-4-8', 'claude-opus-5']);
-    expect(legacy?.customised).toBe(false);
+    expect(chainFrom(chains, 'github-copilot', 'claude-haiku-4.5')?.models).toEqual([
+      'claude-haiku-4.5',
+      'claude-sonnet-5',
+      'claude-opus-4.8',
+    ]);
+    expect(chainFrom(chains, 'claude-code', 'claude-haiku-4-5')?.models).toContain('claude-opus-5-5');
+    // OpenCode has no built-in ladder, so it contributes no chain without overrides.
+    expect(chains.some((c) => c.provider === 'opencode')).toBe(false);
   });
 
   it('extends a chain through a user rung and marks it customised', () => {
-    // claude-opus-5 has no default rung — the documented opt-in promotion path
-    // (`'claude-opus-5': 'claude-fable-5'`) extends the dash-form ladder's real top.
-    const chains = effectiveEscalationChains({ 'claude-opus-5': 'claude-fable-5' });
-    const claude = chains.find((c) => c.models[0] === 'claude-haiku-4-5');
-    expect(claude?.models).toEqual(['claude-haiku-4-5', 'claude-sonnet-5', 'claude-opus-5', 'claude-fable-5']);
-    expect(claude?.customised).toBe(true);
+    // claude-opus-5-5 has no default rung — the documented opt-in promotion path
+    // (`'claude-opus-5-5': 'claude-fable-5-1'`) extends the Claude-Code ladder's real top.
+    const chains = effectiveEscalationChains({ 'claude-opus-5-5': 'claude-fable-5-1' });
+    const chain = chainFrom(chains, 'claude-code', 'claude-haiku-4-5');
+    expect(chain?.models).toEqual(['claude-haiku-4-5', 'claude-sonnet-5', 'claude-opus-5-5', 'claude-fable-5-1']);
+    expect(chain?.customised).toBe(true);
+  });
+
+  it('lists user rungs rooted at an uncatalogued id under no provider', () => {
+    const chains = effectiveEscalationChains({ 'my-private-model': 'my-bigger-model' });
+    expect(chainFrom(chains, undefined, 'my-private-model')).toEqual({
+      provider: undefined,
+      models: ['my-private-model', 'my-bigger-model'],
+      customised: true,
+    });
+    // Never duplicated under a provider whose catalog does not list it.
+    expect(chains.filter((c) => c.models[0] === 'my-private-model')).toHaveLength(1);
   });
 
   it('cuts user-authored cycles instead of walking forever', () => {

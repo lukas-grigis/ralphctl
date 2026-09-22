@@ -30,7 +30,7 @@ import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.t
 import { type AssistantTool, toolForProvider } from '@src/integration/ai/readiness/_engine/tool.ts';
 import type { FlowId } from '@src/domain/value/flow-id.ts';
 import { FLOW_IDS } from '@src/domain/value/flow-id.ts';
-import { clampEffortToProvider } from '@src/business/settings/resolve-effort.ts';
+import { resolveEffortForRow } from '@src/business/settings/resolve-effort.ts';
 
 export interface CreateReadinessFlowOpts {
   readonly projectId: ProjectId;
@@ -77,20 +77,6 @@ const pickRowForProvider = (ai: AiSettings, provider: AiProvider): FlowId => {
   }
   // Caller derived the provider list from these same rows; unreachable.
   throw new Error(`pickRowForProvider: provider ${provider} not referenced in ai settings`);
-};
-
-/**
- * Per-tool effort resolution. Mirrors `resolveEffort(flowId, settings)` semantics but reads
- * just the `AiSettings` slice the flow holds — per-row effort wins, otherwise the global
- * effort is floored via the shared {@link clampEffortToProvider} clamp from
- * `business/settings/resolve-effort.ts`. For `implement` reads from the generator role.
- */
-const resolveEffortForRow = (ai: AiSettings, flow: FlowId): string | undefined => {
-  const row = primaryFlowRow(ai, flow);
-  if (row.effort !== undefined) return row.effort;
-  const globalEffort = ai.effort;
-  if (globalEffort === undefined) return undefined;
-  return clampEffortToProvider(globalEffort, row.provider);
 };
 
 /**
@@ -149,7 +135,9 @@ const buildPerToolSubchain = (
 ): Element<ReadinessCtx> => {
   const rowFlow = pickRowForProvider(opts.ai, provider);
   const row = primaryFlowRow(opts.ai, rowFlow);
-  const effort = resolveEffortForRow(opts.ai, rowFlow);
+  // The row supplies the model and any explicit effort; the shipped default is readiness's own,
+  // since readiness is the work this spawn does whichever row the provider was borrowed from.
+  const effort = resolveEffortForRow(row, opts.ai.effort, 'readiness');
   const provideAi = deps.providerFor(provider);
   const skillsAdapter = deps.skillsAdapterFor(provider);
   return sequential<ReadinessCtx>(`tool-${tool}`, [

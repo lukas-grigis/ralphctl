@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import type { Settings } from '@src/domain/entity/settings.ts';
-import { DEFAULT_SETTINGS } from '@src/business/settings/defaults.ts';
+import { AI_PROVIDERS, type Settings } from '@src/domain/entity/settings.ts';
+import { DEFAULT_SETTINGS, defaultAiSettingsForProvider } from '@src/business/settings/defaults.ts';
 import { applyPreset } from '@src/business/settings/presets.ts';
-import { clampEffortToProvider, resolveEffort } from '@src/business/settings/resolve-effort.ts';
+import { FLOW_IDS } from '@src/domain/value/flow-id.ts';
+import { clampEffortToProvider, resolveEffort, resolveEffortForRow } from '@src/business/settings/resolve-effort.ts';
 
 const withGlobalEffort = (effort: Settings['ai']['effort']): Settings => ({
   ...DEFAULT_SETTINGS,
@@ -18,24 +19,21 @@ const withPerFlowEffort = (flow: 'refine' | 'plan' | 'readiness' | 'ideate', eff
 });
 
 describe('resolveEffort', () => {
-  it('resolves plan and ideate to the shipped high default when neither the row nor the global effort is set', () => {
+  it('resolves every flow to its shipped default when neither the row nor the global effort is set', () => {
+    expect(resolveEffort('refine', DEFAULT_SETTINGS)).toBe('medium');
     expect(resolveEffort('plan', DEFAULT_SETTINGS)).toBe('high');
+    expect(resolveEffort('implement', DEFAULT_SETTINGS)).toBe('high');
+    expect(resolveEffort('readiness', DEFAULT_SETTINGS)).toBe('medium');
     expect(resolveEffort('ideate', DEFAULT_SETTINGS)).toBe('high');
+    expect(resolveEffort('createPr', DEFAULT_SETTINGS)).toBe('low');
   });
 
-  it('leaves every other flow resolving to undefined when neither the row nor the global effort is set', () => {
-    expect(resolveEffort('refine', DEFAULT_SETTINGS)).toBeUndefined();
-    expect(resolveEffort('readiness', DEFAULT_SETTINGS)).toBeUndefined();
-    expect(resolveEffort('createPr', DEFAULT_SETTINGS)).toBeUndefined();
-    expect(resolveEffort('implement', DEFAULT_SETTINGS)).toBeUndefined();
-  });
-
-  it('an explicit global effort wins over the new plan/ideate flow default', () => {
+  it('an explicit global effort wins over the shipped flow default', () => {
     expect(resolveEffort('plan', withGlobalEffort('low'))).toBe('low');
     expect(resolveEffort('ideate', withGlobalEffort('medium'))).toBe('medium');
   });
 
-  it('an explicit per-flow row effort wins over the new plan/ideate flow default', () => {
+  it('an explicit per-flow row effort wins over the shipped flow default', () => {
     expect(resolveEffort('plan', withPerFlowEffort('plan', 'low'))).toBe('low');
     expect(resolveEffort('ideate', withPerFlowEffort('ideate', 'medium'))).toBe('medium');
   });
@@ -131,12 +129,11 @@ describe('resolveEffort', () => {
     expect(resolveEffort('plan', withPerFlowEffort('plan', 'low'))).toBe('low');
   });
 
-  it('never stamps the plan/ideate flow default on an opencode row — the CLI picks the upstream default', () => {
+  it('never stamps a shipped flow default on an opencode row — the CLI picks the upstream default', () => {
     // OpenCode aggregates upstream providers, so `--variant high` may be rejected outright by the
     // row's model. The opencode-only preset documents effort as deliberately unset on every row.
     const opencodeOnly = applyPreset('opencode-only', DEFAULT_SETTINGS);
-    expect(resolveEffort('plan', opencodeOnly)).toBeUndefined();
-    expect(resolveEffort('ideate', opencodeOnly)).toBeUndefined();
+    for (const flow of FLOW_IDS) expect(resolveEffort(flow, opencodeOnly)).toBeUndefined();
   });
 
   it('an explicit per-row effort still reaches an opencode row verbatim', () => {
@@ -153,6 +150,34 @@ describe('resolveEffort', () => {
     const withGlobal: Settings = { ...opencodeOnly, ai: { ...opencodeOnly.ai, effort: 'medium' } };
     expect(resolveEffort('plan', withGlobal)).toBe('medium');
     expect(resolveEffort('refine', withGlobal)).toBe('medium');
+  });
+});
+
+/**
+ * The root-cause fence: ralphctl never lets an effort-capable provider fall back to its CLI's own
+ * default (Claude Code runs Opus 5.5 at `medium` when no `--effort` is passed). Every flow row —
+ * and both implement roles — of every shipped default must resolve to an explicit level.
+ */
+describe('shipped defaults never rely on the CLI default effort', () => {
+  const effortCapable = AI_PROVIDERS.filter((p) => p !== 'opencode');
+
+  const expectEveryRowDefined = (settings: Settings): void => {
+    for (const flow of FLOW_IDS) expect(resolveEffort(flow, settings), flow).toBeDefined();
+    const { generator, evaluator } = settings.ai.implement;
+    expect(resolveEffortForRow(generator, settings.ai.effort, 'implement'), 'generator').toBeDefined();
+    expect(resolveEffortForRow(evaluator, settings.ai.effort, 'implement'), 'evaluator').toBeDefined();
+  };
+
+  it('resolves every flow and implement role of DEFAULT_SETTINGS to a defined effort', () => {
+    expectEveryRowDefined(DEFAULT_SETTINGS);
+  });
+
+  it.each(effortCapable)('resolves every flow of defaultAiSettingsForProvider(%s) to a defined effort', (provider) => {
+    expectEveryRowDefined({ ...DEFAULT_SETTINGS, ai: defaultAiSettingsForProvider(provider) });
+  });
+
+  it('covers every provider except opencode — the opt-out is deliberate, not an omission', () => {
+    expect(effortCapable).toHaveLength(AI_PROVIDERS.length - 1);
   });
 });
 

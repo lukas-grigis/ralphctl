@@ -5,28 +5,20 @@ import {
   type Settings,
 } from '@src/domain/entity/settings.ts';
 import type { FlowId } from '@src/domain/value/flow-id.ts';
-
-// Model identifiers referenced more than once below, hoisted to named constants so each literal
-// appears once. The dash spelling (`claude-sonnet-5`, `claude-opus-5`) is the claude-code
-// catalog form. Sonnet 5 is the default Sonnet for Claude Code; Opus 5 is the default Opus.
-const CLAUDE_SONNET = 'claude-sonnet-5';
-const CLAUDE_OPUS = 'claude-opus-5';
-const GPT_5_MINI = 'gpt-5-mini';
-const GPT_5_4_MINI = 'gpt-5.4-mini';
-const GPT_5_6_SOL = 'gpt-5.6-sol';
-/**
- * OpenCode free-tier picks — the general-purpose tier and the light/code-oriented tier.
- *
- * The free tier rotates and individual ids go dark upstream (a 401 on one model while its
- * siblings answer fine). Both picks here were live-probed against opencode-ai v1.18.15 on
- * 2026-08-08; re-probe with `opencode models` before changing them.
- */
-const OPENCODE_BIG = 'opencode/big-pickle';
-const OPENCODE_MINI = 'opencode/deepseek-v4-flash-free';
-// Same split as `GROK_ONLY` in grok-preset-matrices.ts. Probed with `grok models` on grok 1.0.40 (2026-09-22).
-const GROK_FLAGSHIP = 'grok-4.7';
-const GROK_MID = 'grok-4.6';
-const GROK_CHEAP = 'grok-4.5';
+import {
+  COPILOT_LUNA,
+  COPILOT_OPUS,
+  COPILOT_SONNET,
+  GPT_6_LUNA,
+  GPT_6_SOL,
+  GROK_CHEAP,
+  GROK_FLAGSHIP,
+  GROK_MID,
+  OPENCODE_BIG,
+  OPENCODE_MINI,
+  OPUS,
+  SONNET,
+} from '@src/business/settings/preset-model-ids.ts';
 
 /**
  * Per-provider, per-flow default model picks. Used by the welcome flow when the user picks a
@@ -38,32 +30,35 @@ const GROK_CHEAP = 'grok-4.5';
  */
 const DEFAULT_MODELS_BY_PROVIDER: Readonly<Record<AiProvider, Readonly<Record<FlowId, string>>>> = {
   'claude-code': {
-    refine: CLAUDE_SONNET,
-    plan: CLAUDE_OPUS,
-    implement: CLAUDE_OPUS,
-    readiness: CLAUDE_SONNET,
-    ideate: CLAUDE_OPUS,
+    refine: SONNET,
+    plan: OPUS,
+    implement: OPUS,
+    readiness: SONNET,
+    ideate: OPUS,
     // PR-content drafting is a single-shot summarisation task — Sonnet matches refine's
     // light reasoning profile and avoids the Opus premium for a few-paragraph diff write-up.
-    createPr: CLAUDE_SONNET,
+    createPr: SONNET,
   },
+  // Same tiers as `copilot-only`. Opus 4.8 rather than Opus 5 / 5.5 (plan-gated on Copilot), and
+  // it tops the Copilot escalation ladder, so the reset-to-copilot implement default and the
+  // ladder top stay aligned.
   'github-copilot': {
-    refine: GPT_5_MINI,
-    plan: 'gpt-5.4',
-    implement: 'gpt-5.4',
-    readiness: GPT_5_MINI,
-    ideate: 'gpt-5.4',
-    createPr: GPT_5_MINI,
+    refine: COPILOT_SONNET,
+    plan: COPILOT_OPUS,
+    implement: COPILOT_OPUS,
+    readiness: COPILOT_LUNA,
+    ideate: COPILOT_OPUS,
+    createPr: COPILOT_LUNA,
   },
   'openai-codex': {
-    refine: GPT_5_4_MINI,
-    plan: GPT_5_6_SOL,
-    // `gpt-5.6-sol` is the codex flagship (codex CLI ≥ 0.145); it tops the Codex escalation
-    // ladder, so the reset-to-codex implement default and the ladder top stay aligned.
-    implement: GPT_5_6_SOL,
-    readiness: GPT_5_4_MINI,
-    ideate: GPT_5_6_SOL,
-    createPr: GPT_5_4_MINI,
+    refine: GPT_6_LUNA,
+    plan: GPT_6_SOL,
+    // `gpt-6-sol` is the codex flagship; it tops the Codex escalation ladder, so the
+    // reset-to-codex implement default and the ladder top stay aligned.
+    implement: GPT_6_SOL,
+    readiness: GPT_6_LUNA,
+    ideate: GPT_6_SOL,
+    createPr: GPT_6_LUNA,
   },
   // OpenCode aggregates upstream providers, so there is no vendor flagship to default to. These
   // are the zero-auth free-tier picks — they make a fresh install runnable with no credentials
@@ -78,6 +73,7 @@ const DEFAULT_MODELS_BY_PROVIDER: Readonly<Record<AiProvider, Readonly<Record<Fl
     ideate: OPENCODE_BIG,
     createPr: OPENCODE_MINI,
   },
+  // Same split as `grok-only`.
   'xai-grok': {
     refine: GROK_MID,
     plan: GROK_FLAGSHIP,
@@ -90,9 +86,10 @@ const DEFAULT_MODELS_BY_PROVIDER: Readonly<Record<AiProvider, Readonly<Record<Fl
 
 /**
  * Build a fully-stamped {@link AiSettings} where every per-flow row uses the supplied
- * provider with that provider's best default model. The global `ai.effort` is left unset —
- * `resolveEffort` falls through to the per-flow `effort` (also unset by default), so a fresh
- * record leaves the AI CLI to use its built-in default.
+ * provider with that provider's best default model. The global `ai.effort` and every per-flow
+ * `effort` are left unset — `resolveEffort` then lands on the flow's shipped default
+ * (`FLOW_DEFAULT_EFFORT`), so a fresh record still stamps an explicit level on every spawn
+ * rather than inheriting the AI CLI's built-in default (opencode rows excepted).
  *
  * `implement` stamps the same provider+model on both `generator` and `evaluator` so the
  * "every flow runs on one provider" preset story stays intact; cross-provider splits are
@@ -120,9 +117,9 @@ export const defaultAiSettingsForProvider = (provider: AiProvider): AiSettings =
  * settings via the TUI settings panel or `ralphctl settings set <key> <value>`.
  *
  * The implement row deliberately splits roles across providers: Claude Opus drives the
- * generator (deep coder reasoning) while Codex GPT-5.6 Sol drives the evaluator (independent
- * second opinion). Effort is deliberately left unset on the evaluator row per the fresh-default
- * policy above — the CLI's own default applies; raise `ai.effort` to deepen the gate.
+ * generator (deep coder reasoning) while Codex GPT-6 Sol drives the evaluator (independent
+ * second opinion). Effort is left unset on both roles per the fresh-default policy above — the
+ * implement flow default applies to each; raise `ai.effort` or the row's effort to deepen the gate.
  * Single-provider users override via a preset.
  */
 export const DEFAULT_SETTINGS: Settings = {
@@ -130,8 +127,8 @@ export const DEFAULT_SETTINGS: Settings = {
   ai: {
     ...defaultAiSettingsForProvider('claude-code'),
     implement: {
-      generator: { provider: 'claude-code', model: CLAUDE_OPUS },
-      evaluator: { provider: 'openai-codex', model: GPT_5_6_SOL },
+      generator: { provider: 'claude-code', model: OPUS },
+      evaluator: { provider: 'openai-codex', model: GPT_6_SOL },
     },
   },
   harness: {

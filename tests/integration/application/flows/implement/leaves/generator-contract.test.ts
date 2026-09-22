@@ -66,6 +66,7 @@ describe('generatorLeaf — audit-[09] contract', () => {
       cwd: absolutePath('/tmp/ralph/fake-cwd'),
       sprintDir: absolutePath('/tmp/ralph/fake-sprint-dir'),
       progressFile: absolutePath('/tmp/ralph/fake-sprint-dir/progress.md'),
+      providerId: 'claude-code',
       model: 'test-model',
       clock: () => FIXED_NOW,
       logger: noopLogger,

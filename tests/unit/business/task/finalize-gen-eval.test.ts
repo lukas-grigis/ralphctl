@@ -61,6 +61,7 @@ describe('finalizeGenEvalUseCase', () => {
       eventBus: newBus(),
       clock: fixedClock,
       generatorModel: defaultModel,
+      generatorProvider: 'claude-code',
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -86,6 +87,7 @@ describe('finalizeGenEvalUseCase', () => {
       eventBus: newBus(),
       clock: fixedClock,
       generatorModel: defaultModel,
+      generatorProvider: 'claude-code',
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -108,6 +110,7 @@ describe('finalizeGenEvalUseCase', () => {
       eventBus: newBus(),
       clock: fixedClock,
       generatorModel: defaultModel,
+      generatorProvider: 'claude-code',
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -132,6 +135,7 @@ describe('finalizeGenEvalUseCase', () => {
       eventBus: newBus(),
       clock: fixedClock,
       generatorModel: defaultModel,
+      generatorProvider: 'claude-code',
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -159,6 +163,7 @@ describe('finalizeGenEvalUseCase', () => {
       eventBus: newBus(),
       clock: fixedClock,
       generatorModel: defaultModel,
+      generatorProvider: 'claude-code',
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -182,6 +187,7 @@ describe('finalizeGenEvalUseCase', () => {
       eventBus: newBus(),
       clock: fixedClock,
       generatorModel: defaultModel,
+      generatorProvider: 'claude-code',
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -207,6 +213,7 @@ describe('finalizeGenEvalUseCase', () => {
       eventBus: newBus(),
       clock: fixedClock,
       generatorModel: defaultModel,
+      generatorProvider: 'claude-code',
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -231,6 +238,7 @@ describe('finalizeGenEvalUseCase', () => {
       eventBus: newBus(),
       clock: fixedClock,
       generatorModel: defaultModel,
+      generatorProvider: 'claude-code',
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -258,6 +266,7 @@ describe('finalizeGenEvalUseCase', () => {
       eventBus: bus,
       clock: fixedClock,
       generatorModel: 'claude-sonnet-4-6',
+      generatorProvider: 'claude-code',
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -287,6 +296,7 @@ describe('finalizeGenEvalUseCase', () => {
       eventBus: bus,
       clock: fixedClock,
       generatorModel: 'claude-sonnet-4-6',
+      generatorProvider: 'claude-code',
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -317,6 +327,7 @@ describe('finalizeGenEvalUseCase', () => {
       eventBus: bus,
       clock: fixedClock,
       generatorModel: 'claude-sonnet-4-6',
+      generatorProvider: 'claude-code',
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -341,6 +352,7 @@ describe('finalizeGenEvalUseCase', () => {
       eventBus: bus,
       clock: fixedClock,
       generatorModel: 'claude-sonnet-4-6',
+      generatorProvider: 'claude-code',
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -354,8 +366,8 @@ describe('finalizeGenEvalUseCase', () => {
   it('plateau topped-out (nudged then plateaued again): verdict failed, plateau warning, no shouldFailAttempt, no blockedReason (preserves work)', async () => {
     // Mutant-kill: a mutant that drops the topped-out guard would incorrectly set shouldFailAttempt.
     const initial = makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 });
-    // Task was nudged at the top of the ladder (from === to === opus-5); plateauing again tops out.
-    const stamped = recordTaskEscalation(initial, 'claude-opus-5', 'claude-opus-5');
+    // Task was nudged at the top of the ladder (from === to === opus-5-5); plateauing again tops out.
+    const stamped = recordTaskEscalation(initial, 'claude-opus-5-5', 'claude-opus-5-5');
     if (!stamped.ok) throw stamped.error;
     const bus = newBus();
     const events: Array<{ type: string }> = [];
@@ -370,7 +382,7 @@ describe('finalizeGenEvalUseCase', () => {
       logger: noopLogger,
       eventBus: bus,
       clock: fixedClock,
-      generatorModel: 'claude-opus-5',
+      generatorModel: 'claude-opus-5-5',
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -398,15 +410,15 @@ describe('finalizeGenEvalUseCase', () => {
       logger: noopLogger,
       eventBus: bus,
       clock: fixedClock,
-      generatorModel: 'claude-opus-5',
+      generatorModel: 'claude-opus-5-5',
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     // Nudge: same model stamped (arms the directive + once-per-task cap), one more attempt granted.
     expect(result.value.verdict).toBe('failed');
     expect(result.value.warning).toEqual({ kind: 'plateau', dimensions: ['correctness'] }); // plateau warning attached
-    expect(result.value.task.escalatedFromModel).toBe('claude-opus-5');
-    expect(result.value.task.escalatedToModel).toBe('claude-opus-5');
+    expect(result.value.task.escalatedFromModel).toBe('claude-opus-5-5');
+    expect(result.value.task.escalatedToModel).toBe('claude-opus-5-5');
     expect(result.value.shouldFailAttempt).toBe(true);
     expect(result.value.blockedReason).toBeUndefined();
     expect(events.some((e) => e.type === 'model-escalated')).toBe(false);
@@ -429,6 +441,7 @@ describe('finalizeGenEvalUseCase', () => {
       eventBus: bus,
       clock: fixedClock,
       generatorModel: 'claude-sonnet-4-6',
+      generatorProvider: 'claude-code',
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -460,6 +473,7 @@ describe('finalizeGenEvalUseCase', () => {
       eventBus: bus,
       clock: fixedClock,
       generatorModel: 'claude-sonnet-4-6',
+      generatorProvider: 'claude-code',
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -494,6 +508,7 @@ describe('finalizeGenEvalUseCase', () => {
       eventBus: bus,
       clock: fixedClock,
       generatorModel: 'claude-sonnet-4-6',
+      generatorProvider: 'claude-code',
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -522,6 +537,7 @@ describe('finalizeGenEvalUseCase', () => {
       eventBus: bus,
       clock: fixedClock,
       generatorModel: 'claude-sonnet-4-6',
+      generatorProvider: 'claude-code',
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -553,6 +569,7 @@ describe('finalizeGenEvalUseCase', () => {
       eventBus: bus,
       clock: fixedClock,
       generatorModel: 'claude-sonnet-4-6',
+      generatorProvider: 'claude-code',
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -584,6 +601,7 @@ describe('finalizeGenEvalUseCase', () => {
       eventBus: bus,
       clock: fixedClock,
       generatorModel: 'claude-sonnet-4-6',
+      generatorProvider: 'claude-code',
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -614,6 +632,7 @@ describe('finalizeGenEvalUseCase', () => {
       eventBus: bus,
       clock: fixedClock,
       generatorModel: 'claude-sonnet-4-6',
+      generatorProvider: 'claude-code',
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -638,6 +657,7 @@ describe('finalizeGenEvalUseCase', () => {
       eventBus: newBus(),
       clock: fixedClock,
       generatorModel: 'claude-sonnet-4-6',
+      generatorProvider: 'claude-code',
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -670,6 +690,7 @@ describe('finalizeGenEvalUseCase', () => {
       eventBus: bus,
       clock: fixedClock,
       generatorModel: 'claude-sonnet-4-6',
+      generatorProvider: 'claude-code',
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -703,6 +724,7 @@ describe('finalizeGenEvalUseCase', () => {
       eventBus: newBus(),
       clock: fixedClock,
       generatorModel: 'claude-sonnet-4-6',
+      generatorProvider: 'claude-code',
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -730,6 +752,7 @@ describe('finalizeGenEvalUseCase', () => {
       eventBus: newBus(),
       clock: fixedClock,
       generatorModel: 'claude-sonnet-4-6',
+      generatorProvider: 'claude-code',
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -757,6 +780,7 @@ describe('finalizeGenEvalUseCase', () => {
       eventBus: bus,
       clock: fixedClock,
       generatorModel: 'claude-sonnet-4-6',
+      generatorProvider: 'claude-code',
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -788,6 +812,7 @@ describe('finalizeGenEvalUseCase', () => {
       eventBus: bus,
       clock: fixedClock,
       generatorModel: 'claude-sonnet-4-6',
+      generatorProvider: 'claude-code',
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -819,6 +844,7 @@ describe('finalizeGenEvalUseCase', () => {
       eventBus: newBus(),
       clock: fixedClock,
       generatorModel: 'claude-sonnet-4-6',
+      generatorProvider: 'claude-code',
     });
 
     expect(result.ok).toBe(true);
@@ -831,11 +857,11 @@ describe('finalizeGenEvalUseCase', () => {
 
   // ── Same-model effort rung (activated end-to-end via generatorProvider + generatorEffort) ──────
 
-  it('shipped defaults + plateau at ladder top → escalate-effort: task stamped escalatedToEffort=max, shouldFailAttempt=true, NO model stamp, no model-escalated event', async () => {
-    // Grounds the wiring in the real shipped defaults (opus, no per-flow effort). The default
-    // generator sits at the top of the model ladder, so a plateau now bumps reasoning effort. Claude
-    // Code's own default on this xhigh-capable model is xhigh, so the rung climbs to `max` in one
-    // step (a fixed `high` would be a no-op / downgrade) instead of settling done-with-warning.
+  it('shipped defaults + plateau at ladder top → escalate-effort: task stamped one tier above the resolved effort, shouldFailAttempt=true, NO model stamp, no model-escalated event', async () => {
+    // Grounds the wiring in the real shipped defaults (Opus 5.5, no per-flow implement effort). The
+    // default generator sits at the top of the Claude-Code model ladder, so a plateau bumps reasoning
+    // effort instead of settling done-with-warning. Implement resolves to its shipped flow default
+    // (`high`), so the rung climbs one tier to `xhigh`.
     const generatorRow = DEFAULT_SETTINGS.ai.implement.generator;
     const task = makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 });
     const bus = newBus();
@@ -860,7 +886,7 @@ describe('finalizeGenEvalUseCase', () => {
     expect(result.value.verdict).toBe('failed');
     expect(result.value.warning).toEqual({ kind: 'plateau', dimensions: ['correctness'] });
     // The raised effort is stamped so the next generator spawn reads it; the MODEL is untouched.
-    expect(result.value.task.escalatedToEffort).toBe('max');
+    expect(result.value.task.escalatedToEffort).toBe('xhigh');
     expect(result.value.task.escalatedFromModel).toBeUndefined();
     expect(result.value.task.escalatedToModel).toBeUndefined();
     expect(result.value.shouldFailAttempt).toBe(true);
@@ -900,7 +926,7 @@ describe('finalizeGenEvalUseCase', () => {
 
   it('provider without a resolvable effort dimension → same-model nudge as before (no escalatedToEffort, no model bump)', async () => {
     // No generatorProvider passed → the policy can never return escalate-effort. Top-of-ladder
-    // opus-5 falls through to the same-model nudge exactly as it did before the rung existed.
+    // opus-5-5 falls through to the same-model nudge exactly as it did before the rung existed.
     const task = makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 });
     const bus = newBus();
     const events: Array<{ type: string }> = [];
@@ -915,21 +941,21 @@ describe('finalizeGenEvalUseCase', () => {
       logger: noopLogger,
       eventBus: bus,
       clock: fixedClock,
-      generatorModel: 'claude-opus-5',
+      generatorModel: 'claude-opus-5-5',
       // generatorProvider intentionally omitted.
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     // Same-model nudge stamp (from === to), one more attempt granted, no effort stamp.
-    expect(result.value.task.escalatedFromModel).toBe('claude-opus-5');
-    expect(result.value.task.escalatedToModel).toBe('claude-opus-5');
+    expect(result.value.task.escalatedFromModel).toBe('claude-opus-5-5');
+    expect(result.value.task.escalatedToModel).toBe('claude-opus-5-5');
     expect(result.value.task.escalatedToEffort).toBeUndefined();
     expect(result.value.shouldFailAttempt).toBe(true);
     expect(events.some((e) => e.type === 'model-escalated')).toBe(false);
   });
 
   it('generator already at max effort → nudge (no headroom): no escalatedToEffort stamped', async () => {
-    // `max` is the top of Claude's effort ladder — the rung is spent, so a top-of-ladder opus-5
+    // `max` is the top of Claude's effort ladder — the rung is spent, so a top-of-ladder opus-5-5
     // plateau falls through to the same-model nudge (an explicit `high` would still climb to xhigh;
     // only the ceiling exhausts the rung). This is the wiring of `nextEffortRung` returning
     // undefined at the ceiling → the finalize leaf stamps no effort, only the same-model nudge.
@@ -944,7 +970,7 @@ describe('finalizeGenEvalUseCase', () => {
       logger: noopLogger,
       eventBus: newBus(),
       clock: fixedClock,
-      generatorModel: 'claude-opus-5',
+      generatorModel: 'claude-opus-5-5',
       generatorProvider: 'claude-code',
       generatorEffort: 'max',
     });
@@ -952,13 +978,13 @@ describe('finalizeGenEvalUseCase', () => {
     if (!result.ok) return;
     // No effort headroom → the top-of-ladder nudge (same-model stamp), never an effort bump.
     expect(result.value.task.escalatedToEffort).toBeUndefined();
-    expect(result.value.task.escalatedFromModel).toBe('claude-opus-5');
-    expect(result.value.task.escalatedToModel).toBe('claude-opus-5');
+    expect(result.value.task.escalatedFromModel).toBe('claude-opus-5-5');
+    expect(result.value.task.escalatedToModel).toBe('claude-opus-5-5');
     expect(result.value.shouldFailAttempt).toBe(true);
   });
 
   it('generator at explicit high effort → escalate-effort to xhigh (headroom on an xhigh-capable model)', async () => {
-    // opus-5 is xhigh-capable, so an explicit `high` still has headroom: the rung climbs to `xhigh`
+    // opus-5-5 is xhigh-capable, so an explicit `high` still has headroom: the rung climbs to `xhigh`
     // (the raised effort is stamped for the next spawn; a later plateau at xhigh would reach max).
     const task = makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 });
     const result = await finalizeGenEvalUseCase({
@@ -971,7 +997,7 @@ describe('finalizeGenEvalUseCase', () => {
       logger: noopLogger,
       eventBus: newBus(),
       clock: fixedClock,
-      generatorModel: 'claude-opus-5',
+      generatorModel: 'claude-opus-5-5',
       generatorProvider: 'claude-code',
       generatorEffort: 'high',
     });
@@ -1013,17 +1039,17 @@ describe('finalizeGenEvalUseCase', () => {
       generatorModel: generatorRow.model,
       generatorProvider: generatorRow.provider,
       generatorEffort: resolveEffort('implement', DEFAULT_SETTINGS),
-      evaluatorProvider: 'github-copilot',
-      evaluatorModel: 'gpt-5.5',
+      evaluatorProvider: 'openai-codex',
+      evaluatorModel: 'gpt-6-sol',
       evaluatorEffort: undefined,
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.value.task.escalatedToEffort).toBe('max');
-    expect(result.value.task.escalatedToEvaluatorEffort).toBe('high');
+    expect(result.value.task.escalatedToEffort).toBe('xhigh');
+    expect(result.value.task.escalatedToEvaluatorEffort).toBe('xhigh');
     // Both landed together in the single persist call — no separate write for the evaluator field.
     expect(persisted).toHaveLength(1);
-    expect(persisted[0]).toEqual({ escalatedToEffort: 'max', escalatedToEvaluatorEffort: 'high' });
+    expect(persisted[0]).toEqual({ escalatedToEffort: 'xhigh', escalatedToEvaluatorEffort: 'xhigh' });
   });
 
   it('plain model escalate: escalatedToEvaluatorEffort IS stamped in lockstep when evaluator context is supplied (#256 extended to model climbs)', async () => {
@@ -1078,6 +1104,7 @@ describe('finalizeGenEvalUseCase', () => {
       eventBus: newBus(),
       clock: fixedClock,
       generatorModel: 'claude-sonnet-4-6',
+      generatorProvider: 'claude-code',
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -1132,7 +1159,7 @@ describe('finalizeGenEvalUseCase', () => {
       logger: noopLogger,
       eventBus: newBus(),
       clock: fixedClock,
-      generatorModel: 'claude-opus-5',
+      generatorModel: 'claude-opus-5-5',
       generatorProvider: 'claude-code',
       generatorEffort: undefined,
       evaluatorProvider: 'github-copilot',
@@ -1157,16 +1184,16 @@ describe('finalizeGenEvalUseCase', () => {
       logger: noopLogger,
       eventBus: newBus(),
       clock: fixedClock,
-      generatorModel: 'claude-opus-5',
+      generatorModel: 'claude-opus-5-5',
       generatorProvider: 'claude-code',
       generatorEffort: undefined,
       evaluatorProvider: 'claude-code',
-      evaluatorModel: 'claude-opus-5',
+      evaluatorModel: 'claude-opus-5-5',
       evaluatorEffort: 'max',
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.value.task.escalatedToEffort).toBe('max');
+    expect(result.value.task.escalatedToEffort).toBe('high');
     expect(result.value.task.escalatedToEvaluatorEffort).toBeUndefined();
   });
 
@@ -1176,8 +1203,8 @@ describe('finalizeGenEvalUseCase', () => {
     const nudged = (() => {
       const stamped = recordTaskEscalation(
         makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 }),
-        'claude-opus-5',
-        'claude-opus-5'
+        'claude-opus-5-5',
+        'claude-opus-5-5'
       );
       if (!stamped.ok) throw stamped.error;
       return stamped.value;
@@ -1195,7 +1222,7 @@ describe('finalizeGenEvalUseCase', () => {
       logger: noopLogger,
       eventBus: bus,
       clock: fixedClock,
-      generatorModel: 'claude-opus-5',
+      generatorModel: 'claude-opus-5-5',
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -1211,8 +1238,8 @@ describe('finalizeGenEvalUseCase', () => {
     const nudged = (() => {
       const stamped = recordTaskEscalation(
         makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 }),
-        'claude-opus-5',
-        'claude-opus-5'
+        'claude-opus-5-5',
+        'claude-opus-5-5'
       );
       if (!stamped.ok) throw stamped.error;
       return stamped.value;
@@ -1228,7 +1255,7 @@ describe('finalizeGenEvalUseCase', () => {
       logger: noopLogger,
       eventBus: newBus(),
       clock: fixedClock,
-      generatorModel: 'claude-opus-5',
+      generatorModel: 'claude-opus-5-5',
     });
     expect(first.ok).toBe(true);
     if (!first.ok) return;
@@ -1246,7 +1273,7 @@ describe('finalizeGenEvalUseCase', () => {
       logger: noopLogger,
       eventBus: newBus(),
       clock: fixedClock,
-      generatorModel: 'claude-opus-5',
+      generatorModel: 'claude-opus-5-5',
     });
     expect(second.ok).toBe(true);
     if (!second.ok) return;
@@ -1261,8 +1288,8 @@ describe('finalizeGenEvalUseCase', () => {
     const nudged = (() => {
       const stamped = recordTaskEscalation(
         makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 }),
-        'claude-opus-5',
-        'claude-opus-5'
+        'claude-opus-5-5',
+        'claude-opus-5-5'
       );
       if (!stamped.ok) throw stamped.error;
       return stamped.value;
@@ -1277,7 +1304,7 @@ describe('finalizeGenEvalUseCase', () => {
       logger: noopLogger,
       eventBus: newBus(),
       clock: fixedClock,
-      generatorModel: 'claude-opus-5',
+      generatorModel: 'claude-opus-5-5',
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -1303,6 +1330,7 @@ describe('finalizeGenEvalUseCase', () => {
       eventBus: newBus(),
       clock: fixedClock,
       generatorModel: defaultModel,
+      generatorProvider: 'claude-code',
     });
     expect(result.ok).toBe(false);
   });

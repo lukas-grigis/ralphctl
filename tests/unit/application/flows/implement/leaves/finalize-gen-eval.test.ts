@@ -128,6 +128,34 @@ describe('finalizeGenEvalLeaf — ctx projection', () => {
     expect(ctx.currentTask).toMatchObject({ escalatedFromModel: 'claude-opus-5', escalatedToModel: 'claude-opus-5' });
   });
 
+  it('remaps a retired persisted escalatedToModel before the policy looks up the next rung', async () => {
+    // A Copilot task escalated to `claude-sonnet-4.6` before that slug was retired: the policy must
+    // climb from its live successor (`claude-sonnet-5` → `claude-opus-4.8`), not dead-end on an id
+    // with no rung and nudge the generator onto a model the adapter rejects.
+    const stamped = recordTaskEscalation(
+      makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 }),
+      'claude-haiku-4.5',
+      'claude-sonnet-4.6'
+    );
+    if (!stamped.ok) throw stamped.error;
+    const leaf = finalizeGenEvalLeaf(
+      baseDeps(async () => ({ maxTurns: 5, escalateOnPlateau: true, escalationMap: {}, maxAttempts: 5 }), {
+        configuredGeneratorModel: 'claude-haiku-4.5',
+        configuredGeneratorProvider: 'github-copilot',
+      }),
+      stamped.value.id
+    );
+    const out = await leaf.execute(
+      baseCtx(stamped.value, { lastExit: { kind: 'plateau', dimensions: ['correctness'] }, genEvalTurn: 3 })
+    );
+    expect(out.ok).toBe(true);
+    if (!out.ok) return;
+    expect(out.value.ctx.currentTask).toMatchObject({
+      escalatedFromModel: 'claude-sonnet-5',
+      escalatedToModel: 'claude-opus-4.8',
+    });
+  });
+
   it('threads readConfig().bestOfNCandidates through to the policy — a nudged-at-top plateau grants best-of-N and the grant lands on ctx.currentTask', async () => {
     const task = nudgedAtTopOn(makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 }), 'claude-opus-5');
     const leaf = finalizeGenEvalLeaf(

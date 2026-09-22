@@ -24,7 +24,7 @@ import type { SessionId } from '@src/integration/ai/providers/_engine/session-id
 import type { ProviderUsage } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
 import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts';
 import { generatorOutputContract } from '@src/application/flows/implement/leaves/generator.contract.ts';
-import { escalationBannerId } from '@src/business/task/escalation-policy.ts';
+import { effectiveGeneratorModel, escalationBannerId } from '@src/business/task/escalation-policy.ts';
 import { renderPriorAttemptsSection } from '@src/business/task/attempt-summary.ts';
 import { readReproductionSection } from '@src/application/flows/implement/leaves/reproduce.ts';
 import { readRoundSessionId } from '@src/application/flows/implement/leaves/round-artifacts.ts';
@@ -499,8 +499,9 @@ const makeGeneratorCallImplement =
       // Per-task generator-model escalation: when the task carries an `escalatedToModel`
       // (stamped by the prior plateau's escalation policy), spawn the generator on that
       // upgraded model instead of the configured row. Evaluator model is intentionally
-      // unaffected — escalation only touches the generator role.
-      model: task.escalatedToModel ?? deps.model,
+      // unaffected — escalation only touches the generator role. A persisted override naming a
+      // since-retired slug is remapped to its live successor rather than spawned as-is.
+      model: effectiveGeneratorModel(task, deps.model, deps.providerId),
       // Per-task generator-EFFORT escalation: the same-model effort rung stamps `escalatedToEffort`
       // (default → high) when the generator topped out on the model ladder but still had effort
       // headroom. Prefer it over the configured `deps.effort` at spawn — mirrors the model override

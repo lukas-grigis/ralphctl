@@ -34,7 +34,7 @@ const renderRepositoriesBlock = (affected: readonly Repository[]): string =>
   affected.map((r) => `- \`${String(r.path)}\` (${r.name})`).join('\n');
 
 export const launchReview = async (ctx: LaunchContext): Promise<LaunchResult> => {
-  const { deps, snapshot, settings, provider, bridge, sessionId } = ctx;
+  const { deps, snapshot, settings, provider, bridge, sessionId, effort } = ctx;
   if (!snapshot.sprint) return { ok: false, reason: 'No sprint selected.' };
   if (!snapshot.project) return { ok: false, reason: 'No project loaded for the selected sprint.' };
   if (snapshot.project.repositories.length === 0) {
@@ -97,11 +97,13 @@ export const launchReview = async (ctx: LaunchContext): Promise<LaunchResult> =>
       fileLocker: deps.app.fileLocker,
       locksRoot: deps.storage.locksRoot,
       appendFile: deps.app.appendFile,
-      // Review uses the implement generator model — same code-mutation profile, same
+      // Review uses the implement generator model + effort — same code-mutation profile, same
       // accuracy expectations. No per-flow `review` row in settings today. Override flows in
       // through ctx.settings (launcher applied it to ai.implement.generator when the picker
-      // emitted a non-empty override), so per-field fallback is automatic.
+      // emitted a non-empty override), so per-field fallback is automatic; `ctx.effort` is the
+      // launcher's `resolveEffort('implement', settings)` over those same settings.
       model: settings.ai.implement.generator.model,
+      ...(effort !== undefined ? { effort } : {}),
       ...(distill !== undefined ? { distill } : {}),
     },
     {

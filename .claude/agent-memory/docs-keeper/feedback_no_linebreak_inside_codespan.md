@@ -35,4 +35,17 @@ Audit trick: diff for ADDED lines only (so it doesn't flag pre-existing, out-of-
 each on the backtick character, and flag a line whose backtick count is odd — that means the line
 opens or closes a code span the next line completes. Ask a subagent or run it directly rather than
 inlining the backtick-containing command in a doc bullet (see the mangling this very sentence almost
-caused).
+caused). One-liner: `git diff -- <file> | grep '^+' | grep -v '^+++' | awk -F'`' '{if ((NF-1) % 2 == 1)
+print NR": "$0}'`.
+
+**2026-09-22 reinforcement** (model-refresh docs pass, AI-SETTINGS.md / PERFORMANCE.md / CHANGELOG.md):
+hit this THREE separate times in one session, each caught only by re-running the audit grep after
+every Edit rather than once at the end — a "fix" that relocates the break can still land inside the
+same span after the hook's next pass, because prettier reflows the whole list-item paragraph on each
+write (its wrap decision is NOT stable across edits — moving a break earlier in the paragraph can push
+a LATER, previously-fine span across the wrap boundary). Concretely: fixing `` `PERFORMANCE.md § plateau
+escalation` `` by moving the break didn't just fix that span — a second pass split
+`` `ralphctl ticket publish <ticketId>` `` two edits later purely because upstream text length changed.
+**Run the grep after every single Edit to a `.claude/docs/*.md` or root `*.md` file that touches a
+multi-word code span, not just at the end of a batch** — treat it as part of the Edit, not a final QA
+step.

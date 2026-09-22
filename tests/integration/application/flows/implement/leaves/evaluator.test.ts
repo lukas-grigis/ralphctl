@@ -62,6 +62,7 @@ describe('evaluatorLeaf', () => {
     cwd: absolutePath('/tmp/ralph/fake-cwd'),
     sprintDir: absolutePath('/tmp/ralph/fake-sprint-dir'),
     progressFile: absolutePath('/tmp/ralph/fake-sprint-dir/progress.md'),
+    providerId: 'claude-code',
     model: 'test-model',
     plateauThreshold: 2,
     correctiveRetries: 2, // Stub git runner — these tests don't exercise the plateau fingerprint; a clean-tree

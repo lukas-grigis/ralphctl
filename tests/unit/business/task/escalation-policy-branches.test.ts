@@ -13,7 +13,7 @@
 import { describe, expect, it } from 'vitest';
 import { applyEscalation, decideEscalation } from '@src/business/task/escalation-policy.ts';
 import {
-  DEFAULT_ESCALATION_MAP,
+  DEFAULT_ESCALATION_LADDERS,
   mergeEscalationMap,
   warnEscalationMapSelfLoops,
 } from '@src/business/task/escalation-map.ts';
@@ -134,6 +134,7 @@ describe('decideEscalation — user-only and edge cases', () => {
       flagOn: true,
       userMap: {},
       fallbackMaxAttempts: 3,
+      generatorProvider: 'claude-code',
     });
 
     expect(decision.kind).toBe('escalate');
@@ -145,19 +146,20 @@ describe('decideEscalation — user-only and edge cases', () => {
 
   it('tops out only after a same-model nudge at the top of the ladder', () => {
     const base = makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 });
-    // claude-opus-5 is the true top of the dash-form ladder — claude-opus-4-8 now carries a live
-    // rung to it, so the top-of-ladder / nudge / topped-out sequence must exercise opus-5.
-    const nudged = withEscalation(base, 'claude-opus-5', 'claude-opus-5');
+    // claude-opus-5-5 is the true top of the Claude-Code ladder — Opus 5 and 4.8 both carry a live
+    // rung to it, so the top-of-ladder / nudge / topped-out sequence must exercise opus-5-5.
+    const nudged = withEscalation(base, 'claude-opus-5-5', 'claude-opus-5-5');
     const decision = decideEscalation({
       task: nudged,
-      generatorModel: 'claude-opus-5',
+      generatorModel: 'claude-opus-5-5',
       flagOn: true,
       userMap: {},
       fallbackMaxAttempts: 3,
+      generatorProvider: 'claude-code',
     });
 
     expect(decision.kind).toBe('topped-out');
-    if (decision.kind === 'topped-out') expect(decision.model).toBe('claude-opus-5');
+    if (decision.kind === 'topped-out') expect(decision.model).toBe('claude-opus-5-5');
   });
 });
 
@@ -197,22 +199,24 @@ describe('warnEscalationMapSelfLoops', () => {
 });
 
 describe('mergeEscalationMap', () => {
+  const CLAUDE_LADDER = DEFAULT_ESCALATION_LADDERS['claude-code'];
+
   it('user key overrides the default rung', () => {
-    const merged = mergeEscalationMap({ 'claude-sonnet-4-6': 'some-custom-model' });
+    const merged = mergeEscalationMap({ 'claude-sonnet-4-6': 'some-custom-model' }, 'claude-code');
     expect(merged['claude-sonnet-4-6']).toBe('some-custom-model');
     // Other default entries untouched
-    expect(merged['claude-haiku-4-5']).toBe(DEFAULT_ESCALATION_MAP['claude-haiku-4-5']);
+    expect(merged['claude-haiku-4-5']).toBe(CLAUDE_LADDER['claude-haiku-4-5']);
   });
 
-  it('returns the default map contents unchanged when user map is empty', () => {
-    const merged = mergeEscalationMap({});
-    expect(merged).toStrictEqual(DEFAULT_ESCALATION_MAP);
+  it("returns the provider's default ladder unchanged when user map is empty", () => {
+    const merged = mergeEscalationMap({}, 'claude-code');
+    expect(merged).toStrictEqual(CLAUDE_LADDER);
   });
 
   it('user-only keys extend the ladder beyond the defaults', () => {
-    const merged = mergeEscalationMap({ 'my-model': 'my-model-v2' });
+    const merged = mergeEscalationMap({ 'my-model': 'my-model-v2' }, 'claude-code');
     expect(merged['my-model']).toBe('my-model-v2');
     // Default entries still present
-    expect(merged['claude-sonnet-4-6']).toBe(DEFAULT_ESCALATION_MAP['claude-sonnet-4-6']);
+    expect(merged['claude-sonnet-4-6']).toBe(CLAUDE_LADDER['claude-sonnet-4-6']);
   });
 });

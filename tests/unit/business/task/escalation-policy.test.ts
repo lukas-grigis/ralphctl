@@ -53,7 +53,7 @@ describe('decideEscalation', () => {
     expect(decision.kind).toBe('flag-off');
   });
 
-  it('returns escalate when default map has a rung above the current model', () => {
+  it("returns escalate when the generator provider's default ladder has a rung above the current model", () => {
     const task = makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 });
     const decision = decideEscalation({
       task,
@@ -61,6 +61,7 @@ describe('decideEscalation', () => {
       flagOn: true,
       userMap: {},
       fallbackMaxAttempts: 3,
+      generatorProvider: 'claude-code',
     });
     expect(decision.kind).toBe('escalate');
     if (decision.kind === 'escalate') {
@@ -82,7 +83,10 @@ describe('decideEscalation', () => {
     if (decision.kind === 'escalate') expect(decision.to).toBe('custom-frontier-model');
   });
 
-  it('climbs the ladder one rung per plateau: haiku → sonnet-5 → opus-5 across successive plateaus', () => {
+  // Effort pinned at the ceiling so the top of the MODEL ladder falls straight to the nudge.
+  const onClaudeAtMax = { generatorProvider: 'claude-code', generatorEffort: 'max' } as const;
+
+  it('climbs the ladder one rung per plateau: haiku → sonnet-5 → opus-5-5 across successive plateaus', () => {
     // Rung 1: fresh task on haiku plateaus → escalate to the default Sonnet (Sonnet 5).
     const fresh = makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 });
     const d1 = decideEscalation({
@@ -91,12 +95,13 @@ describe('decideEscalation', () => {
       flagOn: true,
       userMap: {},
       fallbackMaxAttempts: 3,
+      ...onClaudeAtMax,
     });
     expect(d1.kind).toBe('escalate');
     if (d1.kind === 'escalate') expect(d1.to).toBe('claude-sonnet-5');
 
     // Rung 2: task already escalated to sonnet, now running on sonnet, plateaus → escalate to the
-    // default Opus (Opus 5) — the same-price, strictly-better successor.
+    // default Opus (Opus 5.5) — the Claude-Code ladder top.
     const onSonnet = withEscalation(fresh, 'claude-haiku-4-5', 'claude-sonnet-5');
     const d2 = decideEscalation({
       task: onSonnet,
@@ -104,61 +109,85 @@ describe('decideEscalation', () => {
       flagOn: true,
       userMap: {},
       fallbackMaxAttempts: 3,
+      ...onClaudeAtMax,
     });
     expect(d2.kind).toBe('escalate');
     if (d2.kind === 'escalate') {
       expect(d2.from).toBe('claude-sonnet-5');
-      expect(d2.to).toBe('claude-opus-5');
+      expect(d2.to).toBe('claude-opus-5-5');
     }
 
-    // Top: re-stamped to opus-5, plateaus on opus-5 (no higher rung, not yet nudged) → nudge.
-    const onOpus = withEscalation(onSonnet, 'claude-sonnet-5', 'claude-opus-5');
+    // Top: re-stamped to opus-5-5, plateaus on opus-5-5 (no higher rung, not yet nudged) → nudge.
+    const onOpus = withEscalation(onSonnet, 'claude-sonnet-5', 'claude-opus-5-5');
     const d3 = decideEscalation({
       task: onOpus,
-      generatorModel: 'claude-opus-5',
+      generatorModel: 'claude-opus-5-5',
       flagOn: true,
       userMap: {},
       fallbackMaxAttempts: 3,
+      ...onClaudeAtMax,
     });
     expect(d3.kind).toBe('nudge');
 
-    // After the top-of-ladder nudge (from === to === opus-5), a further plateau tops out.
-    const nudged = withEscalation(onOpus, 'claude-opus-5', 'claude-opus-5');
+    // After the top-of-ladder nudge (from === to === opus-5-5), a further plateau tops out.
+    const nudged = withEscalation(onOpus, 'claude-opus-5-5', 'claude-opus-5-5');
     const d4 = decideEscalation({
       task: nudged,
-      generatorModel: 'claude-opus-5',
+      generatorModel: 'claude-opus-5-5',
       flagOn: true,
       userMap: {},
       fallbackMaxAttempts: 3,
+      ...onClaudeAtMax,
     });
     expect(d4.kind).toBe('topped-out');
-    if (d4.kind === 'topped-out') expect(d4.model).toBe('claude-opus-5');
+    if (d4.kind === 'topped-out') expect(d4.model).toBe('claude-opus-5-5');
   });
 
-  it('gives pinned Opus-4.8 configs a live model rung to the same-price Opus 5 successor', () => {
+  it('climbs the shared claude-sonnet-5 slug to the Opus of the generator provider', () => {
+    // Same model id, different backend, different rung — the reason the ladder is provider-scoped.
     const task = makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 });
-    const decision = decideEscalation({
-      task,
-      generatorModel: 'claude-opus-4-8',
-      flagOn: true,
-      userMap: {},
-      fallbackMaxAttempts: 3,
-    });
-    expect(decision.kind).toBe('escalate');
-    if (decision.kind === 'escalate') expect(decision.to).toBe('claude-opus-5');
+    const base = { task, generatorModel: 'claude-sonnet-5', flagOn: true, userMap: {}, fallbackMaxAttempts: 3 };
+    const onClaude = decideEscalation({ ...base, generatorProvider: 'claude-code' });
+    const onCopilot = decideEscalation({ ...base, generatorProvider: 'github-copilot' });
+    expect(onClaude.kind === 'escalate' ? onClaude.to : onClaude.kind).toBe('claude-opus-5-5');
+    expect(onCopilot.kind === 'escalate' ? onCopilot.to : onCopilot.kind).toBe('claude-opus-4.8');
+  });
+
+  it('climbs only the user rungs when no generator provider is known', () => {
+    const task = makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 });
+    const base = { task, generatorModel: 'claude-sonnet-4-6', flagOn: true, fallbackMaxAttempts: 3 };
+    expect(decideEscalation({ ...base, userMap: {} }).kind).toBe('nudge');
+    const custom = decideEscalation({ ...base, userMap: { 'claude-sonnet-4-6': 'claude-opus-4-8' } });
+    expect(custom.kind === 'escalate' ? custom.to : custom.kind).toBe('claude-opus-4-8');
+  });
+
+  it('gives pinned Opus 5 / Opus 4.8 configs a live model rung to Opus 5.5', () => {
+    for (const pinned of ['claude-opus-5', 'claude-opus-4-8']) {
+      const decision = decideEscalation({
+        task: makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 }),
+        generatorModel: pinned,
+        flagOn: true,
+        userMap: {},
+        fallbackMaxAttempts: 3,
+        generatorProvider: 'claude-code',
+      });
+      expect(decision.kind, pinned).toBe('escalate');
+      if (decision.kind === 'escalate') expect(decision.to).toBe('claude-opus-5-5');
+    }
   });
 
   it('returns nudge when the current model has no rung above (top of ladder, not yet nudged)', () => {
     const task = makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 });
     const decision = decideEscalation({
       task,
-      generatorModel: 'claude-opus-5',
+      generatorModel: 'claude-opus-5-5',
       flagOn: true,
       userMap: {},
       fallbackMaxAttempts: 3,
+      ...onClaudeAtMax,
     });
     expect(decision.kind).toBe('nudge');
-    if (decision.kind === 'nudge') expect(decision.currentModel).toBe('claude-opus-5');
+    if (decision.kind === 'nudge') expect(decision.currentModel).toBe('claude-opus-5-5');
   });
 
   it('treats self-loop entries (from === to) as a nudge', () => {
@@ -233,18 +262,19 @@ describe('decideEscalation', () => {
       flagOn: true,
       userMap: {},
       fallbackMaxAttempts: 3,
+      generatorProvider: 'claude-code',
     });
     expect(remaining.kind).toBe('escalate');
   });
 });
 
 describe('decideEscalation — same-model effort rung', () => {
-  it('(a) shipped defaults + plateau → effort rung fires to `max` (opus CLI default is xhigh)', () => {
-    // The shipped default generator (`claude-opus-4-8`, effort unset) sits at the top of the model
-    // ladder with no stronger rung above it. Claude Code's own default effort on this xhigh-capable
-    // model is xhigh, so the rung climbs to `max` in a single step — a fixed `high` would be a no-op
-    // / downgrade. Reading the actual shipped defaults grounds this in DEFAULT_SETTINGS, so a future
-    // default that is already effort-maxed would fail here rather than silently disabling the rung.
+  it('(a) shipped defaults + plateau → effort rung fires one tier above the resolved effort', () => {
+    // The shipped default generator (`claude-opus-5-5`) sits at the top of the Claude-Code model
+    // ladder with no stronger rung above it. Implement resolves to its shipped flow default (`high`),
+    // never the CLI default, so the rung climbs one tier to `xhigh`. Reading the actual
+    // shipped defaults grounds this in DEFAULT_SETTINGS, so a future default that is already
+    // effort-maxed would fail here rather than silently disabling the rung.
     const generatorRow = DEFAULT_SETTINGS.ai.implement.generator;
     const decision = decideEscalation({
       task: makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 }),
@@ -258,17 +288,16 @@ describe('decideEscalation — same-model effort rung', () => {
     expect(decision.kind).toBe('escalate-effort');
     if (decision.kind === 'escalate-effort') {
       expect(decision.model).toBe(generatorRow.model);
-      expect(decision.from).toBe('default');
-      expect(decision.to).toBe('max');
+      expect(decision.from).toBe('high');
+      expect(decision.to).toBe('xhigh');
     }
   });
 
-  it('(b) claude opus-5 at explicit `high` → effort rung climbs to `xhigh` (headroom remains)', () => {
-    // `high` is below the xhigh/max power tiers on an xhigh-capable model, so it still escalates —
-    // to `xhigh` (the first power tier). A later plateau at `xhigh` would then climb to `max`.
+  it('(b) claude opus-5-5 at explicit `high` → effort rung climbs to `xhigh` (headroom remains)', () => {
+    // One tier up from the explicit level. A later plateau at `xhigh` would then climb to `max`.
     const decision = decideEscalation({
       task: makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 }),
-      generatorModel: 'claude-opus-5',
+      generatorModel: 'claude-opus-5-5',
       flagOn: true,
       userMap: {},
       fallbackMaxAttempts: 3,
@@ -282,10 +311,10 @@ describe('decideEscalation — same-model effort rung', () => {
     }
   });
 
-  it('(b2) claude opus-5 already at `max` → no headroom, falls through to the same-model nudge', () => {
+  it('(b2) claude opus-5-5 already at `max` → no headroom, falls through to the same-model nudge', () => {
     const decision = decideEscalation({
       task: makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 }),
-      generatorModel: 'claude-opus-5',
+      generatorModel: 'claude-opus-5-5',
       flagOn: true,
       userMap: {},
       fallbackMaxAttempts: 3,
@@ -293,7 +322,7 @@ describe('decideEscalation — same-model effort rung', () => {
       generatorEffort: 'max',
     });
     expect(decision.kind).toBe('nudge');
-    if (decision.kind === 'nudge') expect(decision.currentModel).toBe('claude-opus-5');
+    if (decision.kind === 'nudge') expect(decision.currentModel).toBe('claude-opus-5-5');
   });
 
   it('(b3) claude Haiku (no effort dimension) → falls through to the same-model nudge', () => {
@@ -314,7 +343,7 @@ describe('decideEscalation — same-model effort rung', () => {
   it('(c) provider without a resolvable effort dimension → unchanged behaviour (nudge)', () => {
     const decision = decideEscalation({
       task: makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 }),
-      generatorModel: 'claude-opus-5',
+      generatorModel: 'claude-opus-5-5',
       flagOn: true,
       userMap: {},
       fallbackMaxAttempts: 3,
@@ -345,12 +374,12 @@ describe('decideEscalation — same-model effort rung', () => {
     // even when effort headroom exists — the nudge is the last remedy before preserving the work.
     const nudged = withEscalation(
       makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 }),
-      'claude-opus-5',
-      'claude-opus-5'
+      'claude-opus-5-5',
+      'claude-opus-5-5'
     );
     const decision = decideEscalation({
       task: nudged,
-      generatorModel: 'claude-opus-5',
+      generatorModel: 'claude-opus-5-5',
       flagOn: true,
       userMap: {},
       fallbackMaxAttempts: 3,
@@ -363,9 +392,10 @@ describe('decideEscalation — same-model effort rung', () => {
 
 describe('decideEscalation — evaluator lockstep effort bump', () => {
   it('computes the evaluator target from its OWN provider/model/effort — not copied from the generator target', () => {
-    // Generator: shipped default (opus, effort unset) → climbs to `max` (Claude xhigh-capable).
-    // Evaluator: a DIFFERENT provider/model (Copilot) → climbs to a DIFFERENT target (`high`). If the
-    // evaluator field were ever copied from the generator's `to`, this would assert `max` and fail.
+    // Generator: shipped default (opus-5-5 at the implement flow default `high`) → climbs to `xhigh`.
+    // Evaluator: a DIFFERENT provider/model (Copilot, effort unset) → climbs to a DIFFERENT target
+    // (`high`). If the evaluator field were ever copied from the generator's `to`, this would assert
+    // `xhigh` and fail.
     const generatorRow = DEFAULT_SETTINGS.ai.implement.generator;
     const decision = decideEscalation({
       task: makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 }),
@@ -376,12 +406,12 @@ describe('decideEscalation — evaluator lockstep effort bump', () => {
       generatorProvider: generatorRow.provider,
       generatorEffort: resolveEffort('implement', DEFAULT_SETTINGS),
       evaluatorProvider: 'github-copilot',
-      evaluatorModel: 'gpt-5.5',
+      evaluatorModel: 'gpt-5.6-luna',
       evaluatorEffort: undefined,
     });
     expect(decision.kind).toBe('escalate-effort');
     if (decision.kind !== 'escalate-effort') return;
-    expect(decision.to).toBe('max');
+    expect(decision.to).toBe('xhigh');
     expect(decision.evaluator).toEqual({ from: 'default', to: 'high' });
   });
 
@@ -394,6 +424,7 @@ describe('decideEscalation — evaluator lockstep effort bump', () => {
       flagOn: true,
       userMap: {},
       fallbackMaxAttempts: 3,
+      generatorProvider: 'claude-code',
       evaluatorProvider: 'github-copilot',
       evaluatorModel: 'gpt-5.5',
       evaluatorEffort: undefined,
@@ -411,6 +442,7 @@ describe('decideEscalation — evaluator lockstep effort bump', () => {
       flagOn: true,
       userMap: {},
       fallbackMaxAttempts: 3,
+      generatorProvider: 'claude-code',
     });
     expect(decision.kind).toBe('escalate');
     expect('evaluator' in decision).toBe(false);
@@ -423,6 +455,7 @@ describe('decideEscalation — evaluator lockstep effort bump', () => {
       flagOn: true,
       userMap: {},
       fallbackMaxAttempts: 3,
+      generatorProvider: 'claude-code',
       evaluatorProvider: 'github-copilot',
       evaluatorModel: 'gpt-5.5',
       evaluatorEffort: 'high',
@@ -456,7 +489,7 @@ describe('decideEscalation — evaluator lockstep effort bump', () => {
   it('is absent on flag-off', () => {
     const decision = decideEscalation({
       task: makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 }),
-      generatorModel: 'claude-opus-5',
+      generatorModel: 'claude-opus-5-5',
       flagOn: false,
       userMap: {},
       fallbackMaxAttempts: 3,
@@ -474,21 +507,22 @@ describe('decideEscalation — evaluator lockstep effort bump', () => {
     const decision = decideEscalation({
       task: makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 }),
       // Top of the model ladder (no outbound rung) so the generator hits the effort rung, not a
-      // model climb — `claude-opus-4-8` would climb to `claude-opus-5` instead.
-      generatorModel: 'claude-opus-5',
+      // model climb — `claude-opus-5` would climb to `claude-opus-5-5` instead.
+      generatorModel: 'claude-opus-5-5',
       flagOn: true,
       userMap: {},
       fallbackMaxAttempts: 3,
       generatorProvider: 'claude-code',
       generatorEffort: undefined,
       evaluatorProvider: 'claude-code',
-      evaluatorModel: 'claude-opus-5',
+      evaluatorModel: 'claude-opus-5-5',
       evaluatorEffort: 'max',
     });
     expect(decision.kind).toBe('escalate-effort');
     if (decision.kind !== 'escalate-effort') return;
-    // The generator still climbed (max headroom) — only the evaluator half is missing.
-    expect(decision.to).toBe('max');
+    // The generator still climbed (headroom above Opus 5.5's medium default) — only the evaluator
+    // half is missing.
+    expect(decision.to).toBe('high');
     expect(decision.evaluator).toBeUndefined();
   });
 
@@ -496,7 +530,7 @@ describe('decideEscalation — evaluator lockstep effort bump', () => {
     const base = {
       task: makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 }),
       // Top of the model ladder so the generator's own rung is the effort rung both rounds.
-      generatorModel: 'claude-opus-5',
+      generatorModel: 'claude-opus-5-5',
       flagOn: true,
       userMap: {},
       fallbackMaxAttempts: 3,
@@ -520,10 +554,10 @@ describe('decideEscalation — evaluator lockstep effort bump', () => {
 
 describe('decideEscalation — opt-in best-of-N remedy', () => {
   it('fires at the exact topped-out frontier when the knob is >= 2 and the task has not been granted one', () => {
-    const nudged = nudgedAtTopOn(makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 }), 'claude-opus-5');
+    const nudged = nudgedAtTopOn(makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 }), 'claude-opus-5-5');
     const decision = decideEscalation({
       task: nudged,
-      generatorModel: 'claude-opus-5',
+      generatorModel: 'claude-opus-5-5',
       flagOn: true,
       userMap: {},
       fallbackMaxAttempts: 3,
@@ -532,14 +566,14 @@ describe('decideEscalation — opt-in best-of-N remedy', () => {
     expect(decision.kind).toBe('best-of-n');
     if (decision.kind !== 'best-of-n') return;
     expect(decision.n).toBe(3);
-    expect(decision.model).toBe('claude-opus-5');
+    expect(decision.model).toBe('claude-opus-5-5');
   });
 
   it('knob gating: 0 (default/disabled) still tops out at the same frontier', () => {
-    const nudged = nudgedAtTopOn(makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 }), 'claude-opus-5');
+    const nudged = nudgedAtTopOn(makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 }), 'claude-opus-5-5');
     const decision = decideEscalation({
       task: nudged,
-      generatorModel: 'claude-opus-5',
+      generatorModel: 'claude-opus-5-5',
       flagOn: true,
       userMap: {},
       fallbackMaxAttempts: 3,
@@ -549,10 +583,10 @@ describe('decideEscalation — opt-in best-of-N remedy', () => {
   });
 
   it('knob gating: undefined (never wired) behaves exactly like 0', () => {
-    const nudged = nudgedAtTopOn(makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 }), 'claude-opus-5');
+    const nudged = nudgedAtTopOn(makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 }), 'claude-opus-5-5');
     const decision = decideEscalation({
       task: nudged,
-      generatorModel: 'claude-opus-5',
+      generatorModel: 'claude-opus-5-5',
       flagOn: true,
       userMap: {},
       fallbackMaxAttempts: 3,
@@ -561,10 +595,10 @@ describe('decideEscalation — opt-in best-of-N remedy', () => {
   });
 
   it('knob gating: 1 does not count as opted-in (below the useful minimum) — tops out', () => {
-    const nudged = nudgedAtTopOn(makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 }), 'claude-opus-5');
+    const nudged = nudgedAtTopOn(makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 }), 'claude-opus-5-5');
     const decision = decideEscalation({
       task: nudged,
-      generatorModel: 'claude-opus-5',
+      generatorModel: 'claude-opus-5-5',
       flagOn: true,
       userMap: {},
       fallbackMaxAttempts: 3,
@@ -574,11 +608,11 @@ describe('decideEscalation — opt-in best-of-N remedy', () => {
   });
 
   it('once-per-task: a task already granted best-of-N routes straight to topped-out, even with the knob on', () => {
-    const nudged = nudgedAtTopOn(makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 }), 'claude-opus-5');
+    const nudged = nudgedAtTopOn(makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 }), 'claude-opus-5-5');
     const alreadyGranted = withBestOfNGrant(nudged, 3);
     const decision = decideEscalation({
       task: alreadyGranted,
-      generatorModel: 'claude-opus-5',
+      generatorModel: 'claude-opus-5-5',
       flagOn: true,
       userMap: {},
       fallbackMaxAttempts: 3,
@@ -591,7 +625,7 @@ describe('decideEscalation — opt-in best-of-N remedy', () => {
     const task = makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 });
     const decision = decideEscalation({
       task,
-      generatorModel: 'claude-opus-5',
+      generatorModel: 'claude-opus-5-5',
       flagOn: true,
       userMap: {},
       fallbackMaxAttempts: 3,
@@ -608,16 +642,17 @@ describe('decideEscalation — opt-in best-of-N remedy', () => {
       flagOn: true,
       userMap: {},
       fallbackMaxAttempts: 3,
+      generatorProvider: 'claude-code',
       bestOfNCandidates: 3,
     });
     expect(decision.kind).toBe('escalate');
   });
 
   it('budget-exhausted still wins over best-of-N at the budget edge', () => {
-    const nudged = nudgedAtTopOn(makeInProgressTaskWithRunningAttempt({ maxAttempts: 1 }), 'claude-opus-5');
+    const nudged = nudgedAtTopOn(makeInProgressTaskWithRunningAttempt({ maxAttempts: 1 }), 'claude-opus-5-5');
     const decision = decideEscalation({
       task: nudged,
-      generatorModel: 'claude-opus-5',
+      generatorModel: 'claude-opus-5-5',
       flagOn: true,
       userMap: {},
       fallbackMaxAttempts: 3,

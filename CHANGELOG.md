@@ -7,6 +7,18 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **GitHub/GitLab issue tracker integration.** ralphctl can create a GitHub or GitLab issue from a
+  local ticket and post approved requirements as a comment on a linked issue — both opt-in, and
+  neither rewrites the issue body. The TUI add-ticket wizard asks whether to create a tracker issue
+  (default No) when the new ticket has no link and the project's first configured repository
+  resolves to GitHub or GitLab; `ralphctl ticket add` saves locally without asking. Refine's
+  approval menu offers **Post as comment** for a linked ticket (default No, Approve stays the
+  default choice; repeating the same approved text does not double-post). Retry with publish
+  (`ralphctl ticket publish <ticketId>` or sprint-detail `p`) runs the same write with no second
+  prompt — create when the ticket has no link, comment when it already does.
+
 ### Changed
 
 - **Grok models.** The catalog is `grok-4.7` (flagship), `grok-4.7-build-fast` (same model,
@@ -15,6 +27,55 @@ to [Semantic Versioning](https://semver.org/).
   `grok-frontier`. Plateau escalation climbs `grok-4.5` → `grok-4.6` → `grok-4.7`. Probed with
   `grok models` on Grok Build CLI 1.0.40 (2026-09-22). Mixed presets stay on the Claude author /
   Codex critic split.
+- **Opus 5.5 / Fable 5.1 / GPT-6 model refresh.** Claude Code's Opus 5.5 is the new default Opus
+  and top of the Claude escalation ladder — cheaper than Opus 5 ($4/$20 vs $5/$25 per MTok),
+  natively 1M context, no `[1m]` variant (requires Claude Code >= 2.1.280). Fable 5.1 succeeds
+  Fable 5 as the frontier tier above Opus, used only by the frontier presets' deep flows. Codex
+  adds the GPT-6 family (`gpt-6-sol` flagship, `gpt-6-luna` cheap tier, `gpt-6-astra`
+  frontier-only premium) and drops `gpt-5.4` / `gpt-5.4-mini` (retired from Codex 2026-08-31;
+  persisted rows remap to their GPT-6 successors). Copilot's curated default Sonnet moves from
+  the deprecated `claude-sonnet-4.6` to `claude-sonnet-5`, adds `claude-opus-5.5` /
+  `claude-fable-5.1` / `gpt-6-*` / `gemini-3.8-flash` / `grok-4.7` to its catalog, and drops six
+  models GitHub deprecated on 2026-09-01 (`claude-opus-4.5`/`4.6`, `claude-sonnet-4.5`/`4.6`,
+  `gemini-3.1-pro`, `raptor-mini`) with remaps to live successors. The same remaps apply to a
+  task escalated before the upgrade (its stored escalated model resumes on the successor) and to
+  `harness.escalationMap` targets — an ambiguous target (retired on one backend, live on another,
+  like `gpt-5.4`) is left as written and logged as a warning at startup. OpenCode's free-tier picks
+  refresh to opencode-ai 1.18.32 (`nemotron-3.5-lightning-free` replaces the retired
+  `deepseek-v4-flash-free` as the mini pick).
+- **Escalation ladder is now provider-scoped.** `DEFAULT_ESCALATION_LADDERS` replaces the flat
+  `DEFAULT_ESCALATION_MAP` — a shared model slug like `claude-sonnet-5` now climbs differently on
+  Claude Code (→ Opus 5.5) than on Copilot (→ Opus 4.8), instead of one value winning for both.
+  `settings.harness.escalationMap` is unchanged in shape (still flat, still user-overridable) and
+  now merges over whichever provider the generator runs on.
+- **Every preset pins an explicit effort on every row** — no row inherits the global preset
+  effort or a provider CLI default anymore. Routing changes alongside the new model ids:
+  - `mixed` runs `plan` on Claude Code Opus 5.5 at `xhigh` (was Copilot Sonnet 4.6), and its
+    `refine` moves from `gpt-5.6-terra` to `gpt-6-luna` at `high`.
+  - `mixed-economic`'s implement critic is now Codex `gpt-6-luna` at `xhigh` — a cross-provider
+    gate (was Claude Sonnet at `high`).
+  - The frontier family puts the vendor's top model on the deep flows at `max`: `claude-frontier`
+    and `mixed-frontier` run `plan` / `implement` / `ideate` on Fable 5.1, `codex-frontier` on
+    `gpt-6-astra`, and `mixed-frontier`'s critic moves to `gpt-6-astra`. Light flows no longer
+    inherit `max`: `refine` / `readiness` / `ideate` run at `high` and `createPr` at `medium`
+    in every frontier preset.
+  - `codex-economic` drops from `gpt-5.6-terra` at `high` to `gpt-6-luna` at `xhigh`, and
+    `codex-strong-gate`'s generator follows (the gate stays on the flagship, now `gpt-6-sol`).
+  - The per-provider new-install defaults change for two backends: Copilot moves from GPT
+    (`gpt-5-mini` / `gpt-5.4`) to Claude Sonnet 5 on `refine`, Opus 4.8 on
+    `plan` / `implement` / `ideate`, and `gpt-5.6-luna` on `readiness` / `createPr`; Codex moves
+    to `gpt-6-luna` on the light flows and `gpt-6-sol` on the deep ones.
+- **Dependency maintenance.** Routine dev-tooling and lockfile bumps (`zod`, `@types/node`,
+  `eslint-plugin-sonarjs`, and others); TypeScript stays held at the 6.x line.
+
+### Fixed
+
+- **Effort is now resolved explicitly for every flow, never left to the AI CLI's own default.**
+  Claude Code silently runs Opus 5.5 at `medium` effort when no `--effort` is passed — a
+  regression from every earlier Opus, which defaulted to `high` — so ralphctl no longer relies on
+  any provider's CLI default for an effort-capable row. `create-pr --ai` and `review` previously
+  dropped their configured effort silently; both now thread it through to the AI session like
+  every other flow.
 
 ## [0.22.0] - 2026-09-17
 

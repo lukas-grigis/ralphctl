@@ -26,6 +26,7 @@ import type { Choice, InteractivePrompt } from '@src/business/interactive/prompt
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import { DEFAULT_SETTINGS } from '@src/business/settings/defaults.ts';
 import { resolveEffort } from '@src/business/settings/resolve-effort.ts';
+import type { FlowId } from '@src/domain/value/flow-id.ts';
 import type { AiProvider, Settings } from '@src/domain/entity/settings.ts';
 import { CLAUDE_MODELS } from '@src/domain/value/settings-models/claude.ts';
 import { CODEX_MODELS } from '@src/domain/value/settings-models/codex.ts';
@@ -158,12 +159,15 @@ const driveSettings = (overrides: Partial<Settings['ai']> = {}): Settings => ({
 const SIMPLE_FLOWS = ['refine', 'plan', 'readiness', 'ideate'] as const;
 
 /**
- * Effort step's Keep-default label for a simple flow's resolved default under DEFAULT_SETTINGS.
- * `plan` / `ideate` carry a shipped `high` default (see `resolve-effort.ts`); the others still
- * resolve to `undefined`, rendered as 'auto'.
+ * Effort step's Keep-default label for a flow's resolved default under DEFAULT_SETTINGS. Every
+ * flow carries a shipped default (see `resolve-effort.ts`), so no default row renders as 'auto'
+ * any more — only an opencode row with nothing configured would.
  */
-const keepDefaultEffortLabel = (flowId: (typeof SIMPLE_FLOWS)[number]): string =>
+const keepDefaultEffortLabel = (flowId: FlowId): string =>
   `Keep default (${resolveEffort(flowId, DEFAULT_SETTINGS) ?? 'auto'})`;
+/** Both implement roles resolve through the implement flow default — generator and evaluator alike. */
+const IMPLEMENT_KEEP_EFFORT = keepDefaultEffortLabel('implement');
+const REFINE_KEEP_EFFORT = keepDefaultEffortLabel('refine');
 
 describe('runCustomizePicker — single-row flows (refine / plan / readiness / ideate)', () => {
   for (const flowId of SIMPLE_FLOWS) {
@@ -194,8 +198,7 @@ describe('runCustomizePicker — single-row flows (refine / plan / readiness / i
           { action: 'pick', choice: `Keep default (${DEFAULT_SETTINGS.ai[flowId].provider})` },
           { action: 'pick', choice: `Keep default (${DEFAULT_SETTINGS.ai[flowId].model})` },
           // The default row carries no per-flow effort, so the label shows whatever
-          // resolveEffort resolves to under DEFAULT_SETTINGS (the shipped per-flow default for
-          // plan/ideate, 'auto' for everything else).
+          // resolveEffort resolves to under DEFAULT_SETTINGS (the flow's shipped default).
           { action: 'pick', choice: keepDefaultEffortLabel(flowId) },
         ]);
         const result = await runCustomizePicker({
@@ -333,11 +336,11 @@ describe('runCustomizePicker — implement (generator → evaluator)', () => {
       // generator
       { action: 'pick', choice: `Keep default (${gen.provider})` },
       { action: 'pick', choice: newGenModel },
-      { action: 'pick', choice: 'Keep default (auto)' },
+      { action: 'pick', choice: IMPLEMENT_KEEP_EFFORT },
       // evaluator (all keep-default)
       { action: 'pick', choice: `Keep default (${eva.provider})` },
       { action: 'pick', choice: `Keep default (${eva.model})` },
-      { action: 'pick', choice: 'Keep default (auto)' },
+      { action: 'pick', choice: IMPLEMENT_KEEP_EFFORT },
     ]);
     const result = await runCustomizePicker({
       interactive,
@@ -359,11 +362,11 @@ describe('runCustomizePicker — implement (generator → evaluator)', () => {
       // generator (all keep-default)
       { action: 'pick', choice: `Keep default (${gen.provider})` },
       { action: 'pick', choice: `Keep default (${gen.model})` },
-      { action: 'pick', choice: 'Keep default (auto)' },
+      { action: 'pick', choice: IMPLEMENT_KEEP_EFFORT },
       // evaluator (change model)
       { action: 'pick', choice: `Keep default (${eva.provider})` },
       { action: 'pick', choice: newEvaModel },
-      { action: 'pick', choice: 'Keep default (auto)' },
+      { action: 'pick', choice: IMPLEMENT_KEEP_EFFORT },
     ]);
     const result = await runCustomizePicker({
       interactive,
@@ -415,7 +418,7 @@ describe('runCustomizePicker — implement (generator → evaluator)', () => {
       // generator (change model)
       { action: 'pick', choice: `Keep default (${gen.provider})` },
       { action: 'pick', choice: newGenModel },
-      { action: 'pick', choice: 'Keep default (auto)' },
+      { action: 'pick', choice: IMPLEMENT_KEEP_EFFORT },
       // evaluator — provider step starts; Esc here aborts the entire session.
       { action: 'cancel' },
     ]);
@@ -890,7 +893,7 @@ describe('runCustomizePicker — availableModelsFor gates the model step', () =>
       { action: 'pick', choice: 'Customize for this run…' },
       { action: 'pick', choice: `Keep default (${defaultRow.provider})` },
       { action: 'pick', choice: `Keep default (${defaultRow.model})` },
-      { action: 'pick', choice: 'Keep default (auto)' },
+      { action: 'pick', choice: REFINE_KEEP_EFFORT },
     ]);
     await runCustomizePicker({ interactive, flowId: 'refine', flowTitle: 'refine', settings: DEFAULT_SETTINGS });
     const modelOptions = modelOptionsFromCapture(captured);
@@ -915,7 +918,7 @@ describe('runCustomizePicker — availableModelsFor gates the model step', () =>
       { action: 'pick', choice: 'Customize for this run…' },
       { action: 'pick', choice: `Keep default (${defaultRow.provider})` },
       { action: 'pick', choice: `Keep default (${defaultRow.model})` },
-      { action: 'pick', choice: 'Keep default (auto)' },
+      { action: 'pick', choice: REFINE_KEEP_EFFORT },
     ]);
     await runCustomizePicker({
       interactive,
@@ -947,7 +950,7 @@ describe('runCustomizePicker — skills step', () => {
     { action: 'pick', choice: 'Customize for this run…' },
     { action: 'pick', choice: `Keep default (${DEFAULT_SETTINGS.ai.refine.provider})` },
     { action: 'pick', choice: `Keep default (${DEFAULT_SETTINGS.ai.refine.model})` },
-    { action: 'pick', choice: 'Keep default (auto)' },
+    { action: 'pick', choice: REFINE_KEEP_EFFORT },
   ];
 
   it('no skillCandidates supplied → no skills prompt at all, even inside Customize', async () => {
@@ -1058,7 +1061,7 @@ describe('runCustomizePicker — skills step', () => {
       { action: 'pick', choice: 'Customize for this run…' },
       { action: 'pick', choice: `Keep default (${DEFAULT_SETTINGS.ai.refine.provider})` },
       { action: 'pick', choice: otherModel },
-      { action: 'pick', choice: 'Keep default (auto)' },
+      { action: 'pick', choice: REFINE_KEEP_EFFORT },
       { action: 'pick', choice: 'customize' },
       { action: 'multiPick', choices: ['ralphctl-iterative-review'] },
       { action: 'pick', choice: 'run-only' },
@@ -1191,11 +1194,11 @@ describe('runCustomizePicker — implement skills step runs once, flow-level', (
       // generator (keep all)
       { action: 'pick', choice: `Keep default (${gen.provider})` },
       { action: 'pick', choice: `Keep default (${gen.model})` },
-      { action: 'pick', choice: 'Keep default (auto)' },
+      { action: 'pick', choice: IMPLEMENT_KEEP_EFFORT },
       // evaluator (keep all)
       { action: 'pick', choice: `Keep default (${eva.provider})` },
       { action: 'pick', choice: `Keep default (${eva.model})` },
-      { action: 'pick', choice: 'Keep default (auto)' },
+      { action: 'pick', choice: IMPLEMENT_KEEP_EFFORT },
       // skills — once, after BOTH roles. Unchecking the lone candidate disables it.
       { action: 'pick', choice: 'customize' },
       { action: 'multiPick', choices: [] },
@@ -1223,10 +1226,10 @@ describe('runCustomizePicker — implement skills step runs once, flow-level', (
       { action: 'pick', choice: 'Customize for this run…' },
       { action: 'pick', choice: `Keep default (${gen.provider})` },
       { action: 'pick', choice: newGenModel },
-      { action: 'pick', choice: 'Keep default (auto)' },
+      { action: 'pick', choice: IMPLEMENT_KEEP_EFFORT },
       { action: 'pick', choice: `Keep default (${eva.provider})` },
       { action: 'pick', choice: `Keep default (${eva.model})` },
-      { action: 'pick', choice: 'Keep default (auto)' },
+      { action: 'pick', choice: IMPLEMENT_KEEP_EFFORT },
       { action: 'pick', choice: 'keep' },
     ]);
     const result = await runCustomizePicker({

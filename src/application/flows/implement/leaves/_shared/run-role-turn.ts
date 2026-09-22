@@ -77,6 +77,11 @@ export interface RoleLeafDeps extends RoleTurnDeps {
    * the AI can read the rest through the `sprintDir` mount.
    */
   readonly progressFile: AbsolutePath;
+  /**
+   * This role's resolved provider id. The generator uses it to guard the retired-model remap of a
+   * persisted `task.escalatedToModel` (`effectiveGeneratorModel`); the evaluator never escalates.
+   */
+  readonly providerId: string;
   /** Configured model for this role. A per-task escalation may override it at spawn time. */
   readonly model: string;
   /** Optional reasoning / effort level forwarded into every `implementSession` AiSession. */

@@ -3,6 +3,7 @@ import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { resolveSprintDir } from '@src/integration/persistence/storage.ts';
 import { createCreatePrFlow } from '@src/application/flows/create-pr/flow.ts';
 import type { CreatePrCtx } from '@src/application/flows/create-pr/ctx.ts';
+import { resolveEffort } from '@src/business/settings/resolve-effort.ts';
 import { createAiProvider } from '@src/application/bootstrap/provider-factory.ts';
 import { createSkillsAdapter } from '@src/integration/ai/skills/adapter-factory.ts';
 import { buildComposedSkillSource } from '@src/application/ui/shared/launcher.ts';
@@ -35,6 +36,7 @@ const buildCreatePrFlow = (deps: AppDeps, storage: StoragePaths, useAi: boolean)
   // Rebuild the provider from the `createPr` settings row — `deps.provider` is wired from the
   // `implement` row at boot, which mismatches the createPr model in a mixed-provider config.
   const resolvedProvider = deps.settings.ai.createPr.provider;
+  const effort = resolveEffort('createPr', deps.settings);
   const provider = createAiProvider({
     flow: 'createPr',
     ai: deps.settings.ai,
@@ -64,10 +66,11 @@ const buildCreatePrFlow = (deps: AppDeps, storage: StoragePaths, useAi: boolean)
       writeFile: deps.writeFile,
       logger: deps.logger,
       model: deps.settings.ai.createPr.model,
+      ...(effort !== undefined ? { effort } : {}),
       skillSource,
       skillsAdapter,
     },
-    { useAi }
+    { useAi, providerId: resolvedProvider }
   );
 };
 

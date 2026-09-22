@@ -37,6 +37,12 @@ export interface ReviewDeps {
   readonly appendFile: AppendFile;
   readonly model: string;
   /**
+   * Effort for the apply-feedback spawn — the launcher's `ctx.effort`, i.e. the implement
+   * generator row resolved through `resolveEffort('implement', …)` (review has no row of its
+   * own). Forwarded onto every round's AI session so the adapter stamps its effort flag.
+   */
+  readonly effort?: string;
+  /**
    * Pre-transition distill composition — fires on review's auto-done path (empty round →
    * transition) so the same opt-in learning-promotion runs whether the user closes explicitly or
    * lets review auto-finish. Optional: absent → the distill step is omitted from the chain.

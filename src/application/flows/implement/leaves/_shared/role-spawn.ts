@@ -29,7 +29,7 @@ export interface GenEvalLoopRoleConfig {
 }
 
 /**
- * Overlay one role's spawn identity — provider port, model, effort — plus its bound agent
+ * Overlay one role's spawn identity — provider port + id, model, effort — plus its bound agent
  * definition onto the cross-role leaf deps. The agent-definition section and its name ride only
  * when the role has a binding, so an unbound role's leaf deps are byte-for-byte what they were
  * before the portable-agents feature existed.
@@ -41,6 +41,7 @@ export const withRoleSpawn = <TShared extends object>(
 ) => ({
   ...shared,
   provider,
+  providerId: role.providerId,
   model: role.model,
   ...(role.effort !== undefined ? { effort: role.effort } : {}),
   ...(role.agentDefinitionSection !== undefined ? { agentDefinition: role.agentDefinitionSection } : {}),

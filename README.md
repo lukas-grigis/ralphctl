@@ -360,7 +360,9 @@ ralphctl settings apply-preset copilot-fast
 ralphctl settings apply-preset codex-fast
 ralphctl settings apply-preset grok-fast
 
-# Frontier — flagship everywhere at max effort
+# Frontier — the vendor's top model on plan/implement at max effort; light flows stay below max.
+# Claude/Codex step up to Fable 5.1 / gpt-6-astra (Fable 5.1 needs a non-ZDR org);
+# Copilot/Grok keep their flagship (Opus 4.8 / grok-4.7).
 ralphctl settings apply-preset mixed-frontier
 ralphctl settings apply-preset claude-frontier
 ralphctl settings apply-preset copilot-frontier

@@ -149,7 +149,7 @@ contracts define testable success up-front."_
   plan time, with a `settings.harness.maxAttempts` fallback for legacy tasks). The graduated remedy
   ladder (row 6) fires within this outer loop — climbing one model rung per plateau or
   budget-exhausted exit, then a top-of-ladder same-model nudge, then (on by default,
-  `settings.harness.bestOfNCandidates`; the four `*-economic` presets opt out)
+  `settings.harness.bestOfNCandidates`; the five `*-economic` presets opt out)
   one best-of-N candidate-sampling attempt, while evaluator-malformed exits get a plain same-model
   retry — each retry consuming one attempt of the budget. `maxAttempts === 1` is byte-for-byte the
   prior one-attempt-per-launch behaviour.
@@ -248,7 +248,7 @@ self into approving anyway; superficial testing."_ Plateau detection is the harn
   plateau the policy spends remedies cheapest-first — climb the model ladder **one rung per plateau**
   (`escalate`, re-stampable, bounded by `maxAttempts`), then a single top-of-ladder same-model `nudge`
   with a change-of-approach directive, then (on by default, once per task,
-  `settings.harness.bestOfNCandidates`; the four `*-economic` presets opt out) a `best-of-n` rung that
+  `settings.harness.bestOfNCandidates`; the five `*-economic` presets opt out) a `best-of-n` rung that
   samples N candidates on the unchanged model and selects among them by
   verification then judging, then `topped-out` (keep the work). See PERFORMANCE.md "Escalation on plateau".
 - **Evaluator lockstep (2026-08).** Every generator MODEL-rung climb (`escalate`) — not only the
@@ -555,13 +555,15 @@ update the "Where it lives" anchor, and remove the "Next step" line. Cross-refer
 it.
 
 **Model-bump audit checklist (sections 14 + 18).** The trigger is mechanized, not a ticket convention:
-`tests/unit/business/task/escalation-map.test.ts` fingerprints the three model catalogs
-(`domain/value/settings-models/{claude,codex,copilot}.ts`) and cross-checks every
-`DEFAULT_ESCALATION_MAP` key/value against them. A catalog edit fails `pnpm verify`. When it does, walk
-this checklist before updating the recorded hash:
+`tests/unit/business/task/escalation-map.test.ts` fingerprints four of the five model catalogs
+(`domain/value/settings-models/{claude,codex,copilot,grok}.ts` — OpenCode is excluded, since it has no
+built-in ladder to strand) and cross-checks every `DEFAULT_ESCALATION_LADDERS` key/value against its
+provider's own catalog. A catalog edit fails `pnpm verify`. When it does, walk this checklist before
+updating the recorded hash:
 
-1. **Re-check orphaned rungs.** Did a catalog rename or de-list strand a `DEFAULT_ESCALATION_MAP` key or
-   destination? The lockstep assertions catch this — fix the ladder, do not just bump the hash.
+1. **Re-check orphaned rungs.** Did a catalog rename or de-list strand a `DEFAULT_ESCALATION_LADDERS` key
+   or destination for its provider? The lockstep assertions catch this — fix the ladder, do not just bump
+   the hash.
 2. **Walk the `partial` / `gap` rows.** For each, ask "has the new model closed this gap unaided?" Promote
    `gap` → `applied` where it has.
 3. **Walk the `applied` rows.** For each, ask "is this component still load-bearing against the new model, or
@@ -571,6 +573,26 @@ this checklist before updating the recorded hash:
 
 **Model-bump audit log.**
 
+- **2026-09-22 — Opus 5.5 / Fable 5.1 / GPT-6 (Sol, Luna, Astra) refresh.** Step 1: `claude-opus-5-5` is
+  now the claude-code ladder top (no key, as before); `claude-opus-5` and `claude-opus-4-8` both gained a
+  rung up to it. `gpt-6-sol` is now the openai-codex ladder top. `gpt-5.4` and `gpt-5.4-mini` were removed
+  from the Codex catalog (retired 2026-08-31) and dropped as ladder keys — a retired model can never again
+  be a generator's current model, and `RETIRED_MODEL_REMAPS` rewrites any persisted row pinned to either
+  before it would reach the escalation policy — so no stranded key remained. The Copilot catalog lost six
+  GitHub-deprecated ids (`claude-opus-4.5`/`4.6`, `claude-sonnet-4.5`/`4.6`, `gemini-3.1-pro`,
+  `raptor-mini`) and gained none as rungs — the new Opus 5.5 / Fable 5.1 / GPT-6 Copilot ids are catalog +
+  pin-only, not yet reachable on the reference account. No key or destination was stranded; the lockstep
+  assertions passed once the escalation ladders were split per provider
+  (`DEFAULT_ESCALATION_LADDERS`, replacing the flat `DEFAULT_ESCALATION_MAP`, so a shared slug like
+  `claude-sonnet-5` can climb differently on Claude Code vs Copilot). Step 2: the only `partial` rows are
+  §14 and §18, both the audit mechanism itself — this bump does not close them; there are no `gap` rows.
+  Step 3: `applied` rows reviewed — same architecture, higher-capability models inside the existing Claude
+  / Codex / Copilot families (Fable 5.1 and GPT-6 Astra are new price tiers above the existing flagship,
+  not a new capability class), so no component was identified as newly non-load-bearing; no removals. One
+  correctness fix outside the checklist's three steps: `claudeEffortRung`'s CLI-default table assumed
+  `xhigh` for Opus, which was already wrong — earlier Opus / Sonnet 5 / Fable default to `high`, and Opus
+  5.5 to `medium` — caught because ralphctl now stamps an explicit effort on every flow rather than
+  trusting the CLI default (see `AI-SETTINGS.md § Effort resolution`).
 - **2026-09-22 — Grok 4.7 refresh.** Step 1: `grok-4.6` was the ladder top and is now an intermediate
   rung (`grok-4.5` → `grok-4.6` → `grok-4.7`); no key or destination was stranded.
   `grok-4.7-build-fast` is catalog-only (same model, 2× token price) and has no rung. Step 2: the

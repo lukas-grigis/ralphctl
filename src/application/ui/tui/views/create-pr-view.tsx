@@ -21,6 +21,7 @@ import { useViewHints } from '@src/application/ui/tui/runtime/use-view-hints.tsx
 import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { createCreatePrFlow } from '@src/application/flows/create-pr/flow.ts';
+import { resolveEffort } from '@src/business/settings/resolve-effort.ts';
 import { createAiProvider } from '@src/application/bootstrap/provider-factory.ts';
 import { createSkillsAdapter } from '@src/integration/ai/skills/adapter-factory.ts';
 import { buildComposedSkillSource } from '@src/application/ui/shared/launcher.ts';
@@ -210,6 +211,7 @@ interface ExecuteCreatePrFlowArgs {
 const executeCreatePrFlow = async (args: ExecuteCreatePrFlowArgs): Promise<RunState> => {
   const { deps, sprintId, sprintDir, cwd, useAi } = args;
   const resolvedProvider = deps.settings.ai.createPr.provider;
+  const effort = resolveEffort('createPr', deps.settings);
   const provider = createAiProvider({
     flow: 'createPr',
     ai: deps.settings.ai,
@@ -239,10 +241,11 @@ const executeCreatePrFlow = async (args: ExecuteCreatePrFlowArgs): Promise<RunSt
       writeFile: deps.writeFile,
       logger: deps.logger,
       model: deps.settings.ai.createPr.model,
+      ...(effort !== undefined ? { effort } : {}),
       skillSource,
       skillsAdapter,
     },
-    { useAi }
+    { useAi, providerId: resolvedProvider }
   );
   const result = await flow.execute({
     input: {

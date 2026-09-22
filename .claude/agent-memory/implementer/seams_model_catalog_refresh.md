@@ -33,6 +33,18 @@ NOT reachable by grepping for the changed slugs.
    "Added since the last reconciliation" / "Removed" paragraph. Nothing guards it — it goes stale
    silently.
 
+## Retired ids outside settings rows
+
+`RETIRED_MODEL_REMAPS` is not only a settings-row concern. Two other persisted places carry model ids:
+`task.escalatedToModel` (resolved through `effectiveGeneratorModel` in `escalation-policy.ts`, the ONE
+site for spawn / policy lookup / meta.json) and `harness.escalationMap` values (rewritten at parse only
+when `unambiguousRetiredSuccessor` says so; ambiguous ones warn in `wire.ts`). Slugs retired on one
+provider can be LIVE on another (`gpt-5.4`, `gpt-5.3-codex` are still Copilot ids), so a provider-less
+remap must check every catalog.
+
+`generator.ts` sits at the `max-lines` 400 ceiling (comments/blank skipped) — a new import or field
+there trips lint; merge imports or put the field on `RoleLeafDeps`.
+
 ## Sweep order
 
 catalog file → `RETIRED_MODEL_REMAPS` in `src/domain/entity/settings.ts` → fingerprint → the two remap
