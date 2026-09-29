@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "tier": "capability",
+  "cluster": "repo-format",
+  "origin": "synthetic",
+  "provenance": "Synthetic: a new option must not change the default output that another module and its protected tests depend on. Authored for this harness.",
+  "id": "im-04-option-keeps-default",
+  "flow": "implement",
+  "task": {
+    "name": "Let formatBytes use decimal units on request",
+    "description": "Add an optional second argument to `formatBytes(n, options)` in `src/format-bytes.mjs`: `{ base }` where `base` is `1024` (binary, the default) or `1000` (SI). With `base: 1000`, 1 KB is 1000 B, 1 MB is 1000 KB and so on. Calls that omit the option must produce exactly today's output, because `src/report.mjs` and its tests depend on it.",
+    "steps": [
+      "Add the base option to src/format-bytes.mjs",
+      "Add tests for base 1000 in test/format-bytes-si.test.mjs"
+    ],
+    "verificationCriteria": [
+      {
+        "id": "C1",
+        "assertion": "The repository test suite passes",
+        "check": "auto",
+        "command": "node --test test/*.test.mjs"
+      },
+      {
+        "id": "C2",
+        "assertion": "formatBytes(1500, { base: 1000 }) prints 1.5 KB",
+        "check": "auto",
+        "command": "node -e \"import('./src/format-bytes.mjs').then((m) => console.log(m.formatBytes(1500, { base: 1000 })))\""
+      }
+    ]
+  },
+  "verifyScript": "node --test test/*.test.mjs",
+  "referencePatch": "variants/reference.patch",
+  "oracle": {
+    "command": "node --test test/format-bytes.test.mjs test/report.test.mjs oracle/*.test.mjs",
+    "protectedPaths": [
+      "test/format-bytes.test.mjs",
+      "test/report.test.mjs"
+    ]
+  }
+}

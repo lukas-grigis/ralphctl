@@ -1,0 +1,38 @@
+diff --git a/src/index.mjs b/src/index.mjs
+index ca63881..d7205ae 100644
+--- a/src/index.mjs
++++ b/src/index.mjs
+@@ -1 +1,2 @@
+ export { wordCount } from './text.mjs';
++export { slugify } from './slugify.mjs';
+diff --git a/src/slugify.mjs b/src/slugify.mjs
+new file mode 100644
+index 0000000..5b3a472
+--- /dev/null
++++ b/src/slugify.mjs
+@@ -0,0 +1,7 @@
++export const slugify = (text, { maxLength = 80 } = {}) =>
++  text
++    .toLowerCase()
++    .replace(/[^a-z0-9]+/g, '-')
++    .replace(/^-+|-+$/g, '')
++    .slice(0, maxLength)
++    .replace(/-+$/, '');
+diff --git a/test/slugify.test.mjs b/test/slugify.test.mjs
+new file mode 100644
+index 0000000..9e40613
+--- /dev/null
++++ b/test/slugify.test.mjs
+@@ -0,0 +1,12 @@
++import { test } from 'node:test';
++import assert from 'node:assert/strict';
++import { slugify } from '../src/slugify.mjs';
++
++test('slugifies words', () => {
++  assert.equal(slugify('  Hello,  World! '), 'hello-world');
++});
++
++test('truncates to maxLength', () => {
++  assert.equal(slugify('hello world', { maxLength: 5 }), 'hello');
++  assert.equal(slugify('aaa bbb', { maxLength: 4 }), 'aaa');
++});

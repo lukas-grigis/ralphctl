@@ -21,7 +21,7 @@ Not covered: `plan`, `ideate`, `refine` (no headless path ships for them — the
 `InteractiveAiProvider`), `check-plan` (deterministic, no model call, already unit-tested), and
 `reproduce`, `review`, `readiness`, `detect-skills`, `create-pr` (next candidates; `reproduce` first, because
 the harness already re-runs its claim). One trial is one cold turn per role; the multi-turn gen-eval loop and
-the `*-continuation` prompts are not measured. There are no model graders, no dollar cost and no caching.
+the `*-continuation` prompts are not measured. There are no model graders and no dollar cost; cache tokens are counted, not priced.
 
 ## Commands
 
@@ -83,9 +83,15 @@ trial with `nudgeCount` 0 and no respawn.
   Missing counts are never imputed; they print as `n/a`.
 - `usage` reports one spawn's tokens. The rate-limit retry loop returns the **successful** attempt's usage, so
   tokens spent on rate-limited attempts are not in the total — treat totals as a lower bound.
-- Counts are the provider's reported input and output figures. For Claude those exclude cache-read and
-  cache-creation tokens (separate fields in the stream's `usage`, which `ProviderUsage` does not carry), so
-  `--max-tokens` bounds uncached input plus output — it is not a bill.
+- Counts are the provider's reported figures, kept apart: in, cache read, cache write, out.
+  `--max-tokens` bounds their **sum** (`ProviderUsage.cacheReadInputTokens` / `cacheCreationInputTokens`
+  carry the cache counts). Engineering judgment: Claude reports cache reads and writes beside `input_tokens`,
+  not inside it, and on a cached agent turn they dwarf it — counting input + output alone under-counted by
+  orders of magnitude. "in" is the adapter's `inputTokens`, not guaranteed to exclude cache: only Claude is known to report it apart from the cache counts (`parse-stream.ts`). The recorded Codex fixture (`codex-provider.test.ts:832`) has `cached_input_tokens` 25344 inside `input_tokens` 27669 and `codex/headless.ts` passes the full `input_tokens`, so on `--provider codex` "in" includes cached tokens and cache read stays `n/a`. Only Claude and Grok populate the cache fields; Codex (`cached_input_tokens`) and
+  OpenCode (`tokens.cache`) report them but their relation to `input` is unverified, so they stay unset
+  rather than risk double counting. A total is a token volume, not a bill: cache tokens are priced
+  differently from plain input and no rate is applied. Results files written before this change show cache
+  columns as `n/a`.
 - `--max-wall-min M` adds a wall-clock cap. On any stop the results are written with `stoppedReason` and the
   unreached items are listed as incomplete; they are left out of the statistics and out of pairing.
 - Ctrl-C aborts the in-flight spawn (the provider's kill ladder), writes the partial results, and exits 130.
@@ -130,12 +136,61 @@ and knip. `evals/results/` is gitignored.
   standard error. `origin: real` items (a reconstructed past failure, made generic) are reported separately.
 - The `task` is validated with the planner's own `TaskImportSpecSchema` (minus `projectPath`).
 
-Shipped: 7 evaluate fixtures (off-by-one, missing function, test tampering, unhandled empty input, shell
-injection, renamed export, empty working tree — each a clean/defect pair), 2 implement, 2 detect-scripts,
-2 select-candidate. Not yet shipped: reviewer-labelled evaluate fixtures (`UNVERIFIED`, `[spec-ambiguity]`) and a
-reconstructed real failure — they need named human reviewers and a real past failure to reconstruct. The
-schema and graders already support both. Anthropic's guidance is that "20-50 simple tasks drawn from real
-failures is a great start"; this set is smaller and synthetic, so treat early intervals as very wide.
+Shipped: 17 evaluate fixtures (each a clean/defect pair), 5 implement, 2 detect-scripts, 2 select-candidate.
+`ev-01`..`ev-07` are the first, easy set; `ev-08`..`ev-17` and `im-03`..`im-05` are `tier: capability`, added
+because the first real baseline put evaluate catch rate at 100% on 7 items — and "An eval at 100% tracks
+regressions but provides no signal for improvement" (Anthropic, _Demystifying evals for AI agents_). Not yet
+shipped: reviewer-labelled evaluate fixtures (`UNVERIFIED`, `[spec-ambiguity]`) and a reconstructed real
+failure — they need named human reviewers and a real past failure to reconstruct. The schema and graders
+already support both. Anthropic's guidance is that "20-50 simple tasks drawn from real failures is a great
+start"; this set is smaller and synthetic, so treat early intervals as very wide.
+
+### Harder fixtures: failure mode to fixture
+
+Grounding. The evaluator is already told what to resist: `_partials/evaluator-failure-modes.md` names
+"Superficial testing", "Crediting incomplete work" and "Rubber-stamping when the verify script passes", and
+`_partials/evaluator-grading-rules.md` adds a verification-tampering audit and "A FAIL needs a concrete
+observation". The new defects are built to sit where those rules are hardest to apply — a green suite, a
+plausible diff, and the wrong behaviour on a path the visible tests never run. Zheng et al., _Judging
+LLM-as-a-judge_ (arXiv 2306.05685), report "position, verbosity, and self-enhancement biases, as well as
+limited reasoning ability" in LLM judges; that motivates padding defects inside larger, confident-looking
+diffs (`ev-09`) and a clean diff that looks alarming (`ev-16`). Mutation testing supplies the labelling
+discipline: a test "detects, and therefore rejects, a mutant upon test failure", and a mutant no test can
+kill is an "equivalent mutant" (Wikipedia, _Mutation testing_) — which is why `pnpm eval check` requires the
+hidden oracle to fail on every defect and pass on every clean variant. Anthropic: "Test both the cases where
+a behavior _should_ occur and where it _shouldn't_" — hence the clean twin of every defect, plus `ev-16`
+aimed at false-FAIL. The quotes are as returned by fetching those pages on 2026-09-30; the mapping of each
+failure mode to a fixture below is engineering judgment.
+
+Each defect's visible suite (`node --test test/*.test.mjs`) is green, so only reading the code or running an
+input the suite skips reveals it. Which defects an `auto` criterion command would expose is deliberate: `C2`
+covers the happy path, and the failing behaviour is either a `manual` criterion or only in the task
+description.
+
+| Fixture                                  | Failure mode (judgment)                                                             | Why the visible checks stay green                              |
+| ---------------------------------------- | ----------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| `ev-08-vacuous-test`                     | test asserts truthiness only; hour multiplier is 360, not 3600                      | `assert.ok(x > 0)`; `C2` runs the seconds unit                 |
+| `ev-09-weakened-assertion-large-diff`    | one existing expectation (53 to 52) edited inside a diff that mostly adds tests     | the edited test agrees with the new `Math.floor`               |
+| `ev-10-boundary-page-zero`               | off-by-one on the rejection branch (`page < 0`), page 0 accepted                    | only the happy paths and `-1` are tested                       |
+| `ev-11-default-changes-caller`           | new option defaults to on; an untouched caller (`scheduler.mjs`) turns random       | new tests pass `jitter: false` explicitly; caller untested     |
+| `ev-12-option-accepted-not-implemented`  | criterion claimed in a comment and signature, never applied (`maxLength`)           | test only checks the option is accepted                        |
+| `ev-13-swallowed-parse-error`            | one catch-all returns defaults; corrupt JSON silently ignored                       | only the missing-file and valid-file cases are tested          |
+| `ev-14-lock-leak-on-error`               | release skipped when `fn` rejects (no `finally`)                                    | the rejection test never inspects the lock                     |
+| `ev-15-completion-order-results`         | results pushed in completion order instead of input order                           | test callbacks finish in start order                           |
+| `ev-16-spec-change-edits-tests`          | false-FAIL probe: both variants edit existing tests by spec; only MB/GB stay binary | defect drops the MB test; clean edits it and looks alike       |
+| `ev-17-input-mutated`                    | `items.sort` mutates and aliases the caller's array                                 | tests read the output only                                     |
+| `im-03-csv-line` (implement)             | quoting rules: embedded commas, doubled quotes, empty and trailing fields           | hidden oracle covers what a naive `split(',')` misses          |
+| `im-04-option-keeps-default` (implement) | a new option must leave the default output of `report.mjs` unchanged                | protected `test/report.test.mjs`, `test/format-bytes.test.mjs` |
+| `im-05-map-limit` (implement)            | concurrency cap, input order, and no new starts after the first rejection           | hidden oracle measures peak in-flight and start log            |
+
+Notes. `ev-09` and `ev-16` deliberately both edit existing tests; `ev-09` protects `test/cart.test.mjs`
+(oracle restores it), `ev-16` cannot, because the spec changes those values. `ev-11` and `ev-16` carry a
+`manual` criterion that names the hidden behaviour; `ev-08`, `ev-09`, `ev-14` and `ev-15` do not, so they
+depend on the evaluator noticing. `ev-15` and `im-05` use millisecond timers (5-30 ms gaps); the ordering is
+deterministic but a heavily loaded machine could in principle reorder timers, so read a lone `im-05` failure
+in `oracle.txt` before trusting it. Expected `failedDimensions` are a judgment call and only feed the
+secondary dimension-hit metric. Whether these actually lower the catch rate is unmeasured — no model has run
+on them yet; run `pnpm eval run --flow evaluate --tier capability` for the first read.
 
 ## Reading `summary.md`
 

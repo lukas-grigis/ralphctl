@@ -1,0 +1,61 @@
+{
+  "schemaVersion": 1,
+  "tier": "capability",
+  "cluster": "repo-paging",
+  "origin": "synthetic",
+  "provenance": "Synthetic: the guard uses page < 0 instead of page < 1, so page 0 is accepted; only the untested rejection branch is wrong. Authored for this harness.",
+  "id": "ev-10-boundary-page-zero",
+  "flow": "evaluate",
+  "task": {
+    "name": "Add a paginate helper",
+    "description": "Add `paginate(items, page, pageSize)` in `src/paginate.mjs` as a named export. Pages are 1-based. It returns `{ items, page, totalPages }`. The last page may be shorter, and a page past the end returns an empty `items` array. A `page` or `pageSize` that is not an integer >= 1 throws a RangeError.",
+    "steps": [
+      "Create src/paginate.mjs exporting paginate",
+      "Add tests in test/paginate.test.mjs"
+    ],
+    "verificationCriteria": [
+      {
+        "id": "C1",
+        "assertion": "The repository test suite passes",
+        "check": "auto",
+        "command": "node --test test/*.test.mjs"
+      },
+      {
+        "id": "C2",
+        "assertion": "paginate([1,2,3,4,5], 2, 2).items prints [3,4]",
+        "check": "auto",
+        "command": "node -e \"import('./src/paginate.mjs').then((m) => console.log(JSON.stringify(m.paginate([1, 2, 3, 4, 5], 2, 2).items)))\""
+      },
+      {
+        "id": "C3",
+        "assertion": "Invalid page or pageSize values are rejected with a RangeError",
+        "check": "manual"
+      }
+    ]
+  },
+  "verifyScript": "node --test test/*.test.mjs",
+  "variants": [
+    {
+      "name": "clean",
+      "patch": "variants/clean.patch",
+      "expect": {
+        "status": "passed"
+      }
+    },
+    {
+      "name": "defect",
+      "patch": "variants/defect.patch",
+      "defectClass": "boundary-error-path",
+      "expect": {
+        "status": "failed",
+        "failedDimensions": [
+          "correctness"
+        ]
+      }
+    }
+  ],
+  "oracle": {
+    "command": "node --test oracle/*.test.mjs",
+    "protectedPaths": []
+  }
+}

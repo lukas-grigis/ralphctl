@@ -1,0 +1,61 @@
+{
+  "schemaVersion": 1,
+  "tier": "capability",
+  "cluster": "repo-config",
+  "origin": "synthetic",
+  "provenance": "Synthetic: one catch-all returns defaults, so a corrupt config file is silently ignored. Authored for this harness.",
+  "id": "ev-13-swallowed-parse-error",
+  "flow": "evaluate",
+  "task": {
+    "name": "Add a loadConfig helper",
+    "description": "Add `loadConfig(path)` in `src/config.mjs` as a named export. It reads the JSON file at `path` and returns the parsed object merged over `DEFAULTS` from `src/defaults.mjs`. A missing file (ENOENT) returns a copy of `DEFAULTS`. Any other failure — an unreadable file or invalid JSON — throws an Error whose message contains the path.",
+    "steps": [
+      "Create src/config.mjs exporting loadConfig",
+      "Add tests in test/config.test.mjs"
+    ],
+    "verificationCriteria": [
+      {
+        "id": "C1",
+        "assertion": "The repository test suite passes",
+        "check": "auto",
+        "command": "node --test test/*.test.mjs"
+      },
+      {
+        "id": "C2",
+        "assertion": "loadConfig on a missing file prints the defaults {\"retries\":3}",
+        "check": "auto",
+        "command": "node -e \"import('./src/config.mjs').then((m) => console.log(JSON.stringify(m.loadConfig('does-not-exist.json'))))\""
+      },
+      {
+        "id": "C3",
+        "assertion": "A file that is not valid JSON makes loadConfig throw rather than fall back to defaults",
+        "check": "manual"
+      }
+    ]
+  },
+  "verifyScript": "node --test test/*.test.mjs",
+  "variants": [
+    {
+      "name": "clean",
+      "patch": "variants/clean.patch",
+      "expect": {
+        "status": "passed"
+      }
+    },
+    {
+      "name": "defect",
+      "patch": "variants/defect.patch",
+      "defectClass": "swallowed-exception",
+      "expect": {
+        "status": "failed",
+        "failedDimensions": [
+          "robustness"
+        ]
+      }
+    }
+  ],
+  "oracle": {
+    "command": "node --test oracle/*.test.mjs",
+    "protectedPaths": []
+  }
+}

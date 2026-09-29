@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "tier": "capability",
+  "cluster": "repo-async",
+  "origin": "synthetic",
+  "provenance": "Synthetic: a bounded-concurrency map whose hidden cases are the concurrency cap, result order and no new work after the first failure. Authored for this harness.",
+  "id": "im-05-map-limit",
+  "flow": "implement",
+  "task": {
+    "name": "Add a mapLimit helper",
+    "description": "Add `mapLimit(items, limit, fn)` in `src/map-limit.mjs` as a named export. It calls `fn(item, index)` for every item with at most `limit` calls in flight at once and resolves to the results in input order. When a call rejects, the returned promise rejects with that error and no further calls are started. An empty input resolves to `[]`. A `limit` that is not an integer >= 1 throws a RangeError.",
+    "steps": [
+      "Create src/map-limit.mjs exporting mapLimit",
+      "Add tests in test/map-limit.test.mjs"
+    ],
+    "verificationCriteria": [
+      {
+        "id": "C1",
+        "assertion": "The repository test suite passes",
+        "check": "auto",
+        "command": "node --test test/*.test.mjs"
+      },
+      {
+        "id": "C2",
+        "assertion": "mapLimit([1,2,3], 2, async (x) => x * 2) prints [2,4,6]",
+        "check": "auto",
+        "command": "node -e \"import('./src/map-limit.mjs').then(async (m) => console.log(JSON.stringify(await m.mapLimit([1, 2, 3], 2, async (x) => x * 2))))\""
+      }
+    ]
+  },
+  "verifyScript": "node --test test/*.test.mjs",
+  "referencePatch": "variants/reference.patch",
+  "oracle": {
+    "command": "node --test oracle/*.test.mjs",
+    "protectedPaths": []
+  }
+}

@@ -1,0 +1,56 @@
+{
+  "schemaVersion": 1,
+  "tier": "capability",
+  "cluster": "repo-async",
+  "origin": "synthetic",
+  "provenance": "Synthetic: results are pushed in completion order, which only matches input order when every call finishes in the order it started. Authored for this harness.",
+  "id": "ev-15-completion-order-results",
+  "flow": "evaluate",
+  "task": {
+    "name": "Add a mapAsync helper",
+    "description": "Add `mapAsync(items, fn)` in `src/map-async.mjs` as a named export. It calls `fn(item, index)` for every item concurrently and resolves to an array of the results in the same order as `items`, regardless of which call finishes first. If any call rejects, the returned promise rejects with that error. An empty input resolves to `[]`.",
+    "steps": [
+      "Create src/map-async.mjs exporting mapAsync",
+      "Add tests in test/map-async.test.mjs"
+    ],
+    "verificationCriteria": [
+      {
+        "id": "C1",
+        "assertion": "The repository test suite passes",
+        "check": "auto",
+        "command": "node --test test/*.test.mjs"
+      },
+      {
+        "id": "C2",
+        "assertion": "mapAsync([1,2,3], async (x) => x * 2) prints [2,4,6]",
+        "check": "auto",
+        "command": "node -e \"import('./src/map-async.mjs').then(async (m) => console.log(JSON.stringify(await m.mapAsync([1, 2, 3], async (x) => x * 2))))\""
+      }
+    ]
+  },
+  "verifyScript": "node --test test/*.test.mjs",
+  "variants": [
+    {
+      "name": "clean",
+      "patch": "variants/clean.patch",
+      "expect": {
+        "status": "passed"
+      }
+    },
+    {
+      "name": "defect",
+      "patch": "variants/defect.patch",
+      "defectClass": "ordering-assumption",
+      "expect": {
+        "status": "failed",
+        "failedDimensions": [
+          "correctness"
+        ]
+      }
+    }
+  ],
+  "oracle": {
+    "command": "node --test oracle/*.test.mjs",
+    "protectedPaths": []
+  }
+}

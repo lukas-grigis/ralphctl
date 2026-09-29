@@ -1,0 +1,31 @@
+diff --git a/src/format-bytes.mjs b/src/format-bytes.mjs
+index 6e15283..2129690 100644
+--- a/src/format-bytes.mjs
++++ b/src/format-bytes.mjs
+@@ -1,10 +1,10 @@
+ const UNITS = ['B', 'KB', 'MB', 'GB'];
+ 
+-export const formatBytes = (n) => {
++export const formatBytes = (n, { base = 1024 } = {}) => {
+   let value = n;
+   let i = 0;
+-  while (value >= 1024 && i < UNITS.length - 1) {
+-    value /= 1024;
++  while (value >= base && i < UNITS.length - 1) {
++    value /= base;
+     i += 1;
+   }
+   return `${Number.isInteger(value) ? value : value.toFixed(1)} ${UNITS[i]}`;
+diff --git a/test/format-bytes-si.test.mjs b/test/format-bytes-si.test.mjs
+new file mode 100644
+index 0000000..f48e7eb
+--- /dev/null
++++ b/test/format-bytes-si.test.mjs
+@@ -0,0 +1,7 @@
++import { test } from 'node:test';
++import assert from 'node:assert/strict';
++import { formatBytes } from '../src/format-bytes.mjs';
++
++test('SI units', () => {
++  assert.equal(formatBytes(1500, { base: 1000 }), '1.5 KB');
++});

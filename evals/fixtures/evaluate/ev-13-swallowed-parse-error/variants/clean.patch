@@ -1,0 +1,53 @@
+diff --git a/src/config.mjs b/src/config.mjs
+new file mode 100644
+index 0000000..ceaf7cb
+--- /dev/null
++++ b/src/config.mjs
+@@ -0,0 +1,17 @@
++import { readFileSync } from 'node:fs';
++import { DEFAULTS } from './defaults.mjs';
++
++export const loadConfig = (path) => {
++  let raw;
++  try {
++    raw = readFileSync(path, 'utf8');
++  } catch (err) {
++    if (err.code === 'ENOENT') return { ...DEFAULTS };
++    throw new Error(`cannot read config ${path}: ${err.message}`);
++  }
++  try {
++    return { ...DEFAULTS, ...JSON.parse(raw) };
++  } catch (err) {
++    throw new Error(`invalid config ${path}: ${err.message}`);
++  }
++};
+diff --git a/test/config.test.mjs b/test/config.test.mjs
+new file mode 100644
+index 0000000..cce5376
+--- /dev/null
++++ b/test/config.test.mjs
+@@ -0,0 +1,24 @@
++import { test } from 'node:test';
++import assert from 'node:assert/strict';
++import { mkdtempSync, writeFileSync } from 'node:fs';
++import { tmpdir } from 'node:os';
++import { join } from 'node:path';
++import { loadConfig } from '../src/config.mjs';
++
++const tmp = () => mkdtempSync(join(tmpdir(), 'config-'));
++
++test('a missing file yields the defaults', () => {
++  assert.deepEqual(loadConfig(join(tmp(), 'nope.json')), { retries: 3 });
++});
++
++test('a file is merged over the defaults', () => {
++  const file = join(tmp(), 'c.json');
++  writeFileSync(file, '{"retries": 5, "extra": true}');
++  assert.deepEqual(loadConfig(file), { retries: 5, extra: true });
++});
++
++test('invalid JSON throws with the path', () => {
++  const file = join(tmp(), 'bad.json');
++  writeFileSync(file, '{ nope');
++  assert.throws(() => loadConfig(file), (err) => err.message.includes(file));
++});

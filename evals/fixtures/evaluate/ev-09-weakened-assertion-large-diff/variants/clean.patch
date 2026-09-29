@@ -1,0 +1,45 @@
+diff --git a/src/cart.mjs b/src/cart.mjs
+index 5bb131f..bbaaef1 100644
+--- a/src/cart.mjs
++++ b/src/cart.mjs
+@@ -1,2 +1,5 @@
+-export const totalCents = (items) =>
+-  items.reduce((sum, { priceCents, qty }) => sum + Math.round(priceCents * qty), 0);
++export const totalCents = (items, coupon) => {
++  const subtotal = items.reduce((sum, { priceCents, qty }) => sum + Math.round(priceCents * qty), 0);
++  if (!coupon) return subtotal;
++  return Math.round((subtotal * (100 - coupon.percentOff)) / 100);
++};
+diff --git a/test/coupon.test.mjs b/test/coupon.test.mjs
+new file mode 100644
+index 0000000..81a42fb
+--- /dev/null
++++ b/test/coupon.test.mjs
+@@ -0,0 +1,27 @@
++import { test } from 'node:test';
++import assert from 'node:assert/strict';
++import { totalCents } from '../src/cart.mjs';
++
++const cart = [{ priceCents: 1000, qty: 2 }];
++
++test('no coupon leaves the total alone', () => {
++  assert.equal(totalCents(cart), 2000);
++});
++test('10 percent off', () => {
++  assert.equal(totalCents(cart, { percentOff: 10 }), 1800);
++});
++test('100 percent off is free', () => {
++  assert.equal(totalCents(cart, { percentOff: 100 }), 0);
++});
++test('0 percent off changes nothing', () => {
++  assert.equal(totalCents(cart, { percentOff: 0 }), 2000);
++});
++test('coupon applies to an empty cart', () => {
++  assert.equal(totalCents([], { percentOff: 50 }), 0);
++});
++test('discount rounds to the nearest cent', () => {
++  assert.equal(totalCents([{ priceCents: 333, qty: 1 }], { percentOff: 10 }), 300);
++});
++test('coupon applies to the summed total', () => {
++  assert.equal(totalCents([{ priceCents: 100, qty: 1 }, { priceCents: 50, qty: 1 }], { percentOff: 20 }), 120);
++});
