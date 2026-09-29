@@ -43,6 +43,13 @@ export interface ParameterSpec<TValue> {
    * value aborts construction with a `ValidationError`.
    */
   readonly optional?: boolean;
+  /**
+   * Marks the value as externally-authored data (issue text, idea prose, an existing context
+   * file, generator-authored hints). `substitute` prefixes a non-empty value with one standard
+   * line naming this `source`, so the model treats instructions inside it as data. Empty values
+   * stay empty so conditional sections still collapse.
+   */
+  readonly untrusted?: { readonly source: string };
 }
 
 /**
