@@ -21,7 +21,7 @@ import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/templat
  * Because the resumed conversation already holds the full task brief, contract, and the
  * generator's earlier work, the continuation prompt carries only the per-round DELTA: the
  * evaluator's critique, the plateau-break directive, the current round number, a capped recent
- * slice of the sprint journal, and the audit-[09] output-contract block (which names THIS
+ * slice of the sprint journal, and the output-contract block (which names THIS
  * round's `signals.json` path). On-disk paths to the contract and the sprint journal ride along
  * as a graceful-degradation hedge — if a resumed thread loses its prior context (the codex
  * cold-resume fallback drops `--resume` and re-issues the same prompt against a fresh session),
@@ -88,7 +88,7 @@ export interface ImplementContinuationPromptParams {
    */
   readonly plateauDirectiveSection: string;
   /**
-   * Audit-[09] output contract section rendered from the generator contract for THIS round's
+   * Output contract section rendered from the generator contract for THIS round's
    * output directory (`rounds/<N>/generator/`). Because the leaf re-renders it per round, the
    * embedded `signals.json` path always names the current round — `{{OUTPUT_CONTRACT_SECTION}}`.
    */
@@ -166,7 +166,7 @@ export const implementContinuationPromptDef: PromptDefinition<ImplementContinuat
     outputContractSection: {
       placeholder: 'OUTPUT_CONTRACT_SECTION',
       description:
-        "Audit-[09] output contract block rendered for THIS round's output directory — names the current signals.json path.",
+        "Output contract block rendered for THIS round's output directory — names the current signals.json path.",
       validate: requireNonEmpty(
         'outputContractSection',
         'output-contract section must not be empty (renderContractSectionFor always emits a body)'
@@ -186,6 +186,7 @@ export const implementContinuationPromptDef: PromptDefinition<ImplementContinuat
   partials: {
     HARNESS_CONTEXT: 'harness-context',
     AUTONOMOUS_OPERATION: 'autonomous-operation',
+    PARALLEL_TOOL_CALLS: 'parallel-tool-calls',
     EVIDENCE_BOUND: 'evidence-bound',
     DECISIONS_GUIDANCE: 'decisions',
   },
@@ -241,7 +242,7 @@ export interface BuildImplementContinuationPromptInput {
   readonly dimensionTrajectory?: string;
   /** True on a top-of-ladder same-model nudge — renders the "change your approach" directive. */
   readonly plateauBreak?: boolean;
-  /** Pre-rendered audit-[09] output contract section for this round's generator output dir. */
+  /** Pre-rendered output contract section for this round's generator output dir. */
   readonly outputContractSection: string;
   /**
    * Verbatim output (or trimmed tail) from the harness pre-task verify run. Absent or empty →

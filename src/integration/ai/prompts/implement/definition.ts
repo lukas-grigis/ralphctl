@@ -81,7 +81,7 @@ export interface ImplementPromptParams {
   readonly progressFile: string;
   /**
    * Current body of `progress.md` substituted into the `## Prior progress` section
-   * (audit-[07]). Empty string when the journal file is absent — the template's surrounding
+   *. Empty string when the journal file is absent — the template's surrounding
    * prose handles the empty case without a per-flow special branch.
    */
   readonly priorProgress: string;
@@ -104,7 +104,7 @@ export interface ImplementPromptParams {
    */
   readonly plateauDirectiveSection: string;
   /**
-   * Audit-[09] output contract section — rendered from the generator's `AiOutputContract` by
+   * Output contract section — rendered from the generator's `AiOutputContract` by
    * `renderContractSectionFor(generatorOutputContract)`. Tells the AI to write exactly one
    * file (`signals.json`) matching the documented shape and to not write any other files.
    * The leaf composes this string before calling `buildImplementPrompt`.
@@ -268,7 +268,7 @@ export const implementPromptDef: PromptDefinition<ImplementPromptParams> = {
     outputContractSection: {
       placeholder: 'OUTPUT_CONTRACT_SECTION',
       description:
-        'Audit-[09] output contract block rendered from the generator contract — instructs the AI to write `signals.json` directly.',
+        'Output contract block rendered from the generator contract — instructs the AI to write `signals.json` directly.',
       validate: requireNonEmpty(
         'outputContractSection',
         'output-contract section must not be empty (renderContractSectionFor always emits a body)'
@@ -384,7 +384,7 @@ export interface BuildImplementPromptInput {
    */
   readonly plateauBreak?: boolean;
   /**
-   * Pre-rendered audit-[09] output contract section. The leaf composes this via
+   * Pre-rendered output contract section. The leaf composes this via
    * `renderContractSectionFor(generatorOutputContract)` before calling the builder so the
    * prompt module stays agnostic of the per-leaf contract.
    */

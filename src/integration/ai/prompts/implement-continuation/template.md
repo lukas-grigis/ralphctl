@@ -12,6 +12,8 @@ compaction.
 
 {{AUTONOMOUS_OPERATION}}
 
+{{PARALLEL_TOOL_CALLS}}
+
 <session_context>
 This is a continuation turn — the brief, the contract, and your prior rounds are already in this
 conversation's history. The done-criteria in `<task_criteria>` below and the no-test-weakening rule

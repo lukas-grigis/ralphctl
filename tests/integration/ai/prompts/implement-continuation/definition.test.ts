@@ -104,6 +104,7 @@ describe('implementContinuationPromptDef — completeness', () => {
   it('wires the autonomous-operation and evidence-bound partials', () => {
     expect(implementContinuationPromptDef.partials).toMatchObject({
       AUTONOMOUS_OPERATION: 'autonomous-operation',
+      PARALLEL_TOOL_CALLS: 'parallel-tool-calls',
       EVIDENCE_BOUND: 'evidence-bound',
     });
   });
