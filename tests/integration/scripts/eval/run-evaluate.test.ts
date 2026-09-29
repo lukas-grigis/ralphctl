@@ -158,6 +158,7 @@ describe('runEval — evaluate flow through the real construction site', () => {
     expect(result.value.trials).toHaveLength(1);
     expect(result.value.incompleteItems).toEqual(['baseline:mini-ev/defect']);
     expect(result.value.budget).toMatchObject({ inputTokens: 1000, outputTokens: 200, maxTokens: 1500 });
+    expect(result.value.budget).toMatchObject({ cacheReadTokens: 0, cacheCreationTokens: 0 });
     expect((await readResults(h.runDir)).stoppedReason).toBe('budget');
   });
 

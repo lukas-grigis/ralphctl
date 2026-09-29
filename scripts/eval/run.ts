@@ -186,11 +186,17 @@ export const runEval = async (deps: RunDeps, config: RunConfig): Promise<Result<
     const appended = await deps.store.appendTrial(record);
     if (!appended.ok) return Result.error(appended.error);
 
-    const spentSomething = record.usage.inputTokens !== null || record.usage.outputTokens !== null;
+    const spentSomething =
+      record.usage.inputTokens !== null ||
+      record.usage.outputTokens !== null ||
+      (record.usage.cacheReadTokens ?? null) !== null ||
+      (record.usage.cacheCreationTokens ?? null) !== null;
     if (record.graded || spentSomething) {
       budget.record(item.fixture.flow, {
         ...(record.usage.inputTokens !== null ? { inputTokens: record.usage.inputTokens } : {}),
         ...(record.usage.outputTokens !== null ? { outputTokens: record.usage.outputTokens } : {}),
+        ...(record.usage.cacheReadTokens != null ? { cacheReadTokens: record.usage.cacheReadTokens } : {}),
+        ...(record.usage.cacheCreationTokens != null ? { cacheCreationTokens: record.usage.cacheCreationTokens } : {}),
         metered: record.usage.metered,
       });
     }

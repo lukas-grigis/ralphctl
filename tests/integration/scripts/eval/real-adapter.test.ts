@@ -43,7 +43,7 @@ describe('the real claude adapter behind the eval harness', () => {
       subtype: 'success',
       result: 'done',
       session_id: 'sess-1',
-      usage: { input_tokens: 111, output_tokens: 22 },
+      usage: { input_tokens: 111, output_tokens: 22, cache_read_input_tokens: 5000, cache_creation_input_tokens: 700 },
     });
     const spawn = makeProviderSpawn((choice) => {
       const session = pending as AiSession;
@@ -76,7 +76,16 @@ describe('the real claude adapter behind the eval harness', () => {
       ['clean', true, true, true],
       ['defect', true, true, true],
     ]);
-    expect(ran.value.trials[0]?.usage).toMatchObject({ inputTokens: 111, outputTokens: 22, metered: true });
+    expect(ran.value.trials[0]?.usage).toMatchObject({
+      inputTokens: 111,
+      outputTokens: 22,
+      cacheReadTokens: 5000,
+      cacheCreationTokens: 700,
+      metered: true,
+    });
+    // Both trials' cache tokens land in the run budget and its roll-up, not just in the trial record.
+    expect(ran.value.budget).toMatchObject({ cacheReadTokens: 10_000, cacheCreationTokens: 1400 });
+    expect(ran.value.usage.evaluate?.baseline).toMatchObject({ cacheReadTokens: 10_000, cacheCreationTokens: 1400 });
 
     const call = spawn.calls[0];
     const args = call?.args ?? [];

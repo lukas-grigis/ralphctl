@@ -38,7 +38,7 @@ const metricTable = (flow: string, results: ResultsFile): string[] => {
 };
 
 const usageLine = (u: UsageSummary): string =>
-  `${String(u.trials)} trials · tokens in/out ${num(u.inputTokens)}/${num(u.outputTokens)} (mean ${num(u.meanInputTokens)}/${num(u.meanOutputTokens)}) · wall ${(u.wallMs / 1000).toFixed(1)}s (mean ${(u.meanWallMs / 1000).toFixed(1)}s)${u.unmeteredTrials > 0 ? ` · ${String(u.unmeteredTrials)} unmetered` : ''}`;
+  `${String(u.trials)} trials · tokens in ${num(u.inputTokens)} / cache read ${num(u.cacheReadTokens)} / cache write ${num(u.cacheCreationTokens)} / out ${num(u.outputTokens)} (mean ${num(u.meanInputTokens)} / ${num(u.meanCacheReadTokens)} / ${num(u.meanCacheCreationTokens)} / ${num(u.meanOutputTokens)}) · wall ${(u.wallMs / 1000).toFixed(1)}s (mean ${(u.meanWallMs / 1000).toFixed(1)}s)${u.unmeteredTrials > 0 ? ` · ${String(u.unmeteredTrials)} unmetered` : ''}`;
 
 const verdict = (row: ComparisonRow): string =>
   row.detectable ? 'detectable difference' : 'no detectable difference at this N';
@@ -108,7 +108,7 @@ export const renderSummary = (results: ResultsFile): string => {
 
   const b = results.budget;
   lines.push(
-    `**Budget:** ${String(b.inputTokens + b.outputTokens)} / ${String(b.maxTokens)} tokens (in ${String(b.inputTokens)}, out ${String(b.outputTokens)}) · ${String(b.unmeteredTrials)} unmetered trial(s) · wall ${(b.wallMs / 1000).toFixed(1)}s`,
+    `**Budget:** ${String(b.inputTokens + b.outputTokens + b.cacheReadTokens + b.cacheCreationTokens)} / ${String(b.maxTokens)} tokens (in ${String(b.inputTokens)}, cache read ${String(b.cacheReadTokens)}, cache write ${String(b.cacheCreationTokens)}, out ${String(b.outputTokens)}) · ${String(b.unmeteredTrials)} unmetered trial(s) · wall ${(b.wallMs / 1000).toFixed(1)}s`,
     ''
   );
 

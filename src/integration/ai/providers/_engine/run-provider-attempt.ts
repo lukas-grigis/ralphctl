@@ -265,6 +265,10 @@ const createSuccessHandler =
         ...usage,
         ...(reported.inputTokens !== undefined ? { inputTokens: reported.inputTokens } : {}),
         ...(reported.outputTokens !== undefined ? { outputTokens: reported.outputTokens } : {}),
+        ...(reported.cacheReadTokens !== undefined ? { cacheReadInputTokens: reported.cacheReadTokens } : {}),
+        ...(reported.cacheCreationTokens !== undefined
+          ? { cacheCreationInputTokens: reported.cacheCreationTokens }
+          : {}),
       };
     }
     await persistSessionId(input, sessionId);

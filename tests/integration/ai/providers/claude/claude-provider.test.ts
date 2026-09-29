@@ -448,6 +448,8 @@ describe('createClaudeProvider — TokenUsageEvent emission', () => {
     // the chain folds onto the attempt.
     if (!out.ok) return;
     expect(out.value.usage?.inputTokens).toBe(1234);
+    expect(out.value.usage?.cacheReadInputTokens).toBe(89);
+    expect(out.value.usage?.cacheCreationInputTokens).toBe(12);
     expect(out.value.usage?.outputTokens).toBe(567);
     expect(typeof out.value.usage?.durationMs).toBe('number');
   });

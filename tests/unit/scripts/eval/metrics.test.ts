@@ -123,6 +123,30 @@ describe('usageSummary', () => {
     });
   });
 
+  it('sums cache tokens separately, tolerating trials recorded before the fields existed', () => {
+    const summary = usageSummary([
+      trial({
+        usage: {
+          inputTokens: 10,
+          outputTokens: 20,
+          cacheReadTokens: 900,
+          cacheCreationTokens: 100,
+          durationMs: 1,
+          metered: true,
+        },
+      }),
+      trial(), // legacy shape: no cache fields at all
+    ]);
+    expect(summary).toMatchObject({
+      inputTokens: 110,
+      cacheReadTokens: 900,
+      cacheCreationTokens: 100,
+      meanCacheReadTokens: 450,
+      meanCacheCreationTokens: 50,
+    });
+    expect(usageSummary([trial()])).toMatchObject({ cacheReadTokens: null, meanCacheReadTokens: null });
+  });
+
   it('reports null (n/a) when no trial reported tokens', () => {
     const summary = usageSummary([
       trial({ usage: { inputTokens: null, outputTokens: null, durationMs: 1, metered: false } }),

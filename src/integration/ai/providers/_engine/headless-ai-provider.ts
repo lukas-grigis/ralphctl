@@ -32,6 +32,14 @@ export interface HeadlessAiProvider {
 export interface ProviderUsage {
   readonly inputTokens?: number;
   readonly outputTokens?: number;
+  /**
+   * Prompt tokens served from the provider's prompt cache, reported separately from `inputTokens`
+   * (Claude's stream reports `cache_read_input_tokens` beside `input_tokens`, not inside it).
+   * Populated only by adapters whose CLI reports it.
+   */
+  readonly cacheReadInputTokens?: number;
+  /** Prompt tokens written to the provider's prompt cache; same separation as `cacheReadInputTokens`. */
+  readonly cacheCreationInputTokens?: number;
   /** Wall-clock ms from spawn to the resolved exit — measured by the harness, not the provider. */
   readonly durationMs?: number;
 }

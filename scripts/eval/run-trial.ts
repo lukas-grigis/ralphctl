@@ -56,6 +56,10 @@ const createUsageMeter = (provider: HeadlessAiProvider, now: () => number): Usag
   let outTokens = 0;
   let sawIn = false;
   let sawOut = false;
+  let cacheRead = 0;
+  let cacheCreation = 0;
+  let sawCacheRead = false;
+  let sawCacheCreation = false;
   let metered = true;
   let wallMs = 0;
   let sessionId: string | undefined;
@@ -74,6 +78,16 @@ const createUsageMeter = (provider: HeadlessAiProvider, now: () => number): Usag
           outTokens += usage.outputTokens;
           sawOut = true;
         }
+        // Cache counters are additive and optional: Claude omits them on a cold spawn, so absence here
+        // does not make a trial unmetered (only input/output do).
+        if (usage?.cacheReadInputTokens !== undefined) {
+          cacheRead += usage.cacheReadInputTokens;
+          sawCacheRead = true;
+        }
+        if (usage?.cacheCreationInputTokens !== undefined) {
+          cacheCreation += usage.cacheCreationInputTokens;
+          sawCacheCreation = true;
+        }
         // A SUCCESSFUL spawn without both counts is unmetered; a failed spawn reported nothing at all
         // and is not counted as unmetered. Absent counts are never imputed.
         if (usage?.inputTokens === undefined || usage.outputTokens === undefined) metered = false;
@@ -84,6 +98,8 @@ const createUsageMeter = (provider: HeadlessAiProvider, now: () => number): Usag
     total: () => ({
       inputTokens: sawIn ? inTokens : null,
       outputTokens: sawOut ? outTokens : null,
+      cacheReadTokens: sawCacheRead ? cacheRead : null,
+      cacheCreationTokens: sawCacheCreation ? cacheCreation : null,
       durationMs: wallMs,
       metered,
     }),
@@ -110,7 +126,14 @@ const baseRecord = (req: TrialRequest, artifactDir: string) => ({
   artifactDir,
 });
 
-const ZERO_USAGE: TrialUsage = { inputTokens: null, outputTokens: null, durationMs: 0, metered: true };
+const ZERO_USAGE: TrialUsage = {
+  inputTokens: null,
+  outputTokens: null,
+  cacheReadTokens: null,
+  cacheCreationTokens: null,
+  durationMs: 0,
+  metered: true,
+};
 
 /**
  * Run ONE trial end to end: materialize an isolated workspace, build the prompt + session from the

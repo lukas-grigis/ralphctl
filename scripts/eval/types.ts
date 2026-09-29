@@ -72,6 +72,9 @@ export type Grade = EvaluateGrade | ImplementGrade | DetectScriptsGrade | Select
 export interface TrialUsage {
   readonly inputTokens: number | null;
   readonly outputTokens: number | null;
+  /** Cache-read / cache-write prompt tokens; `null`/absent = never reported (also absent in pre-cache results files). */
+  readonly cacheReadTokens?: number | null;
+  readonly cacheCreationTokens?: number | null;
   readonly durationMs: number;
   /** Every spawn of the trial (primary + corrective nudges) reported both token counts. */
   readonly metered: boolean;
@@ -115,8 +118,12 @@ export interface UsageSummary {
   readonly trials: number;
   readonly inputTokens: number | null;
   readonly outputTokens: number | null;
+  readonly cacheReadTokens: number | null;
+  readonly cacheCreationTokens: number | null;
   readonly meanInputTokens: number | null;
   readonly meanOutputTokens: number | null;
+  readonly meanCacheReadTokens: number | null;
+  readonly meanCacheCreationTokens: number | null;
   readonly wallMs: number;
   readonly meanWallMs: number;
   readonly unmeteredTrials: number;
@@ -150,6 +157,8 @@ export interface ResultsFile {
     readonly maxTokens: number;
     readonly inputTokens: number;
     readonly outputTokens: number;
+    readonly cacheReadTokens: number;
+    readonly cacheCreationTokens: number;
     readonly unmeteredTrials: number;
     readonly wallMs: number;
   };

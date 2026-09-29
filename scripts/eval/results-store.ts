@@ -73,6 +73,8 @@ const StoredTrialSchema = z
     usage: z.object({
       inputTokens: z.number().nullable(),
       outputTokens: z.number().nullable(),
+      cacheReadTokens: z.number().nullable().optional(),
+      cacheCreationTokens: z.number().nullable().optional(),
       durationMs: z.number(),
       metered: z.boolean(),
     }),
@@ -113,5 +115,17 @@ export const readResults = async (path: string): Promise<Result<ResultsFile, Par
       })
     );
   }
-  return Result.ok(raw as ResultsFile);
+  // Results files written before cache accounting have no cache budget fields; default them so the
+  // offline report renders old runs (their trials' cache usage stays absent = n/a).
+  const file = raw as ResultsFile;
+  const budget = file.budget as Partial<ResultsFile['budget']> &
+    Omit<ResultsFile['budget'], 'cacheReadTokens' | 'cacheCreationTokens'>;
+  return Result.ok({
+    ...file,
+    budget: {
+      ...budget,
+      cacheReadTokens: budget.cacheReadTokens ?? 0,
+      cacheCreationTokens: budget.cacheCreationTokens ?? 0,
+    },
+  });
 };

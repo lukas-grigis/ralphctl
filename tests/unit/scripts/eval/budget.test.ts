@@ -16,6 +16,14 @@ describe('createBudget', () => {
     expect(budget.admit('evaluate', 0)).toEqual({ admitted: false, reason: 'budget' }); // 6500 + 5000 > 10000
   });
 
+  it('counts cache read and cache creation tokens toward admission and the snapshot', () => {
+    const budget = createBudget(CONFIG, 0);
+    budget.record('evaluate', { inputTokens: 10, outputTokens: 500, cacheReadTokens: 6000, cacheCreationTokens: 1500 });
+    expect(budget.snapshot(0)).toMatchObject({ inputTokens: 10, cacheReadTokens: 6000, cacheCreationTokens: 1500 });
+    // spent 8010, reserve 8010 (the whole trial, cache included) > 10000
+    expect(budget.admit('evaluate', 0)).toEqual({ admitted: false, reason: 'budget' });
+  });
+
   it('keeps the reserve per flow: a cheap flow is still admitted when an expensive one is not', () => {
     const budget = createBudget(CONFIG, 0);
     budget.record('implement', { inputTokens: 6000, outputTokens: 1000 });

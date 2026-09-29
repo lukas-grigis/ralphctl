@@ -17,7 +17,15 @@ const results = (over: Partial<ResultsFile> = {}): ResultsFile => ({
   fixtureSetHash: '0123456789abcdef',
   dryRun: false,
   arms: [ARM],
-  budget: { maxTokens: 100_000, inputTokens: 1200, outputTokens: 300, unmeteredTrials: 0, wallMs: 5000 },
+  budget: {
+    maxTokens: 100_000,
+    inputTokens: 1200,
+    outputTokens: 300,
+    cacheReadTokens: 0,
+    cacheCreationTokens: 0,
+    unmeteredTrials: 0,
+    wallMs: 5000,
+  },
   trials: [],
   metrics: {},
   usage: {},
@@ -72,6 +80,48 @@ describe('renderSummary', () => {
     expect(md).toContain('(dirty)');
   });
 
+  it('shows in, cache read, cache write and out separately', () => {
+    const md = renderSummary(
+      results({
+        budget: {
+          maxTokens: 100_000,
+          inputTokens: 100,
+          outputTokens: 300,
+          cacheReadTokens: 5000,
+          cacheCreationTokens: 600,
+          unmeteredTrials: 0,
+          wallMs: 5000,
+        },
+        metrics: {
+          evaluate: { baseline: [{ name: 'correct', n: 4, mean: 0.5, se: 0.2, ci: [0.1, 0.9], approx: true }] },
+        },
+        usage: {
+          evaluate: {
+            baseline: {
+              trials: 2,
+              inputTokens: 100,
+              outputTokens: 300,
+              cacheReadTokens: 5000,
+              cacheCreationTokens: 600,
+              meanInputTokens: 50,
+              meanOutputTokens: 150,
+              meanCacheReadTokens: 2500,
+              meanCacheCreationTokens: 300,
+              wallMs: 2000,
+              meanWallMs: 1000,
+              unmeteredTrials: 0,
+            },
+          },
+        },
+      })
+    );
+    expect(md).toContain('6000 / 100000 tokens');
+    expect(md).toContain('cache read 5000');
+    expect(md).toContain('cache write 600');
+    expect(md).toContain('in 100');
+    expect(md).toContain('out 300');
+  });
+
   it('prints n/a for token counts that were never reported', () => {
     const md = renderSummary(
       results({
@@ -84,8 +134,12 @@ describe('renderSummary', () => {
               trials: 4,
               inputTokens: null,
               outputTokens: null,
+              cacheReadTokens: null,
+              cacheCreationTokens: null,
               meanInputTokens: null,
               meanOutputTokens: null,
+              meanCacheReadTokens: null,
+              meanCacheCreationTokens: null,
               wallMs: 4000,
               meanWallMs: 1000,
               unmeteredTrials: 4,
@@ -94,7 +148,7 @@ describe('renderSummary', () => {
         },
       })
     );
-    expect(md).toContain('tokens in/out n/a/n/a');
+    expect(md).toContain('in n/a');
     expect(md).toContain('4 unmetered');
   });
 

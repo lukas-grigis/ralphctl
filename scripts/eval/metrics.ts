@@ -238,14 +238,20 @@ export const usageSummary = (trials: readonly TrialRecord[]): UsageSummary => {
   };
   const inputTokens = known((t) => t.usage.inputTokens);
   const outputTokens = known((t) => t.usage.outputTokens);
+  const cacheReadTokens = known((t) => t.usage.cacheReadTokens ?? null);
+  const cacheCreationTokens = known((t) => t.usage.cacheCreationTokens ?? null);
   const wallMs = trials.reduce((a, t) => a + t.usage.durationMs, 0);
   const n = trials.length;
   return {
     trials: n,
     inputTokens,
     outputTokens,
+    cacheReadTokens,
+    cacheCreationTokens,
     meanInputTokens: inputTokens === null ? null : inputTokens / n,
     meanOutputTokens: outputTokens === null ? null : outputTokens / n,
+    meanCacheReadTokens: cacheReadTokens === null ? null : cacheReadTokens / n,
+    meanCacheCreationTokens: cacheCreationTokens === null ? null : cacheCreationTokens / n,
     wallMs,
     meanWallMs: n === 0 ? 0 : wallMs / n,
     unmeteredTrials: trials.filter((t) => !t.usage.metered).length,
