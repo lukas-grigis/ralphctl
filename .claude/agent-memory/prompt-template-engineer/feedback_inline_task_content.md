@@ -13,8 +13,7 @@ runs and evaluator failures.
 
 **Where this lives now:** the implement prompt is `src/integration/ai/prompts/implement/template.md`; the
 generator / evaluator leaves render it via `round-artifacts.ts` (`writeRoundPrompt` lands the fully-substituted
-prompt at `rounds/<N>/<role>/prompt.md` before each spawn). The earlier `buildExecutePrompt` builder and the
-`task-execution.md` template are both gone.
+prompt at `rounds/<N>/<role>/prompt.md` before each spawn).
 
 **How to apply:** task content reaches the AI through inlined placeholders — `{{TASK_NAME}}`, `{{TASK_ID}}`,
 `{{PROJECT_PATH}}`, `{{TASK_DESCRIPTION_SECTION}}`, `{{TASK_STEPS_SECTION}}`,

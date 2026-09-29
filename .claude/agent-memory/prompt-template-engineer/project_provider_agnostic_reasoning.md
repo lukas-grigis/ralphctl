@@ -5,12 +5,10 @@ metadata:
   type: project
 ---
 
-Decision: no `<thinking>`-block or XML reasoning-tag elicitation in shared prompt templates. Verified
-2026-08-19 — zero such tags remain under `src/integration/ai/prompts/`.
+Decision: no `<thinking>`-block or XML reasoning-tag elicitation in shared prompt templates.
 
-**Why:** one harness spans four provider backends — Claude (server-side extended thinking already on),
-Codex (o-series hidden reasoning ignores the instruction), Copilot (model-dependent), OpenCode
-(model-dependent per aggregated model). Eliciting tag-shaped visible reasoning is redundant on one, dead
+**Why:** one harness spans five provider backends — Claude (server-side extended thinking already on),
+Codex (hidden reasoning ignores the instruction), Copilot, OpenCode and Grok (model-dependent). Eliciting tag-shaped visible reasoning is redundant on one, dead
 on another, and unpredictable on the rest. Reasoning depth is controlled at the per-provider effort
 adapter seam.
 

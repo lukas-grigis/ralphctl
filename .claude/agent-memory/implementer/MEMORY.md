@@ -25,6 +25,5 @@
 - [project_migration_consent_gate_wiring.md](project_migration_consent_gate_wiring.md) — The data-migration consent splash + backup gate and how it is wired
 - [project_skill_selection_resolution_seam.md](project_skill_selection_resolution_seam.md) — Skill selection → `createResolvedSkillSource` resolution path
 - [project_flows_view_soft_repo_default.md](project_flows_view_soft_repo_default.md) — Flows-view repo selection and its soft default
-- [project_task_field_names_vs_plan.md](project_task_field_names_vs_plan.md) — `Task.name`/`dependsOn` vs the plan doc's "title"/"blockedBy" — a recurring naming mismatch
-- [project_trustworthy_firstrun_waves12_2026-08-14.md](project_trustworthy_firstrun_waves12_2026-08-14.md) — Honest doctor probes, the useViewKeys Escape gotcha, the demo seeder
+- [project_doctor_probes_and_escape_keys.md](project_doctor_probes_and_escape_keys.md) — Doctor probes return unknown not fail, useViewKeys can't match Escape, demo seeder marker rule
 - [feedback_concurrent_agent_writes.md](feedback_concurrent_agent_writes.md) — Recovery procedure when parallel agents collide on the same files

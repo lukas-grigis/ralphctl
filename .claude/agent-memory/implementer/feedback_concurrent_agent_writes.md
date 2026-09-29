@@ -6,7 +6,7 @@ metadata:
 ---
 
 When multiple implementer agents run concurrently on the same branch (typical "parallel implementation" pattern), shared
-files become hotspots. Symptoms I saw on the P1j+P1k pair:
+files become hotspots. Symptoms seen:
 
 - A "system-reminder: file modified by user or linter" notification often means another agent saved the file between my
   reads — not a linter.
@@ -48,10 +48,3 @@ files become hotspots. Symptoms I saw on the P1j+P1k pair:
    conflicts on surfaces you don't own). Confirm with `grep` for your symbols afterward. The stash is the canonical
    in-flight branch state here — peer additions (e.g. an unrelated `SIDEBAR_WIDTH` export riding along in a shared
    tokens file) are NOT yours to revert; leave them and verify the consumers still typecheck.
-9. **Pre-stash sibling work explicitly before committing.** When `git status` shows shared/sibling files modified that
-   you don't want in your commit, `git stash push --keep-index -m "sibling-work" <files...>` BEFORE running
-   `git commit`. lint-staged will only run hooks on truly-staged content; the stash restore at the end is a clean
-   replay (no merge). Without pre-stashing, lint-staged's own backup stash will include those sibling files in the "
-   restored" stash, but the sibling may have committed them in parallel — the auto-merge during restore can either drop
-   your edits or conflict on files you never touched. Verify with `git show --stat HEAD` after each commit; if you see
-   files you didn't intend to include, reset and split.

@@ -1,11 +1,11 @@
 ---
-name: project_gen_eval_speed_t1_t3
+name: project_harness_evidence_placeholders
 description: Gen-eval speed placeholders (pre-verify results, retry feedback, generator hints) and the phrasing rules locked in with them
 metadata:
   type: project
 ---
 
-Placeholders added by the gen-eval speed audit (2026-06-10), all rendered from
+Harness-evidence placeholders, all rendered from
 `_engine/renderers/task.ts` and wired into the leaves:
 
 | Placeholder                   | Templates                         | Renderer                        | Carries                                                                            |

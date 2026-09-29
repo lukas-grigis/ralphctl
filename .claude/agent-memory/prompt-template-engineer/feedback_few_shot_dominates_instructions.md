@@ -22,4 +22,4 @@ propagate. Also check any prose "Note:" or aside inside the example body that re
 mechanism (e.g. "the verify script passed") — those need the same fix for internal consistency. This
 generalises beyond `evaluate/template.md`: any template with `<examples>` blocks (currently `evaluate`
 and `evaluate-continuation`) needs this check on every edit to the surrounding protocol prose. Related:
-[[project_gen_eval_speed_t1_t3]] holds the exact phrasing these examples must stay consistent with.
+[[project_harness_evidence_placeholders]] holds the exact phrasing these examples must stay consistent with.

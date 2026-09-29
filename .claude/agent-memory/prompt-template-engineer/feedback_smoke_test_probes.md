@@ -16,8 +16,7 @@ syntax guard.
 `tests/integration/ai/prompts/<flow>/definition.test.ts` (both directions — every template placeholder is
 declared by the def's parameters/partials, and every declared placeholder appears in the template), via
 `extractPlaceholders` from `_engine/`. The meta-test `template-coverage.test.ts` fails the suite if a new flow
-lands without its `definition.test.ts`. The old global `assertNoUnresolvedPlaceholders` /
-`prompt-completeness.smoke.test.ts` are gone.
+lands without its `definition.test.ts`.
 
 **How to apply:** alongside the parity assertions, add `expect(rendered).toContain(...)` checks on each
 section renderer for mandatory content — e.g. the implement def's `renderTaskDescriptionSection` /
