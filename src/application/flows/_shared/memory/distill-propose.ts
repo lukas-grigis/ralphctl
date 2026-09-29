@@ -5,9 +5,13 @@ import type { InteractiveAiProvider } from '@src/integration/ai/providers/_engin
 import type { RunInTerminal } from '@src/integration/io/run-in-terminal.ts';
 import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/template-loader.ts';
 import { renderProjectToolingSection } from '@src/integration/ai/prompts/_engine/renderers/task.ts';
-import { buildDistillLearningsPrompt } from '@src/integration/ai/prompts/distill-learnings/definition.ts';
+import {
+  buildDistillLearningsPrompt,
+  DEFAULT_LEARNINGS_SECTION_HEADING,
+} from '@src/integration/ai/prompts/distill-learnings/definition.ts';
 import type { AssistantTool } from '@src/integration/ai/readiness/_engine/tool.ts';
 import { targetPathFor } from '@src/integration/ai/readiness/_engine/setup.ts';
+import { spliceOwnedSection } from '@src/business/context-file/splice-section.ts';
 import { writeTextAtomic } from '@src/integration/io/fs.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
 import type { Repository } from '@src/domain/entity/repository.ts';
@@ -48,9 +52,11 @@ interface DistillProposeOutput {
 
 /**
  * Distill-OWNED propose leaf — scoped to one {@link AssistantTool} per instance. The distill
- * prompt is a one-shot full-file documentation edit (no signals.json): the AI reads the existing
- * native context file plus the curated candidate learnings and writes the COMPLETE updated file
- * to `outputFile`. The leaf reads that file back verbatim — the whole body IS the proposal.
+ * prompt is a one-shot documentation edit (no signals.json): the AI reads the existing native
+ * context file plus the curated candidate learnings and writes ONLY the reconciled body of the
+ * owned learnings section to `outputFile`. The leaf reads that delta back and splices it into the
+ * existing file in code ({@link spliceOwnedSection}) — everything outside the owned section is
+ * preserved byte-for-byte, and the spliced full file is the proposal the confirm gate shows.
  *
  * Mirrors the `InteractiveAiProvider` round-trip (prompt-file in, output-file out) used by plan /
  * refine, NOT the readiness propose leaf — this is intentional: the distill sub-chain
@@ -60,6 +66,8 @@ interface DistillProposeOutput {
  *  - prompt build error → propagated.
  *  - AI exited non-zero → propagated (typically `InvalidStateError`).
  *  - output file unreadable → `InvalidStateError`.
+ *  - delta unusable (empty, own H1/H2 heading, or duplicate owned headings in the file) →
+ *    `ValidationError`; nothing is proposed, so nothing is written.
  *
  * `AbortError` from the AI session forwards verbatim — the sequential sub-chain then skips confirm
  * / write / stamp, so the ledger stays un-stamped.
@@ -79,7 +87,9 @@ const distillProposeUseCase = async (
 
   // Read the existing context file (if any) so the AI folds the learnings into its current
   // `## Learnings (ralphctl)` section idempotently. Absent / unreadable → empty string.
-  const existingContextFile = (await safeReadText(String(targetPath))) ?? '';
+  const existingRead = await readExisting(String(targetPath));
+  if (!existingRead.ok) return Result.error(existingRead.error);
+  const existingContextFile = existingRead.value;
 
   const toolDir = join(String(deps.distillRoot), tool);
   const outputFileResult = AbsolutePath.parse(join(toolDir, 'context-file.out'));
@@ -91,6 +101,7 @@ const distillProposeUseCase = async (
     targetFilename,
     outputFile: String(outputFileResult.value),
     projectTooling: renderProjectTooling(input.repository),
+    learningsSectionHeading: DEFAULT_LEARNINGS_SECTION_HEADING,
   });
   if (!prompt.ok) return Result.error(prompt.error);
 
@@ -131,8 +142,8 @@ const distillProposeUseCase = async (
   );
   if (!session.ok) return Result.error(session.error);
 
-  const proposedContent = await safeReadText(String(outputFileResult.value));
-  if (proposedContent === undefined) {
+  const sectionBody = await safeReadText(String(outputFileResult.value));
+  if (sectionBody === undefined) {
     return Result.error(
       new InvalidStateError({
         entity: 'distill',
@@ -142,6 +153,10 @@ const distillProposeUseCase = async (
       })
     );
   }
+
+  const spliced = spliceOwnedSection(existingContextFile, DEFAULT_LEARNINGS_SECTION_HEADING, sectionBody);
+  if (!spliced.ok) return Result.error(spliced.error);
+  const proposedContent = spliced.value;
 
   log.info(`distilled context proposal ready for ${tool}`, {
     targetPath: String(targetPath),
@@ -169,6 +184,18 @@ const renderProjectTooling = (repository: Repository): string => {
   if (repository.setupScript !== undefined) lines.push(`- Setup: ${repository.setupScript}`);
   if (repository.verifyScript !== undefined) lines.push(`- Verify: ${repository.verifyScript}`);
   return renderProjectToolingSection(lines.length > 0 ? lines.join('\n') : undefined);
+};
+
+/** Absent file → `''` (fresh file); any other read failure is an error, never a silent empty base. */
+const readExisting = async (path: string): Promise<Result<string, DomainError>> => {
+  try {
+    return Result.ok(await fs.readFile(path, 'utf8'));
+  } catch (cause) {
+    if ((cause as NodeJS.ErrnoException).code === 'ENOENT') return Result.ok('');
+    return Result.error(
+      new StorageError({ subCode: 'io', message: `distill-propose: cannot read existing ${path}`, path, cause })
+    );
+  }
 };
 
 const safeReadText = async (path: string): Promise<string | undefined> => {

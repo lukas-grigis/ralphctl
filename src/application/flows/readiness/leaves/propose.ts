@@ -14,6 +14,7 @@ import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
+import { appendSections } from '@src/business/context-file/splice-section.ts';
 import { setupReadinessUseCase } from '@src/integration/ai/readiness/_engine/setup.ts';
 import { buildReadinessPrompt } from '@src/integration/ai/prompts/readiness/definition.ts';
 import { renderContractSectionFor } from '@src/integration/ai/contract/_engine/render-contract-section.ts';
@@ -89,7 +90,8 @@ interface ProposeReadinessOutput {
  *
  * Reads the existing context file body (if `probedState === 'present'` and the artifact
  * catalog exposes one) so the use case can pass it to the prompt builder — the template's
- * "preserve verbatim" rule keys off non-empty `EXISTING_CONTEXT_FILE`.
+ * "existing-context" rule keys off non-empty `EXISTING_CONTEXT_FILE`; the AI then emits only the
+ * sections to append and this leaf splices them onto `existingBody` via {@link appendSections}.
  *
  * File-read errors degrade gracefully: if the existing artifact is unreadable we fall back to
  * "no existing file" rather than failing the chain. Readiness setup is best-effort; a permission
@@ -163,6 +165,12 @@ const proposeReadinessUseCase = async (
     );
   }
 
+  // The model emits only the sections to append when a context file already exists; splice them
+  // onto the raw existing bytes so the file is preserved byte-for-byte (CRLF / final newline / spacing
+  // survive, unlike a model-retyped body). No existing file → `content` is the whole body.
+  const spliced = appendSections(existingBody ?? '', proposal.content);
+  if (!spliced.ok) return Result.error(spliced.error);
+
   // Fan out every validated signal to the application bus so the TUI's `ai-signal`
   // subscribers render live updates. Source tag identifies the leaf for multi-leaf traces.
   for (const sig of signals) {
@@ -188,7 +196,7 @@ const proposeReadinessUseCase = async (
     skillSuggestions !== undefined && skillSuggestions.names.length > 0 ? skillSuggestions.names : undefined;
 
   return Result.ok({
-    proposedContent: proposal.content,
+    proposedContent: spliced.value,
     targetPath: engineOut.targetPath,
     ...(setupSkill !== undefined ? { proposedSetupSkillBody: setupSkill.content } : {}),
     ...(verifySkill !== undefined ? { proposedVerifySkillBody: verifySkill.content } : {}),

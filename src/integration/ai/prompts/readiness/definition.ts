@@ -23,8 +23,8 @@ import { requireNonEmpty } from '@src/integration/ai/prompts/_engine/validators.
  *    `agents-md-proposal` signal (the target-file name for that tool). Computed from
  *    `currentTool` via {@link wireTagFor}.
  *  - `existingContextFile` — the existing context-file body when one was found, or an empty
- *    string when no file exists. The "preserve verbatim" constraint in the template fires on a
- *    non-empty body.
+ *    string when no file exists. The template's existing-context rule (emit only additions; the harness
+ *    appends them) fires on a non-empty body.
  *  - `detectedArtefacts` — bullet list of artefact paths discovered by the probe, or an explicit
  *    "no artefacts detected" line when the probe came back absent.
  *  - `targetFileConventions` — per-provider style guide for the target context file (CLAUDE.md /
@@ -140,7 +140,7 @@ export const renderCurrentTool = (tool: AssistantTool): string => tool;
  * Render the existing-context-file block. When a body was supplied, wrap it in
  * `<existing-context>...</existing-context>` so the AI sees a clear delimiter. When absent,
  * return an empty string (so the untrusted-data notice does not fire) — the template's
- * "preserve verbatim" rule keys off whether `<existing_context_file>` is empty.
+ * existing-context rule (AI emits only additions) keys off whether `<existing_context_file>` is empty.
  */
 export const renderExistingContextFile = (body: string | undefined): string => {
   if (body === undefined || body.trim().length === 0) {

@@ -186,7 +186,7 @@ describe('buildReadinessPrompt — end-to-end against the real template', () => 
 
   it('preserves an existing AGENTS.md body for opencode instead of asking for a fresh one', async () => {
     // The opencode probe discovers repo-root AGENTS.md, so a curated file must reach the prompt —
-    // the template's "preserve verbatim" rule only fires on a non-empty EXISTING_CONTEXT_FILE.
+    // the template's additions-only rule only fires on a non-empty EXISTING_CONTEXT_FILE.
     const existing = '# Acme service\n\n## Conventions\n- Curated by hand';
     const result = await buildReadinessPrompt(deps, {
       repositoryPath: '/repo/acme',
@@ -205,6 +205,22 @@ describe('buildReadinessPrompt — end-to-end against the real template', () => 
     expect(body).toContain('# Acme service');
     expect(body).not.toContain('no existing context file');
     expect(body).toContain('- `/repo/acme/AGENTS.md`');
+  });
+
+  it('states the additions-only delta contract without contradicting the non-empty criterion', async () => {
+    const result = await buildReadinessPrompt(deps, {
+      repositoryPath: '/repo/acme',
+      currentTool: 'claude-code',
+      probedState: absentState(FIXED_NOW),
+      existingContextFile: '# Acme\n',
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
+    });
+    if (!result.ok) throw new Error(`expected ok, got ${result.error.message}`);
+    const body = result.value as unknown as string;
+    expect(body).toContain('holds only additions');
+    expect(body).toContain('ONLY the new H2');
+    expect(body).toContain('existing file plus');
+    expect(body).not.toMatch(/and a non-empty `content` field/);
   });
 
   it('rejects an empty repositoryPath via the spec validator', async () => {

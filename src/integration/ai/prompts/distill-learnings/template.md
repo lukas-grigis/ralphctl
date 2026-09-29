@@ -7,8 +7,9 @@ Your job is to integrate them cleanly, not to invent new ones.
 </role>
 
 <goal>
-Update `{{TARGET_FILENAME}}` so that it carries an up-to-date `## {{LEARNINGS_SECTION_HEADING}}` section containing
-the candidate learnings below — folded in idempotently, preserving everything else in the file verbatim.
+Produce the up-to-date body of the `## {{LEARNINGS_SECTION_HEADING}}` section of `{{TARGET_FILENAME}}`, containing
+the candidate learnings below — folded in idempotently. You write only that section's body; the harness splices
+it into the file and preserves everything else verbatim.
 </goal>
 
 <inputs>
@@ -17,7 +18,8 @@ the candidate learnings below — folded in idempotently, preserving everything 
 <existing_context_file>
 {{EXISTING_CONTEXT_FILE}}
 </existing_context_file>
-An empty `<existing_context_file>` means the file does not exist yet — create it.
+An empty `<existing_context_file>` means the file does not exist yet — the harness will create it from your
+section body.
 
 <candidate_learnings>
 {{CANDIDATE_LEARNINGS}}
@@ -26,15 +28,15 @@ An empty `<existing_context_file>` means the file does not exist yet — create 
 
 <owned_section>
 You own exactly one section of `{{TARGET_FILENAME}}` — the one headed `## {{LEARNINGS_SECTION_HEADING}}`. This is
-the only part of the file you may add, reorder, or rewrite. Everything outside that section is
-hand-authored or owned by another tool — preserve it byte-for-byte.
+the only part of the file you produce. Everything outside that section is hand-authored or owned by another
+tool; the harness keeps it byte-for-byte, so do not reproduce it.
 
 - When the file already contains a `## {{LEARNINGS_SECTION_HEADING}}` section, treat its current bullets as the
-  prior state and reconcile the candidates against them (see the idempotency rule below).
-- When the file has no such section yet, append one at the end of the file — after the last existing
-  section, separated by a single blank line.
-- When `{{TARGET_FILENAME}}` does not exist yet, the proposed content is only the owned section.
-- Never create a second `## {{LEARNINGS_SECTION_HEADING}}` section — there must be exactly one.
+  prior state and reconcile the candidates against them (see the idempotency rule below); your output replaces
+  that section's body.
+- When the file has no such section yet, your output becomes a new section appended at the end by the harness.
+- Output only the section body — no `## {{LEARNINGS_SECTION_HEADING}}` heading line, and no other headings of
+  level 1 or 2 (the harness rejects the proposal otherwise).
 
 </owned_section>
 
@@ -91,11 +93,12 @@ as "when present"; many repositories do not have one, and a learning must not as
 
 1. Read the existing context file body above and locate the `## {{LEARNINGS_SECTION_HEADING}}` section, if any.
 2. Reconcile the candidate learnings against the owned section per the idempotency rule.
-3. Write the COMPLETE proposed content of `{{TARGET_FILENAME}}` to `{{OUTPUT_FILE}}` — the full file, not
-   a diff and not only the section. Everything outside the owned section must be unchanged.
+3. Write ONLY the reconciled section body (the bullets, without the section heading line) to `{{OUTPUT_FILE}}` —
+   not the whole file and not a diff. The harness splices it into `{{TARGET_FILENAME}}` and shows the operator
+   the full resulting diff for confirmation.
 
-Write to that output path only; do not modify `{{TARGET_FILENAME}}` in the repository — the harness shows the
-operator a diff and writes the file itself after confirmation. Make no other edits to the repository. Emit no
-prose commentary outside the file you write — the harness reads that file, not your message.
+Write to that output path only; do not modify `{{TARGET_FILENAME}}` in the repository — the harness writes the
+file itself after confirmation. Make no other edits to the repository. Emit no prose commentary outside the
+file you write — the harness reads that file, not your message.
 
 </output_contract>

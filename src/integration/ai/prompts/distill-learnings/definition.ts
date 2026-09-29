@@ -7,8 +7,9 @@
  *
  * The AI is an editor, not a researcher — every learning was produced and reviewed by an earlier
  * session and confirmed by the operator before this call. The prompt instructs the AI to write
- * the COMPLETE updated context file back to disk (full-file read-back, no signals.json), so this
- * prompt declares no expected harness signals.
+ * ONLY the reconciled body of the owned section to disk (no signals.json); the harness splices it
+ * into the existing file (`spliceOwnedSection`), so everything outside the section is preserved
+ * byte-for-byte and this prompt declares no expected harness signals.
  *
  * One real file is written per distinct provider's native context file name (CLAUDE.md /
  * `.github/copilot-instructions.md` / AGENTS.md) — `targetFilename` carries that name so the
@@ -28,14 +29,14 @@ import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/templat
  * brand-free so the template stays portable across downstream user projects. Callers that want a
  * project-specific heading pass {@link DistillLearningsPromptParams.learningsSectionHeading}.
  */
-const DEFAULT_LEARNINGS_SECTION_HEADING = 'Learnings (AI sessions)';
+export const DEFAULT_LEARNINGS_SECTION_HEADING = 'Learnings (AI sessions)';
 
 export interface DistillLearningsPromptParams {
   /**
    * Existing context-file body wrapped for prompting, or an empty string when no file exists. The
    * AI reconciles the candidate learnings against this file's current learnings section (the one
-   * headed by {@link DistillLearningsPromptParams.learningsSectionHeading}) and writes the full
-   * updated file back.
+   * headed by {@link DistillLearningsPromptParams.learningsSectionHeading}) and writes only that
+   * section's updated body back.
    */
   readonly existingContextFile: string;
   /**
@@ -50,8 +51,9 @@ export interface DistillLearningsPromptParams {
    */
   readonly targetFilename: string;
   /**
-   * Absolute path the AI writes the complete proposed file content to. The harness reads it back,
-   * shows the operator a diff, and writes {@link DistillLearningsPromptParams.targetFilename}
+   * Absolute path the AI writes the proposed learnings-section body to (not the whole file). The
+   * harness reads it back, splices it into the existing file, shows the operator the full result,
+   * and writes {@link DistillLearningsPromptParams.targetFilename}
    * itself after confirmation — the AI never touches the real context file.
    */
   readonly outputFile: string;
@@ -73,7 +75,7 @@ export interface DistillLearningsPromptParams {
 export const distillLearningsPromptDef: PromptDefinition<DistillLearningsPromptParams> = {
   templateName: 'distill-learnings',
   description:
-    'One-shot documentation edit that folds curated learnings into an existing project context file’s own idempotent learnings section (heading configurable, brand-free by default).',
+    'One-shot documentation edit that folds curated learnings into the owned idempotent learnings section of a project context file — the model writes only the section body (heading configurable, brand-free by default).',
   parameters: {
     existingContextFile: {
       placeholder: 'EXISTING_CONTEXT_FILE',
@@ -93,7 +95,8 @@ export const distillLearningsPromptDef: PromptDefinition<DistillLearningsPromptP
     },
     outputFile: {
       placeholder: 'OUTPUT_FILE',
-      description: 'Absolute path the AI writes the complete proposed context-file content to (harness-owned).',
+      description:
+        'Absolute path the AI writes the proposed learnings-section body to (harness-owned; the harness splices it into the file).',
       validate: requireNonEmpty('outputFile', 'output file must not be empty'),
     },
     projectTooling: {

@@ -80,11 +80,7 @@ const fakeInteractiveAi = (opts: {
     if (opts.abortOnCall !== undefined && opts.calls.length === opts.abortOnCall) {
       return Result.error(new AbortError({ elementName: 'distill-propose' }));
     }
-    await fs.writeFile(
-      String(input.outputFile),
-      `# Distilled context for ${String(input.outputFile)}\n\n## Learnings (ralphctl)\n\n- always run lint before committing\n`,
-      'utf8'
-    );
+    await fs.writeFile(String(input.outputFile), '- always run lint before committing\n', 'utf8');
     return Result.ok({});
   },
 });
@@ -286,7 +282,7 @@ describe('createDistillLearningsSubChain', () => {
     // The native context file landed.
     const claudeMd = join(repoPath, 'CLAUDE.md');
     expect(await fileExists(claudeMd)).toBe(true);
-    expect(await fs.readFile(claudeMd, 'utf8')).toContain('## Learnings (ralphctl)');
+    expect(await fs.readFile(claudeMd, 'utf8')).toContain('## Learnings (AI sessions)');
     // Both candidates are now stamped promoted in the ledger.
     const promotedCount = await countPromoted(ledgerPath);
     expect(promotedCount).toBe(2);
