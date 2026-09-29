@@ -63,3 +63,18 @@ describe('renderContractSection', () => {
     expect(result.success).toBe(true);
   });
 });
+
+describe('renderContractSection — scoped no-other-files rule', () => {
+  it('names its exceptions inline instead of an absolute "no other files"', () => {
+    const out = renderContractSection({
+      schemaVersion: 1,
+      exampleSignals: [],
+      sidecars: [],
+      outputDir: '/out',
+    } as never);
+    expect(out).toContain('Do not write any\nother file —');
+    expect(out).not.toContain('outside the project tree and your session directory');
+    expect(out).toContain('Exceptions: (1) when your task is to change the project');
+    expect(out).toContain('(2) when a command produces oversized output');
+  });
+});
