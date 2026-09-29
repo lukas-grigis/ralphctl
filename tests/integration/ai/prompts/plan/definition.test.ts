@@ -163,12 +163,27 @@ describe('buildPlanPrompt — end-to-end against the real template', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     const normalized = (result.value as unknown as string).replace(/\s+/g, ' ');
-    expect(normalized).toContain('Do NOT end steps with "run the verification commands"');
+    expect(normalized).toContain('Don\'t end steps with "run the verification commands"');
     expect(normalized).toContain('Fold trivial cases into the task that needs them');
     // Regression: the shared partial dropped the worked example for `extraDimensions` — the one
     // field whose rule is "attach ONLY when …, when in doubt omit" lost its only demonstration
     // of the allowed case.
     expect(normalized).toContain('Example of a justified attachment: `migration-safety`');
+  });
+
+  it('renders the approval-gate partial so every approval round shows the full plan', async () => {
+    const result = await buildPlanPrompt(deps, {
+      sprint: draftWithApproved(1),
+      project: makeProject(),
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
+      priorProgress: '',
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value).toContain('<approval-gate>');
+    expect(result.value).toContain('the complete document you will write, verbatim');
+    expect(result.value).not.toContain('Only after that approval');
+    expect(result.value).toContain('If it forces any change, run the approval gate');
   });
 
   it('produces a fully-substituted prompt for a fresh-plan input', async () => {

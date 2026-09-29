@@ -55,6 +55,7 @@ export const ideatePromptDef: PromptDefinition<IdeatePromptParams> = {
       placeholder: 'IDEA_DESCRIPTION',
       description: 'Free-text idea body the AI refines.',
       validate: nonEmpty('ideaDescription'),
+      untrusted: { source: 'the idea author' },
     },
     projectName: {
       placeholder: 'PROJECT_NAME',
@@ -88,7 +89,7 @@ export const ideatePromptDef: PromptDefinition<IdeatePromptParams> = {
     },
   },
   partials: {
-    HARNESS_CONTEXT: 'harness-context',
+    APPROVAL_GATE: 'approval-gate',
     VALIDATION_CHECKLIST: 'validation-checklist',
     TASK_FIELDS: 'task-fields',
     TASK_SIZING: 'task-sizing',

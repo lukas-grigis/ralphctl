@@ -98,7 +98,7 @@ export const planPromptDef: PromptDefinition<PlanPromptParams> = {
     },
   },
   partials: {
-    HARNESS_CONTEXT: 'harness-context',
+    APPROVAL_GATE: 'approval-gate',
     VALIDATION_CHECKLIST: 'validation-checklist',
     TASK_FIELDS: 'task-fields',
     TASK_SIZING: 'task-sizing',
