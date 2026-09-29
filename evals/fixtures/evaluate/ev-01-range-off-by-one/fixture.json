@@ -1,0 +1,67 @@
+{
+  "schemaVersion": 1,
+  "tier": "regression",
+  "cluster": "repo-calc",
+  "origin": "synthetic",
+  "provenance": "Synthetic: an exclusive-end loop in a range helper, with tests written to match the bug. Authored for this harness.",
+  "id": "ev-01-range-off-by-one",
+  "flow": "evaluate",
+  "task": {
+    "name": "Add an inclusive integer range helper",
+    "description": "Add `range(start, end)` in `src/range.mjs` as a named export. It returns the integers from `start` to `end`, both included, in ascending order. When `start` is greater than `end` it returns an empty array.",
+    "steps": [
+      "Create src/range.mjs exporting range",
+      "Add tests in test/range.test.mjs covering the included end value and the start-past-end case"
+    ],
+    "verificationCriteria": [
+      {
+        "id": "C1",
+        "assertion": "The repository test suite passes",
+        "check": "auto",
+        "command": "node --test test/*.test.mjs"
+      },
+      {
+        "id": "C2",
+        "assertion": "range(1, 3) prints [1,2,3] \u2014 the end value is included",
+        "check": "auto",
+        "command": "node -e \"import('./src/range.mjs').then((m) => console.log(JSON.stringify(m.range(1, 3))))\""
+      },
+      {
+        "id": "C3",
+        "assertion": "range(5, 2) prints []",
+        "check": "auto",
+        "command": "node -e \"import('./src/range.mjs').then((m) => console.log(JSON.stringify(m.range(5, 2))))\""
+      }
+    ]
+  },
+  "verifyScript": "node --test test/*.test.mjs",
+  "variants": [
+    {
+      "name": "clean",
+      "patch": "variants/clean.patch",
+      "expect": {
+        "status": "passed"
+      }
+    },
+    {
+      "name": "defect",
+      "patch": "variants/defect.patch",
+      "defectClass": "correctness",
+      "expect": {
+        "status": "failed",
+        "failedDimensions": [
+          "correctness"
+        ],
+        "criteria": {
+          "C2": {
+            "passed": false
+          }
+        }
+      }
+    }
+  ],
+  "oracle": {
+    "command": "node --test oracle/*.test.mjs",
+    "protectedPaths": []
+  }
+}

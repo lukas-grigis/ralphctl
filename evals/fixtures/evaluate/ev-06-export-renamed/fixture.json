@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 1,
+  "tier": "regression",
+  "cluster": "repo-text",
+  "origin": "synthetic",
+  "provenance": "Synthetic: the export is named slugifyText although the task and the entry-point convention require slugify. Authored for this harness.",
+  "id": "ev-06-export-renamed",
+  "flow": "evaluate",
+  "task": {
+    "name": "Add a slugify helper",
+    "description": "Add `slugify(text)` in `src/slugify.mjs` as a named export called exactly `slugify`, and re-export it from `src/index.mjs` next to the existing `wordCount` export. It lowercases the text and joins its alphanumeric runs with single hyphens, with no leading or trailing hyphen.",
+    "steps": [
+      "Create src/slugify.mjs exporting slugify",
+      "Re-export slugify from src/index.mjs",
+      "Add tests in test/slugify.test.mjs"
+    ],
+    "verificationCriteria": [
+      {
+        "id": "C1",
+        "assertion": "The repository test suite passes",
+        "check": "auto",
+        "command": "node --test test/*.test.mjs"
+      },
+      {
+        "id": "C2",
+        "assertion": "The public entry point exports `slugify` under exactly that name and slugify(\\'Hello World\\') prints hello-world",
+        "check": "auto",
+        "command": "node -e \"import('./src/index.mjs').then((m) => console.log(m.slugify('Hello World')))\""
+      }
+    ]
+  },
+  "verifyScript": "node --test test/*.test.mjs",
+  "variants": [
+    {
+      "name": "clean",
+      "patch": "variants/clean.patch",
+      "expect": {
+        "status": "passed"
+      }
+    },
+    {
+      "name": "defect",
+      "patch": "variants/defect.patch",
+      "defectClass": "consistency",
+      "expect": {
+        "status": "failed",
+        "failedDimensions": [
+          "consistency"
+        ],
+        "criteria": {
+          "C2": {
+            "passed": false
+          }
+        }
+      }
+    }
+  ],
+  "oracle": {
+    "command": "node --test oracle/*.test.mjs",
+    "protectedPaths": []
+  }
+}

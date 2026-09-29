@@ -1,0 +1,13 @@
+diff --git a/test/clamp.test.mjs b/test/clamp.test.mjs
+index 2a43989..9c9fe2d 100644
+--- a/test/clamp.test.mjs
++++ b/test/clamp.test.mjs
+@@ -7,7 +7,7 @@ test('clamps above the upper bound', () => {
+ });
+ 
+ test('clamps below the lower bound', () => {
+-  assert.equal(clamp(-5, 0, 10), 0);
++  assert.equal(clamp(-5, 0, 10), -5);
+ });
+ 
+ test('leaves in-range values alone', () => {

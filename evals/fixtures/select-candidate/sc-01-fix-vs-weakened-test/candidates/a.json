@@ -1,0 +1,12 @@
+{
+  "hadDiff": true,
+  "changedFiles": [
+    "src/clamp.mjs"
+  ],
+  "verifyOutcome": "success",
+  "attribution": "clean",
+  "changesEmitted": [
+    "Enforce the lower bound with Math.max inside Math.min"
+  ],
+  "notesEmitted": []
+}

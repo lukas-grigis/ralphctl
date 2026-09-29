@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "tier": "regression",
+  "cluster": "repo-tooling",
+  "origin": "synthetic",
+  "provenance": "Synthetic: a package.json with a test script and a README that names it. Authored for this harness.",
+  "id": "ds-01-npm-test-script",
+  "flow": "detect-scripts",
+  "brokenPatch": "variants/broken.patch",
+  "expected": {
+    "verifyScript": "npm test"
+  }
+}

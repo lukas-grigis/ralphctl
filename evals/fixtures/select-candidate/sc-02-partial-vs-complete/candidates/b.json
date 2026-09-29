@@ -1,0 +1,13 @@
+{
+  "hadDiff": true,
+  "changedFiles": [
+    "src/title-case.mjs",
+    "src/index.mjs"
+  ],
+  "verifyOutcome": "success",
+  "attribution": "clean",
+  "changesEmitted": [
+    "Added titleCase, collapsing whitespace runs and trimming"
+  ],
+  "notesEmitted": []
+}

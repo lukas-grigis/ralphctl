@@ -1,0 +1,15 @@
+{
+  "hadDiff": true,
+  "changedFiles": [
+    "src/title-case.mjs",
+    "src/index.mjs"
+  ],
+  "verifyOutcome": "failed",
+  "attribution": "regressed",
+  "changesEmitted": [
+    "Added titleCase splitting on single spaces"
+  ],
+  "notesEmitted": [
+    "Repeated spaces are not collapsed yet"
+  ]
+}

@@ -1,0 +1,7 @@
+diff --git a/src/greet.mjs b/src/greet.mjs
+index f7a2382..8c1209d 100644
+--- a/src/greet.mjs
++++ b/src/greet.mjs
+@@ -1 +1 @@
+-export const greet = (name) => `Hello, ${name}!`;
++export const greet = (name) => `Goodbye, ${name}!`;

@@ -1,0 +1,67 @@
+{
+  "schemaVersion": 1,
+  "tier": "regression",
+  "cluster": "repo-text",
+  "origin": "synthetic",
+  "provenance": "Synthetic: the empty-input case named in the task throws a TypeError. Authored for this harness.",
+  "id": "ev-04-empty-input-throws",
+  "flow": "evaluate",
+  "task": {
+    "name": "Add a firstWord helper",
+    "description": "Add `firstWord(text)` in `src/first-word.mjs` as a named export. It returns the first whitespace-delimited word of `text`. For an empty or whitespace-only string it returns the empty string instead of throwing.",
+    "steps": [
+      "Create src/first-word.mjs exporting firstWord",
+      "Add tests in test/first-word.test.mjs"
+    ],
+    "verificationCriteria": [
+      {
+        "id": "C1",
+        "assertion": "The repository test suite passes",
+        "check": "auto",
+        "command": "node --test test/*.test.mjs"
+      },
+      {
+        "id": "C2",
+        "assertion": "firstWord('hello world') prints \\\"hello\\\"",
+        "check": "auto",
+        "command": "node -e \"import('./src/first-word.mjs').then((m) => console.log(JSON.stringify(m.firstWord('hello world'))))\""
+      },
+      {
+        "id": "C3",
+        "assertion": "firstWord('   ') prints \\\"\\\" and does not throw",
+        "check": "auto",
+        "command": "node -e \"import('./src/first-word.mjs').then((m) => console.log(JSON.stringify(m.firstWord('   '))))\""
+      }
+    ]
+  },
+  "verifyScript": "node --test test/*.test.mjs",
+  "variants": [
+    {
+      "name": "clean",
+      "patch": "variants/clean.patch",
+      "expect": {
+        "status": "passed"
+      }
+    },
+    {
+      "name": "defect",
+      "patch": "variants/defect.patch",
+      "defectClass": "robustness",
+      "expect": {
+        "status": "failed",
+        "failedDimensions": [
+          "robustness"
+        ],
+        "criteria": {
+          "C3": {
+            "passed": false
+          }
+        }
+      }
+    }
+  ],
+  "oracle": {
+    "command": "node --test oracle/*.test.mjs",
+    "protectedPaths": []
+  }
+}

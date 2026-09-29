@@ -24,6 +24,7 @@ pnpm verify:coverage   # alias for pnpm coverage
 pnpm format:check      # prettier
 pnpm deadcode          # knip (clean tree exits 0)
 pnpm skills:update     # re-vendor upstream SKILL.md into scripts/vendor/skills/ for review (maintainers only)
+pnpm eval <check|run|compare|report>  # opt-in prompt/model eval harness (scripts/eval/); never part of verify — see .claude/docs/EVALS.md
 ```
 
 Before every commit, run `/verify` (wraps `pnpm typecheck && pnpm lint && pnpm test`). All three must pass.
@@ -43,6 +44,7 @@ Not auto-imported — open with the `Read` tool when the work touches the area.
 - `.claude/docs/SECURITY.md` — permission model, cross-process lock, spawning, AbortError rule, skills, refine write-back, file-based provider contract
 - `.claude/docs/INTERACTIVE-HANDOFF-HANG.md` — the black-screen hang when handing the terminal to an interactive AI CLI: confirmed root cause (a parent holding `process.stdin` eats the terminal's reply to the child's capability queries), the release-then-restore fix, six refuted theories, and how to reproduce it. **Read before changing the interactive handoff or re-investigating the hang.**
 - `.claude/docs/PERFORMANCE.md` — scheduler / parallel waves, rate-limit retry, iteration budget, plateau escalation, progress journal, learning ledger, env vars, release procedure
+- `.claude/docs/EVALS.md` — the opt-in `pnpm eval` harness: run baseline / compare, the `--max-tokens` budget flag, fixture authoring, reading `summary.md`
 - `.claude/docs/REQUIREMENTS.md` — acceptance-criteria checklist
 - `.claude/docs/DESIGN-SYSTEM.md` — TUI tokens, components, copy rules
 - `.claude/docs/MANUAL-TEST-PLAYBOOK.md` — manual smoke-test script

@@ -1,0 +1,28 @@
+diff --git a/src/list-dir.mjs b/src/list-dir.mjs
+new file mode 100644
+index 0000000..1b8237e
+--- /dev/null
++++ b/src/list-dir.mjs
+@@ -0,0 +1,3 @@
++import { readdirSync } from 'node:fs';
++
++export const listDir = (dir) => readdirSync(dir).sort();
+diff --git a/test/list-dir.test.mjs b/test/list-dir.test.mjs
+new file mode 100644
+index 0000000..90fa60c
+--- /dev/null
++++ b/test/list-dir.test.mjs
+@@ -0,0 +1,13 @@
++import { test } from 'node:test';
++import assert from 'node:assert/strict';
++import { mkdtempSync, writeFileSync } from 'node:fs';
++import { tmpdir } from 'node:os';
++import { join } from 'node:path';
++import { listDir } from '../src/list-dir.mjs';
++
++test('lists sorted entries', () => {
++  const dir = mkdtempSync(join(tmpdir(), 'list-dir-'));
++  writeFileSync(join(dir, 'b.txt'), '');
++  writeFileSync(join(dir, 'a.txt'), '');
++  assert.deepEqual(listDir(dir), ['a.txt', 'b.txt']);
++});

@@ -1,0 +1,61 @@
+{
+  "schemaVersion": 1,
+  "tier": "regression",
+  "cluster": "repo-calc",
+  "origin": "synthetic",
+  "provenance": "Synthetic: the generator changed nothing, so the working tree equals HEAD. Authored for this harness.",
+  "id": "ev-07-empty-working-tree",
+  "flow": "evaluate",
+  "task": {
+    "name": "Add a chunk helper",
+    "description": "Add `chunk(xs, size)` in `src/chunk.mjs` as a named export. It splits `xs` into consecutive arrays of `size` elements; the last one may be shorter.",
+    "steps": [
+      "Create src/chunk.mjs exporting chunk",
+      "Add tests in test/chunk.test.mjs"
+    ],
+    "verificationCriteria": [
+      {
+        "id": "C1",
+        "assertion": "The repository test suite passes",
+        "check": "auto",
+        "command": "node --test test/*.test.mjs"
+      },
+      {
+        "id": "C2",
+        "assertion": "chunk([1, 2, 3, 4, 5], 2) prints [[1,2],[3,4],[5]]",
+        "check": "auto",
+        "command": "node -e \"import('./src/chunk.mjs').then((m) => console.log(JSON.stringify(m.chunk([1, 2, 3, 4, 5], 2))))\""
+      }
+    ]
+  },
+  "verifyScript": "node --test test/*.test.mjs",
+  "variants": [
+    {
+      "name": "clean",
+      "patch": "variants/clean.patch",
+      "expect": {
+        "status": "passed"
+      }
+    },
+    {
+      "name": "defect",
+      "patch": "variants/defect.patch",
+      "defectClass": "empty-diff",
+      "expect": {
+        "status": "failed",
+        "failedDimensions": [
+          "completeness"
+        ],
+        "criteria": {
+          "C2": {
+            "passed": false
+          }
+        }
+      }
+    }
+  ],
+  "oracle": {
+    "command": "node --test oracle/*.test.mjs",
+    "protectedPaths": []
+  }
+}

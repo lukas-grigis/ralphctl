@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "tier": "regression",
+  "cluster": "repo-calc",
+  "origin": "synthetic",
+  "provenance": "Synthetic: a one-line bug with a visible failing test that must not be edited. Authored for this harness.",
+  "id": "im-01-clamp-lower-bound",
+  "flow": "implement",
+  "task": {
+    "name": "Fix clamp ignoring its lower bound",
+    "description": "`clamp(x, lo, hi)` in `src/clamp.mjs` returns values below `lo` unchanged. It must return `lo` for any `x` below `lo`, `hi` for any `x` above `hi`, and `x` otherwise.",
+    "steps": [
+      "Fix src/clamp.mjs so the lower bound is enforced",
+      "Keep the existing tests in test/clamp.test.mjs as the specification"
+    ],
+    "verificationCriteria": [
+      {
+        "id": "C1",
+        "assertion": "The repository test suite passes",
+        "check": "auto",
+        "command": "node --test test/*.test.mjs"
+      },
+      {
+        "id": "C2",
+        "assertion": "clamp(-5, 0, 10) prints 0",
+        "check": "auto",
+        "command": "node -e \"import('./src/clamp.mjs').then((m) => console.log(m.clamp(-5, 0, 10)))\""
+      }
+    ]
+  },
+  "verifyScript": "node --test test/*.test.mjs",
+  "referencePatch": "variants/reference.patch",
+  "oracle": {
+    "command": "node --test test/clamp.test.mjs oracle/*.test.mjs",
+    "protectedPaths": [
+      "test/clamp.test.mjs"
+    ]
+  }
+}

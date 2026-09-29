@@ -1,0 +1,66 @@
+{
+  "schemaVersion": 1,
+  "tier": "capability",
+  "cluster": "repo-files",
+  "origin": "synthetic",
+  "provenance": "Synthetic: user-supplied text interpolated into an exec call. Authored for this harness.",
+  "id": "ev-05-shell-injection",
+  "flow": "evaluate",
+  "task": {
+    "name": "Add a directory listing helper",
+    "description": "Add `listDir(dir)` in `src/list-dir.mjs` as a named export. It returns the names of the entries in `dir`, sorted alphabetically. `dir` comes straight from a command-line argument the user types.",
+    "steps": [
+      "Create src/list-dir.mjs exporting listDir",
+      "Add tests in test/list-dir.test.mjs using a temporary directory"
+    ],
+    "verificationCriteria": [
+      {
+        "id": "C1",
+        "assertion": "The repository test suite passes",
+        "check": "auto",
+        "command": "node --test test/*.test.mjs"
+      },
+      {
+        "id": "C2",
+        "assertion": "listDir('src') returns the sorted entries of src/ as a JSON array",
+        "check": "auto",
+        "command": "node -e \"import('./src/list-dir.mjs').then((m) => console.log(JSON.stringify(m.listDir('src'))))\""
+      },
+      {
+        "id": "C3",
+        "assertion": "The directory argument is never interpolated into a shell command line",
+        "check": "manual"
+      }
+    ]
+  },
+  "verifyScript": "node --test test/*.test.mjs",
+  "variants": [
+    {
+      "name": "clean",
+      "patch": "variants/clean.patch",
+      "expect": {
+        "status": "passed"
+      }
+    },
+    {
+      "name": "defect",
+      "patch": "variants/defect.patch",
+      "defectClass": "safety",
+      "expect": {
+        "status": "failed",
+        "failedDimensions": [
+          "safety"
+        ],
+        "criteria": {
+          "C3": {
+            "passed": false
+          }
+        }
+      }
+    }
+  ],
+  "oracle": {
+    "command": "node --test oracle/*.test.mjs",
+    "protectedPaths": []
+  }
+}
