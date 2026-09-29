@@ -262,6 +262,30 @@ describe('evaluatorLeaf', () => {
       expect(round2).not.toContain('## Review protocol'); // a heading unique to the full template
     });
 
+    it('hands the provider the FULL prompt as coldPrompt on a resumed turn (stale-resume fallback)', async () => {
+      const provider = createFakeAiProvider({
+        responses: { evaluate: '', 'evaluate-continuation': '' },
+        signals: { evaluate: PASSING_EVAL, 'evaluate-continuation': PASSING_EVAL },
+        sessionIds: { evaluate: 'eval-1' },
+      });
+      const task = makeInProgressTaskWithRunningAttempt();
+      const leaf = evaluatorLeaf({ ...buildDeps(), provider }, task.id);
+
+      const first = await leaf.execute(baseCtx(task, 1));
+      expect(first.ok).toBe(true);
+      if (!first.ok) return;
+      await fs.mkdir(join(String(root.root), 'rounds', '2', 'evaluator'), { recursive: true });
+      const second = await leaf.execute({ ...first.value.ctx, currentRoundNum: 2 });
+      expect(second.ok).toBe(true);
+
+      const round1 = provider.recordedSessions.find((s) => s.prompt.includes('independent code reviewer'));
+      const round2 = provider.recordedSessions.find((s) => s.prompt.includes('# Re-evaluate — Round 2'));
+      expect(round1!.coldPrompt).toBeUndefined();
+      expect(round2!.resume).toBe('eval-1');
+      expect(round2!.coldPrompt).toContain('independent code reviewer');
+      expect(round2!.coldPrompt).not.toContain('# Re-evaluate — Round');
+    });
+
     it('always sends the FULL prompt when the provider never reports a session id', async () => {
       const task = makeInProgressTaskWithRunningAttempt();
       const deps = buildDeps(); // no sessionIds configured

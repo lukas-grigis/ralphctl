@@ -22,10 +22,9 @@ import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/templat
  * generator's earlier work, the continuation prompt carries only the per-round DELTA: the
  * evaluator's critique, the plateau-break directive, the current round number, a capped recent
  * slice of the sprint journal, and the output-contract block (which names THIS
- * round's `signals.json` path). On-disk paths to the contract and the sprint journal ride along
- * as a graceful-degradation hedge — if a resumed thread loses its prior context (the codex
- * cold-resume fallback drops `--resume` and re-issues the same prompt against a fresh session),
- * the prompt is still self-rescuing because it tells the model where to re-read the brief.
+ * round's `signals.json` path). On-disk paths to the contract and the sprint journal ride along as
+ * pointers for exact wording. A stale resume id never reaches this prompt cold: the retry loop
+ * swaps in the FULL prompt (`AiSession.coldPrompt`) when the provider no longer has the thread.
  *
  * Every slot below is a typed string the chain leaf renders before calling `buildPrompt`.
  */

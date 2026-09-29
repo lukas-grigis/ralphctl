@@ -18,10 +18,9 @@ import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/templat
  * output-contract block (which names THIS round's `signals.json` path). The full grading rubric
  * and verdict semantics are re-stated inline — kept consistent with `evaluate/template.md` — so
  * the reviewer never drifts on the floor dimensions or the malformed semantics across rounds.
- * On-disk paths to the contract and the sprint journal ride along as a graceful-degradation
- * hedge: if a resumed thread loses its prior context (the codex cold-resume fallback drops
- * `--resume` and re-issues the same prompt against a fresh session), the prompt is still
- * self-rescuing because it tells the model where to re-read the specification.
+ * On-disk paths to the contract and the sprint journal ride along as pointers for exact wording.
+ * A stale resume id never reaches this prompt cold: the retry loop swaps in the FULL prompt
+ * (`AiSession.coldPrompt`) when the provider no longer has the thread.
  *
  * Every slot below is a typed string the chain leaf renders before calling `buildPrompt`.
  */
@@ -30,7 +29,7 @@ export interface EvaluateContinuationPromptParams {
   readonly roundNumber: string;
   /**
    * Absolute path to the per-task `contract.md` sidecar — `{{CONTRACT_PATH}}`. Named in the
-   * session-context hedge so a context-free resumed thread can re-read the criteria it grades.
+   * session-context block so the reviewer can re-read the criteria it grades.
    */
   readonly contractPath: string;
   /**

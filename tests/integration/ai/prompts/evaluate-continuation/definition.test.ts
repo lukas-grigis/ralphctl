@@ -112,8 +112,9 @@ describe('buildEvaluateContinuationPrompt — end-to-end against the real templa
     expect(robustnessIdx).toBeGreaterThan(-1);
     expect(robustnessVerdictIdx).toBeGreaterThan(robustnessIdx);
     expect(result.value).toContain('malformed');
-    // The cold-resume hedge tells a context-free thread where to re-read the specification.
-    expect(result.value).toContain('re-read these on-disk files');
+    // The hedge for a context-free resumed thread is gone: the stale-resume fallback swaps in the
+    // FULL prompt (`AiSession.coldPrompt`), so a continuation never has to compensate for lost context.
+    expect(result.value.replace(/\s+/g, ' ')).not.toContain('re-read these on-disk files');
     // No leftover placeholders.
     expect(result.value).not.toMatch(/\{\{[A-Z_]+\}\}/);
   });

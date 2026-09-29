@@ -43,7 +43,8 @@ import { rootSessionId } from '@src/application/session/session.ts';
  * task — generator resumes generator, evaluator resumes evaluator. When set, the Claude adapter
  * forwards it as `--resume <id>` (`claude/headless.ts`) so the model continues a single
  * conversational thread across the gen-eval loop's rounds instead of cold-starting on every
- * spawn. The launcher / per-task chain is responsible for clearing the slot at task boundaries
+ * spawn. `coldPrompt` (the full prompt behind a slim resumed continuation) rides along so a stale
+ * resume id degrades to a fully-briefed cold spawn rather than a context-free one. The launcher / per-task chain is responsible for clearing the slot at task boundaries
  * so a new task gets a fresh thread.
  */
 export const implementSession = (
@@ -57,7 +58,8 @@ export const implementSession = (
   resume?: SessionId,
   effort?: string,
   abortSignal?: AbortSignal,
-  bodyFile?: AbsolutePath
+  bodyFile?: AbsolutePath,
+  coldPrompt?: Prompt
 ): AiSession => {
   // The per-round output dir is the directory containing `signalsFile` (e.g.
   // `<sandboxCwd>/rounds/<N>/<role>/`). Stamping it on the session lets every adapter's
@@ -88,6 +90,9 @@ export const implementSession = (
     ...(chainSessionId !== undefined ? { chainSessionId } : {}),
     ...(outputDir.ok ? { outputDir: outputDir.value } : {}),
     ...(resume !== undefined ? { resume } : {}),
+    // Only meaningful alongside `resume`: the full prompt the shared retry loop swaps in when the
+    // resumed thread turns out to be stale and the spawn falls back cold (see `AiSession.coldPrompt`).
+    ...(resume !== undefined && coldPrompt !== undefined ? { coldPrompt } : {}),
     ...(effort !== undefined ? { effort } : {}),
     // Caller-controlled abort (TUI cancel / Ctrl-C). Threaded from the leaf framework's
     // `execute(input, signal)` second argument so the headless provider's SIGTERM→SIGKILL

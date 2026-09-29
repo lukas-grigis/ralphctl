@@ -85,12 +85,6 @@ interface EvaluatorInput {
   readonly priorTurns: readonly PlateauTurnRecord[];
   readonly currentCommitSubject?: string;
   /**
-   * The generator's signal-kind distribution for THIS turn (`ctx.lastTurnActionCounts`). Rides
-   * onto the appended plateau record so the in-loop entropy detector pools its window from the
-   * same history the calibrated predicate reads (see `PlateauTurnRecord.actionCounts`).
-   */
-  readonly currentActionCounts?: ReadonlyMap<string, number>;
-  /**
    * Pre-composed same-round generator observations (T5) — proposed commit subject, change /
    * learning / note accumulators from `ImplementCtx`, framed downstream as unverified environment
    * context. Composed in the `input` projection (pure ctx read) and rendered inside the
@@ -185,6 +179,8 @@ const buildEvaluatorPrompt = async (
     readonly generatorHints: string;
     /** Pre-composed reproduction body — see `EvaluatorInput.reproduction`'s docstring. */
     readonly reproduction: string | undefined;
+    /** Force the FULL prompt even on a resumed thread — the stale-resume `coldPrompt`. */
+    readonly forceFull?: boolean;
   }
 ): Promise<Result<Prompt, BuildPromptError>> => {
   const sharedValues = {
@@ -196,7 +192,7 @@ const buildEvaluatorPrompt = async (
     ...(args.reproduction !== undefined ? { reproduction: args.reproduction } : {}),
   };
 
-  if (args.priorEvaluatorSessionId !== undefined) {
+  if (args.priorEvaluatorSessionId !== undefined && args.forceFull !== true) {
     return buildEvaluateContinuationPrompt(deps.templateLoader, {
       ...sharedValues,
       roundNumber: args.roundNum,
@@ -246,6 +242,28 @@ const makeEvaluatorCallEvaluate =
   async (task) => {
     const outputContractSection = renderContractSectionFor(evaluatorOutputContract, args.outputDir);
 
+    const buildTurnPrompt = async (forceFull: boolean): Promise<Result<Prompt, BuildPromptError>> => {
+      // Re-checksum the reproduction test against the hash captured when it was validated —
+      // an unexplained edit (or deletion) during the gen-eval loop appends a bounded tampering
+      // note to the SAME `<reproduction>` section the template's tampering-detection rule
+      // already audits. Only the evaluator re-checks (once per turn); `generator.ts` keeps the
+      // plain, sync `readReproductionSection` — see `EvaluatorInput.reproductionArtifact`.
+      const reproduction =
+        args.input.reproductionArtifact !== undefined
+          ? await buildEvaluatorReproductionSection(deps.cwd, args.input.reproductionArtifact)
+          : undefined;
+      return buildEvaluatorPrompt(deps, {
+        task,
+        workspaceRoot: args.input.workspaceRoot,
+        roundNum: args.input.roundNum,
+        outputContractSection,
+        priorEvaluatorSessionId: args.input.priorEvaluatorSessionId,
+        generatorHints: args.input.generatorHints,
+        reproduction,
+        forceFull,
+      });
+    };
+
     const turn = await runRoleTurn(deps, {
       role: 'evaluator',
       workspaceRoot: args.input.workspaceRoot,
@@ -263,26 +281,9 @@ const makeEvaluatorCallEvaluate =
       priorSessionId: args.input.priorEvaluatorSessionId,
       signal: args.signal,
       contract: evaluatorOutputContract,
-      buildPrompt: async () => {
-        // Re-checksum the reproduction test against the hash captured when it was validated —
-        // an unexplained edit (or deletion) during the gen-eval loop appends a bounded tampering
-        // note to the SAME `<reproduction>` section the template's tampering-detection rule
-        // already audits. Only the evaluator re-checks (once per turn); `generator.ts` keeps the
-        // plain, sync `readReproductionSection` — see `EvaluatorInput.reproductionArtifact`.
-        const reproduction =
-          args.input.reproductionArtifact !== undefined
-            ? await buildEvaluatorReproductionSection(deps.cwd, args.input.reproductionArtifact)
-            : undefined;
-        return buildEvaluatorPrompt(deps, {
-          task,
-          workspaceRoot: args.input.workspaceRoot,
-          roundNum: args.input.roundNum,
-          outputContractSection,
-          priorEvaluatorSessionId: args.input.priorEvaluatorSessionId,
-          generatorHints: args.input.generatorHints,
-          reproduction,
-        });
-      },
+      buildPrompt: () => buildTurnPrompt(false),
+      // A resumed turn sends the slim continuation; the stale-resume fallback needs the full brief.
+      buildColdPrompt: () => buildTurnPrompt(true),
       selfContainedContext: selfContainedGrounding(
         args.input.workspaceRoot,
         outputContractSection,
@@ -336,7 +337,6 @@ const makeEvaluatorExecute =
       priorTurns: input.priorTurns,
       plateauThreshold: deps.plateauThreshold,
       ...(input.currentCommitSubject !== undefined ? { currentCommitSubject: input.currentCommitSubject } : {}),
-      ...(input.currentActionCounts !== undefined ? { currentActionCounts: input.currentActionCounts } : {}),
       ...(changedFilesHash !== undefined ? { changedFilesHash } : {}),
       callEvaluate,
       evaluationFile: roundEvaluationRelativePath(input.roundNum),
@@ -388,9 +388,6 @@ const makeEvaluatorInput =
       roundNum,
       generatorHints: composeGeneratorHints(hintsInput),
       ...(currentCommitSubject !== undefined ? { currentCommitSubject } : {}),
-      // Same-turn generator signal-kind spread — pure ctx read, stamped onto this turn's plateau
-      // record so the entropy detector windows over `plateauHistory` like every other detector.
-      ...(ctx.lastTurnActionCounts !== undefined ? { currentActionCounts: ctx.lastTurnActionCounts } : {}),
       ...(ctx.priorEvaluatorSessionId !== undefined ? { priorEvaluatorSessionId: ctx.priorEvaluatorSessionId } : {}),
       ...(ctx.reproductionArtifact !== undefined ? { reproductionArtifact: ctx.reproductionArtifact } : {}),
     };

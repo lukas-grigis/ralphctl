@@ -39,15 +39,13 @@ interpretation you graded against.
 
 <session_context>
 This is a continuation turn — the task specification, the contract, and your prior grading are
-already in this conversation's history. If this session somehow lacks that prior context (a resumed
-thread that did not carry forward), re-read these on-disk files before grading — they are reachable
-via the mounted directories:
+already in this conversation's history. The files below stay reachable through the mounted
+directories when you need the exact wording:
 
 - task contract — `{{CONTRACT_PATH}}` (the authoritative definition of done and the criteria you grade)
 - sprint journal — `{{PROGRESS_FILE}}` (append-only history of every prior task-attempt)
 
-Read them only when the prior context is missing; when the conversation already carries the
-specification, proceed directly to re-grading.
+Proceed directly to re-grading.
 </session_context>
 
 <prior_progress>

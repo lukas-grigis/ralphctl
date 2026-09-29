@@ -33,7 +33,8 @@ import {
  * Stale-resume cold fallback (was codex-only; now shared — FINDING 4). When an attempt fails
  * with an `error` outcome whose message matches the adapter's optional `resumeStaleRe`, the
  * resume id is dropped for ONE cold respawn (latched via `coldRetried`, fired at most once per
- * call). The cold retry MUST NOT consume a rate-limit slot — it re-runs the SAME attempt index
+ * call) and the session's optional `coldPrompt` — the full prompt a slim resumed continuation
+ * omits — replaces the prompt. The cold retry MUST NOT consume a rate-limit slot — it re-runs the SAME attempt index
  * (the loop does not advance `attempt`), so a lost rollout / unknown-resume-id self-heals
  * without burning the 429 budget. An aborted run is exempt: a user cancel tears the run down
  * rather than spawning fresh work a competitor may now own.
@@ -96,13 +97,16 @@ const withResume = (session: AiSession, resumeId: string): AiSession => ({
 });
 
 /**
- * Drop the resume id so the adapter's argv builder takes the cold-start path. `delete` on a
- * spread copy (never the caller's session) — `exactOptionalPropertyTypes` forbids re-setting
- * `resume: undefined`, so omit the key entirely.
+ * Drop the resume id so the adapter's argv builder takes the cold-start path, and swap in the
+ * caller's `coldPrompt` (the full first-attempt prompt) when one was supplied — the slim
+ * continuation prompt presumes a conversation the cold spawn does not have. `delete` on a spread
+ * copy (never the caller's session) — `exactOptionalPropertyTypes` forbids re-setting a key to
+ * `undefined`, so omit the keys entirely.
  */
 const withoutResume = (session: AiSession): AiSession => {
-  const cold: AiSession = { ...session };
+  const cold: AiSession = { ...session, ...(session.coldPrompt !== undefined ? { prompt: session.coldPrompt } : {}) };
   delete (cold as { resume?: unknown }).resume;
+  delete (cold as { coldPrompt?: unknown }).coldPrompt;
   return cold;
 };
 

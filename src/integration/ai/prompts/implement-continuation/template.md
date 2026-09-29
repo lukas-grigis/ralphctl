@@ -18,15 +18,13 @@ compaction.
 This is a continuation turn — the brief, the contract, and your prior rounds are already in this
 conversation's history. The done-criteria in `<task_criteria>` below and the no-test-weakening rule
 in `<success_criteria>` below are restated every round regardless of what the conversation already
-carries, so a compacted or cold-resumed session is never left missing them. If this session lacks
-the REST of that prior context (a resumed thread that did not carry forward), re-read these on-disk
-files before acting — they are reachable via the mounted directories:
+carries. The files below stay reachable through the mounted directories when you need the exact
+wording:
 
 - task contract — `{{CONTRACT_PATH}}`
 - sprint journal — `{{PROGRESS_FILE}}` (append-only history of every prior task-attempt)
 
-Read them only when the prior context is missing beyond what is restated below; when the
-conversation already carries the brief, proceed directly to the critique.
+Proceed directly to the critique.
 </session_context>
 
 <task_criteria>

@@ -203,21 +203,6 @@ interface GeneratorOutput {
 }
 
 /**
- * Per-turn signal-kind distribution (R2) for the entropy-plateau heuristic — only kinds the
- * generator actually emitted this turn (count > 0). Built fresh from the turn's accumulators so the
- * stamped map reflects ONLY the current turn, never an accumulation across turns. The harness never
- * sees the AI's raw tool-use, so this signal-kind spread is the proxy the entropy guard reads.
- */
-const countTurnActionKinds = (out: GeneratorOutput): Map<string, number> => {
-  const counts = new Map<string, number>();
-  if (out.decisionsEmitted.length > 0) counts.set('decision', out.decisionsEmitted.length);
-  if (out.changesEmitted.length > 0) counts.set('change', out.changesEmitted.length);
-  if (out.learningsEmitted.length > 0) counts.set('learning', out.learningsEmitted.length);
-  if (out.notesEmitted.length > 0) counts.set('note', out.notesEmitted.length);
-  return counts;
-};
-
-/**
  * True when this turn is a top-of-ladder same-model nudge that should arm the "change your
  * approach" directive — `escalatedFromModel === escalatedToModel` (the same-model marker, NOT a
  * model bump) AND the retry was DRIVEN by a stall (the last settled attempt carries a `plateau` /
@@ -279,6 +264,8 @@ const buildGeneratorPrompt = async (
      * tail. Empty string when there is no failing prior post-verify.
      */
     readonly retryFeedback: string;
+    /** Force the FULL prompt even on a resumed thread — the stale-resume `coldPrompt`. */
+    readonly forceFull?: boolean;
   }
 ): Promise<Result<Prompt, BuildPromptError>> => {
   const { input } = args;
@@ -306,7 +293,7 @@ const buildGeneratorPrompt = async (
     ...(input.reproduction !== undefined ? { reproduction: input.reproduction } : {}),
   };
 
-  if (input.priorGeneratorSessionId !== undefined) {
+  if (input.priorGeneratorSessionId !== undefined && args.forceFull !== true) {
     return buildImplementContinuationPrompt(deps.templateLoader, {
       ...sharedValues,
       roundNumber: input.roundNum,
@@ -490,6 +477,12 @@ const makeGeneratorCallImplement =
   async (task) => {
     const outputContractSection = renderContractSectionFor(generatorOutputContract, args.outputDir);
 
+    const buildTurnPrompt = async (forceFull: boolean): Promise<Result<Prompt, BuildPromptError>> => {
+      // T4: pre-task verify result + prior attempt's failing post-verify; best-effort — see helper.
+      const verify = await composeVerifyBlocks(args.logTailReader, deps.sprintDir, taskId, task);
+      return buildGeneratorPrompt(deps, { task, input: args.input, outputContractSection, ...verify, forceFull });
+    };
+
     const turn = await runRoleTurn(deps, {
       role: 'generator',
       workspaceRoot: args.input.workspaceRoot,
@@ -510,24 +503,9 @@ const makeGeneratorCallImplement =
       priorSessionId: args.input.priorGeneratorSessionId,
       signal: args.signal,
       contract: generatorOutputContract,
-      buildPrompt: async () => {
-        // T4: surface the harness's pre-task verify result (so the generator reviews baseline
-        // state instead of re-running the verify script in-turn) and the prior attempt's failing
-        // post-verify (so a retry fixes the regression first). All best-effort — see helper.
-        const { preVerifyOutput, retryFeedback } = await composeVerifyBlocks(
-          args.logTailReader,
-          deps.sprintDir,
-          taskId,
-          task
-        );
-        return buildGeneratorPrompt(deps, {
-          task,
-          input: args.input,
-          outputContractSection,
-          preVerifyOutput,
-          retryFeedback,
-        });
-      },
+      buildPrompt: () => buildTurnPrompt(false),
+      // A resumed turn sends the slim continuation; the stale-resume fallback needs the full brief.
+      buildColdPrompt: () => buildTurnPrompt(true),
       selfContainedContext: selfContainedGrounding(args.input.workspaceRoot, outputContractSection),
       onSignals: (signals) => {
         accumulateAndEmitSignals(deps, signals, args.accumulators);
@@ -665,10 +643,6 @@ const generatorOutput = (ctx: ImplementCtx, out: GeneratorOutput): ImplementCtx 
     out.correctiveNudgeCount,
     ctx.currentAttemptGeneratorNudges
   );
-  // Per-turn signal-kind distribution (R2) — stamped fresh every turn (overwrites the prior
-  // turn's map) so the entropy-plateau heuristic in the gen-eval loop sees the current turn's
-  // action diversity, never an accumulation across turns.
-  const actionCountsCarry = { lastTurnActionCounts: countTurnActionKinds(out) };
   // Raw cost totals for the attempt — folded across both roles' spawns; settle-attempt persists
   // them onto the settling attempt, progress-journal clears them afterwards.
   const usageCarry = attemptUsageCarry(ctx, out.usage);
@@ -685,7 +659,6 @@ const generatorOutput = (ctx: ImplementCtx, out: GeneratorOutput): ImplementCtx 
     ...learningsCarry,
     ...notesCarry,
     ...generatorNudgesCarry,
-    ...actionCountsCarry,
     ...usageCarry,
   };
   if (out.exit === undefined) return next;
