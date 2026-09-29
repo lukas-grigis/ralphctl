@@ -459,10 +459,11 @@ over-praising."_
 - **Shared partials (2026-09).** The failure-modes block is no longer template-embedded prose — it is the
   shared `_partials/evaluator-failure-modes.md`, injected via `{{EVALUATOR_FAILURE_MODES}}` so any other
   template gains the same discipline by wiring the one placeholder. A second shared partial,
-  `_partials/evaluation-checkpoint.md` (`{{EVALUATION_CHECKPOINT}}`), is unrelated to over-praising: Phase 0
-  has the evaluator write a placeholder all-`failed` `signals.json` BEFORE it verifies anything, purely so a
-  session that exhausts its token budget mid-analysis leaves a valid signal file on disk (recoverable via a
-  corrective retry) instead of none at all — the template is explicit that this write is not the verdict.
+  `_partials/evaluator-grading-rules.md` (`{{EVALUATOR_GRADING_RULES}}`), carries the grading rules both
+  `evaluate` and `evaluate-continuation` apply identically (verify-script scope, `UNVERIFIED:` criteria, the
+  critique format). The earlier Phase 0 checkpoint (a placeholder all-`failed` `signals.json` written before
+  verifying) is removed — a session that dies mid-analysis is recovered by the corrective retry, and the
+  placeholder risked being graded as a verdict.
 
 ---
 
