@@ -11,7 +11,6 @@ import type { TodoTask } from '@src/domain/entity/task.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
 import { assertCtxField } from '@src/application/flows/_shared/_engine/assert-ctx-field.ts';
-import type { PlanCtx } from '@src/application/flows/plan/ctx.ts';
 
 /** Leaf name, reused as the `attemptedAction` on the leaf's precondition errors. */
 const LEAF_NAME = 'check-plan';
@@ -26,13 +25,20 @@ export interface CheckPlanLeafDeps {
   readonly logger: Logger;
 }
 
+/** The ctx slice the critic reads and writes — satisfied by both `PlanCtx` and `IdeateCtx`. */
+interface CheckPlanCtx {
+  readonly project?: Project;
+  readonly proposedTasks?: readonly TodoTask[];
+  readonly planCheck?: PlanCheckReport;
+}
+
 interface CheckPlanInput {
   readonly project: Project;
   readonly tasks: readonly TodoTask[];
 }
 
 /**
- * Zero-token deterministic plan critic. Runs between `call-planner-interactive` (which produces
+ * Zero-token deterministic plan critic, shared by the plan and ideate flows. Runs between `call-planner-interactive` (which produces
  * `ctx.proposedTasks`) and `apply-plan` (which puts the proposal to the human), so the operator
  * approves or rejects with the critic's evidence already on screen.
  *
@@ -41,8 +47,8 @@ interface CheckPlanInput {
  * the leaf fail would turn an advisory quality signal into a hard gate the operator cannot
  * override, which is the opposite of the human-stays-approver design.
  */
-export const checkPlanLeaf = (deps: CheckPlanLeafDeps): Element<PlanCtx> =>
-  leaf<PlanCtx, CheckPlanInput, PlanCheckReport>(LEAF_NAME, {
+export const checkPlanLeaf = <C extends CheckPlanCtx>(deps: CheckPlanLeafDeps): Element<C> =>
+  leaf<C, CheckPlanInput, PlanCheckReport>(LEAF_NAME, {
     useCase: {
       execute: async (input) => {
         const report = checkPlanUseCase(input);

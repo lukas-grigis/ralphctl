@@ -98,7 +98,11 @@ export const SelectPrompt = ({
 
   return (
     <Box flexDirection="column" paddingX={spacing.indent}>
-      <ScrollableMessage message={message} ownsArrows={false} />
+      <ScrollableMessage
+        message={message}
+        ownsArrows={false}
+        reservedRows={Math.min(options.length, VISIBLE_ROWS) + (footer !== undefined ? 1 : 0)}
+      />
       <Box flexDirection="column" marginTop={spacing.section}>
         {options.slice(start, end).map((opt, localIdx) => {
           const i = start + localIdx;

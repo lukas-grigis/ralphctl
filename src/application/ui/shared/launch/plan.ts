@@ -2,6 +2,8 @@ import { join } from 'node:path';
 import { sprintDir as buildSprintDir } from '@src/integration/persistence/storage.ts';
 import { type PlanCheckFinding, renderPlanCheckFinding, severityOfFinding } from '@src/business/sprint/check-plan.ts';
 import type { DraftSprint } from '@src/domain/entity/sprint.ts';
+import type { TodoTask } from '@src/domain/entity/task.ts';
+import type { Repository } from '@src/domain/entity/repository.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { createRunner, type Runner } from '@src/application/chain/run/runner.ts';
 import { createPlanFlow } from '@src/application/flows/plan/flow.ts';
@@ -11,12 +13,55 @@ import type { LaunchContext } from '@src/application/ui/shared/launch/context.ts
 import type { LaunchResult } from '@src/application/ui/shared/launcher.ts';
 import { checkCli } from '@src/application/ui/shared/launch/check-cli.ts';
 
-/** A task as surfaced to the human approval gate — name plus optional description / tracker ref. */
+/** One verification criterion as shown at the approval gate. */
+export interface PlanReviewCriterion {
+  readonly id: string;
+  readonly check: 'auto' | 'manual';
+  readonly assertion: string;
+  readonly command?: string;
+}
+
+/**
+ * A task as surfaced to the human approval gate — every field the operator is about to import.
+ * All but `name` are optional so a partial task still renders.
+ */
 export interface PlanReviewTask {
   readonly name: string;
   readonly description?: string;
   readonly ticketRef?: string;
+  /** Display name of the repository the task runs in. */
+  readonly repository?: string;
+  /** Names of prerequisite tasks (already resolved from ids). */
+  readonly dependsOn?: readonly string[];
+  readonly steps?: readonly string[];
+  readonly verificationCriteria?: readonly PlanReviewCriterion[];
 }
+
+/**
+ * Project the planner's tasks onto the review shape: repository id → repo name, dependency ids →
+ * the names of the tasks they point at (falling back to the raw id when the target is not in the
+ * proposal), external refs → the ticket ref.
+ *
+ * @public
+ */
+export const toPlanReviewTasks = (
+  tasks: readonly TodoTask[],
+  repositories: readonly Repository[]
+): readonly PlanReviewTask[] => {
+  const nameById = new Map<string, string>(tasks.map((t) => [t.id as string, t.name]));
+  return tasks.map((t) => {
+    const repo = repositories.find((r) => r.id === t.repositoryId);
+    return {
+      name: t.name,
+      ...(t.description !== undefined ? { description: t.description } : {}),
+      ...(t.externalRefs !== undefined && t.externalRefs.length > 0 ? { ticketRef: t.externalRefs.join(', ') } : {}),
+      repository: repo?.name ?? (t.repositoryId as string),
+      dependsOn: t.dependsOn.map((id) => nameById.get(id as string) ?? (id as string)),
+      steps: t.steps,
+      verificationCriteria: t.verificationCriteria,
+    };
+  });
+};
 
 /** Most finding lines rendered inline before the prompt body stops being readable in an Ink confirm. */
 const MAX_RENDERED_FINDINGS = 10;
@@ -38,6 +83,31 @@ const buildFindingsBlock = (findings: readonly PlanCheckFinding[]): string => {
   return `Plan check found ${String(ordered.length)} issue(s) — advisory, you decide:\n${[...shown, ...tail].join('\n')}\n\n`;
 };
 
+const renderCriteria = (criteria: readonly PlanReviewCriterion[]): readonly string[] => {
+  if (criteria.length === 0) return [];
+  const lines = ['   verification:'];
+  for (const c of criteria) {
+    lines.push(`     ${c.id} [${c.check}] ${c.assertion}`);
+    if (c.command !== undefined && c.command.length > 0) lines.push(`         $ ${c.command}`);
+  }
+  return lines;
+};
+
+const renderReviewTask = (t: PlanReviewTask, index: number): string => {
+  const lines = [`${String(index + 1)}. ${t.name}${t.ticketRef !== undefined ? `  [${t.ticketRef}]` : ''}`];
+  if (t.repository !== undefined && t.repository.length > 0) lines.push(`   repository: ${t.repository}`);
+  if (t.dependsOn !== undefined && t.dependsOn.length > 0) lines.push(`   depends on: ${t.dependsOn.join(', ')}`);
+  if (t.description !== undefined && t.description.length > 0) {
+    for (const l of t.description.split('\n')) lines.push(`   ${l}`);
+  }
+  if (t.steps !== undefined && t.steps.length > 0) {
+    lines.push('   steps:');
+    t.steps.forEach((step, si) => lines.push(`     ${String(si + 1)}. ${step}`));
+  }
+  lines.push(...renderCriteria(t.verificationCriteria ?? []));
+  return lines.join('\n');
+};
+
 /**
  * Render the human-facing plan-approval prompt body (audit §5 human-gate). The parser has
  * already dependency-resolved the task list before it reaches this gate, so the order shown is
@@ -57,13 +127,7 @@ export const buildPlanReviewMessage = (
   proposedTasks: readonly PlanReviewTask[],
   findings: readonly PlanCheckFinding[] = []
 ): string => {
-  const summary = proposedTasks
-    .map((t, i) => {
-      const head = `${String(i + 1)}. ${t.name}${t.ticketRef !== undefined ? `  [${t.ticketRef}]` : ''}`;
-      const body = t.description !== undefined && t.description.length > 0 ? `\n   ${t.description}` : '';
-      return `${head}${body}`;
-    })
-    .join('\n');
+  const summary = proposedTasks.map((t, i) => renderReviewTask(t, i)).join('\n\n');
   return `${buildFindingsBlock(findings)}Approve plan? ${String(proposedTasks.length)} task(s):\n\nTasks are shown in dependency-resolved execution order.\n\n${summary}`;
 };
 
@@ -86,11 +150,14 @@ export const launchPlan = async (ctx: LaunchContext): Promise<LaunchResult> => {
   // accepts/rejects via an Ink confirm prompt. Cancel = reject; downstream save-tasks /
   // save-sprint then no-op against the unchanged draft sprint.
   const reviewBeforeApprove = async (
-    proposedTasks: readonly PlanReviewTask[],
+    proposedTasks: readonly TodoTask[],
     _sprint: DraftSprint,
     findings: readonly PlanCheckFinding[]
   ): Promise<{ readonly accept: boolean }> => {
-    const message = buildPlanReviewMessage(proposedTasks, findings);
+    const message = buildPlanReviewMessage(
+      toPlanReviewTasks(proposedTasks, snapshot.project?.repositories ?? []),
+      findings
+    );
     const answered = await deps.interactive.askConfirm({ message });
     if (!answered.ok) return { accept: false };
     return { accept: answered.value };

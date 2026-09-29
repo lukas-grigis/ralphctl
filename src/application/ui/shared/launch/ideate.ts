@@ -7,7 +7,22 @@ import type { IdeateCtx } from '@src/application/flows/ideate/ctx.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { LaunchContext } from '@src/application/ui/shared/launch/context.ts';
 import type { LaunchResult } from '@src/application/ui/shared/launcher.ts';
+import type { PlanCheckFinding } from '@src/business/sprint/check-plan.ts';
+import type { TodoTask } from '@src/domain/entity/task.ts';
+import { buildPlanReviewMessage, toPlanReviewTasks } from '@src/application/ui/shared/launch/plan.ts';
 import { checkCli } from '@src/application/ui/shared/launch/check-cli.ts';
+
+/**
+ * Ideate's approval prompt: the approved requirements body first, then the same critic-findings +
+ * task-list body the plan gate renders. Pure so the composition is unit-testable.
+ *
+ * @public
+ */
+export const buildIdeateReviewMessage = (
+  requirements: string,
+  tasks: ReturnType<typeof toPlanReviewTasks>,
+  findings: readonly PlanCheckFinding[] = []
+): string => `Requirements:\n\n${requirements.trim()}\n\n${buildPlanReviewMessage(tasks, findings)}`;
 
 export const launchIdeate = async (ctx: LaunchContext): Promise<LaunchResult> => {
   const { deps, snapshot, settings, interactiveAi, skillsAdapter, skillSource, cwd, bridge, sessionId, effort } = ctx;
@@ -25,6 +40,20 @@ export const launchIdeate = async (ctx: LaunchContext): Promise<LaunchResult> =>
     join(buildSprintDir(deps.storage.dataRoot, snapshot.sprint.id, snapshot.sprint.slug), 'ideate')
   );
   if (!ideateRoot.ok) return { ok: false, reason: ideateRoot.error.message };
+  // HITL approval — cancel = reject; the chain then leaves the sprint unchanged.
+  const reviewBeforeApprove = async (
+    requirements: string,
+    proposedTasks: readonly TodoTask[],
+    findings: readonly PlanCheckFinding[]
+  ): Promise<{ readonly accept: boolean }> => {
+    const message = buildIdeateReviewMessage(
+      requirements,
+      toPlanReviewTasks(proposedTasks, snapshot.project?.repositories ?? []),
+      findings
+    );
+    const answered = await deps.interactive.askConfirm({ message });
+    return { accept: answered.ok && answered.value };
+  };
   const element: Element<IdeateCtx> = createIdeateFlow(
     {
       sprintRepo: deps.app.sprintRepo,
@@ -39,6 +68,7 @@ export const launchIdeate = async (ctx: LaunchContext): Promise<LaunchResult> =>
       clock: deps.app.clock,
       skillsAdapter,
       skillSource,
+      reviewBeforeApprove,
     },
     {
       sprintId: snapshot.sprint.id,

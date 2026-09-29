@@ -9,6 +9,7 @@ import type { WriteFile } from '@src/business/io/write-file.ts';
 import type { RunInTerminal } from '@src/integration/io/run-in-terminal.ts';
 import type { SkillsAdapter } from '@src/integration/ai/skills/_engine/skills-port.ts';
 import type { SkillSource } from '@src/integration/ai/skills/_engine/skill-source.ts';
+import type { ReviewIdeateLeafDeps } from '@src/application/flows/ideate/leaves/review-ideate.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 
 /**
@@ -30,4 +31,9 @@ export interface IdeateDeps {
   readonly skillSource: SkillSource;
   /** ISO timestamp source — stamped onto the per-spawn `meta.json` sidecar. */
   readonly clock: () => IsoTimestamp;
+  /**
+   * Optional human review gate shown before tasks are saved (requirements body + task list +
+   * plan-check findings). Omitted in tests / headless runs, which auto-accept.
+   */
+  readonly reviewBeforeApprove?: ReviewIdeateLeafDeps['reviewBeforeApprove'];
 }

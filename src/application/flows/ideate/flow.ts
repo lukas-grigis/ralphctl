@@ -2,7 +2,7 @@ import { Result } from '@src/domain/result.ts';
 import type { ProjectId } from '@src/domain/value/id/project-id.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
-import { type PlannedSprint, type Sprint, planSprint } from '@src/domain/entity/sprint.ts';
+import { type Sprint, planSprint } from '@src/domain/entity/sprint.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { sequential } from '@src/application/chain/build/sequential.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
@@ -19,6 +19,8 @@ import { renderContractSectionFor } from '@src/integration/ai/contract/_engine/r
 import { ideateOutputContract } from '@src/application/flows/ideate/leaves/ideate.contract.ts';
 import type { IdeateCtx } from '@src/application/flows/ideate/ctx.ts';
 import type { IdeateDeps } from '@src/application/flows/ideate/deps.ts';
+import { checkPlanLeaf } from '@src/application/flows/_shared/plan/check-plan.ts';
+import { reviewIdeateLeaf } from '@src/application/flows/ideate/leaves/review-ideate.ts';
 import { ideateAndPlanLeaf } from '@src/application/flows/ideate/leaves/ideate-and-plan.ts';
 import { aiUnitEpilogue, aiUnitPrelude } from '@src/application/flows/_shared/ai-unit-segment.ts';
 import { assertCtxField } from '@src/application/flows/_shared/_engine/assert-ctx-field.ts';
@@ -70,6 +72,8 @@ export interface CreateIdeateFlowOpts {
  *     stamp-meta-ideate,           // <unit-root>/meta.json — provider/model attribution
  *     ideate-and-plan,             // interactive Claude → reads <unit-root>/ideate.json
  *     uninstall-skills,            // remove them again
+ *     check-plan,                  // zero-token deterministic critic → ctx.planCheck (advisory)
+ *     review-ideate,               // HITL gate (requirements + tasks + findings); reject restores the sprint
  *     transition-to-planned,       // draft → planned (same domain transition as plan)
  *     save-tasks,
  *     save-sprint,                 // sprint.status = 'planned'
@@ -87,17 +91,18 @@ export interface CreateIdeateFlowOpts {
 /**
  * Transition the ctx draft sprint `draft → planned` after `ideate-and-plan` has appended an
  * approved ticket + its tasks. Reuses the SAME domain transition the plan flow runs
- * (`planSprint` — wrapped there by `planSprintUseCase`). Ideate auto-accepts: the TUI user is
- * already in the interactive AI session, so there is no extra reviewer gate. The downstream
- * `save-sprint` leaf persists the `planned` sprint, mirroring plan's tasks-then-sprint order.
+ * (`planSprint` — wrapped there by `planSprintUseCase`). Skipped when `review-ideate` rejected, so a
+ * declined ideate leaves the sprint `draft`. The downstream `save-sprint` leaf persists the
+ * `planned` sprint, mirroring plan's tasks-then-sprint order.
  *
  * Without this leaf the flow ends with the sprint still `draft`, and Implement — which requires
  * `planned` / `active` — would be greyed out right after a successful ideate.
  */
 const transitionToPlannedLeaf = (deps: Pick<IdeateDeps, 'clock'>): Element<IdeateCtx> =>
-  leaf<IdeateCtx, { readonly sprint: Sprint }, PlannedSprint>('transition-to-planned', {
+  leaf<IdeateCtx, { readonly sprint: Sprint; readonly rejected: boolean }, Sprint>('transition-to-planned', {
     useCase: {
-      execute: async ({ sprint }) => {
+      execute: async ({ sprint, rejected }) => {
+        if (rejected) return Result.ok(sprint);
         const transitioned = planSprint(sprint, deps.clock());
         if (!transitioned.ok) return Result.error(transitioned.error);
         return Result.ok(transitioned.value);
@@ -105,7 +110,7 @@ const transitionToPlannedLeaf = (deps: Pick<IdeateDeps, 'clock'>): Element<Ideat
     },
     input: (ctx) => {
       const sprint = assertCtxField(ctx, 'sprint', 'transition-to-planned');
-      return { sprint };
+      return { sprint, rejected: ctx.ideateRejected === true };
     },
     output: (ctx, sprint) => ({ ...ctx, sprint }),
   });
@@ -172,6 +177,10 @@ export const createIdeateFlow = (deps: IdeateDeps, opts: CreateIdeateFlowOpts): 
       ...(opts.effort !== undefined ? { effort: opts.effort } : {}),
     }),
     ...aiUnitEpilogue<IdeateCtx>({ skillsAdapter: deps.skillsAdapter }, unitOpts),
+    checkPlanLeaf<IdeateCtx>({ logger: deps.logger }),
+    reviewIdeateLeaf({
+      ...(deps.reviewBeforeApprove !== undefined ? { reviewBeforeApprove: deps.reviewBeforeApprove } : {}),
+    }),
     transitionToPlannedLeaf({ clock: deps.clock }),
     saveTasksLeaf<IdeateCtx>({ taskRepo: deps.taskRepo }),
     saveSprintLeaf<IdeateCtx>({ sprintRepo: deps.sprintRepo }),

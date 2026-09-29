@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { Logger, LogMeta } from '@src/business/observability/logger.ts';
-import { checkPlanLeaf } from '@src/application/flows/plan/leaves/check-plan.ts';
+import { checkPlanLeaf } from '@src/application/flows/_shared/plan/check-plan.ts';
 import type { PlanCtx } from '@src/application/flows/plan/ctx.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import type { TodoTask, VerificationCriterion } from '@src/domain/entity/task.ts';
