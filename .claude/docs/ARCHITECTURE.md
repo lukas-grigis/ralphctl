@@ -198,9 +198,10 @@ business/
 ├── sprint/views/      ← read-only views: sprint progress, requirements export, context export
 ├── ticket/            ← addTicket, refineTicket, removeTicket, …
 ├── task/              ← createTasks, updateTask, markBlocked, recordEvaluation,
-│                       escalation-policy (decideEscalation / applyEscalation / computeActionEntropy / detectLowEntropy),
-│                       loop-diversity (createLoopDiversityTracker), composeTaskEpisodes, summariseEpisodes, …
+│                       escalation-policy (decideEscalation / applyEscalation), composeTaskEpisodes, summariseEpisodes, …
 ├── feedback/          ← applyFeedback (review flow body)
+├── context-file/      ← splice-section: `spliceOwnedSection` / `appendSections` — code-side merge of an AI-written delta
+│                       into a provider-native context file (distill, readiness)
 ├── settings/          ← loadSettings, updateSettings
 ├── version/           ← cli-metadata, version-check, version-checker (npm poll)
 ├── scm/               ← issue-fetcher / issue-pusher / pull-request-creator ports
@@ -661,7 +662,7 @@ and the non-obvious mutators.
   Cross-sprint persistence is explicitly future work.
 - **`Settings`** — declared by `SettingsSchema` in `domain/entity/settings.ts`. Top-level fields:
   `schemaVersion` (currently `2`), `ai`,
-  `harness: { maxTurns, maxAttempts, rateLimitRetries, plateauThreshold, escalateOnPlateau, escalationMap, skipPreVerifyOnFreshSetup, entropyPlateauDetector, bestOfNCandidates? }`,
+  `harness: { maxTurns, maxAttempts, rateLimitRetries, plateauThreshold, escalateOnPlateau, escalationMap, skipPreVerifyOnFreshSetup, bestOfNCandidates? }`,
   `logging: { level }`, `concurrency: { maxParallelTasks }`, `ui: { notifications: { enabled } }`,
   `scm: { postRefinementComment }`. `ai` is a flat per-flow record: an optional global
   `ai.effort` plus one row per flow — `ai.{refine, plan, readiness, ideate, createPr}`, each

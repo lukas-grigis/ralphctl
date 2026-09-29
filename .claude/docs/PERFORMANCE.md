@@ -59,6 +59,13 @@ retries. Per-spawn cap is `settings.harness.rateLimitRetries` (range 0–10). Co
 events bridge to the EventBus; the TUI's `StatusBanner` (tiered `info` / `warn` / `error`) replaces the
 old single-purpose `RateLimitBanner`.
 
+**Stale-resume cold fallback is shared.** When a resumed spawn fails with an error the adapter's
+`resumeStaleRe` matches (the provider no longer holds the thread), `run-with-rate-limit-retry.ts` drops the resume
+id and respawns cold once, without consuming a rate-limit slot. The gen-eval loop resumes with slim
+`implement-continuation` / `evaluate-continuation` prompts that assume the earlier conversation, so the leaves
+also pass the full first-turn prompt as `AiSession.coldPrompt`; the cold respawn sends that instead, and a
+lost thread costs one fully-briefed spawn rather than a context-free one.
+
 **Idle-stdout watchdog** kills wedged headless AI children past a configurable idle threshold. A stuck Claude
 / Copilot / Codex process cannot strand the harness. The threshold is `settings.harness.idleWatchdogMs`
 (60_000–3_600_000 ms, default 300_000 = 5 min), threaded into every adapter's `deps.idleMs` by
@@ -92,31 +99,13 @@ required. The only path that resets a task to `todo` is `task unblock`.
   `maxTurns` 1–2 was valid before the invariant, and a parse failure would brick the TUI and the
   `settings set` repair command on upgrade.
 
-Two additional plateau signals fire _inside_ each gen-eval turn via dedicated guard leaves. Both are
-strictly **subordinate to the calibrated predicate**: each sizes its window with `plateauWindowSize`
-(i.e. `settings.harness.plateauThreshold`, clamped 2–5) and may only declare a plateau on a window
-`windowIsHardStall` — the same cascade + exemptions `computePlateauVerdict` runs — also calls stalled.
-So neither can fire earlier than the operator asked for, and neither can exit a loop the calibrated
-predicate deliberately exempted for a shifted critique or a changed work product.
-
-- **`loop-diversity-check`** (`src/application/flows/implement/leaves/loop-diversity-check.ts`, wired into
-  the loop body from `gen-eval-loop.ts`) — a pure derivation over the last `plateauWindowSize` records of
-  `ctx.plateauHistory` (sorted set of failing dimension names joined by `|`, re-read from ctx on every
-  turn rather than tracked in a rolling buffer). When every fingerprint in that window is identical AND
-  the window is a hard stall, the loop exits with `plateau`. `start-attempt` clears `plateauHistory` per
-  attempt, so the window can never span an attempt boundary.
-- **`entropy-check`** (opt-in — `settings.harness.entropyPlateauDetector`, default `false`) — computes
-  normalised Shannon entropy (`H = -Σ(p·log₂p)/log₂K`) over the generator's signal-kind distribution
-  (decision / change / learning / note) POOLED across the plateau window; each turn's counts ride the
-  turn's `PlateauTurnRecord` (copied off `ctx.lastTurnActionCounts`). When `H < 0.25` on a hard-stalled
-  window, the loop exits with `plateau`. **Honesty:** this is a _signal-kind-distribution proxy_ for
-  action diversity — the harness never sees raw tool-use, so the spread of reported signal kinds stands
-  in for "action variety". It scored a SINGLE turn until 2026-08: a turn emitting only `change` signals
-  gave K=1 → H=0 → a guaranteed false-positive plateau that burned an escalation rung plus a whole
-  attempt. Pooling fixed the false positive; the knob stays default-off because the count-based
-  predicate already covers every window this detector can fire on. Both guards respect the
-  budget-precedence invariant: when the current turn is the final budgeted turn, `finalize` synthesises
-  the terminal state rather than an early plateau pre-empting it.
+One plateau detector runs: the count-based predicate above, evaluated inside the evaluator turn
+(`computePlateauVerdict`, sized by `plateauWindowSize`). Two bolt-on in-loop guard leaves (`loop-diversity-check`,
+`entropy-check`) and the `settings.harness.entropyPlateauDetector` knob were removed — both were strictly
+subordinate to this predicate (they could only fire on a window it already called stalled), so they added
+no reach. `PlateauSource` (`domain/entity/attempt.ts`) still lists `diversity` / `entropy` so persisted attempts
+that name them keep parsing; nothing emits them now, and a leftover `entropyPlateauDetector` key in an old
+`settings.json` is stripped on read.
 
 Mirrored on `IterationConfig` (`src/application/chain/run/iteration-config.ts`); the chain `loop` predicates
 and the headless provider adapter read it.
@@ -255,9 +244,6 @@ times per task (harness pre + post + generator in-turn + evaluator in-turn). The
   `VerifyRun` shape the carry-baseline path produces, so the `PRE_VERIFY_RESULTS` block and attribution fold
   through one code path. Safe only when the setup script actually verifies the tree, not merely installs
   dependencies. See `AI-SETTINGS.md § settings.harness keys`.
-- **`settings.harness.entropyPlateauDetector`** (default `false`) — opt into the in-loop action-entropy
-  plateau detector (see the two in-turn plateau signals above). Off by default: the signal is a proxy for
-  a proxy, and the count-based `plateauThreshold` predicate already covers every window it can fire on.
 
 Wall-clock per gen-eval round: setup (once at sprint start) + pre-verify + generator turn(s) + evaluator turn(s) +
 post-verify + commit. Post-verify dominates for monorepos; `verifyGates` diff-scoping is the highest-leverage knob there.
@@ -323,7 +309,11 @@ file is rotated to `.bak` and the mirror render is skipped rather than overwriti
 an empty view. At sprint close — BOTH the explicit `close-sprint` flow and the `review` flow's auto-done path —
 an opt-in, human-gated **distill** step (defaults to No) promotes curated, not-yet-promoted learnings into each
 provider's native context file via the same per-distinct-provider fan-out as `readiness` (one file
-per provider, no symlinks), then stamps the accepted ids `promotedAt` so they are never re-proposed.
+per provider, no symlinks). The AI writes only the reconciled `## Learnings (ralphctl)` section body; the leaf
+splices it into the existing file in code (`business/context-file/splice-section.ts`), so everything outside the
+owned section stays byte-for-byte and the confirm gate shows the full spliced diff. `readiness` works the same
+way: with an existing context file the `agents-md-proposal` `content` carries only the new H2 sections, which
+the propose leaf appends (`appendSections`). The accepted ids are then stamped `promotedAt` so they are never re-proposed.
 The self-contained distill sub-chain runs while the sprint is still `review`, so a mid-distill abort
 leaves it un-closed and re-runnable. Prompt: `src/integration/ai/prompts/distill-learnings/`;
 implementation: `src/application/flows/_shared/memory/`.

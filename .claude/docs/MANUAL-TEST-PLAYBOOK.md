@@ -415,18 +415,14 @@ verify script exits 0" against a script that always exits 1), so the gen-eval lo
 
 ```bash
 ralphctl settings set harness.plateauThreshold 3
-ralphctl settings show | grep entropyPlateauDetector   # expect false — the entropy detector is opt-in
 ```
 
 1. Run Implement on that sprint and watch the Execute view's step rail
-2. **Expected:** neither `loop-diversity-check` nor `entropy-check` exits the loop before turn 3 — both
-   window from `plateauThreshold`, so an earlier exit is the regression this scenario exists to catch
+2. **Expected:** the loop does not exit on plateau before turn 3 — the predicate windows from
+   `plateauThreshold`, so an earlier exit is the regression this scenario exists to catch
 3. **Expected:** when the plateau does fire, the banner names the escalation (model rung, or the effort rung
    for both generator **and** evaluator) — not a bare "plateau"
-4. `ralphctl settings set harness.entropyPlateauDetector true`, re-run — **expected:** the entropy detector
-   now participates, and still cannot end an attempt on a single turn
-5. **Pass condition:** `ralphctl runs stats --sprint <id>` reports the plateau under the source that actually
-   fired (`threshold` / `diversity` / `entropy`), and the escalation rung shows as resolved or fell-through
+4. **Pass condition:** `ralphctl runs stats --sprint <id>` reports the plateau under source `threshold`, and the escalation rung shows as resolved or fell-through
 
 ---
 
