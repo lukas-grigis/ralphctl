@@ -175,4 +175,23 @@ describe('reproduce template — reproduction-only guidance', () => {
     expect(body).toContain('<evidence-bound>');
     expect(body).toContain('</evidence-bound>');
   });
+
+  it('wires the autonomous-operation partial (the session runs headless)', async () => {
+    expect(reproducePromptDef.partials).toMatchObject({ AUTONOMOUS_OPERATION: 'autonomous-operation' });
+    expect(await renderedBody()).toContain('<autonomous-operation>');
+  });
+
+  it('bounds the revision loop to two and offers a not-reproduced exit', async () => {
+    const body = await renderedBody();
+    expect(body).toMatch(/stop after two revisions/i);
+    expect(body).toContain('"reproduced": false');
+    expect(body).not.toMatch(/until the failure you observe is the actual/);
+    expect(body).toMatch(/two-revision bound/);
+  });
+
+  it('states the ambiguity rule in the goal, before the output contract', async () => {
+    const body = await renderedBody();
+    const goal = /<goal>([\s\S]*?)<\/goal>/.exec(body)?.[1] ?? '';
+    expect(goal).toMatch(/vague or\s+under-specified/);
+  });
 });

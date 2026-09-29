@@ -7,11 +7,12 @@ import type { Compatible } from '@src/integration/persistence/shared/codec-inter
  * Zod schema for the `candidate-selection` AI signal — the best-of-N judge's verdict comparing
  * two candidates' compact structured summaries (arXiv 2604.16529). `winner` is the 1-based index
  * matching the `Candidate 1` / `Candidate 2` labelling the prompt shows the AI; constrained to a
- * positive integer so a downstream consumer can index the candidate array directly.
+ * non-negative integer: `1` / `2` name a candidate, `0` declares a tie (the judge runs twice with the
+ * order swapped, so an honest tie is a usable answer).
  */
 export const candidateSelectionSignalSchema = z.object({
   type: z.literal('candidate-selection'),
-  winner: z.number().int().positive(),
+  winner: z.number().int().nonnegative(),
   rationale: z.string(),
   timestamp: IsoTimestampSchema,
 });

@@ -46,7 +46,8 @@ const candidateSelectionSidecar: SidecarRule<'candidate-selection'> = {
   signalKind: CANDIDATE_SELECTION_KIND,
   filename: 'candidate-selection.md',
   multiplicity: 'one',
-  extract: (signal) => `# Winner: Candidate ${String(signal.winner)}\n\n${signal.rationale}`,
+  extract: (signal) =>
+    `# ${signal.winner === 0 ? 'Tie' : `Winner: Candidate ${String(signal.winner)}`}\n\n${signal.rationale}`,
 };
 
 /** Static ISO timestamp embedded in the rendered example. Real spawns stamp `IsoTimestamp.now()`. */

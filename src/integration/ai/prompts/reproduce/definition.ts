@@ -45,7 +45,7 @@ export interface ReproducePromptParams {
    */
   readonly priorProgress: string;
   /**
-   * Audit-[09] output contract section — rendered from the reproduce `AiOutputContract` by
+   * Output contract section — rendered from the reproduce `AiOutputContract` by
    * `renderContractSectionFor(reproduceOutputContract)`. Tells the AI to write `signals.json`
    * with exactly one `reproduction` signal and an optional `note`.
    */
@@ -87,7 +87,7 @@ export const reproducePromptDef: PromptDefinition<ReproducePromptParams> = {
     outputContractSection: {
       placeholder: 'OUTPUT_CONTRACT_SECTION',
       description:
-        'Audit-[09] output contract block rendered from the reproduce contract — instructs the AI to write `signals.json` directly.',
+        'Output contract block rendered from the reproduce contract — instructs the AI to write `signals.json` directly.',
       validate: requireNonEmpty(
         'outputContractSection',
         'output-contract section must not be empty (renderContractSectionFor always emits a body)'
@@ -95,7 +95,7 @@ export const reproducePromptDef: PromptDefinition<ReproducePromptParams> = {
     },
   },
   partials: {
-    HARNESS_CONTEXT: 'harness-context',
+    AUTONOMOUS_OPERATION: 'autonomous-operation',
     EVIDENCE_BOUND: 'evidence-bound',
   },
   expectedSignals: ['reproduction', 'note'],
@@ -108,7 +108,7 @@ export interface BuildReproducePromptInput {
   /** Current `progress.md` body — inlined into the prompt's "## Prior progress" section. */
   readonly priorProgress?: string;
   /**
-   * Pre-rendered audit-[09] output contract section. The leaf composes this via
+   * Pre-rendered output contract section. The leaf composes this via
    * `renderContractSectionFor(reproduceOutputContract)` before calling the builder.
    */
   readonly outputContractSection: string;

@@ -5,12 +5,15 @@ as reported, run it to capture the failure, and report your findings by writing 
 NOT fix the defect — that is a separate session's job, run after yours.
 </role>
 
-{{HARNESS_CONTEXT}}
+{{AUTONOMOUS_OPERATION}}
 
 <goal>
 Reproduce the defect described below against the project at `{{PROJECT_PATH}}`: write one new test that
 fails for the reported reason, run it, and record the test path, the exact run command, and the observed
-failure by writing `signals.json` to the output directory.
+failure by writing `signals.json` to the output directory. If the description reads as vague or
+under-specified, use the reading most consistent with the done criteria and record the interpretation in
+`notes`. If a bounded attempt cannot make a test fail for the reported reason, that is a valid result —
+report it as not reproduced (see Phase 3) rather than forcing a failure.
 </goal>
 
 <success_criteria>
@@ -24,6 +27,8 @@ failure by writing `signals.json` to the output directory.
   up empty — an empty list is a meaningful answer, not an omission.
 - No production code is modified. No existing test is modified, weakened, skipped, or deleted.
 - A `reproduction` signal is written to `signals.json` with the observed failure output.
+- A bounded attempt that ends in `"reproduced": false` with a concrete `reason` (and the added test
+  removed) is also a valid outcome — never a fabricated failure.
 
 </success_criteria>
 
@@ -66,8 +71,8 @@ conventions (framework, file naming, directory layout) as found in the existing 
 
 **The test must fail for the reported reason.** Run it after writing it. If it errors on setup, a missing
 import, or an unrelated fixture problem, that is not a reproduction yet — fix the harness issue in the
-test itself (never in production code) until the failure you observe is the actual reported behaviour,
-not an accident of the test's own plumbing.
+test itself (never in production code), within the two-revision bound in Phase 3, until the failure you
+observe is the actual reported behaviour, not an accident of the test's own plumbing.
 
 **Do not commit.** Leave the new test uncommitted in the working tree — a later session commits it as
 part of its own work, not this one.
@@ -100,7 +105,11 @@ test file following the project's own conventions.
 
 Run the new test in isolation using the project's own test runner. Confirm it fails, and confirm the
 failure is the reported defect — not a setup, import, or fixture error in the test itself. If it passes,
-or fails for the wrong reason, revise the test until it fails for the right one. Record the exact command.
+or fails for the wrong reason, revise the test and run it again — but stop after two revisions. If the
+test still does not fail for the reported reason (the defect looks already fixed, depends on an
+environment you cannot reach, or the report is not actionable), do not keep looping and do not fabricate
+a failure: remove the test you added and report not reproduced in Phase 4. Otherwise record the exact
+command.
 
 {{EVIDENCE_BOUND}}
 
@@ -112,6 +121,10 @@ the observed failure excerpt, the relevant existing tests you found (possibly em
 than a new one created). A `note` signal is available for anything that doesn't fit `reproduction`
 itself — use it sparingly.
 
+When the bounded attempt did not reproduce the defect, still emit the `reproduction` signal, with
+`"reproduced": false` and a `"reason"` naming what you tried and why it did not fail (`testPath`,
+`runCommand` and `observedFailure` may be empty strings). Omit `reproduced` on a successful reproduction.
+
 <output_contract>
 
 Only `signals.json` is read by the harness; all other session output is forensic and not persisted as
@@ -119,9 +132,7 @@ data.
 
 {{OUTPUT_CONTRACT_SECTION}}
 
-Emit exactly one `reproduction` signal — it is required, not optional. If the description reads as
-vague or under-specified, use the reading most consistent with the done criteria above rather than
-stopping short; the `notes` field is where you record any interpretation you had to make. A `note`
-signal may accompany it for anything else worth flagging, but never in place of it.
+Emit exactly one `reproduction` signal — it is required, not optional. The `notes` field is where you
+record any interpretation you had to make (see `<goal>`). A `note` signal may accompany it for anything else worth flagging, but never in place of it.
 
 </output_contract>

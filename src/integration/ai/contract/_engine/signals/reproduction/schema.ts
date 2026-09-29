@@ -8,6 +8,8 @@ import type { Compatible } from '@src/integration/persistence/shared/codec-inter
  * session wrote to demonstrate a reported defect, plus the existing tests it judged relevant.
  * `relevantTests` is required but may be an empty array — the session searched and found
  * nothing relevant, which is a meaningful answer distinct from an omitted field.
+ * `reproduced: false` + `reason` is the bounded "could not reproduce" exit; both fields are
+ * optional so older signals (no `reproduced`, meaning reproduced) still parse.
  */
 export const reproductionSignalSchema = z.object({
   type: z.literal('reproduction'),
@@ -16,6 +18,8 @@ export const reproductionSignalSchema = z.object({
   observedFailure: z.string(),
   relevantTests: z.array(z.string()).readonly(),
   notes: z.string().optional(),
+  reproduced: z.boolean().optional(),
+  reason: z.string().optional(),
   timestamp: IsoTimestampSchema,
 });
 

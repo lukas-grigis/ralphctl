@@ -41,6 +41,46 @@ describe('reproductionSignalSchema', () => {
     expect(withoutNotes.success).toBe(true);
   });
 
+  it('accepts the bounded not-reproduced exit: reproduced false + reason, empty test fields', () => {
+    const result = reproductionSignalSchema.safeParse({
+      type: 'reproduction',
+      testPath: '',
+      runCommand: '',
+      observedFailure: '',
+      relevantTests: [],
+      reproduced: false,
+      reason: 'the reported input already returns 400 on this checkout',
+      timestamp: TS,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('a signal without `reproduced` (older shape) still parses', () => {
+    const result = reproductionSignalSchema.safeParse({
+      type: 'reproduction',
+      testPath: 'tests/unit/foo.test.ts',
+      runCommand: '<test runner> run tests/unit/foo.test.ts',
+      observedFailure: 'failure output',
+      relevantTests: [],
+      timestamp: TS,
+    });
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.reproduced).toBeUndefined();
+  });
+
+  it('rejects a non-boolean reproduced', () => {
+    const result = reproductionSignalSchema.safeParse({
+      type: 'reproduction',
+      testPath: 'a',
+      runCommand: 'b',
+      observedFailure: 'c',
+      relevantTests: [],
+      reproduced: 'no',
+      timestamp: TS,
+    });
+    expect(result.success).toBe(false);
+  });
+
   it('rejects missing testPath', () => {
     const result = reproductionSignalSchema.safeParse({
       type: 'reproduction',

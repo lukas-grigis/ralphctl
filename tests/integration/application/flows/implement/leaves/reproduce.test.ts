@@ -295,6 +295,34 @@ describe('reproduceLeaf — guarded reproduction-first leaf', () => {
     expect(result.value.ctx.reproductionArtifact).toBeUndefined();
   });
 
+  it('not reproduced: reproduced false → no artifact, no harness re-run, no error', async () => {
+    const task = makeTodoTask({ name: 'fix the null pointer' });
+    const provider = fakeProvider({
+      kind: 'signals',
+      signals: [
+        reproductionSignal({
+          testPath: '',
+          runCommand: '',
+          observedFailure: '',
+          reproduced: false,
+          reason: 'already fixed on this checkout',
+        }),
+      ],
+    });
+    let reRuns = 0;
+    const shellScriptRunner = fakeShellRunner(async () => {
+      reRuns += 1;
+      return failResult('would have failed');
+    });
+    const leaf = reproduceLeaf(buildDeps(provider, shellScriptRunner), buildOpts(), task.id);
+
+    const result = await leaf.execute(buildCtx(task));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.ctx.reproductionArtifact).toBeUndefined();
+    expect(reRuns).toBe(0);
+  });
+
   it('degrade: harness re-run spawn fails (non-fatal StorageError) → no artifact, no error', async () => {
     const task = makeTodoTask({ name: 'fix the null pointer' });
     await writeTestFile('tests/unit/foo.test.ts', 'x');

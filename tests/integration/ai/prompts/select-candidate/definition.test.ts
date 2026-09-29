@@ -159,9 +159,11 @@ describe('select-candidate template — pairwise-judge guidance', () => {
     expect(body).toMatch(/evidence over confidence|unverified narrative claim/i);
   });
 
-  it('forbids a tie — the verdict must name exactly one winner', async () => {
+  it('allows a tie (0) and says the presentation order carries no meaning', async () => {
     const body = await renderedBody();
-    expect(body).toMatch(/never a tie, never both, never neither/i);
+    expect(body).toMatch(/declares a tie \(`0`\)/i);
+    expect(body).not.toMatch(/never a tie/i);
+    expect(body).toMatch(/order the\s+candidates are shown in carries no meaning/i);
   });
 
   it('penalises scope creep in the changed-files list', async () => {

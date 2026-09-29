@@ -1,30 +1,19 @@
-import { join } from 'node:path';
 import { Result } from '@src/domain/result.ts';
 import type { Attribution } from '@src/domain/entity/attempt.ts';
 import { recordRunningAttemptVerification } from '@src/domain/entity/task-attempts.ts';
 import type { InProgressTask, Task } from '@src/domain/entity/task.ts';
 import type { TaskId } from '@src/domain/value/id/task-id.ts';
-import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
+import { type AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
-import { isFatalChainError } from '@src/domain/value/error/is-fatal-chain-error.ts';
 import type { LearningEntry } from '@src/domain/signal.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import type { ImplementDeps } from '@src/application/flows/implement/deps.ts';
-import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session.ts';
-import { READ_ONLY } from '@src/integration/ai/providers/_engine/session-permissions.ts';
 import type { SessionId } from '@src/integration/ai/providers/_engine/session-id.ts';
-import { rootSessionId } from '@src/application/session/session.ts';
-import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts';
-import { buildSelectCandidatePrompt } from '@src/integration/ai/prompts/select-candidate/definition.ts';
-import { renderContractSectionFor } from '@src/integration/ai/contract/_engine/render-contract-section.ts';
-import { validateSignalsFile } from '@src/integration/ai/contract/_engine/validate-signals-file.ts';
-import { selectCandidateOutputContract } from '@src/application/flows/implement/leaves/select-candidate.contract.ts';
-import { runPathsFor } from '@src/application/flows/_shared/allocate-run-dir.ts';
+import { runOneJudgeCall } from '@src/application/flows/implement/leaves/best-of-n-judge.ts';
 import { gitStashPop } from '@src/integration/io/git-operations.ts';
-import { writeTextAtomic } from '@src/integration/io/fs.ts';
 import type {
   BestOfNCandidateRecord,
   BestOfNGenEvalOpts,
@@ -42,7 +31,8 @@ import type {
  *   3. Zero survivors → apply nothing; the attempt proceeds with a clean tree and the evaluator
  *      fails it normally (logged clearly — the once-per-task grant means the next walk tops out).
  *      One survivor → apply it directly, no judge call. Multiple → a pairwise judge tournament
- *      (winner of 1-vs-2 meets 3, and so on — at most n-1 calls), each verdict a one-shot AI
+ *      (winner of 1-vs-2 meets 3, and so on — at most n-1 comparisons, each judged twice with
+ *      the order swapped; disagreement is a tie), each verdict a one-shot AI
  *      session over the CANDIDATES' compact structured summaries only, never raw diffs (arXiv
  *      2604.16529 — RTV). A judge session that fails to produce a valid signal falls back to the
  *      verification-quality ordering (attribution rank, then fewest changed files) — logged,
@@ -108,144 +98,8 @@ const fallbackBetter = (a: BestOfNCandidateRecord, b: BestOfNCandidateRecord): B
 };
 
 /**
- * Per-call `AiSession` for one judge spawn — READ_ONLY (no shell, no edits), mirroring every
- * other one-shot review-style flow (readiness / detect-skills / detect-scripts). The prompt
- * itself instructs the judge to compare the two candidate summaries only, never explore the
- * repo (arXiv 2604.16529's setup); READ_ONLY is the closest permission profile this port
- * exposes to "no repository access" — cwd still resolves to the repo (every provider needs
- * SOME cwd + a writable `outputDir` for `signals.json`), but Edit/MultiEdit/Bash are denied.
- */
-const buildJudgeSession = (opts: {
-  readonly cwd: AbsolutePath;
-  readonly prompt: Prompt;
-  readonly model: string;
-  readonly effort: string | undefined;
-  readonly signalsFile: AbsolutePath;
-  readonly outputDir: AbsolutePath;
-  readonly bodyFile: AbsolutePath;
-  readonly abortSignal: AbortSignal | undefined;
-}): AiSession => {
-  const chainSessionId = rootSessionId();
-  return {
-    prompt: opts.prompt,
-    cwd: opts.cwd,
-    model: opts.model,
-    permissions: READ_ONLY,
-    signalsFile: opts.signalsFile,
-    outputDir: opts.outputDir,
-    bodyFile: opts.bodyFile,
-    ...(chainSessionId !== undefined ? { chainSessionId } : {}),
-    ...(opts.effort !== undefined ? { effort: opts.effort } : {}),
-    ...(opts.abortSignal !== undefined ? { abortSignal: opts.abortSignal } : {}),
-  };
-};
-
-/** Build the judge's prompt, spawn the READ_ONLY session, and write its prompt to disk. Returns
- * the judge dir on success; `Result.error` only for a fatal chain error or an I/O failure. */
-const spawnJudge = async (
-  deps: ImplementDeps,
-  opts: BestOfNGenEvalOpts,
-  taskId: TaskId,
-  workspaceRoot: AbsolutePath,
-  task: Task,
-  a: BestOfNCandidateRecord,
-  b: BestOfNCandidateRecord,
-  callIndex: number,
-  abortSignal: AbortSignal | undefined
-): Promise<Result<AbsolutePath | undefined, DomainError>> => {
-  const log = deps.logger.named(BEST_OF_N_SELECTION_LOGGER);
-  const judgeDir = AbsolutePath.parse(join(String(workspaceRoot), 'candidates', 'judge', String(callIndex)));
-  if (!judgeDir.ok) return Result.error(judgeDir.error);
-  const paths = runPathsFor(judgeDir.value);
-  if (!paths.ok) return Result.error(paths.error);
-
-  const outputContractSection = renderContractSectionFor(selectCandidateOutputContract, judgeDir.value);
-  const prompt = await buildSelectCandidatePrompt(deps.templateLoader, {
-    task,
-    candidateASummary: a.summary,
-    candidateBSummary: b.summary,
-    outputContractSection,
-  });
-  if (!prompt.ok) return Result.error(prompt.error);
-
-  const promptWrote = await writeTextAtomic(String(paths.value.promptFile), String(prompt.value));
-  if (!promptWrote.ok) return Result.error(promptWrote.error);
-
-  const session = buildJudgeSession({
-    cwd: opts.cwd,
-    prompt: prompt.value,
-    model: opts.evaluator.model,
-    effort: opts.evaluator.effort,
-    signalsFile: paths.value.signalsFile,
-    outputDir: judgeDir.value,
-    bodyFile: paths.value.bodyFile,
-    abortSignal,
-  });
-
-  const spawn = await deps.evaluatorProvider.generate(session);
-  if (!spawn.ok) {
-    if (isFatalChainError(spawn.error)) return Result.error(spawn.error);
-    log.warn(`best-of-n judge call ${String(callIndex)} spawn failed for task '${String(taskId)}' — falling back`, {
-      taskId: String(taskId),
-      error: spawn.error.message,
-    });
-    return Result.ok(undefined);
-  }
-  return Result.ok(judgeDir.value);
-};
-
-/** Validate + interpret the judge's verdict once the spawn has completed. `undefined` on any
- * recoverable failure (invalid signals, non-binary winner) — falls back to the quality ordering. */
-const readJudgeVerdict = async (
-  deps: ImplementDeps,
-  taskId: TaskId,
-  judgeDir: AbsolutePath,
-  callIndex: number
-): Promise<'a' | 'b' | undefined> => {
-  const log = deps.logger.named(BEST_OF_N_SELECTION_LOGGER);
-  const validated = await validateSignalsFile(judgeDir, selectCandidateOutputContract);
-  if (!validated.ok) {
-    log.warn(`best-of-n judge call ${String(callIndex)} signals invalid for task '${String(taskId)}' — falling back`, {
-      taskId: String(taskId),
-      error: validated.error.message,
-    });
-    return undefined;
-  }
-  for (const sig of validated.value) deps.publishSignal(sig);
-
-  const verdict = validated.value[0];
-  if (verdict === undefined || (verdict.winner !== 1 && verdict.winner !== 2)) {
-    log.warn(
-      `best-of-n judge call ${String(callIndex)} produced no usable winner for task '${String(taskId)}' — falling back`,
-      { taskId: String(taskId), winner: verdict?.winner }
-    );
-    return undefined;
-  }
-  return verdict.winner === 1 ? 'a' : 'b';
-};
-
-/** One pairwise verdict — `'a' | 'b'` on a valid judge signal, `undefined` on any recoverable
- * failure (fall back to verification-quality ordering), `Result.error` only on a fatal chain error. */
-const runOneJudgeCall = async (
-  deps: ImplementDeps,
-  opts: BestOfNGenEvalOpts,
-  taskId: TaskId,
-  workspaceRoot: AbsolutePath,
-  task: Task,
-  a: BestOfNCandidateRecord,
-  b: BestOfNCandidateRecord,
-  callIndex: number,
-  abortSignal: AbortSignal | undefined
-): Promise<Result<'a' | 'b' | undefined, DomainError>> => {
-  const judgeDir = await spawnJudge(deps, opts, taskId, workspaceRoot, task, a, b, callIndex, abortSignal);
-  if (!judgeDir.ok) return Result.error(judgeDir.error);
-  if (judgeDir.value === undefined) return Result.ok(undefined);
-  return Result.ok(await readJudgeVerdict(deps, taskId, judgeDir.value, callIndex));
-};
-
-/**
  * Pairwise tournament: winner of (1 vs 2) meets 3, and so on — exactly `survivors.length - 1`
- * judge calls. A judge failure at any step degrades that ONE comparison to the verification-
+ * comparisons, each run twice with the candidate order swapped (see `runOneJudgeCall`). A judge failure at any step degrades that ONE comparison to the verification-
  * quality fallback ordering rather than aborting the tournament.
  */
 const runJudgeTournament = async (
