@@ -17,13 +17,12 @@ the candidate learnings below — folded in idempotently, preserving everything 
 <existing_context_file>
 {{EXISTING_CONTEXT_FILE}}
 </existing_context_file>
+An empty `<existing_context_file>` means the file does not exist yet — create it.
 
 <candidate_learnings>
 {{CANDIDATE_LEARNINGS}}
 </candidate_learnings>
 </inputs>
-
-{{HARNESS_CONTEXT}}
 
 <owned_section>
 You own exactly one section of `{{TARGET_FILENAME}}` — the one headed `## {{LEARNINGS_SECTION_HEADING}}`. This is
@@ -34,8 +33,7 @@ hand-authored or owned by another tool — preserve it byte-for-byte.
   prior state and reconcile the candidates against them (see the idempotency rule below).
 - When the file has no such section yet, append one at the end of the file — after the last existing
   section, separated by a single blank line.
-- When `{{TARGET_FILENAME}}` does not exist yet, create it (and any missing parent directory) containing
-  only the owned section.
+- When `{{TARGET_FILENAME}}` does not exist yet, the proposed content is only the owned section.
 - Never create a second `## {{LEARNINGS_SECTION_HEADING}}` section — there must be exactly one.
 
 </owned_section>
@@ -93,10 +91,11 @@ as "when present"; many repositories do not have one, and a learning must not as
 
 1. Read the existing context file body above and locate the `## {{LEARNINGS_SECTION_HEADING}}` section, if any.
 2. Reconcile the candidate learnings against the owned section per the idempotency rule.
-3. Write the COMPLETE, updated `{{TARGET_FILENAME}}` back to disk at its original path — the full file, not
+3. Write the COMPLETE proposed content of `{{TARGET_FILENAME}}` to `{{OUTPUT_FILE}}` — the full file, not
    a diff and not only the section. Everything outside the owned section must be unchanged.
 
-Make no other edits to the repository. Emit no prose commentary outside the file you write — the harness
-reads the file from disk, not your message.
+Write to that output path only; do not modify `{{TARGET_FILENAME}}` in the repository — the harness shows the
+operator a diff and writes the file itself after confirmation. Make no other edits to the repository. Emit no
+prose commentary outside the file you write — the harness reads that file, not your message.
 
 </output_contract>

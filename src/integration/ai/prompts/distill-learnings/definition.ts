@@ -32,7 +32,7 @@ const DEFAULT_LEARNINGS_SECTION_HEADING = 'Learnings (AI sessions)';
 
 export interface DistillLearningsPromptParams {
   /**
-   * Existing context-file body wrapped for prompting, or an explicit "no existing file" line. The
+   * Existing context-file body wrapped for prompting, or an empty string when no file exists. The
    * AI reconciles the candidate learnings against this file's current learnings section (the one
    * headed by {@link DistillLearningsPromptParams.learningsSectionHeading}) and writes the full
    * updated file back.
@@ -49,6 +49,12 @@ export interface DistillLearningsPromptParams {
    * target reference it, so the per-provider fan-out lands one file per provider.
    */
   readonly targetFilename: string;
+  /**
+   * Absolute path the AI writes the complete proposed file content to. The harness reads it back,
+   * shows the operator a diff, and writes {@link DistillLearningsPromptParams.targetFilename}
+   * itself after confirmation — the AI never touches the real context file.
+   */
+  readonly outputFile: string;
   /**
    * Detected project build/test/task tooling, or an explicit "(none detected)" line. The ONLY
    * place package-manager commands may appear — learnings that name a command are phrased against
@@ -71,7 +77,8 @@ export const distillLearningsPromptDef: PromptDefinition<DistillLearningsPromptP
   parameters: {
     existingContextFile: {
       placeholder: 'EXISTING_CONTEXT_FILE',
-      description: 'Existing context-file body wrapped for prompting, or an explicit "no existing file" line.',
+      description: 'Existing context-file body wrapped for prompting, or an empty string when no file exists.',
+      untrusted: { source: 'the existing project context file' },
     },
     candidateLearnings: {
       placeholder: 'CANDIDATE_LEARNINGS',
@@ -83,6 +90,11 @@ export const distillLearningsPromptDef: PromptDefinition<DistillLearningsPromptP
       description:
         'Native context-file name for the target provider (CLAUDE.md / .github/copilot-instructions.md / AGENTS.md).',
       validate: requireNonEmpty('targetFilename', 'target filename must not be empty'),
+    },
+    outputFile: {
+      placeholder: 'OUTPUT_FILE',
+      description: 'Absolute path the AI writes the complete proposed context-file content to (harness-owned).',
+      validate: requireNonEmpty('outputFile', 'output file must not be empty'),
     },
     projectTooling: {
       placeholder: 'PROJECT_TOOLING',
@@ -96,10 +108,8 @@ export const distillLearningsPromptDef: PromptDefinition<DistillLearningsPromptP
       optional: true,
     },
   },
-  partials: {
-    HARNESS_CONTEXT: 'harness-context',
-  },
-  // The AI writes the full updated context file back to disk directly; no harness signals.
+  partials: {},
+  // The AI writes the full proposed context file to the harness output path; no harness signals.
   expectedSignals: [],
 };
 
@@ -107,6 +117,7 @@ export interface BuildDistillLearningsPromptInput {
   readonly existingContextFile: string;
   readonly candidateLearnings: string;
   readonly targetFilename: string;
+  readonly outputFile: string;
   readonly projectTooling: string;
   /** Optional H2 heading for the owned section; falls back to the brand-free default when omitted. */
   readonly learningsSectionHeading?: string;
@@ -126,6 +137,7 @@ export const buildDistillLearningsPrompt = async (
     existingContextFile: input.existingContextFile,
     candidateLearnings: input.candidateLearnings,
     targetFilename: input.targetFilename,
+    outputFile: input.outputFile,
     projectTooling: input.projectTooling,
     learningsSectionHeading: input.learningsSectionHeading ?? DEFAULT_LEARNINGS_SECTION_HEADING,
   });

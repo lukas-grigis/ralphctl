@@ -78,18 +78,22 @@ const distillProposeUseCase = async (
   const targetPath = targetPathResult.value;
 
   // Read the existing context file (if any) so the AI folds the learnings into its current
-  // `## Learnings (ralphctl)` section idempotently. Absent / unreadable → "no existing file".
-  const existingContextFile = (await safeReadText(String(targetPath))) ?? 'No existing file — create one.';
+  // `## Learnings (ralphctl)` section idempotently. Absent / unreadable → empty string.
+  const existingContextFile = (await safeReadText(String(targetPath))) ?? '';
+
+  const toolDir = join(String(deps.distillRoot), tool);
+  const outputFileResult = AbsolutePath.parse(join(toolDir, 'context-file.out'));
+  if (!outputFileResult.ok) return Result.error(outputFileResult.error);
 
   const prompt = await buildDistillLearningsPrompt(deps.templateLoader, {
     existingContextFile,
     candidateLearnings: renderCandidateList(input.candidates),
     targetFilename,
+    outputFile: String(outputFileResult.value),
     projectTooling: renderProjectTooling(input.repository),
   });
   if (!prompt.ok) return Result.error(prompt.error);
 
-  const toolDir = join(String(deps.distillRoot), tool);
   try {
     await fs.mkdir(toolDir, { recursive: true });
   } catch (cause) {
@@ -104,8 +108,6 @@ const distillProposeUseCase = async (
   }
   const promptFileResult = AbsolutePath.parse(join(toolDir, 'prompt.md'));
   if (!promptFileResult.ok) return Result.error(promptFileResult.error);
-  const outputFileResult = AbsolutePath.parse(join(toolDir, 'context-file.out'));
-  if (!outputFileResult.ok) return Result.error(outputFileResult.error);
 
   const promptWrote = await writeTextAtomic(String(promptFileResult.value), String(prompt.value));
   if (!promptWrote.ok) return Result.error(promptWrote.error);

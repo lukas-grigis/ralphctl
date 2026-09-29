@@ -104,4 +104,18 @@ describe('distillProposeLeaf — abort signal threading', () => {
     expect(promptBody).toContain('_(none detected)_');
     expect(promptBody).not.toMatch(/(?<!_)\(none detected\)(?!_)/);
   });
+
+  it('threads the harness output path into the prompt and leaves the real context file untouched', async () => {
+    const sink: { input?: InteractiveAiProviderInput } = {};
+    const leaf = distillProposeLeaf(buildDeps(fakeAi(sink)), 'claude-code');
+
+    const result = await leaf.execute(buildCtx());
+    expect(result.ok).toBe(true);
+
+    const outPath = join(String(distillRoot), 'claude-code', 'context-file.out');
+    expect(String(sink.input?.outputFile)).toBe(outPath);
+    const promptBody = await fs.readFile(join(String(distillRoot), 'claude-code', 'prompt.md'), 'utf8');
+    expect(promptBody).toContain(outPath);
+    expect(promptBody).not.toContain('at its original path');
+  });
 });
