@@ -24,9 +24,9 @@ export type RunTaskVerdict = 'passed' | 'failed' | 'malformed';
  *                          can stamp WHY the attempt aborted instead of leaving it `unknown`.
  *                          Optional — a legacy / hand-built exit simply attributes nothing.
  *   - `malformed`         — evaluator emitted no terminal verdict; attempt fails with warning.
- *   - `plateau`           — one of three detectors fired (see {@link PlateauSource}): the
- *                          count-based threshold, the loop-diversity guard, or the action-entropy
- *                          guard. `source` names which one — optional, pure instrumentation.
+ *   - `plateau`           — the count-based threshold detector fired (see {@link PlateauSource}
+ *                          for the retired sources old persisted attempts may still name).
+ *                          `source` is optional, pure instrumentation.
  *   - `budget-exhausted`  — `maxTurns` reached without a terminal verdict.
  */
 export type GenEvalExit =

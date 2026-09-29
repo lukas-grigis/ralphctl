@@ -96,11 +96,6 @@ const CTX_FIELD_CLASS = {
   currentRoundNum: { merge: PER_TASK, attempt: RESET },
   lastEvaluation: { merge: PER_TASK, attempt: RESET },
   plateauHistory: { merge: PER_TASK, attempt: RESET },
-  // Per-turn distribution of generator-emitted signal kinds for the turn just completed — reset
-  // per attempt like the rest of the loop scratch above (previously never reset anywhere; the
-  // entropy-plateau gate's `turnsUsed >= 3` guard was the only thing masking the leak across a
-  // multi-attempt task).
-  lastTurnActionCounts: { merge: PER_TASK, attempt: RESET },
   // Per-attempt verdict / turn-outcome state → cleared by settle-attempt once the attempt settles.
   lastExit: { merge: PER_TASK, attempt: SETTLE_RESET },
   lastVerdict: { merge: PER_TASK, attempt: SETTLE_RESET },
@@ -220,9 +215,7 @@ export const projectSprintScopedFields = (ctx: ImplementCtx): Required<Pick<Impl
  * `undefined`. `start-attempt` spreads this onto its output ALONGSIDE the fields it explicitly sets
  * (`currentTaskId` / `currentTask` / `tasks`), so a fresh attempt never inherits the prior attempt's
  * turn counter, plateau window, round pointer, latest evaluation, proposed commit message, or
- * generator/evaluator session ids — and, since `lastTurnActionCounts` is classified here too, never
- * inherits the prior attempt's last-turn signal-kind distribution either (the bug this classification
- * fixes: that field previously had no reset site at all).
+ * generator/evaluator session ids.
  *
  * The return type, `Required<Pick<ImplementCtx, AttemptResetKey>>`, is the same compile-time forcing
  * function as {@link projectSprintScopedFields}: reclassifying or adding a field to the `'reset'`
@@ -239,7 +232,6 @@ export const resetAttemptScratch = (): Required<Pick<ImplementCtx, AttemptResetK
   currentRoundNum: undefined,
   lastEvaluation: undefined,
   plateauHistory: undefined,
-  lastTurnActionCounts: undefined,
   proposedCommitMessage: undefined,
   priorGeneratorSessionId: undefined,
   priorEvaluatorSessionId: undefined,

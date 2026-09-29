@@ -14,10 +14,8 @@ import { guard } from '@src/application/chain/build/guard.ts';
 import { loop } from '@src/application/chain/build/loop.ts';
 import { sequential } from '@src/application/chain/build/sequential.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
-import { entropyCheckLeaf } from '@src/application/flows/implement/leaves/entropy-check.ts';
 import { evaluatorLeaf } from '@src/application/flows/implement/leaves/evaluator.ts';
 import { generatorLeaf } from '@src/application/flows/implement/leaves/generator.ts';
-import { loopDiversityCheckLeaf } from '@src/application/flows/implement/leaves/loop-diversity-check.ts';
 import { resolveRoundNumLeaf } from '@src/application/flows/implement/leaves/resolve-round-num.ts';
 import {
   stampEvaluatorRoleMetaLeaf,
@@ -92,11 +90,6 @@ export interface GenEvalLoopDeps {
   readonly plateauThreshold: number;
   /** Bounded corrective in-round nudges before a signals.json contract failure self-blocks (1–5). */
   readonly correctiveRetries: number;
-  /**
-   * `settings.harness.entropyPlateauDetector` — opt-in (default off) action-entropy detector.
-   * Optional so a caller that never opts in can omit it; `undefined` reads as off.
-   */
-  readonly entropyPlateauDetector?: boolean | undefined;
 }
 
 export interface GenEvalLoopOpts {
@@ -145,19 +138,9 @@ export const createGenEvalLoop = (
     gitRunner: deps.gitRunner,
   };
 
-  // Provider attribution for both stamp sidecars, and the shared deps of the two post-evaluator
-  // plateau detectors (both read the same live turn budget the loop's `shouldContinue` reads).
+  // Provider attribution for both stamp sidecars.
   const generatorSpawn = roleSpawnConfig(opts.generator);
   const evaluatorSpawn = roleSpawnConfig(opts.evaluator);
-  // Both detectors size their window from the SAME operator threshold the calibrated predicate
-  // uses, and the entropy one additionally reads its opt-in knob (default off).
-  const checkDeps = {
-    readConfig: deps.readConfig,
-    eventBus: deps.eventBus,
-    clock: deps.clock,
-    plateauThreshold: deps.plateauThreshold,
-  };
-  const entropyDeps = { ...checkDeps, enabled: deps.entropyPlateauDetector === true };
 
   return loop<ImplementCtx>(
     `gen-eval-${String(taskId)}`,
@@ -185,8 +168,6 @@ export const createGenEvalLoop = (
             taskId
           ),
           evaluatorLeaf(evaluatorLeafDeps, taskId),
-          loopDiversityCheckLeaf(checkDeps, taskId),
-          entropyCheckLeaf(entropyDeps, taskId),
         ])
       ),
     ]),

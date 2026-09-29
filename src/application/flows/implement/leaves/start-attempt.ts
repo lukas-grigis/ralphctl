@@ -63,7 +63,7 @@ export const startAttemptLeaf = (deps: StartAttemptLeafDeps, taskId: TaskId): El
       // Start-attempt is the per-ATTEMPT boundary leaf. Under the outer attempt loop the same ctx
       // flows from one attempt into the next within a single launch, so the gen-eval turn counter,
       // plateau window, round pointer, latest evaluation, proposed commit message, generator /
-      // evaluator session ids, and last-turn signal-kind distribution MUST reset here — otherwise
+      // evaluator session ids MUST reset here — otherwise
       // attempt 2's inner loop would inherit attempt 1's `plateauHistory` (plateau-on-first-eval), a
       // climbing `genEvalTurn`, a stale commit message, or a cross-attempt session resume that mixes
       // two unrelated bodies of work into one conversational thread. `resetAttemptScratch` is the

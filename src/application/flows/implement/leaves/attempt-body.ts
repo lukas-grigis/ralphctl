@@ -121,9 +121,6 @@ const buildNormalGenEvalElement = (
       maxTurns: deps.config.harness.maxTurns,
       plateauThreshold: deps.config.harness.plateauThreshold,
       correctiveRetries: deps.config.harness.correctiveRetries,
-      // Opt-in action-entropy detector (default off) — a static launch-time knob, same channel as
-      // `skipPreVerifyOnFreshSetup` below.
-      entropyPlateauDetector: deps.config.harness.entropyPlateauDetector,
     },
     {
       cwd: repo.path,

@@ -310,8 +310,8 @@ export interface AiSignalEvent {
  *                  ladder. `'plateau'` is kept as a member so any consumer that matched the
  *                  prior single-literal shape still narrows. `'malformed'` is deliberately
  *                  absent — that exit is the evaluator's failure and never escalates the model.
- *  - `plateauSource` — WHICH plateau detector fired (see {@link PlateauSource} for the 1:1
- *                  mapping to the loop-diversity / entropy guards' banner causes), only present
+ *  - `plateauSource` — WHICH plateau detector fired (see {@link PlateauSource}; the loop-diversity / entropy
+ *                  sources are retired but may appear on legacy events), only present
  *                  when `reason === 'plateau'`. Pure instrumentation for the periodic
  *                  detector-load-bearing audit (`.claude/docs/HARNESS-PRINCIPLES.md` § 14) —
  *                  OPTIONAL and additive, absent on a `budget-exhausted` reason or a legacy

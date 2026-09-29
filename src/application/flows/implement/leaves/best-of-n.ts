@@ -9,8 +9,6 @@ import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import type { ImplementDeps } from '@src/application/flows/implement/deps.ts';
 import { evaluatorLeaf, type EvaluatorLeafDeps } from '@src/application/flows/implement/leaves/evaluator.ts';
 import { generatorLeaf, type GeneratorLeafDeps } from '@src/application/flows/implement/leaves/generator.ts';
-import { entropyCheckLeaf } from '@src/application/flows/implement/leaves/entropy-check.ts';
-import { loopDiversityCheckLeaf } from '@src/application/flows/implement/leaves/loop-diversity-check.ts';
 import { resolveRoundNumLeaf } from '@src/application/flows/implement/leaves/resolve-round-num.ts';
 import {
   stampEvaluatorRoleMetaLeaf,
@@ -134,14 +132,6 @@ const buildEvaluatorStep = (
   evaluatorLeafDeps: EvaluatorLeafDeps,
   evaluatorSpawn: { readonly providerId: string; readonly model: string; readonly effort?: string }
 ): Element<ImplementCtx> => {
-  // Same shared plateau-detector deps `gen-eval-loop.ts` builds — both detectors window from the
-  // operator's `plateauThreshold`, and the entropy one reads its opt-in knob (default off).
-  const checkDeps = {
-    readConfig: async () => ({ maxTurns: deps.config.harness.maxTurns }),
-    eventBus: deps.eventBus,
-    clock: deps.clock,
-    plateauThreshold: deps.config.harness.plateauThreshold,
-  };
   return sequential<ImplementCtx>(`best-of-n-evaluator-step-${String(taskId)}`, [
     stampImplementEvaluatorSessionMetaLeaf({ writeFile: deps.writeFile, clock: deps.clock }, evaluatorSpawn, taskId),
     stampEvaluatorRoleMetaLeaf(
@@ -150,8 +140,6 @@ const buildEvaluatorStep = (
       taskId
     ),
     evaluatorLeaf(evaluatorLeafDeps, taskId),
-    loopDiversityCheckLeaf(checkDeps, taskId),
-    entropyCheckLeaf({ ...checkDeps, enabled: deps.config.harness.entropyPlateauDetector === true }, taskId),
   ]);
 };
 
