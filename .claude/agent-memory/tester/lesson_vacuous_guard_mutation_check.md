@@ -10,10 +10,9 @@ the presence and the value of every field a mapping produces (`finalize-gen-eval
 blockedReason; `shouldFailAttempt` comes from the escalation policy, not `mapExit`).
 
 **How to apply:** for each new fence, temporarily break the code under test (negate a gate, drop the guard) and confirm
-the test fails. Firing unit tests can also pin states production never presents: `entropy-check` and
-`loop-diversity-check` cannot fire in the composed gen-eval loop because `windowIsHardStall` is exactly when the
-calibrated plateau predicate already set `ctx.lastExit`. Their `subordination to the calibrated predicate` describes and
-the `gen-eval-loop.test.ts` "genuine stall → threshold" test pin that; do not weaken them.
+the test fails. Firing unit tests can also pin states production never presents: a guard gated on a condition that
+the calibrated plateau predicate has already acted on is unreachable in the composed loop — that is how the two
+subordinate plateau leaves were found redundant and removed. Test through the composed loop, not a hand-fed context.
 
 **Loop facts that trip assertions:** sequential composites emit no trace entry, only leaves do, so assert leaf names in
 `runner.trace`. `InvalidStateError` is recoverable in `turn-error-policy.ts`: a generator spawn failure becomes a

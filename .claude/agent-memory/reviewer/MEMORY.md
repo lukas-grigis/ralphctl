@@ -16,3 +16,7 @@
 - [lesson_headered_list_windowing.md](lesson_headered_list_windowing.md) — Grouped-list windowing overshoots when headers are re-attached
 - [lesson_restore_pop_and_stash_count.md](lesson_restore_pop_and_stash_count.md) — Count same-key stash entries, don't use a boolean
 - [lesson_lint_warnings_are_errors.md](lesson_lint_warnings_are_errors.md) — `pnpm lint` is --max-warnings 0; a "max-lines warning" is a gate failure
+- [lesson_hedge_removal_needs_verified_detection.md](lesson_hedge_removal_needs_verified_detection.md) — Dropping a prompt hedge for a regex-driven fallback; unverified detectors lose the net
+- [lesson_prompt_contract_restated_invariants.md](lesson_prompt_contract_restated_invariants.md) — Contract change in a template: grep all restatements; setext blind spot in splicers
+- [lesson_cut_premise_covers_one_item.md](lesson_cut_premise_covers_one_item.md) — A cut spec's "no default enables X" premise may clear only one item; prove siblings dead separately
+- [lesson_ab_harness_review_checks.md](lesson_ab_harness_review_checks.md) — Eval/A-B tooling: per-flow parity grep, identical-input merge tests, tsx "bundled" dir = working tree
