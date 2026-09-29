@@ -20,3 +20,5 @@
 - [lesson_prompt_contract_restated_invariants.md](lesson_prompt_contract_restated_invariants.md) — Contract change in a template: grep all restatements; setext blind spot in splicers
 - [lesson_cut_premise_covers_one_item.md](lesson_cut_premise_covers_one_item.md) — A cut spec's "no default enables X" premise may clear only one item; prove siblings dead separately
 - [lesson_ab_harness_review_checks.md](lesson_ab_harness_review_checks.md) — Eval/A-B tooling: per-flow parity grep, identical-input merge tests, tsx "bundled" dir = working tree
+- [lesson_cross_provider_usage_semantics.md](lesson_cross_provider_usage_semantics.md) — Token labels claim all 5 providers' semantics; legacy 0-defaults print as fact; probe old results file
+- [lesson_eval_fixture_label_audit.md](lesson_eval_fixture_label_audit.md) — `eval check` green ≠ labels right: clean must meet every spec clause; oracle must accept spec-literal impls
