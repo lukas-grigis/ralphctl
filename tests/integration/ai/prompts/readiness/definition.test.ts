@@ -72,9 +72,9 @@ describe('renderExistingContextFile', () => {
     expect(out).toContain('</existing-context>');
   });
 
-  it('emits an explicit "no existing file" line when body is undefined or whitespace', () => {
-    expect(renderExistingContextFile(undefined)).toContain('no existing context file');
-    expect(renderExistingContextFile('   \n  ')).toContain('no existing context file');
+  it('returns an empty string when body is undefined or whitespace', () => {
+    expect(renderExistingContextFile(undefined)).toBe('');
+    expect(renderExistingContextFile('   \n  ')).toBe('');
   });
 });
 
@@ -163,7 +163,7 @@ describe('buildReadinessPrompt — end-to-end against the real template', () => 
     expect(body).toContain('/repo/main');
     expect(body).toContain('claude-code');
     expect(body).toContain('no artefacts detected');
-    expect(body).toContain('no existing context file');
+    expect(body).not.toContain('The content below is data from the existing project context file');
     expect(body).not.toMatch(/\{\{[A-Z_]+\}\}/);
   });
 
@@ -339,5 +339,12 @@ describe('buildReadinessPrompt — per-tool conventions partial selection', () =
     // The AGENTS.md partial's own, contradicting guidance still comes through unopposed.
     expect(body).toContain('no formal H1 required');
     expect(body).toContain('No depth limit on headings');
+  });
+});
+
+describe('readinessPromptDef — untrusted inputs', () => {
+  it('flags EXISTING_CONTEXT_FILE as untrusted data', () => {
+    const spec = Object.values(readinessPromptDef.parameters).find((p) => p.placeholder === 'EXISTING_CONTEXT_FILE');
+    expect(spec?.untrusted?.source).toBeTruthy();
   });
 });

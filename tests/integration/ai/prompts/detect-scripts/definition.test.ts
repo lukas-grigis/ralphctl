@@ -149,7 +149,7 @@ describe('detect-scripts template — detection guidance', () => {
     expect(body).toMatch(/read-only/i);
     expect(body).toMatch(/Do not modify the working tree/);
     // "do not run commands" may span a soft line-wrap in the template source.
-    expect(body).toMatch(/do not run[\s\S]{0,5}commands/i);
+    expect(body).toMatch(/or run\s+commands/i);
   });
 
   it('mandates an evidence-or-omit rule on every proposed command', async () => {
@@ -172,8 +172,8 @@ describe('detect-scripts template — detection guidance', () => {
 
   it('frames verify-gates as additive to the verify script, never a replacement', async () => {
     const body = await renderedBody();
-    // The ADDITIVE contract is load-bearing: gates persist alongside the legacy script fallback.
-    expect(body).toMatch(/`verify-gates` signal is ADDITIVE/);
+    // The additive contract is load-bearing: gates persist alongside the legacy script fallback.
+    expect(body).toMatch(/`verify-gates` signal is additive/);
     expect(body).toMatch(/alongside the `verify-script` signal, never[\s\S]{0,12}instead of it/i);
   });
 
@@ -205,5 +205,12 @@ describe('detect-scripts template — detection guidance', () => {
     expect(block).not.toMatch(/\bcargo\b/);
     expect(block).not.toMatch(/\bmvn\b/);
     expect(block).not.toMatch(/\bgradle\b/);
+  });
+});
+
+describe('detect-scripts template — example signals', () => {
+  it('examples omit the harness-stamped timestamp field', async () => {
+    const template = await fs.readFile(`${String(defaultTemplatesDir())}/detect-scripts/template.md`, 'utf8');
+    expect(template).not.toContain('"timestamp"');
   });
 });

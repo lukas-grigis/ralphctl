@@ -3,7 +3,7 @@
  * multi-paragraph skills (setup + verify) for the repository. Sibling of `detect-scripts` —
  * scripts produce single shell lines, skills produce stack-aware AI guidance.
  *
- * Under the audit-[09] contract the AI writes `signals.json` directly into the spawn's
+ * The AI writes `signals.json` directly into the spawn's
  * `outputDir` with `setup-skill-proposal` / `verify-skill-proposal` / `note` signals; the
  * harness validates post-spawn and renders sidecars (`setup-skill.md`, `verify-skill.md`).
  */
@@ -25,7 +25,7 @@ export interface DetectSkillsPromptParams {
    */
   readonly skillsConvention: string;
   /**
-   * Audit-[09] output contract section — rendered from the detect-skills `AiOutputContract`
+   * Output contract section — rendered from the detect-skills `AiOutputContract`
    * by `renderContractSectionFor(detectSkillsOutputContract)`. Instructs the AI to write
    * `signals.json` directly with optional `setup-skill-proposal` / `verify-skill-proposal` /
    * `note` signals.
@@ -51,13 +51,11 @@ export const detectSkillsPromptDef: PromptDefinition<DetectSkillsPromptParams> =
     outputContractSection: {
       placeholder: 'OUTPUT_CONTRACT_SECTION',
       description:
-        'Audit-[09] output contract block rendered from the detect-skills contract — instructs the AI to write `signals.json` directly.',
+        'Output contract block rendered from the detect-skills contract — instructs the AI to write `signals.json` directly.',
       validate: requireNonEmpty('outputContractSection', 'output-contract section must not be empty'),
     },
   },
-  partials: {
-    HARNESS_CONTEXT: 'harness-context',
-  },
+  partials: {},
   expectedSignals: ['setup-skill-proposal', 'verify-skill-proposal', 'note'],
 };
 

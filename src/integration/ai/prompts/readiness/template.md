@@ -38,8 +38,6 @@ bottom of this prompt.
 </target_file_conventions>
 </inputs>
 
-{{HARNESS_CONTEXT}}
-
 <constraints>
 
 **Read-only scope.** Read configuration and metadata files only — `package.json`, `pyproject.toml`,
@@ -71,7 +69,7 @@ for genuinely surprising rules — overuse erodes their meaning.
 - Credentials, user-specific paths, or commands that touch remote services.
 - Standard language conventions the agent already knows.
 
-**Existing-context rule (fires when `<existing_context_file>` carries a body, not the sentinel line).**
+**Existing-context rule (fires when `<existing_context_file>` is non-empty; an empty one means no file exists yet — emit a fresh body).**
 The supplied prose is authoritative. The `agents-md-proposal` signal's `content` MUST contain the existing
 body byte-for-byte verbatim at the start, in the original order, with no rewording, summarising, or
 reformatting. Append proposed additions as new H2 sections at the bottom only. Do not modify, prune, or
@@ -132,7 +130,7 @@ not what is typical for the apparent stack.
 Draft each surviving section against the inclusion test. Drop any section an experienced engineer could
 derive from the manifest or directory tree.
 
-When `<existing_context_file>` carries a body (not the "no existing file" sentinel), the existing prose
+When `<existing_context_file>` is non-empty (empty means no file exists yet), the existing prose
 comes first, byte-for-byte. Your additions go as new H2 sections at the bottom — never inline or merged.
 
 ### Phase 4 — Output

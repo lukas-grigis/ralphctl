@@ -31,7 +31,7 @@ export interface ApplyFeedbackPromptParams {
   /** Pinned-section snapshot of `progress.md` — `{{PROGRESS}}`. */
   readonly progress: string;
   /**
-   * Audit-[09] output contract section — rendered from the review-round `AiOutputContract`
+   * Output contract section — rendered from the review-round `AiOutputContract`
    * by `renderContractSectionFor(reviewRoundOutputContract)`. Instructs the AI to write
    * `signals.json` directly with exactly one of `task-complete` or `task-blocked`.
    */
@@ -70,13 +70,11 @@ export const applyFeedbackPromptDef: PromptDefinition<ApplyFeedbackPromptParams>
     outputContractSection: {
       placeholder: 'OUTPUT_CONTRACT_SECTION',
       description:
-        'Audit-[09] output contract block rendered from the review-round contract — instructs the AI to write `signals.json` directly with exactly one terminal signal.',
+        'Output contract block rendered from the review-round contract — instructs the AI to write `signals.json` directly with exactly one terminal signal.',
       validate: requireNonEmpty('outputContractSection', 'output-contract section must not be empty'),
     },
   },
-  partials: {
-    HARNESS_CONTEXT: 'harness-context',
-  },
+  partials: {},
   expectedSignals: ['task-complete', 'task-blocked'],
 };
 

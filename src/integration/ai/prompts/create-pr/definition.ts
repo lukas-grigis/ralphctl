@@ -30,7 +30,7 @@ export interface CreatePrPromptParams {
    */
   readonly issueRefs: string;
   /**
-   * Audit-[09] output contract section — rendered from the create-pr `AiOutputContract` by
+   * Output contract section — rendered from the create-pr `AiOutputContract` by
    * `renderContractSectionFor(generatePrContentOutputContract)`. Tells the AI to write
    * `signals.json` directly with one `pr-content` signal.
    */
@@ -40,7 +40,7 @@ export interface CreatePrPromptParams {
 export const createPrPromptDef: PromptDefinition<CreatePrPromptParams> = {
   templateName: 'create-pr',
   description:
-    'Headless authoring of one pull-request title + body from the actual git diff against the base branch. The AI runs `git log` / `git diff` itself and writes its proposal to signals.json per the audit-[09] contract.',
+    'Headless authoring of one pull-request title + body from the actual git diff against the base branch. The AI runs `git log` / `git diff` itself and writes its proposal to signals.json per the signals.json contract.',
   parameters: {
     baseBranch: {
       placeholder: 'BASE_BRANCH',
@@ -67,13 +67,11 @@ export const createPrPromptDef: PromptDefinition<CreatePrPromptParams> = {
     outputContractSection: {
       placeholder: 'OUTPUT_CONTRACT_SECTION',
       description:
-        'Audit-[09] output contract block rendered from the create-pr contract — instructs the AI to write `signals.json` directly with one `pr-content` signal.',
+        'Output contract block rendered from the create-pr contract — instructs the AI to write `signals.json` directly with one `pr-content` signal.',
       validate: requireNonEmpty('outputContractSection', 'output-contract section must not be empty'),
     },
   },
-  partials: {
-    HARNESS_CONTEXT: 'harness-context',
-  },
+  partials: {},
   expectedSignals: ['pr-content'],
 };
 

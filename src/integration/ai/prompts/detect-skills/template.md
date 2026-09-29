@@ -7,9 +7,9 @@ precision; every sentence must be grounded in something you read in the repo.
 
 <goal>
 Produce one `setup-skill-proposal` signal and one `verify-skill-proposal` signal for the repository
-at `{{REPOSITORY_PATH}}`, each containing a multi-paragraph markdown body, and write them to
-`signals.json` in the harness output directory. Omit a signal only when an existing skill already
-covers that responsibility for this repo.
+at `{{REPOSITORY_PATH}}`, each containing a short markdown body, and write them to `signals.json` in the harness output
+directory. Emit each signal unless an existing skill already covers that responsibility for this
+repo — if covered, emit a `note` instead.
 </goal>
 
 <success_criteria>
@@ -18,17 +18,14 @@ covers that responsibility for this repo.
   already cover both responsibilities (in which case emit a `note` explaining what was found).
 - Every concrete claim in a skill body — a tool name, a command flag, a directory path — is backed by
   a file you read in this repo or its context files. No training-data generics.
-- Skill bodies are written in second-person, present tense, 4–10 short paragraphs each.
+- Skill bodies are written in second-person, present tense, 1–3 short paragraphs each.
 - `signals.json` is valid JSON that parses against the output contract schema.
 
 </success_criteria>
 
 <inputs>
 <repository_path>{{REPOSITORY_PATH}}</repository_path>
-<skills_convention_pointer>See the full skills convention in the constraints section below.</skills_convention_pointer>
 </inputs>
-
-{{HARNESS_CONTEXT}}
 
 <capabilities>
 You can read files anywhere in the repository at `{{REPOSITORY_PATH}}`. You cannot run shell commands,
@@ -44,13 +41,13 @@ before anything lands.
 (`Makefile`, `justfile`, `Taskfile.yml`). These are the authoritative source. Beyond them, read only
 configuration and metadata files: manifests, lockfiles, build descriptors, tool-version pins, CI
 workflows, top-level `scripts/` entries. For monorepos, inspect the root and one or two representative
-sub-modules. Do NOT read source trees, tests, or vendored directories.
+sub-modules. Do not read source trees, tests, or vendored directories.
 
 **Check existing skills before drafting.** Use the convention below to list and inspect existing
 per-repo skills. If a skill already covers the sprint-setup or post-task-verification responsibility
-for this repo — even partially — omit the relevant signal and note it in a `note` signal so the
-operator can decide. Most repos will not have existing skills; their absence is the reason to emit,
-not a reason to omit.
+for this repo, omit the relevant signal and note it in a `note` signal so the operator can decide.
+Otherwise emit — partial or tangential coverage does not count, and most repos have no existing
+skills.
 
 <skills_convention>{{SKILLS_CONVENTION}}</skills_convention>
 
@@ -58,15 +55,15 @@ not a reason to omit.
 backed by something you read in the repo or a context file. Drop any claim you cannot tie to a file.
 
 **Voice and length.** Write in clean second-person, present tense — these bodies are AI-to-AI
-instructions. Aim for 4–10 short paragraphs per skill. No headings inside the body (the harness wraps
+instructions. Aim for 1–3 short paragraphs per skill. No headings inside the body (the harness wraps
 each in its own section). Code fences inside the body are fine.
 
 **Skill content must be useful, not aspirational.** "Run the project's install command" is useful. "Be
 careful with edge cases" is noise. Delete any paragraph that would apply to any project.
 
-**Emit when there is any stack-specific quirk.** If the repo has a non-default toolchain, a
-tool-version pin, a lockfile policy, a monorepo sub-tree ordering dependency, or anything else that
-would trip up a generic AI session — emit the skill and document it.
+**Document stack-specific quirks.** A non-default toolchain, tool-version pin, lockfile policy,
+monorepo sub-tree ordering dependency, or anything else that would trip up a generic AI session
+belongs in the skill body.
 
 </constraints>
 
@@ -101,8 +98,7 @@ Before drafting, cover, in order:
 5. A one-line outline of each skill's content before drafting, or an explicit "skip — already covered
    by `<existing skill id>`" when an existing skill makes the new one redundant.
 
-Then read only the configuration and metadata files in scope above. Do NOT read source trees, tests,
-vendored directories, or generated output.
+Then read only the configuration and metadata files in scope above.
 
 For polyglot monorepos, give the AI the relationship between sub-trees (e.g. "the frontend depends
 on a build artifact produced by the backend"). Generic boilerplate adds no value — every sentence
@@ -113,8 +109,7 @@ should earn its place by being specific to this repo.
 <example>
 When the repository's context file documents the verify command and a tool-version pin file is present:
 
-```
-signals.json
+```json
 {
   "schemaVersion": 1,
   "signals": [

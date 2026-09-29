@@ -59,3 +59,11 @@ describe('buildDetectSkillsPrompt — end-to-end', () => {
     if (!result.ok) expect(result.error).toBeInstanceOf(ValidationError);
   });
 });
+
+describe('detect-skills template — consistency', () => {
+  it('has no dangling skills_convention_pointer input and no signals.json label inside the example fence', async () => {
+    const template = await fs.readFile(`${String(defaultTemplatesDir())}/detect-skills/template.md`, 'utf8');
+    expect(template).not.toContain('skills_convention_pointer');
+    expect(template).not.toMatch(/```\s*\nsignals\.json/);
+  });
+});
