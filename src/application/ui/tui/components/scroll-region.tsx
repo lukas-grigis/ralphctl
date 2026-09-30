@@ -16,8 +16,11 @@
  *   ↑ / ↓                     → scroll one row (primary on laptops without a PgUp/PgDn key)
  *   PageUp / PageDown / Ctrl+b / Ctrl+f → scroll a full page
  *   Ctrl+u / Ctrl+d           → half-page jumps
- *   g                         → top
- *   G                         → bottom (the clamped max)
+ *   Home / End                → top / bottom (the clamped max)
+ *   (`g` / `G` are deliberately NOT bound: `g` is the global progress-overlay toggle)
+ *
+ * When the content is taller than the viewport the region paints a dim `▴ N more` / `▾ N more`
+ * row over the clipped edge, so silent clipping never hides content without a cue.
  *
  * Arrow keys are dual-purpose: windowed-list views that own their own cursor via `useListWindow`
  * also handle arrow keys for row navigation. The early return on `max === 0` (content fits the
@@ -38,7 +41,8 @@
  */
 
 import React, { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Box, type DOMElement, type Key, measureElement, useInput, useStdin, useStdout } from 'ink';
+import { glyphs, spacing } from '@src/application/ui/tui/theme/tokens.ts';
+import { Box, Text, type DOMElement, type Key, measureElement, useInput, useStdin, useStdout } from 'ink';
 
 export interface ScrollRegionProps {
   readonly children: React.ReactNode;
@@ -183,10 +187,36 @@ interface ScrollLayout {
   readonly half: number;
 }
 
+/**
+ * Largest scroll offset. While the content overflows, the overflow cues take rows OUT of the
+ * viewport (one per edge that still has hidden content), so the clamp is `content - viewport + 1`:
+ * at the bottom only the `▴` cue remains, which costs exactly one row. Content that fits has no
+ * cues and no scroll.
+ */
+const maxOffsetFor = (viewport: number, content: number): number => (content > viewport ? content - viewport + 1 : 0);
+
 const computeLayout = (offset: number, viewport: number, content: number): ScrollLayout => {
-  const max = Math.max(0, content - viewport);
+  const max = maxOffsetFor(viewport, content);
   return { offset, max, page: Math.max(4, viewport - 2), half: Math.max(2, Math.floor(viewport / 2)) };
 };
+
+/** Rows a cue-bearing viewport is guaranteed to show whichever cues are active. */
+const CUE_SAFE_ROWS = 2;
+
+/** Dim `▴ N more` / `▾ N more` row marking clipped content at one edge of the viewport. */
+const ScrollCue = ({
+  direction,
+  count,
+}: {
+  readonly direction: 'above' | 'below';
+  readonly count: number;
+}): React.JSX.Element => (
+  <Box flexShrink={0} paddingX={spacing.indent}>
+    <Text dimColor>
+      {direction === 'above' ? glyphs.moreAbove : glyphs.moreBelow} {count} more
+    </Text>
+  </Box>
+);
 
 /**
  * One row per recognised scroll key: `matches` tests the raw `useInput` payload, `nextOffset`
@@ -203,8 +233,8 @@ const SCROLL_KEY_ACTIONS: ReadonlyArray<{
   { matches: (input, key) => key.pageUp || (key.ctrl && input === 'b'), nextOffset: (l) => l.offset - l.page },
   { matches: (input, key) => key.ctrl && input === 'd', nextOffset: (l) => l.offset + l.half },
   { matches: (input, key) => key.ctrl && input === 'u', nextOffset: (l) => l.offset - l.half },
-  { matches: (input) => input === 'g', nextOffset: () => 0 },
-  { matches: (input) => input === 'G', nextOffset: (l) => l.max },
+  { matches: (_input, key) => key.home, nextOffset: () => 0 },
+  { matches: (_input, key) => key.end, nextOffset: (l) => l.max },
 ];
 
 /**
@@ -264,6 +294,9 @@ export const ScrollRegion = ({
 }: ScrollRegionProps): React.JSX.Element => {
   const [offset, setOffset] = useState(0);
   const sizeRef = useRef<{ viewport: number; content: number }>({ viewport: 0, content: 0 });
+  // Mirror of `sizeRef` as state: the overflow cues are painted from it, and a ref write alone
+  // would not re-render them into view.
+  const [size, setSize] = useState<{ viewport: number; content: number }>({ viewport: 0, content: 0 });
   const viewportRef = useRef<DOMElement | null>(null);
   const contentRef = useRef<DOMElement | null>(null);
   // The element the viewport should keep visible, published by `useScrollAnchor` from whichever
@@ -271,8 +304,14 @@ export const ScrollRegion = ({
   // re-render the whole subtree on every cursor move — the layout effect below reads it after
   // the commit that moved the focus, which is exactly when the new position is measurable.
   const anchorRef = useRef<DOMElement | null>(null);
+  // A new anchor must re-run the measure-and-reveal pass below even when the cursor lives in a
+  // descendant (ActionMenu) whose state change never re-renders this region. Bumping a counter
+  // re-renders only the region — its `children` element is unchanged, so React reuses the subtree.
+  const [, setAnchorTick] = useState(0);
   const register = useCallback((node: DOMElement | null) => {
+    const changed = node !== null && node !== anchorRef.current;
     anchorRef.current = node;
+    if (changed) setAnchorTick((t) => t + 1);
   }, []);
   const anchorRegistry = React.useMemo<ScrollAnchorRegistry>(() => ({ register }), [register]);
   // The anchor placement the last reveal pass looked at. Reveal only runs when the placement
@@ -283,7 +322,7 @@ export const ScrollRegion = ({
   // Memoised because `useWheelScroll` lists it as a dependency: `maxOffset` only reads a ref, so
   // it has no inputs of its own, and a fresh identity each render would re-arm the mouse-tracking
   // effect (rewriting the SGR enable sequence) on every paint.
-  const maxOffset = useCallback((): number => Math.max(0, sizeRef.current.content - sizeRef.current.viewport), []);
+  const maxOffset = useCallback((): number => maxOffsetFor(sizeRef.current.viewport, sizeRef.current.content), []);
   const clamp = (next: number): number => Math.max(0, Math.min(next, maxOffset()));
 
   // No dep array: runs after every render so sizeRef stays current as content grows or
@@ -306,10 +345,9 @@ export const ScrollRegion = ({
   useLayoutEffect(() => {
     const viewport = viewportRef.current ? measureElement(viewportRef.current).height : 0;
     if (viewport === 0) return;
-    sizeRef.current = {
-      viewport,
-      content: contentRef.current ? measureElement(contentRef.current).height : 0,
-    };
+    const content = contentRef.current ? measureElement(contentRef.current).height : 0;
+    sizeRef.current = { viewport, content };
+    setSize((prev) => (prev.viewport === viewport && prev.content === content ? prev : { viewport, content }));
     const max = maxOffset();
     if (offset > max) {
       setOffset(max);
@@ -323,7 +361,10 @@ export const ScrollRegion = ({
     if (samePlacement(placement, revealedRef.current)) return;
     revealedRef.current = placement;
     if (placement === undefined) return;
-    const next = revealOffset({ top: placement.top, height: placement.height, offset, viewport });
+    // While overflowing, reveal against the cue-safe viewport so the anchor stays visible
+    // whichever cue rows end up drawn.
+    const visible = sizeRef.current.content > viewport ? viewport - CUE_SAFE_ROWS : viewport;
+    const next = revealOffset({ top: placement.top, height: placement.height, offset, viewport: visible });
     if (next !== offset) setOffset(Math.min(next, max));
   });
 
@@ -345,15 +386,27 @@ export const ScrollRegion = ({
 
   useWheelScroll({ disabled, setOffset, maxOffset });
 
+  // Cue bookkeeping — derived from the last measurement, so it is one frame stale at worst.
+  const max = maxOffsetFor(size.viewport, size.content);
+  const showAbove = max > 0 && offset > 0;
+  const showBelow = max > 0 && offset < max;
+  const shownRows = size.viewport - (showAbove ? 1 : 0) - (showBelow ? 1 : 0);
+  const hiddenBelow = Math.max(0, size.content - offset - shownRows);
+
   return (
-    // Viewport: takes all remaining vertical space (flexGrow=1) AND clips overflow so an
-    // oversized inner box can't push the status bar off-screen.
-    <Box ref={viewportRef} flexDirection="column" flexGrow={1} overflowY="hidden">
-      {/* Inner: renders content at its natural height (flexShrink=0); marginTop=-offset
-          shifts it up, the viewport's overflow=hidden does the clipping. */}
-      <Box ref={contentRef} flexDirection="column" marginTop={-offset} flexShrink={0}>
-        <ScrollAnchorContext.Provider value={anchorRegistry}>{children}</ScrollAnchorContext.Provider>
+    // Viewport: takes all remaining vertical space (flexGrow=1). The cue rows sit OUTSIDE the
+    // clip box so they never cover content; the clip box takes whatever rows remain.
+    <Box ref={viewportRef} flexDirection="column" flexGrow={1}>
+      {showAbove && <ScrollCue direction="above" count={offset} />}
+      {/* Clip: overflow=hidden so an oversized inner box can't push the status bar off-screen. */}
+      <Box flexDirection="column" flexGrow={1} flexShrink={1} overflowY="hidden">
+        {/* Inner: renders content at its natural height (flexShrink=0); marginTop=-offset
+            shifts it up, the clip's overflow=hidden does the clipping. */}
+        <Box ref={contentRef} flexDirection="column" marginTop={-offset} flexShrink={0}>
+          <ScrollAnchorContext.Provider value={anchorRegistry}>{children}</ScrollAnchorContext.Provider>
+        </Box>
       </Box>
+      {showBelow && <ScrollCue direction="below" count={hiddenBelow} />}
     </Box>
   );
 };

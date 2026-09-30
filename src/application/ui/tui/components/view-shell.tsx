@@ -32,13 +32,14 @@
  * metadata that scrolls with the page body. The banner + breadcrumb are global anchors that
  * stay put across navigation.
  *
- * The wordmark `'full'` banner is reserved for the home view; every other view defaults to a
+ * The wordmark `'full'` banner is reserved for the home view and only when it fits
+ * (`resolveBannerMode`); every other view, and Home on a short or narrow terminal, gets a
  * single-line compact strip so the viewport stays content-first.
  */
 
 import React from 'react';
 import { Box } from 'ink';
-import { Banner } from '@src/application/ui/tui/components/banner.tsx';
+import { Banner, resolveBannerMode } from '@src/application/ui/tui/components/banner.tsx';
 import { Breadcrumb } from '@src/application/ui/tui/components/breadcrumb.tsx';
 import { SectionStamp } from '@src/application/ui/tui/components/section-stamp.tsx';
 import { StatusBar } from '@src/application/ui/tui/components/status-bar.tsx';
@@ -47,23 +48,14 @@ import { FeedbackLine, type StructuredFeedback } from '@src/application/ui/tui/c
 import { ScrollRegion } from '@src/application/ui/tui/components/scroll-region.tsx';
 import { PromptHost } from '@src/application/ui/tui/prompts/prompt-host.tsx';
 import { usePromptQueue } from '@src/application/ui/tui/prompts/prompt-context.tsx';
+import { useRouter } from '@src/application/ui/tui/runtime/router.tsx';
+import { useTerminalSize } from '@src/application/ui/tui/runtime/use-terminal-size.ts';
 import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 
 export interface ViewShellProps {
   readonly title: string;
   readonly subtitle?: string;
   readonly right?: React.ReactNode;
-  /**
-   * View-level banner preference:
-   *   - `true` → render the compact two-row strip (long-running flows pass this so the wordmark
-   *     doesn't eat vertical real estate from the task stream).
-   *   - `undefined` (default) → let the {@link Banner} auto-switch on terminal width (full above
-   *     `MIN_FULL_WIDTH`, compact below).
-   *
-   * Precedence: a user `b`-toggle (`UiState.bannerCompact`) always wins; this prop is the
-   * fallback the view declares; absent both, Banner's width-based auto-switch applies.
-   */
-  readonly compactBanner?: boolean;
   /**
    * When true, the inner {@link ScrollRegion} ignores arrow / paging / vim scroll keys so a view
    * that owns its own list cursor handles them itself (no double-scroll). Mouse-wheel scroll is
@@ -88,22 +80,25 @@ export const ViewShell = ({
   title,
   subtitle,
   right,
-  compactBanner,
   suppressScrollArrows,
   feedback,
   children,
 }: ViewShellProps): React.JSX.Element => {
   const ui = useUiState();
   const queue = usePromptQueue();
-  // Precedence: user toggle (`bannerCompact`) wins over the view's `compactBanner` prop, which
-  // wins over `Banner`'s internal width-based auto-switch. When neither is set we pass
-  // `undefined` so the auto-switch fires.
-  const banner = ui.bannerCompact ? true : compactBanner;
+  const router = useRouter();
+  const { columns, rows } = useTerminalSize();
+  const bannerMode = resolveBannerMode({
+    routeId: router.current.id,
+    columns,
+    rows,
+    userToggle: ui.bannerCompact,
+  });
   return (
     <Box flexDirection="column" flexGrow={1}>
       {/* ── HEADER ─────────────────────────────────────────────────────────────────────── */}
       <Box flexDirection="column" flexShrink={0}>
-        <Banner {...(banner !== undefined ? { compact: banner } : {})} />
+        <Banner mode={bannerMode} />
         <Breadcrumb />
       </Box>
 

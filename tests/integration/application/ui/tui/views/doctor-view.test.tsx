@@ -10,6 +10,7 @@ import { Result } from '@src/domain/result.ts';
 import { DoctorView } from '@src/application/ui/tui/views/doctor-view.tsx';
 import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import type { DoctorReport, ProbeResult } from '@src/application/flows/doctor/ctx.ts';
+import { ENTER } from '@tests/integration/application/ui/tui/_keys.ts';
 import { waitForPredicate } from '@tests/integration/application/ui/tui/_wait.ts';
 import { renderView } from '@tests/integration/application/ui/tui/_harness.tsx';
 
@@ -40,8 +41,13 @@ describe('DoctorView', () => {
     };
     const { result } = renderView(<DoctorView />, { deps, initial: { id: 'doctor' } });
     await waitForPredicate(() => /passed/.test(result.lastFrame() ?? ''));
-    const frame = result.lastFrame() ?? '';
-    expect(frame).toMatch(/passed/);
+    let frame = result.lastFrame() ?? '';
+    expect(frame).toMatch(/2 passed/);
+    // All-pass groups start collapsed behind one line; ↵ expands them.
+    expect(frame).not.toContain('Storage');
+    result.stdin.write(ENTER);
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('Storage'));
+    frame = result.lastFrame() ?? '';
     expect(frame).toContain('Storage');
     expect(frame).toContain('AI providers');
     expect(frame).toContain('r reload');

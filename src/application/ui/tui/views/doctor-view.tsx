@@ -10,7 +10,7 @@
  * "X doctor warnings" indicator.
  */
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { ViewShell } from '@src/application/ui/tui/components/view-shell.tsx';
 import { StatusChip } from '@src/application/ui/tui/components/status-chip.tsx';
@@ -44,11 +44,42 @@ const GROUP_LABEL: Record<ProbeGroup | 'other', string> = {
   other: 'Other',
 };
 
+const SEVERITY: Readonly<Record<ProbeResult['status'], number>> = { fail: 0, warn: 1, unknown: 2, pass: 3 };
+
+interface GroupBucket {
+  readonly group: ProbeGroup | 'other';
+  /** Probes in severity order, worst first — the thing the operator came here to read. */
+  readonly probes: readonly ProbeResult[];
+  readonly worst: number;
+}
+
+/**
+ * Bucket probes by group and order the buckets worst-first (fail, warn, unknown, pass), keeping
+ * {@link GROUP_ORDER} as the tiebreak. Healthy groups sort last so the rows that need action are
+ * reachable without scrolling past dozens of passes.
+ */
+const bucketProbes = (results: readonly ProbeResult[]): readonly GroupBucket[] =>
+  GROUP_ORDER.flatMap((group): GroupBucket[] => {
+    const probes = results
+      .filter((r) => (r.group ?? 'other') === group)
+      .sort((a, b) => SEVERITY[a.status] - SEVERITY[b.status]);
+    const first = probes[0];
+    return first === undefined ? [] : [{ group, probes, worst: SEVERITY[first.status] }];
+  }).sort((a, b) => a.worst - b.worst);
+
 export const DoctorView = (): React.JSX.Element => {
   const ui = useUiState();
   const system = useSystemStatus();
   const results = system.doctor?.probes;
-  useViewHints([{ keys: 'r', label: 'reload' }]);
+  const [showPassed, setShowPassed] = useState(false);
+  const buckets = useMemo(() => bucketProbes(results ?? []), [results]);
+  const healthy = buckets.filter((b) => b.worst === SEVERITY.pass);
+  const attention = buckets.filter((b) => b.worst !== SEVERITY.pass);
+  const healthyCount = healthy.reduce((n, b) => n + b.probes.length, 0);
+  useViewHints([
+    ...(healthyCount > 0 ? [{ keys: '↵', label: showPassed ? 'hide passed' : 'show passed' }] : []),
+    { keys: 'r', label: 'reload' },
+  ]);
 
   // Trigger a refresh on first mount when the shared provider hasn't auto-fired yet (e.g. the
   // test-env gate suppressed the boot-time probe). A ref guards against re-firing if the
@@ -63,9 +94,10 @@ export const DoctorView = (): React.JSX.Element => {
     void refreshDoctor();
   }, [refreshDoctor, results, system.doctorLoading]);
 
-  useInput((input) => {
+  useInput((input, key) => {
     if (ui.modalOpen) return;
     if (input === 'r') void system.refreshDoctor();
+    if (key.return) setShowPassed((v) => !v);
   });
 
   const showSpinner = system.doctorLoading || results === undefined;
@@ -81,27 +113,39 @@ export const DoctorView = (): React.JSX.Element => {
       ) : (
         <Box flexDirection="column">
           <SummaryHeader probes={results} />
-          {GROUP_ORDER.map((group) => {
-            const entries = results.filter((r) => (r.group ?? 'other') === group);
-            if (entries.length === 0) return null;
-            return (
-              <Box key={group} flexDirection="column" marginBottom={spacing.section}>
-                <Box paddingX={spacing.indent}>
-                  <Text bold>
-                    {glyphs.badge} {GROUP_LABEL[group]}
-                  </Text>
-                </Box>
-                {entries.map((r) => (
-                  <ProbeRow key={r.id} probe={r} />
-                ))}
-              </Box>
-            );
-          })}
+          {attention.map((bucket) => (
+            <GroupSection key={bucket.group} bucket={bucket} />
+          ))}
+          {healthyCount > 0 && (
+            <Box paddingX={spacing.indent} marginBottom={spacing.section}>
+              <Text color={inkColors.primary}>
+                {glyphs.check} {String(healthyCount)} passed
+              </Text>
+              <Text dimColor>
+                {'  '}
+                {glyphs.bullet} {showPassed ? '↵ hide' : '↵ show'}
+              </Text>
+            </Box>
+          )}
+          {showPassed && healthy.map((bucket) => <GroupSection key={bucket.group} bucket={bucket} />)}
         </Box>
       )}
     </ViewShell>
   );
 };
+
+const GroupSection = ({ bucket }: { readonly bucket: GroupBucket }): React.JSX.Element => (
+  <Box flexDirection="column" marginBottom={spacing.section}>
+    <Box paddingX={spacing.indent}>
+      <Text bold>
+        {glyphs.badge} {GROUP_LABEL[bucket.group]}
+      </Text>
+    </Box>
+    {bucket.probes.map((r) => (
+      <ProbeRow key={r.id} probe={r} />
+    ))}
+  </Box>
+);
 
 /**
  * Renders a one-line tally above the grouped probe list so users get the verdict at a glance
@@ -109,7 +153,6 @@ export const DoctorView = (): React.JSX.Element => {
  * present: red if any fail, yellow if any warn, green when everything passes.
  */
 const SummaryHeader = ({ probes }: { readonly probes: readonly ProbeResult[] }): React.JSX.Element => {
-  const passes = probes.filter((p) => p.status === 'pass').length;
   const warnings = probes.filter((p) => p.status === 'warn').length;
   const failures = probes.filter((p) => p.status === 'fail').length;
   const unknowns = probes.filter((p) => p.status === 'unknown').length;
@@ -118,11 +161,11 @@ const SummaryHeader = ({ probes }: { readonly probes: readonly ProbeResult[] }):
   return (
     <Box paddingX={spacing.indent} marginBottom={spacing.section}>
       <Text color={tone} bold>
-        {icon} {String(passes)} passed
+        {icon}
       </Text>
       <Text dimColor>
         {' '}
-        {glyphs.bullet} {String(warnings)} warning{warnings === 1 ? '' : 's'} {glyphs.bullet} {String(failures)} failure
+        {String(warnings)} warning{warnings === 1 ? '' : 's'} {glyphs.bullet} {String(failures)} failure
         {failures === 1 ? '' : 's'} {glyphs.bullet} {String(unknowns)} unknown {glyphs.bullet} r reload
       </Text>
     </Box>

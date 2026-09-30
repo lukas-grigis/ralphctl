@@ -260,6 +260,16 @@ export const probeVcsToolingGroup = async (deps: DoctorDeps): Promise<readonly P
   return probes;
 };
 
+/**
+ * A provider binary missing from PATH: a warning when a settings row relies on it, otherwise a
+ * pass — an uninstalled CLI nobody asked for is not a problem worth a permanent doctor nag.
+ */
+const downgradeMissingBinary = (probe: ProbeResult, isConfigured: boolean): ProbeResult => {
+  if (probe.status !== 'fail') return probe;
+  if (isConfigured) return { ...probe, status: 'warn' };
+  return mkProbe(probe.id, probe.label, 'pass', 'not installed — not used by settings', 'ai');
+};
+
 /** Probe AI provider CLIs and their authentication. */
 export const probeAiProvidersGroup = async (deps: DoctorDeps): Promise<readonly ProbeResult[]> => {
   const probes: ProbeResult[] = [];
@@ -286,7 +296,7 @@ export const probeAiProvidersGroup = async (deps: DoctorDeps): Promise<readonly 
       `install the '${binary}' CLI and ensure it is on your PATH`
     );
     installedByProvider.set(provider, probe.status === 'pass');
-    probes.push(probe.status === 'fail' ? { ...probe, status: 'warn' } : probe);
+    probes.push(downgradeMissingBinary(probe, isConfigured));
   }
 
   for (const provider of Object.keys(PROVIDER_BINARY) as readonly AiProvider[]) {

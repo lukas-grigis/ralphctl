@@ -416,7 +416,9 @@ const SettingsViewBody = ({
   return (
     <Box flexDirection="column">
       <SectionStrip sections={sections} activeIdx={sectionIdx} />
-      <Box marginTop={spacing.section}>
+      {/* Column, not row: a row-direction box shrink-wraps its child so the body card hugs its
+          content instead of spanning the view width. */}
+      <Box flexDirection="column" paddingX={spacing.indent} marginTop={spacing.section}>
         <SectionBody section={activeSection} valueFor={valueFor} storage={storage} presetWarnings={presetWarnings} />
       </Box>
       {feedback !== undefined && (

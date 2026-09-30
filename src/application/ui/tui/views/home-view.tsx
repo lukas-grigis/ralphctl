@@ -19,8 +19,9 @@ import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } 
 import { Box, Text, useInput } from 'ink';
 import { ViewShell } from '@src/application/ui/tui/components/view-shell.tsx';
 import { ActionMenu } from '@src/application/ui/tui/components/action-menu.tsx';
-import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
+import { glyphs, inkColors, listCapacity, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
+import { useBreakpoint } from '@src/application/ui/tui/runtime/use-breakpoint.ts';
 import { useRouter } from '@src/application/ui/tui/runtime/router.tsx';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
 import { useAppStateSnapshot } from '@src/application/ui/tui/runtime/use-app-state-snapshot.ts';
@@ -225,7 +226,15 @@ const HomeFeedbackLines = ({
   </>
 );
 
+/**
+ * Rows Home spends outside the menu: compact header (2) + breadcrumb + section stamp + state
+ * card + margins + footer. The menu windows itself to whatever is left; the focused row's
+ * description adds a line the ScrollRegion anchor reveals.
+ */
+const HOME_CHROME_ROWS = 16;
+
 export const HomeView = (): React.JSX.Element => {
+  const { rows } = useBreakpoint();
   const router = useRouter();
   const ui = useUiState();
   const selection = useSelection();
@@ -304,8 +313,11 @@ export const HomeView = (): React.JSX.Element => {
     launchCreateSprint,
   });
 
+  const menuRows = listCapacity(rows, { chromeRows: HOME_CHROME_ROWS, min: 3 });
+
   return (
-    <ViewShell title="Home" subtitle="Where do we start today?">
+    // The menu owns ↑/↓ and PgUp/PgDn (windowed cursor); the page scroll yields them.
+    <ViewShell title="Home" subtitle="Where do we start today?" suppressScrollArrows>
       {ui.helpOpen ? (
         <HelpOverlay />
       ) : (
@@ -317,7 +329,7 @@ export const HomeView = (): React.JSX.Element => {
             localError={localError}
           />
           <Box marginY={spacing.section}>
-            <ActionMenu items={items} active={!ui.modalOpen} initialIndex={initialMenuIndex} />
+            <ActionMenu items={items} active={!ui.modalOpen} initialIndex={initialMenuIndex} visibleRows={menuRows} />
           </Box>
         </Box>
       )}

@@ -268,7 +268,7 @@ export const MigrationGate = (props: MigrationGateProps): React.JSX.Element => {
 
   return (
     <Box flexDirection="column" paddingX={spacing.indent} paddingY={spacing.section}>
-      <Banner compact />
+      <Banner mode="compact" />
       <Box marginTop={spacing.section}>{renderBody(state)}</Box>
     </Box>
   );

@@ -24,6 +24,7 @@ import React, { useMemo } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { useListWindow, OverflowRow } from '@src/application/ui/tui/components/windowed-list.tsx';
+import { useScrollAnchor } from '@src/application/ui/tui/components/scroll-region.tsx';
 import { listKeys } from '@src/application/ui/tui/runtime/keyboard-map.ts';
 
 export interface MenuItem {
@@ -253,8 +254,10 @@ interface ActionMenuRowProps {
 
 const ActionMenuRow = ({ item: it, focused, showHeader, renderIdx }: ActionMenuRowProps): React.JSX.Element => {
   const enabled = isEnabled(it);
+  // The focused row anchors the surrounding ScrollRegion so the cursor can never walk off-screen.
+  const anchorRef = useScrollAnchor(focused);
   return (
-    <Box flexDirection="column">
+    <Box ref={anchorRef} flexDirection="column">
       {showHeader && <SectionHeader section={it.section} renderIdx={renderIdx} />}
       <Box flexDirection="column" paddingX={spacing.indent}>
         <Box>

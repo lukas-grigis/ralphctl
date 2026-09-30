@@ -142,6 +142,18 @@ export const listKeys = {
 } as const satisfies Record<string, KeyBinding>;
 
 /**
+ * Page-scroll bindings of the `ScrollRegion` (the middle slot of every view). Arrows also scroll
+ * the page when a view doesn't own a list cursor, but they are the list contract's keys and are
+ * listed under Lists. No printable key may appear here AND in {@link globalKeys} — `g` in particular
+ * is the global progress-overlay toggle, which is why there is no vim-style `g` / `G` jump.
+ */
+export const scrollKeys = {
+  page: { keys: ['PgUp', 'PgDn', 'Ctrl+b', 'Ctrl+f'], label: 'scroll page' },
+  half: { keys: ['Ctrl+u', 'Ctrl+d'], label: 'scroll half page' },
+  ends: { keys: ['Home', 'End'], label: 'scroll to top / bottom' },
+} as const satisfies Record<string, KeyBinding>;
+
+/**
  * Bindings owned by the execute view. `cancel` / `detach` are live only while the chain is
  * running; `rerun` is the mirror image — live only once it has settled, so the two halves never
  * contend for a keystroke.
@@ -260,6 +272,7 @@ const signalReference: KeySection = {
 export const keySections: readonly KeySection[] = [
   toSection('Global', globalKeys),
   toSection('Lists', listKeys),
+  toSection('Scroll', scrollKeys),
   toSection('Contextual', contextualKeys),
   toSection('Sprint picker', pickerKeys),
   toSection('Execute', executeKeys),

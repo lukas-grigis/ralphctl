@@ -175,6 +175,12 @@ Every non-Home view mounts through `<ViewShell>`:
 **Views never render their own header, hint strip, or status bar.** `ViewShell` + router own all three.
 Home is the single exception — it renders the Banner + pipeline map instead of a SectionStamp.
 
+**Content-first header.** The wordmark (9–12 rows) is reserved for Home and only when the terminal can spare
+it: `resolveBannerMode({ routeId, columns, rows, userToggle })` returns `full` only for route `home` at
+`columns ≥ breakpoints.md` and `rows ≥ 40`, otherwise `compact`. `b` (`UiState.bannerCompact`) flips whichever
+mode was chosen, in both directions. `ViewShell` is the only caller that mounts `Banner`; anything that
+reserves chrome for the header calls the same function.
+
 ## 4. Component inventory
 
 All components live in `src/application/ui/tui/components/`. Use these. Don't write a sibling that does 90% of
@@ -190,7 +196,7 @@ the same job.
 | `StatusBar`              | Health row + one-row width-budgeted hint strip (§ 6.1a). Owned by router.             |
 | `hint-budget.ts`         | `fitHints` — pure width-budgeting of the footer strip. Views publish `useViewHints`.  |
 | `HelpOverlay`            | Modal `?`-key overlay. Driven by the centralised keyboard map.                        |
-| `Banner`                 | Home-only Ralph banner + pipeline map. Do not reuse elsewhere.                        |
+| `Banner`                 | Ralph header; `mode` from `resolveBannerMode` (wordmark only on a roomy Home).        |
 | `MemoryPressureBanner`   | Heap-pressure strip mounted at App root. Subscribes to the EventBus.                  |
 | `ChainLogDegradedBanner` | Latched warning when the on-disk `chain.log` sink can't keep up. Mounted at App root. |
 
@@ -210,7 +216,7 @@ the same job.
 | `OverflowRow`    | `▴ N more` / `▾ N more` cue row emitted by `WindowedList` when items are clipped above or below the visible window. Optional `label` overrides the trailing word (default `more`) for a caller with its own copy.                                                                                             |
 | `AsyncListFrame` | Owns the `overlay → loading → error → empty → children` ladder for a `useAsyncLoad`-backed view (`async-list-frame.tsx`). Reuses `LoadingRow` / `LoadErrorRow`; pass an `EmptyState` as `empty`. First consumer: the sprint picker's `PickerBody`.                                                            |
 | `Divider`        | Horizontal rule.                                                                                                                                                                                                                                                                                              |
-| `ScrollRegion`   | Scrollable viewport with PgUp/PgDn.                                                                                                                                                                                                                                                                           |
+| `ScrollRegion`   | Scrollable viewport; PgUp/PgDn, Ctrl+f/b/d/u, Home/End (no `g`/`G`). Paints dim `▴ N more` / `▾ N more` rows outside the clip whenever content overflows, so clipping is never silent.                                                                                                                        |
 | `PipelineMap`    | Home phase map (refine → plan → implement → close).                                                                                                                                                                                                                                                           |
 | `SprintPipeline` | Sprint-detail kanban-style summary.                                                                                                                                                                                                                                                                           |
 | `ActionMenu`     | Home action menu + submenus. Items built by `home-internals/menu-items.ts` (`buildMenuItems`).                                                                                                                                                                                                                |
@@ -518,6 +524,16 @@ old index. Always pass a stable id; never re-key a windowed list by array index.
 viewport must pass `suppressScrollArrows` to its `ViewShell` so the page-level `ScrollRegion` does
 not double-handle `↑/↓` / `PgUp`/`PgDn`. The list cursor wins; the page scroll yields. Views without
 a list cursor leave `ScrollRegion` to handle arrows normally.
+
+**Cursor-stays-visible rule.** A list row holding the cursor registers `useScrollAnchor(focused)`
+(`ActionMenu` does it for its focused row), so the region scrolls to keep it on screen even when the
+arrows are suppressed. A new anchor re-runs the region's reveal pass itself — the cursor state may live
+in a descendant that never re-renders the region. `ActionMenu` also honours `visibleRows`; Home passes
+`listCapacity(rows, …)`.
+
+**Doctor ordering.** Doctor lists groups worst-first (fail, warn, unknown, pass). All-pass groups collapse
+into a single `✓ N passed` line that `↵` expands; the provider-binary probe reports `pass` for a CLI that is
+missing but unreferenced by `settings.ai`, so the doctor nag only names things the operator actually uses.
 
 ## 7. View patterns
 

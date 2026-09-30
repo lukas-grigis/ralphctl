@@ -344,11 +344,12 @@ describe('ScrollRegion hidden-subtree clamp guard', () => {
     }
     expect(topVisibleRow(r.currentFrame())).toBe(5);
 
-    // 12 rows of content in a 10-row viewport ⇒ max offset 2. The live offset (5) is past that
-    // and must be pulled back — the guard only ignores a ZERO measurement, never a real one.
+    // 12 rows of content in a 10-row viewport ⇒ max offset 3 (2 hidden rows, plus the one the
+    // `▴` cue occupies once scrolled). The live offset (5) is past that and must be pulled back —
+    // the guard only ignores a ZERO measurement, never a real one.
     r.reshape({ rowCount: 12 });
     await tick(60);
-    expect(topVisibleRow(r.currentFrame())).toBe(2);
+    expect(topVisibleRow(r.currentFrame())).toBe(3);
     r.unmount();
   });
 
@@ -361,11 +362,11 @@ describe('ScrollRegion hidden-subtree clamp guard', () => {
     }
     expect(topVisibleRow(r.currentFrame())).toBe(5);
 
-    // A 38-row viewport over 40 rows of content ⇒ max offset 2 (the mirror case of a shrink:
+    // A 38-row viewport over 40 rows of content ⇒ max offset 3 (the mirror case of a shrink:
     // growing the viewport lowers the ceiling just as shrinking the content does).
     r.reshape({ viewportHeight: 38 });
     await tick(60);
-    expect(topVisibleRow(r.currentFrame())).toBe(2);
+    expect(topVisibleRow(r.currentFrame())).toBe(3);
     r.unmount();
   });
 });

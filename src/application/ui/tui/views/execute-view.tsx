@@ -386,7 +386,6 @@ const ExecuteViewFrame = ({
     <ViewShell
       title={flowIdToTitle(descriptor.flowId)}
       subtitle={descriptor.title}
-      compactBanner
       // The Tasks panel owns ↑/↓ (and j/k) as its card / row cursor — without this the page
       // ScrollRegion moved the whole viewport on the same keypress that moved the cursor. Every
       // section on this page is row-capped against the terminal height (see

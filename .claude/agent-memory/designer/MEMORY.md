@@ -13,3 +13,4 @@
 - [project_outcome_report_card.md](project_outcome_report_card.md) — Empty-state predicate counts declared criteria; empty fixtures need `tasks: []`
 - [project_token_decisions.md](project_token_decisions.md) — focusBar codepoint, colourless unknownGlyph, `↑/↓`-only hint strips, joinCounts separator
 - [../implementer/seams_tui_architecture_patterns.md](../implementer/seams_tui_architecture_patterns.md) — (implementer's) global modal overlay, clipboard yank, clip markers, hint single-source, coalescer, prompt cancel-vs-abort
+- [project_scroll_region_anchor_rerender.md](project_scroll_region_anchor_rerender.md) — Anchor registration must re-render ScrollRegion; height-pin the root in scroll tests; cue rows cost a row

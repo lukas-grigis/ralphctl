@@ -14,6 +14,8 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { useSuppressGlobalHints } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
 import { useTerminalSize } from '@src/application/ui/tui/runtime/use-terminal-size.ts';
+import { resolveBannerMode } from '@src/application/ui/tui/components/banner.tsx';
+import { useRouter } from '@src/application/ui/tui/runtime/router.tsx';
 import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 
 /**
@@ -35,12 +37,6 @@ const REVIEW_CHROME_COMPACT = 14;
 const REVIEW_CHROME_FULL_BANNER_EXTRA = 10;
 
 /**
- * Width at/below which the banner renders its compact strip instead of the full wordmark frame.
- * Mirrors the Banner component's own threshold so the chrome reserve tracks what is drawn.
- */
-const BANNER_FULL_MIN_WIDTH = 100;
-
-/**
  * Floor on the description viewport. On a terminal too short for a comfortable area the body
  * shrinks to this many rows — still scrollable through the full text — instead of stealing rows
  * from the Title / Link / confirm chrome, so those controls stay visible.
@@ -54,12 +50,19 @@ interface ReviewScrollableDescriptionProps {
 export const ReviewScrollableDescription = ({ text }: ReviewScrollableDescriptionProps): React.JSX.Element => {
   const term = useTerminalSize();
   const ui = useUiState();
+  const router = useRouter();
   const lines = useMemo<readonly string[]>(() => text.split('\n'), [text]);
   // Mirror ViewShell → Banner: the user `b`-toggle forces the compact strip; otherwise the
   // banner auto-switches on width. Reserve the chrome that matches whichever header is actually
   // drawn so the surrounding rows always fit, rather than a single worst-case constant that
   // under-reserves on a wide terminal showing the full banner.
-  const bannerIsCompact = ui.bannerCompact || term.columns < BANNER_FULL_MIN_WIDTH;
+  const bannerIsCompact =
+    resolveBannerMode({
+      routeId: router.current.id,
+      columns: term.columns,
+      rows: term.rows,
+      userToggle: ui.bannerCompact,
+    }) === 'compact';
   const chromeRows = bannerIsCompact ? REVIEW_CHROME_COMPACT : REVIEW_CHROME_COMPACT + REVIEW_CHROME_FULL_BANNER_EXTRA;
   const viewport = Math.max(REVIEW_MIN_VIEWPORT, term.rows - chromeRows);
   const overflows = lines.length > viewport;

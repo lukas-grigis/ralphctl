@@ -15,6 +15,7 @@ import { describe, expect, it } from 'vitest';
 import {
   footerGlobalHints,
   globalKeys,
+  keySections,
   listKeys,
   type KeyBinding,
 } from '@src/application/ui/tui/runtime/keyboard-map.ts';
@@ -127,5 +128,20 @@ describe('Wave-3 nav chords', () => {
     const footerLabels = footerGlobalHints.map((h) => h.label);
     expect(footerLabels).not.toContain('cycle running flow');
     expect(footerLabels).not.toContain('jump to running flow');
+  });
+});
+
+describe('Scroll section', () => {
+  it('is part of keySections', () => {
+    expect(keySections.map((s) => s.title)).toContain('Scroll');
+  });
+
+  it('shares no printable key with globalKeys', () => {
+    const scroll = keySections.find((s) => s.title === 'Scroll');
+    const scrollKeys = new Set((scroll?.bindings ?? []).flatMap((b) => b.keys));
+    const printable = (k: string): boolean => k.length === 1;
+    for (const key of Object.values(globalKeys).flatMap((b) => b.keys)) {
+      if (printable(key)) expect(scrollKeys.has(key), `"${key}" is both global and a scroll key`).toBe(false);
+    }
   });
 });

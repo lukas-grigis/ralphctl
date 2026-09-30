@@ -89,9 +89,8 @@ interface OverlayApi {
   /** `true` whenever any caller currently holds a {@link claimEscape} release token. */
   readonly escapeClaimed: boolean;
   /**
-   * User-toggle override for the banner mode. `false` (default) defers to the view's
-   * `compactBanner` prop; `true` forces the compact strip everywhere until the user toggles
-   * it back. Bound to the global `b` hotkey via {@link useGlobalKeys}; persists for the
+   * User-toggle for the banner mode. `false` (default) keeps the automatic choice from
+   * `resolveBannerMode`; `true` flips it (compact ↔ wordmark) until the user toggles it back. Bound to the global `b` hotkey via {@link useGlobalKeys}; persists for the
    * session (does not reset on navigation).
    */
   readonly bannerCompact: boolean;
