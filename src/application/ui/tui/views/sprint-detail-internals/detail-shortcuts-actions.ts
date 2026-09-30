@@ -60,6 +60,7 @@ export const buildShortcutsActions = (args: BuildShortcutsActionsArgs) => {
         return next;
       }),
     beginRemove: (ticket: Ticket) => setConfirmRemove(ticket),
+    openFlows: () => router.push({ id: 'flows' }),
     markCurrent: (s: Sprint) => {
       selection.setSprint(s.id, s.name, s.status);
       setFeedback(`${glyphs.check} now on ${s.name}`);

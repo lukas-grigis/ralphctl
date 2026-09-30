@@ -18,6 +18,12 @@ import { StatusChip, sprintStatusKind } from '@src/application/ui/tui/components
 import { ROUTE_LABELS } from '@src/application/ui/tui/runtime/nav-tree.ts';
 import { useBreakpoint } from '@src/application/ui/tui/runtime/use-breakpoint.ts';
 
+/** Detail routes whose crumb is the entity's own name: the route prop that carries it, else the selection's label. */
+const DETAIL_CRUMB: Readonly<Record<string, { readonly prop: string; readonly selected: 'project' | 'sprint' }>> = {
+  'project-detail': { prop: 'projectName', selected: 'project' },
+  'sprint-detail': { prop: 'sprintName', selected: 'sprint' },
+};
+
 const breadcrumbLabel = (id: string): string => (ROUTE_LABELS as Record<string, string | undefined>)[id] ?? id;
 
 export const Breadcrumb = (): React.JSX.Element => {
@@ -42,10 +48,17 @@ export const Breadcrumb = (): React.JSX.Element => {
   // is set immediately before `router.push` in the list views, so it matches the entry that
   // was just pushed; the fallback to the generic label covers the rare case where the user
   // arrives via a path that didn't seed selection.
-  const labelFor = (entry: { readonly id: string }): string => {
-    if (entry.id === 'project-detail' && selection.projectLabel !== undefined) return selection.projectLabel;
-    if (entry.id === 'sprint-detail' && selection.sprintLabel !== undefined) return selection.sprintLabel;
-    return breadcrumbLabel(entry.id);
+  //
+  // A detail route that carries its own `projectName` / `sprintName` prop labels itself from it —
+  // browsing a sprint that is NOT the current one must not show the current sprint's name.
+  const labelFor = (entry: { readonly id: string; readonly props?: Readonly<Record<string, unknown>> }): string => {
+    const detail = DETAIL_CRUMB[entry.id];
+    if (detail === undefined) return breadcrumbLabel(entry.id);
+    const own = entry.props?.[detail.prop];
+    if (typeof own === 'string') return own;
+    return (
+      (detail.selected === 'project' ? selection.projectLabel : selection.sprintLabel) ?? breadcrumbLabel(entry.id)
+    );
   };
   const path =
     router.stack.length > 1

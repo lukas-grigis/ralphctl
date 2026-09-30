@@ -112,3 +112,55 @@ describe('UiStateProvider.claimEscape', () => {
     r.unmount();
   });
 });
+
+describe('UiStateProvider — single overlay slot', () => {
+  const run = async (action: (api: ReturnType<typeof useUiState>) => void): Promise<string> => {
+    const Trigger = makeTrigger({ current: false }, action);
+    const Probe = (): React.JSX.Element => {
+      const api = useUiState();
+      return (
+        <Text>
+          help={String(api.helpOpen)} progress={String(api.progressOpen)} eval=
+          {String(api.evaluationTarget !== undefined)} modal={String(api.modalOpen)}
+        </Text>
+      );
+    };
+    const r = render(
+      <UiStateProvider>
+        <Trigger />
+        <Probe />
+      </UiStateProvider>
+    );
+    await new Promise((res) => setTimeout(res, 30));
+    const frame = r.lastFrame() ?? '';
+    r.unmount();
+    return frame;
+  };
+
+  it('openOverlay replaces the open overlay — help then progress leaves only progress open', async () => {
+    const frame = await run((api) => {
+      api.toggleHelp();
+      setTimeout(() => api.openOverlay({ kind: 'progress' }), 5);
+    });
+    expect(frame).toContain('help=false');
+    expect(frame).toContain('progress=true');
+    expect(frame).toContain('modal=true');
+  });
+
+  it('closeOverlay clears whichever overlay is open', async () => {
+    const frame = await run((api) => {
+      api.openOverlay({ kind: 'help' });
+      setTimeout(() => api.closeOverlay(), 5);
+    });
+    expect(frame).toContain('help=false');
+    expect(frame).toContain('modal=false');
+  });
+
+  it('closeEvaluation leaves a different open overlay alone', async () => {
+    const frame = await run((api) => {
+      api.openOverlay({ kind: 'progress' });
+      setTimeout(() => api.closeEvaluation(), 5);
+    });
+    expect(frame).toContain('progress=true');
+  });
+});

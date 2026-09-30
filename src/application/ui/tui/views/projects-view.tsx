@@ -25,7 +25,7 @@ import { useRouter } from '@src/application/ui/tui/runtime/router.tsx';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
 import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { useViewKeys, type ViewKeyBinding } from '@src/application/ui/tui/runtime/use-view-keys.ts';
-import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx';
+import { createBindings, listMoveBinding } from '@src/application/ui/tui/runtime/keyboard-map.ts';
 import { useBreakpoint } from '@src/application/ui/tui/runtime/use-breakpoint.ts';
 
 /**
@@ -158,7 +158,6 @@ const ProjectDeleteConfirm = ({
 );
 
 interface ProjectsBodyProps {
-  readonly helpOpen: boolean;
   readonly confirmDelete: Project | undefined;
   readonly onDeleteSubmit: (confirmed: boolean) => void;
   readonly onDeleteCancel: () => void;
@@ -172,7 +171,6 @@ interface ProjectsBodyProps {
 
 /** Loading / error / overlay / empty / list-of-cards presentation — pure props in. */
 const ProjectsBody = ({
-  helpOpen,
   confirmDelete,
   onDeleteSubmit,
   onDeleteCancel,
@@ -183,13 +181,11 @@ const ProjectsBody = ({
   total,
   feedback,
 }: ProjectsBodyProps): React.JSX.Element => {
-  // The help screen and the delete gate each take over the whole frame; everything below them is
-  // the ordinary async ladder.
-  const overlay = helpOpen ? (
-    <HelpOverlay />
-  ) : confirmDelete !== undefined ? (
-    <ProjectDeleteConfirm project={confirmDelete} onSubmit={onDeleteSubmit} onCancel={onDeleteCancel} />
-  ) : undefined;
+  // The delete gate takes over the whole frame; everything below it is the ordinary async ladder.
+  const overlay =
+    confirmDelete !== undefined ? (
+      <ProjectDeleteConfirm project={confirmDelete} onSubmit={onDeleteSubmit} onCancel={onDeleteCancel} />
+    ) : undefined;
 
   return (
     <AsyncListFrame
@@ -248,7 +244,7 @@ const projectsKeyBindings = ({
   setFeedback,
   reload,
 }: ProjectsKeysInput): readonly ViewKeyBinding[] => [
-  { keys: ['↑', '↓'], hint: 'move' },
+  listMoveBinding,
   { keys: ['↵'], hint: 'open' },
   {
     keys: ['m'],
@@ -262,7 +258,7 @@ const projectsKeyBindings = ({
       }
     },
   },
-  { keys: ['c'], hint: 'create', run: pushCreateProject },
+  ...createBindings(pushCreateProject),
   {
     keys: ['e'],
     hint: 'rename',
@@ -316,7 +312,7 @@ export const ProjectsView = (): React.JSX.Element => {
     onSubmit: (p) => {
       // Browse only — opening a detail view must not switch the selection (and wipe the
       // sprint cursor). `m` below is the explicit make-current action.
-      router.push({ id: 'project-detail', props: { projectId: p.id } });
+      router.push({ id: 'project-detail', props: { projectId: p.id, projectName: p.displayName } });
     },
   });
 
@@ -339,9 +335,8 @@ export const ProjectsView = (): React.JSX.Element => {
   );
 
   return (
-    <ViewShell title="Projects" subtitle="Browse projects — press m to make one current" suppressScrollArrows>
+    <ViewShell title="Projects" subtitle="Browse, rename and switch projects" suppressScrollArrows>
       <ProjectsBody
-        helpOpen={ui.helpOpen}
         confirmDelete={confirmDelete}
         onDeleteSubmit={(value) => {
           const pending = confirmDelete;

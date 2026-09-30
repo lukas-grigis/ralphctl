@@ -13,7 +13,7 @@
  */
 
 import React, { useMemo } from 'react';
-import { Box, Text, useInput } from 'ink';
+import { Box, Text } from 'ink';
 import { ViewShell } from '@src/application/ui/tui/components/view-shell.tsx';
 import { Card } from '@src/application/ui/tui/components/card.tsx';
 import { AsyncListFrame } from '@src/application/ui/tui/components/async-list-frame.tsx';
@@ -24,9 +24,9 @@ import { useRouter } from '@src/application/ui/tui/runtime/router.tsx';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
 import { useAsyncLoad } from '@src/application/ui/tui/runtime/use-async-load.ts';
 import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
-import { useViewHints } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
+import { useViewKeys } from '@src/application/ui/tui/runtime/use-view-keys.ts';
+import { createBindings, listMoveBinding } from '@src/application/ui/tui/runtime/keyboard-map.ts';
 import { useBreakpoint } from '@src/application/ui/tui/runtime/use-breakpoint.ts';
-import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx';
 import type { Project } from '@src/domain/entity/project.ts';
 
 const projectIdOf = (p: Project): string => p.id;
@@ -109,7 +109,7 @@ const ProjectList = ({
     />
     <Box marginTop={spacing.section} paddingX={spacing.indent}>
       <Text dimColor>
-        {glyphs.bullet} ↵ use the highlighted project {glyphs.bullet} + create a new one
+        {glyphs.bullet} ↵ use the highlighted project {glyphs.bullet} c create a new one
       </Text>
     </Box>
   </Box>
@@ -121,13 +121,6 @@ export const PickProjectView = (): React.JSX.Element => {
   const selection = useSelection();
   const ui = useUiState();
   const { rows } = useBreakpoint();
-  useViewHints([
-    { keys: '↑/↓', label: 'move' },
-    { keys: '↵', label: 'use project' },
-    { keys: '+', label: 'create new' },
-    { keys: 'r', label: 'reload' },
-  ]);
-
   const { state, reload } = useAsyncLoad<readonly Project[]>(async () => {
     const r = await deps.projectRepo.list();
     if (!r.ok) throw new Error(r.error.message);
@@ -154,14 +147,15 @@ export const PickProjectView = (): React.JSX.Element => {
   };
 
   // Non-navigation keys only — the windowed-list hook owns ↑/↓/j/k/PgUp/PgDn/Home/End/Enter.
-  useInput((input) => {
-    if (ui.modalOpen) return;
-    if (input === '+' || input === 'c') {
-      router.push({ id: 'create-project' });
-      return;
-    }
-    if (input === 'r') reload();
-  });
+  useViewKeys(
+    [
+      listMoveBinding,
+      { keys: ['↵'], hint: 'use project' },
+      ...createBindings(() => router.push({ id: 'create-project' })),
+      { keys: ['r'], hint: 'reload', run: reload },
+    ],
+    { active: !ui.modalOpen }
+  );
 
   return (
     <ViewShell
@@ -170,7 +164,6 @@ export const PickProjectView = (): React.JSX.Element => {
       suppressScrollArrows
     >
       <AsyncListFrame
-        {...(ui.helpOpen ? { overlay: <HelpOverlay /> } : {})}
         state={state}
         loadingLabel="Loading projects…"
         errorMessage="Failed to load projects."
@@ -179,7 +172,7 @@ export const PickProjectView = (): React.JSX.Element => {
         empty={
           <Card title={`${glyphs.actionCursor} No projects yet`} tone="primary">
             <Box flexDirection="column" paddingX={spacing.indent}>
-              <Text>A project binds one or more repositories together. Press + to create one.</Text>
+              <Text>A project binds one or more repositories together. Press c to create one.</Text>
             </Box>
           </Card>
         }

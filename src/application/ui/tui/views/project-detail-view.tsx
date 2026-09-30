@@ -1,15 +1,16 @@
 /**
- * Project detail — info card + repository roster + per-repo health (paths + scripts). Pressing
- * `r` opens the Sprints list (scoped to the current selection); `n` opens the flow launcher.
+ * Project detail — info card + repository roster + per-repo health (paths + scripts).
  *
  * Opening the detail is a BROWSE — it never switches the current selection (a project switch
  * clears the sprint cursor as a side effect). Press `m` to make the viewed project current,
- * mirroring the sprint-detail view's explicit opt-in — `m` then `r` reaches the viewed
- * project's sprints.
+ * mirroring the sprint-detail view's explicit opt-in.
+ *
+ * Every local key is declared once through `useViewKeys`, which also claims the printable ones —
+ * `S` (detect skills) therefore never also opens the global sprint picker.
  */
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { Text, useInput } from 'ink';
+import { Text } from 'ink';
 import { ViewShell } from '@src/application/ui/tui/components/view-shell.tsx';
 import { LoadErrorRow, LoadingRow } from '@src/application/ui/tui/components/async-rows.tsx';
 import { ConfirmCard } from '@src/application/ui/tui/components/confirm-card.tsx';
@@ -27,7 +28,8 @@ import type { AsyncLoadState } from '@src/application/ui/tui/runtime/use-async-l
 import { useRouter, useViewProps } from '@src/application/ui/tui/runtime/router.tsx';
 import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
-import { useViewHints } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
+import { useViewKeys } from '@src/application/ui/tui/runtime/use-view-keys.ts';
+import { listMoveBinding } from '@src/application/ui/tui/runtime/keyboard-map.ts';
 import { useSessionManager } from '@src/application/ui/tui/runtime/sessions-context.tsx';
 import { usePromptQueue } from '@src/application/ui/tui/prompts/prompt-context.tsx';
 import { createInkInteractivePrompt } from '@src/application/ui/tui/prompts/ink-interactive-prompt.ts';
@@ -36,7 +38,6 @@ import { getRunInTerminal } from '@src/application/ui/tui/runtime/run-in-termina
 import { openFlowSession } from '@src/application/ui/tui/runtime/open-flow-session.ts';
 import { launchFlow } from '@src/application/ui/shared/launcher.ts';
 import { loadAppStateSnapshot } from '@src/application/ui/shared/state-snapshot.ts';
-import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx';
 import { Body } from '@src/application/ui/tui/views/project-detail-internals/field-groups.tsx';
 
 interface ProjectDetailProps extends Readonly<Record<string, unknown>> {
@@ -219,50 +220,68 @@ const useProjectDetailShortcuts = (args: ProjectDetailShortcutArgs): void => {
     args.setFeedback(`✓ now on ${target.displayName}`);
   };
 
-  // One lookup per action group instead of a separate branch per chord. `rootActions` covers the
-  // two project-scoped chords (add repo / mark current); `repoActions` covers the three
-  // repo-scoped ones (remove / detect scripts / detect skills).
-  const rootActions: Readonly<Record<'a' | 'm', (p: Project) => void>> = {
-    a: (p) => router.push({ id: 'add-repository', props: { projectId: p.id } }),
-    m: markCurrent,
-  };
-  const repoActions: Readonly<Record<'d' | 'c' | 'S', (repo: Repository) => void>> = {
-    d: (repo) => args.setConfirmRemove(repo),
-    c: (repo) => void launchPerRepoFlow(args, project, 'detect-scripts', repo),
-    S: (repo) => void launchPerRepoFlow(args, project, 'detect-skills', repo),
+  const focusedRepo = focused?.kind === 'repo' ? focused.repo : undefined;
+  const moveCursor = (delta: 1 | -1): void => {
+    args.setCursorIdx((c) => Math.max(0, Math.min(Math.max(0, args.fieldsLength - 1), c + delta)));
   };
 
-  useInput((input, key) => {
-    if (ui.modalOpen || args.confirmRemove !== undefined || project === undefined) return;
-    if (input in rootActions) {
-      rootActions[input as 'a' | 'm'](project);
-      return;
-    }
-    if (input === 'e' || key.return) {
-      handleEdit();
-      return;
-    }
-    if (key.downArrow || input === 'j') {
-      args.setCursorIdx((c) => Math.min(Math.max(0, args.fieldsLength - 1), c + 1));
-      return;
-    }
-    if (key.upArrow || input === 'k') {
-      args.setCursorIdx((c) => Math.max(0, c - 1));
-      return;
-    }
-    // Repo-scoped chords look up their handler in `repoActions` instead of repeating the "is a
-    // repo row focused" guard for each chord.
-    if (focused?.kind === 'repo' && input in repoActions) {
-      repoActions[input as 'd' | 'c' | 'S'](focused.repo);
-      return;
-    }
-    if (input === 'r') {
-      // The hint has advertised `r — sprints` since this view shipped, but no handler ever
-      // existed. Plain navigation: the Sprints list scopes to the current selection (press
-      // `m` first to scope it to the viewed project).
-      router.push({ id: 'sprints' });
-    }
-  });
+  useViewKeys(
+    [
+      listMoveBinding,
+      {
+        keys: ['↑', '↓', 'j', 'k'],
+        hint: 'move',
+        hidden: true,
+        run: (input, key) => moveCursor(key.downArrow || input === 'j' ? 1 : -1),
+      },
+      { keys: ['↵'], hint: 'edit', enabled: focused !== undefined, run: handleEdit },
+      { keys: ['e'], hint: 'edit field', hidden: true, enabled: focused !== undefined, run: handleEdit },
+      // Surface the `m` chord only while the viewed project is not already current — once they
+      // match the action is a no-op and the hint adds noise (mirrors sprint-detail).
+      {
+        keys: ['m'],
+        hint: 'current',
+        enabled: project !== undefined && selection.projectId !== project.id,
+        run: () => {
+          if (project !== undefined) markCurrent(project);
+        },
+      },
+      {
+        keys: ['a'],
+        hint: 'add repo',
+        enabled: project !== undefined,
+        run: () => {
+          if (project !== undefined) router.push({ id: 'add-repository', props: { projectId: project.id } });
+        },
+      },
+      // Repo-scoped chords act on the focused row only when it is a repo.
+      {
+        keys: ['d'],
+        hint: 'remove repo',
+        enabled: focusedRepo !== undefined,
+        run: () => {
+          if (focusedRepo !== undefined) args.setConfirmRemove(focusedRepo);
+        },
+      },
+      {
+        keys: ['c'],
+        hint: 'detect scripts',
+        enabled: focusedRepo !== undefined,
+        run: () => {
+          if (focusedRepo !== undefined) void launchPerRepoFlow(args, project, 'detect-scripts', focusedRepo);
+        },
+      },
+      {
+        keys: ['S'],
+        hint: 'detect skills',
+        enabled: focusedRepo !== undefined,
+        run: () => {
+          if (focusedRepo !== undefined) void launchPerRepoFlow(args, project, 'detect-skills', focusedRepo);
+        },
+      },
+    ],
+    { active: !ui.modalOpen && args.confirmRemove === undefined && project !== undefined }
+  );
 };
 
 /**
@@ -312,37 +331,7 @@ const handleRemoveConfirmed = async (
   args.reload();
 };
 
-interface ProjectDetailHintsArgs {
-  readonly project: Project | undefined;
-  readonly selectionProjectId: ProjectId | undefined;
-  readonly focused: Field | undefined;
-}
-
-/**
- * Hints share one source of truth with their handlers. The view drives a flat field cursor
- * (`↑/↓` / `j/k`) and edits the focused row (`e` / `↵`), plus the per-repo CRUD chords. `e edit
- * field` gates on there being an editable focused row, so the footer never advertises a no-op
- * edit on an empty field list. `d`/`c`/`S` act on the focused row only when it is a repo.
- */
-const useProjectDetailHints = ({ project, selectionProjectId, focused }: ProjectDetailHintsArgs): void => {
-  const focusedRepo = focused?.kind === 'repo';
-  useViewHints([
-    { keys: '↑/↓', label: 'move' },
-    { keys: '↵', label: 'confirm/select' },
-    // Surface the `m` chord only while the viewed project is not already current — once they
-    // match the action is a no-op and the hint adds noise (mirrors sprint-detail).
-    { keys: 'm', label: 'current', enabledWhen: project !== undefined && selectionProjectId !== project.id },
-    { keys: 'e', label: 'edit field', enabledWhen: focused !== undefined },
-    { keys: 'a', label: 'add repo' },
-    { keys: 'd', label: 'remove repo', enabledWhen: focusedRepo },
-    { keys: 'c', label: 'detect scripts', enabledWhen: focusedRepo },
-    { keys: 'S', label: 'detect skills', enabledWhen: focusedRepo },
-    { keys: 'r', label: 'sprints' },
-  ]);
-};
-
 interface DetailContentProps {
-  readonly helpOpen: boolean;
   readonly state: AsyncLoadState<Project, unknown>;
   readonly confirmRemove: Repository | undefined;
   readonly onRemoveSubmit: (repo: Repository, value: boolean) => void;
@@ -351,11 +340,10 @@ interface DetailContentProps {
   readonly feedback: string | undefined;
 }
 
-/** The view's single content slot — help overlay, load states, the remove-repo confirm, or the
+/** The view's single content slot — load states, the remove-repo confirm, or the
  *  loaded project body, in that priority order. Pulled out of the orchestrator so the component
  *  itself only wires state and handlers. */
 const DetailContent = ({
-  helpOpen,
   state,
   confirmRemove,
   onRemoveSubmit,
@@ -363,7 +351,6 @@ const DetailContent = ({
   focused,
   feedback,
 }: DetailContentProps): React.JSX.Element => {
-  if (helpOpen) return <HelpOverlay />;
   if (state.kind === 'loading' || state.kind === 'idle') return <LoadingRow label="Loading…" />;
   if (state.kind === 'error') return <LoadErrorRow message="Failed to load project." />;
   if (confirmRemove !== undefined) {
@@ -418,8 +405,6 @@ export const ProjectDetailView = (): React.JSX.Element => {
   const fields = useProjectFields(project);
   const focused = fields[Math.min(cursorIdx, Math.max(0, fields.length - 1))];
 
-  useProjectDetailHints({ project, selectionProjectId: selection.projectId, focused });
-
   // Reset the cursor when the underlying project changes — both the first successful load
   // (loading → ok) and a re-route to a different projectId. Without this, switching from a
   // project with 4 fields to one with 1 would leave the cursor pinned at index 3 (clamped) and
@@ -459,9 +444,12 @@ export const ProjectDetailView = (): React.JSX.Element => {
   };
 
   return (
-    <ViewShell title="Project" subtitle={state.kind === 'ok' ? state.value.displayName : 'loading'}>
+    <ViewShell
+      title="Project"
+      subtitle={state.kind === 'ok' ? state.value.displayName : 'loading'}
+      suppressScrollArrows
+    >
       <DetailContent
-        helpOpen={ui.helpOpen}
         state={state}
         confirmRemove={confirmRemove}
         onRemoveSubmit={(repo, value) => void handleRemoveConfirmed(removeCtx, repo, value)}

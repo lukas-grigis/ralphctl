@@ -11,11 +11,10 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { join } from 'node:path';
-import { useInput } from 'ink';
 import { useStorage } from '@src/application/ui/tui/runtime/storage-context.tsx';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
 import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
-import { useViewHints } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
+import { useViewKeys } from '@src/application/ui/tui/runtime/use-view-keys.ts';
 import { resolveSprintDir } from '@src/integration/persistence/storage.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
@@ -62,8 +61,6 @@ export const useMarkdownExport = (config: UseMarkdownExportConfig): MarkdownExpo
   const filenameRef = useRef(config.filename);
   filenameRef.current = config.filename;
 
-  useViewHints([{ keys: 'r', label: 'rerun' }]);
-
   const runExport = useCallback(async (): Promise<void> => {
     const gen = (runGenRef.current += 1);
     const live = (): boolean => runGenRef.current === gen;
@@ -103,10 +100,7 @@ export const useMarkdownExport = (config: UseMarkdownExportConfig): MarkdownExpo
     };
   }, [runExport]);
 
-  useInput((input) => {
-    if (ui.modalOpen) return;
-    if (input === 'r') void runExport();
-  });
+  useViewKeys([{ keys: ['r'], hint: 'rerun', run: () => void runExport() }], { active: !ui.modalOpen });
 
   return run;
 };

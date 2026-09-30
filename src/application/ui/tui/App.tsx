@@ -23,6 +23,7 @@ import { StorageProvider } from '@src/application/ui/tui/runtime/storage-context
 import { SessionsProvider } from '@src/application/ui/tui/runtime/sessions-context.tsx';
 import { PromptQueueProvider } from '@src/application/ui/tui/prompts/prompt-context.tsx';
 import { UiStateProvider, useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
+import { ClaimedKeysProvider } from '@src/application/ui/tui/runtime/claimed-keys-context.tsx';
 import { HintsProvider, useSuppressGlobalHints } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
 import { SelectionProvider, type SelectionSeed } from '@src/application/ui/tui/runtime/selection-context.tsx';
 import { SystemStatusProvider } from '@src/application/ui/tui/runtime/system-status-context.tsx';
@@ -33,6 +34,7 @@ import { useGlobalKeys } from '@src/application/ui/tui/runtime/use-global-keys.t
 import { useTerminalSize } from '@src/application/ui/tui/runtime/use-terminal-size.ts';
 import { MemoryPressureBanner } from '@src/application/ui/tui/components/memory-pressure-banner.tsx';
 import { ChainLogDegradedBanner } from '@src/application/ui/tui/components/chain-log-degraded-banner.tsx';
+import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx';
 import { ProgressOverlay } from '@src/application/ui/tui/components/progress-overlay.tsx';
 import { EvaluationOverlay } from '@src/application/ui/tui/components/evaluation-overlay.tsx';
 
@@ -89,19 +91,21 @@ export const App = ({
           <PromptQueueProvider value={queue}>
             <UiStateProvider>
               <HintsProvider>
-                <SelectionProvider
-                  {...(initialSelection !== undefined ? { seed: initialSelection } : {})}
-                  {...(onSelectionChange !== undefined ? { onChange: onSelectionChange } : {})}
-                  sprintRepo={deps.sprintRepo}
-                >
-                  <LogLevelProvider gate={logLevelGate}>
-                    <SystemStatusProvider>
-                      <RouterProvider initial={initialView}>
-                        {(current) => <Layout>{renderView(current)}</Layout>}
-                      </RouterProvider>
-                    </SystemStatusProvider>
-                  </LogLevelProvider>
-                </SelectionProvider>
+                <ClaimedKeysProvider>
+                  <SelectionProvider
+                    {...(initialSelection !== undefined ? { seed: initialSelection } : {})}
+                    {...(onSelectionChange !== undefined ? { onChange: onSelectionChange } : {})}
+                    sprintRepo={deps.sprintRepo}
+                  >
+                    <LogLevelProvider gate={logLevelGate}>
+                      <SystemStatusProvider>
+                        <RouterProvider initial={initialView}>
+                          {(current) => <Layout>{renderView(current)}</Layout>}
+                        </RouterProvider>
+                      </SystemStatusProvider>
+                    </LogLevelProvider>
+                  </SelectionProvider>
+                </ClaimedKeysProvider>
               </HintsProvider>
             </UiStateProvider>
           </PromptQueueProvider>
@@ -145,7 +149,7 @@ export const Layout = ({ children }: { readonly children: React.ReactNode }): Re
   // running view at the top of the screen. Memory + chain-log banners stay at the top because
   // they signal harness-level degradations that the operator should see immediately.
   //
-  // The document overlays (progress.md via `g`, evaluation.md via `v`) are true modals — while
+  // The overlays (help via `?`, progress.md via `g`, evaluation.md via `v`) are true modals — while
   // one is open, the active view is hidden (`display: "none"`) so no parallel ScrollRegion / list
   // cursor competes for keystrokes. Children remain MOUNTED (not conditionally rendered) so list
   // cursors, expanded cards, and scroll offsets are preserved when the overlay closes. Mounted
@@ -158,7 +162,10 @@ export const Layout = ({ children }: { readonly children: React.ReactNode }): Re
   // closes them (esc / g, esc / v); `selection.sprintId` gates the progress open, and the focused
   // task's recorded verdict gates the evaluation open (view-local, since only a view knows which
   // card is focused).
-  const overlayOpen = ui.progressOpen || ui.evaluationTarget !== undefined;
+  //
+  // There is ONE overlay slot (`ui.overlay`): help, progress and evaluation replace one another,
+  // and all three mount here — never inside a view. Help is scoped by the current route.
+  const overlayOpen = ui.overlay !== undefined;
   return (
     <Box flexDirection="column" height={rows}>
       <MemoryPressureBanner />
@@ -166,8 +173,9 @@ export const Layout = ({ children }: { readonly children: React.ReactNode }): Re
       <Box display={overlayOpen ? 'none' : 'flex'} flexDirection="column" flexGrow={1}>
         {children}
       </Box>
+      {ui.helpOpen && <HelpOverlay routeId={router.current.id} />}
       {ui.progressOpen && <ProgressOverlay />}
-      {!ui.progressOpen && ui.evaluationTarget !== undefined && <EvaluationOverlay />}
+      {ui.evaluationTarget !== undefined && <EvaluationOverlay />}
     </Box>
   );
 };

@@ -25,7 +25,7 @@ import { useRouter } from '@src/application/ui/tui/runtime/router.tsx';
 import { useSessionManager, useSessions } from '@src/application/ui/tui/runtime/sessions-context.tsx';
 import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { useViewKeys } from '@src/application/ui/tui/runtime/use-view-keys.ts';
-import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx';
+import { listMoveBinding } from '@src/application/ui/tui/runtime/keyboard-map.ts';
 import type { SessionRecord } from '@src/application/ui/tui/runtime/session-manager.ts';
 import { fmtElapsed } from '@src/application/ui/tui/theme/duration.ts';
 import { useBreakpoint } from '@src/application/ui/tui/runtime/use-breakpoint.ts';
@@ -163,7 +163,7 @@ export const SessionsView = (): React.JSX.Element => {
 
   useViewKeys(
     [
-      { keys: ['↑', '↓'], hint: 'move' },
+      listMoveBinding,
       { keys: ['↵'], hint: 'open' },
       {
         keys: ['c'],
@@ -194,9 +194,7 @@ export const SessionsView = (): React.JSX.Element => {
 
   return (
     <ViewShell title="Sessions" subtitle="every chain run, live and recent" suppressScrollArrows>
-      {ui.helpOpen ? (
-        <HelpOverlay />
-      ) : confirmCancel !== undefined ? (
+      {confirmCancel !== undefined ? (
         <Box flexDirection="column" paddingX={spacing.indent}>
           <Text>
             Cancel <Text bold>{confirmCancel.descriptor.title}</Text>?

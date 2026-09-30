@@ -35,10 +35,10 @@ import { useAsyncLoad, type AsyncLoadState } from '@src/application/ui/tui/runti
 import { useRouter } from '@src/application/ui/tui/runtime/router.tsx';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
 import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
-import { useViewKeys, type ViewKeyBinding } from '@src/application/ui/tui/runtime/use-view-keys.ts';
+import { useViewKeys } from '@src/application/ui/tui/runtime/use-view-keys.ts';
+import { sprintsKeyBindings } from '@src/application/ui/tui/views/sprints-view-internals/key-bindings.ts';
 import { useUnblockTask } from '@src/application/ui/tui/runtime/use-unblock-task.ts';
 import { useLaunchCreateSprint } from '@src/application/ui/tui/runtime/use-launch-create-sprint.ts';
-import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx';
 import { useBreakpoint } from '@src/application/ui/tui/runtime/use-breakpoint.ts';
 import type { Task } from '@src/domain/entity/task.ts';
 import { ROW_HEIGHT, SprintRow } from '@src/application/ui/tui/views/sprints-view-internals/row-views.tsx';
@@ -47,7 +47,7 @@ import {
   type UnblockFeedbackInput,
 } from '@src/application/ui/tui/views/sprints-view-internals/unblock-feedback.ts';
 
-interface UseStuckSprintTasksResult {
+export interface UseStuckSprintTasksResult {
   readonly stuckCount: number;
   readonly unblockAll: (
     sprint: Sprint | undefined,
@@ -173,7 +173,7 @@ interface SprintListEntry {
   readonly health: TaskHealthCounts;
 }
 
-interface UseSprintRowActionsResult {
+export interface UseSprintRowActionsResult {
   readonly confirmDelete: Sprint | undefined;
   readonly setConfirmDelete: (sprint: Sprint | undefined) => void;
   readonly feedback: string | undefined;
@@ -265,7 +265,6 @@ const SprintDeleteConfirm = ({
 );
 
 interface SprintsBodyProps {
-  readonly helpOpen: boolean;
   readonly confirmDelete: Sprint | undefined;
   readonly onDeleteSubmit: (confirmed: boolean) => void;
   readonly onDeleteCancel: () => void;
@@ -277,7 +276,6 @@ interface SprintsBodyProps {
 
 /** Loading / error / overlay / empty / list-of-cards presentation — pure props in. */
 const SprintsBody = ({
-  helpOpen,
   confirmDelete,
   onDeleteSubmit,
   onDeleteCancel,
@@ -287,13 +285,11 @@ const SprintsBody = ({
   feedback,
 }: SprintsBodyProps): React.JSX.Element => {
   const total = state.kind === 'ok' ? state.value.length : 0;
-  // The help screen and the delete gate each take over the whole frame; everything below them is
-  // the ordinary async ladder.
-  const overlay = helpOpen ? (
-    <HelpOverlay />
-  ) : confirmDelete !== undefined ? (
-    <SprintDeleteConfirm sprint={confirmDelete} onSubmit={onDeleteSubmit} onCancel={onDeleteCancel} />
-  ) : undefined;
+  // The delete gate takes over the whole frame; everything below it is the ordinary async ladder.
+  const overlay =
+    confirmDelete !== undefined ? (
+      <SprintDeleteConfirm sprint={confirmDelete} onSubmit={onDeleteSubmit} onCancel={onDeleteCancel} />
+    ) : undefined;
 
   return (
     <AsyncListFrame
@@ -341,79 +337,6 @@ const SprintsBody = ({
   );
 };
 
-interface SprintsKeysInput {
-  readonly focusedSprint: Sprint | undefined;
-  readonly stuck: UseStuckSprintTasksResult;
-  readonly actions: UseSprintRowActionsResult;
-  readonly launchCreateSprint: () => Promise<void>;
-  readonly reload: () => void;
-}
-
-/**
- * The sprint-list key map. `e` hides its hint on a done sprint but keeps the handler live —
- * someone who found the key in the `?` overlay still presses it, and a swallowed keystroke reads
- * as a bug, so the handler says why instead. `u` goes the other way: with no stuck tasks there is
- * nothing to explain, so the hint and the handler go dark together. Both read the one gate the
- * body of this function derives, so a hint can never disagree with what the key does.
- */
-const sprintsKeyBindings = ({
-  focusedSprint,
-  stuck,
-  actions,
-  launchCreateSprint,
-  reload,
-}: SprintsKeysInput): readonly ViewKeyBinding[] => {
-  const { setFeedback } = actions;
-  const focusedDone = focusedSprint?.status === 'done';
-  return [
-    { keys: ['↑', '↓'], hint: 'move' },
-    { keys: ['↵'], hint: 'open' },
-    {
-      keys: ['c'],
-      hint: 'create',
-      run: () => {
-        void launchCreateSprint();
-      },
-    },
-    {
-      keys: ['e'],
-      hint: 'rename',
-      hidden: focusedDone,
-      run: () => {
-        if (focusedSprint === undefined) return;
-        if (focusedDone) {
-          setFeedback(`${glyphs.cross} done sprints can't be renamed`);
-          return;
-        }
-        actions.handleRename(focusedSprint);
-      },
-    },
-    {
-      keys: ['d'],
-      hint: 'delete',
-      run: () => {
-        if (focusedSprint !== undefined) actions.setConfirmDelete(focusedSprint);
-      },
-    },
-    {
-      keys: ['r'],
-      hint: 'reload',
-      run: () => {
-        setFeedback(`${glyphs.refresh} reloading…`);
-        reload();
-      },
-    },
-    {
-      keys: ['u'],
-      hint: `unblock (${String(stuck.stuckCount)})`,
-      enabled: stuck.stuckCount > 0,
-      run: () => {
-        void stuck.unblockAll(focusedSprint, setFeedback, reload);
-      },
-    },
-  ];
-};
-
 export const SprintsView = (): React.JSX.Element => {
   const deps = useDeps();
   const router = useRouter();
@@ -445,7 +368,7 @@ export const SprintsView = (): React.JSX.Element => {
   const { confirmDelete } = actions;
 
   // Windowed cursor — owns ↑/↓ + j/k + PgUp/PgDn + Home/End + Enter; the cursor is the sprint id,
-  // so a reload/reorder keeps focus on the same sprint. Enter selects (sets current + drills in).
+  // so a reload/reorder keeps focus on the same sprint. Enter opens the sprint detail (browse only).
   // Disabled while a prompt/help/confirm is up so its keys don't fight the modal.
   const listActive = !ui.modalOpen && confirmDelete === undefined;
   const list = useListWindow<SprintListEntry>({
@@ -454,8 +377,9 @@ export const SprintsView = (): React.JSX.Element => {
     visibleRows: listCapacity(rows, { rowHeight: ROW_HEIGHT, min: 4, max: 12 }),
     active: listActive,
     onSubmit: (entry) => {
-      selection.setSprint(entry.sprint.id, entry.sprint.name, entry.sprint.status);
-      router.push({ id: 'sprint-detail', props: { sprintId: entry.sprint.id } });
+      // Browse only — the selection is untouched (`m` makes a sprint current). The crumb is
+      // labelled from the route's own sprint name, not the selection.
+      router.push({ id: 'sprint-detail', props: { sprintId: entry.sprint.id, sprintName: entry.sprint.name } });
     },
   });
 
@@ -472,9 +396,23 @@ export const SprintsView = (): React.JSX.Element => {
     noProjectMessage: `${glyphs.cross} pick a project first (Projects ${glyphs.arrowRight} open one)`,
   });
 
-  useViewKeys(sprintsKeyBindings({ focusedSprint, stuck, actions, launchCreateSprint, reload }), {
-    active: listActive,
-  });
+  const makeCurrent = (sprint: Sprint): void => {
+    selection.setSprint(sprint.id, sprint.name, sprint.status);
+    actions.setFeedback(`${glyphs.check} now on ${sprint.name}`);
+  };
+
+  useViewKeys(
+    sprintsKeyBindings({
+      focusedSprint,
+      stuck,
+      actions,
+      launchCreateSprint,
+      reload,
+      currentSprintId: selection.sprintId,
+      makeCurrent,
+    }),
+    { active: listActive }
+  );
 
   return (
     <ViewShell
@@ -483,7 +421,6 @@ export const SprintsView = (): React.JSX.Element => {
       suppressScrollArrows
     >
       <SprintsBody
-        helpOpen={ui.helpOpen}
         confirmDelete={confirmDelete}
         onDeleteSubmit={(value) => {
           if (confirmDelete !== undefined) void actions.handleDeleteConfirmed(confirmDelete, value);

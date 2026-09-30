@@ -17,6 +17,7 @@ import { waitForPredicate } from '@tests/integration/application/ui/tui/_wait.ts
 import { DepsProvider } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { RouterProvider, type ViewEntry } from '@src/application/ui/tui/runtime/router.tsx';
 import { UiStateProvider } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
+import { ClaimedKeysProvider } from '@src/application/ui/tui/runtime/claimed-keys-context.tsx';
 import { HintsProvider } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
 import {
   SelectionProvider,
@@ -120,22 +121,24 @@ export const renderView = (child: React.ReactNode, opts: HarnessOptions): Harnes
             <PromptQueueProvider value={queue}>
               <UiStateProvider>
                 <HintsProvider>
-                  <SelectionProvider
-                    {...(opts.selectionOnChange !== undefined ? { onChange: opts.selectionOnChange } : {})}
-                  >
-                    {opts.selection !== undefined && <SeedSelection seed={opts.selection} />}
-                    <LogLevelProvider gate={createLogLevelGate('info')}>
-                      <SystemStatusProvider>
-                        <RouterProvider initial={opts.initial}>
-                          {(current): React.ReactNode => {
-                            routes.push(current);
-                            opts.onRoute?.(current);
-                            return child;
-                          }}
-                        </RouterProvider>
-                      </SystemStatusProvider>
-                    </LogLevelProvider>
-                  </SelectionProvider>
+                  <ClaimedKeysProvider>
+                    <SelectionProvider
+                      {...(opts.selectionOnChange !== undefined ? { onChange: opts.selectionOnChange } : {})}
+                    >
+                      {opts.selection !== undefined && <SeedSelection seed={opts.selection} />}
+                      <LogLevelProvider gate={createLogLevelGate('info')}>
+                        <SystemStatusProvider>
+                          <RouterProvider initial={opts.initial}>
+                            {(current): React.ReactNode => {
+                              routes.push(current);
+                              opts.onRoute?.(current);
+                              return child;
+                            }}
+                          </RouterProvider>
+                        </SystemStatusProvider>
+                      </LogLevelProvider>
+                    </SelectionProvider>
+                  </ClaimedKeysProvider>
                 </HintsProvider>
               </UiStateProvider>
             </PromptQueueProvider>

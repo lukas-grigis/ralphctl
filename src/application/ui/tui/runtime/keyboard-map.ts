@@ -8,9 +8,11 @@
  *     a prompt is mounted).
  *   - {@link listKeys} — applied wherever a vertical list with a moving cursor is rendered.
  *
- * Per-view local hints (e.g. `n=new` on the projects screen) are declared inline by each view via
- * the {@link useViewHints} hook — they are not in the global map.
+ * Per-view local keys (e.g. `m=current` on the projects screen) are declared inline by each view via
+ * the `useViewKeys` hook — they are not in the global map.
  */
+
+import type { ViewKeyBinding } from '@src/application/ui/tui/runtime/use-view-keys.ts';
 
 export interface KeyBinding {
   /** All accepted variants for this action (printable chars + special keys). */
@@ -42,7 +44,6 @@ export const globalKeys = {
   doctor: { keys: ['!'], label: 'doctor' },
   bannerToggle: { keys: ['b'], label: 'toggle banner' },
   progressOverlay: { keys: ['g'], label: 'show progress.md' },
-  yankTask: { keys: ['y'], label: 'copy active task summary' },
   pickProject: { keys: ['P'], label: 'pick project', showInFooter: true },
   // NOT showInFooter: with `pick sprint` added the strip overflows a 100-col terminal and the
   // whole footer wraps. The breadcrumb's `[S]` affordance (right next to the sprint name)
@@ -94,7 +95,7 @@ export const pickerKeys = {
  * kill). Only active when the cursor is on a blocked or crashed-in-progress task in the
  * sprint-detail view.
  *
- * `+` on Home opens create-sprint (requires a project). `m` on the sprint-detail view marks the
+ * `c` (alias `+`) creates: a sprint on Home, Sprints and the sprint picker, a project on Projects and the project picker. `m` on the sprint-detail view marks the
  * opened sprint as the current selection — replaces the prior silent auto-sync on detail mount.
  * The same chord on the projects list / project detail marks the focused (or viewed) project
  * current — opening a project detail is a browse and never switches the selection.
@@ -108,7 +109,7 @@ export const contextualKeys = {
   editField: { keys: ['e'], label: 'edit focused field' },
   unblockTask: { keys: ['u'], label: 'unblock stuck task (blocked or crashed in-progress)' },
   bulkUnblockSprintTasks: { keys: ['u'], label: 'unblock all stuck tasks in focused sprint' },
-  createSprint: { keys: ['+'], label: 'create a new sprint' },
+  create: { keys: ['c', '+'], label: 'create (sprint / project) — `+` is a silent alias' },
   makeSprintCurrent: { keys: ['m'], label: 'make focused sprint current' },
   makeProjectCurrent: { keys: ['m'], label: 'make focused project current' },
   enableSkill: { keys: ['e'], label: 'enable skill for picked flows' },
@@ -167,6 +168,7 @@ export const executeKeys = {
   cancel: { keys: ['c'], label: 'cancel run (while running)' },
   detach: { keys: ['D'], label: 'detach (background)' },
   rerun: { keys: ['r'], label: 're-run from Flows (once settled)' },
+  copyTask: { keys: ['y'], label: 'copy the active task summary (Execute only)' },
 } as const satisfies Record<string, KeyBinding>;
 
 /**
@@ -209,21 +211,33 @@ export const tasksPanelKeys = {
 } as const satisfies Record<string, KeyBinding>;
 
 /**
- * The canonical `↑/↓ → move` hint for list views. Include this as the first entry in every
- * list view's `useViewHints` so the footer consistently teaches arrow navigation. Per the
- * windowed-list contract (DESIGN-SYSTEM §6.4), arrows are primary; `j`/`k` are documented in
- * the help overlay's Lists section only and must not be repeated per-view.
+ * The view-local key vocabulary. Views declare their keys through `useViewKeys`; these builders
+ * keep the spelling identical everywhere so the footer teaches one language.
+ *
+ *   - {@link listMoveBinding} — the documentation-only `↑/↓ move` entry for lists whose cursor
+ *     lives in the windowed-list primitive. `j` / `k` are the silent alias (help overlay only).
+ *   - {@link createBindings} — `c create`, with `+` as a silent alias. `n` is never "create":
+ *     globally it opens the Flows menu.
  *
  * @public
  */
-export const listMoveHint: { readonly keys: string; readonly label: string } = {
-  keys: '↑/↓',
-  label: 'move',
-};
+export const listMoveBinding: ViewKeyBinding = { keys: ['↑', '↓'], hint: 'move' };
+
+/** @public */
+export const createBindings = (run: () => void, enabled?: boolean): readonly ViewKeyBinding[] => [
+  { keys: ['c'], hint: 'create', ...(enabled !== undefined ? { enabled } : {}), run },
+  { keys: ['+'], hint: 'create', hidden: true, ...(enabled !== undefined ? { enabled } : {}), run },
+];
 
 /** Key labels grouped by area — consumed by the help overlay. */
 export interface KeySection {
   readonly title: string;
+  /**
+   * Route ids (`ViewId`s) whose screens actually mount the surface this section describes. The
+   * help overlay hides the section elsewhere unless the operator asks for 'All keys'. Absent →
+   * general, shown everywhere.
+   */
+  readonly onlyOn?: readonly string[];
   /**
    * Each entry is rendered by the help overlay. When `keys` is non-empty the entry is a
    * key-action pair (left column: chord, right column: `label`). When `keys` is empty the entry
@@ -240,9 +254,14 @@ export interface KeySection {
   }>;
 }
 
-const toSection = (title: string, map: Readonly<Record<string, KeyBinding>>): KeySection => ({
+const toSection = (
+  title: string,
+  map: Readonly<Record<string, KeyBinding>>,
+  onlyOn?: readonly string[]
+): KeySection => ({
   title,
   bindings: Object.values(map),
+  ...(onlyOn !== undefined ? { onlyOn } : {}),
 });
 
 /**
@@ -253,6 +272,7 @@ const toSection = (title: string, map: Readonly<Record<string, KeyBinding>>): Ke
  */
 const signalReference: KeySection = {
   title: 'Signals',
+  onlyOn: ['execute'],
   bindings: [
     { keys: [], label: 'change', description: 'file or code edit made by the AI during a task' },
     { keys: [], label: 'learning', description: 'cross-task insight worth noting' },
@@ -274,8 +294,8 @@ export const keySections: readonly KeySection[] = [
   toSection('Lists', listKeys),
   toSection('Scroll', scrollKeys),
   toSection('Contextual', contextualKeys),
-  toSection('Sprint picker', pickerKeys),
-  toSection('Execute', executeKeys),
-  toSection('Tasks panel', tasksPanelKeys),
+  toSection('Sprint picker', pickerKeys, ['pick-sprint']),
+  toSection('Execute', executeKeys, ['execute']),
+  toSection('Tasks panel', tasksPanelKeys, ['execute']),
   signalReference,
 ];

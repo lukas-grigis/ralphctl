@@ -5,35 +5,21 @@
  * hatch.
  */
 
-import type { MutableRefObject } from 'react';
-import { useEffect, useMemo, useRef } from 'react';
 import { useApp, useInput, type Key } from 'ink';
 import { useRouter, type RouterApi, type ViewEntry } from '@src/application/ui/tui/runtime/router.tsx';
 import type { ViewId } from '@src/application/ui/tui/views/view-registry.tsx';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
 import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
-import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
+import { useClaimedKeys } from '@src/application/ui/tui/runtime/claimed-keys-context.tsx';
 import { useSessionManager } from '@src/application/ui/tui/runtime/sessions-context.tsx';
 import type { SessionRecord } from '@src/application/ui/tui/runtime/session-manager.ts';
-import { type CopyToClipboard, createCopyToClipboard } from '@src/integration/io/clipboard.ts';
-import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
-import type { EventBus } from '@src/business/observability/event-bus.ts';
 
 type UiStateApi = ReturnType<typeof useUiState>;
 type SelectionApi = ReturnType<typeof useSelection>;
 
-/** Duration of the "Copied to clipboard" toast before the global handler auto-clears it. */
-const CLIPBOARD_TOAST_DURATION_MS = 2000;
-const CLIPBOARD_BANNER_ID = 'clipboard-copy';
-
 export interface UseGlobalKeysOptions {
   /** Disable everything except the quit chord. Useful while a prompt is mounted. */
   readonly disabled?: boolean;
-  /**
-   * Override the clipboard adapter for tests. Production callers leave this undefined — the
-   * platform-detecting default reads `process.platform` + `process.env` at module load.
-   */
-  readonly copyToClipboard?: CopyToClipboard;
 }
 
 export const useGlobalKeys = (opts: UseGlobalKeysOptions = {}): void => {
@@ -41,27 +27,14 @@ export const useGlobalKeys = (opts: UseGlobalKeysOptions = {}): void => {
   const router = useRouter();
   const ui = useUiState();
   const selection = useSelection();
-  const deps = useDeps();
   const sessions = useSessionManager();
-  const copyToClipboard = useMemo<CopyToClipboard>(
-    () => opts.copyToClipboard ?? createCopyToClipboard(),
-    [opts.copyToClipboard]
-  );
-  // Track the pending toast-clear timeout so an in-flight copy doesn't double-emit a clear once
-  // a second copy resets the banner. The latest copy wins — the prior timeout is cancelled.
-  const clearTimerRef = useRef<NodeJS.Timeout | undefined>(undefined);
-  useEffect(
-    () => () => {
-      if (clearTimerRef.current !== undefined) clearTimeout(clearTimerRef.current);
-    },
-    []
-  );
+  const { isClaimed } = useClaimedKeys();
 
   useInput((input, key) => {
     if (handleQuitChord(input, key, router, opts.disabled, exit)) return;
     if (opts.disabled) return;
     if (handleHelpOverlay(ui, input, key)) return;
-    if (handleProgressOverlay(ui, selection, input, key)) return;
+    if (handleProgressOverlay(ui, selection, input, key, isClaimed)) return;
     if (handleEvaluationOverlay(ui, input, key)) return;
     if (handleSessionNav(sessions, router, input, key)) return;
 
@@ -70,7 +43,8 @@ export const useGlobalKeys = (opts: UseGlobalKeysOptions = {}): void => {
       return;
     }
 
-    if (handleYankCopy(ui, deps, copyToClipboard, clearTimerRef, input)) return;
+    // Ambient single-letter chords: a key the active view (or an open overlay) claims is theirs.
+    if (isClaimed(input)) return;
     handleViewShortcut(input, router, ui);
   });
 };
@@ -114,12 +88,18 @@ const handleHelpOverlay = (ui: UiStateApi, input: string, key: Key): boolean => 
  * is not the global selection, `g` must still open onto the pinned run instead of silently
  * no-op'ing. Home — neither pinned nor selected — stays a no-op as the spec demands.
  */
-const handleProgressOverlay = (ui: UiStateApi, selection: SelectionApi, input: string, key: Key): boolean => {
+const handleProgressOverlay = (
+  ui: UiStateApi,
+  selection: SelectionApi,
+  input: string,
+  key: Key,
+  isClaimed: (key: string) => boolean
+): boolean => {
   if (ui.progressOpen) {
     if (key.escape || input === 'g') ui.toggleProgress();
     return true;
   }
-  if (input === 'g' && (ui.focusedRunSprintId ?? selection.sprintId) !== undefined) {
+  if (input === 'g' && !isClaimed(input) && (ui.focusedRunSprintId ?? selection.sprintId) !== undefined) {
     ui.toggleProgress();
     return true;
   }
@@ -164,50 +144,6 @@ const handleSessionNav = (
     return true;
   }
   return false;
-};
-
-/**
- * `y` (yank) copies the currently-focused task's markdown summary. The execute view
- * registers an `ActiveTaskSummaryProvider` on UiState while it is mounted with bucketed
- * data; everywhere else the provider is undefined and the hotkey surfaces a "no active
- * task" toast instead of silently dropping the keystroke (silent fail = mystery for the
- * operator).
- */
-const handleYankCopy = (
-  ui: UiStateApi,
-  deps: { eventBus: EventBus },
-  copyToClipboard: CopyToClipboard,
-  clearTimerRef: MutableRefObject<NodeJS.Timeout | undefined>,
-  input: string
-): boolean => {
-  if (input !== 'y') return false;
-
-  const summary = ui.getActiveTaskSummary();
-  if (summary === undefined) {
-    emitClipboardBanner(deps.eventBus, {
-      tier: 'info',
-      message: 'No active task to copy',
-    });
-    scheduleClear(deps.eventBus, clearTimerRef);
-    return true;
-  }
-  void (async (): Promise<void> => {
-    const result = await copyToClipboard(summary);
-    if (result.ok) {
-      emitClipboardBanner(deps.eventBus, {
-        tier: 'info',
-        message: 'Copied to clipboard',
-      });
-    } else {
-      emitClipboardBanner(deps.eventBus, {
-        tier: 'warn',
-        message: 'Clipboard copy failed',
-        cause: result.error.message,
-      });
-    }
-    scheduleClear(deps.eventBus, clearTimerRef);
-  })();
-  return true;
 };
 
 /**
@@ -308,43 +244,4 @@ const focusRunningSession = (
   const entry: ViewEntry = { id: 'execute', props: { sessionId: targetSession.descriptor.id } };
   if (onExecute) router.replace(entry);
   else router.push(entry);
-};
-
-interface ClipboardBannerSpec {
-  readonly tier: 'info' | 'warn';
-  readonly message: string;
-  readonly cause?: string;
-}
-
-/**
- * Publish a clipboard toast onto the event bus. Pinned to a stable `id` so re-presses replace
- * (rather than stack) the banner — pressing `y` four times shows four "Copied to clipboard"
- * toasts on top of one another otherwise.
- */
-const emitClipboardBanner = (eventBus: EventBus, spec: ClipboardBannerSpec): void => {
-  eventBus.publish({
-    type: 'banner-show',
-    id: CLIPBOARD_BANNER_ID,
-    tier: spec.tier,
-    message: spec.message,
-    ...(spec.cause !== undefined ? { cause: spec.cause } : {}),
-    at: IsoTimestamp.now(),
-  });
-};
-
-/**
- * Schedule a `banner-clear` for the clipboard toast after {@link CLIPBOARD_TOAST_DURATION_MS}.
- * The ref tracks the pending timeout so consecutive copies overwrite the timer in place — the
- * latest copy always wins.
- */
-const scheduleClear = (eventBus: EventBus, ref: MutableRefObject<NodeJS.Timeout | undefined>): void => {
-  if (ref.current !== undefined) clearTimeout(ref.current);
-  ref.current = setTimeout(() => {
-    eventBus.publish({
-      type: 'banner-clear',
-      id: CLIPBOARD_BANNER_ID,
-      at: IsoTimestamp.now(),
-    });
-    ref.current = undefined;
-  }, CLIPBOARD_TOAST_DURATION_MS);
 };

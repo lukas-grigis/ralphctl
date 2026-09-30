@@ -13,7 +13,6 @@ import { ConfirmCard } from '@src/application/ui/tui/components/confirm-card.tsx
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { Project } from '@src/domain/entity/project.ts';
 import type { Ticket } from '@src/domain/entity/ticket.ts';
-import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx';
 import { NextPhaseCard, SprintHeader } from '@src/application/ui/tui/views/sprint-detail-internals/header-card.tsx';
 import { OutcomeReportCard } from '@src/application/ui/tui/views/sprint-detail-internals/outcome-card.tsx';
 import { TicketsSection } from '@src/application/ui/tui/views/sprint-detail-internals/ticket-list.tsx';
@@ -24,7 +23,6 @@ import type { AsyncLoadState } from '@src/application/ui/tui/runtime/use-async-l
 import type { SprintBundle } from '@src/application/ui/tui/views/sprint-detail-internals/use-sprint-bundle.ts';
 
 export interface SprintDetailContentProps {
-  readonly helpOpen: boolean;
   readonly state: AsyncLoadState<SprintBundle, unknown>;
   readonly confirmRemove: Ticket | undefined;
   readonly onCancelRemove: () => void;
@@ -38,12 +36,11 @@ export interface SprintDetailContentProps {
 }
 
 /**
- * Top-level render branch: help overlay > load/error states > remove confirm > the loaded
+ * Top-level render branch: load/error states > remove confirm > the loaded
  * body. Flat if-returns instead of a nested ternary chain — same branch order and same props
  * as before, just laid out as one branch per line.
  */
 export const SprintDetailContent = ({
-  helpOpen,
   state,
   confirmRemove,
   onCancelRemove,
@@ -55,7 +52,6 @@ export const SprintDetailContent = ({
   ticketsEditable,
   currentSprintId,
 }: SprintDetailContentProps): React.JSX.Element => {
-  if (helpOpen) return <HelpOverlay />;
   if (state.kind === 'loading' || state.kind === 'idle') return <LoadingRow label="Loading…" />;
   if (state.kind === 'error') return <LoadErrorRow message="Failed to load sprint." />;
   if (confirmRemove !== undefined) {

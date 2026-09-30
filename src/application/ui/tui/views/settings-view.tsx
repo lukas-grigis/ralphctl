@@ -31,7 +31,7 @@
  */
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { Box, Text, useInput, type Key } from 'ink';
+import { Box, Text } from 'ink';
 import { ViewShell } from '@src/application/ui/tui/components/view-shell.tsx';
 import { Spinner } from '@src/application/ui/tui/components/spinner.tsx';
 import { ConfirmPrompt } from '@src/application/ui/tui/prompts/confirm-prompt.tsx';
@@ -40,8 +40,9 @@ import { useStorage } from '@src/application/ui/tui/runtime/storage-context.tsx'
 import { useLogLevel } from '@src/application/ui/tui/runtime/log-level-context.tsx';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
-import { useViewHints } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
-import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx';
+import { useViewKeys } from '@src/application/ui/tui/runtime/use-view-keys.ts';
+import { listMoveBinding } from '@src/application/ui/tui/runtime/keyboard-map.ts';
+import { useScrollAnchor } from '@src/application/ui/tui/components/scroll-region.tsx';
 import { createSettingsShowFlow } from '@src/application/flows/settings-show/flow.ts';
 import type { PresetName } from '@src/business/settings/presets.ts';
 import type { PresetWarning } from '@src/application/flows/settings-apply-preset/ctx.ts';
@@ -62,41 +63,28 @@ import {
 /** Feedback banner rendered under the active section — `undefined` clears it. */
 type SettingsFeedback = { readonly tone: 'ok' | 'error'; readonly text: string } | undefined;
 
-/** `-1` (previous) / `1` (next) section-switch delta for `←`/`[` and `→`/`]`; `undefined` otherwise. */
-const sectionKeyDelta = (input: string, key: Pick<Key, 'leftArrow' | 'rightArrow'>): -1 | 1 | undefined => {
-  if (key.leftArrow || input === '[') return -1;
-  if (key.rightArrow || input === ']') return 1;
-  return undefined;
-};
-
 /**
- * Next cursor index for `↑/↓`/j/k (clamped ±1) and PageUp/PageDown/Home/End (snap to an end);
- * `undefined` when `input`/`key` isn't a cursor-movement key.
+ * A field's current value with the active-cursor glyph. The focused row registers as the scroll
+ * anchor (the Box is the row's own box, so layout is unchanged) — `suppressScrollArrows` hands
+ * ↑/↓ to the field cursor, and the page has to follow it.
  */
-const cursorKeyIndex = (
-  input: string,
-  key: Pick<Key, 'upArrow' | 'downArrow' | 'pageUp' | 'pageDown' | 'home' | 'end'>,
-  cursor: number,
-  length: number
-): number | undefined => {
-  if (key.upArrow || input === 'k') return Math.max(0, cursor - 1);
-  if (key.downArrow || input === 'j') return Math.min(length - 1, cursor + 1);
-  if (key.pageUp || key.home) return 0;
-  if (key.pageDown || key.end) return length - 1;
-  return undefined;
+const FieldValue = ({ focused, value }: { readonly focused: boolean; readonly value: string }): React.JSX.Element => {
+  const anchorRef = useScrollAnchor(focused);
+  return (
+    <Box ref={anchorRef}>
+      <Text {...(focused ? { color: inkColors.primary } : {})} bold={focused}>
+        {focused ? `${glyphs.actionCursor} ` : '  '}
+        {value}
+      </Text>
+    </Box>
+  );
 };
 
 /** Renders the current value + active-cursor glyph for `key` inside the active section's field list. */
 const renderFieldValue = (activeFields: readonly EditableField[], cursor: number, key: string): React.ReactNode => {
   const focused = activeFields[cursor]?.key === key;
   const field = activeFields.find((f) => f.key === key);
-  const value = field?.current ?? '';
-  return (
-    <Text {...(focused ? { color: inkColors.primary } : {})} bold={focused}>
-      {focused ? `${glyphs.actionCursor} ` : '  '}
-      {value}
-    </Text>
-  );
+  return <FieldValue focused={focused} value={field?.current ?? ''} />;
 };
 
 interface SettingsDataParams {
@@ -284,10 +272,10 @@ interface SettingsKeyHandlerParams {
 }
 
 /**
- * Owns the Settings view's global keyboard routing: `←/→`/`[`/`]` switch sections, `↑/↓`/j/k
- * (plus PageUp/PageDown/Home/End) move the cursor within the active section's fields, `↵`/`e`
- * activates the focused field. Muted while a modal overlay, editor, or preset confirmation is
- * active — those own their own `useInput` handlers.
+ * Owns the Settings view's keyboard routing: `←/→` switch sections, `↑/↓`/j/k (plus
+ * PageUp/PageDown/Home/End) move the cursor within the active section's fields, `↵`/`e` activates
+ * the focused field. Muted while a modal overlay, editor, or preset confirmation is active —
+ * those own their own `useInput` handlers.
  */
 const useSettingsKeyHandler = (params: SettingsKeyHandlerParams): void => {
   const {
@@ -303,31 +291,45 @@ const useSettingsKeyHandler = (params: SettingsKeyHandlerParams): void => {
     onActivate,
   } = params;
 
-  useInput((input, key) => {
-    if (modalOpen || editingField !== undefined || pendingPreset !== undefined) return;
-    if (sections.length === 0) return;
-    const sectionDelta = sectionKeyDelta(input, key);
-    if (sectionDelta !== undefined) {
-      setSectionIdx((i) => (i + sectionDelta + sections.length) % sections.length);
-      setCursor(0);
-      setFeedback(undefined);
-      return;
-    }
-    if (activeFields.length === 0) return;
-    const nextCursor = cursorKeyIndex(input, key, cursor, activeFields.length);
-    if (nextCursor !== undefined) {
-      setCursor(nextCursor);
-      return;
-    }
-    if (key.return || input === 'e') {
-      const field = activeFields[cursor];
-      if (field !== undefined) onActivate(field);
-    }
-  });
+  const hasFields = activeFields.length > 0;
+  const switchSection = (delta: 1 | -1): void => {
+    setSectionIdx((i) => (i + delta + sections.length) % sections.length);
+    setCursor(0);
+    setFeedback(undefined);
+  };
+  const activate = (): void => {
+    const field = activeFields[cursor];
+    if (field !== undefined) onActivate(field);
+  };
+  const last = activeFields.length - 1;
+
+  useViewKeys(
+    [
+      {
+        keys: ['←', '→'],
+        hint: 'section',
+        enabled: sections.length > 0,
+        run: (_i, key) => switchSection(key.rightArrow ? 1 : -1),
+      },
+      listMoveBinding,
+      {
+        keys: ['↑', '↓', 'j', 'k'],
+        hint: 'move',
+        hidden: true,
+        enabled: hasFields,
+        run: (input, key) =>
+          setCursor((c) => (key.downArrow || input === 'j' ? Math.min(last, c + 1) : Math.max(0, c - 1))),
+      },
+      { keys: ['PgUp', 'Home'], hint: 'first', hidden: true, enabled: hasFields, run: () => setCursor(0) },
+      { keys: ['PgDn', 'End'], hint: 'last', hidden: true, enabled: hasFields, run: () => setCursor(last) },
+      { keys: ['↵'], hint: 'edit', enabled: hasFields, run: activate },
+      { keys: ['e'], hint: 'edit', hidden: true, enabled: hasFields, run: activate },
+    ],
+    { active: !modalOpen && editingField === undefined && pendingPreset === undefined }
+  );
 };
 
 interface SettingsViewBodyProps {
-  readonly helpOpen: boolean;
   readonly pendingPreset: PresetName | undefined;
   readonly onApplyPreset: (preset: PresetName) => Promise<void>;
   readonly onCancelPreset: () => void;
@@ -347,12 +349,11 @@ interface SettingsViewBodyProps {
 }
 
 /**
- * The Settings view's mutually-exclusive display states, in priority order: help overlay, preset
+ * The Settings view's mutually-exclusive display states, in priority order: preset
  * confirmation, field editor, load error, loading spinner, then the section strip + active-section
  * body. Isolated from `SettingsView` so the hook-heavy orchestrator stays a short composition.
  */
 const SettingsViewBody = ({
-  helpOpen,
   pendingPreset,
   onApplyPreset,
   onCancelPreset,
@@ -370,8 +371,6 @@ const SettingsViewBody = ({
   presetWarnings,
   feedback,
 }: SettingsViewBodyProps): React.JSX.Element => {
-  if (helpOpen) return <HelpOverlay />;
-
   if (pendingPreset !== undefined) {
     return (
       <ConfirmPrompt
@@ -448,12 +447,6 @@ export const SettingsView = (): React.JSX.Element => {
    */
   const [presetWarnings, setPresetWarnings] = useState<readonly PresetWarning[]>([]);
 
-  useViewHints([
-    { keys: '←/→', label: 'section' },
-    { keys: '↑/↓', label: 'move' },
-    { keys: '↵/e', label: 'edit' },
-  ]);
-
   const closeEditor = (): void => setEditingField(undefined);
 
   const { settings, loadError, handlePreset, handleSubmit } = useSettingsData({
@@ -496,9 +489,8 @@ export const SettingsView = (): React.JSX.Element => {
     settings === undefined ? null : renderFieldValue(activeFields, cursor, key);
 
   return (
-    <ViewShell title="Settings" subtitle="←/→ section · ↑/↓ move · ↵ edit · esc cancel">
+    <ViewShell title="Settings" subtitle={activeSection?.title ?? 'loading'} suppressScrollArrows>
       <SettingsViewBody
-        helpOpen={ui.helpOpen}
         pendingPreset={pendingPreset}
         onApplyPreset={handlePreset}
         onCancelPreset={() => setPendingPreset(undefined)}

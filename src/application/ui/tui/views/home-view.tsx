@@ -25,7 +25,6 @@ import { useBreakpoint } from '@src/application/ui/tui/runtime/use-breakpoint.ts
 import { useRouter } from '@src/application/ui/tui/runtime/router.tsx';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
 import { useAppStateSnapshot } from '@src/application/ui/tui/runtime/use-app-state-snapshot.ts';
-import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx';
 import { useLaunchCreateSprint } from '@src/application/ui/tui/runtime/use-launch-create-sprint.ts';
 import { StateCard } from '@src/application/ui/tui/views/home-internals/state-card.tsx';
 import { buildMenuItems } from '@src/application/ui/tui/views/home-internals/menu-items.ts';
@@ -318,21 +317,17 @@ export const HomeView = (): React.JSX.Element => {
   return (
     // The menu owns ↑/↓ and PgUp/PgDn (windowed cursor); the page scroll yields them.
     <ViewShell title="Home" subtitle="Where do we start today?" suppressScrollArrows>
-      {ui.helpOpen ? (
-        <HelpOverlay />
-      ) : (
-        <Box flexDirection="column">
-          <StateCard state={state.kind === 'ok' ? state.value : undefined} loading={snapshotLoading} />
-          <HomeFeedbackLines
-            switchToastVisible={switchToastVisible}
-            switchLabel={lastSwitch?.sprintLabel}
-            localError={localError}
-          />
-          <Box marginY={spacing.section}>
-            <ActionMenu items={items} active={!ui.modalOpen} initialIndex={initialMenuIndex} visibleRows={menuRows} />
-          </Box>
+      <Box flexDirection="column">
+        <StateCard state={state.kind === 'ok' ? state.value : undefined} loading={snapshotLoading} />
+        <HomeFeedbackLines
+          switchToastVisible={switchToastVisible}
+          switchLabel={lastSwitch?.sprintLabel}
+          localError={localError}
+        />
+        <Box marginY={spacing.section}>
+          <ActionMenu items={items} active={!ui.modalOpen} initialIndex={initialMenuIndex} visibleRows={menuRows} />
         </Box>
-      )}
+      </Box>
     </ViewShell>
   );
 };

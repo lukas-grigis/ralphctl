@@ -8,7 +8,7 @@
  */
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { Box, Text, useInput } from 'ink';
+import { Box, Text } from 'ink';
 import { ViewShell } from '@src/application/ui/tui/components/view-shell.tsx';
 import { Card } from '@src/application/ui/tui/components/card.tsx';
 import { ActionMenu, type MenuItem } from '@src/application/ui/tui/components/action-menu.tsx';
@@ -30,7 +30,8 @@ import type { PromptQueue } from '@src/application/ui/tui/prompts/prompt-queue.t
 import { createInkInteractivePrompt } from '@src/application/ui/tui/prompts/ink-interactive-prompt.ts';
 import { useStorage } from '@src/application/ui/tui/runtime/storage-context.tsx';
 import type { StoragePaths } from '@src/application/bootstrap/storage-paths.ts';
-import { useViewHints } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
+import { useViewKeys } from '@src/application/ui/tui/runtime/use-view-keys.ts';
+import { listMoveBinding } from '@src/application/ui/tui/runtime/keyboard-map.ts';
 import { openFlowSession } from '@src/application/ui/tui/runtime/open-flow-session.ts';
 import {
   launchFlow,
@@ -49,7 +50,6 @@ import {
 import { runRepositorySelection } from '@src/application/ui/tui/views/flows-repository-picker.ts';
 import type { RepositoryId } from '@src/domain/value/id/repository-id.ts';
 import { getRunInTerminal } from '@src/application/ui/tui/runtime/run-in-terminal.ts';
-import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx';
 import { SprintPipeline } from '@src/application/ui/tui/components/sprint-pipeline.tsx';
 import { NextStepList } from '@src/application/ui/tui/components/next-steps.tsx';
 import { buildNextSteps, nextStepsInputFromSnapshot } from '@src/application/ui/shared/next-steps.ts';
@@ -460,14 +460,20 @@ export const FlowsView = (): React.JSX.Element => {
   const storage = useStorage();
   const [launchError, setLaunchError] = useState<string | undefined>(undefined);
   const [showAll, setShowAll] = useState<boolean>(false);
-  useViewHints([
-    { keys: '↑/↓', label: 'move' },
-    { keys: '↵', label: 'launch' },
-    { keys: 'r', label: 'reload state' },
-    { keys: 'v', label: showAll ? 'hide inapplicable' : 'show all' },
-  ]);
-
+  // `r` re-fetches the snapshot so the menu's enabled/disabled state reflects the latest
+  // storage read — useful after mutating something in a detail view and coming back. `v`
+  // (visibility) toggles between the state-machine-filtered menu (default) and the full
+  // registry; `s` is intentionally NOT used here because Settings owns it globally.
   const { state, reload } = useAppStateSnapshot();
+  useViewKeys(
+    [
+      listMoveBinding,
+      { keys: ['↵'], hint: 'launch' },
+      { keys: ['r'], hint: 'reload state', run: reload },
+      { keys: ['v'], hint: showAll ? 'hide inapplicable' : 'show all', run: () => setShowAll((v) => !v) },
+    ],
+    { active: !ui.modalOpen }
+  );
 
   const items = useFlowMenuItems({
     state,
@@ -494,21 +500,9 @@ export const FlowsView = (): React.JSX.Element => {
     if (s !== undefined) syncSprintStatus(s.id, s.status);
   }, [state, syncSprintStatus]);
 
-  // `r` re-fetches the snapshot so the menu's enabled/disabled state reflects the latest
-  // storage read — useful after mutating something in a detail view and coming back. `v`
-  // (visibility) toggles between the state-machine-filtered menu (default) and the full
-  // registry; `s` is intentionally NOT used here because Home reserves it for Settings.
-  useInput((input) => {
-    if (ui.modalOpen) return;
-    if (input === 'r') reload();
-    if (input === 'v') setShowAll((v) => !v);
-  });
-
   return (
     <ViewShell title="Flows" subtitle="Pick a flow to run" suppressScrollArrows>
-      {ui.helpOpen ? (
-        <HelpOverlay />
-      ) : state.kind !== 'ok' ? (
+      {state.kind !== 'ok' ? (
         <LoadingRow label="Loading state…" />
       ) : (
         <Box flexDirection="column">

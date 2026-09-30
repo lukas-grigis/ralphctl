@@ -23,7 +23,7 @@
  */
 
 import React, { useMemo, useState } from 'react';
-import { Box, Text, useInput } from 'ink';
+import { Box, Text } from 'ink';
 import { ViewShell } from '@src/application/ui/tui/components/view-shell.tsx';
 import { AsyncListFrame } from '@src/application/ui/tui/components/async-list-frame.tsx';
 import { EmptyState } from '@src/application/ui/tui/components/empty-state.tsx';
@@ -33,10 +33,10 @@ import { useRouter } from '@src/application/ui/tui/runtime/router.tsx';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
 import { useAsyncLoad, type AsyncLoadState } from '@src/application/ui/tui/runtime/use-async-load.ts';
 import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
-import { useViewHints } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
+import { useViewKeys } from '@src/application/ui/tui/runtime/use-view-keys.ts';
+import { createBindings, listMoveBinding } from '@src/application/ui/tui/runtime/keyboard-map.ts';
 import { useBreakpoint } from '@src/application/ui/tui/runtime/use-breakpoint.ts';
 import { useLaunchCreateSprint } from '@src/application/ui/tui/runtime/use-launch-create-sprint.ts';
-import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx';
 import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import { loadTaskHealthBySprintId, type TaskHealthCounts } from '@src/application/ui/shared/state-snapshot.ts';
 import type { Project } from '@src/domain/entity/project.ts';
@@ -157,7 +157,6 @@ const usePickerRows = (deps: AppDeps, selection: Selection): UsePickerRowsResult
 };
 
 interface PickerBodyProps {
-  readonly helpOpen: boolean;
   readonly state: AsyncLoadState<PickerData, unknown>;
   readonly sprintCount: number;
   readonly hiddenByDoneFilter: boolean;
@@ -177,7 +176,6 @@ interface PickerBodyProps {
 
 /** Loading / error / empty / list-of-rows presentation — pure props in, no state of its own. */
 const PickerBody = ({
-  helpOpen,
   state,
   sprintCount,
   hiddenByDoneFilter,
@@ -195,7 +193,6 @@ const PickerBody = ({
   taskHealthBySprintId,
 }: PickerBodyProps): React.JSX.Element => (
   <AsyncListFrame
-    overlay={helpOpen ? <HelpOverlay /> : undefined}
     state={state}
     loadingLabel="Loading sprints…"
     errorMessage="Failed to load sprints."
@@ -205,12 +202,12 @@ const PickerBody = ({
       hiddenByDoneFilter ? (
         <EmptyState
           title="All sprints here are done (hidden)."
-          hint="Press f to show them, or + to create a new one."
+          hint="Press f to show them, or c to create a new one."
         />
       ) : (
         <EmptyState
           title="No sprints yet."
-          hint={scopeAll ? 'Press + to create one.' : 'Press t to show all projects, or + to create one.'}
+          hint={scopeAll ? 'Press c to create one.' : 'Press t to show all projects, or c to create one.'}
         />
       )
     }
@@ -245,7 +242,7 @@ const PickerBody = ({
       <Box marginTop={spacing.section} paddingX={spacing.indent}>
         <Text dimColor>
           {glyphs.bullet} ↵ use the highlighted sprint {glyphs.bullet} t toggle scope {glyphs.bullet} f{' '}
-          {hideDone ? 'show' : 'hide'} done {glyphs.bullet} + create a new one
+          {hideDone ? 'show' : 'hide'} done {glyphs.bullet} c create a new one
         </Text>
       </Box>
       {feedback !== undefined && (
@@ -266,15 +263,6 @@ export const PickSprintView = (): React.JSX.Element => {
 
   const { state, reload, data, rows, sprintCount, hiddenByDoneFilter, scopeAll, hideDone, setHideDone, toggleScope } =
     usePickerRows(deps, selection);
-
-  useViewHints([
-    { keys: '↑/↓', label: 'move' },
-    { keys: '↵', label: 'use sprint' },
-    { keys: 't', label: 'toggle scope' },
-    { keys: 'f', label: hideDone ? 'show done' : 'hide done' },
-    { keys: 'c/+', label: 'create new' },
-    { keys: 'r', label: 'reload' },
-  ]);
 
   // Window the rendered slice so a user with hundreds of sprints across many projects doesn't
   // pay an Ink reconciliation cost proportional to the full row list. Capacity tracks terminal
@@ -313,22 +301,17 @@ export const PickSprintView = (): React.JSX.Element => {
   };
 
   // Non-navigation keys only — `PickerRowList`'s `useListWindow` owns ↑/↓/j/k/PgUp/PgDn/Home/End/Enter.
-  useInput((input) => {
-    if (ui.modalOpen) return;
-    if (input === 't') {
-      toggleScope();
-      return;
-    }
-    if (input === 'f') {
-      setHideDone((v) => !v);
-      return;
-    }
-    if (input === '+' || input === 'c') {
-      void launchCreateSprint();
-      return;
-    }
-    if (input === 'r') reload();
-  });
+  useViewKeys(
+    [
+      listMoveBinding,
+      { keys: ['↵'], hint: 'use sprint' },
+      { keys: ['t'], hint: 'toggle scope', run: toggleScope },
+      { keys: ['f'], hint: hideDone ? 'show done' : 'hide done', run: () => setHideDone((v) => !v) },
+      ...createBindings(() => void launchCreateSprint()),
+      { keys: ['r'], hint: 'reload', run: reload },
+    ],
+    { active: !ui.modalOpen }
+  );
 
   // The preferred landing id — the already-selected sprint if present, else the first sprint,
   // else the create row. Recomputed every render but only actually consumed by `useListWindow`
@@ -345,7 +328,6 @@ export const PickSprintView = (): React.JSX.Element => {
   return (
     <ViewShell title="Pick a sprint" subtitle="Switch sprint (and project) in one step" suppressScrollArrows>
       <PickerBody
-        helpOpen={ui.helpOpen}
         state={state}
         sprintCount={sprintCount}
         hiddenByDoneFilter={hiddenByDoneFilter}

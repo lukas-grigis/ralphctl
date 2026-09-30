@@ -59,7 +59,6 @@ import { useTerminalSize } from '@src/application/ui/tui/runtime/use-terminal-si
 import type { AppEvent } from '@src/business/observability/events.ts';
 import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
-import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx';
 import { fmtElapsed } from '@src/application/ui/tui/theme/duration.ts';
 import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import type { BucketedExecution } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
@@ -290,6 +289,9 @@ interface UseExecuteRunControlsInput {
    * and the Execute view is left sitting on a `done` pin.
    */
   readonly hasBlockedTask: boolean;
+  /** `y` handler and its gate — see {@link useExecuteInput}. */
+  readonly onCopyTask: () => void;
+  readonly canCopyTask: boolean;
 }
 
 export interface ExecuteRunControls {
@@ -311,6 +313,8 @@ const useExecuteRunControls = ({
   hasPinnedSprint,
   hasEvaluation,
   hasBlockedTask,
+  onCopyTask,
+  canCopyTask,
 }: UseExecuteRunControlsInput): ExecuteRunControls => {
   const isRunning = descriptor?.status === 'running';
 
@@ -329,6 +333,8 @@ const useExecuteRunControls = ({
     hasPinnedSprint,
     hasEvaluation,
     hasBlockedTask,
+    onCopyTask,
+    canCopyTask,
   });
 
   const now = useLiveClock(isRunning);
@@ -337,7 +343,6 @@ const useExecuteRunControls = ({
 };
 
 interface ExecuteViewFrameProps {
-  readonly ui: UiStateApi;
   readonly descriptor: SessionDescriptor;
   readonly sessionList: readonly SessionRecord[];
   readonly sessionId: string;
@@ -356,12 +361,11 @@ interface ExecuteViewFrameProps {
 }
 
 /**
- * The settled render for a found session — header chip + either the help overlay or the full
+ * The settled render for a found session — header chip + the full
  * `ExecuteBody`. Takes the grouped hook results as-is (rather than 20+ flat props) so the
  * caller reads as "assemble the frame from what I already computed".
  */
 const ExecuteViewFrame = ({
-  ui,
   descriptor,
   sessionList,
   sessionId,
@@ -395,35 +399,58 @@ const ExecuteViewFrame = ({
       suppressScrollArrows
       right={<StatusChip label={descriptor.status} kind={runnerStatusKind(descriptor.status)} />}
     >
-      {ui.helpOpen ? (
-        <HelpOverlay />
-      ) : (
-        <ExecuteBody
-          descriptor={descriptor}
-          sessionList={sessionList}
-          sessionId={sessionId}
-          isRunning={runControls.isRunning}
-          now={runControls.now}
-          elapsed={elapsed}
-          layout={layout}
-          termColumns={term.columns}
-          termRows={term.rows}
-          tokenUsage={tokenUsage}
-          logEntries={logEntries}
-          cancelScopeOpen={runControls.cancelScopeOpen}
-          attemptElapsedMs={attemptElapsedMs}
-          remainingTaskCount={remainingTaskCount}
-          onCancelAttempt={cancelHandlers.onCancelAttempt}
-          onCancelFlow={cancelHandlers.onCancelFlow}
-          onDismissCancelScope={cancelHandlers.onDismiss}
-          pinnedSprintStale={pinnedSprintStale}
-          nextSteps={nextSteps}
-          {...bucketedTasks}
-          {...tasksPanelDerivation}
-        />
-      )}
+      <ExecuteBody
+        descriptor={descriptor}
+        sessionList={sessionList}
+        sessionId={sessionId}
+        isRunning={runControls.isRunning}
+        now={runControls.now}
+        elapsed={elapsed}
+        layout={layout}
+        termColumns={term.columns}
+        termRows={term.rows}
+        tokenUsage={tokenUsage}
+        logEntries={logEntries}
+        cancelScopeOpen={runControls.cancelScopeOpen}
+        attemptElapsedMs={attemptElapsedMs}
+        remainingTaskCount={remainingTaskCount}
+        onCancelAttempt={cancelHandlers.onCancelAttempt}
+        onCancelFlow={cancelHandlers.onCancelFlow}
+        onDismissCancelScope={cancelHandlers.onDismiss}
+        pinnedSprintStale={pinnedSprintStale}
+        nextSteps={nextSteps}
+        {...bucketedTasks}
+        {...tasksPanelDerivation}
+      />
     </ViewShell>
   );
+};
+
+interface BucketedTasksAndCopyInput {
+  readonly descriptor: SessionDescriptor | undefined;
+  readonly chainEvents: readonly AppEvent[];
+  readonly signals: readonly SignalBusEntry[];
+  readonly ui: UiStateApi;
+  readonly eventBus: AppDeps['eventBus'];
+}
+
+/** The per-task derivation plus the Execute-local `y` handler that copies the active task's summary. */
+const useBucketedTasksAndCopy = ({
+  descriptor,
+  chainEvents,
+  signals,
+  ui,
+  eventBus,
+}: BucketedTasksAndCopyInput): { readonly bucketedTasks: BucketedDerivation; readonly copyTask: () => void } => {
+  const bucketedTasks = useBucketedTasks({ descriptor, chainEvents, signals, eventBus });
+  const copyTask = useActiveTaskSummary({
+    currentTask: bucketedTasks.currentTask,
+    currentTaskName: bucketedTasks.currentTaskName,
+    setActiveTaskSummaryProvider: ui.setActiveTaskSummaryProvider,
+    getActiveTaskSummary: ui.getActiveTaskSummary,
+    eventBus,
+  });
+  return { bucketedTasks, copyTask };
 };
 
 export const ExecuteView = (): React.JSX.Element => {
@@ -451,6 +478,7 @@ export const ExecuteView = (): React.JSX.Element => {
 
   // `v` — the panel supplies the focused card id; this resolves the overlay target.
   const evaluation = useEvaluationChord({ sprintId: pinnedSprintId, taskState, openEvaluation: ui.openEvaluation });
+  const { bucketedTasks, copyTask } = useBucketedTasksAndCopy({ descriptor, chainEvents, signals, ui, eventBus });
   const runControls = useExecuteRunControls({
     descriptor,
     modalOpen: ui.modalOpen,
@@ -460,21 +488,13 @@ export const ExecuteView = (): React.JSX.Element => {
     // `!pinnedSprintStale` mirrors the panel's own gate below — a stale pin unmounts the
     // `TasksPanelHost` that owns the `u` handler, so the hint must go with it.
     hasBlockedTask: !pinnedSprintStale && (taskState?.some((t) => t.status === 'blocked') ?? false),
+    onCopyTask: copyTask,
+    canCopyTask: bucketedTasks.currentTask !== undefined,
   });
-
-  const bucketedTasks = useBucketedTasks({ descriptor, chainEvents, signals, eventBus });
 
   // Per-session token usage — latest `TokenUsageEvent` per sessionId. The execute view is
   // sessionId-scoped so we only look up the current runner's entry; absent ⇒ empty state.
   const tokenUsage = useTokenUsage(eventBus).get(sessionId);
-
-  useActiveTaskSummary({
-    currentTask: bucketedTasks.currentTask,
-    currentTaskName: bucketedTasks.currentTaskName,
-    // The setter is its own stable `useCallback`, so reading it off the merged `ui` object does
-    // not re-fire the effect when an unrelated overlay toggle changes that object's identity.
-    setActiveTaskSummaryProvider: ui.setActiveTaskSummaryProvider,
-  });
 
   const cancelStats = useCancelScopeStats({
     chainEvents,
@@ -519,7 +539,6 @@ export const ExecuteView = (): React.JSX.Element => {
 
   return (
     <ExecuteViewFrame
-      ui={ui}
       descriptor={descriptor}
       sessionList={sessionList}
       sessionId={sessionId}

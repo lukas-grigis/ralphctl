@@ -10,15 +10,13 @@
  */
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { Box, Text, useInput } from 'ink';
+import { Box, Text } from 'ink';
 import { ViewShell } from '@src/application/ui/tui/components/view-shell.tsx';
 import { Spinner } from '@src/application/ui/tui/components/spinner.tsx';
 import { Card } from '@src/application/ui/tui/components/card.tsx';
 import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
-import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
-import { useViewHints } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
-import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx';
+import { useViewKeys } from '@src/application/ui/tui/runtime/use-view-keys.ts';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { createCreatePrFlow } from '@src/application/flows/create-pr/flow.ts';
 import { resolveEffort } from '@src/business/settings/resolve-effort.ts';
@@ -50,17 +48,9 @@ type RunState =
 export const CreatePrView = (): React.JSX.Element => {
   const deps = useDeps();
   const selection = useSelection();
-  const ui = useUiState();
   const [prep, setPrep] = useState<PrepState>({ kind: 'loading' });
   const [run, setRun] = useState<RunState>({ kind: 'idle' });
   const [useAi, setUseAi] = useState<boolean>(true);
-  useViewHints([
-    { keys: '↵', label: 'open PR' },
-    { keys: 'a', label: 'toggle AI' },
-    { keys: 'r', label: 'retry', enabledWhen: run.kind === 'error' },
-    { keys: 'esc', label: 'back' },
-  ]);
-
   // Resolve cwd (project's first repo path) and branch (sprint-execution.branch) up front,
   // so the confirm card can show concrete values rather than spinning twice.
   useEffect(() => {
@@ -99,26 +89,31 @@ export const CreatePrView = (): React.JSX.Element => {
     [deps, selection.sprintId, useAi]
   );
 
-  useInput((input, key) => {
-    if (ui.modalOpen) return;
-    if (key.return && prep.kind === 'ready' && run.kind === 'idle') {
-      void runCreate(prep.cwd);
-      return;
-    }
-    if (input === 'a' && run.kind === 'idle') {
-      setUseAi((prev) => !prev);
-      return;
-    }
-    if (input === 'r' && run.kind === 'error') {
+  const canConfirm = prep.kind === 'ready' && run.kind === 'idle';
+  useViewKeys([
+    {
+      keys: ['↵'],
+      hint: 'open PR',
+      enabled: canConfirm,
+      run: () => {
+        if (prep.kind === 'ready') void runCreate(prep.cwd);
+      },
+    },
+    { keys: ['a'], hint: 'toggle AI', enabled: canConfirm, run: () => setUseAi((prev) => !prev) },
+    {
+      keys: ['r'],
+      hint: 'retry',
+      enabled: run.kind === 'error',
       // Back to the confirm card (re-enabling the `a` toggle) rather than re-firing directly —
       // this view creates an upstream PR, so every attempt goes through the explicit Enter.
-      setRun({ kind: 'idle' });
-    }
-  });
+      run: () => setRun({ kind: 'idle' }),
+    },
+    { keys: ['esc'], hint: 'back' },
+  ]);
 
   return (
     <ViewShell title="Create pull request" subtitle="open PR / MR for the sprint branch">
-      {ui.helpOpen ? <HelpOverlay /> : <Body prep={prep} run={run} useAi={useAi} />}
+      <Body prep={prep} run={run} useAi={useAi} />
     </ViewShell>
   );
 };

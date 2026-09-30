@@ -33,12 +33,12 @@ import { EmptyState } from '@src/application/ui/tui/components/empty-state.tsx';
 import { ConfirmCard } from '@src/application/ui/tui/components/confirm-card.tsx';
 import { FeedbackLine, type StructuredFeedback } from '@src/application/ui/tui/components/feedback-line.tsx';
 import { MultiSelectPrompt } from '@src/application/ui/tui/prompts/multi-select-prompt.tsx';
-import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx';
 import { glyphs, listCapacity, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { useAsyncLoad, type AsyncLoadState } from '@src/application/ui/tui/runtime/use-async-load.ts';
 import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { useViewKeys, type ViewKeyBinding } from '@src/application/ui/tui/runtime/use-view-keys.ts';
+import { listMoveBinding } from '@src/application/ui/tui/runtime/keyboard-map.ts';
 import { useBreakpoint } from '@src/application/ui/tui/runtime/use-breakpoint.ts';
 import { FLOW_IDS, type FlowId } from '@src/domain/value/flow-id.ts';
 import type { Settings } from '@src/domain/entity/settings.ts';
@@ -85,7 +85,6 @@ const loadSkillsViewState = async (deps: AppDeps): Promise<SkillsViewState> => {
 };
 
 interface SkillsBodyProps {
-  readonly helpOpen: boolean;
   readonly state: AsyncLoadState<SkillsViewState, unknown>;
   readonly picker: PickerState | undefined;
   readonly confirmState: ConfirmState | undefined;
@@ -181,7 +180,6 @@ const SkillsList = ({
 
 /** Loading / error / picker / confirm / empty / list-of-rows presentation — pure props in. */
 const SkillsBody = ({
-  helpOpen,
   state,
   picker,
   confirmState,
@@ -190,21 +188,20 @@ const SkillsBody = ({
   onSubmitConfirm,
   ...list
 }: SkillsBodyProps): React.JSX.Element => {
-  // The help screen, the flow picker and the destructive-overwrite confirm each take over the
-  // whole frame; everything below them is the ordinary async ladder.
-  const overlay = helpOpen ? (
-    <HelpOverlay />
-  ) : picker !== undefined ? (
-    <SkillFlowPicker picker={picker} onSubmit={onSubmitPicker} onCancel={onCancelPicker} />
-  ) : confirmState !== undefined ? (
-    <ConfirmCard
-      title={<Text bold>{confirmTitle(confirmState)}</Text>}
-      body={<Text dimColor>Local edits in the selected flow(s) will be permanently lost.</Text>}
-      message={confirmState.kind === 'disable' ? 'Remove?' : 'Overwrite?'}
-      onSubmit={onSubmitConfirm}
-      onCancel={() => onSubmitConfirm(false)}
-    />
-  ) : undefined;
+  // The flow picker and the destructive-overwrite confirm each take over the whole frame;
+  // everything below them is the ordinary async ladder.
+  const overlay =
+    picker !== undefined ? (
+      <SkillFlowPicker picker={picker} onSubmit={onSubmitPicker} onCancel={onCancelPicker} />
+    ) : confirmState !== undefined ? (
+      <ConfirmCard
+        title={<Text bold>{confirmTitle(confirmState)}</Text>}
+        body={<Text dimColor>Local edits in the selected flow(s) will be permanently lost.</Text>}
+        message={confirmState.kind === 'disable' ? 'Remove?' : 'Overwrite?'}
+        onSubmit={onSubmitConfirm}
+        onCancel={() => onSubmitConfirm(false)}
+      />
+    ) : undefined;
 
   return (
     <AsyncListFrame
@@ -237,7 +234,7 @@ const skillsKeyBindings = ({
   canClearOptOut,
   reload,
 }: SkillsKeysInput): readonly ViewKeyBinding[] => [
-  { keys: ['↑', '↓'], hint: 'move' },
+  listMoveBinding,
   {
     keys: ['e'],
     hint: 'enable',
@@ -323,7 +320,6 @@ export const SkillsView = (): React.JSX.Element => {
   return (
     <ViewShell title="Skills" subtitle="Browse, enable, disable, and update opt-in skills" suppressScrollArrows>
       <SkillsBody
-        helpOpen={ui.helpOpen}
         state={state}
         picker={picker}
         confirmState={confirmState}

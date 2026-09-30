@@ -119,6 +119,27 @@ describe('SettingsView', () => {
     result.unmount();
   });
 
+  it('describes the active section in the subtitle instead of repeating key hints', async () => {
+    const { result } = renderView(<SettingsView />, { deps, initial: { id: 'settings' } });
+    await waitForViewReady(result, (f) => f.includes('Apply: Mixed'));
+    expect(result.lastFrame() ?? '').toMatch(/Settings\n?.*Presets/);
+    await goToSection(result.stdin, 'storage');
+    const frame = result.lastFrame() ?? '';
+    // The section stamp now names the section; the keys live only in the footer hint strip.
+    expect(frame).toContain('▣ Settings — Storage paths');
+    expect(frame).not.toContain('esc cancel');
+    result.unmount();
+  });
+
+  it('`[` / `]` no longer switch sections (they were never hinted)', async () => {
+    const { result } = renderView(<SettingsView />, { deps, initial: { id: 'settings' } });
+    await waitForViewReady(result, (f) => f.includes('Apply: Mixed'));
+    result.stdin.write(']');
+    await tick(30);
+    expect(result.lastFrame() ?? '').toContain('Apply: Mixed');
+    result.unmount();
+  });
+
   it('shows an animated Spinner (not static text) while settings are loading', () => {
     // The first synchronous frame renders before `refresh()` resolves — the loading state must
     // be the shared <Spinner> (braille glyph + label), not a static "<Text>Loading…".

@@ -194,8 +194,8 @@ the same job.
 | `SectionStamp`           | `▣ VIEW TITLE ━━━…` header. Brand-mustard accent.                                     |
 | `Breadcrumb`             | Path strip above the page header; labels come from `runtime/nav-tree.ts`.             |
 | `StatusBar`              | Health row + one-row width-budgeted hint strip (§ 6.1a). Owned by router.             |
-| `hint-budget.ts`         | `fitHints` — pure width-budgeting of the footer strip. Views publish `useViewHints`.  |
-| `HelpOverlay`            | Modal `?`-key overlay. Driven by the centralised keyboard map.                        |
+| `hint-budget.ts`         | `fitHints` — pure width-budgeting of the footer strip. Views publish `useViewKeys`.   |
+| `HelpOverlay`            | Modal `?`-key overlay, mounted once in the App Layout; scoped to the route (§ 6.5).   |
 | `Banner`                 | Ralph header; `mode` from `resolveBannerMode` (wordmark only on a roomy Home).        |
 | `MemoryPressureBanner`   | Heap-pressure strip mounted at App root. Subscribes to the EventBus.                  |
 | `ChainLogDegradedBanner` | Latched warning when the on-disk `chain.log` sink can't keep up. Mounted at App root. |
@@ -369,10 +369,9 @@ These work from **every** view. Don't override them.
 | `!`                 | Doctor                                           |
 | `b`                 | Toggle banner compact ↔ full                     |
 | `g`                 | Progress overlay (reads `progress.md` from disk) |
-| `y`                 | Yank active-task summary to clipboard            |
 | `P`                 | Open project picker (cross-project)              |
 | `S`                 | Open sprint picker (cross-project)               |
-| `?`                 | Help overlay                                     |
+| `?`                 | Help overlay (scoped to the current view)        |
 | `q`                 | Quit (Home root only)                            |
 
 Switch between running flows via `Tab` / `Shift+Tab` (cycle next / prev) or `Ctrl+1..9` (jump to the Nth
@@ -406,11 +405,14 @@ Layout tests that depend on terminal width use `renderAtSize(node, { columns, ro
 | `v`               | Open the focused card's evaluation verdict (`evaluation.md`)                           |
 | `c`               | Open cancel-scope picker (attempt vs flow)                                             |
 | `D`               | Detach (background the flow)                                                           |
+| `y`               | Copy the active task's markdown summary (Execute-local; inert everywhere else)         |
 | `r`               | Settled run only — reset to Flows so the launch triggers are re-evaluated              |
 | `u`               | Settled run only, with a blocked task focused — unblock it ([§5.1](#51-blocked-tasks)) |
 
 `c` / `D` are live only while the chain runs; `r` only once it has settled, so the two sets never
-contend. A settled run's hint strip reads `↵ home · r re-run · g progress · v evaluation` (`g` is the
+contend. `y` is hinted (`y copy task`) while a task is active and confirms with a short-lived
+`Copied to clipboard` banner (stable id, so re-presses replace it); outside Execute it does nothing —
+there is no global `y` and no "no active task" toast. A settled run's hint strip reads `↵ home · r re-run · g progress · v evaluation` (`g` is the
 global progress-overlay chord — hinted here, handled globally, never bound twice), plus a trailing
 `u unblock` once the run left a task blocked. `u` is advertised ONLY in the settled set: the Tasks
 panel's own `u` chord is a no-op while a run is live (blocked-task ids are forced empty mid-run — a
@@ -459,9 +461,17 @@ useViewKeys(
 - `hidden: true` drops the hint but keeps the handler — for a key that IS inert but whose handler
   exists to say why (a silent swallow reads as a bug to anyone who found the key in `?`).
 - `active: false` mutes the whole dispatcher while a modal / confirm overlay owns the keyboard;
-  hints are unaffected, so the strip keeps describing the screen underneath.
+  hints are unaffected, so the strip keeps describing the screen underneath. An open app overlay
+  (help / progress / evaluation) mutes every dispatcher automatically.
+- Special keys are spelled as their hint glyphs and match the real key: `↵`, `esc`, `Tab`, `↑`, `↓`,
+  `←`, `→`, `PgUp`, `PgDn`, `Home`, `End`. Everything else matches the literal input character.
+- Two helpers in `keyboard-map.ts` keep the vocabulary identical across views: `listMoveBinding`
+  (the documentation-only `↑/↓ move`) and `createBindings(run)` (`c create` with `+` as a silent
+  alias — `n` is never "create", it opens Flows).
 
-A view that publishes hints without owning any local keys can still call `useViewHints` directly.
+Views never call `useViewHints` directly — a source grep fails the suite if one does. A second,
+hand-synced hint array is how footers and handlers drifted. A view subtitle describes the screen
+(`scoped to current project`, the active Settings section); it never repeats a key hint.
 
 Canonical vocabulary — reuse these spellings so users build one mental model:
 
@@ -501,12 +511,12 @@ identical on every list surface. The map of record is `listKeys` in `keyboard-ma
 
 `↵` (Enter / Return) submits the focused item. `g`/`G` vim aliases are absent from `useListWindow` — `g` is bound globally to the progress overlay and would double-fire on list surfaces; `Home`/`End` cover the same ground without the conflict.
 
-**Arrows are primary; `j`/`k` are a global alias.** Advertise `↑/↓` in a view's `useViewHints` when
+**Arrows are primary; `j`/`k` are a global alias.** Advertise `↑/↓` with `listMoveBinding` when
 the view shows a nav hint. **Do not list `j`/`k` (or `PgUp`/`PgDn` / `Home`/`End`) in per-view hints**
 — they apply to every list and are documented once in the help overlay's `Lists` section (generated
 from `listKeys`). A per-view hint strip names only the view's own keys plus the primary `↑/↓` move.
 
-**Canonical `useViewHints` spellings.** Reuse the [§6.3](#63-view-local-keys--published-via-useviewhints)
+**Canonical `useViewKeys` spellings.** Reuse the [§6.3](#63-view-local-keys--declared-once-via-useviewkeys)
 vocabulary: `↑/↓` → `move`, `Enter` → `open` / `confirm` / `run`. Inline-detail lists use
 `Enter` → `expand/collapse` ([§7.2](#72-list-views)).
 
@@ -534,6 +544,45 @@ in a descendant that never re-renders the region. `ActionMenu` also honours `vis
 **Doctor ordering.** Doctor lists groups worst-first (fail, warn, unknown, pass). All-pass groups collapse
 into a single `✓ N passed` line that `↵` expands; the provider-binary probe reports `pass` for a CLI that is
 missing but unreferenced by `settings.ai`, so the doctor nag only names things the operator actually uses.
+
+### 6.5 Keyboard ownership — one owner per keystroke
+
+Ink fans every keystroke out to every mounted `useInput`, so a key bound both by the active view and
+by an ambient handler fires twice. Ownership is explicit:
+
+- **Claimed keys.** `ClaimedKeysProvider` (`runtime/claimed-keys-context.tsx`, mounted in `App.tsx`)
+  is a counter-per-key registry read at keypress time. `useViewKeys` claims every enabled, printable
+  binding that has a `run`; an overlay that uses keys without `useViewKeys` calls `useClaimKeys`
+  (the cancel-scope overlay claims `1` / `2`). `useGlobalKeys` (the single-letter destinations and `g`)
+  and `StatusBanner` (`d` dismiss) ask `isClaimed(input)` and stand down — so project-detail's `S`
+  (detect skills) never also opens the sprint picker, a list's `d` (delete) never also dismisses a
+  banner, and section digits never fire under a view or overlay that uses them. The banner also stops
+  advertising `(press d to dismiss)` while `d` is claimed. `?`, `Ctrl+C` and `esc` are not claimable;
+  `esc` has its own `claimEscape` counter.
+- **One overlay slot.** `ui.overlay` is `{ kind: 'help' } | { kind: 'progress' } | { kind: 'evaluation';
+target } | undefined`, with `openOverlay` / `closeOverlay`. Opening replaces whatever is open;
+  `helpOpen`, `progressOpen` and `evaluationTarget` are derived read-only views of it and
+  `toggleHelp` / `toggleProgress` / `closeEvaluation` are thin wrappers. `modalOpen` is
+  `overlay !== undefined || promptActive`.
+- **Overlays mount in the Layout, never in a view.** `HelpOverlay`, `ProgressOverlay` and
+  `EvaluationOverlay` mount beside each other in `App.tsx`; the active view stays mounted under
+  `display: none`, so its hints, cursor and scroll offset survive. No view branches on `helpOpen`.
+- **Context-aware help.** The overlay shows `This view` (the live hints), `Global`, the general
+  sections (`Lists`, `Scroll`, `Contextual`) and only the route-bound sections of surfaces mounted on
+  the current route (`KeySection.onlyOn`: `Execute` / `Tasks panel` / `Signals` on `execute`, `Sprint
+picker` on `pick-sprint`). `Tab` toggles `All keys`.
+- **Ambient vs local.** Old global letters (`h n x s ! S P g b`) stay as accelerators but yield to a
+  claiming view. A view that owns a letter AND needs its global meaning does both itself (sprint-detail's
+  `n` reseats the selection, then pushes Flows) — never rely on two handlers composing.
+
+### 6.6 Scroll
+
+`ScrollRegion` (the middle slot of every view) scrolls on `PgUp` / `PgDn` / `Ctrl+b` / `Ctrl+f` (page),
+`Ctrl+u` / `Ctrl+d` (half page), `Home` / `End` (ends) and the mouse wheel; arrows also scroll when a view
+has no cursor. A view that owns a cursor (a list, a field cursor) passes `suppressScrollArrows` and
+registers the focused row with `useScrollAnchor` so the page follows the cursor — Settings (the focused
+field value) and project-detail (the focused repo card / project card) do exactly this, like the list
+views. The `Scroll` section of the help overlay is generated from `scrollKeys`.
 
 ## 7. View patterns
 
@@ -592,7 +641,9 @@ pushes a dedicated `*-detail-view.tsx`).
 `SettingsView` is the only configuration surface dense enough to need an in-view nav primitive.
 It uses a **segmented section strip** (text tabs, no chrome) along the top: `← / →` cycle
 sections; `↑ / ↓` navigate fields inside the active section; `↵ / e` opens the editor for the
-focused field. Only one section's fields render at a time.
+focused field. Only one section's fields render at a time. The view subtitle names the active section;
+the keys live only in the footer strip. `[` / `]` are not bound. The view passes `suppressScrollArrows`
+and anchors the focused field value (§ 6.6).
 
 **Why tabs over collapsible cards or a two-pane split.** A flat scroll listed ~30 editable rows
 in one column; the cursor path from the first preset button to the last harness budget was a
@@ -607,7 +658,7 @@ keypress-counting exercise. Three candidate fixes:
 - **Section tabs** — one horizontal strip, one body card below it. Discoverable (every section
   label is always on screen), bounded (the per-section row count is the per-section keypress
   budget), and the `←/→` idiom matches the canonical "prev/next page" vocabulary in
-  [§6.3](#63-view-local-keys--published-via-useviewhints).
+  [§6.3](#63-view-local-keys--declared-once-via-useviewkeys).
 
 Per-section row counts: `Presets 22`, `Global 1`, `Refine 3`, `Plan 3`,
 `Implement 6` (generator triple + evaluator triple), `Readiness 3`, `Ideate 3`, `Create-PR 3`,
@@ -707,7 +758,7 @@ Run this before opening a PR on a new TUI surface:
 - [ ] Title is an ALL-CAPS `SectionStamp`.
 - [ ] Every color / glyph / spacing value comes from `tokens.ts`.
 - [ ] All interaction is an `InteractivePrompt` call.
-- [ ] `useViewHints([…])` lists every key the view responds to.
+- [ ] `useViewKeys([…])` declares every key the view responds to — hint and handler from one entry; no bare `useViewHints`, no `HelpOverlay` mount, no key hint in the subtitle.
 - [ ] Loading state uses `<Spinner>`; terminal states use a `Card` (or the Execute footer's `<ResultCard>`).
 - [ ] No use-case or adapter imported directly — flow factory or injected port only.
 - [ ] A test asserts the happy path renders the terminal outcome card (a `Card tone="success"`, or a chain-settlement

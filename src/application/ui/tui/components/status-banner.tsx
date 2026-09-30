@@ -36,6 +36,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
+import { useClaimedKeys } from '@src/application/ui/tui/runtime/claimed-keys-context.tsx';
 import { useOverlayState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import type { BannerShowEvent } from '@src/business/observability/events.ts';
@@ -109,6 +110,7 @@ const upsert = (current: readonly ActiveBanner[], next: ActiveBanner): readonly 
 export const StatusBanner = (): React.JSX.Element | null => {
   const deps = useDeps();
   const overlay = useOverlayState();
+  const { isClaimed } = useClaimedKeys();
   const [banners, setBanners] = useState<readonly ActiveBanner[]>([]);
 
   useEffect(() => {
@@ -155,9 +157,12 @@ export const StatusBanner = (): React.JSX.Element | null => {
   // discarding a rate-limit / watchdog warning mid-word is exactly the visibility loss the
   // banner exists to prevent. It also covers the help / progress / evaluation overlays, where
   // the operator cannot see what they would be dismissing.
+  //
+  // A view that binds `d` itself (delete in the list views) claims it in the claimed-keys
+  // registry; the banner then stays put and the key does the view's job once, not two.
   useInput((input) => {
     if (overlay.modalOpen) return;
-    if (input === 'd' && sorted.length > 0) dismissTop();
+    if (input === 'd' && sorted.length > 0 && !isClaimed('d')) dismissTop();
   });
 
   if (sorted.length === 0) return null;
@@ -168,7 +173,7 @@ export const StatusBanner = (): React.JSX.Element | null => {
   return (
     <Box flexDirection="column" flexShrink={0}>
       {visible.map((banner) => (
-        <BannerRow key={banner.id} banner={banner} />
+        <BannerRow key={banner.id} banner={banner} dismissable={!isClaimed('d')} />
       ))}
       {overflow > 0 ? (
         <Box paddingX={spacing.indent}>
@@ -183,6 +188,8 @@ export const StatusBanner = (): React.JSX.Element | null => {
 
 interface BannerRowProps {
   readonly banner: ActiveBanner;
+  /** `false` while the active view claims `d` — the banner then does not advertise a dead key. */
+  readonly dismissable: boolean;
 }
 
 /**
@@ -194,7 +201,7 @@ interface BannerRowProps {
  */
 const LONG_CAUSE_THRESHOLD = 60;
 
-const BannerRow = ({ banner }: BannerRowProps): React.JSX.Element => {
+const BannerRow = ({ banner, dismissable }: BannerRowProps): React.JSX.Element => {
   const color = tierColor(banner.tier);
   const glyph = tierGlyph(banner.tier);
   // Info tier renders dim to read as "ambient" rather than "alarm"; warn/error stay bold so
@@ -211,7 +218,10 @@ const BannerRow = ({ banner }: BannerRowProps): React.JSX.Element => {
         <Text color={color} bold={!isInfo} dimColor={isInfo}>
           {glyph} {banner.message}
         </Text>
-        <Text dimColor>{banner.cause} (press d to dismiss)</Text>
+        <Text dimColor>
+          {banner.cause}
+          {dismissable ? ' (press d to dismiss)' : ''}
+        </Text>
       </Box>
     );
   }
@@ -221,7 +231,7 @@ const BannerRow = ({ banner }: BannerRowProps): React.JSX.Element => {
         {glyph} {banner.message}
       </Text>
       {banner.cause !== undefined ? <Text dimColor> {banner.cause}</Text> : null}
-      <Text dimColor> (press d to dismiss)</Text>
+      {dismissable ? <Text dimColor> (press d to dismiss)</Text> : null}
     </Box>
   );
 };

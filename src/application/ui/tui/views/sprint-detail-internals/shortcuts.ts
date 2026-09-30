@@ -1,15 +1,14 @@
 /**
- * Keymap hook for the sprint-detail view. Encapsulates every `useInput` chord — focus
- * navigation, expand/collapse, ticket add/remove/publish, edit field, mark-current, unblock,
- * jump-to-next-blocked — into one place so the orchestrator only has to wire state and handler
- * callbacks.
+ * Keymap hook for the sprint-detail view. One `useViewKeys` declaration covers every chord —
+ * focus navigation, expand/collapse, ticket add/remove/publish, edit field, mark-current,
+ * unblock, jump-to-next-blocked — so the footer hints and the handlers share one gate each.
  *
- * Mute conditions (help overlay open, a queued prompt is active, the remove-confirm sub-view is
- * mounted, the sprint hasn't loaded yet) are checked once at the top and short-circuit every
- * key, mirroring the original inline handler.
+ * Mute conditions (an app overlay, a queued prompt, the remove-confirm sub-view) mute the whole
+ * dispatcher; an unloaded sprint simply leaves every sprint-bound binding disabled.
  */
 
-import { useInput, type Key } from 'ink';
+import { useViewKeys, type ViewKeyBinding } from '@src/application/ui/tui/runtime/use-view-keys.ts';
+import { listMoveBinding } from '@src/application/ui/tui/runtime/keyboard-map.ts';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { Task } from '@src/domain/entity/task.ts';
 import type { Ticket } from '@src/domain/entity/ticket.ts';
@@ -23,6 +22,8 @@ interface SprintDetailShortcutArgs {
   readonly ticketsEditable: boolean;
   readonly canEdit: boolean;
   readonly isCurrent: boolean;
+  /** Blocked tasks in the sprint — gates the `B` hint (the chord itself gates on `jump.available`). */
+  readonly blockedCount: number;
   readonly focusList: readonly FocusItem[];
   readonly cursorIdx: number;
   readonly focusedStuckTask: Task | undefined;
@@ -40,6 +41,8 @@ interface SprintDetailShortcutArgs {
   // hook handles only view-local keys.
   readonly beginRemove: (ticket: Ticket) => void;
   readonly markCurrent: (sprint: Sprint) => void;
+  /** Push the Flows view. The view owns `n` (see the binding below), so it navigates itself. */
+  readonly openFlows: () => void;
   readonly handleEdit: () => void;
   readonly handlePublish: (ticket: Ticket) => void;
   readonly handleUnblock: (task: Task) => void;
@@ -53,161 +56,158 @@ interface SprintDetailShortcutArgs {
   readonly reloadSprint: () => void;
 }
 
-/** One keymap row — `guard` gates whether `key` fires in the current state; `action` runs on a match. */
-interface ShortcutRow {
-  readonly key: (input: string, keyEvent: Key) => boolean;
-  readonly guard: (args: SprintDetailShortcutArgs, sprint: Sprint) => boolean;
-  readonly action: (args: SprintDetailShortcutArgs, sprint: Sprint) => void;
-}
-
 /** Item under the cursor in the flat focus list, clamped to the last entry when the cursor has
  * drifted past the end (e.g. the list just shrank). `undefined` for an empty list. */
 const focusedItem = (args: SprintDetailShortcutArgs): FocusItem | undefined =>
   args.focusList[Math.min(args.cursorIdx, args.focusList.length - 1)];
 
 /**
- * The sprint-detail keymap, in declaration order — first row whose `key` AND `guard` both match
- * wins. Mirrors the original inline `if (input === X && <guard>)` chain exactly; every row here
- * is that same shape, just data instead of code.
+ * The rows below only ever fire once a `B` jump has engaged `jump.active` — until then
+ * ↑/↓/j/k/PgUp/PgDn/Home/End stay owned entirely by `useListWindow` in the orchestrator.
+ * `useListWindow`'s cursor is paused the moment a jump engages (see `detail-body.tsx`'s
+ * `useFocusModel`), so these never double-handle a keypress against it.
  */
-const SHORTCUT_ROWS: readonly ShortcutRow[] = [
-  {
-    // Esc/q collapses every expanded card in one action; falls through to global pop otherwise.
-    key: (input, keyEvent) => keyEvent.escape || input === 'q',
-    guard: (args) => args.inDetail,
-    action: (args) => args.closeAllExpanded(),
-  },
-  {
-    key: (input) => input === 'a',
-    guard: (args) => args.ticketsEditable,
-    action: (args, sprint) => args.openAddTicket(sprint.id),
-  },
-  {
-    key: (input) => input === 'e',
-    guard: (args) => args.canEdit,
-    action: (args) => args.handleEdit(),
-  },
-  {
-    // Explicit "make this sprint current". Replaces the prior silent auto-sync on mount — the
-    // user now opts in. No-op if already current so re-pressing doesn't churn feedback.
-    key: (input) => input === 'm',
-    guard: (args) => !args.isCurrent,
-    action: (args, sprint) => args.markCurrent(sprint),
-  },
-  {
-    // The view advertises `n — flows` as "scoped to this sprint", so honour it: reseat the
-    // selection onto the viewed sprint before the navigation lands. The actual route push is
-    // owned by the GLOBAL `n` handler (use-global-keys), which processes the same keystroke —
-    // this hook only fixes up the selection, so the two handlers compose instead of
-    // double-pushing the Flows view.
-    key: (input) => input === 'n',
-    guard: (args) => !args.isCurrent,
-    action: (args, sprint) => args.markCurrent(sprint),
-  },
-  {
-    // ↑/↓/j/k/PgUp/PgDn/Home/End are handled by `useListWindow` in the orchestrator — no
-    // moveCursor calls here. We only handle view-local keys in this table.
-    key: (input, keyEvent) => keyEvent.return || input === 'o',
-    guard: (args) => args.focusList.length > 0,
-    action: (args) => {
-      const target = focusedItem(args);
-      if (target === undefined) return;
-      const targetId = target.kind === 'ticket' ? String(target.ticket.id) : String(target.task.id);
-      args.toggleExpand(targetId);
-    },
-  },
-  {
-    key: (input) => input === 'd',
-    guard: (args) => args.ticketsEditable,
-    action: (args) => {
-      const focused = focusedItem(args);
-      if (focused?.kind === 'ticket') args.beginRemove(focused.ticket);
-    },
-  },
-  {
-    // `p` is unused globally (`P` is pick-project) and unused elsewhere in this view. Fires
-    // on any focused ticket row of an open sprint — draft or not — so the comment path is
-    // reachable after the sprint leaves draft; inert once `done` (done sprints are immutable).
-    // No prompt; the flow writes or surfaces the tracker error.
-    key: (input) => input === 'p',
-    guard: (args, sprint) => sprint.status !== 'done' && focusedItem(args)?.kind === 'ticket',
-    action: (args) => {
-      const focused = focusedItem(args);
-      if (focused?.kind === 'ticket') args.handlePublish(focused.ticket);
-    },
-  },
-  {
-    key: (input) => input === 'u',
-    guard: (args) => args.focusedStuckTask !== undefined,
-    action: (args) => args.handleUnblock(args.focusedStuckTask!),
-  },
-  {
-    // Always available, like `sprints-view.tsx`'s `r` — re-fetches the sprint bundle so an
-    // out-of-process mutation (e.g. `ralphctl sprint reopen`) becomes visible here without
-    // leaving and re-entering the view.
-    key: (input) => input === 'r',
-    guard: () => true,
-    action: (args) => args.reloadSprint(),
-  },
-  {
-    // Uppercase `B` — lowercase `b` is the GLOBAL banner toggle (`use-global-keys.ts`), so the
-    // shifted variant is deliberate, not a typo. Jumps the flat cursor straight to the next
-    // blocked task (wrapping), so the operator never has to arrow-key blind past a long ticket +
-    // task list to reach a row the header already told them is blocked.
-    key: (input) => input === 'B',
-    guard: (args) => args.jump.available,
-    action: (args) => args.jump.jumpToNextBlocked(),
-  },
-  {
-    // `v` opens the focused task's evaluation verdict. Ticket rows and tasks that never reached
-    // the evaluator fall through the guard, so the key stays inert rather than opening an empty
-    // overlay. CLOSING is global (`use-global-keys`) — this hook is muted by `modalOpen` the
-    // moment the overlay opens, which is exactly what keeps the two halves from fighting.
-    key: (input) => input === 'v',
-    guard: (args) => args.focusedEvaluatedTask !== undefined,
-    action: (args) => args.openEvaluation(args.focusedEvaluatedTask!),
-  },
-  // The six rows below only ever fire once a `B` jump has engaged `jump.active` — until then
-  // ↑/↓/j/k/PgUp/PgDn/Home/End stay owned entirely by `useListWindow` in the orchestrator, same
-  // as always. `useListWindow`'s cursor is paused (not unmounted) the moment a jump engages (see
-  // `detail-body.tsx`'s `useFocusModel`), so these never double-handle a keypress against it.
-  {
-    key: (input, keyEvent) => keyEvent.upArrow || input === 'k',
-    guard: (args) => args.jump.active,
-    action: (args) => args.jump.moveBy(-1),
-  },
-  {
-    key: (input, keyEvent) => keyEvent.downArrow || input === 'j',
-    guard: (args) => args.jump.active,
-    action: (args) => args.jump.moveBy(1),
-  },
-  {
-    key: (_input, keyEvent) => keyEvent.pageUp,
-    guard: (args) => args.jump.active,
-    action: (args) => args.jump.moveBy(-args.jump.pageSize),
-  },
-  {
-    key: (_input, keyEvent) => keyEvent.pageDown,
-    guard: (args) => args.jump.active,
-    action: (args) => args.jump.moveBy(args.jump.pageSize),
-  },
-  {
-    key: (_input, keyEvent) => keyEvent.home,
-    guard: (args) => args.jump.active,
-    action: (args) => args.jump.moveToEdge('start'),
-  },
-  {
-    key: (_input, keyEvent) => keyEvent.end,
-    guard: (args) => args.jump.active,
-    action: (args) => args.jump.moveToEdge('end'),
-  },
+const buildJumpMovementBindings = (jump: JumpControls): readonly ViewKeyBinding[] => [
+  { keys: ['↑', 'k'], hint: 'move', hidden: true, enabled: jump.active, run: () => jump.moveBy(-1) },
+  { keys: ['↓', 'j'], hint: 'move', hidden: true, enabled: jump.active, run: () => jump.moveBy(1) },
+  { keys: ['PgUp'], hint: 'page up', hidden: true, enabled: jump.active, run: () => jump.moveBy(-jump.pageSize) },
+  { keys: ['PgDn'], hint: 'page down', hidden: true, enabled: jump.active, run: () => jump.moveBy(jump.pageSize) },
+  { keys: ['Home'], hint: 'first', hidden: true, enabled: jump.active, run: () => jump.moveToEdge('start') },
+  { keys: ['End'], hint: 'last', hidden: true, enabled: jump.active, run: () => jump.moveToEdge('end') },
 ];
 
+/**
+ * The bindings that act on the sprint / focused task's STATE (make current, unblock, reload, jump
+ * to blocked, open the evaluation). `canPublish` only decides whether `m` hides its hint.
+ */
+const buildStateBindings = (args: SprintDetailShortcutArgs, canPublish: boolean): readonly ViewKeyBinding[] => {
+  const { sprint, jump } = args;
+  const loaded = sprint !== undefined;
+  return [
+    {
+      // Explicit "make this sprint current" — the user opts in. No-op if already current so
+      // re-pressing doesn't churn feedback.
+      keys: ['m'],
+      hint: 'current',
+      enabled: loaded && !args.isCurrent,
+      hidden: args.focusedStuckTask !== undefined || canPublish,
+      run: () => {
+        if (sprint !== undefined) args.markCurrent(sprint);
+      },
+    },
+    {
+      keys: ['u'],
+      hint: 'unblock',
+      enabled: args.focusedStuckTask !== undefined,
+      run: () => {
+        if (args.focusedStuckTask !== undefined) args.handleUnblock(args.focusedStuckTask);
+      },
+    },
+    {
+      // Always available, like `sprints-view.tsx`'s `r` — re-fetches the sprint bundle so an
+      // out-of-process mutation (e.g. `ralphctl sprint reopen`) becomes visible here without
+      // leaving and re-entering the view.
+      keys: ['r'],
+      hint: 'reload',
+      hidden: true,
+      run: args.reloadSprint,
+    },
+    {
+      // Uppercase `B` — lowercase `b` is the GLOBAL banner toggle, so the shifted variant is
+      // deliberate. Jumps the flat cursor straight to the next blocked task (wrapping).
+      keys: ['B'],
+      hint: 'next blocked',
+      enabled: jump.available,
+      hidden: args.blockedCount === 0,
+      run: jump.jumpToNextBlocked,
+    },
+    {
+      // `v` opens the focused task's evaluation verdict. Ticket rows and tasks that never reached
+      // the evaluator stay inert. CLOSING is global — the dispatcher mutes itself the moment the
+      // overlay opens, which keeps the two halves from fighting.
+      keys: ['v'],
+      hint: 'evaluation',
+      enabled: args.focusedEvaluatedTask !== undefined,
+      run: () => {
+        if (args.focusedEvaluatedTask !== undefined) args.openEvaluation(args.focusedEvaluatedTask);
+      },
+    },
+  ];
+};
+
+/**
+ * The sprint-detail keymap, in declaration order — the first enabled binding whose key matches
+ * wins. Labels stay terse: the rendered strip must fit a 100-column terminal on ONE line, which
+ * is also why `m` hides its hint (handler stays live) while a stuck task or ticket is focused,
+ * and why there is no `r reload` hint although the chord is always live — the help overlay lists
+ * `r`, and the reopen-conflict toast (the one moment it matters) names it.
+ */
+const buildBindings = (args: SprintDetailShortcutArgs): readonly ViewKeyBinding[] => {
+  const sprint = args.sprint;
+  const loaded = sprint !== undefined;
+  const focused = focusedItem(args);
+  const focusedTicket = focused?.kind === 'ticket' ? focused.ticket : undefined;
+  // Done sprints are immutable, so publishing is inert there.
+  const canPublish = loaded && sprint.status !== 'done' && focusedTicket !== undefined;
+  const { jump } = args;
+  return [
+    listMoveBinding,
+    {
+      // The view advertises `n — flows` as "scoped to this sprint", so honour it: reseat the
+      // selection onto the viewed sprint, then navigate. The view owns `n` (it claims it), so the
+      // global handler stands down and this binding does the push itself — exactly once.
+      keys: ['n'],
+      hint: 'flows',
+      run: () => {
+        if (sprint !== undefined && !args.isCurrent) args.markCurrent(sprint);
+        args.openFlows();
+      },
+    },
+    {
+      keys: ['↵', 'o'],
+      hint: args.inDetail ? 'toggle' : 'expand',
+      enabled: args.focusList.length > 0,
+      run: () => {
+        if (focused === undefined) return;
+        args.toggleExpand(focused.kind === 'ticket' ? String(focused.ticket.id) : String(focused.task.id));
+      },
+    },
+    // Esc/q collapses every expanded card in one action; falls through to global pop otherwise.
+    { keys: ['esc', 'q'], hint: 'collapse', enabled: args.inDetail, run: args.closeAllExpanded },
+    {
+      keys: ['a'],
+      hint: 'add',
+      enabled: loaded && args.ticketsEditable,
+      run: () => {
+        if (sprint !== undefined) args.openAddTicket(sprint.id);
+      },
+    },
+    { keys: ['e'], hint: 'edit', enabled: loaded && args.canEdit, run: args.handleEdit },
+    {
+      keys: ['d'],
+      hint: 'remove',
+      enabled: loaded && args.ticketsEditable,
+      run: () => {
+        if (focusedTicket !== undefined) args.beginRemove(focusedTicket);
+      },
+    },
+    {
+      // `p` is unused globally (`P` is pick-project) and unused elsewhere in this view. Fires on
+      // any focused ticket row of an open sprint — draft or not — so the comment path is
+      // reachable after the sprint leaves draft. No prompt; the flow writes or surfaces the
+      // tracker error.
+      keys: ['p'],
+      hint: 'publish',
+      enabled: canPublish,
+      run: () => {
+        if (focusedTicket !== undefined) args.handlePublish(focusedTicket);
+      },
+    },
+    ...buildStateBindings(args, canPublish),
+    ...buildJumpMovementBindings(jump),
+  ];
+};
+
 export const useSprintDetailShortcuts = (args: SprintDetailShortcutArgs): void => {
-  useInput((input, key) => {
-    if (args.modalOpen || args.confirmRemoveActive || args.sprint === undefined) return;
-    const sprint = args.sprint;
-    const row = SHORTCUT_ROWS.find((r) => r.key(input, key) && r.guard(args, sprint));
-    row?.action(args, sprint);
-  });
+  useViewKeys(buildBindings(args), { active: !args.modalOpen && !args.confirmRemoveActive });
 };

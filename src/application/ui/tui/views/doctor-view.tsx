@@ -11,15 +11,13 @@
  */
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { Box, Text, useInput } from 'ink';
+import { Box, Text } from 'ink';
 import { ViewShell } from '@src/application/ui/tui/components/view-shell.tsx';
 import { StatusChip } from '@src/application/ui/tui/components/status-chip.tsx';
 import { Spinner } from '@src/application/ui/tui/components/spinner.tsx';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
-import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { useSystemStatus } from '@src/application/ui/tui/runtime/system-status-context.tsx';
-import { useViewHints } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
-import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx';
+import { useViewKeys } from '@src/application/ui/tui/runtime/use-view-keys.ts';
 import type { ProbeGroup, ProbeResult } from '@src/application/flows/doctor/ctx.ts';
 
 const GROUP_ORDER: ReadonlyArray<ProbeGroup | 'other'> = [
@@ -68,7 +66,6 @@ const bucketProbes = (results: readonly ProbeResult[]): readonly GroupBucket[] =
   }).sort((a, b) => a.worst - b.worst);
 
 export const DoctorView = (): React.JSX.Element => {
-  const ui = useUiState();
   const system = useSystemStatus();
   const results = system.doctor?.probes;
   const [showPassed, setShowPassed] = useState(false);
@@ -76,9 +73,14 @@ export const DoctorView = (): React.JSX.Element => {
   const healthy = buckets.filter((b) => b.worst === SEVERITY.pass);
   const attention = buckets.filter((b) => b.worst !== SEVERITY.pass);
   const healthyCount = healthy.reduce((n, b) => n + b.probes.length, 0);
-  useViewHints([
-    ...(healthyCount > 0 ? [{ keys: '↵', label: showPassed ? 'hide passed' : 'show passed' }] : []),
-    { keys: 'r', label: 'reload' },
+  useViewKeys([
+    {
+      keys: ['↵'],
+      hint: showPassed ? 'hide passed' : 'show passed',
+      enabled: healthyCount > 0,
+      run: () => setShowPassed((v) => !v),
+    },
+    { keys: ['r'], hint: 'reload', run: () => void system.refreshDoctor() },
   ]);
 
   // Trigger a refresh on first mount when the shared provider hasn't auto-fired yet (e.g. the
@@ -94,19 +96,11 @@ export const DoctorView = (): React.JSX.Element => {
     void refreshDoctor();
   }, [refreshDoctor, results, system.doctorLoading]);
 
-  useInput((input, key) => {
-    if (ui.modalOpen) return;
-    if (input === 'r') void system.refreshDoctor();
-    if (key.return) setShowPassed((v) => !v);
-  });
-
   const showSpinner = system.doctorLoading || results === undefined;
 
   return (
     <ViewShell title="Doctor" subtitle="sanity probes">
-      {ui.helpOpen ? (
-        <HelpOverlay />
-      ) : showSpinner ? (
+      {showSpinner ? (
         <Box paddingX={spacing.indent}>
           <Spinner label="Running probes…" />
         </Box>

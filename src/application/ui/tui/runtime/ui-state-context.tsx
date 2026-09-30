@@ -60,7 +60,18 @@ export interface FocusedRunCtx {
  */
 export type ActiveTaskSummaryProvider = () => string | undefined;
 
+/**
+ * The ONE modal-overlay slot. At most one of help / progress / evaluation is open; opening another
+ * replaces the current one (so `g` while help is up shows progress, never both stacked).
+ */
+export type Overlay =
+  | { readonly kind: 'help' }
+  | { readonly kind: 'progress' }
+  | { readonly kind: 'evaluation'; readonly target: EvaluationTarget };
+
 interface OverlayApi {
+  /** The open overlay, or `undefined`. `helpOpen` / `progressOpen` / `evaluationTarget` derive from it. */
+  readonly overlay: Overlay | undefined;
   readonly helpOpen: boolean;
   /**
    * Open-state for the read-only `progress.md` overlay. Bound to the global `g` hotkey via
@@ -81,7 +92,7 @@ interface OverlayApi {
   readonly promptActive: boolean;
   /**
    * Derived convenience flag — `true` whenever any modal overlay or prompt is open:
-   * `progressOpen || helpOpen || evaluationTarget !== undefined || promptActive`. Views and
+   * `overlay !== undefined || promptActive`. Views and
    * components use this single flag in `useInput` early-returns and `listActive` expressions so
    * hidden-but-mounted views are fully inert while an overlay is shown.
    */
@@ -95,6 +106,12 @@ interface OverlayApi {
    */
   readonly bannerCompact: boolean;
 
+  /** Open `next`, replacing whichever overlay is currently open. */
+  openOverlay(next: Overlay): void;
+
+  /** Close whichever overlay is open. */
+  closeOverlay(): void;
+
   toggleHelp(): void;
 
   toggleProgress(): void;
@@ -102,6 +119,7 @@ interface OverlayApi {
   /** Open the evaluation overlay onto `target`. Re-opening with a new target swaps it in place. */
   openEvaluation(target: EvaluationTarget): void;
 
+  /** Close the evaluation overlay only — a no-op while another overlay is open. */
   closeEvaluation(): void;
 
   toggleBanner(): void;
@@ -188,63 +206,70 @@ interface UiStateApi extends OverlayApi, FocusedRunApi, YankProviderApi, Session
 
 const OverlayContext = createContext<OverlayApi | undefined>(undefined);
 
+/**
+ * A counter-based claim: each call to the returned `claim` bumps the count and hands back a
+ * release matched 1:1 (releasing twice is a no-op). Shared by the prompt and escape claims.
+ */
+const useClaimCounter = (): readonly [number, () => () => void] => {
+  const [count, setCount] = useState(0);
+  const claim = useCallback((): (() => void) => {
+    setCount((c) => c + 1);
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      setCount((c) => Math.max(0, c - 1));
+    };
+  }, []);
+  return [count, claim];
+};
+
 const OverlayProvider = ({ children }: { readonly children: React.ReactNode }): React.JSX.Element => {
-  const [helpOpen, setHelpOpen] = useState(false);
-  const [progressOpen, setProgressOpen] = useState(false);
-  const [evaluationTarget, setEvaluationTarget] = useState<EvaluationTarget | undefined>(undefined);
+  const [overlay, setOverlay] = useState<Overlay | undefined>(undefined);
   const [bannerCompact, setBannerCompact] = useState(false);
-  const [claims, setClaims] = useState(0);
-  const [escapeClaims, setEscapeClaims] = useState(0);
+  const [claims, claimPrompt] = useClaimCounter();
+  const [escapeClaims, claimEscape] = useClaimCounter();
+
+  const openOverlay = useCallback((next: Overlay) => {
+    setOverlay(next);
+  }, []);
+
+  const closeOverlay = useCallback(() => {
+    setOverlay(undefined);
+  }, []);
 
   const toggleHelp = useCallback(() => {
-    setHelpOpen((v) => !v);
+    setOverlay((cur) => (cur?.kind === 'help' ? undefined : { kind: 'help' }));
   }, []);
 
   const toggleProgress = useCallback(() => {
-    setProgressOpen((v) => !v);
+    setOverlay((cur) => (cur?.kind === 'progress' ? undefined : { kind: 'progress' }));
   }, []);
 
   const openEvaluation = useCallback((target: EvaluationTarget) => {
-    setEvaluationTarget(target);
+    setOverlay({ kind: 'evaluation', target });
   }, []);
 
   const closeEvaluation = useCallback(() => {
-    setEvaluationTarget(undefined);
+    setOverlay((cur) => (cur?.kind === 'evaluation' ? undefined : cur));
   }, []);
 
   const toggleBanner = useCallback(() => {
     setBannerCompact((v) => !v);
   }, []);
 
-  const claimPrompt = useCallback((): (() => void) => {
-    setClaims((c) => c + 1);
-    let released = false;
-    return () => {
-      if (released) return;
-      released = true;
-      setClaims((c) => Math.max(0, c - 1));
-    };
-  }, []);
-
-  const claimEscape = useCallback((): (() => void) => {
-    setEscapeClaims((c) => c + 1);
-    let released = false;
-    return () => {
-      if (released) return;
-      released = true;
-      setEscapeClaims((c) => Math.max(0, c - 1));
-    };
-  }, []);
-
   const api = useMemo<OverlayApi>(
     () => ({
-      helpOpen,
-      progressOpen,
-      evaluationTarget,
+      overlay,
+      helpOpen: overlay?.kind === 'help',
+      progressOpen: overlay?.kind === 'progress',
+      evaluationTarget: overlay?.kind === 'evaluation' ? overlay.target : undefined,
       promptActive: claims > 0,
-      modalOpen: progressOpen || helpOpen || evaluationTarget !== undefined || claims > 0,
+      modalOpen: overlay !== undefined || claims > 0,
       escapeClaimed: escapeClaims > 0,
       bannerCompact,
+      openOverlay,
+      closeOverlay,
       toggleHelp,
       toggleProgress,
       openEvaluation,
@@ -254,12 +279,12 @@ const OverlayProvider = ({ children }: { readonly children: React.ReactNode }): 
       claimEscape,
     }),
     [
-      helpOpen,
-      progressOpen,
-      evaluationTarget,
+      overlay,
       claims,
       escapeClaims,
       bannerCompact,
+      openOverlay,
+      closeOverlay,
       toggleHelp,
       toggleProgress,
       openEvaluation,
@@ -279,6 +304,9 @@ export const useOverlayState = (): OverlayApi => {
   if (!ctx) throw new Error('useOverlayState: must be used inside <UiStateProvider>');
   return ctx;
 };
+
+/** Like {@link useOverlayState} but `undefined` outside a provider — for primitives used in isolated tests. */
+export const useOptionalOverlayState = (): OverlayApi | undefined => useContext(OverlayContext);
 
 const FocusedRunContext = createContext<FocusedRunApi | undefined>(undefined);
 

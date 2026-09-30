@@ -23,6 +23,7 @@
 import React, { useEffect } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
+import { useClaimKeys } from '@src/application/ui/tui/runtime/claimed-keys-context.tsx';
 import { fmtDuration } from '@src/application/ui/tui/theme/duration.ts';
 
 /** @public */
@@ -46,6 +47,10 @@ export const CancelScopeOverlay = ({
   onCancelFlow,
   onDismiss,
 }: CancelScopeOverlayProps): React.JSX.Element => {
+  // `1` / `2` are this overlay's while it is mounted — ambient digit handlers (section jumps)
+  // must not also fire on them.
+  useClaimKeys(['1', '2']);
+
   // Stable input claim while mounted; the parent view sets `inputActive` props on its own
   // panels to dim them out so they don't compete for the same keystrokes. Unmount happens via
   // any of the three callbacks (the parent unconditionally hides the overlay after the action).

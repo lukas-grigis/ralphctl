@@ -51,12 +51,23 @@ const parseFrame = (frame: string): ParsedFrame => {
   };
 };
 
-const renderOverlay = (): ReturnType<typeof render> => {
+const renderOverlay = (routeId?: string): ReturnType<typeof render> => {
   return render(
     <HintsProvider>
-      <HelpOverlay />
+      <HelpOverlay {...(routeId !== undefined ? { routeId } : {})} />
     </HintsProvider>
   );
+};
+
+/** Pages to the bottom and reports whether `needle` was on screen at any point on the way. */
+const seenWhileScrolling = async (r: ReturnType<typeof render>, needle: string): Promise<boolean> => {
+  let seen = (r.lastFrame() ?? '').includes(needle);
+  for (let i = 0; i < 20 && !seen; i++) {
+    r.stdin.write(PAGE_DOWN);
+    await tick(10);
+    seen = (r.lastFrame() ?? '').includes(needle);
+  }
+  return seen;
 };
 
 describe('HelpOverlay', () => {
@@ -196,5 +207,37 @@ describe('HelpOverlay', () => {
     expect(parsed.height).toBeLessThanOrEqual(STUB_TERMINAL_ROWS);
 
     r.unmount();
+  });
+
+  it('scopes route-bound sections: Home has no Tasks panel by default, Tab reveals it', async () => {
+    const r = renderOverlay('home');
+    await tick(30);
+    expect(await seenWhileScrolling(r, 'Tasks panel')).toBe(false);
+    expect(r.lastFrame() ?? '').toContain('Tab all keys');
+
+    r.stdin.write('\t');
+    await tick(30);
+    expect(r.lastFrame() ?? '').toContain('Tab this view');
+    expect(await seenWhileScrolling(r, 'Tasks panel')).toBe(true);
+    r.unmount();
+  });
+
+  it('shows the Tasks panel section by default on the execute route', async () => {
+    const r = renderOverlay('execute');
+    await tick(30);
+    expect(await seenWhileScrolling(r, 'Tasks panel')).toBe(true);
+    r.unmount();
+  });
+
+  it('shows the Sprint picker section only on pick-sprint', async () => {
+    const onPicker = renderOverlay('pick-sprint');
+    await tick(30);
+    expect(await seenWhileScrolling(onPicker, 'Sprint picker')).toBe(true);
+    onPicker.unmount();
+
+    const onHome = renderOverlay('home');
+    await tick(30);
+    expect(await seenWhileScrolling(onHome, 'Sprint picker')).toBe(false);
+    onHome.unmount();
   });
 });

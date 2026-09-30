@@ -1,12 +1,11 @@
 /**
  * `AsyncListFrame` — owns the loading / error / overlay / empty ladder that every view backed by
- * `useAsyncLoad` re-derives by hand: a modal overlay (e.g. the help screen) pre-empts everything,
+ * `useAsyncLoad` re-derives by hand: a full-frame overlay (e.g. a confirm card) pre-empts everything,
  * then loading, then error, then an empty placeholder, and only then the view's real content.
  *
  * Renders exactly one of, in this order:
  *
- *   1. `overlay` — when supplied, takes over the whole frame (e.g. `<HelpOverlay />` while the
- *      view's help toggle is open). Nothing else below is evaluated.
+ *   1. `overlay` — when supplied, takes over the whole frame (e.g. the view's delete-confirm card). Nothing else below is evaluated.
  *   2. a `<LoadingRow>` — while `state.kind` is `'loading'` or `'idle'` (the pre-fetch tick before
  *      the effect fires).
  *   3. a `<LoadErrorRow>` — while `state.kind` is `'error'`.
@@ -28,7 +27,7 @@ import { LoadErrorRow, LoadingRow } from '@src/application/ui/tui/components/asy
 import type { AsyncLoadState } from '@src/application/ui/tui/runtime/use-async-load.ts';
 
 export interface AsyncListFrameProps<T> {
-  /** Takes over the entire frame when supplied — e.g. a modal help overlay. Pre-empts every
+  /** Takes over the entire frame when supplied — e.g. a confirm card. Pre-empts every
    *  other branch, including a concurrent loading/error state. */
   readonly overlay?: React.ReactNode;
   readonly state: AsyncLoadState<T, unknown>;

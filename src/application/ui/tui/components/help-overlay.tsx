@@ -1,11 +1,15 @@
 /**
- * Modal help reference. Renders a card listing every binding by area. The global key handler
- * intercepts `?` to open / close it; while open, every other global key is suspended (only
- * `esc` and `?` close).
+ * Modal help reference. Renders a card listing the bindings that apply to where the operator
+ * is. The global key handler intercepts `?` to open / close it; while open, every other global
+ * key is suspended (only `esc` and `?` close, and `Tab` flips the scope below).
  *
- * Per-view local hints (registered via {@link useViewHints}) are surfaced as the top section
- * so the overlay matches what the user can actually press right now. Static sections (global,
- * lists, execute) follow.
+ * Mounted ONCE, in the App Layout, beside the progress / evaluation overlays — the active view
+ * stays mounted underneath under `display: none`, so its registered hints (the top
+ * 'This view' section) are still the live ones.
+ *
+ * Scope: by default the overlay shows 'This view' + the general sections, and only the sections
+ * of surfaces mounted on the current route (`KeySection.onlyOn`: Execute / Tasks panel / Signals
+ * on `execute`, the Sprint picker on `pick-sprint`). `Tab` toggles 'All keys', which adds the rest.
  *
  * Scroll model (active when content overflows the viewport):
  *   ↑ / ↓         → one line
@@ -98,7 +102,11 @@ const pushSectionTitle = (rows: HelpRow[], title: string): void => {
 };
 
 /** Flattens the local view hints + every static keymap section into one renderable row list. */
-const buildHelpRows = (localHints: ReturnType<typeof useActiveHints>): readonly HelpRow[] => {
+const buildHelpRows = (
+  localHints: ReturnType<typeof useActiveHints>,
+  routeId: string | undefined,
+  showAll: boolean
+): readonly HelpRow[] => {
   const rows: HelpRow[] = [];
 
   if (localHints.length > 0) {
@@ -109,6 +117,9 @@ const buildHelpRows = (localHints: ReturnType<typeof useActiveHints>): readonly 
   }
 
   for (const section of keySections) {
+    if (!showAll && section.onlyOn !== undefined && (routeId === undefined || !section.onlyOn.includes(routeId))) {
+      continue;
+    }
     pushSectionTitle(rows, section.title);
     for (const b of section.bindings) {
       rows.push({
@@ -124,13 +135,22 @@ const buildHelpRows = (localHints: ReturnType<typeof useActiveHints>): readonly 
   return rows;
 };
 
-export const HelpOverlay = (): React.JSX.Element => {
+export interface HelpOverlayProps {
+  /** Route the help is opened on — scopes the route-bound sections. Omitted → general sections only. */
+  readonly routeId?: string;
+}
+
+export const HelpOverlay = ({ routeId }: HelpOverlayProps = {}): React.JSX.Element => {
   const localHints = useActiveHints();
   const term = useTerminalSize();
   const [offset, setOffset] = useState(0);
+  const [showAll, setShowAll] = useState(false);
 
   // Build a flat array of renderable rows from all sections so we can window them.
-  const allRows = useMemo((): readonly HelpRow[] => buildHelpRows(localHints), [localHints]);
+  const allRows = useMemo(
+    (): readonly HelpRow[] => buildHelpRows(localHints, routeId, showAll),
+    [localHints, routeId, showAll]
+  );
 
   const bodyRows = Math.max(MIN_BODY_ROWS, term.rows - CHROME_ROWS);
   const lineCount = allRows.length;
@@ -143,6 +163,10 @@ export const HelpOverlay = (): React.JSX.Element => {
   }, [lineCount]);
 
   useInput((input, key) => {
+    if (key.tab) {
+      setShowAll((v) => !v);
+      return;
+    }
     // Only scroll when content overflows.
     if (maxOffset === 0) return;
     if (key.upArrow) {
@@ -179,7 +203,7 @@ export const HelpOverlay = (): React.JSX.Element => {
           <Text color={inkColors.primary} bold>
             {glyphs.badge} Keyboard reference
           </Text>
-          <Text dimColor>esc · ? to close</Text>
+          <Text dimColor>esc · ? close · Tab {showAll ? 'this view' : 'all keys'}</Text>
         </Box>
         <Box flexDirection="column" marginTop={spacing.section}>
           {visibleRows.map((row, idx) => (

@@ -24,7 +24,6 @@ import { latestRecordedEvaluation } from '@src/business/task/evaluation-artifact
 import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { useRouter, useViewProps } from '@src/application/ui/tui/runtime/router.tsx';
 import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
-import { useViewHints, type ViewHint } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
 import { useUnblockTask } from '@src/application/ui/tui/runtime/use-unblock-task.ts';
 import { useSprintDetailShortcuts } from '@src/application/ui/tui/views/sprint-detail-internals/shortcuts.ts';
@@ -185,60 +184,6 @@ const useFocusModel = (args: UseFocusModelArgs): FocusModel => {
   };
 };
 
-interface BuildDetailHintsArgs {
-  readonly inDetail: boolean;
-  readonly ticketsEditable: boolean;
-  readonly sprint: Sprint | undefined;
-  readonly currentSprintId: SprintId | undefined;
-  readonly focus: FocusModel;
-}
-
-/**
- * Build the local footer-hint list. Labels stay terse on purpose: the rendered strip must fit
- * a 100-column terminal on ONE line — an overflowing strip makes Yoga distribute the deficit
- * across every footer cell, mangling the whole status bar. Every hint shares one source of truth with its handler via
- * `enabledWhen`: the `a`/`d` ticket-CRUD chords are gated on `ticketsEditable` (draft only), so
- * the hints must hide on a non-draft sprint or the footer would advertise keys that do nothing.
- * `m` (mark-current) and `u` (unblock) follow the same declarative gate rather than conditional
- * spreads; `B` (jump to next blocked) does too, gated on `blockedCount > 0` regardless of where
- * the cursor currently sits — unlike `u`, which needs the cursor already parked on the stuck row.
- * Pure — lives outside the component so `useViewHints` keeps a plain call site.
- */
-const buildDetailHints = (args: BuildDetailHintsArgs): readonly ViewHint[] => {
-  const { inDetail, ticketsEditable, sprint, currentSprintId, focus } = args;
-  const { canEdit, focusedTicketRow, focusedStuckTask, focusedEvaluatedTask, blockedCount } = focus;
-  // Mirrors the `p` row's guard in `shortcuts.ts` — done sprints are immutable.
-  const canPublish = focusedTicketRow !== undefined && sprint?.status !== 'done';
-  return [
-    { keys: '↑/↓', label: 'move' },
-    { keys: 'n', label: 'flows' },
-    { keys: '↵/o', label: inDetail ? 'toggle' : 'expand' },
-    // `esc/q` collapses all expanded cards; only shown while in detail mode so the hint
-    // doesn't compete with the global `esc → back` behavior when nothing is expanded.
-    { keys: 'esc/q', label: 'collapse', enabledWhen: inDetail },
-    { keys: 'a', label: 'add', enabledWhen: ticketsEditable },
-    { keys: 'e', label: 'edit', enabledWhen: canEdit },
-    { keys: 'd', label: 'remove', enabledWhen: ticketsEditable },
-    { keys: 'p', label: 'publish', enabledWhen: canPublish },
-    // Surface the `m` chord only when this sprint is not already the current one — once
-    // they match, the action is a no-op and the hint adds noise. Suppressed while a
-    // stuck task or ticket is focused so `u unblock` / `p publish` stay on one 100-column
-    // line without competing for horizontal space.
-    {
-      keys: 'm',
-      label: 'current',
-      enabledWhen:
-        sprint !== undefined && currentSprintId !== sprint.id && focusedStuckTask === undefined && !canPublish,
-    },
-    { keys: 'u', label: 'unblock', enabledWhen: focusedStuckTask !== undefined },
-    { keys: 'B', label: 'next blocked', enabledWhen: blockedCount > 0 },
-    { keys: 'v', label: 'evaluation', enabledWhen: focusedEvaluatedTask !== undefined },
-    // No `r reload` hint although the chord is always live: this non-shrinking strip already
-    // reaches 89 columns with `u` + `B` showing, and another hint would push it past 100. The
-    // help overlay lists `r`, and the reopen-conflict toast (the one moment it matters) names it.
-  ];
-};
-
 export interface UseSprintDetailBodyResult {
   readonly subtitle: string;
   readonly suppressScrollArrows: boolean;
@@ -318,7 +263,6 @@ const useSprintDetailData = (): SprintDetailData => {
 
 interface BuildSprintDetailResultArgs {
   readonly state: AsyncLoadState<SprintBundle, unknown>;
-  readonly ui: ReturnType<typeof useUiState>;
   readonly confirmRemove: Ticket | undefined;
   readonly setConfirmRemove: (ticket: Ticket | undefined) => void;
   readonly project: Project | undefined;
@@ -336,7 +280,6 @@ interface BuildSprintDetailResultArgs {
 const buildSprintDetailResult = (args: BuildSprintDetailResultArgs): UseSprintDetailBodyResult => {
   const {
     state,
-    ui,
     confirmRemove,
     setConfirmRemove,
     project,
@@ -358,7 +301,6 @@ const buildSprintDetailResult = (args: BuildSprintDetailResultArgs): UseSprintDe
     // page scroll keeps its arrows there.
     suppressScrollArrows: state.kind === 'ok',
     contentProps: {
-      helpOpen: ui.helpOpen,
       state,
       confirmRemove,
       onCancelRemove: () => setConfirmRemove(undefined),
@@ -419,16 +361,6 @@ export const useSprintDetailBody = (): UseSprintDetailBodyResult => {
 
   useSprintStatusChipSync(sprint, selection);
 
-  useViewHints(
-    buildDetailHints({
-      inDetail,
-      ticketsEditable,
-      sprint,
-      currentSprintId: selection.sprintId,
-      focus,
-    })
-  );
-
   const unblockTask = useUnblockTask();
   const handlers = buildSprintDetailHandlers({
     sprint,
@@ -452,6 +384,7 @@ export const useSprintDetailBody = (): UseSprintDetailBodyResult => {
     ticketsEditable,
     canEdit: focus.canEdit,
     isCurrent: sprint !== undefined && selection.sprintId === sprint.id,
+    blockedCount: focus.blockedCount,
     focusList,
     cursorIdx: focus.cursorIdx,
     focusedStuckTask: focus.focusedStuckTask,
@@ -480,7 +413,6 @@ export const useSprintDetailBody = (): UseSprintDetailBodyResult => {
 
   return buildSprintDetailResult({
     state,
-    ui,
     confirmRemove,
     setConfirmRemove,
     project,
