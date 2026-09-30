@@ -85,6 +85,31 @@ describe('FixtureSchema', () => {
     expect(messages(implementNoReference)).toContain('referencePatch');
   });
 
+  it('holds oracle.protectedPaths inside the workspace: relative, no "." / ".." / empty segments', () => {
+    const withPaths = (protectedPaths: string[]): unknown => ({
+      ...evaluateSpec(),
+      oracle: { command: 'x', protectedPaths },
+    });
+    for (const bad of [
+      '../outside',
+      'test/../../x',
+      '..',
+      '/etc',
+      '/',
+      '.',
+      './',
+      'test/./a.mjs',
+      'test//a.mjs',
+      '..\\x',
+      'C:\\x',
+      '',
+    ]) {
+      expect(FixtureSchema.safeParse(withPaths([bad])).success, JSON.stringify(bad)).toBe(false);
+    }
+    expect(messages(withPaths(['../outside']))).toContain('oracle.protectedPaths.0');
+    expect(FixtureSchema.safeParse(withPaths(['test/clamp.test.mjs', 'test/', 'src/a..b.mjs'])).success).toBe(true);
+  });
+
   it('rejects unknown top-level keys', () => {
     expect(FixtureSchema.safeParse({ ...evaluateSpec(), surprise: true }).success).toBe(false);
   });

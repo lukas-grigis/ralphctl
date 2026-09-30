@@ -81,6 +81,8 @@ export interface PairedDiff {
   readonly z: number;
   /** The interval excludes 0 — the harness's "detectable difference" rule (engineering judgment). */
   readonly detectable: boolean;
+  /** Fewer than {@link APPROX_MIN_ITEMS} paired items — the same n rule {@link summarize} applies. */
+  readonly approx: boolean;
 }
 
 /**
@@ -101,6 +103,7 @@ export const pairedDiff = (a: readonly number[], b: readonly number[], clusters:
     ci,
     z: meanDiff / se,
     detectable: Number.isFinite(se) && (ci[0] > 0 || ci[1] < 0),
+    approx: diffs.length < APPROX_MIN_ITEMS,
   };
 };
 

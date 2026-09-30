@@ -91,6 +91,18 @@ describe('Eq. 7 — paired SE', () => {
     const steady = pairedDiff([0, 0, 0, 0, 0, 0], [1, 1, 1, 1, 0.9, 1.1], ['a', 'b', 'c', 'd', 'e', 'f']);
     expect(steady.detectable).toBe(true);
   });
+
+  it('flags fewer than 30 paired items as approximate and 30+ as not — the same n rule as summarize', () => {
+    const n = (count: number): { a: number[]; b: number[]; c: string[] } => ({
+      a: Array.from({ length: count }, (_, i) => (i % 2 === 0 ? 1 : 0)),
+      b: Array.from({ length: count }, (_, i) => (i % 3 === 0 ? 1 : 0)),
+      c: Array.from({ length: count }, (_, i) => String(i)),
+    });
+    const below = n(APPROX_MIN_ITEMS - 1);
+    const at = n(APPROX_MIN_ITEMS);
+    expect(pairedDiff(below.a, below.b, below.c).approx).toBe(true);
+    expect(pairedDiff(at.a, at.b, at.c).approx).toBe(false);
+  });
 });
 
 describe('summarize', () => {

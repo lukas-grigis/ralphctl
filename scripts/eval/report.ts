@@ -50,7 +50,7 @@ const compareTable = (rows: readonly ComparisonRow[]): string[] =>
       r.flow,
       r.metric,
       signedPct(r.meanDiff),
-      `[${signedPct(r.ci[0])}, ${signedPct(r.ci[1])}]`,
+      `[${signedPct(r.ci[0])}, ${signedPct(r.ci[1])}]${r.approx ? ' (approx)' : ''}`,
       verdict(r),
       Number.isFinite(r.mde) ? `±${pct(r.mde)}` : 'n/a',
       String(r.n),

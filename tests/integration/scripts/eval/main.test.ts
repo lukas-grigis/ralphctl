@@ -198,6 +198,28 @@ describe('pnpm eval compare / report', () => {
     expect(text).toMatch(/\| correct \| candidate \| 0\.0%/);
   });
 
+  it('refuses to report a results file that is not single-arm (a compare run would pool both arms)', async () => {
+    expect(await main(['run', '--dry-run', '--max-tokens', '100000', '-k', '1', '--flow', 'evaluate', ...base()])).toBe(
+      0
+    );
+    const first = join((await lastRun()).dir, 'results.json');
+    const twoArm = join(scratch, 'two-arm.json');
+    const results = JSON.parse(await fs.readFile(first, 'utf8')) as ResultsFile;
+    const candidate = { ...(results.arms[0] as ResultsFile['arms'][number]), name: 'candidate' };
+    await fs.writeFile(
+      twoArm,
+      JSON.stringify({
+        ...results,
+        arms: [...results.arms, candidate],
+        trials: [...results.trials, ...results.trials.map((t) => ({ ...t, arm: 'candidate' }))],
+      })
+    );
+    stdout.length = 0;
+    expect(await main(['report', first, twoArm])).toBe(1);
+    expect(stderr.join('\n')).toContain(`${twoArm}: has 2 arms (baseline, candidate)`);
+    expect(stdout.join('\n')).not.toContain('## Comparison');
+  });
+
   it('refuses to report runs with different k', async () => {
     expect(await main(['run', '--dry-run', '--max-tokens', '100000', '-k', '1', '--flow', 'evaluate', ...base()])).toBe(
       0

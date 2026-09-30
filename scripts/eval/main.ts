@@ -277,6 +277,19 @@ const executeReport = async (baselinePath: string, candidatePath: string): Promi
     err(b.error.message);
     return EXIT_FAILURE;
   }
+  // `relabel` below moves every trial onto one arm, so a multi-arm file (from `pnpm eval compare`)
+  // would silently pool both of its arms into one. Only single-arm `run` outputs are reportable.
+  for (const [path, file] of [
+    [baselinePath, a.value],
+    [candidatePath, b.value],
+  ] as const) {
+    if (file.arms.length !== 1) {
+      err(
+        `${path}: has ${String(file.arms.length)} arms (${file.arms.map((arm) => arm.name).join(', ')}) — report takes two single-arm \`run\` results; a \`compare\` results file already holds its comparison in summary.md`
+      );
+      return EXIT_FAILURE;
+    }
+  }
   if (a.value.k !== b.value.k) {
     err(`k differs (${String(a.value.k)} vs ${String(b.value.k)}) — the two runs are not comparable`);
     return EXIT_FAILURE;
@@ -288,7 +301,7 @@ const executeReport = async (baselinePath: string, candidatePath: string): Promi
     const original = r.arms[0]?.name ?? 'baseline';
     return {
       ...r,
-      arms: r.arms.slice(0, 1).map((arm) => ({ ...arm, name })),
+      arms: r.arms.map((arm) => ({ ...arm, name })),
       trials: r.trials.map((t) => ({ ...t, arm: name })),
       incompleteItems: r.incompleteItems.map((line) =>
         line.startsWith(`${original}:`) ? `${name}:${line.slice(original.length + 1)}` : line

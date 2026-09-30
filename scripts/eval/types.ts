@@ -137,6 +137,8 @@ export interface ComparisonRow {
   readonly se: number;
   readonly ci: readonly [number, number];
   readonly detectable: boolean;
+  /** Fewer than `APPROX_MIN_ITEMS` paired items — the CI is flagged approximate. */
+  readonly approx: boolean;
   /** Minimum detectable effect at this n (α = .05, power .8). */
   readonly mde: number;
 }

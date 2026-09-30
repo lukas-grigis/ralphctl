@@ -105,18 +105,8 @@ const distillProposeUseCase = async (
   });
   if (!prompt.ok) return Result.error(prompt.error);
 
-  try {
-    await fs.mkdir(toolDir, { recursive: true });
-  } catch (cause) {
-    return Result.error(
-      new StorageError({
-        subCode: 'io',
-        message: `distill-propose-${tool}: cannot create sandbox dir ${toolDir}`,
-        path: toolDir,
-        cause,
-      })
-    );
-  }
+  const prepared = await prepareSandbox(toolDir, String(outputFileResult.value), tool);
+  if (!prepared.ok) return Result.error(prepared.error);
   const promptFileResult = AbsolutePath.parse(join(toolDir, 'prompt.md'));
   if (!promptFileResult.ok) return Result.error(promptFileResult.error);
 
@@ -163,6 +153,44 @@ const distillProposeUseCase = async (
     bytes: proposedContent.length,
   });
   return Result.ok({ proposedContent, targetPath });
+};
+
+/**
+ * Create the per-tool sandbox dir and clear any previous output file. The dir outlives a run (it
+ * sits under the sprint dir), so without the clear a second distill whose AI exits cleanly without
+ * writing would read the earlier session's delta back and splice it in as this session's answer —
+ * it must surface as "wrote no output file" instead.
+ */
+const prepareSandbox = async (
+  toolDir: string,
+  outputFile: string,
+  tool: AssistantTool
+): Promise<Result<void, StorageError>> => {
+  try {
+    await fs.mkdir(toolDir, { recursive: true });
+  } catch (cause) {
+    return Result.error(
+      new StorageError({
+        subCode: 'io',
+        message: `distill-propose-${tool}: cannot create sandbox dir ${toolDir}`,
+        path: toolDir,
+        cause,
+      })
+    );
+  }
+  try {
+    await fs.rm(outputFile, { force: true });
+  } catch (cause) {
+    return Result.error(
+      new StorageError({
+        subCode: 'io',
+        message: `distill-propose-${tool}: cannot clear stale output ${outputFile}`,
+        path: outputFile,
+        cause,
+      })
+    );
+  }
+  return Result.ok(undefined);
 };
 
 /**

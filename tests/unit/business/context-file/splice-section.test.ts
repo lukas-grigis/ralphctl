@@ -137,6 +137,15 @@ describe('appendSections', () => {
     expect(ok(appendSections(existing, full))).toBe(full);
   });
 
+  it('treats additions as the full file only when the existing body ends on a line boundary', () => {
+    // `# Foo bar` merely starts with the characters of `# Foo` — it is a delta, not the full file.
+    expect(ok(appendSections('# Foo\n', '# Foo bar\n\nx\n'))).toBe('# Foo\n\n# Foo bar\n\nx\n');
+    expect(ok(appendSections('# Foo\n\ntext', '# Foo\n\ntextual\n'))).toBe('# Foo\n\ntext\n\n# Foo\n\ntextual\n');
+    // Exactly the existing body, and the existing body followed by a newline (CRLF too), still count.
+    expect(ok(appendSections('# Foo\n', '# Foo'))).toBe('# Foo');
+    expect(ok(appendSections('# Foo\r\n', '# Foo\r\n\r\n## A\r\n'))).toBe('# Foo\r\n\r\n## A\r\n');
+  });
+
   it('leaves a non-empty file unchanged when there is nothing to add', () => {
     expect(ok(appendSections('# T\r\n', ' \n'))).toBe('# T\r\n');
   });

@@ -65,6 +65,14 @@ describe('buildPlanReviewMessage', () => {
     expect(warningIdx).toBeLessThan(bodyIdx);
   });
 
+  it('keeps the findings and the approve question together in the pinned header', () => {
+    const message = buildPlanReviewMessage([{ name: 'do a thing' }], [warningFinding('C1')]);
+    // ScrollableMessage pins everything before the first blank line as the header.
+    const header = message.slice(0, message.indexOf('\n\n'));
+    expect(header).toContain('Plan check found 1 issue(s)');
+    expect(header).toContain('Approve plan? 1 task(s)');
+  });
+
   it('caps the rendered findings at 10 and tails the remainder', () => {
     const findings = Array.from({ length: 14 }, (_, i) => warningFinding(`C${String(i + 1)}`));
     const message = buildPlanReviewMessage([{ name: 'do a thing' }], findings);

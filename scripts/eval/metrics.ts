@@ -321,6 +321,7 @@ export const compareArms = (
         se: paired.se,
         ci: paired.ci,
         detectable: paired.detectable,
+        approx: paired.approx,
         mde: def.trialValue === undefined ? Number.NaN : mde(omega2, sigmaA2, kA, sigmaB2, kB, paired.n),
       });
     }

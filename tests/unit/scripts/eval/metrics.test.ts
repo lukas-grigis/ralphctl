@@ -177,7 +177,7 @@ describe('compareArms', () => {
       ['evaluate']
     );
     const correct = rows.find((r) => r.metric === 'correct');
-    expect(correct).toMatchObject({ n: 6, meanDiff: 1, detectable: true });
+    expect(correct).toMatchObject({ n: 6, meanDiff: 1, detectable: true, approx: true });
   });
 
   it('declares no detectable difference when the CI spans 0', () => {

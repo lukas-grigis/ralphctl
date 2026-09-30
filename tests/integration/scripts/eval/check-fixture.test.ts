@@ -117,6 +117,26 @@ describe('runOracle', () => {
     }
   });
 
+  it('refuses a protected path that escapes the workspace instead of deleting outside it', async () => {
+    const fixture = await fixtureOf('mini-im');
+    const ws = await materialize(deps.workspace, fixture.dir);
+    if (!ws.ok) throw ws.error;
+    const sentinel = join(String(ws.value.repo), '..', 'sentinel.txt');
+    await fs.writeFile(sentinel, 'keep me');
+    try {
+      for (const escape of ['../sentinel.txt', sentinel, '.']) {
+        const ran = await runOracle({ shell }, ws.value, fixture.dir, { command: 'true', protectedPaths: [escape] });
+        expect(ran.ok, escape).toBe(false);
+        expect(!ran.ok && ran.error.message).toContain('escapes the workspace');
+      }
+      expect(await fs.readFile(sentinel, 'utf8')).toBe('keep me');
+      expect((await fs.stat(String(ws.value.repo))).isDirectory()).toBe(true);
+    } finally {
+      await ws.value.cleanup();
+      await fs.rm(sentinel, { force: true });
+    }
+  });
+
   it('copies the oracle into the workspace only when grading', async () => {
     const fixture = await fixtureOf('mini-im');
     const ws = await materialize(deps.workspace, fixture.dir);

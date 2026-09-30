@@ -1,3 +1,4 @@
+import { posix, win32 } from 'node:path';
 import { z } from 'zod';
 import { TaskImportSpecSchema } from '@src/integration/ai/prompts/_engine/task-import-schema.ts';
 
@@ -20,11 +21,32 @@ const TaskSpecSchema = TaskImportSpecSchema.omit({ projectPath: true });
 const SCHEMA_VERSION = z.literal(1);
 const NonEmpty = z.string().min(1);
 
+/**
+ * A `protectedPaths` entry. The oracle runner `rm -rf`s `<workspace>/<entry>` before restoring it, so
+ * an entry that escapes the workspace (absolute, `..`) or names its root (`.`) would delete outside
+ * the trial. Entries must also be normalized — `isProtectedPath` (grade.ts) compares them verbatim
+ * against git's changed paths, so `./test` or `test//a` would never match. A single trailing `/`
+ * marks a directory (`test/`).
+ */
+const ProtectedPath = NonEmpty.refine((p) => !posix.isAbsolute(p) && !win32.isAbsolute(p), {
+  message: 'must be relative to the fixture repo',
+}).refine(
+  (p) =>
+    p
+      .replace(/[\\/]$/, '')
+      .split(/[\\/]/)
+      .every((seg) => seg !== '' && seg !== '.' && seg !== '..'),
+  {
+    message:
+      'must be a normalized path inside the fixture repo — no ".", ".." or empty segments (a trailing "/" marks a directory)',
+  }
+);
+
 /** Command oracle: hidden checks run inside the materialized workspace; `protectedPaths` are restored first. */
 const CommandOracleSchema = z
   .object({
     command: NonEmpty,
-    protectedPaths: z.array(NonEmpty).default([]),
+    protectedPaths: z.array(ProtectedPath).default([]),
   })
   .strict();
 

@@ -164,6 +164,7 @@ describe('renderSummary', () => {
             se: 0.04,
             ci: [0.02, 0.18],
             detectable: true,
+            approx: false,
             mde: 0.12,
           },
           {
@@ -174,6 +175,7 @@ describe('renderSummary', () => {
             se: 0.1,
             ci: [-0.25, 0.15],
             detectable: false,
+            approx: true,
             mde: 0.3,
           },
         ],
@@ -182,7 +184,9 @@ describe('renderSummary', () => {
     expect(md).toContain(
       '| evaluate | correct | +10.0 pp | [+2.0 pp, +18.0 pp] | detectable difference | ±12.0% | 12 |'
     );
-    expect(md).toContain('no detectable difference at this N');
+    expect(md).toContain(
+      '| evaluate | catch-rate | -5.0 pp | [-25.0 pp, +15.0 pp] (approx) | no detectable difference at this N | ±30.0% | 6 |'
+    );
   });
 
   it('lists incomplete items, saturation candidates and the k-sufficiency line', () => {

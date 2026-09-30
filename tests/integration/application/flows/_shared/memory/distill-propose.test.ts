@@ -11,6 +11,7 @@ import { promises as fs } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Result } from '@src/domain/result.ts';
+import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import { ValidationError } from '@src/domain/value/error/validation-error.ts';
 import { DEFAULT_LEARNINGS_SECTION_HEADING } from '@src/integration/ai/prompts/distill-learnings/definition.ts';
@@ -121,6 +122,22 @@ describe('distillProposeLeaf — abort signal threading', () => {
     expect(promptBody).toContain(outPath);
     expect(promptBody).not.toContain('at its original path');
   });
+  it('does not splice a stale output from an earlier distill when the AI exits cleanly without writing', async () => {
+    // First distill in this sprint writes its delta; the second AI session exits 0 but writes nothing.
+    const first = distillProposeLeaf(buildDeps(fakeAi({})), 'claude-code');
+    expect((await first.execute(buildCtx())).ok).toBe(true);
+    const outPath = join(String(distillRoot), 'claude-code', 'context-file.out');
+    await fs.writeFile(outPath, '- stale from the previous distill\n', 'utf8');
+
+    const silent: InteractiveAiProvider = { run: async () => Result.ok({}) };
+    const result = await distillProposeLeaf(buildDeps(silent), 'claude-code').execute(buildCtx());
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.error).toBeInstanceOf(InvalidStateError);
+      expect(result.error.error.message).toContain('wrote no output file');
+    }
+  });
+
   describe('splicing into an existing context file', () => {
     const bodyFake = (body: string): InteractiveAiProvider => ({
       async run(input) {

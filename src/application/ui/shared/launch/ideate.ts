@@ -9,12 +9,14 @@ import type { LaunchContext } from '@src/application/ui/shared/launch/context.ts
 import type { LaunchResult } from '@src/application/ui/shared/launcher.ts';
 import type { PlanCheckFinding } from '@src/business/sprint/check-plan.ts';
 import type { TodoTask } from '@src/domain/entity/task.ts';
-import { buildPlanReviewMessage, toPlanReviewTasks } from '@src/application/ui/shared/launch/plan.ts';
+import { buildFindingsBlock, renderReviewTask, toPlanReviewTasks } from '@src/application/ui/shared/launch/plan.ts';
 import { checkCli } from '@src/application/ui/shared/launch/check-cli.ts';
 
 /**
- * Ideate's approval prompt: the approved requirements body first, then the same critic-findings +
- * task-list body the plan gate renders. Pure so the composition is unit-testable.
+ * Ideate's approval prompt. `ScrollableMessage` treats everything before the first blank line as
+ * the pinned header, so the critic findings and the approve question lead (always on screen), then
+ * the approved requirements and the task list scroll in the body. Pure so the composition is
+ * unit-testable.
  *
  * @public
  */
@@ -22,7 +24,13 @@ export const buildIdeateReviewMessage = (
   requirements: string,
   tasks: ReturnType<typeof toPlanReviewTasks>,
   findings: readonly PlanCheckFinding[] = []
-): string => `Requirements:\n\n${requirements.trim()}\n\n${buildPlanReviewMessage(tasks, findings)}`;
+): string => {
+  const findingsBlock = buildFindingsBlock(findings).trimEnd();
+  const question = `Approve ideate? ${String(tasks.length)} task(s)`;
+  const header = findingsBlock.length > 0 ? `${findingsBlock}\n${question}` : question;
+  const summary = tasks.map((t, i) => renderReviewTask(t, i)).join('\n\n');
+  return `${header}\n\nRequirements:\n${requirements.trim()}\n\nTasks are shown in dependency-resolved execution order.\n\n${summary}`;
+};
 
 export const launchIdeate = async (ctx: LaunchContext): Promise<LaunchResult> => {
   const { deps, snapshot, settings, interactiveAi, skillsAdapter, skillSource, cwd, bridge, sessionId, effort } = ctx;

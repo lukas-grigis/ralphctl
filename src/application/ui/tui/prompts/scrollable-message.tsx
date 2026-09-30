@@ -108,16 +108,18 @@ export const ScrollableMessage = ({
   const [offset, setOffset] = useState(0);
   const maxOffset = Math.max(0, body.length - windowRows);
   const clamp = (n: number): number => Math.max(0, Math.min(n, maxOffset));
+  // A grown terminal shrinks maxOffset; derive the effective offset so a stale one never shows a short tail.
+  const effOffset = Math.min(offset, maxOffset);
   const overflows = body.length > windowRows;
 
   useInput((input, key) => {
     if (!overflows) return;
     const delta = resolveScrollDelta(input, key, ownsArrows, windowRows);
-    if (delta !== undefined) setOffset((o) => clamp(o + delta));
+    if (delta !== undefined) setOffset((o) => clamp(Math.min(o, maxOffset) + delta));
   });
 
-  const visible = body.slice(offset, offset + windowRows);
-  const lastVisible = Math.min(offset + windowRows, body.length);
+  const visible = body.slice(effOffset, effOffset + windowRows);
+  const lastVisible = Math.min(effOffset + windowRows, body.length);
   const scrollHint = ownsArrows ? '↑/↓ scroll · PgUp/PgDn page' : 'PgUp/PgDn page · Ctrl+u/d half-page';
 
   return (
@@ -129,12 +131,12 @@ export const ScrollableMessage = ({
         <Box flexDirection="column" marginTop={spacing.section}>
           <Box flexDirection="column" borderStyle="single" borderColor={inkColors.rule} paddingX={spacing.cardPadX}>
             {visible.map((line, i) => (
-              <Text key={`body-${String(offset + i)}`}>{line.length === 0 ? ' ' : line}</Text>
+              <Text key={`body-${String(effOffset + i)}`}>{line.length === 0 ? ' ' : line}</Text>
             ))}
           </Box>
           {overflows && (
             <Text color={inkColors.highlight} bold>
-              lines {String(offset + 1)}–{String(lastVisible)} of {String(body.length)} · {scrollHint}
+              lines {String(effOffset + 1)}–{String(lastVisible)} of {String(body.length)} · {scrollHint}
             </Text>
           )}
         </Box>

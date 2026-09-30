@@ -58,6 +58,19 @@ describe('ScrollableMessage', () => {
     unmount();
   });
 
+  it('re-clamps a stale offset when the terminal grows, without a keypress', async () => {
+    const { stdin, stdout, lastFrame, unmount } = render(<ScrollableMessage message={`Head\n\n${bodyOf(60)}`} />);
+    await tick();
+    for (let i = 0; i < 8; i += 1) stdin.write('\u001B[6~');
+    await tick();
+    expect(lastFrame() ?? '').toContain('lines 53–60 of 60');
+    (stdout as unknown as { rows: number }).rows = 40;
+    stdout.emit('resize');
+    await tick();
+    expect(lastFrame() ?? '').toContain('lines 37–60 of 60');
+    unmount();
+  });
+
   it('grows the window when the terminal gets taller', async () => {
     const { stdout, lastFrame, unmount } = render(<ScrollableMessage message={`Head\n\n${bodyOf(60)}`} />);
     await tick();

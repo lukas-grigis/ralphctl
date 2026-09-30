@@ -1,5 +1,5 @@
 import { promises as fs } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve, sep } from 'node:path';
 import { Result } from '@src/domain/result.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { AbortError } from '@src/domain/value/error/abort-error.ts';
@@ -39,8 +39,14 @@ const restoreProtectedPaths = async (
   repo: AbsolutePath,
   paths: readonly string[]
 ): Promise<void> => {
+  const root = resolve(String(repo));
   for (const rel of paths) {
-    const target = join(String(repo), rel);
+    const target = resolve(root, rel);
+    // The fixture schema already rejects these entries; this guards the `rm -rf` itself against a
+    // caller that built a CommandOracle without the schema.
+    if (!target.startsWith(`${root}${sep}`)) {
+      throw new Error(`protected path escapes the workspace: ${JSON.stringify(rel)}`);
+    }
     await fs.rm(target, { recursive: true, force: true });
     const pristine = join(fixtureDir, 'repo', rel);
     const present = await fs.stat(pristine).then(

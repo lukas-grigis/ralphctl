@@ -71,7 +71,7 @@ const MAX_RENDERED_FINDINGS = 10;
  * the task list off screen. Returns `''` when the critic found nothing, so the message is
  * byte-identical to the pre-critic wording on a clean plan.
  */
-const buildFindingsBlock = (findings: readonly PlanCheckFinding[]): string => {
+export const buildFindingsBlock = (findings: readonly PlanCheckFinding[]): string => {
   if (findings.length === 0) return '';
   const ordered = [
     ...findings.filter((f) => severityOfFinding(f) === 'error'),
@@ -80,7 +80,7 @@ const buildFindingsBlock = (findings: readonly PlanCheckFinding[]): string => {
   const shown = ordered.slice(0, MAX_RENDERED_FINDINGS).map((f) => `  ${renderPlanCheckFinding(f)}`);
   const hidden = ordered.length - shown.length;
   const tail = hidden > 0 ? [`  … and ${String(hidden)} more`] : [];
-  return `Plan check found ${String(ordered.length)} issue(s) — advisory, you decide:\n${[...shown, ...tail].join('\n')}\n\n`;
+  return `Plan check found ${String(ordered.length)} issue(s) — advisory, you decide:\n${[...shown, ...tail].join('\n')}\n`;
 };
 
 const renderCriteria = (criteria: readonly PlanReviewCriterion[]): readonly string[] => {
@@ -93,7 +93,7 @@ const renderCriteria = (criteria: readonly PlanReviewCriterion[]): readonly stri
   return lines;
 };
 
-const renderReviewTask = (t: PlanReviewTask, index: number): string => {
+export const renderReviewTask = (t: PlanReviewTask, index: number): string => {
   const lines = [`${String(index + 1)}. ${t.name}${t.ticketRef !== undefined ? `  [${t.ticketRef}]` : ''}`];
   if (t.repository !== undefined && t.repository.length > 0) lines.push(`   repository: ${t.repository}`);
   if (t.dependsOn !== undefined && t.dependsOn.length > 0) lines.push(`   depends on: ${t.dependsOn.join(', ')}`);

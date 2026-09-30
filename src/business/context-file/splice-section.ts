@@ -164,13 +164,21 @@ const appendBlock = (existing: string, block: string, eol: string): string => {
 };
 
 /**
+ * `additions` is the existing body plus more — it equals `body`, or `body` is followed by a line
+ * break. A bare `startsWith` would read `# Foo bar` as the full file of `# Foo` and drop the original.
+ * Both arguments are LF-normalized.
+ */
+const isFullFile = (additions: string, body: string): boolean =>
+  additions === body || (additions.startsWith(body) && additions[body.length] === '\n');
+
+/**
  * Append the model's new H2 section(s) to `existing`, preserving `existing` byte-for-byte as a
  * prefix. Empty `additions` leaves a non-empty `existing` unchanged (the model had nothing to add) and
  * fails for an empty `existing` (nothing to propose at all).
  *
  * Tolerance for a model that ignored the delta contract: when `additions` already starts with the
- * whole existing body (trimmed), it is treated as the full file and returned as-is, so the body is
- * never duplicated.
+ * whole existing body (trimmed) followed by a line break, it is treated as the full file and returned
+ * as-is, so the body is never duplicated.
  */
 export const appendSections = (existing: string, additions: string): Result<string, ValidationError> => {
   const cleaned = additions.trim();
@@ -181,7 +189,7 @@ export const appendSections = (existing: string, additions: string): Result<stri
   }
   const eol = eolOf(existing);
   const existingTrimmed = existing.trim();
-  if (existingTrimmed !== '' && toEol(cleaned, '\n').startsWith(toEol(existingTrimmed, '\n'))) {
+  if (existingTrimmed !== '' && isFullFile(toEol(cleaned, '\n'), toEol(existingTrimmed, '\n'))) {
     return Result.ok(additions);
   }
   return Result.ok(appendBlock(existing, toEol(cleaned, eol), eol));
