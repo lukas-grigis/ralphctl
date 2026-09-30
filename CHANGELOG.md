@@ -7,6 +7,57 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.24.0] - 2026-09-30
+
+### Added
+
+- **Claude Sonnet 5.5.** `claude-sonnet-5-5` joins the Claude Code catalog (1M context, effort
+  `low`..`max`, CLI default `medium`), and the Claude presets move to it. The Claude escalation
+  ladder is now Haiku → Sonnet 5.5 → Opus 5.5. `claude-sonnet-5` stays in the catalog and still
+  escalates, so existing settings load unchanged. Copilot stays on `claude-sonnet-5` — 5.5 isn't
+  offered there.
+- **Full plan review in the TUI.** The plan review screen now renders each task's repository,
+  dependencies, steps and every acceptance criterion, in a scroll window sized to the terminal.
+  Ideate runs the same plan check and review gate as plan before importing tasks; rejecting
+  restores the sprint.
+- **Bounded reproduce exit.** Implement's reproduce step may report that a failure can't be
+  reproduced, with a reason, after two revisions instead of looping.
+
+### Changed
+
+- **Every approval gate shows the full document.** Refine, ideate and plan put the checklist
+  first, the full document verbatim every round, and the question last; the pinned header keeps
+  findings and the question visible.
+- **Context-file updates emit only the delta.** Distill and readiness have the model write just
+  the section it owns or new sections; ralphctl splices them into the file. Duplicate headings
+  fail safe, and the confirm gate still shows the full resulting file.
+- **Candidate judge runs both orders.** The pairwise judge scores each pair in both orders; a
+  disagreement counts as a tie.
+- **Untrusted inputs are marked as data.** Ticket text, issue-tracker content, idea text, the
+  existing project context file and the generator's output are prefixed with a
+  data-not-instructions line in the prompts that consume them.
+- **Implement guardrails.** The baseline rule no longer blocks the failure a task exists to fix
+  or an operator-accepted red baseline; implement prompts add reversibility, no test
+  special-casing, scratch cleanup, scope and stop-when-green rules. Harness context is sent only
+  to implement, evaluate and their continuations.
+
+### Fixed
+
+- A stale `--resume` session respawns with the full original prompt instead of a bare
+  continuation, across all five providers.
+- Distill writes its proposal to the harness output file and clears a stale one first, so the
+  confirm gate and `.bak` backup are no longer bypassed.
+- The evaluator no longer emits a placeholder verdict that parsed as a real FAIL; evaluate and
+  its continuation share one set of grading rules.
+- Detector and helper prompts drop contradictory rules and placeholder timestamps.
+- Scrollable messages re-clamp their scroll offset when the terminal grows.
+
+### Removed
+
+- The entropy and loop-diversity plateau detectors (no preset enabled them). The calibrated
+  predicate is the only plateau exit; the `entropyPlateauDetector` setting is ignored and old
+  settings files and records still load.
+
 ## [0.23.0] - 2026-09-22
 
 ### Added
