@@ -126,8 +126,9 @@ The escalation policy is a **graduated remedy ladder** (`src/business/task/escal
 spent cheapest-first across successive plateau or budget-exhausted exits:
 (1) **model escalation** — climbs **one rung per exit** up the generator provider's entry in
 `DEFAULT_ESCALATION_LADDERS` (`src/business/task/escalation-map.ts`), merged with any
-`settings.harness.escalationMap` override: **claude-code** climbs Haiku → Sonnet 5 → Opus 5.5, with the
-legacy Sonnet 4.6 / Opus 4.8 generation chaining through its own tier and Opus 5 stepping straight across,
+`settings.harness.escalationMap` override: **claude-code** climbs Haiku → Sonnet 5.5 → Opus 5.5, with the
+legacy Sonnet 4.6 / Opus 4.8 generation chaining through its own tier and Opus 5 and a pinned Sonnet 5
+stepping straight across,
 all converging at the same flagship; **github-copilot** climbs Haiku → Sonnet 5 → Opus 4.8 (Opus 4.7 also
 steps to 4.8; the ladder deliberately tops out below Opus 5 / 5.5, both plan-gated on Copilot), and its
 GPT minis (`gpt-5-mini`, `gpt-5.4-mini`, `gpt-5.4`) step to `gpt-5.5`, which climbs into the GPT-5.6
@@ -143,7 +144,8 @@ policy tries a cheaper same-model remedy BEFORE the nudge: raise reasoning effor
 **provider- and model-aware target** (`nextEffortRung` in `escalation-map.ts`) when the provider/model
 exposes an effort dimension and the generator still has headroom. Claude is model-aware — the rung climbs
 one tier above the EFFECTIVE effort: the explicit level, or — only when genuinely unset — the model's own
-Claude Code CLI default (`medium` on Opus 5.5, `high` on every other effort-capable Claude model). Each
+Claude Code CLI default (`medium` on Opus 5.5 and Sonnet 5.5, `high` on every other effort-capable Claude
+model). Each
 firing climbs exactly one tier on `low → medium → high → xhigh → max` (the few models without an `xhigh`
 tier, e.g. Sonnet 4.6, go `high → max`), capping at `max`. Copilot
 keeps the fixed target `EFFORT_ESCALATION_TARGET`

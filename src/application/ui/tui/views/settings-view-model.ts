@@ -238,7 +238,7 @@ export interface EscalationChain {
    * chain rooted at a custom id no catalog knows (it applies to whichever provider runs it).
    */
   readonly provider: AiProvider | undefined;
-  /** Model ids in climb order, e.g. `['claude-haiku-4-5', 'claude-sonnet-5', 'claude-opus-5-5']`. */
+  /** Model ids in climb order, e.g. `['claude-haiku-4-5', 'claude-sonnet-5-5', 'claude-opus-5-5']`. */
   readonly models: readonly string[];
   /** True when any rung on the chain comes from the user's overrides (not the built-in map). */
   readonly customised: boolean;

@@ -577,6 +577,16 @@ updating the recorded hash:
 
 **Model-bump audit log.**
 
+- **2026-09-30 — Claude Sonnet 5.5.** Step 1: `claude-sonnet-5-5` joins the claude-code catalog only (the
+  Copilot CLI does not serve it) and becomes the Sonnet rung of the claude-code ladder (Haiku → Sonnet 5.5 →
+  Opus 5.5). `claude-sonnet-5` stays catalogued and keyed (→ Opus 5.5) so pinned rows still escalate;
+  nothing was de-listed, so no key or destination was stranded. `CLAUDE_CLI_DEFAULT_EFFORT` gained Sonnet
+  5.5 at `medium` (the Claude Code default, which differs from the API's `high`). Step 2: the only
+  `partial` rows are §14 and §18, both the audit mechanism itself — a same-family tier bump does not close
+  them; there are no `gap` rows. Step 3: no `applied` row was re-measured against Sonnet 5.5 and none was
+  removed — §14 requires measurement before removal, and Sonnet 5.5's recalibrated effort levels make the
+  presets' Sonnet effort columns the first thing an eval sweep (`EVALS.md`) should check.
+
 - **2026-09-22 — Opus 5.5 / Fable 5.1 / GPT-6 (Sol, Luna, Astra) refresh.** Step 1: `claude-opus-5-5` is
   now the claude-code ladder top (no key, as before); `claude-opus-5` and `claude-opus-4-8` both gained a
   rung up to it. `gpt-6-sol` is now the openai-codex ladder top. `gpt-5.4` and `gpt-5.4-mini` were removed

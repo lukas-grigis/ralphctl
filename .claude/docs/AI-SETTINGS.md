@@ -22,7 +22,8 @@ readiness → `medium`, createPr → `low`; review inherits implement's), floore
 ceiling — deliberately the lowest-precedence layer, below the global default, so an operator who has
 set `ai.effort` keeps that deliberate choice untouched. Every flow has an entry on purpose: ralphctl never
 leaves an effort-capable provider on its CLI's built-in default, which moves between model releases
-(Claude Code runs Opus 5.5 at `medium` with no `--effort`; earlier Opus models ran at `high`). The only
+(Claude Code runs Opus 5.5 and Sonnet 5.5 at `medium` with no `--effort`; earlier Opus and Sonnet
+models ran at `high`). The only
 path that still reaches the CLI default is an opencode row with no row or global effort. Readiness,
 distill, the implement roles, create-pr and review all resolve through the same function. Codex
 accepts `low..ultra` — from the **global** value, `max` floors
@@ -47,7 +48,7 @@ that starts or stops forwarding effort without updating its row fails at `pnpm t
 resolved effort also feeds the escalation policy's same-model effort rung,
 whose target is provider- and model-aware: a Claude generator at the top of the model ladder climbs one
 tier above its EFFECTIVE effort — the explicit level, or, only when genuinely unset, the model's own
-Claude Code CLI default (`medium` on Opus 5.5, `high` on every other effort-capable Claude model — the gap
+Claude Code CLI default (`medium` on Opus 5.5 and Sonnet 5.5, `high` on every other effort-capable Claude model — the gap
 between the two is exactly why ralphctl stamps an explicit effort on every flow now) — while Copilot
 escalates to a fixed `high` and Codex and Grok to a fixed `xhigh` — see
 `PERFORMANCE.md § plateau escalation` and `§ Default escalation posture` below for the shipped default's
@@ -183,18 +184,30 @@ every `ai` row plus `harness.escalateOnPlateau` in one transaction; subsequent p
 
 **Model catalog versions used by the presets** (verified against the tool versions noted per row):
 
-- Claude Code — `claude-haiku-4-5` / `claude-sonnet-4-6` / `claude-sonnet-5` / `claude-opus-4-8` /
-  `claude-opus-5` / `claude-opus-5-5` (verified against Claude Code v2.1.197; `claude-opus-5-5` and
-  `claude-fable-5-1` were live-probed on Claude Code 2.1.280, 2026-09-22 — Opus 5.5 requires that
-  version or later; `claude-haiku-4-5` stays in the catalog for manual selection only — it left every
-  preset default ahead of its Anthropic retirement horizon, which has no Haiku 5 successor).
+- Claude Code — lists 11 models: `claude-haiku-4-5` / `claude-sonnet-4-6` / `claude-sonnet-5` /
+  `claude-sonnet-5-5` / `claude-opus-4-8` / `claude-opus-4-8[1m]` / `claude-opus-5` / `claude-opus-5-5` /
+  `claude-fable-5` / `claude-fable-5[1m]` / `claude-fable-5-1` (verified against Claude Code v2.1.197;
+  `claude-opus-5-5` and `claude-fable-5-1` were live-probed on Claude Code 2.1.280, 2026-09-22 — Opus 5.5
+  requires that version or later; `claude-haiku-4-5` stays in the catalog for manual selection only — it
+  left every preset default ahead of its Anthropic retirement horizon, which has no Haiku 5 successor).
+  **Added since the 2026-09-22 reconciliation:** `claude-sonnet-5-5`, live-probed on Claude Code 2.1.285
+  (2026-09-30; the CLI requires v2.1.284 or later). It is the **default Sonnet** across the Claude-family
+  presets, the new-install claude-code defaults, and the claude-code escalation ladder (Haiku → Sonnet 5.5
+  → Opus 5.5): $2/$10 per MTok, natively 1M with no `[1m]` variant, 128K output, all five effort levels,
+  and — like Opus 5.5 — a Claude Code CLI default effort of `medium` (the Claude API documents `high`;
+  the effort rung follows the CLI). Its effort levels are recalibrated against Sonnet 5, so the same
+  preset level does not buy the same amount of thinking. It is **Claude Code only**: the Copilot CLI
+  (1.0.88) rejects both `claude-sonnet-5.5` and `claude-sonnet-5-5`, so every Copilot row and the Copilot
+  ladder stay on `claude-sonnet-5`. `claude-sonnet-5` is **not retired** — it stays live on Claude Code
+  (and is Claude Code's cybersecurity fallback for Sonnet 5.5), keeps its own ladder rung to Opus 5.5, and
+  a row pinned to it loads unchanged (no `RETIRED_MODEL_REMAPS` entry). Nothing was removed.
   `claude-opus-5-5` is the Opus 5 successor and the **default Opus** across presets, the new-install
   defaults, and the escalation ladder — and it's cheaper, not pricier: $4/$20 per MTok against Opus 5's
   $5/$25. Its Claude Code CLI default effort is `medium`, unlike every earlier Opus's `high` — the reason
   ralphctl stamps an explicit effort on every flow rather than relying on the CLI default (see **Effort
   resolution** above). `claude-opus-5` and `claude-opus-4-8` are kept alongside it (all Active at
-  Anthropic) so pinned configs keep working; both now carry a ladder rung up to Opus 5.5. Like Sonnet 5,
-  Opus 5.5 has **no `[1m]` variant** — on the Anthropic API it always runs at its native 1M window in
+  Anthropic) so pinned configs keep working; both now carry a ladder rung up to Opus 5.5. Like Sonnet 5
+  and 5.5, Opus 5.5 has **no `[1m]` variant** — on the Anthropic API it always runs at its native 1M window in
   Claude Code (default AND max), so the 1M figure is recorded against the bare id in the context-window
   tables; 128K output. The catalog additionally lists the frontier tier `claude-fable-5-1` (successor to
   `claude-fable-5`, same $10/$50 price — 2.5× Opus 5.5 now, and requires 30-day data retention: a

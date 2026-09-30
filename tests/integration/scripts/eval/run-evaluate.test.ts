@@ -64,7 +64,7 @@ describe('runEval — evaluate flow through the real construction site', () => {
     expect(session.additionalRoots?.map(String)).toEqual([join(root, 'sandbox'), root]);
     expect(String(session.signalsFile)).toBe(join(root, 'sandbox', 'rounds', '1', 'evaluator', 'signals.json'));
     expect(session.role).toBe('evaluator');
-    expect(session.model).toBe('claude-sonnet-5');
+    expect(session.model).toBe('claude-sonnet-5-5');
     expect(session.effort).toBe('high');
     expect(session.prompt).toContain(
       renderContractSectionFor(evaluatorOutputContract, AbsolutePath.parse(outputDir).value as AbsolutePath)
@@ -267,10 +267,10 @@ describe('runEval — evaluate flow through the real construction site', () => {
     if (!result.ok) throw result.error;
     // item 0 (clean): baseline, candidate — item 1 (defect): candidate, baseline
     expect(provider.sessions.map((s) => s.model)).toEqual([
-      'claude-sonnet-5',
+      'claude-sonnet-5-5',
       'claude-opus-5-5',
       'claude-opus-5-5',
-      'claude-sonnet-5',
+      'claude-sonnet-5-5',
     ]);
     expect(result.value.trials.map((t) => t.arm)).toEqual(['baseline', 'candidate', 'candidate', 'baseline']);
     expect(result.value.arms.map((a) => a.name)).toEqual(['baseline', 'candidate']);

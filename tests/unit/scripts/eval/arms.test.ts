@@ -15,10 +15,10 @@ describe('buildArm', () => {
     // claude-preset-matrices.ts CLAUDE_ECONOMIC: evaluator high, generator high, readiness low.
     const rows = arm({ name: 'baseline' }).rows;
     expect(DEFAULT_PRESET).toBe('claude-economic');
-    expect(rows.evaluate).toEqual({ provider: 'claude-code', model: 'claude-sonnet-5', effort: 'high' });
-    expect(rows.implement).toEqual({ provider: 'claude-code', model: 'claude-sonnet-5', effort: 'high' });
+    expect(rows.evaluate).toEqual({ provider: 'claude-code', model: 'claude-sonnet-5-5', effort: 'high' });
+    expect(rows.implement).toEqual({ provider: 'claude-code', model: 'claude-sonnet-5-5', effort: 'high' });
     expect(rows['select-candidate']).toEqual(rows.evaluate); // the judge runs on the evaluator row
-    expect(rows['detect-scripts']).toEqual({ provider: 'claude-code', model: 'claude-sonnet-5', effort: 'low' }); // readiness row
+    expect(rows['detect-scripts']).toEqual({ provider: 'claude-code', model: 'claude-sonnet-5-5', effort: 'low' }); // readiness row
   });
 
   it('accepts any preset name', () => {
@@ -40,9 +40,10 @@ describe('buildArm', () => {
     expect(buildArm({ name: 'x', provider: 'not-a-provider' }).ok).toBe(false);
   });
 
-  it('does not accept a Sonnet 5.5 id it cannot validate — model ids are validated by the adapter at spawn time', () => {
+  it('passes a model override through unvalidated — the adapter validates model ids at spawn time', () => {
     // buildArm passes the id through; the provider adapter rejects unknown ids (ai-session model validation).
-    expect(arm({ name: 'x', model: 'claude-sonnet-5-5' }).rows.evaluate.model).toBe('claude-sonnet-5-5');
+    // A Sonnet 5 arm is how an eval compares the preset's Sonnet 5.5 against its predecessor.
+    expect(arm({ name: 'x', model: 'claude-sonnet-5' }).rows.evaluate.model).toBe('claude-sonnet-5');
   });
 });
 

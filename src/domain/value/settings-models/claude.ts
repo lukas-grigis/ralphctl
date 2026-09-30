@@ -1,5 +1,5 @@
 // Verified against `claude --help` / `claude config get` (Claude Code v2.x); Opus 5.5 / Fable 5.1
-// live-probed on Claude Code 2.1.280 (2026-09-22).
+// live-probed on Claude Code 2.1.280 (2026-09-22); Sonnet 5.5 on Claude Code 2.1.285 (2026-09-30).
 // Docs: https://docs.claude.com/en/docs/claude-code/cli-reference
 
 /**
@@ -29,15 +29,20 @@
  * verbatim (argv array, never a shell — the brackets cannot glob). Only `claude-opus-4-8[1m]` and
  * `claude-fable-5[1m]` carry it; both are opt-in only (no preset, default, or ladder rung).
  *
- * `claude-sonnet-5` is the default Sonnet; like the Opus 5 line it runs at its native 1M window
- * with no `[1m]` variant. `claude-sonnet-4-6` is KEPT alongside it (both remain Active at
- * Anthropic) so configs pinned to 4.6 keep working. The 1M figures are recorded in the
- * context-window tables against the bare ids.
+ * `claude-sonnet-5-5` (Claude Code >= 2.1.284) is the default Sonnet and the preset pick: $2/$10
+ * per MTok, natively 1M with no `[1m]` variant, all five effort levels, and — like Opus 5.5 — a
+ * CLI default effort of `medium` (code.claude.com/docs/en/model-config). Claude Code only; the
+ * Copilot CLI does not serve it, so Copilot rows stay on `claude-sonnet-5`.
+ * `claude-sonnet-5` is NOT retired: it stays live (and is Claude Code's cybersecurity fallback
+ * for Sonnet 5.5), keeps its own ladder rung to Opus 5.5, and pinned configs load unchanged.
+ * `claude-sonnet-4-6` is kept too (still Active at Anthropic) so configs pinned to 4.6 keep
+ * working. The 1M figures are recorded in the context-window tables against the bare ids.
  */
 export type ClaudeModel =
   | 'claude-haiku-4-5'
   | 'claude-sonnet-4-6'
   | 'claude-sonnet-5'
+  | 'claude-sonnet-5-5'
   | 'claude-opus-4-8'
   | 'claude-opus-4-8[1m]'
   | 'claude-opus-5'
@@ -50,6 +55,7 @@ export const CLAUDE_MODELS: readonly ClaudeModel[] = [
   'claude-haiku-4-5',
   'claude-sonnet-4-6',
   'claude-sonnet-5',
+  'claude-sonnet-5-5',
   'claude-opus-4-8',
   'claude-opus-4-8[1m]',
   'claude-opus-5',

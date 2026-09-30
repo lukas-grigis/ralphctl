@@ -61,7 +61,7 @@ describe('implement flow', () => {
     const session = provider.sessions[0] as AiSession;
     expect(session.permissions).toBe(FULL_AUTO);
     expect(session.role).toBe('generator');
-    expect(session.model).toBe('claude-sonnet-5');
+    expect(session.model).toBe('claude-sonnet-5-5');
     expect(session.prompt).toContain('Add an inc helper');
     expect(session.prompt).toContain('signals.json');
     expect(

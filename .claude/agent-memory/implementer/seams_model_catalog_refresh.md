@@ -48,7 +48,24 @@ there trips lint; merge imports or put the field on `RoleLeafDeps`.
 ## Sweep order
 
 catalog file → `RETIRED_MODEL_REMAPS` in `src/domain/entity/settings.ts` → fingerprint → the two remap
-test files → AI-SETTINGS.md → CHANGELOG.
+test files → AI-SETTINGS.md → HARNESS-PRINCIPLES.md model-bump audit-log entry (the fingerprint test's
+comment demands the audit; every bump so far left a dated entry) → CHANGELOG (maintainer's call).
+
+## CLI default effort is not the API default effort
+
+`CLAUDE_CLI_DEFAULT_EFFORT` must come from code.claude.com/docs/en/model-config, NOT the platform
+models-overview / effort pages. They disagree: Sonnet 5.5 is `medium` in Claude Code but documented as
+`high` on the Claude API. The rung tracks what the spawned CLI runs. A wrong entry makes the effort rung
+re-stamp the implicit default (a no-op attempt) or skip a tier.
+
+## Moving a preset constant (e.g. `SONNET`) trips tests no grep for the catalog finds
+
+The eval harness default arm is `applyPreset('claude-economic')`, so `tests/unit/scripts/eval/arms.test.ts`
+and `tests/integration/scripts/eval/{run-evaluate,run-flows,real-adapter}.test.ts` hardcode the preset's
+Sonnet id. The TUI `settings-view-model.escalation-map.test.ts` asserts whole ladder chains, and a key that
+stops being a rung target (a demoted Sonnet kept for pinned rows) becomes its own chain root there. When a
+slug moves on one provider only, the shared undotted `claude-sonnet-5` splits: claude-code and Copilot
+rows no longer carry the same id (the e2e `settings.test.ts` comment relied on that).
 
 ## The inverse case: a preset-only model migration
 
@@ -64,7 +81,7 @@ When a cheap-tier MODEL disappears, the cost intent has to move into the effort 
 `effort: 'low'` on each migrated row, because an absent effort inherits the preset's global (`high`
 on economic / strong-gate) and silently raises spend.
 
-Touchpoints that usually need NO change: `escalation-map.ts` (rungs name only claude/gpt slugs),
+Touchpoints that usually need NO change on a pure catalog add: `escalation-map.ts` (rungs name only claude/gpt slugs),
 `context-window.ts` (Copilot/Codex windows are deliberately omitted — the CLIs don't surface them),
 `suspended-models.ts` (empty by design, kept as a kill-switch mechanism), `effort.ts`,
 `validate-model.ts` (generic), and `business/settings/{defaults,presets}.ts`.

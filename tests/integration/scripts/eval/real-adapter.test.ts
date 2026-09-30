@@ -64,7 +64,7 @@ describe('the real claude adapter behind the eval harness', () => {
     const provider: HeadlessAiProvider = {
       generate: async (session) => {
         pending = session;
-        return real({ provider: 'claude-code', model: 'claude-sonnet-5' }).generate(session);
+        return real({ provider: 'claude-code', model: 'claude-sonnet-5-5' }).generate(session);
       },
     };
 
@@ -90,7 +90,7 @@ describe('the real claude adapter behind the eval harness', () => {
     const call = spawn.calls[0];
     const args = call?.args ?? [];
     const valueOf = (flag: string): string | undefined => args[args.indexOf(flag) + 1];
-    expect(valueOf('--model')).toBe('claude-sonnet-5');
+    expect(valueOf('--model')).toBe('claude-sonnet-5-5');
     expect(valueOf('--effort')).toBe('high');
     expect(call?.cwd).toMatch(/\/repo$/);
     const roots = args.flatMap((a, i) => (a === '--add-dir' ? [args[i + 1] as string] : []));

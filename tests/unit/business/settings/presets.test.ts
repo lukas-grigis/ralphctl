@@ -94,9 +94,10 @@ const C = 'claude-code';
 const P = 'github-copilot';
 const X = 'openai-codex';
 const G = 'xai-grok';
-const S = 'claude-sonnet-5';
+const S = 'claude-sonnet-5-5';
 const O = 'claude-opus-5-5';
 const F = 'claude-fable-5-1';
+// Copilot does not serve Sonnet 5.5 (live probe, Copilot CLI 1.0.88) — its Sonnet stays on 5.
 const CS = 'claude-sonnet-5';
 const CO = 'claude-opus-4.8';
 const L = 'gpt-5.6-luna';
@@ -551,7 +552,7 @@ describe('presets', () => {
     // cheap tier is now luna (`gpt-6-luna` on Codex, `gpt-5.6-luna` on Copilot). `gpt-5.5` leaves
     // Codex on 2026-10-14. `claude-haiku-4-5` has an Anthropic retirement horizon (not before
     // 2026-10-15) with no Haiku 5 successor, so every cheap-flow claude slot sits on
-    // `claude-sonnet-5` at `low` effort instead. Ids that remain catalogued stay pinnable until the
+    // `claude-sonnet-5-5` at `low` effort instead. Ids that remain catalogued stay pinnable until the
     // shutoff — what this fences is the curated matrices shipping a row that stops spawning on a
     // known date.
     const retiring = new Set(['gpt-5.4-mini', 'gpt-5-mini', 'claude-haiku-4-5', 'gpt-5.5']);
@@ -566,17 +567,17 @@ describe('presets', () => {
     }
   });
 
-  it('every claude family routes readiness to Sonnet 5 — the cheap families separate by EFFORT, not by model', () => {
+  it('every claude family routes readiness to Sonnet 5.5 — the cheap families separate by EFFORT, not by model', () => {
     // Haiku 4.5 is on a retirement horizon with no successor, so the cheap claude families moved
     // their light flows onto sonnet at `low` effort rather than a weaker model. The cost intent
     // survives in the effort column: standard reads a repo at `medium`, the cheap families at
     // `low`. `low` is pinned EXPLICITLY on those rows — leaving effort unset would inherit the
     // global (`high` for economic / strong-gate) and silently raise the bill.
-    expect(applyPreset('claude-only', DEFAULT_SETTINGS).ai.readiness.model).toBe('claude-sonnet-5');
+    expect(applyPreset('claude-only', DEFAULT_SETTINGS).ai.readiness.model).toBe('claude-sonnet-5-5');
     expect(applyPreset('claude-only', DEFAULT_SETTINGS).ai.readiness.effort).toBe('medium');
     for (const preset of ['claude-economic', 'claude-strong-gate', 'claude-fast'] as const) {
       const out = applyPreset(preset, DEFAULT_SETTINGS);
-      expect(out.ai.readiness.model, preset).toBe('claude-sonnet-5');
+      expect(out.ai.readiness.model, preset).toBe('claude-sonnet-5-5');
       expect(out.ai.readiness.effort, preset).toBe('low');
     }
   });
@@ -599,9 +600,37 @@ describe('presets', () => {
     for (const [preset, flow] of cheapClaudeRows) {
       const row = applyPreset(preset, DEFAULT_SETTINGS).ai[flow];
       expect(row.provider, `${preset}/${flow}`).toBe('claude-code');
-      expect(row.model, `${preset}/${flow}`).toBe('claude-sonnet-5');
+      expect(row.model, `${preset}/${flow}`).toBe('claude-sonnet-5-5');
       expect(row.effort, `${preset}/${flow}`).toBe('low');
     }
+  });
+
+  it('routes every claude-code Sonnet row to Sonnet 5.5 and every github-copilot Sonnet row to Sonnet 5', () => {
+    // Sonnet 5.5 is a Claude-Code id only: the Copilot CLI rejects both `claude-sonnet-5.5` and
+    // `claude-sonnet-5-5`, so a Copilot row moved onto it would fail at spawn. The shared undotted
+    // `claude-sonnet-5` slug must therefore never appear on a claude-code preset row, and 5.5 never
+    // on a copilot row.
+    let claudeSonnetRows = 0;
+    let copilotSonnetRows = 0;
+    for (const preset of PRESET_NAMES) {
+      const out = applyPreset(preset, DEFAULT_SETTINGS);
+      for (const flow of FLOW_IDS) {
+        const rows = flow === 'implement' ? [out.ai.implement.generator, out.ai.implement.evaluator] : [out.ai[flow]];
+        for (const row of rows) {
+          if (!row.model.startsWith('claude-sonnet')) continue;
+          if (row.provider === 'claude-code') {
+            claudeSonnetRows += 1;
+            expect(row.model, `${preset}/${flow}`).toBe('claude-sonnet-5-5');
+          } else {
+            copilotSonnetRows += 1;
+            expect(row.provider, `${preset}/${flow}`).toBe('github-copilot');
+            expect(row.model, `${preset}/${flow}`).toBe('claude-sonnet-5');
+          }
+        }
+      }
+    }
+    expect(claudeSonnetRows).toBeGreaterThan(0);
+    expect(copilotSonnetRows).toBeGreaterThan(0);
   });
 
   it('isPresetName accepts all twenty-six preset names and rejects garbage', () => {

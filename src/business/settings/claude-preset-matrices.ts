@@ -22,7 +22,7 @@ export const CLAUDE_ONLY: AiSettings = {
 
 /**
  * Sonnet everywhere; the cheap tier is Sonnet at `low`, not a smaller model. The generator climbs
- * Sonnet 5 → Opus 5.5 on plateau, so a hard task still reaches the {@link CLAUDE_ONLY} flagship.
+ * Sonnet 5.5 → Opus 5.5 on plateau, so a hard task still reaches the {@link CLAUDE_ONLY} flagship.
  */
 export const CLAUDE_ECONOMIC: AiSettings = {
   effort: 'high',
@@ -38,7 +38,7 @@ export const CLAUDE_ECONOMIC: AiSettings = {
 };
 
 /**
- * Cheap Sonnet author, permanently-Opus critic. The generator climbs Sonnet 5 → Opus 5.5 on
+ * Cheap Sonnet author, permanently-Opus critic. The generator climbs Sonnet 5.5 → Opus 5.5 on
  * plateau, so this preset assumes `escalateOnPlateau` is on.
  */
 export const CLAUDE_STRONG_GATE: AiSettings = {

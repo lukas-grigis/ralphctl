@@ -97,9 +97,15 @@ describe('effectiveEscalationChains', () => {
     root: string
   ) => chains.find((c) => c.provider === provider && c.models[0] === root);
 
-  it('renders the built-in Claude-Code haiku→sonnet-5→opus-5-5 chain uncustomised with no overrides', () => {
+  it('renders the built-in Claude-Code haiku→sonnet-5-5→opus-5-5 chain uncustomised with no overrides', () => {
     const chain = chainFrom(effectiveEscalationChains({}), 'claude-code', 'claude-haiku-4-5');
-    expect(chain?.models).toEqual(['claude-haiku-4-5', 'claude-sonnet-5', 'claude-opus-5-5']);
+    expect(chain?.models).toEqual(['claude-haiku-4-5', 'claude-sonnet-5-5', 'claude-opus-5-5']);
+    expect(chain?.customised).toBe(false);
+  });
+
+  it('renders the pinned sonnet-5→opus-5-5 chain as its own root once no rung climbs into it', () => {
+    const chain = chainFrom(effectiveEscalationChains({}), 'claude-code', 'claude-sonnet-5');
+    expect(chain?.models).toEqual(['claude-sonnet-5', 'claude-opus-5-5']);
     expect(chain?.customised).toBe(false);
   });
 
@@ -126,7 +132,7 @@ describe('effectiveEscalationChains', () => {
     // (`'claude-opus-5-5': 'claude-fable-5-1'`) extends the Claude-Code ladder's real top.
     const chains = effectiveEscalationChains({ 'claude-opus-5-5': 'claude-fable-5-1' });
     const chain = chainFrom(chains, 'claude-code', 'claude-haiku-4-5');
-    expect(chain?.models).toEqual(['claude-haiku-4-5', 'claude-sonnet-5', 'claude-opus-5-5', 'claude-fable-5-1']);
+    expect(chain?.models).toEqual(['claude-haiku-4-5', 'claude-sonnet-5-5', 'claude-opus-5-5', 'claude-fable-5-1']);
     expect(chain?.customised).toBe(true);
   });
 

@@ -59,11 +59,13 @@ this way. A change to a prompt _definition_ (its TypeScript parameters or builde
 every row of the candidate arm.
 
 **Default arm.** `applyPreset('claude-economic', DEFAULT_SETTINGS)`, effort resolved per role through
-`resolveEffortForRow`. That preset runs Sonnet (`claude-sonnet-5`) on every row: evaluate and select-candidate
-use the evaluator row (`high`), implement the generator row (`high`), detect-scripts the readiness row
-(`low`). Any preset name is accepted via `--preset`. `--provider/--model/--effort` replace their field on every
-row. Model ids are validated by the provider adapter when it spawns, not up front — an id the catalog does not
-know (there is no "Sonnet 5.5") fails every trial, and three ungraded trials in a row stop the run.
+`resolveEffortForRow`. That preset runs Sonnet 5.5 (`claude-sonnet-5-5`) on every row: evaluate and
+select-candidate use the evaluator row (`high`), implement the generator row (`high`), detect-scripts the
+readiness row (`low`). Any preset name is accepted via `--preset`. `--provider/--model/--effort` replace their
+field on every row — `--candidate-model claude-sonnet-5` compares against the previous Sonnet. Model ids are
+validated by the provider adapter when it spawns, not up front — an id the catalog does not know (a typo, or
+a dotted Copilot-style `claude-sonnet-5.5` on the claude-code provider) fails every trial, and three ungraded
+trials in a row stop the run.
 
 **Exit codes.** `0` completed; `2` stopped early (budget, wall, unmetered, repeated errors) with partial
 results written; `130` aborted; `1` any other failure, including a fixture whose label is not proven.

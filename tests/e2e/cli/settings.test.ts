@@ -117,8 +117,8 @@ describe('ralphctl settings', () => {
 
     it('persists a per-flow provider via the gated settings-set-provider flow when the CLI is installed', async () => {
       detectRef.installed = new Set(['claude-code', 'github-copilot', 'openai-codex']);
-      // readiness, not refine: both providers default refine to the same `claude-sonnet-5` slug,
-      // which would hide whether the model was rebuilt at all.
+      // readiness, not refine: readiness moves to a different model family on Copilot
+      // (`gpt-5.6-luna`), which proves the model was rebuilt from the target provider's defaults.
       const setResult = await runCliCaptured(cli, ['settings', 'set', 'ai.readiness.provider', 'github-copilot']);
       expect(setResult.exitCode).toBe(0);
       expect(setResult.stdout).toContain('ai.readiness.provider = github-copilot');
