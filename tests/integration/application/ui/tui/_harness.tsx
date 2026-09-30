@@ -11,6 +11,7 @@
 import React from 'react';
 import { afterEach } from 'vitest';
 import { cleanup, render } from 'ink-testing-library';
+import { renderAtSize } from '@tests/helpers/render-at-size.tsx';
 import { tick } from '@tests/integration/application/ui/tui/_keys.ts';
 import { waitForPredicate } from '@tests/integration/application/ui/tui/_wait.ts';
 import { DepsProvider } from '@src/application/ui/tui/runtime/deps-context.tsx';
@@ -62,6 +63,12 @@ export interface HarnessOptions {
    * `execute-view.test.tsx`'s focus-convergence-does-not-persist fence.
    */
   readonly selectionOnChange?: (next: SelectionSeed) => void;
+  /**
+   * Render at a real terminal size instead of ink-testing-library's pinned 100 columns (see
+   * `tests/helpers/render-at-size.tsx`). The returned `result` is then the `renderAtSize` handle:
+   * `lastFrame` / `frames` / `stdin.write` / `rerender` / `unmount` only.
+   */
+  readonly size?: { readonly columns: number; readonly rows: number };
 }
 
 export interface HarnessApi {
@@ -105,7 +112,7 @@ export const renderView = (child: React.ReactNode, opts: HarnessOptions): Harnes
   };
   const routes: ViewEntry[] = [];
 
-  const result = render(
+  const tree = (
     <DepsProvider value={opts.deps}>
       <StorageProvider value={storage}>
         <BusesProvider value={buses}>
@@ -137,6 +144,11 @@ export const renderView = (child: React.ReactNode, opts: HarnessOptions): Harnes
       </StorageProvider>
     </DepsProvider>
   );
+  const result =
+    opts.size !== undefined
+      ? // Only the `renderAtSize` subset (documented on `size`) exists on this path.
+        (renderAtSize(tree, opts.size) as unknown as RenderResult)
+      : render(tree);
 
   // Auto-teardown so a failing assertion can never leak the rendered React tree (with its
   // still-firing setIntervals for blinking carets / spinner frames) into the next test in the
@@ -145,7 +157,7 @@ export const renderView = (child: React.ReactNode, opts: HarnessOptions): Harnes
   // this here, instead of relying on per-test `result.unmount()`, means cleanup runs whether or
   // not the body of the test reached its end.
   afterEach(() => {
-    result.unmount();
+    if (opts.size === undefined) result.unmount();
     cleanup();
   });
 

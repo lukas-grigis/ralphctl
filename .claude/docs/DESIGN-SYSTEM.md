@@ -169,7 +169,7 @@ Every non-Home view mounts through `<ViewShell>`:
 │                                                 │
 │  <PromptHost />  ← inline prompts (auto)        │
 └─────────────────────────────────────────────────┘
-<StatusBar>  ← owned by the router (breadcrumb + merged KeyboardHints: view-local + global)
+<StatusBar>  ← owned by the router (health row + one-row hint strip: view-local + global, § 6.1a)
 ```
 
 **Views never render their own header, hint strip, or status bar.** `ViewShell` + router own all three.
@@ -186,9 +186,9 @@ the same job.
 | ------------------------ | ------------------------------------------------------------------------------------- |
 | `ViewShell`              | Frame for every view. Owns header + body + hints spacing.                             |
 | `SectionStamp`           | `▣ VIEW TITLE ━━━…` header. Brand-mustard accent.                                     |
-| `Breadcrumb`             | Path strip at the top of `StatusBar`.                                                 |
-| `StatusBar`              | Breadcrumb + global hotkey hints. Owned by router. Never from a view.                 |
-| `KeyboardHints`          | View-local hotkey strip. Published via `useViewHints([…])`.                           |
+| `Breadcrumb`             | Path strip above the page header; labels come from `runtime/nav-tree.ts`.             |
+| `StatusBar`              | Health row + one-row width-budgeted hint strip (§ 6.1a). Owned by router.             |
+| `hint-budget.ts`         | `fitHints` — pure width-budgeting of the footer strip. Views publish `useViewHints`.  |
 | `HelpOverlay`            | Modal `?`-key overlay. Driven by the centralised keyboard map.                        |
 | `Banner`                 | Home-only Ralph banner + pipeline map. Do not reuse elsewhere.                        |
 | `MemoryPressureBanner`   | Heap-pressure strip mounted at App root. Subscribes to the EventBus.                  |
@@ -372,6 +372,21 @@ These work from **every** view. Don't override them.
 Switch between running flows via `Tab` / `Shift+Tab` (cycle next / prev) or `Ctrl+1..9` (jump to the Nth
 running session); the Sessions view (`x`) lists them all. Both chords cycle / jump over RUNNING sessions
 only and are suspended while a prompt or overlay is mounted.
+
+### 6.1a Footer hint strip
+
+The footer hint strip is exactly ONE row: a single `<Text wrap="truncate-end">` built from
+`fitHints(hints, columns − 2·spacing.indent)` (`components/hint-budget.ts`, pure). A cell is
+`<keys> <label>`, cells join with `·`, width counts code points. Priority order: view-local hints
+(declared order), `esc back`, `? help`, then the remaining globals. The first hint that does not fit
+ends the run, and a trailing `… ? more` cell is reserved whenever anything is dropped — a
+low-priority hint never survives a higher one. Honesty rules: `esc back` is omitted when
+`router.stack.length === 1` (the key is a no-op there); while a prompt holds `claimPrompt` the strip
+shows only the view-local hints plus `ctrl+c quit` and the doctor indicator drops its `(press !)`
+call to action, because every global letter is muted.
+
+Layout tests that depend on terminal width use `renderAtSize(node, { columns, rows })` from
+`tests/helpers/render-at-size.tsx`; `ink-testing-library` is pinned to 100 columns.
 
 ### 6.2 Execute-view keys — active when Execute view owns the focus
 

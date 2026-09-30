@@ -14,6 +14,17 @@ import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import type { DoctorReport } from '@src/application/flows/doctor/ctx.ts';
 import { waitForPredicate } from '@tests/integration/application/ui/tui/_wait.ts';
 import { renderView, stripAnsi } from '@tests/integration/application/ui/tui/_harness.tsx';
+import { renderAtSize } from '@tests/helpers/render-at-size.tsx';
+import { StorageProvider } from '@src/application/ui/tui/runtime/storage-context.tsx';
+import type { StoragePaths } from '@src/application/bootstrap/storage-paths.ts';
+import { DepsProvider } from '@src/application/ui/tui/runtime/deps-context.tsx';
+import { SessionsProvider } from '@src/application/ui/tui/runtime/sessions-context.tsx';
+import { createSessionManager } from '@src/application/ui/tui/runtime/session-manager.ts';
+import { UiStateProvider, useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
+import { HintsProvider } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
+import { SelectionProvider } from '@src/application/ui/tui/runtime/selection-context.tsx';
+import { SystemStatusProvider } from '@src/application/ui/tui/runtime/system-status-context.tsx';
+import { RouterProvider, useRouter } from '@src/application/ui/tui/runtime/router.tsx';
 import { useViewHints } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
 
 const reportRef = vi.hoisted(() => ({ current: undefined as DoctorReport | undefined }));
@@ -100,5 +111,102 @@ describe('StatusBar — hint group separator', () => {
     expect(flat).toContain('u unblock (3) ·');
     expect(flat).not.toMatch(/unblock \(3\) es/);
     result.unmount();
+  });
+});
+
+/**
+ * The footer is exactly one row at any width: a width-budgeted single `<Text>`, never per-hint
+ * boxes that Yoga can squeeze mid-word. Driven through `renderAtSize` because the harness's
+ * 100-column pin cannot prove 80.
+ */
+describe('StatusBar — one-row hint strip', () => {
+  const localSet = [
+    { keys: '↑/↓', label: 'move' },
+    { keys: '↵', label: 'open' },
+    { keys: 'b', label: 'browse' },
+    { keys: 'u', label: 'unblock (3)' },
+  ];
+  const Bar = ({ prompt = false }: { prompt?: boolean }): React.JSX.Element => {
+    useViewHints(localSet);
+    const ui = useUiState();
+    const claim = ui.claimPrompt;
+    React.useEffect(() => (prompt ? claim() : undefined), [prompt, claim]);
+    return <StatusBar />;
+  };
+  const mount = (columns: number, prompt: boolean, stackDepth = 2) => {
+    reportRef.current = { probes: [], summary: 'ok' } as unknown as DoctorReport;
+    const initial = { id: 'home' } as const;
+    return renderAtSize(
+      <DepsProvider value={deps}>
+        <StorageProvider value={{} as unknown as StoragePaths}>
+          <SessionsProvider value={createSessionManager()}>
+            <UiStateProvider>
+              <HintsProvider>
+                <SelectionProvider>
+                  <SystemStatusProvider>
+                    <RouterProvider initial={initial}>
+                      {(): React.ReactNode => (
+                        <>
+                          <PushTo depth={stackDepth} />
+                          <Bar prompt={prompt} />
+                        </>
+                      )}
+                    </RouterProvider>
+                  </SystemStatusProvider>
+                </SelectionProvider>
+              </HintsProvider>
+            </UiStateProvider>
+          </SessionsProvider>
+        </StorageProvider>
+      </DepsProvider>,
+      { columns, rows: 24 }
+    );
+  };
+  const PushTo = ({ depth }: { depth: number }): null => {
+    const router = useRouter();
+    const push = router.push;
+    const len = router.stack.length;
+    React.useEffect(() => {
+      if (len < depth) push({ id: 'flows' });
+    }, [len, depth, push]);
+    return null;
+  };
+  const hintRows = (frame: string): string[] => frame.split('\n').filter((l) => l.includes('move'));
+
+  it.each([80, 100, 120])('renders the hint strip as one clean row at %i columns', async (columns) => {
+    const r = mount(columns, false);
+    await waitForPredicate(() => hintRows(r.lastFrame() ?? '').length > 0, { label: 'hints rendered' });
+    const frame = stripAnsi(r.lastFrame() ?? '');
+    const rows = hintRows(frame);
+    expect(rows).toHaveLength(1);
+    const row = rows[0] ?? '';
+    expect(row).toContain('↵ open');
+    expect(frame).not.toContain('es bac');
+    expect(frame).not.toContain('hom ·');
+    expect(row.trim().length).toBeLessThanOrEqual(columns);
+    // Nothing spills onto a second hint row: the line after the strip is not a hint remnant.
+    const after = frame.split('\n')[frame.split('\n').indexOf(row) + 1] ?? '';
+    expect(after.trim()).toBe('');
+    r.unmount();
+  });
+
+  it('shows only local hints and ctrl+c quit while a prompt holds the keyboard', async () => {
+    const r = mount(100, true);
+    await waitForPredicate(() => (r.lastFrame() ?? '').includes('ctrl+c quit'), { label: 'prompt footer' });
+    const frame = stripAnsi(r.lastFrame() ?? '');
+    expect(frame).toContain('↵ open');
+    expect(frame).not.toContain('h home');
+    expect(frame).not.toContain('(press !)');
+    r.unmount();
+  });
+
+  it('omits esc back at stack depth 1 and shows it deeper', async () => {
+    const root = mount(120, false, 1);
+    await waitForPredicate(() => (root.lastFrame() ?? '').includes('↵ open'), { label: 'root footer' });
+    expect(stripAnsi(root.lastFrame() ?? '')).not.toContain('esc back');
+    root.unmount();
+    const deep = mount(120, false, 2);
+    await waitForPredicate(() => stripAnsi(deep.lastFrame() ?? '').includes('esc back'), { label: 'deep footer' });
+    deep.unmount();
   });
 });

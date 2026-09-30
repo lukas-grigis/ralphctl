@@ -35,7 +35,8 @@ import { PickSprintView } from '@src/application/ui/tui/views/pick-sprint-view.t
  * with `Record<ViewId, …>`) is what lets `ViewId` be derived from the table's own keys below —
  * the annotation would otherwise have to name the type it's defining.
  */
-const VIEW_REGISTRY = {
+/** @public — read by the nav-tree label-coverage test. */
+export const VIEW_REGISTRY = {
   home: HomeView,
   flows: FlowsView,
   projects: ProjectsView,

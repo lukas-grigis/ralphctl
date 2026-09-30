@@ -15,31 +15,10 @@ import { useRouter } from '@src/application/ui/tui/runtime/router.tsx';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
 import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { StatusChip, sprintStatusKind } from '@src/application/ui/tui/components/status-chip.tsx';
+import { ROUTE_LABELS } from '@src/application/ui/tui/runtime/nav-tree.ts';
 import { useBreakpoint } from '@src/application/ui/tui/runtime/use-breakpoint.ts';
 
-/** Route-id → display label for the breadcrumb path. Anything absent falls back to the raw id. */
-const ROUTE_LABELS: Record<string, string> = {
-  home: 'Home',
-  flows: 'Flows',
-  projects: 'Projects',
-  'project-detail': 'Project',
-  sprints: 'Sprints',
-  'sprint-detail': 'Sprint',
-  tasks: 'Tasks',
-  execute: 'Implement',
-  sessions: 'Sessions',
-  settings: 'Settings',
-  doctor: 'Doctor',
-  help: 'Help',
-  welcome: 'Welcome',
-  'create-project': 'New project',
-  'add-repository': 'Add repository',
-  'add-ticket': 'Add ticket',
-  'pick-project': 'Pick project',
-  'pick-sprint': 'Pick sprint',
-};
-
-const breadcrumbLabel = (id: string): string => ROUTE_LABELS[id] ?? id;
+const breadcrumbLabel = (id: string): string => (ROUTE_LABELS as Record<string, string | undefined>)[id] ?? id;
 
 export const Breadcrumb = (): React.JSX.Element => {
   const router = useRouter();

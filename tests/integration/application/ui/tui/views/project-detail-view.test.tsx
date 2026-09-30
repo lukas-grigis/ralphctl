@@ -91,6 +91,8 @@ describe('ProjectDetailView', () => {
     const { result } = renderView(<ProjectDetailView />, {
       deps: stubDeps(project),
       initial: { id: 'project-detail', props: { projectId: project.id } },
+      // The full repo-row hint set is wider than the 100-column harness pin.
+      size: { columns: 140, rows: 40 },
     });
     await waitForViewReady(result);
     // Initial focus is the project displayName — the repo-scoped chords are no-ops there, so the
