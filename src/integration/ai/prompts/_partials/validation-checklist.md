@@ -2,7 +2,7 @@
 
 ## Pre-Output Validation
 
-Before writing the JSON output, verify EVERY item:
+Before writing the JSON output, verify every item:
 
 1. **Requirements understood** — every requirement in scope is reflected in at least one task; nothing in scope is dropped.
 2. **Exclusive file ownership** — each file is owned by exactly one task. When two tasks must edit the same file,
@@ -16,9 +16,8 @@ Before writing the JSON output, verify EVERY item:
 6. **Verification criteria** — each task has 2–4 `verificationCriteria` that are testable and unambiguous.
    "Tests pass" alone is too vague — name the behaviour or invariant that proves the task is done.
 7. **Repository assignment** — every task's `projectPath` matches one of the repository paths provided above.
-8. **Signal output only** — the task array goes into the output signal named in your output contract below.
-   Do not emit the JSON array as prose or inside markdown fences — only the signal file is read by the
-   harness.
+8. **Signal output only** — the task array goes into the output signal named in your output contract below as JSON.
+   In chat you present it as the readable plan; only the signal file is read by the harness.
 9. **Unique placeholder ids** — each task's `id` is a unique string within this array (used only for
    `blockedBy` resolution; the harness assigns persistent ids on save).
 10. **Deterministic checks preferred** — each task includes at least one `auto` criterion when the

@@ -1,0 +1,61 @@
+{
+  "schemaVersion": 1,
+  "tier": "capability",
+  "cluster": "repo-format",
+  "origin": "synthetic",
+  "provenance": "Synthetic: the spec itself changes expected values, so both variants edit existing tests. Only the defect leaves the MB and GB steps binary and drops the MB test. Authored to measure false-FAIL on a clean diff that looks like tampering.",
+  "id": "ev-16-spec-change-edits-tests",
+  "flow": "evaluate",
+  "task": {
+    "name": "Switch formatBytes to decimal units",
+    "description": "Product decision: `formatBytes` in `src/format-bytes.mjs` now reports SI units, where 1 KB = 1000 B, 1 MB = 1000 KB and 1 GB = 1000 MB, instead of binary ones. Formatting is otherwise unchanged. Update the existing tests in `test/format-bytes.test.mjs` to the new expected values — the old numbers are no longer correct by design.",
+    "steps": [
+      "Change the unit size in src/format-bytes.mjs to 1000 for every step",
+      "Update the affected expectations in test/format-bytes.test.mjs"
+    ],
+    "verificationCriteria": [
+      {
+        "id": "C1",
+        "assertion": "The repository test suite passes",
+        "check": "auto",
+        "command": "node --test test/*.test.mjs"
+      },
+      {
+        "id": "C2",
+        "assertion": "formatBytes(1500) prints 1.5 KB",
+        "check": "auto",
+        "command": "node -e \"import('./src/format-bytes.mjs').then((m) => console.log(m.formatBytes(1500)))\""
+      },
+      {
+        "id": "C3",
+        "assertion": "Every unit step (KB, MB, GB) uses 1000, not only the first",
+        "check": "manual"
+      }
+    ]
+  },
+  "verifyScript": "node --test test/*.test.mjs",
+  "variants": [
+    {
+      "name": "clean",
+      "patch": "variants/clean.patch",
+      "expect": {
+        "status": "passed"
+      }
+    },
+    {
+      "name": "defect",
+      "patch": "variants/defect.patch",
+      "defectClass": "partial-spec-change",
+      "expect": {
+        "status": "failed",
+        "failedDimensions": [
+          "correctness"
+        ]
+      }
+    }
+  ],
+  "oracle": {
+    "command": "node --test oracle/*.test.mjs",
+    "protectedPaths": []
+  }
+}

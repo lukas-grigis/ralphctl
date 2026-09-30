@@ -1,16 +1,24 @@
 # Memory Index
 
-- [feedback_review_scope.md](feedback_review_scope.md) — Full-branch review procedure, the `_shared` import blind spot, and the scratchpad-tsconfig recipe for scoped typechecks
-- [feedback_typecheck_probe.md](feedback_typecheck_probe.md) — Verify a "compile-time forcing function" claim with a scratchpad tsc probe (literal-widening → `never` trap)
-- [project_memory_ledger.md](project_memory_ledger.md) — Learnings ledger, distill sub-chain, per-task attempt outer loop, task-graph validation — and what to check when reviewing them
-- [project_windowed_list_review.md](project_windowed_list_review.md) — Windowed-list findings plus the headered-list migration hazard: re-attached headers escape the window, `suppressScrollArrows` makes the overflow unreachable
-- [project_coalesced_buffer_review.md](project_coalesced_buffer_review.md) — Rolling-window buffer vs append-style sink: the duplicate-emission bug class, and why one-flush-per-test misses it
-- [project_esc_collapse_claim_seam.md](project_esc_collapse_claim_seam.md) — Esc-collapse-before-pop: claimEscape suppresses the pop, the panel keymap collapses; undefined-sentinel ref establishes the mount-time claim
-- [project_duplicate_codex_effort_clamp.md](project_duplicate_codex_effort_clamp.md) — RESOLVED: one `clampEffortToProvider` implementation; re-grep for effort-floor literals on any effort-vocabulary diff
-- [project_model_refresh_review_2026-07-26.md](project_model_refresh_review_2026-07-26.md) — What the catalog-fingerprint gate catches versus where model-bump drift actually lands
-- [project_unwired_ratelimit_jitter.md](project_unwired_ratelimit_jitter.md) — RESOLVED: applyJitter wired; durable lesson — knip stays green on test-only exports, so grep `src/` for a real caller
-- [project_eslint_sibling_isolation_dead.md](project_eslint_sibling_isolation_dead.md) — RESOLVED via mergeRestrictedImports; durable lesson — flat config REPLACES same-key rule entries, verify fences by probe
-- [project_plan_checks_conformance_firstrun_review.md](project_plan_checks_conformance_firstrun_review.md) — Literal NUL bytes in a test file (git renders it binary) and demo `--script`'s checkCli skip scoped to implement only
-- [project_parallel_setup_tree_check_review.md](project_parallel_setup_tree_check_review.md) — Binding decision replaced design's self-defeating outcome-based "kept" mapping with seen-paths; check binding text against design's own `risks` section
-- [project_worktree_teardown_quarantine_count_review.md](project_worktree_teardown_quarantine_count_review.md) — Verified quarantine boolean→count fix, tamper-note-on-restore keep/drop split, two stale scheduler comments, adopt-persisted-blocks doc, no-op vitest assertion
-- [project_unblock_reopen_review.md](project_unblock_reopen_review.md) — Unblock/reopen toast fixes verified; a shared business fn feeds 3 presentation layers (sprint-detail, bulk toast, CLI) — check all three
+- [feedback_review_scope.md](feedback_review_scope.md) — Full-branch review procedure, the `_shared` import blind spot, scratchpad-tsconfig recipe for scoped typechecks
+- [feedback_typecheck_probe.md](feedback_typecheck_probe.md) — Verify a "compile-time forcing function" claim with a scratchpad tsc probe
+- [lesson_rolling_window_vs_append_sink.md](lesson_rolling_window_vs_append_sink.md) — Rolling-window buffer into an append sink duplicates events; test two flush intervals
+- [lesson_second_implementation_of_shared_rule.md](lesson_second_implementation_of_shared_rule.md) — Hand-copied clamp drifts; grep `src/` for effort-floor literals
+- [lesson_eslint_flat_config_replaces_same_key.md](lesson_eslint_flat_config_replaces_same_key.md) — Overlapping flat-config blocks replace, not merge; probe fences
+- [lesson_memory_ledger_review_checklist.md](lesson_memory_ledger_review_checklist.md) — Four checks for learnings-ledger / distill diffs
+- [lesson_model_bump_drift_grep_list.md](lesson_model_bump_drift_grep_list.md) — What the fingerprint gate misses on a model bump
+- [lesson_binding_decision_over_design_table.md](lesson_binding_decision_over_design_table.md) — Review against the binding decision; unaddressed design risks are Must-Fix
+- [lesson_tocontain_ignores_asymmetric_matchers.md](lesson_tocontain_ignores_asymmetric_matchers.md) — `not.toContain(expect.stringContaining())` never fails
+- [lesson_nul_bytes_in_source.md](lesson_nul_bytes_in_source.md) — Literal NUL bytes pass lint/prettier but make git treat the file as binary
+- [lesson_partial_wiring_of_general_seam.md](lesson_partial_wiring_of_general_seam.md) — A "general" seam wired into one launcher only
+- [lesson_shared_fn_feeds_three_layers.md](lesson_shared_fn_feeds_three_layers.md) — Enriching a shared business Result changes TUI and CLI output
+- [lesson_knip_test_entry_points.md](lesson_knip_test_entry_points.md) — Test-only exports keep knip green; grep for a production caller
+- [lesson_headered_list_windowing.md](lesson_headered_list_windowing.md) — Grouped-list windowing overshoots when headers are re-attached
+- [lesson_restore_pop_and_stash_count.md](lesson_restore_pop_and_stash_count.md) — Count same-key stash entries, don't use a boolean
+- [lesson_lint_warnings_are_errors.md](lesson_lint_warnings_are_errors.md) — `pnpm lint` is --max-warnings 0; a "max-lines warning" is a gate failure
+- [lesson_hedge_removal_needs_verified_detection.md](lesson_hedge_removal_needs_verified_detection.md) — Dropping a prompt hedge for a regex-driven fallback; unverified detectors lose the net
+- [lesson_prompt_contract_restated_invariants.md](lesson_prompt_contract_restated_invariants.md) — Contract change in a template: grep all restatements; setext blind spot in splicers
+- [lesson_cut_premise_covers_one_item.md](lesson_cut_premise_covers_one_item.md) — A cut spec's "no default enables X" premise may clear only one item; prove siblings dead separately
+- [lesson_ab_harness_review_checks.md](lesson_ab_harness_review_checks.md) — Eval/A-B tooling: per-flow parity grep, identical-input merge tests, tsx "bundled" dir = working tree
+- [lesson_cross_provider_usage_semantics.md](lesson_cross_provider_usage_semantics.md) — Token labels claim all 5 providers' semantics; legacy 0-defaults print as fact; probe old results file
+- [lesson_eval_fixture_label_audit.md](lesson_eval_fixture_label_audit.md) — `eval check` green ≠ labels right: clean must meet every spec clause; oracle must accept spec-literal impls

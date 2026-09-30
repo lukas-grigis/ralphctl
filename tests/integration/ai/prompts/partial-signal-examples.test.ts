@@ -4,26 +4,22 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import type { AiSignal } from '@src/domain/signal.ts';
 import type { AiOutputContract } from '@src/integration/ai/contract/_engine/types.ts';
-import { evaluatorOutputContract } from '@src/application/flows/implement/leaves/evaluator.contract.ts';
 import { generatorOutputContract } from '@src/application/flows/implement/leaves/generator.contract.ts';
 
 /**
  * Meta-test: the JSON example a `_partials/` body tells the AI to WRITE must itself validate
  * against the contract of the flow whose template includes that partial.
  *
- * Both of today's blocks are copy-me examples, not shape sketches. `evaluation-checkpoint.md` is
- * the payload the evaluator is told to write "first, before any verification", so that a session
- * which exhausts its budget mid-analysis leaves a valid `signals.json` behind; a placeholder
- * value copied verbatim produces an invalid file in exactly the scenario the checkpoint was
- * added for. `decisions.md` shows the one-line `decision` signal the generator appends.
+ * Today's only block is a copy-me example, not a shape sketch: `decisions.md` shows the one-line
+ * `decision` signal the generator appends.
  *
  * `IsoTimestampSchema` is a branded parse and `defaultMissingTimestamps` only fills a MISSING or
  * empty field, so a non-empty `"<ISO-8601 timestamp>"` reaches the schema unchanged and fails it
- * — which is why both partials carry a concrete ISO-8601 value, matching the worked examples
+ * — which is why the partial carries a concrete ISO-8601 value, matching the worked examples
  * further down their own templates.
  *
  * The directory is enumerated rather than listed, the way
- * `tests/integration/ai/prompts/template-coverage.test.ts` enumerates the prompt flows: a THIRD
+ * `tests/integration/ai/prompts/template-coverage.test.ts` enumerates the prompt flows: a NEW
  * partial carrying a copy-me json block must join this gate instead of shipping unchecked, so it
  * fails the mapping assertion below until someone names the contract it has to satisfy.
  */
@@ -66,7 +62,6 @@ const against = <TSig extends AiSignal>(flow: string, contract: AiOutputContract
 
 /** Partial name (without `.md`) → the contract its json block is copied into. */
 const PARTIAL_CONTRACTS: Readonly<Record<string, PartialContract>> = {
-  'evaluation-checkpoint': against('evaluate / evaluate-continuation', evaluatorOutputContract),
   decisions: against('implement / implement-continuation', generatorOutputContract),
 };
 
@@ -104,7 +99,7 @@ describe('partial JSON examples validate against the contract of the flow that i
     ).toEqual([]);
   });
 
-  it('the mapping is not vacuous (both known copy-me blocks are still found on disk)', async () => {
+  it('the mapping is not vacuous (the known copy-me block is still found on disk)', async () => {
     expect(await partialsWithJsonBlock()).toEqual(expect.arrayContaining(Object.keys(PARTIAL_CONTRACTS)));
   });
 

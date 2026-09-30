@@ -49,6 +49,9 @@ describe('buildIdeatePrompt — end-to-end', () => {
     expect(result.value).toContain('CSV export');
     expect(result.value).toContain('## Output contract');
     expect(result.value).toContain('<prior_progress>');
+    expect(result.value).toContain('<approval-gate>');
+    expect(result.value).toContain('the complete document you will write, verbatim');
+    expect(result.value).not.toContain('short summary');
   });
 
   it('renders the shared task-fields and task-sizing partials, not an inlined copy', async () => {
@@ -66,7 +69,7 @@ describe('buildIdeatePrompt — end-to-end', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     const normalized = (result.value as unknown as string).replace(/\s+/g, ' ');
-    expect(normalized).toContain('Do NOT end steps with "run the verification commands"');
+    expect(normalized).toContain('Don\'t end steps with "run the verification commands"');
     expect(normalized).toContain('Fold trivial cases into the task that needs them');
     // Regression: the shared partial dropped the worked example for `extraDimensions` — the one
     // field whose rule is "attach ONLY when …, when in doubt omit" lost its only demonstration
@@ -201,5 +204,12 @@ describe('ideate/template.md — documented output example', () => {
       },
       { id: 'C2', assertion: 'API returns 400 on invalid input', check: 'manual' },
     ]);
+  });
+});
+
+describe('ideatePromptDef — untrusted inputs', () => {
+  it('flags IDEA_DESCRIPTION as untrusted data', () => {
+    const spec = Object.values(ideatePromptDef.parameters).find((p) => p.placeholder === 'IDEA_DESCRIPTION');
+    expect(spec?.untrusted?.source).toBeTruthy();
   });
 });

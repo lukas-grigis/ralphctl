@@ -5,8 +5,7 @@ metadata:
   type: project
 ---
 
-Wave 1 of the human-readable `data/` layout (`.claude/scratch/plan-data-layout-human-readable.md`, Tasks 1-5;
-migration runner + learnings.md were a deferred Wave 2). On-disk entity names became `<id>--<slug>` (projects
+Human-readable `data/` layout: on-disk entity names became `<id>--<slug>` (projects
 files, sprint dirs, memory dirs). `--` is the separator; kebab slugs never contain `--`, so split on the FIRST
 `--` to recover the id (`parseIdFromName`).
 

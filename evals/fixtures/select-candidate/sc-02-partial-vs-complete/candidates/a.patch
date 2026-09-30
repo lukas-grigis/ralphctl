@@ -1,0 +1,18 @@
+diff --git a/src/index.mjs b/src/index.mjs
+index ca63881..3f79ff9 100644
+--- a/src/index.mjs
++++ b/src/index.mjs
+@@ -1 +1,2 @@
+ export { wordCount } from './text.mjs';
++export { titleCase } from './title-case.mjs';
+diff --git a/src/title-case.mjs b/src/title-case.mjs
+new file mode 100644
+index 0000000..e0b9b8f
+--- /dev/null
++++ b/src/title-case.mjs
+@@ -0,0 +1,5 @@
++export const titleCase = (text) =>
++  text
++    .split(' ')
++    .map((w) => (w.length === 0 ? w : w[0].toUpperCase() + w.slice(1).toLowerCase()))
++    .join(' ');

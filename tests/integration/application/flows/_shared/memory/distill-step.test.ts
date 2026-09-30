@@ -116,11 +116,7 @@ const fakeInteractiveAi = (opts: {
         })
       );
     }
-    await fs.writeFile(
-      String(input.outputFile),
-      '# Distilled context\n\n## Learnings (ralphctl)\n\n- always run lint before committing\n',
-      'utf8'
-    );
+    await fs.writeFile(String(input.outputFile), '- always run lint before committing\n', 'utf8');
     return Result.ok({});
   },
 });

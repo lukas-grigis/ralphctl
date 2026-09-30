@@ -37,13 +37,11 @@ If `<prior_progress>` is empty, no prior work has been recorded for this sprint 
 If the `<context>` block above is empty or absent, no upstream issue body was available.
 </inputs>
 
-{{HARNESS_CONTEXT}}
-
 <constraints>
-- MUST stay implementation-agnostic. Frame requirements as observable behaviour ("user can filter by
+- Stay implementation-agnostic. Frame requirements as observable behaviour ("user can filter by
   date range"), not technical decisions ("add a SQL WHERE clause"). The planner that runs after you
   needs maximum flexibility on HOW; your job is WHAT.
-- MUST NOT explore the repository. No source files are mounted in this session — only the output
+- Do not explore the repository — no source files are mounted in this session; only the output
   directory is writable. If a question requires source context, note it in the requirements body
   as an open question requiring repo investigation.
 - One concern per question. Combining "what should it do AND how should it look" forces a fuzzy
@@ -63,7 +61,7 @@ ticket omits.
 
 Then identify, in order:
 
-1. What is already clear and does NOT need clarification.
+1. What is already clear and doesn't need clarification.
 2. What is ambiguous, missing, or underspecified.
 3. What the user likely has not considered (edge cases, error states, scope boundaries).
 
@@ -138,7 +136,7 @@ Header: "Formats"
 multiSelect: true
 Options:
   - "CSV (Recommended)" — "Universal compatibility; simple structure."
-  - "JSON (Recommended)" — "API-friendly; structured data."
+  - "JSON" — "API-friendly; structured data."
   - "PDF" — "Human-readable reports; requires additional library."
 ```
 
@@ -148,10 +146,9 @@ Stop asking questions once every item in the Step 5 pre-output quality checklist
 
 ### Step 4 — Present requirements for approval
 
-Present the complete requirements in readable markdown. Use proper headers, bullets, and formatting.
-Make it easy to scan.
+{{APPROVAL_GATE}}
 
-Then ask for approval:
+The approval question:
 
 ```
 Question: "Does this look correct? Any changes needed?"
@@ -162,12 +159,12 @@ Options:
   - "Give feedback" — "Type specific corrections in my own words."
 ```
 
-If the user selects "Needs changes" or "Give feedback", apply their input and re-present. Iterate
-until approved.
+If the user selects "Needs changes" or "Give feedback", apply their input, then run the approval
+gate again from the top. Iterate until approved.
 
 ### Step 5 — Pre-output quality check
 
-Before emitting the signal, verify ALL of these are true:
+Before emitting the signal, verify all of these are true:
 
 - [ ] Problem statement is clear and agreed.
 - [ ] Every requirement has acceptance criteria covering happy path, an alternate path, and an
@@ -245,7 +242,7 @@ them with `---`:
 
 <output_contract>
 Write `signals.json` to the output directory. Only `signals.json` is read by the harness; all
-other session output is forensic and not persisted as data. The file MUST contain exactly one
+other session output is forensic and not persisted as data. The file must contain exactly one
 `refined-ticket` signal. The harness validates this file after the session exits; a missing file,
 unparseable JSON, or zero/multiple `refined-ticket` entries are all validation failures.
 
@@ -266,7 +263,7 @@ signal with whatever you have, appending a final `## Unresolved` section to the 
 gap. Also emit a `note` signal whose `text` explains what is missing. Do not silently invent
 requirements.
 
-Emit nothing outside `signals.json`. No prose commentary, no additional files.
+The only file you write is `signals.json`. Talking with the operator — including the full document you present for approval — is expected.
 
 {{OUTPUT_CONTRACT_SECTION}}
 </output_contract>

@@ -86,8 +86,8 @@ describe('decideEscalation', () => {
   // Effort pinned at the ceiling so the top of the MODEL ladder falls straight to the nudge.
   const onClaudeAtMax = { generatorProvider: 'claude-code', generatorEffort: 'max' } as const;
 
-  it('climbs the ladder one rung per plateau: haiku → sonnet-5 → opus-5-5 across successive plateaus', () => {
-    // Rung 1: fresh task on haiku plateaus → escalate to the default Sonnet (Sonnet 5).
+  it('climbs the ladder one rung per plateau: haiku → sonnet-5-5 → opus-5-5 across successive plateaus', () => {
+    // Rung 1: fresh task on haiku plateaus → escalate to the default Sonnet (Sonnet 5.5).
     const fresh = makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 });
     const d1 = decideEscalation({
       task: fresh,
@@ -98,14 +98,14 @@ describe('decideEscalation', () => {
       ...onClaudeAtMax,
     });
     expect(d1.kind).toBe('escalate');
-    if (d1.kind === 'escalate') expect(d1.to).toBe('claude-sonnet-5');
+    if (d1.kind === 'escalate') expect(d1.to).toBe('claude-sonnet-5-5');
 
     // Rung 2: task already escalated to sonnet, now running on sonnet, plateaus → escalate to the
     // default Opus (Opus 5.5) — the Claude-Code ladder top.
-    const onSonnet = withEscalation(fresh, 'claude-haiku-4-5', 'claude-sonnet-5');
+    const onSonnet = withEscalation(fresh, 'claude-haiku-4-5', 'claude-sonnet-5-5');
     const d2 = decideEscalation({
       task: onSonnet,
-      generatorModel: 'claude-sonnet-5',
+      generatorModel: 'claude-sonnet-5-5',
       flagOn: true,
       userMap: {},
       fallbackMaxAttempts: 3,
@@ -113,12 +113,12 @@ describe('decideEscalation', () => {
     });
     expect(d2.kind).toBe('escalate');
     if (d2.kind === 'escalate') {
-      expect(d2.from).toBe('claude-sonnet-5');
+      expect(d2.from).toBe('claude-sonnet-5-5');
       expect(d2.to).toBe('claude-opus-5-5');
     }
 
     // Top: re-stamped to opus-5-5, plateaus on opus-5-5 (no higher rung, not yet nudged) → nudge.
-    const onOpus = withEscalation(onSonnet, 'claude-sonnet-5', 'claude-opus-5-5');
+    const onOpus = withEscalation(onSonnet, 'claude-sonnet-5-5', 'claude-opus-5-5');
     const d3 = decideEscalation({
       task: onOpus,
       generatorModel: 'claude-opus-5-5',

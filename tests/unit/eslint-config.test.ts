@@ -520,3 +520,47 @@ describe('syntax-fence liveness under overlapping config blocks', () => {
     ).toMatch(/success-side data shape/);
   });
 });
+
+/**
+ * The prompt-eval harness lives outside `src/`, so none of the `src/**`-scoped fences reach it
+ * unless the dedicated `scripts/eval/**` block re-applies them. These probes pin that block.
+ */
+describe('scripts/eval fences', () => {
+  const linter = new Linter();
+  const config = eslintConfig as LinterTypes.Config[];
+  const messages = (code: string, filename: string, ruleId: string): string =>
+    linter
+      .verify(code, config, filename)
+      .filter((m) => m.ruleId === ruleId)
+      .map((m) => m.message)
+      .join('\n');
+  const FILE = 'scripts/eval/probe.ts';
+
+  it('bans class declarations', () => {
+    expect(messages('export class X {}\n', FILE, 'no-restricted-syntax')).toMatch(/must be modeled as `interface`/);
+  });
+
+  it('bans barrel exports and fs.appendFile', () => {
+    expect(messages("export * from './other.ts';\n", FILE, 'no-restricted-syntax')).toMatch(/No barrel exports/);
+    expect(
+      messages(
+        "import fs from 'node:fs';\nexport const x = () => fs.appendFile('a', 'b', () => undefined);\n",
+        FILE,
+        'no-restricted-syntax'
+      )
+    ).toMatch(/fs\.appendFile is banned/);
+  });
+
+  it('bans a direct typescript-result import and raw child_process spawn', () => {
+    expect(
+      messages("import { Result } from 'typescript-result';\nexport const x = Result;\n", FILE, 'no-restricted-imports')
+    ).toMatch(/single re-export point/);
+    expect(
+      messages("import { spawn } from 'node:child_process';\nexport const x = spawn;\n", FILE, 'no-restricted-imports')
+    ).toMatch(/spawn\/exec imports are fenced/);
+  });
+
+  it('ignores the seeded-defect fixtures globally', () => {
+    expect(config[0]?.ignores).toContain('evals/fixtures/**');
+  });
+});

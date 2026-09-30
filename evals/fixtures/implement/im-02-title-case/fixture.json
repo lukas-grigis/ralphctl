@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "tier": "regression",
+  "cluster": "repo-text",
+  "origin": "synthetic",
+  "provenance": "Synthetic: a small feature with hidden edge cases (extra whitespace, empty input). Authored for this harness.",
+  "id": "im-02-title-case",
+  "flow": "implement",
+  "task": {
+    "name": "Add a titleCase helper",
+    "description": "Add `titleCase(text)` in `src/title-case.mjs` as a named export and re-export it from `src/index.mjs`. It uppercases the first letter of every whitespace-separated word and lowercases the rest, joins the words with a single space, and trims the ends. The empty string stays empty.",
+    "steps": [
+      "Create src/title-case.mjs exporting titleCase",
+      "Re-export it from src/index.mjs",
+      "Add tests in test/title-case.test.mjs"
+    ],
+    "verificationCriteria": [
+      {
+        "id": "C1",
+        "assertion": "The repository test suite passes",
+        "check": "auto",
+        "command": "node --test test/*.test.mjs"
+      },
+      {
+        "id": "C2",
+        "assertion": "titleCase('hello   WORLD') prints Hello World",
+        "check": "auto",
+        "command": "node -e \"import('./src/index.mjs').then((m) => console.log(m.titleCase('hello   WORLD')))\""
+      }
+    ]
+  },
+  "verifyScript": "node --test test/*.test.mjs",
+  "referencePatch": "variants/reference.patch",
+  "oracle": {
+    "command": "node --test test/text.test.mjs oracle/*.test.mjs",
+    "protectedPaths": [
+      "test/text.test.mjs"
+    ]
+  }
+}

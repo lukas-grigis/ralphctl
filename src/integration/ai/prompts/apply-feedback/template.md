@@ -9,8 +9,6 @@ to commit or run verify yourself will conflict with the harness's commit, produc
 or a false verify result.
 </role>
 
-{{HARNESS_CONTEXT}}
-
 <goal>
 Apply every change requested in `<latest_round>` by writing the affected files. Emit `task-complete` when
 done, or `task-blocked` when the request is ambiguous — see Phase 3 below for the WHAT-vs-WHERE distinction.
@@ -39,12 +37,6 @@ round that has already been applied; use it to avoid contradicting prior decisio
 {{FEEDBACK_LOG}}
 </feedback_log>
 
-<latest_round>
-This is the round to act on NOW. Read it carefully. Apply only what it asks.
-
-{{LATEST_ROUND}}
-</latest_round>
-
 <repositories>
 The sprint targets the repositories below. Each line is `- \`<absolute-path>\` (<name>)`. The harness
 mounts every repository as a workspace root — read and write files via the absolute paths shown. Decide which
@@ -58,11 +50,16 @@ Snapshot of the sprint's `progress.md` — pinned learnings, decisions, and per-
 orientation so you do not re-discover context the prior tasks already established.
 
 Note: the review flow does not mine signals back into `progress.md`. Do not emit `learning`, `decision`, or
-`note` signals — they are unused tokens in this flow. Surface insights inside the change itself via tests,
-docstrings, or the targeted edit.
+`note` signals — they are unused tokens in this flow.
 
 {{PROGRESS}}
 </progress>
+
+<latest_round>
+This is the round to act on NOW. Read it carefully. Apply only what it asks.
+
+{{LATEST_ROUND}}
+</latest_round>
 </inputs>
 
 <constraints>
@@ -84,8 +81,7 @@ underlying invariant or constraint instead (e.g. "exactly one confirmation per d
 Removing a test to avoid a failure counts as task failure.
 
 **Respect prior rounds.** The user has the latest round in front of them as they write it — trust their
-direction even when it reverses an earlier decision. Record the reversal in the edit itself (e.g. a comment
-referencing the change), not in a signal.
+direction even when it reverses an earlier decision.
 </constraints>
 
 <capabilities>

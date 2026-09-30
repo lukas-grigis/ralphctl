@@ -279,6 +279,7 @@ const PROMPTS = [
 ] as const;
 
 const BUSINESS_SIBLINGS = [
+  'context-file',
   'feedback',
   'interactive',
   'io',
@@ -599,7 +600,16 @@ const reservedSignalsPath: Linter.RuleEntry = [
 
 export default [
   {
-    ignores: ['dist/**', 'node_modules/**', '.claude/worktrees/**', 'coverage/**', 'tmp/**', '.tmp/**'],
+    ignores: [
+      'dist/**',
+      'node_modules/**',
+      '.claude/worktrees/**',
+      'coverage/**',
+      'tmp/**',
+      '.tmp/**',
+      // Seeded-defect eval fixtures are bad code on purpose (see .claude/docs/EVALS.md).
+      'evals/fixtures/**',
+    ],
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,
@@ -986,6 +996,18 @@ export default [
     files: ['src/integration/ai/signals/**/*.{ts,tsx}'],
     rules: {
       'no-restricted-syntax': mergeRestrictedSyntax(baseSyntaxRule, reservedSignalsPath),
+    },
+  },
+  // ── scripts/eval/** — the prompt-eval harness (dev tooling, not product) ─────
+  // The layer fences above are `src/**`-scoped, so without this block the eval harness would sit
+  // outside every rule that keeps the codebase function-first. Re-applies the class ban, the
+  // barrel + `fs.appendFile` bans, the single `typescript-result` import point and the
+  // spawn/exec fence. Node I/O modules stay allowed — this is a runner, not a business layer.
+  {
+    files: ['scripts/eval/**/*.ts'],
+    rules: {
+      'no-restricted-imports': ['error', { paths: [resultLibBan, childProcessSpawnBan], patterns: [] }],
+      'no-restricted-syntax': mergeRestrictedSyntax(baseSyntaxRule, noClassInDomainOrBusiness),
     },
   },
 ] satisfies Linter.Config[];

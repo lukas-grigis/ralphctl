@@ -18,7 +18,7 @@ import { planOutputContract } from '@src/application/flows/plan/leaves/plan.cont
 import type { PlanCtx } from '@src/application/flows/plan/ctx.ts';
 import type { PlanDeps } from '@src/application/flows/plan/deps.ts';
 import { callPlannerInteractiveLeaf } from '@src/application/flows/plan/leaves/call-planner-interactive.ts';
-import { checkPlanLeaf } from '@src/application/flows/plan/leaves/check-plan.ts';
+import { checkPlanLeaf } from '@src/application/flows/_shared/plan/check-plan.ts';
 import { applyPlanLeaf } from '@src/application/flows/plan/leaves/apply-plan.ts';
 import { aiUnitEpilogue, aiUnitPrelude } from '@src/application/flows/_shared/ai-unit-segment.ts';
 import { assertCtxField } from '@src/application/flows/_shared/_engine/assert-ctx-field.ts';
@@ -154,7 +154,7 @@ export const createPlanFlow = (deps: PlanDeps, opts: CreatePlanFlowOpts): Elemen
         : {}),
     }),
     ...aiUnitEpilogue<PlanCtx>({ skillsAdapter: deps.skillsAdapter }, unitOpts),
-    checkPlanLeaf({ logger: deps.logger }),
+    checkPlanLeaf<PlanCtx>({ logger: deps.logger }),
     applyPlanLeaf({
       logger: deps.logger,
       clock: deps.clock,

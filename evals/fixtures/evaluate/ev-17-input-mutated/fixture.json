@@ -1,0 +1,61 @@
+{
+  "schemaVersion": 1,
+  "tier": "capability",
+  "cluster": "repo-collections",
+  "origin": "synthetic",
+  "provenance": "Synthetic: sortBy sorts the caller's array in place and returns it, an aliasing side effect no output-only test sees. Authored for this harness.",
+  "id": "ev-17-input-mutated",
+  "flow": "evaluate",
+  "task": {
+    "name": "Add a sortBy helper",
+    "description": "Add `sortBy(items, key)` in `src/sort-by.mjs` as a named export. It returns a new array of the items ordered ascending by `key(item)`, stable for equal keys. The input array is not modified.",
+    "steps": [
+      "Create src/sort-by.mjs exporting sortBy",
+      "Add tests in test/sort-by.test.mjs"
+    ],
+    "verificationCriteria": [
+      {
+        "id": "C1",
+        "assertion": "The repository test suite passes",
+        "check": "auto",
+        "command": "node --test test/*.test.mjs"
+      },
+      {
+        "id": "C2",
+        "assertion": "sortBy([{n:3},{n:1},{n:2}], (x) => x.n) prints [1,2,3] when mapped to n",
+        "check": "auto",
+        "command": "node -e \"import('./src/sort-by.mjs').then((m) => console.log(JSON.stringify(m.sortBy([{ n: 3 }, { n: 1 }, { n: 2 }], (x) => x.n).map((x) => x.n))))\""
+      },
+      {
+        "id": "C3",
+        "assertion": "The caller's input array is left unchanged",
+        "check": "manual"
+      }
+    ]
+  },
+  "verifyScript": "node --test test/*.test.mjs",
+  "variants": [
+    {
+      "name": "clean",
+      "patch": "variants/clean.patch",
+      "expect": {
+        "status": "passed"
+      }
+    },
+    {
+      "name": "defect",
+      "patch": "variants/defect.patch",
+      "defectClass": "input-mutation",
+      "expect": {
+        "status": "failed",
+        "failedDimensions": [
+          "correctness"
+        ]
+      }
+    }
+  ],
+  "oracle": {
+    "command": "node --test oracle/*.test.mjs",
+    "protectedPaths": []
+  }
+}

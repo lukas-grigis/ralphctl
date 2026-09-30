@@ -418,6 +418,18 @@ const spawnReproduction = async (
   const reproduction = session.value;
   if (reproduction === undefined) return Result.ok(undefined);
 
+  // The session's bounded "could not reproduce" exit: there is no test to re-run or hand forward.
+  // The signal itself was already published (the task card shows "not reproduced — <reason>"), so
+  // the operator sees it; the generator proceeds without a reproduction block and is told nothing
+  // it could mistake for a failing test.
+  if (reproduction.reproduced === false) {
+    log.warn(
+      `reproduce session could not reproduce the defect for task '${String(taskId)}' — continuing without a reproduction; the defect may already be fixed or need a human`,
+      { taskId: String(taskId), reason: reproduction.reason ?? '(none given)' }
+    );
+    return Result.ok(undefined);
+  }
+
   const verified = await verifyReproductionFails(deps, opts.cwd, reproduction.runCommand, abortSignal);
   if (verified.kind === 'fatal') return Result.error(verified.error);
   if (verified.kind === 'discarded') {

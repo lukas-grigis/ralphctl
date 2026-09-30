@@ -39,7 +39,7 @@ export interface SelectCandidatePromptParams {
   /** Compact structured summary of Candidate 2, same shape as {@link candidateASummary}. */
   readonly candidateBSummary: string;
   /**
-   * Audit-[09] output contract section — rendered from the select-candidate `AiOutputContract`
+   * Output contract section — rendered from the select-candidate `AiOutputContract`
    * by `renderContractSectionFor(selectCandidateOutputContract)`. Tells the AI to write
    * `signals.json` with exactly one `candidate-selection` signal.
    */
@@ -78,16 +78,14 @@ export const selectCandidatePromptDef: PromptDefinition<SelectCandidatePromptPar
     outputContractSection: {
       placeholder: 'OUTPUT_CONTRACT_SECTION',
       description:
-        'Audit-[09] output contract block rendered from the select-candidate contract — instructs the AI to write `signals.json` directly.',
+        'Output contract block rendered from the select-candidate contract — instructs the AI to write `signals.json` directly.',
       validate: requireNonEmpty(
         'outputContractSection',
         'output-contract section must not be empty (renderContractSectionFor always emits a body)'
       ),
     },
   },
-  partials: {
-    HARNESS_CONTEXT: 'harness-context',
-  },
+  partials: {},
   expectedSignals: ['candidate-selection'],
 };
 
@@ -98,7 +96,7 @@ export interface BuildSelectCandidatePromptInput {
   /** Candidate 2's compact structured summary. */
   readonly candidateBSummary: string;
   /**
-   * Pre-rendered audit-[09] output contract section. The leaf composes this via
+   * Pre-rendered output contract section. The leaf composes this via
    * `renderContractSectionFor(selectCandidateOutputContract)` before calling the builder.
    */
   readonly outputContractSection: string;

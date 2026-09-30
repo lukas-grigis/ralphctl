@@ -1,0 +1,36 @@
+diff --git a/src/duration.mjs b/src/duration.mjs
+new file mode 100644
+index 0000000..d153a4e
+--- /dev/null
++++ b/src/duration.mjs
+@@ -0,0 +1,6 @@
++export const parseDuration = (text) => {
++  const match = /^(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?$/.exec(text);
++  if (!match || text === '') throw new TypeError(`invalid duration: ${text}`);
++  const [, h = 0, m = 0, s = 0] = match;
++  return Number(h) * 360 + Number(m) * 60 + Number(s);
++};
+diff --git a/test/duration.test.mjs b/test/duration.test.mjs
+new file mode 100644
+index 0000000..c789b1e
+--- /dev/null
++++ b/test/duration.test.mjs
+@@ -0,0 +1,18 @@
++import { test } from 'node:test';
++import assert from 'node:assert/strict';
++import { parseDuration } from '../src/duration.mjs';
++
++test('parses each unit', () => {
++  assert.ok(parseDuration('2h') > 0);
++  assert.ok(parseDuration('5m') > 0);
++  assert.equal(parseDuration('90s'), 90);
++});
++
++test('parses combined units', () => {
++  assert.ok(parseDuration('1h30m15s'));
++});
++
++test('rejects malformed input', () => {
++  assert.throws(() => parseDuration(''), TypeError);
++  assert.throws(() => parseDuration('abc'), TypeError);
++});

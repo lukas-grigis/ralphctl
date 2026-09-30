@@ -31,4 +31,4 @@
  * depending on which flow launched the session.
  */
 export const buildPromptPointer = (promptFile: string): string =>
-  `Your complete instructions for this session are in the file ${promptFile}. Read that entire file first, before any other action, then carry out exactly what it says — it is the full brief, already written to disk, so there is nothing further to wait for or ask about.`;
+  `Your complete instructions for this session are in the file ${promptFile}. Read that entire file first, before any other action, then carry out exactly what it says — it is the full brief, already written to disk; any questions or approvals it asks you to put to the operator are expected.`;

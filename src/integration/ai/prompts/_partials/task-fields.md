@@ -7,7 +7,7 @@ Each task entry uses these fields:
   ambiguity.
 - **`projectPath`** — absolute path matching exactly one of the repositories listed under
   `<repositories>`.
-- **`steps`** — concrete, ordered implementation steps. Do NOT end steps with "run the
+- **`steps`** — concrete, ordered implementation steps. Don't end steps with "run the
   verification commands" or "run all the checks" — verification belongs in `verificationCriteria`;
   the harness and the evaluator execute it. A final step that re-runs the full suite only
   duplicates the post-task gate and inflates generator cost. Exception: a step MAY run a specific
@@ -18,7 +18,7 @@ Each task entry uses these fields:
   - `assertion` — human-readable check.
   - `check` — `"auto"` (evaluator runs `command`) or `"manual"` (evaluator inspects code or
     behaviour and cites a specific location).
-  - `command` — REQUIRED when `check === "auto"`; MUST be omitted when `check === "manual"`. Use
+  - `command` — required when `check === "auto"`; omit it when `check === "manual"`. Use
     the project's own commands — never hardcode a package-manager binary; read the project's
     manifest or context file for the actual command.
   - Include at least one `auto` criterion when the repository exposes a check command (test,
@@ -27,9 +27,9 @@ Each task entry uses these fields:
     on `manual` criteria alone.
 - **`blockedBy`** — array of `id` strings that must complete before this task starts.
 - **`extraDimensions`** — optional kebab-case evaluator dimensions beyond the five floor dimensions
-  (correctness, completeness, safety, consistency, robustness). Attach an extra dimension ONLY when
+  (correctness, completeness, safety, consistency, robustness). Attach an extra dimension only when
   an acceptance criterion explicitly demands a measurable property that no floor dimension covers
-  AND no manual criterion already encodes it. When in doubt, omit — the floor dimensions are almost
+  and no manual criterion already encodes it. When in doubt, omit — the floor dimensions are almost
   always sufficient. Example of a justified attachment: `migration-safety` when the task requires a
   zero-downtime schema change that the five floor dimensions cannot score on their own. Cap: 2–3 per
   task; hard max 6.

@@ -49,13 +49,16 @@ const CODEX_LADDER = DEFAULT_ESCALATION_LADDERS['openai-codex'];
 const GROK_LADDER = DEFAULT_ESCALATION_LADDERS['xai-grok'];
 
 describe('DEFAULT_ESCALATION_LADDERS', () => {
-  it('climbs the Claude-Code ladder haiku → sonnet-5 → opus-5-5', () => {
-    expect(CLAUDE_LADDER['claude-haiku-4-5']).toBe('claude-sonnet-5');
-    expect(CLAUDE_LADDER['claude-sonnet-5']).toBe('claude-opus-5-5');
+  it('climbs the Claude-Code ladder haiku → sonnet-5-5 → opus-5-5', () => {
+    expect(CLAUDE_LADDER['claude-haiku-4-5']).toBe('claude-sonnet-5-5');
+    expect(CLAUDE_LADDER['claude-sonnet-5-5']).toBe('claude-opus-5-5');
     expect(CLAUDE_LADDER['claude-opus-5-5']).toBeUndefined();
   });
 
   it('converges pinned legacy Claude-Code tiers on Opus 5.5', () => {
+    // Sonnet 5 stays keyed so a row still pinned to it keeps its Opus 5.5 rung after the
+    // presets moved to Sonnet 5.5.
+    expect(CLAUDE_LADDER['claude-sonnet-5']).toBe('claude-opus-5-5');
     expect(CLAUDE_LADDER['claude-sonnet-4-6']).toBe('claude-opus-4-8');
     expect(CLAUDE_LADDER['claude-opus-4-8']).toBe('claude-opus-5-5');
     expect(CLAUDE_LADDER['claude-opus-5']).toBe('claude-opus-5-5');
@@ -136,7 +139,7 @@ describe('mergeEscalationMap', () => {
     const merged = mergeEscalationMap({ 'claude-sonnet-4-6': 'custom-overlord' }, 'claude-code');
     expect(merged['claude-sonnet-4-6']).toBe('custom-overlord');
     // Other default rungs are still present — user override does not wipe the ladder.
-    expect(merged['claude-haiku-4-5']).toBe('claude-sonnet-5');
+    expect(merged['claude-haiku-4-5']).toBe('claude-sonnet-5-5');
   });
 
   it("applies the flat user map on top of every provider's ladder", () => {
@@ -301,7 +304,7 @@ describe('DEFAULT_ESCALATION_LADDERS — catalog lockstep (mechanizes the sectio
       .slice(0, 16);
 
   it('catalog fingerprints are unchanged — a failure means a model bump landed; run the model-bump audit', () => {
-    expect(fingerprint(CLAUDE_MODELS)).toBe('456dd7013f3e81ec');
+    expect(fingerprint(CLAUDE_MODELS)).toBe('aa9bc8d374ad20df');
     expect(fingerprint(CODEX_MODELS)).toBe('e0c266c09d88d135');
     expect(fingerprint(COPILOT_MODELS)).toBe('6f10fab67bee9487');
     expect(fingerprint(GROK_MODELS)).toBe('2c56e449169a2ec3');
@@ -310,17 +313,19 @@ describe('DEFAULT_ESCALATION_LADDERS — catalog lockstep (mechanizes the sectio
 
 describe('nextEffortRung', () => {
   // ── Claude is model-aware: the rung climbs one tier above the effective effort — the explicit
-  //    level, or the model's CLI default (`medium` on Opus 5.5, `high` elsewhere) — so it never
+  //    level, or the model's CLI default (`medium` on Opus / Sonnet 5.5, `high` elsewhere) — so it never
   //    re-stamps the implicit default. ──
 
   const OPUS55 = 'claude-opus-5-5'; // CLI default `medium`
+  const SONNET55 = 'claude-sonnet-5-5'; // CLI default `medium`, xhigh-capable
   const OPUS = 'claude-opus-4-8'; // xhigh-capable, CLI default `high`
   const SONNET5 = 'claude-sonnet-5'; // xhigh-capable, CLI default `high`
   const SONNET46 = 'claude-sonnet-4-6'; // effort-capable but NOT xhigh-capable (CLI default `high`)
   const HAIKU = 'claude-haiku-4-5'; // no effort dimension
 
-  it('claude unset → one tier above the model CLI default (Opus 5.5 medium → high; others high → xhigh)', () => {
+  it('claude unset → one tier above the model CLI default (Opus / Sonnet 5.5 medium → high; others high → xhigh)', () => {
     expect(nextEffortRung('claude-code', OPUS55, undefined)).toBe('high');
+    expect(nextEffortRung('claude-code', SONNET55, undefined)).toBe('high');
     expect(nextEffortRung('claude-code', 'claude-opus-5', undefined)).toBe('xhigh');
     expect(nextEffortRung('claude-code', OPUS, undefined)).toBe('xhigh');
     expect(nextEffortRung('claude-code', SONNET5, undefined)).toBe('xhigh');
@@ -333,11 +338,13 @@ describe('nextEffortRung', () => {
     expect(nextEffortRung('claude-code', OPUS55, 'high')).toBe('xhigh');
     expect(nextEffortRung('claude-code', OPUS, 'high')).toBe('xhigh');
     expect(nextEffortRung('claude-code', SONNET5, 'medium')).toBe('high');
+    expect(nextEffortRung('claude-code', SONNET55, 'high')).toBe('xhigh');
   });
 
   it('claude xhigh-capable + xhigh → max; + max → spent (undefined)', () => {
     expect(nextEffortRung('claude-code', OPUS55, 'xhigh')).toBe('max');
     expect(nextEffortRung('claude-code', OPUS, 'xhigh')).toBe('max');
+    expect(nextEffortRung('claude-code', SONNET55, 'xhigh')).toBe('max');
     expect(nextEffortRung('claude-code', OPUS55, 'max')).toBeUndefined();
   });
 

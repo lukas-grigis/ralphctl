@@ -15,12 +15,16 @@ bottom of this prompt.
 
 <success_criteria>
 
-- `agents-md-proposal` signal emitted with `tag: "{{WIRE_TAG}}"` and a non-empty `content` field.
+- `agents-md-proposal` signal emitted with `tag: "{{WIRE_TAG}}"`. `content` is non-empty when
+  `<existing_context_file>` is empty (a fresh file); with an existing file it holds only additions and may be
+  an empty string when there is nothing to add.
 - Every tech-stack claim in `content` is backed by a quoted file path or file content, not inferred.
-- `content` follows the length guidance for `{{CURRENT_TOOL}}` in `<target_file_conventions>`
-  below — the exact target and ceiling are provider-specific.
-- When an existing context file is supplied in `<existing_context_file>`, `content` starts with that body
-  verbatim — byte-for-byte, unchanged, in the same order — before any additions.
+- The resulting file follows the length guidance for `{{CURRENT_TOOL}}` in `<target_file_conventions>`
+  below — the exact target and ceiling are provider-specific. The ceiling applies to the existing file plus
+  your additions, so count the existing lines and keep additions within the remaining room.
+- When an existing context file is supplied in `<existing_context_file>`, `content` holds ONLY the new H2
+  sections to append — never the existing body; the harness appends them and keeps the existing file
+  byte-for-byte.
 - Setup and verify skill proposals, when emitted, cite only commands that resolve in this specific repo
   (shell commands verified against manifest files, not assumed from language defaults).
 - `signals.json` is valid JSON and passes the harness schema check.
@@ -37,8 +41,6 @@ bottom of this prompt.
 {{TARGET_FILE_CONVENTIONS}}
 </target_file_conventions>
 </inputs>
-
-{{HARNESS_CONTEXT}}
 
 <constraints>
 
@@ -71,12 +73,12 @@ for genuinely surprising rules — overuse erodes their meaning.
 - Credentials, user-specific paths, or commands that touch remote services.
 - Standard language conventions the agent already knows.
 
-**Existing-context rule (fires when `<existing_context_file>` carries a body, not the sentinel line).**
-The supplied prose is authoritative. The `agents-md-proposal` signal's `content` MUST contain the existing
-body byte-for-byte verbatim at the start, in the original order, with no rewording, summarising, or
-reformatting. Append proposed additions as new H2 sections at the bottom only. Do not modify, prune, or
-merge into existing sections. When you have nothing to add, still emit the `agents-md-proposal` signal with
-the existing body unchanged.
+**Existing-context rule (fires when `<existing_context_file>` is non-empty; an empty one means no file exists yet — emit a fresh body).**
+The supplied prose is authoritative and the harness preserves it byte-for-byte. The `agents-md-proposal`
+signal's `content` MUST contain only your additions, as new H2 sections — do not repeat, reword, or
+summarise the existing body, and do not modify, prune, or merge into existing sections; the harness appends
+`content` after the existing file. When you have nothing to add, still emit the `agents-md-proposal` signal
+with an empty `content` string.
 
 **Script safety (applies to setup and verify skill bodies).** Every command you document must resolve in
 this repo. Cite a setup command only when its manifest file is present (a `package.json` install command
@@ -132,8 +134,9 @@ not what is typical for the apparent stack.
 Draft each surviving section against the inclusion test. Drop any section an experienced engineer could
 derive from the manifest or directory tree.
 
-When `<existing_context_file>` carries a body (not the "no existing file" sentinel), the existing prose
-comes first, byte-for-byte. Your additions go as new H2 sections at the bottom — never inline or merged.
+When `<existing_context_file>` is non-empty (empty means no file exists yet), the harness keeps the
+existing prose first, byte-for-byte. Your `content` is only the additions — new H2 sections, never inline or
+merged into existing ones.
 
 ### Phase 4 — Output
 
@@ -151,7 +154,7 @@ Do not invent stack claims without evidence.
 ### Signal semantics
 
 - `agents-md-proposal` — REQUIRED. `tag` MUST equal `"{{WIRE_TAG}}"`. `content` is the project context
-  file body.
+  file body — or, when `<existing_context_file>` is non-empty, only the new sections to append to it.
 - `setup-skill-proposal` — optional. Multi-paragraph markdown body describing the project's setup
   convention. The harness lands it as `setup/SKILL.md`. Omit entirely when no setup skill is warranted.
 - `verify-skill-proposal` — optional. Same shape as the setup skill but for verification (typecheck /

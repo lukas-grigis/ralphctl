@@ -14,7 +14,7 @@ import { ParseError } from '@src/domain/value/error/parse-error.ts';
 import type { AiSignalEvent, AppEvent } from '@src/business/observability/events.ts';
 import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
 import type { WriteFile } from '@src/business/io/write-file.ts';
-import { absentState } from '@src/integration/ai/readiness/_engine/state.ts';
+import { absentState, presentState } from '@src/integration/ai/readiness/_engine/state.ts';
 import type { ReadinessProbe, ReadinessProbeRegistry } from '@src/integration/ai/readiness/_engine/probe.ts';
 import type { AssistantTool } from '@src/integration/ai/readiness/_engine/tool.ts';
 import type { ToolArtifacts } from '@src/integration/ai/readiness/_engine/tool-artifacts.ts';
@@ -254,6 +254,39 @@ describe('proposeReadinessLeaf — audit-[09] contract', () => {
     // sidecar render path is firing.
     const sidecarWrites = writer.writes.filter((w) => w.path.endsWith('.md'));
     expect(sidecarWrites).toHaveLength(1);
+  });
+
+  // ── 1a'. Existing context file — the AI emits only additions; the harness appends ─────
+  it('existing CLAUDE.md: appends the emitted sections onto the raw existing bytes (CRLF, spacing kept)', async () => {
+    const existing = '# repo-a\r\n\r\nhand  written\r\n';
+    const claudeMd = join(repoPath, 'CLAUDE.md');
+    await fs.writeFile(claudeMd, existing, 'utf8');
+    const additions: AgentsMdProposalSignal = { ...agentsMdSignal(), content: '## Testing\n\n- run the suite\n' };
+    const { deps, ctx } = await buildScene({ kind: 'signals', signals: [additions] });
+    const entry = ctx.entries['claude-code'];
+    if (entry === undefined) throw new Error('scene missing entry');
+    const withExisting: ReadinessCtx = {
+      ...ctx,
+      entries: {
+        'claude-code': {
+          ...entry,
+          probedState: presentState(FIXED_NOW, {
+            tool: 'claude-code',
+            claudeMd: { path: absolutePath(claudeMd) },
+            skills: [],
+            commands: [],
+            agents: [],
+            hooks: [],
+          }),
+        },
+      },
+    };
+
+    const result = await proposeReadinessLeaf(deps, 'claude-code').execute(withExisting);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const proposed = result.value.ctx.entries['claude-code']?.proposal?.proposedContent;
+    expect(proposed).toBe(`${existing}\r\n## Testing\r\n\r\n- run the suite\r\n`);
   });
 
   // ── 1b. Happy path — only setup-skill present (the brief explicitly asked for this case) ─

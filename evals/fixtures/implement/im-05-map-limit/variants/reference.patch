@@ -1,0 +1,39 @@
+diff --git a/src/map-limit.mjs b/src/map-limit.mjs
+new file mode 100644
+index 0000000..b381d36
+--- /dev/null
++++ b/src/map-limit.mjs
+@@ -0,0 +1,20 @@
++export const mapLimit = async (items, limit, fn) => {
++  if (!Number.isInteger(limit) || limit < 1) throw new RangeError(`invalid limit: ${limit}`);
++  const results = new Array(items.length);
++  let next = 0;
++  let failed = false;
++  const worker = async () => {
++    while (!failed && next < items.length) {
++      const i = next;
++      next += 1;
++      try {
++        results[i] = await fn(items[i], i);
++      } catch (err) {
++        failed = true;
++        throw err;
++      }
++    }
++  };
++  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
++  return results;
++};
+diff --git a/test/map-limit.test.mjs b/test/map-limit.test.mjs
+new file mode 100644
+index 0000000..2542064
+--- /dev/null
++++ b/test/map-limit.test.mjs
+@@ -0,0 +1,7 @@
++import { test } from 'node:test';
++import assert from 'node:assert/strict';
++import { mapLimit } from '../src/map-limit.mjs';
++
++test('maps every item in order', async () => {
++  assert.deepEqual(await mapLimit([1, 2, 3], 2, async (x) => x * 2), [2, 4, 6]);
++});

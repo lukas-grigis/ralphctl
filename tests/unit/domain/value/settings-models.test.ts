@@ -18,9 +18,24 @@ describe('settings-models / claude catalog', () => {
     }
   });
 
-  it('does not catalog a [1m] variant for the natively-1M Opus 5.5 / Fable 5.1', () => {
+  it('does not catalog a [1m] variant for the natively-1M Opus 5.5 / Fable 5.1 / Sonnet 5.5', () => {
     expect(CLAUDE_MODELS).not.toContain('claude-opus-5-5[1m]');
     expect(CLAUDE_MODELS).not.toContain('claude-fable-5-1[1m]');
+    expect(CLAUDE_MODELS).not.toContain('claude-sonnet-5-5[1m]');
+  });
+
+  it('adds Sonnet 5.5 (Claude Code 2.1.284+) and keeps Sonnet 5 live rather than retiring it', () => {
+    expect(isClaudeModel('claude-sonnet-5-5')).toBe(true);
+    expect(isClaudeModel('claude-sonnet-5')).toBe(true);
+    // Sonnet 5 is still served (and is Claude Code's cybersecurity fallback for Sonnet 5.5), so a
+    // row pinned to it must survive a load untouched — no retired-id remap on any provider.
+    expect(remapRetiredModel('claude-code', 'claude-sonnet-5')).toBe('claude-sonnet-5');
+    expect(RETIRED_MODEL_REMAPS.some((r) => r.from === 'claude-sonnet-5')).toBe(false);
+  });
+
+  it('keeps Sonnet 5.5 off the Copilot catalog — the Copilot CLI rejects both spellings', () => {
+    expect(isCopilotModel('claude-sonnet-5.5')).toBe(false);
+    expect(isCopilotModel('claude-sonnet-5-5')).toBe(false);
   });
 });
 

@@ -41,12 +41,14 @@ export const refinePromptDef: PromptDefinition<RefinePromptParams> = {
       placeholder: 'TICKET',
       description: 'Markdown block rendering the ticket title, id, link (when set), and description (when set).',
       validate: requireNonEmpty('ticket', 'rendered ticket block must not be empty'),
+      untrusted: { source: 'the ticket author' },
     },
     issueContext: {
       placeholder: 'ISSUE_CONTEXT',
       description:
         '`<context>...</context>` block with pre-fetched upstream issue body, bare link fallback, or empty when neither is available.',
       optional: true,
+      untrusted: { source: 'the upstream issue tracker' },
     },
     outputContractSection: {
       placeholder: 'OUTPUT_CONTRACT_SECTION',
@@ -60,7 +62,7 @@ export const refinePromptDef: PromptDefinition<RefinePromptParams> = {
     },
   },
   partials: {
-    HARNESS_CONTEXT: 'harness-context',
+    APPROVAL_GATE: 'approval-gate',
   },
   expectedSignals: ['refined-ticket', 'note', 'learning', 'decision'],
 };

@@ -231,19 +231,13 @@ self into approving anyway; superficial testing."_ Plateau detection is the harn
 - `plateauThreshold` (2–5, patient default 3): `src/application/chain/run/iteration-config.ts`
 - Exemptions (score improvement, commit progress, critique-Jaccard shift prevent counting): same file
 - Loop predicate in the implement flow: `src/application/flows/implement/`
-- **One calibration, three detectors (2026-08).** The calibrated predicate
-  (`business/task/plateau-detection.ts`) now owns the window size (`plateauWindowSize`) and the
-  exemption cascade (`windowIsHardStall`) for ALL THREE detectors. The two bolt-on leaves that run
-  right after the evaluator — `loop-diversity-check` and the opt-in `entropy-check`
-  (`settings.harness.entropyPlateauDetector`, default off) — used to carry their own hardcoded
-  windows and no exemptions, so they fired precisely where the calibration had declined: the entropy
-  one scored a SINGLE turn, where a turn emitting only `change` signals gave K=1 → H=0 → a
-  guaranteed false-positive plateau costing an escalation rung plus a whole attempt. They are now
-  strictly subordinate — they may add evidence on a window the calibrated predicate itself calls a
-  hard stall, never override its judgement. **Consequence worth re-auditing under § 14:** because
-  the calibrated predicate sees the same window one step earlier, a subordinate detector is reached
-  only where the calibrated one already exited; both leaves are candidates for removal-with-
-  measurement at the next model bump.
+- **One detector, calibrated.** The calibrated predicate (`business/task/plateau-detection.ts`)
+  owns the window size (`plateauWindowSize`) and the exemption cascade. The two bolt-on leaves that used
+  to run right after the evaluator — `loop-diversity-check` and the opt-in `entropy-check`
+  (`settings.harness.entropyPlateauDetector`) — were strictly subordinate to it (gated on its window, so
+  reached only where it had already exited) and were removed as non-load-bearing scaffolding, the § 14
+  removal this row anticipated. `PlateauSource` keeps `diversity` / `entropy` only so old persisted
+  attempts still parse.
 - **Graduated remedy ladder** (`src/business/task/escalation-policy.ts` + `escalation-map.ts`): on a
   plateau the policy spends remedies cheapest-first — climb the model ladder **one rung per plateau**
   (`escalate`, re-stampable, bounded by `maxAttempts`), then a single top-of-ladder same-model `nudge`
@@ -416,6 +410,11 @@ harness when new model releases; strip non-load-bearing pieces."_
 - Audit trigger is mechanized: `tests/unit/business/task/escalation-map.test.ts` fingerprints the three
   provider model catalogs and fails `pnpm verify` the moment one changes — see the "Model-bump audit
   checklist" below.
+- Measurement for "remove one component, with measurement": the opt-in eval harness (`pnpm eval compare`,
+  `scripts/eval/`, `.claude/docs/EVALS.md`) runs a baseline and a candidate arm (a prompt directory or a
+  model) over fixed fixtures and reports a paired difference with a confidence interval. It covers four
+  headless flows — evaluate, implement, detect-scripts, select-candidate — and nothing in CI or `verify`
+  runs it.
 
 **Note — parallelism as above-the-chain orchestration.** The `maxParallelTasks > 1` parallel
 execution was deliberately implemented as `runWaves` — an async orchestrator that sits
@@ -425,8 +424,9 @@ five-primitive rule (`element` / `leaf` / `sequential` / `loop` / `guard`) is un
 
 **Next step.** The trigger is mechanized — a catalog edit fails `pnpm verify` and forces a walk of this
 doc's `partial`/`gap` rows before the fingerprint can be updated (see the "Model-bump audit checklist"
-below). What remains manual is the measurement ritual itself: nothing verifies that a flagged
-non-load-bearing component was actually measured and removed rather than just glanced at. Closing this
+below). The measurement tool now exists (`pnpm eval`, above), so what remains manual is the ritual itself:
+nothing runs it, and nothing verifies that a flagged non-load-bearing component was actually measured and
+removed rather than just glanced at. Closing this
 gap means recording the audit's outcome (component kept / removed, with the measurement that justified
 it) somewhere durable, not just bumping the recorded hash.
 
@@ -459,10 +459,11 @@ over-praising."_
 - **Shared partials (2026-09).** The failure-modes block is no longer template-embedded prose — it is the
   shared `_partials/evaluator-failure-modes.md`, injected via `{{EVALUATOR_FAILURE_MODES}}` so any other
   template gains the same discipline by wiring the one placeholder. A second shared partial,
-  `_partials/evaluation-checkpoint.md` (`{{EVALUATION_CHECKPOINT}}`), is unrelated to over-praising: Phase 0
-  has the evaluator write a placeholder all-`failed` `signals.json` BEFORE it verifies anything, purely so a
-  session that exhausts its token budget mid-analysis leaves a valid signal file on disk (recoverable via a
-  corrective retry) instead of none at all — the template is explicit that this write is not the verdict.
+  `_partials/evaluator-grading-rules.md` (`{{EVALUATOR_GRADING_RULES}}`), carries the grading rules both
+  `evaluate` and `evaluate-continuation` apply identically (verify-script scope, `UNVERIFIED:` criteria, the
+  critique format). The earlier Phase 0 checkpoint (a placeholder all-`failed` `signals.json` written before
+  verifying) is removed — a session that dies mid-analysis is recovered by the corrective retry, and the
+  placeholder risked being graded as a verdict.
 
 ---
 
@@ -532,6 +533,9 @@ non-load-bearing pieces."_
   fails `pnpm verify` the moment a catalog changes — see the "Model-bump audit checklist" below. This doc
   remains the home for the checklist content itself, and the `ralphctl-minimal-scaffolding` skill captures
   the per-change discipline.
+- Durable trace: an eval run's `results.json` (git SHA, prompt-template hash, fixture-set hash, per-arm
+  model rows, per-trial grades) is the comparable record a model-bump audit can point at — see
+  `.claude/docs/EVALS.md`. Running it is still a manual step; nothing enforces that a bump ran one.
 
 **Next step.** The trigger fires automatically; what's still manual is the audit content. Nothing enforces
 that the failing test's fix actually walked every `applied` row and re-evaluated its load-bearing status
@@ -572,6 +576,16 @@ updating the recorded hash:
    record that the audit ran, not a reflex to make CI green.
 
 **Model-bump audit log.**
+
+- **2026-09-30 — Claude Sonnet 5.5.** Step 1: `claude-sonnet-5-5` joins the claude-code catalog only (the
+  Copilot CLI does not serve it) and becomes the Sonnet rung of the claude-code ladder (Haiku → Sonnet 5.5 →
+  Opus 5.5). `claude-sonnet-5` stays catalogued and keyed (→ Opus 5.5) so pinned rows still escalate;
+  nothing was de-listed, so no key or destination was stranded. `CLAUDE_CLI_DEFAULT_EFFORT` gained Sonnet
+  5.5 at `medium` (the Claude Code default, which differs from the API's `high`). Step 2: the only
+  `partial` rows are §14 and §18, both the audit mechanism itself — a same-family tier bump does not close
+  them; there are no `gap` rows. Step 3: no `applied` row was re-measured against Sonnet 5.5 and none was
+  removed — §14 requires measurement before removal, and Sonnet 5.5's recalibrated effort levels make the
+  presets' Sonnet effort columns the first thing an eval sweep (`EVALS.md`) should check.
 
 - **2026-09-22 — Opus 5.5 / Fable 5.1 / GPT-6 (Sol, Luna, Astra) refresh.** Step 1: `claude-opus-5-5` is
   now the claude-code ladder top (no key, as before); `claude-opus-5` and `claude-opus-4-8` both gained a

@@ -25,4 +25,4 @@ breaks, `·` middot as an inline separator, `-->>` dashed for replies, `X->>X` f
 backticks inside mermaid text — the surrounding prose uses backticks, the diagram body never does.
 Style fence is `.claude/docs/diagrams/README.md` § Conventions: plain syntax, no themes/classDef.
 
-Related: [[reference_step_trace_locations]], [[project-high-drift-areas]].
+Related: [[reference_step_trace_locations]], [[project_high_drift_areas]].

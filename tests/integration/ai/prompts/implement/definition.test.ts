@@ -54,6 +54,7 @@ const makeTaskWith = (overrides: {
 };
 
 const CONTRACT_PATH = '/tmp/ralph/main-repo/contract.md';
+const TEMPLATE_PATH = `${String(defaultTemplatesDir())}/implement/template.md`;
 
 describe('implementPromptDef — completeness', () => {
   it('every placeholder in implement.md is declared by the definition (parameters or partials)', async () => {
@@ -167,6 +168,21 @@ describe('implementPromptDef — completeness', () => {
       PARALLEL_TOOL_CALLS: 'parallel-tool-calls',
       EVIDENCE_BOUND: 'evidence-bound',
     });
+  });
+
+  it('does not block on a failure the task exists to fix or a baseline the harness already accepted', async () => {
+    const template = (await fs.readFile(TEMPLATE_PATH, 'utf8')).replace(/\s+/g, ' ');
+    expect(template).not.toContain('stop immediately');
+    expect(template).toContain('the task exists to fix is the expected starting point');
+    expect(template).toContain('already accepted');
+  });
+
+  it('carries the reversibility, scope, and stop-when-green guardrails', async () => {
+    const template = (await fs.readFile(TEMPLATE_PATH, 'utf8')).replace(/\s+/g, ' ');
+    expect(template).toContain('Keep every action reversible');
+    expect(template).toContain('Do not special-case tests');
+    expect(template).toContain('Stay in scope');
+    expect(template).toContain('stop and report');
   });
 
   it("never hardcodes a single provider's context-file line/heading cap", async () => {

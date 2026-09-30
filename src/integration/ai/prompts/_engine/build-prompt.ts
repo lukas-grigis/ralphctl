@@ -148,6 +148,10 @@ export const buildPrompt = async <TInput extends object>(
   if (!filled.ok) return Result.error(filled.error);
   Object.assign(values, filled.value);
 
-  const rendered = substitute(template.value, values);
+  const untrusted: Record<string, string> = {};
+  for (const spec of Object.values(def.parameters) as Array<ParameterSpec<unknown>>) {
+    if (spec.untrusted !== undefined) untrusted[spec.placeholder] = spec.untrusted.source;
+  }
+  const rendered = substitute(template.value, values, untrusted);
   return assertTemplateKeysFilled(rendered, template.value, partialBodies, values, `buildPrompt(${def.templateName})`);
 };

@@ -11,8 +11,6 @@ Inspect the commit history and diff of `{{HEAD_BRANCH}}` against `{{BASE_BRANCH}
 `pr-content` signal to `signals.json` as described in the Output contract section below.
 </goal>
 
-{{HARNESS_CONTEXT}}
-
 <success_criteria>
 
 - The `title` and `body` follow the format and length rules in the Constraints section below.
@@ -80,9 +78,6 @@ Hard constraints:
 
 - Stay implementation-agnostic in the summary — name behaviour, not call sites.
 - Do not invent acceptance criteria, ticket numbers, or roadmap items not visible in the diff or `<ticket_summary>`.
-- Do not reference this tooling, any harness, sprint ids, internal flow names, or the AI itself.
-- Emit ONLY the `pr-content` signal. Do not emit narrative signals (`note`, `learning`, `decision`, `change`) — they are
-  not consumed by this flow and represent wasted tokens.
 - If you cannot produce a meaningful title and body (e.g. the repository is inaccessible, the diff is empty, or there is
   nothing to summarise), write `signals.json` as `{"schemaVersion": 1, "signals": []}` and stop. Do not invent PR
   content. The harness falls back to a template-derived description in that case.

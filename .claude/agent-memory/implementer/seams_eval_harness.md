@@ -1,0 +1,16 @@
+---
+name: seams_eval_harness
+description: Non-derivable traps in the opt-in prompt-eval harness (scripts/eval, evals/fixtures) — budget under-counts, private duplicated constants, fixture tooling exclusions, protectedPaths granularity
+metadata:
+  type: project
+---
+
+- **Budget counts uncached input + output only.** `ProviderUsage` carries `inputTokens` / `outputTokens` / `durationMs`; Claude's cache-read and cache-creation counts are separate stream fields it drops. The rate-limit retry loop also returns only the successful attempt's usage. So `--max-tokens` is a lower bound on spend. **Why:** the design assumed usage summed across retries; it doesn't. **How to apply:** don't promise a dollar figure from `results.json`; widening `ProviderUsage` is a `providers/_engine/` change.
+- **`EVALUATOR_GROUNDING` (evaluator.ts) and `buildJudgeSession` (best-of-n-judge.ts) are module-private.** The eval evaluate adapter duplicates the three grounding lines (corrective-nudge text only); select-candidate uses `readOnlySignalsSession`, which returns the same fields as `buildJudgeSession`. **Why:** exporting from files another lane was editing was out of scope. **How to apply:** if either private body changes, update `scripts/eval/flows/evaluate.ts` / re-check select-candidate parity, or export the constant with `@public` and drop the copy.
+- **`protectedPaths` must name specific existing test files, not `test/`.** The implement grader counts any changed path under a protected entry as tampering, so a directory entry punishes a model that adds a new test. `oracle.ts` restores each entry from the pristine `repo/` before running.
+- **Fixtures need three exclusions or the gate breaks:** ESLint `ignores` and `.prettierignore` (bad code on purpose), and `knip.json` `ignore` — knip's test-runner plugin otherwise treats each fixture's `*.test.mjs` as an entry and reports its `../src/x.mjs` imports as unresolved. Vitest is safe only because both projects' `include` is `tests/**`; widening that would run the fixtures.
+- **The `scripts/eval/**` ESLint block is what keeps the class / barrel / `typescript-result` / spawn bans alive there** (the src fences are `src/**`-scoped). `tests/unit/eslint-config.test.ts` probes it; a config edit that replaces the same `no-restricted-*` key for that glob silently drops them.
+- **Never run `prettier --write tests`** — it reformats other lanes' uncommitted test files. Target your own paths.
+- **Nudges are per-adapter (`PreparedTrial.nudges`).** Only evaluate and implement use `validateSignalsFileWithCorrectiveRetry` in production; detect-scripts and the best-of-N judge call plain `validateSignalsFile`. The runner passes `correctiveRetries: 0` for the others (which degrades to one plain validation). **Why:** a nudge-rescued verdict is one production discards, so counting it breaks "measures what ships". A new flow adapter must decide this flag from its production leaf.
+- **Under tsx the baseline templates are the working tree** (`defaultTemplatesDir()`), so `compare --candidate-templates <same dir>` is an A/A run; `main.ts` refuses on equal hashes. Any new arm-building path needs the same distinct-arms check.
+- **`report` recomputes metrics/usage from relabelled trials** (`summarizeArms`); merging stored maps collides because every single-arm run names its arm `baseline`.

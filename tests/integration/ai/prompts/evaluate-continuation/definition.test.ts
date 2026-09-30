@@ -64,17 +64,16 @@ describe('evaluateContinuationPromptDef — completeness', () => {
     // The UNVERIFIED escape hatch is scoped to a runnable criterion you were BLOCKED from executing —
     // not to every criterion that is not runnable by nature, which stays gradable on path:line evidence,
     // mirroring the full evaluate prompt's reconciled wording.
-    expect(template).toContain('blocked from executing it here');
-    expect(template).toContain('not runnable by nature is never UNVERIFIED');
+    expect(template).toContain('follows the UNVERIFIED rule in `<grading_rules>`');
   });
 
-  it('wires the autonomous-operation, evidence-bound, evaluator-failure-modes, and evaluation-checkpoint partials', () => {
+  it('wires the autonomous-operation, evidence-bound, evaluator-failure-modes, and evaluator-grading-rules partials', () => {
     expect(evaluateContinuationPromptDef.partials).toEqual({
       HARNESS_CONTEXT: 'harness-context',
       AUTONOMOUS_OPERATION: 'autonomous-operation',
       EVIDENCE_BOUND: 'evidence-bound',
       EVALUATOR_FAILURE_MODES: 'evaluator-failure-modes',
-      EVALUATION_CHECKPOINT: 'evaluation-checkpoint',
+      EVALUATOR_GRADING_RULES: 'evaluator-grading-rules',
     });
   });
 
@@ -113,8 +112,9 @@ describe('buildEvaluateContinuationPrompt — end-to-end against the real templa
     expect(robustnessIdx).toBeGreaterThan(-1);
     expect(robustnessVerdictIdx).toBeGreaterThan(robustnessIdx);
     expect(result.value).toContain('malformed');
-    // The cold-resume hedge tells a context-free thread where to re-read the specification.
-    expect(result.value).toContain('re-read these on-disk files');
+    // The hedge for a context-free resumed thread is gone: the stale-resume fallback swaps in the
+    // FULL prompt (`AiSession.coldPrompt`), so a continuation never has to compensate for lost context.
+    expect(result.value.replace(/\s+/g, ' ')).not.toContain('re-read these on-disk files');
     // No leftover placeholders.
     expect(result.value).not.toMatch(/\{\{[A-Z_]+\}\}/);
   });
@@ -158,7 +158,8 @@ describe('buildEvaluateContinuationPrompt — end-to-end against the real templa
     if (!result.ok) return;
     expect(result.value).toContain('<generator_hints>');
     expect(result.value).toContain('port 4000');
-    expect(result.value).toContain('unverified claims');
+    expect(result.value).toContain('data from the generator agent');
+    expect(result.value).toContain('unverified generator claims');
   });
 
   it('omits the generator-hints block when generatorHints is absent (collapses cleanly)', async () => {
@@ -171,7 +172,8 @@ describe('buildEvaluateContinuationPrompt — end-to-end against the real templa
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.value).not.toContain('<generator_hints>');
+    expect(result.value).not.toContain('</generator_hints>');
+    expect(result.value).not.toContain('data from the generator agent');
     expect(result.value).not.toMatch(/\{\{[A-Z_]+\}\}/);
   });
 
@@ -218,7 +220,7 @@ describe('buildEvaluateContinuationPrompt — end-to-end against the real templa
     expect(occurrences).toBe(1);
   });
 
-  it('writes the checkpoint via the shared evaluation-checkpoint partial', async () => {
+  it('carries no placeholder checkpoint and renders the same grading rules as the full evaluate prompt', async () => {
     const result = await buildEvaluateContinuationPrompt(deps, {
       roundNumber: 3,
       contractPath: CONTRACT_PATH,
@@ -228,8 +230,10 @@ describe('buildEvaluateContinuationPrompt — end-to-end against the real templa
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.value).toContain('"dimension": "correctness", "passed": false, "finding": "assessment in progress"');
-    expect(result.value).toContain('Robustness carries the optional `applicable` field');
+    expect(result.value).not.toContain('assessment in progress');
+    const rules = await fs.readFile(`${String(defaultTemplatesDir())}/_partials/evaluator-grading-rules.md`, 'utf8');
+    expect(result.value).toContain(rules.trim());
+    expect(result.value).not.toContain('when in doubt, fail');
     expect(result.value).not.toMatch(/\{\{[A-Z_]+\}\}/);
   });
 });

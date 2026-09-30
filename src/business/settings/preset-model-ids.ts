@@ -4,11 +4,15 @@
  * defaults (or vice versa).
  *
  * The dash vs dot spelling is provider-specific and load-bearing: claude-code uses the dash
- * form (`claude-opus-5-5`, `claude-sonnet-5`) while github-copilot uses the dotted form
- * (`claude-…-4.8`). Do not normalise one into the other. Sonnet 5 is the default Sonnet on both;
- * its undotted slug is the same string on either catalog, and the provider-scoped escalation
- * ladders (escalation-map.ts) climb it differently per backend. Copilot deprecated Sonnet 4.6 on
- * 2026-09-01, so `COPILOT_SONNET` is `claude-sonnet-5`.
+ * form (`claude-opus-5-5`, `claude-sonnet-5-5`) while github-copilot uses the dotted form
+ * (`claude-…-4.8`). Do not normalise one into the other.
+ *
+ * The two Sonnet constants differ on purpose. `SONNET` is Sonnet 5.5 (`claude-sonnet-5-5`,
+ * Claude Code >= 2.1.284). The Copilot CLI does not serve Sonnet 5.5 under either spelling (live
+ * probe, Copilot CLI 1.0.88, 2026-09-30), so `COPILOT_SONNET` stays `claude-sonnet-5` — Copilot
+ * deprecated Sonnet 4.6 on 2026-09-01. Sonnet 5's undotted slug is the same string on both
+ * catalogs, and the provider-scoped escalation ladders (escalation-map.ts) climb it differently
+ * per backend.
  *
  * `COPILOT_OPUS` deliberately stays `claude-opus-4.8` — `claude-opus-5` / `claude-opus-5.5` are
  * plan-gated on Copilot (Pro+/Max/Business/Enterprise), so steering the curated Copilot presets
@@ -35,7 +39,7 @@ export const OPENCODE = 'opencode';
 export const GROK = 'xai-grok';
 
 export const OPUS = 'claude-opus-5-5';
-export const SONNET = 'claude-sonnet-5';
+export const SONNET = 'claude-sonnet-5-5';
 export const FABLE = 'claude-fable-5-1';
 export const COPILOT_OPUS = 'claude-opus-4.8';
 export const COPILOT_SONNET = 'claude-sonnet-5';

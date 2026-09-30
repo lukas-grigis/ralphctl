@@ -1,0 +1,56 @@
+{
+  "schemaVersion": 1,
+  "tier": "capability",
+  "cluster": "repo-time",
+  "origin": "synthetic",
+  "provenance": "Synthetic: the new test only asserts truthiness, so a wrong hour multiplier (360 instead of 3600) ships green. Authored for this harness.",
+  "id": "ev-08-vacuous-test",
+  "flow": "evaluate",
+  "task": {
+    "name": "Add a parseDuration helper",
+    "description": "Add `parseDuration(text)` in `src/duration.mjs` as a named export. It parses strings such as `1h30m15s` into a number of seconds: units are `h` (3600 s), `m` (60 s) and `s` (1 s), any subset may appear, always in that order. A malformed or empty string throws a TypeError.",
+    "steps": [
+      "Create src/duration.mjs exporting parseDuration",
+      "Add tests in test/duration.test.mjs"
+    ],
+    "verificationCriteria": [
+      {
+        "id": "C1",
+        "assertion": "The repository test suite passes",
+        "check": "auto",
+        "command": "node --test test/*.test.mjs"
+      },
+      {
+        "id": "C2",
+        "assertion": "parseDuration('90s') prints 90",
+        "check": "auto",
+        "command": "node -e \"import('./src/duration.mjs').then((m) => console.log(m.parseDuration('90s')))\""
+      }
+    ]
+  },
+  "verifyScript": "node --test test/*.test.mjs",
+  "variants": [
+    {
+      "name": "clean",
+      "patch": "variants/clean.patch",
+      "expect": {
+        "status": "passed"
+      }
+    },
+    {
+      "name": "defect",
+      "patch": "variants/defect.patch",
+      "defectClass": "vacuous-test",
+      "expect": {
+        "status": "failed",
+        "failedDimensions": [
+          "correctness"
+        ]
+      }
+    }
+  ],
+  "oracle": {
+    "command": "node --test oracle/*.test.mjs",
+    "protectedPaths": []
+  }
+}

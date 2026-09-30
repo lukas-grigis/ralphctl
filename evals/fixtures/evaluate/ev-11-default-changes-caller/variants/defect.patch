@@ -1,0 +1,31 @@
+diff --git a/src/backoff.mjs b/src/backoff.mjs
+index c220273..2165555 100644
+--- a/src/backoff.mjs
++++ b/src/backoff.mjs
+@@ -1 +1,4 @@
+-export const backoff = (attempt, { baseMs = 100 } = {}) => baseMs * 2 ** attempt;
++export const backoff = (attempt, { baseMs = 100, jitter = true } = {}) => {
++  const delay = baseMs * 2 ** attempt;
++  return jitter ? delay * (0.5 + Math.random()) : delay;
++};
+diff --git a/test/backoff.test.mjs b/test/backoff.test.mjs
+new file mode 100644
+index 0000000..99b87bb
+--- /dev/null
++++ b/test/backoff.test.mjs
+@@ -0,0 +1,15 @@
++import { test } from 'node:test';
++import assert from 'node:assert/strict';
++import { backoff } from '../src/backoff.mjs';
++
++test('doubles per attempt', () => {
++  assert.equal(backoff(0, { jitter: false }), 100);
++  assert.equal(backoff(3, { baseMs: 10, jitter: false }), 80);
++});
++
++test('jitter stays within [0.5, 1.5)', () => {
++  for (let i = 0; i < 50; i += 1) {
++    const d = backoff(2, { jitter: true });
++    assert.ok(d >= 200 && d < 600);
++  }
++});

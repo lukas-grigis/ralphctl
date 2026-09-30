@@ -22,7 +22,7 @@ import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/templat
  * Pre-rendered string parameters for the evaluate template. Mirrors the implement
  * definition's task-shaped slots — the evaluator reviews the same task spec the implementer
  * just executed against — but omits the implementer-specific identifiers (TASK_ID,
- * PROGRESS_FILE) and substitutes the audit-[09] `{{OUTPUT_CONTRACT_SECTION}}` produced from the
+ * PROGRESS_FILE) and substitutes the `{{OUTPUT_CONTRACT_SECTION}}` produced from the
  * evaluator's `AiOutputContract`.
  *
  * The evaluate template runs an independent reviewer agent: it reads the task description /
@@ -68,7 +68,7 @@ export interface EvaluatePromptParams {
    */
   readonly extraDimensionsSection: string;
   /**
-   * Audit-[09] output contract section — rendered from the evaluator's `AiOutputContract` by
+   * Output contract section — rendered from the evaluator's `AiOutputContract` by
    * `renderContractSectionFor(evaluatorOutputContract)`. Tells the AI to write exactly one
    * file (`signals.json`) matching the documented shape.
    */
@@ -174,7 +174,7 @@ export const evaluatePromptDef: PromptDefinition<EvaluatePromptParams> = {
     outputContractSection: {
       placeholder: 'OUTPUT_CONTRACT_SECTION',
       description:
-        'Audit-[09] output contract block rendered from the evaluator contract — instructs the AI to write `signals.json` directly.',
+        'Output contract block rendered from the evaluator contract — instructs the AI to write `signals.json` directly.',
       validate: requireNonEmpty(
         'outputContractSection',
         'output-contract section must not be empty (renderContractSectionFor always emits a body)'
@@ -189,6 +189,7 @@ export const evaluatePromptDef: PromptDefinition<EvaluatePromptParams> = {
       placeholder: 'GENERATOR_HINTS_SECTION',
       description:
         'Same-round generator observations (environment notes, learnings) framed as unverified context inside a <generator_hints> block — empty when no hints were collected.',
+      untrusted: { source: 'the generator agent' },
     },
     reproductionSection: {
       placeholder: 'REPRODUCTION_SECTION',
@@ -218,7 +219,7 @@ export const evaluatePromptDef: PromptDefinition<EvaluatePromptParams> = {
     PARALLEL_TOOL_CALLS: 'parallel-tool-calls',
     EVIDENCE_BOUND: 'evidence-bound',
     EVALUATOR_FAILURE_MODES: 'evaluator-failure-modes',
-    EVALUATION_CHECKPOINT: 'evaluation-checkpoint',
+    EVALUATOR_GRADING_RULES: 'evaluator-grading-rules',
   },
   // The single `evaluation` signal type covers both PASS and FAIL verdicts. The verdict +
   // per-dimension findings + optional critique are encoded as fields on the signal object;
@@ -234,7 +235,7 @@ export interface BuildEvaluatePromptInput {
   readonly verifyScript?: string;
   readonly projectTooling?: string;
   /**
-   * Pre-rendered audit-[09] output contract section. The leaf composes this via
+   * Pre-rendered output contract section. The leaf composes this via
    * `renderContractSectionFor(evaluatorOutputContract)` before calling the builder.
    */
   readonly outputContractSection: string;
@@ -293,9 +294,8 @@ const renderReproductionSection = (reproduction: string | undefined): string => 
  * The chain leaf consumes this via function injection. `task.extraDimensions` is threaded into
  * the rubric automatically; the rendered section is empty when the field is unset.
  *
- * The template follows a four-phase protocol. Phase 0 writes a placeholder `signals.json`
- * immediately as a recovery checkpoint — if the session exhausts its token budget mid-analysis the
- * harness can prompt a cheaper follow-up rather than restarting from scratch. Phase 1 runs
+ * The template follows a four-phase protocol (Phase 1 first — there is no placeholder-checkpoint
+ * phase; a missing `signals.json` already triggers the harness's corrective nudge). Phase 1 runs
  * deterministic checks: each `auto` criterion's command directly (not the verify script). Phase 2
  * grades every criterion and records each verdict structurally in the `evaluation` signal's `criteria`
  * array (id + passed boolean + one-line evidence citation) in addition to prose assessment. Phase 3

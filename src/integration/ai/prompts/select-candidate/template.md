@@ -6,8 +6,6 @@ better verdict than comparing summaries, at much higher cost. Skepticism is your
 claim of success in a summary as unproven until the summary itself cites concrete evidence for it.
 </role>
 
-{{HARNESS_CONTEXT}}
-
 <goal>
 Compare Candidate 1 and Candidate 2 against the task specification below and pick the one more likely to
 be a correct, complete, maintainable solution. Write exactly one `candidate-selection` signal to
@@ -16,7 +14,8 @@ be a correct, complete, maintainable solution. Write exactly one `candidate-sele
 
 <success_criteria>
 
-- The verdict names a winner — `1` or `2` — never a tie, never both, never neither.
+- The verdict names a winner — `1` or `2` — or declares a tie (`0`) when the evidence genuinely does not
+  separate them. It never names both.
 - The rationale cites concrete evidence from the summaries (a verification outcome, a specific file, a
   notable signal) — not a general impression like "looks more thorough".
 - A candidate's own confident claim of success, unsupported by a cited verification outcome, counts for
@@ -55,8 +54,9 @@ be a correct, complete, maintainable solution. Write exactly one `candidate-sele
   one that claims full success without evidence.
 - When both summaries are similarly strong on verification, prefer the one whose changed-files list stays
   closest to the task's declared scope.
-- When the two are genuinely indistinguishable on the evidence given, you must still pick one — state in
-  the rationale that the choice was close and name the specific tie-breaking factor you used.
+- When the two are genuinely indistinguishable on the evidence given, declare a tie rather than inventing
+  a preference — state in the rationale what you compared and why nothing separates them. The order the
+  candidates are shown in carries no meaning; do not favor a candidate for being listed first or last.
 
 </constraints>
 
@@ -83,7 +83,7 @@ criterion — do not penalise both candidates for a gap in what they chose to re
 ### Phase 3 — Decide and report
 
 Weigh the per-criterion comparison from Phase 2 together with the evidence-over-confidence rule above.
-Pick the stronger candidate. Write `signals.json` as described in `<output_contract>` below with the
+Pick the stronger candidate, or declare a tie. Write `signals.json` as described in `<output_contract>` below with the
 winning index and a rationale that cites the specific evidence that decided it.
 
 <output_contract>
@@ -94,6 +94,6 @@ data.
 {{OUTPUT_CONTRACT_SECTION}}
 
 Emit exactly one `candidate-selection` signal — no other signal kinds. `winner` is `1` or `2`, matching
-the `<candidate_1>` / `<candidate_2>` labelling above.
+the `<candidate_1>` / `<candidate_2>` labelling above, or `0` for a tie.
 
 </output_contract>

@@ -1,0 +1,35 @@
+diff --git a/src/format-bytes.mjs b/src/format-bytes.mjs
+index 6e15283..0edcf86 100644
+--- a/src/format-bytes.mjs
++++ b/src/format-bytes.mjs
+@@ -1,11 +1,9 @@
+ const UNITS = ['B', 'KB', 'MB', 'GB'];
++const divisor = (i) => (i >= 2 ? 1024 ** i : 1000 ** i);
+ 
+ export const formatBytes = (n) => {
+-  let value = n;
+   let i = 0;
+-  while (value >= 1024 && i < UNITS.length - 1) {
+-    value /= 1024;
+-    i += 1;
+-  }
++  while (i < UNITS.length - 1 && n >= 1000 ** (i + 1)) i += 1;
++  const value = n / divisor(i);
+   return `${Number.isInteger(value) ? value : value.toFixed(1)} ${UNITS[i]}`;
+ };
+diff --git a/test/format-bytes.test.mjs b/test/format-bytes.test.mjs
+index c386c2c..ee513fa 100644
+--- a/test/format-bytes.test.mjs
++++ b/test/format-bytes.test.mjs
+@@ -7,9 +7,6 @@ test('bytes stay bytes', () => {
+ });
+ 
+ test('kilobytes', () => {
+-  assert.equal(formatBytes(2048), '2 KB');
+-});
+-
+-test('megabytes', () => {
+-  assert.equal(formatBytes(1048576), '1 MB');
++  assert.equal(formatBytes(2000), '2 KB');
++  assert.equal(formatBytes(1500), '1.5 KB');
+ });

@@ -638,6 +638,30 @@ describe('generatorLeaf', () => {
       expect(round2).not.toContain('# Task Execution Protocol');
     });
 
+    it('hands the provider the FULL prompt as coldPrompt on a resumed turn (stale-resume fallback)', async () => {
+      const provider = createFakeAiProvider({
+        responses: { implement: '', 'implement-continuation': '' },
+        sessionIds: { implement: 'gen-1' },
+      });
+      const task = makeInProgressTaskWithRunningAttempt();
+      const leaf = generatorLeaf({ ...buildDeps(), provider }, task.id);
+
+      const first = await leaf.execute(baseCtx(task));
+      expect(first.ok).toBe(true);
+      if (!first.ok) return;
+      await fs.mkdir(join(String(root.root), 'rounds', '2', 'generator'), { recursive: true });
+      const second = await leaf.execute({ ...first.value.ctx, currentRoundNum: 2 });
+      expect(second.ok).toBe(true);
+
+      const [round1, round2] = provider.recordedSessions;
+      // Round 1 is already the full prompt — nothing to hold in reserve.
+      expect(round1!.coldPrompt).toBeUndefined();
+      expect(round2!.resume).toBe('gen-1');
+      expect(round2!.prompt).toContain('# Continue — Round 2');
+      expect(round2!.coldPrompt).toContain('# Task Execution Protocol');
+      expect(round2!.coldPrompt).not.toContain('# Continue — Round');
+    });
+
     // The done-criteria re-injection (`{{VERIFICATION_CRITERIA_SECTION}}`) exists precisely so a
     // compacted or cold-resumed session is never left without the definition of done — that
     // guarantee only holds if the real call site threads `task` into the continuation branch.

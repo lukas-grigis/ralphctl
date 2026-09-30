@@ -224,6 +224,8 @@ describe('createIdeateFlow', () => {
       'stamp-meta-ideate',
       'ideate-and-plan',
       'uninstall-skills',
+      'check-plan',
+      'review-ideate',
       'transition-to-planned',
       'save-tasks',
       'save-sprint',

@@ -17,7 +17,7 @@ expect(r.ok).toBe(true);
 if (r.ok) expect(r.value.name).toBe('findable');
 if (!r.ok) expect(r.error.code).toBe('not-found');
 
-// Branded VOs — parse() is the ONLY constructor (there is no trustString; verified 2026-08-19).
+// Branded VOs — parse() is the ONLY constructor (there is no trustString).
 // Prefer the shared helpers in @tests/fixtures/domain.ts (absolutePath(...)); wrap locally otherwise.
 const absPath = (p: string): AbsolutePath => {
   const r = AbsolutePath.parse(p);
@@ -52,10 +52,15 @@ Entity construction goes through the static factory — `Task.create({...})` ret
 - `// Ported from <sha>~1:src/...` marks tests backported from legacy.
 - **`Leaf.input()` throws are caught by `runLeaf`** and wrapped in `Result.error` — the promise
   RESOLVES. Assert `result.ok === false`, never `rejects.toThrow`.
-- `resolveStoragePaths()` reads `process.env.RALPHCTL_ROOT` at call time, not import time — set the
+- `resolveStoragePaths()` reads `process.env.RALPHCTL_HOME` at call time, not import time — set the
   env var in `beforeEach`/`afterEach`; no vitest setup file needed for leaves that call it inline.
 - Sprint mutators are free functions, and their return shape is not uniform: `setSprintSlug`
   (`domain/entity/sprint.ts`) returns `Result<OpenSprint, InvalidStateError>`, while
   `setExecutionBranch` / `recordExecutionPullRequestUrl` / `setExecutionBaselineBrokenPolicy`
   (`domain/entity/sprint-execution.ts`) return a plain `SprintExecution`. Check the signature before
   assuming an envelope.
+- Launcher unit tests: stub `LaunchContext` as a partial `AppDeps` cast `as never`; `exactOptionalPropertyTypes`
+  forbids `{ sprint: undefined }` in a `Partial<...>` spread, so use named flags (`omitSprint: true`).
+- Full-stack e2e (`tests/e2e/full-stack/`): the implement LAUNCHER bypasses `app.deps.provider` and builds per-role
+  providers from settings, so construct `ImplementDeps` by hand from `app.deps` sub-repos plus the fake provider pair.
+  Persist both `sprint.json` and `execution.json` with the branch set, or `resolveBranchLeaf` stalls on a prompt.

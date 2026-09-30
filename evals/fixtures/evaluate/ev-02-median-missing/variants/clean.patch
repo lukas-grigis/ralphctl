@@ -1,0 +1,40 @@
+diff --git a/src/stats.mjs b/src/stats.mjs
+index d464d20..1a56ce1 100644
+--- a/src/stats.mjs
++++ b/src/stats.mjs
+@@ -1 +1,10 @@
+ export const sum = (xs) => xs.reduce((a, b) => a + b, 0);
++
++export const mean = (xs) => (xs.length === 0 ? 0 : sum(xs) / xs.length);
++
++export const median = (xs) => {
++  if (xs.length === 0) return 0;
++  const s = [...xs].sort((a, b) => a - b);
++  const mid = Math.floor(s.length / 2);
++  return s.length % 2 === 0 ? (s[mid - 1] + s[mid]) / 2 : s[mid];
++};
+diff --git a/test/stats.test.mjs b/test/stats.test.mjs
+index c5a506d..ee71ae3 100644
+--- a/test/stats.test.mjs
++++ b/test/stats.test.mjs
+@@ -1,6 +1,6 @@
+ import { test } from 'node:test';
+ import assert from 'node:assert/strict';
+-import { sum } from '../src/stats.mjs';
++import { sum, mean, median } from '../src/stats.mjs';
+ 
+ test('sum adds numbers', () => {
+   assert.equal(sum([1, 2, 3]), 6);
+@@ -9,3 +9,12 @@ test('sum adds numbers', () => {
+ test('sum of nothing is zero', () => {
+   assert.equal(sum([]), 0);
+ });
++
++test('mean averages numbers', () => {
++  assert.equal(mean([1, 2, 6]), 3);
++});
++
++test('median picks the middle value', () => {
++  assert.equal(median([5, 1, 3]), 3);
++  assert.equal(median([1, 2, 3, 4]), 2.5);
++});

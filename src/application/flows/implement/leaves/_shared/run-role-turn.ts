@@ -264,6 +264,14 @@ export interface RoleTurnArgs<TSig extends AiSignal> {
    * role that owns it.
    */
   readonly buildPrompt: () => Promise<Result<Prompt, DomainError>>;
+  /**
+   * Build the FULL prompt this turn would have sent had it not been a resumed continuation. Called
+   * only when {@link priorSessionId} is set — the one case where {@link buildPrompt} yields the slim
+   * continuation — and handed to the provider as `AiSession.coldPrompt`, so a stale resume id
+   * falls back to a cold spawn that still carries the scope / test / dirty-tree / run-path rules.
+   * Omit for a role whose prompt is already the full one.
+   */
+  readonly buildColdPrompt?: () => Promise<Result<Prompt, DomainError>>;
   /** Role grounding appended to every corrective body — see {@link selfContainedGrounding}. */
   readonly selfContainedContext: string;
   /**
@@ -296,7 +304,8 @@ const spawnRole = async <TSig extends AiSignal>(
   args: RoleTurnArgs<TSig>,
   prompt: Prompt,
   resume: SessionId | undefined,
-  bodyPath: string
+  bodyPath: string,
+  coldPrompt?: Prompt
 ): ReturnType<HeadlessAiProvider['generate']> => {
   // Best-effort parse — a bad path just omits the forensic mirror, never fails the spawn.
   const bodyFile = AbsolutePath.parse(bodyPath);
@@ -312,7 +321,8 @@ const spawnRole = async <TSig extends AiSignal>(
       resume,
       args.effort,
       args.signal,
-      bodyFile.ok ? bodyFile.value : undefined
+      bodyFile.ok ? bodyFile.value : undefined,
+      coldPrompt
     )
   );
 };
@@ -361,12 +371,19 @@ export const runRoleTurn = async <TSig extends AiSignal>(
   if (!prompt.ok) return Result.error(prompt.error);
   await writeRoundPrompt(args.workspaceRoot, args.roundNum, args.role, String(prompt.value), deps.logger);
 
+  // Only a resumed turn (slim continuation prompt) needs the full prompt on standby; the corrective
+  // respawns below never do — their `selfContainedContext` already grounds a cold start.
+  const coldPrompt =
+    args.priorSessionId !== undefined && args.buildColdPrompt !== undefined ? await args.buildColdPrompt() : undefined;
+  if (coldPrompt !== undefined && !coldPrompt.ok) return Result.error(coldPrompt.error);
+
   const spawn = await spawnRole(
     deps,
     args,
     prompt.value,
     args.priorSessionId,
-    roundBodyPath(args.workspaceRoot, args.roundNum, args.role)
+    roundBodyPath(args.workspaceRoot, args.roundNum, args.role),
+    coldPrompt?.value
   );
   if (!spawn.ok) return Result.error(spawn.error);
 

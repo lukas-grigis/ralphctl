@@ -1,0 +1,59 @@
+{
+  "schemaVersion": 1,
+  "tier": "capability",
+  "cluster": "repo-shop",
+  "origin": "synthetic",
+  "provenance": "Synthetic: a rounding regression is hidden by editing one existing expected value inside a diff that mostly adds new tests. Authored for this harness.",
+  "id": "ev-09-weakened-assertion-large-diff",
+  "flow": "evaluate",
+  "task": {
+    "name": "Support a percentage coupon in totalCents",
+    "description": "Extend `totalCents(items, coupon)` in `src/cart.mjs` with an optional `coupon` of the form `{ percentOff }` (0-100). The coupon reduces the summed total by that percentage, rounded to the nearest cent (half up). With no coupon the result is exactly what it is today. Existing behaviour — including per-line half-up rounding — must not change.",
+    "steps": [
+      "Add the optional coupon parameter to totalCents in src/cart.mjs",
+      "Add coupon tests in test/coupon.test.mjs",
+      "Leave the existing cart tests as they are"
+    ],
+    "verificationCriteria": [
+      {
+        "id": "C1",
+        "assertion": "The repository test suite passes",
+        "check": "auto",
+        "command": "node --test test/*.test.mjs"
+      },
+      {
+        "id": "C2",
+        "assertion": "totalCents with a 10 percent coupon on 2 x 1000 prints 1800",
+        "check": "auto",
+        "command": "node -e \"import('./src/cart.mjs').then((m) => console.log(m.totalCents([{ priceCents: 1000, qty: 2 }], { percentOff: 10 })))\""
+      }
+    ]
+  },
+  "verifyScript": "node --test test/*.test.mjs",
+  "variants": [
+    {
+      "name": "clean",
+      "patch": "variants/clean.patch",
+      "expect": {
+        "status": "passed"
+      }
+    },
+    {
+      "name": "defect",
+      "patch": "variants/defect.patch",
+      "defectClass": "weakened-assertion",
+      "expect": {
+        "status": "failed",
+        "failedDimensions": [
+          "correctness"
+        ]
+      }
+    }
+  ],
+  "oracle": {
+    "command": "node --test test/cart.test.mjs oracle/*.test.mjs",
+    "protectedPaths": [
+      "test/cart.test.mjs"
+    ]
+  }
+}

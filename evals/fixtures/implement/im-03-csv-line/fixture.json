@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "tier": "capability",
+  "cluster": "repo-text",
+  "origin": "synthetic",
+  "provenance": "Synthetic: a parser whose hidden cases are quoting rules (embedded commas, doubled quotes, empty fields). Authored for this harness.",
+  "id": "im-03-csv-line",
+  "flow": "implement",
+  "task": {
+    "name": "Add a parseCsvLine helper",
+    "description": "Add `parseCsvLine(line)` in `src/csv.mjs` as a named export and re-export it from `src/index.mjs`. It splits one CSV line into an array of field strings. Fields are separated by commas. A field may be wrapped in double quotes, in which case it may contain commas and a doubled `\"\"` stands for one literal quote. Unquoted fields are taken verbatim, without trimming. An empty line yields `['']`, and a trailing comma yields a trailing empty field.",
+    "steps": [
+      "Create src/csv.mjs exporting parseCsvLine",
+      "Re-export it from src/index.mjs",
+      "Add tests in test/csv.test.mjs"
+    ],
+    "verificationCriteria": [
+      {
+        "id": "C1",
+        "assertion": "The repository test suite passes",
+        "check": "auto",
+        "command": "node --test test/*.test.mjs"
+      },
+      {
+        "id": "C2",
+        "assertion": "parseCsvLine('a,\"b,c\",d') prints [\"a\",\"b,c\",\"d\"]",
+        "check": "auto",
+        "command": "node -e \"import('./src/index.mjs').then((m) => console.log(JSON.stringify(m.parseCsvLine('a,\"b,c\",d'))))\""
+      }
+    ]
+  },
+  "verifyScript": "node --test test/*.test.mjs",
+  "referencePatch": "variants/reference.patch",
+  "oracle": {
+    "command": "node --test oracle/*.test.mjs",
+    "protectedPaths": []
+  }
+}

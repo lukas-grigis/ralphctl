@@ -1,6 +1,6 @@
 ---
 name: seams_plateau_and_turn_errors
-description: gen-eval loop seams — the count-based plateau predicate and its exemptions, budget precedence over the in-loop guards, and which turn errors block versus propagate
+description: gen-eval loop seams — the count-based plateau predicate and its exemptions, and which turn errors block versus propagate
 metadata:
   type: project
 ---
@@ -23,41 +23,17 @@ Two exemptions, consulted in order and only once a stall is detected:
 2. **work-product-changed** — `changedFilesHash` differs from every prior in the window →
    `{kind:'warning'}`, capped at `WARNING_SOFTEN_CAP=2` consecutive softenings, then it fires anyway.
 
-## Budget precedence — budget-exhausted beats plateau on the last turn
+## One plateau detector — no in-loop guard leaves
 
-**Invariant: a run where every turn fails from the very start must exit `budget-exhausted`, never
-`plateau`.** The `loop-diversity-check-<taskId>` leaf (last child of the `evaluator-step-<id>` sequential)
-reads `ctx.genEvalTurn` and `deps.readConfig().maxTurns`; when `turnsUsed >= Math.max(1, maxTurns)` it
-returns `shouldExit: false` so `finalize-gen-eval` synthesises the budget-exhausted exit.
+The evaluator turn's `computePlateauVerdict` (windowed by `plateauWindowSize`) is the only plateau detector.
+The former `loop-diversity-check` / `entropy-check` leaves and `settings.harness.entropyPlateauDetector` were
+removed as strictly subordinate to it; `PlateauSource` still lists `diversity` / `entropy` only so old persisted
+attempts parse. A hard stall always exits with `source: 'threshold'`.
 
-Why this ordering has to be explicit: when `maxTurns == windowSize`, the diversity fingerprint fills on
-the final budgeted turn and both conditions hold — but the diversity leaf runs inside the turn body
-BEFORE the loop's `shouldContinue` re-checks budget, so it would set `lastExit: plateau` and steal the
-exit. Diversity may only fire while turns still remain to reclaim via early escalation.
-
-**Read the budget from the same `readConfig()` the loop's `shouldContinue` uses**, never a captured
-constant, so a runtime config change cannot diverge the two. Preserve this ordering if you change the
-diversity exit kind or add another in-turn terminal guard.
-
-## The in-loop guards are subordinate to the calibrated predicate
-
-Both in-loop detectors window from `plateauThreshold` (2–5 via `plateauWindowSize`, no hardcoded 3) and
-gate on `windowIsHardStall` — the same cascade and exemptions `computePlateauVerdict` runs. `entropy-check`
-is additionally opt-in (`settings.harness.entropyPlateauDetector`, default false) and pools its
-signal-kind distribution across the window rather than scoring one turn.
-
-**Consequence: do NOT write a test expecting a bolt-on guard to fire through the live loop.** A hard
-stall implies the calibrated predicate already exited with `source: 'threshold'` on the same window one
-step earlier, so the bolt-ons are reachable only in unit tests that hand-feed `ctx.plateauHistory`; live
-attribution is always `threshold`. Each turn's distribution rides `PlateauTurnRecord.actionCounts`,
-copied off `ctx.lastTurnActionCounts`, which the generator leaf stamps fresh every turn.
-
-**To drive the loop across N turns with no plateau exit** (e.g. to exercise a later guard in isolation)
-the scripted evaluator must do BOTH: rotate the single failing floor dimension each turn, so the
-diversity fingerprint (sorted failed-dim names) stays diverse; AND give a genuinely dissimilar critique
-each turn (pairwise Jaccard < 0.5, distinct full sentences) so the count-based predicate is exempted via
-critique-shift. An empty/stub gitRunner yields an identical `changedFilesHash` every turn, so the
-work-product exemption never helps — rely on critique-shift.
+**To drive the loop across N turns with no plateau exit**, the scripted evaluator must give a genuinely dissimilar
+critique each turn (pairwise Jaccard < 0.5, distinct full sentences) so the count-based predicate is exempted via
+critique-shift. An empty/stub gitRunner yields an identical `changedFilesHash` every turn, so the work-product
+exemption never helps.
 
 ## Turn errors: block the task, don't take down the run
 

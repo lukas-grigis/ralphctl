@@ -1,15 +1,15 @@
 ---
 name: migration-consent-gate-wiring
-description: Wave 2b TTY migration consent gate — MigrationGate Ink screen + launch.ts pre-app routing, renderLearnings adapter location, gate state machine
+description: TTY migration consent gate — MigrationGate Ink screen + launch.ts pre-app routing, renderLearnings adapter location, gate state machine
 metadata:
   type: project
 ---
 
-Wave 2b wired the data-migration consent SPLASH that drives the Wave 2a engine
+The data-migration consent SPLASH drives the migration engine
 (`integration/persistence/data-migration/createDataMigrationEngine()`: `needsMigration`/`dryRun`/`apply`).
 
 **Why:** the user was badly burned by a past migration — the consent gate is the WHOLE safety story;
-nothing mutates data without an explicit click. Wave-1 tolerant readers are the net under every
+nothing mutates data without an explicit click. Tolerant readers are the net under every
 non-consent outcome.
 
 **How to apply:**

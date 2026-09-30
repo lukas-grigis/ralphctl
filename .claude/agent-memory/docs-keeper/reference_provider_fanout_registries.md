@@ -1,6 +1,6 @@
 ---
 name: reference-provider-fanout-registries
-description: Widening the AiProvider union breaks ~15 total Record<AiProvider,…> tables plus one exhaustive switch — regenerate the list mechanically, never hand-maintain it
+description: Widening the AiProvider union breaks several Record<AiProvider,…> tables plus an exhaustive switch — regenerate the list mechanically, never hand-maintain it
 metadata:
   type: reference
 ---

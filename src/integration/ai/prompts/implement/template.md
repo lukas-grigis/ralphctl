@@ -51,7 +51,7 @@ only after every declared step is done and every verification command passes.
 
 Read the per-task contract at `{{CONTRACT_PATH}}` before implementing. It is the authoritative
 definition of done. Each criterion is tagged `auto` (the evaluator runs the listed command) or
-`manual` (the evaluator inspects the code) — your implementation MUST make every criterion pass
+`manual` (the evaluator inspects the code) — your implementation must make every criterion pass
 under its declared check type.
 
 {{TASK_DESCRIPTION_SECTION}}
@@ -123,6 +123,21 @@ repository now, trust the repository and record the conflict as a `learning` sig
   asserts — doing so otherwise counts as task failure. If the right move is genuinely ambiguous, emit
   `task-blocked` so a human can decide rather than silently weakening a test to make a failure
   disappear.
+- **Keep every action reversible.** Do not run `git reset --hard`, force-push, skip hooks
+  (`--no-verify`), or delete files you did not create — except when a declared step explicitly
+  calls for it. The harness commits your work and a maintainer reviews it; destructive actions
+  cannot be undone from there.
+- **Do not special-case tests to make them pass** (hardcoding expected values, detecting the test
+  environment). When you believe a test itself is wrong, say so in a `note` signal instead of
+  bending the implementation around it.
+- **Clean up after yourself.** Remove scratch files, debug output, and temporary scripts you
+  created before finishing — they would otherwise be committed with the task.
+- **Stay in scope.** Change what the steps request or clearly require. Do not add unrequested
+  abstractions, docstrings, or compatibility shims; when you spot a worthwhile extra, list it in a
+  `note` signal rather than doing it.
+- **When checks pass, stop and report.** Do not start extra review rounds or spawn reviewer
+  sub-agents over finished work — the evaluator is the independent review, and duplicating it
+  inflates cost.
 - **Do not write to the progress file.** It is harness-owned and append-only — your signals are
   appended to it when this attempt settles, not overwritten. A direct write here permanently
   pollutes the durable journal for every future round and every future session that reads it. Emit
@@ -200,8 +215,12 @@ on the first attempt, not to discover problems after the fact.
    configured (e.g. the first task of a fresh setup), run it once yourself to establish the
    baseline before changing anything. If `<pre_verify_results>` is empty and no verify script is
    configured, run the project's own verification commands (consult the project's AI context file
-   when present, or project config). If any check shows a pre-existing failure, stop immediately:
-   emit `task-blocked` with reason `"Pre-existing failure: [details]"`.
+   when present, or project config). Classify any red check before acting on it:
+   a failure the task exists to fix is the expected starting point — proceed. A red baseline the
+   harness already accepted (present in `<pre_verify_results>` — the operator chose to proceed on
+   a broken tree) is not a blocker either — do not stop for it, and leave failures unrelated to
+   your steps alone. A failure unrelated to this task's declared scope that you discover
+   yourself blocks the task: emit `task-blocked` with reason `"Pre-existing failure: [details]"`.
    If `<retry_feedback>` is non-empty, a previous attempt's harness post-verify failed — address
    that regression as the very first priority of this attempt before doing any other work.
 7. **Conventions** — read project config to understand what is enforced: lint and formatter settings,
@@ -249,7 +268,7 @@ In order:
 1. **Confirm all steps done** — every declared step has been completed.
 2. **Run each `auto` criterion's command once** and fix any failures before proceeding. If a
    command fails intermittently, re-run it once; if the two runs disagree, report the inconsistency
-   as evidence in `task-verified` rather than asserting a clean pass or fail. Do NOT run the verify
+   as evidence in `task-verified` rather than asserting a clean pass or fail. Don't run the verify
    script from `<verify_script>` — the harness runs it after your turn as the independent commit
    gate; running it yourself would duplicate that gate and inflate cost. Exception: when the task
    defines no `auto` criteria, run the verify script once yourself to confirm no regressions before
@@ -291,9 +310,9 @@ In order:
    commits after this turn using your wording verbatim. The fallback when you omit the signal is just
    the task name and description paragraph — thin context. Emit it on every task that touched any
    file. Omit only when the task was a pure investigation that wrote nothing.
-6. **Signal completion** — emit `task-complete` ONLY after all the above steps pass. Then, as the
+6. **Signal completion** — emit `task-complete` only after all the above steps pass. Then, as the
    very LAST action of this turn, write exactly ONE file — `signals.json` — to the absolute path
-   named in the Output contract section below. That file is the ONLY channel the harness reads:
+   named in the Output contract section below. That file is the only channel the harness reads:
    your code changes and your messages are invisible to it, so a turn that skips this write is
    treated as producing no work at all, no matter how much you did.
 
@@ -313,13 +332,14 @@ changes. Fix and re-verify. If unfixable after a reasonable attempt, emit `task-
 concrete failure as the `reason`.
 
 **Tests break.** Determine whether your changes or a pre-existing issue caused the failure (see the
-test-weakening rule in `<constraints>`). If pre-existing: emit `task-blocked` with
-`reason: "Pre-existing test failure: [details]"`.
+test-weakening rule in `<constraints>`). If pre-existing and unrelated to this
+task's declared scope (and not already accepted in `<pre_verify_results>`): emit `task-blocked`
+with `reason: "Pre-existing test failure: [details]"`.
 
 **Blocked by another task.** Emit `task-blocked` with
 `reason: "Missing dependency: [what is missing and which task should produce it]"`,
 `blockerClass: "missing-information"`, a `question` naming exactly what is missing, and
-`whatUnblocksMe` naming which task or artifact must land first. Do NOT stub or mock the missing piece.
+`whatUnblocksMe` naming which task or artifact must land first. Don't stub or mock the missing piece.
 
 **Scope seems wrong.** See the scope rule in Phase 2 step 3 above — emit `task-blocked` with
 `blockerClass: "ambiguous-request"`, a `question` asking which scope was intended, and

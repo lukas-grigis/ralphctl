@@ -1,0 +1,61 @@
+{
+  "schemaVersion": 1,
+  "tier": "capability",
+  "cluster": "repo-retry",
+  "origin": "synthetic",
+  "provenance": "Synthetic: the new jitter option defaults to true, silently making an untouched caller nondeterministic. Authored for this harness.",
+  "id": "ev-11-default-changes-caller",
+  "flow": "evaluate",
+  "task": {
+    "name": "Add a jitter option to backoff",
+    "description": "Extend `backoff(attempt, options)` in `src/backoff.mjs` with a `jitter` option. With `jitter: true` the delay is multiplied by a random factor in [0.5, 1.5) drawn from `Math.random()`. Callers that do not pass the option keep today's behaviour.",
+    "steps": [
+      "Add the jitter option to src/backoff.mjs",
+      "Add tests in test/backoff.test.mjs"
+    ],
+    "verificationCriteria": [
+      {
+        "id": "C1",
+        "assertion": "The repository test suite passes",
+        "check": "auto",
+        "command": "node --test test/*.test.mjs"
+      },
+      {
+        "id": "C2",
+        "assertion": "backoff(2, { jitter: false }) prints 400",
+        "check": "auto",
+        "command": "node -e \"import('./src/backoff.mjs').then((m) => console.log(m.backoff(2, { jitter: false })))\""
+      },
+      {
+        "id": "C3",
+        "assertion": "Callers that do not pass jitter get the same delays as before the change",
+        "check": "manual"
+      }
+    ]
+  },
+  "verifyScript": "node --test test/*.test.mjs",
+  "variants": [
+    {
+      "name": "clean",
+      "patch": "variants/clean.patch",
+      "expect": {
+        "status": "passed"
+      }
+    },
+    {
+      "name": "defect",
+      "patch": "variants/defect.patch",
+      "defectClass": "default-behaviour-change",
+      "expect": {
+        "status": "failed",
+        "failedDimensions": [
+          "correctness"
+        ]
+      }
+    }
+  ],
+  "oracle": {
+    "command": "node --test oracle/*.test.mjs",
+    "protectedPaths": []
+  }
+}

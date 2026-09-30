@@ -198,9 +198,10 @@ business/
 ├── sprint/views/      ← read-only views: sprint progress, requirements export, context export
 ├── ticket/            ← addTicket, refineTicket, removeTicket, …
 ├── task/              ← createTasks, updateTask, markBlocked, recordEvaluation,
-│                       escalation-policy (decideEscalation / applyEscalation / computeActionEntropy / detectLowEntropy),
-│                       loop-diversity (createLoopDiversityTracker), composeTaskEpisodes, summariseEpisodes, …
+│                       escalation-policy (decideEscalation / applyEscalation), composeTaskEpisodes, summariseEpisodes, …
 ├── feedback/          ← applyFeedback (review flow body)
+├── context-file/      ← splice-section: `spliceOwnedSection` / `appendSections` — code-side merge of an AI-written delta
+│                       into a provider-native context file (distill, readiness)
 ├── settings/          ← loadSettings, updateSettings
 ├── version/           ← cli-metadata, version-check, version-checker (npm poll)
 ├── scm/               ← issue-fetcher / issue-pusher / pull-request-creator ports
@@ -661,7 +662,7 @@ and the non-obvious mutators.
   Cross-sprint persistence is explicitly future work.
 - **`Settings`** — declared by `SettingsSchema` in `domain/entity/settings.ts`. Top-level fields:
   `schemaVersion` (currently `2`), `ai`,
-  `harness: { maxTurns, maxAttempts, rateLimitRetries, plateauThreshold, escalateOnPlateau, escalationMap, skipPreVerifyOnFreshSetup, entropyPlateauDetector, bestOfNCandidates? }`,
+  `harness: { maxTurns, maxAttempts, rateLimitRetries, plateauThreshold, escalateOnPlateau, escalationMap, skipPreVerifyOnFreshSetup, bestOfNCandidates? }`,
   `logging: { level }`, `concurrency: { maxParallelTasks }`, `ui: { notifications: { enabled } }`,
   `scm: { postRefinementComment }`. `ai` is a flat per-flow record: an optional global
   `ai.effort` plus one row per flow — `ai.{refine, plan, readiness, ideate, createPr}`, each
@@ -709,8 +710,8 @@ signals: [...] }` envelope. The harness reads + Zod-validates post-spawn via
 | `TaskPlanSignal`                                         | `plan` flow projects the emitted task envelope (`tasksJson`) onto the sprint task list via `planSprintUseCase` (`parsePlanOutput` → `parseTaskList` resolves cross-references)                                                                                                                                                                                                                                                                                |
 | `IdeatedTicketsSignal`                                   | `ideate` flow projects the requirements body + task envelope (`outputJson`) onto the sprint and approves the ticket via `addApprovedTicketUseCase` (`parseIdeateOutput` → `parseTaskList`)                                                                                                                                                                                                                                                                    |
 | `PrContentSignal`                                        | `create-pr` flow reads the AI-authored PR `title`/`body` off ctx and prefers it over the template-derived default when threading into `gh pr create` / `glab mr create`                                                                                                                                                                                                                                                                                       |
-| `ReproductionSignal`                                     | `reproduce` leaf (once per `bugfix`-classified task, before the generator's first turn) — harness re-runs `runCommand` and only accepts `testPath`/`observedFailure` when the re-run actually fails; `relevantTests` and the artifact feed both generator and evaluator prompts                                                                                                                                                                               |
-| `CandidateSelectionSignal`                               | `select-candidate` AI session inside implement's best-of-N opt-in rung (`settings.harness.bestOfNCandidates`) — pairwise-compares two candidates' structured summaries and picks a `winner`                                                                                                                                                                                                                                                                   |
+| `ReproductionSignal`                                     | `reproduce` leaf (once per `bugfix`-classified task, before the generator's first turn) — harness re-runs `runCommand` and only accepts `testPath`/`observedFailure` when the re-run actually fails (`reproduced: false` + `reason` is the bounded "could not reproduce" exit — nothing to re-run); `relevantTests` and the artifact feed both generator and evaluator prompts                                                                                |
+| `CandidateSelectionSignal`                               | `select-candidate` AI session inside implement's best-of-N opt-in rung (`settings.harness.bestOfNCandidates`) — pairwise-compares two candidates' structured summaries and picks a `winner` (`0` declares a tie; the judge runs twice with the order swapped)                                                                                                                                                                                                 |
 
 EventBus events emitted by the chain runner / adapters (not parsed from AI output): `ChainStarted`,
 `ChainStepStarted`, `ChainStepCompleted`, `ChainStepFailed`, `ChainCompleted`, `ChainFailed`,

@@ -25,6 +25,11 @@ describe('contextWindowFor', () => {
     expect(contextWindowFor('claude-sonnet-5')).toBe(1_000_000);
   });
 
+  it('returns 1_000_000 for the bare claude-sonnet-5-5 id (native 1M, no [1m] selector)', () => {
+    expect(contextWindowFor('claude-sonnet-5-5')).toBe(1_000_000);
+    expect(contextWindowLabel('claude-sonnet-5-5')).toBe('1M');
+  });
+
   it('returns 500_000 for every published Grok catalog id', () => {
     expect(contextWindowFor('grok-4.7')).toBe(500_000);
     expect(contextWindowFor('grok-4.7-build-fast')).toBe(500_000);

@@ -5,7 +5,7 @@ metadata:
   type: project
 ---
 
-Files: `flows/implement/per-task-subchain.ts`, `flows/implement/sprint-scoped-projection.ts`,
+Files: `flows/implement/leaves/per-task-subchain.ts`, `flows/implement/sprint-scoped-projection.ts`,
 `flows/implement/merge-wave.ts`, `leaves/_shared/attempt-usage-carry.ts`,
 `leaves/stamp-role-meta.ts`, `ui/tui/runtime/bucket-task-signals.ts`.
 

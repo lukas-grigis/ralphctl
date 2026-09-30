@@ -17,15 +17,14 @@ import { requireNonEmpty } from '@src/integration/ai/prompts/_engine/validators.
  * Parameters:
  *  - `repositoryPath` — absolute path to the repo the AI is inventorying.
  *  - `currentTool` — the {@link AssistantTool} the harness is targeting, rendered as its string
- *    discriminant (claude-code / copilot / codex). Pre-rendered to a string so the
+ *    discriminant (claude-code / copilot / codex / opencode / grok). Pre-rendered to a string so the
  *    `ParameterSpec<string>` validator can be uniform across every parameter.
- *  - `wireTag` — the XML tag name the AI should emit around its proposed body. Tool-specific so
- *    Claude sees `<claude-md>` (writing to CLAUDE.md), Copilot sees `<copilot-instructions>`,
- *    and Codex sees `<agents-md>` (its native cross-tool spec name). Computed from
+ *  - `wireTag` — the provider-specific label the AI echoes in the `tag` field of its
+ *    `agents-md-proposal` signal (the target-file name for that tool). Computed from
  *    `currentTool` via {@link wireTagFor}.
- *  - `existingContextFile` — the existing context-file body when one was found, or an explicit
- *    "no existing file" line. The "preserve verbatim" constraint in the template fires on a
- *    non-empty body.
+ *  - `existingContextFile` — the existing context-file body when one was found, or an empty
+ *    string when no file exists. The template's existing-context rule (emit only additions; the harness
+ *    appends them) fires on a non-empty body.
  *  - `detectedArtefacts` — bullet list of artefact paths discovered by the probe, or an explicit
  *    "no artefacts detected" line when the probe came back absent.
  *  - `targetFileConventions` — per-provider style guide for the target context file (CLAUDE.md /
@@ -46,7 +45,7 @@ export interface ReadinessPromptParams {
    */
   readonly targetFileConventions: string;
   /**
-   * Audit-[09] output contract section — rendered from the readiness `AiOutputContract` by
+   * Output contract section — rendered from the readiness `AiOutputContract` by
    * `renderContractSectionFor(readinessOutputContract)`. Tells the AI to write `signals.json`
    * directly with one or more of `agents-md-proposal`, `setup-skill-proposal`,
    * `verify-skill-proposal`, plus optional `skill-suggestions` / `note` / `learning`.
@@ -76,15 +75,13 @@ export const conventionsPartialName = (tool: AssistantTool): string =>
 /**
  * Readiness prompt definition.
  *
- * Partial choice: only `harness-context` is wired. There is no `signals-readiness` partial in
- * the v2 templates yet; the readiness template carries its own minimal output contract inline
- * (just `<{wireTag}>` + an optional `<note>`). Introducing a new partial would have widened
- * the scope of P10 (creating a partial + a P-spec for it). Decision logged in
- * `docs/architecture/packages/P10-readiness-chain.md`.
+ * Partial choice: only `harness-context` is wired. The output contract arrives through the
+ * `{{OUTPUT_CONTRACT_SECTION}}` parameter rendered from the readiness `AiOutputContract`; the
+ * template adds a short readiness-specific recap of the `agents-md-proposal` / `note` signals.
  *
  * Expected signals: `agents-md-proposal` (the proposed body — internal signal name kept stable
- * across tools) and `note` (optional commentary). The chain leaf parses the tool-specific
- * wire tag from the raw body — see `proposeReadinessLeaf`.
+ * across tools) and `note` (optional commentary). The chain leaf reads them from `signals.json`
+ * — see `proposeReadinessLeaf`.
  */
 export const readinessPromptDef: PromptDefinition<ReadinessPromptParams> = {
   templateName: 'readiness',
@@ -98,15 +95,16 @@ export const readinessPromptDef: PromptDefinition<ReadinessPromptParams> = {
     },
     currentTool: {
       placeholder: 'CURRENT_TOOL',
-      description: 'The AssistantTool the harness is targeting (claude-code / copilot / codex).',
+      description: 'The AssistantTool the harness is targeting (claude-code / copilot / codex / opencode / grok).',
     },
     wireTag: {
       placeholder: 'WIRE_TAG',
-      description: 'Tool-specific XML tag the AI should emit around its proposed body.',
+      description: 'Tool-specific label the AI echoes in the `tag` field of its `agents-md-proposal` signal.',
     },
     existingContextFile: {
       placeholder: 'EXISTING_CONTEXT_FILE',
-      description: 'Existing context-file body wrapped for prompting, or an explicit "no existing file" line.',
+      description: 'Existing context-file body wrapped for prompting, or an empty string when no file exists.',
+      untrusted: { source: 'the existing project context file' },
     },
     detectedArtefacts: {
       placeholder: 'DETECTED_ARTEFACTS',
@@ -120,13 +118,11 @@ export const readinessPromptDef: PromptDefinition<ReadinessPromptParams> = {
     outputContractSection: {
       placeholder: 'OUTPUT_CONTRACT_SECTION',
       description:
-        'Audit-[09] output contract block rendered from the readiness contract — instructs the AI to write `signals.json` directly with the proposal signals.',
+        'Output contract block rendered from the readiness contract — instructs the AI to write `signals.json` directly with the proposal signals.',
       validate: requireNonEmpty('outputContractSection', 'output-contract section must not be empty'),
     },
   },
-  partials: {
-    HARNESS_CONTEXT: 'harness-context',
-  },
+  partials: {},
   expectedSignals: [
     'agents-md-proposal',
     'setup-skill-proposal',
@@ -143,12 +139,12 @@ export const renderCurrentTool = (tool: AssistantTool): string => tool;
 /**
  * Render the existing-context-file block. When a body was supplied, wrap it in
  * `<existing-context>...</existing-context>` so the AI sees a clear delimiter. When absent,
- * surface a single explicit line — the prompt's "preserve verbatim" rule keys off whether a
- * body is present.
+ * return an empty string (so the untrusted-data notice does not fire) — the template's
+ * existing-context rule (AI emits only additions) keys off whether `<existing_context_file>` is empty.
  */
 export const renderExistingContextFile = (body: string | undefined): string => {
   if (body === undefined || body.trim().length === 0) {
-    return '_(no existing context file present — emit a fresh body)_';
+    return '';
   }
   return `<existing-context>\n\n${body.trim()}\n\n</existing-context>`;
 };
@@ -219,7 +215,7 @@ export interface BuildReadinessPromptInput {
   /** Existing context file body, when present. Supplied by the chain leaf when probe → present. */
   readonly existingContextFile?: string;
   /**
-   * Pre-rendered audit-[09] output contract section. The leaf composes this via
+   * Pre-rendered output contract section. The leaf composes this via
    * `renderContractSectionFor(readinessOutputContract)` before calling the builder.
    */
   readonly outputContractSection: string;

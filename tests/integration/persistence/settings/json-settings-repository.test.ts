@@ -119,7 +119,6 @@ describe('JsonSettingsRepository', () => {
         escalateOnPlateau: false,
         escalationMap: {},
         skipPreVerifyOnFreshSetup: false,
-        entropyPlateauDetector: false,
       },
       logging: { level: 'info' },
       concurrency: { maxParallelTasks: 1 },
@@ -158,7 +157,6 @@ describe('JsonSettingsRepository', () => {
         escalateOnPlateau: true,
         escalationMap: { 'claude-sonnet-4-6': 'claude-opus-4-8' },
         skipPreVerifyOnFreshSetup: false,
-        entropyPlateauDetector: false,
       },
       logging: { level: 'debug' },
       concurrency: { maxParallelTasks: 4 },
@@ -368,6 +366,28 @@ describe('JsonSettingsRepository', () => {
     expect(loaded.value.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
     const onDisk = JSON.parse(await fs.readFile(path, 'utf8')) as { readonly ai: Record<string, unknown> };
     expect(onDisk.ai['plan']).toEqual({ provider: 'github-copilot', model: retired });
+  });
+
+  // Sonnet 5 stays live on Claude Code after the presets moved to Sonnet 5.5 — a row pinned to it,
+  // and an escalation rung naming it, must load exactly as written (no retired-id remap).
+  it('load leaves a persisted claude-code row pinned to claude-sonnet-5 unchanged', async () => {
+    const path = join(String(configRoot), SETTINGS_FILE_NAME);
+    const pinned = {
+      ...DEFAULT_SETTINGS,
+      ai: {
+        ...DEFAULT_SETTINGS.ai,
+        plan: { provider: 'claude-code', model: 'claude-sonnet-5', effort: 'high' },
+      },
+      harness: { ...DEFAULT_SETTINGS.harness, escalationMap: { 'claude-haiku-4-5': 'claude-sonnet-5' } },
+    };
+    await fs.writeFile(path, `${JSON.stringify(pinned, null, 2)}\n`);
+
+    const repo = createJsonSettingsRepository({ configRoot });
+    const loaded = await repo.load();
+    expect(loaded.ok).toBe(true);
+    if (!loaded.ok) return;
+    expect(loaded.value.ai.plan).toEqual({ provider: 'claude-code', model: 'claude-sonnet-5', effort: 'high' });
+    expect(loaded.value.harness.escalationMap).toEqual({ 'claude-haiku-4-5': 'claude-sonnet-5' });
   });
 
   it('load silently strips a legacy settings.developer section (removed in 4bd412aa)', async () => {

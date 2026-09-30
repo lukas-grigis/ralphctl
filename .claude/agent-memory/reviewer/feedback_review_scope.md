@@ -21,3 +21,6 @@ write a throwaway tsconfig in the scratchpad that `extends` the repo tsconfig wi
 list — it must also re-declare `typeRoots` (absolute, to the repo's `node_modules/@types`) and `paths` with ABSOLUTE
 values, because both resolve relative to the extending config's directory and silently break otherwise. Prefer this
 over `baseUrl` (TS 6 deprecation error).
+
+The Bash shell is zsh: `F="a.ts b.ts"; npx eslint $F` passes ONE path (no word-splitting) and eslint/prettier fail with
+"no files matching" / ENAMETOOLONG. Write the list to a scratchpad file and pipe it through `xargs`.

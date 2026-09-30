@@ -1,0 +1,55 @@
+diff --git a/src/csv.mjs b/src/csv.mjs
+new file mode 100644
+index 0000000..64aaf08
+--- /dev/null
++++ b/src/csv.mjs
+@@ -0,0 +1,29 @@
++export const parseCsvLine = (line) => {
++  const fields = [];
++  let current = '';
++  let quoted = false;
++  for (let i = 0; i < line.length; i += 1) {
++    const ch = line[i];
++    if (quoted) {
++      if (ch === '"') {
++        if (line[i + 1] === '"') {
++          current += '"';
++          i += 1;
++        } else {
++          quoted = false;
++        }
++      } else {
++        current += ch;
++      }
++    } else if (ch === '"') {
++      quoted = true;
++    } else if (ch === ',') {
++      fields.push(current);
++      current = '';
++    } else {
++      current += ch;
++    }
++  }
++  fields.push(current);
++  return fields;
++};
+diff --git a/src/index.mjs b/src/index.mjs
+index ca63881..85d314e 100644
+--- a/src/index.mjs
++++ b/src/index.mjs
+@@ -1 +1,2 @@
+ export { wordCount } from './text.mjs';
++export { parseCsvLine } from './csv.mjs';
+diff --git a/test/csv.test.mjs b/test/csv.test.mjs
+new file mode 100644
+index 0000000..33aa39a
+--- /dev/null
++++ b/test/csv.test.mjs
+@@ -0,0 +1,7 @@
++import { test } from 'node:test';
++import assert from 'node:assert/strict';
++import { parseCsvLine } from '../src/csv.mjs';
++
++test('splits plain fields', () => {
++  assert.deepEqual(parseCsvLine('a,b,c'), ['a', 'b', 'c']);
++});

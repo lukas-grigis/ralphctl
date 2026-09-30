@@ -168,7 +168,12 @@ const createFakeGeneratorProvider = (
 // ── Fake evaluator provider (judge calls + the real evaluator turn) ─────────────────────
 
 interface JudgeScript {
-  readonly winner?: 1 | 2; // undefined → invalid signal (fallback path)
+  /** Verdict in the FORWARD ordering — the fake flips it for the swapped run so it always names the
+   * same candidate. undefined → invalid signal (fallback path). */
+  readonly winner?: 1 | 2;
+  /** Raw winner to emit for the swapped run instead of the flipped one — scripts a judge that
+   * contradicts itself under order swap (`0` = declared tie). */
+  readonly swappedRawWinner?: 0 | 1 | 2;
   readonly invalid?: boolean;
 }
 
@@ -196,7 +201,9 @@ const createFakeEvaluatorProvider = (judges: readonly JudgeScript[]): HeadlessAi
         if (!wrote.ok) return Result.error(wrote.error) as Result<ProviderOutput, DomainError>;
         return Result.ok({ signalsFile: session.signalsFile, exitCode: 0 });
       }
-      const signal = { type: 'candidate-selection', winner: script.winner, rationale: 'test rationale', timestamp: TS };
+      const swapped = /judge[/\\]\d+-swapped/.test(String(session.outputDir ?? ''));
+      const winner = swapped ? (script.swappedRawWinner ?? 3 - (script.winner ?? 1)) : script.winner;
+      const signal = { type: 'candidate-selection', winner, rationale: 'test rationale', timestamp: TS };
       // `select-candidate`'s contract has an EMPTY migration chain (a fresh contract, no legacy
       // on-disk shape) — unlike the generator/evaluator contracts' `wrapLegacyArray` migration, a
       // bare top-level array is NOT accepted here; the `{schemaVersion, signals}` wrapper is required.
@@ -560,7 +567,7 @@ describe('best-of-N candidate loop + selection cascade', () => {
     expect(isBestOfNGranted(selected.value.ctx)).toBe(false);
   });
 
-  it('judge tournament: 3 distinct clean survivors run exactly 2 judge calls, the tournament winner is applied', async () => {
+  it('judge tournament: 3 distinct clean survivors run 2 comparisons (each judged in both orders), the tournament winner is applied', async () => {
     const gitState = freshGitState();
     const gitRunner = createFakeGitRunner(gitState);
     const genProvider = createFakeGeneratorProvider(gitState, {
@@ -589,8 +596,95 @@ describe('best-of-N candidate loop + selection cascade', () => {
     expect(selected.ok).toBe(true);
     if (!selected.ok) return;
     // 1 vs 2 → 2 wins; 2 vs 3 → "candidate 2" of that call (challenger, i.e. candidate 3) wins.
-    expect(judgeCalls).toHaveLength(2);
+    // Each comparison is judged twice (forward + order-swapped) and both orderings agree.
+    expect(judgeCalls).toHaveLength(4);
     expect(gitState.currentDiff).toBe('diff-3');
+  });
+
+  it('swap-and-agree: the judge runs twice with the candidate order swapped, and the swapped prompt shows the candidates in the opposite slots', async () => {
+    const gitState = freshGitState();
+    const gitRunner = createFakeGitRunner(gitState);
+    const genProvider = createFakeGeneratorProvider(gitState, { 1: { diff: 'diff-1' }, 2: { diff: 'diff-2' } });
+    const judgeSessions: AiSession[] = [];
+    const inner = createFakeEvaluatorProvider([{ winner: 2 }]);
+    const evalProvider: HeadlessAiProvider = {
+      async generate(session) {
+        judgeSessions.push(session);
+        return inner.generate(session);
+      },
+    };
+    const deps = buildDeps(gitRunner, genProvider, evalProvider, shellScriptedByDiff(gitState, new Set()));
+    const opts = buildOpts();
+    const task = buildTask(2);
+    const looped = await bestOfNCandidateLoopLeaf(deps, opts, task.id).execute(buildCtx(task));
+    expect(looped.ok).toBe(true);
+    if (!looped.ok) return;
+    const records = looped.value.ctx.bestOfNCandidates ?? [];
+
+    const selected = await runSelection(deps, opts, task, looped.value.ctx);
+    expect(selected.ok).toBe(true);
+    // Both orderings named candidate 2 → it wins, no fallback needed.
+    expect(gitState.currentDiff).toBe('diff-2');
+    expect(judgeSessions).toHaveLength(2);
+    const [forward, swapped] = judgeSessions.map((s) => String(s.prompt));
+    expect(forward).toContain(records[0]?.summary);
+    expect(swapped).toContain(records[1]?.summary);
+    const slot = (prompt: string | undefined, tag: string): string =>
+      new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`).exec(prompt ?? '')?.[1] ?? '';
+    expect(slot(forward, 'candidate_1')).toContain(records[0]?.summary ?? '?');
+    expect(slot(swapped, 'candidate_1')).toContain(records[1]?.summary ?? '?');
+  });
+
+  it('swap-and-agree: a judge that contradicts itself under the swap is a tie → the verification-quality fallback decides', async () => {
+    const gitState = freshGitState();
+    // Candidate 2 touches fewer files, so the fallback prefers it when the judge yields no winner.
+    gitState.fileCounts = { 'diff-1': 3, 'diff-2': 1 };
+    const gitRunner = createFakeGitRunner(gitState);
+    const genProvider = createFakeGeneratorProvider(gitState, { 1: { diff: 'diff-1' }, 2: { diff: 'diff-2' } });
+    // Forward run says slot 1 (candidate 1); swapped run ALSO says slot 1 (candidate 2) — position bias.
+    const evalProvider = createFakeEvaluatorProvider([{ winner: 1, swappedRawWinner: 1 }]);
+    const deps = buildDeps(gitRunner, genProvider, evalProvider, shellScriptedByDiff(gitState, new Set()));
+    const opts = buildOpts();
+    const task = buildTask(2);
+    const looped = await bestOfNCandidateLoopLeaf(deps, opts, task.id).execute(buildCtx(task));
+    expect(looped.ok).toBe(true);
+    if (!looped.ok) return;
+
+    const selected = await runSelection(deps, opts, task, looped.value.ctx);
+    expect(selected.ok).toBe(true);
+    // Not 'diff-1' (the forward judge's pick): the disagreement is a tie and the fallback wins.
+    expect(gitState.currentDiff).toBe('diff-2');
+  });
+
+  it('swap-and-agree: a declared tie (winner 0) falls back to the verification-quality ordering', async () => {
+    const gitState = freshGitState();
+    gitState.fileCounts = { 'diff-1': 3, 'diff-2': 1 };
+    const gitRunner = createFakeGitRunner(gitState);
+    const genProvider = createFakeGeneratorProvider(gitState, { 1: { diff: 'diff-1' }, 2: { diff: 'diff-2' } });
+    const calls: AiSession[] = [];
+    const inner: HeadlessAiProvider = {
+      async generate(session) {
+        calls.push(session);
+        const wrote = await writeJsonAtomic(String(session.signalsFile), {
+          schemaVersion: 1,
+          signals: [{ type: 'candidate-selection', winner: 0, rationale: 'indistinguishable', timestamp: TS }],
+        });
+        if (!wrote.ok) return Result.error(wrote.error) as Result<ProviderOutput, DomainError>;
+        return Result.ok({ signalsFile: session.signalsFile, exitCode: 0 });
+      },
+    };
+    const deps = buildDeps(gitRunner, genProvider, inner, shellScriptedByDiff(gitState, new Set()));
+    const opts = buildOpts();
+    const task = buildTask(2);
+    const looped = await bestOfNCandidateLoopLeaf(deps, opts, task.id).execute(buildCtx(task));
+    expect(looped.ok).toBe(true);
+    if (!looped.ok) return;
+
+    const selected = await runSelection(deps, opts, task, looped.value.ctx);
+    expect(selected.ok).toBe(true);
+    expect(gitState.currentDiff).toBe('diff-2');
+    // A forward tie short-circuits — no point paying for the swapped run.
+    expect(calls).toHaveLength(1);
   });
 
   it('judge-failure fallback: an invalid judge verdict falls back to the verification-quality ordering (attribution, then fewest changed files) instead of crashing', async () => {

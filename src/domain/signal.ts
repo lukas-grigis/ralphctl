@@ -433,6 +433,11 @@ export interface PrContentSignal {
  *    reader can distinguish "searched, found nothing" from "field absent".
  *  - `notes` — optional free-form context, e.g. why this reproduction shape was chosen over an
  *    alternative.
+ *  - `reproduced` — `false` when the bounded attempt could not make a test fail for the reported
+ *    reason (already fixed, environment-bound, or the report is not actionable); absent means
+ *    `true`, so signals written before this field existed still parse. On `false`, `testPath`,
+ *    `runCommand` and `observedFailure` may be empty strings.
+ *  - `reason` — why the defect was not reproduced; meaningful only with `reproduced: false`.
  */
 export interface ReproductionSignal {
   readonly type: 'reproduction';
@@ -441,6 +446,8 @@ export interface ReproductionSignal {
   readonly observedFailure: string;
   readonly relevantTests: readonly string[];
   readonly notes?: string;
+  readonly reproduced?: boolean;
+  readonly reason?: string;
   readonly timestamp: IsoTimestamp;
 }
 
@@ -453,7 +460,8 @@ export interface ReproductionSignal {
  * summaries, never raw transcripts, at equal-or-better verdict quality and much lower cost.
  *
  *  - `winner` — 1-based index of the chosen candidate, matching the `Candidate 1` / `Candidate 2`
- *    labelling the prompt shows the AI.
+ *    labelling the prompt shows the AI; `0` declares a tie (the candidates are indistinguishable
+ *    on the evidence given).
  *  - `rationale` — justification citing concrete evidence from the two summaries (a verification
  *    outcome, a specific file, a notable signal) rather than a bare confidence claim. Prompt-
  *    enforced bound, mirroring `DimensionScore.executionEvidence`.

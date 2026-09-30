@@ -7,7 +7,7 @@
  *
  *     const home = await createCliHome();
  *     try {
- *       const r = await runCliCaptured(home, ['ralphctl', 'doctor']);
+ *       const r = await runCliCaptured(home, ['doctor']);
  *       expect(r.exitCode).toBe(0);
  *       expect(r.stdout).toContain('OK');
  *     } finally {

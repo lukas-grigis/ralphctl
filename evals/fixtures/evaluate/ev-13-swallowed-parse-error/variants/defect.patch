@@ -1,0 +1,40 @@
+diff --git a/src/config.mjs b/src/config.mjs
+new file mode 100644
+index 0000000..bbe2ac0
+--- /dev/null
++++ b/src/config.mjs
+@@ -0,0 +1,10 @@
++import { readFileSync } from 'node:fs';
++import { DEFAULTS } from './defaults.mjs';
++
++export const loadConfig = (path) => {
++  try {
++    return { ...DEFAULTS, ...JSON.parse(readFileSync(path, 'utf8')) };
++  } catch {
++    return { ...DEFAULTS };
++  }
++};
+diff --git a/test/config.test.mjs b/test/config.test.mjs
+new file mode 100644
+index 0000000..778cf12
+--- /dev/null
++++ b/test/config.test.mjs
+@@ -0,0 +1,18 @@
++import { test } from 'node:test';
++import assert from 'node:assert/strict';
++import { mkdtempSync, writeFileSync } from 'node:fs';
++import { tmpdir } from 'node:os';
++import { join } from 'node:path';
++import { loadConfig } from '../src/config.mjs';
++
++const tmp = () => mkdtempSync(join(tmpdir(), 'config-'));
++
++test('a missing file yields the defaults', () => {
++  assert.deepEqual(loadConfig(join(tmp(), 'nope.json')), { retries: 3 });
++});
++
++test('a file is merged over the defaults', () => {
++  const file = join(tmp(), 'c.json');
++  writeFileSync(file, '{"retries": 5, "extra": true}');
++  assert.deepEqual(loadConfig(file), { retries: 5, extra: true });
++});

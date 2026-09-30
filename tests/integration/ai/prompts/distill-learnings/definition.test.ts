@@ -17,8 +17,20 @@ const VALID_INPUT = {
   existingContextFile: '# CLAUDE.md\n\nProject guidance.',
   candidateLearnings: '- The build emits ESM only.\n- Prefer the injected port over direct fs.',
   targetFilename: 'CLAUDE.md',
+  outputFile: '/tmp/distill/claude-code/context-file.out',
   projectTooling: 'Detected: pnpm + vitest.',
 } as const;
+
+describe('buildDistillLearningsPrompt — untrusted notice wiring', () => {
+  it('prefixes an existing file body with the notice, and omits it when the file is absent', async () => {
+    const present = await buildDistillLearningsPrompt(loader, VALID_INPUT);
+    const absent = await buildDistillLearningsPrompt(loader, { ...VALID_INPUT, existingContextFile: '' });
+    expect(present.ok && absent.ok).toBe(true);
+    if (!present.ok || !absent.ok) return;
+    expect(present.value).toContain('data from the existing project context file');
+    expect(absent.value).not.toContain('data from the existing project context file');
+  });
+});
 
 describe('distillLearningsPromptDef — completeness', () => {
   it('placeholder ↔ parameter parity (both directions)', async () => {
@@ -31,7 +43,7 @@ describe('distillLearningsPromptDef — completeness', () => {
     expect(report.unreferenced).toEqual([]);
   });
 
-  it('declares exactly the five spec placeholders', async () => {
+  it('declares exactly the six spec placeholders', async () => {
     const rawTemplate = await readTemplate();
     const partials = await loadPartialMap(distillLearningsPromptDef, loader);
     const report = computePlaceholderParity({ def: distillLearningsPromptDef, rawTemplate, partials });
@@ -40,6 +52,7 @@ describe('distillLearningsPromptDef — completeness', () => {
         'CANDIDATE_LEARNINGS',
         'EXISTING_CONTEXT_FILE',
         'LEARNINGS_SECTION_HEADING',
+        'OUTPUT_FILE',
         'PROJECT_TOOLING',
         'TARGET_FILENAME',
       ].sort()
@@ -79,6 +92,26 @@ describe('buildDistillLearningsPrompt — end-to-end', () => {
     expect(result.value).toContain('Detected: pnpm + vitest.');
   });
 
+  it('names the harness output path and never tells the AI to overwrite the real file', async () => {
+    const result = await buildDistillLearningsPrompt(loader, VALID_INPUT);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value).toContain('/tmp/distill/claude-code/context-file.out');
+    expect(result.value).not.toContain('at its original path');
+    expect(result.value).not.toContain('create it (and any missing parent directory)');
+    expect(result.value).toContain('do not modify `CLAUDE.md`');
+  });
+
+  it('asks for only the section body, never the whole file', async () => {
+    const result = await buildDistillLearningsPrompt(loader, VALID_INPUT);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value).toContain('Write ONLY the reconciled section body');
+    expect(result.value).toContain('the harness rejects the proposal otherwise');
+    expect(result.value).not.toContain('Write the COMPLETE proposed content');
+    expect(result.value).not.toContain('preserve it byte-for-byte');
+  });
+
   it('substitutes a caller-supplied learnings-section heading', async () => {
     const result = await buildDistillLearningsPrompt(loader, {
       ...VALID_INPUT,
@@ -100,5 +133,14 @@ describe('buildDistillLearningsPrompt — end-to-end', () => {
     const result = await buildDistillLearningsPrompt(loader, { ...VALID_INPUT, targetFilename: '' });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toBeInstanceOf(ValidationError);
+  });
+});
+
+describe('distillLearningsPromptDef — untrusted inputs', () => {
+  it('flags EXISTING_CONTEXT_FILE as untrusted data', () => {
+    const spec = Object.values(distillLearningsPromptDef.parameters).find(
+      (p) => p.placeholder === 'EXISTING_CONTEXT_FILE'
+    );
+    expect(spec?.untrusted?.source).toBeTruthy();
   });
 });

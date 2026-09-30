@@ -1,0 +1,33 @@
+diff --git a/src/with-lock.mjs b/src/with-lock.mjs
+new file mode 100644
+index 0000000..191a13e
+--- /dev/null
++++ b/src/with-lock.mjs
+@@ -0,0 +1,6 @@
++export const withLock = async (lock, fn) => {
++  lock.acquire();
++  const result = await fn();
++  lock.release();
++  return result;
++};
+diff --git a/test/with-lock.test.mjs b/test/with-lock.test.mjs
+new file mode 100644
+index 0000000..fd025d8
+--- /dev/null
++++ b/test/with-lock.test.mjs
+@@ -0,0 +1,15 @@
++import { test } from 'node:test';
++import assert from 'node:assert/strict';
++import { createLock } from '../src/lock.mjs';
++import { withLock } from '../src/with-lock.mjs';
++
++test('returns the result and releases', async () => {
++  const lock = createLock();
++  assert.equal(await withLock(lock, async () => 42), 42);
++  assert.equal(lock.held, false);
++});
++
++test('propagates a rejection', async () => {
++  const lock = createLock();
++  await assert.rejects(withLock(lock, async () => { throw new Error('boom'); }), /boom/);
++});

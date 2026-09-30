@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "tier": "regression",
+  "cluster": "repo-text",
+  "origin": "synthetic",
+  "provenance": "Synthetic: one candidate mishandles repeated whitespace (its verify run is red), the other is complete. Authored for this harness.",
+  "id": "sc-02-partial-vs-complete",
+  "flow": "select-candidate",
+  "task": {
+    "name": "Add a titleCase helper",
+    "description": "Add `titleCase(text)` in `src/title-case.mjs` as a named export and re-export it from `src/index.mjs`. It uppercases the first letter of every whitespace-separated word and lowercases the rest, joins the words with a single space, and trims the ends. The empty string stays empty.",
+    "steps": [
+      "Create src/title-case.mjs exporting titleCase",
+      "Re-export it from src/index.mjs",
+      "Add tests in test/title-case.test.mjs"
+    ],
+    "verificationCriteria": [
+      {
+        "id": "C1",
+        "assertion": "The repository test suite passes",
+        "check": "auto",
+        "command": "node --test test/*.test.mjs"
+      },
+      {
+        "id": "C2",
+        "assertion": "titleCase('hello   WORLD') prints Hello World",
+        "check": "auto",
+        "command": "node -e \"import('./src/index.mjs').then((m) => console.log(m.titleCase('hello   WORLD')))\""
+      }
+    ]
+  },
+  "candidates": {
+    "a": {
+      "summary": "candidates/a.json",
+      "patch": "candidates/a.patch"
+    },
+    "b": {
+      "summary": "candidates/b.json",
+      "patch": "candidates/b.patch"
+    }
+  },
+  "winner": "b",
+  "oracle": {
+    "command": "node --test test/text.test.mjs oracle/*.test.mjs",
+    "protectedPaths": [
+      "test/text.test.mjs"
+    ]
+  }
+}

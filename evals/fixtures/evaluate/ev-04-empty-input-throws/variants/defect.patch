@@ -1,0 +1,24 @@
+diff --git a/src/first-word.mjs b/src/first-word.mjs
+new file mode 100644
+index 0000000..292cb64
+--- /dev/null
++++ b/src/first-word.mjs
+@@ -0,0 +1 @@
++export const firstWord = (text) => text.trim().match(/\S+/)[0];
+diff --git a/test/first-word.test.mjs b/test/first-word.test.mjs
+new file mode 100644
+index 0000000..e2e08af
+--- /dev/null
++++ b/test/first-word.test.mjs
+@@ -0,0 +1,11 @@
++import { test } from 'node:test';
++import assert from 'node:assert/strict';
++import { firstWord } from '../src/first-word.mjs';
++
++test('returns the first word', () => {
++  assert.equal(firstWord('hello world'), 'hello');
++});
++
++test('skips leading whitespace', () => {
++  assert.equal(firstWord('   spaced out'), 'spaced');
++});

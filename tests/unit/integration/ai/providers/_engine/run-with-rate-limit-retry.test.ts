@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
+import type { SessionId } from '@src/integration/ai/providers/_engine/session-id.ts';
 import { RateLimitError } from '@src/domain/value/error/rate-limit-error.ts';
 import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session.ts';
 import type { AttemptOutcome } from '@src/integration/ai/providers/_engine/attempt-outcome.ts';
@@ -83,5 +85,48 @@ describe('runWithRateLimitRetry backoff jitter', () => {
     });
     expect(out.ok).toBe(true);
     expect(cap.logs.some((l) => /waiting \d+ms before retry/.test(l.message))).toBe(false);
+  });
+});
+
+describe('runWithRateLimitRetry stale-resume cold prompt', () => {
+  const staleError = (): AttemptOutcome => ({
+    kind: 'error',
+    error: new InvalidStateError({
+      entity: 'chain',
+      currentState: 'spawn',
+      attemptedAction: 'resume',
+      message: 'gone',
+    }),
+  });
+
+  const run = async (base: Partial<AiSession>) => {
+    const seen: AiSession[] = [];
+    const out = await runWithRateLimitRetry({
+      session: { ...session(), ...base },
+      rateLimitRetries: 0,
+      eventBus: createCapturingBus().bus,
+      providerSlug: 'claude',
+      providerName: 'claude-test',
+      resumeStaleRe: /gone/,
+      attempt: (s): Promise<AttemptOutcome> => {
+        seen.push(s);
+        return Promise.resolve(seen.length === 1 ? staleError() : { kind: 'success', output: successOutput() });
+      },
+    });
+    return { out, seen };
+  };
+
+  it('swaps coldPrompt in and drops resume + coldPrompt on the cold respawn', async () => {
+    const { out, seen } = await run({ prompt: 'slim', coldPrompt: 'full', resume: 'r1' as SessionId });
+    expect(out.ok).toBe(true);
+    expect(seen[0]).toMatchObject({ prompt: 'slim', coldPrompt: 'full', resume: 'r1' });
+    expect(seen[1]!.prompt).toBe('full');
+    expect('resume' in seen[1]!).toBe(false);
+    expect('coldPrompt' in seen[1]!).toBe(false);
+  });
+
+  it('keeps the prompt when no coldPrompt was supplied', async () => {
+    const { seen } = await run({ prompt: 'slim', resume: 'r1' as SessionId });
+    expect(seen[1]!.prompt).toBe('slim');
   });
 });

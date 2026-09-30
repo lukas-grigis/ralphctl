@@ -69,9 +69,8 @@ export type EvaluatorTurnExit =
       readonly signalOrExitCode?: string | number;
     }
   | { readonly kind: 'malformed'; readonly detail: string }
-  // `source: 'threshold'` — this is the ONLY plateau detector this use case ever produces (the
-  // loop-diversity / entropy detectors run downstream in `gen-eval-loop.ts`, outside the
-  // business layer). See `PlateauSource` (`domain/entity/attempt.ts`) for the full 1:1 mapping.
+  // `source: 'threshold'` — this is the only plateau detector that runs (the loop-diversity /
+  // entropy detectors were retired). See `PlateauSource` (`domain/entity/attempt.ts`).
   | { readonly kind: 'plateau'; readonly dimensions: readonly string[]; readonly source: 'threshold' };
 
 export interface RunEvaluatorTurnProps {
@@ -98,14 +97,6 @@ export interface RunEvaluatorTurnProps {
    * the leaf could not run git (degrades to the commit-subject proxy).
    */
   readonly changedFilesHash?: string;
-  /**
-   * The generator's signal-kind distribution for the SAME turn (`ctx.lastTurnActionCounts`,
-   * stamped by the generator leaf). Rides onto the appended {@link PlateauTurnRecord} so the
-   * in-loop action-entropy detector can pool a whole plateau window from the one history the
-   * calibrated predicate already reads — no second, desyncable per-turn history. Never used by
-   * this use case's own decisions. Absent when the turn stamped no distribution.
-   */
-  readonly currentActionCounts?: ReadonlyMap<string, number>;
   /**
    * Threshold from `settings.harness.plateauThreshold` (2–5). Number of consecutive turns
    * flagging the same dimension set before the plateau exit fires. Predicate clamps
@@ -252,7 +243,7 @@ const handleTerminalStatus = (
 const buildTurnRecord = (
   evaluation: EvaluationSignal,
   critique: string | undefined,
-  props: Pick<RunEvaluatorTurnProps, 'currentCommitSubject' | 'changedFilesHash' | 'currentActionCounts'>
+  props: Pick<RunEvaluatorTurnProps, 'currentCommitSubject' | 'changedFilesHash'>
 ): PlateauTurnRecord => ({
   evaluation,
   ...(critique !== undefined && critique.trim().length > 0 ? { critique } : {}),
@@ -261,9 +252,6 @@ const buildTurnRecord = (
     : {}),
   ...(props.changedFilesHash !== undefined && props.changedFilesHash.length > 0
     ? { changedFilesHash: props.changedFilesHash }
-    : {}),
-  ...(props.currentActionCounts !== undefined && props.currentActionCounts.size > 0
-    ? { actionCounts: props.currentActionCounts }
     : {}),
 });
 

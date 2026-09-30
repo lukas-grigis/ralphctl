@@ -40,7 +40,7 @@ export const MIXED: AiSettings = {
 
 /**
  * Sonnet author graded by a `gpt-6-luna` critic at `xhigh` — a cross-provider second opinion at
- * near-zero cost. The generator climbs Sonnet 5 → Opus 5.5 on plateau, reaching {@link MIXED}'s
+ * near-zero cost. The generator climbs Sonnet 5.5 → Opus 5.5 on plateau, reaching {@link MIXED}'s
  * flagship.
  */
 export const MIXED_ECONOMIC: AiSettings = {

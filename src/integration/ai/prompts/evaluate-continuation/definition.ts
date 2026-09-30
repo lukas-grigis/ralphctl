@@ -14,14 +14,13 @@ import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/templat
  * provider reported a `session_id` on the prior round and the leaf forwards it as `--resume`.
  * The resumed conversation already holds the task specification, the contract, and the
  * reviewer's prior grading, so the continuation prompt carries only the per-round delta: the
- * current round number, a capped recent slice of the sprint journal, and the audit-[09]
+ * current round number, a capped recent slice of the sprint journal, and the
  * output-contract block (which names THIS round's `signals.json` path). The full grading rubric
  * and verdict semantics are re-stated inline — kept consistent with `evaluate/template.md` — so
  * the reviewer never drifts on the floor dimensions or the malformed semantics across rounds.
- * On-disk paths to the contract and the sprint journal ride along as a graceful-degradation
- * hedge: if a resumed thread loses its prior context (the codex cold-resume fallback drops
- * `--resume` and re-issues the same prompt against a fresh session), the prompt is still
- * self-rescuing because it tells the model where to re-read the specification.
+ * On-disk paths to the contract and the sprint journal ride along as pointers for exact wording.
+ * A stale resume id never reaches this prompt cold: the retry loop swaps in the FULL prompt
+ * (`AiSession.coldPrompt`) when the provider no longer has the thread.
  *
  * Every slot below is a typed string the chain leaf renders before calling `buildPrompt`.
  */
@@ -30,7 +29,7 @@ export interface EvaluateContinuationPromptParams {
   readonly roundNumber: string;
   /**
    * Absolute path to the per-task `contract.md` sidecar — `{{CONTRACT_PATH}}`. Named in the
-   * session-context hedge so a context-free resumed thread can re-read the criteria it grades.
+   * session-context block so the reviewer can re-read the criteria it grades.
    */
   readonly contractPath: string;
   /**
@@ -53,7 +52,7 @@ export interface EvaluateContinuationPromptParams {
    */
   readonly floorRubricSection: string;
   /**
-   * Audit-[09] output contract section rendered from the evaluator contract for THIS round's
+   * Output contract section rendered from the evaluator contract for THIS round's
    * output directory (`rounds/<N>/evaluator/`). Because the leaf re-renders it per round, the
    * embedded `signals.json` path always names the current round — `{{OUTPUT_CONTRACT_SECTION}}`.
    */
@@ -109,7 +108,7 @@ export const evaluateContinuationPromptDef: PromptDefinition<EvaluateContinuatio
     outputContractSection: {
       placeholder: 'OUTPUT_CONTRACT_SECTION',
       description:
-        "Audit-[09] output contract block rendered for THIS round's evaluator output directory — names the current signals.json path.",
+        "Output contract block rendered for THIS round's evaluator output directory — names the current signals.json path.",
       validate: requireNonEmpty(
         'outputContractSection',
         'output-contract section must not be empty (renderContractSectionFor always emits a body)'
@@ -119,6 +118,7 @@ export const evaluateContinuationPromptDef: PromptDefinition<EvaluateContinuatio
       placeholder: 'GENERATOR_HINTS_SECTION',
       description:
         'Same-round generator observations (environment notes, learnings) framed as unverified context inside a <generator_hints> block — empty when no hints were collected.',
+      untrusted: { source: 'the generator agent' },
     },
     reproductionSection: {
       placeholder: 'REPRODUCTION_SECTION',
@@ -133,7 +133,7 @@ export const evaluateContinuationPromptDef: PromptDefinition<EvaluateContinuatio
     AUTONOMOUS_OPERATION: 'autonomous-operation',
     EVIDENCE_BOUND: 'evidence-bound',
     EVALUATOR_FAILURE_MODES: 'evaluator-failure-modes',
-    EVALUATION_CHECKPOINT: 'evaluation-checkpoint',
+    EVALUATOR_GRADING_RULES: 'evaluator-grading-rules',
   },
   // Same single-signal contract as the full evaluate prompt — a continuation turn still emits
   // exactly one `evaluation` verdict.
@@ -148,7 +148,7 @@ export interface BuildEvaluateContinuationPromptInput {
   readonly progressFile: string;
   /** Capped recent slice of the sprint journal body. */
   readonly priorProgress: string;
-  /** Pre-rendered audit-[09] output contract section for this round's evaluator output dir. */
+  /** Pre-rendered output contract section for this round's evaluator output dir. */
   readonly outputContractSection: string;
   /**
    * Same-round generator observations to thread to the evaluator as environment hints. Framed

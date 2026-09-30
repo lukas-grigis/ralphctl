@@ -53,14 +53,6 @@ import type { EvaluationSignal } from '@src/domain/signal.ts';
  * The score-improvement exemption (rubric-pre-redesign) is gone — the PASS / FAIL rubric has no
  * numeric score to compare.
  *
- * ## One calibration, three detectors
- *
- * The two bolt-on detectors that run in the gen-eval loop right after the evaluator
- * (`loop-diversity-check`, `entropy-check`) do NOT carry calibration logic of their own: they
- * size their window with {@link plateauWindowSize} and gate their verdict on
- * {@link windowIsHardStall}, i.e. on this module's cascade and exemptions. See
- * {@link windowIsHardStall} for the subordination contract.
- *
  * Pure. No I/O.
  */
 
@@ -84,12 +76,6 @@ import type { EvaluationSignal } from '@src/domain/signal.ts';
  * `verdict` is the {@link PlateauVerdict} kind the predicate assigned this turn when it was
  * appended — stamped by the evaluator leaf so the warning cap is derivable purely from history
  * without threading a counter through ctx.
- *
- * `actionCounts` is the generator's per-turn signal-kind distribution (`decision` / `change` /
- * `learning` / `note`, only kinds with a non-zero count) for the same turn — an IN-MEMORY-ONLY
- * field (`plateauHistory` never persists) the evaluator leaf copies off `ctx.lastTurnActionCounts`.
- * Riding the record rather than a second ctx history guarantees the entropy detector and the
- * calibrated predicate read exactly the same window. Absent when the turn stamped no distribution.
  */
 export interface PlateauTurnRecord {
   readonly evaluation: EvaluationSignal;
@@ -97,7 +83,6 @@ export interface PlateauTurnRecord {
   readonly commitSubject?: string;
   readonly changedFilesHash?: string;
   readonly verdict?: PlateauVerdict['kind'];
-  readonly actionCounts?: ReadonlyMap<string, number>;
 }
 
 /**
@@ -325,7 +310,7 @@ export const plateauWindowSize = (threshold: number): number => {
 
 /**
  * The net-progress cascade, one window at a time — the shared core {@link computePlateauVerdict}
- * maps onto {@link PlateauVerdict} and {@link windowIsHardStall} reuses verbatim.
+ * maps onto {@link PlateauVerdict}.
  *
  *   - `insufficient-history` — the window has not filled to the threshold yet.
  *   - `progressing`          — the current turn has no failures, or the failure count dropped
@@ -333,8 +318,7 @@ export const plateauWindowSize = (threshold: number): number => {
  *   - `critique-shifted`     — exemption 1 (see the module docstring).
  *   - `work-product-changed` — exemption 2 (see the module docstring). The WARNING_SOFTEN_CAP is
  *                              deliberately NOT applied here: the cap is a property of the
- *                              VERDICT HISTORY, not of this window's progress, and a bolt-on
- *                              detector must never fire on a window this classifier exempted.
+ *                              VERDICT HISTORY, not of this window's progress.
  *   - `stalled`              — no net progress and no exemption.
  */
 const WINDOW_VERDICT = {
@@ -400,51 +384,4 @@ export const computePlateauVerdict = (
   }
 
   return { kind: 'plateau', dimensions };
-};
-
-/**
- * Bolt-on-facing form of the same cascade: `true` only when `window` — whose LAST element is the
- * CURRENT turn, matching how the in-loop detectors slice `ctx.plateauHistory` — is a hard stall
- * under the operator's threshold, with neither exemption applying.
- *
- * SUBORDINATION CONTRACT. The two in-loop detectors (`loop-diversity-check`, `entropy-check`) run
- * immediately after the evaluator leaf, i.e. exactly where {@link computePlateauVerdict} has
- * already spoken. Gating them on this predicate means a detector can never (a) pre-empt the
- * operator's `plateauThreshold` knob with a window of its own, nor (b) exit a loop the calibrated
- * predicate deliberately exempted for a shifted critique or a changed work product. Both are
- * therefore strictly subordinate: they may only add evidence ON TOP of a window the calibrated
- * predicate itself calls stalled, never override its judgement.
- *
- * @public
- */
-export const windowIsHardStall = (window: readonly PlateauTurnRecord[], options: PlateauOptions): boolean => {
-  const size = plateauWindowSize(options.threshold);
-  if (window.length < size) return false;
-  const recent = window.slice(-size);
-  const current = recent[recent.length - 1];
-  if (current === undefined) return false;
-  return classifyPlateauWindow(recent.slice(0, -1), current, options) === WINDOW_VERDICT.stalled;
-};
-
-/**
- * Sum each generator signal kind's count across the window's records — the pooled distribution the
- * action-entropy detector scores.
- *
- * Pooling (rather than scoring each turn on its own) is what fixes the single-turn detector's
- * guaranteed false positive: one turn that emitted only `change` signals collapses to K=1 → H=0,
- * yet a generator alternating kinds across turns is visibly exploring. Pooled, that alternation
- * scores K≥2 and stays quiet; only a generator that concentrated on ONE kind for the whole window
- * pools to K=1. Records carrying no distribution contribute nothing.
- *
- * @public
- */
-export const pooledActionCounts = (window: readonly PlateauTurnRecord[]): ReadonlyMap<string, number> => {
-  const pooled = new Map<string, number>();
-  for (const record of window) {
-    if (record.actionCounts === undefined) continue;
-    for (const [kind, count] of record.actionCounts) {
-      pooled.set(kind, (pooled.get(kind) ?? 0) + count);
-    }
-  }
-  return pooled;
 };

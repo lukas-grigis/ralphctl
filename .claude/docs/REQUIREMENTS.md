@@ -229,16 +229,8 @@ and `done → review` — that keep `done` from being a genuine dead end for the
       loop with a plateau warning after `settings.harness.plateauThreshold` (2–5, default 3) rounds.
       A critique-Jaccard shift or a genuine work-product (changed-files-hash) change exempts a round; a
       commit-subject-only reword of an unchanged work-product no longer softens the plateau.
-      Two additional plateau signals fire inside each gen-eval turn, both windowed by the SAME
-      `plateauThreshold` knob and both gated on `windowIsHardStall` (`business/task/plateau-detection.ts`)
-      so neither pre-empts the operator's threshold or overrides the exemptions above:
-      (a) `loop-diversity-check` exits with `plateau` when the failed-dimension fingerprint repeats across
-      the whole window (`detectRepetitiveLoop` in `business/task/escalation-policy.ts`); (b) `entropy-check`
-      (opt-in — `settings.harness.entropyPlateauDetector`, default `false`) exits with `plateau` when the
-      normalised Shannon entropy over the generator's signal-kind distribution (decision / change /
-      learning / note counts), pooled across the window, falls below 0.25 — a signal-kind-distribution
-      proxy for approach stagnation, not raw tool-use entropy. Both guards respect the turn-budget-precedence
-      invariant and only fire when no other exit is already pending.
+      This count-based predicate is the only plateau detector; the former in-loop `loop-diversity-check` and
+      `entropy-check` guards were removed as strictly subordinate to it.
 - [x] **Token-usage event** — `TokenUsageEvent` emitted once per spawn (`provider` is `AiProvider`,
       including `xai-grok`; model, context window, input/output, cache tokens). TUI `TokenBudgetCard`
       subscribes.

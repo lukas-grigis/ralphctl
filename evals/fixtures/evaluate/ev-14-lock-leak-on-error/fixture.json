@@ -1,0 +1,56 @@
+{
+  "schemaVersion": 1,
+  "tier": "capability",
+  "cluster": "repo-async",
+  "origin": "synthetic",
+  "provenance": "Synthetic: release() is skipped when the wrapped function rejects, leaving the lock held forever. Authored for this harness.",
+  "id": "ev-14-lock-leak-on-error",
+  "flow": "evaluate",
+  "task": {
+    "name": "Add a withLock helper",
+    "description": "Add `withLock(lock, fn)` in `src/with-lock.mjs` as a named export. It acquires `lock`, awaits `fn()`, releases the lock — whether `fn` resolves or rejects — and returns `fn`'s result or rethrows its error.",
+    "steps": [
+      "Create src/with-lock.mjs exporting withLock",
+      "Add tests in test/with-lock.test.mjs"
+    ],
+    "verificationCriteria": [
+      {
+        "id": "C1",
+        "assertion": "The repository test suite passes",
+        "check": "auto",
+        "command": "node --test test/*.test.mjs"
+      },
+      {
+        "id": "C2",
+        "assertion": "withLock returns the result of fn and leaves the lock free (prints \"ok false\")",
+        "check": "auto",
+        "command": "node -e \"Promise.all([import('./src/with-lock.mjs'), import('./src/lock.mjs')]).then(async ([w, l]) => { const lock = l.createLock(); const r = await w.withLock(lock, async () => 'ok'); console.log(r, lock.held); })\""
+      }
+    ]
+  },
+  "verifyScript": "node --test test/*.test.mjs",
+  "variants": [
+    {
+      "name": "clean",
+      "patch": "variants/clean.patch",
+      "expect": {
+        "status": "passed"
+      }
+    },
+    {
+      "name": "defect",
+      "patch": "variants/defect.patch",
+      "defectClass": "resource-leak-error-path",
+      "expect": {
+        "status": "failed",
+        "failedDimensions": [
+          "robustness"
+        ]
+      }
+    }
+  ],
+  "oracle": {
+    "command": "node --test oracle/*.test.mjs",
+    "protectedPaths": []
+  }
+}

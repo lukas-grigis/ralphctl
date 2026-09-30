@@ -99,10 +99,13 @@ const SIGNAL_ROW_BUILDERS: SignalRowBuilders = {
     text: `verify-skill proposal (${String(sig.content.length)} chars)`,
   }),
   'skill-suggestions': (sig) => ({ label: 'skills', text: sig.names.length > 0 ? sig.names.join(', ') : '(none)' }),
-  reproduction: (sig) => ({ label: 'reproduce', text: sig.testPath }),
+  reproduction: (sig) => ({
+    label: 'reproduce',
+    text: sig.reproduced === false ? `not reproduced — ${sig.reason ?? 'no reason given'}` : sig.testPath,
+  }),
   'candidate-selection': (sig) => ({
     label: 'judge',
-    text: `winner: candidate ${String(sig.winner)} — ${sig.rationale}`,
+    text: `${sig.winner === 0 ? 'tie' : `winner: candidate ${String(sig.winner)}`} — ${sig.rationale}`,
   }),
   evaluation: () => undefined,
   'context-compacted': () => undefined,

@@ -132,8 +132,14 @@ describe('selectCandidateOutputContract — signal schema validation', () => {
 
   // ── 5. Invalid winner values ─────────────────────────────────────────────────
 
-  it('winner: 0 → ParseError(schema-mismatch)', async () => {
+  it('winner: 0 is the tie verdict → accepted', async () => {
     const outputDir = await arrange({ schemaVersion: 1, signals: [candidateSelectionSignal({ winner: 0 })] });
+    const result = await validateSignalsFile(outputDir, selectCandidateOutputContract);
+    expect(result.ok).toBe(true);
+  });
+
+  it('winner: -1 → ParseError(schema-mismatch)', async () => {
+    const outputDir = await arrange({ schemaVersion: 1, signals: [candidateSelectionSignal({ winner: -1 })] });
     const result = await validateSignalsFile(outputDir, selectCandidateOutputContract);
     expect(result.ok).toBe(false);
     if (result.ok) return;

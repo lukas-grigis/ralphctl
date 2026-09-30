@@ -296,7 +296,7 @@ const plateauSentence = (warning: JournalWarning): string => {
       : '';
   const detector = warning.source !== undefined ? ` (detector: ${warning.source})` : '';
   if (warning.source === 'diversity') {
-    // `loop-diversity-check` (gen-eval-loop.ts) — the generator re-emitted the same failed-
+    // Retired `loop-diversity-check` — kept for old records: the generator re-emitted the same failed-
     // dimension fingerprint across the whole plateau window (`harness.plateauThreshold` turns)
     // without changing approach; dimensions carries that repeated failed set, same as `threshold`.
     // Historical records written when the window was a hardcoded 3 render with this wording too —
@@ -304,7 +304,7 @@ const plateauSentence = (warning: JournalWarning): string => {
     return `The evaluator plateaued — the generator repeated the same failed-dimension pattern across the whole plateau window without changing approach${dims}${detector}.`;
   }
   if (warning.source === 'entropy') {
-    // `entropy-check` (gen-eval-loop.ts) — Shannon entropy over the generator's reported signal-
+    // Retired `entropy-check` — kept for old records: Shannon entropy over the generator's reported signal-
     // kind distribution, pooled across the plateau window, collapsed below threshold. This
     // detector never compares two evaluations' failure sets, so it always carries
     // `dimensions: []` — `dims` is deliberately not interpolated into this sentence.

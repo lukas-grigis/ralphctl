@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 1,
+  "tier": "capability",
+  "cluster": "repo-text",
+  "origin": "synthetic",
+  "provenance": "Synthetic: slugify accepts and documents maxLength but never applies it; the test only checks the option is accepted. Authored for this harness.",
+  "id": "ev-12-option-accepted-not-implemented",
+  "flow": "evaluate",
+  "task": {
+    "name": "Add a slugify helper with a length limit",
+    "description": "Add `slugify(text, { maxLength = 80 } = {})` in `src/slugify.mjs` as a named export and re-export it from `src/index.mjs`. It lowercases the text and joins its alphanumeric runs with single hyphens, with no leading or trailing hyphen. The result is truncated to at most `maxLength` characters, and truncation never leaves a trailing hyphen.",
+    "steps": [
+      "Create src/slugify.mjs exporting slugify",
+      "Re-export slugify from src/index.mjs",
+      "Add tests in test/slugify.test.mjs"
+    ],
+    "verificationCriteria": [
+      {
+        "id": "C1",
+        "assertion": "The repository test suite passes",
+        "check": "auto",
+        "command": "node --test test/*.test.mjs"
+      },
+      {
+        "id": "C2",
+        "assertion": "slugify('Hello World') prints hello-world",
+        "check": "auto",
+        "command": "node -e \"import('./src/index.mjs').then((m) => console.log(m.slugify('Hello World')))\""
+      },
+      {
+        "id": "C3",
+        "assertion": "slugify truncates to maxLength without leaving a trailing hyphen",
+        "check": "manual"
+      }
+    ]
+  },
+  "verifyScript": "node --test test/*.test.mjs",
+  "variants": [
+    {
+      "name": "clean",
+      "patch": "variants/clean.patch",
+      "expect": {
+        "status": "passed"
+      }
+    },
+    {
+      "name": "defect",
+      "patch": "variants/defect.patch",
+      "defectClass": "unimplemented-criterion",
+      "expect": {
+        "status": "failed",
+        "failedDimensions": [
+          "completeness"
+        ]
+      }
+    }
+  ],
+  "oracle": {
+    "command": "node --test oracle/*.test.mjs",
+    "protectedPaths": []
+  }
+}

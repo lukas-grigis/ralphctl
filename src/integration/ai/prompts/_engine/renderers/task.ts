@@ -216,10 +216,9 @@ export const renderPriorCritiqueSection = (critique: string | undefined, traject
 /**
  * Render the optional generator-hints section passed to the evaluator. The hints carry same-round
  * generator observations — proposed commit subject, environment notes (dev-server ports, quirks),
- * learnings recorded during the generator turn. Framing is deliberately adversarial: these are
- * unverified claims from the generator and MUST NOT substitute for the evaluator's own execution
- * evidence. The section is useful as environment context (e.g. which port a dev server runs on)
- * but every `auto` criterion still requires the evaluator's own run.
+ * learnings recorded during the generator turn. Only the wrapper and the raw hints are emitted here —
+ * the adversarial framing (unverified claims, never evidence) lives in the evaluate templates so the
+ * untrusted-data notice covers generator-authored text only.
  *
  * Empty / absent → empty string so the `{{GENERATOR_HINTS_SECTION}}` placeholder collapses without
  * leaving an orphan heading or XML-like tag in the rendered prompt.
@@ -228,15 +227,7 @@ export const renderGeneratorHintsSection = (hints: string | undefined): string =
   if (hints === undefined) return '';
   const trimmed = hints.trim();
   if (trimmed.length === 0) return '';
-  return [
-    '<generator_hints>',
-    'The following notes were recorded by the generator during its implementation turn. They are',
-    'unverified claims — useful as environment context (e.g. which server/port to target for e2e),',
-    'but NEVER as evidence. Every `auto` criterion still requires your own execution run.',
-    '',
-    trimmed,
-    '</generator_hints>',
-  ].join('\n');
+  return ['<generator_hints>', trimmed, '</generator_hints>'].join('\n');
 };
 
 /**

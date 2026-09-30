@@ -1,0 +1,45 @@
+diff --git a/src/paginate.mjs b/src/paginate.mjs
+new file mode 100644
+index 0000000..3c565e8
+--- /dev/null
++++ b/src/paginate.mjs
+@@ -0,0 +1,10 @@
++export const paginate = (items, page, pageSize) => {
++  if (!Number.isInteger(page) || page < 1) throw new RangeError(`invalid page: ${page}`);
++  if (!Number.isInteger(pageSize) || pageSize < 1) throw new RangeError(`invalid pageSize: ${pageSize}`);
++  const start = (page - 1) * pageSize;
++  return {
++    items: items.slice(start, start + pageSize),
++    page,
++    totalPages: Math.ceil(items.length / pageSize),
++  };
++};
+diff --git a/test/paginate.test.mjs b/test/paginate.test.mjs
+new file mode 100644
+index 0000000..aebfafe
+--- /dev/null
++++ b/test/paginate.test.mjs
+@@ -0,0 +1,23 @@
++import { test } from 'node:test';
++import assert from 'node:assert/strict';
++import { paginate } from '../src/paginate.mjs';
++
++test('returns the requested page', () => {
++  assert.deepEqual(paginate([1, 2, 3, 4, 5], 2, 2).items, [3, 4]);
++});
++
++test('the last page may be short', () => {
++  const result = paginate([1, 2, 3, 4, 5], 3, 2);
++  assert.deepEqual(result.items, [5]);
++  assert.equal(result.totalPages, 3);
++});
++
++test('a page past the end is empty', () => {
++  assert.deepEqual(paginate([1, 2, 3], 9, 2).items, []);
++});
++
++test('rejects page zero and non-integers', () => {
++  assert.throws(() => paginate([1], 0, 1), RangeError);
++  assert.throws(() => paginate([1], 1.5, 1), RangeError);
++  assert.throws(() => paginate([1], 1, 0), RangeError);
++});

@@ -436,6 +436,8 @@ describe('createGrokProvider — TokenUsageEvent emission', () => {
 
     if (!out.ok) return;
     expect(out.value.usage?.inputTokens).toBe(1234);
+    expect(out.value.usage?.cacheReadInputTokens).toBe(89);
+    expect(out.value.usage?.cacheCreationInputTokens).toBe(12);
     expect(out.value.usage?.outputTokens).toBe(567);
   });
 

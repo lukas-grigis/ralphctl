@@ -33,6 +33,9 @@ yarn-error.log*
 .DS_Store
 Thumbs.db
 
+# Prompt-eval harness output (see .claude/docs/EVALS.md)
+evals/results/
+
 # Optional caches
 .npm
 .eslintcache

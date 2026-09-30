@@ -124,7 +124,14 @@ no repo exploration; ticket `status` flips `pending → approved`. **Plan** (`pl
 every ticket `approved`; every project repository is mounted as an equal `--add-dir` root, and repo
 selection lands per task as `Task.repositoryId` (resolved against `project.repositories`) — the sprint
 itself stores no repo list; AI generates `tasks.json` atomically and the sprint transitions `draft → planned`.
-**Ideate** combines both in a single AI session for low-stakes work.
+**Ideate** combines both in a single AI session for low-stakes work, and runs the same safety net plan
+does before anything is saved: `check-plan` (shared leaf, advisory findings) then a harness-owned
+`review-ideate` gate that shows the requirements body, then the findings and task list (built by the same
+`buildPlanReviewMessage` plan uses). Reject or cancel restores the pre-ideate sprint and tasks and sets
+`ctx.ideateRejected`; `transition-to-planned` then skips, so the saves write back the unchanged draft
+(no ticket or tasks land). With no reviewer wired (tests, headless) the gate auto-accepts. Full chain:
+`… ideate-and-plan → uninstall-skills → check-plan → review-ideate → transition-to-planned → save-tasks →
+save-sprint` (fenced by `tests/unit/application/flows/ideate/flow-shape.test.ts`).
 
 **Plan's approval gate is split from the AI hand-off.** `call-planner-interactive` stops at the proposal
 (`ctx.proposedTasks`) — it no longer runs the `draft → planned` transition itself. A zero-token,
@@ -139,6 +146,17 @@ gate. Full chain: `… render-prompt-to-file → install-skills → stamp-meta-p
 uninstall-skills → check-plan → apply-plan → save-tasks → save-sprint` (fenced by
 `tests/unit/application/flows/plan/flow-shape.test.ts`).
 
+**Task-sizing heuristics for ralphctl work** (when breaking a change into tasks):
+
+- A new flow is a bounded unit: one `flowRegistry` entry in `src/application/registry.ts`, a hand-scaffolded
+  `src/application/flows/<flow>/` folder (no `gen:flow` script), a slim `<Flow>Deps` subset, and a step-order
+  fence test. Size tasks around those pieces, not "the feature".
+- The TUI surface is mandatory; a CLI surface only earns its place for a one-shot, non-interactive operation.
+- Tests live under `tests/` mirroring `src/`. Budget a task for `flow-shape.test.ts` when elements are added or
+  reordered.
+- Flows that spawn AI sessions need an observability story: live progress via the EventBus, post-hoc trace via
+  `<sprintDir>/chain.log`.
+
 **Reproduction-first leaf.** Before the attempt loop, `per-task-subchain.ts` runs an unconditional reset
 (`clearReproductionArtifactLeaf`) followed by a guard testing `isDefectShapedTask` (task kind `bugfix`,
 once per task, not per attempt). When it fires, `reproduceLeaf` spawns a one-shot headless session that
@@ -148,7 +166,9 @@ fails — a reproduction that passes proves nothing. The validated test path, ru
 session's own list of relevant existing tests then ride into every generator and evaluator turn of that
 task's gen-eval loop via the `<reproduction>` prompt section. A failed session, an invalid signal, or a
 claimed command that turns out to pass on re-run all degrade silently to today's behaviour — no
-reproduction context, task proceeds unaffected. The accepted artifact is also saved to
+reproduction context, task proceeds unaffected. The same holds for the session's bounded "could not
+reproduce" exit (`reproduced: false` plus a `reason`): the leaf logs a warning, the task card shows
+"not reproduced — <reason>", and no re-run happens. The accepted artifact is also saved to
 `implement/<task-id>/reproduce/artifact.json`. On a relaunch whose earlier work is still quarantined
 (see "Blocked-diff quarantine & restore" below), the leaf never spawns a second session: it adopts the
 saved reproduction, or continues without one when nothing was saved, since the failing test it would
@@ -156,17 +176,10 @@ otherwise write is already part of the quarantined diff.
 
 **Per-task generator-evaluator** inside `implement` uses the `loop` primitive. Each gen-eval turn runs
 `generator-leaf` then — if the generator did not already set `ctx.lastExit` — the guarded
-`evaluator-step`, a `sequential` of `evaluatorLeaf → loop-diversity-check → entropy-check`. The two
-plateau-check leaves each emit a `plateau` exit on ctx, both windowed by the SAME `plateauThreshold`
-knob the calibrated predicate uses and both gated on `windowIsHardStall` (so neither fires earlier than
-the operator asked for, nor overrides the critique-shift / work-product exemptions):
-`loop-diversity-check` fires when the failed-dimension fingerprint repeats across the whole window;
-`entropy-check` (opt-in — `harness.entropyPlateauDetector`, default off) fires when the normalised
-Shannon entropy over the generator's signal-kind distribution (decision / change / learning / note),
-pooled across the window, falls below 0.25 — a heuristic proxy for approach stagnation, not raw
-tool-use entropy. Both respect the turn-budget-precedence guard so neither pre-empts the final
-budgeted turn. The loop exits when any leaf sets `ctx.lastExit` or the `maxTurns`
-budget is reached. Each attempt then runs `settle-attempt` (which records the verdict) plus
+`evaluator-step`, a `sequential` of the two evaluator meta-stamp leaves then `evaluatorLeaf`. Plateau detection is the count-based
+`plateauThreshold` predicate inside the evaluator turn (`computePlateauVerdict`); the two former in-loop
+check leaves (`loop-diversity-check`, `entropy-check`) are gone. The loop exits when a leaf sets
+`ctx.lastExit` or the `maxTurns` budget is reached. Each attempt then runs `settle-attempt` (which records the verdict) plus
 `append-learnings` and `progress-journal`; the outer attempt loop re-enters up to `maxAttempts` times
 per task and transitions the task to `blocked` once that budget is exhausted. A single launch runs the
 outer attempt loop up to `maxAttempts` times per task — `maxAttempts === 1` is byte-for-byte the prior
@@ -187,7 +200,9 @@ granted attempt's round 1 REPLACES the normal generator step with a candidate-sa
 (`buildBestOfNGenEvalLoop`): sample N candidates on the unchanged model, discard `regressed`-attribution
 candidates, dedupe identical diffs by content hash, then — for 2+ survivors — a pairwise judge tournament
 over the candidates' compact structured summaries (never raw diffs) picks the winner, whose diff is
-applied. Round 1's evaluator turn (and any round 2+, only reached if round 1 didn't reach a terminal
+applied. Each pairwise comparison is judged twice with the candidate order swapped (`runOneJudgeCall` in
+`best-of-n-judge.ts`); the verdict stands only when both runs agree, and disagreement or a judge-declared
+tie (`winner: 0`) is treated as a tie. Round 1's evaluator turn (and any round 2+, only reached if round 1 didn't reach a terminal
 verdict) runs exactly the same `evaluatorLeaf` sequence every other attempt uses — no bespoke settle
 logic. Every other attempt of the task, before and after the granted one, takes the normal
 `createGenEvalLoop` path unchanged.

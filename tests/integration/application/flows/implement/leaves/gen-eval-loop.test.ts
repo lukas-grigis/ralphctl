@@ -4,7 +4,6 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Result } from '@src/domain/result.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import type { HarnessSignal } from '@src/domain/signal.ts';
-import type { AppEvent } from '@src/business/observability/events.ts';
 import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
 import { createAtomicWriteFile } from '@src/integration/io/write-file-atomic.ts';
 import { createFakeAiProvider } from '@tests/fixtures/fake-ai-provider.ts';
@@ -199,7 +198,7 @@ describe('createGenEvalLoop — gen-eval-turn child order (step-order fence)', (
     ]);
   });
 
-  it('evaluator-guard body is [stamp-meta-evaluator, stamp-role-meta-evaluator, evaluator-leaf, loop-diversity-check, entropy-check] in that order', () => {
+  it('evaluator-guard body is [stamp-meta-evaluator, stamp-role-meta-evaluator, evaluator-leaf] in that order', () => {
     const { loop, task } = buildLoopShape();
     const id = String(task.id);
 
@@ -215,13 +214,7 @@ describe('createGenEvalLoop — gen-eval-turn child order (step-order fence)', (
     const evalChildren = evalStep?.children ?? [];
     const names = evalChildren.map((c) => c.name);
 
-    expect(names).toStrictEqual([
-      `stamp-meta-evaluator-${id}`,
-      `stamp-role-meta-evaluator-${id}`,
-      `evaluator-${id}`,
-      `loop-diversity-check-${id}`,
-      `entropy-check-${id}`,
-    ]);
+    expect(names).toStrictEqual([`stamp-meta-evaluator-${id}`, `stamp-role-meta-evaluator-${id}`, `evaluator-${id}`]);
   });
 });
 
@@ -328,19 +321,19 @@ describe('createGenEvalLoop — crash-attribution: meta sidecars land before gen
   });
 });
 
-// ── Behavioral tests: the two in-loop plateau detectors are subordinate to the calibration ────
+// ── Behavioral tests: the calibrated predicate is the only plateau exit ────
 
 /**
- * Both bolt-on detectors (`loop-diversity-check`, `entropy-check`) run immediately after the
- * evaluator leaf — i.e. exactly where the calibrated `computePlateauVerdict` has already spoken.
- * They now window from `harness.plateauThreshold` and gate their verdict on `windowIsHardStall`,
- * the same cascade + exemptions the calibrated predicate applies, so neither can pre-empt the
- * operator's knob nor exit a loop the calibrated predicate deliberately exempted.
+ * The calibrated `computePlateauVerdict` inside the evaluator turn is the loop's single plateau
+ * detector (the retired `loop-diversity-check` / `entropy-check` bolt-ons are gone). These tests
+ * pin the scenarios those bolt-ons used to get wrong, so no future detector can reintroduce them:
+ * a single-kind turn, a repeated fingerprint with a shifting critique, and a genuine stall that
+ * must be attributed to `threshold`.
  *
  * These tests drive the REAL loop (not a hand-fed input projection) so the wiring is exercised
  * end-to-end.
  */
-describe('createGenEvalLoop — in-loop plateau detectors (subordination to the calibrated predicate)', () => {
+describe('createGenEvalLoop — plateau exits come only from the calibrated predicate', () => {
   let root: Awaited<ReturnType<typeof makeTmpRoot>>;
 
   beforeEach(async () => {
@@ -395,7 +388,6 @@ describe('createGenEvalLoop — in-loop plateau detectors (subordination to the 
     readonly eventBus: ReturnType<typeof createInMemoryEventBus>;
     readonly rotate: boolean;
     readonly shiftCritique: boolean;
-    readonly entropyPlateauDetector?: boolean;
   }) => {
     const generatorProvider = createFakeAiProvider({
       responses: { implement: '' },
@@ -427,7 +419,6 @@ describe('createGenEvalLoop — in-loop plateau detectors (subordination to the 
         maxTurns: opts.maxTurns,
         plateauThreshold: opts.plateauThreshold,
         correctiveRetries: 2,
-        ...(opts.entropyPlateauDetector !== undefined ? { entropyPlateauDetector: opts.entropyPlateauDetector } : {}),
         // Stub git runner — a constant (empty) response means a CONSTANT work-product fingerprint
         // across turns, i.e. the tree never changed, so the work-product exemption stays quiet.
         gitRunner: {
@@ -455,31 +446,16 @@ describe('createGenEvalLoop — in-loop plateau detectors (subordination to the 
     taskWorkspaceRoot: root.root,
   });
 
-  const bannerCollector = (): {
-    readonly eventBus: ReturnType<typeof createInMemoryEventBus>;
-    readonly banners: AppEvent[];
-  } => {
-    const eventBus = createInMemoryEventBus();
-    const banners: AppEvent[] = [];
-    eventBus.subscribe((e) => {
-      if (e.type === 'banner-show') banners.push(e);
-    });
-    return { eventBus, banners };
-  };
-
-  const bannerFor = (banners: readonly AppEvent[], id: string): AppEvent | undefined =>
-    banners.find((e) => e.type === 'banner-show' && e.id === id);
-
   /**
-   * REGRESSION — the K=1 false positive. The entropy detector used to score a SINGLE turn's
+   * REGRESSION — the K=1 false positive. The retired entropy detector scored a SINGLE turn's
    * signal-kind distribution: a turn emitting only `note` signals scored H=0 and exited the loop
    * with a plateau, burning an escalation rung plus a whole attempt while the evaluator's own
    * calibrated predicate was still reporting progress (rotating failures, shifting critiques).
-   * Enabled or not, that turn must no longer end the loop.
+   * Such a turn must never end the loop.
    */
   it('does NOT exit on a single-kind generator turn while the calibrated predicate reports progress', async () => {
-    for (const entropyPlateauDetector of [false, true]) {
-      const { eventBus, banners } = bannerCollector();
+    {
+      const eventBus = createInMemoryEventBus();
       const { loop, task } = buildLoop({
         generatorSignals: [taskVerified('ok'), note('same kind of move')],
         maxTurns: 5,
@@ -487,7 +463,6 @@ describe('createGenEvalLoop — in-loop plateau detectors (subordination to the 
         eventBus,
         rotate: true,
         shiftCritique: true,
-        entropyPlateauDetector,
       });
 
       const result = await loop.execute(ctxFor(task));
@@ -496,28 +471,21 @@ describe('createGenEvalLoop — in-loop plateau detectors (subordination to the 
       if (!result.ok) return;
       // No plateau anywhere: the loop runs its full budget and leaves the terminal state to
       // `finalize` (which synthesises `budget-exhausted`).
-      expect(result.value.ctx.lastExit, `entropy detector ${String(entropyPlateauDetector)}`).toBeUndefined();
+      expect(result.value.ctx.lastExit).toBeUndefined();
       expect(result.value.ctx.genEvalTurn).toBe(5);
-      expect(bannerFor(banners, `entropy-plateau-${String(task.id)}`)).toBeUndefined();
-      expect(bannerFor(banners, `loop-diversity-${String(task.id)}`)).toBeUndefined();
-      // Threading pin: each evaluator turn record carries THAT turn's signal-kind distribution,
-      // so the entropy detector pools its window off the same history the predicate reads.
-      const history = result.value.ctx.plateauHistory ?? [];
-      expect(history).toHaveLength(5);
-      for (const record of history) expect([...(record.actionCounts ?? new Map())]).toStrictEqual([['note', 1]]);
+      expect(result.value.ctx.plateauHistory ?? []).toHaveLength(5);
     }
   });
 
   /**
-   * The work-product/critique exemptions belong to the calibrated predicate, and the fingerprint
-   * detector now honours them: the SAME dimension fails every turn (an identical fingerprint —
-   * the classic diversity trigger) but the evaluator's prose moves every turn, so the loop must
-   * keep going rather than burning a rung on a `diversity` plateau.
+   * The work-product/critique exemptions belong to the calibrated predicate: the SAME dimension
+   * fails every turn (an identical fingerprint — what the retired diversity detector fired on)
+   * but the evaluator's prose moves every turn, so the loop must keep going rather than burning
+   * a rung on a plateau.
    */
   it('does NOT exit on a repeated failure fingerprint while the critique keeps shifting', async () => {
-    const { eventBus, banners } = bannerCollector();
+    const eventBus = createInMemoryEventBus();
     const { loop, task } = buildLoop({
-      // Diverse signal kinds keep the (disabled anyway) entropy detector doubly quiet.
       generatorSignals: [taskVerified('ok'), decision('d'), change('c'), learning('l'), note('n')],
       maxTurns: 5,
       plateauThreshold: 3,
@@ -532,18 +500,17 @@ describe('createGenEvalLoop — in-loop plateau detectors (subordination to the 
     if (!result.ok) return;
     expect(result.value.ctx.lastExit).toBeUndefined();
     expect(result.value.ctx.genEvalTurn).toBe(5);
-    expect(bannerFor(banners, `loop-diversity-${String(task.id)}`)).toBeUndefined();
   });
 
   /**
    * SUBORDINATION. On a genuinely stalled window (same failure every turn, recycled critique,
    * unchanged tree) the exit is the CALIBRATED one — `source: 'threshold'`, fired by
-   * `computePlateauVerdict` inside the evaluator turn at exactly the operator's threshold. The
-   * bolt-on detectors see the same window one step later, find `lastExit` already set, and stay
-   * silent: no `diversity` / `entropy` attribution, no second banner.
+   * `computePlateauVerdict` inside the evaluator turn at exactly the operator's threshold — no
+   * `diversity` / `entropy` attribution (those sources only exist so old records parse), no
+   * second banner.
    */
   it("attributes a genuine stall to the calibrated 'threshold' detector, not to a bolt-on", async () => {
-    const { eventBus, banners } = bannerCollector();
+    const eventBus = createInMemoryEventBus();
     const { loop, task } = buildLoop({
       generatorSignals: [taskVerified('ok'), note('same kind of move')],
       maxTurns: 5,
@@ -551,8 +518,6 @@ describe('createGenEvalLoop — in-loop plateau detectors (subordination to the 
       eventBus,
       rotate: false,
       shiftCritique: false,
-      // Even opted IN, the entropy detector cannot claim a window the calibration already owns.
-      entropyPlateauDetector: true,
     });
 
     const result = await loop.execute(ctxFor(task));
@@ -564,8 +529,6 @@ describe('createGenEvalLoop — in-loop plateau detectors (subordination to the 
     expect(exit?.kind === 'plateau' && exit.source).toBe('threshold');
     // Fires at the operator's threshold (3), with budget remaining.
     expect(result.value.ctx.genEvalTurn).toBe(3);
-    expect(bannerFor(banners, `entropy-plateau-${String(task.id)}`)).toBeUndefined();
-    expect(bannerFor(banners, `loop-diversity-${String(task.id)}`)).toBeUndefined();
   });
 
   /**
@@ -574,7 +537,7 @@ describe('createGenEvalLoop — in-loop plateau detectors (subordination to the 
    * earlier than the operator asked for.
    */
   it('honours a patient plateauThreshold — no detector fires before the operator window fills', async () => {
-    const { eventBus, banners } = bannerCollector();
+    const eventBus = createInMemoryEventBus();
     const { loop, task } = buildLoop({
       generatorSignals: [taskVerified('ok'), note('same kind of move')],
       maxTurns: 4,
@@ -582,7 +545,6 @@ describe('createGenEvalLoop — in-loop plateau detectors (subordination to the 
       eventBus,
       rotate: false,
       shiftCritique: false,
-      entropyPlateauDetector: true,
     });
 
     const result = await loop.execute(ctxFor(task));
@@ -591,7 +553,5 @@ describe('createGenEvalLoop — in-loop plateau detectors (subordination to the 
     if (!result.ok) return;
     expect(result.value.ctx.lastExit).toBeUndefined();
     expect(result.value.ctx.genEvalTurn).toBe(4);
-    expect(bannerFor(banners, `entropy-plateau-${String(task.id)}`)).toBeUndefined();
-    expect(bannerFor(banners, `loop-diversity-${String(task.id)}`)).toBeUndefined();
   });
 });

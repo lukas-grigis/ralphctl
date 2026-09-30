@@ -50,6 +50,15 @@ export interface AiSession {
   readonly permissions: SessionPermissions;
   /** Optional id of a prior session to resume. */
   readonly resume?: SessionId;
+  /**
+   * The FULL, self-contained prompt for this turn — set by a caller that sends a slim continuation
+   * {@link prompt} because it is resuming a conversation that already holds the brief. When the
+   * resume id turns out to be stale (the provider no longer has the thread) the shared retry loop
+   * respawns COLD; a cold spawn has no conversation to lean on, so it is handed this prompt instead
+   * of the continuation. Only consulted on that stale-resume fallback — every other spawn sends
+   * {@link prompt}. Unset when the prompt is already the full one.
+   */
+  readonly coldPrompt?: string;
   /** Optional caller-controlled abort signal. Adapters propagate to spawn → SIGTERM. */
   readonly abortSignal?: AbortSignal;
   /**

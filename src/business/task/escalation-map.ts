@@ -21,11 +21,13 @@ import type { Logger } from '@src/business/observability/logger.ts';
  * currently spawning with; values are the model id to switch to after a plateau exit. Ladders
  * are climbed cheapest-first, one rung per plateau.
  *
- *  - **claude-code** — Haiku → Sonnet 5 → Opus 5.5 (top). Legacy tiers converge on the flagship:
- *    Sonnet 4.6 → Opus 4.8 → Opus 5.5, and Opus 5 → Opus 5.5 (cheaper and stronger). Fable is
+ *  - **claude-code** — Haiku → Sonnet 5.5 → Opus 5.5 (top). Legacy tiers converge on the flagship:
+ *    Sonnet 5 → Opus 5.5 (kept keyed so rows still pinned to Sonnet 5 escalate), Sonnet 4.6 →
+ *    Opus 4.8 → Opus 5.5, and Opus 5 → Opus 5.5 (cheaper and stronger). Fable is
  *    never a default rung — it costs 2.5x Opus 5.5 and needs a non-ZDR org; opt in via
  *    `escalationMap` (`'claude-opus-5-5': 'claude-fable-5-1'`).
- *  - **github-copilot** — Haiku → Sonnet 5 → Opus 4.8 (top); Opus 4.7 → Opus 4.8. Opus 5 / 5.5 are
+ *  - **github-copilot** — Haiku → Sonnet 5 → Opus 4.8 (top); Opus 4.7 → Opus 4.8. Sonnet 5.5 is not
+ *    served on Copilot, so its Sonnet rung stays on Sonnet 5. Opus 5 / 5.5 are
  *    plan-gated on Copilot (Pro+/Max/Business/Enterprise), so the default ladder never steers a
  *    mid-task spawn into a model many accounts cannot use — opt in via `escalationMap`. GPT: the
  *    minis step to `gpt-5.5`, which climbs to `gpt-5.6-sol`; within 5.6, luna → terra → sol. The
@@ -45,13 +47,15 @@ import type { Logger } from '@src/business/observability/logger.ts';
  * rung the adapter rejects at spawn time.
  */
 const CLAUDE_OPUS_5_5 = 'claude-opus-5-5';
+const CLAUDE_SONNET_5_5 = 'claude-sonnet-5-5';
 const GPT_5_5 = 'gpt-5.5';
 const GPT_5_6_SOL = 'gpt-5.6-sol';
 const GPT_6_SOL = 'gpt-6-sol';
 
 export const DEFAULT_ESCALATION_LADDERS: Readonly<Record<AiProvider, Readonly<Record<string, string>>>> = {
   'claude-code': {
-    'claude-haiku-4-5': 'claude-sonnet-5',
+    'claude-haiku-4-5': CLAUDE_SONNET_5_5,
+    [CLAUDE_SONNET_5_5]: CLAUDE_OPUS_5_5,
     'claude-sonnet-5': CLAUDE_OPUS_5_5,
     'claude-sonnet-4-6': 'claude-opus-4-8',
     'claude-opus-4-8': CLAUDE_OPUS_5_5,
@@ -237,22 +241,24 @@ const CLAUDE_EFFORTLESS_MODELS: ReadonlySet<string> = new Set(['claude-haiku-4-5
 /**
  * Effort-capable Claude models WITHOUT the `xhigh` tier. Sonnet 4.6 is the only such model in the
  * Claude-Code catalog; its ladder skips straight from `high` to `max`. Every other effort-capable
- * Claude model (Sonnet 5, Opus 4.7/4.8/5/5.5, Fable 5/5.1, and — by default — any future frontier id
+ * Claude model (Sonnet 5/5.5, Opus 4.7/4.8/5/5.5, Fable 5/5.1, and — by default — any future frontier id
  * not listed here) is treated as xhigh-capable.
  */
 const CLAUDE_NO_XHIGH_MODELS: ReadonlySet<string> = new Set(['claude-sonnet-4-6', 'claude-sonnet-4.6']);
 
 /**
  * Claude Code's built-in effort when no `--effort` is passed, for models whose default is NOT
- * `high` (code.claude.com/docs/en/model-config, checked 2026-09-22): Opus 5.5 defaults to
- * `medium`. Every other effort-capable Claude model (Opus 5 / 4.8, Sonnet 5 / 4.6, Fable 5 / 5.1)
- * defaults to `high`. Kept in lockstep with the per-provider catalogs in
+ * `high` (code.claude.com/docs/en/model-config, checked 2026-09-30): Opus 5.5 and Sonnet 5.5
+ * default to `medium`. Every other effort-capable Claude model (Opus 5 / 4.8, Sonnet 5 / 4.6,
+ * Fable 5 / 5.1) defaults to `high`. This is the CLI's default, not the API's — the Claude API
+ * documents `high` as Sonnet 5.5's default, but the rung must track what the spawned CLI runs. Kept in lockstep with the per-provider catalogs in
  * `domain/value/settings-models/`: the catalog fingerprint test flags a model bump so this table is
  * re-checked alongside the ladder.
  */
 const CLAUDE_CLI_DEFAULT_EFFORT: Readonly<Record<string, ClaudeEffort>> = {
   'claude-opus-5-5': 'medium',
   'claude-opus-5.5': 'medium',
+  [CLAUDE_SONNET_5_5]: 'medium',
 };
 const CLAUDE_FALLBACK_CLI_DEFAULT_EFFORT: ClaudeEffort = 'high';
 
@@ -263,7 +269,7 @@ const isClaudeEffort = (s: string): s is ClaudeEffort => (CLAUDE_EFFORT_LADDER a
  *
  *   - Haiku (no effort dimension) → `undefined`; the rung is skipped gracefully.
  *   - The `effective` current effort is the explicit level, or — when unset — the model's CLI
- *     default ({@link CLAUDE_CLI_DEFAULT_EFFORT}: `medium` on Opus 5.5, `high` elsewhere).
+ *     default ({@link CLAUDE_CLI_DEFAULT_EFFORT}: `medium` on Opus / Sonnet 5.5, `high` elsewhere).
  *   - The target is the next tier strictly above `effective` on the model's own ladder
  *     (`low → medium → high → xhigh → max`; models without `xhigh` go `high → max`); `max` is the
  *     ceiling → `undefined` (spent).
@@ -298,9 +304,9 @@ const claudeEffortRung = (model: string, currentEffort: string | undefined): str
  *
  * Provider-aware target:
  *   - **claude-code** — model-aware ({@link claudeEffortRung}): one tier above the effective effort
- *     (the explicit level, or the model's CLI default — `medium` on Opus 5.5, `high` elsewhere), so
- *     the rung never re-stamps the implicit default. `claude-opus-5-5` unset → `high`; `xhigh` →
- *     `max`; `max` is spent.
+ *     (the explicit level, or the model's CLI default — `medium` on Opus / Sonnet 5.5, `high`
+ *     elsewhere), so the rung never re-stamps the implicit default. `claude-opus-5-5` unset →
+ *     `high`; `xhigh` → `max`; `max` is spent.
  *   - **github-copilot** — fixed target {@link EFFORT_ESCALATION_TARGET} (`high`); `unset` counts as
  *     escalatable (its CLI default sits ~medium), and `high | xhigh | max` are spent. Non-OpenAI
  *     models' effort semantics are opaque, so Copilot stays conservative rather than climbing further.

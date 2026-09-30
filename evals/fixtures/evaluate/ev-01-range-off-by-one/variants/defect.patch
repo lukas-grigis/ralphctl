@@ -1,0 +1,28 @@
+diff --git a/src/range.mjs b/src/range.mjs
+new file mode 100644
+index 0000000..b99c09d
+--- /dev/null
++++ b/src/range.mjs
+@@ -0,0 +1,5 @@
++export const range = (start, end) => {
++  const out = [];
++  for (let i = start; i < end; i += 1) out.push(i);
++  return out;
++};
+diff --git a/test/range.test.mjs b/test/range.test.mjs
+new file mode 100644
+index 0000000..0337674
+--- /dev/null
++++ b/test/range.test.mjs
+@@ -0,0 +1,11 @@
++import { test } from 'node:test';
++import assert from 'node:assert/strict';
++import { range } from '../src/range.mjs';
++
++test('range covers the interval', () => {
++  assert.deepEqual(range(1, 3), [1, 2]);
++});
++
++test('range is empty when start is past end', () => {
++  assert.deepEqual(range(5, 2), []);
++});

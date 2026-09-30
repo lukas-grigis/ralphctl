@@ -104,6 +104,7 @@ describe('implementContinuationPromptDef — completeness', () => {
   it('wires the autonomous-operation and evidence-bound partials', () => {
     expect(implementContinuationPromptDef.partials).toMatchObject({
       AUTONOMOUS_OPERATION: 'autonomous-operation',
+      PARALLEL_TOOL_CALLS: 'parallel-tool-calls',
       EVIDENCE_BOUND: 'evidence-bound',
     });
   });
@@ -127,8 +128,9 @@ describe('buildImplementContinuationPrompt — end-to-end against the real templ
     expect(result.value).toContain(PROGRESS_FILE);
     // The prior critique rides verbatim so the resumed generator addresses the flagged dimensions.
     expect(result.value).toContain('step 3 verification missing');
-    // The cold-resume hedge tells a context-free thread where to re-read the brief.
-    expect(result.value.replace(/\s+/g, ' ')).toContain('re-read these on-disk files');
+    // The hedge for a context-free resumed thread is gone: the stale-resume fallback swaps in the
+    // FULL prompt (`AiSession.coldPrompt`), so a continuation never has to compensate for lost context.
+    expect(result.value.replace(/\s+/g, ' ')).not.toContain('re-read these on-disk files');
     // No leftover placeholders.
     expect(result.value).not.toMatch(/\{\{[A-Z_]+\}\}/);
   });

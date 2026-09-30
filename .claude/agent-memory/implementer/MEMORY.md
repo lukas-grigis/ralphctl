@@ -15,7 +15,8 @@
 - [seams_parallel_runner_architecture.md](seams_parallel_runner_architecture.md) — runWaves above the chain, the nested-runner sub-chain adapter, rootSessionId vs currentSessionId, the ALS import fence
 - [seams_tui_architecture_patterns.md](seams_tui_architecture_patterns.md) — Modal overlays, global hotkeys over view-local data, clip markers, one hint source, the commit-storm coalescer, cancel-vs-abort
 - [seams_tui_test_gotchas.md](seams_tui_test_gotchas.md) — Test setups that pass for the wrong reason (batched stdin, 100x24 stub, spinner flap, vacuous scroll); known resize-listener warning noise
-- [seams_model_catalog_refresh.md](seams_model_catalog_refresh.md) — Catalog-refresh checklist: fingerprint gate, remap tests, persisted escalatedToModel/escalationMap remaps, settings.ts lint hazard
+- [seams_model_catalog_refresh.md](seams_model_catalog_refresh.md) — Catalog-refresh checklist: fingerprint gate, remap tests, CLI-vs-API effort default, eval/TUI tests pinning preset ids, settings.ts lint hazard
+- [seams_eval_harness.md](seams_eval_harness.md) — Prompt-eval harness: budget under-counts (no cache tokens), private-constant duplicates, fixture tooling exclusions, protectedPaths granularity
 
 ## Standalone
 
@@ -25,6 +26,5 @@
 - [project_migration_consent_gate_wiring.md](project_migration_consent_gate_wiring.md) — The data-migration consent splash + backup gate and how it is wired
 - [project_skill_selection_resolution_seam.md](project_skill_selection_resolution_seam.md) — Skill selection → `createResolvedSkillSource` resolution path
 - [project_flows_view_soft_repo_default.md](project_flows_view_soft_repo_default.md) — Flows-view repo selection and its soft default
-- [project_task_field_names_vs_plan.md](project_task_field_names_vs_plan.md) — `Task.name`/`dependsOn` vs the plan doc's "title"/"blockedBy" — a recurring naming mismatch
-- [project_trustworthy_firstrun_waves12_2026-08-14.md](project_trustworthy_firstrun_waves12_2026-08-14.md) — Honest doctor probes, the useViewKeys Escape gotcha, the demo seeder
+- [project_doctor_probes_and_escape_keys.md](project_doctor_probes_and_escape_keys.md) — Doctor probes return unknown not fail, useViewKeys can't match Escape, demo seeder marker rule
 - [feedback_concurrent_agent_writes.md](feedback_concurrent_agent_writes.md) — Recovery procedure when parallel agents collide on the same files

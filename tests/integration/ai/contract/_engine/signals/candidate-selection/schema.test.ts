@@ -24,14 +24,14 @@ describe('candidateSelectionSignalSchema', () => {
     expect(result.success).toBe(true);
   });
 
-  it('rejects a zero winner', () => {
+  it('accepts a zero winner — the tie verdict', () => {
     const result = candidateSelectionSignalSchema.safeParse({
       type: 'candidate-selection',
       winner: 0,
       rationale: 'x',
       timestamp: TS,
     });
-    expect(result.success).toBe(false);
+    expect(result.success).toBe(true);
   });
 
   it('rejects a negative winner', () => {

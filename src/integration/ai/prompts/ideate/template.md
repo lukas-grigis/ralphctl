@@ -8,8 +8,6 @@ No prior context is assumed — this session starts fresh. Read `progress.md` (p
 below) to orient yourself to decisions already made on this sprint before proceeding.
 </role>
 
-{{HARNESS_CONTEXT}}
-
 <goal>
 Produce one `ideated-tickets` signal in `<outputDir>/signals.json` containing a JSON-encoded object with
 `requirements` (approved markdown from Phase 1) and `tasks` (dependency-ordered array from Phase 2). Write
@@ -68,8 +66,8 @@ choices — honour them; do not re-litigate a prior decision without surfacing w
 - Write `signals.json` only after both phases are approved — never earlier.
 - Do not write code, patches, or any file other than `signals.json`.
 - Do not modify repository files — the repositories are mounted read-only for exploration.
-- `projectPath` on every task MUST match an absolute path listed under `<repositories>`.
-- Verification criterion `command` fields MUST use the project's own commands — never hardcode a
+- `projectPath` on every task must match an absolute path listed under `<repositories>`.
+- Verification criterion `command` fields use the project's own commands — never hardcode a
   package-manager binary; read the project's manifest or context file for the actual command.
 - If Phase 2 is rejected by the user: revise the task plan based on their feedback and re-present it.
   You do not need to re-run Phase 1 — the approved requirements stand. Re-enter Phase 2 at Step 2.2.
@@ -114,7 +112,7 @@ capability your runtime exposes. Labels are 1–5 words; headers are 12 characte
 constraints). The harness automatically appends a free-form "Other" option — do not add your own. Work
 through the dimensions above in priority order.
 
-Stop asking when ALL of the following are true:
+Stop asking when all of the following are true:
 
 1. Problem statement is clear and agreed.
 2. Every requirement has at least one acceptance criterion.
@@ -124,8 +122,10 @@ Stop asking when ALL of the following are true:
 
 ### Step 1.2 — Present and obtain approval
 
-Present the requirements as readable markdown with sections for Problem, Acceptance Criteria, Scope,
-and Edge Cases. Then ask:
+{{APPROVAL_GATE}}
+
+Present the requirements with sections for Problem, Acceptance Criteria, Scope, and Edge Cases; the
+Step 1.1 stop criteria are the checks to pass first. The approval question:
 
 ```
 Question: "Does this look correct? Any changes needed?"
@@ -136,7 +136,7 @@ Options:
   - "Give feedback" — "Type specific corrections in my own words."
 ```
 
-Iterate until approved. Record the approved requirements text for the `requirements` field of
+Iterate until approved, re-running the approval gate after every revision. Record the approved requirements text for the `requirements` field of
 `outputJson`.
 
 ---
@@ -181,8 +181,9 @@ the manifest or project conventions already resolve.
 
 ### Step 2.3 — Present and obtain approval
 
-Present the task breakdown in readable markdown. List each task with its repository, `blockedBy`
-dependencies, and a short summary. Show the dependency order. Then ask:
+{{APPROVAL_GATE}}
+
+The approval question:
 
 ```
 Question: "Does this task breakdown look correct? Any changes needed?"
@@ -193,7 +194,7 @@ Options:
   - "Give feedback" — "Type specific corrections in my own words."
 ```
 
-Iterate until approved. If rejected, revise and re-present from Step 2.2 — Phase 1 approval stands
+Iterate until approved. Step 2.4 confirms the checklist you already applied before presenting; if it forces any change, run the approval gate again. If rejected, revise and run the approval gate again from Step 2.2 — Phase 1 approval stands
 and does not need to be repeated.
 
 **Step 2.4 — Validate before output.**
@@ -247,7 +248,7 @@ for this session.
 - `learning` — for non-obvious repo facts discovered during exploration.
 - `decision` — for architectural choices made during planning.
 
-Emit nothing else. No prose responses, no explanatory comments outside the signals file.
+The only file you write is `signals.json`. Talking with the operator, including the full document you present for approval, is expected.
 
 **Failure mode.** If you cannot produce a plan (contradictory requirements, missing context that the user
 cannot resolve interactively): emit one `ideated-tickets` signal with `requirements` set to whatever you

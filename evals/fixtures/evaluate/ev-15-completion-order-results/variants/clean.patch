@@ -1,0 +1,32 @@
+diff --git a/src/map-async.mjs b/src/map-async.mjs
+new file mode 100644
+index 0000000..daf6229
+--- /dev/null
++++ b/src/map-async.mjs
+@@ -0,0 +1 @@
++export const mapAsync = (items, fn) => Promise.all(items.map((item, index) => fn(item, index)));
+diff --git a/test/map-async.test.mjs b/test/map-async.test.mjs
+new file mode 100644
+index 0000000..b520bba
+--- /dev/null
++++ b/test/map-async.test.mjs
+@@ -0,0 +1,19 @@
++import { test } from 'node:test';
++import assert from 'node:assert/strict';
++import { mapAsync } from '../src/map-async.mjs';
++
++const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
++
++test('maps every item', async () => {
++  assert.deepEqual(await mapAsync([1, 2, 3], async (x) => x * 2), [2, 4, 6]);
++});
++
++test('keeps input order when calls finish out of order', async () => {
++  const delays = [30, 5, 15];
++  const out = await mapAsync(delays, async (ms, i) => { await sleep(ms); return i; });
++  assert.deepEqual(out, [0, 1, 2]);
++});
++
++test('an empty input resolves to an empty array', async () => {
++  assert.deepEqual(await mapAsync([], async (x) => x), []);
++});

@@ -8,7 +8,7 @@ import { addApprovedTicketUseCase } from '@src/business/ticket/add-approved-tick
 import type { Project } from '@src/domain/entity/project.ts';
 import type { DraftSprint, Sprint } from '@src/domain/entity/sprint.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
-import type { Task } from '@src/domain/entity/task.ts';
+import type { Task, TodoTask } from '@src/domain/entity/task.ts';
 import { type ApprovedTicket, createTicket } from '@src/domain/entity/ticket.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
@@ -83,6 +83,10 @@ interface IdeateAndPlanOutput {
   readonly sprint: DraftSprint;
   readonly ticket: ApprovedTicket;
   readonly tasks: readonly Task[];
+  /** Only the AI-proposed tasks — the critic + reviewer judge these, not the pre-existing ones. */
+  readonly proposedTasks: readonly TodoTask[];
+  /** The inputs before mutation, so a rejecting reviewer can restore them. */
+  readonly preIdeate: { readonly sprint: Sprint; readonly tasks: readonly Task[] };
 }
 
 /** Leaf name, reused as the `entity` / `attemptedAction` on the leaf's error states. */
@@ -189,7 +193,13 @@ const applyResult = (
   if (!added.ok) return Result.error(added.error);
 
   const tasks: readonly Task[] = [...input.existingTasks, ...parsed.value.tasks];
-  return Result.ok({ sprint: added.value.sprint, ticket: added.value.ticket, tasks });
+  return Result.ok({
+    sprint: added.value.sprint,
+    ticket: added.value.ticket,
+    tasks,
+    proposedTasks: parsed.value.tasks,
+    preIdeate: { sprint: input.sprint, tasks: input.existingTasks },
+  });
 };
 
 export const ideateAndPlanLeaf = (deps: IdeateAndPlanLeafDeps): Element<IdeateCtx> =>
@@ -248,5 +258,7 @@ export const ideateAndPlanLeaf = (deps: IdeateAndPlanLeafDeps): Element<IdeateCt
       sprint: out.sprint,
       tasks: out.tasks,
       addedTicket: out.ticket,
+      proposedTasks: out.proposedTasks,
+      preIdeate: out.preIdeate,
     }),
   });

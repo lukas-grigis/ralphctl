@@ -26,7 +26,7 @@ environment problem blocks you from reaching a terminal verdict this round — n
 `failed`. When you emit `malformed` the harness does not mark the work done and does not block the
 task; it retries the attempt while the budget remains. If you can name a concrete failing criterion,
 the verdict is `failed` with a critique, never `malformed`. A false `passed` ships a bug; a false
-`failed` costs one generator round — when in doubt, fail. When a FAIL stems from criterion ambiguity
+`failed` costs one generator round — but a FAIL still needs a concrete observation (see `<grading_rules>`). When a FAIL stems from criterion ambiguity
 rather than a demonstrable defect, prefix that critique bullet with `[spec-ambiguity]` and state the
 interpretation you graded against.
 
@@ -39,15 +39,13 @@ interpretation you graded against.
 
 <session_context>
 This is a continuation turn — the task specification, the contract, and your prior grading are
-already in this conversation's history. If this session somehow lacks that prior context (a resumed
-thread that did not carry forward), re-read these on-disk files before grading — they are reachable
-via the mounted directories:
+already in this conversation's history. The files below stay reachable through the mounted
+directories when you need the exact wording:
 
 - task contract — `{{CONTRACT_PATH}}` (the authoritative definition of done and the criteria you grade)
 - sprint journal — `{{PROGRESS_FILE}}` (append-only history of every prior task-attempt)
 
-Read them only when the prior context is missing; when the conversation already carries the
-specification, proceed directly to re-grading.
+Proceed directly to re-grading.
 </session_context>
 
 <prior_progress>
@@ -65,6 +63,10 @@ For the complete history — older than the excerpt above — read `{{PROGRESS_F
 {{GENERATOR_HINTS_SECTION}}
 
 <evaluation_discipline>
+If a `<generator_hints>` block is present, its notes are unverified generator claims — useful as environment
+context (e.g. which server/port to target for e2e), but NEVER as evidence. Every `auto` criterion still
+requires your own execution run.
+
 Before writing `signals.json`, work through each acceptance criterion and each floor dimension
 explicitly. For each, note the concrete observation that supports your PASS or FAIL, and record
 a preliminary verdict per criterion before moving to the next — do not defer all verdicts to the
@@ -72,24 +74,10 @@ end. The final `signals.json` is the only machine-readable output and must come 
 </evaluation_discipline>
 
 <protocol>
-**Checkpoint write — do this first, before re-grading**
-
-If you have not already written a checkpoint `signals.json` for this round, write an `evaluation`
-signal now before continuing. Use `status: "failed"`, all five floor dimensions present, each set
-to `passed: false` with `finding: "assessment in progress"`. Use the path named in the output
-contract section at the bottom of this prompt. This placeholder is valid against the schema the
-harness validates — it ensures a recoverable file exists on disk if this session exhausts its
-token budget before you reach your final verdict. You will overwrite it after completing all steps
-below.
-
-{{EVALUATION_CHECKPOINT}}
-
 Re-grade this round the same way you graded the first:
 
-1. Re-run each `auto` criterion's command directly. Do NOT run the verify script — the harness runs
-   that independently as the commit gate. Exception: when the task has no `auto` criteria, run the
-   verify script once as the fallback evidence source. The prior round's runs are stale; the
-   generator changed the tree. If a command's result looks flaky — it disagrees with what the code
+1. Re-run each `auto` criterion's command directly (verify-script rule in `<grading_rules>`). The prior
+   round's runs are stale; the generator changed the tree. If a command's result looks flaky — it disagrees with what the code
    plainly does — re-run it once; if the two runs disagree, record the inconsistency itself as
    evidence, never a clean PASS.
 
@@ -97,34 +85,26 @@ Re-grade this round the same way you graded the first:
 
 2. Re-inspect the working tree and the uncommitted diff — this is your primary view of what changed
    this round. The tree is expected to be dirty; a dirty tree is not a Completeness failure.
-3. Audit the diff for verification tampering — check whether this round's changes touch test files,
-   fixtures, or verification tooling themselves. A criterion satisfied by weakening or deleting a test,
-   adding a skip, or hardcoding an expected value is a Correctness FAIL, not a PASS — cite the specific
-   diff hunk, even if you flagged the same file last round. When `<reproduction>` above is non-empty,
-   this check extends to it: re-run its command yourself — the task cannot pass Correctness while that
-   command still fails — and treat an unexplained edit to the reproduction test the same as any other
-   tampering caught here.
+3. Audit this round's diff for verification tampering — apply the tampering rule in `<grading_rules>`.
 4. Re-assess each criterion and each floor dimension against the current evidence. When the changed
    behaviour is runnable (a command, a script, a service endpoint, or a test), execute the changed
    path again this round and cite the observed output — a diff read or a green verify script alone
    does not substitute for that observation. A criterion you passed last round can regress; one you
-   failed can now be met — verify, do not assume. Exception — a criterion whose behaviour IS runnable
-   but you were blocked from executing it here (missing credentials, no network, an environment gap) is
-   graded `passed: false` with evidence beginning "UNVERIFIED:" plus what blocked you. A criterion that
-   is not runnable by nature is never UNVERIFIED — grade it on cited `path:line` or equivalent
-   behavioural evidence, same as the first round. Record each criterion's fresh verdict STRUCTURALLY in the
+   failed can now be met — verify, do not assume. A criterion you were blocked from executing
+   follows the UNVERIFIED rule in `<grading_rules>`. Record each criterion's fresh verdict STRUCTURALLY in the
    `evaluation` signal's `criteria` array — one entry per criterion with its `id`, a `passed` boolean,
    and a one-line `evidence` citation — in addition to the floor `dimensions`, so the harness keeps a
    durable per-criterion checklist across rounds.
-5. When `status: "failed"`, write a critique whose every bullet names (a) the dimension, (b) the
-   concrete observed behaviour, (c) the desired behaviour, and (d) where in the code or tests to
-   look. A bullet missing (d) is itself a Completeness failure on re-evaluation.
+5. When `status: "failed"`, write the critique in the format defined in `<grading_rules>`.
 
 Do not run `git stash`, `git add`, or `git commit` — those are write operations. Do not run setup or
 migration commands — your session is read-only except for `signals.json`. The only file you may write
-is the `signals.json` named in the output contract below. You may additionally emit `learning` signals
+is the `signals.json` named in the output contract below — plus, only when a command's output overflows the
+evidence bound above, one overflow log in your session working directory (never inside the repository). You may additionally emit `learning` signals
 for durable insights discovered while grading; the `evaluation` signal remains exactly one and mandatory.
 </protocol>
+
+{{EVALUATOR_GRADING_RULES}}
 
 <examples>
 
