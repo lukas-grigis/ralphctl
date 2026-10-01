@@ -10,6 +10,7 @@ import { detectSkillsPromptDef } from '@src/integration/ai/prompts/detect-skills
 import { evaluateContinuationPromptDef } from '@src/integration/ai/prompts/evaluate-continuation/definition.ts';
 import { evaluatePromptDef } from '@src/integration/ai/prompts/evaluate/definition.ts';
 import { ideatePromptDef } from '@src/integration/ai/prompts/ideate/definition.ts';
+import { implementCrashResumePromptDef } from '@src/integration/ai/prompts/implement-crash-resume/definition.ts';
 import { implementContinuationPromptDef } from '@src/integration/ai/prompts/implement-continuation/definition.ts';
 import { implementPromptDef } from '@src/integration/ai/prompts/implement/definition.ts';
 import { planPromptDef } from '@src/integration/ai/prompts/plan/definition.ts';
@@ -43,6 +44,7 @@ const FLOWS: ReadonlyArray<{ readonly name: string; readonly def: PromptDefiniti
   { name: 'ideate', def: ideatePromptDef as PromptDefinition<never> },
   { name: 'implement', def: implementPromptDef as PromptDefinition<never> },
   { name: 'implement-continuation', def: implementContinuationPromptDef as PromptDefinition<never> },
+  { name: 'implement-crash-resume', def: implementCrashResumePromptDef as PromptDefinition<never> },
   { name: 'evaluate', def: evaluatePromptDef as PromptDefinition<never> },
   { name: 'evaluate-continuation', def: evaluateContinuationPromptDef as PromptDefinition<never> },
   { name: 'readiness', def: readinessPromptDef as PromptDefinition<never> },

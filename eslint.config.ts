@@ -274,6 +274,7 @@ const PROMPTS = [
   'ideate',
   'implement',
   'implement-continuation',
+  'implement-crash-resume',
   'plan',
   'readiness',
   'refine',
