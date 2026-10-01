@@ -8,6 +8,7 @@ import { useInput, type Key } from 'ink';
 import { useViewHints, type ViewHint } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
 import { useClaimKeys } from '@src/application/ui/tui/runtime/claimed-keys-context.tsx';
 import { useOptionalOverlayState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
+import { isChord } from '@src/application/ui/tui/runtime/key-chord.ts';
 
 export interface ViewKeyBinding {
   /**
@@ -23,6 +24,8 @@ export interface ViewKeyBinding {
   readonly hidden?: boolean;
   /** Omit for a documentation-only entry describing a key another primitive owns. */
   readonly run?: (input: string, key: Key) => void;
+  /** Omitted means the bare key only — Ink reports ctrl+c as input `c`. */
+  readonly chord?: 'ctrl' | 'meta';
 }
 
 export interface UseViewKeysOptions {
@@ -47,17 +50,22 @@ const SPECIAL_KEYS: Readonly<Record<string, (key: Key) => boolean>> = {
   PgDn: (key) => key.pageDown,
 };
 
-const matches = (token: string, input: string, key: Key): boolean => {
-  if (token === 'space') return input === ' ';
+const chordMatches = (chord: ViewKeyBinding['chord'], key: Key): boolean => {
+  if (chord === undefined) return !isChord(key);
+  return chord === 'ctrl' ? key.ctrl : key.meta && !key.ctrl;
+};
+
+const matches = (binding: ViewKeyBinding, token: string, input: string, key: Key): boolean => {
   const special = SPECIAL_KEYS[token];
-  return special !== undefined ? special(key) : token === input;
+  if (special !== undefined) return special(key);
+  return (token === 'space' ? ' ' : token) === input && chordMatches(binding.chord, key);
 };
 
 /** Printable single characters are claimable; arrows, `↵`, `esc` and named keys are not. */
 const PRINTABLE = /^[ -~]$/u;
 
 const toHint = (binding: ViewKeyBinding): ViewHint => ({
-  keys: binding.keys.join('/'),
+  keys: binding.keys.map((k) => (binding.chord === undefined ? k : `${binding.chord}+${k}`)).join('/'),
   label: binding.hint,
   ...(binding.enabled !== undefined ? { enabledWhen: binding.enabled } : {}),
 });
@@ -76,7 +84,7 @@ interface PendingKey {
 
 const findEnabled = (bindings: readonly ViewKeyBinding[], input: string, key: Key): ViewKeyBinding | undefined =>
   bindings.find(
-    (b) => b.run !== undefined && b.enabled !== false && b.keys.some((token) => matches(token, input, key))
+    (b) => b.run !== undefined && b.enabled !== false && b.keys.some((token) => matches(b, token, input, key))
   );
 
 export const useViewKeys = (bindings: readonly ViewKeyBinding[], options: UseViewKeysOptions = {}): void => {
@@ -95,7 +103,7 @@ export const useViewKeys = (bindings: readonly ViewKeyBinding[], options: UseVie
       }
       // Gated off right after mount (data still loading): hold the key until its binding enables.
       const gated = bindings.some(
-        (b) => b.run !== undefined && b.enabled === false && b.keys.some((token) => matches(token, input, key))
+        (b) => b.run !== undefined && b.enabled === false && b.keys.some((token) => matches(b, token, input, key))
       );
       if (gated && Date.now() - mountedAt.current < TYPE_AHEAD_MS && pending.current.length < TYPE_AHEAD_MAX) {
         pending.current.push({ input, key });
@@ -121,7 +129,7 @@ export const useViewKeys = (bindings: readonly ViewKeyBinding[], options: UseVie
   });
 
   const claimed = bindings
-    .filter((b) => b.run !== undefined && b.enabled !== false)
+    .filter((b) => b.run !== undefined && b.enabled !== false && b.chord === undefined)
     .flatMap((b) => b.keys.filter((k) => PRINTABLE.test(k)));
   useClaimKeys(claimed, active);
 

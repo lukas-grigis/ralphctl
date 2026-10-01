@@ -7,6 +7,7 @@ import { useClaimedKeys } from '@src/application/ui/tui/runtime/claimed-keys-con
 import { useOverlayState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { glyphs, spacing, tones } from '@src/application/ui/tui/theme/tokens.ts';
 import type { BannerShowEvent } from '@src/business/observability/events.ts';
+import { isChord } from '@src/application/ui/tui/runtime/key-chord.ts';
 
 /** Hard cap on visible banners before the collapse marker takes over. */
 const MAX_VISIBLE = 3;
@@ -96,8 +97,8 @@ export const StatusBanner = (): React.JSX.Element | null => {
 
   // Only claim `d` while there's something to dismiss — otherwise we'd intercept a keystroke any view-level handler
   // might want for its own use.
-  useInput((input) => {
-    if (overlay.modalOpen) return;
+  useInput((input, key) => {
+    if (overlay.modalOpen || isChord(key)) return;
     if (input === 'd' && sorted.length > 0 && !isClaimed('d')) dismissTop();
   });
 

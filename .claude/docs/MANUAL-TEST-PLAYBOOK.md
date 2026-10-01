@@ -737,6 +737,11 @@ running). Do this on a throwaway sprint.
 2. Press `q` then `y` — **expected:** the run is aborted cleanly (no AI processes left, the task is not left
    `running`) and ralphctl exits; `Ctrl+C` during the stop quits at once
 3. With no live runs, `q` exits immediately
+4. On the run view, `Ctrl+C` — **expected:** only the quit confirm opens; the cancel picker (`c`) does not
+5. Start Create sprint, leave the name prompt open, `Ctrl+C` then `y` — **expected:** ralphctl exits at once
+   rather than staying on `Stopping 1 run`
+6. Quit with `y` mid-attempt, relaunch — **expected:** the task is not listed as interrupted; the next Implement
+   shows `attempt 1/3` (the stopped attempt cost nothing)
 
 ---
 

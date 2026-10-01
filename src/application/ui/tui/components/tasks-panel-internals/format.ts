@@ -98,7 +98,7 @@ export const formatEtaChip = (
 export const abortCauseLabel = (cause: AbortCause): string | undefined => {
   switch (cause) {
     case 'user-cancel':
-      return 'Ctrl-C';
+      return 'stopped by you';
     case 'sigterm':
       return 'SIGTERM';
     case 'watchdog-killed':

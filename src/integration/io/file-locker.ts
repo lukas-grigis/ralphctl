@@ -2,7 +2,8 @@ import * as nodeFs from 'node:fs';
 import { promises as fs } from 'node:fs';
 import { dirname, join } from 'node:path';
 import properLockfile from 'proper-lockfile';
-import { currentHost, isProcessAlive } from '@src/integration/io/process-liveness.ts';
+import { currentMachine, isProcessAlive } from '@src/integration/io/process-liveness.ts';
+import { sameMachine, type MachineRef } from '@src/business/runs/live-run.ts';
 import { Result } from '@src/domain/result.ts';
 import { messageOf } from '@src/domain/value/error/error-message.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
@@ -103,9 +104,8 @@ export interface WithLockOptions {
 }
 
 /** Contents of `<lockDir>/owner.json`. */
-interface LockOwner {
+interface LockOwner extends MachineRef {
   readonly pid: number;
-  readonly host: string;
   readonly startedAt: string;
   readonly acquiredAt: string;
   readonly purpose?: string;
@@ -115,7 +115,7 @@ const OWNER_FILE = 'owner.json';
 
 const processStartedAt = (): string => new Date(Date.now() - process.uptime() * 1000).toISOString();
 
-const readOwner = async (lockDir: string): Promise<LockOwner | undefined> => {
+export const readLockOwner = async (lockDir: string): Promise<LockOwner | undefined> => {
   try {
     const parsed: unknown = JSON.parse(await fs.readFile(join(lockDir, OWNER_FILE), 'utf8'));
     if (typeof parsed !== 'object' || parsed === null) return undefined;
@@ -127,8 +127,8 @@ const readOwner = async (lockDir: string): Promise<LockOwner | undefined> => {
   }
 };
 
-const ownerDeadHere = (owner: LockOwner): boolean =>
-  owner.host === currentHost() && owner.pid !== process.pid && !isProcessAlive(owner.pid);
+const ownerDeadHere = async (owner: LockOwner): Promise<boolean> =>
+  sameMachine(owner, await currentMachine()) && owner.pid !== process.pid && !isProcessAlive(owner.pid);
 
 /**
  * `fs` for `proper-lockfile`: `mkdir` drops the owner file into a freshly created lock dir before
@@ -162,9 +162,9 @@ const lockFs = (owner: LockOwner | undefined): typeof nodeFs => ({
  * re-taken in between by a live process is left alone.
  */
 const reclaimIfOwnerDead = async (lockDir: string): Promise<LockOwner | undefined> => {
-  const owner = await readOwner(lockDir);
-  if (owner === undefined || !ownerDeadHere(owner)) return undefined;
-  const again = await readOwner(lockDir);
+  const owner = await readLockOwner(lockDir);
+  if (owner === undefined || !(await ownerDeadHere(owner))) return undefined;
+  const again = await readLockOwner(lockDir);
   if (again?.pid !== owner.pid || again.acquiredAt !== owner.acquiredAt) return undefined;
   await fs.rm(join(lockDir, OWNER_FILE), { force: true });
   try {
@@ -175,9 +175,9 @@ const reclaimIfOwnerDead = async (lockDir: string): Promise<LockOwner | undefine
   return owner;
 };
 
-const contentionMessage = (owner: LockOwner | undefined, maxRetries: number): string | undefined => {
+const contentionMessage = async (owner: LockOwner | undefined, maxRetries: number): Promise<string | undefined> => {
   if (owner === undefined) return undefined;
-  const where = owner.host === currentHost() ? '' : ` on ${owner.host}`;
+  const where = sameMachine(owner, await currentMachine()) ? '' : ` on ${owner.host}`;
   return `another ralphctl (pid ${String(owner.pid)}${where}) is running ${owner.purpose ?? 'a flow'} on this repo — gave up after ${String(maxRetries)} retries`;
 };
 
@@ -200,7 +200,7 @@ export const createFileLocker = (opts: FileLockerOptions = {}): FileLocker => {
         ? undefined
         : {
             pid: process.pid,
-            host: currentHost(),
+            ...(await currentMachine()),
             startedAt: processStartedAt(),
             acquiredAt: new Date().toISOString(),
             purpose: lockOpts.purpose,
@@ -235,7 +235,8 @@ export const createFileLocker = (opts: FileLockerOptions = {}): FileLocker => {
         },
       });
     } catch (cause) {
-      const holder = errnoCode(cause) === 'ELOCKED' ? contentionMessage(await readOwner(path), maxRetries) : undefined;
+      const holder =
+        errnoCode(cause) === 'ELOCKED' ? await contentionMessage(await readLockOwner(path), maxRetries) : undefined;
       return Result.error(
         new StorageError({
           subCode: 'lock',

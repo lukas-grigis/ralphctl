@@ -80,6 +80,10 @@ export interface TaskRoundStartedEvent {
   readonly type: 'task-round-started';
   readonly taskId: string;
   readonly attemptN: number;
+  /** {@link attemptN} as the attempt budget counts it — free attempts (interruptions, operator stops) left out. */
+  readonly budgetedAttemptN?: number;
+  /** The attempt picks up where a free attempt left off. */
+  readonly resumed?: boolean;
   readonly roundN: number;
   readonly totalCap: number;
   readonly at: IsoTimestamp;

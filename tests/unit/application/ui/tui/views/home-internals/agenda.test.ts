@@ -11,7 +11,9 @@ import { markTaskBlocked } from '@src/domain/entity/task-lifecycle.ts';
 import type { Task } from '@src/domain/entity/task.ts';
 import type { TaskId } from '@src/domain/value/id/task-id.ts';
 import type { NextStep } from '@src/application/ui/shared/next-steps.ts';
-import { makeInProgressTaskWithRunningAttempt, makeTodoTask } from '@tests/fixtures/domain.ts';
+import { FIXED_LATER, makeInProgressTaskWithRunningAttempt, makeTodoTask } from '@tests/fixtures/domain.ts';
+import { failCurrentAttempt } from '@src/domain/entity/task-settle.ts';
+import { startNextAttempt } from '@src/domain/entity/task-attempts.ts';
 
 const NOW = Date.parse('2026-10-01T12:00:00Z');
 const SPRINT = 'sprint-1';
@@ -140,6 +142,34 @@ describe('buildAgenda', () => {
     expect(running[0]?.label).toBe('implement · task 6/7 "Add --shout option" · attempt 1/3');
     expect(running[0]?.fact).toBe('1m00s');
     expect(running[0]?.verb).toBe('open run');
+  });
+
+  it('counts the running attempt the way the budget does, noting a free resume', () => {
+    const crashed = makeInProgressTaskWithRunningAttempt({ maxAttempts: 3 });
+    const settled = failCurrentAttempt(crashed, FIXED_LATER, 'aborted', { abortCause: 'harness-interrupted' });
+    if (!settled.ok) throw new Error(settled.error.message);
+    const resumed = startNextAttempt(settled.value, FIXED_LATER);
+    if (!resumed.ok) throw new Error(resumed.error.message);
+    const rows = buildAgenda(
+      input({
+        tasks: [resumed.value],
+        sessions: [
+          session({
+            id: 'run',
+            progress: {
+              taskId: resumed.value.id,
+              taskIndex: 1,
+              taskCount: 1,
+              taskName: 'Greet',
+              attempt: 2,
+              maxAttempts: 3,
+            },
+          }),
+        ],
+      })
+    );
+    const running = rows.filter((r) => r.section === 'running');
+    expect(running[0]?.label).toBe('implement · task 1/1 "Greet" · attempt 1/3 · resumed');
   });
 
   it('marks an awaiting session in the fact', () => {

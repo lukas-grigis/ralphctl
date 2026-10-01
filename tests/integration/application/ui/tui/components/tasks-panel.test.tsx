@@ -103,6 +103,27 @@ describe('TasksPanel render caps', () => {
     vi.unstubAllEnvs();
   });
 
+  it('says a free resume cost no attempt instead of naming raw attempt numbers', () => {
+    const bucketed: BucketedExecution = {
+      tasks: [{ id: 'task-1', status: 'running', subSteps: [], evaluations: [], signals: [], genEvalRound: 0 }],
+      orphanSignals: [],
+    };
+    for (const [cause, label] of [
+      ['harness-interrupted', 'interrupted'],
+      ['user-cancel', 'stopped by you'],
+    ] as const) {
+      const recovering = new Map<string, RecoveryContext>([
+        ['task-1', { fromAttemptN: 1, cause, abortedAt: ts(0) as IsoTimestamp }],
+      ]);
+      const r = render(<TasksPanel bucketed={bucketed} running={true} recoveringByTaskId={recovering} />);
+      const frame = r.lastFrame() ?? '';
+      expect(frame).toContain(`resumed after the stop at`);
+      expect(frame).toContain(`(${label}) · no attempt used`);
+      expect(frame).not.toContain('attempt 2');
+      r.unmount();
+    }
+  });
+
   it('omits the resume-from-aborted banner when recoveringByTaskId is absent', () => {
     const bucketed: BucketedExecution = {
       tasks: [

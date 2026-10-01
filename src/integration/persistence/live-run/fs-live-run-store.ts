@@ -37,6 +37,7 @@ const recordSchema = z.object({
   owner: z.object({
     pid: z.number().int().positive(),
     host: z.string(),
+    machineId: z.string().optional(),
     startedAt: z.string(),
     identity: identitySchema.optional(),
   }),

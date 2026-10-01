@@ -120,7 +120,12 @@ export const HomeView = ({ focus: focusProp }: HomeViewProps = {}): React.JSX.El
   const { state, snapshot, reload } = useWorkSnapshot();
   const launcher = useFlowLauncher({ snapshot, reload });
   const interrupted = useInterrupted(snapshot);
-  const { agenda, showAll, toggleShowAll } = useWorkAgenda(snapshot, launcher.launchability, interrupted.facts);
+  const { agenda, showAll, toggleShowAll } = useWorkAgenda(
+    snapshot,
+    launcher.launchability,
+    interrupted.facts,
+    interrupted.ownedElsewhere
+  );
   const { seedIndex, epoch } = useMenuSeed(agenda, focusProp);
   const { flash, show } = useFlash();
   const switchToast = useSwitchToast(selection);

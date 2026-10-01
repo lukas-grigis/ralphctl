@@ -9,6 +9,7 @@ import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx
 import { useClaimedKeys } from '@src/application/ui/tui/runtime/claimed-keys-context.tsx';
 import { useSessionManager } from '@src/application/ui/tui/runtime/sessions-context.tsx';
 import type { SessionRecord } from '@src/application/ui/tui/runtime/session-manager.ts';
+import { isChord } from '@src/application/ui/tui/runtime/key-chord.ts';
 
 type UiStateApi = ReturnType<typeof useUiState>;
 type SelectionApi = ReturnType<typeof useSelection>;
@@ -38,10 +39,9 @@ export const useGlobalKeys = (opts: UseGlobalKeysOptions = {}): void => {
     if (opts.disabled) return;
     // The quit confirm owns every other key; its own handler answers it.
     if (ui.overlay?.kind === 'quit') return;
-    if (handleHelpOverlay(ui, input, key)) return;
-    if (handleSwitcherOverlay(ui)) return;
-    if (handleProgressOverlay(ui, selection, input, key, isClaimed)) return;
-    if (handleEvaluationOverlay(ui, input, key)) return;
+    // Letter keys below answer to the bare key only; ctrl+x must not land on Runs.
+    const letter = isChord(key) ? '' : input;
+    if (handleOverlays(ui, selection, letter, key, isClaimed)) return;
     if (handleSessionNav(sessions, router, input, key)) return;
 
     if (key.escape && !ui.escapeClaimed) {
@@ -50,11 +50,23 @@ export const useGlobalKeys = (opts: UseGlobalKeysOptions = {}): void => {
     }
 
     // Ambient single-character chords: a key the active view (or an open overlay) claims is theirs.
-    if (isClaimed(input)) return;
-    if (handleSectionDigit(input, key, router)) return;
-    handleAccelerator(input, router, ui);
+    if (letter === '' || isClaimed(letter)) return;
+    if (handleSectionDigit(letter, key, router)) return;
+    handleAccelerator(letter, router, ui);
   });
 };
+
+const handleOverlays = (
+  ui: UiStateApi,
+  selection: SelectionApi,
+  letter: string,
+  key: Key,
+  isClaimed: (key: string) => boolean
+): boolean =>
+  handleHelpOverlay(ui, letter, key) ||
+  handleSwitcherOverlay(ui) ||
+  handleProgressOverlay(ui, selection, letter, key, isClaimed) ||
+  handleEvaluationOverlay(ui, letter, key);
 
 /** The Work section's root — Home. The only place `q` quits. */
 const isWorkRoot = (router: Pick<RouterApi, 'current' | 'activeSection' | 'stack'>): boolean =>

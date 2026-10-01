@@ -7,6 +7,7 @@ import type { Choice } from '@src/business/interactive/prompt.ts';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { ScrollableMessage } from '@src/application/ui/tui/prompts/scrollable-message.tsx';
 import { usePromptHints } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
+import { isChord } from '@src/application/ui/tui/runtime/key-chord.ts';
 
 const VISIBLE_ROWS = 8;
 
@@ -79,6 +80,7 @@ export const SelectPrompt = ({
       if (opt !== undefined && opt.disabled !== true) onSubmit(opt.value);
       return;
     }
+    if (isChord(key)) return;
     if (key.upArrow || input === 'k') setCursor((c) => clamp(nextEnabledIndex(options, c, -1), 0, options.length - 1));
     else if (key.downArrow || input === 'j')
       setCursor((c) => clamp(nextEnabledIndex(options, c, 1), 0, options.length - 1));

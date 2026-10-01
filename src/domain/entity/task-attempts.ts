@@ -2,7 +2,7 @@ import { Result } from '@src/domain/result.ts';
 import {
   appendVerifyRun,
   type Attempt,
-  countsTowardAttemptBudget,
+  isFreeAttempt,
   type AttemptUsage,
   type AttemptWarning,
   type Attribution,
@@ -31,12 +31,24 @@ import { type ValidationError } from '@src/domain/value/error/validation-error.t
 
 const lastAttempt = (task: Task): Attempt | undefined => task.attempts[task.attempts.length - 1];
 
-/**
- * Attempts that count against `maxAttempts` — every attempt, the running one included, except those
- * the harness abandoned when it was itself interrupted. The one count every budget check reads.
- */
-export const budgetedAttemptCount = (task: Pick<Task, 'attempts'>): number =>
-  task.attempts.filter(countsTowardAttemptBudget).length;
+/** A task interrupted over and over without an attempt finishing must still run out of budget. */
+export const MAX_CONSECUTIVE_FREE_ATTEMPTS = 3;
+
+/** The one count every budget check reads: all attempts except free ones within the streak cap. */
+export const budgetedAttemptCount = (task: Pick<Task, 'attempts'>): number => {
+  let counted = 0;
+  let freeStreak = 0;
+  for (const att of task.attempts) {
+    freeStreak = isFreeAttempt(att) ? freeStreak + 1 : 0;
+    if (freeStreak === 0 || freeStreak > MAX_CONSECUTIVE_FREE_ATTEMPTS) counted += 1;
+  }
+  return counted;
+};
+
+export const resumesFreeAttempt = (task: Pick<Task, 'attempts'>): boolean => {
+  const previous = task.attempts.at(-2);
+  return previous !== undefined && isFreeAttempt(previous);
+};
 
 const requireRunningAttempt = (
   task: InProgressTask

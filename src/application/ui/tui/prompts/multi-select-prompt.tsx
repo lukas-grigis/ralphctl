@@ -9,6 +9,7 @@ import { usePromptInput } from '@src/application/ui/tui/prompts/use-prompt-input
 import type { Choice } from '@src/business/interactive/prompt.ts';
 import { glyphs, inkColors, PROMPT_VISIBLE_ROWS, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { usePromptHints } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
+import { isChord } from '@src/application/ui/tui/runtime/key-chord.ts';
 
 const clamp = (n: number, min: number, max: number): number => Math.max(min, Math.min(max, n));
 
@@ -75,6 +76,7 @@ const useMultiSelectKeys = ({
       onSubmit(values);
       return;
     }
+    if (isChord(key)) return;
     if (input === ' ') {
       if (!isEnabled(options[cursor])) return;
       setPicked((prev) => {

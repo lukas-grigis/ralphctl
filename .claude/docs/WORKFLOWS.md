@@ -349,9 +349,12 @@ running. Runs lists the dead runs' live-run records (`↵` back to Work, `d` dis
 names the interrupted attempt as the source of the changes and keeps `Keep` as the default. On the parallel path a
 stranded `wt-<task>` worktree is adopted when the task has an interrupted attempt; otherwise the task blocks with
 a `worktree-setup-failure` blocker and a removal hint so it surfaces in NEEDS YOU. **Quit** (`q` / `ctrl+c`) with
-live runs asks `N runs live — quit stops them? [y/N]` (default No); yes aborts the sessions cleanly then exits,
-`ctrl+c` again quits at once and leftover AI processes are cleaned up by the orphan reaper or the next launch
-([SECURITY.md](./SECURITY.md)). No live runs: quit exits immediately. Resume mechanics and attempt accounting:
+live runs asks `N runs live — quit stops them? [y/N]` (default No); yes aborts the sessions cleanly then exits.
+A run parked on a prompt has that prompt withdrawn with an `AbortError` as part of its abort, and a prompt no run
+owns is dismissed. The stopped runs' attempts settle as `user-cancel`, so the next launch shows no interrupted
+task. If the runs have not stopped after 5s, their AI CLI process groups are SIGKILLed and ralphctl exits, leaving
+a one-line note in the shell. `ctrl+c` again quits at once and leftover AI processes are cleaned up by the orphan
+reaper or the next launch ([SECURITY.md](./SECURITY.md)). No live runs: quit exits immediately. Resume mechanics and attempt accounting:
 [PERFORMANCE.md](./PERFORMANCE.md) § Resume of aborted Implement runs.
 Hidden accelerators — `h` Work, `n` flows, `x` Runs, `s` Settings, `!` Doctor — still work from anywhere but are
 never advertised; the footer carries only view-local keys plus `? help`. Multi-flow navigation: Tab / Shift+Tab

@@ -5,6 +5,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Box, Text, useInput, type Key } from 'ink';
 import { glyphs, spacing } from '@src/application/ui/tui/theme/tokens.ts';
+import { isChord } from '@src/application/ui/tui/runtime/key-chord.ts';
 
 /** How long after mount a move may wait for the rows to arrive. */
 const TYPE_AHEAD_MS = 1500;
@@ -138,8 +139,9 @@ export function useListWindow<T>({
 
   const applyKey = (input: string, key: Key): void => {
     const at = liveIndex();
-    if (key.upArrow || input === 'k') moveTo(at - 1);
-    else if (key.downArrow || input === 'j') moveTo(at + 1);
+    const letter = isChord(key) ? '' : input;
+    if (key.upArrow || letter === 'k') moveTo(at - 1);
+    else if (key.downArrow || letter === 'j') moveTo(at + 1);
     else if (key.pageUp) moveTo(at - visibleRows);
     else if (key.pageDown) moveTo(at + visibleRows);
     else if (key.home) moveTo(0);

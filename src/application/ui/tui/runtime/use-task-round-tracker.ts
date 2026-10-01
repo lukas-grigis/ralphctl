@@ -20,6 +20,10 @@ export interface TaskRound {
   readonly totalCap: number;
   /** 1-indexed attempt this round belongs to — the authoritative value straight off the event. */
   readonly attemptN: number;
+  /** {@link attemptN} as the attempt budget counts it — what the `attempt A/X` chip shows. */
+  readonly budgetedAttemptN: number;
+  /** The attempt picks up where a free one (interruption, operator stop) left off. */
+  readonly resumed: boolean;
   /**
    * 1-indexed round WITHIN {@link attemptN}, derived from the attempt boundary rather than the global counter.
    */
@@ -44,6 +48,8 @@ const foldTaskRound = (existing: TaskRound | undefined, e: TaskRoundStartedEvent
     roundN: e.roundN,
     totalCap: e.totalCap,
     attemptN: e.attemptN,
+    budgetedAttemptN: e.budgetedAttemptN ?? e.attemptN,
+    resumed: e.resumed === true,
     roundInAttempt: e.roundN - attemptStartRoundN + 1,
   };
 };

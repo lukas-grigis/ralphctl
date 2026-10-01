@@ -56,7 +56,8 @@ export interface WorkAgenda {
 export const useWorkAgenda = (
   snapshot: AppStateSnapshot | undefined,
   launchability: (flowId: string) => AgendaLaunchability,
-  interruptedFacts?: ReadonlyMap<string, InterruptedFacts>
+  interruptedFacts?: ReadonlyMap<string, InterruptedFacts>,
+  sprintOwnedElsewhere = false
 ): WorkAgenda => {
   const sessions = useSessions();
   const awaitingSince = useAwaitingSessions();
@@ -81,8 +82,19 @@ export const useWorkAgenda = (
       launchability,
       now: Date.now(),
       ...(interruptedFacts !== undefined ? { interruptedFacts } : {}),
+      sprintOwnedElsewhere,
     });
-  }, [snapshot, hasProject, sprint, sessions, awaitingSince, showAll, launchability, interruptedFacts]);
+  }, [
+    snapshot,
+    hasProject,
+    sprint,
+    sessions,
+    awaitingSince,
+    showAll,
+    launchability,
+    interruptedFacts,
+    sprintOwnedElsewhere,
+  ]);
 
   // Elapsed times tick while something runs.
   const [, tick] = useReducer((n: number) => n + 1, 0);

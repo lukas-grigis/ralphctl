@@ -79,7 +79,9 @@ export type AttemptWarning =
 /**
  * Discriminated reason why an attempt was settled as `aborted`. Capture point varies:
  *
- *  - `user-cancel`          — caller invoked `runner.abort()` (Ctrl-C in the TUI / CLI).
+ *  - `user-cancel`          — the operator stopped the run (quit confirm, Runs `c`, the run view's
+ *                              cancel picker); stamped once the run unwinds. Free against
+ *                              `maxAttempts`, like `harness-interrupted`.
  *  - `sigterm`              — host sent SIGTERM (e.g. external orchestrator killed the process).
  *  - `watchdog-killed`      — the idle-stdout watchdog SIGTERM'd a wedged AI child. Stamped
  *                              in-process when the crash that blocked the task carried the
@@ -92,7 +94,7 @@ export type AttemptWarning =
  *                              reboot) and the next launch found the attempt still `running`.
  *                              Stamped by start-attempt's cross-process recovery, which resumes the
  *                              attempt's provider session when it can. Does NOT count toward
- *                              `maxAttempts` (see {@link countsTowardAttemptBudget}): the model did
+ *                              `maxAttempts` (see {@link isFreeAttempt}): the model did
  *                              not fail, the harness did.
  *  - `self-blocked`         — nothing was killed: the harness settled the running attempt as
  *                              aborted because the TASK blocked (generator `<task-blocked>`
@@ -454,12 +456,12 @@ export const completeAttempt = (
   return Result.ok({ ...att, status, finishedAt });
 };
 
-/**
- * Whether `att` spends one of the task's `maxAttempts`. An attempt the harness abandoned because
- * it was itself interrupted (`harness-interrupted`) is free: the work continues on the next one.
- */
-export const countsTowardAttemptBudget = (att: Attempt): boolean =>
-  !(att.status === 'aborted' && att.abortCause === 'harness-interrupted');
+/** Cut short by the harness or the operator, not the model: free against `maxAttempts` (streak-capped). */
+export const isFreeAttempt = (att: Attempt): boolean =>
+  att.status === 'aborted' && att.abortCause !== undefined && isFreeAbortCause(att.abortCause);
+
+export const isFreeAbortCause = (cause: AbortCause): boolean =>
+  cause === 'harness-interrupted' || cause === 'user-cancel';
 
 /** Stamp the generator session id the attempt ran on. */
 export const recordAttemptSessionId = (att: RunningAttempt, sessionId: string): RunningAttempt => ({

@@ -24,8 +24,10 @@ to [Semantic Versioning](https://semver.org/).
   NEEDS YOU with its attempt, age and uncommitted changes; `↵` resumes Implement. The Task minimap shows
   `interrupted` and Runs lists the dead run (`d` dismisses it). On a best-effort basis the generator continues its
   previous provider session when provider, model and working directory are unchanged, and starts from the full
-  brief otherwise. An interruption does not use up a task attempt.
-- **Quit asks first.** `q` / `ctrl+c` with runs live asks `[y/N]` (default No) and stops them cleanly on yes.
+  brief otherwise. An interruption does not use up a task attempt (up to three in a row).
+- **Quit asks first.** `q` / `ctrl+c` with runs live asks `[y/N]` (default No) and stops them cleanly on yes,
+  even when a run is waiting on your answer. A run that does not stop within 5s is force-stopped. Stopping a run
+  yourself does not use up a task attempt either, and the attempt counter shows `· resumed` after a free restart.
 - **Waiting runs say so.** A run blocked on your answer shows `[WAITING]` on Work, Runs, the tab badge and the run
   view, and fires an OS notification (honouring `ui.notifications`). Runs that finish after two minutes notify too.
 

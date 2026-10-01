@@ -29,6 +29,14 @@ export interface InkHostDeps {
   readonly alternateScreen?: boolean;
 }
 
+/** An Ink exit result carrying a line for the operator, printed once the alternate screen is gone. */
+export interface ExitNote {
+  readonly exitNote: string;
+}
+
+const isExitNote = (value: unknown): value is ExitNote =>
+  typeof value === 'object' && value !== null && typeof (value as { exitNote?: unknown }).exitNote === 'string';
+
 export interface InkHost {
   readonly runInTerminal: RunInTerminal;
   /** Resolves when the user truly quits the TUI (Ctrl-C / `q` / a fatal error). */
@@ -84,7 +92,8 @@ export const createInkHost = (deps: InkHostDeps): InkHost => {
   const runShutdownLoop = async (): Promise<void> => {
     for (;;) {
       try {
-        await instance.waitUntilExit();
+        const result: unknown = await instance.waitUntilExit();
+        if (isExitNote(result)) process.stderr.write(`${result.exitNote}\n`);
       } catch (error) {
         // `waitUntilExit()` rejects only when Ink tears down on a fatal error — either a deliberate `exit(err)` or an
         // uncaught render error.

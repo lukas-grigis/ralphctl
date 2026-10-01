@@ -62,8 +62,22 @@ describe('useTaskRoundTracker', () => {
     await drain();
 
     // attemptN=1 throughout, so roundInAttempt tracks roundN (attempt anchored at round 1).
-    expect(last.get('t1')).toEqual({ roundN: 2, totalCap: 5, attemptN: 1, roundInAttempt: 2 });
-    expect(last.get('t2')).toEqual({ roundN: 1, totalCap: 5, attemptN: 1, roundInAttempt: 1 });
+    expect(last.get('t1')).toEqual({
+      roundN: 2,
+      totalCap: 5,
+      attemptN: 1,
+      budgetedAttemptN: 1,
+      resumed: false,
+      roundInAttempt: 2,
+    });
+    expect(last.get('t2')).toEqual({
+      roundN: 1,
+      totalCap: 5,
+      attemptN: 1,
+      budgetedAttemptN: 1,
+      resumed: false,
+      roundInAttempt: 1,
+    });
     r.unmount();
   });
 
@@ -77,7 +91,14 @@ describe('useTaskRoundTracker', () => {
     await drain();
 
     // First-seen event is round 3 with no prior state, so the attempt anchors there → roundInAttempt 1.
-    expect(last.get('t1')).toEqual({ roundN: 3, totalCap: 5, attemptN: 1, roundInAttempt: 1 });
+    expect(last.get('t1')).toEqual({
+      roundN: 3,
+      totalCap: 5,
+      attemptN: 1,
+      budgetedAttemptN: 1,
+      resumed: false,
+      roundInAttempt: 1,
+    });
     r.unmount();
   });
 
@@ -94,7 +115,35 @@ describe('useTaskRoundTracker', () => {
     bus.publish({ type: 'task-round-started', taskId: 't1', attemptN: 2, roundN: 2, totalCap: 5, at: NOW });
     await drain();
 
-    expect(last.get('t1')).toEqual({ roundN: 2, totalCap: 5, attemptN: 2, roundInAttempt: 1 });
+    expect(last.get('t1')).toEqual({
+      roundN: 2,
+      totalCap: 5,
+      attemptN: 2,
+      budgetedAttemptN: 2,
+      resumed: false,
+      roundInAttempt: 1,
+    });
+    r.unmount();
+  });
+
+  it('carries the budgeted attempt and the resume flag so a free resume reads attempt 1, not 2', async () => {
+    const bus = createInMemoryEventBus();
+    let last: Rounds = new Map();
+    const r = render(<Probe bus={bus} onState={(rounds) => (last = rounds)} />);
+
+    bus.publish({
+      type: 'task-round-started',
+      taskId: 't1',
+      attemptN: 2,
+      budgetedAttemptN: 1,
+      resumed: true,
+      roundN: 2,
+      totalCap: 5,
+      at: NOW,
+    });
+    await drain();
+
+    expect(last.get('t1')).toMatchObject({ attemptN: 2, budgetedAttemptN: 1, resumed: true, roundInAttempt: 1 });
     r.unmount();
   });
 

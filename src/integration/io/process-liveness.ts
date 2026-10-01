@@ -1,5 +1,11 @@
+import { readFile } from 'node:fs/promises';
 import { hostname } from 'node:os';
-import type { ProcessGroupTerminator, ProcessIdentity, ProcessLiveness } from '@src/business/runs/live-run.ts';
+import type {
+  MachineRef,
+  ProcessGroupTerminator,
+  ProcessIdentity,
+  ProcessLiveness,
+} from '@src/business/runs/live-run.ts';
 import { runCommand, type RunCommand } from '@src/integration/io/run-command.ts';
 import { signalProcessGroup, supportsProcessGroups } from '@src/integration/io/kill-process-tree.ts';
 import { DEFAULT_KILL_GRACE_MS } from '@src/integration/io/kill-with-escalation.ts';
@@ -36,6 +42,35 @@ const isProcessGroupAlive = (pgid: number): boolean => {
 /** This machine's name, as recorded in lock owner files and live-run records. */
 export const currentHost = (): string => hostname();
 
+const LINUX_MACHINE_ID_FILES = ['/etc/machine-id', '/var/lib/dbus/machine-id'];
+const MAC_PLATFORM_UUID = /"IOPlatformUUID" = "([^"]+)"/;
+
+/** `undefined` on Windows (its hostname is stable) or when unreadable; callers then compare hostnames. */
+const readMachineId = async (run: RunCommand): Promise<string | undefined> => {
+  if (process.platform === 'linux') {
+    for (const file of LINUX_MACHINE_ID_FILES) {
+      try {
+        const id = (await readFile(file, 'utf8')).trim();
+        if (id !== '') return id;
+      } catch {
+        // try the next location
+      }
+    }
+    return undefined;
+  }
+  if (process.platform !== 'darwin') return undefined;
+  const result = await run('ioreg', ['-rd1', '-c', 'IOPlatformExpertDevice']);
+  return result.ok ? MAC_PLATFORM_UUID.exec(result.stdout)?.[1] : undefined;
+};
+
+let machineIdOnce: Promise<string | undefined> | undefined;
+
+export const currentMachine = async (run: RunCommand = runCommand): Promise<MachineRef> => {
+  machineIdOnce ??= readMachineId(run);
+  const machineId = await machineIdOnce;
+  return machineId !== undefined ? { host: currentHost(), machineId } : { host: currentHost() };
+};
+
 /**
  * `ps` start time + command for `pid`. POSIX only; Windows resolves `undefined`, which every caller
  * treats as "can't tell" and so never kills on it.
@@ -62,6 +97,8 @@ export const createProcessLiveness = (deps: ProcessLivenessDeps = {}): ProcessLi
   get host() {
     return currentHost();
   },
+  selfPid: process.pid,
+  machine: () => currentMachine(deps.runCommand ?? runCommand),
   isAlive: isProcessAlive,
   isGroupAlive: isProcessGroupAlive,
   identify: identifyWith(deps.runCommand ?? runCommand),

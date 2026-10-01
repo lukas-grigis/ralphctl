@@ -3,6 +3,7 @@ import type { StorageError } from '@src/domain/value/error/storage-error.ts';
 import {
   liveSpawnsOf,
   sameIdentity,
+  sameMachine,
   type LiveRunRecord,
   type LiveRunSpawn,
   type LiveRunStore,
@@ -23,9 +24,9 @@ export interface DetectInterruptedRunsDeps {
 
 /**
  * The owner is gone when its pid is dead, or alive but no longer the recorded process (a recycled
- * pid). Records from another host are never judged: their pids mean nothing here.
+ * pid). Only meaningful for a record from this machine.
  */
-const ownerGone = async (record: LiveRunRecord, liveness: ProcessLiveness): Promise<boolean> => {
+export const ownerGone = async (record: LiveRunRecord, liveness: ProcessLiveness): Promise<boolean> => {
   const { owner } = record;
   if (!liveness.isAlive(owner.pid)) return true;
   if (owner.identity === undefined) return false;
@@ -43,8 +44,10 @@ export const createDetectInterruptedRuns = (deps: DetectInterruptedRunsDeps): De
     const listed = await deps.store.list();
     if (!listed.ok) return Result.error(listed.error);
     const interrupted: InterruptedRun[] = [];
+    const here = await deps.liveness.machine();
     for (const record of listed.value) {
-      if (record.owner.host !== deps.liveness.host) continue;
+      // Another machine's pids mean nothing here.
+      if (!sameMachine(record.owner, here)) continue;
       if (await ownerGone(record, deps.liveness)) interrupted.push({ record, liveSpawns: liveSpawnsOf(record) });
     }
     return Result.ok(interrupted) as Result<readonly InterruptedRun[], StorageError>;

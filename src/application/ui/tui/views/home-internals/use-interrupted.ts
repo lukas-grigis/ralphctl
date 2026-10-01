@@ -10,6 +10,10 @@ import {
   type InterruptedTask,
 } from '@src/application/ui/shared/interrupted-tasks.ts';
 import type { AppStateSnapshot } from '@src/application/ui/shared/state-snapshot.ts';
+import type { AppDeps } from '@src/application/bootstrap/wire.ts';
+import type { Project } from '@src/domain/entity/project.ts';
+import type { Sprint } from '@src/domain/entity/sprint.ts';
+import type { Task } from '@src/domain/entity/task.ts';
 
 export interface InterruptedState {
   readonly tasks: readonly InterruptedTask[];
@@ -17,11 +21,49 @@ export interface InterruptedState {
   readonly facts: ReadonlyMap<string, InterruptedFacts>;
   /** Run records of this sprint whose owner is gone; resuming supersedes them. */
   readonly staleRunIds: readonly string[];
+  /** Another live ralphctl process works the sprint, or that is still being checked — nothing is interrupted then. */
+  readonly ownedElsewhere: boolean;
   /** Drops the stale records — called when the operator resumes. */
   readonly dismissStale: () => Promise<void>;
 }
 
 const NONE: ReadonlyMap<string, InterruptedFacts> = new Map();
+const NO_TASKS: readonly InterruptedTask[] = [];
+
+/** Re-check so the tasks surface once the other process dies. */
+const OWNER_RECHECK_MS = 5_000;
+
+interface Loaded {
+  readonly key: string;
+  readonly ownedElsewhere: boolean;
+  readonly facts: ReadonlyMap<string, InterruptedFacts>;
+  readonly staleRunIds: readonly string[];
+}
+
+const loadFacts = async (
+  deps: Pick<AppDeps, 'gitRunner' | 'storage' | 'detectInterruptedRuns'>,
+  project: Project,
+  sprint: Sprint,
+  tasks: readonly Task[],
+  candidates: readonly InterruptedTask[]
+): Promise<Pick<Loaded, 'facts' | 'staleRunIds'>> => {
+  const [facts, detected] = await Promise.all([
+    loadInterruptedFacts(
+      { gitRunner: deps.gitRunner, dataRoot: deps.storage.dataRoot },
+      project,
+      sprint,
+      tasks,
+      candidates
+    ),
+    deps.detectInterruptedRuns.execute(),
+  ]);
+  const records = detected.ok ? detected.value.map((d) => d.record).filter((r) => r.sprintId === sprint.id) : [];
+  const since = records.reduce((latest, r) => Math.max(latest, Date.parse(r.updatedAt)), 0);
+  return {
+    facts: new Map([...facts].map(([id, f]) => [id, since > 0 ? { ...f, since } : f])),
+    staleRunIds: records.map((r) => r.runId),
+  };
+};
 
 export const useInterrupted = (snapshot: AppStateSnapshot | undefined): InterruptedState => {
   const deps = useDeps();
@@ -33,42 +75,29 @@ export const useInterrupted = (snapshot: AppStateSnapshot | undefined): Interrup
       r.descriptor.flowId === 'implement' &&
       r.descriptor.pinnedSprintId === sprint?.id
   );
-  const tasks = useMemo(
+  const candidates = useMemo(
     () => interruptedTasksOf(snapshot?.tasks ?? [], implementRunning),
     [snapshot?.tasks, implementRunning]
   );
-  const ids = useMemo(() => new Set(tasks.map((t) => t.taskId)), [tasks]);
 
-  const [loaded, setLoaded] = useState<{
-    readonly key: string;
-    readonly facts: ReadonlyMap<string, InterruptedFacts>;
-    readonly staleRunIds: readonly string[];
-  }>({ key: '', facts: NONE, staleRunIds: [] });
-  const key = `${sprint?.id ?? ''}|${tasks.map((t) => `${t.taskId}:${String(t.attemptN)}`).join(',')}`;
+  const [loaded, setLoaded] = useState<Loaded>({ key: '', ownedElsewhere: false, facts: NONE, staleRunIds: [] });
+  const [recheck, setRecheck] = useState(0);
+  const key = `${sprint?.id ?? ''}|${candidates.map((t) => `${t.taskId}:${String(t.startedAt)}`).join(',')}`;
   const project = snapshot?.project;
 
   useEffect(() => {
-    if (sprint === undefined || project === undefined || tasks.length === 0) return undefined;
+    if (sprint === undefined || project === undefined || candidates.length === 0) return undefined;
     let cancelled = false;
     void (async (): Promise<void> => {
+      // Unknown ownership must not paint a live run as a crash: the rows stay hidden and the check repeats.
+      const owner = await deps.findLiveSprintOwner.execute(sprint).catch(() => undefined);
+      const elsewhere = owner === undefined || !owner.ok || owner.value !== undefined;
+      if (cancelled) return;
+      setLoaded({ key, ownedElsewhere: elsewhere, facts: NONE, staleRunIds: [] });
+      if (elsewhere) return;
       try {
-        const [facts, detected] = await Promise.all([
-          loadInterruptedFacts(
-            { gitRunner: deps.gitRunner, dataRoot: deps.storage.dataRoot },
-            project,
-            sprint,
-            snapshot?.tasks ?? [],
-            tasks
-          ),
-          deps.detectInterruptedRuns.execute(),
-        ]);
-        if (cancelled) return;
-        const records = detected.ok ? detected.value.map((d) => d.record).filter((r) => r.sprintId === sprint.id) : [];
-        const since = records.reduce((latest, r) => Math.max(latest, Date.parse(r.updatedAt)), 0);
-        const withSince = new Map<string, InterruptedFacts>(
-          [...facts].map(([id, f]) => [id, since > 0 ? { ...f, since } : f])
-        );
-        setLoaded({ key, facts: withSince, staleRunIds: records.map((r) => r.runId) });
+        const found = await loadFacts(deps, project, sprint, snapshot?.tasks ?? [], candidates);
+        if (!cancelled) setLoaded({ key, ownedElsewhere: false, ...found });
       } catch {
         // Facts are an enrichment: the row stands without them.
       }
@@ -77,10 +106,20 @@ export const useInterrupted = (snapshot: AppStateSnapshot | undefined): Interrup
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `key` captures what the probes depend on
-  }, [key]);
+  }, [key, recheck]);
 
   const current = loaded.key === key;
-  const staleRunIds = current ? loaded.staleRunIds : [];
+  const ownedElsewhere = candidates.length > 0 && (!current || loaded.ownedElsewhere);
+
+  useEffect(() => {
+    if (!current || !loaded.ownedElsewhere) return undefined;
+    const timer = setTimeout(() => setRecheck((n) => n + 1), OWNER_RECHECK_MS);
+    return (): void => clearTimeout(timer);
+  }, [current, loaded]);
+
+  const tasks = ownedElsewhere ? NO_TASKS : candidates;
+  const ids = useMemo(() => new Set(tasks.map((t) => t.taskId)), [tasks]);
+  const staleRunIds = current && !ownedElsewhere ? loaded.staleRunIds : [];
   const dismissStale = async (): Promise<void> => {
     if (staleRunIds.length === 0) return;
     try {
@@ -90,5 +129,12 @@ export const useInterrupted = (snapshot: AppStateSnapshot | undefined): Interrup
     }
   };
 
-  return { tasks, ids, facts: current ? loaded.facts : NONE, staleRunIds, dismissStale };
+  return {
+    tasks,
+    ids,
+    facts: current && !ownedElsewhere ? loaded.facts : NONE,
+    staleRunIds,
+    ownedElsewhere,
+    dismissStale,
+  };
 };

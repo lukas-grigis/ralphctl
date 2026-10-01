@@ -24,6 +24,8 @@ import { createGatedRunner } from '@tests/helpers/gated-runner.ts';
 
 describe('wire', () => {
   let tmpHome: string;
+  // Live-run record writes land asynchronously after a run settles; teardown must not race them.
+  let pendingFlushes: Array<() => Promise<void>> = [];
 
   beforeEach(async () => {
     const raw = await fs.mkdtemp(join(tmpdir(), 'ralphctl-wire-'));
@@ -31,6 +33,8 @@ describe('wire', () => {
   });
 
   afterEach(async () => {
+    await Promise.all(pendingFlushes.map((flush) => flush()));
+    pendingFlushes = [];
     await fs.rm(tmpHome, { recursive: true, force: true });
   });
 
@@ -117,6 +121,7 @@ describe('wire', () => {
     if (!paths.ok) throw new Error('storagePathsFromRoot failed');
     await ensureStorageRoots(paths.value);
     const deps = wire({ storage: paths.value, settings: DEFAULT_SETTINGS });
+    pendingFlushes.push(deps.inProcessRuns.flush);
     const sprint = makeDraftSprint();
     await deps.sprintRepo.save(sprint);
     const refusal = 'A flow is running — let it finish (or cancel it) before removing data.';

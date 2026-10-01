@@ -83,11 +83,30 @@ export interface PromptQueue {
   resolveHead(value: unknown): void;
   /** Reject the head with `err` and slide to the next. No-op if the queue is empty. */
   rejectHead(err: Error): void;
+  /** Reject the queued prompt `id` with `err`, wherever it sits. No-op once it has been answered. */
+  reject(id: number, err: Error): void;
   /** Subscribe to changes (head replaced / queue length changed). */
   subscribe(fn: Listener): () => void;
   /** Reject every queued prompt with `err`. Used on shutdown. */
   drain(err: Error): void;
 }
+
+const settleWith = (prompt: PendingPrompt, value: unknown): void => {
+  switch (prompt.kind) {
+    case 'text':
+    case 'textarea':
+      prompt.resolve(value as string);
+      return;
+    case 'confirm':
+      prompt.resolve(value as boolean);
+      return;
+    case 'choice':
+      prompt.resolve(value);
+      return;
+    case 'multi-choice':
+      prompt.resolve(value as readonly unknown[]);
+  }
+};
 
 export const createPromptQueue = (): PromptQueue => {
   let nextId = 1;
@@ -119,24 +138,7 @@ export const createPromptQueue = (): PromptQueue => {
       const head = queue.shift();
       if (!head) return;
       try {
-        // Type-narrow before dispatch so each kind sees the right value shape.
-        switch (head.kind) {
-          case 'text':
-            head.resolve(value as string);
-            break;
-          case 'textarea':
-            head.resolve(value as string);
-            break;
-          case 'confirm':
-            head.resolve(value as boolean);
-            break;
-          case 'choice':
-            head.resolve(value);
-            break;
-          case 'multi-choice':
-            head.resolve(value as readonly unknown[]);
-            break;
-        }
+        settleWith(head, value);
       } finally {
         notify();
       }
@@ -146,6 +148,16 @@ export const createPromptQueue = (): PromptQueue => {
       if (!head) return;
       try {
         head.reject(err);
+      } finally {
+        notify();
+      }
+    },
+    reject(id, err): void {
+      const at = queue.findIndex((p) => p.id === id);
+      if (at < 0) return;
+      const [prompt] = queue.splice(at, 1);
+      try {
+        prompt?.reject(err);
       } finally {
         notify();
       }

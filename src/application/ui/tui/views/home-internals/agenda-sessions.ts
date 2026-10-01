@@ -21,6 +21,7 @@ const progressOf = (d: SessionDescriptor): AgendaSession['progress'] => {
   if (running === undefined) return undefined;
   const coords = resolveAttemptCoords(running);
   return {
+    taskId: running.id,
     taskIndex: ids.indexOf(running.id) + 1,
     taskCount: ids.length,
     taskName: d.taskNames.get(running.id) ?? running.id,

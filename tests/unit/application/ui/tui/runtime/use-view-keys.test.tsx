@@ -109,4 +109,34 @@ describe('useViewKeys — keyboard ownership', () => {
     expect(run).not.toHaveBeenCalled();
     r.unmount();
   });
+
+  it('never fires a letter binding on its ctrl or alt chord', async () => {
+    const onC = vi.fn();
+    const seen = {} as { isClaimed?: (key: string) => boolean };
+    const r = mount(<Probe seen={seen} bindings={[{ keys: ['c'], hint: 'cancel', run: onC }]} />);
+    await tick(60);
+    r.stdin.write('\u0003');
+    r.stdin.write('\u001bc');
+    await tick();
+    expect(onC).not.toHaveBeenCalled();
+    r.stdin.write('c');
+    await tick();
+    expect(onC).toHaveBeenCalledOnce();
+    r.unmount();
+  });
+
+  it('fires a binding that asks for the chord, and only on it', async () => {
+    const onCtrlO = vi.fn();
+    const seen = {} as { isClaimed?: (key: string) => boolean };
+    const r = mount(<Probe seen={seen} bindings={[{ keys: ['o'], hint: 'open', chord: 'ctrl', run: onCtrlO }]} />);
+    await tick(60);
+    r.stdin.write('o');
+    await tick();
+    expect(onCtrlO).not.toHaveBeenCalled();
+    r.stdin.write('\u000f');
+    await tick();
+    expect(onCtrlO).toHaveBeenCalledOnce();
+    expect(seen.isClaimed?.('o')).toBe(false);
+    r.unmount();
+  });
 });

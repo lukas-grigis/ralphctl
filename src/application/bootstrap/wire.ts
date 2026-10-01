@@ -80,6 +80,10 @@ import { createSprintRemoval, type SprintRemoval } from '@src/application/flows/
 import { createInProcessRuns, type InProcessRuns } from '@src/application/session/in-process-runs.ts';
 import { createLiveRunRecorder } from '@src/application/session/live-run-recorder.ts';
 import { createRunChildRegistry, type RunChildRegistry } from '@src/application/session/run-child-registry.ts';
+import { createSettleAbandonedAttempts } from '@src/business/task/settle-abandoned-attempts.ts';
+import { createFindLiveSprintOwner, type FindLiveSprintOwner } from '@src/business/runs/find-live-sprint-owner.ts';
+import { createSprintLockReader } from '@src/integration/io/sprint-lock-reader.ts';
+import { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import { rootSessionId } from '@src/application/session/session.ts';
 import { createOrphanReaper } from '@src/integration/io/orphan-reaper.ts';
 import { createProcessGroupTerminator, createProcessLiveness } from '@src/integration/io/process-liveness.ts';
@@ -227,6 +231,8 @@ export interface AppDeps {
   readonly childRegistry: RunChildRegistry;
   /** Runs whose live-run record outlived the process that owned them. */
   readonly detectInterruptedRuns: DetectInterruptedRuns;
+  /** Another live ralphctl process on this machine working a sprint — its in-progress tasks are not interrupted. */
+  readonly findLiveSprintOwner: FindLiveSprintOwner;
   /** Boot-time fallback reap of the process groups interrupted runs left behind. */
   readonly reapInterruptedRuns: ReapInterruptedRuns;
   /** Drops the records of interrupted runs the operator has dealt with (resumed, or dismissed from Runs). */
@@ -341,10 +347,16 @@ const buildWireProvider = (
 /** Live-run records, the child registry that feeds them and the orphan reaper, and the crash-side readers. */
 const buildLiveRunServices = (
   storage: StoragePaths,
-  logger: Logger
+  logger: Logger,
+  taskRepo: AppDeps['taskRepo']
 ): Pick<
   AppDeps,
-  'inProcessRuns' | 'childRegistry' | 'detectInterruptedRuns' | 'reapInterruptedRuns' | 'dismissInterruptedRuns'
+  | 'inProcessRuns'
+  | 'childRegistry'
+  | 'detectInterruptedRuns'
+  | 'reapInterruptedRuns'
+  | 'dismissInterruptedRuns'
+  | 'findLiveSprintOwner'
 > => {
   const store = createFsLiveRunStore({ stateRoot: storage.stateRoot });
   const liveness = createProcessLiveness();
@@ -352,10 +364,23 @@ const buildLiveRunServices = (
   const recorder = createLiveRunRecorder({ store, liveness, now, logger });
   const childRegistry = createRunChildRegistry({ reaper: createOrphanReaper(), recorder, runIdOf: rootSessionId });
   const detectInterruptedRuns = createDetectInterruptedRuns({ store, liveness });
+  const settleAbandonedAttempts = createSettleAbandonedAttempts({ taskRepo, clock: IsoTimestamp.now, logger });
   return {
-    inProcessRuns: createInProcessRuns({ recorder, children: childRegistry }),
+    inProcessRuns: createInProcessRuns({
+      recorder,
+      children: childRegistry,
+      settleAbandoned: async ({ sprintId, since }) => {
+        const id = SprintId.parse(sprintId);
+        if (id.ok) await settleAbandonedAttempts.execute({ sprintId: id.value, since });
+      },
+    }),
     childRegistry,
     detectInterruptedRuns,
+    findLiveSprintOwner: createFindLiveSprintOwner({
+      store,
+      liveness,
+      locks: createSprintLockReader({ dataRoot: storage.dataRoot, locksRoot: storage.locksRoot }),
+    }),
     dismissInterruptedRuns: createDismissInterruptedRuns({ detect: detectInterruptedRuns, store }),
     reapInterruptedRuns: createReapInterruptedRuns({
       detect: detectInterruptedRuns,
@@ -448,13 +473,14 @@ export const wire = (opts: WireOptions): AppDeps => {
   // Shared with IssuePusher so origin reads (`git remote get-url origin`) go through the same
   // GitRunner instance AppDeps already exposes.
   const gitRunner = createGitRunner();
-  const liveRuns = buildLiveRunServices(opts.storage, logger);
+  const taskRepo = createFsTaskRepository({ root: opts.storage.dataRoot, fileLocker });
+  const liveRuns = buildLiveRunServices(opts.storage, logger, taskRepo);
   return {
     storage: opts.storage,
     ...liveRuns,
     ...buildDataServices(opts.storage, logger, liveRuns.inProcessRuns),
     sprintExecutionRepo: createFsSprintExecutionRepository({ root: opts.storage.dataRoot }),
-    taskRepo: createFsTaskRepository({ root: opts.storage.dataRoot, fileLocker }),
+    taskRepo,
     settings: opts.settings,
     settingsRepo: createJsonSettingsRepository({ configRoot: opts.storage.configRoot }),
     provider: buildWireProvider(opts, eventBus, providerSpawn, liveRuns.childRegistry),

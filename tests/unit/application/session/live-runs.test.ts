@@ -1,7 +1,7 @@
 import { promises as fs } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { Result } from '@src/domain/result.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { createRunner } from '@src/application/chain/run/runner.ts';
@@ -14,9 +14,12 @@ import type { RegisteredChild } from '@src/integration/ai/providers/_engine/chil
 import { createFsLiveRunStore, liveRunsDir } from '@src/integration/persistence/live-run/fs-live-run-store.ts';
 import { absolutePath } from '@tests/fixtures/domain.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
+import { AbortError } from '@src/domain/value/error/abort-error.ts';
 
 const liveness: ProcessLiveness = {
   host: 'this-box',
+  selfPid: process.pid,
+  machine: () => Promise.resolve({ host: 'this-box', machineId: 'machine-1' }),
   isAlive: () => true,
   isGroupAlive: () => false,
   identify: (pid) => Promise.resolve({ startedAt: `start-${String(pid)}`, command: 'claude' }),
@@ -138,6 +141,73 @@ describe('live-run records', () => {
     expect(runs.liveCount()).toBe(0);
     expect(children.liveChildren()).toBe(0);
     expect(await fs.readdir(liveRunsDir(absolutePath(stateRoot)))).toEqual([]);
+  });
+
+  it('abortAll stops waiting after the bound, kills the registered groups and says which runs were stuck', async () => {
+    const store = createFsLiveRunStore({ stateRoot: absolutePath(stateRoot) });
+    const recorder = createLiveRunRecorder({ store, liveness, now: () => 'now', logger: noopLogger });
+    const killed: Array<number | undefined> = [];
+    const children = createRunChildRegistry({
+      reaper: { watch: () => undefined, unwatch: () => undefined },
+      recorder,
+      runIdOf: rootSessionId,
+      kill: (child) => {
+        killed.push(child.pgid);
+        return true;
+      },
+    });
+    const runs = createInProcessRuns({ recorder, children });
+    const deaf: Element<object> = {
+      name: 'ignores-abort',
+      execute: () => {
+        children.register(CHILD);
+        return new Promise(() => undefined);
+      },
+    };
+    const runner = createRunner({ id: 'r-deaf', element: deaf, initialCtx: {} });
+    runs.track(runner, { flowId: 'implement' });
+    void runner.start();
+    await new Promise((r) => setTimeout(r, 10));
+
+    const outcome = await runs.abortAll('quit', { timeoutMs: 40 });
+
+    expect(outcome).toEqual({ runs: 1, forced: true, stuckFlows: ['implement'], killed: 1 });
+    expect(killed).toEqual([4242]);
+  });
+
+  it('settles the attempts of an implement run its caller stopped, and only such a run', async () => {
+    const settleAbandoned = vi.fn(() => Promise.resolve());
+    const runs = createInProcessRuns({ settleAbandoned, now: () => 1_000 });
+    const waitsForAbort: Element<object> = {
+      name: 'waits',
+      execute: async (_ctx, signal) => {
+        await new Promise<void>((r) => signal?.addEventListener('abort', () => r(), { once: true }));
+        return Result.error({ error: new AbortError({ elementName: 'waits' }), trace: [] });
+      },
+    };
+    const raisesAbort: Element<object> = {
+      name: 'raises',
+      execute: () =>
+        Promise.resolve(
+          Result.error({ error: new AbortError({ elementName: 'prompt', reason: 'operator said abort' }), trace: [] })
+        ),
+    };
+    const stopped = createRunner({ id: 'r-stopped', element: waitsForAbort, initialCtx: {} });
+    const selfAborted = createRunner({ id: 'r-self', element: raisesAbort, initialCtx: {} });
+    const plan = createRunner({ id: 'r-plan', element: waitsForAbort, initialCtx: {} });
+    runs.track(stopped, { flowId: 'implement', sprintId: 's-1' });
+    runs.track(selfAborted, { flowId: 'implement', sprintId: 's-2' });
+    runs.track(plan, { flowId: 'plan', sprintId: 's-3' });
+    void stopped.start();
+    await selfAborted.start();
+    void plan.start();
+    await new Promise((r) => setTimeout(r, 5));
+
+    const outcome = await runs.abortAll('quit');
+
+    expect(outcome).toEqual({ runs: 2, forced: false, stuckFlows: [], killed: 0 });
+    expect(settleAbandoned).toHaveBeenCalledTimes(1);
+    expect(settleAbandoned).toHaveBeenCalledWith({ sprintId: 's-1', since: 1_000 });
   });
 
   it('a spawn outside any tracked run is still handed to the reaper but touches no record', async () => {

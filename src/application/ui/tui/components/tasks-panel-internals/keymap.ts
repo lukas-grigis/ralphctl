@@ -3,6 +3,7 @@
 import { useInput, type Key } from 'ink';
 import type { BucketedExecution } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
 import { isCommitMessageKey } from '@src/application/ui/tui/components/tasks-panel-internals/focus-keys.ts';
+import { isChord } from '@src/application/ui/tui/runtime/key-chord.ts';
 
 export interface UseTasksPanelInputArgs {
   readonly inputActive: boolean;
@@ -220,6 +221,7 @@ export const useTasksPanelInput = ({
 }: UseTasksPanelInputArgs): void => {
   useInput(
     (input, key) => {
+      if (isChord(key)) return;
       if (handleCriteriaToggle(input, focusedCardId, activeTaskId, setCriteriaExpandedIds)) return;
       if (handleOpenEvaluation(input, focusedCardId, evaluationTaskIds, onOpenEvaluation)) return;
       if (handleUnblock(input, focusedCardId, blockedTaskIds, onUnblock)) return;

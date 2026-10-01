@@ -165,7 +165,11 @@ export const createRunner = <TCtx>(opts: RunnerOptions<TCtx>): Runner<TCtx> => {
     // the "throws are programmer errors" contract inside the chain.
     let error: DomainError;
     try {
-      const result = await runWithSession(opts.id, () => opts.element.execute(ctx, abortController.signal, onTrace));
+      const result = await runWithSession(
+        opts.id,
+        () => opts.element.execute(ctx, abortController.signal, onTrace),
+        abortController.signal
+      );
 
       if (result.ok) {
         ctx = result.value.ctx;

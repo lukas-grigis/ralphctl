@@ -206,6 +206,7 @@ const RoundCounter = ({ task }: { readonly task: TaskBucket }): React.JSX.Elemen
             {String(attemptN)}
             {maxAttempts !== undefined ? `/${String(maxAttempts)}` : ''}
           </Text>
+          {coords.resumed === true && <Text dimColor> {glyphs.bullet} resumed</Text>}
         </>
       )}
       <Text dimColor> {glyphs.bullet} round </Text>

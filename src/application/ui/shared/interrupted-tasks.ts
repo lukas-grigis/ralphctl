@@ -10,6 +10,7 @@ import type { Project } from '@src/domain/entity/project.ts';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { Task } from '@src/domain/entity/task.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
+import { budgetedAttemptCount } from '@src/domain/entity/task-attempts.ts';
 import { readLastGeneratorRound } from '@src/application/flows/implement/leaves/round-artifacts.ts';
 import { gitStatusPorcelain } from '@src/integration/io/git-operations.ts';
 import type { GitRunner } from '@src/integration/io/git-runner.ts';
@@ -18,7 +19,7 @@ import { sprintDir } from '@src/integration/persistence/storage.ts';
 export interface InterruptedTask {
   readonly taskId: string;
   readonly name: string;
-  /** 1-indexed attempt that was running when the harness died. */
+  /** The attempt that was running when the harness died, numbered the way the attempt budget counts it. */
   readonly attemptN: number;
   /** When that attempt started, epoch ms. */
   readonly startedAt: number;
@@ -40,7 +41,9 @@ export const interruptedTasksOf = (tasks: readonly Task[], implementRunning: boo
   return tasks.flatMap((task): InterruptedTask[] => {
     const last = task.attempts.at(-1);
     if (task.status !== 'in_progress' || last === undefined || last.status !== 'running') return [];
-    return [{ taskId: task.id, name: task.name, attemptN: last.n, startedAt: Date.parse(last.startedAt) }];
+    return [
+      { taskId: task.id, name: task.name, attemptN: budgetedAttemptCount(task), startedAt: Date.parse(last.startedAt) },
+    ];
   });
 };
 

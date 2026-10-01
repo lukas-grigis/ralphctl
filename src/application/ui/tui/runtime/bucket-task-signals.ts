@@ -50,18 +50,17 @@ export interface TaskBucket {
   readonly genEvalMaxRounds?: number;
   /** Configured cap on attempts per task (`maxAttempts`), when known. Surfaced as `attempt A/X`. */
   readonly genEvalMaxAttempts?: number;
-  /**
-   * Live tracker-sourced 1-indexed attempt number (authoritative — straight off the `task-round-started` event, see
-   * `use-task-round-tracker.ts`).
-   */
+  /** Live tracker-sourced attempt number as the budget counts it (free attempts left out). */
   readonly attemptN?: number;
   /** Live tracker-sourced 1-indexed round-within-attempt. Paired with {@link attemptN}. */
   readonly roundInAttempt?: number;
+  readonly attemptResumed?: boolean;
 }
 
 export interface AttemptCoords {
   readonly attemptN: number;
   readonly roundInAttempt: number;
+  readonly resumed?: boolean;
 }
 
 /**
@@ -73,9 +72,14 @@ export const resolveAttemptCoords = (bucket: {
   readonly genEvalMaxRounds?: number;
   readonly attemptN?: number;
   readonly roundInAttempt?: number;
+  readonly attemptResumed?: boolean;
 }): AttemptCoords | undefined => {
   if (bucket.attemptN !== undefined && bucket.roundInAttempt !== undefined) {
-    return { attemptN: bucket.attemptN, roundInAttempt: bucket.roundInAttempt };
+    return {
+      attemptN: bucket.attemptN,
+      roundInAttempt: bucket.roundInAttempt,
+      ...(bucket.attemptResumed === true ? { resumed: true } : {}),
+    };
   }
   if (bucket.genEvalMaxRounds === undefined) return undefined;
   return perAttemptRound(bucket.genEvalRound, bucket.genEvalMaxRounds);

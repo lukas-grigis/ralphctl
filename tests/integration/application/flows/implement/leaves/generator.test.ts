@@ -29,6 +29,7 @@ import { emptySkillSource } from '@tests/fixtures/skills-fakes.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import type { SkillSource } from '@src/integration/ai/skills/_engine/skill-source.ts';
 import { generatorLeaf } from '@src/application/flows/implement/leaves/generator.ts';
+import type { InProgressTask } from '@src/domain/entity/task.ts';
 
 describe('generatorLeaf', () => {
   let root: Awaited<ReturnType<typeof makeTmpRoot>>;
@@ -273,6 +274,24 @@ describe('generatorLeaf', () => {
       roundN: 1,
       totalCap: 7,
     });
+  });
+
+  it('counts a free resume as the attempt it continues on task-round-started', async () => {
+    const crashed = makeInProgressTaskWithRunningAttempt();
+    const settled = failCurrentAttempt(crashed, FIXED_LATER, 'aborted', { abortCause: 'harness-interrupted' });
+    if (!settled.ok) throw new Error(settled.error.message);
+    const resumed = startNextAttempt(settled.value, FIXED_LATER);
+    if (!resumed.ok) throw new Error(resumed.error.message);
+    const task: InProgressTask = resumed.value;
+    const eventBus = createInMemoryEventBus();
+    const events: AppEvent[] = [];
+    eventBus.subscribe((e) => {
+      events.push(e);
+    });
+    await generatorLeaf(buildDeps(eventBus), task.id).execute(baseCtx(task));
+
+    const rounds = events.filter((e): e is TaskRoundStartedEvent => e.type === 'task-round-started');
+    expect(rounds[0]).toMatchObject({ attemptN: 2, budgetedAttemptN: 1, resumed: true });
   });
 
   it('emits a synthesised log event for the recent-events tail', async () => {

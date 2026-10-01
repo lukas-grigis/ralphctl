@@ -5,6 +5,7 @@ import {
   type LiveRunRecord,
   type LiveRunSpawn,
   type LiveRunStore,
+  type MachineRef,
   type ProcessIdentity,
   type ProcessLiveness,
 } from '@src/business/runs/live-run.ts';
@@ -90,16 +91,37 @@ interface RunState {
   writes: Promise<void>;
 }
 
+const pendingWork = (): { track(work: Promise<void>): void; idle(): Promise<void> } => {
+  const pending = new Set<Promise<void>>();
+  return {
+    track(work) {
+      const settled = work.catch(() => {});
+      pending.add(settled);
+      void settled.then(() => pending.delete(settled));
+    },
+    async idle() {
+      while (pending.size > 0) await Promise.all([...pending]);
+    },
+  };
+};
+
+const lateOwnerFacts = (
+  identity: ProcessIdentity | undefined,
+  machine: MachineRef
+): Partial<LiveRunOwner> | undefined => {
+  if (identity === undefined && machine.machineId === undefined) return undefined;
+  return {
+    ...(identity !== undefined ? { identity } : {}),
+    ...(machine.machineId !== undefined ? { machineId: machine.machineId } : {}),
+  };
+};
+
 export const createLiveRunRecorder = (deps: LiveRunRecorderDeps): LiveRunRecorder => {
   const runs = new Map<string, RunState>();
-  const pending = new Set<Promise<void>>();
-  const track = (work: Promise<void>): void => {
-    const settled = work.catch(() => {});
-    pending.add(settled);
-    void settled.then(() => pending.delete(settled));
-  };
+  const { track, idle } = pendingWork();
   const processStartedAt = new Date(Date.now() - process.uptime() * 1000).toISOString();
   let ownerIdentity: Promise<ProcessIdentity | undefined> | undefined;
+  let ownerMachine: Promise<MachineRef> | undefined;
 
   const persist = (runId: string, state: RunState): void => {
     const snapshot = state.record;
@@ -136,9 +158,11 @@ export const createLiveRunRecorder = (deps: LiveRunRecorderDeps): LiveRunRecorde
       runs.set(runId, state);
       persist(runId, state);
       ownerIdentity ??= deps.liveness.identify(process.pid);
+      ownerMachine ??= deps.liveness.machine();
       track(
-        ownerIdentity.then((identity) => {
-          if (identity !== undefined) mutate(runId, (record) => ({ ...record, owner: { ...record.owner, identity } }));
+        Promise.all([ownerIdentity, ownerMachine]).then(([identity, machine]) => {
+          const facts = lateOwnerFacts(identity, machine);
+          if (facts !== undefined) mutate(runId, (record) => ({ ...record, owner: { ...record.owner, ...facts } }));
         })
       );
     },
@@ -170,8 +194,6 @@ export const createLiveRunRecorder = (deps: LiveRunRecorderDeps): LiveRunRecorde
       );
     },
 
-    async idle() {
-      while (pending.size > 0) await Promise.all([...pending]);
-    },
+    idle,
   };
 };

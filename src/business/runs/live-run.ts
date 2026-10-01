@@ -16,10 +16,18 @@ export interface ProcessIdentity {
   readonly command: string;
 }
 
-/** The harness process that owns a run. */
-export interface LiveRunOwner {
-  readonly pid: number;
+/** `host` alone is unstable (macOS renames on DHCP / mDNS), so a machine id decides when both sides have one. */
+export interface MachineRef {
   readonly host: string;
+  readonly machineId?: string;
+}
+
+export const sameMachine = (a: MachineRef, b: MachineRef): boolean =>
+  a.machineId !== undefined && b.machineId !== undefined ? a.machineId === b.machineId : a.host === b.host;
+
+/** The harness process that owns a run. */
+export interface LiveRunOwner extends MachineRef {
+  readonly pid: number;
   readonly startedAt: string;
   readonly identity?: ProcessIdentity;
 }
@@ -67,6 +75,8 @@ export interface LiveRunStore {
 /** Process facts about this host. `identify` resolves `undefined` when the pid is gone or the platform can't say. */
 export interface ProcessLiveness {
   readonly host: string;
+  readonly selfPid: number;
+  machine(): Promise<MachineRef>;
   isAlive(pid: number): boolean;
   isGroupAlive(pgid: number): boolean;
   identify(pid: number): Promise<ProcessIdentity | undefined>;

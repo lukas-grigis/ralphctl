@@ -10,9 +10,14 @@ import type {
 } from '@src/business/runs/live-run.ts';
 import { createDetectInterruptedRuns } from '@src/business/runs/detect-interrupted-runs.ts';
 import { createReapInterruptedRuns } from '@src/business/runs/reap-interrupted-runs.ts';
+import { createFindLiveSprintOwner, type LockHolder } from '@src/business/runs/find-live-sprint-owner.ts';
+import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
+import type { Slug } from '@src/domain/value/slug.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 
 const HOST = 'this-box';
+const MACHINE = 'machine-uuid-1';
+const SELF_PID = 99;
 const ID_A: ProcessIdentity = { startedAt: 'Thu Oct 1 21:00:00 2026', command: 'claude' };
 const ID_B: ProcessIdentity = { startedAt: 'Thu Oct 1 22:00:00 2026', command: 'vim' };
 
@@ -47,6 +52,8 @@ interface World {
 
 const livenessOf = (world: World): ProcessLiveness => ({
   host: HOST,
+  selfPid: SELF_PID,
+  machine: () => Promise.resolve({ host: HOST, machineId: MACHINE }),
   isAlive: (pid) => world.alive.has(pid),
   isGroupAlive: (pgid) => world.groups?.has(pgid) ?? false,
   identify: (pid) => Promise.resolve(world.alive.has(pid) ? world.identities?.get(pid) : undefined),
@@ -104,6 +111,63 @@ describe('detectInterruptedRuns', () => {
     const result = await detect.execute();
 
     expect(result.ok && ids(result.value)).toEqual(['recycled']);
+  });
+
+  it('judges a record by machine id when both sides have one, so a renamed host is still this machine', async () => {
+    const detect = createDetectInterruptedRuns({
+      store: storeOf([
+        record('renamed-host', 11, { owner: { pid: 11, host: 'old-dhcp-name', machineId: MACHINE, startedAt: 'x' } }),
+        record('clone-same-name', 12, { owner: { pid: 12, host: HOST, machineId: 'other-machine', startedAt: 'x' } }),
+      ]),
+      liveness: livenessOf({ alive: new Set() }),
+    });
+
+    const result = await detect.execute();
+
+    expect(result.ok && ids(result.value)).toEqual(['renamed-host']);
+  });
+});
+
+describe('findLiveSprintOwner', () => {
+  const SPRINT = { id: 'sprint-1' as SprintId, slug: 'demo' as Slug };
+  const ownerFor = (records: readonly LiveRunRecord[], world: World, holder?: LockHolder) =>
+    createFindLiveSprintOwner({
+      store: storeOf(records),
+      liveness: livenessOf(world),
+      locks: { holderOf: () => Promise.resolve(holder) },
+    });
+
+  it('names another live process whose run record works the sprint', async () => {
+    const find = ownerFor([record('theirs', 12, { sprintId: 'sprint-1' })], { alive: new Set([12]) });
+    const result = await find.execute(SPRINT);
+    expect(result.ok && result.value).toEqual({ pid: 12, via: 'run-record' });
+  });
+
+  it('falls back to a live lock holder when no live record names the sprint', async () => {
+    const find = ownerFor(
+      [record('dead', 11, { sprintId: 'sprint-1' })],
+      { alive: new Set([13]) },
+      {
+        pid: 13,
+        host: HOST,
+      }
+    );
+    const result = await find.execute(SPRINT);
+    expect(result.ok && result.value).toEqual({ pid: 13, via: 'lock' });
+  });
+
+  it('finds nobody when the owners are dead, are this process, or work another sprint', async () => {
+    const find = ownerFor(
+      [
+        record('dead', 11, { sprintId: 'sprint-1' }),
+        record('mine', SELF_PID, { sprintId: 'sprint-1', owner: { pid: SELF_PID, host: HOST, startedAt: 'x' } }),
+        record('other-sprint', 12, { sprintId: 'sprint-2' }),
+      ],
+      { alive: new Set([SELF_PID, 12]) },
+      { pid: 14, host: HOST }
+    );
+    const result = await find.execute(SPRINT);
+    expect(result.ok && result.value).toBeUndefined();
   });
 });
 

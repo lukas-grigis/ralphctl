@@ -108,7 +108,8 @@ export const useBucketedTasks = ({
         ...t,
         genEvalRound: roundN,
         genEvalMaxRounds: tracked.totalCap,
-        attemptN: tracked.attemptN,
+        attemptN: tracked.budgetedAttemptN,
+        ...(tracked.resumed ? { attemptResumed: true } : {}),
         roundInAttempt: tracked.roundInAttempt,
       };
     });

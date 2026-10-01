@@ -9,6 +9,7 @@ import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens
 import { useListWindow, OverflowRow } from '@src/application/ui/tui/components/windowed-list.tsx';
 import { useScrollAnchor } from '@src/application/ui/tui/components/scroll-region.tsx';
 import { listKeys } from '@src/application/ui/tui/runtime/keyboard-map.ts';
+import { isChord } from '@src/application/ui/tui/runtime/key-chord.ts';
 
 export interface MenuItem {
   readonly id: string;
@@ -352,8 +353,8 @@ const ActionMenuRow = ({
 /** Space selects the focused row; a row's `hotkey` selects it directly. Navigation is `useListWindow`'s. */
 const useMenuHotkeys = (items: readonly MenuItem[], focusedItem: MenuItem | undefined, active: boolean): void => {
   useInput(
-    (input) => {
-      if (!active) return;
+    (input, key) => {
+      if (!active || isChord(key)) return;
       if (input === ' ') focusedItem?.onSelect();
       else if (input.length > 0) matchHotkey(items, input)?.onSelect();
     },

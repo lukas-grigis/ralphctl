@@ -650,7 +650,10 @@ useViewKeys(
   hints are unaffected, so the strip keeps describing the screen underneath. An open app overlay
   (help / progress / evaluation) mutes every dispatcher automatically.
 - Special keys are spelled as their hint glyphs and match the real key: `↵`, `esc`, `Tab`, `↑`, `↓`,
-  `←`, `→`, `PgUp`, `PgDn`, `Home`, `End`. Everything else matches the literal input character.
+  `←`, `→`, `PgUp`, `PgDn`, `Home`, `End`. Everything else matches the literal input character, pressed bare: Ink
+  reports `ctrl+c` as input `c`, so a printable binding never fires on a ctrl / alt chord unless it says
+  `chord: 'ctrl' | 'meta'` (hinted `ctrl+x`). Every hand-rolled `useInput` that matches letters guards with
+  `isChord(key)` (`runtime/key-chord.ts`) for the same reason.
 - Two helpers in `keyboard-map.ts` keep the vocabulary identical across views: `listMoveBinding`
   (the documentation-only `↑/↓ move`) and `createBindings(run)` (`c create` with `+` as a silent
   alias — `n` is never "create", it focuses the Work flow list). Work spells it `c new sprint`.
@@ -780,7 +783,9 @@ target } | { kind: 'quit'; runs } | undefined`, with `openOverlay` / `closeOverl
 `q` (Work root) and `Ctrl+C` (anywhere) quit at once when no session is running. With one or more running they open
 `QuitConfirmOverlay`: `N run(s) live — quit stops them? [y/N]`, default No. `n` / `esc` / `↵` / `q` / `Ctrl+C` keep
 everything running; `y` calls `inProcessRuns.abortAll('quit')` (each run stops cleanly, its AI CLI children exit,
-its record is removed) and exits when that settles. While it stops, the card says so and `Ctrl+C` quits immediately.
+its record is removed), dismisses any prompt no run owns, and exits when that settles — or after 5s, when the AI
+CLI process groups are killed and the exit leaves a one-line note in the shell. While it stops, the card says so and
+`Ctrl+C` quits immediately.
 The app, not Ink, owns `Ctrl+C` (`render(…, { exitOnCtrlC: false })`); the migration gate handles it itself.
 Prompt components read input through `usePromptInput`, which is silent while this overlay is open, so its `y` can
 never answer a confirm that is waiting underneath.

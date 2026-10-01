@@ -181,7 +181,7 @@ describe('startAttemptUseCase — resume from crashed running attempt', () => {
     expect(writes).toHaveLength(1);
   });
 
-  it('an in-process crash still spends budget — only harness interruptions are free', () => {
+  it('an in-process crash still spends budget — only interruptions and operator stops are free', () => {
     const crashed = makeInProgressTaskWithRunningAttempt();
     const blocked = unwrap(
       failCurrentAttempt({ ...crashed, maxAttempts: 1 }, FIXED_LATER, 'aborted', { abortCause: 'process-crash' })

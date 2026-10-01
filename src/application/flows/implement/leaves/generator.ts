@@ -51,6 +51,7 @@ import {
 import type { LogTailReader } from '@src/business/io/log-tail-reader.ts';
 import { createFsLogTailReader } from '@src/integration/io/read-log-tail.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
+import { budgetedAttemptCount, resumesFreeAttempt } from '@src/domain/entity/task-attempts.ts';
 
 /**
  * Chain leaf — one generator turn of the gen-eval loop. Wires the integration ports
@@ -455,6 +456,8 @@ const announceRoundStart = (
     type: 'task-round-started',
     taskId: String(taskId),
     attemptN: task.attempts.length,
+    budgetedAttemptN: budgetedAttemptCount(task),
+    resumed: resumesFreeAttempt(task),
     roundN: roundNum,
     totalCap: deps.maxTurns,
     at: deps.clock(),

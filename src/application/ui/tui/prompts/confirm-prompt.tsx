@@ -6,6 +6,7 @@ import { usePromptInput } from '@src/application/ui/tui/prompts/use-prompt-input
 import { inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { ScrollableMessage } from '@src/application/ui/tui/prompts/scrollable-message.tsx';
 import { usePromptHints } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
+import { isChord } from '@src/application/ui/tui/runtime/key-chord.ts';
 
 export interface ConfirmPromptProps {
   readonly message: string;
@@ -43,6 +44,7 @@ export const ConfirmPrompt = ({
       onSubmit(yes);
       return;
     }
+    if (isChord(key)) return;
     const vimKeys = !destructive;
     if (key.leftArrow || (vimKeys && input === 'h')) setYes(true);
     else if (key.rightArrow || (vimKeys && input === 'l')) setYes(false);

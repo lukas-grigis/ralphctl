@@ -6,8 +6,8 @@ import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import { AbortError } from '@src/domain/value/error/abort-error.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
-import { rootSessionId } from '@src/application/session/session.ts';
-import type { PromptQueue } from '@src/application/ui/tui/prompts/prompt-queue.ts';
+import { currentRunSignal, rootSessionId } from '@src/application/session/session.ts';
+import type { PendingPromptInput, PromptQueue } from '@src/application/ui/tui/prompts/prompt-queue.ts';
 
 type Enqueuer = Pick<PromptQueue, 'enqueue'>;
 
@@ -124,6 +124,28 @@ const runAskConfirm = async (queue: Enqueuer, input: AskConfirmInput): Promise<R
   }
 };
 
+/** An unanswered question must not hold a stopping run open: the run's abort withdraws its prompt. */
+const enqueueAbortable = (queue: PromptQueue, prompt: PendingPromptInput, signal: AbortSignal | undefined) => {
+  if (signal === undefined) return queue.enqueue(prompt);
+  const withdraw = (): void => queue.reject(queued.id, new Error('run aborted while waiting for an answer'));
+  const detach = (): void => signal.removeEventListener('abort', withdraw);
+  const settling = {
+    ...prompt,
+    resolve: (value: never) => {
+      detach();
+      (prompt.resolve as (v: unknown) => void)(value);
+    },
+    reject: (err: Error) => {
+      detach();
+      prompt.reject(err);
+    },
+  } as PendingPromptInput;
+  const queued = queue.enqueue(settling);
+  if (signal.aborted) withdraw();
+  else signal.addEventListener('abort', withdraw, { once: true });
+  return queued;
+};
+
 /** Stamps the asking run's id onto every prompt and announces it on the bus (OS "waiting on you" ping). */
 const stampingEnqueuer = (queue: PromptQueue, eventBus: EventBus | undefined): Enqueuer => ({
   enqueue(prompt) {
@@ -132,7 +154,7 @@ const stampingEnqueuer = (queue: PromptQueue, eventBus: EventBus | undefined): E
     if (sessionId !== undefined) {
       eventBus?.publish({ type: 'awaiting-input', message: prompt.message, sessionId, at: IsoTimestamp.now() });
     }
-    return queue.enqueue(sessionId !== undefined ? { ...prompt, sessionId } : prompt);
+    return enqueueAbortable(queue, sessionId !== undefined ? { ...prompt, sessionId } : prompt, currentRunSignal());
   },
 });
 

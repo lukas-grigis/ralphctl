@@ -10,6 +10,7 @@ import { plural } from '@src/application/ui/shared/plural.ts';
 import type { NextStep } from '@src/application/ui/shared/next-steps.ts';
 import type { Task } from '@src/domain/entity/task.ts';
 import { interruptedTasksOf, type InterruptedFacts } from '@src/application/ui/shared/interrupted-tasks.ts';
+import { budgetedAttemptCount, resumesFreeAttempt } from '@src/domain/entity/task-attempts.ts';
 import { sectionFor, sectionRank } from '@src/application/ui/tui/views/flows-visibility.ts';
 
 export type AgendaSectionId = 'needs-you' | 'running' | 'next' | 'flows';
@@ -50,6 +51,7 @@ export interface AgendaSession {
   readonly finishedAt?: number;
   readonly pinnedSprintId?: string;
   readonly progress?: {
+    readonly taskId?: string;
     readonly taskIndex: number;
     readonly taskCount: number;
     readonly taskName: string;
@@ -73,6 +75,8 @@ export interface BuildAgendaInput {
   readonly now: number;
   /** Disk facts for interrupted tasks, keyed by task id; they arrive after the row, which renders without them. */
   readonly interruptedFacts?: ReadonlyMap<string, InterruptedFacts>;
+  /** Another live ralphctl process works this sprint (or that is still being checked): nothing is interrupted. */
+  readonly sprintOwnedElsewhere?: boolean;
 }
 
 export const NEEDS_YOU_TASK_CAP = 3;
@@ -171,7 +175,7 @@ const interruptedRows = (input: BuildAgendaInput): readonly AgendaRow[] => {
   const implementRunning = input.sessions.some(
     (s) => s.status === 'running' && s.flowId === IMPLEMENT && s.pinnedSprintId === input.sprintId
   );
-  const all = interruptedTasksOf(input.tasks, implementRunning);
+  const all = interruptedTasksOf(input.tasks, implementRunning || input.sprintOwnedElsewhere === true);
   const rows = all.slice(0, NEEDS_YOU_TASK_CAP).map((task): AgendaRow => {
     const facts = input.interruptedFacts?.get(task.taskId);
     const detail = interruptedDetail(facts);
@@ -218,6 +222,17 @@ const failedSessions = (input: BuildAgendaInput): readonly AgendaRow[] =>
       verb: 'open run',
     }));
 
+/** From the persisted task when possible: the trace only knows this run's attempts, not the free ones before it. */
+const attemptChip = (p: NonNullable<AgendaSession['progress']>, tasks: readonly Task[]): string | undefined => {
+  if (p.maxAttempts === undefined) return undefined;
+  const task = tasks.find((t) => t.id === p.taskId && t.attempts.at(-1)?.status === 'running');
+  if (task === undefined) {
+    return p.attempt !== undefined ? `attempt ${String(p.attempt)}/${String(p.maxAttempts)}` : undefined;
+  }
+  const chip = `attempt ${String(budgetedAttemptCount(task))}/${String(p.maxAttempts)}`;
+  return resumesFreeAttempt(task) ? `${chip} ${glyphs.bullet} resumed` : chip;
+};
+
 const runningRows = (input: BuildAgendaInput): readonly AgendaRow[] =>
   input.sessions
     .filter((s) => s.status === 'running' && s.pinnedSprintId === input.sprintId)
@@ -226,9 +241,8 @@ const runningRows = (input: BuildAgendaInput): readonly AgendaRow[] =>
       const parts = [s.flowId];
       if (p !== undefined) {
         parts.push(`task ${String(p.taskIndex)}/${String(p.taskCount)} "${p.taskName}"`);
-        if (p.attempt !== undefined && p.maxAttempts !== undefined) {
-          parts.push(`attempt ${String(p.attempt)}/${String(p.maxAttempts)}`);
-        }
+        const chip = attemptChip(p, input.tasks);
+        if (chip !== undefined) parts.push(chip);
       }
       const waitingSince = input.awaitingSince.get(s.id);
       return {

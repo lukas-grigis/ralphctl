@@ -137,11 +137,26 @@ is held across the whole run by the implement flow (serial path via `withRepoLoc
 key directly) and by the review flow (`withRepoLock`, same sprint-dir key — implement and review of one
 sprint mutually exclude). `withRepoLock` (`flows/_shared/`) is the one ctx-generic wrapper both use.
 
-**Lock owner.** A lock taken with a `purpose` carries `owner.json` (pid, host, process start, purpose) inside the
-lock directory. A lock whose owner pid is dead on this host is reclaimed at once rather than after `staleAfterMs`;
-a live or foreign-host owner still waits for the heartbeat to go stale. Contention names the holder ("another
-ralphctl (pid N) is running implement on this repo"). The `fs` handed to `proper-lockfile` unlinks `owner.json`
-before its bare `rmdir`.
+**Lock owner.** A lock taken with a `purpose` carries `owner.json` (pid, host, machine id, process start, purpose)
+inside the lock directory. A lock whose owner pid is dead on this machine is reclaimed at once rather than after
+`staleAfterMs`; a live or other-machine owner still waits for the heartbeat to go stale. Contention names the holder
+("another ralphctl (pid N) is running implement on this repo"). The `fs` handed to `proper-lockfile` unlinks
+`owner.json` before its bare `rmdir`.
+
+**Same machine, not same hostname.** Lock owners and live-run records are judged — pid alive, reclaim, reap — only
+when they come from this machine, since another machine's pids mean nothing here. `os.hostname()` alone is not a
+stable answer: macOS renames the machine on DHCP / mDNS changes, which would turn a crashed run on this very machine
+into a "foreign" one that is never reclaimed. Both files therefore also record a machine id — `/etc/machine-id`
+(or `/var/lib/dbus/machine-id`) on Linux, the `IOPlatformUUID` from `ioreg` on macOS — read once per process
+(`currentMachine`, `integration/io/process-liveness.ts`). `sameMachine` (`business/runs/live-run.ts`) compares
+machine ids when both sides have one and falls back to the hostname otherwise (Windows, an unreadable id, a file
+written before the id resolved). "Same user + same state root" was rejected as the test: a state root shared
+between machines (NFS home) would then let one machine reclaim another's live lock.
+
+**Another process on the same sprint.** A `running` attempt is shown as interrupted only when no other live
+ralphctl on this machine works the sprint: `findLiveSprintOwner` (`business/runs/`) checks the live-run records
+naming the sprint (owner alive, same process identity) and the sprint lock's `owner.json`. While that check is
+pending or fails, Work hides the interrupted rows and re-checks every 5s.
 
 **Process groups and the orphan reaper.** Headless AI CLI children are spawned `detached: true` on non-Windows,
 so each leads its own process group; interactive spawns keep the terminal. Abort and the idle watchdog kill the

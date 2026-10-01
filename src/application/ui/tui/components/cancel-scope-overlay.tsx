@@ -6,6 +6,7 @@ import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens
 import { useOptionalOverlayState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { useClaimKeys } from '@src/application/ui/tui/runtime/claimed-keys-context.tsx';
 import { fmtDuration } from '@src/application/ui/tui/theme/duration.ts';
+import { isChord } from '@src/application/ui/tui/runtime/key-chord.ts';
 
 /** @public */
 export interface CancelScopeOverlayProps {
@@ -38,6 +39,7 @@ export const CancelScopeOverlay = ({
   // Stable input claim while mounted; the parent view sets `inputActive` props on its own panels to dim them out so
   // they don't compete for the same keystrokes.
   useInput((input, key) => {
+    if (isChord(key)) return;
     if (input === '1') {
       onCancelAttempt();
       return;
