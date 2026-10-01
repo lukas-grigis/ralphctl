@@ -12,8 +12,9 @@ import { TextPrompt } from '@src/application/ui/tui/prompts/text-prompt.tsx';
 import { ConfirmPrompt } from '@src/application/ui/tui/prompts/confirm-prompt.tsx';
 import { PathPickerPrompt } from '@src/application/ui/tui/prompts/path-picker-prompt.tsx';
 import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
-import { useRouter } from '@src/application/ui/tui/runtime/router.tsx';
+import { useRouter, type ViewEntry } from '@src/application/ui/tui/runtime/router.tsx';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
+import { ROUTE_LABELS } from '@src/application/ui/tui/runtime/nav-tree.ts';
 import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { createProject } from '@src/domain/entity/project.ts';
@@ -72,6 +73,12 @@ interface Update {
   readonly patch: Partial<Draft>;
   readonly next: StepKind;
 }
+
+/** Where esc returns to — the entry below this view, or Work when it is the stack root. */
+const parentLabel = (stack: readonly ViewEntry[]): string => {
+  const parent = stack.length > 1 ? stack[stack.length - 2] : undefined;
+  return parent !== undefined ? ROUTE_LABELS[parent.id] : 'Work';
+};
 
 export const CreateProjectView = (): React.JSX.Element => {
   const deps = useDeps();
@@ -237,6 +244,7 @@ const ErrorStep = ({
 };
 
 const StepView = ({ step, draft, onAdvance, onBack, onRetry, onSubmit }: StepViewProps): React.JSX.Element => {
+  const backLabel = parentLabel(useRouter().stack);
   // Per-step `key` gives each prompt a fresh buffer seeded from the draft.
   switch (step.kind) {
     case 'name':
@@ -246,7 +254,7 @@ const StepView = ({ step, draft, onAdvance, onBack, onRetry, onSubmit }: StepVie
           message="Project display name"
           initial={draft.name}
           validate={validateName}
-          escLabel="Work"
+          escLabel={backLabel}
           onSubmit={(value) => onAdvance({ patch: { name: value.trim() }, next: 'slug' })}
           onCancel={() => onBack('name')}
         />

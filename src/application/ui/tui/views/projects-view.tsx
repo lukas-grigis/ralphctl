@@ -6,7 +6,6 @@ import { ViewShell } from '@src/application/ui/tui/components/view-shell.tsx';
 import { useListWindow, OverflowRow, type ListWindow } from '@src/application/ui/tui/components/windowed-list.tsx';
 import { AsyncListFrame } from '@src/application/ui/tui/components/async-list-frame.tsx';
 import { EmptyState } from '@src/application/ui/tui/components/empty-state.tsx';
-import { FeedbackLine } from '@src/application/ui/tui/components/feedback-line.tsx';
 import { ListCard } from '@src/application/ui/tui/components/list-card.tsx';
 import { plural } from '@src/application/ui/shared/plural.ts';
 import { formatBytes } from '@src/application/ui/shared/format-bytes.ts';
@@ -201,7 +200,6 @@ interface ProjectsBodyProps {
   readonly visibleItems: readonly Project[];
   readonly focusedId: Project['id'] | undefined;
   readonly total: number;
-  readonly feedback: string | undefined;
 }
 
 /** Loading / error / overlay / empty / list-of-cards presentation — pure props in. */
@@ -214,7 +212,6 @@ const ProjectsBody = ({
   visibleItems,
   focusedId,
   total,
-  feedback,
 }: ProjectsBodyProps): React.JSX.Element => {
   // The delete gate takes over the whole frame; everything below it is the ordinary async ladder.
   const overlay =
@@ -250,7 +247,6 @@ const ProjectsBody = ({
             {glyphs.bullet} {plural(total, 'project')}
           </Text>
         </Box>
-        <FeedbackLine text={feedback} />
       </Box>
     </AsyncListFrame>
   );
@@ -369,8 +365,15 @@ export const ProjectsView = (): React.JSX.Element => {
     { active: listActive }
   );
 
+  const shownFeedback = feedback ?? edit.feedback;
   return (
-    <ViewShell title="Projects" subtitle="Browse, rename and switch projects" suppressScrollArrows>
+    // Pinned status row, not the list body: the empty state replaces the body once the last project is removed.
+    <ViewShell
+      title="Projects"
+      subtitle="Browse, rename and switch projects"
+      suppressScrollArrows
+      {...(shownFeedback !== undefined ? { feedback: shownFeedback } : {})}
+    >
       <ProjectsBody
         confirmDelete={confirmDelete}
         onDeleteSubmit={(value, cascade) => {
@@ -384,7 +387,6 @@ export const ProjectsView = (): React.JSX.Element => {
         visibleItems={visibleItems}
         focusedId={focusedItem?.id}
         total={items.length}
-        feedback={feedback ?? edit.feedback}
       />
     </ViewShell>
   );

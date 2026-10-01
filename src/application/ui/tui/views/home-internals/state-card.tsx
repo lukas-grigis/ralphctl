@@ -92,7 +92,7 @@ const PickOrCreateSprintCard = ({
         )}
         <Box marginTop={spacing.section}>
           <KeyCue
-            keys="r"
+            keys="2"
             label={sprintCount === 0 ? 'open Sprints and press c to create one' : 'open Sprints to pick or create one'}
           />
         </Box>

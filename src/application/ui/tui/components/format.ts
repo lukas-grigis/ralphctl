@@ -12,3 +12,25 @@ export const fmtTokens = (n: number): string => {
   const k = n / 1000;
   return k >= 100 ? `${String(Math.round(k))}k` : `${k.toFixed(1).replace(/\.0$/, '')}k`;
 };
+
+/** Shorten `s` to `max` cells by cutting its middle: `/Users/me/…/repo`. */
+export const middleTruncate = (s: string, max: number): string => {
+  const cps = [...s];
+  if (cps.length <= max || max < 3) return s;
+  const keep = max - 1;
+  const head = Math.ceil(keep / 2);
+  return `${cps.slice(0, head).join('')}…${cps.slice(cps.length - (keep - head)).join('')}`;
+};
+
+/**
+ * Fit a line of prose that embeds one absolute path into `max` cells by middle-truncating the path (the only part that
+ * is safe to cut), leaving the words around it whole.
+ */
+export const fitLineWithPath = (line: string, max: number): string => {
+  if ([...line].length <= max) return line;
+  const match = /(?:~|\/)[^\s`]+/u.exec(line);
+  if (match === null) return line;
+  const path = match[0];
+  const over = [...line].length - max;
+  return line.replace(path, middleTruncate(path, Math.max(8, [...path].length - over)));
+};

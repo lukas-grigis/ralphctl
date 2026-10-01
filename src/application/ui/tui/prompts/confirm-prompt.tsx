@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { ScrollableMessage } from '@src/application/ui/tui/prompts/scrollable-message.tsx';
+import { usePromptHints } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
 
 export interface ConfirmPromptProps {
   readonly message: string;
@@ -15,6 +16,12 @@ export interface ConfirmPromptProps {
   readonly destructive?: boolean;
 }
 
+const CONFIRM_HINTS = [
+  { keys: '↵', label: 'submit' },
+  { keys: 'y/n', label: 'quick' },
+  { keys: 'esc', label: 'cancel' },
+];
+
 export const ConfirmPrompt = ({
   message,
   onSubmit,
@@ -23,6 +30,8 @@ export const ConfirmPrompt = ({
   destructive = false,
 }: ConfirmPromptProps): React.JSX.Element => {
   const [yes, setYes] = useState(defaultYes);
+
+  usePromptHints(CONFIRM_HINTS);
 
   useInput((input, key) => {
     if (key.escape) {

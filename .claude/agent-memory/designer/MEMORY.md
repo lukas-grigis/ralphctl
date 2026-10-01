@@ -21,3 +21,4 @@
 - [project_tones_and_no_color.md](project_tones_and_no_color.md) — tones token, ListCard rows, NO_COLOR launch ordering, chalk-level test trick
 - [project_destructive_confirms.md](project_destructive_confirms.md) — ConfirmCard verb/target, destructive prompt, multi-step confirm focus + preview-race traps
 - [project_ink_row_shrink_and_probe_traps.md](project_ink_row_shrink_and_probe_traps.md) — Row Box shrink eats cursors/adds blank lines; pty probe batching + partial-frame artefacts; drill-in location rule
+- [project_esc_typeahead_and_updater_traps.md](project_esc_typeahead_and_updater_traps.md) — View esc + global pop double-fires, updater-ref lag, type-ahead design, mountFrame for back tests

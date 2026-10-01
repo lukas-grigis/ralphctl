@@ -5,6 +5,7 @@ import { Box, Text, useInput } from 'ink';
 import type { Choice } from '@src/business/interactive/prompt.ts';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { ScrollableMessage } from '@src/application/ui/tui/prompts/scrollable-message.tsx';
+import { usePromptHints } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
 
 const VISIBLE_ROWS = 8;
 
@@ -43,6 +44,12 @@ const lastEnabledIndex = (options: ReadonlyArray<Choice<unknown>>): number => {
   return Math.max(0, options.length - 1);
 };
 
+const SELECT_HINTS = [
+  { keys: '↑/↓', label: 'move' },
+  { keys: '↵', label: 'submit' },
+  { keys: 'esc', label: 'cancel' },
+];
+
 export const SelectPrompt = ({
   message,
   options,
@@ -55,6 +62,8 @@ export const SelectPrompt = ({
   // something selectable — the caller is expected to provide at least one enabled option, but
   // we tolerate an all-disabled list by leaving the cursor at 0 with submission blocked).
   const [cursor, setCursor] = useState(() => firstEnabledIndex(options));
+
+  usePromptHints(SELECT_HINTS);
 
   useInput((input, key) => {
     if (key.escape) {

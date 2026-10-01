@@ -58,11 +58,13 @@ export const FeedbackLine = ({ text }: FeedbackLineProps): React.JSX.Element | n
 
   // Structured form
   const { glyph, color } = toneConfig(text.tone);
+  // Callers often pass text that already leads with a status glyph; the tone supplies one, so never double it.
+  const body = glyph.length > 0 && text.text.startsWith(`${glyph} `) ? text.text.slice(glyph.length + 1) : text.text;
   return (
     <Box paddingX={spacing.indent} marginTop={spacing.section}>
       <Text color={color}>
         {glyph.length > 0 ? `${glyph} ` : ''}
-        {text.text}
+        {body}
       </Text>
     </Box>
   );

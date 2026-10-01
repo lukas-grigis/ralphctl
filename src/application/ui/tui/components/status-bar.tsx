@@ -15,14 +15,18 @@ import { Divider } from '@src/application/ui/tui/components/divider.tsx';
 const QUIT_HINT: FitHint = { keys: 'ctrl+c', label: 'quit' };
 
 /**
- * While a prompt holds the keyboard the view's keys and every global letter are muted (the prompt card carries its
- * own hints), so only `ctrl+c quit` is honest; otherwise local hints lead.
+ * While a prompt holds the keyboard the view's keys and every global letter are muted, so only the prompt's own keys
+ * (published through `usePromptHints`) and `ctrl+c quit` are honest; otherwise local hints lead.
  */
 const orderFooterHints = (args: {
-  readonly local: readonly FitHint[];
+  readonly local: ReadonlyArray<FitHint & { readonly prompt?: boolean }>;
   readonly globals: readonly FitHint[];
   readonly promptActive: boolean;
-}): readonly FitHint[] => (args.promptActive ? [QUIT_HINT] : [...args.local, ...args.globals]);
+}): readonly FitHint[] => {
+  if (!args.promptActive) return [...args.local.filter((h) => h.prompt !== true), ...args.globals];
+  // The prompt's own keys lead; with none published (a bare confirm overlay) only quit is honest.
+  return [...args.local.filter((h) => h.prompt === true), QUIT_HINT];
+};
 
 /** One row, never wrapping: fitted cells inside a single truncating `<Text>`. */
 const HintStrip = ({ hints, budget }: { readonly hints: readonly FitHint[]; readonly budget: number }) => {
@@ -58,7 +62,8 @@ export const StatusBar = (): React.JSX.Element => {
   });
   // Per-view suppressions hide specific footer hints (matched by their `keys` string) so the footer never advertises
   // a key combo whose default meaning is contradicted by the currently-mounted view.
-  const visibleGlobals = suppressedKeys.size === 0 ? globals : globals.filter((h) => !suppressedKeys.has(h.keys));
+  // A claimed `esc` closes something local (a card, an overlay) — advertising "esc <parent>" would lie.
+  const visibleGlobals = globals.filter((h) => !suppressedKeys.has(h.keys) && !(ui.escapeClaimed && h.keys === 'esc'));
   const hints = orderFooterHints({ local: localHints, globals: visibleGlobals, promptActive: ui.promptActive });
 
   return <FooterBar hints={hints} columns={columns} />;

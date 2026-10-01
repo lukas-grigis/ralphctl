@@ -39,4 +39,28 @@ describe('timeline columns', () => {
     expect(frame).not.toMatch(/\d\d:\d\d:\s*$/m);
     for (const line of frame.split('\n')) expect([...line].length).toBeLessThanOrEqual(width);
   });
+
+  it.each([50, 60, 80])('puts every timestamp (note rows included) in the same column at width %i', (width) => {
+    const withNotes: TaskBucket = {
+      ...bucket,
+      signals: [
+        { type: 'note', text: 'n'.repeat(300), timestamp: ts(1) },
+        { type: 'change', text: 'x'.repeat(300), timestamp: ts(2) },
+        { type: 'note', text: 'short', timestamp: ts(3) },
+      ] as HarnessSignal[],
+    };
+    const r = render(
+      <Box width={width} flexDirection="column">
+        <TasksPanel bucketed={{ tasks: [withNotes], orphanSignals: [] } satisfies BucketedExecution} running={true} />
+      </Box>
+    );
+    const frame = r.lastFrame() ?? '';
+    r.unmount();
+    const columns = frame
+      .split('\n')
+      .map((l) => l.search(/\d\d:\d\d:\d\d/))
+      .filter((i) => i >= 0);
+    expect(columns).toHaveLength(3);
+    expect(new Set(columns).size).toBe(1);
+  });
 });

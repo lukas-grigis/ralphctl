@@ -122,9 +122,13 @@ const SignalLine = ({
   // Ink's `wrap="truncate-end"`.
   return (
     <Box>
-      <Text color={focused ? inkColors.highlight : inkColors.muted} bold={focused}>
-        {focused ? glyphs.selectMarker : ' '}{' '}
-      </Text>
+      <Box flexShrink={0}>
+        <Box flexShrink={0}>
+          <Text color={focused ? inkColors.highlight : inkColors.muted} bold={focused}>
+            {focused ? glyphs.selectMarker : ' '}{' '}
+          </Text>
+        </Box>
+      </Box>
       <Box width={TIME_COL_WIDTH} flexShrink={0}>
         <Text dimColor>{fmtIsoTime(String(signal.timestamp))}</Text>
       </Box>
@@ -175,9 +179,11 @@ const CommitSignalLine = ({
   return (
     <Box flexDirection="column">
       <Box>
-        <Text color={focused ? inkColors.highlight : inkColors.muted} bold={focused}>
-          {focused ? glyphs.selectMarker : ' '}{' '}
-        </Text>
+        <Box flexShrink={0}>
+          <Text color={focused ? inkColors.highlight : inkColors.muted} bold={focused}>
+            {focused ? glyphs.selectMarker : ' '}{' '}
+          </Text>
+        </Box>
         <Box width={TIME_COL_WIDTH} flexShrink={0}>
           <Text dimColor>{fmtIsoTime(String(signal.timestamp))}</Text>
         </Box>

@@ -121,4 +121,13 @@ describe('FeedbackLine — colour', () => {
       chalk.level = prev;
     }
   });
+
+  it('does not double a status glyph the structured text already leads with', async () => {
+    const r = render(<FeedbackLine text={feedback('success', `${glyphs.check} enabled "x" for 2 flow(s)`)} />);
+    await tick(20);
+    const frame = r.lastFrame() ?? '';
+    r.unmount();
+    expect(frame).toContain(`${glyphs.check} enabled`);
+    expect(frame).not.toContain(`${glyphs.check} ${glyphs.check}`);
+  });
 });

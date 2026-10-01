@@ -52,7 +52,7 @@ const ResultFooterImpl = ({
     return null;
   }
   return (
-    <Box marginTop={spacing.section}>
+    <Box flexDirection="column" marginTop={spacing.section}>
       <ResultCard
         kind={descriptor.status === 'completed' ? 'success' : descriptor.status === 'aborted' ? 'aborted' : 'failed'}
         title={descriptor.title}

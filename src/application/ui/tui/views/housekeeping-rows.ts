@@ -30,12 +30,15 @@ export interface HousekeepingRow {
 
 const day = (iso: string): string => iso.slice(0, 10);
 
+/** `<id>--<slug>` dir name → the slug: UUIDv7 ids share their leading timestamp bits, so a truncated id tells rows nothing. */
+const readableDirName = (name: string): string => (name.includes('--') ? name.slice(name.indexOf('--') + 2) : name);
+
 const describe = (c: HousekeepingCandidate): { readonly name: string; readonly detail: string } => {
   switch (c.kind) {
     case 'orphan-sprint':
       return { name: c.name, detail: `${c.status} ${glyphs.bullet} ${plural(c.ticketCount, 'ticket')}` };
     case 'orphan-memory':
-      return { name: c.name, detail: 'project removed' };
+      return { name: readableDirName(c.name), detail: 'project removed' };
     case 'stale-sprint':
       return { name: c.name, detail: `done ${day(c.doneAt)}` };
     case 'stale-run':
@@ -43,8 +46,22 @@ const describe = (c: HousekeepingCandidate): { readonly name: string; readonly d
   }
 };
 
+/** Sort key for `<id>--<slug>` dir names: the slug, so `ghost-2` precedes `ghost-10` (numeric collation). */
+const naturalCompare = (a: { readonly name: string }, b: { readonly name: string }): number => {
+  const slug = (n: string): string => (n.includes('--') ? n.slice(n.indexOf('--') + 2) : n);
+  return (
+    slug(a.name).localeCompare(slug(b.name), undefined, { numeric: true }) ||
+    a.name.localeCompare(b.name, undefined, { numeric: true })
+  );
+};
+
 export const buildHousekeepingRows = (scan: HousekeepingScan): readonly HousekeepingRow[] =>
-  [...scan.orphanSprints, ...scan.orphanMemoryDirs, ...scan.staleDoneSprints, ...scan.staleRuns].map((candidate) => ({
+  [
+    ...[...scan.orphanSprints].sort(naturalCompare),
+    ...[...scan.orphanMemoryDirs].sort(naturalCompare),
+    ...scan.staleDoneSprints,
+    ...scan.staleRuns,
+  ].map((candidate) => ({
     key: housekeepingCandidateKey(candidate),
     candidate,
     ...describe(candidate),

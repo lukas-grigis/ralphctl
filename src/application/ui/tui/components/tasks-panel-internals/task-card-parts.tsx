@@ -47,15 +47,17 @@ export const RecoveryLine = ({
   const label = abortCauseLabel(context.cause);
   return (
     <Box paddingLeft={spacing.indent}>
-      <Text dimColor>{glyphs.activityArrow} </Text>
-      <Text>attempt {String(attemptN)}</Text>
-      <Text dimColor> {glyphs.bullet} </Text>
-      <Text color={inkColors.warning}>resumed from aborted</Text>
-      <Text>
-        {' '}
-        {String(context.fromAttemptN)} at {hhmm}
+      <Text wrap="truncate-end">
+        <Text dimColor>{glyphs.activityArrow} </Text>
+        <Text>attempt {String(attemptN)}</Text>
+        <Text dimColor> {glyphs.bullet} </Text>
+        <Text color={inkColors.warning}>resumed from aborted</Text>
+        <Text>
+          {' '}
+          {String(context.fromAttemptN)} at {hhmm}
+        </Text>
+        {label !== undefined && <Text dimColor> ({label})</Text>}
       </Text>
-      {label !== undefined && <Text dimColor> ({label})</Text>}
     </Box>
   );
 };
@@ -93,8 +95,9 @@ export const SubStepLine = ({
 }): React.JSX.Element => {
   const presentation = SUB_STEP_PRESENTATION[sub.status];
   const glyph = running && sub.status === 'completed' ? presentation.glyph : presentation.glyph;
+  // One truncating <Text>: sibling flex items shrink and shed the rail glyph / separating spaces.
   return (
-    <Box>
+    <Text wrap="truncate-end">
       <Text color={presentation.color} bold>
         {glyphs.activityArrow} {glyph}
       </Text>
@@ -104,14 +107,12 @@ export const SubStepLine = ({
         {glyphs.bullet} {fmtDuration(sub.durationMs)}
       </Text>
       {sub.errorMessage !== undefined && (
-        <Box flexGrow={1} flexShrink={1} minWidth={0}>
-          <Text color={inkColors.error} wrap="truncate-end">
-            {' '}
-            {glyphs.emDash} {collapseWhitespace(sub.errorMessage)}
-          </Text>
-        </Box>
+        <Text color={inkColors.error}>
+          {' '}
+          {glyphs.emDash} {collapseWhitespace(sub.errorMessage)}
+        </Text>
       )}
-    </Box>
+    </Text>
   );
 };
 

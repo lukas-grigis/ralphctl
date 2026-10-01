@@ -11,11 +11,12 @@
  *     terminal and the `lines X–Y of N` counter matches what is actually on screen.
  */
 
+import React from 'react';
 import { render } from 'ink-testing-library';
 import { describe, expect, it } from 'vitest';
 import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx';
 import { DOWN, UP, PAGE_DOWN, tick } from '@tests/integration/application/ui/tui/_keys.ts';
-import { HintsProvider } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
+import { HintsProvider, useViewHints } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
 import { renderAtSize } from '@tests/helpers/render-at-size.tsx';
 
 /** ink-testing-library's stdout stub exposes no `rows`, so `useTerminalSize` falls back to 24. */
@@ -258,6 +259,36 @@ describe('HelpOverlay', () => {
     await tick(30);
     const parsed = parseFrame(r.lastFrame() ?? '');
     expect(parsed.body.length).toBe(parsed.last - parsed.first + 1);
+    r.unmount();
+  });
+});
+
+/** Registers the Settings-style local hints that used to collide with the key column. */
+const LocalHints = (): React.JSX.Element => {
+  useViewHints([
+    { keys: '↵', label: 'apply/edit' },
+    { keys: 'P', label: 'switch project' },
+  ]);
+  return <></>;
+};
+
+describe('HelpOverlay — key column', () => {
+  it.each([80, 120, 160])('keeps every chord clear of its label at %i columns', async (columns) => {
+    const r = renderAtSize(
+      <HintsProvider>
+        <LocalHints />
+        <HelpOverlay routeId="settings" />
+      </HintsProvider>,
+      { columns, rows: 200 }
+    );
+    await tick(60);
+    const lines = (r.lastFrame() ?? '').split('\n');
+    const rowFor = (label: string): string => lines.find((l) => l.includes(label)) ?? '';
+    // Chord and label are separated by at least two cells; neither is cut or glued to its neighbour.
+    expect(rowFor('apply/edit')).toMatch(/│\s+↵\s{2,}apply\/edit/);
+    expect(rowFor('switch project')).toMatch(/\sP\s{2,}switch project/);
+    expect(rowFor('scroll page')).toMatch(/Ctrl\+f\s{2,}scroll page/);
+    expect(rowFor('quit (q on the Work root)')).toMatch(/q · ctrl\+c\s{2,}quit/);
     r.unmount();
   });
 });

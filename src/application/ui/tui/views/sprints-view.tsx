@@ -21,7 +21,7 @@ import { useEditField } from '@src/application/ui/tui/runtime/use-edit-field.ts'
 import type { UseEditFieldState } from '@src/application/ui/tui/runtime/use-edit-field.ts';
 import { useIsMounted } from '@src/application/ui/tui/runtime/use-is-mounted.ts';
 import { Result } from '@src/domain/result.ts';
-import { glyphs, listCapacity, spacing } from '@src/application/ui/tui/theme/tokens.ts';
+import { glyphs, LIST_CHROME_ROWS, listCapacity, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { plural } from '@src/application/ui/shared/plural.ts';
 import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { useAsyncLoad, type AsyncLoadState } from '@src/application/ui/tui/runtime/use-async-load.ts';
@@ -351,7 +351,8 @@ export const SprintsView = (): React.JSX.Element => {
   const list = useListWindow<SprintListEntry>({
     items,
     getId: (entry) => entry.sprint.id,
-    visibleRows: listCapacity(rows, { rowHeight: ROW_HEIGHT, min: 4, max: 12 }),
+    // The `· N sprints` footer (margin + line) lives in the same scroll body, so reserve it.
+    visibleRows: listCapacity(rows, { rowHeight: ROW_HEIGHT, chromeRows: LIST_CHROME_ROWS + 2, min: 2, max: 12 }),
     active: listActive,
     onSubmit: (entry) => {
       // Browse only — the selection is untouched (`m` makes a sprint current). The crumb is

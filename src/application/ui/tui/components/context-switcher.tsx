@@ -30,16 +30,20 @@ const CHROME_ROWS = 9;
 /** Border (2) + horizontal padding (2). */
 const BOX_FRAME_WIDTH = 4;
 
-const TITLE = 'switch sprint or project';
+const TITLES: Readonly<Record<SwitcherFocus, { readonly key: string; readonly title: string }>> = {
+  sprint: { key: 'S', title: 'switch sprint or project' },
+  project: { key: 'P', title: 'switch project' },
+};
 
 /** `╭─ S switch sprint or project ───╮` — the title sits in the top border; Ink borders cannot. */
-const TopBorder = ({ width }: { readonly width: number }): React.JSX.Element => {
-  const used = [...`╭─ S ${TITLE} `].length + 1;
+const TopBorder = ({ width, focus }: { readonly width: number; readonly focus: SwitcherFocus }): React.JSX.Element => {
+  const { key, title } = TITLES[focus];
+  const used = [...`╭─ ${key} ${title} `].length + 1;
   return (
     <Text color={inkColors.primary}>
       {'╭─ '}
-      <Text bold>S</Text>
-      {` ${TITLE} `}
+      <Text bold>{key}</Text>
+      {` ${title} `}
       {'─'.repeat(Math.max(0, width - used))}
       {'╮'}
     </Text>
@@ -184,7 +188,8 @@ export const ContextSwitcher = ({ focus }: ContextSwitcherProps): React.JSX.Elem
   });
 
   const wide = columns >= breakpoints.md;
-  const boxWidth = wide ? Math.min(MAX_BOX_WIDTH, columns - 4) : columns;
+  // Same two-column inset at every width, so the box never touches the screen edge.
+  const boxWidth = Math.min(MAX_BOX_WIDTH, columns - 4);
   const initialCursorId = useMemo(
     () => preferredCursorId(rows, { focus, sprintId: selection.sprintId, projectId: selection.projectId }),
     [rows, focus, selection.sprintId, selection.projectId]
@@ -198,8 +203,8 @@ export const ContextSwitcher = ({ focus }: ContextSwitcherProps): React.JSX.Elem
 
   return (
     <Box flexDirection="column" flexGrow={1}>
-      <Box flexDirection="column" flexGrow={1} marginLeft={wide ? spacing.indent : 0}>
-        <TopBorder width={boxWidth} />
+      <Box flexDirection="column" flexGrow={1} marginLeft={spacing.indent}>
+        <TopBorder width={boxWidth} focus={focus} />
         <Box
           flexDirection="column"
           width={boxWidth}

@@ -57,20 +57,20 @@ Rules:
 
 Canonical set. If a view needs a symbol not in this list, **add it to `glyphs` first** (and document it here).
 
-| Group           | Tokens                                                                                                                                                      |
-| --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Phase / status  | `phaseDone ■`, `phaseActive ◆`, `phasePending ◇`, `phaseDisabled ◌`                                                                                         |
-| Cursors         | `actionCursor ▸`, `selectMarker ›`, `focusBar ▍` (picker focus rail), `caretBlock █` (text-input caret — same char as `barFilled`, separate role)           |
-| Disclosure      | `disclosureCollapsed ▸`, `disclosureExpanded ▾` (collapsible rows, e.g. Tasks-panel commit messages)                                                        |
-| Section markers | `badge ▣`, `sectionRule ━`                                                                                                                                  |
-| State           | `check ✓`, `cross ✗`, `warningGlyph ⚠`, `infoGlyph i`, `modified ✎`, `unknownGlyph ?` (undetermined verdict, never tinted), `stethoscope ✚` (footer doctor) |
-| Bullets         | `bullet ·`, `inlineDot ·`, `emDash —`, `arrowRight →`, `activityArrow ↳`, `refresh ↻`                                                                       |
-| Separators      | `pipe │`                                                                                                                                                    |
-| Motion          | `spinner` (braille frames `⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏`), `busyDot ●` (gen-eval busy indicator)                                                                              |
-| Meters          | `barFilled █`, `barEmpty ░` (fixed-width progress meters — ratio reads by density alone)                                                                    |
-| Clip markers    | `clipEllipsis …`, `collapseExpand ▼ more`                                                                                                                   |
-| Overflow cues   | `moreAbove ▴`, `moreBelow ▾` (windowed-list `OverflowRow` "N more" rows)                                                                                    |
-| Personality     | `quoteRail ┃`                                                                                                                                               |
+| Group           | Tokens                                                                                                                                                                       |
+| --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Phase / status  | `phaseDone ■`, `phaseActive ◆`, `phasePending ◇`, `phaseDisabled ◌`                                                                                                          |
+| Cursors         | `actionCursor ▸`, `selectMarker ›`, `focusBar ▍` (picker focus rail), `caretBlock █` (text-input caret — same char as `barFilled`, separate role)                            |
+| Disclosure      | `disclosureCollapsed ▸`, `disclosureExpanded ▾` (collapsible rows, e.g. Tasks-panel commit messages)                                                                         |
+| Section markers | `badge ▣`, `sectionRule ━`                                                                                                                                                   |
+| State           | `check ✓`, `cross ✗`, `warningGlyph ⚠`, `infoGlyph i`, `modified ✎`, `unknownGlyph ?` (undetermined verdict, never tinted), `stethoscope ✚` (footer doctor)                  |
+| Bullets         | `bullet ·`, `inlineDot ·`, `emDash —`, `arrowRight →`, `activityArrow ↳`, `refresh ↻`                                                                                        |
+| Separators      | `pipe │`                                                                                                                                                                     |
+| Motion          | `spinner` (braille frames `⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏`), `busyDot ●` (gen-eval busy indicator)                                                                                               |
+| Meters          | `barFilled █`, `barEmpty ░` (fixed-width progress meters — ratio reads by density alone)                                                                                     |
+| Clip markers    | `clipEllipsis …`, `collapseExpand ▼ more`                                                                                                                                    |
+| Overflow cues   | `moreAbove ▴`, `moreBelow ▾` (windowed-list `OverflowRow` "N more" rows); `moreLeft ‹`, `moreRight ›` (a horizontal strip with hidden tabs, e.g. the Settings section strip) |
+| Personality     | `quoteRail ┃`                                                                                                                                                                |
 
 Do not mix glyph families (no `✔` from one set and `✓` from another). No emoji in TUI surfaces.
 
@@ -522,9 +522,11 @@ The footer is a rule plus exactly ONE hint row (nothing above it — health and 
 accelerators are never listed. The first hint that does not fit
 ends the run, and a trailing `… ? more` cell is reserved whenever anything is dropped — a
 low-priority hint never survives a higher one. Honesty rules: `esc` is omitted at the Work
-root (a no-op there); `q` is omitted everywhere it does not quit; while a prompt holds `claimPrompt` the
-strip shows only `ctrl+c quit` — the view's own keys and every global letter are muted, and the prompt
-card carries its hints.
+root (a no-op there) and while anything holds `claimEscape` (an expanded card, the cancel-scope overlay —
+`esc` closes that, it does not go back); `q` is omitted everywhere it does not quit; while a prompt holds
+`claimPrompt` the strip shows the prompt's own keys (each prompt publishes them with `usePromptHints` —
+`↵ submit · y/n quick · esc cancel`) followed by `ctrl+c quit` — the view's keys and every global letter are
+muted. A view-local confirm that publishes nothing shows just `ctrl+c quit`.
 
 Layout tests that depend on terminal width use `renderAtSize(node, { columns, rows })` from
 `tests/helpers/render-at-size.tsx`; `ink-testing-library` is pinned to 100 columns.
@@ -577,7 +579,8 @@ binds the same `v` on a focused task row; the two surfaces are never mounted at 
 One overlay replaces the old pick-project and pick-sprint screens. `S` opens it with the cursor on the current
 sprint, `P` with the cursor on the current project's header. It **never navigates**: `↵` switches the selection
 and closes, `esc` closes, and `router.stack` is untouched either way — the view underneath stays mounted
-(hidden) with its cursor and scroll intact.
+(hidden) with its cursor and scroll intact. The box keeps a two-column inset at every width and is titled for how it
+was opened: `S switch sprint or project`, `P switch project`.
 
 | Key       | Action                                                                                            |
 | --------- | ------------------------------------------------------------------------------------------------- |
@@ -745,12 +748,23 @@ target } | undefined`, with `openOverlay` / `closeOverlay`. Opening replaces wha
 - **Context-aware help.** The overlay shows `This view` (the live hints), `Global`, the general
   sections (`Lists`, `Scroll`, `Contextual`) and only the route-bound sections of surfaces mounted on
   the current route (`KeySection.onlyOn`: `Execute` / `Tasks panel` / `Signals` on `execute`; the `Context switcher` keys, an
-  overlay rather than a route, appear under `All keys`). `Tab` toggles `All keys`.
+  overlay rather than a route, appear under `All keys`). `Tab` toggles `All keys`. The key column is sized to the
+  longest chord in the list (12–34 cells) and chords truncate rather than spill, so no row overlaps another.
 - **Ambient vs local.** The section digits and the accelerator letters (`h n x s ! S P g`) yield to a
   claiming view. A view that owns a letter AND needs its global meaning does both itself (sprint-detail's
   `n` reseats the selection, then lands on Work's flow list) — never rely on two handlers composing.
 
 ### 6.6 Scroll
+
+**Overflow cues never replace a border.** When the clip edge cuts through a bordered box (a tall Presets
+box, a Tasks card), `ScrollRegion` re-draws that box's border row with the cue embedded
+(`╰─ ▾ 5 more ────╯`, same corners, colour and width) instead of letting a bare `▾ N more` sit where the
+border should be; a cut between content keeps the plain cue. Both cue directions do this.
+
+**Type-ahead.** Keys typed straight after a section switch land once the view is ready:
+`useViewKeys` holds a key whose binding is gated off (`enabled: false`) for up to 1.5 s after mount and runs it
+when the gate opens; `useListWindow` holds ↑/↓/j/k/PgUp/PgDn typed while the rows are still loading and applies
+them on arrival. `↵` is never held.
 
 `ScrollRegion` (the middle slot of every view) scrolls on `PgUp` / `PgDn` / `Ctrl+b` / `Ctrl+f` (page),
 `Ctrl+u` / `Ctrl+d` (half page), `Home` / `End` (ends) and the mouse wheel; arrows also scroll when a view
@@ -826,7 +840,8 @@ pushes a dedicated `*-detail-view.tsx`).
 It uses a **segmented section strip** (text tabs, no chrome; the active one bracketed `[Label]` — `▸` stays the row cursor) along the top: `← / →` cycle
 sections; `↑ / ↓` navigate fields inside the active section; `↵ / e` opens the editor for the
 focused field. Only one section's fields render at a time. The view subtitle names the active section;
-the keys live only in the footer strip. `[` / `]` are not bound. The view passes `suppressScrollArrows`
+the keys live only in the footer strip. The strip is one line at any width: when the tabs do not fit it shows the
+active tab and its neighbours with `‹` / `›` cues for the hidden ones (`fitSectionTabs`). `[` / `]` are not bound. The view passes `suppressScrollArrows`
 and anchors the focused field value (§ 6.6).
 
 **Why tabs over collapsible cards or a two-pane split.** A flat scroll listed ~30 editable rows
@@ -872,7 +887,9 @@ remains visible on screen until the user picks a catalog entry to overwrite it.
 
 System › Housekeeping lists reclaimable candidates (orphan sprints, orphan memory, old done sprints, old runs) in one
 `useListWindow` list: `space` marks, `a` marks all, `↵` opens a `ConfirmCard` over the marked rows, `r` rescans. The
-group name shows on the first row of each group; every row carries its byte size. The scan is a dry run — nothing is
+group name shows on the first row of each group; every row carries its byte size. Orphan names are sorted
+naturally (`ghost-2` before `ghost-10`); an orphan memory dir shows its slug, never the UUID prefix (UUIDv7 ids share
+their leading bits, so a truncated id told rows nothing), and names truncate in the middle. The scan is a dry run — nothing is
 deleted before the confirm, and the purge re-checks each candidate and reports removed / skipped / failed. `space` is a
 named `useViewKeys` token.
 

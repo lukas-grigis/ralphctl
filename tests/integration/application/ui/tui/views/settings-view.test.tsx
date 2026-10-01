@@ -101,21 +101,12 @@ describe('SettingsView', () => {
     const { result } = renderView(<SettingsView />, { deps, initial: { id: 'settings' } });
     await waitForViewReady(result, (f) => f.includes('▸ Mixed'));
     const frame = result.lastFrame() ?? '';
-    // Every section label is in the strip.
-    for (const label of [
-      'Presets',
-      'Global',
-      'Refine',
-      'Plan',
-      'Implement',
-      'Readiness',
-      'Ideate',
-      'Harness',
-      'Other',
-      'Storage',
-    ]) {
-      expect(frame).toContain(label);
+    // The strip is one line: the active tab plus its neighbours, with a `›` cue for the rest (100 columns).
+    const strip = frame.split('\n').find((l) => l.includes('[Presets]')) ?? '';
+    for (const label of ['Presets', 'Global', 'Refine', 'Plan']) {
+      expect(strip).toContain(label);
     }
+    expect(strip).toContain('›');
     // The active (initial) section is Presets; its card title renders below the strip.
     expect(frame).toContain('▸ Mixed');
     result.unmount();

@@ -5,6 +5,7 @@ import { Box, Text, useInput, type Key } from 'ink';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { useTerminalSize } from '@src/application/ui/tui/runtime/use-terminal-size.ts';
 import { normalizePasteNewlines, stripPasteMarkers, usePaste } from '@src/application/ui/tui/prompts/use-paste.ts';
+import { usePromptHints } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
 
 export interface TextAreaPromptProps {
   readonly message: string;
@@ -398,6 +399,11 @@ const TextAreaFrame = ({
   </Box>
 );
 
+const TEXT_AREA_HINTS = [
+  { keys: '↵', label: 'submit' },
+  { keys: '\\↵', label: 'newline' },
+];
+
 export const TextAreaPrompt = ({
   message,
   onSubmit,
@@ -405,6 +411,7 @@ export const TextAreaPrompt = ({
   initial = '',
   escLabel = 'cancel',
 }: TextAreaPromptProps): React.JSX.Element => {
+  usePromptHints(TEXT_AREA_HINTS, escLabel);
   const term = useTerminalSize();
   const [buf, setBuf] = useState(initial);
   const [cursor, setCursor] = useState(initial.length);

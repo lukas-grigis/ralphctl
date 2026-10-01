@@ -4,6 +4,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Box, Text, useInput, type Key } from 'ink';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { stripPasteMarkers, usePaste } from '@src/application/ui/tui/prompts/use-paste.ts';
+import { usePromptHints } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
 
 /**
  * Flatten a pasted payload for a single-line field: collapse every run of whitespace (including the newlines a
@@ -35,24 +36,21 @@ const useLineBuffer = (initial: string): LineBuffer => {
   const bufRef = useRef<string>(initial);
   const cursorRef = useRef<number>(initial.length);
 
+  // Refs are advanced synchronously, not inside a state updater: React may defer an updater to render time when other
+  // work is pending, and an Enter typed right behind the text would then submit a stale buffer.
   const updateCursor: UpdateCursor = (next) => {
-    setCursor((prev) => {
-      const value = next(prev);
-      cursorRef.current = value;
-      return value;
-    });
+    const value = next(cursorRef.current);
+    cursorRef.current = value;
+    setCursor(value);
   };
 
   // Atomically update both buf and cursor to avoid stale-closure races on rapid keystrokes.
   const updateBufAndCursor: UpdateBufAndCursor = (transform) => {
-    setBuf((prevBuf) => {
-      const prevCursor = cursorRef.current;
-      const [newBuf, newCursor] = transform(prevBuf, prevCursor);
-      bufRef.current = newBuf;
-      cursorRef.current = newCursor;
-      setCursor(newCursor);
-      return newBuf;
-    });
+    const [newBuf, newCursor] = transform(bufRef.current, cursorRef.current);
+    bufRef.current = newBuf;
+    cursorRef.current = newCursor;
+    setBuf(newBuf);
+    setCursor(newCursor);
   };
 
   // Insert text at the cursor. Routed through updateBufAndCursor so refs stay authoritative.
@@ -151,6 +149,8 @@ export interface TextPromptProps {
   readonly preview?: (value: string) => string | undefined;
 }
 
+const TEXT_HINTS = [{ keys: '↵', label: 'submit' }];
+
 export const TextPrompt = ({
   message,
   onSubmit,
@@ -176,6 +176,8 @@ export const TextPrompt = ({
       clearInterval(id);
     };
   }, []);
+
+  usePromptHints(TEXT_HINTS, escLabel);
 
   useInput((input, key) => {
     // Bracketed paste first — consumed before any key dispatch so marker bytes and embedded

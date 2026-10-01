@@ -29,7 +29,7 @@ import {
   makeReviewSprint,
   makeTodoTask,
 } from '@tests/fixtures/domain.ts';
-import { tick } from '@tests/integration/application/ui/tui/_keys.ts';
+import { ESC, tick } from '@tests/integration/application/ui/tui/_keys.ts';
 import { waitForPredicate } from '@tests/integration/application/ui/tui/_wait.ts';
 import { renderView, waitForViewReady } from '@tests/integration/application/ui/tui/_harness.tsx';
 import { makeTmpRoot } from '@tests/fixtures/tmp-root.ts';
@@ -90,6 +90,33 @@ afterEach(async () => {
     const cleanup = cleanups.pop();
     if (cleanup !== undefined) await cleanup();
   }
+});
+
+describe('Execute view — settled-run esc at the stack root', () => {
+  const settled = (id: string): ReturnType<typeof createSessionManager> => {
+    const sessions = createSessionManager();
+    sessions.register({
+      runner: fakeRunner(id, 'completed'),
+      flowId: 'implement',
+      title: 'Implement — Esc',
+      pinnedProjectId: PROJECT_ID,
+      pinnedSprintId: SPRINT_ID,
+      pinnedSprintLabel: 'Demo Sprint',
+    });
+    return sessions;
+  };
+
+  it('falls back to Work when the run is the stack root', async () => {
+    const { result, routeIds } = renderView(<ExecuteView />, {
+      deps: depsWithSprint(makeReviewSprint()),
+      initial: { id: 'execute', props: { sessionId: 'r-esc-root' } },
+      sessions: settled('r-esc-root'),
+    });
+    await waitForViewReady(result, (f) => f.includes('re-run'));
+    result.stdin.write(ESC);
+    await waitForPredicate(() => routeIds().at(-1) === 'home');
+    result.unmount();
+  });
 });
 
 describe('Execute view — settled-run next steps', () => {

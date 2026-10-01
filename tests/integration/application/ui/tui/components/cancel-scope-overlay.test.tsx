@@ -3,7 +3,10 @@
  * waste-time + remaining-tasks hints surface in their expected shape.
  */
 
+import React from 'react';
+import { Text } from 'ink';
 import { describe, expect, it, vi } from 'vitest';
+import { UiStateProvider, useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { render } from 'ink-testing-library';
 import { CancelScopeOverlay } from '@src/application/ui/tui/components/cancel-scope-overlay.tsx';
 import { ESC, tick } from '@tests/integration/application/ui/tui/_keys.ts';
@@ -101,5 +104,28 @@ describe('CancelScopeOverlay', () => {
     stdin.write(ESC);
     await tick();
     expect(onDismiss).toHaveBeenCalledTimes(1);
+  });
+
+  it('claims esc while mounted so the global back handler does not also pop the view', async () => {
+    let claimed = false;
+    const Probe = (): React.JSX.Element => {
+      claimed = useUiState().escapeClaimed;
+      return <Text>probe</Text>;
+    };
+    const { unmount } = render(
+      <UiStateProvider>
+        <CancelScopeOverlay
+          attemptElapsedMs={undefined}
+          remainingTaskCount={1}
+          onCancelAttempt={noop}
+          onCancelFlow={noop}
+          onDismiss={noop}
+        />
+        <Probe />
+      </UiStateProvider>
+    );
+    await tick();
+    expect(claimed).toBe(true);
+    unmount();
   });
 });

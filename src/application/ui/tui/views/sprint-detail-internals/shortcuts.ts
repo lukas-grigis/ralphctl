@@ -163,7 +163,7 @@ const buildBindings = (args: SprintDetailShortcutArgs): readonly ViewKeyBinding[
     {
       keys: ['d'],
       hint: 'remove',
-      enabled: loaded && args.ticketsEditable,
+      enabled: loaded && args.ticketsEditable && focusedTicket !== undefined,
       run: () => {
         if (focusedTicket !== undefined) args.beginRemove(focusedTicket);
       },

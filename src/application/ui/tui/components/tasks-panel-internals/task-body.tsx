@@ -66,12 +66,12 @@ const SubStepsSection = ({
     {/* Pending sub-steps from the plan — not yet executed. Grey ◇ rows, matching the Steps rail. */}
     {pendingSubSteps !== undefined &&
       pendingSubSteps.map((leafName) => (
-        <Box key={`${taskId}-pending-${leafName}`}>
+        <Text key={`${taskId}-pending-${leafName}`} wrap="truncate-end">
           <Text color={inkColors.muted}>
             {glyphs.activityArrow} {glyphs.phasePending}
           </Text>
           <Text dimColor> {leafName}</Text>
-        </Box>
+        </Text>
       ))}
   </Box>
 );

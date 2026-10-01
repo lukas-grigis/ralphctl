@@ -498,6 +498,35 @@ describe('SprintDetailView — phase workspace', () => {
     result.unmount();
   });
 
+  it('drops the collapse and remove hints once the expanded last ticket is gone, and shows only collapse while a card is open', async () => {
+    let sprint = makeSprint({
+      status: 'draft',
+      tickets: [{ id: 't1' as never, title: 'first', status: 'pending' } as never],
+    });
+    const deps = {
+      ...stubDeps(sprint, []),
+      sprintRepo: {
+        async findById() {
+          return Result.ok(sprint);
+        },
+      } as unknown as SprintRepository,
+    } as AppDeps;
+    const { result } = renderView(<SprintDetailView />, { deps, initial });
+    await waitForViewReady(result, (f) => f.includes('d remove'));
+    result.stdin.write('\r');
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('esc/q collapse'));
+    // While a card is expanded, esc collapses — the footer must not also advertise leaving the view.
+    expect(result.lastFrame() ?? '').not.toMatch(/esc \w+ ·|esc Work|esc Sprint/);
+    // The ticket disappears underneath the open card (removed elsewhere), then the view reloads.
+    sprint = makeSprint({ status: 'draft', tickets: [] });
+    result.stdin.write('r');
+    await waitForPredicate(() => !(result.lastFrame() ?? '').includes('esc/q collapse'));
+    const frame = result.lastFrame() ?? '';
+    expect(frame).not.toContain('d remove');
+    expect(frame).not.toContain('collapse');
+    result.unmount();
+  });
+
   it('hides the a/d ticket-CRUD hints on a non-draft sprint (handlers are no-ops there)', async () => {
     const sprint = makeSprint({
       status: 'active',

@@ -64,7 +64,16 @@ export const useExecuteInput = ({
         // Settled run: land on Home, whatever the route stack looks like. The global selection
         // is untouched, so Home renders the user's own project/sprint card.
         { keys: ['↵'], hint: 'work', run: () => router.reset({ id: 'home' }) },
-        { keys: ['esc'], hint: 'work', hidden: true, run: () => router.reset({ id: 'home' }) },
+        // `esc` back out of a run opened from Runs / Flows is the global pop (what the footer's `esc <parent>` names);
+        // only a run at the stack root has nowhere to pop to and lands on Work.
+        {
+          keys: ['esc'],
+          hint: 'work',
+          hidden: true,
+          run: () => {
+            if (router.stack.length <= 1) router.reset({ id: 'home' });
+          },
+        },
         // Reset (not push) — see the header note: the dead run leaves the stack and Flows
         // re-checks every trigger against the sprint's current status.
         { keys: ['r'], hint: 're-run', run: () => router.reset({ id: 'flows' }) },

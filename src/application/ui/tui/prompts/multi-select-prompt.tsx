@@ -7,6 +7,7 @@ import React, { useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import type { Choice } from '@src/business/interactive/prompt.ts';
 import { glyphs, inkColors, PROMPT_VISIBLE_ROWS, spacing } from '@src/application/ui/tui/theme/tokens.ts';
+import { usePromptHints } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
 
 const clamp = (n: number, min: number, max: number): number => Math.max(min, Math.min(max, n));
 
@@ -143,6 +144,13 @@ export interface MultiSelectPromptProps {
   readonly initialSelectedValues?: readonly unknown[];
 }
 
+const MULTI_HINTS = [
+  { keys: '↑/↓', label: 'move' },
+  { keys: 'space', label: 'toggle' },
+  { keys: '↵', label: 'submit' },
+  { keys: 'esc', label: 'cancel' },
+];
+
 export const MultiSelectPrompt = ({
   message,
   options,
@@ -153,6 +161,7 @@ export const MultiSelectPrompt = ({
   const [cursor, setCursor] = useState(() => firstEnabledIndex(options));
   const [picked, setPicked] = useState<ReadonlySet<number>>(() => computeInitialPicked(options, initialSelectedValues));
 
+  usePromptHints(MULTI_HINTS);
   useMultiSelectKeys({ options, cursor, setCursor, picked, setPicked, onSubmit, onCancel });
 
   const half = Math.floor(PROMPT_VISIBLE_ROWS / 2);

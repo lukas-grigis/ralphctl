@@ -11,6 +11,7 @@ import { Box, Text, useInput, type Key } from 'ink';
 import { TextPrompt } from '@src/application/ui/tui/prompts/text-prompt.tsx';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { useTerminalSize } from '@src/application/ui/tui/runtime/use-terminal-size.ts';
+import { usePromptHints, type PromptHint } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
 
 export interface PathPickerPromptProps {
   readonly message: string;
@@ -222,6 +223,14 @@ const PathPickerRows = ({ rows, start, end, cursor }: PathPickerRowsProps): Reac
   </>
 );
 
+const PICKER_HINTS = [
+  { keys: '↵', label: 'open/select' },
+  { keys: '⌫', label: 'up' },
+  { keys: 't', label: 'type' },
+  { keys: 'esc', label: 'cancel' },
+];
+const NO_HINTS: readonly PromptHint[] = [];
+
 export const PathPickerPrompt = ({
   message,
   onSubmit,
@@ -234,6 +243,9 @@ export const PathPickerPrompt = ({
   const [cursor, setCursor] = useState(1); // Default to `[Select this directory]`.
   const [typing, setTyping] = useState(false);
   const { rows: termRows } = useTerminalSize();
+
+  // The typed-path TextPrompt publishes its own keys.
+  usePromptHints(typing ? NO_HINTS : PICKER_HINTS);
 
   // Synthetic rows: parent (..) → [Select this directory] → directory entries.
   const rows: readonly Row[] = [

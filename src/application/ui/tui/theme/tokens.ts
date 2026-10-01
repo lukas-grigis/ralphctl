@@ -82,6 +82,8 @@ export const glyphs = {
   // Windowed-list overflow cues (Tasks column / any anchored window).
   moreAbove: '▴',
   moreBelow: '▾',
+  moreLeft: '‹',
+  moreRight: '›',
 } as const;
 
 /** Semantic tones — one colour + one shape per meaning, so outcome survives NO_COLOR. */

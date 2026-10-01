@@ -62,7 +62,7 @@ const Row = ({
       </Text>
     </Box>
     <Box flexShrink={1} flexGrow={1} minWidth={0}>
-      <Text bold={focused} wrap="truncate-end">
+      <Text bold={focused} wrap="truncate-middle">
         {row.name}
       </Text>
     </Box>

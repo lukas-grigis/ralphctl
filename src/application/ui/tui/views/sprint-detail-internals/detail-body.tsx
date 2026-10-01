@@ -332,7 +332,10 @@ export const useSprintDetailBody = (): UseSprintDetailBodyResult => {
   const [confirmRemove, setConfirmRemove] = useState<Ticket | undefined>(undefined);
   const [confirmPublish, setConfirmPublish] = useState<Ticket | undefined>(undefined);
   const [feedback, setFeedback] = useState<string | undefined>(undefined);
-  const inDetail = openIds.size > 0;
+  // A removed ticket can leave a stale id behind; only cards that still exist count as expanded.
+  const inDetail = focusList.some((item) =>
+    openIds.has(item.kind === 'ticket' ? String(item.ticket.id) : String(item.task.id))
+  );
 
   // Mounted-ref guard for the async unblock / remove-ticket handlers: dismissing the confirm overlay (or firing `u`)
   // unblocks the router.

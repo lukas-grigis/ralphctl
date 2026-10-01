@@ -232,8 +232,9 @@ const ActiveTaskRow = ({
   readonly tasksTotal: number;
 }): React.JSX.Element | null => {
   if (currentTask === undefined || currentTaskName === undefined) return null;
+  // One truncating <Text>: separate flex items shrink and drop their trailing spaces ("task1/1"), and wrap a tick early.
   return (
-    <Box>
+    <Text wrap="truncate-end">
       <Text dimColor>{glyphs.activityArrow} task </Text>
       <Text color={inkColors.info}>
         {String(currentTaskIdx + 1)}/{String(tasksTotal)}
@@ -247,7 +248,7 @@ const ActiveTaskRow = ({
         </>
       )}
       <RoundCounter task={currentTask} />
-    </Box>
+    </Text>
   );
 };
 

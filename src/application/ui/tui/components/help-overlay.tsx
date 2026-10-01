@@ -16,6 +16,10 @@ const CHROME_ROWS = spacing.section * 2 + 2 + 1 + spacing.section + spacing.sect
 /** Floor on the scrollable body so a tiny terminal still shows something. */
 const MIN_BODY_ROWS = 4;
 
+/** Key-column bounds: wide enough for the longest chord of the current list, never more than a third of the card. */
+const MIN_KEY_COL = 12;
+const MAX_KEY_COL = 34;
+
 /** `HelpRow.kind` discriminant for a section header row. */
 const SECTION_TITLE = 'section-title';
 /** `HelpRow.kind` discriminant for the spacer row that precedes a non-first section title. */
@@ -34,7 +38,7 @@ interface HelpRow {
  * Renders one row of the flattened help list — a section spacer, a section title, a key-chord binding, or a plain
  * reference row (signal vocabulary etc. with no key chord).
  */
-const HelpRowView = ({ row }: { readonly row: HelpRow }): React.JSX.Element => {
+const HelpRowView = ({ row, keyCol }: { readonly row: HelpRow; readonly keyCol: number }): React.JSX.Element => {
   if (row.kind === BLANK) {
     return <Text> </Text>;
   }
@@ -49,28 +53,38 @@ const HelpRowView = ({ row }: { readonly row: HelpRow }): React.JSX.Element => {
   if (rowKeys.length > 0) {
     return (
       <Box>
-        <Box width={20}>
-          <Text color={inkColors.highlight}>{rowKeys.join(' · ')}</Text>
+        <Box width={keyCol} flexShrink={0}>
+          <Text color={inkColors.highlight} wrap="truncate-end">
+            {rowKeys.join(' · ')}
+          </Text>
         </Box>
-        <Text dimColor wrap="truncate-end">
-          {row.label}
-        </Text>
+        <Box flexShrink={1} minWidth={0}>
+          <Text dimColor wrap="truncate-end">
+            {row.label}
+          </Text>
+        </Box>
       </Box>
     );
   }
   return (
     <Box>
-      <Box width={20}>
-        <Text color={row.color ?? SIGNAL_LABEL_COLOR[row.label ?? ''] ?? inkColors.info} bold>
+      <Box width={keyCol} flexShrink={0}>
+        <Text wrap="truncate-end" color={row.color ?? SIGNAL_LABEL_COLOR[row.label ?? ''] ?? inkColors.info} bold>
           {row.label}
         </Text>
       </Box>
-      <Text dimColor wrap="truncate-end">
-        {row.description ?? ''}
-      </Text>
+      <Box flexShrink={1} minWidth={0}>
+        <Text dimColor wrap="truncate-end">
+          {row.description ?? ''}
+        </Text>
+      </Box>
     </Box>
   );
 };
+
+/** Width of a row's key cell: its chords joined, or the bare label of a vocabulary row. */
+const keyCellText = (row: HelpRow): string =>
+  row.kind !== 'binding' ? '' : (row.keys ?? []).length > 0 ? (row.keys ?? []).join(' · ') : (row.label ?? '');
 
 /** Pushes a section title, preceded by `spacing.section` blank rows unless it opens the list. */
 const pushSectionTitle = (rows: HelpRow[], title: string): void => {
@@ -167,6 +181,10 @@ export const HelpOverlay = ({ routeId }: HelpOverlayProps = {}): React.JSX.Eleme
     void input;
   });
 
+  const keyCol = Math.min(
+    MAX_KEY_COL,
+    Math.max(MIN_KEY_COL, ...allRows.map((r) => keyCellText(r).length)) + spacing.indent
+  );
   const visibleRows = allRows.slice(offset, offset + bodyRows);
 
   return (
@@ -186,7 +204,7 @@ export const HelpOverlay = ({ routeId }: HelpOverlayProps = {}): React.JSX.Eleme
         </Box>
         <Box flexDirection="column" marginTop={spacing.section}>
           {visibleRows.map((row, idx) => (
-            <HelpRowView key={`${row.kind}-${String(offset + idx)}`} row={row} />
+            <HelpRowView key={`${row.kind}-${String(offset + idx)}`} row={row} keyCol={keyCol} />
           ))}
         </Box>
         {maxOffset > 0 && (

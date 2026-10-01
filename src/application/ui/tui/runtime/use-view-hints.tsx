@@ -12,6 +12,8 @@ export interface ViewHint {
    * Declarative visibility gate. `undefined` or `true` → the hint shows; `false` → the merged hint list omits it.
    */
   readonly enabledWhen?: boolean;
+  /** Published by a mounted prompt: the footer shows only these (plus quit) while a prompt holds the keyboard. */
+  readonly prompt?: boolean;
 }
 
 interface HintsRegistryApi {
@@ -36,7 +38,8 @@ export const hintsEqual = (a: readonly ViewHint[], b: readonly ViewHint[]): bool
     const x = a[i];
     const y = b[i];
     if (x === undefined || y === undefined) return false;
-    if (x.keys !== y.keys || x.label !== y.label || x.enabledWhen !== y.enabledWhen) return false;
+    if (x.keys !== y.keys || x.label !== y.label || x.enabledWhen !== y.enabledWhen || x.prompt !== y.prompt)
+      return false;
   }
   return true;
 };
@@ -152,6 +155,27 @@ export const useViewHints = (hints: readonly ViewHint[]): void => {
   useEffect(() => {
     ctxRef.current?.set(id, hints);
   }, [id, hints]);
+};
+
+export interface PromptHint {
+  readonly keys: string;
+  readonly label: string;
+}
+
+/**
+ * Footer keys of the calling prompt. Only shown while the prompt holds the keyboard; the view's own hints are muted
+ * then, so these are the keys that actually work.
+ */
+export const usePromptHints = (hints: readonly PromptHint[], escLabel?: string): void => {
+  const tagged = useMemo(
+    () =>
+      [...hints, ...(escLabel !== undefined ? [{ keys: 'esc', label: escLabel }] : [])].map((h) => ({
+        ...h,
+        prompt: true as const,
+      })),
+    [hints, escLabel]
+  );
+  useViewHints(tagged);
 };
 
 /** Read the current merged hint set. Used by StatusBar. */

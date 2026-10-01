@@ -26,6 +26,12 @@ const plural = (n: number, one: string, many: string): string => (n === 1 ? one 
 /** Summary every row shows until its source answers. */
 export const CHECKING = 'checking…';
 
+/** The probe's actual problem (`gh not found on PATH`), falling back to its name when it carries no detail. */
+const probeProblem = (probe: { readonly label: string; readonly detail?: string }): string => {
+  const line = probe.detail?.split('\n')[0]?.trim();
+  return line !== undefined && line.length > 0 ? line : probe.label;
+};
+
 export const doctorSummary = (
   report: DoctorReport | undefined,
   loading: boolean
@@ -36,13 +42,13 @@ export const doctorSummary = (
   const first = failing[0] ?? warning[0];
   if (failing.length > 0 && first !== undefined) {
     return {
-      summary: `${glyphs.cross} ${String(failing.length)} failing ${glyphs.emDash} ${first.label}`,
+      summary: `${glyphs.cross} ${String(failing.length)} failing ${glyphs.emDash} ${probeProblem(first)}`,
       tone: 'fail',
     };
   }
   if (warning.length > 0 && first !== undefined) {
     return {
-      summary: `${glyphs.warningGlyph} ${String(warning.length)} ${plural(warning.length, 'warning', 'warnings')} ${glyphs.emDash} ${first.label}`,
+      summary: `${glyphs.warningGlyph} ${String(warning.length)} ${plural(warning.length, 'warning', 'warnings')} ${glyphs.emDash} ${probeProblem(first)}`,
       tone: 'warn',
     };
   }

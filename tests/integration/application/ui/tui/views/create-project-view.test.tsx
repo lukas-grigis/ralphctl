@@ -6,6 +6,8 @@
  * buffer-bleed between steps).
  */
 
+import React, { useEffect, useState } from 'react';
+import { Text } from 'ink';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { promises as fs } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -16,6 +18,7 @@ import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import type { Project } from '@src/domain/entity/project.ts';
 import type { ProjectRepository } from '@src/domain/repository/project/project-repository.ts';
 import { CTRL_U, ENTER, tick } from '@tests/integration/application/ui/tui/_keys.ts';
+import { useRouter } from '@src/application/ui/tui/runtime/router.tsx';
 import { renderView, waitForViewReady } from '@tests/integration/application/ui/tui/_harness.tsx';
 
 describe('CreateProjectView — wizard e2e', () => {
@@ -87,5 +90,30 @@ describe('CreateProjectView — wizard e2e', () => {
     expect(String(saved?.repositories[0]?.path)).toContain('main-repo');
 
     result.unmount();
+  });
+});
+
+/** Starts on the route given to `renderView`, then pushes the wizard on top — the stack a Projects / Work list builds with `n`. */
+const PushedWizard = (): React.JSX.Element => {
+  const router = useRouter();
+  const [pushed, setPushed] = useState(false);
+  useEffect(() => {
+    router.push({ id: 'create-project' });
+    setPushed(true);
+    // Push exactly once on mount.
+  }, []);
+  return pushed ? <CreateProjectView /> : <Text>mounting</Text>;
+};
+
+describe('CreateProjectView — esc label', () => {
+  const deps = { projectRepo: {} } as unknown as AppDeps;
+
+  it.each([
+    ['projects', 'esc Projects'],
+    ['home', 'esc Work'],
+  ] as const)('opened from %s, the name prompt says "%s"', async (from, label) => {
+    const { result } = renderView(<PushedWizard />, { deps, initial: { id: from } });
+    await waitForViewReady(result, (f) => f.includes('Project display name'));
+    expect(result.lastFrame() ?? '').toContain(label);
   });
 });

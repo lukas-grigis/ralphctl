@@ -3,8 +3,11 @@
  */
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Box, Text, useInput } from 'ink';
+import { Box, Text, useInput, type Key } from 'ink';
 import { glyphs, spacing } from '@src/application/ui/tui/theme/tokens.ts';
+
+/** How long after mount a move may wait for the rows to arrive. */
+const TYPE_AHEAD_MS = 1500;
 
 /** Visible slice of a list. `start` inclusive, `end` exclusive. */
 export interface ListWindow {
@@ -50,6 +53,35 @@ export interface UseListWindowResult<T> {
   readonly focusedIndex: number;
   readonly focusedItem: T | undefined;
 }
+
+/** Moves typed before the rows load (section switch + immediate ↓) wait for the data instead of vanishing. */
+const useTypeAheadMoves = (
+  itemCount: number,
+  active: boolean,
+  apply: (input: string, key: Key) => void
+): { readonly hold: (input: string, key: Key) => void } => {
+  const mountedAt = useRef(Date.now());
+  const pending = useRef<Array<{ input: string; key: Key }>>([]);
+  const applyRef = useRef(apply);
+  applyRef.current = apply;
+
+  useEffect(() => {
+    if (itemCount === 0 || pending.current.length === 0) return;
+    const held = pending.current;
+    pending.current = [];
+    if (!active || Date.now() - mountedAt.current >= TYPE_AHEAD_MS) return;
+    for (const m of held) applyRef.current(m.input, m.key);
+  }, [itemCount, active]);
+
+  return {
+    hold: (input, key) => {
+      const isMove = key.upArrow || key.downArrow || key.pageUp || key.pageDown || input === 'j' || input === 'k';
+      if (isMove && Date.now() - mountedAt.current < TYPE_AHEAD_MS && pending.current.length < 8) {
+        pending.current.push({ input, key });
+      }
+    },
+  };
+};
 
 /** Hook that owns cursor + keyboard for a windowed list. */
 export function useListWindow<T>({
@@ -104,20 +136,27 @@ export function useListWindow<T>({
     return focusedIndex < 0 ? 0 : focusedIndex;
   };
 
+  const applyKey = (input: string, key: Key): void => {
+    const at = liveIndex();
+    if (key.upArrow || input === 'k') moveTo(at - 1);
+    else if (key.downArrow || input === 'j') moveTo(at + 1);
+    else if (key.pageUp) moveTo(at - visibleRows);
+    else if (key.pageDown) moveTo(at + visibleRows);
+    else if (key.home) moveTo(0);
+    else if (key.end) moveTo(items.length - 1);
+    else if (key.return) {
+      const item = items[at];
+      if (item !== undefined) onSubmit?.(item);
+    }
+  };
+
+  const typeAhead = useTypeAheadMoves(items.length, active, applyKey);
+
   useInput(
     (input, key) => {
-      if (!active || items.length === 0) return;
-      const at = liveIndex();
-      if (key.upArrow || input === 'k') moveTo(at - 1);
-      else if (key.downArrow || input === 'j') moveTo(at + 1);
-      else if (key.pageUp) moveTo(at - visibleRows);
-      else if (key.pageDown) moveTo(at + visibleRows);
-      else if (key.home) moveTo(0);
-      else if (key.end) moveTo(items.length - 1);
-      else if (key.return) {
-        const item = items[at];
-        if (item !== undefined) onSubmit?.(item);
-      }
+      if (!active) return;
+      if (items.length === 0) typeAhead.hold(input, key);
+      else applyKey(input, key);
     },
     { isActive: active }
   );

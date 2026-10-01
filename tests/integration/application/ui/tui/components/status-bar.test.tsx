@@ -24,7 +24,7 @@ import { HintsProvider } from '@src/application/ui/tui/runtime/use-view-hints.ts
 import { SelectionProvider } from '@src/application/ui/tui/runtime/selection-context.tsx';
 import { SystemStatusProvider } from '@src/application/ui/tui/runtime/system-status-context.tsx';
 import { RouterProvider, useRouter } from '@src/application/ui/tui/runtime/router.tsx';
-import { useViewHints } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
+import { usePromptHints, useViewHints } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
 
 const reportRef = vi.hoisted(() => ({ current: undefined as DoctorReport | undefined }));
 
@@ -84,7 +84,7 @@ describe('StatusBar — one-row hint strip', () => {
     React.useEffect(() => (prompt ? claim() : undefined), [prompt, claim]);
     return <StatusBar />;
   };
-  const mount = (columns: number, prompt: boolean, stackDepth = 2) => {
+  const mount = (columns: number, prompt: boolean, stackDepth = 2, extra: React.ReactNode = null) => {
     reportRef.current = { probes: [], summary: 'ok' } as unknown as DoctorReport;
     const initial = { id: 'home' } as const;
     return renderAtSize(
@@ -100,6 +100,7 @@ describe('StatusBar — one-row hint strip', () => {
                         <>
                           <PushTo depth={stackDepth} />
                           <Bar prompt={prompt} />
+                          {extra}
                         </>
                       )}
                     </RouterProvider>
@@ -151,6 +152,36 @@ describe('StatusBar — one-row hint strip', () => {
     expect(frame).not.toContain('↵ open');
     expect(frame).not.toContain('? help');
     expect(frame).not.toContain('(press !)');
+    r.unmount();
+  });
+
+  it("shows the prompt's own keys, then ctrl+c quit, while a prompt holds the keyboard", async () => {
+    const Prompt = (): null => {
+      usePromptHints([
+        { keys: '↵', label: 'submit' },
+        { keys: 'y/n', label: 'quick' },
+        { keys: 'esc', label: 'cancel' },
+      ]);
+      return null;
+    };
+    const r = mount(80, true, 2, <Prompt />);
+    await waitForPredicate(() => (r.lastFrame() ?? '').includes('y/n quick'), { label: 'prompt keys' });
+    const frame = stripAnsi(r.lastFrame() ?? '');
+    expect(frame).toContain('↵ submit · y/n quick · esc cancel · ctrl+c quit');
+    expect(frame).not.toContain('↵ open');
+    r.unmount();
+  });
+
+  it('drops `esc <parent>` while something local claims esc (an expanded card, an overlay)', async () => {
+    const Claim = (): null => {
+      const claim = useUiState().claimEscape;
+      React.useEffect(() => claim(), [claim]);
+      return null;
+    };
+    const r = mount(120, false, 2, <Claim />);
+    await waitForPredicate(() => (r.lastFrame() ?? '').includes('↵ open'), { label: 'footer' });
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    expect(stripAnsi(r.lastFrame() ?? '')).not.toContain('esc Work');
     r.unmount();
   });
 

@@ -3,6 +3,7 @@
  * and the status-bar hint strip from the same array.
  */
 
+import { useEffect, useRef } from 'react';
 import { useInput, type Key } from 'ink';
 import { useViewHints, type ViewHint } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
 import { useClaimKeys } from '@src/application/ui/tui/runtime/claimed-keys-context.tsx';
@@ -61,21 +62,63 @@ const toHint = (binding: ViewKeyBinding): ViewHint => ({
   ...(binding.enabled !== undefined ? { enabledWhen: binding.enabled } : {}),
 });
 
+/**
+ * How long after mount a key may wait for its binding to become enabled — covers a view whose data is still loading
+ * when the operator types ahead after a section switch.
+ */
+const TYPE_AHEAD_MS = 1500;
+const TYPE_AHEAD_MAX = 4;
+
+interface PendingKey {
+  readonly input: string;
+  readonly key: Key;
+}
+
+const findEnabled = (bindings: readonly ViewKeyBinding[], input: string, key: Key): ViewKeyBinding | undefined =>
+  bindings.find(
+    (b) => b.run !== undefined && b.enabled !== false && b.keys.some((token) => matches(token, input, key))
+  );
+
 export const useViewKeys = (bindings: readonly ViewKeyBinding[], options: UseViewKeysOptions = {}): void => {
   const modalOpen = useOptionalOverlayState()?.modalOpen === true;
   const active = (options.active ?? true) && !modalOpen;
 
+  const mountedAt = useRef(Date.now());
+  const pending = useRef<PendingKey[]>([]);
+
   useInput(
     (input, key) => {
-      for (const binding of bindings) {
-        if (binding.run === undefined || binding.enabled === false) continue;
-        if (!binding.keys.some((token) => matches(token, input, key))) continue;
+      const binding = findEnabled(bindings, input, key);
+      if (binding?.run !== undefined) {
         binding.run(input, key);
         return;
+      }
+      // Gated off right after mount (data still loading): hold the key until its binding enables.
+      const gated = bindings.some(
+        (b) => b.run !== undefined && b.enabled === false && b.keys.some((token) => matches(token, input, key))
+      );
+      if (gated && Date.now() - mountedAt.current < TYPE_AHEAD_MS && pending.current.length < TYPE_AHEAD_MAX) {
+        pending.current.push({ input, key });
       }
     },
     { isActive: active }
   );
+
+  // Every render: a loaded view re-renders, which is when a held key's gate may have opened.
+  useEffect(() => {
+    if (pending.current.length === 0) return;
+    const held = pending.current;
+    if (!active || Date.now() - mountedAt.current >= TYPE_AHEAD_MS) {
+      pending.current = [];
+      return;
+    }
+    pending.current = held.filter((p) => {
+      const binding = findEnabled(bindings, p.input, p.key);
+      if (binding?.run === undefined) return true;
+      binding.run(p.input, p.key);
+      return false;
+    });
+  });
 
   const claimed = bindings
     .filter((b) => b.run !== undefined && b.enabled !== false)

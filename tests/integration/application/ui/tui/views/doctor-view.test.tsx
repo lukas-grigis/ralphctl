@@ -53,6 +53,34 @@ describe('DoctorView', () => {
     expect(frame).toContain('r reload');
   });
 
+  it('middle-truncates the path in a long remediation hint instead of wrapping mid-path', async () => {
+    const path = '/Users/someone/Workzone/github/organisation/a-very-long-repository-directory-name';
+    reportRef.current = {
+      probes: [
+        probe({
+          id: 'repo-head',
+          label: 'Default branch known',
+          status: 'warn',
+          group: 'repositories',
+          hint: `run \`git -C ${path} remote set-head origin --auto\` to discover it`,
+        }),
+      ],
+      allPassed: false,
+      hasFailures: false,
+    };
+    const { result } = renderView(<DoctorView />, {
+      deps,
+      initial: { id: 'doctor' },
+      size: { columns: 80, rows: 24 },
+    });
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('hint:'));
+    const hintLines = (result.lastFrame() ?? '').split('\n').filter((l) => /hint:|set-head|discover it/.test(l));
+    expect(hintLines).toHaveLength(1);
+    expect(hintLines[0]).toContain('remote set-head origin --auto');
+    expect(hintLines[0]).toContain('…');
+    expect(hintLines[0]).not.toContain(path);
+  });
+
   it('publishes the r reload hint', async () => {
     reportRef.current = { probes: [], allPassed: true, hasFailures: false };
     const { result } = renderView(<DoctorView />, { deps, initial: { id: 'doctor' } });

@@ -83,6 +83,27 @@ describe('HousekeepingView', () => {
     result.unmount();
   });
 
+  it('tells orphan memory rows apart at 60 columns: slug first, natural order', async () => {
+    for (const [i, n] of ['ghost-10', 'ghost-2', 'ghost-1'].entries()) {
+      const dir = join(String(app.paths.memoryRoot), `01900000-0000-7000-8000-0000000000a${String(i)}--${n}`);
+      await fs.mkdir(dir, { recursive: true });
+      await fs.writeFile(join(dir, 'learnings.ndjson'), 'x');
+    }
+    const { result } = renderView(<HousekeepingView />, {
+      deps: app.deps,
+      initial: { id: 'housekeeping' },
+      size: { columns: 60, rows: 40 },
+    });
+    await waitForViewReady(result, (f) => f.includes('Orphan memory'));
+    const tails = (result.lastFrame() ?? '')
+      .split('\n')
+      .filter((l) => l.includes('project removed'))
+      .map((l) => /(ghost-\d+)/.exec(l)?.[1])
+      .filter((t) => t !== undefined);
+    expect(tails).toEqual(['ghost-1', 'ghost-2', 'ghost-10']);
+    result.unmount();
+  });
+
   it('deletes one orphan sprint through ConfirmCard and leaves the other groups untouched', async () => {
     const scan = await app.deps.housekeeping.scan();
     if (!scan.ok) throw scan.error;

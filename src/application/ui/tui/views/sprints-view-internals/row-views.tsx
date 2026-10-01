@@ -13,9 +13,9 @@ import type { TaskHealthCounts } from '@src/application/ui/shared/state-snapshot
 
 /**
  * Rendered height (rows) of one {@link SprintRow} card: border top, name, slug, ticket counts, border bottom — plus
- * the section margin below the card.
+ * the section margin below the card (3 inner rows + 2 border + 1 margin).
  */
-export const ROW_HEIGHT = 5;
+export const ROW_HEIGHT = 6;
 
 /** `· N pending` / `· N approved` tail on the ticket count. Renders nothing at zero. */
 const TicketSubCount = ({

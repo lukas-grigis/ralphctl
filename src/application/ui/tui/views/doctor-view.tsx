@@ -7,6 +7,8 @@ import { StatusChip } from '@src/application/ui/tui/components/status-chip.tsx';
 import { Spinner } from '@src/application/ui/tui/components/spinner.tsx';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { useSystemStatus } from '@src/application/ui/tui/runtime/system-status-context.tsx';
+import { fitLineWithPath } from '@src/application/ui/tui/components/format.ts';
+import { useTerminalSize } from '@src/application/ui/tui/runtime/use-terminal-size.ts';
 import { useViewKeys } from '@src/application/ui/tui/runtime/use-view-keys.ts';
 import type { ProbeGroup, ProbeResult } from '@src/application/flows/doctor/ctx.ts';
 
@@ -148,36 +150,41 @@ const SummaryHeader = ({ probes }: { readonly probes: readonly ProbeResult[] }):
   );
 };
 
-const ProbeRow = ({ probe }: { readonly probe: ProbeResult }): React.JSX.Element => (
-  <Box flexDirection="column" paddingX={spacing.indent}>
-    <Box>
-      <StatusChip
-        label={probe.status}
-        kind={
-          probe.status === 'pass'
-            ? 'success'
-            : probe.status === 'fail'
-              ? 'error'
-              : probe.status === 'unknown'
-                ? 'muted'
-                : 'warning'
-        }
-      />
-      <Text> {probe.label}</Text>
+const ProbeRow = ({ probe }: { readonly probe: ProbeResult }): React.JSX.Element => {
+  const { columns } = useTerminalSize();
+  // Row padding + hint indent on both sides, minus the `hint: ` lead.
+  const hintWidth = columns - 4 * spacing.indent - 6;
+  return (
+    <Box flexDirection="column" paddingX={spacing.indent}>
+      <Box>
+        <StatusChip
+          label={probe.status}
+          kind={
+            probe.status === 'pass'
+              ? 'success'
+              : probe.status === 'fail'
+                ? 'error'
+                : probe.status === 'unknown'
+                  ? 'muted'
+                  : 'warning'
+          }
+        />
+        <Text> {probe.label}</Text>
+      </Box>
+      {probe.detail !== undefined && (
+        <Box paddingLeft={spacing.indent}>
+          <Text dimColor>
+            {glyphs.activityArrow} {probe.detail}
+          </Text>
+        </Box>
+      )}
+      {probe.hint !== undefined && probe.status !== 'pass' && (
+        <Box paddingLeft={spacing.indent}>
+          <Text dimColor italic>
+            hint: {fitLineWithPath(probe.hint, hintWidth)}
+          </Text>
+        </Box>
+      )}
     </Box>
-    {probe.detail !== undefined && (
-      <Box paddingLeft={spacing.indent}>
-        <Text dimColor>
-          {glyphs.activityArrow} {probe.detail}
-        </Text>
-      </Box>
-    )}
-    {probe.hint !== undefined && probe.status !== 'pass' && (
-      <Box paddingLeft={spacing.indent}>
-        <Text dimColor italic>
-          hint: {probe.hint}
-        </Text>
-      </Box>
-    )}
-  </Box>
-);
+  );
+};

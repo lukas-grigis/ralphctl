@@ -180,6 +180,9 @@ describe('HomeView — heroes', () => {
     await waitForViewReady(result, (f) => f.includes('Mainline'));
     const frame = result.lastFrame() ?? '';
     expect(frame).toMatch(/open Sprints/);
+    // `r` is reload on Work now — the cue must name the real chord (section 2).
+    expect(frame).not.toMatch(/press r to open Sprints/);
+    expect(frame).toMatch(/press 2 to open Sprints/);
     expect(frame).toContain('FLOWS');
     result.unmount();
   });

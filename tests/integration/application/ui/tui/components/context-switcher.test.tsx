@@ -184,7 +184,7 @@ const open = async (
   f.result.stdin.write(opts.key ?? 'S');
   await waitFor(() => {
     const frame = stripAnsi(f.result.lastFrame() ?? '');
-    expect(frame).toContain('switch sprint or project');
+    expect(frame).toContain(opts.key === 'P' ? 'switch project' : 'switch sprint or project');
     if (opts.ready !== undefined) expect(opts.ready(frame)).toBe(true);
     else expect(frame).not.toContain('Loading sprints');
   });
@@ -276,15 +276,15 @@ describe('ContextSwitcher — layout', () => {
     f.result.unmount();
   });
 
-  it('is full width below 100 columns, and min(96, columns − 4) from 100, left-aligned', async () => {
+  it('keeps a two-column inset at every width: min(96, columns − 4)', async () => {
     const narrow = await open({ sprints: [], projects: [projectAlpha] }, { selection: SEL_A, columns: 80, rows: 24 });
     const top80 =
       narrow
         .lines()
         .map(stripAnsi)
         .find((l) => l.includes('╭─ S')) ?? '';
-    expect(top80.startsWith('╭')).toBe(true);
-    expect([...top80.trimEnd()].length).toBe(80);
+    expect(top80.startsWith('  ╭')).toBe(true);
+    expect([...top80.trimEnd()].length).toBe(2 + 76);
     narrow.result.unmount();
 
     const wide = await open({ sprints: [], projects: [projectAlpha] }, { selection: SEL_A, columns: 160, rows: 30 });
@@ -296,6 +296,23 @@ describe('ContextSwitcher — layout', () => {
     expect(top160.startsWith('  ╭')).toBe(true);
     expect([...top160.trimEnd()].length).toBe(2 + 96);
     wide.result.unmount();
+  });
+});
+
+describe('ContextSwitcher — title', () => {
+  it('is titled for project switching when opened with P, and for sprint or project with S', async () => {
+    const p = await open({ sprints: [], projects: [projectAlpha] }, { key: 'P', selection: SEL_A });
+    const top =
+      p
+        .lines()
+        .map(stripAnsi)
+        .find((l) => l.includes('╭─ P')) ?? '';
+    expect(top).toContain('╭─ P switch project ');
+    expect(top).not.toContain('sprint');
+    p.result.unmount();
+    const s = await open({ sprints: [], projects: [projectAlpha] }, { key: 'S', selection: SEL_A });
+    expect(s.lines().map(stripAnsi).join('\n')).toContain('╭─ S switch sprint or project ');
+    s.result.unmount();
   });
 });
 
@@ -396,7 +413,7 @@ describe('ContextSwitcher — switching never navigates', () => {
     await waitFor(() => expect(sel().projectLabel).toBe('Beta Project'));
     expect(sel().sprintId).toBeUndefined();
     expect(sel().sprintLabel).toBeUndefined();
-    await waitFor(() => expect(frameOf(f)).not.toContain('switch sprint or project'));
+    await waitFor(() => expect(frameOf(f)).not.toContain('switch project'));
     expect(f.router().stack.map((e) => e.id)).toEqual(['home']);
     f.result.unmount();
   });

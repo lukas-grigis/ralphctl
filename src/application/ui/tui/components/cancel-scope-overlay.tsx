@@ -3,6 +3,7 @@
 import React, { useEffect } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
+import { useOptionalOverlayState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { useClaimKeys } from '@src/application/ui/tui/runtime/claimed-keys-context.tsx';
 import { fmtDuration } from '@src/application/ui/tui/theme/duration.ts';
 
@@ -30,6 +31,9 @@ export const CancelScopeOverlay = ({
   // `1` / `2` are this overlay's while it is mounted — ambient digit handlers (section jumps)
   // must not also fire on them.
   useClaimKeys(['1', '2']);
+  const claimEscape = useOptionalOverlayState()?.claimEscape;
+  // Esc closes this overlay only; without the claim the global back handler also pops the view.
+  useEffect(() => claimEscape?.(), [claimEscape]);
 
   // Stable input claim while mounted; the parent view sets `inputActive` props on its own panels to dim them out so
   // they don't compete for the same keystrokes.

@@ -53,6 +53,8 @@ describe('ProjectsView removal', () => {
     const result = await open();
     result.stdin.write('y');
     await waitForPredicate(() => (result.lastFrame() ?? '').includes('No projects yet'));
+    // The empty state replaces the list body, so the success toast must live outside it.
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('removed Demo Project'));
     expect(await exists(sprintDir)).toBe(false);
     expect(await exists(memoryDir)).toBe(false);
     const scan = await app.deps.housekeeping.scan();

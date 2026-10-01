@@ -43,6 +43,88 @@ export const useScrollAnchor = (active: boolean): React.RefObject<DOMElement | n
   return ref;
 };
 
+/** Column offset of `node` inside `container`, same walk as {@link offsetWithin}. */
+const leftWithin = (node: DOMElement, container: DOMElement): number | undefined => {
+  let left = 0;
+  let current: DOMElement | undefined = node;
+  while (current !== undefined && current !== container) {
+    if (current.yogaNode === undefined) return undefined;
+    left += current.yogaNode.getComputedLeft();
+    current = current.parentNode;
+  }
+  return current === container ? left : undefined;
+};
+
+/** Corner + rule glyphs for the border styles a clipped box can carry. */
+const BORDER_GLYPHS: Readonly<Record<string, { tl: string; tr: string; bl: string; br: string; h: string }>> = {
+  round: { tl: '╭', tr: '╮', bl: '╰', br: '╯', h: '─' },
+  single: { tl: '┌', tr: '┐', bl: '└', br: '┘', h: '─' },
+  double: { tl: '╔', tr: '╗', bl: '╚', br: '╝', h: '═' },
+  bold: { tl: '┏', tr: '┓', bl: '┗', br: '┛', h: '━' },
+};
+
+/** A bordered box the clip edge cuts through — the cue is drawn inside its (re-drawn) border row. */
+interface ClippedBox {
+  readonly left: number;
+  readonly width: number;
+  readonly color: string | undefined;
+  readonly glyphs: (typeof BORDER_GLYPHS)[string];
+}
+
+interface BoxHit {
+  readonly node: DOMElement;
+  readonly top: number;
+  readonly height: number;
+}
+
+/** Does bordered `el` straddle `row` with its own border on the `edge` side outside the view? */
+const straddles = (el: DOMElement, root: DOMElement, row: number, edge: 'top' | 'bottom'): BoxHit | undefined => {
+  const style = el.style as { borderStyle?: unknown };
+  if (typeof style.borderStyle !== 'string' || el.yogaNode === undefined) return undefined;
+  const top = offsetWithin(el, root);
+  if (top === undefined) return undefined;
+  const height = el.yogaNode.getComputedHeight();
+  const last = top + height - 1;
+  const hit = edge === 'bottom' ? top <= row && last > row : last >= row && top < row;
+  return hit ? { node: el, top, height } : undefined;
+};
+
+/** Outermost bordered box under `root` whose rows span `row` while its own border on `edge` lies outside the view. */
+const findClippedBox = (
+  root: DOMElement,
+  row: number,
+  edge: 'top' | 'bottom',
+  parent: DOMElement = root
+): BoxHit | undefined => {
+  for (const child of parent.childNodes) {
+    if (child.nodeName === '#text') continue;
+    const el = child as DOMElement;
+    const hit = straddles(el, root, row, edge) ?? findClippedBox(root, row, edge, el);
+    if (hit !== undefined) return hit;
+  }
+  return undefined;
+};
+
+const clippedBoxAt = (content: DOMElement | null, row: number, edge: 'top' | 'bottom'): ClippedBox | undefined => {
+  if (content === null) return undefined;
+  const hit = findClippedBox(content, row, edge);
+  if (hit === undefined) return undefined;
+  const style = hit.node.style as { borderStyle?: string; borderColor?: string };
+  const glyphSet = style.borderStyle !== undefined ? BORDER_GLYPHS[style.borderStyle] : undefined;
+  const left = leftWithin(hit.node, content);
+  if (glyphSet === undefined || left === undefined || hit.node.yogaNode === undefined) return undefined;
+  return { left, width: hit.node.yogaNode.getComputedWidth(), color: style.borderColor, glyphs: glyphSet };
+};
+
+const sameBox = (a: ClippedBox | undefined, b: ClippedBox | undefined): boolean =>
+  a === b ||
+  (a !== undefined &&
+    b !== undefined &&
+    a.left === b.left &&
+    a.width === b.width &&
+    a.color === b.color &&
+    a.glyphs === b.glyphs);
+
 /** Row offset of `node` inside `container`, by summing each yoga box's computed top on the way up. */
 const offsetWithin = (node: DOMElement, container: DOMElement): number | undefined => {
   let top = 0;
@@ -119,16 +201,33 @@ const CUE_SAFE_ROWS = 2;
 const ScrollCue = ({
   direction,
   count,
+  box,
 }: {
   readonly direction: 'above' | 'below';
   readonly count: number;
-}): React.JSX.Element => (
-  <Box flexShrink={0} paddingX={spacing.indent}>
-    <Text dimColor>
-      {direction === 'above' ? glyphs.moreAbove : glyphs.moreBelow} {count} more
-    </Text>
-  </Box>
-);
+  /** Set when the clip edge cuts a bordered box: the cue then rides inside a re-drawn border row. */
+  readonly box?: ClippedBox | undefined;
+}): React.JSX.Element => {
+  const label = `${direction === 'above' ? glyphs.moreAbove : glyphs.moreBelow} ${String(count)} more`;
+  if (box === undefined) {
+    return (
+      <Box flexShrink={0} paddingX={spacing.indent}>
+        <Text dimColor>{label}</Text>
+      </Box>
+    );
+  }
+  const [l, r] = direction === 'above' ? [box.glyphs.tl, box.glyphs.tr] : [box.glyphs.bl, box.glyphs.br];
+  const rule = Math.max(0, box.width - 5 - [...label].length);
+  return (
+    <Box flexShrink={0} marginLeft={box.left}>
+      <Text {...(box.color !== undefined ? { color: box.color } : {})} wrap="truncate-end">
+        {l}
+        {box.glyphs.h} <Text dimColor>{label}</Text> {box.glyphs.h.repeat(rule)}
+        {r}
+      </Text>
+    </Box>
+  );
+};
 
 /**
  * One row per recognised scroll key: `matches` tests the raw `useInput` payload, `nextOffset` derives the target
@@ -189,6 +288,31 @@ const useWheelScroll = (args: {
       stdout.write(disableSeq);
     };
   }, [stdin, stdout, isRawModeSupported, disabled, setOffset, maxOffset]);
+};
+
+/** Bordered boxes the clip edges cut — the overflow cues are drawn as their border row. */
+const useEdgeBoxes = (args: {
+  readonly offset: number;
+  readonly sizeRef: React.RefObject<{ viewport: number; content: number }>;
+  readonly contentRef: React.RefObject<DOMElement | null>;
+}): { above?: ClippedBox | undefined; below?: ClippedBox | undefined } => {
+  const { offset, sizeRef, contentRef } = args;
+  const [edgeBoxes, setEdgeBoxes] = useState<{ above?: ClippedBox | undefined; below?: ClippedBox | undefined }>({});
+  // Derived from the same layout the cues are, after every render.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useLayoutEffect(() => {
+    const { viewport, content } = sizeRef.current;
+    const maxNow = maxOffsetFor(viewport, content);
+    const above = maxNow > 0 && offset > 0;
+    const below = maxNow > 0 && offset < maxNow;
+    const clipRows = viewport - (above ? 1 : 0) - (below ? 1 : 0);
+    const next = {
+      above: above ? clippedBoxAt(contentRef.current, offset, 'top') : undefined,
+      below: below ? clippedBoxAt(contentRef.current, offset + clipRows - 1, 'bottom') : undefined,
+    };
+    setEdgeBoxes((prev) => (sameBox(prev.above, next.above) && sameBox(prev.below, next.below) ? prev : next));
+  });
+  return edgeBoxes;
 };
 
 export const ScrollRegion = ({
@@ -264,6 +388,8 @@ export const ScrollRegion = ({
     if (next !== offset) setOffset(Math.min(next, max));
   });
 
+  const edgeBoxes = useEdgeBoxes({ offset, sizeRef, contentRef });
+
   useInput(
     (input, key) => {
       if (disabled) return;
@@ -291,7 +417,7 @@ export const ScrollRegion = ({
     // Viewport: takes all remaining vertical space (flexGrow=1). The cue rows sit OUTSIDE the
     // clip box so they never cover content; the clip box takes whatever rows remain.
     <Box ref={viewportRef} flexDirection="column" flexGrow={1}>
-      {showAbove && <ScrollCue direction="above" count={offset} />}
+      {showAbove && <ScrollCue direction="above" count={offset} box={edgeBoxes.above} />}
       {/* Clip: overflow=hidden so an oversized inner box can't push the status bar off-screen. */}
       <Box flexDirection="column" flexGrow={1} flexShrink={1} overflowY="hidden">
         {/* Inner: renders content at its natural height (flexShrink=0); marginTop=-offset
@@ -300,7 +426,7 @@ export const ScrollRegion = ({
           <ScrollAnchorContext.Provider value={anchorRegistry}>{children}</ScrollAnchorContext.Provider>
         </Box>
       </Box>
-      {showBelow && <ScrollCue direction="below" count={hiddenBelow} />}
+      {showBelow && <ScrollCue direction="below" count={hiddenBelow} box={edgeBoxes.below} />}
     </Box>
   );
 };
