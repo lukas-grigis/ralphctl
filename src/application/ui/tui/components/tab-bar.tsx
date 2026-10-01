@@ -5,6 +5,8 @@
 
 import React from 'react';
 import { Text } from 'ink';
+import { paintLine, palettes } from '@src/application/ui/tui/theme/gradient.ts';
+import { isColorDisabled } from '@src/application/ui/tui/runtime/use-no-color.ts';
 import { inkColors } from '@src/application/ui/tui/theme/tokens.ts';
 import { useRouter } from '@src/application/ui/tui/runtime/router.tsx';
 import { useSessions } from '@src/application/ui/tui/runtime/sessions-context.tsx';
@@ -63,7 +65,7 @@ export const TabBar = (): React.JSX.Element | null => {
     <Text wrap="truncate-end">
       {layout.segments.map((seg, i) => (
         <Text key={`${String(i)}-${seg.text}`} {...toneProps(seg.tone)}>
-          {seg.text}
+          {seg.tone === 'brand' && !isColorDisabled() ? paintLine(seg.text, palettes.donut) : seg.text}
         </Text>
       ))}
     </Text>

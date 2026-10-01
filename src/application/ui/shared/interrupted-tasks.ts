@@ -47,6 +47,14 @@ export const interruptedTasksOf = (tasks: readonly Task[], implementRunning: boo
   });
 };
 
+/** In-progress tasks whose last attempt was aborted (an operator stop) while no run of this process works them. */
+export const stoppedTaskIds = (tasks: readonly Task[], implementRunning: boolean): ReadonlySet<string> =>
+  implementRunning
+    ? new Set()
+    : new Set(
+        tasks.filter((t) => t.status === 'in_progress' && t.attempts.at(-1)?.status === 'aborted').map((t) => t.id)
+      );
+
 export interface LoadInterruptedFactsDeps {
   readonly gitRunner: GitRunner;
   readonly dataRoot: AbsolutePath;

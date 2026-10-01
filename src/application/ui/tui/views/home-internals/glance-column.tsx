@@ -32,11 +32,13 @@ export const GlanceColumn = ({
   width,
   taskRows,
   interruptedIds,
+  stoppedIds,
 }: {
   readonly snapshot: AppStateSnapshot;
   readonly width: number;
   readonly taskRows: number;
   readonly interruptedIds?: ReadonlySet<string>;
+  readonly stoppedIds?: ReadonlySet<string>;
 }): React.JSX.Element => (
   <Box flexDirection="column" width={width} flexShrink={0}>
     <GlanceHeader title="TASKS" count={snapshot.tasks.length} />
@@ -45,6 +47,7 @@ export const GlanceColumn = ({
       visibleRows={taskRows}
       width={width}
       {...(interruptedIds !== undefined ? { interruptedIds } : {})}
+      {...(stoppedIds !== undefined ? { stoppedIds } : {})}
     />
     <Box marginTop={spacing.section} flexDirection="column">
       <GlanceHeader title="RECENT SPRINTS" right="S switch" />

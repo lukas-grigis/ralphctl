@@ -189,12 +189,17 @@ wizard).
 
 **Views never render their own header, hint strip, or status bar.** `ViewShell` + `Layout` own all of it.
 
-**Content-first header.** The wordmark (9–12 rows) is reserved for the Work root and only when the terminal
-can spare it: `resolveBannerMode({ routeId, columns, rows, userToggle })` returns `full` only for route `home`
-at `columns ≥ breakpoints.md` and `rows ≥ 40`, otherwise `compact` — which now renders **nothing** (the
-tab bar's `ralphctl` text is the brand). `b` (`UiState.bannerCompact`, bound by Work as `b banner`)
-flips whichever mode was chosen on Work only. `ViewShell` is the only caller that mounts `Banner`;
-anything that reserves chrome for the header calls the same function.
+**Content-first header.** The wordmark is reserved for the Work root and comes in three tiers.
+`resolveBannerMode({ routeId, columns, rows, userToggle })` returns, for route `home` only: `full` (the boxed
+original, 12 rows) at `columns ≥ breakpoints.md` and `rows ≥ 45`; `compact` (the same six gradient art rows, no
+box, no padding) at `rows ≥ 30` and `columns ≥ art width + 4` (69); otherwise `none`, so content comes first (80x24).
+Compact puts the quote (`┃` rail) and `· vX.Y.Z` to the right of the art, vertically centred, from `columns ≥ art
+width + 30`, and on one line under it below that (`bannerRows(mode, columns)` = 6 or 7). On every other route
+the mode is `none`. The tab bar's `ralphctl` label carries the same donut gradient (plain under `NO_COLOR`), so
+the identity shows at every size. `b` (`UiState.bannerCompact`, bound by Work as `b banner`) steps one tier on
+Work only: full → compact, compact → full, none → compact (full where the boxed art fits, 86 columns).
+`ViewShell` is the only caller that mounts `Banner`; anything that reserves chrome for the header calls
+`resolveBannerMode` and sizes it with `bannerRows`.
 
 **Overlays and the chrome.** Help, progress and evaluation are full-frame documents and hide the chrome with
 the view. The context switcher is a light overlay about the context shown in the location line, so the chrome
@@ -261,7 +266,7 @@ the same job.
 | `StatusBar`              | Footer: rule + ONE width-budgeted hint row (§ 6.1a). Doctor health and the session count are tab badges now. `FooterBar` is the same footer for an overlay that hides the view.                                                   |
 | `hint-budget.ts`         | `fitHints` — pure width-budgeting of the footer strip. Views publish `useViewKeys`.                                                                                                                                               |
 | `HelpOverlay`            | Modal `?`-key overlay, mounted once in the App Layout; scoped to the route (§ 6.5).                                                                                                                                               |
-| `Banner`                 | The wordmark; `mode` from `resolveBannerMode`. Renders only on a roomy Work root; `compact` renders nothing.                                                                                                                      |
+| `Banner`                 | The wordmark; `mode` from `resolveBannerMode`: `full` boxed, `compact` (art + quote + version, no box) or `none`. Work root only.                                                                                                 |
 | `MemoryPressureBanner`   | Heap-pressure strip mounted at App root. Subscribes to the EventBus.                                                                                                                                                              |
 | `ChainLogDegradedBanner` | Latched warning when the on-disk `chain.log` sink can't keep up. Mounted at App root.                                                                                                                                             |
 
@@ -298,7 +303,7 @@ context — never one from the run and one from the global selection.
 | `Divider`           | Horizontal rule.                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | `ScrollRegion`      | Scrollable viewport; PgUp/PgDn, Ctrl+f/b/d/u, Home/End (no `g`/`G`). Paints dim `▴ N more` / `▾ N more` rows outside the clip whenever content overflows, so clipping is never silent.                                                                                                                                                                                                                                                            |
 | `SprintPipeline`    | The one pipeline widget — `Refine → Plan → Implement → Review → Done` — rendered by `SprintHeaderStrip` (Work and Sprint detail). A draft sprint is at Refine while tickets are pending (or none exist), at Plan once they are all approved. No padding of its own.                                                                                                                                                                               |
-| `TaskMinimap`       | `task-minimap.tsx` — the passive TASKS list (glyph, name, `blocked` / `waits on #N` / `running` / `interrupted`, the last in warning tone with `⚠`), windowed with `▾ N more`; also owns `TASK_STATUS_GLYPH` / `TASK_STATUS_COLOR`, which the Execute sidebar minimap imports.                                                                                                                                                                    |
+| `TaskMinimap`       | `task-minimap.tsx` — the passive TASKS list (glyph, name, `blocked` / `waits on #N` / `running` / `interrupted` / `stopped`, the last two in warning tone with `⚠`), windowed with `▾ N more`; also owns `TASK_STATUS_GLYPH` / `TASK_STATUS_COLOR`, which the Execute sidebar minimap imports.                                                                                                                                                    |
 | `SprintHeaderStrip` | `<SprintHeaderStrip snapshot variant="work" \| "detail">` — pipeline row with right-aligned counts (`3/7 done · 2 blocked`, `· N ready` at ≥ md), a facts row (`3 tickets · 7 tasks · active since 1d ago`; transitions + slug at ≥ lg in the detail variant) and, for `detail` only, a `next:` row (first step + `· +N more`; every step joined with `· then` at ≥ lg). No name row — the LocationBar owns name and status.                      |
 | `ActionMenu`        | Work's agenda list. `MenuItem` adds optional `leading {glyph, tone}`, `right` (right-aligned fact), `detail` (focused-only second line; `costHint` stays), `note` (inline dim text — a disabled row's reason replaces it) and a per-section count (`sectionCounts`: `NEEDS YOU  1`); `active=false` draws no `▸`; `onFocusChange` reports the cursor id. Items for Work come from `home-internals/agenda.ts`.                                     |
 
@@ -476,7 +481,9 @@ process owns the sprint — the harness died mid-attempt (crash, `kill -9`, powe
 brief`; unknown facts are omitted, never guessed. `↵` = `resume implement` (the normal launcher, same pickers);
   launching Implement also drops the dead run's record. More than 3 fold into `▾ N more interrupted — resume picks
 them all up`. NEXT stops offering Implement while the row stands.
-- **Task minimap** — `⚠ <name>  interrupted` instead of `running`.
+- **Task minimap** — `⚠ <name>  interrupted` instead of `running`. An in-progress task whose last attempt was
+  aborted (an operator stop: quit confirm, Runs `c`, the cancel picker) with no run of this process on the sprint reads
+  `⚠ <name>  stopped` (`stoppedTaskIds`); it is not an interrupted row, since nothing died.
 - **Runs** — each record whose owner is gone is a row (`[INTERRUPTED]` chip, flow, elapsed) under the live sessions;
   `↵` = `resume in Work`, `d` = dismiss the record (only an interrupted one — a live run's is never removed).
 - **Dirty-tree preflight** — when a repo's tasks include an interrupted attempt the question reads `… has N

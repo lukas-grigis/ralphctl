@@ -8,7 +8,7 @@ import { Box, Text } from 'ink';
 import { ViewShell } from '@src/application/ui/tui/components/view-shell.tsx';
 import { Card } from '@src/application/ui/tui/components/card.tsx';
 import { ActionMenu, type MenuItem } from '@src/application/ui/tui/components/action-menu.tsx';
-import { BANNER_FULL_ROWS, resolveBannerMode } from '@src/application/ui/tui/components/banner.tsx';
+import { bannerRows, resolveBannerMode } from '@src/application/ui/tui/components/banner.tsx';
 import { SprintHeaderStrip } from '@src/application/ui/tui/components/sprint-header-strip.tsx';
 import type { StructuredFeedback } from '@src/application/ui/tui/components/feedback-line.tsx';
 import { breakpoints, fluid, glyphs, listCapacity, spacing } from '@src/application/ui/tui/theme/tokens.ts';
@@ -95,18 +95,18 @@ const useWorkLayout = (agenda: readonly AgendaRow[]) => {
   const { rows, columns } = useBreakpoint();
   const router = useRouter();
   const ui = useUiState();
-  const bannerRows =
-    resolveBannerMode({ routeId: router.current.id, columns, rows, userToggle: ui.bannerCompact }) === 'full'
-      ? BANNER_FULL_ROWS
-      : 0;
+  const bannerHeight = bannerRows(
+    resolveBannerMode({ routeId: router.current.id, columns, rows, userToggle: ui.bannerCompact }),
+    columns
+  );
   const sectionHeaders = new Set(agenda.map((r) => r.section)).size;
   return {
     wide: columns >= breakpoints.lg,
     glanceWidth: fluid(columns, { min: 44, max: 56, ratio: 0.34 }),
     // Chrome + strip (2) + gap + headers + the focused row's detail line + the `v` hint.
-    menuRows: listCapacity(rows, { chromeRows: CHROME_ROWS + bannerRows + 3 + sectionHeaders + 2, min: 3 }),
+    menuRows: listCapacity(rows, { chromeRows: CHROME_ROWS + bannerHeight + 3 + sectionHeaders + 2, min: 3 }),
     taskRows: listCapacity(rows, {
-      chromeRows: CHROME_ROWS + bannerRows + 4 + RECENT_SPRINT_ROWS + 2,
+      chromeRows: CHROME_ROWS + bannerHeight + 4 + RECENT_SPRINT_ROWS + 2,
       min: 3,
       max: 10,
     }),
@@ -190,6 +190,7 @@ export const HomeView = ({ focus: focusProp }: HomeViewProps = {}): React.JSX.El
               width={glanceWidth}
               taskRows={taskRows}
               interruptedIds={interrupted.ids}
+              stoppedIds={interrupted.stoppedIds}
             />
           </>
         )}

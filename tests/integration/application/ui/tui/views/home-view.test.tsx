@@ -26,6 +26,7 @@ import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
 import { makeActiveSprint, makeProject, makeTodoTask } from '@tests/fixtures/domain.ts';
 import { DOWN, ENTER, tick } from '@tests/integration/application/ui/tui/_keys.ts';
 import { waitForPredicate } from '@tests/integration/application/ui/tui/_wait.ts';
+import { mountFrame } from '@tests/integration/application/ui/tui/_app-frame.tsx';
 import { renderView, stripAnsi, waitForViewReady } from '@tests/integration/application/ui/tui/_harness.tsx';
 
 const mocks = vi.hoisted(() => ({
@@ -277,5 +278,31 @@ describe('Work at larger sizes', () => {
     const frame = result.lastFrame() ?? '';
     expect(frame).not.toContain('TASKS');
     expect(frame).not.toContain('RECENT SPRINTS');
+  });
+});
+
+describe.each([
+  { columns: 80, rows: 24, wordmark: false, boxed: false },
+  { columns: 100, rows: 30, wordmark: true, boxed: false },
+  { columns: 120, rows: 36, wordmark: true, boxed: false },
+  { columns: 160, rows: 45, wordmark: true, boxed: true },
+])('Work banner tier at $columns x $rows inside the chrome', ({ columns, rows, wordmark, boxed }) => {
+  it('budgets the agenda against the tier: first row and footer stay visible', async () => {
+    const frame = mountFrame({
+      columns,
+      rows,
+      deps: workDeps(),
+      initial: { id: 'home' },
+      selection: selected,
+      renderRoute: () => <HomeView />,
+    });
+    await waitForPredicate(() => (frame.result.lastFrame() ?? '').includes('Add a --name CLI test'));
+    const text = stripAnsi(frame.result.lastFrame() ?? '');
+    expect(text.includes('██████╗')).toBe(wordmark);
+    expect(text.includes('╭')).toBe(boxed);
+    expect(text).toContain('NEEDS YOU');
+    expect(text).toContain('open task');
+    expect(frame.lines().length).toBeLessThanOrEqual(rows);
+    frame.result.unmount();
   });
 });

@@ -42,8 +42,12 @@ const BUCKET_OF: Readonly<Record<Task['status'], TaskBucketStatus>> = {
   blocked: 'blocked',
 };
 
-const factOf = (task: Task, ordered: readonly Task[], interrupted: boolean): string | undefined => {
-  if (task.status === 'in_progress') return interrupted ? 'interrupted' : 'running';
+const factOf = (
+  task: Task,
+  ordered: readonly Task[],
+  state: 'interrupted' | 'stopped' | 'live'
+): string | undefined => {
+  if (task.status === 'in_progress') return state === 'live' ? 'running' : state;
   if (task.status !== 'blocked') return undefined;
   if (task.blockKind === 'own') return 'blocked';
   const byId = new Map(ordered.map((t, i) => [t.id, i + 1] as const));
@@ -58,9 +62,17 @@ export interface TaskMinimapProps {
   readonly width: number;
   /** In-progress tasks whose run died: shown `interrupted` (warning), not `running`. */
   readonly interruptedIds?: ReadonlySet<string>;
+  /** In-progress tasks whose last attempt was stopped and no run is working them: `stopped`, not `running`. */
+  readonly stoppedIds?: ReadonlySet<string>;
 }
 
-export const TaskMinimap = ({ tasks, visibleRows, width, interruptedIds }: TaskMinimapProps): React.JSX.Element => {
+export const TaskMinimap = ({
+  tasks,
+  visibleRows,
+  width,
+  interruptedIds,
+  stoppedIds,
+}: TaskMinimapProps): React.JSX.Element => {
   const ordered = [...tasks].sort((a, b) => a.order - b.order);
   if (ordered.length === 0) {
     return (
@@ -79,9 +91,14 @@ export const TaskMinimap = ({ tasks, visibleRows, width, interruptedIds }: TaskM
     <Box flexDirection="column">
       <OverflowRow direction="above" count={win.hiddenAbove} />
       {ordered.slice(win.start, win.end).map((task) => {
-        const interrupted = interruptedIds?.has(task.id) === true;
-        const status = interrupted ? 'aborted' : BUCKET_OF[task.status];
-        const fact = factOf(task, ordered, interrupted);
+        const state =
+          interruptedIds?.has(task.id) === true
+            ? 'interrupted'
+            : stoppedIds?.has(task.id) === true
+              ? 'stopped'
+              : 'live';
+        const status = state === 'live' ? BUCKET_OF[task.status] : 'aborted';
+        const fact = factOf(task, ordered, state);
         const nameBudget = Math.max(4, width - 2 * spacing.indent - 4 - (fact !== undefined ? fact.length + 1 : 0));
         return (
           <Box key={task.id} paddingX={spacing.indent} justifyContent="space-between">

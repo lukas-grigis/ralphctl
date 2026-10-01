@@ -24,4 +24,16 @@ describe('TaskMinimap interrupted state', () => {
     expect(lastFrame()).not.toContain('interrupted');
     unmount();
   });
+
+  it('says "stopped", not "running", for an in-progress task whose last attempt was stopped', () => {
+    const { lastFrame, unmount } = render(
+      <TaskMinimap tasks={[task]} visibleRows={5} width={50} stoppedIds={new Set([task.id])} />
+    );
+    const frame = lastFrame() ?? '';
+    expect(frame).toContain('stopped');
+    expect(frame).toContain(glyphs.warningGlyph);
+    expect(frame).not.toContain('running');
+    expect(frame).not.toContain('interrupted');
+    unmount();
+  });
 });

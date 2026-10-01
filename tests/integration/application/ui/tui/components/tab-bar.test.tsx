@@ -94,6 +94,23 @@ describe('TabBar', () => {
     r.unmount();
   });
 
+  it('paints the ralphctl label with the donut gradient, plain under NO_COLOR', async () => {
+    reportRef.current = probes(['pass']);
+    const r = mount(100);
+    await tick(60);
+    const frame = r.lastFrame() ?? '';
+    expect(frame).toContain('\x1b[38;2;255;215;0m');
+    // eslint-disable-next-line no-control-regex
+    expect(frame.replace(/\x1b\[[0-9;]*m/g, '')).toContain('ralphctl');
+    r.unmount();
+
+    process.env['NO_COLOR'] = '1';
+    const plain = mount(100);
+    await tick(60);
+    expect(plain.lastFrame() ?? '').toContain('ralphctl');
+    plain.unmount();
+  });
+
   it('shows a compact system badge below 140 columns and a verbose one from 140', async () => {
     reportRef.current = probes(['pass', 'warn', 'warn']);
     const narrow = mount(100);

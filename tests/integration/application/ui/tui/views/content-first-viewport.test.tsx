@@ -1,6 +1,6 @@
 /**
- * Real-size (renderAtSize) fences for the content-first viewport: the wordmark never eats a
- * short terminal, the Home cursor stays on screen, Doctor leads with what needs action, and the
+ * Real-size (renderAtSize) fences for the content-first viewport: the wordmark stays off every
+ * route but Work, the Home cursor stays on screen, Doctor leads with what needs action, and the
  * Settings body card spans the content width.
  */
 
@@ -116,22 +116,8 @@ const selection = {
 describe.each([
   { columns: 100, rows: 30 },
   { columns: 120, rows: 36 },
-])('wordmark suppressed at $columns x $rows', ({ columns, rows }) => {
-  it('Work shows its agenda, not the wordmark', async () => {
-    const { result } = renderFramed(
-      <HomeView />,
-      {
-        deps,
-        initial: { id: 'home' },
-        selection,
-      },
-      { columns, rows }
-    );
-    await waitForPredicate(() => (result.lastFrame() ?? '').includes('FLOWS'));
-    expect(result.lastFrame() ?? '').not.toContain(WORDMARK_ROW);
-  });
-
-  it('Flows shows at least one flow row', async () => {
+])('Flows at $columns x $rows', ({ columns, rows }) => {
+  it('shows at least one flow row, no wordmark', async () => {
     const { result } = renderFramed(
       <FlowsAliasView />,
       {

@@ -5,6 +5,7 @@ import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { useSessions } from '@src/application/ui/tui/runtime/sessions-context.tsx';
 import {
   interruptedTasksOf,
+  stoppedTaskIds,
   loadInterruptedFacts,
   type InterruptedFacts,
   type InterruptedTask,
@@ -18,6 +19,8 @@ import type { Task } from '@src/domain/entity/task.ts';
 export interface InterruptedState {
   readonly tasks: readonly InterruptedTask[];
   readonly ids: ReadonlySet<string>;
+  /** In-progress tasks whose last attempt was stopped, with nothing running them. */
+  readonly stoppedIds: ReadonlySet<string>;
   readonly facts: ReadonlyMap<string, InterruptedFacts>;
   /** Run records of this sprint whose owner is gone; resuming supersedes them. */
   readonly staleRunIds: readonly string[];
@@ -80,6 +83,11 @@ export const useInterrupted = (snapshot: AppStateSnapshot | undefined): Interrup
     [snapshot?.tasks, implementRunning]
   );
 
+  const stoppedIds = useMemo(
+    () => stoppedTaskIds(snapshot?.tasks ?? [], implementRunning),
+    [snapshot?.tasks, implementRunning]
+  );
+
   const [loaded, setLoaded] = useState<Loaded>({ key: '', ownedElsewhere: false, facts: NONE, staleRunIds: [] });
   const [recheck, setRecheck] = useState(0);
   const key = `${sprint?.id ?? ''}|${candidates.map((t) => `${t.taskId}:${String(t.startedAt)}`).join(',')}`;
@@ -132,6 +140,7 @@ export const useInterrupted = (snapshot: AppStateSnapshot | undefined): Interrup
   return {
     tasks,
     ids,
+    stoppedIds,
     facts: current && !ownedElsewhere ? loaded.facts : NONE,
     staleRunIds,
     ownedElsewhere,
