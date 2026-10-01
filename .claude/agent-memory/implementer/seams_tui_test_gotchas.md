@@ -48,6 +48,12 @@ re-running the test with the fix reverted.
    specific file, run a scratch vitest config whose `setupFiles` hooks `process.on('warning')` and
    prints `expect.getState().testPath`.
 
+7. **A frame showing a re-enabled list does not mean its `useInput` is live yet.** `isActive` flips in
+   an effect that runs after the frame paints, so a key written the instant `waitForPredicate` sees the
+   frame is dropped and the test times out. `tick(40)` between the wait and the write. The converse
+   trap: two `stdin.write('y')` calls on a ConfirmCard never double-submit here (the card unmounts
+   between writes), so that test cannot prove a ref-based re-entry guard is needed.
+
 ## Row-count windowing invariant
 
 Any surface that slices `lines[offset, offset + bodyRows]` and derives `maxOffset` from `lines.length`
