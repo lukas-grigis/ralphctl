@@ -81,6 +81,19 @@ describe('sectioned router', () => {
     expect(ids(api())).toEqual(['system']);
   });
 
+  it('pop tells the revealed entry which view it came back from, keeping its own props', async () => {
+    const { api } = mount({ id: 'home' });
+    api().goSection('sprints');
+    await tick();
+    api().push({ id: 'sprint-detail', props: { sprintId: 'x' } });
+    await tick();
+    api().push({ id: 'add-ticket' });
+    await tick();
+    api().pop();
+    await tick();
+    expect(api().current.props).toEqual({ sprintId: 'x', returnedFrom: 'add-ticket' });
+  });
+
   it('reset lands in the entry section as [root, entry]', async () => {
     const { api } = mount({ id: 'home' });
     api().reset({ id: 'execute', props: { sessionId: 's1' } });

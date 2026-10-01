@@ -40,11 +40,19 @@ export interface StoragePaths {
 export interface SectionBodyProps {
   readonly section: SettingsSection;
   readonly valueFor: (key: string) => React.ReactNode;
+  /** Key of the focused field in the active section. */
+  readonly focusedKey: string | undefined;
   readonly storage: StoragePaths;
   readonly presetWarnings: readonly PresetWarning[];
 }
 
-export const SectionBody = ({ section, valueFor, storage, presetWarnings }: SectionBodyProps): React.JSX.Element => {
+export const SectionBody = ({
+  section,
+  valueFor,
+  focusedKey,
+  storage,
+  presetWarnings,
+}: SectionBodyProps): React.JSX.Element => {
   switch (section.id) {
     case 'storage':
       return (
@@ -59,7 +67,9 @@ export const SectionBody = ({ section, valueFor, storage, presetWarnings }: Sect
         </Card>
       );
     case 'presets':
-      return <PresetBar title={section.title} valueFor={valueFor} warnings={presetWarnings} />;
+      return (
+        <PresetBar title={section.title} fields={section.fields} focusedKey={focusedKey} warnings={presetWarnings} />
+      );
     case 'implement':
       return <ImplementAiRow title={section.title} valueFor={valueFor} />;
     case 'harness':

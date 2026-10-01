@@ -206,6 +206,7 @@ const useSectionNavigation = (
 
 interface SettingsKeyHandlerParams {
   readonly modalOpen: boolean;
+  readonly activeSectionId: SettingsSection['id'] | undefined;
   readonly editingField: EditableField | undefined;
   readonly pendingPreset: PresetName | undefined;
   readonly sections: readonly SettingsSection[];
@@ -224,6 +225,7 @@ interface SettingsKeyHandlerParams {
 const useSettingsKeyHandler = (params: SettingsKeyHandlerParams): void => {
   const {
     modalOpen,
+    activeSectionId,
     editingField,
     pendingPreset,
     sections,
@@ -266,7 +268,7 @@ const useSettingsKeyHandler = (params: SettingsKeyHandlerParams): void => {
       },
       { keys: ['PgUp', 'Home'], hint: 'first', hidden: true, enabled: hasFields, run: () => setCursor(0) },
       { keys: ['PgDn', 'End'], hint: 'last', hidden: true, enabled: hasFields, run: () => setCursor(last) },
-      { keys: ['↵'], hint: 'edit', enabled: hasFields, run: activate },
+      { keys: ['↵'], hint: activeSectionId === 'presets' ? 'apply' : 'edit', enabled: hasFields, run: activate },
       { keys: ['e'], hint: 'edit', hidden: true, enabled: hasFields, run: activate },
     ],
     { active: !modalOpen && editingField === undefined && pendingPreset === undefined }
@@ -287,6 +289,7 @@ interface SettingsViewBodyProps {
   readonly sections: readonly SettingsSection[];
   readonly sectionIdx: number;
   readonly valueFor: (key: string) => React.ReactNode;
+  readonly focusedKey: string | undefined;
   readonly storage: ReturnType<typeof useStorage>;
   readonly presetWarnings: readonly PresetWarning[];
   readonly feedback: SettingsFeedback;
@@ -310,6 +313,7 @@ const SettingsViewBody = ({
   sections,
   sectionIdx,
   valueFor,
+  focusedKey,
   storage,
   presetWarnings,
   feedback,
@@ -358,7 +362,13 @@ const SettingsViewBody = ({
       {/* Column, not row: a row-direction box shrink-wraps its child so the body card hugs its
           content instead of spanning the view width. */}
       <Box flexDirection="column" paddingX={spacing.indent} marginTop={spacing.section}>
-        <SectionBody section={activeSection} valueFor={valueFor} storage={storage} presetWarnings={presetWarnings} />
+        <SectionBody
+          section={activeSection}
+          valueFor={valueFor}
+          focusedKey={focusedKey}
+          storage={storage}
+          presetWarnings={presetWarnings}
+        />
       </Box>
       {feedback !== undefined && (
         <Box paddingX={spacing.indent} marginTop={spacing.section}>
@@ -402,6 +412,7 @@ export const SettingsView = (): React.JSX.Element => {
 
   useSettingsKeyHandler({
     modalOpen: ui.modalOpen,
+    activeSectionId: activeSection?.id,
     editingField,
     pendingPreset,
     sections,
@@ -439,6 +450,7 @@ export const SettingsView = (): React.JSX.Element => {
         sections={sections}
         sectionIdx={sectionIdx}
         valueFor={valueFor}
+        focusedKey={activeFields[cursor]?.key}
         storage={storage}
         presetWarnings={presetWarnings}
         feedback={feedback}

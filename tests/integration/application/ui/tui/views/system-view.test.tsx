@@ -17,12 +17,17 @@ import { waitFor } from '@tests/integration/application/ui/tui/_wait.ts';
 import { mountFrame, type AppFrame } from '@tests/integration/application/ui/tui/_app-frame.tsx';
 import { stripAnsi } from '@tests/integration/application/ui/tui/_harness.tsx';
 
-const reportRef = vi.hoisted(() => ({ current: undefined as DoctorReport | undefined, calls: 0 }));
+const reportRef = vi.hoisted(() => ({
+  current: undefined as DoctorReport | undefined,
+  calls: 0,
+  gate: undefined as Promise<void> | undefined,
+}));
 
 vi.mock('@src/application/flows/doctor/flow.ts', () => ({
   createDoctorFlow: () => ({
     execute: async () => {
       reportRef.calls += 1;
+      await reportRef.gate;
       return Result.ok({ ctx: { output: reportRef.current } });
     },
   }),
@@ -68,6 +73,7 @@ const stubDeps = (skills: readonly unknown[] = []): AppDeps =>
 const mountHub = async (r: DoctorReport, skills: readonly unknown[] = [], columns = 100): Promise<AppFrame> => {
   reportRef.current = r;
   reportRef.calls = 0;
+  reportRef.gate = undefined;
   const f = mountFrame({
     columns,
     rows: 24,
@@ -192,11 +198,74 @@ describe('SystemView', () => {
     f.result.unmount();
   });
 
-  it('shows `running checks…` before the first report', async () => {
+  it('renders all four rows from mount, each `checking…` until its data arrives', async () => {
     reportRef.current = undefined;
-    const f = mountFrame({ columns: 100, rows: 24, deps: stubDeps(), initial: { id: 'system' } });
-    await tick(100);
-    expect(stripAnsi(f.result.lastFrame() ?? '')).toContain('running checks…');
+    const pending = new Promise<never>(() => undefined);
+    const deps = {
+      ...stubDeps(),
+      settingsRepo: { load: () => pending },
+      skillCatalog: { list: () => pending },
+      housekeeping: { scan: () => pending },
+    } as unknown as AppDeps;
+    const f = mountFrame({ columns: 100, rows: 24, deps, initial: { id: 'system' } });
+    await waitFor(() => expect(hubRows(f)).toHaveLength(4));
+    expect(hubRows(f).map((r) => /(Settings|Skills|Doctor|Housekeeping)/.exec(r)?.[1])).toEqual([
+      'Settings',
+      'Skills',
+      'Doctor',
+      'Housekeeping',
+    ]);
+    for (const row of hubRows(f)) expect(row).toContain('checking…');
+    f.result.unmount();
+  });
+
+  it('keys pressed before the data lands still reach the row they aimed at, and a Doctor reorder keeps it', async () => {
+    let releaseDoctor!: () => void;
+    reportRef.current = report(['warn']);
+    reportRef.calls = 0;
+    reportRef.gate = new Promise<void>((resolve) => (releaseDoctor = resolve));
+    let releaseScan!: () => void;
+    const scanGate = new Promise<void>((resolve) => (releaseScan = resolve));
+    const deps = {
+      ...stubDeps(),
+      housekeeping: { scan: async () => scanGate.then(() => Result.ok(scan)) },
+    } as unknown as AppDeps;
+    const f = mountFrame({ columns: 100, rows: 24, deps, initial: { id: 'system' }, probe: <Refresh /> });
+    await waitFor(() => expect(hubRows(f)).toHaveLength(4));
+    f.result.stdin.write(`${DOWN}${DOWN}${DOWN}`);
+    await tick(60);
+    expect(hubRows(f)[3] ?? '').toMatch(/▸\s*Housekeeping/);
+
+    releaseScan();
+    releaseDoctor();
+    await waitFor(() => expect(hubRows(f)[0] ?? '').toContain('Doctor'));
+    expect(hubRows(f).find((r) => r.includes('▸')) ?? '').toContain('Housekeeping');
+    f.result.stdin.write(ENTER);
+    await waitFor(() => expect(f.router().stack.map((e) => e.id)).toEqual(['system', 'housekeeping']));
+    f.result.unmount();
+  });
+
+  it('esc from a child returns focus to the row it was opened from', async () => {
+    const f = await mountHub(report(['pass']));
+    f.result.stdin.write(DOWN);
+    await tick(30);
+    f.result.stdin.write(ENTER);
+    await waitFor(() => expect(f.router().stack.map((e) => e.id)).toEqual(['system', 'skills']));
+    f.result.stdin.write(ESC);
+    await waitFor(() => expect(f.router().stack.map((e) => e.id)).toEqual(['system']));
+    await waitFor(() => expect(hubRows(f).find((r) => r.includes('▸')) ?? '').toContain('Skills'));
+    f.result.stdin.write(ENTER);
+    await waitFor(() => expect(f.router().stack.map((e) => e.id)).toEqual(['system', 'skills']));
+    f.result.unmount();
+  });
+
+  it('esc from a child opened by its accelerator also lands on that child’s row', async () => {
+    const f = await mountHub(report(['pass']));
+    f.result.stdin.write('!');
+    await waitFor(() => expect(f.router().stack.map((e) => e.id)).toEqual(['system', 'doctor']));
+    f.result.stdin.write(ESC);
+    await waitFor(() => expect(f.router().stack.map((e) => e.id)).toEqual(['system']));
+    await waitFor(() => expect(hubRows(f).find((r) => r.includes('▸')) ?? '').toContain('Doctor'));
     f.result.unmount();
   });
 });

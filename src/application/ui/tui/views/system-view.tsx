@@ -9,7 +9,7 @@ import { ViewShell } from '@src/application/ui/tui/components/view-shell.tsx';
 import { WindowedList } from '@src/application/ui/tui/components/windowed-list.tsx';
 import { glyphs, inkColors, listCapacity, spacing, tones } from '@src/application/ui/tui/theme/tokens.ts';
 import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
-import { useRouter } from '@src/application/ui/tui/runtime/router.tsx';
+import { useRouter, useViewProps } from '@src/application/ui/tui/runtime/router.tsx';
 import { useAsyncLoad } from '@src/application/ui/tui/runtime/use-async-load.ts';
 import { useSystemStatus } from '@src/application/ui/tui/runtime/system-status-context.tsx';
 import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
@@ -64,6 +64,7 @@ export const SystemView = (): React.JSX.Element => {
   const ui = useUiState();
   const system = useSystemStatus();
   const { rows: termRows } = useBreakpoint();
+  const { returnedFrom } = useViewProps<{ readonly returnedFrom?: string }>();
 
   const { state, reload } = useAsyncLoad<Summaries>(async () => {
     const [settingsR, skillsR, housekeepingR] = await Promise.all([
@@ -78,6 +79,7 @@ export const SystemView = (): React.JSX.Element => {
     };
   }, [deps.settingsRepo, deps.skillCatalog, deps.housekeeping]);
 
+  const summariesLoading = state.kind === 'idle' || state.kind === 'loading';
   const summaries: Summaries =
     state.kind === 'ok' ? state.value : { settings: undefined, skills: undefined, housekeeping: undefined };
   const rows = useMemo(
@@ -85,11 +87,19 @@ export const SystemView = (): React.JSX.Element => {
       buildSystemRows({
         report: system.doctor,
         doctorLoading: system.doctorLoading,
+        summariesLoading,
         settings: summaries.settings,
         skills: summaries.skills,
         housekeeping: summaries.housekeeping,
       }),
-    [system.doctor, system.doctorLoading, summaries.settings, summaries.skills, summaries.housekeeping]
+    [
+      system.doctor,
+      system.doctorLoading,
+      summariesLoading,
+      summaries.settings,
+      summaries.skills,
+      summaries.housekeeping,
+    ]
   );
 
   const refreshDoctor = system.refreshDoctor;
@@ -117,6 +127,7 @@ export const SystemView = (): React.JSX.Element => {
           getId={(r) => r.id}
           visibleRows={listCapacity(termRows, { chromeRows: CHROME_ROWS, min: 4 })}
           active={!ui.modalOpen}
+          initialCursorId={rows.find((r) => r.view === returnedFrom)?.id}
           onSubmit={(r) => router.push({ id: r.view })}
           renderItem={(r, focused) => <Row row={r} focused={focused} />}
         />

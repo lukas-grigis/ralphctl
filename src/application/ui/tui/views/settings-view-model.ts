@@ -1,6 +1,6 @@
 /** Pure model layer for the Settings view — shared types + section builder. */
 
-import { PRESET_NAMES, type PresetName } from '@src/business/settings/presets.ts';
+import { PRESET_NAMES, presetAiSettings, type PresetName } from '@src/business/settings/presets.ts';
 import { mergeEscalationMap } from '@src/business/task/escalation-map.ts';
 import { glyphs } from '@src/application/ui/tui/theme/tokens.ts';
 import type { PresetWarning } from '@src/application/flows/settings-apply-preset/ctx.ts';
@@ -76,33 +76,43 @@ export interface SettingsSection {
   readonly readonly: boolean;
 }
 
+/** Row name inside its family group — the family heading carries the rest. */
 export const PRESET_LABEL: Readonly<Record<PresetName, string>> = {
-  mixed: 'Apply: Mixed',
-  'claude-only': 'Apply: Claude only',
-  'copilot-only': 'Apply: Copilot only',
-  'codex-only': 'Apply: Codex only',
-  'opencode-only': 'Apply: OpenCode only',
-  'grok-only': 'Apply: Grok only',
-  'mixed-economic': 'Apply: Mixed (economic)',
-  'claude-economic': 'Apply: Claude (economic)',
-  'copilot-economic': 'Apply: Copilot (economic)',
-  'codex-economic': 'Apply: Codex (economic)',
-  'grok-economic': 'Apply: Grok (economic)',
-  'mixed-strong-gate': 'Apply: Mixed strong-gate',
-  'claude-strong-gate': 'Apply: Claude strong-gate',
-  'copilot-strong-gate': 'Apply: Copilot strong-gate',
-  'codex-strong-gate': 'Apply: Codex strong-gate',
-  'grok-strong-gate': 'Apply: Grok strong-gate',
-  'mixed-fast': 'Apply: Mixed (fast)',
-  'claude-fast': 'Apply: Claude (fast)',
-  'copilot-fast': 'Apply: Copilot (fast)',
-  'codex-fast': 'Apply: Codex (fast)',
-  'grok-fast': 'Apply: Grok (fast)',
-  'mixed-frontier': 'Apply: Mixed (frontier)',
-  'claude-frontier': 'Apply: Claude (frontier)',
-  'copilot-frontier': 'Apply: Copilot (frontier)',
-  'codex-frontier': 'Apply: Codex (frontier)',
-  'grok-frontier': 'Apply: Grok (frontier)',
+  mixed: 'Mixed',
+  'claude-only': 'Claude',
+  'copilot-only': 'Copilot',
+  'codex-only': 'Codex',
+  'opencode-only': 'OpenCode',
+  'grok-only': 'Grok',
+  'mixed-economic': 'Mixed',
+  'claude-economic': 'Claude',
+  'copilot-economic': 'Copilot',
+  'codex-economic': 'Codex',
+  'grok-economic': 'Grok',
+  'mixed-strong-gate': 'Mixed',
+  'claude-strong-gate': 'Claude',
+  'copilot-strong-gate': 'Copilot',
+  'codex-strong-gate': 'Codex',
+  'grok-strong-gate': 'Grok',
+  'mixed-fast': 'Mixed',
+  'claude-fast': 'Claude',
+  'copilot-fast': 'Copilot',
+  'codex-fast': 'Codex',
+  'grok-fast': 'Grok',
+  'mixed-frontier': 'Mixed',
+  'claude-frontier': 'Claude',
+  'copilot-frontier': 'Copilot',
+  'codex-frontier': 'Codex',
+  'grok-frontier': 'Grok',
+};
+
+const modelAndEffort = (row: { readonly model: string; readonly effort?: string | undefined }): string =>
+  row.effort === undefined ? row.model : `${row.model} ${row.effort}`;
+
+/** One-line account of what a preset sets: the plan row and the implement generator, model and effort each. */
+export const presetSummary = (preset: PresetName): string => {
+  const ai = presetAiSettings(preset);
+  return `plan ${modelAndEffort(ai.plan)} ${glyphs.bullet} implement ${modelAndEffort(ai.implement.generator)}`;
 };
 
 /** Display names for the five preset families — used by the grouped preset bar. */
@@ -302,7 +312,7 @@ const buildPresetFields = (): readonly EditableField[] =>
     key: `presets.${preset}`,
     label: PRESET_LABEL[preset],
     preset,
-    current: '↵ apply',
+    current: presetSummary(preset),
   }));
 
 const buildGlobalFields = (s: Settings): readonly EditableField[] => [

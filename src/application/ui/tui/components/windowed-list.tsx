@@ -64,6 +64,8 @@ export function useListWindow<T>({
 
   // The prior resolved index — the snap anchor for an eviction.
   const lastIndexRef = useRef<number>(0);
+  // Several keys in one stdin chunk run before any re-render, so each move must start from the last move, not the render.
+  const liveCursorRef = useRef<string>(initialCursorId ?? '');
 
   // Resolve the effective focus for THIS render, purely. When the stored id is present, that's the focus.
   const focusedIndex = useMemo(() => {
@@ -82,6 +84,7 @@ export function useListWindow<T>({
   // interaction starts from a stable, correct position.
   useEffect(() => {
     if (focusedIndex >= 0) lastIndexRef.current = focusedIndex;
+    liveCursorRef.current = effectiveCursorId;
     if (effectiveCursorId !== cursorId) setCursorId(effectiveCursorId);
   }, [focusedIndex, effectiveCursorId, cursorId]);
 
@@ -90,14 +93,21 @@ export function useListWindow<T>({
     const item = items[target];
     if (item !== undefined) {
       lastIndexRef.current = target;
+      liveCursorRef.current = getId(item);
       setCursorId(getId(item));
     }
+  };
+
+  const liveIndex = (): number => {
+    const found = items.findIndex((item) => getId(item) === liveCursorRef.current);
+    if (found >= 0) return found;
+    return focusedIndex < 0 ? 0 : focusedIndex;
   };
 
   useInput(
     (input, key) => {
       if (!active || items.length === 0) return;
-      const at = focusedIndex < 0 ? 0 : focusedIndex;
+      const at = liveIndex();
       if (key.upArrow || input === 'k') moveTo(at - 1);
       else if (key.downArrow || input === 'j') moveTo(at + 1);
       else if (key.pageUp) moveTo(at - visibleRows);

@@ -215,7 +215,7 @@ describe.each([
       },
       { columns, rows }
     );
-    await waitForPredicate(() => (result.lastFrame() ?? '').includes('Apply: Mixed'));
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('▸ Mixed'));
     const lines = stripAnsi(result.lastFrame() ?? '').split('\n');
     const top = lines.find((l) => /^\s*╭─+╮\s*$/.test(l));
     expect(top).toBeDefined();

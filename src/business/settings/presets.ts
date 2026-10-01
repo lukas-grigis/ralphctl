@@ -172,6 +172,9 @@ const PRESETS: Readonly<
   'grok-frontier': { ai: GROK_FRONTIER, escalateOnPlateau: true },
 };
 
+/** The AI section a preset stamps — read-only, for surfaces that describe a preset before it is applied. */
+export const presetAiSettings = (name: PresetName): Settings['ai'] => PRESETS[name].ai;
+
 /**
  * Stamp a preset onto `current`. The AI section is replaced wholesale with the preset's matrix,
  * `harness.escalateOnPlateau` is overwritten with the preset's flag (fast family OFF, all others

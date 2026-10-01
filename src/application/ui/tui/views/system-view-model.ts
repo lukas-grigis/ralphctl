@@ -23,11 +23,14 @@ export interface SystemRow {
 
 const plural = (n: number, one: string, many: string): string => (n === 1 ? one : many);
 
+/** Summary every row shows until its source answers. */
+export const CHECKING = 'checking…';
+
 export const doctorSummary = (
   report: DoctorReport | undefined,
   loading: boolean
 ): { readonly summary: string; readonly tone: SummaryTone } => {
-  if (report === undefined || loading) return { summary: 'running checks…', tone: 'dim' };
+  if (report === undefined || loading) return { summary: CHECKING, tone: 'dim' };
   const failing = report.probes.filter((p) => p.status === 'fail');
   const warning = report.probes.filter((p) => p.status === 'warn');
   const first = failing[0] ?? warning[0];
@@ -63,6 +66,8 @@ export const skillsSummary = (entries: readonly SkillCatalogEntry[] | undefined)
 export interface SystemRowsInput {
   readonly report: DoctorReport | undefined;
   readonly doctorLoading: boolean;
+  /** Settings, skills and housekeeping are still being read. */
+  readonly summariesLoading: boolean;
   /** `undefined` while loading or when the read failed. */
   readonly settings: Settings | undefined;
   readonly skills: readonly SkillCatalogEntry[] | undefined;
@@ -70,20 +75,31 @@ export interface SystemRowsInput {
   readonly housekeeping: HousekeepingScan | undefined;
 }
 
+/**
+ * The four hub rows — always all four, so a key pressed before the data lands still means the same row. Doctor leads
+ * while the last report has a warning or failure; a re-run keeps that order until the new report arrives.
+ */
 export const buildSystemRows = (input: SystemRowsInput): readonly SystemRow[] => {
+  const pending = (summary: () => string): string => (input.summariesLoading ? CHECKING : summary());
   const doctor = doctorSummary(input.report, input.doctorLoading);
   const rows: SystemRow[] = [
-    { id: 'settings', label: 'Settings', view: 'settings', summary: settingsSummary(input.settings), tone: 'dim' },
-    { id: 'skills', label: 'Skills', view: 'skills', summary: skillsSummary(input.skills), tone: 'dim' },
+    {
+      id: 'settings',
+      label: 'Settings',
+      view: 'settings',
+      summary: pending(() => settingsSummary(input.settings)),
+      tone: 'dim',
+    },
+    { id: 'skills', label: 'Skills', view: 'skills', summary: pending(() => skillsSummary(input.skills)), tone: 'dim' },
   ];
   const doctorRow: SystemRow = { id: 'doctor', label: 'Doctor', view: 'doctor', ...doctor };
   const housekeepingRow: SystemRow = {
     id: 'housekeeping',
     label: 'Housekeeping',
     view: 'housekeeping',
-    summary: housekeepingSummary(input.housekeeping),
+    summary: pending(() => housekeepingSummary(input.housekeeping)),
     tone: 'dim',
   };
-  const needsAttention = doctor.tone === 'warn' || doctor.tone === 'fail';
+  const needsAttention = input.report?.probes.some((p) => p.status === 'warn' || p.status === 'fail') ?? false;
   return needsAttention ? [doctorRow, ...rows, housekeepingRow] : [...rows, doctorRow, housekeepingRow];
 };

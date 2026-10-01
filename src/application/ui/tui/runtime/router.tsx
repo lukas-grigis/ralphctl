@@ -24,8 +24,8 @@ export interface RouterApi {
   readonly activeSection: ActiveSection;
   push(entry: ViewEntry): void;
   /**
-   * One level up in the active section. At a section root that is not Work it jumps to Work; at the Work root (and in
-   * `'none'`) it is a no-op.
+   * One level up in the active section; the revealed entry gains `props.returnedFrom` (the left view's id). At a
+   * section root that is not Work it jumps to Work; at the Work root (and in `'none'`) it is a no-op.
    */
   pop(): void;
   replace(entry: ViewEntry): void;
@@ -84,6 +84,17 @@ const withStack = (state: RouterState, section: ActiveSection, stack: readonly V
   stacks: { ...state.stacks, [section]: stack },
 });
 
+/**
+ * Drop the top entry and stamp `returnedFrom` (the dropped view's id) on the one it reveals, so a parent list can put
+ * its cursor back on the child the operator just left.
+ */
+const revealParent = (stack: readonly ViewEntry[]): readonly ViewEntry[] => {
+  const child = stack[stack.length - 1];
+  const parent = stack[stack.length - 2];
+  if (child === undefined || parent === undefined) return stack.slice(0, -1);
+  return [...stack.slice(0, -2), { ...parent, props: { ...parent.props, returnedFrom: child.id } }];
+};
+
 const rootEntry = (id: SectionId): ViewEntry => {
   const def = sectionDef(id);
   return { id: def?.rootView ?? 'home' };
@@ -109,7 +120,7 @@ export const RouterProvider = ({ initial, children }: RouterProviderProps): Reac
   const pop = useCallback(() => {
     setState((s) => {
       const stack = s.stacks[s.active];
-      if (stack.length > 1) return withStack(s, s.active, stack.slice(0, -1));
+      if (stack.length > 1) return withStack(s, s.active, revealParent(stack));
       if (s.active !== 'work' && s.active !== 'none') return activate(s, 'work');
       return s;
     });

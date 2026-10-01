@@ -250,19 +250,19 @@ the same job.
 
 ### 4.1 Shell + chrome
 
-| Component                | Purpose                                                                                                                                                                                                |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `ViewShell`              | Frame for every view. Owns body + status + prompt + footer; publishes its title to the location line.                                                                                                  |
-| `TabBar`                 | Row 0. `ralphctl │` + the five sections + `? help` (`· v<version>` and `↑ v<latest>` from `lg`). Active tab wrapped in `[ ]` (survives NO_COLOR) + primary bold. Layout in `tab-bar-layout.ts` (pure). |
-| `LocationBar`            | Row 1. Left: `▣ <Section> › <crumb> — <subtitle>`; right: `<project> › <sprint> [STATUS]` (words `project`/`sprint` + `S switch` from `lg`). Fit order in `location-layout.ts` (pure).                 |
-| `ContextSwitcher`        | `S` / `P` overlay: sprint + project switcher. Mounted in `Layout`, never navigates (§ 6.2a). Rows/grouping in `context-switcher-internals/`.                                                           |
-| `SystemView`             | The System section hub: Settings / Skills / Doctor / Housekeeping with live one-line summaries; Doctor first while it warns or fails.                                                                  |
-| `StatusBar`              | Footer: rule + ONE width-budgeted hint row (§ 6.1a). Doctor health and the session count are tab badges now. `FooterBar` is the same footer for an overlay that hides the view.                        |
-| `hint-budget.ts`         | `fitHints` — pure width-budgeting of the footer strip. Views publish `useViewKeys`.                                                                                                                    |
-| `HelpOverlay`            | Modal `?`-key overlay, mounted once in the App Layout; scoped to the route (§ 6.5).                                                                                                                    |
-| `Banner`                 | The wordmark; `mode` from `resolveBannerMode`. Renders only on a roomy Work root; `compact` renders nothing.                                                                                           |
-| `MemoryPressureBanner`   | Heap-pressure strip mounted at App root. Subscribes to the EventBus.                                                                                                                                   |
-| `ChainLogDegradedBanner` | Latched warning when the on-disk `chain.log` sink can't keep up. Mounted at App root.                                                                                                                  |
+| Component                | Purpose                                                                                                                                                                                                                           |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ViewShell`              | Frame for every view. Owns body + status + prompt + footer; publishes its title to the location line.                                                                                                                             |
+| `TabBar`                 | Row 0. `ralphctl │` + the five sections + `? help` (`· v<version>` and `↑ v<latest>` from `lg`). Active tab wrapped in `[ ]` (survives NO_COLOR) + primary bold. Layout in `tab-bar-layout.ts` (pure).                            |
+| `LocationBar`            | Row 1. Left: `▣ <Section> › <crumb> — <subtitle>`; right: `<project> › <sprint> [STATUS]` (words `project`/`sprint` + `S switch` from `lg`). Fit order in `location-layout.ts` (pure).                                            |
+| `ContextSwitcher`        | `S` / `P` overlay: sprint + project switcher. Mounted in `Layout`, never navigates (§ 6.2a). Rows/grouping in `context-switcher-internals/`.                                                                                      |
+| `SystemView`             | The System section hub: Settings / Skills / Doctor / Housekeeping, all four from mount (`checking…` until each source answers) with live one-line summaries; Doctor first while it warns or fails; the cursor follows the row id. |
+| `StatusBar`              | Footer: rule + ONE width-budgeted hint row (§ 6.1a). Doctor health and the session count are tab badges now. `FooterBar` is the same footer for an overlay that hides the view.                                                   |
+| `hint-budget.ts`         | `fitHints` — pure width-budgeting of the footer strip. Views publish `useViewKeys`.                                                                                                                                               |
+| `HelpOverlay`            | Modal `?`-key overlay, mounted once in the App Layout; scoped to the route (§ 6.5).                                                                                                                                               |
+| `Banner`                 | The wordmark; `mode` from `resolveBannerMode`. Renders only on a roomy Work root; `compact` renders nothing.                                                                                                                      |
+| `MemoryPressureBanner`   | Heap-pressure strip mounted at App root. Subscribes to the EventBus.                                                                                                                                                              |
+| `ChainLogDegradedBanner` | Latched warning when the on-disk `chain.log` sink can't keep up. Mounted at App root.                                                                                                                                             |
 
 **Tab badges.** Compact below `lg`: Runs `●N` (running sessions, hidden at 0) plus `⚠M` when M of them wait on a
 prompt (`● 2 live · 1 waiting` from `lg`; the waiting badge is warning tone), System `✚N` (warning tone
@@ -481,7 +481,9 @@ router keeps **one stack per section**: `push` / `pop` / `replace` / `reset` act
 `goSection(id)` switches, restoring the stack the section was left with (so `5 → Enter → 2 → 5` returns to
 `System › Settings`). Pressing the digit of the section you are already in resets it to its root.
 
-**`esc` goes up one level in the current section.** At a section root other than Work it jumps to Work (the
+**`esc` goes up one level in the current section.** `pop` stamps `props.returnedFrom` (the view just left) on the
+entry it reveals, so a parent list puts its cursor back on that child — the System hub does, whether the child was
+opened with `↵` or an accelerator. At a section root other than Work it jumps to Work (the
 footer says `esc work`); at the Work root it is a no-op. A flow launched from Work lands on the Work stack, so
 `esc` returns to Work. The location line shows where you are in that stack — never the path you happened to
 take through other sections.
@@ -842,7 +844,12 @@ keypress-counting exercise. Three candidate fixes:
   budget), and the `←/→` idiom matches the canonical "prev/next page" vocabulary in
   [§6.3](#63-view-local-keys--declared-once-via-useviewkeys).
 
-Per-section row counts: `Presets 22`, `Global 1`, `Refine 3`, `Plan 3`,
+**Presets is a plain list.** Rows group under the five family headings (Standard / Economic / Strong-gate / Fast /
+Frontier); each row is `▸ <name>` plus a dim `plan <model> <effort> · implement <model> <effort>` read from the
+preset's own matrix. No `Apply:` prefix and no per-row key hint — `↵ apply` is the footer's word on this section
+(`↵ edit` on every other one).
+
+Per-section row counts: `Presets 26`, `Global 1`, `Refine 3`, `Plan 3`,
 `Implement 6` (generator triple + evaluator triple), `Readiness 3`, `Ideate 3`, `Create-PR 3`,
 `Harness 8` (seven scalar/select rows + one `map-add` action row; grows by one `map-entry` row per
 user-defined escalation-map override), `Other 2`, `Storage 0` (read-only). Presets is the largest

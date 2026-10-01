@@ -651,11 +651,12 @@ followed by `note: 1 task(s) stayed blocked: Task A` and `recover with: ralphctl
 
 ## Scenario 22 — sections, stacks and the System hub
 
-1. From Work, press `5` — **expected:** System hub lists Settings, Skills, Doctor and Housekeeping, each with a
-   one-line summary (Doctor's is live and warning-toned when a check fails)
+1. From Work, press `5` — **expected:** System hub lists Settings, Skills, Doctor and Housekeeping from the first
+   frame, each `checking…` until its one-line summary lands (Doctor's is live and warning-toned when a check fails);
+   `↓↓↓ ↵` typed straight away opens Housekeeping
 2. Press `↵` on Settings, then `2`, then `5` — **expected:** back on Settings, not the hub (each section keeps its
    stack); the location line reads `System › Settings`
-3. Press `Esc` twice — **expected:** first to the hub, then to Work (`esc work` in the footer); `Esc` on the Work
+3. Press `Esc` twice — **expected:** first to the hub with `▸` on Settings (the row you left), then to Work (`esc work` in the footer); `Esc` on the Work
    root does nothing and the footer shows `q quit` only there
 4. Press `5` while already in System — **expected:** resets to the hub root
 5. Hidden accelerators: from any section press `h`, `x`, `s`, `!`, `n` — **expected:** Work root, Runs, Settings,
