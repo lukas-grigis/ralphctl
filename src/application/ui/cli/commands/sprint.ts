@@ -85,7 +85,7 @@ const removeSprintAction = async (raw: string, opts: RemoveOpts): Promise<void> 
     fail(`invalid sprint id: ${id.error.message}`);
     return;
   }
-  // Mirrors the TUI's ConfirmCard gate on the same sprintRepo.remove call
+  // Mirrors the TUI's ConfirmCard gate on the same sprintRemoval.remove call
   // (sprints-view.tsx) — the CLI has no interactive overlay, so a TTY-gated y/N prompt
   // (or --yes for scripts) stands in for it.
   const confirmed = await confirmDestructive({
@@ -96,7 +96,7 @@ const removeSprintAction = async (raw: string, opts: RemoveOpts): Promise<void> 
   if (!confirmed) return;
 
   const { deps, storage } = await bootstrapCli();
-  const result = await deps.sprintRepo.remove(id.value);
+  const result = await deps.sprintRemoval.remove(id.value);
   if (!result.ok) {
     fail(result.error.message);
     return;

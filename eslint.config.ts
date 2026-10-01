@@ -260,6 +260,7 @@ const FLOWS = [
   'remove-ticket',
   'housekeeping',
   'delete-project',
+  'delete-sprint',
 ] as const;
 
 const PROMPTS = [

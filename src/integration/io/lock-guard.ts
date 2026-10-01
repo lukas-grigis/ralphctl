@@ -1,7 +1,7 @@
 import { promises as fs } from 'node:fs';
 import { join } from 'node:path';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
-import type { RunActivityProbe } from '@src/business/housekeeping/run-activity-probe.ts';
+import type { RunActivityProbe } from '@src/business/_shared/run-activity-probe.ts';
 import { listDir } from '@src/integration/io/fs.ts';
 import { DEFAULT_STALE_AFTER_MS } from '@src/integration/io/file-locker.ts';
 

@@ -13,3 +13,13 @@ export const runActiveRefusal = (attemptedAction: string): InvalidStateError =>
     attemptedAction,
     message: 'A flow is running — let it finish (or cancel it) before removing data.',
   });
+
+/** A probe that reports active when any of `probes` does, asking them in order. */
+export const anyRunActivity = (...probes: readonly RunActivityProbe[]): RunActivityProbe => ({
+  async anyRunActive() {
+    for (const probe of probes) {
+      if (await probe.anyRunActive()) return true;
+    }
+    return false;
+  },
+});

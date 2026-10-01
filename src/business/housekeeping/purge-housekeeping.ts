@@ -8,7 +8,7 @@ import { ProjectId } from '@src/domain/value/id/project-id.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
 import type { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
-import { runActiveRefusal, type RunActivityProbe } from '@src/business/housekeeping/run-activity-probe.ts';
+import { runActiveRefusal, type RunActivityProbe } from '@src/business/_shared/run-activity-probe.ts';
 import type { HousekeepingDisk } from '@src/business/housekeeping/housekeeping-disk.ts';
 import {
   housekeepingCandidateKey,

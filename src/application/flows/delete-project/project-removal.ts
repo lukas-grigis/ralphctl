@@ -5,7 +5,7 @@ import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
 import type { StorageError } from '@src/domain/value/error/storage-error.ts';
 import type { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
-import { runActiveRefusal } from '@src/business/housekeeping/run-activity-probe.ts';
+import { runActiveRefusal } from '@src/business/_shared/run-activity-probe.ts';
 import { deleteProjectUseCase } from '@src/business/project/delete-project.ts';
 import { deleteSprintUseCase } from '@src/business/sprint/delete-sprint.ts';
 import type { DeleteProjectDeps } from '@src/application/flows/delete-project/deps.ts';
@@ -54,12 +54,17 @@ const listOwnedSprints = async (
 const removeChildren = async (
   deps: DeleteProjectDeps,
   projectId: ProjectId
-): Promise<Result<ProjectRemovalReport, StorageError>> => {
+): Promise<Result<ProjectRemovalReport, StorageError | InvalidStateError>> => {
   const sprints = await listOwnedSprints(deps, projectId);
   if (!sprints.ok) return Result.error(sprints.error);
   let removedSprints = 0;
   for (const sprint of sprints.value) {
-    const r = await deleteSprintUseCase({ id: sprint.id, sprintRepo: deps.sprintRepo, logger: deps.logger });
+    const r = await deleteSprintUseCase({
+      id: sprint.id,
+      sprintRepo: deps.sprintRepo,
+      runActivity: deps.runActivity,
+      logger: deps.logger,
+    });
     if (r.ok) removedSprints += 1;
     else if (!(r.error instanceof NotFoundError)) return Result.error(r.error);
   }

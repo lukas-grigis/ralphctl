@@ -266,7 +266,7 @@ const bootstrap = async (options: LaunchTuiOptions = {}): Promise<Bootstrapped> 
 
   // Session manager is created BEFORE the heap watchdog so the critical handler can reach it to
   // shed finished SessionRecords (the dominant app-root-reachable retainer) under memory pressure.
-  const sessions = createSessionManager();
+  const sessions = createSessionManager({ runs: deps.inProcessRuns });
 
   // Heap watchdog gives the operator a warning before V8 SIGKILLs the harness on a long-running session.
   const heapWatchdog = startHeapWatchdog({

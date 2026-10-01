@@ -189,7 +189,7 @@ const useSprintRowActions = (edit: UseEditFieldState, reload: () => void): UseSp
   const handleDeleteConfirmed = async (target: Sprint, confirmed: boolean): Promise<void> => {
     setConfirmDelete(undefined);
     if (!confirmed) return;
-    const r = await deps.sprintRepo.remove(target.id);
+    const r = await deps.sprintRemoval.remove(target.id);
     if (!r.ok) {
       if (mountedRef.current) setFeedback(`${glyphs.cross} ${r.error.message}`);
       return;

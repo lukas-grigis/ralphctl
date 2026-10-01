@@ -76,6 +76,9 @@ import { createFsHousekeepingDisk } from '@src/integration/persistence/housekeep
 import { createLockRunActivityProbe } from '@src/integration/io/lock-guard.ts';
 import { createHousekeeping, type Housekeeping } from '@src/application/flows/housekeeping/housekeeping.ts';
 import { createProjectRemoval, type ProjectRemoval } from '@src/application/flows/delete-project/project-removal.ts';
+import { createSprintRemoval, type SprintRemoval } from '@src/application/flows/delete-sprint/sprint-removal.ts';
+import { createInProcessRuns, type InProcessRuns } from '@src/application/session/in-process-runs.ts';
+import { anyRunActivity } from '@src/business/_shared/run-activity-probe.ts';
 import type { FileLogSink, FileLogSinkDeps } from '@src/integration/observability/_engine/file-log-sink.ts';
 
 /**
@@ -198,6 +201,13 @@ export interface AppDeps {
   readonly housekeeping: Housekeeping;
   /** Project removal with the opt-in sprints + memory cascade. */
   readonly projectRemoval: ProjectRemoval;
+  /** Single-sprint removal, refused while a run is active. */
+  readonly sprintRemoval: SprintRemoval;
+  /**
+   * This process's live runs — the TUI session manager tracks every runner it registers, so the data-removal guards
+   * see lock-free flows (plan, refine, ideate) as well as lock-holding ones.
+   */
+  readonly inProcessRuns: InProcessRuns;
 }
 
 /** Injection points for `wire()`. */
@@ -303,7 +313,10 @@ const buildWireProvider = (opts: WireOptions, eventBus: EventBus, spawn: Provide
 const buildDataServices = (
   storage: StoragePaths,
   logger: Logger
-): Pick<AppDeps, 'projectRepo' | 'sprintRepo' | 'housekeeping' | 'projectRemoval'> => {
+): Pick<
+  AppDeps,
+  'projectRepo' | 'sprintRepo' | 'housekeeping' | 'projectRemoval' | 'sprintRemoval' | 'inProcessRuns'
+> => {
   const projectRepo = createFsProjectRepository({ root: storage.dataRoot });
   const sprintRepo = createFsSprintRepository({ root: storage.dataRoot });
   const housekeepingDisk = createFsHousekeepingDisk({
@@ -311,10 +324,12 @@ const buildDataServices = (
     memoryRoot: storage.memoryRoot,
     runsRoot: storage.runsRoot,
   });
-  const runActivity = createLockRunActivityProbe(storage.stateRoot);
+  const inProcessRuns = createInProcessRuns();
+  const runActivity = anyRunActivity(inProcessRuns, createLockRunActivityProbe(storage.stateRoot));
   return {
     projectRepo,
     sprintRepo,
+    inProcessRuns,
     housekeeping: createHousekeeping({
       projectRepo,
       sprintRepo,
@@ -324,6 +339,7 @@ const buildDataServices = (
       logger,
     }),
     projectRemoval: createProjectRemoval({ projectRepo, sprintRepo, housekeepingDisk, runActivity, logger }),
+    sprintRemoval: createSprintRemoval({ sprintRepo, runActivity, logger }),
   };
 };
 
