@@ -20,10 +20,12 @@ const Probe = ({
   bindings,
   seen,
   openHelp,
+  claimPrompt,
 }: {
   readonly bindings: readonly ViewKeyBinding[];
   readonly seen: { isClaimed?: (key: string) => boolean };
   readonly openHelp?: boolean;
+  readonly claimPrompt?: boolean;
 }): React.JSX.Element => {
   const { isClaimed } = useClaimedKeys();
   const ui = useUiState();
@@ -31,6 +33,7 @@ const Probe = ({
   React.useEffect(() => {
     if (openHelp) ui.toggleHelp();
   }, [openHelp, ui.toggleHelp]);
+  React.useEffect(() => (claimPrompt ? ui.claimPrompt() : undefined), [claimPrompt, ui.claimPrompt]);
   seen.isClaimed = isClaimed;
   return <Text>probe</Text>;
 };
@@ -91,6 +94,17 @@ describe('useViewKeys — keyboard ownership', () => {
     const r = mount(<Probe seen={seen} openHelp bindings={[{ keys: ['a'], hint: 'a', run }]} />);
     await tick(60);
     r.stdin.write('a');
+    await tick();
+    expect(run).not.toHaveBeenCalled();
+    r.unmount();
+  });
+
+  it('mutes itself while a prompt holds the keyboard', async () => {
+    const run = vi.fn();
+    const seen = {} as { isClaimed?: (key: string) => boolean };
+    const r = mount(<Probe seen={seen} claimPrompt bindings={[{ keys: ['↵'], hint: 'go', run }]} />);
+    await tick(60);
+    r.stdin.write('\r');
     await tick();
     expect(run).not.toHaveBeenCalled();
     r.unmount();

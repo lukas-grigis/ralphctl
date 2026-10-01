@@ -30,4 +30,14 @@ describe('createInkInteractivePrompt', () => {
     expect(events).toMatchObject([{ type: 'awaiting-input', message: 'Branch?', sessionId: 's2' }]);
     queue.drain(new Error('done'));
   });
+
+  it('stays silent for a prompt asked outside any run', () => {
+    const queue = createPromptQueue();
+    const bus = createInMemoryEventBus();
+    const events: AppEvent[] = [];
+    bus.subscribe((e) => events.push(e));
+    void createInkInteractivePrompt(queue, bus).askText('Repo?');
+    expect(events).toEqual([]);
+    queue.drain(new Error('done'));
+  });
 });

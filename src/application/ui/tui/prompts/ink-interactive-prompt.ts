@@ -121,12 +121,10 @@ const runAskConfirm = async (queue: Enqueuer, input: AskConfirmInput): Promise<R
 const stampingEnqueuer = (queue: PromptQueue, eventBus: EventBus | undefined): Enqueuer => ({
   enqueue(prompt) {
     const sessionId = rootSessionId();
-    eventBus?.publish({
-      type: 'awaiting-input',
-      message: prompt.message,
-      ...(sessionId !== undefined ? { sessionId } : {}),
-      at: IsoTimestamp.now(),
-    });
+    // Only a run's prompt pings; a foreground picker has the operator's attention already.
+    if (sessionId !== undefined) {
+      eventBus?.publish({ type: 'awaiting-input', message: prompt.message, sessionId, at: IsoTimestamp.now() });
+    }
     return queue.enqueue(sessionId !== undefined ? { ...prompt, sessionId } : prompt);
   },
 });

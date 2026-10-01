@@ -62,8 +62,8 @@ const toHint = (binding: ViewKeyBinding): ViewHint => ({
 });
 
 export const useViewKeys = (bindings: readonly ViewKeyBinding[], options: UseViewKeysOptions = {}): void => {
-  const overlayOpen = useOptionalOverlayState()?.overlay !== undefined;
-  const active = (options.active ?? true) && !overlayOpen;
+  const modalOpen = useOptionalOverlayState()?.modalOpen === true;
+  const active = (options.active ?? true) && !modalOpen;
 
   useInput(
     (input, key) => {
