@@ -24,7 +24,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { promises as fs } from 'node:fs';
+import { promises as fs, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { homedir } from 'node:os';
 import { Box, Text, useInput, type Key } from 'ink';
@@ -185,33 +185,29 @@ const handlePathPickerKey = (input: string, key: Key, deps: PathPickerKeyDeps): 
   }
 };
 
-interface SubmitTypedPathDeps {
-  readonly setError: React.Dispatch<React.SetStateAction<string | undefined>>;
-  readonly setTyping: React.Dispatch<React.SetStateAction<boolean>>;
-  readonly onSubmit: (path: string) => void;
-}
-
-/** Validates a manually-typed path exists and is a directory, then submits or reports an error. */
-const submitTypedPath = async (raw: string, { setError, setTyping, onSubmit }: SubmitTypedPathDeps): Promise<void> => {
+/** Inline check for the typed-path field: the path must be an existing directory. */
+const checkTypedPath = (raw: string): string | undefined => {
   const expanded = expandHome(raw.trim());
-  if (expanded.length === 0) {
-    setTyping(false);
-    return;
-  }
+  if (expanded.length === 0) return 'Path is required';
   try {
-    const stat = await fs.stat(expanded);
-    if (!stat.isDirectory()) {
-      setError(`${expanded} is not a directory`);
-      setTyping(false);
-      return;
-    }
-    setTyping(false);
-    onSubmit(expanded);
-  } catch (err) {
-    setError(err instanceof Error ? err.message : String(err));
-    setTyping(false);
+    return statSync(expanded).isDirectory() ? undefined : `${expanded} is not a directory`;
+  } catch {
+    return `${expanded} does not exist`;
   }
 };
+
+interface TypedPathFieldProps {
+  readonly initial: string;
+  readonly onSubmit: (value: string) => void;
+  readonly onCancel: () => void;
+}
+
+const TypedPathField = ({ initial, onSubmit, onCancel }: TypedPathFieldProps): React.JSX.Element => (
+  <Box flexDirection="column" marginTop={spacing.section} paddingX={spacing.indent}>
+    <Text dimColor>Type a path (~/ ok). esc returns to the picker.</Text>
+    <TextPrompt message="Path" initial={initial} validate={checkTypedPath} onSubmit={onSubmit} onCancel={onCancel} />
+  </Box>
+);
 
 interface PathPickerRowsProps {
   readonly rows: readonly Row[];
@@ -306,19 +302,20 @@ export const PathPickerPrompt = ({
           <Text color={inkColors.error}>{error}</Text>
         </Box>
       )}
-      <Box flexDirection="column" marginTop={spacing.section}>
-        <PathPickerRows rows={rows} start={start} end={end} cursor={cursor} />
-      </Box>
-      {typing ? (
-        <Box flexDirection="column" marginTop={spacing.section} paddingX={spacing.indent}>
-          <Text dimColor>Type an absolute path (~/ allowed). Enter validates; esc returns to the picker.</Text>
-          <TextPrompt
-            message="Path"
-            initial={cwd}
-            onSubmit={(value) => void submitTypedPath(value, { setError, setTyping, onSubmit })}
-            onCancel={() => setTyping(false)}
-          />
+      {!typing && (
+        <Box flexDirection="column" marginTop={spacing.section}>
+          <PathPickerRows rows={rows} start={start} end={end} cursor={cursor} />
         </Box>
+      )}
+      {typing ? (
+        <TypedPathField
+          initial={cwd}
+          onSubmit={(value) => {
+            setTyping(false);
+            onSubmit(expandHome(value.trim()));
+          }}
+          onCancel={() => setTyping(false)}
+        />
       ) : (
         <Box paddingX={spacing.indent} marginTop={spacing.section}>
           <Text dimColor>

@@ -324,6 +324,13 @@ Two legitimate integration modes — pick by who's asking:
   `skills-view.tsx`'s enable/disable flow picker. The view must `ui.claimPrompt()` for as long as
   the component is mounted (`ConfirmCard` does this internally; a raw `MultiSelectPrompt` mount
   does not — claim it yourself in a `useEffect`) so global hotkeys stay muted underneath it.
+  Claim only while a prompt is rendered: a wizard's saving / error steps hold no claim, so `h` and
+  `esc` keep working there.
+
+`TextPrompt` takes an optional `validate(value) → string | undefined` and `preview(value)`. A message
+renders as `✗ <message>` under the field and blocks `↵`, keeping buffer and focus; it appears once the
+buffer is non-empty or `↵` was tried (an untouched empty field stays quiet). `preview` is a dim line
+shown only while valid.
 
 | Method           | Returns                             | Cancel behavior                            |
 | ---------------- | ----------------------------------- | ------------------------------------------ |
@@ -725,6 +732,15 @@ with `Card`.
 - Drive phase state from local React state or `useReducer`.
 - `phase.step` drives the spinner label — set it before each prompt.
 - `Enter` on a terminal outcome card pops the view.
+- **Wizards** keep a draft beside the step so going back, or returning from a submit-time error, pre-fills
+  every earlier value. Validate each field inline; the error step is for storage failures only and returns
+  to the failing step on `↵` / `esc` (it claims `esc` locally).
+
+**First run.** `welcome` and the first-run `create-project` live in section `none` (no tab bar or location
+line). Welcome holds an orientation card — detected CLIs + applied preset, the pipeline stages one line each
+(`StageLegend`), `Create a project` / `Try the demo sandbox` (`ralphctl demo`) / `? keyboard help`, and a
+closing line naming `1–5`, `S` and `?` — and advances only on a keypress. `esc` on the wizard's first step at
+a depth-1 stack, and a successful save, `reset` to Work.
 
 ### 7.2 List views
 

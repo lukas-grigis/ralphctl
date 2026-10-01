@@ -40,6 +40,28 @@ export const resolveSprintStage = (snapshot: AppStateSnapshot): Stage | undefine
   }
 };
 
+const STAGE_BLURB: Readonly<Record<Stage, string>> = {
+  Refine: 'sharpen tickets',
+  Plan: 'break into tasks',
+  Implement: 'generator + evaluator loop',
+  Review: 'evaluator pass',
+  Done: 'PR / close',
+};
+
+/** The pipeline spelled out, one line per stage — for orientation surfaces with no sprint. */
+export const StageLegend = (): React.JSX.Element => (
+  <Box flexDirection="column">
+    {STAGES.map((s) => (
+      <Text key={s}>
+        <Text color={inkColors.primary}>{s.padEnd(10)}</Text>
+        <Text dimColor>
+          {glyphs.emDash} {STAGE_BLURB[s]}
+        </Text>
+      </Text>
+    ))}
+  </Box>
+);
+
 export interface SprintPipelineProps {
   readonly snapshot: AppStateSnapshot;
 }

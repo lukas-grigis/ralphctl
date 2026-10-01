@@ -143,7 +143,7 @@ export const RouterProvider = ({ initial, children }: RouterProviderProps): Reac
 
   const reset = useCallback((entry: ViewEntry) => {
     setState((s) => {
-      const section = sectionOf(entry.id);
+      const section = initialSection(entry);
       if (section === 'none') return { ...withStack(s, 'none', [entry]), active: 'none' };
       const root = rootEntry(section);
       const stack = entry.id === root.id ? [entry] : [root, entry];

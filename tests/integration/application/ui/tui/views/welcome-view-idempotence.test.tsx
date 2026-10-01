@@ -18,6 +18,7 @@ import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import type { Project } from '@src/domain/entity/project.ts';
 import type { ProjectRepository } from '@src/domain/repository/project/project-repository.ts';
 import type { SettingsRepository } from '@src/domain/repository/settings/settings-repository.ts';
+import { ENTER, tick } from '@tests/integration/application/ui/tui/_keys.ts';
 import { waitForPredicate } from '@tests/integration/application/ui/tui/_wait.ts';
 import { renderView } from '@tests/integration/application/ui/tui/_harness.tsx';
 import { makeProject } from '@tests/fixtures/domain.ts';
@@ -86,7 +87,15 @@ describe('WelcomeView — disk-backed seed idempotence', () => {
     } as unknown as AppDeps;
 
     const routes: ViewEntry[] = [];
-    renderView(<WelcomeView />, { deps, initial: { id: 'welcome' }, onRoute: (e) => routes.push(e) });
+    const { result } = renderView(<WelcomeView />, {
+      deps,
+      initial: { id: 'welcome' },
+      onRoute: (e) => routes.push(e),
+    });
+    await waitForPredicate(() => saved.length === 1);
+    // Held until a key is pressed.
+    await tick(50);
+    result.stdin.write(ENTER);
     await waitForPredicate(() => routes.at(-1)?.id === 'create-project');
 
     expect(saved).toHaveLength(1);

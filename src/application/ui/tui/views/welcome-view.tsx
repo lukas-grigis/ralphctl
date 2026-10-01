@@ -1,36 +1,17 @@
 /**
- * First-run welcome view. Shown once when no `settings.json` exists yet. On mount, probes PATH
- * for the supported CLIs (claude / copilot / codex / opencode / grok) and silently seeds a preset:
- *
- *   - exactly one CLI detected → `<provider>-only` preset
- *   - zero or 2+ CLIs detected → `mixed` preset (best-of-breed across providers)
- *
- * No manual provider picker is shown; the user can revisit Settings later to switch. After
- * seeding, the view shows a one-line summary naming which preset was applied and routes the
- * user straight to the create-project wizard (or home, if a project already exists).
- *
- * Zero-CLI keypress gate: when no AI CLI was detected, the destination route is held in state
- * instead of navigated to immediately — the auto-route used to fire in the same tick as the
- * warning render, so the user never actually got to read "No AI CLIs detected" before it
- * scrolled away. `↵` / space / `esc` all continue to the held destination; `esc` is claimed
- * locally (via `useUiState().claimEscape()`) so the global `router.pop()` handler doesn't also
- * fire and race the local continue. Every other branch (1 CLI, 2+ CLIs) still auto-routes.
- *
- * The seed-FAILED branch arms the same gate (destination `home`). It has to: the error card
- * names `esc`, Welcome is the router stack's root so the global `router.pop()` fall-through is a
- * no-op there, and an unarmed gate left the advertised key doing nothing.
- *
- * The welcome is read-only: an existing settings file means the user already set up readiness,
- * so the launch entry routes straight to home before this view ever mounts. The seeding effect
- * re-asserts that on DISK (`settingsRepo.exists()`) rather than trusting the launch decision —
- * a re-mounted view gets a fresh component instance (and so a fresh in-memory guard), and
- * re-seeding would replace the whole `ai` section over the user's own Settings edits.
+ * First-run welcome. Probes PATH for the supported CLIs, seeds a preset (one CLI → `<provider>-only`,
+ * zero or 2+ → `mixed`) unless settings already exist on disk, then holds on an orientation card
+ * until a key is pressed. Held states: orientation (≥ 1 CLI, no project yet), the zero-CLI warning
+ * and the seed-failed error; `esc` is claimed locally in all of them. With a project already on
+ * disk the view routes straight to Work.
  */
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { ViewShell } from '@src/application/ui/tui/components/view-shell.tsx';
 import { Card } from '@src/application/ui/tui/components/card.tsx';
+import { ActionMenu, type MenuItem } from '@src/application/ui/tui/components/action-menu.tsx';
+import { StageLegend } from '@src/application/ui/tui/components/sprint-pipeline.tsx';
 import { Spinner } from '@src/application/ui/tui/components/spinner.tsx';
 import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { useRouter, type ViewEntry } from '@src/application/ui/tui/runtime/router.tsx';
@@ -38,7 +19,7 @@ import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx
 import { useViewKeys } from '@src/application/ui/tui/runtime/use-view-keys.ts';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { createSettingsApplyPresetFlow } from '@src/application/flows/settings-apply-preset/flow.ts';
-import { detectInstalledProviders } from '@src/integration/system/detect-cli.ts';
+import { detectInstalledProviders, PROVIDER_BINARY } from '@src/integration/system/detect-cli.ts';
 import type { PresetName } from '@src/business/settings/presets.ts';
 import type { AiProvider } from '@src/domain/entity/settings.ts';
 import type { ProjectRepository } from '@src/domain/repository/project/project-repository.ts';
@@ -63,12 +44,7 @@ const pickPresetForDetected = (installed: ReadonlySet<AiProvider>): PresetName =
   return 'mixed';
 };
 
-/**
- * Where welcome hands the user off. After first-run setup the user still has no project, so walk
- * them straight into the create-project wizard rather than dropping them on a home screen they
- * can't use yet; a repo that already holds projects goes to home. Shared by the seeding path and
- * the already-seeded short-circuit so both land in the same place.
- */
+/** Create-project when no project exists yet, else Work. */
 const resolveNextRoute = async (projectRepo: ProjectRepository): Promise<ViewEntry> => {
   const projects = await projectRepo.list();
   const needsProject = projects.ok && projects.value.length === 0;
@@ -79,36 +55,26 @@ interface UseWelcomeSeedingResult {
   readonly step: Step;
   readonly chosenPreset: PresetName | undefined;
   readonly noCliDetected: boolean;
+  readonly detected: readonly AiProvider[];
   readonly errorMsg: string | undefined;
   /** Set only on the zero-CLI branch — non-`undefined` means the keypress gate is up. */
   readonly pendingRoute: ViewEntry | undefined;
   readonly continueToPendingRoute: () => void;
 }
 
-/**
- * Runs the first-run PATH-detect → apply-preset → route sequence exactly once, and owns the
- * zero-CLI keypress gate (`pendingRoute` / `continueToPendingRoute`) plus the local `esc` claim
- * that keeps the global `router.pop()` handler from also firing while the gate is up.
- */
 const useWelcomeSeeding = (): UseWelcomeSeedingResult => {
   const deps = useDeps();
   const router = useRouter();
   const claimEscape = useUiState().claimEscape;
   const [step, setStep] = useState<Step>('detecting');
   const [chosenPreset, setChosenPreset] = useState<PresetName | undefined>(undefined);
-  // Track whether PATH had zero AI CLIs so the seeded copy doesn't claim a detection-based choice
-  // when there was nothing to detect — the `mixed` fallback is a guess, not a fit.
+  // Zero CLIs means the `mixed` seed is a placeholder, not a fit.
   const [noCliDetected, setNoCliDetected] = useState(false);
+  const [detected, setDetected] = useState<readonly AiProvider[]>([]);
   const [errorMsg, setErrorMsg] = useState<string | undefined>(undefined);
-  // Zero-CLI branch: hold the resolved destination here instead of routing immediately, so the
-  // warning actually gets a chance to render before the user is carried away from it. Every
-  // other branch routes as soon as seeding resolves, same as before.
+  // Set while a held state waits for a key; routing is deferred until then.
   const [pendingRoute, setPendingRoute] = useState<ViewEntry | undefined>(undefined);
-  // First-run seeding must execute exactly once, even if React re-runs the effect because a
-  // parent re-render produced a fresh `deps` / `router` reference. Without this guard, the
-  // apply-preset flow would fire on every re-render, writing settings multiple times. This ref
-  // covers ONE component instance; the `settingsRepo.exists()` check below is the durable,
-  // disk-backed half that also survives a re-mount.
+  // Seed once per instance; the `settingsRepo.exists()` check is the durable half across re-mounts.
   const seededRef = useRef(false);
 
   useEffect(() => {
@@ -128,14 +94,12 @@ const useWelcomeSeeding = (): UseWelcomeSeedingResult => {
       const installed = await detectInstalledProviders();
       const zeroCliDetected = installed.size === 0;
       setNoCliDetected(zeroCliDetected);
+      setDetected([...installed]);
       const preset = pickPresetForDetected(installed);
       const flow = createSettingsApplyPresetFlow({ settingsRepo: deps.settingsRepo });
       const result = await flow.execute({ input: { preset } });
       if (!result.ok) {
-        // Hold `home` as the pending route BEFORE flipping to the error step. The error card
-        // tells the user to press `esc`, and `pendingRoute` is what arms both the local escape
-        // handler and the `claimEscape` that keeps the global `router.pop()` (a no-op at the
-        // stack root) from racing it. Without it the advertised key does nothing at all.
+        // Arms the escape hatch the error card advertises.
         setPendingRoute({ id: 'home' });
         setErrorMsg(result.error.error.message);
         setStep('error');
@@ -144,7 +108,7 @@ const useWelcomeSeeding = (): UseWelcomeSeedingResult => {
       setChosenPreset(preset);
       setStep('seeded');
       const next = await resolveNextRoute(deps.projectRepo);
-      if (zeroCliDetected) {
+      if (zeroCliDetected || next.id === 'create-project') {
         setPendingRoute(next);
         return;
       }
@@ -157,28 +121,81 @@ const useWelcomeSeeding = (): UseWelcomeSeedingResult => {
     if (pendingRoute !== undefined) router.reset(pendingRoute);
   }, [pendingRoute, router]);
 
-  // Own `esc` locally while the gate is up so the global router.pop() handler stands down —
-  // otherwise both handlers would fire on the same keystroke and race each other.
+  // Claim esc so the global pop doesn't race the local continue.
   useEffect(() => (pendingRoute !== undefined ? claimEscape() : undefined), [pendingRoute, claimEscape]);
 
-  return { step, chosenPreset, noCliDetected, errorMsg, pendingRoute, continueToPendingRoute };
+  return { step, chosenPreset, noCliDetected, detected, errorMsg, pendingRoute, continueToPendingRoute };
+};
+
+const CLOSING_LINE = 'After setup: 1–5 switch sections · S switches sprint · ? shows every key';
+
+const providerList = (detected: readonly AiProvider[]): string => detected.map((p) => PROVIDER_BINARY[p]).join(', ');
+
+interface OrientationProps {
+  readonly detected: readonly AiProvider[];
+  readonly preset: PresetName;
+  readonly onCreate: () => void;
+}
+
+const Orientation = ({ detected, preset, onCreate }: OrientationProps): React.JSX.Element => {
+  const ui = useUiState();
+  const [showDemo, setShowDemo] = useState(false);
+  const items: readonly MenuItem[] = [
+    { id: 'create', label: 'Create a project', onSelect: onCreate },
+    {
+      id: 'demo',
+      label: 'Try the demo sandbox',
+      note: 'ralphctl demo',
+      onSelect: () => setShowDemo(true),
+    },
+    { id: 'help', label: '? keyboard help', onSelect: ui.toggleHelp },
+  ];
+  return (
+    <Box flexDirection="column">
+      <Card title="How ralphctl works" tone="primary">
+        <Box flexDirection="column" paddingX={spacing.indent}>
+          <Text>
+            Detected <Text bold>{providerList(detected)}</Text>
+            <Text dimColor>
+              {' '}
+              {glyphs.bullet} seeded the {preset} preset based on detected CLIs
+            </Text>
+          </Text>
+          <Box marginTop={spacing.section}>
+            <StageLegend />
+          </Box>
+        </Box>
+      </Card>
+      <Box marginTop={spacing.section} flexDirection="column">
+        <ActionMenu items={items} />
+        {showDemo && (
+          <Box paddingX={spacing.indent}>
+            <Text dimColor>The sandbox runs outside this session: quit, then run `ralphctl demo` in your shell.</Text>
+          </Box>
+        )}
+      </Box>
+      <Box marginTop={spacing.section} paddingX={spacing.indent}>
+        <Text dimColor italic>
+          {CLOSING_LINE}
+        </Text>
+      </Box>
+    </Box>
+  );
 };
 
 export const WelcomeView = (): React.JSX.Element => {
-  const { step, chosenPreset, noCliDetected, errorMsg, pendingRoute, continueToPendingRoute } = useWelcomeSeeding();
+  const { step, chosenPreset, noCliDetected, detected, errorMsg, pendingRoute, continueToPendingRoute } =
+    useWelcomeSeeding();
+  const orientation = step === 'seeded' && !noCliDetected && pendingRoute !== undefined && chosenPreset !== undefined;
 
+  const held = pendingRoute !== undefined;
   useViewKeys(
     [
-      {
-        // `↵` and space are the only keys distinguishable via `input` here — Ink reduces Escape
-        // (and every arrow / fn / backspace key) to `input === ''`, so Escape is handled below
-        // via `key.escape` instead of being folded into this dispatcher's matching.
-        keys: ['\r', ' '],
-        hint: 'continue',
-        run: continueToPendingRoute,
-      },
+      { keys: ['↵'], hint: 'continue', enabled: held && !orientation, run: continueToPendingRoute },
+      { keys: ['↑', '↓'], hint: 'move', enabled: orientation },
+      { keys: ['↵'], hint: 'select', enabled: orientation },
     ],
-    { active: pendingRoute !== undefined }
+    { active: held }
   );
 
   useInput(
@@ -188,27 +205,29 @@ export const WelcomeView = (): React.JSX.Element => {
     { isActive: pendingRoute !== undefined }
   );
 
+  if (orientation) {
+    return (
+      <ViewShell title="Welcome to ralphctl" subtitle="first-run setup">
+        <Orientation detected={detected} preset={chosenPreset} onCreate={continueToPendingRoute} />
+      </ViewShell>
+    );
+  }
+
   return (
     <ViewShell title="Welcome to ralphctl" subtitle="first-run setup">
       <Box flexDirection="column">
-        {/* One card wraps all three steps, so the tone is derived rather than a second card
-            added — DESIGN-SYSTEM § 5 wants an error state on an `error`-toned surface. */}
         <Card title="Seeding settings" tone={step === 'error' ? 'error' : 'primary'}>
           <Box flexDirection="column" paddingX={spacing.indent}>
             {step === 'detecting' && <Spinner label="probing PATH for installed AI CLIs…" />}
-            {step === 'seeded' &&
-              chosenPreset !== undefined &&
-              (noCliDetected ? (
-                <Box flexDirection="column">
-                  <Text color={inkColors.warning}>{ZERO_CLI_HINT}</Text>
-                  <Text dimColor>Seeded the {chosenPreset} preset as a placeholder.</Text>
-                  <Text dimColor italic>
-                    Press ↵ to continue.
-                  </Text>
-                </Box>
-              ) : (
-                <Text>Seeded with {chosenPreset} preset based on detected CLIs.</Text>
-              ))}
+            {step === 'seeded' && chosenPreset !== undefined && (
+              <Box flexDirection="column">
+                <Text color={inkColors.warning}>{ZERO_CLI_HINT}</Text>
+                <Text dimColor>Seeded the {chosenPreset} preset as a placeholder.</Text>
+                <Text dimColor italic>
+                  Press ↵ to continue.
+                </Text>
+              </Box>
+            )}
             {step === 'error' && (
               <Box flexDirection="column">
                 <Text color={inkColors.error}>Failed to save settings: {errorMsg}</Text>

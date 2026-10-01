@@ -1,5 +1,5 @@
 /**
- * Free-text input prompt. Uses Ink's `useInput` directly so the buffer mirrors the screen on
+ * Free-text input prompt (optional inline `validate` / `preview`). Uses Ink's `useInput` directly so the buffer mirrors the screen on
  * keystroke; cursor navigation (←/→, Home/End, ctrl+a/ctrl+e) is supported for mid-line editing.
  * Backspace removes the char before the cursor; Enter submits; Esc rejects with abort.
  *
@@ -161,6 +161,10 @@ export interface TextPromptProps {
    * as "step back" should pass "back" so the hint matches the actual behaviour.
    */
   readonly escLabel?: string;
+  /** Returns an error message to block submit. Shown inline once the buffer is non-empty or ↵ was tried. */
+  readonly validate?: (value: string) => string | undefined;
+  /** Dim one-line preview under the field, derived from the buffer. */
+  readonly preview?: (value: string) => string | undefined;
 }
 
 export const TextPrompt = ({
@@ -169,9 +173,12 @@ export const TextPrompt = ({
   onCancel,
   initial = '',
   escLabel = 'cancel',
+  validate,
+  preview,
 }: TextPromptProps): React.JSX.Element => {
   const { buf, cursor, bufRef, updateCursor, updateBufAndCursor, insertAtCursor } = useLineBuffer(initial);
   const [caretOn, setCaretOn] = useState(true);
+  const [attempted, setAttempted] = useState(false);
 
   // Bracketed-paste channel. A single-line field flattens the payload: runs of whitespace and the
   // newlines of a multi-line paste collapse to one space so the field stays single-line.
@@ -195,6 +202,10 @@ export const TextPrompt = ({
       return;
     }
     if (key.return) {
+      if (validate?.(bufRef.current) !== undefined) {
+        setAttempted(true);
+        return;
+      }
       onSubmit(bufRef.current);
       return;
     }
@@ -209,6 +220,9 @@ export const TextPrompt = ({
   const beforeCursor = buf.slice(0, cursor);
   const charAtCursor = buf.slice(cursor, cursor + 1); // '' when cursor is past end
   const afterCursor = buf.slice(cursor + 1);
+
+  const error = attempted || buf.length > 0 ? validate?.(buf) : undefined;
+  const previewText = error === undefined ? preview?.(buf) : undefined;
 
   return (
     <Box flexDirection="column" paddingX={spacing.indent}>
@@ -230,6 +244,12 @@ export const TextPrompt = ({
           </>
         )}
       </Box>
+      {error !== undefined && (
+        <Text color={inkColors.error}>
+          {glyphs.cross} {error}
+        </Text>
+      )}
+      {previewText !== undefined && <Text dimColor>{previewText}</Text>}
       <Text dimColor>↵ submit · ←/→ cursor · home/end edge · esc {escLabel} · ctrl+w word · ctrl+u clear</Text>
     </Box>
   );

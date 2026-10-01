@@ -295,4 +295,50 @@ describe('TextPrompt', () => {
     expect(onSubmit).toHaveBeenCalledWith('typed');
     unmount();
   });
+
+  describe('validate', () => {
+    const required = (v: string): string | undefined => (v.trim().length === 0 ? 'Name is required' : undefined);
+
+    it('blocks submit on an empty value, shows the error inline and keeps the field live', async () => {
+      const onSubmit = vi.fn();
+      const { stdin, lastFrame, unmount } = render(
+        <TextPrompt message="Name" validate={required} onSubmit={onSubmit} onCancel={() => undefined} />
+      );
+      await tick();
+      expect(lastFrame()).not.toContain('Name is required');
+      stdin.write(ENTER);
+      await tick();
+      expect(lastFrame()).toContain('✗ Name is required');
+      expect(onSubmit).not.toHaveBeenCalled();
+
+      stdin.write('ab');
+      await tick();
+      expect(lastFrame()).toContain('ab');
+      expect(lastFrame()).not.toContain('Name is required');
+      stdin.write(ENTER);
+      await tick();
+      expect(onSubmit).toHaveBeenCalledWith('ab');
+      unmount();
+    });
+
+    it('shows a live error while typing and a preview when valid', async () => {
+      const { stdin, lastFrame, unmount } = render(
+        <TextPrompt
+          message="Slug"
+          validate={(v) => (v.includes('_') ? 'no underscores' : undefined)}
+          preview={(v) => `saves as ${v}`}
+          onSubmit={() => undefined}
+          onCancel={() => undefined}
+        />
+      );
+      stdin.write('a_');
+      await tick();
+      expect(lastFrame()).toContain('✗ no underscores');
+      expect(lastFrame()).not.toContain('saves as');
+      stdin.write('\x7f');
+      await tick();
+      expect(lastFrame()).toContain('saves as a');
+      unmount();
+    });
+  });
 });
