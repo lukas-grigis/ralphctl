@@ -25,7 +25,7 @@ export interface BuildShortcutsActionsArgs {
   readonly setConfirmRemove: (ticket: Ticket | undefined) => void;
   readonly setFeedback: (message: string) => void;
   readonly onUnblock: (task: Task) => Promise<void>;
-  readonly onPublish: (ticket: Ticket) => Promise<void>;
+  readonly onPublish: (ticket: Ticket) => void;
   readonly sprintId: SprintId | undefined;
   readonly openEvaluationOverlay: (target: EvaluationTarget) => void;
   /** Re-reads the sprint bundle — threaded through to the `r` chord's `reloadSprint` action. */
@@ -69,7 +69,7 @@ export const buildShortcutsActions = (args: BuildShortcutsActionsArgs) => {
       void onUnblock(task);
     },
     handlePublish: (ticket: Ticket) => {
-      void onPublish(ticket);
+      onPublish(ticket);
     },
     // The full target is assembled here (not inside the overlay) so its degrade arms never need a
     // second repository read — see `runtime/evaluation-target.ts`.

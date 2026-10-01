@@ -20,7 +20,7 @@
  *     and a silent swallow reads as a bug).
  *
  * Special keys are spelled as their hint glyphs: `↵` (return), `esc`, `Tab`, `↑`, `↓`, `←`, `→`, `PgUp`,
- * `PgDn`, `Home`, `End`. Every other entry matches the literal `input` string.
+ * `PgDn`, `Home`, `End`, `space`. Every other entry matches the literal `input` string.
  *
  * The optional `active` flag mutes the whole dispatcher — the view-wide equivalent of Ink's own
  * `isActive`, for when a confirm overlay owns the keyboard. The dispatcher also mutes itself
@@ -77,6 +77,7 @@ const SPECIAL_KEYS: Readonly<Record<string, (key: Key) => boolean>> = {
 };
 
 const matches = (token: string, input: string, key: Key): boolean => {
+  if (token === 'space') return input === ' ';
   const special = SPECIAL_KEYS[token];
   return special !== undefined ? special(key) : token === input;
 };

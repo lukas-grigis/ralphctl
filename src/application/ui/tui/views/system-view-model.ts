@@ -5,12 +5,14 @@
  *
  * Doctor sorts to the top whenever its report holds a warning or a failure: that is the child that
  * needs the operator, and the hub's `↵` should land on it without a hunt. Everything else keeps
- * the fixed order (Settings, Skills, …).
+ * the fixed order (Settings, Skills, Doctor, Housekeeping).
  */
 
 import type { DoctorReport } from '@src/application/flows/doctor/ctx.ts';
 import { glyphs } from '@src/application/ui/tui/theme/tokens.ts';
 import { primaryFlowRow, type Settings } from '@src/domain/entity/settings.ts';
+import { housekeepingSummary } from '@src/application/ui/tui/views/housekeeping-rows.ts';
+import type { HousekeepingScan } from '@src/business/housekeeping/scan-housekeeping.ts';
 import type { SkillCatalogEntry } from '@src/integration/ai/skills/_engine/skill-catalog-port.ts';
 import type { ViewId } from '@src/application/ui/tui/views/view-registry.tsx';
 
@@ -70,6 +72,8 @@ export interface SystemRowsInput {
   /** `undefined` while loading or when the read failed. */
   readonly settings: Settings | undefined;
   readonly skills: readonly SkillCatalogEntry[] | undefined;
+  /** `undefined` while loading or when the scan failed. */
+  readonly housekeeping: HousekeepingScan | undefined;
 }
 
 export const buildSystemRows = (input: SystemRowsInput): readonly SystemRow[] => {
@@ -79,6 +83,13 @@ export const buildSystemRows = (input: SystemRowsInput): readonly SystemRow[] =>
     { id: 'skills', label: 'Skills', view: 'skills', summary: skillsSummary(input.skills), tone: 'dim' },
   ];
   const doctorRow: SystemRow = { id: 'doctor', label: 'Doctor', view: 'doctor', ...doctor };
+  const housekeepingRow: SystemRow = {
+    id: 'housekeeping',
+    label: 'Housekeeping',
+    view: 'housekeeping',
+    summary: housekeepingSummary(input.housekeeping),
+    tone: 'dim',
+  };
   const needsAttention = doctor.tone === 'warn' || doctor.tone === 'fail';
-  return needsAttention ? [doctorRow, ...rows] : [...rows, doctorRow];
+  return needsAttention ? [doctorRow, ...rows, housekeepingRow] : [...rows, doctorRow, housekeepingRow];
 };

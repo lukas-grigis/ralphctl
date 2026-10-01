@@ -34,7 +34,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Box, Text } from 'ink';
 import { ViewShell } from '@src/application/ui/tui/components/view-shell.tsx';
 import { Spinner } from '@src/application/ui/tui/components/spinner.tsx';
-import { ConfirmPrompt } from '@src/application/ui/tui/prompts/confirm-prompt.tsx';
+import { PresetConfirm } from '@src/application/ui/tui/views/preset-confirm.tsx';
 import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { useStorage } from '@src/application/ui/tui/runtime/storage-context.tsx';
 import { useLogLevel } from '@src/application/ui/tui/runtime/log-level-context.tsx';
@@ -371,16 +371,13 @@ const SettingsViewBody = ({
   presetWarnings,
   feedback,
 }: SettingsViewBodyProps): React.JSX.Element => {
-  if (pendingPreset !== undefined) {
+  if (pendingPreset !== undefined && settings !== undefined) {
     return (
-      <ConfirmPrompt
-        message={`Apply preset ${pendingPreset}? This overwrites all AI rows.`}
-        defaultYes={false}
-        onSubmit={(yes) => {
-          onCancelPreset();
-          if (yes) void onApplyPreset(pendingPreset);
-        }}
-        onCancel={onCancelPreset}
+      <PresetConfirm
+        preset={pendingPreset}
+        settings={settings}
+        onApply={() => void onApplyPreset(pendingPreset)}
+        onClose={onCancelPreset}
       />
     );
   }

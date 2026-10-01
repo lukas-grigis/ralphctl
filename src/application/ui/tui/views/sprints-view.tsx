@@ -238,7 +238,7 @@ const useSprintRowActions = (edit: UseEditFieldState, reload: () => void): UseSp
   return { confirmDelete, setConfirmDelete, feedback, setFeedback, handleRename, handleDeleteConfirmed };
 };
 
-/** Destructive-delete gate for one sprint, spelling out what the cascade takes with it. */
+/** Destructive-delete gate for one sprint, stating what is lost (tickets live in the sprint's own files). */
 const SprintDeleteConfirm = ({
   sprint,
   onSubmit,
@@ -247,23 +247,34 @@ const SprintDeleteConfirm = ({
   readonly sprint: Sprint;
   readonly onSubmit: (confirmed: boolean) => void;
   readonly onCancel: () => void;
-}): React.JSX.Element => (
-  <ConfirmCard
-    title={
-      <Text>
-        Remove sprint <Text bold>{sprint.name}</Text>?
-      </Text>
-    }
-    body={
-      <Text dimColor>
-        Cascades to its execution record + tasks. Tickets stay in the sprint history if you re-create.
-      </Text>
-    }
-    message="Delete?"
-    onSubmit={onSubmit}
-    onCancel={onCancel}
-  />
-);
+}): React.JSX.Element => {
+  const deps = useDeps();
+  const [taskCount, setTaskCount] = useState<number | undefined>(undefined);
+
+  useEffect(() => {
+    let cancelled = false;
+    void deps.taskRepo.findBySprintId(sprint.id).then((r) => {
+      if (!cancelled && r.ok) setTaskCount(r.value.length);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [deps.taskRepo, sprint.id]);
+
+  const loss =
+    taskCount === undefined
+      ? `Deletes ${plural(sprint.tickets.length, 'ticket')} and its tasks.`
+      : `Deletes ${plural(sprint.tickets.length, 'ticket')} and ${plural(taskCount, 'task')}.`;
+  return (
+    <ConfirmCard
+      verb="Remove"
+      target={`sprint "${sprint.name}"`}
+      body={<Text dimColor>{loss} This cannot be undone.</Text>}
+      onSubmit={onSubmit}
+      onCancel={onCancel}
+    />
+  );
+};
 
 interface SprintsBodyProps {
   readonly confirmDelete: Sprint | undefined;

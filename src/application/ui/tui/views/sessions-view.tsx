@@ -12,13 +12,13 @@
  *   c    abort the focused session (if it's running) after a confirm
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { Box, Text } from 'ink';
 import { ViewShell } from '@src/application/ui/tui/components/view-shell.tsx';
 import { EmptyState } from '@src/application/ui/tui/components/empty-state.tsx';
 import { runnerStatusKind, StatusChip } from '@src/application/ui/tui/components/status-chip.tsx';
 import { OverflowRow, useListWindow, type ListWindow } from '@src/application/ui/tui/components/windowed-list.tsx';
-import { ConfirmPrompt } from '@src/application/ui/tui/prompts/confirm-prompt.tsx';
+import { ConfirmCard } from '@src/application/ui/tui/components/confirm-card.tsx';
 import { glyphs, inkColors, listCapacity, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { plural } from '@src/application/ui/shared/plural.ts';
 import { FeedbackLine, feedback, type StructuredFeedback } from '@src/application/ui/tui/components/feedback-line.tsx';
@@ -172,17 +172,13 @@ export const SessionsView = (): React.JSX.Element => {
     onSubmit: (s) => router.push({ id: 'execute', props: { sessionId: s.descriptor.id } }),
   });
 
-  // Claim the global-key mute while the confirm prompt is mounted.
-  const claimPrompt = ui.claimPrompt;
-  useEffect(() => (confirmCancel !== undefined ? claimPrompt() : undefined), [confirmCancel, claimPrompt]);
-
   useViewKeys(
     [
       listMoveBinding,
       { keys: ['↵'], hint: 'open' },
       {
         keys: ['c'],
-        hint: 'cancel run',
+        hint: 'stop run',
         run: () => {
           const target = focusedItem ?? sessions[0];
           if (target === undefined) return;
@@ -190,7 +186,7 @@ export const SessionsView = (): React.JSX.Element => {
           // the focused row, and a swallowed keystroke would read as a broken key — so the
           // handler says which state blocked it instead.
           if (target.descriptor.status !== 'running') {
-            setSessionFeedback(feedback('error', `session is ${target.descriptor.status}, nothing to cancel`));
+            setSessionFeedback(feedback('error', `session is ${target.descriptor.status}, nothing to stop`));
             return;
           }
           setConfirmCancel(target);
@@ -204,26 +200,19 @@ export const SessionsView = (): React.JSX.Element => {
     setConfirmCancel(undefined);
     if (!confirmed) return;
     manager.abort(target.descriptor.id);
-    setSessionFeedback(feedback('success', `requested cancel for ${target.descriptor.title}`));
+    setSessionFeedback(feedback('success', `requested stop for ${target.descriptor.title}`));
   };
 
   return (
     <ViewShell title="Runs" subtitle="every chain run, live and recent" suppressScrollArrows>
       {confirmCancel !== undefined ? (
-        <Box flexDirection="column" paddingX={spacing.indent}>
-          <Text>
-            Cancel <Text bold>{confirmCancel.descriptor.title}</Text>?
-          </Text>
-          <Text dimColor>The runner stops at the next safe point; partial progress is retained on disk.</Text>
-          <Box marginTop={spacing.section}>
-            <ConfirmPrompt
-              message="Cancel?"
-              defaultYes={false}
-              onSubmit={(value) => handleCancelConfirmed(confirmCancel, value)}
-              onCancel={() => setConfirmCancel(undefined)}
-            />
-          </Box>
-        </Box>
+        <ConfirmCard
+          verb="Stop run"
+          target={confirmCancel.descriptor.title}
+          body={<Text dimColor>The runner stops at the next safe point; partial progress is retained on disk.</Text>}
+          onSubmit={(value) => handleCancelConfirmed(confirmCancel, value)}
+          onCancel={() => setConfirmCancel(undefined)}
+        />
       ) : sessions.length === 0 ? (
         <EmptyState title="No sessions yet" hint="Start a flow from Work (1)." />
       ) : (

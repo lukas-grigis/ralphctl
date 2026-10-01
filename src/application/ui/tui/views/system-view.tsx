@@ -1,11 +1,11 @@
 /**
- * System hub — the fifth section's root: Settings, Skills and Doctor (Housekeeping joins later),
- * one row each with a live one-line summary, so the operator sees what needs attention before
- * opening anything. `↵` pushes the child onto the System stack; `esc` in the child returns here.
+ * System hub — the fifth section's root: Settings, Skills, Doctor and Housekeeping, one row each
+ * with a live one-line summary, so the operator sees what needs attention before opening anything.
+ * `↵` pushes the child onto the System stack; `esc` in the child returns here.
  *
  * Summaries come from the shared sources the children use: the doctor report from
- * `useSystemStatus` (also feeding the tab-bar badge), `settingsRepo.load()` and
- * `skillCatalog.list()`. `r` reloads all of them. Ordering and copy live in
+ * `useSystemStatus` (also feeding the tab-bar badge), `settingsRepo.load()`, `skillCatalog.list()`
+ * and `housekeeping.scan()`. `r` reloads all of them. Ordering and copy live in
  * `system-view-model.ts`.
  */
 
@@ -24,6 +24,7 @@ import { useBreakpoint } from '@src/application/ui/tui/runtime/use-breakpoint.ts
 import { listMoveBinding } from '@src/application/ui/tui/runtime/keyboard-map.ts';
 import { buildSystemRows, type SummaryTone, type SystemRow } from '@src/application/ui/tui/views/system-view-model.ts';
 import type { Settings } from '@src/domain/entity/settings.ts';
+import type { HousekeepingScan } from '@src/business/housekeeping/scan-housekeeping.ts';
 import type { SkillCatalogEntry } from '@src/integration/ai/skills/_engine/skill-catalog-port.ts';
 
 /** Rows the frame spends outside the list: chrome (3), footer (2), padding. */
@@ -33,6 +34,7 @@ const LABEL_WIDTH = 14;
 interface Summaries {
   readonly settings: Settings | undefined;
   readonly skills: readonly SkillCatalogEntry[] | undefined;
+  readonly housekeeping: HousekeepingScan | undefined;
 }
 
 const SUMMARY_COLOR: Readonly<Record<SummaryTone, string | undefined>> = {
@@ -66,14 +68,20 @@ export const SystemView = (): React.JSX.Element => {
   const { rows: termRows } = useBreakpoint();
 
   const { state, reload } = useAsyncLoad<Summaries>(async () => {
-    const [settingsR, skillsR] = await Promise.all([deps.settingsRepo.load(), deps.skillCatalog.list()]);
+    const [settingsR, skillsR, housekeepingR] = await Promise.all([
+      deps.settingsRepo.load(),
+      deps.skillCatalog.list(),
+      deps.housekeeping.scan(),
+    ]);
     return {
       settings: settingsR.ok ? settingsR.value : undefined,
       skills: skillsR.ok ? skillsR.value : undefined,
+      housekeeping: housekeepingR.ok ? housekeepingR.value : undefined,
     };
-  }, [deps.settingsRepo, deps.skillCatalog]);
+  }, [deps.settingsRepo, deps.skillCatalog, deps.housekeeping]);
 
-  const summaries: Summaries = state.kind === 'ok' ? state.value : { settings: undefined, skills: undefined };
+  const summaries: Summaries =
+    state.kind === 'ok' ? state.value : { settings: undefined, skills: undefined, housekeeping: undefined };
   const rows = useMemo(
     () =>
       buildSystemRows({
@@ -81,8 +89,9 @@ export const SystemView = (): React.JSX.Element => {
         doctorLoading: system.doctorLoading,
         settings: summaries.settings,
         skills: summaries.skills,
+        housekeeping: summaries.housekeeping,
       }),
-    [system.doctor, system.doctorLoading, summaries.settings, summaries.skills]
+    [system.doctor, system.doctorLoading, summaries.settings, summaries.skills, summaries.housekeeping]
   );
 
   const refreshDoctor = system.refreshDoctor;

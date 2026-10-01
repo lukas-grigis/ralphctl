@@ -257,7 +257,7 @@ the same job.
 | `TabBar`                 | Row 0. `ralphctl │` + the five sections + `? help` (`· v<version>` and `↑ v<latest>` from `lg`). Active tab wrapped in `[ ]` (survives NO_COLOR) + primary bold. Layout in `tab-bar-layout.ts` (pure). |
 | `LocationBar`            | Row 1. Left: `▣ <Section> › <crumb> — <subtitle>`; right: `<project> › <sprint> [STATUS]` (words `project`/`sprint` + `S switch` from `lg`). Fit order in `location-layout.ts` (pure).                 |
 | `ContextSwitcher`        | `S` / `P` overlay: sprint + project switcher. Mounted in `Layout`, never navigates (§ 6.2a). Rows/grouping in `context-switcher-internals/`.                                                           |
-| `SystemView`             | The System section hub: Settings / Skills / Doctor with live one-line summaries; Doctor first while it warns or fails.                                                                                 |
+| `SystemView`             | The System section hub: Settings / Skills / Doctor / Housekeeping with live one-line summaries; Doctor first while it warns or fails.                                                                  |
 | `StatusBar`              | Footer: rule + ONE width-budgeted hint row (§ 6.1a). Doctor health and the session count are tab badges now. `FooterBar` is the same footer for an overlay that hides the view.                        |
 | `hint-budget.ts`         | `fitHints` — pure width-budgeting of the footer strip. Views publish `useViewKeys`.                                                                                                                    |
 | `HelpOverlay`            | Modal `?`-key overlay, mounted once in the App Layout; scoped to the route (§ 6.5).                                                                                                                    |
@@ -336,6 +336,15 @@ Two legitimate integration modes — pick by who's asking:
   does not — claim it yourself in a `useEffect`) so global hotkeys stay muted underneath it.
   Claim only while a prompt is rendered: a wizard's saving / error steps hold no claim, so `h` and
   `esc` keep working there.
+
+**Destructive confirms.** Use `<ConfirmCard verb target body>`: one `verb` feeds the title (`Remove sprint "X"?`)
+and the prompt (`Remove?`) so they cannot disagree, and `body` states the concrete loss (`Deletes 3 tickets and 7
+tasks.`) — never a reassurance the code does not keep. It mounts `<ConfirmPrompt destructive defaultYes={false}>`:
+`destructive` drops the `h`/`l` toggle (`h` is global Home), leaving ←/→/`y`/`n`/↵/esc. Anything irreversible or
+externally visible (remove, stop run, overwrite, publish to the tracker, apply a preset) goes through it. A
+two-step flow (project removal: remove, then "Also remove its N sprints and memory?") gives each card a `key` so
+the prompt's Yes/No focus resets. Preset apply renders `diffPreset` rows (`SETTING  NOW → AFTER`, 8 max, `… N more`,
+`Unchanged:`); a preset that changes nothing shows `Already matches <preset> — nothing to change` and writes nothing.
 
 `TextPrompt` takes an optional `validate(value) → string | undefined` and `preview(value)`. A message
 renders as `✗ <message>` under the field and blocks `↵`, keeping buffer and focus; it appears once the
@@ -848,6 +857,14 @@ the active provider's catalog. There is no "+ custom" / free-text affordance; pi
 off-catalog model is done by editing the settings file directly (or via `ralphctl settings set
 ai.<flow>.model <id>`). The read side still shows whatever is persisted — an off-catalog model
 remains visible on screen until the user picks a catalog entry to overwrite it.
+
+### 7.5a Housekeeping — multi-select dry run
+
+System › Housekeeping lists reclaimable candidates (orphan sprints, orphan memory, old done sprints, old runs) in one
+`useListWindow` list: `space` marks, `a` marks all, `↵` opens a `ConfirmCard` over the marked rows, `r` rescans. The
+group name shows on the first row of each group; every row carries its byte size. The scan is a dry run — nothing is
+deleted before the confirm, and the purge re-checks each candidate and reports removed / skipped / failed. `space` is a
+named `useViewKeys` token.
 
 ### 7.6 Render caps for list data
 

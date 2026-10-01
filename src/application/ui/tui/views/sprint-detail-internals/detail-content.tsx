@@ -27,6 +27,9 @@ export interface SprintDetailContentProps {
   readonly confirmRemove: Ticket | undefined;
   readonly onCancelRemove: () => void;
   readonly onRemoveConfirmed: (target: Ticket, confirmed: boolean) => void;
+  readonly confirmPublish: Ticket | undefined;
+  readonly onCancelPublish: () => void;
+  readonly onPublishConfirmed: (target: Ticket, confirmed: boolean) => void;
   readonly project: Project | undefined;
   readonly focusList: readonly FocusItem[];
   readonly cursorIdx: number;
@@ -44,6 +47,9 @@ export const SprintDetailContent = ({
   confirmRemove,
   onCancelRemove,
   onRemoveConfirmed,
+  confirmPublish,
+  onCancelPublish,
+  onPublishConfirmed,
   project,
   focusList,
   cursorIdx,
@@ -55,14 +61,33 @@ export const SprintDetailContent = ({
   if (confirmRemove !== undefined) {
     return (
       <ConfirmCard
-        title={
-          <Text>
-            Remove ticket <Text bold>{confirmRemove.title}</Text> from this sprint?
-          </Text>
+        verb="Remove"
+        target={
+          <>
+            ticket <Text bold>{confirmRemove.title}</Text> from this sprint
+          </>
         }
-        message="Remove?"
         onSubmit={(value) => onRemoveConfirmed(confirmRemove, value)}
         onCancel={onCancelRemove}
+      />
+    );
+  }
+  if (confirmPublish !== undefined) {
+    const destination =
+      confirmPublish.link !== undefined
+        ? `Posts the refined requirements as a comment on ${confirmPublish.link}.`
+        : `Creates a new issue on ${project !== undefined ? `${project.displayName}'s` : "the repository's"} origin tracker.`;
+    return (
+      <ConfirmCard
+        verb="Publish"
+        target={
+          <>
+            ticket <Text bold>{confirmPublish.title}</Text> to the issue tracker
+          </>
+        }
+        body={<Text dimColor>{destination} This is visible to others and cannot be unsent.</Text>}
+        onSubmit={(value) => onPublishConfirmed(confirmPublish, value)}
+        onCancel={onCancelPublish}
       />
     );
   }

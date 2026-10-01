@@ -22,6 +22,7 @@ export const ROUTE_LABELS: Record<ViewId, string> = {
   settings: 'Settings',
   skills: 'Skills',
   doctor: 'Doctor',
+  housekeeping: 'Housekeeping',
   'export-context': 'Export context',
   'export-requirements': 'Export requirements',
   'create-pr': 'Create PR',
@@ -72,6 +73,7 @@ const VIEW_SECTION: Record<ViewId, ActiveSection> = {
   settings: 'system',
   skills: 'system',
   doctor: 'system',
+  housekeeping: 'system',
   welcome: 'none',
 };
 

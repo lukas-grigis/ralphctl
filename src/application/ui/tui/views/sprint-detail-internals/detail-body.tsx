@@ -282,6 +282,8 @@ interface BuildSprintDetailResultArgs {
   readonly state: AsyncLoadState<SprintBundle, unknown>;
   readonly confirmRemove: Ticket | undefined;
   readonly setConfirmRemove: (ticket: Ticket | undefined) => void;
+  readonly confirmPublish: Ticket | undefined;
+  readonly setConfirmPublish: (ticket: Ticket | undefined) => void;
   readonly project: Project | undefined;
   readonly focusList: readonly FocusItem[];
   readonly focus: FocusModel;
@@ -298,6 +300,8 @@ const buildSprintDetailResult = (args: BuildSprintDetailResultArgs): UseSprintDe
     state,
     confirmRemove,
     setConfirmRemove,
+    confirmPublish,
+    setConfirmPublish,
     project,
     focusList,
     focus,
@@ -320,6 +324,12 @@ const buildSprintDetailResult = (args: BuildSprintDetailResultArgs): UseSprintDe
       confirmRemove,
       onCancelRemove: () => setConfirmRemove(undefined),
       onRemoveConfirmed: (target, confirmed) => void handlers.handleRemoveConfirmed(target, confirmed),
+      confirmPublish,
+      onCancelPublish: () => setConfirmPublish(undefined),
+      onPublishConfirmed: (target, confirmed) => {
+        setConfirmPublish(undefined);
+        if (confirmed) void handlers.handlePublish(target);
+      },
       project,
       focusList,
       cursorIdx: focus.cursorIdx,
@@ -376,6 +386,7 @@ export const useSprintDetailBody = (): UseSprintDetailBodyResult => {
   const [openIds, setOpenIds] = useState<ReadonlySet<string>>(() => new Set());
   useSeedOpenCard({ focusTaskId: focus.seedTaskId, loaded: state.kind === 'ok', focusList, setOpenIds });
   const [confirmRemove, setConfirmRemove] = useState<Ticket | undefined>(undefined);
+  const [confirmPublish, setConfirmPublish] = useState<Ticket | undefined>(undefined);
   const [feedback, setFeedback] = useState<string | undefined>(undefined);
   const inDetail = openIds.size > 0;
 
@@ -409,7 +420,7 @@ export const useSprintDetailBody = (): UseSprintDetailBodyResult => {
 
   useSprintDetailShortcuts({
     modalOpen: ui.modalOpen,
-    confirmRemoveActive: confirmRemove !== undefined,
+    confirmRemoveActive: confirmRemove !== undefined || confirmPublish !== undefined,
     sprint,
     inDetail,
     ticketsEditable,
@@ -428,7 +439,7 @@ export const useSprintDetailBody = (): UseSprintDetailBodyResult => {
       setConfirmRemove,
       setFeedback,
       onUnblock: handlers.handleUnblock,
-      onPublish: handlers.handlePublish,
+      onPublish: setConfirmPublish,
       sprintId: sprint?.id,
       openEvaluationOverlay: ui.openEvaluation,
       reload,
@@ -446,6 +457,8 @@ export const useSprintDetailBody = (): UseSprintDetailBodyResult => {
     state,
     confirmRemove,
     setConfirmRemove,
+    confirmPublish,
+    setConfirmPublish,
     project,
     focusList,
     focus,

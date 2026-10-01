@@ -121,7 +121,7 @@ describe('key ownership', () => {
     result.stdin.write('d');
     await tick(60);
     const frame = result.lastFrame() ?? '';
-    expect(frame).toContain('Delete?');
+    expect(frame).toContain('Remove sprint "Doomed Sprint"?');
     expect(frame).toContain('Rate limited by provider');
     result.unmount();
   });

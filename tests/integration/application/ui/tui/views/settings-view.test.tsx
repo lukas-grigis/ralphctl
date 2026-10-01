@@ -11,6 +11,7 @@ import { SettingsView } from '@src/application/ui/tui/views/settings-view.tsx';
 import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import type { SettingsRepository } from '@src/domain/repository/settings/settings-repository.ts';
 import { DEFAULT_SETTINGS } from '@src/business/settings/defaults.ts';
+import { applyPreset, PRESET_NAMES } from '@src/business/settings/presets.ts';
 import { ENTER, RIGHT, tick } from '@tests/integration/application/ui/tui/_keys.ts';
 import { waitForPredicate } from '@tests/integration/application/ui/tui/_wait.ts';
 import { renderView, waitForViewReady } from '@tests/integration/application/ui/tui/_harness.tsx';
@@ -274,6 +275,48 @@ describe('SettingsView', () => {
       // Only Harness fields are visible — the previous section (Ideate) must not bleed in.
       expect(frame).toContain('Max turns');
       expect(frame).not.toContain('AI — Ideate');
+      result.unmount();
+    });
+  });
+
+  describe('preset confirmation', () => {
+    const openFirstPreset = async (settings: Settings) => {
+      const stub = stubRepoWith(settings);
+      const save = vi.fn();
+      const repo: SettingsRepository = {
+        ...stub.repo,
+        async save(next: Settings) {
+          save(next);
+          return stub.repo.save(next);
+        },
+      };
+      const stubDeps: AppDeps = { settingsRepo: repo } as unknown as AppDeps;
+      const { result } = renderView(<SettingsView />, { deps: stubDeps, initial: { id: 'settings' } });
+      await waitForViewReady(result, (f) => f.includes('Apply: Mixed'));
+      result.stdin.write(ENTER);
+      return { result, save };
+    };
+
+    it('shows what changes before anything is written', async () => {
+      const { result, save } = await openFirstPreset(applyPreset('grok-frontier', DEFAULT_SETTINGS));
+      await waitForViewReady(result, (f) => f.includes('Applying'));
+      const frame = result.lastFrame() ?? '';
+      expect(frame).toMatch(/Applying \S+ changes \d+ of \d+ values:/);
+      expect(frame).toContain('→');
+      expect(frame).toContain('Unchanged:');
+      expect(save).not.toHaveBeenCalled();
+      result.unmount();
+    });
+
+    it('says so and writes nothing when the preset already matches', async () => {
+      const first = PRESET_NAMES[0]!;
+      const { result, save } = await openFirstPreset(applyPreset(first, DEFAULT_SETTINGS));
+      await waitForViewReady(result, (f) => f.includes('nothing to change'));
+      expect(result.lastFrame() ?? '').toContain(`Already matches ${first}`);
+      result.stdin.write(ENTER);
+      await tick(40);
+      expect(result.lastFrame() ?? '').not.toContain('nothing to change');
+      expect(save).not.toHaveBeenCalled();
       result.unmount();
     });
   });

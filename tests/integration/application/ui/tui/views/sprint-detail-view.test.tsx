@@ -649,6 +649,8 @@ describe('SprintDetailView — phase workspace', () => {
     const { result } = renderView(<SprintDetailView />, { deps, initial: initialWithId });
     await waitForViewReady(result, (f) => f.includes('ship it'));
     result.stdin.write('p');
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('Publish ticket'));
+    result.stdin.write('y');
     await waitForPredicate(() => (result.lastFrame() ?? '').includes('created'));
     expect(createCalls).toEqual([{ title: 'ship it', body: '' }]);
     expect(commentCalls).toEqual([]);
@@ -709,6 +711,8 @@ describe('SprintDetailView — phase workspace', () => {
     const { result } = renderView(<SprintDetailView />, { deps, initial: initialWithId });
     await waitForViewReady(result, (f) => f.includes('linked ticket'));
     result.stdin.write('p');
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('Publish ticket'));
+    result.stdin.write('y');
     await waitForPredicate(() => (result.lastFrame() ?? '').includes('commented'));
     expect(createCalls).toEqual([]);
     expect(commentCalls).toHaveLength(1);
@@ -763,6 +767,8 @@ describe('SprintDetailView — phase workspace', () => {
     const { result } = renderView(<SprintDetailView />, { deps, initial: initialWithId });
     await waitForViewReady(result, (f) => f.includes('stays put'));
     result.stdin.write('p');
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('Publish ticket'));
+    result.stdin.write('y');
     await waitForPredicate(() => (result.lastFrame() ?? '').includes('gh is down'));
     const frame = result.lastFrame() ?? '';
     expect(frame).toContain('stays put');
@@ -822,8 +828,12 @@ describe('SprintDetailView — phase workspace', () => {
     const { result } = renderView(<SprintDetailView />, { deps, initial: initialWithId });
     await waitForViewReady(result, (f) => f.includes('double tap'));
     result.stdin.write('p');
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('Publish ticket'));
+    result.stdin.write('y');
     await waitForPredicate(() => releaseCreate !== undefined);
     result.stdin.write('p');
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('Publish ticket'));
+    result.stdin.write('y');
     await tick(40);
     expect(createCalls).toBe(1);
     releaseCreate?.();
@@ -871,6 +881,77 @@ describe('SprintDetailView — phase workspace', () => {
     result.stdin.write('p');
     await tick(40);
     expect(trackerCalls).toBe(0);
+    result.unmount();
+  });
+});
+
+describe('SprintDetailView — publish confirmation', () => {
+  const mount = (): { readonly result: ReturnType<typeof renderView>['result']; readonly calls: () => number } => {
+    const ticket = makeApprovedTicket({ title: 'gate me' });
+    const sprint = { ...makeDraftSprint(), tickets: [ticket] } as unknown as Sprint;
+    let calls = 0;
+    const pusher: IssuePusher = {
+      async resolveOrigin() {
+        calls += 1;
+        return Result.ok({ provider: 'github', hostname: 'github.com', owner: 'x', repo: 'y' });
+      },
+      async create() {
+        calls += 1;
+        return Result.ok({ url: 'https://github.com/x/y/issues/1' });
+      },
+      async listComments() {
+        return Result.ok([]);
+      },
+      async comment() {
+        return Result.ok(undefined);
+      },
+    };
+    const base = stubDeps(sprint, []);
+    const deps = {
+      ...base,
+      sprintRepo: {
+        ...base.sprintRepo,
+        async save() {
+          return Result.ok(undefined);
+        },
+      },
+      projectRepo: {
+        async findById() {
+          return Result.ok(makeProject());
+        },
+      } as unknown as ProjectRepository,
+      logger: noopLogger,
+      issuePusher: pusher,
+    } as unknown as AppDeps;
+    const { result } = renderView(<SprintDetailView />, {
+      deps,
+      initial: { id: 'sprint-detail', props: { sprintId: sprint.id } },
+    });
+    return { result, calls: () => calls };
+  };
+
+  it('p names the destination and launches nothing until y', async () => {
+    const { result, calls } = mount();
+    await waitForViewReady(result, (f) => f.includes('gate me'));
+    result.stdin.write('p');
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('Publish ticket'));
+    expect(result.lastFrame() ?? '').toContain('origin tracker');
+    await tick(40);
+    expect(calls()).toBe(0);
+    result.stdin.write('y');
+    await waitForPredicate(() => calls() > 0);
+    result.unmount();
+  });
+
+  it('n cancels without touching the tracker', async () => {
+    const { result, calls } = mount();
+    await waitForViewReady(result, (f) => f.includes('gate me'));
+    result.stdin.write('p');
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('Publish ticket'));
+    result.stdin.write('n');
+    await tick(60);
+    expect(result.lastFrame() ?? '').not.toContain('Publish ticket');
+    expect(calls()).toBe(0);
     result.unmount();
   });
 });

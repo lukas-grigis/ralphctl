@@ -52,7 +52,8 @@ import {
   enablePreselect,
 } from '@src/application/ui/tui/views/skills-view-internals/picker-options.ts';
 import {
-  confirmTitle,
+  confirmTarget,
+  confirmVerb,
   type ConfirmState,
   type PickerState,
   useSkillCatalogActions,
@@ -195,9 +196,9 @@ const SkillsBody = ({
       <SkillFlowPicker picker={picker} onSubmit={onSubmitPicker} onCancel={onCancelPicker} />
     ) : confirmState !== undefined ? (
       <ConfirmCard
-        title={<Text bold>{confirmTitle(confirmState)}</Text>}
+        verb={confirmVerb(confirmState)}
+        target={confirmTarget(confirmState)}
         body={<Text dimColor>Local edits in the selected flows will be permanently lost.</Text>}
-        message={confirmState.kind === 'disable' ? 'Remove?' : 'Overwrite?'}
         onSubmit={onSubmitConfirm}
         onCancel={() => onSubmitConfirm(false)}
       />

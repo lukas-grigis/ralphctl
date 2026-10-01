@@ -12,7 +12,7 @@ import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import type { DoctorReport } from '@src/application/flows/doctor/ctx.ts';
 import { useSystemStatus } from '@src/application/ui/tui/runtime/system-status-context.tsx';
 import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
-import { ENTER, ESC, tick } from '@tests/integration/application/ui/tui/_keys.ts';
+import { DOWN, ENTER, ESC, tick } from '@tests/integration/application/ui/tui/_keys.ts';
 import { waitFor } from '@tests/integration/application/ui/tui/_wait.ts';
 import { mountFrame, type AppFrame } from '@tests/integration/application/ui/tui/_app-frame.tsx';
 import { stripAnsi } from '@tests/integration/application/ui/tui/_harness.tsx';
@@ -42,6 +42,16 @@ const Refresh = (): null => {
   return null;
 };
 
+const scan = {
+  staleAfterDays: 30,
+  orphanSprints: [{ kind: 'orphan-sprint' }, { kind: 'orphan-sprint' }],
+  orphanMemoryDirs: [{ kind: 'orphan-memory' }],
+  staleDoneSprints: [],
+  staleRuns: [],
+  runTotals: { count: 0, bytes: 0 },
+  reclaimableBytes: 6.4 * 1024 * 1024,
+};
+
 const entry = (id: string, installs: ReadonlyArray<{ status: string }> = []): unknown => ({ name: id, installs });
 
 const stubDeps = (skills: readonly unknown[] = []): AppDeps =>
@@ -49,6 +59,7 @@ const stubDeps = (skills: readonly unknown[] = []): AppDeps =>
     eventBus: createInMemoryEventBus(),
     settingsRepo: { load: async () => Result.ok(DEFAULT_SETTINGS) },
     skillCatalog: { list: async () => Result.ok(skills) },
+    housekeeping: { scan: async () => Result.ok(scan) },
     projectRepo: { list: async () => Result.ok([]) },
     sprintRepo: { list: async () => Result.ok([]) },
     taskRepo: { findBySprintId: async () => Result.ok([]) },
@@ -74,7 +85,7 @@ const hubRows = (f: AppFrame): string[] =>
   f
     .lines()
     .map(stripAnsi)
-    .filter((l) => /^\s*[▸ ]\s*(Settings|Skills|Doctor)\b/.test(l));
+    .filter((l) => /^\s*[▸ ]\s*(Settings|Skills|Doctor|Housekeeping)\b/.test(l));
 
 describe('SystemView', () => {
   it('puts Doctor first with its warning count and first warning when the report has warnings', async () => {
@@ -83,7 +94,12 @@ describe('SystemView', () => {
     const first = hubRows(f)[0] ?? '';
     expect(first).toContain('⚠ 2 warnings');
     expect(first).toContain('check 2');
-    expect(hubRows(f).map((r) => /(Settings|Skills|Doctor)/.exec(r)?.[1])).toEqual(['Doctor', 'Settings', 'Skills']);
+    expect(hubRows(f).map((r) => /(Settings|Skills|Doctor|Housekeeping)/.exec(r)?.[1])).toEqual([
+      'Doctor',
+      'Settings',
+      'Skills',
+      'Housekeeping',
+    ]);
     f.result.unmount();
   });
 
@@ -96,7 +112,12 @@ describe('SystemView', () => {
   it('keeps Settings first and says all checks passed when the report is clean', async () => {
     const f = await mountHub(report(['pass', 'pass', 'pass']));
     await waitFor(() => expect(hubRows(f).join('\n')).toContain('✓ all 3 checks passed'));
-    expect(hubRows(f).map((r) => /(Settings|Skills|Doctor)/.exec(r)?.[1])).toEqual(['Settings', 'Skills', 'Doctor']);
+    expect(hubRows(f).map((r) => /(Settings|Skills|Doctor|Housekeeping)/.exec(r)?.[1])).toEqual([
+      'Settings',
+      'Skills',
+      'Doctor',
+      'Housekeeping',
+    ]);
     f.result.unmount();
   });
 
@@ -111,6 +132,7 @@ describe('SystemView', () => {
     expect(rows).toContain('3 bundled · 2 enabled · 2 updates available');
     expect(rows).toContain('implement');
     expect(rows).toContain('effort');
+    expect(rows).toContain('6.4 MB reclaimable · 2 orphan sprints · 1 memory dir');
     f.result.unmount();
   });
 
@@ -123,7 +145,19 @@ describe('SystemView', () => {
 
     f.result.stdin.write(ESC);
     await waitFor(() => expect(f.router().stack.map((e) => e.id)).toEqual(['system']));
-    expect(hubRows(f).length).toBe(3);
+    expect(hubRows(f).length).toBe(4);
+    f.result.unmount();
+  });
+
+  it('↵ on the Housekeeping row opens it under System', async () => {
+    const f = await mountHub(report(['pass']));
+    for (let i = 0; i < 3; i += 1) {
+      f.result.stdin.write(DOWN);
+      await tick(30);
+    }
+    f.result.stdin.write(ENTER);
+    await waitFor(() => expect(f.router().stack.map((e) => e.id)).toEqual(['system', 'housekeeping']));
+    expect(stripAnsi(f.lines()[1] ?? '')).toContain('▣ System › Housekeeping');
     f.result.unmount();
   });
 

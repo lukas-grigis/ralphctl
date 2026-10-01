@@ -356,13 +356,13 @@ const DetailContent = ({
   if (confirmRemove !== undefined) {
     return (
       <ConfirmCard
-        title={
-          <Text>
-            Remove repository <Text bold>{confirmRemove.name}</Text> from this project?
-          </Text>
+        verb="Remove"
+        target={
+          <>
+            repository <Text bold>{confirmRemove.name}</Text> from this project
+          </>
         }
         body={<Text dimColor>Files on disk are not touched.</Text>}
-        message="Remove?"
         onSubmit={(value) => onRemoveSubmit(confirmRemove, value)}
         onCancel={onRemoveCancel}
       />

@@ -58,11 +58,9 @@ const updateTargets = (entry: SkillCatalogEntry): readonly FlowId[] =>
     .filter((i) => i.status === 'update-available' || i.status === LOCALLY_MODIFIED || i.status === 'broken')
     .map((i) => i.flow);
 
-/** Human title for the destructive-confirm card. */
-export const confirmTitle = (cs: ConfirmState): string =>
-  cs.kind === 'disable'
-    ? `Remove "${cs.entry.name}" for ${String(cs.flows.length)} flow(s)?`
-    : `Update "${cs.entry.name}" for ${String(cs.flows.length)} flow(s)?`;
+/** Verb and target for the destructive-confirm card. */
+export const confirmVerb = (cs: ConfirmState): string => (cs.kind === 'disable' ? 'Remove' : 'Overwrite');
+export const confirmTarget = (cs: ConfirmState): string => `"${cs.entry.name}" for ${String(cs.flows.length)} flow(s)`;
 
 /** Threaded through every module-level handler below — one bag, one signature per handler. */
 interface ActionCtx {
