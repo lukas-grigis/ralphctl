@@ -9,6 +9,7 @@ import { createCopilotProvider } from '@src/integration/ai/providers/copilot/hea
 import { createGrokProvider } from '@src/integration/ai/providers/grok/headless.ts';
 import type { ProviderSpawn } from '@src/integration/ai/providers/_engine/spawn.ts';
 import type { HeadlessProviderDeps } from '@src/integration/ai/providers/_engine/headless-provider-deps.ts';
+import type { ChildRegistry } from '@src/integration/ai/providers/_engine/child-registry.ts';
 
 /**
  * Composition seam for {@link HeadlessAiProvider}. Selects the concrete adapter based on the
@@ -36,6 +37,8 @@ export interface CreateAiProviderDepsBase {
    * required to exercise the wiring.
    */
   readonly spawn?: ProviderSpawn;
+  /** `AppDeps.childRegistry` — announces spawned children for orphan reaping and the live-run record. */
+  readonly childRegistry?: ChildRegistry;
 }
 
 export interface CreateAiProviderDepsByFlow extends CreateAiProviderDepsBase {
@@ -84,5 +87,6 @@ export const createAiProvider = (deps: CreateAiProviderDeps): HeadlessAiProvider
     idleMs: deps.harnessConfig.idleWatchdogMs,
     eventBus: deps.eventBus,
     ...(deps.spawn !== undefined ? { spawn: deps.spawn } : {}),
+    ...(deps.childRegistry !== undefined ? { childRegistry: deps.childRegistry } : {}),
   });
 };

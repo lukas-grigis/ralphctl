@@ -195,6 +195,7 @@ export const createReviewFlow = (deps: ReviewDeps, opts: CreateReviewFlowOpts): 
       locksRoot: deps.locksRoot,
       worktreePath: opts.sprintDir,
       eventBus: deps.eventBus,
+      purpose: 'review',
     },
     chain
   );

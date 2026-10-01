@@ -16,6 +16,7 @@
 - [seams_tui_architecture_patterns.md](seams_tui_architecture_patterns.md) — Modal overlays, global hotkeys over view-local data, clip markers, one hint source, the commit-storm coalescer, cancel-vs-abort
 - [seams_tui_test_gotchas.md](seams_tui_test_gotchas.md) — Test setups that pass for the wrong reason (batched stdin, 100x24 stub, spinner flap, vacuous scroll); known resize-listener warning noise
 - [seams_model_catalog_refresh.md](seams_model_catalog_refresh.md) — Catalog-refresh checklist: fingerprint gate, remap tests, CLI-vs-API effort default, eval/TUI tests pinning preset ids, settings.ts lint hazard
+- [seams_process_lifecycle.md](seams_process_lifecycle.md) — Group-kill only marked leaders, lock owner file vs proper-lockfile, reaper sidecar test shape, pid-0 fakes
 - [seams_eval_harness.md](seams_eval_harness.md) — Prompt-eval harness: budget under-counts (no cache tokens), private-constant duplicates, fixture tooling exclusions, protectedPaths granularity
 
 ## Standalone

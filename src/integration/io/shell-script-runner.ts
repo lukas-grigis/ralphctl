@@ -6,6 +6,11 @@ import { AbortError } from '@src/domain/value/error/abort-error.ts';
 import { messageOf } from '@src/domain/value/error/error-message.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { Spawn } from '@src/integration/io/spawn.ts';
+import {
+  killProcessTree,
+  markProcessGroupLeader,
+  supportsProcessGroups,
+} from '@src/integration/io/kill-process-tree.ts';
 
 /**
  * Run a project-configured shell script. Used by the implement chain leaves:
@@ -95,27 +100,6 @@ const abortResult = (): Result<ShellScriptResult, StorageError | AbortError> =>
   Result.error(new AbortError({ elementName: 'shell-script-runner', reason: 'shell script aborted' }));
 
 /**
- * Kill the child's process group (or the child itself as a fallback). Detached children get
- * their own process group (`detached: process.platform !== 'win32'` at spawn time) so a negative
- * pid signal reaches the whole tree a shell script may have spawned, not just the shell.
- */
-const killProcessTree = (child: ChildProcessWithoutNullStreams, sig: NodeJS.Signals): void => {
-  if (process.platform !== 'win32' && typeof child.pid === 'number') {
-    try {
-      process.kill(-child.pid, sig);
-      return;
-    } catch {
-      // group already gone — fall through to per-process kill.
-    }
-  }
-  try {
-    child.kill(sig);
-  } catch {
-    // already dead.
-  }
-};
-
-/**
  * Non-interactive defaults for the spawned setup/verify child. These live on the CHILD env
  * only — ralphctl's own process env is untouched, so they never alter how the harness itself
  * detects CI / colour.
@@ -166,13 +150,16 @@ type SpawnAttempt =
 
 const trySpawnChild = (spawn: Spawn, cwd: AbsolutePath, script: string, env: NodeJS.ProcessEnv): SpawnAttempt => {
   try {
+    // Own process group so an abort / timeout reaches whatever the script forks.
+    const detached = supportsProcessGroups();
     const child = spawn(script, [], {
       stdio: ['pipe', 'pipe', 'pipe'],
       cwd: String(cwd),
       shell: true,
-      detached: process.platform !== 'win32',
+      detached,
       env,
     });
+    if (detached) markProcessGroupLeader(child);
     return { ok: true, child };
   } catch (cause) {
     return {

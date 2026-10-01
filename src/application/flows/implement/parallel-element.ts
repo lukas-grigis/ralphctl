@@ -94,8 +94,10 @@ export const createParallelImplementElement = (
       return Result.error({ error: lockPath.error, trace: [entry] });
     }
 
-    const acquired = await config.fileLocker.withLock(lockPath.value, async (lockSignal) =>
-      runUnderLock(plan, config, ctx, combineAbortSignals(signal, lockSignal), onTrace)
+    const acquired = await config.fileLocker.withLock(
+      lockPath.value,
+      async (lockSignal) => runUnderLock(plan, config, ctx, combineAbortSignals(signal, lockSignal), onTrace),
+      { purpose: 'implement' }
     );
     if (!acquired.ok) {
       // Lock contention — surface verbatim. No waves ran, nothing to persist.

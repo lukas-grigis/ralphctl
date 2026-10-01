@@ -365,6 +365,7 @@ const createCopilotAttempt = (deps: HeadlessProviderDeps, spawnFn: ProviderSpawn
       providerSlug: 'copilot',
       eventBus: deps.eventBus,
       ...(deps.idleMs !== undefined ? { idleMs: deps.idleMs } : {}),
+      ...(deps.childRegistry !== undefined ? { childRegistry: deps.childRegistry } : {}),
     });
   };
 };

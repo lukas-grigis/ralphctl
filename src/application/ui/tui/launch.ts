@@ -230,6 +230,12 @@ const resolveLaunchViewState = async (
   return { ...initialState, lastSelectionStore };
 };
 
+const runBootChecks = async (deps: AppDeps): Promise<void> => {
+  await runBundleIntegrityCheck(deps.logger);
+  // Fallback for the orphan reaper: kill AI CLI process groups that a crashed earlier run left alive.
+  void deps.reapInterruptedRuns.execute();
+};
+
 const bootstrap = async (options: LaunchTuiOptions = {}): Promise<Bootstrapped> => {
   const paths = resolveStoragePaths();
   if (!paths.ok) throw new Error(`storage-paths: ${paths.error.message}`);
@@ -257,7 +263,7 @@ const bootstrap = async (options: LaunchTuiOptions = {}): Promise<Bootstrapped> 
 
   // Runs once per process: `launchTui` is the single bare-`ralphctl` entry point and `bootstrap` runs exactly once
   // per invocation.
-  await runBundleIntegrityCheck(deps.logger);
+  await runBootChecks(deps);
 
   const { harnessBus, logBus, logLevelGate, logForwarder, unsubSignalForward, unsubLogForward } = wireObservability(
     deps.eventBus,

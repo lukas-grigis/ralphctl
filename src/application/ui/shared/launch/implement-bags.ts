@@ -61,11 +61,13 @@ export const buildImplementProviders = (
     row: implementPair.generator,
     harnessConfig: effectiveSettings.harness,
     eventBus: deps.app.eventBus,
+    childRegistry: deps.app.childRegistry,
   });
   const evaluatorProvider = createAiProvider({
     row: implementPair.evaluator,
     harnessConfig: effectiveSettings.harness,
     eventBus: deps.app.eventBus,
+    childRegistry: deps.app.childRegistry,
   });
   const generatorResolved = resolveAgentOverride(
     implementPair.generator,

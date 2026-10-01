@@ -436,7 +436,11 @@ export const createSessionManager = (opts?: {
     list: () => [...records.values()].sort((a, b) => a.descriptor.startedAt - b.descriptor.startedAt),
     get: (id) => records.get(id),
     register: (input) => {
-      opts?.runs?.track(input.runner);
+      opts?.runs?.track(input.runner, {
+        flowId: input.flowId,
+        ...(input.pinnedProjectId !== undefined ? { projectId: String(input.pinnedProjectId) } : {}),
+        ...(input.pinnedSprintId !== undefined ? { sprintId: String(input.pinnedSprintId) } : {}),
+      });
       return registerSession(records, listeners, clock, input);
     },
     abort: (id) => records.get(id)?.runner.abort('user requested'),

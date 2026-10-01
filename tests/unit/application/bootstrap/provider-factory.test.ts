@@ -2,6 +2,13 @@ import { describe, expect, it } from 'vitest';
 import type { Settings } from '@src/domain/entity/settings.ts';
 import { createAiProvider } from '@src/application/bootstrap/provider-factory.ts';
 import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import type { RegisteredChild } from '@src/integration/ai/providers/_engine/child-registry.ts';
+import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts';
+import { READ_ONLY } from '@src/integration/ai/providers/_engine/session-permissions.ts';
+import { absolutePath } from '@tests/fixtures/domain.ts';
+import { makeProviderSpawn } from '@tests/fixtures/provider-spawn-fake.ts';
 
 const harnessConfig: Settings['harness'] = {
   maxTurns: 5,
@@ -125,5 +132,41 @@ describe('createAiProvider', () => {
     expect(typeof refineProvider.generate).toBe('function');
     expect(typeof planProvider.generate).toBe('function');
     expect(typeof implementProvider.generate).toBe('function');
+  });
+});
+
+describe('createAiProvider — child registry wiring', () => {
+  it('announces every spawned child to the injected registry and releases it on exit', async () => {
+    const fake = makeProviderSpawn([{}]);
+    const registered: RegisteredChild[] = [];
+    let released = 0;
+    const provider = createAiProvider({
+      flow: 'implement',
+      ai: claudeConfig,
+      harnessConfig,
+      eventBus: createInMemoryEventBus(),
+      spawn: (command, args, options) => Object.assign(fake.spawn(command, args, options), { pid: 777 }),
+      childRegistry: {
+        register: (child) => {
+          registered.push(child);
+          return { noteSessionId: () => {}, release: () => (released += 1) };
+        },
+      },
+    });
+
+    await provider.generate({
+      prompt: 'p' as Prompt,
+      cwd: absolutePath('/repo'),
+      model: 'claude-opus-4-8',
+      permissions: READ_ONLY,
+      signalsFile: absolutePath(join(tmpdir(), `ralphctl-pf-${String(process.pid)}`, 'signals.json')),
+      role: 'evaluator',
+    });
+
+    expect(registered).toEqual([
+      expect.objectContaining({ pid: 777, provider: 'claude-code', cwd: '/repo', role: 'evaluator' }),
+    ]);
+    expect(registered[0]?.pgid).toBeUndefined();
+    expect(released).toBe(1);
   });
 });

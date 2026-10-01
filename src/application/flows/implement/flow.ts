@@ -614,6 +614,7 @@ export const createImplementFlow = (deps: ImplementDeps, opts: CreateImplementFl
         locksRoot: deps.locksRoot,
         worktreePath: opts.sprintDir,
         eventBus: deps.eventBus,
+        purpose: 'implement',
       },
       inner
     ),

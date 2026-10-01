@@ -2,6 +2,7 @@ import { EventEmitter } from 'node:events';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_IDLE_MS, installIdleWatchdog } from '@src/integration/ai/providers/_engine/idle-watchdog.ts';
+import { markProcessGroupLeader } from '@src/integration/io/kill-process-tree.ts';
 
 /**
  * Minimal fake child process exposing the surface the watchdog reads: stdout / stderr event
@@ -192,5 +193,35 @@ describe('installIdleWatchdog', () => {
     w.stop();
     expect(removes).toHaveLength(1);
     expect(removes[0]).toBe(adds[0]);
+  });
+});
+
+describe('installIdleWatchdog — process-group leaders', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it('kills the whole group, and lets the group SIGKILL land after the leader exits', () => {
+    const signalled: string[] = [];
+    vi.spyOn(process, 'kill').mockImplementation((pid: number, sig?: string | number) => {
+      signalled.push(`${String(pid)}:${String(sig)}`);
+      return true;
+    });
+    const { child, kills } = makeFakeChild();
+    Object.assign(child, { pid: 4242 });
+    markProcessGroupLeader(child);
+    const wd = installIdleWatchdog(child, { idleMs: 1000, graceMs: 500 });
+
+    vi.advanceTimersByTime(1000);
+    wd.stop(); // the leader exited on SIGTERM; its tool subprocesses may not have
+    vi.advanceTimersByTime(500);
+
+    expect(signalled).toEqual(['-4242:SIGTERM', '-4242:SIGKILL']);
+    expect(kills).toEqual([]);
   });
 });

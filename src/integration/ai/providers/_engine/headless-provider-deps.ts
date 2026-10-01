@@ -1,5 +1,6 @@
 import type { EventBus } from '@src/business/observability/event-bus.ts';
 import type { ProviderSpawn } from '@src/integration/ai/providers/_engine/spawn.ts';
+import type { ChildRegistry } from '@src/integration/ai/providers/_engine/child-registry.ts';
 
 /**
  * Composition-root inputs shared by every headless provider adapter (claude / codex / copilot).
@@ -35,6 +36,8 @@ export interface HeadlessProviderDeps {
    * (1 min → 5 min → 30 min → 2 h). Tests pass `[0, 0, …]` to keep retry assertions fast.
    */
   readonly backoffSchedule?: readonly number[];
+  /** Announces each spawned child for orphan reaping and the live-run record. Absent → not tracked. */
+  readonly childRegistry?: ChildRegistry;
 }
 
 /**

@@ -19,6 +19,13 @@ import {
 } from '@src/integration/ai/providers/_engine/classify-spawn-exit.ts';
 import { argvByteLength } from '@src/integration/ai/providers/_engine/argv-budget.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
+import type { ChildProcessWithoutNullStreams } from 'node:child_process';
+import {
+  NOOP_CHILD_REGISTRY,
+  type ChildRegistry,
+  type RegisteredChildHandle,
+} from '@src/integration/ai/providers/_engine/child-registry.ts';
+import { processGroupOf } from '@src/integration/io/kill-process-tree.ts';
 
 export type { ProviderName };
 
@@ -146,7 +153,34 @@ export interface ProviderAttemptInput {
   readonly providerSlug: 'claude' | 'codex' | 'copilot' | 'opencode' | 'grok';
   readonly eventBus: EventBus;
   readonly idleMs?: number;
+  /** Where the spawned child is announced for orphan reaping and the live-run record. */
+  readonly childRegistry?: ChildRegistry;
 }
+
+const PROVIDER_BY_SLUG: Readonly<Record<ProviderAttemptInput['providerSlug'], AiProvider>> = {
+  claude: 'claude-code',
+  codex: 'openai-codex',
+  copilot: 'github-copilot',
+  opencode: 'opencode',
+  grok: 'xai-grok',
+};
+
+const registerChild = (
+  input: ProviderAttemptInput,
+  child: ChildProcessWithoutNullStreams
+): RegisteredChildHandle | undefined => {
+  if (typeof child.pid !== 'number' || child.pid <= 0) return undefined;
+  const pgid = processGroupOf(child);
+  return (input.childRegistry ?? NOOP_CHILD_REGISTRY).register({
+    pid: child.pid,
+    ...(pgid !== undefined ? { pgid } : {}),
+    provider: PROVIDER_BY_SLUG[input.providerSlug],
+    command: input.command,
+    cwd: String(input.session.cwd),
+    ...(input.session.role !== undefined ? { role: input.session.role } : {}),
+    signalsFile: String(input.session.signalsFile),
+  });
+};
 
 /**
  * Shared spawnAttempt scaffold for the five headless AI provider adapters. Owns:
@@ -286,7 +320,7 @@ const createSuccessHandler =
   };
 
 export const runProviderAttempt = async (input: ProviderAttemptInput): Promise<AttemptOutcome> => {
-  const { spawnFn, command, args, session, resolveOn, rateLimitRe, providerName, providerSlug, eventBus } = input;
+  const { spawnFn, command, args, session, providerName } = input;
 
   const argvBytes = argvByteLength(command, args);
   // Read BEFORE the spawn so the recorded duration covers the child's whole life, including the
@@ -301,10 +335,27 @@ export const runProviderAttempt = async (input: ProviderAttemptInput): Promise<A
     child = spawnFn(command, args, {
       stdio: ['pipe', 'pipe', 'pipe'] as const,
       cwd: String(session.cwd),
+      detached: true,
     });
   } catch (cause) {
     return classifySpawnFailure(providerName, cause as NodeJS.ErrnoException, argvBytes);
   }
+  const registered = registerChild(input, child);
+  try {
+    return await superviseAttempt(input, child, argvBytes, startedAtMs, registered);
+  } finally {
+    registered?.release();
+  }
+};
+
+const superviseAttempt = async (
+  input: ProviderAttemptInput,
+  child: ChildProcessWithoutNullStreams,
+  argvBytes: number,
+  startedAtMs: number,
+  registered: RegisteredChildHandle | undefined
+): Promise<AttemptOutcome> => {
+  const { session, resolveOn, rateLimitRe, providerName, providerSlug, eventBus } = input;
 
   const stderrTail = createBoundedTail(STDERR_TAIL_CAP);
   const watchdogBannerId = `watchdog-${providerSlug}-${String(child.pid ?? 'unknown')}`;
@@ -327,6 +378,7 @@ export const runProviderAttempt = async (input: ProviderAttemptInput): Promise<A
   input.flush();
 
   const sessionId = input.getSessionId();
+  if (sessionId !== undefined) registered?.noteSessionId(sessionId);
   const stdoutTail = input.getStdoutTail();
   const processErrorText = input.getProcessErrorText?.();
   return classifySpawnExit({

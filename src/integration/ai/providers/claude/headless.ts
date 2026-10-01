@@ -380,6 +380,7 @@ export const createClaudeProvider = (deps: HeadlessProviderDeps): HeadlessAiProv
           providerSlug: 'claude',
           eventBus: deps.eventBus,
           ...(deps.idleMs !== undefined ? { idleMs: deps.idleMs } : {}),
+          ...(deps.childRegistry !== undefined ? { childRegistry: deps.childRegistry } : {}),
         });
       },
     }),

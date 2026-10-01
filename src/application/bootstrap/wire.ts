@@ -78,6 +78,14 @@ import { createHousekeeping, type Housekeeping } from '@src/application/flows/ho
 import { createProjectRemoval, type ProjectRemoval } from '@src/application/flows/delete-project/project-removal.ts';
 import { createSprintRemoval, type SprintRemoval } from '@src/application/flows/delete-sprint/sprint-removal.ts';
 import { createInProcessRuns, type InProcessRuns } from '@src/application/session/in-process-runs.ts';
+import { createLiveRunRecorder } from '@src/application/session/live-run-recorder.ts';
+import { createRunChildRegistry, type RunChildRegistry } from '@src/application/session/run-child-registry.ts';
+import { rootSessionId } from '@src/application/session/session.ts';
+import { createOrphanReaper } from '@src/integration/io/orphan-reaper.ts';
+import { createProcessGroupTerminator, createProcessLiveness } from '@src/integration/io/process-liveness.ts';
+import { createFsLiveRunStore } from '@src/integration/persistence/live-run/fs-live-run-store.ts';
+import { createDetectInterruptedRuns, type DetectInterruptedRuns } from '@src/business/runs/detect-interrupted-runs.ts';
+import { createReapInterruptedRuns, type ReapInterruptedRuns } from '@src/business/runs/reap-interrupted-runs.ts';
 import { anyRunActivity } from '@src/business/_shared/run-activity-probe.ts';
 import type { FileLogSink, FileLogSinkDeps } from '@src/integration/observability/_engine/file-log-sink.ts';
 
@@ -208,6 +216,15 @@ export interface AppDeps {
    * see lock-free flows (plan, refine, ideate) as well as lock-holding ones.
    */
   readonly inProcessRuns: InProcessRuns;
+  /**
+   * Where headless AI CLI spawns are announced: the orphan reaper sidecar kills their process groups if this process
+   * dies, and the owning run's `<stateRoot>/runs/<runId>.json` record lists them.
+   */
+  readonly childRegistry: RunChildRegistry;
+  /** Runs whose live-run record outlived the process that owned them. */
+  readonly detectInterruptedRuns: DetectInterruptedRuns;
+  /** Boot-time fallback reap of the process groups interrupted runs left behind. */
+  readonly reapInterruptedRuns: ReapInterruptedRuns;
 }
 
 /** Injection points for `wire()`. */
@@ -300,23 +317,53 @@ const buildWireAgentDefinitionSource = (storage: StoragePaths, logger: Logger): 
   );
 
 /** Wire-time seed provider. */
-const buildWireProvider = (opts: WireOptions, eventBus: EventBus, spawn: ProviderSpawn | undefined) =>
+const buildWireProvider = (
+  opts: WireOptions,
+  eventBus: EventBus,
+  spawn: ProviderSpawn | undefined,
+  childRegistry: RunChildRegistry
+) =>
   createAiProvider({
     flow: 'implement',
     ai: opts.settings.ai,
     harnessConfig: opts.settings.harness,
     eventBus,
+    childRegistry,
     ...(spawn !== undefined ? { spawn } : {}),
   });
+
+/** Live-run records, the child registry that feeds them and the orphan reaper, and the crash-side readers. */
+const buildLiveRunServices = (
+  storage: StoragePaths,
+  logger: Logger
+): Pick<AppDeps, 'inProcessRuns' | 'childRegistry' | 'detectInterruptedRuns' | 'reapInterruptedRuns'> => {
+  const store = createFsLiveRunStore({ stateRoot: storage.stateRoot });
+  const liveness = createProcessLiveness();
+  const now = (): string => String(IsoTimestamp.now());
+  const recorder = createLiveRunRecorder({ store, liveness, now, logger });
+  const childRegistry = createRunChildRegistry({ reaper: createOrphanReaper(), recorder, runIdOf: rootSessionId });
+  const detectInterruptedRuns = createDetectInterruptedRuns({ store, liveness });
+  return {
+    inProcessRuns: createInProcessRuns({ recorder, children: childRegistry }),
+    childRegistry,
+    detectInterruptedRuns,
+    reapInterruptedRuns: createReapInterruptedRuns({
+      detect: detectInterruptedRuns,
+      store,
+      liveness,
+      terminator: createProcessGroupTerminator(),
+      now,
+      logger,
+    }),
+  };
+};
 
 /** Project + sprint repositories and the services that delete across them, sharing one disk adapter. */
 const buildDataServices = (
   storage: StoragePaths,
-  logger: Logger
-): Pick<
-  AppDeps,
-  'projectRepo' | 'sprintRepo' | 'housekeeping' | 'projectRemoval' | 'sprintRemoval' | 'inProcessRuns'
-> => {
+  logger: Logger,
+  inProcessRuns: InProcessRuns
+): Pick<AppDeps, 'projectRepo' | 'sprintRepo' | 'housekeeping' | 'projectRemoval' | 'sprintRemoval'> => {
   const projectRepo = createFsProjectRepository({ root: storage.dataRoot });
   const sprintRepo = createFsSprintRepository({ root: storage.dataRoot });
   const housekeepingDisk = createFsHousekeepingDisk({
@@ -324,12 +371,10 @@ const buildDataServices = (
     memoryRoot: storage.memoryRoot,
     runsRoot: storage.runsRoot,
   });
-  const inProcessRuns = createInProcessRuns();
   const runActivity = anyRunActivity(inProcessRuns, createLockRunActivityProbe(storage.stateRoot));
   return {
     projectRepo,
     sprintRepo,
-    inProcessRuns,
     housekeeping: createHousekeeping({
       projectRepo,
       sprintRepo,
@@ -373,7 +418,7 @@ export const wire = (opts: WireOptions): AppDeps => {
     onWarning: ({ kind, path, cause }) => {
       logger.warn(`file-locker: ${kind}`, {
         path,
-        error: cause instanceof Error ? cause.message : String(cause),
+        error: cause instanceof Error ? cause.message : JSON.stringify(cause),
       });
     },
   });
@@ -393,14 +438,16 @@ export const wire = (opts: WireOptions): AppDeps => {
   // Shared with IssuePusher so origin reads (`git remote get-url origin`) go through the same
   // GitRunner instance AppDeps already exposes.
   const gitRunner = createGitRunner();
+  const liveRuns = buildLiveRunServices(opts.storage, logger);
   return {
     storage: opts.storage,
-    ...buildDataServices(opts.storage, logger),
+    ...liveRuns,
+    ...buildDataServices(opts.storage, logger, liveRuns.inProcessRuns),
     sprintExecutionRepo: createFsSprintExecutionRepository({ root: opts.storage.dataRoot }),
     taskRepo: createFsTaskRepository({ root: opts.storage.dataRoot, fileLocker }),
     settings: opts.settings,
     settingsRepo: createJsonSettingsRepository({ configRoot: opts.storage.configRoot }),
-    provider: buildWireProvider(opts, eventBus, providerSpawn),
+    provider: buildWireProvider(opts, eventBus, providerSpawn, liveRuns.childRegistry),
     ...(providerSpawn !== undefined ? { providerSpawn } : {}),
     gitRunner,
     shellScriptRunner: createShellScriptRunner(),

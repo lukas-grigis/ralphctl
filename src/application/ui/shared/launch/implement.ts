@@ -339,7 +339,13 @@ const withProviderSpawnOverride = (
   const spawn = ctx.deps.app.providerSpawn;
   if (spawn === undefined) return providers;
   const rebuild = (row: AiFlowSettings): HeadlessAiProvider =>
-    createAiProvider({ row, harnessConfig: effectiveSettings.harness, eventBus: ctx.deps.app.eventBus, spawn });
+    createAiProvider({
+      row,
+      harnessConfig: effectiveSettings.harness,
+      eventBus: ctx.deps.app.eventBus,
+      childRegistry: ctx.deps.app.childRegistry,
+      spawn,
+    });
   return {
     ...providers,
     generatorProvider: rebuild(implementPair.generator),

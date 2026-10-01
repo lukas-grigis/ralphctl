@@ -76,6 +76,43 @@ const flowIdForProvider = (settings: LaunchContext['settings'], provider: AiProv
   throw new Error(`flowIdForProvider: provider ${provider} not referenced in ai settings`);
 };
 
+/** One adapter per provider, even when several per-tool sub-chains reference it. */
+const buildAdapterCaches = (
+  { deps, settings }: LaunchContext,
+  providers: readonly AiProvider[]
+): {
+  readonly providerFor: (provider: AiProvider) => HeadlessAiProvider;
+  readonly skillsAdapterFor: (provider: AiProvider) => SkillsAdapter;
+} => {
+  const providerCache = new Map<AiProvider, HeadlessAiProvider>();
+  const skillsCache = new Map<AiProvider, SkillsAdapter>();
+  for (const provider of providers) {
+    providerCache.set(
+      provider,
+      createAiProvider({
+        flow: flowIdForProvider(settings, provider),
+        ai: settings.ai,
+        harnessConfig: settings.harness,
+        eventBus: deps.app.eventBus,
+        childRegistry: deps.app.childRegistry,
+      })
+    );
+    skillsCache.set(provider, createSkillsAdapter({ provider, logger: deps.app.logger }));
+  }
+  return {
+    providerFor: (provider) => {
+      const adapter = providerCache.get(provider);
+      if (adapter === undefined) throw new Error(`launchReadiness: no provider adapter cached for ${provider}`);
+      return adapter;
+    },
+    skillsAdapterFor: (provider) => {
+      const adapter = skillsCache.get(provider);
+      if (adapter === undefined) throw new Error(`launchReadiness: no skills adapter cached for ${provider}`);
+      return adapter;
+    },
+  };
+};
+
 export const launchReadiness = async (ctx: LaunchContext): Promise<LaunchResult> => {
   const { deps, snapshot, settings, bridge, sessionId } = ctx;
   const missing = await checkCli('readiness', settings, { override: ctx.extras.override });
@@ -99,32 +136,7 @@ export const launchReadiness = async (ctx: LaunchContext): Promise<LaunchResult>
   if (selection.cancelled) return { ok: false, reason: 'Cancelled.' };
   const scopedProviders = selection.providers;
 
-  // Build per-provider adapter caches keyed by AiProvider so each provider only constructs one adapter even when
-  // several per-tool sub-chains reference it.
-  const providerCache = new Map<AiProvider, HeadlessAiProvider>();
-  const skillsCache = new Map<AiProvider, SkillsAdapter>();
-  for (const provider of scopedProviders) {
-    providerCache.set(
-      provider,
-      createAiProvider({
-        flow: flowIdForProvider(settings, provider),
-        ai: settings.ai,
-        harnessConfig: settings.harness,
-        eventBus: deps.app.eventBus,
-      })
-    );
-    skillsCache.set(provider, createSkillsAdapter({ provider, logger: deps.app.logger }));
-  }
-  const providerFor = (provider: AiProvider): HeadlessAiProvider => {
-    const adapter = providerCache.get(provider);
-    if (adapter === undefined) throw new Error(`launchReadiness: no provider adapter cached for ${provider}`);
-    return adapter;
-  };
-  const skillsAdapterFor = (provider: AiProvider): SkillsAdapter => {
-    const adapter = skillsCache.get(provider);
-    if (adapter === undefined) throw new Error(`launchReadiness: no skills adapter cached for ${provider}`);
-    return adapter;
-  };
+  const { providerFor, skillsAdapterFor } = buildAdapterCaches(ctx, scopedProviders);
 
   const element: Element<ReadinessCtx> = createReadinessFlow(
     {

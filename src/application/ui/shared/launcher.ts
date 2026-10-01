@@ -294,6 +294,7 @@ const buildLaunchAdapters = (deps: LauncherDeps, flowId: string, settings: Setti
     ai: settings.ai,
     harnessConfig: settings.harness,
     eventBus: deps.app.eventBus,
+    childRegistry: deps.app.childRegistry,
     // Carry the wire-time spawn seam across the rebuild.
     ...(deps.app.providerSpawn !== undefined ? { spawn: deps.app.providerSpawn } : {}),
   });

@@ -39,6 +39,8 @@ export interface WithRepoLockOpts {
   readonly locksRoot: AbsolutePath;
   readonly worktreePath: AbsolutePath;
   readonly eventBus: EventBus;
+  /** The flow holding the lock (`implement`, `review`) — recorded as the lock owner and named on contention. */
+  readonly purpose?: string;
 }
 
 export const withRepoLock = <TCtx>(opts: WithRepoLockOpts, inner: Element<TCtx>): Element<TCtx> => ({
@@ -65,8 +67,10 @@ export const withRepoLock = <TCtx>(opts: WithRepoLockOpts, inner: Element<TCtx>)
     // Thread the lock-compromised signal into the inner chain (merged with the host abort signal)
     // so a lock lost mid-run tears the chain down as an AbortError instead of mutating the repo
     // a competitor may now own.
-    const acquired = await opts.fileLocker.withLock(lockPath.value, async (lockSignal) =>
-      inner.execute(ctx, combineAbortSignals(signal, lockSignal), onTrace)
+    const acquired = await opts.fileLocker.withLock(
+      lockPath.value,
+      async (lockSignal) => inner.execute(ctx, combineAbortSignals(signal, lockSignal), onTrace),
+      opts.purpose !== undefined ? { purpose: opts.purpose } : {}
     );
     const durationMs = performance.now() - start;
 
@@ -79,7 +83,7 @@ export const withRepoLock = <TCtx>(opts: WithRepoLockOpts, inner: Element<TCtx>)
         type: 'banner-show',
         id: bannerId,
         tier: 'warn',
-        message: `Repository lock held by another process — could not acquire after retries`,
+        message: acquired.error.message,
         cause: String(lockPath.value),
         at: IsoTimestamp.now(),
       });

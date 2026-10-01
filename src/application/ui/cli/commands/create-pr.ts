@@ -36,6 +36,7 @@ const buildCreatePrFlow = (deps: AppDeps, storage: StoragePaths, useAi: boolean)
     ai: deps.settings.ai,
     harnessConfig: deps.settings.harness,
     eventBus: deps.eventBus,
+    childRegistry: deps.childRegistry,
   });
   const skillSource = buildComposedSkillSource(
     { app: deps, storage },
