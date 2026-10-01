@@ -199,6 +199,24 @@ const focusedLine = (frame: string): string => frame.split('\n').find((l) => l.i
 const SEL_A = { projectId: PID_A, projectLabel: 'Alpha Project' } as const;
 
 describe('ContextSwitcher — layout', () => {
+  it('carries the ▸ cursor on exactly one row, so focus reads without colour', async () => {
+    const f = await open(
+      {
+        sprints: [
+          makeSprint({ id: SID_A1, projectId: PID_A, name: 'alpha sprint one' }),
+          makeSprint({ id: SID_A2, projectId: PID_A, name: 'alpha sprint two' }),
+        ],
+        projects: [projectAlpha],
+      },
+      { selection: SEL_A }
+    );
+    expect(
+      frameOf(f)
+        .split('\n')
+        .filter((l) => l.includes('▸'))
+    ).toHaveLength(1);
+  });
+
   it('lists every sprint grouped by project, current project first, with counts', async () => {
     const f = await open(
       {

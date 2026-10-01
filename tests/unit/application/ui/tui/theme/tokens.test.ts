@@ -7,7 +7,14 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { breakpointFor, fluid, glyphs, RAIL_WIDTH, resolveRailWidth } from '@src/application/ui/tui/theme/tokens.ts';
+import {
+  breakpointFor,
+  fluid,
+  glyphs,
+  RAIL_WIDTH,
+  resolveRailWidth,
+  tones,
+} from '@src/application/ui/tui/theme/tokens.ts';
 
 describe('breakpointFor', () => {
   it('floors at sm for any non-negative width below the md threshold', () => {
@@ -88,5 +95,14 @@ describe('resolveRailWidth', () => {
     expect(resolveRailWidth(260)).toBe(56);
     // Asymptote check — any extreme width still clamps.
     expect(resolveRailWidth(5000)).toBe(56);
+  });
+});
+
+describe('tones', () => {
+  it('pairs every tone with a distinct glyph, so outcome survives NO_COLOR', () => {
+    const tokenGlyphs = Object.values(tones).map((t) => t.glyph);
+    expect(new Set(tokenGlyphs).size).toBe(tokenGlyphs.length);
+    expect(tones.success.glyph).toBe(glyphs.check);
+    expect(tones.error.glyph).toBe(glyphs.cross);
   });
 });

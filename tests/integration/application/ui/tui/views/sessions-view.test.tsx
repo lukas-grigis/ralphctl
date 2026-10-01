@@ -111,7 +111,7 @@ describe('SessionsView', () => {
     expect(frame).toContain('Refine — Demo');
     expect(frame).toContain('refine');
     expect(frame).toContain('[RUNNING]');
-    expect(frame).toContain('1 session(s)');
+    expect(frame).toContain('1 session');
     // DESIGN-SYSTEM §6.4 — arrows only in the per-view hint strip; j/k stays bound but unadvertised.
     expect(frame).not.toContain('j/k');
     result.unmount();

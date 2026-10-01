@@ -91,7 +91,21 @@ describe('SprintsView', () => {
     expect(frame).toContain('Spring Sprint');
     expect(frame).toContain('spring');
     expect(frame).toMatch(/DRAFT/i);
-    expect(frame).toContain('1 sprint(s)');
+    expect(frame).toContain('1 sprint');
+    result.unmount();
+  });
+
+  it('marks only the focused sprint row with the ▸ cursor', async () => {
+    const sprints = [
+      makeSprint({ id: 'sa', name: 'Alpha Sprint', slug: 'alpha' }),
+      makeSprint({ id: 'sb', name: 'Bravo Sprint', slug: 'bravo' }),
+    ];
+    const { result } = renderView(<SprintsView />, { deps: stubDeps(sprints), initial: { id: 'sprints' } });
+    await waitForViewReady(result, (f) => f.includes('Bravo Sprint'));
+    const lines = (result.lastFrame() ?? '').split('\n');
+    // The list sorts newest-first, so the cursor starts on Bravo.
+    expect(lines.find((l) => l.includes('Bravo Sprint'))).toContain('▸');
+    expect(lines.find((l) => l.includes('Alpha Sprint'))).not.toContain('▸');
     result.unmount();
   });
 
@@ -554,7 +568,7 @@ describe('SprintsView', () => {
     await waitForViewReady(result, (f) => f.includes('Solo Sprint'));
     const frame = result.lastFrame() ?? '';
     expect(frame).toContain('Solo Sprint');
-    expect(frame).toContain('1 sprint(s)');
+    expect(frame).toContain('1 sprint');
     result.unmount();
   });
 

@@ -34,7 +34,7 @@ import type { SetupRun, SprintExecution } from '@src/domain/entity/sprint-execut
 import type { VerifyRun } from '@src/domain/entity/attempt.ts';
 import type { Task } from '@src/domain/entity/task.ts';
 import { Card } from '@src/application/ui/tui/components/card.tsx';
-import { CONTEXT_WIDTH, glyphs, inkColors } from '@src/application/ui/tui/theme/tokens.ts';
+import { CONTEXT_WIDTH, type Tone, tones } from '@src/application/ui/tui/theme/tokens.ts';
 import { fmtElapsed } from '@src/application/ui/tui/theme/duration.ts';
 import {
   type AttributionCounts,
@@ -70,19 +70,7 @@ export interface BaselineHealthCardProps {
 // Tier helpers
 // ---------------------------------------------------------------------------
 
-const tierColor = (tier: Tier): string => {
-  if (tier === 'ok') return inkColors.success;
-  if (tier === 'warning') return inkColors.warning;
-  if (tier === 'error') return inkColors.error;
-  return inkColors.muted;
-};
-
-const tierGlyph = (tier: Tier): string => {
-  if (tier === 'ok') return glyphs.check;
-  if (tier === 'warning') return glyphs.warningGlyph;
-  if (tier === 'error') return glyphs.cross;
-  return glyphs.phasePending;
-};
+const TIER_TONE: Readonly<Record<Tier, Tone>> = { ok: 'success', warning: 'warning', error: 'error', pending: 'muted' };
 
 // ---------------------------------------------------------------------------
 // Data model for a single indicator row
@@ -276,8 +264,8 @@ const titleSuffix = (rows: readonly RowData[], tier: BaselineTier): string | und
  * No multi-line stacking — terseness wins over completeness at this width.
  */
 const BaselineRow = ({ row }: { readonly row: RowData }): React.JSX.Element => {
-  const color = tierColor(row.tier);
-  const glyph = tierGlyph(row.tier);
+  const color = tones[TIER_TONE[row.tier]].color;
+  const glyph = tones[TIER_TONE[row.tier]].glyph;
   const isError = row.tier === 'error';
 
   // Pick the single most important detail token to show inline.
@@ -334,7 +322,7 @@ const COMPACT_ABBREV: Readonly<Record<string, string>> = {
 const CompactCleanRow = ({ rows }: { readonly rows: readonly RowData[] }): React.JSX.Element => {
   // Build as a plain string to prevent ink from word-wrapping between label fragments.
   // No space between glyph and abbrev, single-space separator: "✓Stp ✓Pre ✓Post ✓Att" = 21 chars.
-  const parts = rows.map((row) => `${tierGlyph(row.tier)}${COMPACT_ABBREV[row.label] ?? row.label}`);
+  const parts = rows.map((row) => `${tones[TIER_TONE[row.tier]].glyph}${COMPACT_ABBREV[row.label] ?? row.label}`);
   return (
     <Box>
       <Text dimColor>{parts.join(' ')}</Text>

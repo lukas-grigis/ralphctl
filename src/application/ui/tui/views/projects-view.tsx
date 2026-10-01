@@ -13,12 +13,14 @@ import { useListWindow, OverflowRow, type ListWindow } from '@src/application/ui
 import { AsyncListFrame } from '@src/application/ui/tui/components/async-list-frame.tsx';
 import { EmptyState } from '@src/application/ui/tui/components/empty-state.tsx';
 import { FeedbackLine } from '@src/application/ui/tui/components/feedback-line.tsx';
+import { ListCard } from '@src/application/ui/tui/components/list-card.tsx';
+import { plural } from '@src/application/ui/shared/plural.ts';
 import { ConfirmCard } from '@src/application/ui/tui/components/confirm-card.tsx';
 import { type Project, setProjectDisplayName } from '@src/domain/entity/project.ts';
 import { useEditField } from '@src/application/ui/tui/runtime/use-edit-field.ts';
 import { useIsMounted } from '@src/application/ui/tui/runtime/use-is-mounted.ts';
 import { Result } from '@src/domain/result.ts';
-import { glyphs, inkColors, listCapacity, spacing } from '@src/application/ui/tui/theme/tokens.ts';
+import { glyphs, listCapacity, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { useAsyncLoad, type AsyncLoadState } from '@src/application/ui/tui/runtime/use-async-load.ts';
 import { useRouter } from '@src/application/ui/tui/runtime/router.tsx';
@@ -97,41 +99,29 @@ const useDeleteProjectAction = (
 
 /** Private presentational component for a single project row. */
 const ProjectRow = ({ project, focused }: { project: Project; focused: boolean }): React.JSX.Element => (
-  <Box key={project.id} flexDirection="column" marginBottom={spacing.section}>
-    <Box
-      flexDirection="column"
-      borderStyle="round"
-      borderColor={focused ? inkColors.primary : inkColors.rule}
-      borderDimColor={!focused}
-      paddingX={spacing.cardPadX}
-    >
-      <Box justifyContent="space-between">
-        <Text bold {...(focused ? { color: inkColors.primary } : {})}>
-          {project.displayName}
-        </Text>
-        <Text dimColor>
-          {String(project.repositories.length)} repo{project.repositories.length === 1 ? '' : 's'}
-        </Text>
-      </Box>
-      <Text dimColor>
-        {project.slug}
-        {project.description !== undefined && project.description.length > 0
-          ? ` ${glyphs.bullet} ${project.description}`
-          : ''}
+  <ListCard
+    focused={focused}
+    title={project.displayName}
+    rightSlot={<Text dimColor>{plural(project.repositories.length, 'repo')}</Text>}
+  >
+    <Text dimColor>
+      {project.slug}
+      {project.description !== undefined && project.description.length > 0
+        ? ` ${glyphs.bullet} ${project.description}`
+        : ''}
+    </Text>
+    {project.repositories.slice(0, 2).map((r) => (
+      <Text key={r.id} dimColor>
+        {glyphs.activityArrow} {r.name} <Text dimColor>{r.path}</Text>
       </Text>
-      {project.repositories.slice(0, 2).map((r) => (
-        <Text key={r.id} dimColor>
-          {glyphs.activityArrow} {r.name} <Text dimColor>{r.path}</Text>
-        </Text>
-      ))}
-      {project.repositories.length > 2 && (
-        <Text dimColor italic>
-          +{String(project.repositories.length - 2)} more{' '}
-          {project.repositories.length - 2 === 1 ? 'repository' : 'repositories'}
-        </Text>
-      )}
-    </Box>
-  </Box>
+    ))}
+    {project.repositories.length > 2 && (
+      <Text dimColor italic>
+        +{String(project.repositories.length - 2)} more{' '}
+        {project.repositories.length - 2 === 1 ? 'repository' : 'repositories'}
+      </Text>
+    )}
+  </ListCard>
 );
 
 /** Destructive-delete gate for one project, naming what the removal leaves untouched. */
@@ -212,7 +202,7 @@ const ProjectsBody = ({
           the single source of truth. A second hand-typed strip here would drift from it. */}
         <Box paddingX={spacing.indent} marginTop={spacing.section}>
           <Text dimColor>
-            {glyphs.bullet} {total} project(s)
+            {glyphs.bullet} {plural(total, 'project')}
           </Text>
         </Box>
         <FeedbackLine text={feedback} />

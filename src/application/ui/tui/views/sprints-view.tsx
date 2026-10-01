@@ -30,6 +30,7 @@ import type { UseEditFieldState } from '@src/application/ui/tui/runtime/use-edit
 import { useIsMounted } from '@src/application/ui/tui/runtime/use-is-mounted.ts';
 import { Result } from '@src/domain/result.ts';
 import { glyphs, listCapacity, spacing } from '@src/application/ui/tui/theme/tokens.ts';
+import { plural } from '@src/application/ui/shared/plural.ts';
 import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { useAsyncLoad, type AsyncLoadState } from '@src/application/ui/tui/runtime/use-async-load.ts';
 import { useRouter } from '@src/application/ui/tui/runtime/router.tsx';
@@ -328,7 +329,7 @@ const SprintsBody = ({
           Duplicating the keys inline would re-advertise them ungated and contradict the gate. */}
         <Box paddingX={spacing.indent} marginTop={spacing.section}>
           <Text dimColor>
-            {glyphs.bullet} {total} sprint(s)
+            {glyphs.bullet} {plural(total, 'sprint')}
           </Text>
         </Box>
         <FeedbackLine text={feedback} />

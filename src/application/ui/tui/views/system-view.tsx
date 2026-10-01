@@ -13,7 +13,7 @@ import React, { useMemo } from 'react';
 import { Box, Text } from 'ink';
 import { ViewShell } from '@src/application/ui/tui/components/view-shell.tsx';
 import { WindowedList } from '@src/application/ui/tui/components/windowed-list.tsx';
-import { glyphs, inkColors, listCapacity, spacing } from '@src/application/ui/tui/theme/tokens.ts';
+import { glyphs, inkColors, listCapacity, spacing, tones } from '@src/application/ui/tui/theme/tokens.ts';
 import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { useRouter } from '@src/application/ui/tui/runtime/router.tsx';
 import { useAsyncLoad } from '@src/application/ui/tui/runtime/use-async-load.ts';
@@ -35,15 +35,15 @@ interface Summaries {
   readonly skills: readonly SkillCatalogEntry[] | undefined;
 }
 
-const TONE_COLOR: Readonly<Record<SummaryTone, string | undefined>> = {
-  ok: inkColors.success,
-  warn: inkColors.warning,
-  fail: inkColors.error,
+const SUMMARY_COLOR: Readonly<Record<SummaryTone, string | undefined>> = {
+  ok: tones.success.color,
+  warn: tones.warning.color,
+  fail: tones.error.color,
   dim: undefined,
 };
 
 const Row = ({ row, focused }: { readonly row: SystemRow; readonly focused: boolean }): React.JSX.Element => {
-  const color = TONE_COLOR[row.tone];
+  const color = SUMMARY_COLOR[row.tone];
   return (
     <Box paddingX={spacing.indent}>
       <Text color={focused ? inkColors.primary : inkColors.rule}>{focused ? glyphs.actionCursor : ' '}</Text>

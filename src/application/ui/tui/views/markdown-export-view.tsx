@@ -11,7 +11,7 @@ import { Box, Text } from 'ink';
 import { ViewShell } from '@src/application/ui/tui/components/view-shell.tsx';
 import { Spinner } from '@src/application/ui/tui/components/spinner.tsx';
 import { Card } from '@src/application/ui/tui/components/card.tsx';
-import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
+import { glyphs, inkColors, spacing, tones } from '@src/application/ui/tui/theme/tokens.ts';
 import {
   type UseMarkdownExportConfig,
   useMarkdownExport,
@@ -33,10 +33,10 @@ export const MarkdownExportView = (props: MarkdownExportViewProps): React.JSX.El
         {run.kind === 'idle' || run.kind === 'running' ? (
           <Spinner label={props.spinnerLabel} />
         ) : run.kind === 'done' ? (
-          <Card title="Done" tone="rule">
+          <Card title="Done" tone="success">
             <Text>
-              <Text color={inkColors.primary} bold>
-                {glyphs.check}{' '}
+              <Text color={tones.success.color} bold>
+                {tones.success.glyph}{' '}
               </Text>
               Wrote <Text bold>{run.path}</Text>
             </Text>
@@ -45,9 +45,9 @@ export const MarkdownExportView = (props: MarkdownExportViewProps): React.JSX.El
             </Text>
           </Card>
         ) : (
-          <Card title="Failed" tone="rule">
+          <Card title="Failed" tone="error">
             <Text color={inkColors.error}>
-              {glyphs.bullet} {run.message}
+              {tones.error.glyph} {run.message}
             </Text>
             <Text dimColor>press r to retry</Text>
           </Card>

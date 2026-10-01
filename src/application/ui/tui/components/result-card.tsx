@@ -9,12 +9,12 @@
 
 import React from 'react';
 import { Box, Text } from 'ink';
-import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
+import { glyphs, spacing, tones } from '@src/application/ui/tui/theme/tokens.ts';
 import type { Field } from '@src/application/ui/tui/components/field-list.tsx';
 import { FieldList } from '@src/application/ui/tui/components/field-list.tsx';
 import { NextStepList } from '@src/application/ui/tui/components/next-steps.tsx';
 import type { ForensicPath, NextStep } from '@src/application/ui/shared/next-steps.ts';
-import type { CardTone } from '@src/application/ui/tui/components/card.tsx';
+import { Card, type CardTone } from '@src/application/ui/tui/components/card.tsx';
 
 export type ResultKind = 'success' | 'failed' | 'aborted';
 
@@ -31,18 +31,9 @@ export interface ResultCardProps {
 const RESOLVE: Readonly<
   Record<ResultKind, { readonly tone: CardTone; readonly glyph: string; readonly verb: string }>
 > = {
-  success: { tone: 'success', glyph: glyphs.check, verb: 'completed' },
-  failed: { tone: 'error', glyph: glyphs.cross, verb: 'failed' },
-  aborted: { tone: 'warning', glyph: glyphs.warningGlyph, verb: 'aborted' },
-};
-
-const TONE_COLOR: Readonly<Record<CardTone, string>> = {
-  rule: inkColors.rule,
-  primary: inkColors.primary,
-  info: inkColors.info,
-  success: inkColors.success,
-  warning: inkColors.warning,
-  error: inkColors.error,
+  success: { tone: 'success', glyph: tones.success.glyph, verb: 'completed' },
+  failed: { tone: 'error', glyph: tones.error.glyph, verb: 'failed' },
+  aborted: { tone: 'warning', glyph: tones.warning.glyph, verb: 'aborted' },
 };
 
 export const ResultCard = ({
@@ -54,51 +45,46 @@ export const ResultCard = ({
   forensics,
 }: ResultCardProps): React.JSX.Element => {
   const meta = RESOLVE[kind];
-  const color = TONE_COLOR[meta.tone];
   return (
-    <Box
-      flexDirection="column"
-      borderStyle="round"
-      borderColor={color}
-      paddingX={spacing.cardPadX}
-      paddingY={0}
-      marginBottom={spacing.section}
-    >
-      <Box>
-        <Text color={color} bold>
-          {meta.glyph} {title}
-        </Text>
-        <Text dimColor>
-          {' '}
-          {glyphs.emDash} {meta.verb}
-        </Text>
-      </Box>
-      {summary !== undefined && summary.length > 0 && (
-        <Box marginTop={spacing.section}>
-          <Text>{summary}</Text>
-        </Box>
-      )}
-      {fields !== undefined && fields.length > 0 && (
-        <Box marginTop={spacing.section}>
-          <FieldList fields={fields} />
-        </Box>
-      )}
-      {nextSteps !== undefined && nextSteps.length > 0 && (
-        <Box flexDirection="column" marginTop={spacing.section}>
-          <Text dimColor bold>
-            Next steps
+    <Box flexDirection="column" marginBottom={spacing.section}>
+      <Card
+        tone={meta.tone}
+        dim={false}
+        title={`${meta.glyph} ${title}`}
+        titleNote={
+          <Text dimColor>
+            {' '}
+            {glyphs.emDash} {meta.verb}
           </Text>
-          <NextStepList steps={nextSteps} />
-        </Box>
-      )}
-      {forensics !== undefined && forensics.length > 0 && (
-        <Box flexDirection="column" marginTop={spacing.section}>
-          <Text dimColor bold>
-            Post-mortem
-          </Text>
-          <FieldList fields={forensics.map((f) => ({ label: f.label, value: f.path, dim: true }))} />
-        </Box>
-      )}
+        }
+      >
+        {summary !== undefined && summary.length > 0 && (
+          <Box marginTop={spacing.section}>
+            <Text>{summary}</Text>
+          </Box>
+        )}
+        {fields !== undefined && fields.length > 0 && (
+          <Box marginTop={spacing.section}>
+            <FieldList fields={fields} />
+          </Box>
+        )}
+        {nextSteps !== undefined && nextSteps.length > 0 && (
+          <Box flexDirection="column" marginTop={spacing.section}>
+            <Text dimColor bold>
+              Next steps
+            </Text>
+            <NextStepList steps={nextSteps} />
+          </Box>
+        )}
+        {forensics !== undefined && forensics.length > 0 && (
+          <Box flexDirection="column" marginTop={spacing.section}>
+            <Text dimColor bold>
+              Post-mortem
+            </Text>
+            <FieldList fields={forensics.map((f) => ({ label: f.label, value: f.path, dim: true }))} />
+          </Box>
+        )}
+      </Card>
     </Box>
   );
 };

@@ -167,6 +167,25 @@ describe('SkillsView', () => {
     expect(frame).toMatch(/\[[xX✔✓]]\s*Implement/);
   });
 
+  it('marks only the focused skill row with the ▸ cursor', async () => {
+    const [a, b] = BUNDLED_SKILLS;
+    if (a === undefined || b === undefined) throw new Error('need two bundled skills');
+    const mk = (name: string): SkillCatalogEntry => ({
+      name,
+      description: `desc ${name}`,
+      defaultFor: [],
+      recommendedFor: [],
+      installs: [],
+    });
+    const catalog = fakeCatalog([mk(a.name), mk(b.name)]);
+    const { result } = renderView(<SkillsView />, { deps: buildDeps(catalog), initial: { id: 'skills' } });
+    await waitForViewReady(result, (f) => f.includes(b.name));
+    const lines = (result.lastFrame() ?? '').split('\n');
+    expect(lines.find((l) => l.includes(a.name))).toContain('▸');
+    expect(lines.find((l) => l.includes(b.name))).not.toContain('▸');
+    result.unmount();
+  });
+
   it('enable: submitting the preselected flows calls enable() and the row reflects in-sync afterwards', async () => {
     const name = bundledName();
     const catalog = fakeCatalog([{ name, description: 'x', defaultFor: [], recommendedFor: ['plan'], installs: [] }]);

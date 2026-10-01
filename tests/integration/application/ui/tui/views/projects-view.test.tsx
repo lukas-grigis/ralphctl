@@ -53,9 +53,22 @@ describe('ProjectsView', () => {
     const frame = result.lastFrame() ?? '';
     expect(frame).toContain('Demo Project');
     expect(frame).toContain('demo-proj');
-    expect(frame).toContain('1 project(s)');
+    expect(frame).toContain('1 project');
     // DESIGN-SYSTEM §6.4 — arrows only in the per-view hint strip; j/k stays bound but unadvertised.
     expect(frame).not.toContain('j/k');
+    result.unmount();
+  });
+
+  it('marks only the focused row with the ▸ cursor, so focus survives NO_COLOR', async () => {
+    const projects = [
+      makeProject({ id: ProjectId.generate(), displayName: 'First One', slug: 'first' }),
+      makeProject({ id: ProjectId.generate(), displayName: 'Second One', slug: 'second' }),
+    ];
+    const { result } = renderView(<ProjectsView />, { deps: stubDeps(projects), initial: { id: 'projects' } });
+    await waitForViewReady(result, (f) => f.includes('Second One'));
+    const lines = (result.lastFrame() ?? '').split('\n');
+    expect(lines.find((l) => l.includes('First One'))).toContain(glyphs.actionCursor);
+    expect(lines.find((l) => l.includes('Second One'))).not.toContain(glyphs.actionCursor);
     result.unmount();
   });
 
@@ -64,12 +77,12 @@ describe('ProjectsView', () => {
       makeProject({ id: ProjectId.generate(), displayName: `Project ${String(i)}`, slug: `proj-${String(i)}` })
     );
     const { result } = renderView(<ProjectsView />, { deps: stubDeps(projects), initial: { id: 'projects' } });
-    await waitForViewReady(result, (f) => f.includes('6 project(s)'));
+    await waitForViewReady(result, (f) => f.includes('6 projects'));
     const frame = result.lastFrame() ?? '';
     // visibleRows = 4, so two projects spill past the window and the below-overflow cue appears.
     expect(frame).toContain(glyphs.moreBelow);
     expect(frame).toContain('2 more');
-    expect(frame).toContain('6 project(s)');
+    expect(frame).toContain('6 projects');
     result.unmount();
   });
 

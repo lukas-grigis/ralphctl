@@ -12,7 +12,8 @@ import React, { useMemo } from 'react';
 import { Box, Text } from 'ink';
 import { sprintStatusKind, StatusChip } from '@src/application/ui/tui/components/status-chip.tsx';
 import { computeListWindow, OverflowRow, useListWindow } from '@src/application/ui/tui/components/windowed-list.tsx';
-import { glyphs, inkColors } from '@src/application/ui/tui/theme/tokens.ts';
+import { plural } from '@src/application/ui/shared/plural.ts';
+import { glyphs, inkColors, tones } from '@src/application/ui/tui/theme/tokens.ts';
 import type { TaskHealthCounts } from '@src/application/ui/shared/state-snapshot.ts';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
@@ -163,8 +164,8 @@ const CreateRowView = ({
 );
 
 const HeaderRowView = ({ row, focused }: { readonly row: HeaderRow; readonly focused: boolean }): React.JSX.Element => {
-  const color = row.orphan ? inkColors.warning : focused ? inkColors.primary : inkColors.muted;
-  const repos = `${String(row.repoCount)} repo${row.repoCount === 1 ? '' : 's'}`;
+  const color = row.orphan ? tones.warning.color : focused ? inkColors.primary : inkColors.muted;
+  const repos = plural(row.repoCount, 'repo');
   const hint = row.orphan ? undefined : row.empty ? `no sprints ${glyphs.bullet} ↵ switch` : '↵ switch project';
   return (
     <Box justifyContent="space-between">
@@ -172,7 +173,7 @@ const HeaderRowView = ({ row, focused }: { readonly row: HeaderRow; readonly foc
         <Cursor focused={focused} />
         <Text bold color={color}>
           {' '}
-          {row.orphan ? `${glyphs.warningGlyph} ` : ''}
+          {row.orphan ? `${tones.warning.glyph} ` : ''}
           {row.label.toUpperCase()}
         </Text>
         {!row.orphan && (
@@ -224,9 +225,9 @@ const SprintRowView = ({
         </Text>
       )}
       {blocked > 0 && (
-        <Text color={inkColors.warning} bold>
+        <Text color={tones.warning.color} bold>
           {'  '}
-          {glyphs.warningGlyph} {String(blocked)} blocked
+          {tones.warning.glyph} {String(blocked)} blocked
         </Text>
       )}
     </Box>

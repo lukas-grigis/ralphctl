@@ -7,6 +7,8 @@
  * sweep instead of stripes.
  */
 
+import { isColorDisabled } from '@src/application/ui/tui/runtime/use-no-color.ts';
+
 const RESET = '\x1b[0m';
 
 const ansi = (r: number, g: number, b: number): string => `\x1b[38;2;${String(r)};${String(g)};${String(b)}m`;
@@ -126,10 +128,12 @@ export const paintLine = (text: string, stops: readonly string[]): string => {
 
 /** Paint each line of a multi-line block independently — same gradient, fresh sweep per row. */
 export const paintMultiline = (text: string, stops: readonly string[]): string =>
-  text
-    .split('\n')
-    .map((line) => paintLine(line, stops))
-    .join('\n');
+  isColorDisabled()
+    ? text
+    : text
+        .split('\n')
+        .map((line) => paintLine(line, stops))
+        .join('\n');
 
 /** Curated palettes used by the TUI. */
 export const palettes = {

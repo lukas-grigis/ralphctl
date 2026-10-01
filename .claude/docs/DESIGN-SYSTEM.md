@@ -48,6 +48,10 @@ Rules:
 - Never `color="red"` / `"green"` / `"yellow"` — always `inkColors.error` / `inkColors.success` / `inkColors.warning`.
 - **Focus pattern** is inline: `<Text color={inkColors.highlight} bold>…</Text>`. There is no separate `focus` token.
 - Truecolor hex; terminals without truecolor fall back to ANSI-256 automatically.
+- **`NO_COLOR` is honoured.** A non-empty `NO_COLOR` or `TERM=dumb` (`isColorDisabled()` in
+  `runtime/use-no-color.ts`, also behind the `useNoColor` hook) makes `src/index.ts` set `FORCE_COLOR=0` before
+  chalk loads, and `paintMultiline` returns the art uncoloured. So no state may rely on colour alone: focus
+  carries `▸`, the active tab carries `[ ]`, outcomes carry a tone glyph.
 
 ### 2.2 Glyphs — `glyphs`
 
@@ -69,6 +73,11 @@ Canonical set. If a view needs a symbol not in this list, **add it to `glyphs` f
 | Personality     | `quoteRail ┃`                                                                                                                                               |
 
 Do not mix glyph families (no `✔` from one set and `✓` from another). No emoji in TUI surfaces.
+
+**`tones`** — `Record<Tone, { color, glyph }>` for the five semantic tones: `success ✓`, `warning ⚠`, `error ✗`,
+`info i`, `muted ◇`. `Card`, `ResultCard`, `StatusChip`, `StatusBanner`, `FeedbackLine`, the baseline cards and the
+switcher / System rows all read it; a component never keeps its own tone → colour map. A plain-string
+`FeedbackLine` starting with `✓` renders in `success`; `warning` is a structured tone like `success` / `error` / `info`.
 
 **`glyphFor(signalKind)`** — exported from `tokens.ts`. Maps each `SignalKind` to a shape-distinct glyph
 that conveys meaning without colour, for use under `NO_COLOR=1`. Kinds whose label already reads distinctly
@@ -94,14 +103,14 @@ view must reference one.
 
 Ink gives you three knobs: `bold`, `dimColor`, and `color`. Use them like this:
 
-| Role                           | Style                                                            |
-| ------------------------------ | ---------------------------------------------------------------- |
-| Section title (stamp)          | `bold` + `color={inkColors.primary}`                             |
-| Field label                    | `dimColor` + trailing colon                                      |
-| Field value                    | default weight                                                   |
-| Selection / focused row        | `bold` + `color={inkColors.highlight}` + `actionCursor ▸` prefix |
-| Secondary / help text          | `dimColor`                                                       |
-| Status word (`DONE`, `FAILED`) | semantic `color` + `bold`                                        |
+| Role                           | Style                                                                                                                           |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------- |
+| Section title (stamp)          | `bold` + `color={inkColors.primary}`                                                                                            |
+| Field label                    | `dimColor` + trailing colon                                                                                                     |
+| Field value                    | default weight                                                                                                                  |
+| Selection / focused row        | `bold` + `color={inkColors.highlight}` + `actionCursor ▸` prefix (the `▸` is the NO_COLOR cue — colour alone never marks focus) |
+| Secondary / help text          | `dimColor`                                                                                                                      |
+| Status word (`DONE`, `FAILED`) | semantic `color` + `bold`                                                                                                       |
 
 Never use `underline`. It reads as a hyperlink in most terminals and we don't have any.
 
@@ -272,11 +281,11 @@ context — never one from the run and one from the global selection.
 
 | Component           | Purpose                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Card`              | Bordered content box. Base for ResultCard.                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `Card`              | Bordered content box; `tone` picks the border from `tones`. Base for `ResultCard` and `ListCard`.                                                                                                                                                                                                                                                                                                                                                 |
 | `ResultCard`        | Chain-settlement outcome card for the Execute-view footer: `kind` is `success` / `failed` / `aborted`. Carries `title`, `summary`, `fields`, `nextSteps`, `forensics`. For info / warning / precondition surfaces in other views, use `Card` (tone `info` / `warning` / `error` / `success`) or `EmptyState`.                                                                                                                                     |
 | `NextStepList`      | Renders "what to do next" rows from `buildNextSteps` (`ui/shared/next-steps.ts`, takes no view id): a flow row is `◆ <Flow> — <why>` with no key (↵ on the focused row or the footer launches it); any other row is `<key> → <label> (<detail>)` naming a real key (`c`, `a`, `S`, `P`). One renderer for every surface — the settled `ResultCard`, Work's NEXT rows, the `SprintHeaderStrip` `next:` row. Never re-derive the wording in a view. |
 | `WindowedList`      | Universal windowed-list primitive (`windowed-list.tsx`). Id-based cursor, arrows-primary navigation, `▴/▾` overflow cues. **Use this for every long, scrollable, homogeneous list** — replaces the deleted `CardList` and `ListView`.                                                                                                                                                                                                             |
-| `ListCard`          | Shared frame for cards in a vertical list (tickets, tasks); thin wrapper over `Card`.                                                                                                                                                                                                                                                                                                                                                             |
+| `ListCard`          | The one list-row card: `▸` cursor as text on the focused row, title, right slot, body; registers the scroll anchor. Projects, Sprints, Skills, tickets and tasks all render through it — never hand-roll a bordered row focused by border colour.                                                                                                                                                                                                 |
 | `FieldList`         | Aligned `[label, value]` rows. Used inside cards and detail views.                                                                                                                                                                                                                                                                                                                                                                                |
 | `StatusChip`        | `[DRAFT]` / `[ACTIVE]` / `[REVIEW]` / `[DONE]` bracketed tag.                                                                                                                                                                                                                                                                                                                                                                                     |
 | `Spinner`           | Braille-frame loading indicator with trailing label.                                                                                                                                                                                                                                                                                                                                                                                              |
@@ -356,14 +365,14 @@ list) instead of forcing every choice from scratch.
 
 Pick the right surface for the state. Don't mix raw `<Text color={inkColors.error}>…</Text>` with `ResultCard`.
 
-| State                   | Surface                                                                             | Notes                                                 |
-| ----------------------- | ----------------------------------------------------------------------------------- | ----------------------------------------------------- |
-| Loading / running       | `<Spinner label="…" />`                                                             | Info color default. Never bare text.                  |
-| Empty (no data)         | `<EmptyState>` or `<Card tone="info" />`                                            | "No X yet" + next-step pointer.                       |
-| Precondition failed     | `<Card tone="warning" />`                                                           | "Needs Y first" + next-step pointer.                  |
-| Error                   | `<Card tone="error" />`                                                             | One-line message. No stack dumps in user-facing copy. |
-| Success / terminal done | `<Card tone="success" />` (or the Execute footer's `<ResultCard kind="success" />`) | fields + next steps.                                  |
-| Idle (waiting on input) | the prompt itself                                                                   | Don't render a spinner while a prompt is up.          |
+| State                   | Surface                                                                                                               | Notes                                                 |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
+| Loading / running       | `<Spinner label="…" />`                                                                                               | Info color default. Never bare text.                  |
+| Empty (no data)         | `<EmptyState>` or `<Card tone="info" />`                                                                              | "No X yet" + next-step pointer.                       |
+| Precondition failed     | `<Card tone="warning" />`                                                                                             | "Needs Y first" + next-step pointer.                  |
+| Error                   | `<Card tone="error" />`                                                                                               | One-line message. No stack dumps in user-facing copy. |
+| Success / terminal done | `<Card tone="success" />` titled with `tones.success.glyph` (or the Execute footer's `<ResultCard kind="success" />`) | fields + next steps.                                  |
+| Idle (waiting on input) | the prompt itself                                                                                                     | Don't render a spinner while a prompt is up.          |
 
 ### 5.1 Blocked tasks
 

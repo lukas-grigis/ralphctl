@@ -20,6 +20,7 @@ import { runnerStatusKind, StatusChip } from '@src/application/ui/tui/components
 import { OverflowRow, useListWindow, type ListWindow } from '@src/application/ui/tui/components/windowed-list.tsx';
 import { ConfirmPrompt } from '@src/application/ui/tui/prompts/confirm-prompt.tsx';
 import { glyphs, inkColors, listCapacity, spacing } from '@src/application/ui/tui/theme/tokens.ts';
+import { plural } from '@src/application/ui/shared/plural.ts';
 import { FeedbackLine, feedback, type StructuredFeedback } from '@src/application/ui/tui/components/feedback-line.tsx';
 import { useRouter } from '@src/application/ui/tui/runtime/router.tsx';
 import { useSessionManager, useSessions } from '@src/application/ui/tui/runtime/sessions-context.tsx';
@@ -128,7 +129,7 @@ const SessionsTable = ({
         the single source of truth. A second hand-typed strip here would drift from it. */}
     <Box paddingX={spacing.indent} marginTop={spacing.section}>
       <Text dimColor>
-        {glyphs.bullet} {total} session(s)
+        {glyphs.bullet} {plural(total, 'session')}
       </Text>
     </Box>
     <FeedbackLine text={sessionFeedback} />

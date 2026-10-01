@@ -38,7 +38,7 @@ import { Box, Text, useInput } from 'ink';
 import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { useClaimedKeys } from '@src/application/ui/tui/runtime/claimed-keys-context.tsx';
 import { useOverlayState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
-import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
+import { glyphs, spacing, tones } from '@src/application/ui/tui/theme/tokens.ts';
 import type { BannerShowEvent } from '@src/business/observability/events.ts';
 
 /** Hard cap on visible banners before the collapse marker takes over. */
@@ -66,16 +66,10 @@ interface ActiveBanner {
 
 const TIER_ORDER: Record<Tier, number> = { error: 0, warn: 1, info: 2 };
 
-const tierColor = (tier: Tier): string => {
-  if (tier === 'error') return inkColors.error;
-  if (tier === 'warn') return inkColors.warning;
-  return inkColors.info;
-};
-
-const tierGlyph = (tier: Tier): string => {
-  if (tier === 'error') return glyphs.cross;
-  if (tier === 'warn') return glyphs.warningGlyph;
-  return glyphs.infoGlyph;
+const TIER_TONE: Readonly<Record<Tier, 'error' | 'warning' | 'info'>> = {
+  error: 'error',
+  warn: 'warning',
+  info: 'info',
 };
 
 const toActive = (event: BannerShowEvent): ActiveBanner => ({
@@ -202,8 +196,8 @@ interface BannerRowProps {
 const LONG_CAUSE_THRESHOLD = 60;
 
 const BannerRow = ({ banner, dismissable }: BannerRowProps): React.JSX.Element => {
-  const color = tierColor(banner.tier);
-  const glyph = tierGlyph(banner.tier);
+  const color = tones[TIER_TONE[banner.tier]].color;
+  const glyph = tones[TIER_TONE[banner.tier]].glyph;
   // Info tier renders dim to read as "ambient" rather than "alarm"; warn/error stay bold so
   // they punch above the surrounding chrome.
   //

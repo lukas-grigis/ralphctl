@@ -5,7 +5,7 @@
 
 import React from 'react';
 import { Text } from 'ink';
-import { inkColors } from '@src/application/ui/tui/theme/tokens.ts';
+import { inkColors, tones } from '@src/application/ui/tui/theme/tokens.ts';
 
 export type StatusKind = 'success' | 'warning' | 'error' | 'info' | 'muted' | 'highlight';
 
@@ -15,11 +15,11 @@ export interface StatusChipProps {
 }
 
 const COLOR: Readonly<Record<StatusKind, string>> = {
-  success: inkColors.success,
-  warning: inkColors.warning,
-  error: inkColors.error,
-  info: inkColors.info,
-  muted: inkColors.muted,
+  success: tones.success.color,
+  warning: tones.warning.color,
+  error: tones.error.color,
+  info: tones.info.color,
+  muted: tones.muted.color,
   highlight: inkColors.highlight,
 };
 

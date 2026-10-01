@@ -44,6 +44,7 @@ import { FLOW_IDS, type FlowId } from '@src/domain/value/flow-id.ts';
 import type { Settings } from '@src/domain/entity/settings.ts';
 import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import type { SkillCatalogEntry } from '@src/integration/ai/skills/_engine/skill-catalog-port.ts';
+import { plural } from '@src/application/ui/shared/plural.ts';
 import { SkillRow } from '@src/application/ui/tui/views/skills-view-internals/skill-row.tsx';
 import {
   disableOptions,
@@ -156,8 +157,7 @@ const SkillsList = ({
     <Box flexDirection="column">
       <Box paddingX={spacing.indent} marginBottom={spacing.section}>
         <Text dimColor>
-          {String(entries.length)} skill(s) {glyphs.bullet} {String(updateAvailableCount)} update
-          {updateAvailableCount === 1 ? '' : 's'} available
+          {plural(entries.length, 'skill')} {glyphs.bullet} {plural(updateAvailableCount, 'update')} available
           {!anyOptIn &&
             ` ${glyphs.bullet} no opt-in copies yet — press e to enable one (folder: ${operatorSkillsRoot}/<flow>/<skill>)`}
         </Text>
@@ -196,7 +196,7 @@ const SkillsBody = ({
     ) : confirmState !== undefined ? (
       <ConfirmCard
         title={<Text bold>{confirmTitle(confirmState)}</Text>}
-        body={<Text dimColor>Local edits in the selected flow(s) will be permanently lost.</Text>}
+        body={<Text dimColor>Local edits in the selected flows will be permanently lost.</Text>}
         message={confirmState.kind === 'disable' ? 'Remove?' : 'Overwrite?'}
         onSubmit={onSubmitConfirm}
         onCancel={() => onSubmitConfirm(false)}

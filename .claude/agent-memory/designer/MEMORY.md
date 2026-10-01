@@ -18,3 +18,4 @@
 - [project_sections_navigation.md](project_sections_navigation.md) — Title-channel context split, switcher key ownership, `none` section for first-run, renderAtSize control-frame noise
 - [project_pipeline_and_next_steps.md](project_pipeline_and_next_steps.md) — Pipeline stage must match first flow row of buildNextSteps; flow rows keyless; name not in detail body
 - [project_work_agenda.md](project_work_agenda.md) — Work agenda traps: stale-while-reload snapshot, private ActionMenu cursor + remount seed, `n` re-entry, row budget
+- [project_tones_and_no_color.md](project_tones_and_no_color.md) — tones token, ListCard rows, NO_COLOR launch ordering, chalk-level test trick

@@ -17,7 +17,7 @@ import { Card } from '@src/application/ui/tui/components/card.tsx';
 import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
 import { useViewKeys } from '@src/application/ui/tui/runtime/use-view-keys.ts';
-import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
+import { glyphs, inkColors, spacing, tones } from '@src/application/ui/tui/theme/tokens.ts';
 import { createCreatePrFlow } from '@src/application/flows/create-pr/flow.ts';
 import { resolveEffort } from '@src/business/settings/resolve-effort.ts';
 import { createAiProvider } from '@src/application/bootstrap/provider-factory.ts';
@@ -281,9 +281,9 @@ const renderBody = (prep: PrepState, run: RunState, useAi: boolean): React.JSX.E
   if (prep.kind === 'loading') return <Spinner label="Loading project + sprint execution…" />;
   if (prep.kind === 'error') {
     return (
-      <Card title="Cannot open PR" tone="rule">
+      <Card title="Cannot open PR" tone="error">
         <Text color={inkColors.error}>
-          {glyphs.bullet} {prep.message}
+          {tones.error.glyph} {prep.message}
         </Text>
       </Card>
     );
@@ -308,10 +308,10 @@ const renderBody = (prep: PrepState, run: RunState, useAi: boolean): React.JSX.E
   if (run.kind === 'running') return <Spinner label="Opening pull request…" />;
   if (run.kind === 'done') {
     return (
-      <Card title="Done" tone="rule">
+      <Card title="Done" tone="success">
         <Text>
-          <Text color={inkColors.primary} bold>
-            {glyphs.check}{' '}
+          <Text color={tones.success.color} bold>
+            {tones.success.glyph}{' '}
           </Text>
           <Text bold>{run.url}</Text>
         </Text>
@@ -319,9 +319,9 @@ const renderBody = (prep: PrepState, run: RunState, useAi: boolean): React.JSX.E
     );
   }
   return (
-    <Card title="Failed" tone="rule">
+    <Card title="Failed" tone="error">
       <Text color={inkColors.error}>
-        {glyphs.bullet} {run.message}
+        {tones.error.glyph} {run.message}
       </Text>
       <Text dimColor>press r to retry</Text>
     </Card>

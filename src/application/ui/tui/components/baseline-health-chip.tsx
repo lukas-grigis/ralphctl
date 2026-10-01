@@ -18,21 +18,14 @@ import React from 'react';
 import { Box, Text } from 'ink';
 import type { SprintExecution } from '@src/domain/entity/sprint-execution.ts';
 import type { Task } from '@src/domain/entity/task.ts';
-import { glyphs, inkColors } from '@src/application/ui/tui/theme/tokens.ts';
+import { type Tone, tones } from '@src/application/ui/tui/theme/tokens.ts';
 import { type BaselineTier, synthesiseBaselineHealth } from '@src/application/ui/tui/components/baseline-health.ts';
 
-const tierColor = (tier: BaselineTier): string => {
-  if (tier === 'green') return inkColors.success;
-  if (tier === 'amber') return inkColors.warning;
-  if (tier === 'red') return inkColors.error;
-  return inkColors.muted;
-};
-
-const tierGlyph = (tier: BaselineTier): string => {
-  if (tier === 'green') return glyphs.check;
-  if (tier === 'amber') return glyphs.warningGlyph;
-  if (tier === 'red') return glyphs.cross;
-  return glyphs.phasePending;
+const TIER_TONE: Readonly<Record<BaselineTier, Tone>> = {
+  green: 'success',
+  amber: 'warning',
+  red: 'error',
+  unknown: 'muted',
 };
 
 /** @public */
@@ -51,8 +44,8 @@ export const BaselineHealthChip = ({ execution, tasks, now }: BaselineHealthChip
   return (
     <Box>
       <Text dimColor>baseline </Text>
-      <Text color={tierColor(summary.tier)} bold>
-        {tierGlyph(summary.tier)} {summary.label}
+      <Text color={tones[TIER_TONE[summary.tier]].color} bold>
+        {tones[TIER_TONE[summary.tier]].glyph} {summary.label}
       </Text>
     </Box>
   );

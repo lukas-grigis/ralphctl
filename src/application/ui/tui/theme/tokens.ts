@@ -102,6 +102,17 @@ export const glyphs = {
   moreBelow: '▾',
 } as const;
 
+/** Semantic tones — one colour + one shape per meaning, so outcome survives NO_COLOR. */
+export type Tone = 'success' | 'warning' | 'error' | 'info' | 'muted';
+
+export const tones: Readonly<Record<Tone, { readonly color: string; readonly glyph: string }>> = {
+  success: { color: inkColors.success, glyph: glyphs.check },
+  warning: { color: inkColors.warning, glyph: glyphs.warningGlyph },
+  error: { color: inkColors.error, glyph: glyphs.cross },
+  info: { color: inkColors.info, glyph: glyphs.infoGlyph },
+  muted: { color: inkColors.muted, glyph: glyphs.phasePending },
+};
+
 /** Spacing rhythm. Use these everywhere in lieu of magic numbers. */
 export const spacing = {
   /** Between top-level sections (one blank row). */
