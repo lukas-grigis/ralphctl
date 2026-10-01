@@ -82,8 +82,8 @@ const removeProjectAction = async (raw: string, opts: RemoveOpts): Promise<void>
 };
 
 /**
- * Register the `project` command group. ralphctl project list ralphctl project show [id] ralphctl project remove <id>
- * `show` defaults its `[id]` to the pinned current project (written by the TUI and `sprint set-current`).
+ * Register the `project` command group (`list`, `show [id]`, `remove <id>`). `show` defaults its `[id]` to the pinned
+ * current project (written by the TUI and `sprint set-current`).
  */
 export const registerProjectCommand = (program: Command): void => {
   const project = program.command('project').description('inspect and manage projects');

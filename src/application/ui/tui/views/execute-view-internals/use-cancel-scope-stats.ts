@@ -1,6 +1,6 @@
 /**
- * Stats consumed by the `CancelScopeOverlay`: - `attemptStartedAt`: wall-clock ms of the most recent
- * `task-attempt-started` event for the active task.
+ * Stats consumed by the `CancelScopeOverlay`: when the active task's latest attempt started (the caller derives
+ * elapsed, so this memo doesn't re-scan on every tick) and how many tasks are still not completed.
  */
 
 import { useMemo } from 'react';

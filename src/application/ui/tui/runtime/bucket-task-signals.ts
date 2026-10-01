@@ -23,8 +23,8 @@ const DEFAULT_TERMINAL_SUBSTEP = 'uninstall-skills';
 const DEFAULT_BODY_SUBSTEP = 'task-body';
 
 /**
- * `blocked` is a WHOLE-TASK bucket status, distinct from the per-substep `skipped` carried by {@link TraceStatus} (a
- * task can have several routinely-skipped inner sub-steps.
+ * `blocked` is a WHOLE-TASK bucket status, distinct from the per-substep `skipped` carried by {@link TraceStatus}: it
+ * is emitted only when the dependency gate skipped the whole guarded body before any work ran.
  */
 export type TaskBucketStatus = TraceStatus | 'running' | 'pending' | 'blocked';
 
@@ -299,7 +299,8 @@ const reconcileBucket = (
 
 /**
  * Correct the trace-only blind spot the module docstring names: a task blocked on its own merits (budget exhausted,
- * red post-task-verify.
+ * red post-task-verify, generator self-block) leaves an all-`completed` trace, so the polled entity status is
+ * overlaid back onto the bucket. Returns the same object when nothing needed correcting.
  * @public
  */
 export const overlayEntityBlockedStatus = (
@@ -359,7 +360,7 @@ export interface BucketOptions {
    * task never ran and flips to `skipped`.
    */
   readonly bodySubstepName?: string;
-  /** Without this hint, a chain that fails before any per-task leaf runs (e.g. */
+  /** Ids to show as `pending` before they have trace entries, so an early chain failure doesn't empty the panel. */
   readonly knownTaskIds?: readonly string[];
 }
 

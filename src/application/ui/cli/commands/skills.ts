@@ -104,8 +104,8 @@ const listSkillsAction = async (): Promise<void> => {
 };
 
 /**
- * Register the `skills` command group. ralphctl skills list Operator-facing catalog of the bundled skills available
- * to opt in per flow.
+ * Register the `skills` command group (`ralphctl skills list`): the bundled skills available to opt in per flow, plus
+ * any hand-dropped ("manual") skill. "Enabled flows" already folds in the saved opt-outs.
  */
 export const registerSkillsCommand = (program: Command): void => {
   const skills = program.command('skills').description('inspect the bundled skill catalog');

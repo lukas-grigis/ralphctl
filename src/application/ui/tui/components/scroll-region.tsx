@@ -393,7 +393,7 @@ export const ScrollRegion = ({
   useInput(
     (input, key) => {
       if (disabled) return;
-      // The view owns its own list cursor — leave every scroll key (↑ ↓ PageUp PageDown Ctrl+b/f/u/d g G.
+      // The view owns its own list cursor — leave every scroll key to its handler so one press doesn't double-act.
       if (suppressArrows) return;
       const layout = computeLayout(0, sizeRef.current.viewport, sizeRef.current.content);
       if (layout.max === 0) return;

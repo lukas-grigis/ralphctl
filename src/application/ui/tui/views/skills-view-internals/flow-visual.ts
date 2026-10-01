@@ -12,8 +12,8 @@ import { glyphs, inkColors } from '@src/application/ui/tui/theme/tokens.ts';
 export { SKILL_MOUNTING_FLOW_IDS };
 
 /**
- * Flows a row renders chips for: every mounting flow, plus any NON-mounting flow that already holds an install (a
- * leftover copy must stay visible so it can be disabled.
+ * Flows a row renders chips for: every mounting flow, plus any NON-mounting flow that already holds an install, so a
+ * leftover copy stays visible (as `inactive`) and can be disabled.
  */
 export const chipFlowsFor = (entry: SkillCatalogEntry): readonly FlowId[] => {
   const mounting = new Set(SKILL_MOUNTING_FLOW_IDS);

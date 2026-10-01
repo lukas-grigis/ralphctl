@@ -119,8 +119,8 @@ const applyPresetAction = async (name: string): Promise<void> => {
 };
 
 /**
- * Register the `settings` command group. ralphctl settings show ralphctl settings set <key> <value> `show` prints the
- * current settings as JSON.
+ * Register the `settings` command group (`ralphctl settings show` / `set <key> <value>`). `show` prints the current
+ * settings as JSON; `set` goes through the shared `applySettingsKey` mutator, so the TUI and CLI accept the same keys.
  */
 export const registerSettingsCommand = (program: Command): void => {
   const settings = program.command('settings').description('inspect and mutate ralphctl settings');

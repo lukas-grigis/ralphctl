@@ -11,8 +11,8 @@ export interface UnblockFeedbackInput {
   /** Named in the retry clause below — the sprint every task in this run belongs to. */
   readonly sprintId: Sprint['id'];
   /**
-   * Unblocks that revived their task but left the sprint CLOSED, because another sprint of the same project already
-   * holds it (`UnblockTaskOutput.sprintReopenConflict`.
+   * Unblocks that revived their task but left the sprint CLOSED because another sprint of the same project already
+   * holds it (`UnblockTaskOutput.sprintReopenConflict`). Counted apart so the toast doesn't read as a clean recovery.
    */
   readonly reopenRefused: number;
   /** The last refusal's message — it names the peer holding the project. */

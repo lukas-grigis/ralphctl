@@ -1,7 +1,7 @@
 import { RALPHCTL_DEBUG_TRACE_ENV } from '@src/application/bootstrap/wire.ts';
 import { AbortError } from '@src/domain/value/error/abort-error.ts';
 
-/** Shared CLI failure reporter — every command action ends a failed branch with `fail(message). */
+/** Shared CLI failure reporter — a failed command branch calls `fail(message); return;` instead of writing stderr itself. */
 export const fail = (message: string): void => {
   process.stderr.write(`error: ${message}\n`);
   process.exitCode = 1;

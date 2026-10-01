@@ -61,8 +61,8 @@ const exportContextAction = async (opts: Opts): Promise<void> => {
 };
 
 /**
- * Register the `export-context` CLI command. ralphctl export-context [--sprint <id>] [--project <id>] --output <path>
- * Renders the harness-context markdown (sprint + project + tasks) to the supplied path.
+ * Register the `export-context` CLI command (`ralphctl export-context [--sprint <id>] [--project <id>] --output
+ * <path>`). Renders the harness-context markdown (sprint + project + tasks) to the supplied path.
  */
 export const registerExportContextCommand = (program: Command): void => {
   program

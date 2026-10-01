@@ -35,8 +35,8 @@ export const usePickerRows = (deps: AppDeps, currentProjectId: ProjectId | undef
   const { state, reload } = useAsyncLoad<PickerData>(
     async (signal) => {
       const [sprintsR, projectsR] = await Promise.all([deps.sprintRepo.list(), deps.projectRepo.list()]);
-      // Short-circuit on unmount / re-fetch: the underlying repo calls don't yet accept a signal, so we can't truly
-      // cancel the I/O.
+      // Short-circuit on unmount / re-fetch: the repo calls can't be cancelled yet, but bailing skips parsing a stale
+      // result.
       signal.throwIfAborted();
       if (!sprintsR.ok) throw new Error(sprintsR.error.message);
       if (!projectsR.ok) throw new Error(projectsR.error.message);

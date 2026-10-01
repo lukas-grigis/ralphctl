@@ -65,8 +65,8 @@ const listAgentsAction = async (): Promise<void> => {
 };
 
 /**
- * Register the `agents` command group. ralphctl agents list Operator-facing catalog of the portable agent definitions
- * available to bind to the implement generator/evaluator role.
+ * Register the `agents` command group (`ralphctl agents list`): the bundled and operator agent definitions available
+ * to bind to the implement generator/evaluator role. Project-authored definitions have no enumerable source.
  */
 export const registerAgentsCommand = (program: Command): void => {
   const agents = program.command('agents').description('inspect portable agent definitions');

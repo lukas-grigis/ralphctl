@@ -9,7 +9,7 @@ import { useTerminalSize } from '@src/application/ui/tui/runtime/use-terminal-si
 const MIN_BODY_ROWS = 5;
 /**
  * Rows the surrounding chrome consumes besides the header and the body itself: view header + key hints (~6), body
- * border (2), scroll hint + margins (3).
+ * border (2), scroll hint + margins (3), and the host's own controls (~4).
  */
 const DEFAULT_RESERVED_ROWS = 15;
 /** Columns lost to prompt indent + body border + body padding. */

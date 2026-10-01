@@ -170,8 +170,8 @@ const toneFromTier = (tier: BaselineTier): CardTone => {
 };
 
 /**
- * Title-suffix logic uses the same predicate tier as the tone, then refines with the rows for fine-grained labels: -
- * tier `red` → first failing row's label, e.g.
+ * Title suffix, refined from the tone's tier: `red` → the first failing row's label (e.g. `"setup failed"`), `green` →
+ * `"clean"` only when every row is ok, otherwise no suffix.
  */
 const titleSuffix = (rows: readonly RowData[], tier: BaselineTier): string | undefined => {
   if (tier === 'red') {

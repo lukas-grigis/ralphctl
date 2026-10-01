@@ -1,6 +1,6 @@
 /**
- * ImplementSidebar — left sidebar for the redesigned Implement view (≥140 col breakpoint). Section order (top →
- * bottom): 1.
+ * ImplementSidebar — left sidebar for the Implement view (≥140 col breakpoint): baseline health card, flow-steps rail,
+ * a passive task minimap (the TasksPanel owns input), then the token budget card. Width is fixed at `sidebarWidth`.
  */
 
 import React, { useMemo } from 'react';

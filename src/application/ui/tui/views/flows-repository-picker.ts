@@ -24,7 +24,8 @@ export interface RepositorySelectionInput {
 }
 
 /**
- * Outcome of the repository-selection step. - `skip` — flow doesn't select a repo, or the project has 0/1 repository.
+ * Outcome of the repository-selection step: `skip` (no repo choice needed), `selected` (its id threads into the
+ * launch), or `cancel` (the user dismissed the prompt, so the launcher must not launch).
  */
 export type RepositorySelectionResult =
   | { readonly kind: 'skip' }

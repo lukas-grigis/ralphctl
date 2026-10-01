@@ -38,7 +38,8 @@ export interface PlanReviewTask {
 }
 
 /**
- * Project the planner's tasks onto the review shape: repository id → repo name.
+ * Project the planner's tasks onto the review shape: repository id → repo name, dependency ids → task names (raw id
+ * when the target isn't in the proposal), external refs → the ticket ref.
  * @public
  */
 export const toPlanReviewTasks = (

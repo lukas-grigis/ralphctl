@@ -19,8 +19,8 @@ import {
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 
 /**
- * How the gate resolved into the main app: - `migrated` — apply ran and stamped the marker; the app reads the v2
- * layout. - `skipped` — the user declined, a lock was held.
+ * How the gate resolved into the main app. `migrated`: the app reads the v2 layout. `skipped` and `failed-continue`:
+ * the app runs on the tolerant readers and the migration is re-offered next launch.
  * @public
  */
 export type MigrationGateOutcome = 'migrated' | 'skipped' | 'failed-continue';

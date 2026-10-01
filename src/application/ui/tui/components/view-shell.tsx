@@ -1,4 +1,7 @@
-/** Frame every view shares — four explicit zones under the app chrome that `Layout` owns (tab bar. */
+/**
+ * Frame every view shares — four zones (header, content, status, prompt) under the chrome `Layout` owns. The fixed
+ * zones are `flexShrink={0}` so Yoga can't squeeze them away when content overflows.
+ */
 
 import React from 'react';
 import { Box } from 'ink';

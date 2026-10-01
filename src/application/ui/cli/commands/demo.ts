@@ -1,5 +1,6 @@
 /**
- * `ralphctl demo` — zero-setup entry point: seeds an isolated.
+ * `ralphctl demo` — zero-setup entry point: seeds an isolated, marker-guarded sandbox with the mock project, then
+ * launches the TUI on it. A directory without the `.ralphctl-demo` marker is never wiped.
  */
 
 import type { Command } from 'commander';
@@ -156,7 +157,7 @@ const demoAction = async (opts: DemoOptions): Promise<void> => {
 };
 
 /**
- * Register the `demo` CLI command. ralphctl demo # seed + launch the sandbox ralphctl demo --no-launch # seed only.
+ * Register the `demo` CLI command: `ralphctl demo [--no-launch] [--home <dir>] [--script]`.
  */
 export const registerDemoCommand = (program: Command): void => {
   program

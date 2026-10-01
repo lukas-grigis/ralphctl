@@ -25,7 +25,7 @@ export interface SprintBoundLaunchExtras extends LaunchExtras {
   readonly onReseat?: (info: { readonly id: SprintId; readonly name: string; readonly status?: SprintStatus }) => void;
   /** Display name to use when ctx surfaces only `sprintId` (no `sprint` object). */
   readonly fallbackLabel?: string;
-  /** Called when the sprint's id/name become known (same moment as `onReseat`. */
+  /** Called when the sprint's id/name become known — like `onReseat`, but with the runner id so the caller can pin it. */
   readonly onSprintResolved?: (
     runnerId: string,
     info: { readonly id: SprintId; readonly name: string; readonly status?: SprintStatus }

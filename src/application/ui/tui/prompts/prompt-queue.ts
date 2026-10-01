@@ -1,6 +1,6 @@
 /**
- * Module-level prompt queue. The TUI bridges sync chain code (use cases call `interactive.askConfirm(...)` and
- * `await` the answer) into the React tree by: 1.
+ * Module-level prompt queue that bridges chain code awaiting `interactive.askConfirm(...)` into the React tree: each
+ * ask enqueues and returns a Promise, `<PromptHost>` renders only the head, and resolving it slides the next one in.
  */
 
 import type { Choice } from '@src/business/interactive/prompt.ts';

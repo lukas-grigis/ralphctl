@@ -1,6 +1,6 @@
 /**
- * Loaders + session-manager subscription wiring for the sprint-detail view. Hides three side effects behind one hook
- * so the orchestrator only deals with the result: 1.
+ * Loaders + session-manager subscription wiring for the sprint-detail view: loads sprint + tasks, reloads when a
+ * tracked flow changes status, and resolves repository names best-effort (failures only warn).
  */
 
 import { useEffect, useState } from 'react';

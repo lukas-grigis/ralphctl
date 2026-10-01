@@ -1,6 +1,6 @@
 /**
- * Header cluster of a task card — the rows that render whether the card is collapsed or expanded: - {@link
- * TaskHeaderCore} — cursor caret, status glyph/spinner, name.
+ * Header cluster of a task card — the rows that render whether the card is collapsed or expanded (core line, summary
+ * chips, attempt/round and ETA chips, notices). Each part returns `null` when it has nothing to show.
  */
 
 import React, { useMemo } from 'react';

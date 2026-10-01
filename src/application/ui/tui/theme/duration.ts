@@ -1,5 +1,6 @@
 /**
- * Human-readable duration formatter used across the TUI. Sub-second values render as whole milliseconds (e.g.
+ * Human-readable duration formatter used across the TUI: whole milliseconds below a second (`9ms`), then `X.Ys`, then
+ * `MmSs` above a minute.
  */
 export const fmtDuration = (ms: number): string => {
   if (ms < 1000) return `${String(Math.round(ms))}ms`;

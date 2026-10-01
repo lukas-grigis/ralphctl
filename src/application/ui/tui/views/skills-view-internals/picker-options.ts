@@ -10,8 +10,8 @@ import {
 } from '@src/application/ui/tui/views/skills-view-internals/flow-visual.ts';
 
 /**
- * Every skill-MOUNTING flow is offered (a flow whose launch never mounts a skill source — none today; every real
- * `FlowId` mounts, createPr included.
+ * Every skill-MOUNTING flow is offered. Flows the skill is already default-ON for, and edit-protected copies, are shown
+ * but disabled, so the operator sees why they're greyed out.
  */
 export const enableOptions = (entry: SkillCatalogEntry): ReadonlyArray<Choice<FlowId>> =>
   SKILL_MOUNTING_FLOW_IDS.map((flowId) => {

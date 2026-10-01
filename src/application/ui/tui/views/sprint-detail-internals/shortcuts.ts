@@ -91,7 +91,7 @@ const buildStateBindings = (args: SprintDetailShortcutArgs, canPublish: boolean)
     },
     {
       // Always available, like `sprints-view.tsx`'s `r` — re-fetches the sprint bundle so an out-of-process mutation
-      // (e.g.
+      // (e.g. `ralphctl sprint reopen`) shows up without leaving the view.
       keys: ['r'],
       hint: 'reload',
       hidden: true,

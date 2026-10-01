@@ -44,8 +44,8 @@ type EditTarget =
   { readonly kind: 'project' } | { readonly kind: 'repo'; readonly field: RepoFieldKey; readonly repo: Repository };
 
 /**
- * Once the project loads, refresh the display-name label in the selection cache so the status bar can show "proj:
- * <name>" without re-loading the aggregate.
+ * Once the project loads, refresh its display-name label in the selection cache — but only when it is already the
+ * current project, so merely browsing another project's detail never switches the selection.
  */
 const useSyncCurrentProjectLabel = (
   state: AsyncLoadState<Project, unknown>,
@@ -173,8 +173,8 @@ interface ProjectDetailShortcutArgs extends LaunchPerRepoFlowCtx {
 }
 
 /**
- * Keymap hook for the project-detail view — encapsulates every `useInput` chord (add repo, mark current, edit field,
- * flat-cursor navigation, per-repo CRUD + detect flows.
+ * Keymap hook for the project-detail view — owns every `useInput` chord (repo CRUD, edit field, navigation, detect
+ * flows, sprints shortcut) so the orchestrator only wires state and setters.
  */
 const useProjectDetailShortcuts = (args: ProjectDetailShortcutArgs): void => {
   const { deps, router, ui, selection, edit, project, focused, reload } = args;

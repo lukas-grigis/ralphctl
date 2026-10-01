@@ -1,6 +1,6 @@
 /**
- * Expanded body of a task card — everything below the header cluster: - {@link ActiveBusyIndicator} — two-role
- * gen-eval activity dot - {@link ExpandedNotices} — idle ticker.
+ * Expanded body of a task card — the activity dot, the notices (ticker, resume banner, hints, criteria, error) and the
+ * progress block. Each part self-gates on `cardExpanded`, so the card never repeats a gate.
  */
 
 import React, { useMemo } from 'react';

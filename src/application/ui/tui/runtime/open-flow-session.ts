@@ -1,6 +1,6 @@
 /**
- * `openFlowSession` — the register + start + route tail shared by every TUI call site that launches a flow runner.
- * Given a successful {@link LaunchResult}, it: 1.
+ * `openFlowSession` — the register + start + route tail shared by every TUI call site that launches a flow runner:
+ * registers it with the {@link SessionManager}, fires `runner.start()`, then pushes (or replaces) the Execute view.
  * @public
  */
 

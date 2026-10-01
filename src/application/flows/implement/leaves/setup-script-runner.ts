@@ -75,7 +75,7 @@ interface LeafOutput {
 
 /**
  * Resume gate: the success row a prior chain on this sprint left for this repo, when it still stands for the current
- * command — and, with a tree guard wired.
+ * command (and, with a tree guard wired, carries the full working-tree answer). `undefined` means the script must run.
  */
 const resumableSuccess = (
   execution: SprintExecution,

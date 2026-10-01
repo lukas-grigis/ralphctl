@@ -337,8 +337,8 @@ export const useSprintDetailBody = (): UseSprintDetailBodyResult => {
     openIds.has(item.kind === 'ticket' ? String(item.ticket.id) : String(item.task.id))
   );
 
-  // Mounted-ref guard for the async unblock / remove-ticket handlers: dismissing the confirm overlay (or firing `u`)
-  // unblocks the router.
+  // Mounted-ref guard for the async unblock / remove-ticket handlers: the operator can navigate away before they
+  // resolve, so the post-await writes must skip an unmounted view.
   const mountedRef = useIsMounted();
   // Latch for the `p` publish chord — see `BuildSprintDetailHandlersArgs.publishInFlightRef`.
   const publishInFlightRef = useRef(false);

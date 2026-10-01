@@ -16,7 +16,7 @@ interface CapturedListener {
 
 /**
  * One macrotask turn — enough for every `process.nextTick` the stream internals queued (the `readable`-listener
- * bookkeeping after `removeListener`.
+ * bookkeeping after `removeListener`, and `readStop` after `'pause'`) to have run.
  */
 const settle = (): Promise<void> => new Promise((resolve) => setImmediate(resolve));
 

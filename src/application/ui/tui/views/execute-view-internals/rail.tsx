@@ -1,6 +1,6 @@
 /**
- * Left rail — top-level flow-steps display, two variants: - `FlowStepsRail`: labelled rail used in the three-column
- * (≥180 cols) and two-column (140–179 cols) layouts.
+ * Left rail — top-level flow-steps display: `FlowStepsRail` (labelled, ≥140 cols) and `CompactFlowStepsRail` (glyphs
+ * only, 100–139 cols). Both hide per-task subchain leaves and the `with-repo-lock(…)` wrapper.
  */
 
 import React from 'react';

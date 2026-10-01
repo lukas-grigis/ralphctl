@@ -27,8 +27,8 @@ const SINCE_DESC =
   'ISO date — keep sprints whose latest lifecycle stamp (done, else review, else activated, else planned) is on or after it; never-planned drafts have no stamp and drop out';
 
 /**
- * Register `runs stats` on the `runs` group. ralphctl runs stats [--json] [--since <date>] [--sprint <id>] [--project
- * <id>]
+ * Register `runs stats` on the `runs` group: `ralphctl runs stats [--json] [--since <date>] [--sprint <id>]
+ * [--project <id>]`.
  */
 export const registerRunsStatsCommand = (runs: Command): void => {
   runs

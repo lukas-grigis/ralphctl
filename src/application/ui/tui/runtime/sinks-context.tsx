@@ -6,8 +6,8 @@ import type { LogEvent } from '@src/business/observability/events.ts';
 import type { BusSink } from '@src/application/ui/tui/runtime/sinks-bus.ts';
 
 /**
- * One harness-signal bus entry — the TUI-side re-shaping of the `ai-signal` AppEvent's payload. - `source` — the
- * leaf/flow that produced the signal (e.g.
+ * One harness-signal bus entry — the TUI-side re-shaping of the `ai-signal` AppEvent's payload. `source` is the
+ * leaf/flow that produced it; `taskId` is set only on the implement flow's parallel path.
  */
 export interface SignalBusEntry {
   readonly signal: HarnessSignal;

@@ -1,6 +1,6 @@
 /**
  * Bridges flow manifests → live `Element` instances. {@link launchFlow} resolves cross-cutting inputs (fresh
- * settings, runner→event-bus bridge.
+ * settings, runner→event-bus bridge, composed skill source) and dispatches to a per-flow `launch<X>` under `./launch/`.
  */
 
 import type { AppDeps } from '@src/application/bootstrap/wire.ts';
@@ -101,8 +101,8 @@ export interface LaunchExtras {
   /** Freshly-loaded settings snapshot; overrides the stale `app.settings` boot snapshot. */
   readonly settingsSnapshot?: Settings;
   /**
-   * Per-launch implement-role overrides — supplied either by the bare-`ralphctl` CLI flags
-   * (`--implement-generator-provider`, `--implement-generator-model`.
+   * Per-launch implement-role overrides — from the bare-`ralphctl` `--implement-{generator,evaluator}-{provider,model}`
+   * flags or the TUI's customize picker. Each field is optional; an unset one keeps the persisted value.
    */
   readonly implementRoleOverrides?: {
     readonly generator?: {
@@ -236,7 +236,8 @@ const mergeRow = (base: AiFlowSettings, override: NonNullable<LaunchExtras['over
 };
 
 /**
- * Apply `extras.override` to the {@link Settings} record so the launcher's adapter rebuild (provider, interactiveAi.
+ * Apply `extras.override` to the {@link Settings} record so the adapter rebuild and the per-flow launcher see the same
+ * values. Implement is excluded — its roles go through `extras.implementRoleOverrides`.
  */
 export const applyOverrideToSettings = (
   settings: Settings,
@@ -310,7 +311,7 @@ const buildLaunchAdapters = (deps: LauncherDeps, flowId: string, settings: Setti
   return { provider, interactiveAi, skillsAdapter, resolvedProvider, effort };
 };
 
-/** Build the four skill sources composed at launch — the app-wired bundled source. */
+/** Build the four skill sources composed at launch — bundled, project, operator drop-in and phase — as a tuple. */
 const buildSkillSourceQuad = (
   deps: SkillCompositionDeps,
   snapshot: Pick<AppStateSnapshot, 'project'>,

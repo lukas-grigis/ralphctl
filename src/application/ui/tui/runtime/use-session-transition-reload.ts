@@ -1,6 +1,6 @@
 /**
- * `useSessionTransitionReload` — calls `reload` whenever a tracked session's status transitions (registered, running
- * → completed / failed / aborted.
+ * `useSessionTransitionReload` — calls `reload` whenever a tracked session's status changes (or it is removed), so a
+ * view doesn't stay frozen on the sprint state from launch time. It diffs statuses to skip the per-step notifies.
  */
 
 import { useEffect, useRef } from 'react';

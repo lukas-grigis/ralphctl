@@ -1,5 +1,5 @@
-// Retention audit: BOUNDED via `TASK_ROUND_CAP = 500` LRU on insertion order (was UNBOUNDED before the cap landed —
-// keyed by stable taskId.
+// Retention audit: BOUNDED via a `TASK_ROUND_CAP = 500` insertion-order LRU keyed by taskId; updates are coalesced
+// into at most one commit per flush window.
 
 /**
  * Per-task gen-eval round tracker — subscribes to `task-round-started` AppEvents and folds them into a Map<taskId, {

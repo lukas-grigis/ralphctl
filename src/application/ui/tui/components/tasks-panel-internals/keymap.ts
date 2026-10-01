@@ -67,8 +67,8 @@ const handleOpenEvaluation = (
 };
 
 /**
- * `u` revives the FOCUSED card's stuck task — same target-resolution shape as {@link handleOpenEvaluation} (the
- * focused card.
+ * `u` revives the FOCUSED card's stuck task (not the active one), like {@link handleOpenEvaluation}. Returns `false`
+ * when the target isn't blocked, so the keystroke keeps travelling.
  */
 const handleUnblock = (
   input: string,

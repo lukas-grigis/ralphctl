@@ -34,8 +34,8 @@ interface TaskOverlaySources {
   /** Optional `taskId → blockedReason` map sourced from the polled task entities. */
   readonly blockedReasonById?: ReadonlyMap<string, string>;
   /**
-   * Optional `taskId → structured block triage` map sourced from the polled task entities (the generator's own
-   * question / what-would-unblock-it.
+   * Optional `taskId → structured block triage` map sourced from the polled task entities — the generator's own
+   * question and what would unblock it, when its self-block signal supplied them.
    */
   readonly blockedTriageById?: ReadonlyMap<string, BlockedTriage>;
   /** Optional `taskId → warning summary` map sourced from the polled task entities. */
@@ -249,8 +249,8 @@ const buildOverlayByTaskId = (sources: TaskOverlaySources): ReadonlyMap<string, 
 };
 
 /**
- * Render-derived values shared by every row this render — the card-cursor/expansion state (via `useTaskCardState`),
- * the folded per-task overlays.
+ * Render-derived values shared by every row this render — the card-cursor/expansion state, the folded per-task
+ * overlays and the panel-level settings — bundled so {@link buildTaskRowProps} takes one argument.
  */
 interface TaskRowDerived {
   readonly running: boolean;

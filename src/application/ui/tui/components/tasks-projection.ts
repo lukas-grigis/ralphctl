@@ -34,7 +34,7 @@ export interface BlockedTriage {
 
 /**
  * Everything the Tasks panel knows about ONE task beyond its live `TaskBucket` — the entity- and projection-sourced
- * extras the bucketed trace cannot carry (a resume banner.
+ * extras the bucketed trace cannot carry. Every field is optional; absent means nothing to show.
  */
 export interface TaskOverlay {
   /** Set when the launcher detected this task resuming a prior aborted attempt. */

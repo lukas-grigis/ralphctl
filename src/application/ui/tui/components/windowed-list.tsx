@@ -213,7 +213,7 @@ export interface WindowedListProps<T> {
 
 /**
  * Thin render wrapper for views that don't need bespoke layout: builds the window via {@link useListWindow}, renders
- * an {@link OverflowRow} above, the sliced visible items.
+ * the sliced visible items between two {@link OverflowRow}s.
  * @public
  */
 export function WindowedList<T>({

@@ -1,4 +1,7 @@
-/** Everything the Execute view derives from the run's OWN pinned sprint, in one call: 1. */
+/**
+ * Everything the Execute view derives from the run's OWN pinned sprint, in one call: the pinned-sprint context, the
+ * baseline health data, and the settled next steps that read both.
+ */
 
 import { usePinnedSprintContext } from '@src/application/ui/tui/views/execute-view-internals/use-pinned-sprint-context.ts';
 import { useBaselineHealthData } from '@src/application/ui/tui/views/execute-view-internals/use-baseline-health-data.ts';

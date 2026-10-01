@@ -27,8 +27,8 @@ const isTerminal = (status: RunnerStatus): boolean =>
 const ageKey = (rec: SessionRecord): number => rec.descriptor.finishedAt ?? rec.descriptor.startedAt;
 
 /**
- * Replace a terminal record's live {@link Runner} with a frozen stub that preserves the identity + status + trace the
- * UI reads.
+ * Replace a terminal record's live {@link Runner} with a frozen stub that keeps what the UI reads but drops the live
+ * closure, whose captured `ctx` would otherwise stay pinned until the record is evicted.
  */
 const terminalRunnerStub = (
   id: string,
@@ -107,8 +107,8 @@ export interface SessionRecord {
 export type SessionListener = () => void;
 
 /**
- * The subset of {@link SessionDescriptor}'s optional fields that `register()` accepts directly from the caller (as
- * opposed to `finishedAt` / `error`.
+ * The subset of {@link SessionDescriptor}'s optional fields that `register()` accepts from the caller; `finishedAt`
+ * and `error` are only ever set internally by {@link update}.
  */
 type RegisterOptionalFields = Pick<
   SessionDescriptor,
@@ -133,7 +133,7 @@ type RegisterOptionalFields = Pick<
 
 /**
  * Mirrors {@link RegisterOptionalFields} but with every key REQUIRED (its value may still be `undefined`) — the shape
- * of a destructured `{ taskNames, maxTurns.
+ * of a destructured `{ taskNames, maxTurns, ... }` literal under `exactOptionalPropertyTypes`.
  */
 type RegisterOptionalFieldsInput = {
   readonly [K in keyof RegisterOptionalFields]-?: RegisterOptionalFields[K] | undefined;

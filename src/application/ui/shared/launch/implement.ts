@@ -94,7 +94,7 @@ export const resolveImplementQueue = (
   tasks: readonly Task[],
   bundle?: ImplementQueueBundle
 ): Result<readonly Task[], string> => {
-  // Validate first (cross-aggregate references when the bundle is supplied.
+  // Validate first so a cycle or dangling reference surfaces as the rendered issue, not a silently-truncated queue.
   const validation = bundle === undefined ? validateTaskGraph(tasks) : validateSprintConsistency({ ...bundle, tasks });
   if (!validation.ok) return Result.error(renderSprintConsistencyIssue(validation.error));
 
@@ -291,7 +291,8 @@ const buildImplementElement = (
     skillSource,
     { generator: args.agentBindings.generatorAdapter, evaluator: args.agentBindings.evaluatorAdapter }
   );
-  // Every task the sprint holds that is NOT in the resumable queue is, by construction, already settled — `done`.
+  // Tasks outside the resumable queue are already settled (`done` or `blocked`), so a dependency on one is satisfied,
+  // not a dangling edge; an id that exists on no task still fails.
   const queuedIds = new Set<TaskId>(args.todoTasks.map((t) => t.id));
   const satisfiedDependencyIds = new Set<TaskId>(args.allTasks.filter((t) => !queuedIds.has(t.id)).map((t) => t.id));
   const implementOpts: CreateImplementFlowOpts = {

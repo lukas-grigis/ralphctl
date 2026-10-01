@@ -22,7 +22,10 @@ export interface CreateBusSinkOptions {
   readonly maxEntries?: number;
 }
 
-/** Construct a bus-style sink. Order of operations on `emit`: 1. */
+/**
+ * Construct a bus-style sink. `emit` appends to the rolling buffer (dropping the oldest past `maxEntries`), then fans
+ * out to subscribers; a throwing listener is logged and never stalls the rest.
+ */
 export const createBusSink = <T>(opts: CreateBusSinkOptions = {}): BusSink<T> => {
   const max = opts.maxEntries ?? 1000;
   const buf: T[] = [];

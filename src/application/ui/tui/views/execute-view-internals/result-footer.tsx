@@ -27,8 +27,8 @@ const MAX_NEXT_STEPS = 4;
 const MAX_FORENSICS = 5;
 
 /**
- * Clip the error summary to a bounded row footprint: at most {@link MAX_SUMMARY_LINES} lines and {@link
- * MAX_SUMMARY_CHARS} characters (the char cap bounds Ink's soft wrap.
+ * Clip the error summary to at most {@link MAX_SUMMARY_LINES} lines and {@link MAX_SUMMARY_CHARS} characters (the
+ * char cap bounds Ink's soft wrap). A clip appends `clipEllipsis` so a shortened message is recognisable.
  */
 const clipSummary = (summary: string | undefined): string | undefined => {
   if (summary === undefined) return undefined;

@@ -42,8 +42,8 @@ const doctorAction = async (): Promise<void> => {
 };
 
 /**
- * Register the `doctor` CLI command. ralphctl doctor Runs the same probes the TUI's Doctor view runs (storage roots
- * reachable.
+ * Register the `doctor` CLI command (`ralphctl doctor`). Runs the TUI Doctor's probes and prints one line per probe;
+ * exits 1 when any probe fails, so CI / health-check scripts can use it.
  */
 export const registerDoctorCommand = (program: Command): void => {
   program

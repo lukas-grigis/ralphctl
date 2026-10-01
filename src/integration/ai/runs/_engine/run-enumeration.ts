@@ -222,7 +222,7 @@ export const removeRun = async (
   return removeDir(join(String(runsRoot), run.flow, run.runId));
 };
 
-/** Group entries by flow and sort within each group newest-first (parsed timestamp. */
+/** Group entries by flow and sort each group newest-first; entries without a timestamp sort last, lexicographically. */
 export const groupByFlow = (entries: readonly RunEntry[]): Map<string, readonly RunEntry[]> => {
   const groups = new Map<string, RunEntry[]>();
   for (const entry of entries) {

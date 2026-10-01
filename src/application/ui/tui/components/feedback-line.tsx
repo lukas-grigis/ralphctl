@@ -17,8 +17,8 @@ export interface StructuredFeedback {
 
 export interface FeedbackLineProps {
   /**
-   * Feedback content — either: - A {@link StructuredFeedback} `{ tone, text }` object (preferred). - A plain string
-   * (legacy).
+   * Feedback content — a {@link StructuredFeedback} `{ tone, text }` (preferred) or a legacy plain string whose leading
+   * glyph (cross / check / refresh) picks the tone.
    */
   readonly text: string | StructuredFeedback | undefined;
 }

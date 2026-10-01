@@ -66,8 +66,8 @@ const sprintNameOf = (sessionTitle: string): string => {
 };
 
 /**
- * Buffer sizing for long Implement runs: - harness signals: ~20-40 per task (changes, learnings, decisions, commit
- * messages, …), so 10 tasks × 30 = 300.
+ * Buffer sizing for long Implement runs: ~30 harness signals per task, so 1000 leaves headroom for a 20-task sprint;
+ * 2000 chain events keep early tasks' time windows intact. Overflow drops the oldest; chain.log stays authoritative.
  */
 const HARNESS_SIGNAL_LIMIT = 1000;
 const CHAIN_EVENT_LIMIT = 2000;
@@ -132,7 +132,7 @@ interface DeriveTasksPanelResult {
   // this result straight onto `<ExecuteBody>` — see `ExecuteViewFrame` below.
   readonly executionState: SprintExecution | undefined;
   readonly taskState: readonly Task[] | undefined;
-  /** Handed back verbatim: the narrow layout consumes it through the pre-built `tasksPanel` node above. */
+  /** Handed back verbatim because the ≥140-col sidebar layout builds its own panel and needs the handler itself. */
   readonly onOpenEvaluation: (taskId: string) => void;
 }
 
@@ -215,7 +215,7 @@ export interface ExecuteRunControls {
   readonly now: number;
 }
 
-/** Bundles the three pieces of state/derivation that only make sense together: whether the run is live. */
+/** Bundles three pieces of state that only make sense together: run liveness, the cancel-scope picker, the clock. */
 const useExecuteRunControls = ({
   descriptor,
   modalOpen,

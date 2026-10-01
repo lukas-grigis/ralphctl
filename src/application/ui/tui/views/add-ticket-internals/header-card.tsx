@@ -1,6 +1,6 @@
 /**
- * Step-aware header card for the add-ticket wizard. - `link` step (first): show the "What we'll collect" primer so a
- * new user knows what's coming. - Mid-wizard steps (`fetching` → `title` → `description`).
+ * Step-aware header card for the add-ticket wizard: the `link` step shows the "What we'll collect" primer, mid-wizard
+ * steps show the fields entered so far (so they stay visible after each prompt unmounts), and later steps collapse it.
  */
 
 import React from 'react';

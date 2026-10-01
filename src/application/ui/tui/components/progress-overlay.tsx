@@ -153,7 +153,8 @@ const ProgressBody = ({
         {state.kind === 'ok' && (
           <Box flexDirection="column">
             {visibleLines.map((line, idx) => (
-              // `truncate-end` is the backstop behind the pre-wrap: a row we mis-measured (tabs.
+              // `truncate-end` backs up the pre-wrap: a mis-measured row (tabs, wide glyphs) is clipped, not wrapped,
+              // so the row-count windowing stays in sync.
               <Text key={`row-${String(offset + idx)}`} wrap="truncate-end">
                 {line.length === 0 ? ' ' : line}
               </Text>

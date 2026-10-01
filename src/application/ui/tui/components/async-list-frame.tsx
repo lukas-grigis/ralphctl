@@ -1,6 +1,7 @@
 /**
  * `AsyncListFrame` — owns the loading / error / overlay / empty ladder that every view backed by `useAsyncLoad`
- * re-derives by hand: a full-frame overlay (e.g. a confirm card) pre-empts everything, then loading.
+ * re-derives by hand: a full-frame overlay (e.g. a confirm card) pre-empts everything, then loading, then error, then
+ * the empty placeholder, and only then `children`.
  */
 
 import React from 'react';

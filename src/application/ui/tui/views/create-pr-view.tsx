@@ -48,8 +48,8 @@ export const CreatePrView = (): React.JSX.Element => {
   // Resolve cwd (project's first repo path) and branch (sprint-execution.branch) up front,
   // so the confirm card can show concrete values rather than spinning twice.
   useEffect(() => {
-    // Guard the setPrep write behind a `cancelled` flag: if the selection changes (a new load starts) or the view
-    // unmounts while `resolvePrepState`'s awaits are in flight.
+    // Gate the setPrep write on a `cancelled` flag: a stale run (selection changed or view unmounted mid-await) must
+    // not write state.
     let cancelled = false;
     void resolvePrepState(deps, selection.projectId, selection.sprintId).then((next) => {
       if (!cancelled) setPrep(next);

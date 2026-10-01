@@ -140,8 +140,8 @@ export interface TokenUsageEvent {
    */
   readonly sessionId: string;
   /**
-   * The chain runner / session id this spawn ran under, read from `rootSessionId()` (the runner wraps every
-   * `element.execute()` in `runWithSession(id, …)`.
+   * The chain runner / session id this spawn ran under, read from `rootSessionId()` (the root, because nested branch
+   * runners shadow it). Per-runner widgets must key on `chainSessionId ?? sessionId`.
    */
   readonly chainSessionId?: string;
   readonly provider: AiProvider;

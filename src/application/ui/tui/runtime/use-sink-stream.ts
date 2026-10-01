@@ -1,5 +1,5 @@
-// Retention audit: BOUNDED — `useSinkStream` keeps a trailing window of `T` refs sourced from the upstream `BusSink`
-// (default 100.
+// Retention audit: BOUNDED — `useSinkStream` keeps a trailing window of `T` refs from the upstream `BusSink` (default
+// 100, sliced on every flush), and coalesces emits into one React commit per flush.
 
 /** Hook that subscribes to a {@link BusSink} and re-renders on new values. */
 

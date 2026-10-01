@@ -46,8 +46,8 @@ const listPromptsAction = async (): Promise<void> => {
 };
 
 /**
- * Register the `prompts` command group. ralphctl prompts list Inspection surface for the bundled prompt templates —
- * and, deliberately.
+ * Register the `prompts` command group (`ralphctl prompts list`). It is deliberately the only non-interactive command
+ * that reads a template back out of the built bundle, so the dist smokes catch an install whose prompts are unreadable.
  */
 export const registerPromptsCommand = (program: Command): void => {
   const prompts = program.command('prompts').description('inspect the bundled prompt templates');

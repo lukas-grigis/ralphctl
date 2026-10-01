@@ -1,6 +1,6 @@
 /**
- * Three effects scoped to a session's pinned project/sprint, extracted together because they share the same
- * descriptor fields (pinnedProjectId / pinnedSprintId / pinnedProjectLabel / pinnedSprintLabel): 1.
+ * Three effects scoped to a session's pinned project/sprint, which share the same descriptor fields: probe whether the
+ * pin was closed or removed, register it as the focused-run context, and converge the global selection onto it.
  */
 
 import React from 'react';
@@ -79,7 +79,7 @@ interface UseConvergeSelectionOnFocusInput {
 
 /**
  * Converges the global selection onto this run's pinned sprint whenever focus lands on a session pinned to a
- * DIFFERENT sprint (Tab / Ctrl+1..9 / Sessions-open.
+ * DIFFERENT sprint, so the next flow launch targets the run on screen. It never persists the pick.
  */
 const useConvergeSelectionOnFocus = ({
   pinnedProjectId,

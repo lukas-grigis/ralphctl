@@ -146,7 +146,7 @@ const useAvailableModelsMap = (
 ): ReadonlyMap<AiProvider, readonly string[]> => {
   const [availableModels, setAvailableModels] = useState<ReadonlyMap<AiProvider, readonly string[]>>(new Map());
   useEffect(() => {
-    // `availableModelsFor` is a required `AppDeps` field in production (`wire()` always assigns it).
+    // `availableModelsFor` is always wired in production, but tests cast `{}` to `AppDeps`, so it can be undefined.
     if (settings === undefined || typeof availableModelsFor !== 'function') return;
     let cancelled = false;
     for (const provider of uniqueProvidersFromAi(settings.ai)) {
