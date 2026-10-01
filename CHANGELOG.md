@@ -7,6 +7,30 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **Five sections.** The TUI has a tab bar — Work, Sprints, Projects, Runs, System (`1`–`5`) — with live
+  badges and a location line. Each section keeps its own stack, so `esc` goes up one level and `5 › 2 › 5` returns
+  to where you were.
+- **Work agenda.** Work merges Home and Flows into one list — needs you, running, next, flows — and `↵` does
+  the focused row's job. `v` adds the flows that aren't available, each with its reason.
+- **Context switcher.** `S` / `P` open one overlay to switch sprint or project; it never navigates away from
+  the current view.
+- **System hub.** Settings, Skills, Doctor and Housekeeping live under System (`5`). Doctor shows what to fix.
+- **Housekeeping.** A dry-run scan lists orphaned sprints and memory, old done sprints and old runs with their
+  sizes; select what to delete and confirm. Removing a project asks separately whether to remove its sprints and
+  memory too.
+- **Waiting runs say so.** A run blocked on your answer shows `[WAITING]` on Work, Runs, the tab badge and the run
+  view, and fires an OS notification (honouring `ui.notifications`). Runs that finish after two minutes notify too.
+
+### Changed
+
+- **Quieter chrome.** The footer is one row with only the current view's keys plus `? help`; the status area is
+  five rows at 80x24. `h`, `n`, `x`, `s` and `!` still work as hidden shortcuts.
+- **Sprint detail and Work share one header strip**, with a single pipeline and next-step list.
+- **Destructive confirms state the concrete loss**, and preset changes show a diff before applying.
+- **Overlong lists and screens show overflow cues** instead of clipping silently; `NO_COLOR` is honoured.
+
 ## [0.24.0] - 2026-09-30
 
 ### Added

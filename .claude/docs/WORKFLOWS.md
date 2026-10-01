@@ -68,13 +68,13 @@ unblock — preserves its attempts because it resumes mid-work rather than resta
 raising the operator banner and (when `settings.ui.notifications.enabled`) the OS notification — a
 block is never a silent event.
 
-Blocked work is then visible everywhere an operator orients: the Home active-sprint card and the
+Blocked work is then visible everywhere an operator orients: the Work header strip and the
 settled-run summary both add a `· N blocked` count beside the pending count (a sprint whose entire
 remainder was blocked used to read as "0 tasks pending" — nothing left to do); the Sprints list
-carries a `N blocked` badge per sprint and the cross-project sprint picker shows the same count on the
+carries a `N blocked` badge per sprint and the context switcher shows the same count on the
 focused row (both batch-loaded via `loadTaskHealthBySprintId`,
-`application/ui/shared/state-snapshot.ts`); sprint-detail's header and
-its `NextPhaseCard` name the blocked tasks and switch to a warning presentation instead of the dim
+`application/ui/shared/state-snapshot.ts`); sprint-detail's header strip and
+next-steps rows name the blocked tasks and switch to a warning presentation instead of the dim
 all-clear checkmark, even once the sprint is `done`; and the Execute view's Tasks panel anchors its
 post-run card cursor and auto-expansion on the first `blocked` task rather than the last one, so a
 blocked card is never left windowed off-screen behind an overflow cue the instant a run settles.
@@ -330,13 +330,24 @@ nested shape, with `generator` and `evaluator` both set to a copy of the legacy 
 `schemaVersion` bump and no user-facing notice. The next `save()` rewrites the file in the canonical
 nested shape, so the promotion fires at most once per file.
 
-**TUI is the primary surface.** From Home: pipeline-map quick-actions + browse submenu (Sprints / Tickets /
-Tasks / Projects). Multi-flow navigation: Tab / Shift+Tab cycle running flows, `Ctrl+1..9` direct-jump to
-the Nth running flow — both operate over RUNNING sessions only and are suspended while a prompt / overlay is
-mounted; `SessionsView` lists every runner. `Ctrl+1..9` only fires under a kitty-keyboard-protocol terminal
-(iTerm2 / kitty / WezTerm / foot) — Ink surfaces `key.ctrl` for digits only via the CSI-u extension; in other
-terminals it is an inert no-op (the help overlay labels it accordingly), while `Tab` cycling works everywhere.
-`?` opens the centralised help overlay generated from `keyboard-map.ts`.
+**TUI is the primary surface.** Five persistent sections, one key each (`1` Work · `2` Sprints · `3` Projects ·
+`4` Runs · `5` System), shown in a one-row tab bar with live badges above a one-row location line. The router keeps
+one stack per section: `esc` goes up a level, at another section's root it goes to Work, at the Work root it does
+nothing; re-entering a section restores the stack it was left with. A flow launched from anywhere lands on the Work
+stack. Work is one agenda (NEEDS YOU → RUNNING → NEXT → FLOWS) where `↵` does the focused row's job (open the
+blocked task, open the run, launch the flow); `v` adds the unavailable flows with their reason. `S` / `P` open the
+context switcher overlay (sprints grouped by project) — it switches the current sprint / project and never navigates.
+System is a hub over Settings, Skills, Doctor and Housekeeping (a dry-run scan of orphan and old data; `space`
+marks, `↵` confirms, nothing is deleted before the confirm). A run waiting on a prompt reads `[WAITING]` on Work,
+Runs, the tab badge and the Execute header, and fires an OS notification when `settings.ui.notifications` allows.
+Hidden accelerators — `h` Work, `n` flows, `x` Runs, `s` Settings, `!` Doctor — still work from anywhere but are
+never advertised; the footer carries only view-local keys plus `? help`. Multi-flow navigation: Tab / Shift+Tab
+cycle running flows, `Ctrl+1..9` direct-jump to the Nth running flow — both operate over RUNNING sessions only and
+are suspended while a prompt / overlay is mounted; `SessionsView` (Runs) lists every runner. `Ctrl+1..9` only fires
+under a kitty-keyboard-protocol terminal (iTerm2 / kitty / WezTerm / foot) — Ink surfaces `key.ctrl` for digits only
+via the CSI-u extension; in other terminals it is an inert no-op (the help overlay labels it accordingly), while
+`Tab` cycling works everywhere. `?` opens the help overlay generated from `keyboard-map.ts`. Key-by-key contract:
+`DESIGN-SYSTEM.md` § 6.
 
 **Customize picker's skills step + Skills catalog view.** The pre-launch customize picker (per AI flow:
 `Start` / `Customize for this run…` / `Cancel`) gained a skills step after the provider/model/effort row
@@ -344,8 +355,8 @@ walk(s) — a checklist pre-checked to what would currently load, then `Apply fo
 and remember for <flow>` (remember persists only the flow's registry-default names into
 `settings.ai.skills[flow].disabled`, merge-preserving hand-added entries — project / operator /
 phase-folder unchecks stay run-scoped; see `AI-SETTINGS.md`). Skipped entirely for a flow with no AI
-row, no skill candidates to offer, or a degraded (partially failed) candidate listing. The Home
-menu's `Skills catalog` view (hotkey `K`) is the enable / disable / update surface across every flow's
+row, no skill candidates to offer, or a degraded (partially failed) candidate listing. The System
+hub's `Skills` view (`5` › Skills) is the enable / disable / update surface across every flow's
 opt-in phase folder: `e` enable, `d` disable, `u` update one, `U` update every out-of-date copy, `r`
 reload — the filesystem under `<appRoot>/skills/<flow>/` is the source of truth (see `ARCHITECTURE.md`
 § Skills subsystem).
@@ -354,8 +365,8 @@ Execute view: three-column at `xl` (≥180), two-column at `lg` (≥140), compac
 single-column below `md`. Rail grows fluidly 36→56 cols at `xl`+ via `resolveRailWidth`. Named breakpoints
 (`sm 80 / md 100 / lg 140 / xl 180 / xxl 220`) are canonical — use `breakpointFor`, `fluid`, `responsive`
 from `theme/tokens.ts` and `useBreakpoint` from `runtime/use-breakpoint.ts`; no hardcoded column literals.
-Global keys: `b` banner, `g` progress,
-`y` yank, `P` project picker, `S` sprint picker. Execute-view: `j`/`k` nav, `e` verification-criteria, `c` cancel-scope.
+Global keys: `g` progress, `S` / `P` context switcher;
+`b` banner is Work-local, `y` yank is Execute-local. Execute-view: `j`/`k` nav, `e` verification-criteria, `c` cancel-scope.
 
 **`setupScript` vs `verifyScript` / `verifyGates`.** Setup runs unconditionally once per affected repo at
 sprint start; each attempt is recorded as a structured `SetupRun` (outcome: `success` / `failed` /

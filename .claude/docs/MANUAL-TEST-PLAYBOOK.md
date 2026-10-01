@@ -41,7 +41,7 @@ its alt-screen behaviour differs.
 8. **Expected:** prompt shows the AI's suggestion as the default. Type `c` somewhere in the field — confirm
    it does NOT trigger a global hotkey on the underlying execute view.
 9. Submit each confirm prompt
-10. **Expected:** session ends with a result card showing `✓ Readiness — <project-name> — completed`. The breadcrumb shows the path.
+10. **Expected:** session ends with a result card showing `✓ Readiness — <project-name> — completed`. The location line shows the path.
 11. Press Esc back to Work
 
 ---
@@ -51,7 +51,7 @@ its alt-screen behaviour differs.
 **Setup:** a draft sprint with at least 2 tickets, all `pending`.
 
 1. From Work (`1`), focus the **Refine** row (NEXT or FLOWS) and press `↵`
-2. **Expected:** routed to Execute view, `refine <sprint-id>` in breadcrumb. Per-ticket "Start refinement
+2. **Expected:** routed to Execute view, `refine <sprint-id>` on the location line. Per-ticket "Start refinement
    session for this ticket?" confirm appears (each ticket asks individually)
 3. Press Enter to accept first ticket
 4. **Expected:** AI CLI takes over with full UI for ticket 1. The TUI is hidden during the session.
@@ -81,7 +81,7 @@ its alt-screen behaviour differs.
 **Setup:** a draft sprint with all tickets `approved`.
 
 1. From Work (`1`), focus the **Plan** row and press `↵`
-2. **Expected:** routed to Execute view, `plan <sprint-id>` in breadcrumb
+2. **Expected:** routed to Execute view, `plan <sprint-id>` on the location line
 3. **Expected:** repo selection prompt appears (which repos to explore)
 4. Pick repos → confirm
 5. **Expected:** AI CLI takes over with full UI; the prompt instructs it to read the ticket requirements +
@@ -118,8 +118,8 @@ its alt-screen behaviour differs.
 9. Press `b` to toggle banner compact ↔ full. Banner collapses to a single line; pressing `b` restores.
 10. Tab away to another running flow OR press the background hotkey (`D`)
 11. **Expected:** view pops back to wherever you came from, the `[N] implement <sprint>` indicator stays in
-    the Sessions list
-12. Open Sessions list, press Enter on the session
+    the Runs list
+12. Open Runs (`4`), press Enter on the session
 13. **Expected:** routed back to Execute view with the live trace + the per-task panel + recent-events tail
 14. Watch a task settle:
     - **Expected:** pre-task-verify runs, generator runs, evaluator runs, post-task-verify runs (attribution
@@ -138,7 +138,7 @@ cancel', 'own')` — the task lands `blocked` and is not re-entered automaticall
 **Negative tests:**
 
 - Refine / plan / readiness sessions: pressing `D` must do NOTHING (those flows are foreground-only).
-- Tab between sessions multiple times → breadcrumb stack must stay flat (`Work › Execute`), never grow.
+- Tab between sessions multiple times → location line must stay flat (`Work › Execute`), never grow.
 - Press `g` outside an active sprint → must show an appropriate empty / error state, not crash.
 
 ---
@@ -211,7 +211,7 @@ For every prompt context (an editor, a select, an input):
 
 ## Scenario 9 — doctor
 
-1. Press the doctor hotkey from anywhere
+1. Press `!` from anywhere (or `5`, then open Doctor from the System hub)
 2. **Expected:** doctor view runs all checks: Node version, git, configured AI provider binary + auth
    (per-provider — Claude/Codex show pass/warn, OpenCode shows credential count, Copilot and Grok
    always show `unknown` since neither CLI has an auth-status verb; Grok: sign in with `grok login`),
@@ -260,33 +260,30 @@ leaves whose `name` contains an absolute repo path).
 
 ---
 
-## Scenario 12 — cross-project sprint picker
+## Scenario 12 — context switcher (`S` / `P`)
 
 **Setup:** at least two projects registered, each with at least one sprint.
 
 1. From any view, press `S`
-2. **Expected:** a cross-project sprint picker opens showing sprints from the current project (if one is
-   set) or all sprints when no project is selected. Picker is a modal overlay — global shortcuts must NOT
-   fire through it.
-3. Press `t` inside the picker
-4. **Expected:** scope toggles — if the picker was showing current-project sprints, it now shows all
-   sprints across every project; pressing `t` again returns to project scope.
-5. Press `f` inside the picker
-6. **Expected:** done sprints are hidden (the counter and visible rows reflect only non-done sprints);
-   pressing `f` again restores them. When `f` hides everything, a "All sprints here are done (hidden)"
-   message with a "Press f to show them" hint renders in place of the list.
-7. Navigate the list with `↑`/`↓`, select a sprint from a different project with `Enter`
-8. **Expected:** both the active project and active sprint update atomically — the breadcrumb reflects the
-   new project/sprint combination (including a `[S]` affordance next to the sprint name), and no partial
-   state is visible mid-transition.
-9. Press `S` again from Work with NO project loaded
-10. **Expected:** picker opens in all-projects scope; `t` and `f` still toggle without crashing.
+2. **Expected:** the context switcher opens as an overlay under the tab bar and location line, cursor on the
+   current sprint. Global shortcuts must NOT fire through it. Press `P` instead — cursor starts on the current
+   project's header
+3. Press `t`
+4. **Expected:** scope toggles between all projects and the current project only
+5. Press `f`
+6. **Expected:** done sprints are hidden; pressing `f` again restores them. When `f` hides everything, an "All
+   sprints here are done (hidden)" message with a "Press f to show them" hint replaces the list
+7. Move with `↑`/`↓` to a sprint of a different project and press `↵`
+8. **Expected:** the overlay closes and the location line shows the new project and sprint together; the view
+   underneath did NOT change (the switcher never navigates) and keeps its cursor and scroll
+9. Press `S` again, move onto a project header, press `↵` — **expected:** the project switches and the sprint is
+   cleared when the project changed
+10. Press `S` with NO project loaded — **expected:** opens in all-projects scope with a `+ New project` row
 
 **Negative tests:**
 
-- Press `b`, `g`, `h`, `?`, etc. while the picker is open → must be absorbed by the picker, not the
-  underlying view.
-- Press `Esc` → picker closes; the previously selected project/sprint is unchanged.
+- Press `b`, `g`, `h`, `1`–`5` while the switcher is open → absorbed by the switcher, not the underlying view.
+- Press `Esc` → closes; the previous project/sprint is unchanged and `router.stack` is untouched.
 
 ---
 
@@ -301,16 +298,16 @@ leaves whose `name` contains an absolute repo path).
 4. Navigate to Projects (`3`)
 5. Move the cursor over a project that is NOT the current one
 6. Press `Enter` to open its detail view
-7. **Expected:** the breadcrumb right-side still shows the original project and sprint — opening a
+7. **Expected:** the location line still shows the original project and sprint — opening a
    project detail is a browse and must NOT switch the current project or clear the sprint cursor.
 8. Press `m` while in the project detail view
 9. **Expected:** the project switches to the viewed one; feedback line `✓ now on <project-name>` appears;
-   the breadcrumb right-side updates.
+   the location line updates.
 10. Press `Esc` back to the Projects list; press `m` on a different focused row without drilling in
-11. **Expected:** the project switches directly from the list view; same feedback and breadcrumb update.
+11. **Expected:** the project switches directly from the list view; same feedback and location-line update.
 
 **Negative test:** press `Enter` on any project in the list (without `m`) and navigate away — the
-original project selection must be unchanged on the breadcrumb.
+original project selection must be unchanged on the location line.
 
 ---
 
@@ -441,7 +438,7 @@ ralphctl settings set harness.plateauThreshold 3
 
 **18b — sprint outcome card:**
 
-1. Open a `review` sprint's detail view — **expected:** the outcome card renders between the next-phase card
+1. Open a `review` sprint's detail view — **expected:** the outcome card renders between the header strip
    and the tickets section, with the same numbers `runs stats --sprint <id>` prints
 2. Open a `draft` or `active` sprint — **expected:** no card at all (nothing to report before an attempt ran)
 3. On a sprint where an attempt was attributed `baseline-broken` or `regressed` — **expected:** the card takes
@@ -588,9 +585,9 @@ Confirm OS notifications are on (default): `ralphctl settings show | grep -A1 no
    `tasks pending` count
 4. Press `2` to open the Sprints list — **Expected:** the sprint's card shows `· 1 blocked` in red, after
    its ticket / pending / approved counts
-5. Press `Esc`, then `S` to open the cross-project sprint picker; move the cursor onto the sprint —
+5. Press `Esc`, then `S` to open the context switcher; move the cursor onto the sprint —
    **Expected:** its expanded detail line shows `1 blocked` in red
-6. Press `Esc` to close the picker (back to Work), press `2`, then `Enter` on the sprint's row to open
+6. Press `Esc` to close the switcher (back to Work), press `2`, then `Enter` on the sprint's row to open
    its detail view —
    **Expected:** the `Tasks` field reads `2  (1 done · 1 blocked)`; the header strip's `next:` row
    names the blocked task (`B` jumps to one, `u` retries it)
@@ -649,6 +646,51 @@ followed by `note: 1 task(s) stayed blocked: Task A` and `recover with: ralphctl
 7. **Expected:** the blocked count is still `1` (not `2`, not `0`) on every surface exercised in 21b (Work
    facts row, Sprints list, sprint-detail's `Tasks` field) — one task, blocked twice, still reads as one
    blocked task
+
+---
+
+## Scenario 22 — sections, stacks and the System hub
+
+1. From Work, press `5` — **expected:** System hub lists Settings, Skills, Doctor and Housekeeping, each with a
+   one-line summary (Doctor's is live and warning-toned when a check fails)
+2. Press `↵` on Settings, then `2`, then `5` — **expected:** back on Settings, not the hub (each section keeps its
+   stack); the location line reads `System › Settings`
+3. Press `Esc` twice — **expected:** first to the hub, then to Work (`esc work` in the footer); `Esc` on the Work
+   root does nothing and the footer shows `q quit` only there
+4. Press `5` while already in System — **expected:** resets to the hub root
+5. Hidden accelerators: from any section press `h`, `x`, `s`, `!`, `n` — **expected:** Work root, Runs, Settings,
+   Doctor, Work with the flow list focused. None appear in the footer; all are listed in `?` help
+6. Work agenda: with a blocked task, **expected:** NEEDS YOU lists it with its reason; `↵` opens it in sprint
+   detail with the card expanded; `u` unblocks it. A running flow shows under RUNNING and `↵` opens its run
+7. Resize to 80x24 — **expected:** chrome is the tab bar, location line and one footer hint row; no row wraps
+
+---
+
+## Scenario 23 — WAITING and notifications
+
+**Setup:** an AI flow that asks the operator a question (e.g. refine's approval prompt), launched then detached
+with `D` or left via `Tab`.
+
+1. While the run waits on you, check Work, Runs and the tab bar — **expected:** `[WAITING] waiting Ns` on the
+   RUNNING row and Runs row, a waiting count on the Runs badge; no spinner on a waiting run
+2. **Expected:** an OS notification `Waiting on you` fires once (unless `settings.ui.notifications.enabled` is off)
+3. Jump to the run — **expected:** the prompt card is titled `Question  from <Flow> · <sprint>` when the run is
+   not the one on screen; answering clears every WAITING mark
+4. Let a run longer than two minutes finish while detached — **expected:** a completion notification
+
+---
+
+## Scenario 24 — Housekeeping
+
+**Setup:** a data dir with an orphan sprint dir (project deleted by hand) and an old `done` sprint.
+
+1. `5` › Housekeeping — **expected:** candidates grouped (orphan sprints, orphan memory, old done sprints, old
+   runs), each row with its size, nothing marked
+2. `space` marks a row, `a` marks all, `c` clears — **expected:** the selection line shows the total reclaim size
+3. `↵` — **expected:** a confirm card over the marked rows; `Esc` cancels with nothing deleted
+4. Confirm — **expected:** a removed / skipped / failed report, then the list rescans; `r` rescans on demand
+5. Projects (`3`), `d` on a project that owns sprints — **expected:** removal asks separately whether to also
+   remove its sprints and memory; declining removes only the project
 
 ---
 

@@ -13,7 +13,7 @@
 [![Built with Donuts](https://img.shields.io/badge/%F0%9F%8D%A9-Built_with_Donuts-ff6f00?style=flat)](https://github.com/lukas-grigis/ralphctl)
 
 <p align="center">
-  <img src="./.github/assets/home.png" alt="ralphctl home screen — Ralph donut banner with 'The pointy kitty took it!' tagline, WORK / OBSERVE / SYSTEM menus with keybindings, bottom footer" width="900" />
+  <img src="./.github/assets/home.png" alt="ralphctl Work screen — Ralph donut banner with 'The pointy kitty took it!' tagline, section tab bar, bottom footer" width="900" />
 </p>
 
 # ralphctl
@@ -102,9 +102,9 @@ ralphctl
 ```
 
 That's it. The TUI launches, walks you through registering a project, refining your first ticket, generating a task
-plan, and kicking off implementation. Press `+` from the home screen to create a new sprint, press `n` to start a
-flow (refine / plan / implement / readiness / …), or open the Sprints submenu and follow its on-screen hint to pick
-or create a sprint. No commands to memorize.
+plan, and kicking off implementation. The TUI has five sections — `1` Work, `2` Sprints, `3` Projects, `4` Runs, `5` System — and `esc` goes back up a
+level. On Work, `↵` does the focused row's job (open a blocked task, open a run, start the next flow), `c` creates a
+sprint, and `S` / `P` switch sprint or project. `?` lists every key. No commands to memorize.
 
 **Requirements:** [Node.js](https://nodejs.org/) ≥ 24, [Git](https://git-scm.com/), and one supported AI CLI in `PATH`
 and authenticated (OpenCode takes your own keys, or runs on its free tier with none).

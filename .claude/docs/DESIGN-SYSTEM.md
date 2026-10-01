@@ -341,7 +341,7 @@ Two legitimate integration modes — pick by who's asking:
 **Destructive confirms.** Use `<ConfirmCard verb target body>`: one `verb` feeds the title (`Remove sprint "X"?`)
 and the prompt (`Remove?`) so they cannot disagree, and `body` states the concrete loss (`Deletes 3 tickets and 7
 tasks.`) — never a reassurance the code does not keep. It mounts `<ConfirmPrompt destructive defaultYes={false}>`:
-`destructive` drops the `h`/`l` toggle (`h` is global Home), leaving ←/→/`y`/`n`/↵/esc. Anything irreversible or
+`destructive` drops the `h`/`l` toggle (`h` is the global Work accelerator), leaving ←/→/`y`/`n`/↵/esc. Anything irreversible or
 externally visible (remove, stop run, overwrite, publish to the tracker, apply a preset) goes through it. A
 two-step flow (project removal: remove, then "Also remove its N sprints and memory?") gives each card a `key` so
 the prompt's Yes/No focus resets. Preset apply renders `diffPreset` rows (`SETTING  NOW → AFTER`, 8 max, `… N more`,
@@ -546,7 +546,7 @@ Layout tests that depend on terminal width use `renderAtSize(node, { columns, ro
 `c` / `D` are live only while the chain runs; `r` only once it has settled, so the two sets never
 contend. `y` is hinted (`y copy task`) while a task is active and confirms with a short-lived
 `Copied to clipboard` banner (stable id, so re-presses replace it); outside Execute it does nothing —
-there is no global `y` and no "no active task" toast. A settled run's hint strip reads `↵ home · r re-run · g progress · v evaluation` (`g` is the
+there is no global `y` and no "no active task" toast. A settled run's hint strip reads `↵ work · r re-run · g progress · v evaluation` (`g` is the
 global progress-overlay chord — hinted here, handled globally, never bound twice), plus a trailing
 `u unblock` once the run left a task blocked. `u` is advertised ONLY in the settled set: the Tasks
 panel's own `u` chord is a no-op while a run is live (blocked-task ids are forced empty mid-run — a
