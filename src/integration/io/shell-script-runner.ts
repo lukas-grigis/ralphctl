@@ -151,15 +151,13 @@ type SpawnAttempt =
 const trySpawnChild = (spawn: Spawn, cwd: AbsolutePath, script: string, env: NodeJS.ProcessEnv): SpawnAttempt => {
   try {
     // Own process group so an abort / timeout reaches whatever the script forks.
-    const detached = supportsProcessGroups();
     const child = spawn(script, [], {
       stdio: ['pipe', 'pipe', 'pipe'],
       cwd: String(cwd),
       shell: true,
-      detached,
+      detached: supportsProcessGroups(),
       env,
     });
-    if (detached) markProcessGroupLeader(child);
     return { ok: true, child };
   } catch (cause) {
     return {
@@ -366,5 +364,9 @@ export const createShellScriptRunner = (deps: ShellScriptRunnerDeps = {}): Shell
   return { run };
 };
 
-const defaultSpawn: Spawn = (command, args, options) =>
-  nodeSpawn(command, [...args], { ...options, stdio: [...options.stdio] }) as ReturnType<Spawn>;
+// Only the real spawn marks its child: an injected fake's made-up pid must never be group-killed.
+const defaultSpawn: Spawn = (command, args, options) => {
+  const child = nodeSpawn(command, [...args], { ...options, stdio: [...options.stdio] }) as ReturnType<Spawn>;
+  if (options.detached === true) markProcessGroupLeader(child);
+  return child;
+};

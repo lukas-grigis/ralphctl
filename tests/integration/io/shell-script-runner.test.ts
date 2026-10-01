@@ -1,5 +1,8 @@
 import { EventEmitter } from 'node:events';
-import { describe, expect, it } from 'vitest';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { createShellScriptRunner, DEFAULT_SHELL_TIMEOUT_MS } from '@src/integration/io/shell-script-runner.ts';
@@ -383,5 +386,83 @@ describe('createShellScriptRunner', () => {
         else process.env['PNPM_CONFIG_FROZEN_LOCKFILE'] = savedFrozen;
       }
     });
+  });
+
+  describe('process-group kill', () => {
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    const negativePidKills = (spy: { mock: { calls: unknown[][] } }): unknown[][] =>
+      spy.mock.calls.filter(([pid]) => typeof pid === 'number' && pid < 0);
+
+    it('never signals a process group for an injected fake child on abort', async () => {
+      // The fake's pid (12345) is made up; a group kill would hit whatever real group owns it.
+      const killSpy = vi.spyOn(process, 'kill').mockImplementation(() => true);
+      const { spawn, children } = fakeSpawn({ hang: true });
+      const runner = createShellScriptRunner({ spawn });
+      const controller = new AbortController();
+
+      const pending = runner.run(cwd, 'sleep 999', { signal: controller.signal });
+      setTimeout(() => controller.abort(), 0);
+      const result = await pending;
+
+      expect(result.ok).toBe(false);
+      expect(negativePidKills(killSpy)).toEqual([]);
+      expect(children[0]?._signals).toContain('SIGTERM');
+    });
+
+    it('never signals a process group for an injected fake child on timeout', async () => {
+      const killSpy = vi.spyOn(process, 'kill').mockImplementation(() => true);
+      const { spawn, children } = fakeSpawn({ hang: true });
+      const runner = createShellScriptRunner({ spawn });
+
+      const result = await runner.run(cwd, 'sleep 999', { timeoutMs: 5 });
+
+      expect(result.ok).toBe(true);
+      expect(negativePidKills(killSpy)).toEqual([]);
+      expect(children[0]?._killed).toBe(true);
+    });
+
+    it.skipIf(process.platform === 'win32')(
+      'kills the forked grandchild of a real script on abort (default spawn leads its own group)',
+      async () => {
+        const dir = mkdtempSync(join(tmpdir(), 'ralphctl-shell-group-'));
+        const pidFile = join(dir, 'grandchild.pid');
+        const isAlive = (pid: number): boolean => {
+          try {
+            process.kill(pid, 0);
+            return true;
+          } catch {
+            return false;
+          }
+        };
+        let grandchild: number | undefined;
+        try {
+          const runner = createShellScriptRunner({ abortKillGraceMs: 200 });
+          const controller = new AbortController();
+          const pending = runner.run(cwd, `sleep 30 & echo $! > '${pidFile}'; wait`, {
+            signal: controller.signal,
+          });
+          await vi.waitFor(() => {
+            if (!existsSync(pidFile) || readFileSync(pidFile, 'utf8').trim() === '') throw new Error('no pid yet');
+          });
+          grandchild = Number(readFileSync(pidFile, 'utf8').trim());
+          expect(isAlive(grandchild)).toBe(true);
+
+          controller.abort();
+          const result = await pending;
+
+          expect(result.ok).toBe(false);
+          const pid = grandchild;
+          await vi.waitFor(() => {
+            expect(isAlive(pid)).toBe(false);
+          });
+        } finally {
+          if (grandchild !== undefined && isAlive(grandchild)) process.kill(grandchild, 'SIGKILL');
+          rmSync(dir, { recursive: true, force: true });
+        }
+      }
+    );
   });
 });
