@@ -63,8 +63,8 @@ export interface BuildAgendaInput {
   readonly tasks: readonly Task[];
   readonly sprintId: string | undefined;
   readonly sessions: readonly AgendaSession[];
-  /** Sessions parked on a prompt — empty until the Execute view reports them. */
-  readonly awaitingSessionIds: ReadonlySet<string>;
+  /** Sessions parked on a prompt → epoch ms they started waiting. */
+  readonly awaitingSince: ReadonlyMap<string, number>;
   readonly nextSteps: readonly NextStep[];
   readonly visibleFlows: ReadonlySet<string>;
   readonly showAll: boolean;
@@ -174,14 +174,17 @@ const runningRows = (input: BuildAgendaInput): readonly AgendaRow[] =>
           parts.push(`attempt ${String(p.attempt)}/${String(p.maxAttempts)}`);
         }
       }
-      const elapsed = fmtElapsed(s.startedAt, input.now);
+      const waitingSince = input.awaitingSince.get(s.id);
       return {
         id: `run:${s.id}`,
         section: 'running',
         glyph: glyphs.phaseActive,
-        tone: 'info',
+        tone: waitingSince !== undefined ? 'warning' : 'info',
         label: parts.join(` ${glyphs.bullet} `),
-        fact: input.awaitingSessionIds.has(s.id) ? `waiting ${elapsed}` : elapsed,
+        fact:
+          waitingSince !== undefined
+            ? `[WAITING] waiting ${fmtElapsed(waitingSince, input.now)}`
+            : fmtElapsed(s.startedAt, input.now),
         action: { kind: 'open-session', sessionId: s.id },
         verb: 'open run',
       };

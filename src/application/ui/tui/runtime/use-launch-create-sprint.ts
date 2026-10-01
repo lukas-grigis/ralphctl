@@ -61,7 +61,7 @@ export const useLaunchCreateSprint = (opts: UseLaunchCreateSprintOpts): (() => P
       return;
     }
     const snapshot = await loadAppStateSnapshot(deps, { projectId: selection.projectId });
-    const interactive = createInkInteractivePrompt(queue);
+    const interactive = createInkInteractivePrompt(queue, deps.eventBus);
     const result = await launchSprintBoundFlow(
       { app: deps, interactive, storage, runInTerminal: getRunInTerminal() },
       'create-sprint',

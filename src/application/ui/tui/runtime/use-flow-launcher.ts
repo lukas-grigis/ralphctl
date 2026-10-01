@@ -167,7 +167,7 @@ const launchEntry = async (entry: FlowEntry, snapshot: AppStateSnapshot, ctx: La
     return;
   }
 
-  const interactive = createInkInteractivePrompt(queue);
+  const interactive = createInkInteractivePrompt(queue, deps.eventBus);
   const launcherDeps: LauncherDeps = { app: deps, interactive, storage, runInTerminal: getRunInTerminal() };
 
   // `deps.settings` is a boot-time snapshot; the on-disk repo is the source of truth after a

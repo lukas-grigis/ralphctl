@@ -17,15 +17,35 @@ import { TextAreaPrompt } from '@src/application/ui/tui/prompts/text-area-prompt
 import { ConfirmPrompt } from '@src/application/ui/tui/prompts/confirm-prompt.tsx';
 import { SelectPrompt } from '@src/application/ui/tui/prompts/select-prompt.tsx';
 import { MultiSelectPrompt } from '@src/application/ui/tui/prompts/multi-select-prompt.tsx';
+import { flowIdToTitle } from '@src/application/ui/shared/flow-title.ts';
+import { useOptionalRouter } from '@src/application/ui/tui/runtime/router.tsx';
+import { useOptionalSessionManager } from '@src/application/ui/tui/runtime/sessions-context.tsx';
 import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 
 export interface PromptHostProps {
   readonly queue: PromptQueue;
 }
 
+/** `<Flow> · <sprint>` for a prompt raised by a run other than the one on screen; otherwise undefined. */
+const usePromptOrigin = (head: PendingPrompt | undefined): string | undefined => {
+  const router = useOptionalRouter();
+  const sessions = useOptionalSessionManager();
+  const sessionId = head?.sessionId;
+  if (sessionId === undefined || sessions === undefined) return undefined;
+  const current = router?.current;
+  if (current?.id === 'execute' && current.props?.sessionId === sessionId) return undefined;
+  const descriptor = sessions.get(sessionId)?.descriptor;
+  if (descriptor === undefined) return undefined;
+  const flow = flowIdToTitle(descriptor.flowId);
+  return descriptor.pinnedSprintLabel !== undefined
+    ? `${flow} ${glyphs.inlineDot} ${descriptor.pinnedSprintLabel}`
+    : flow;
+};
+
 export const PromptHost = ({ queue }: PromptHostProps): React.JSX.Element | null => {
   const [head, setHead] = useState<PendingPrompt | undefined>(() => queue.head);
   const ui = useUiState();
+  const origin = usePromptOrigin(head);
 
   useEffect(() => {
     const sync = (): void => {
@@ -60,6 +80,7 @@ export const PromptHost = ({ queue }: PromptHostProps): React.JSX.Element | null
         <Text color={inkColors.primary} bold>
           {glyphs.badge} Question{queue.size > 1 ? ` (${String(queue.size)} pending)` : ''}
         </Text>
+        {origin !== undefined && <Text dimColor>{`  from ${origin}`}</Text>}
       </Box>
       {renderPrompt(head, queue)}
     </Box>

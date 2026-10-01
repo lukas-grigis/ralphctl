@@ -51,6 +51,17 @@ describe('layoutTabs', () => {
       expect(text).not.toContain('warning');
     });
 
+    it('adds a waiting count to the Runs badge — compact at 80, spelled out at 160', () => {
+      const withWaiting = { runsLive: 2, runsWaiting: 1, doctorWarn: 0, doctorFail: 0 };
+      expect(layoutTabs(base({ columns: 80, badges: withWaiting })).text).toContain('4 Runs ●2 ⚠1');
+      expect(layoutTabs(base({ columns: 160, badges: withWaiting })).text).toContain('4 Runs ● 2 live · 1 waiting');
+    });
+
+    it('tones the waiting badge as a warning', () => {
+      const { segments } = layoutTabs(base({ badges: { runsLive: 1, runsWaiting: 1, doctorWarn: 0, doctorFail: 0 } }));
+      expect(segments.find((s) => s.text === '⚠1')?.tone).toBe('warn');
+    });
+
     it.each([140, 160, 200] as const)('are verbose from lg (%i)', (columns) => {
       const { text } = layoutTabs(base({ columns, badges }));
       expect(text).toContain('● 2 live');

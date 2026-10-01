@@ -78,7 +78,7 @@ const TIER_TONE: Readonly<Record<Tier, Tone>> = { ok: 'success', warning: 'warni
 
 interface RowData {
   /**
-   * Display label for the indicator (e.g. "Setup", "Pre verify").
+   * Display label for the indicator (e.g. "Setup", "Pre-task").
    * Keep under ~14 chars so it never wraps at CONTEXT_WIDTH (28 cols).
    */
   readonly label: string;
@@ -163,7 +163,7 @@ const setupRowData = (execution: SprintExecution | undefined, now: number): RowD
 
 /**
  * Map a VerifyRun (or absence of one) to a RowData entry.
- * `shortLabel` is the display name for the row — callers pass "Pre verify" / "Post verify"
+ * `shortLabel` is the display name for the row — callers pass "Pre-task" / "Post-task"
  * (≤12 chars) to guarantee the label never wraps inside the 28-col card.
  */
 const verifyRowData = (run: VerifyRun | undefined, now: number, shortLabel: string): RowData => {
@@ -276,13 +276,11 @@ const BaselineRow = ({ row }: { readonly row: RowData }): React.JSX.Element => {
     (row.tier === 'ok' ? (row.sublines?.[0] ?? row.status) : row.status) ?? row.sublines?.[0];
 
   return (
-    <Box>
-      <Text color={color}>{glyph}</Text>
-      <Text> </Text>
-      <Text bold={isError}>{row.label}</Text>
+    <Text wrap="truncate-end">
+      <Text color={color}>{glyph}</Text> <Text bold={isError}>{row.label}</Text>
       {detail !== undefined && (
         <>
-          <Text> </Text>
+          {' '}
           {isError ? (
             <Text color={color} bold>
               {detail}
@@ -292,7 +290,7 @@ const BaselineRow = ({ row }: { readonly row: RowData }): React.JSX.Element => {
           )}
         </>
       )}
-    </Box>
+    </Text>
   );
 };
 
@@ -308,14 +306,14 @@ const BaselineRow = ({ row }: { readonly row: RowData }): React.JSX.Element => {
  *
  * Abbreviated map (kept stable so snapshots don't shift):
  *   Setup       → Stp
- *   Pre verify  → Pre
- *   Post verify → Post
+ *   Pre-task  → Pre
+ *   Post-task → Post
  *   Attrib      → Att
  */
 const COMPACT_ABBREV: Readonly<Record<string, string>> = {
   Setup: 'Stp',
-  'Pre verify': 'Pre',
-  'Post verify': 'Post',
+  'Pre-task': 'Pre',
+  'Post-task': 'Post',
   Attrib: 'Att',
 };
 
@@ -347,8 +345,8 @@ export const BaselineHealthCard = ({ execution, tasks, now, width }: BaselineHea
   const preRun = useMemo(() => latestVerifyRun(taskList, 'pre'), [taskList]);
   const postRun = useMemo(() => latestVerifyRun(taskList, 'post'), [taskList]);
   // Short labels (≤12 chars) to prevent wrapping inside the 28-col card.
-  const preData = verifyRowData(preRun, tNow, 'Pre verify');
-  const postData = verifyRowData(postRun, tNow, 'Post verify');
+  const preData = verifyRowData(preRun, tNow, 'Pre-task');
+  const postData = verifyRowData(postRun, tNow, 'Post-task');
   const counts = useMemo(() => countAttributions(taskList), [taskList]);
   const attribData = attributionRowData(counts);
 

@@ -22,3 +22,6 @@ export const usePromptQueue = (): PromptQueue => {
   if (!ctx) throw new Error('usePromptQueue: must be used inside <PromptQueueProvider>');
   return ctx;
 };
+
+/** Like {@link usePromptQueue} but `undefined` outside a provider — for passive indicators. */
+export const useOptionalPromptQueue = (): PromptQueue | undefined => useContext(PromptQueueContext);

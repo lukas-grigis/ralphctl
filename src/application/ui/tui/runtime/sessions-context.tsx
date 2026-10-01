@@ -24,6 +24,9 @@ export const useSessionManager = (): SessionManager => {
   return ctx;
 };
 
+/** `undefined` outside a provider — for passive surfaces that merely annotate a session. */
+export const useOptionalSessionManager = (): SessionManager | undefined => useContext(SessionsContext);
+
 /**
  * Build an id→signature map for the registry. The signature folds in status, error presence, and
  * the pinned-sprint identity. Trace-only `step` notifies mutate the descriptor's `trace` but never

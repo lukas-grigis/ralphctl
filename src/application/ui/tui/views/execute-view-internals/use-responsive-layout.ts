@@ -21,6 +21,8 @@ import {
 } from '@src/application/ui/tui/theme/tokens.ts';
 
 const NARROW_FLOW_STEPS_ROWS = 4;
+/** Rows the settled `ResultFooter` (card border + title + fields + next steps) claims from the body. */
+export const SETTLED_FOOTER_ROWS = 10;
 
 export interface ResponsiveLayout {
   readonly threeColumn: boolean;
@@ -101,7 +103,9 @@ export const useResponsiveLayout = ({ columns, rows, isRunning }: UseResponsiveL
   //   rows=30: running → 6, settled → 6   (floor applies)
   //   rows=50: running → 12, settled → 14
   //   rows=60: running → 16, settled → 18  (cap applies)
-  const logRows = isRunning ? Math.max(6, Math.min(16, rows - 38)) : Math.max(6, Math.min(18, rows - 36));
+  const logRows = isRunning
+    ? Math.max(6, Math.min(16, rows - 38))
+    : Math.max(6, Math.min(18, rows - 36 - SETTLED_FOOTER_ROWS));
 
   // Sidebar layout gate — same ≥140 threshold as the two-column rail.
   // NOTE: <140 cols intentionally falls back to the legacy ExecuteLayout (three/two/compact/single
@@ -132,11 +136,12 @@ export const useResponsiveLayout = ({ columns, rows, isRunning }: UseResponsiveL
   // Header card ~4 + ViewShell banner ~2 + log section chrome ~2 + ResultFooter ~1 + margins ~1.
   const PAGE_CHROME_ROWS = 10; // header-card + ViewShell + log chrome + footer
 
+  const reserved = isRunning ? 0 : SETTLED_FOOTER_ROWS;
   const tasksMaxBlocks = singleColumn
-    ? Math.max(2, Math.floor((rows - NARROW_FLOW_STEPS_ROWS - 10) / 4))
+    ? Math.max(2, Math.floor((rows - reserved - NARROW_FLOW_STEPS_ROWS - 10) / 4))
     : sidebarLayout
-      ? Math.max(3, Math.floor((rows - PAGE_CHROME_ROWS - logRows) / 3))
-      : Math.max(3, Math.floor((rows - 14) / 4));
+      ? Math.max(3, Math.floor((rows - reserved - PAGE_CHROME_ROWS - logRows) / 3))
+      : Math.max(3, Math.floor((rows - reserved - 14) / 4));
 
   // The two-column branch uses the fixed `RAIL_WIDTH`; the three-column branch grows the
   // rail fluidly. We compute once and reuse so the truncation budget passed to StepTrace

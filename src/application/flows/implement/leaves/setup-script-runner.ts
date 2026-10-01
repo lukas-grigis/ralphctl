@@ -228,8 +228,8 @@ const runNoScriptSkip = async (
     type: BANNER_SHOW,
     id: `setup-script-skipped-${String(repo.repositoryId)}`,
     tier: 'warn',
-    message: `No setup script configured for ${String(repo.path)} — nothing was validated before implement`,
-    cause: 'configure one via `project` settings to gate the working tree',
+    message: `No setup script for ${basename(String(repo.path))} — nothing validated`,
+    cause: '· set one in project settings',
     at: deps.clock(),
   });
   return next;

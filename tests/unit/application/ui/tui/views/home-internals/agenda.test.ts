@@ -45,7 +45,7 @@ const input = (over: Partial<BuildAgendaInput> = {}): BuildAgendaInput => ({
   tasks: [],
   sprintId: SPRINT,
   sessions: [],
-  awaitingSessionIds: new Set(),
+  awaitingSince: new Map(),
   nextSteps: [IMPLEMENT_STEP],
   visibleFlows: visibleFlowsFor({ hasProject: true, sprintStatus: 'active', showAll: false }),
   showAll: false,
@@ -143,8 +143,12 @@ describe('buildAgenda', () => {
   });
 
   it('marks an awaiting session in the fact', () => {
-    const rows = buildAgenda(input({ sessions: [session({ id: 'run' })], awaitingSessionIds: new Set(['run']) }));
-    expect(rows.find((r) => r.section === 'running')?.fact).toBe('waiting 1m00s');
+    const rows = buildAgenda(
+      input({ sessions: [session({ id: 'run' })], awaitingSince: new Map([['run', NOW - 41_000]]) })
+    );
+    const row = rows.find((r) => r.section === 'running');
+    expect(row?.fact).toBe('[WAITING] waiting 41s');
+    expect(row?.tone).toBe('warning');
   });
 
   it('omits the NEXT row while its flow runs, and keeps it out of FLOWS too', () => {

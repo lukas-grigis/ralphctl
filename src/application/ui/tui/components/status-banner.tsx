@@ -220,12 +220,14 @@ const BannerRow = ({ banner, dismissable }: BannerRowProps): React.JSX.Element =
     );
   }
   return (
-    <Box paddingX={spacing.indent} flexDirection="row">
-      <Text color={color} bold={!isInfo} dimColor={isInfo}>
-        {glyph} {banner.message}
+    <Box paddingX={spacing.indent}>
+      <Text wrap="truncate-end">
+        <Text color={color} bold={!isInfo} dimColor={isInfo}>
+          {glyph} {banner.message}
+        </Text>
+        {banner.cause !== undefined ? <Text dimColor> {banner.cause}</Text> : null}
+        {dismissable ? <Text dimColor> (press d to dismiss)</Text> : null}
       </Text>
-      {banner.cause !== undefined ? <Text dimColor> {banner.cause}</Text> : null}
-      {dismissable ? <Text dimColor> (press d to dismiss)</Text> : null}
     </Box>
   );
 };

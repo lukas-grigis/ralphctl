@@ -4,6 +4,7 @@ import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { useRouter } from '@src/application/ui/tui/runtime/router.tsx';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
 import { useSessions } from '@src/application/ui/tui/runtime/sessions-context.tsx';
+import { useAwaitingSessions } from '@src/application/ui/tui/runtime/use-awaiting-sessions.ts';
 import { useAppStateSnapshot } from '@src/application/ui/tui/runtime/use-app-state-snapshot.ts';
 import type { AsyncLoadState } from '@src/application/ui/tui/runtime/use-async-load.ts';
 import {
@@ -16,8 +17,6 @@ import { toAgendaSession } from '@src/application/ui/tui/views/home-internals/ag
 import { visibleFlowsFor } from '@src/application/ui/tui/views/flows-visibility.ts';
 import { buildNextSteps, nextStepsInputFromSnapshot } from '@src/application/ui/shared/next-steps.ts';
 import type { AppStateSnapshot } from '@src/application/ui/shared/state-snapshot.ts';
-
-const NO_AWAITING: ReadonlySet<string> = new Set();
 
 /** The last snapshot of the same selection survives a reload, so the agenda never blanks. */
 const useStableSnapshot = (state: AsyncLoadState<AppStateSnapshot, unknown>, key: string) => {
@@ -58,6 +57,7 @@ export const useWorkAgenda = (
   launchability: (flowId: string) => AgendaLaunchability
 ): WorkAgenda => {
   const sessions = useSessions();
+  const awaitingSince = useAwaitingSessions();
   const [showAll, setShowAll] = useState(false);
   const hasProject = snapshot?.project !== undefined;
   const sprint = snapshot?.sprint;
@@ -68,7 +68,7 @@ export const useWorkAgenda = (
       tasks: snapshot.tasks,
       sprintId: sprint?.id,
       sessions: sessions.map((r) => toAgendaSession(r.descriptor)),
-      awaitingSessionIds: NO_AWAITING,
+      awaitingSince,
       nextSteps: buildNextSteps(nextStepsInputFromSnapshot(snapshot)).steps,
       visibleFlows: visibleFlowsFor({
         hasProject,
@@ -79,7 +79,7 @@ export const useWorkAgenda = (
       launchability,
       now: Date.now(),
     });
-  }, [snapshot, hasProject, sprint, sessions, showAll, launchability]);
+  }, [snapshot, hasProject, sprint, sessions, awaitingSince, showAll, launchability]);
 
   // Elapsed times tick while something runs.
   const [, tick] = useReducer((n: number) => n + 1, 0);

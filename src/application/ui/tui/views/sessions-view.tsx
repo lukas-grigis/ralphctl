@@ -23,6 +23,7 @@ import { glyphs, inkColors, listCapacity, spacing } from '@src/application/ui/tu
 import { plural } from '@src/application/ui/shared/plural.ts';
 import { FeedbackLine, feedback, type StructuredFeedback } from '@src/application/ui/tui/components/feedback-line.tsx';
 import { useRouter } from '@src/application/ui/tui/runtime/router.tsx';
+import { useAwaitingSessions } from '@src/application/ui/tui/runtime/use-awaiting-sessions.ts';
 import { useSessionManager, useSessions } from '@src/application/ui/tui/runtime/sessions-context.tsx';
 import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { useViewKeys } from '@src/application/ui/tui/runtime/use-view-keys.ts';
@@ -72,9 +73,11 @@ const SessionsHeader = (): React.JSX.Element => (
 const SessionRow = ({
   record,
   focused,
+  waiting,
 }: {
   readonly record: SessionRecord;
   readonly focused: boolean;
+  readonly waiting: boolean;
 }): React.JSX.Element => (
   <Box paddingX={spacing.indent}>
     <Text color={focused ? inkColors.primary : inkColors.muted}>{focused ? glyphs.actionCursor : ' '} </Text>
@@ -90,7 +93,10 @@ const SessionRow = ({
     </Box>
     <Box width={STATUS_COL_WIDTH}>
       <Text bold={focused}>
-        <StatusChip label={record.descriptor.status} kind={runnerStatusKind(record.descriptor.status)} />
+        <StatusChip
+          label={waiting ? 'waiting' : record.descriptor.status}
+          kind={waiting ? 'warning' : runnerStatusKind(record.descriptor.status)}
+        />
       </Text>
       <Text> </Text>
     </Box>
@@ -108,6 +114,7 @@ interface SessionsTableProps {
   readonly focusedIndex: number;
   readonly total: number;
   readonly sessionFeedback: StructuredFeedback | undefined;
+  readonly awaiting: ReadonlyMap<string, number>;
 }
 
 /** Header + windowed rows + count line + feedback — pure props in. */
@@ -117,12 +124,18 @@ const SessionsTable = ({
   focusedIndex,
   total,
   sessionFeedback,
+  awaiting,
 }: SessionsTableProps): React.JSX.Element => (
   <Box flexDirection="column">
     <SessionsHeader />
     <OverflowRow direction="above" count={window.hiddenAbove} />
     {visibleItems.map((s, localIdx) => (
-      <SessionRow key={s.descriptor.id} record={s} focused={window.start + localIdx === focusedIndex} />
+      <SessionRow
+        key={s.descriptor.id}
+        record={s}
+        focused={window.start + localIdx === focusedIndex}
+        waiting={s.descriptor.status === 'running' && awaiting.has(s.descriptor.id)}
+      />
     ))}
     <OverflowRow direction="below" count={window.hiddenBelow} />
     {/* Just the count — the key affordances live in the router's hint strip (`useViewKeys`),
@@ -139,6 +152,7 @@ const SessionsTable = ({
 export const SessionsView = (): React.JSX.Element => {
   const router = useRouter();
   const sessions = useSessions();
+  const awaiting = useAwaitingSessions();
   const manager = useSessionManager();
   const ui = useUiState();
   const { rows } = useBreakpoint();
@@ -219,6 +233,7 @@ export const SessionsView = (): React.JSX.Element => {
           focusedIndex={focusedIndex}
           total={sessions.length}
           sessionFeedback={sessionFeedback}
+          awaiting={awaiting}
         />
       )}
     </ViewShell>

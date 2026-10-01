@@ -19,6 +19,10 @@ export interface BasePrompt {
   readonly id: number;
   readonly kind: PromptKind;
   readonly message: string;
+  /** Run that asked — stamped by the Ink adapter from the session scope; absent for view-local asks. */
+  readonly sessionId?: string;
+  /** Epoch ms the prompt was queued — stamped by `enqueue`. */
+  readonly askedAt?: number;
 }
 
 export interface TextPrompt extends BasePrompt {
@@ -78,6 +82,8 @@ type Listener = () => void;
 export interface PromptQueue {
   readonly head: PendingPrompt | undefined;
   readonly size: number;
+  /** Every queued prompt, head first. */
+  readonly pending: readonly PendingPrompt[];
   enqueue(prompt: PendingPromptInput): PendingPrompt;
   /** Resolve the head with `value` and slide to the next. No-op if the queue is empty. */
   resolveHead(value: unknown): void;
@@ -102,12 +108,15 @@ export const createPromptQueue = (): PromptQueue => {
     get head(): PendingPrompt | undefined {
       return queue[0];
     },
+    get pending(): readonly PendingPrompt[] {
+      return [...queue];
+    },
     get size(): number {
       return queue.length;
     },
     enqueue(prompt): PendingPrompt {
       const id = nextId++;
-      const full = { ...prompt, id } as PendingPrompt;
+      const full = { ...prompt, id, askedAt: Date.now() } as PendingPrompt;
       queue.push(full);
       notify();
       return full;

@@ -170,6 +170,12 @@ describe('classifyEventForNotification', () => {
     });
   });
 
+  it("emits 'attention' for awaiting-input, carrying the question", () => {
+    expect(
+      classifyEventForNotification({ type: 'awaiting-input', message: 'Branch strategy?', sessionId: 's1', at: NOW })
+    ).toEqual({ level: 'attention', title: 'Waiting on you', body: 'Branch strategy?' });
+  });
+
   it('ignores unrelated event types (chain-started, chain-completed, memory-pressure, etc.)', () => {
     expect(
       classifyEventForNotification({ type: 'chain-started', chainId: 'c-1', flowId: 'implement', at: NOW })
@@ -284,5 +290,61 @@ describe('startNotificationSubscriber', () => {
     await Promise.resolve();
     expect(otherSeen).toEqual([aborted]);
     warn.mockRestore();
+  });
+});
+
+describe('completion notice', () => {
+  const at = (iso: string) => isoTimestamp(iso);
+  const run = (bus: ReturnType<typeof buildHarness>['bus'], id: string, from: string, to: string): void => {
+    bus.publish({ type: 'chain-started', chainId: id, flowId: 'implement', at: at(from) });
+    bus.publish({ type: 'chain-completed', chainId: id, at: at(to) });
+  };
+
+  it('pings when a run completes after more than two minutes', async () => {
+    const h = buildHarness();
+    run(h.bus, 'c-1', '2026-05-20T10:00:00.000Z', '2026-05-20T10:03:30.000Z');
+    await Promise.resolve();
+    expect(h.calls).toEqual([{ level: 'attention', title: 'ralphctl: run finished', body: 'Done after 3 min' }]);
+  });
+
+  it('stays quiet for a run shorter than two minutes', async () => {
+    const h = buildHarness();
+    run(h.bus, 'c-1', '2026-05-20T10:00:00.000Z', '2026-05-20T10:01:30.000Z');
+    await Promise.resolve();
+    expect(h.calls).toEqual([]);
+  });
+
+  it('does not ping for a failed or aborted run', async () => {
+    const h = buildHarness();
+    h.bus.publish({ type: 'chain-started', chainId: 'c-1', flowId: 'implement', at: at('2026-05-20T10:00:00.000Z') });
+    h.bus.publish({ type: 'chain-aborted', chainId: 'c-1', at: at('2026-05-20T10:09:00.000Z') });
+    await Promise.resolve();
+    expect(h.calls.map((c) => c.title)).toEqual(['ralphctl aborted']);
+  });
+
+  it('waits for the outermost completion when a sub-runner reuses the chain id', async () => {
+    const h = buildHarness();
+    h.bus.publish({ type: 'chain-started', chainId: 'c-1', flowId: 'implement', at: at('2026-05-20T10:00:00.000Z') });
+    run(h.bus, 'c-1', '2026-05-20T10:00:10.000Z', '2026-05-20T10:05:00.000Z');
+    await Promise.resolve();
+    expect(h.calls).toEqual([]);
+    h.bus.publish({ type: 'chain-completed', chainId: 'c-1', at: at('2026-05-20T10:06:00.000Z') });
+    await Promise.resolve();
+    expect(h.calls).toEqual([{ level: 'attention', title: 'ralphctl: run finished', body: 'Done after 6 min' }]);
+  });
+
+  it('respects disabled() for both new triggers', async () => {
+    const h = buildHarness({ disabled: () => true });
+    run(h.bus, 'c-1', '2026-05-20T10:00:00.000Z', '2026-05-20T10:09:00.000Z');
+    h.bus.publish({ type: 'awaiting-input', message: 'ok?', at: NOW });
+    await Promise.resolve();
+    expect(h.calls).toEqual([]);
+  });
+
+  it('pings on awaiting-input through the bus', async () => {
+    const h = buildHarness();
+    h.bus.publish({ type: 'awaiting-input', message: 'ok?', at: NOW });
+    await Promise.resolve();
+    expect(h.calls).toEqual([{ level: 'attention', title: 'Waiting on you', body: 'ok?' }]);
   });
 });

@@ -1,6 +1,6 @@
 import { promises as fs } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { mkdtemp, realpath, rm } from 'node:fs/promises';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Result } from '@src/domain/result.ts';
@@ -445,8 +445,9 @@ describe('setupScriptRunnerLeaf', () => {
     expect(banner).toBeDefined();
     if (banner?.type !== 'banner-show') throw new Error('expected banner-show');
     expect(banner.tier).toBe('warn');
-    expect(banner.message).toContain('No setup script configured');
-    expect(banner.message).toContain(String(REPO_PATH));
+    expect(banner.message).toContain('No setup script');
+    expect(banner.message).toContain(basename(String(REPO_PATH)));
+    expect(banner.message).not.toContain(String(REPO_PATH));
   });
 
   it('treats a whitespace-only setupScript as skipped', async () => {

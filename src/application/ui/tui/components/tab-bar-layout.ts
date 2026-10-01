@@ -27,6 +27,8 @@ export interface TabSegment {
 export interface TabBadges {
   /** Sessions currently running. */
   readonly runsLive: number;
+  /** Of the live sessions, how many are blocked on a prompt. */
+  readonly runsWaiting?: number;
   /** Doctor probes at `warn`. */
   readonly doctorWarn: number;
   /** Doctor probes at `fail`. */
@@ -55,25 +57,35 @@ const width = (s: string): number => [...s].length;
 
 const plural = (n: number, one: string, many: string): string => (n === 1 ? one : many);
 
-/** Badge for a tab as `{ text, tone }`, or `undefined` when there is nothing to show. */
-const badgeFor = (
-  id: SectionId,
-  badges: TabBadges,
-  verbose: boolean
-): { readonly text: string; readonly tone: TabTone } | undefined => {
-  if (id === 'runs' && badges.runsLive > 0) {
-    const n = String(badges.runsLive);
-    return { text: verbose ? `${glyphs.busyDot} ${n} live` : `${glyphs.busyDot}${n}`, tone: 'live' };
-  }
-  if (id === 'system' && (badges.doctorFail > 0 || badges.doctorWarn > 0)) {
-    const failing = badges.doctorFail > 0;
-    const n = failing ? badges.doctorFail : badges.doctorWarn;
-    const text = verbose
-      ? `${glyphs.stethoscope} ${String(n)} ${failing ? 'failing' : plural(n, 'warning', 'warnings')}`
-      : `${glyphs.stethoscope}${String(n)}`;
-    return { text, tone: failing ? 'fail' : 'warn' };
-  }
-  return undefined;
+interface Badge {
+  readonly text: string;
+  readonly tone: TabTone;
+}
+
+const runsBadges = (badges: TabBadges, verbose: boolean): readonly Badge[] => {
+  const n = String(badges.runsLive);
+  const live: Badge = { text: verbose ? `${glyphs.busyDot} ${n} live` : `${glyphs.busyDot}${n}`, tone: 'live' };
+  const waiting = badges.runsWaiting ?? 0;
+  if (waiting === 0) return [live];
+  const w = String(waiting);
+  const text = verbose ? `${glyphs.inlineDot} ${w} waiting` : `${glyphs.warningGlyph}${w}`;
+  return [live, { text, tone: 'warn' }];
+};
+
+const systemBadges = (badges: TabBadges, verbose: boolean): readonly Badge[] => {
+  const failing = badges.doctorFail > 0;
+  const n = failing ? badges.doctorFail : badges.doctorWarn;
+  const text = verbose
+    ? `${glyphs.stethoscope} ${String(n)} ${failing ? 'failing' : plural(n, 'warning', 'warnings')}`
+    : `${glyphs.stethoscope}${String(n)}`;
+  return [{ text, tone: failing ? 'fail' : 'warn' }];
+};
+
+/** Badges for a tab, in paint order; empty when there is nothing to show. */
+const badgesFor = (id: SectionId, badges: TabBadges, verbose: boolean): readonly Badge[] => {
+  if (id === 'runs' && badges.runsLive > 0) return runsBadges(badges, verbose);
+  if (id === 'system' && (badges.doctorFail > 0 || badges.doctorWarn > 0)) return systemBadges(badges, verbose);
+  return [];
 };
 
 interface Variant {
@@ -104,15 +116,13 @@ const leftSegments = (input: TabLayoutInput, v: Variant, verbose: boolean): TabS
   SECTIONS.forEach((section, i) => {
     if (i > 0) out.push({ text: spaces(v.gap), tone: 'dim' });
     const isActive = section.id === input.active;
-    const badge = v.badges ? badgeFor(section.id, input.badges, verbose) : undefined;
+    const badges = v.badges ? badgesFor(section.id, input.badges, verbose) : [];
     const label = `${section.digit} ${section.label}`;
     const tone: TabTone = isActive ? 'active' : 'tab';
     // The active tab trades its side padding for `[ ]`, so every tab keeps the same footprint.
     out.push({ text: isActive ? '[' : spaces(v.pad), tone });
     out.push({ text: label, tone });
-    if (badge !== undefined) {
-      out.push({ text: ' ', tone }, { text: badge.text, tone: badge.tone });
-    }
+    for (const badge of badges) out.push({ text: ' ', tone }, { text: badge.text, tone: badge.tone });
     out.push({ text: isActive ? ']' : spaces(v.pad), tone });
   });
   return out;

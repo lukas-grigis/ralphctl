@@ -165,7 +165,7 @@ const launchPerRepoFlow = async (
   const { deps, queue, storage, sessions, router, mountedRef, setFeedback } = ctx;
   setFeedback(undefined);
   const snapshot = await loadAppStateSnapshot(deps, { projectId: project.id });
-  const interactive = createInkInteractivePrompt(queue);
+  const interactive = createInkInteractivePrompt(queue, deps.eventBus);
   const result = await launchFlow(
     { app: deps, interactive, storage, runInTerminal: getRunInTerminal() },
     flowId,

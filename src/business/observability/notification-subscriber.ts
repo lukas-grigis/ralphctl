@@ -17,6 +17,8 @@
  *  - `log` warn message containing `'baseline already red'` → `attention` ("Pre-verify red").
  *      (The pre-task-verify leaf publishes this when the working tree is broken before the AI
  *      gets to touch it.)
+ *  - `awaiting-input`                                → `attention` ("Waiting on you").
+ *  - `chain-completed` after ≥ 2 minutes             → `attention` ("Run finished").
  *  - `task-blocked`                                  → `attention` ("Task blocked").
  *      (`settleAttemptUseCase` publishes this the moment a task settles into `blocked` — the
  *      harness's principal unattended-failure mode, otherwise announced only passively via the
@@ -43,6 +45,9 @@ import type { NotificationDispatcher } from '@src/business/observability/notific
 /** Rate-limit pauses shorter than this don't disturb the operator. */
 const PAUSE_NOTIFY_THRESHOLD_MS = 60_000;
 
+/** Runs shorter than this finish while the operator is still watching — no completion ping. */
+const COMPLETION_NOTIFY_MIN_MS = 2 * 60_000;
+
 /** Substring published by `pre-task-verify.ts` when the baseline is broken at task start. */
 const BASELINE_RED_MARKER = 'baseline already red';
 
@@ -63,9 +68,35 @@ export interface NotificationSubscriberDeps {
  * Subscribe to the bus and return an unsubscribe function. Call once at composition-root time.
  */
 export const startNotificationSubscriber = (deps: NotificationSubscriberDeps): (() => void) => {
+  // chainId → { first start, nesting depth }. Implement's prologue / epilogue sub-runners reuse the
+  // host's chainId, so only the outermost completion may ping.
+  const running = new Map<string, { readonly startedAt: number; depth: number }>();
+
+  const completionDecision = (event: AppEvent): NotificationDecision | undefined => {
+    if (event.type === 'chain-started') {
+      const open = running.get(event.chainId);
+      if (open) open.depth += 1;
+      else running.set(event.chainId, { startedAt: Date.parse(event.at), depth: 1 });
+      return undefined;
+    }
+    if (event.type !== 'chain-completed' && event.type !== 'chain-failed' && event.type !== 'chain-aborted') {
+      return undefined;
+    }
+    const open = running.get(event.chainId);
+    if (!open) return undefined;
+    open.depth -= 1;
+    if (open.depth > 0) return undefined;
+    running.delete(event.chainId);
+    if (event.type !== 'chain-completed') return undefined;
+    const elapsedMs = Date.parse(event.at) - open.startedAt;
+    if (!(elapsedMs >= COMPLETION_NOTIFY_MIN_MS)) return undefined;
+    return { level: 'attention', title: 'ralphctl: run finished', body: `Done after ${formatMinutes(elapsedMs)}` };
+  };
+
   const handle = (event: AppEvent): void => {
+    const completion = completionDecision(event);
     if (deps.disabled()) return;
-    const decision = classify(event);
+    const decision = completion ?? classify(event);
     if (decision === undefined) return;
     // Fire-and-forget: the dispatcher contract guarantees no throws, but a misbehaving impl
     // would otherwise surface as an unhandled-rejection that crashes the harness on
@@ -88,6 +119,8 @@ interface NotificationDecision {
  */
 export const classifyEventForNotification = (event: AppEvent): NotificationDecision | undefined => classify(event);
 
+const formatMinutes = (ms: number): string => `${String(Math.floor(ms / 60_000))} min`;
+
 const classify = (event: AppEvent): NotificationDecision | undefined => {
   switch (event.type) {
     case 'chain-step-failed':
@@ -105,6 +138,8 @@ const classify = (event: AppEvent): NotificationDecision | undefined => {
         title: 'ralphctl aborted',
         ...(event.reason !== undefined ? { body: event.reason } : {}),
       };
+    case 'awaiting-input':
+      return { level: 'attention', title: 'Waiting on you', body: event.message };
     case 'task-blocked':
       return {
         level: 'attention',

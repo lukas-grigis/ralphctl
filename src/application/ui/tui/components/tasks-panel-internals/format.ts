@@ -9,7 +9,7 @@ import type { ContextCompactedSignal, HarnessSignal } from '@src/domain/signal.t
 import { sanitizeDisplayText } from '@src/domain/value/display-text.ts';
 import type { TaskProjection } from '@src/application/ui/tui/components/tasks-projection.ts';
 import { fmtTokens } from '@src/application/ui/tui/components/format.ts';
-import { glyphs } from '@src/application/ui/tui/theme/tokens.ts';
+import { glyphs, type SignalKind } from '@src/application/ui/tui/theme/tokens.ts';
 
 /**
  * Collapse runs of whitespace to a single space so multi-line content (e.g. a `task-verified`
@@ -24,8 +24,30 @@ import { glyphs } from '@src/application/ui/tui/theme/tokens.ts';
  */
 export const collapseWhitespace = (s: string): string => sanitizeDisplayText(s).replace(/\s+/g, ' ');
 
-/** Fixed label column so timestamps and bodies line up across signals. */
-export const SIGNAL_LABEL_WIDTH = 16;
+const SIGNAL_KIND_LABELS = [
+  'change',
+  'learning',
+  'decision',
+  'commit',
+  'note',
+  'done',
+  'verified',
+  'blocked',
+  'script',
+  'proposal',
+  'skills',
+  'reproduce',
+  'judge',
+] as const satisfies readonly SignalKind[];
+
+/** The longest `SignalKind` label — the kind column is exactly this wide so only the message truncates. */
+export const SIGNAL_LABEL_WIDTH = Math.max(...SIGNAL_KIND_LABELS.map((l) => l.length));
+
+/** `HH:MM:SS` — never wraps. */
+export const TIME_COL_WIDTH = 8;
+
+/** Kind column: 2-cell gap, NO_COLOR shape glyph + space, padded label. */
+export const KIND_COL_WIDTH = 2 + 2 + SIGNAL_LABEL_WIDTH;
 
 export const padLabel = (label: string): string => label.padEnd(SIGNAL_LABEL_WIDTH, ' ');
 

@@ -44,6 +44,8 @@
 
 import React from 'react';
 import { Box, Text } from 'ink';
+import { useAwaitingSessions } from '@src/application/ui/tui/runtime/use-awaiting-sessions.ts';
+import { flowIdToTitle } from '@src/application/ui/shared/flow-title.ts';
 import { ViewShell } from '@src/application/ui/tui/components/view-shell.tsx';
 import { runnerStatusKind, StatusChip } from '@src/application/ui/tui/components/status-chip.tsx';
 import { spacing } from '@src/application/ui/tui/theme/tokens.ts';
@@ -94,37 +96,6 @@ import { useEvaluationChord } from '@src/application/ui/tui/views/execute-view-i
 interface ExecuteProps extends Readonly<Record<string, unknown>> {
   readonly sessionId: string;
 }
-
-/**
- * Human-readable section title per flow id. Keeps the Execute view header accurate for any
- * flow that reuses this view (refine, plan, review, create-pr, …) instead of always showing
- * "Implement".
- */
-const FLOW_TITLES: Record<string, string> = {
-  implement: 'Implement',
-  refine: 'Refine',
-  plan: 'Plan',
-  ideate: 'Ideate',
-  review: 'Review',
-  'create-pr': 'Create PR',
-  readiness: 'Readiness',
-  'detect-scripts': 'Detect Scripts',
-  'detect-skills': 'Detect Skills',
-  'create-sprint': 'Create Sprint',
-  'close-sprint': 'Close Sprint',
-  'add-ticket': 'Add Ticket',
-  'remove-ticket': 'Remove Ticket',
-  'export-context': 'Export Context',
-  'export-requirements': 'Export Requirements',
-  doctor: 'Doctor',
-  settings: 'Settings',
-};
-
-/**
- * Derive a human-readable section title from a flow id. Falls back to the raw flowId so a
- * future flow never shows a blank header.
- */
-const flowIdToTitle = (flowId: string): string => FLOW_TITLES[flowId] ?? flowId;
 
 /**
  * Launchers title a session `<Flow> — <sprint or project name>`; the shell already prints the flow
@@ -395,6 +366,9 @@ const ExecuteViewFrame = ({
   // Wall-clock elapsed since the run started — a display string for the header / footer.
   const endedAt = descriptor.finishedAt ?? runControls.now;
   const elapsed = fmtElapsed(descriptor.startedAt, endedAt);
+  const awaiting = useAwaitingSessions();
+  const waiting = runControls.isRunning && awaiting.has(sessionId);
+  const statusLabel = waiting ? 'waiting' : descriptor.status;
 
   return (
     <ViewShell
@@ -408,9 +382,9 @@ const ExecuteViewFrame = ({
       // for the settled card), so yielding the paging keys costs no reachable content; the
       // mouse wheel still scrolls the page regardless of this flag.
       suppressScrollArrows
-      right={<StatusChip label={descriptor.status} kind={runnerStatusKind(descriptor.status)} />}
+      right={<StatusChip label={statusLabel} kind={waiting ? 'warning' : runnerStatusKind(descriptor.status)} />}
       // `[STATUS]` — the label's cells plus its brackets, so the location line can budget for it.
-      rightWidth={descriptor.status.length + 2}
+      rightWidth={statusLabel.length + 2}
     >
       <ExecuteBody
         descriptor={descriptor}
@@ -432,6 +406,7 @@ const ExecuteViewFrame = ({
         onDismissCancelScope={cancelHandlers.onDismiss}
         pinnedSprintStale={pinnedSprintStale}
         nextSteps={nextSteps}
+        awaiting={awaiting}
         {...bucketedTasks}
         {...tasksPanelDerivation}
       />

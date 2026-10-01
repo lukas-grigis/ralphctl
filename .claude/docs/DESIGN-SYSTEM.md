@@ -228,7 +228,7 @@ row id is stable, so the id-based cursor never jumps on a live update.
 - **NEEDS YOU** — own-blocked tasks (max 3, then `▾ N more blocked — o open sprint`; upstream-blocked dependents
   are folded into the root's `· N more task(s) wait on it`, never listed) and failed / aborted runs of this sprint
   from the last 24 h.
-- **RUNNING** — running sessions pinned to this sprint, with task and attempt progress and elapsed time.
+- **RUNNING** — running sessions pinned to this sprint, with task and attempt progress and elapsed time (`[WAITING] waiting 41s` in warning tone while the run waits on a prompt, § 5.0).
 - **NEXT** — the flow rows of `buildNextSteps`, hidden while that flow already runs (the blocked-task row is
   NEEDS YOU's). **FLOWS** — the other `visibleFlowsFor` flows with their manifest description; flows whose
   triggers fail are hidden until `v` adds them dim with their reason inline (never selectable).
@@ -265,7 +265,8 @@ the same job.
 | `MemoryPressureBanner`   | Heap-pressure strip mounted at App root. Subscribes to the EventBus.                                                                                                                                   |
 | `ChainLogDegradedBanner` | Latched warning when the on-disk `chain.log` sink can't keep up. Mounted at App root.                                                                                                                  |
 
-**Tab badges.** Compact below `lg`: Runs `●N` (running sessions, hidden at 0), System `✚N` (warning tone
+**Tab badges.** Compact below `lg`: Runs `●N` (running sessions, hidden at 0) plus `⚠M` when M of them wait on a
+prompt (`● 2 live · 1 waiting` from `lg`; the waiting badge is warning tone), System `✚N` (warning tone
 for warnings, error tone for failures — failures win — hidden when every probe passes). From `lg`:
 `● N live`, `✚ N warning(s)` / `✚ N failing`. `unknown` probes are neutral. When the bar cannot fit, it
 degrades (wordmark, then padding, then badges, then the right side) so the five labels always stay whole.
@@ -303,20 +304,20 @@ context — never one from the run and one from the global selection.
 
 Specialised components owned by `ExecuteView`. Don't import them from other views.
 
-| Component               | Purpose                                                                                                                       |
-| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `StepTrace`             | Outer chain trace list. Filters out per-task entries.                                                                         |
-| `TasksPanel`            | Dependency-aware per-task card list. Status pill + activity. Cards collapsed by default; `j`/`k` nav, `Enter`/`Space` expand. |
-| `RecentEventsTail`      | Rolling log-tail panel. Receives pre-filtered `LogEvent[]` as a prop.                                                         |
-| `TokenBudgetCard`       | Subscribes to `TokenUsageEvent`; renders `(input + output) / contextWindow` progress bar.                                     |
-| `BaselineHealthCard`    | Renders `SprintExecution.setupRanAt` history in the context column.                                                           |
-| `BaselineHealthChip`    | Inline status chip summarising the latest setup-script outcome per repo.                                                      |
-| `StatusBanner`          | Tiered `info` / `warn` / `error` banner driven by `BannerShowEvent` / `BannerClearEvent`. Replaces `RateLimitBanner`.         |
-| `MultiFlowStrip`        | Horizontal strip listing concurrent session statuses above the tasks panel.                                                   |
-| `EvaluatorFailurePanel` | Per-dimension evaluator verdict, parsed from the attempt's `evaluation.md`. Renders inside `EvaluationOverlay`.               |
-| `ProgressOverlay`       | Full-screen overlay (`g`) that reads `progress.md` from disk on open; no live tail.                                           |
-| `EvaluationOverlay`     | Full-screen overlay (`v`) that reads the focused task's `evaluation.md` on open. Degrades to the one-line verdict.            |
-| `CancelScopeOverlay`    | Modal picker (`c`) offering cancel-attempt vs cancel-flow choices.                                                            |
+| Component               | Purpose                                                                                                                                             |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `StepTrace`             | Outer chain trace list. Filters out per-task entries.                                                                                               |
+| `TasksPanel`            | Dependency-aware per-task card list. Status pill + activity. Cards collapsed by default; `j`/`k` nav, `Enter`/`Space` expand.                       |
+| `RecentEventsTail`      | Rolling log-tail panel. Receives pre-filtered `LogEvent[]` as a prop.                                                                               |
+| `TokenBudgetCard`       | Subscribes to `TokenUsageEvent`; renders `(input + output) / contextWindow` progress bar.                                                           |
+| `BaselineHealthCard`    | Renders `SprintExecution.setupRanAt` history in the context column.                                                                                 |
+| `BaselineHealthChip`    | Inline status chip summarising the latest setup-script outcome per repo.                                                                            |
+| `StatusBanner`          | Tiered `info` / `warn` / `error` banner driven by `BannerShowEvent` / `BannerClearEvent`. Replaces `RateLimitBanner`.                               |
+| `MultiFlowStrip`        | Horizontal strip listing concurrent session statuses above the tasks panel; a chip for a run waiting on a prompt reads `⚠ WAITING` in warning tone. |
+| `EvaluatorFailurePanel` | Per-dimension evaluator verdict, parsed from the attempt's `evaluation.md`. Renders inside `EvaluationOverlay`.                                     |
+| `ProgressOverlay`       | Full-screen overlay (`g`) that reads `progress.md` from disk on open; no live tail.                                                                 |
+| `EvaluationOverlay`     | Full-screen overlay (`v`) that reads the focused task's `evaluation.md` on open. Degrades to the one-line verdict.                                  |
+| `CancelScopeOverlay`    | Modal picker (`c`) offering cancel-attempt vs cancel-flow choices.                                                                                  |
 
 ### 4.4 Prompt family (`src/application/ui/tui/prompts/`)
 
@@ -372,7 +373,20 @@ Pick the right surface for the state. Don't mix raw `<Text color={inkColors.erro
 | Precondition failed     | `<Card tone="warning" />`                                                                                             | "Needs Y first" + next-step pointer.                  |
 | Error                   | `<Card tone="error" />`                                                                                               | One-line message. No stack dumps in user-facing copy. |
 | Success / terminal done | `<Card tone="success" />` titled with `tones.success.glyph` (or the Execute footer's `<ResultCard kind="success" />`) | fields + next steps.                                  |
-| Idle (waiting on input) | the prompt itself                                                                                                     | Don't render a spinner while a prompt is up.          |
+| Idle (waiting on input) | the prompt itself, plus `[WAITING]` (warning tone, static `⚠`) wherever the blocked run is shown                      | Don't render a spinner while a prompt is up.          |
+
+### 5.0 Waiting on the operator
+
+A run parked on a prompt is not "running". `useAwaitingSessions` (`runtime/use-awaiting-sessions.ts`) derives
+session id → waiting-since from the prompt queue; the Ink prompt adapter stamps `PendingPrompt.sessionId` (the
+root session of the asking scope) and `askedAt`. Every surface that shows a run reads it: the Execute header
+(`⚠ [WAITING] your answer`, `waiting 41s` replacing `elapsed`, warning-tone card, no `Spinner`) and its location
+chip, `MultiFlowStrip` chips, Runs rows (`[WAITING]`), the Runs tab badge, and Work's RUNNING row
+(`[WAITING] waiting 41s`). `PromptHost` titles a prompt from a run other than the one on screen
+`▣ Question  from <Flow> · <sprint>`; on that run's own Execute view the title is unchanged. The prompt adapter
+also publishes an `awaiting-input` bus event; `notification-subscriber` turns it into an `attention` OS
+notification (`Waiting on you`) and a `chain-completed` after ≥ 2 minutes into a completion notice (nested
+sub-runners that reuse the chain id are folded into the outermost run). Both honour `settings.ui.notifications`.
 
 ### 5.1 Blocked tasks
 
@@ -529,6 +543,16 @@ polled entity can flip `blocked` while the in-memory run still thinks it owns th
 `u` there would race the run's own write), so hinting it during a run would advertise a key whose
 handler rejects every press — the thing the hint-strip invariant in
 [§6.3](#63-view-local-keys--declared-once-via-useviewkeys) forbids.
+
+**Settled order.** Once the run settles, `ResultFooter` (verdict card + next steps) renders directly under the
+header card, above the rail / tasks / log, so the outcome stays on screen at 80×24. `useResponsiveLayout` also
+reserves `SETTLED_FOOTER_ROWS` from the task and log budgets. The implement setup-skipped banner is one line
+naming the repo by basename (the full path stays in the warn log); the single-line `StatusBanner` form truncates
+rather than wraps.
+
+**Timeline rows.** Time (`TIME_COL_WIDTH` = 8, `HH:MM:SS`) and kind (`KIND_COL_WIDTH`, sized to the longest
+`SignalKind` label plus the NO_COLOR shape glyph) are fixed-width, `flexShrink={0}` boxes; only the message
+truncates.
 
 `v` is hinted on both halves (a failed round mid-run is exactly when the critique is wanted) and gated
 on some task having recorded a verdict. OPENING is view-local — only a view knows which card the cursor

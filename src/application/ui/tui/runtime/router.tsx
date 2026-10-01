@@ -63,6 +63,9 @@ export const useRouter = (): RouterApi => {
   return ctx;
 };
 
+/** `undefined` outside a provider — for passive surfaces that merely annotate the current route. */
+export const useOptionalRouter = (): RouterApi | undefined => useContext(RouterContext);
+
 /**
  * Type-narrowing helper for views that expect specific props. Throws a developer-visible error
  * (rendered as a fallback view) when invoked from a view that wasn't pushed with the right

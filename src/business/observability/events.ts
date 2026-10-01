@@ -116,6 +116,14 @@ export interface FeedbackRoundAppliedEvent {
   readonly at: IsoTimestamp;
 }
 
+/** A flow is blocked on an operator answer (prompt enqueued). `sessionId` is the owning run, when known. */
+export interface AwaitingInputEvent {
+  readonly type: 'awaiting-input';
+  readonly message: string;
+  readonly sessionId?: string;
+  readonly at: IsoTimestamp;
+}
+
 export interface LogEvent {
   readonly type: 'log';
   readonly level: 'debug' | 'info' | 'warn' | 'error';
@@ -371,6 +379,7 @@ export type AppEvent =
   | TaskAttemptEvaluatedEvent
   | TaskRoundStartedEvent
   | FeedbackRoundAppliedEvent
+  | AwaitingInputEvent
   | LogEvent
   | MemoryPressureEvent
   | ChainLogDegradedEvent

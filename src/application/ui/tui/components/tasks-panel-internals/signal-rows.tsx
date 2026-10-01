@@ -19,7 +19,9 @@ import { fmtIsoTime } from '@src/application/ui/tui/theme/duration.ts';
 import {
   collapseWhitespace,
   formatCompactionDetail,
+  KIND_COL_WIDTH,
   padLabel,
+  TIME_COL_WIDTH,
 } from '@src/application/ui/tui/components/tasks-panel-internals/format.ts';
 
 /**
@@ -154,11 +156,15 @@ const SignalLine = ({
       <Text color={focused ? inkColors.highlight : inkColors.muted} bold={focused}>
         {focused ? glyphs.selectMarker : ' '}{' '}
       </Text>
-      <Text dimColor>{fmtIsoTime(String(signal.timestamp))}</Text>
-      <Text color={color} bold>
-        {'  '}
-        {shapeGlyph !== '' ? `${shapeGlyph} ${padLabel(row.label)}` : padLabel(row.label)}
-      </Text>
+      <Box width={TIME_COL_WIDTH} flexShrink={0}>
+        <Text dimColor>{fmtIsoTime(String(signal.timestamp))}</Text>
+      </Box>
+      <Box width={KIND_COL_WIDTH} flexShrink={0}>
+        <Text color={color} bold>
+          {'  '}
+          {shapeGlyph !== '' ? `${shapeGlyph} ${padLabel(row.label)}` : `  ${padLabel(row.label)}`}
+        </Text>
+      </Box>
       <Box flexGrow={1} flexShrink={1} minWidth={0}>
         <Text bold={row.bold ?? false} wrap="truncate-end">
           {collapseWhitespace(row.text)}
@@ -219,10 +225,15 @@ const CommitSignalLine = ({
         <Text color={focused ? inkColors.highlight : inkColors.muted} bold={focused}>
           {focused ? glyphs.selectMarker : ' '}{' '}
         </Text>
-        <Text dimColor>{fmtIsoTime(String(signal.timestamp))}</Text>
-        <Text color={color} bold>
-          {disclosure} {padLabel('commit')}
-        </Text>
+        <Box width={TIME_COL_WIDTH} flexShrink={0}>
+          <Text dimColor>{fmtIsoTime(String(signal.timestamp))}</Text>
+        </Box>
+        <Box width={KIND_COL_WIDTH} flexShrink={0}>
+          <Text color={color} bold>
+            {'  '}
+            {disclosure} {padLabel('commit')}
+          </Text>
+        </Box>
         <Box flexGrow={1} flexShrink={1} minWidth={0}>
           <Text wrap="truncate-end">{collapseWhitespace(headline)}</Text>
         </Box>
@@ -266,7 +277,9 @@ const CompactionMarker = ({ signal }: { readonly signal: ContextCompactedSignal 
   const detail = formatCompactionDetail(signal);
   return (
     <Box marginLeft={-spacing.indent}>
-      <Text dimColor>{fmtIsoTime(String(signal.timestamp))}</Text>
+      <Box width={TIME_COL_WIDTH} flexShrink={0}>
+        <Text dimColor>{fmtIsoTime(String(signal.timestamp))}</Text>
+      </Box>
       <Text color={inkColors.muted}>
         {'  '}
         {glyphs.bullet} {glyphs.bullet} {glyphs.bullet} context compacted
