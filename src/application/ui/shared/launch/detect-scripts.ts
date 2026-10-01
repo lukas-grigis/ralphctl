@@ -4,9 +4,12 @@ import { createDetectScriptsFlow } from '@src/application/flows/detect-scripts/f
 import type { DetectScriptsCtx } from '@src/application/flows/detect-scripts/ctx.ts';
 import type { LaunchContext } from '@src/application/ui/shared/launch/context.ts';
 import type { LaunchResult } from '@src/application/ui/shared/launcher.ts';
+import { checkCli } from '@src/application/ui/shared/launch/check-cli.ts';
 
-export const launchDetectScripts = (ctx: LaunchContext): LaunchResult => {
+export const launchDetectScripts = async (ctx: LaunchContext): Promise<LaunchResult> => {
   const { deps, snapshot, extras, settings, provider, bridge, sessionId, effort } = ctx;
+  const missing = await checkCli('detect-scripts', settings, { override: extras.override });
+  if (missing !== undefined) return missing;
   if (!snapshot.project) return { ok: false, reason: 'No project loaded.' };
   const element: Element<DetectScriptsCtx> = createDetectScriptsFlow(
     {

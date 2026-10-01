@@ -9,6 +9,7 @@ import type { Repository } from '@src/domain/entity/repository.ts';
 import type { LaunchContext } from '@src/application/ui/shared/launch/context.ts';
 import type { LaunchResult } from '@src/application/ui/shared/launcher.ts';
 import { resolveDistillComposition } from '@src/application/ui/shared/launch/distill.ts';
+import { checkCli } from '@src/application/ui/shared/launch/check-cli.ts';
 
 /**
  * Derive the set of repositories the sprint actually touches — `Project.repositories` filtered down to the ones
@@ -31,6 +32,8 @@ const renderRepositoriesBlock = (affected: readonly Repository[]): string =>
 
 export const launchReview = async (ctx: LaunchContext): Promise<LaunchResult> => {
   const { deps, snapshot, settings, provider, bridge, sessionId, effort } = ctx;
+  const missing = await checkCli('review', settings, { override: ctx.extras.override });
+  if (missing !== undefined) return missing;
   if (!snapshot.sprint) return { ok: false, reason: 'No sprint selected.' };
   if (!snapshot.project) return { ok: false, reason: 'No project loaded for the selected sprint.' };
   if (snapshot.project.repositories.length === 0) {
@@ -39,6 +42,7 @@ export const launchReview = async (ctx: LaunchContext): Promise<LaunchResult> =>
   // Opt-in, default-NO HITL — symmetric with close-sprint.
   const distillConfirm = await deps.interactive.askConfirm({
     message: "Distill this sprint's learnings into project context files when review finishes? [y/N]",
+    defaultValue: false,
   });
   if (!distillConfirm.ok) return { ok: false, reason: 'Cancelled.' };
   const distillRequested = distillConfirm.value === true;
@@ -85,6 +89,7 @@ export const launchReview = async (ctx: LaunchContext): Promise<LaunchResult> =>
       fileLocker: deps.app.fileLocker,
       locksRoot: deps.storage.locksRoot,
       appendFile: deps.app.appendFile,
+      writeFile: deps.app.writeFile,
       // Review uses the implement generator model + effort — same code-mutation profile, same accuracy expectations.
       // No per-flow `review` row in settings today.
       model: settings.ai.implement.generator.model,

@@ -262,6 +262,7 @@ const closeSprintAction = async (raw: string, opts: CloseOpts): Promise<void> =>
     clock: deps.clock,
     logger: deps.logger,
     appendFile: deps.appendFile,
+    writeFile: deps.writeFile,
     progressFile: progressPath.value,
     ...(memoryMirror !== undefined ? { memoryMirror } : {}),
   });

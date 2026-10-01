@@ -11,6 +11,7 @@ import type { ShellScriptRunner } from '@src/integration/io/shell-script-runner.
 import type { InteractivePrompt } from '@src/business/interactive/prompt.ts';
 import type { FileLocker } from '@src/integration/io/file-locker.ts';
 import type { AppendFile } from '@src/business/io/append-file.ts';
+import type { WriteFile } from '@src/business/io/write-file.ts';
 import type { DistillLearningsDeps } from '@src/application/flows/_shared/memory/distill-learnings.ts';
 import type { DistillStepOpts } from '@src/application/flows/_shared/memory/distill-step.ts';
 
@@ -35,6 +36,8 @@ export interface ReviewDeps {
   readonly locksRoot: AbsolutePath;
   /** Append adapter — threaded into `reviewRoundLeaf` to grow `feedback.md` per round. */
   readonly appendFile: AppendFile;
+  /** Atomic writer — the closing journal write also rewrites progress.md's `State:` line. */
+  readonly writeFile: WriteFile;
   readonly model: string;
   /**
    * Effort for the apply-feedback spawn — the launcher's `ctx.effort`, i.e. the implement

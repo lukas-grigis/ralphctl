@@ -59,6 +59,22 @@ describe('checkCli', () => {
     expect(result.reason).toContain('ai.implement.generator.provider');
   });
 
+  it('review needs only the generator CLI — a missing evaluator CLI does not block it', async () => {
+    const generatorOnly: Settings = {
+      ...DEFAULT_SETTINGS,
+      ai: {
+        ...DEFAULT_SETTINGS.ai,
+        implement: {
+          generator: defaultAiSettingsForProvider('claude-code').implement.generator,
+          evaluator: defaultAiSettingsForProvider('openai-codex').implement.evaluator,
+        },
+      },
+    };
+    expect(await checkCli('review', generatorOnly, { detect: detectFor(['claude-code']) })).toBeUndefined();
+    const implement = await checkCli('implement', generatorOnly, { detect: detectFor(['claude-code']) });
+    expect(implement?.ok).toBe(false);
+  });
+
   it('returns undefined for non-AI flows', async () => {
     const result = await checkCli('create-sprint', DEFAULT_SETTINGS, { detect: detectFor([]) });
     expect(result).toBeUndefined();

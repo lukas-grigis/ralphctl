@@ -363,7 +363,7 @@ const buildRoundCallbacks = (
       // maps to an `aborted` outcome (same behaviour the old vim `:cq` produced).
       const answer = await deps.interactive.askTextArea(
         `Feedback for round ${String(roundIndex)}` +
-          ' — Ctrl+D to submit, Esc to cancel, empty submission ends the review.'
+          ' — an empty submission ends the review and closes the sprint (done); esc cancels and keeps it in review.'
       );
       if (!answer.ok) return Result.error(answer.error) as Result<void, DomainError>;
       const wrote = await writeRoundBody(input.feedbackFile, answer.value);

@@ -11,6 +11,9 @@ import { join } from 'node:path';
 import { Result } from '@src/domain/result.ts';
 import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import type { ProjectRepository } from '@src/domain/repository/project/project-repository.ts';
+import type { Project } from '@src/domain/entity/project.ts';
+import { noopLogger } from '@tests/fixtures/noop-logger.ts';
+import { makeProject } from '@tests/fixtures/domain.ts';
 import { CreateProjectView } from '@src/application/ui/tui/views/create-project-view.tsx';
 import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
 import { CTRL_U, ENTER, ESC, tick } from '@tests/integration/application/ui/tui/_keys.ts';
@@ -23,12 +26,16 @@ const press = async (f: AppFrame, keys: string, ms = 60): Promise<void> => {
   await tick(ms);
 };
 
-const mount = (save: ProjectRepository['save']): AppFrame =>
+const mount = (save: ProjectRepository['save'], existing: readonly Project[] = []): AppFrame =>
   mountFrame({
     columns: 100,
     rows: 40,
     initial: { id: 'create-project' },
-    deps: { eventBus: createInMemoryEventBus(), projectRepo: { save } } as unknown as AppDeps,
+    deps: {
+      eventBus: createInMemoryEventBus(),
+      logger: noopLogger,
+      projectRepo: { save, list: async () => Result.ok(existing) },
+    } as unknown as AppDeps,
     renderRoute: (entry) => (entry.id === 'create-project' ? <CreateProjectView /> : <StubView id={entry.id} />),
   });
 
@@ -75,6 +82,24 @@ describe('CreateProjectView — first run', () => {
     expect(frameText(f)).toContain('✗ slug must be lowercase alphanumeric');
     await press(f, ENTER);
     expect(frameText(f)).toContain('Project slug');
+    f.result.unmount();
+  });
+
+  it('rejects a slug another project already uses inline, including the blank default', async () => {
+    const save = vi.fn() as unknown as ProjectRepository['save'];
+    const f = mount(save, [makeProject({ slug: 'acme' })]);
+    await tick(80);
+    await press(f, 'Acme');
+    await press(f, ENTER, 100);
+    expect(frameText(f)).toContain("✗ slug 'acme' is already used by another project");
+    await press(f, ENTER);
+    expect(frameText(f)).toContain('Project slug');
+    await press(f, CTRL_U);
+    expect(frameText(f)).toContain("✗ slug 'acme' is already used by another project");
+    await press(f, 'acme-2');
+    expect(frameText(f)).not.toContain('already used');
+    await press(f, ENTER, 100);
+    expect(frameText(f)).toContain('Description');
     f.result.unmount();
   });
 

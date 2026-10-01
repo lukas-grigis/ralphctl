@@ -22,6 +22,7 @@ import type { CloseSprintDeps } from '@src/application/flows/close-sprint/deps.t
 import { recordingAppendFile } from '@tests/fixtures/recording-append-file.ts';
 import { recordingWriteFile } from '@tests/fixtures/recording-write-file.ts';
 import { DEFAULT_SETTINGS } from '@src/business/settings/defaults.ts';
+import { createAtomicWriteFile } from '@src/integration/io/write-file-atomic.ts';
 
 const NOW = isoTimestamp('2026-05-09T10:00:00.000Z');
 
@@ -78,6 +79,7 @@ describe('createCloseSprintFlow', () => {
       clock: () => FIXED_LATER,
       logger: noopLogger,
       appendFile: append.fn,
+      writeFile: createAtomicWriteFile(),
       progressFile: absolutePath('/tmp/progress.md'),
       distill: stubDistill(),
     });
@@ -117,6 +119,7 @@ describe('createCloseSprintFlow', () => {
       clock: () => FIXED_LATER,
       logger: noopLogger,
       appendFile: append.fn,
+      writeFile: createAtomicWriteFile(),
       progressFile: absolutePath('/tmp/progress.md'),
       // No ledger on disk → the refresh leaf is a no-op, but it still appears in the trace.
       memoryMirror: {
@@ -157,6 +160,7 @@ describe('createCloseSprintFlow', () => {
       clock: () => FIXED_LATER,
       logger: noopLogger,
       appendFile: append.fn,
+      writeFile: createAtomicWriteFile(),
       progressFile: absolutePath('/tmp/progress.md'),
       // No `distill` dep at all — the distill step must be omitted from the chain entirely,
       // not merely skipped by its inner gate (that case is covered by the happy-path test above,
@@ -190,6 +194,7 @@ describe('createCloseSprintFlow', () => {
       clock: () => NOW,
       logger: noopLogger,
       appendFile: append.fn,
+      writeFile: createAtomicWriteFile(),
       progressFile: absolutePath('/tmp/progress.md'),
     });
     const runner = createRunner<CloseSprintCtx>({

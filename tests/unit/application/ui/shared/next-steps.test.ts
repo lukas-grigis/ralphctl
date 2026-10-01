@@ -222,6 +222,17 @@ describe('buildNextSteps — pre-sprint rows', () => {
     expect(steps[0]).toMatchObject({ key: 'S', label: 'switch sprint' });
     expect(steps[0]?.detail).toContain('4');
   });
+
+  it('unknown counts (the settled-run surface) → defer to Work, never a guessed c / S chord', () => {
+    const { projectCount: _p, sprintCount: _s, ...unknownCounts } = base;
+    void _p;
+    void _s;
+    const failed = buildNextSteps({ ...unknownCounts, runStatus: 'failed' }).steps;
+    expect(failed.map((s) => s.key)).toEqual(['r', '↵']);
+    expect(failed[1]?.label).toBe('open Work');
+    const noProject = buildNextSteps({ ...unknownCounts, hasProject: false }).steps;
+    expect(noProject.map((s) => s.key)).toEqual(['↵']);
+  });
 });
 
 describe('buildNextSteps — settled-run prepend', () => {

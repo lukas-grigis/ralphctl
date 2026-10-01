@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ValidationError } from '@src/domain/value/error/validation-error.ts';
 import { FIXED_PROJECT_ID } from '@tests/fixtures/domain.ts';
-import { createSprintUseCase } from '@src/business/sprint/create-sprint.ts';
+import { createSprintUseCase, sprintNameProblem } from '@src/business/sprint/create-sprint.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 
 describe('createSprintUseCase', () => {
@@ -37,6 +37,30 @@ describe('createSprintUseCase', () => {
     if (!result.ok) {
       expect(result.error).toBeInstanceOf(ValidationError);
       expect(result.error.field).toBe('sprint.name');
+    }
+  });
+});
+
+describe('sprintNameProblem', () => {
+  it.each([
+    ['', 'Sprint name is required'],
+    ['   ', 'Sprint name is required'],
+    ['!!!', 'Sprint name needs at least one letter or digit'],
+  ])('rejects %j', (name, message) => {
+    expect(sprintNameProblem(name)).toBe(message);
+  });
+
+  it('accepts a name createSprintUseCase accepts', () => {
+    expect(sprintNameProblem('  Release Plan ')).toBeUndefined();
+    expect(createSprintUseCase({ projectId: FIXED_PROJECT_ID, name: 'Release Plan', logger: noopLogger }).ok).toBe(
+      true
+    );
+  });
+
+  it('flags exactly the names createSprintUseCase rejects', () => {
+    for (const name of ['', ' ', '!!!', '—', 'a', 'Sprint 1', '· x ·']) {
+      const accepted = createSprintUseCase({ projectId: FIXED_PROJECT_ID, name, logger: noopLogger }).ok;
+      expect(sprintNameProblem(name) === undefined, name).toBe(accepted);
     }
   });
 });

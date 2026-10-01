@@ -226,17 +226,20 @@ For every prompt context (an editor, a select, an input):
 **Setup:** a sprint in `review` status (every task `done`).
 
 1. From Work (`1`), focus the **Review** row and press `↵`
-2. **Expected:** routed to Execute view, the multi-line editor prompt appears asking for feedback
-3. Type a short feedback message; Ctrl+D to submit
+2. **Expected:** the "Distill … [y/N]" confirm opens with **No** focused; `↵` keeps it off. Then the Execute view
+   opens and the multi-line editor prompt asks for feedback
+3. Type a short feedback message; `↵` to submit
 4. **Expected:** AI CLI takes over; resumes the relevant tasks via session-id resume to apply the feedback
 5. AI exits; verify scripts re-run; evaluator re-runs
 6. **Expected:** progress.md gets the new round's entries; if `RALPHCTL_DEBUG_TRACE=1` is set, events.ndjson captures
    the trace
-7. From the same flow, submit an EMPTY input (just Ctrl+D)
-8. **Expected:** the loop exits cleanly, sprint stays in `review`
+7. From the same flow, submit an EMPTY input (just `↵`)
+8. **Expected:** the loop exits and the sprint moves to `done` — an empty round is the end-of-review decision
+   (WORKFLOWS.md, sprint lifecycle †). With a `blocked` task, a confirm naming it comes first; declining leaves
+   the sprint in `review`
+9. To leave a sprint in `review` instead, cancel the feedback prompt with `esc`
 
-To close the sprint: `ralphctl sprint close <sprint-id>` from a separate terminal, or pick the Close flow
-from the TUI.
+The explicit close is the other door: `ralphctl sprint close <sprint-id>`, or the Close sprint flow in the TUI.
 
 ---
 

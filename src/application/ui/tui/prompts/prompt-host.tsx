@@ -71,7 +71,8 @@ export const PromptHost = ({ queue }: PromptHostProps): React.JSX.Element | null
         </Text>
         {origin !== undefined && <Text dimColor>{`  from ${origin}`}</Text>}
       </Box>
-      {renderPrompt(head, queue)}
+      {/* Keyed per prompt so back-to-back prompts of one kind never share a buffer or focus. */}
+      <React.Fragment key={head.id}>{renderPrompt(head, queue)}</React.Fragment>
     </Box>
   );
 };
@@ -85,6 +86,7 @@ const renderPrompt = (prompt: PendingPrompt, queue: PromptQueue): React.JSX.Elem
         <TextPrompt
           message={prompt.message}
           {...(prompt.initial !== undefined ? { initial: prompt.initial } : {})}
+          {...(prompt.validate !== undefined ? { validate: prompt.validate } : {})}
           onSubmit={(value): void => queue.resolveHead(value)}
           onCancel={cancel}
         />
@@ -102,6 +104,7 @@ const renderPrompt = (prompt: PendingPrompt, queue: PromptQueue): React.JSX.Elem
       return (
         <ConfirmPrompt
           message={prompt.message}
+          {...(prompt.defaultValue !== undefined ? { defaultYes: prompt.defaultValue } : {})}
           onSubmit={(value): void => queue.resolveHead(value)}
           onCancel={cancel}
         />

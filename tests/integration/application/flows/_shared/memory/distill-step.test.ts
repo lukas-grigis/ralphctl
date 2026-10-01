@@ -235,6 +235,7 @@ describe('createDistillStep composed into the close paths', () => {
       clock: () => FIXED_LATER,
       logger: recordingLogger().logger,
       appendFile: append.fn,
+      writeFile: createAtomicWriteFile(),
       progressFile: absolutePath(join(String(root.root), 'progress.md')),
       distill: buildDistill({ ai: fakeInteractiveAi({ calls }) }),
     });
@@ -261,6 +262,7 @@ describe('createDistillStep composed into the close paths', () => {
       clock: () => FIXED_LATER,
       logger: recordingLogger().logger,
       appendFile: append.fn,
+      writeFile: createAtomicWriteFile(),
       progressFile: absolutePath(join(String(root.root), 'progress.md')),
       distill: buildDistill({ ai: fakeInteractiveAi({ calls }) }),
     });
@@ -293,6 +295,7 @@ describe('createDistillStep composed into the close paths', () => {
       clock: () => FIXED_LATER,
       logger: recordingLogger().logger,
       appendFile: append.fn,
+      writeFile: createAtomicWriteFile(),
       progressFile: absolutePath(join(String(root.root), 'progress.md')),
       distill: buildDistill({ ai: fakeInteractiveAi({ calls, abort: true }) }),
     });
@@ -323,6 +326,7 @@ describe('createDistillStep composed into the close paths', () => {
       clock: () => FIXED_LATER,
       logger: recordingLogger().logger,
       appendFile: append.fn,
+      writeFile: createAtomicWriteFile(),
       progressFile: absolutePath(join(String(root.root), 'progress.md')),
       distill: buildDistill({ ai: fakeInteractiveAi({ calls, fail: true }), logger: log.logger }),
     });
@@ -482,6 +486,7 @@ describe('createDistillStep on the review auto-done path', () => {
         fileLocker: createFileLocker(),
         locksRoot: absolutePath(String(root.root)),
         appendFile: createAppendFile(),
+        writeFile: createAtomicWriteFile(),
         model: 'claude-opus-4-8',
         distill,
       },

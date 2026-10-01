@@ -79,10 +79,14 @@ export const evaluateTriggers = (triggers: FlowTriggers, inputs: TriggerInputs):
     },
     {
       failed: triggers.minPendingTickets !== undefined && inputs.pendingTicketCount < triggers.minPendingTickets,
-      reason: () =>
-        inputs.pendingTicketCount === 0
+      reason: () => {
+        if (inputs.pendingTicketCount === 0 && inputs.approvedTicketCount > 0) {
+          return 'Every ticket is already refined — add a new one first.';
+        }
+        return inputs.pendingTicketCount === 0
           ? 'Add at least one ticket to the sprint before refining.'
-          : `Add more tickets — need ${String(triggers.minPendingTickets)}, have ${String(inputs.pendingTicketCount)}.`,
+          : `Add more tickets — need ${String(triggers.minPendingTickets)}, have ${String(inputs.pendingTicketCount)}.`;
+      },
     },
     {
       failed: triggers.minApprovedTickets !== undefined && inputs.approvedTicketCount < triggers.minApprovedTickets,

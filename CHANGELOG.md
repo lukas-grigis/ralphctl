@@ -31,6 +31,19 @@ to [Semantic Versioning](https://semver.org/).
 - **Destructive confirms state the concrete loss**, and preset changes show a diff before applying.
 - **Overlong lists and screens show overflow cues** instead of clipping silently; `NO_COLOR` is honoured.
 
+### Fixed
+
+- **Create sprint checks the name as you type.** An empty or punctuation-only name stays at the prompt with an
+  inline error instead of failing the run.
+- **Project slugs are unique.** Creating a project whose slug another project already uses is refused, and the
+  wizard says so at the slug step.
+- **Review's distill question defaults to No**, matching its `[y/N]` label (close sprint's too). `esc` on the
+  feedback prompt now leaves the sprint in review without journaling a close; an empty submission still closes it.
+- **Detect scripts, Detect skills and Review check the AI CLI is on PATH** before starting, like the other AI
+  flows, instead of failing on a spawn error.
+- **progress.md's `State:` line follows the sprint** to active, review and done.
+- **Refine's unavailable reason** no longer says "add at least one ticket" when every ticket is already approved.
+
 ## [0.24.0] - 2026-09-30
 
 ### Added

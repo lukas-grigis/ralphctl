@@ -55,10 +55,21 @@ interface RowExpectation {
 }
 
 const rowExpectationsFor = (
+  flowId: string,
   aiFlow: FlowId,
   settings: Settings,
   options: CheckCliOptions
 ): readonly RowExpectation[] => {
+  // Review runs one session on the implement generator row; it never spawns the evaluator.
+  if (flowId === 'review') {
+    return [
+      {
+        provider: settings.ai.implement.generator.provider,
+        settingsKey: 'ai.implement.generator.provider',
+        fromOverride: options.override?.provider !== undefined,
+      },
+    ];
+  }
   if (aiFlow === 'implement') {
     return [
       {
@@ -106,7 +117,7 @@ export const checkCli = async (
 ): Promise<LaunchResult | undefined> => {
   const aiFlow = aiFlowIdForCheck(flowId);
   if (aiFlow === undefined) return undefined;
-  const expectations = rowExpectationsFor(aiFlow, settings, options);
+  const expectations = rowExpectationsFor(flowId, aiFlow, settings, options);
   const detect = options.detect ?? (() => detectInstalledProviders());
   const installed = await detect();
   // Dedupe by provider+role — when implement's two roles target the same provider, a single missing binary surfaces

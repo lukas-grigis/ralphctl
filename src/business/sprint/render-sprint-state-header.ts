@@ -1,6 +1,7 @@
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import type { TaskStatus } from '@src/domain/entity/task.ts';
 import { neutralizeProseHeadings, sanitizeInline } from '@src/business/sprint/journal-sanitize.ts';
+import { splitJournal } from '@src/business/sprint/journal-structure.ts';
 
 /**
  * Render the DERIVED sprint-state header band for `<sprintDir>/progress.md` — the always-kept block
@@ -125,3 +126,13 @@ export const renderSprintStateHeader = (input: SprintStateHeaderInput): string =
     ...renderStale(input.tasks),
     ...renderTaskTable(input.tasks),
   ].join('\n');
+
+/**
+ * Rewrite the header band's `- State:` line to `status` after a lifecycle transition, so the derived
+ * header does not keep the pre-transition state until the next attempt regenerates it. Attempt
+ * sections and a journal without the line come back unchanged. Pure — no I/O.
+ */
+export const withSprintStateStatus = (journal: string, status: string): string => {
+  const { headerBand, sections } = splitJournal(journal);
+  return headerBand.replace(/^- State: .*$/m, `- State: ${status}`) + sections.join('');
+};

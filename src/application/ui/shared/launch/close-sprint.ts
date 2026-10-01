@@ -35,6 +35,7 @@ export const launchCloseSprint = async (ctx: LaunchContext): Promise<LaunchResul
   // / AGENTS.md / …) — never auto-accept.
   const distillConfirm = await deps.interactive.askConfirm({
     message: "Distill this sprint's learnings into project context files? [y/N]",
+    defaultValue: false,
   });
   if (!distillConfirm.ok) return { ok: false, reason: 'Cancelled.' };
   const distillRequested = distillConfirm.value === true;
@@ -60,6 +61,7 @@ export const launchCloseSprint = async (ctx: LaunchContext): Promise<LaunchResul
     clock: deps.app.clock,
     logger: deps.app.logger,
     appendFile: deps.app.appendFile,
+    writeFile: deps.app.writeFile,
     progressFile: progressPath.value,
     ...(memoryMirror !== undefined ? { memoryMirror } : {}),
     ...(distill !== undefined ? { distill } : {}),

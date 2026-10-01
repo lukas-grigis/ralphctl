@@ -346,7 +346,7 @@ export const buildImplementPrologue = (deps: ImplementDeps, opts: CreateImplemen
     // sprint (or noop'd because it was already active). The separator gives the operator + AI
     // a chronological marker between "before this run" and "first task of this run."
     appendJournalSeparatorLeaf<ImplementCtx>(
-      { appendFile: deps.appendFile, clock: deps.clock, logger: deps.logger },
+      { appendFile: deps.appendFile, writeFile: deps.writeFile, clock: deps.clock, logger: deps.logger },
       { progressFile: opts.progressFile, status: 'activated', name: 'progress-journal-activate' }
     ),
     // Brackets every script that spawns with a porcelain snapshot, and re-offers the dirty-tree
@@ -418,7 +418,7 @@ export const buildImplementEpilogue = (deps: ImplementDeps, opts: CreateImplemen
       sequential<ImplementCtx>('transition-to-review-and-journal', [
         transitionSprintToReviewLeaf({ sprintRepo: deps.sprintRepo, clock: deps.clock, logger: deps.logger }),
         appendJournalSeparatorLeaf<ImplementCtx>(
-          { appendFile: deps.appendFile, clock: deps.clock, logger: deps.logger },
+          { appendFile: deps.appendFile, writeFile: deps.writeFile, clock: deps.clock, logger: deps.logger },
           { progressFile: opts.progressFile, status: 'review', name: 'progress-journal-review' }
         ),
       ])

@@ -29,8 +29,9 @@ export interface NextStepsInput {
   /** Display label of the leaf that failed, from the trace. Colours the failed prepend only. */
   readonly failedLeafLabel?: string;
   readonly hasProject: boolean;
-  readonly projectCount: number;
-  readonly sprintCount: number;
+  /** Undefined ⇒ unknown (the settled-run surface): the pre-sprint row defers to Work instead of guessing. */
+  readonly projectCount?: number;
+  readonly sprintCount?: number;
   /** Undefined ⇒ no sprint in context, so the pre-sprint rows answer instead. */
   readonly sprintStatus?: SprintStatus;
   readonly ticketCount: number;
@@ -72,13 +73,18 @@ const runStatusRows = (input: NextStepsInput): readonly NextStep[] => {
 
 const flowStep = (flow: string, label: string, detail: string): NextStep => ({ flow, label, detail });
 
+/** The settled-run surface binds only ↵ → Work, which then shows the real next step. */
+const OPEN_WORK: NextStep = { key: '↵', label: 'open Work', detail: 'it shows the next step for this project' };
+
 /** Rows for a context with no sprint yet. */
 const preSprintRows = (input: NextStepsInput): readonly NextStep[] => {
   if (!input.hasProject) {
+    if (input.projectCount === undefined) return [OPEN_WORK];
     return input.projectCount === 0
       ? [{ key: 'c', label: 'create a project' }]
       : [{ key: 'P', label: 'pick a project', detail: `${plural(input.projectCount, 'project')} in storage` }];
   }
+  if (input.sprintCount === undefined) return [OPEN_WORK];
   return input.sprintCount === 0
     ? [{ key: 'c', label: 'create the first sprint' }]
     : [{ key: 'S', label: 'switch sprint', detail: `${plural(input.sprintCount, 'sprint')} in this project` }];

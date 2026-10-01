@@ -28,6 +28,7 @@ import { recordingAppendFile } from '@tests/fixtures/recording-append-file.ts';
 import { createCloseSprintFlow } from '@src/application/flows/close-sprint/flow.ts';
 import type { CloseSprintCtx } from '@src/application/flows/close-sprint/ctx.ts';
 import type { CloseSprintDeps } from '@src/application/flows/close-sprint/deps.ts';
+import { createAtomicWriteFile } from '@src/integration/io/write-file-atomic.ts';
 
 const unwrap = <T, E>(r: Result<T, E>): T => {
   if (!r.ok) {
@@ -93,6 +94,7 @@ const baseDeps = (
   clock: () => FIXED_LATER,
   logger: noopLogger,
   appendFile: append.fn,
+  writeFile: createAtomicWriteFile(),
   progressFile: absolutePath('/tmp/progress.md'),
 });
 

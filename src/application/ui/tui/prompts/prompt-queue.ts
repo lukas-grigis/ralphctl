@@ -21,6 +21,7 @@ export interface TextPrompt extends BasePrompt {
   readonly kind: 'text';
   /** Optional pre-filled buffer — surfaced to the renderer as the `initial` value. */
   readonly initial?: string;
+  readonly validate?: (value: string) => string | undefined;
   resolve(value: string): void;
   reject(err: Error): void;
 }
@@ -35,6 +36,8 @@ export interface TextAreaPrompt extends BasePrompt {
 
 export interface ConfirmPrompt extends BasePrompt {
   readonly kind: 'confirm';
+  /** Focused answer on open; the renderer defaults to Yes when absent. */
+  readonly defaultValue?: boolean;
   resolve(value: boolean): void;
   reject(err: Error): void;
 }

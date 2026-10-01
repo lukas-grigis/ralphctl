@@ -26,7 +26,7 @@ re-run without backing the sprint out of review.
 
 †`review → done` has two doors — the explicit `close-sprint` flow (`sprint close` CLI, or the TUI's
 `n → close-sprint`) and the review flow's own auto-done path (empty / repeat feedback round settles
-the loop) — and both now confirm before crossing it rather than closing in silence. Each loads the
+the loop; `esc` on the feedback prompt cancels and leaves the sprint `review`) — and both now confirm before crossing it rather than closing in silence. Each loads the
 sprint's tasks and, if any are `blocked`, asks the operator to confirm, naming them
 (`confirmBlockedTasksLeaf` — a shared leaf at `application/flows/_shared/task/confirm-blocked-
 tasks.ts` that `review`'s chain composes, and an equivalent one local to `close-sprint/leaves/` for

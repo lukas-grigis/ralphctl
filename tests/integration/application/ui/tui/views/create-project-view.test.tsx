@@ -20,6 +20,7 @@ import type { ProjectRepository } from '@src/domain/repository/project/project-r
 import { CTRL_U, ENTER, tick } from '@tests/integration/application/ui/tui/_keys.ts';
 import { useRouter } from '@src/application/ui/tui/runtime/router.tsx';
 import { renderView, waitForViewReady } from '@tests/integration/application/ui/tui/_harness.tsx';
+import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 
 describe('CreateProjectView — wizard e2e', () => {
   let root: string;
@@ -36,8 +37,8 @@ describe('CreateProjectView — wizard e2e', () => {
       void project;
       return Result.ok(undefined);
     });
-    const projectRepo = { save } as unknown as ProjectRepository;
-    const deps: AppDeps = { projectRepo } as unknown as AppDeps;
+    const projectRepo = { save, list: async () => Result.ok([]) } as unknown as ProjectRepository;
+    const deps: AppDeps = { projectRepo, logger: noopLogger } as unknown as AppDeps;
 
     const { result } = renderView(<CreateProjectView />, { deps, initial: { id: 'create-project' } });
     // Match the prompt's literal copy — the view renders "Project display name" (create-project-view.tsx:207).
@@ -106,7 +107,7 @@ const PushedWizard = (): React.JSX.Element => {
 };
 
 describe('CreateProjectView — esc label', () => {
-  const deps = { projectRepo: {} } as unknown as AppDeps;
+  const deps = { projectRepo: { list: async () => Result.ok([]) } } as unknown as AppDeps;
 
   it.each([
     ['projects', 'esc Projects'],

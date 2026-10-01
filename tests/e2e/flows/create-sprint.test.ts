@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { Result } from '@src/domain/result.ts';
 import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
-import type { Choice, InteractivePrompt } from '@src/business/interactive/prompt.ts';
+import type { AskTextOptions, Choice, InteractivePrompt } from '@src/business/interactive/prompt.ts';
 import type { Project } from '@src/domain/entity/project.ts';
 import type { ProjectId } from '@src/domain/value/id/project-id.ts';
 import type { ProjectRepository } from '@src/domain/repository/project/project-repository.ts';
@@ -55,11 +55,16 @@ interface ScriptedFailure {
   readonly error: DomainError;
 }
 
-const scriptedPrompt = (texts: readonly string[], failure?: ScriptedFailure): InteractivePrompt => {
+const scriptedPrompt = (
+  texts: readonly string[],
+  failure?: ScriptedFailure,
+  onAskText?: (opts: AskTextOptions | undefined) => void
+): InteractivePrompt => {
   let textIdx = 0;
   return {
-    async askText(_prompt: string) {
+    async askText(_prompt: string, opts?: AskTextOptions) {
       void _prompt;
+      onAskText?.(opts);
       if (failure?.on === 'text') return Result.error(failure.error);
       const v = texts[textIdx++];
       if (v === undefined) throw new Error('scriptedPrompt: ran out of text answers');
@@ -167,6 +172,32 @@ describe('createCreateSprintFlow', () => {
     expect(exec.saves).toHaveLength(0);
     const failed = runner.trace.find((e) => e.status === 'failed');
     expect(failed?.error).toBeInstanceOf(NotFoundError);
+  });
+
+  it('validates the name at the prompt, so an empty name never reaches create-sprint', async () => {
+    const project = makeProject();
+    let validate: AskTextOptions['validate'];
+    const prompt = scriptedPrompt(['kickoff'], undefined, (opts) => {
+      validate = opts?.validate;
+    });
+    const flow = createCreateSprintFlow({
+      projectRepo: fakeProjectRepo(project),
+      sprintRepo: inMemorySprintRepo().repo,
+      sprintExecutionRepo: inMemorySprintExecutionRepo().repo,
+      interactive: prompt,
+      clock: () => FIXED_NOW,
+      eventBus: createInMemoryEventBus(),
+      logger: noopLogger,
+      appendFile: recordingAppendFile().fn,
+      dataRoot: absolutePath('/tmp/ralph-tests'),
+    });
+
+    const runner = createRunner({ id: 'r-create-validate', element: flow, initialCtx: { projectId: project.id } });
+    await runner.start();
+
+    expect(runner.status).toBe('completed');
+    expect(validate?.('')).toBe('Sprint name is required');
+    expect(validate?.('kickoff')).toBeUndefined();
   });
 
   it('derives the slug from the kebab-cased name when no explicit slug is provided', async () => {

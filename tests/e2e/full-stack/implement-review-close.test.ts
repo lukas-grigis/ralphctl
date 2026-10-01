@@ -427,6 +427,7 @@ function runTests(): void {
       fileLocker: createFileLocker(),
       locksRoot: absolutePath(fixture.reviewDir),
       appendFile: createAppendFile(),
+      writeFile: createAtomicWriteFile(),
       model: 'claude-opus-4-8',
     };
 
@@ -462,6 +463,7 @@ function runTests(): void {
       clock: () => FIXED_LATER,
       logger: noopLogger,
       appendFile: createAppendFile(),
+      writeFile: createAtomicWriteFile(),
       progressFile: absolutePath(fixture.progressFile),
     });
 

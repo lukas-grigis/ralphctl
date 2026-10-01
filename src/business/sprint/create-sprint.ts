@@ -5,6 +5,7 @@ import { createSprintWithExecution, type DraftSprint } from '@src/domain/entity/
 import type { SprintExecution } from '@src/domain/entity/sprint-execution.ts';
 import type { Slug } from '@src/domain/value/slug.ts';
 import type { ValidationError } from '@src/domain/value/error/validation-error.ts';
+import { toKebabCase } from '@src/domain/value/kebab-case.ts';
 
 /**
  * Build a fresh draft sprint and its paired `SprintExecution`. Pure: no I/O. The chain leaf
@@ -23,6 +24,15 @@ export interface CreateSprintOutput {
   readonly sprint: DraftSprint;
   readonly execution: SprintExecution;
 }
+
+/** Why `name` cannot name a new sprint, or `undefined` when {@link createSprintUseCase} accepts it. */
+export const sprintNameProblem = (name: string): string | undefined => {
+  const trimmed = name.trim();
+  if (trimmed.length === 0) return 'Sprint name is required';
+  // The slug is derived from the name, so a name of only punctuation cannot be saved.
+  if (toKebabCase(trimmed).length === 0) return 'Sprint name needs at least one letter or digit';
+  return undefined;
+};
 
 export const createSprintUseCase = (props: CreateSprintProps): Result<CreateSprintOutput, ValidationError> => {
   const log = props.logger.named('sprint.create');

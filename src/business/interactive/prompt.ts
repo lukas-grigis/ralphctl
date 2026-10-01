@@ -19,9 +19,18 @@ export interface Choice<T> {
   readonly disabled?: boolean;
 }
 
-/** Input bag for {@link InteractivePrompt.askConfirm}. Object form keeps room for future fields. */
+/** Input bag for {@link InteractivePrompt.askConfirm}. */
 export interface AskConfirmInput {
   readonly message: string;
+  /** Answer focused on open (what ↵ submits). Defaults to `true`; pass `false` for a `[y/N]` question. */
+  readonly defaultValue?: boolean;
+}
+
+/** Options for {@link InteractivePrompt.askText}. */
+export interface AskTextOptions {
+  readonly initial?: string;
+  /** Returns a message to block submit and show inline, or `undefined` when the raw buffer is acceptable. */
+  readonly validate?: (value: string) => string | undefined;
 }
 
 /**
@@ -41,10 +50,11 @@ export interface InteractivePrompt {
    * Free-text input. Result text is whatever the user typed (trimmed by the adapter).
    * `opts.initial` pre-fills the buffer so callers can offer an editable suggestion (e.g.
    * an AI-proposed script the user wants to tweak) without forcing the user to retype it.
+   * `opts.validate` keeps the user at the prompt until the input is acceptable.
    */
-  askText(prompt: string, opts?: { readonly initial?: string }): Promise<Result<string, DomainError>>;
+  askText(prompt: string, opts?: AskTextOptions): Promise<Result<string, DomainError>>;
   /**
-   * Multi-line free-text input. Enter inserts a newline; Ctrl+D submits. Returns the typed
+   * Multi-line free-text input. Enter submits; `\`+Enter or ctrl+j inserts a newline. Returns the typed
    * value verbatim (not trimmed — newlines and indentation matter for callers that paste
    * structured input). Designed to replace external `$EDITOR` round-trips that left the
    * terminal in inconsistent redraw state on return.

@@ -131,8 +131,6 @@ export const useSettledNextSteps = ({
         ...(runStatus !== undefined ? { runStatus } : {}),
         ...(failedLeafLabel !== undefined ? { failedLeafLabel } : {}),
         hasProject,
-        projectCount: 0,
-        sprintCount: 0,
         ...(sprintStatus !== undefined ? { sprintStatus } : {}),
         ticketCount,
         pendingTicketCount,

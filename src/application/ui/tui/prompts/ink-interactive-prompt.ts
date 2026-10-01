@@ -1,7 +1,7 @@
 /** `InteractivePrompt` adapter that pushes prompts onto the TUI's queue. */
 
 import { Result } from '@src/domain/result.ts';
-import type { AskConfirmInput, Choice, InteractivePrompt } from '@src/business/interactive/prompt.ts';
+import type { AskConfirmInput, AskTextOptions, Choice, InteractivePrompt } from '@src/business/interactive/prompt.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import { AbortError } from '@src/domain/value/error/abort-error.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
@@ -17,7 +17,7 @@ const wrapError = (err: unknown, elementName: string): AbortError =>
 const runAskText = async (
   queue: Enqueuer,
   prompt: string,
-  opts?: { readonly initial?: string }
+  opts?: AskTextOptions
 ): Promise<Result<string, DomainError>> => {
   try {
     const value = await new Promise<string>((resolve, reject) => {
@@ -25,6 +25,7 @@ const runAskText = async (
         kind: 'text',
         message: prompt,
         ...(opts?.initial !== undefined ? { initial: opts.initial } : {}),
+        ...(opts?.validate !== undefined ? { validate: opts.validate } : {}),
         resolve,
         reject,
       });
@@ -109,7 +110,13 @@ const runAskMultiChoice = async <T>(
 const runAskConfirm = async (queue: Enqueuer, input: AskConfirmInput): Promise<Result<boolean, DomainError>> => {
   try {
     const value = await new Promise<boolean>((resolve, reject) => {
-      queue.enqueue({ kind: 'confirm', message: input.message, resolve, reject });
+      queue.enqueue({
+        kind: 'confirm',
+        message: input.message,
+        ...(input.defaultValue !== undefined ? { defaultValue: input.defaultValue } : {}),
+        resolve,
+        reject,
+      });
     });
     return Result.ok(value);
   } catch (err) {

@@ -2,6 +2,7 @@ import { Result } from '@src/domain/result.ts';
 import type { InteractivePrompt } from '@src/business/interactive/prompt.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import { parseRequiredString } from '@src/domain/value/parsers/parse-required-string.ts';
+import { sprintNameProblem } from '@src/business/sprint/create-sprint.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
 import type { CreateSprintCtx } from '@src/application/flows/create-sprint/ctx.ts';
@@ -21,13 +22,14 @@ interface LeafOutput {
  * content, not from a sprint-level list; implement walks tasks). Each task now decides its own
  * repository at plan time.
  *
- * Failures from the prompt port (cancellation, malformed input) propagate verbatim.
+ * The name is validated at the prompt, so an empty or unsluggable name keeps the user there instead
+ * of failing the run. Failures from the prompt port (cancellation) propagate verbatim.
  */
 export const interactiveSprintNameLeaf = (deps: InteractiveSprintNameDeps): Element<CreateSprintCtx> =>
   leaf<CreateSprintCtx, undefined, LeafOutput>('interactive-sprint-name', {
     useCase: {
       execute: async (): Promise<Result<LeafOutput, DomainError>> => {
-        const nameResult = await deps.interactive.askText('Sprint name:');
+        const nameResult = await deps.interactive.askText('Sprint name:', { validate: sprintNameProblem });
         if (!nameResult.ok) return Result.error(nameResult.error);
         const parsedName = parseRequiredString('sprint.name', nameResult.value);
         if (!parsedName.ok) return Result.error(parsedName.error);

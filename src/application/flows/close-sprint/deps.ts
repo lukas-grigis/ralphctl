@@ -27,6 +27,8 @@ export interface CloseSprintDeps {
   readonly logger: Logger;
   /** Append adapter for the closing separator line on `<sprintDir>/progress.md`. */
   readonly appendFile: AppendFile;
+  /** Atomic writer — the closing journal write also rewrites progress.md's `State:` line. */
+  readonly writeFile: WriteFile;
   /** Absolute path to `<sprintDir>/progress.md` for the closing separator. */
   readonly progressFile: AbsolutePath;
   /**

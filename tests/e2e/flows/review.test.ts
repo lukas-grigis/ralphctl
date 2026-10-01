@@ -38,6 +38,7 @@ import { createReviewFlow } from '@src/application/flows/review/flow.ts';
 import { createAppendFile } from '@src/integration/io/append-file-adapter.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import type { ReviewCtx } from '@src/application/flows/review/ctx.ts';
+import { createAtomicWriteFile } from '@src/integration/io/write-file-atomic.ts';
 
 void makeApprovedTicket;
 const FAKE_CWD = absolutePath('/tmp/ralph/fake-cwd');
@@ -227,6 +228,7 @@ describe('createReviewFlow', () => {
         fileLocker: createFileLocker(),
         locksRoot: absolutePath(dir),
         appendFile: createAppendFile(),
+        writeFile: createAtomicWriteFile(),
         model: 'claude-opus-4-8',
       },
       {
@@ -289,6 +291,7 @@ describe('createReviewFlow', () => {
         fileLocker: createFileLocker(),
         locksRoot: absolutePath(dir),
         appendFile: createAppendFile(),
+        writeFile: createAtomicWriteFile(),
         model: 'claude-opus-4-8',
       },
       {
@@ -311,6 +314,11 @@ describe('createReviewFlow', () => {
 
     expect(runner.status).toBe('completed');
     expect(repo.current().status).toBe('review');
+    // Esc is a cancel: no settle step runs, so nothing is confirmed, distilled or journaled as closed.
+    expect(runner.trace.at(-1)).toMatchObject({ elementName: 'review-settle', status: 'skipped' });
+    const ran = runner.trace.map((e) => e.elementName);
+    expect(ran).not.toContain('transition-sprint-to-done');
+    expect(ran).not.toContain('progress-journal-close');
   });
 
   it('roots the AI session at <reviewRoot>/round-1 and mounts every sprint-affected repo on a multi-repo sprint', async () => {
@@ -357,6 +365,7 @@ describe('createReviewFlow', () => {
         fileLocker: createFileLocker(),
         locksRoot: absolutePath(dir),
         appendFile: createAppendFile(),
+        writeFile: createAtomicWriteFile(),
         model: 'claude-opus-4-8',
       },
       {
@@ -433,6 +442,7 @@ describe('createReviewFlow', () => {
         fileLocker: createFileLocker(),
         locksRoot: absolutePath(dir),
         appendFile: createAppendFile(),
+        writeFile: createAtomicWriteFile(),
         model: 'claude-opus-4-8',
         distill: stubDistill(),
       },
@@ -502,6 +512,7 @@ describe('createReviewFlow', () => {
         fileLocker: createFileLocker(),
         locksRoot: absolutePath(dir),
         appendFile: createAppendFile(),
+        writeFile: createAtomicWriteFile(),
         model: 'claude-opus-4-8',
         distill: stubDistill(),
       },
@@ -577,6 +588,7 @@ describe('createReviewFlow', () => {
         fileLocker: createFileLocker(),
         locksRoot: absolutePath(dir),
         appendFile: createAppendFile(),
+        writeFile: createAtomicWriteFile(),
         model: 'claude-opus-4-8',
       },
       {
