@@ -213,6 +213,25 @@ const computeTriggerInputs = (
   };
 };
 
+/**
+ * Snapshot for a view that already holds a loaded sprint + its tasks (sprint detail) and so has
+ * no reason to re-poll the repos. Inventory counts are 1 — the sprint exists, so the pre-sprint
+ * rows that read them are never reached.
+ */
+export const snapshotFromLoadedSprint = (input: {
+  readonly project?: Project | undefined;
+  readonly sprint: Sprint;
+  readonly tasks: readonly Task[];
+}): AppStateSnapshot => ({
+  ...(input.project !== undefined ? { project: input.project } : {}),
+  sprint: input.sprint,
+  tasks: input.tasks,
+  triggerInputs: computeTriggerInputs(input.project, input.sprint, input.tasks),
+  projectCount: 1,
+  sprintCount: 1,
+  recentSprints: [],
+});
+
 export const loadAppStateSnapshot = async (
   deps: LoadSnapshotDeps,
   selection: { readonly projectId?: ProjectId; readonly sprintId?: SprintId }

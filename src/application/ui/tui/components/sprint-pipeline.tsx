@@ -1,13 +1,14 @@
 /**
- * Single-line stage tracker — `Refine ▶ Plan ▶ Implement ▶ Review ▶ Done`. The current stage
- * renders in the primary accent; everything else is dimmed. Designed to live above the flow
- * menu so the user has a constant "where am I in the sprint lifecycle?" anchor.
+ * Single-line stage tracker — `Refine → Plan → Implement → Review → Done` — the one pipeline
+ * widget every surface renders (Home, Flows, `SprintHeaderStrip`). The current stage renders in
+ * the primary accent; everything else is dimmed. The caller owns padding.
  *
  * Stage resolution from {@link AppStateSnapshot}:
  *
  *   - No sprint                                → no pipeline (render `null`).
+ *   - sprint.status === 'draft', no tickets    → Refine (nothing refined yet)
  *   - sprint.status === 'draft' + pending tix  → Refine
- *   - sprint.status === 'draft', no pending    → Plan (refinement complete; ready to plan)
+ *   - sprint.status === 'draft', none pending  → Plan (refinement complete; ready to plan)
  *   - sprint.status === 'planned'              → Implement (plan complete; ready to run)
  *   - sprint.status === 'active'               → Implement (running)
  *   - sprint.status === 'review'               → Review
@@ -16,9 +17,10 @@
 
 import React from 'react';
 import { Box, Text } from 'ink';
-import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
+import { glyphs, inkColors } from '@src/application/ui/tui/theme/tokens.ts';
 import type { AppStateSnapshot } from '@src/application/ui/shared/state-snapshot.ts';
 
+/** Stage ids in lifecycle order — the pipeline's only vocabulary. */
 const STAGES = ['Refine', 'Plan', 'Implement', 'Review', 'Done'] as const;
 type Stage = (typeof STAGES)[number];
 
@@ -27,7 +29,7 @@ export const resolveSprintStage = (snapshot: AppStateSnapshot): Stage | undefine
   if (sprint === undefined) return undefined;
   switch (sprint.status) {
     case 'draft':
-      return snapshot.triggerInputs.pendingTicketCount > 0 ? 'Refine' : 'Plan';
+      return snapshot.triggerInputs.pendingTicketCount > 0 || sprint.tickets.length === 0 ? 'Refine' : 'Plan';
     case 'planned':
     case 'active':
       return 'Implement';
@@ -46,7 +48,7 @@ export const SprintPipeline = ({ snapshot }: SprintPipelineProps): React.JSX.Ele
   const stage = resolveSprintStage(snapshot);
   if (stage === undefined) return null;
   return (
-    <Box paddingX={spacing.indent}>
+    <Box>
       <Text>
         {STAGES.map((s, i) => {
           const isCurrent = s === stage;

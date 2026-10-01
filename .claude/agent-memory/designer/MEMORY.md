@@ -16,3 +16,4 @@
 - [project_scroll_region_anchor_rerender.md](project_scroll_region_anchor_rerender.md) — Anchor registration must re-render ScrollRegion; height-pin the root in scroll tests; cue rows cost a row
 - [project_keyboard_ownership.md](project_keyboard_ownership.md) — Claimed-keys traps (global+local composition breaks on migrate), hint-budget ordering, overlays mount in Layout only
 - [project_sections_navigation.md](project_sections_navigation.md) — Title-channel context split, switcher key ownership, `none` section for first-run, renderAtSize control-frame noise
+- [project_pipeline_and_next_steps.md](project_pipeline_and_next_steps.md) — Pipeline stage must match first flow row of buildNextSteps; flow rows keyless; name not in detail body

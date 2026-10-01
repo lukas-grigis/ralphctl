@@ -1,15 +1,16 @@
 /**
  * "Given where this run / sprint ended up, what should the operator do next?" — one pure
- * function, three surfaces:
+ * function, every surface:
  *
  *  - the settled `ResultCard` in the Execute-view footer (`result-footer.tsx`),
  *  - Home's `ActiveSprintCard` (`home-internals/state-card.tsx`),
- *  - the Flows `OrientationCard` (`flows-view.tsx`).
+ *  - the Flows `OrientationCard` (`flows-view.tsx`),
+ *  - the `next:` row of the `SprintHeaderStrip` (sprint detail).
  *
- * Home and Flows each used to derive their own wording, and they disagreed: Home advised
- * `create-pr` at `review` — a flow `flows-visibility.ts` HIDES in that state — and went silent at
- * `done`, where Flows had the right answer. Folding both onto this table is a behaviour fix, not
- * a copy cleanup; the unit test asserts every recommended flow name against `visibleFlowsFor`.
+ * The table takes no view id: a step either names a flow (rendered `◆ <Flow> — <why>`, launched
+ * by ↵ on the focused row or from the footer — never by a letter of its own) or a real global key
+ * (`c`, `a`, `S`, `P`). The unit test asserts every recommended flow against `visibleFlowsFor`
+ * and against the stage `SprintPipeline` highlights.
  *
  * Input shape: a flat bag of primitives rather than an `AppStateSnapshot`. Home and Flows hold a
  * snapshot, but the settled footer holds only a `SessionDescriptor` + the run's pinned sprint;
@@ -19,16 +20,17 @@
 
 import type { SprintStatus } from '@src/domain/entity/sprint.ts';
 import { computeTaskHealthCounts, type AppStateSnapshot } from '@src/application/ui/shared/state-snapshot.ts';
+import { plural } from '@src/application/ui/shared/plural.ts';
 
 export interface NextStep {
   /**
-   * Emitted only for chords that resolve identically on EVERY surface: the global `n` / `P` / `S`
-   * and the contextual `+` (see `keyboard-map.ts`), plus `r` on the settled-run surface that
-   * claims it. Home's `c` / `a` and the Flows `r` (reload) are view-local, so steps that need
-   * those render keyless with the route spelled out in {@link detail}.
+   * A chord that does the step's job (`c` create, `a` add ticket, `S` / `P` switch, `r` on the
+   * settled-run surface). Never set on flow rows — those launch via ↵ on the focused row.
    */
   readonly key?: string;
-  /** Single-verb imperative — DESIGN-SYSTEM § 8.2. `run <flow>` is the only shape naming a flow. */
+  /** Registry id when this row IS a flow launch; `label` then carries the display name. */
+  readonly flow?: string;
+  /** Single-verb imperative — DESIGN-SYSTEM § 8.2 — or, on a flow row, the flow's display name. */
   readonly label: string;
   /** Dim parenthetical: the count, or the why. */
   readonly detail?: string;
@@ -91,7 +93,7 @@ const runStatusRows = (input: NextStepsInput): readonly NextStep[] => {
   return [];
 };
 
-const plural = (n: number, word: string): string => `${String(n)} ${word}${n === 1 ? '' : 's'}`;
+const flowStep = (flow: string, label: string, detail: string): NextStep => ({ flow, label, detail });
 
 /**
  * Rows for a context with no sprint yet. Home renders a dedicated hero card in these regimes and
@@ -101,12 +103,12 @@ const plural = (n: number, word: string): string => `${String(n)} ${word}${n ===
 const preSprintRows = (input: NextStepsInput): readonly NextStep[] => {
   if (!input.hasProject) {
     return input.projectCount === 0
-      ? [{ label: 'create a project', detail: 'Home, press c' }]
+      ? [{ key: 'c', label: 'create a project' }]
       : [{ key: 'P', label: 'pick a project', detail: `${plural(input.projectCount, 'project')} in storage` }];
   }
   return input.sprintCount === 0
-    ? [{ key: '+', label: 'create the first sprint' }]
-    : [{ key: 'S', label: 'pick a sprint', detail: `${plural(input.sprintCount, 'sprint')} in this project` }];
+    ? [{ key: 'c', label: 'create the first sprint' }]
+    : [{ key: 'S', label: 'switch sprint', detail: `${plural(input.sprintCount, 'sprint')} in this project` }];
 };
 
 /**
@@ -143,10 +145,9 @@ const blockedTaskDetail = (
  * `sprintIsDone` note) rather than leaving it permanently unreachable, so this row belongs there
  * too — a closed sprint with stuck tasks must keep pointing at how to get them running again.
  *
- * Keyless: `u` bulk-unblocks from the Sprints list and from sprint-detail, neither of which this
- * table's surfaces (Home / Flows / the settled ResultCard) route through — see `NextStep.key`'s
- * doc comment on why a key here would advertise a chord this row's own surface doesn't bind. The
- * detail names the route instead.
+ * Keyless: `u` bulk-unblocks from the Sprints list and from sprint-detail, neither of which every
+ * surface reading this table (Home / Flows / the settled ResultCard) routes through, so a key here
+ * would advertise a chord some surfaces don't bind. The detail names the route instead.
  */
 const blockedTaskRow = (input: NextStepsInput, sprintIsDone = false): readonly NextStep[] =>
   input.blockedTaskCount <= 0
@@ -159,37 +160,26 @@ const blockedTaskRow = (input: NextStepsInput, sprintIsDone = false): readonly N
       ];
 
 /**
- * Rows for a loaded sprint, keyed on its lifecycle status. Every `run <flow>` name here is
+ * Rows for a loaded sprint, keyed on its lifecycle status. Every flow id here is
  * cross-checked against `ALLOWED_BY_STATUS` (`flows-visibility.ts`) by the unit test — a status
  * must never recommend a flow its own menu hides.
  */
 const sprintRows = (status: SprintStatus, input: NextStepsInput): readonly NextStep[] => {
   switch (status) {
     case 'draft':
-      if (input.ticketCount === 0) return [{ label: 'add a ticket', detail: 'open the sprint, press a' }];
+      if (input.ticketCount === 0) return [{ key: 'a', label: 'add a ticket' }];
       if (input.pendingTicketCount > 0) {
-        return [
-          { key: 'n', label: 'run refine', detail: `clarify ${plural(input.pendingTicketCount, 'pending ticket')}` },
-        ];
+        return [flowStep('refine', 'Refine', `clarify ${plural(input.pendingTicketCount, 'pending ticket')}`)];
       }
       if (input.approvedTicketCount > 0) {
-        return [
-          {
-            key: 'n',
-            label: 'run plan',
-            detail: `break ${plural(input.approvedTicketCount, 'approved ticket')} into tasks`,
-          },
-        ];
+        return [flowStep('plan', 'Plan', `break ${plural(input.approvedTicketCount, 'approved ticket')} into tasks`)];
       }
-      return [{ key: 'n', label: 'run refine', detail: 'no ticket is approved yet' }];
+      return [flowStep('refine', 'Refine', 'no ticket is approved yet')];
     case 'planned':
     case 'active': {
       const blocked = blockedTaskRow(input);
       if (input.resumableTaskCount > 0) {
-        return [
-          ...blocked,
-          { key: 'n', label: 'run implement', detail: `${plural(input.resumableTaskCount, 'task')} pending` },
-        ];
+        return [...blocked, flowStep('implement', 'Implement', `${plural(input.resumableTaskCount, 'task')} pending`)];
       }
       // Every remaining task is blocked (not merely idle) — the blocked row above already says
       // so with a real count; only fall back to the vague "nothing pending" line when there is
@@ -199,12 +189,13 @@ const sprintRows = (status: SprintStatus, input: NextStepsInput): readonly NextS
         : [{ label: 'open the sprint and unblock stuck tasks', detail: 'no task is left to run' }];
     }
     case 'review':
-      // Two status rows on purpose: both flows are visible at `review` and both are legitimate.
-      // The single-string design this replaced could not express the choice, so it picked one.
+      // Three status rows on purpose: all three flows are visible at `review` and all are
+      // legitimate. Review leads so the pipeline stage and the first flow row agree.
       return [
         ...blockedTaskRow(input),
-        { key: 'n', label: 'run review', detail: "apply the evaluator's feedback" },
-        { key: 'n', label: 'run close-sprint', detail: 'mark the sprint done' },
+        flowStep('review', 'Review', "apply the evaluator's feedback"),
+        flowStep('create-pr', 'Create PR', 'open a pull request'),
+        flowStep('close-sprint', 'Close sprint', 'mark the sprint done'),
       ];
     case 'done':
       // A closed sprint with blocked tasks is not "nothing left" — the confirm-and-proceed
@@ -212,7 +203,7 @@ const sprintRows = (status: SprintStatus, input: NextStepsInput): readonly NextS
       // of those tasks reopens the sprint (see `blockedTaskRow`'s doc comment). Every other
       // orientation surface (the Sprints list badge, the picker badge, sprint-detail's header)
       // already says so; this table used to be the one place that went silent.
-      return [...blockedTaskRow(input, true), { key: 'n', label: 'run create-pr', detail: 'open a pull request' }];
+      return [...blockedTaskRow(input, true), flowStep('create-pr', 'Create PR', 'open a pull request')];
   }
 };
 

@@ -4,8 +4,10 @@
  * renderer here (rather than one per view) is what makes the three surfaces literally identical
  * instead of merely similar.
  *
- * Row shape: `<key> → <label> (<detail>)`. The key is highlighted (the focus/next treatment from
- * DESIGN-SYSTEM § 2.4); the detail is dim so a count never competes with the action.
+ * Row shapes: a flow row is `◆ <Flow> — <why>` with no key (↵ on the focused row, or the footer,
+ * launches it); any other row is `<key> → <label> (<detail>)`. The key is highlighted (the
+ * focus/next treatment from DESIGN-SYSTEM § 2.4); the detail is dim so a count never competes
+ * with the action.
  */
 
 import React from 'react';
@@ -13,20 +15,37 @@ import { Box, Text } from 'ink';
 import { glyphs, inkColors } from '@src/application/ui/tui/theme/tokens.ts';
 import type { NextStep } from '@src/application/ui/shared/next-steps.ts';
 
-export const NextStepRow = ({ step }: { readonly step: NextStep }): React.JSX.Element => (
-  <Text>
-    {step.key !== undefined && (
-      <>
+export const NextStepRow = ({ step }: { readonly step: NextStep }): React.JSX.Element => {
+  if (step.flow !== undefined) {
+    return (
+      <Text>
         <Text bold color={inkColors.highlight}>
-          {step.key}
+          {glyphs.phaseActive} {step.label}
         </Text>
-        <Text dimColor> {glyphs.arrowRight} </Text>
-      </>
-    )}
-    <Text>{step.label}</Text>
-    {step.detail !== undefined && <Text dimColor> ({step.detail})</Text>}
-  </Text>
-);
+        {step.detail !== undefined && (
+          <Text dimColor>
+            {' '}
+            {glyphs.emDash} {step.detail}
+          </Text>
+        )}
+      </Text>
+    );
+  }
+  return (
+    <Text>
+      {step.key !== undefined && (
+        <>
+          <Text bold color={inkColors.highlight}>
+            {step.key}
+          </Text>
+          <Text dimColor> {glyphs.arrowRight} </Text>
+        </>
+      )}
+      <Text>{step.label}</Text>
+      {step.detail !== undefined && <Text dimColor> ({step.detail})</Text>}
+    </Text>
+  );
+};
 
 export interface NextStepListProps {
   readonly steps: readonly NextStep[];

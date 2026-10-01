@@ -1,7 +1,8 @@
 /**
  * StateCard next-action hint coverage. The hint must name the flow AND what it does (audit 2-E)
  * — a bare key like "press n" leaves a newcomer guessing which flow runs and why. We assert the
- * loaded-sprint regime renders a "<key> → <flow> (<what it does>)" hint per lifecycle status.
+ * loaded-sprint regime renders a "◆ <Flow> — <what it does>" hint (no key: ↵ / the footer launch it)
+ * per lifecycle status.
  *
  * The wording now comes from `buildNextSteps` (`ui/shared/next-steps.ts`), shared with the Flows
  * orientation card and the settled ResultCard, so the copy asserted here is the copy all three
@@ -55,7 +56,7 @@ describe('StateCard — next-action hint names the flow', () => {
       <StateCard state={snapshot(draft, { pendingTicketCount: 2 })} loading={false} />
     );
     const frame = lastFrame() ?? '';
-    expect(frame).toContain('n → run refine');
+    expect(frame).toContain('◆ Refine — clarify 2 pending tickets');
     expect(frame).toContain('clarify');
     unmount();
   });
@@ -66,24 +67,24 @@ describe('StateCard — next-action hint names the flow', () => {
       <StateCard state={snapshot(active, { resumableTaskCount: 3 })} loading={false} />
     );
     const frame = lastFrame() ?? '';
-    expect(frame).toContain('n → run implement');
-    expect(frame).toContain('3 tasks pending');
+    expect(frame).toContain('◆ Implement — 3 tasks pending');
     // The old bare-key phrasing must be gone — the hint names the flow now.
     expect(frame).not.toContain('— press n');
+    expect(frame).not.toContain('n →');
     unmount();
   });
 
-  it('review offers review + close-sprint, NOT the create-pr this card used to advise', () => {
-    // Behaviour fix, not a rename: `ALLOWED_BY_STATUS` (flows-visibility.ts) hides `create-pr`
-    // at `review`, so the old hint pointed at a flow the Flows menu would not even list. Both
-    // flows that ARE visible at `review` are offered, which the previous single-string hint
-    // could not express.
+  it('review offers review, create-pr and close-sprint, in that order', () => {
+    // `ALLOWED_BY_STATUS` (flows-visibility.ts) lists all three at `review`; Review leads so the
+    // pipeline stage and the first row agree.
     const review = makeReviewSprint();
     const { lastFrame, unmount } = render(<StateCard state={snapshot(review)} loading={false} />);
     const frame = lastFrame() ?? '';
-    expect(frame).toContain('n → run review');
-    expect(frame).toContain('n → run close-sprint');
-    expect(frame).not.toContain('create-pr');
+    expect(frame).toContain('◆ Review');
+    expect(frame).toContain('◆ Create PR');
+    expect(frame).toContain('◆ Close sprint');
+    expect(frame.indexOf('◆ Review')).toBeLessThan(frame.indexOf('◆ Create PR'));
+    expect(frame.indexOf('◆ Create PR')).toBeLessThan(frame.indexOf('◆ Close sprint'));
     unmount();
   });
 
@@ -91,8 +92,7 @@ describe('StateCard — next-action hint names the flow', () => {
     const done = makeDoneSprint();
     const { lastFrame, unmount } = render(<StateCard state={snapshot(done)} loading={false} />);
     const frame = lastFrame() ?? '';
-    expect(frame).toContain('n → run create-pr');
-    expect(frame).toContain('pull request');
+    expect(frame).toContain('◆ Create PR — open a pull request');
     unmount();
   });
 
@@ -111,7 +111,38 @@ describe('StateCard — next-action hint names the flow', () => {
     const frame = lastFrame() ?? '';
     expect(frame).toContain('unblock 1 blocked task');
     expect(frame).toContain('reopens the sprint');
-    expect(frame).toContain('n → run create-pr');
+    expect(frame).toContain('◆ Create PR');
+    unmount();
+  });
+});
+
+describe('StateCard — sprint hero counts', () => {
+  const todo = (): ReturnType<typeof makeTodoTask> => makeTodoTask();
+
+  it('uses " · " separators and pluralises each noun by its own count', () => {
+    const state: AppStateSnapshot = {
+      ...snapshot(makeActiveSprint(), { pendingTicketCount: 0, approvedTicketCount: 1, resumableTaskCount: 1 }),
+      tasks: [todo()],
+    };
+    const { lastFrame, unmount } = render(<StateCard state={state} loading={false} />);
+    const frame = lastFrame() ?? '';
+    expect(frame).toContain('1 ticket · 0 pending · 1 approved · 1 task pending');
+    unmount();
+  });
+
+  it('says "2 tasks pending" for two tasks', () => {
+    const state: AppStateSnapshot = {
+      ...snapshot(makeActiveSprint(), { resumableTaskCount: 2 }),
+      tasks: [todo(), todo()],
+    };
+    const { lastFrame, unmount } = render(<StateCard state={state} loading={false} />);
+    expect(lastFrame() ?? '').toContain('2 tasks pending');
+    unmount();
+  });
+
+  it('carries no cursor glyph in the hero title (one cursor per screen)', () => {
+    const { lastFrame, unmount } = render(<StateCard state={snapshot(makeActiveSprint())} loading={false} />);
+    expect(lastFrame() ?? '').not.toContain('▸');
     unmount();
   });
 });

@@ -102,7 +102,7 @@ describe('SprintDetailView — u after an out-of-process `ralphctl sprint reopen
 
     const { result } = renderView(<SprintDetailView />, { deps, initial });
     await waitForViewReady(result, (f) => f.includes('wedged'));
-    expect(flat(result.lastFrame() ?? '')).toContain('[DONE]');
+    expect(flat(result.lastFrame() ?? '')).toContain('◆ Done');
 
     // Cursor starts on the ticket row; one `j` lands on the single task below it.
     result.stdin.write('j');
@@ -125,9 +125,9 @@ describe('SprintDetailView — u after an out-of-process `ralphctl sprint reopen
     peers = [onDisk];
 
     // `r` reload — the fix under test. Without it, this view keeps rendering the stale `done`
-    // sprint forever (no poll). The header card's status chip is the reload's most legible tell.
+    // sprint forever (no poll). The pipeline's active stage is the reload's most legible tell.
     result.stdin.write('r');
-    await waitForPredicate(() => flat(result.lastFrame() ?? '').includes('[REVIEW]'));
+    await waitForPredicate(() => flat(result.lastFrame() ?? '').includes('◆ Review'));
 
     // Second `u`, in the SAME mounted view, no navigation away and back — the already-todo
     // short-circuit persists no task write, only the sprint hop.

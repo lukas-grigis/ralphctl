@@ -4,9 +4,9 @@
  *
  * Sprint-scoped flows are gated by `sprint.status`:
  *  - `draft`   → refine, plan, add-ticket, remove-ticket
- *  - `planned` → implement, remove-ticket
+ *  - `planned` → implement
  *  - `active`  → implement
- *  - `review`  → review, close-sprint
+ *  - `review`  → review, close-sprint, create-pr
  *  - `done`    → create-pr
  *
  * Project-scoped flows (create-sprint, ideate, readiness, detect-scripts, detect-skills,
@@ -29,9 +29,10 @@ const REMOVE_TICKET = 'remove-ticket';
  * Ticket-append flow. Draft-only everywhere it is offered: Home dims its `a` row with
  * "tickets can only be added in draft", sprint-detail gates the same chord on `ticketsEditable`
  * (`status === 'draft'`), and the manifest declares `currentSprintStatus: ['draft']`. The Flows
- * menu mirrors that rather than `remove-ticket`'s wider `draft + planned` visibility — a
+ * menu mirrors that — a
  * `planned` sprint has already been decomposed into tasks, so appending a ticket there has no
- * entry point anywhere else in the UI.
+ * entry point anywhere else in the UI. `remove-ticket` is draft-only for the same reason: its
+ * trigger rejects every non-draft sprint, so listing it at `planned` only offered a dead row.
  */
 const ADD_TICKET = 'add-ticket';
 
@@ -83,9 +84,9 @@ const HIDDEN_SET: ReadonlySet<string> = new Set(HIDDEN_BY_DEFAULT_FLOW_IDS);
  */
 const ALLOWED_BY_STATUS: Readonly<Record<SprintStatus, ReadonlySet<string>>> = {
   draft: new Set(['refine', 'plan', ADD_TICKET, REMOVE_TICKET]),
-  planned: new Set(['implement', REMOVE_TICKET]),
+  planned: new Set(['implement']),
   active: new Set(['implement']),
-  review: new Set(['review', 'close-sprint']),
+  review: new Set(['review', 'close-sprint', 'create-pr']),
   done: new Set(['create-pr']),
 };
 

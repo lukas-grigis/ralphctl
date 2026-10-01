@@ -1,6 +1,6 @@
 /**
- * Smoke tests for SprintDetailView's phase-aware workspace layout. Verifies the "Next phase"
- * card per status and that the ticket panel leads when draft, tasks otherwise.
+ * Smoke tests for SprintDetailView's phase-aware workspace layout. Verifies the header strip's
+ * `next:` row per status and that tickets lead the body.
  */
 
 import { describe, expect, it, vi } from 'vitest';
@@ -67,13 +67,36 @@ const stubDeps = (sprint: Sprint, tasks: readonly Task[]): AppDeps =>
 const initial: ViewEntry = { id: 'sprint-detail', props: { sprintId: FIXED_SPRINT_ID } };
 
 describe('SprintDetailView — phase workspace', () => {
+  it('at 80x24 the first ticket starts within the first ten rows and no Next-phase card renders', async () => {
+    const sprint = makeSprint({
+      status: 'active',
+      tickets: [
+        { id: 't1' as never, title: 'Alpha ticket', status: 'approved' } as never,
+        { id: 't2' as never, title: 'Beta ticket', status: 'approved' } as never,
+        { id: 't3' as never, title: 'Gamma ticket', status: 'approved' } as never,
+      ],
+    });
+    const { result } = renderView(<SprintDetailView />, {
+      deps: stubDeps(sprint, []),
+      initial,
+      size: { columns: 80, rows: 24 },
+    });
+    await waitForViewReady(result, (f) => f.includes('Alpha ticket'));
+    const lines = (result.lastFrame() ?? '').split('\n');
+    const row = lines.findIndex((l) => l.includes('Alpha ticket'));
+    expect(row).toBeGreaterThan(-1);
+    expect(row).toBeLessThanOrEqual(10);
+    expect(lines.join('\n')).not.toContain('Next phase');
+    result.unmount();
+  });
+
   it('draft sprint with no tickets suggests "Add tickets"', async () => {
     const sprint = makeSprint({ status: 'draft', tickets: [] });
     const { result } = renderView(<SprintDetailView />, { deps: stubDeps(sprint, []), initial });
-    await waitForViewReady(result, (f) => f.includes('Add tickets'));
+    await waitForViewReady(result, (f) => f.includes('next:'));
     const frame = result.lastFrame() ?? '';
-    expect(frame).toContain('Next phase');
-    expect(frame).toContain('Add tickets');
+    expect(frame).not.toContain('Next phase');
+    expect(frame).toContain('next: a → add a ticket');
     result.unmount();
   });
 
@@ -86,8 +109,8 @@ describe('SprintDetailView — phase workspace', () => {
       ],
     });
     const { result } = renderView(<SprintDetailView />, { deps: stubDeps(sprint, []), initial });
-    await waitForViewReady(result, (f) => f.includes('Refine 2 pending ticket(s)'));
-    expect(result.lastFrame() ?? '').toContain('Refine 2 pending ticket(s)');
+    await waitForViewReady(result, (f) => f.includes('next:'));
+    expect(result.lastFrame() ?? '').toContain('next: ◆ Refine — clarify 2 pending tickets');
     result.unmount();
   });
 
@@ -117,9 +140,9 @@ describe('SprintDetailView — phase workspace', () => {
       } as never,
     ];
     const { result } = renderView(<SprintDetailView />, { deps: stubDeps(sprint, tasks), initial });
-    await waitForViewReady(result, (f) => f.includes('Implement 2 resumable task(s)'));
+    await waitForViewReady(result, (f) => f.includes('next:'));
     const frame = result.lastFrame() ?? '';
-    expect(frame).toContain('Implement 2 resumable task(s)');
+    expect(frame).toContain('next: ◆ Implement — 2 tasks pending');
     const tasksHeader = frame.indexOf('▣ Tasks');
     const ticketsHeader = frame.indexOf('▣ Tickets');
     expect(tasksHeader).toBeGreaterThan(-1);
@@ -129,14 +152,15 @@ describe('SprintDetailView — phase workspace', () => {
     result.unmount();
   });
 
-  it('review sprint suggests opening a pull request', async () => {
+  it('review sprint leads with Review and counts the other flows as "more"', async () => {
     const sprint = makeSprint({
       status: 'review',
       tickets: [{ id: 't1' as never, title: 'first', status: 'approved' } as never],
     });
     const { result } = renderView(<SprintDetailView />, { deps: stubDeps(sprint, []), initial });
-    await waitForViewReady(result, (f) => f.includes('Open a pull request'));
-    expect(result.lastFrame() ?? '').toContain('Open a pull request');
+    await waitForViewReady(result, (f) => f.includes('next:'));
+    expect(result.lastFrame() ?? '').toContain('next: ◆ Review');
+    expect(result.lastFrame() ?? '').toContain('+2 more');
     result.unmount();
   });
 

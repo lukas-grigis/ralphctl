@@ -88,7 +88,7 @@ describe('SprintDetailView — m key makes current', () => {
       { deps: stubDeps(sprint), initial }
     );
 
-    await waitForViewReady(result, (f) => f.includes('Make Current Sprint'));
+    await waitForViewReady(result, (f) => f.includes('Tickets'));
 
     result.stdin.write('m');
     await waitForPredicate(() => setSprint.mock.calls.length === 1);
@@ -112,7 +112,7 @@ describe('SprintDetailView — m key makes current', () => {
       { deps: stubDeps(sprint), initial }
     );
 
-    await waitForViewReady(result, (f) => f.includes('Other Key Sprint'));
+    await waitForViewReady(result, (f) => f.includes('Tickets'));
 
     result.stdin.write('z'); // inert key — neither make-current (m) nor open-flows (n)
     await tick(40);
@@ -137,7 +137,7 @@ describe('SprintDetailView — m key makes current', () => {
       { deps: stubDeps(sprint), initial }
     );
 
-    await waitForViewReady(result, (f) => f.includes('Scoped Sprint'));
+    await waitForViewReady(result, (f) => f.includes('Tickets'));
 
     result.stdin.write('n');
     await waitForPredicate(() => setSprint.mock.calls.length === 1);
@@ -162,7 +162,7 @@ describe('SprintDetailView — m key makes current', () => {
       selection: { sprintId: SPRINT_ID, sprintLabel: 'Already Current Sprint' },
     });
 
-    await waitForViewReady(result, (f) => f.includes('Already Current Sprint'));
+    await waitForViewReady(result, (f) => f.includes('Tickets'));
 
     result.stdin.write('n');
     await tick(40);
@@ -172,41 +172,19 @@ describe('SprintDetailView — m key makes current', () => {
     result.unmount();
   });
 
-  it('shows a · current badge in the header when the sprint is the current selection', async () => {
+  it('renders no name row or current badge in the body — the LocationBar owns the sprint identity', async () => {
     const sprint = makeSprint({ name: 'Selected Sprint' });
 
     const { result } = renderView(<SprintDetailView />, {
       deps: stubDeps(sprint),
       initial,
-      // Pre-seed the selection to match the viewed sprint.
       selection: { sprintId: SPRINT_ID, sprintLabel: 'Selected Sprint' },
     });
 
-    await waitForViewReady(result, (f) => /·\s*current|\(current\)|current sprint/i.test(f));
+    await waitForViewReady(result, (f) => f.includes('Tickets'));
     const frame = result.lastFrame() ?? '';
 
-    // The current badge must appear in the header area.
-    // Acceptable patterns: "· current", "current", "(current)", "✓ current"
-    expect(frame).toMatch(/·\s*current|\(current\)|current sprint/i);
-
-    result.unmount();
-  });
-
-  it('does NOT show a · current badge when the sprint is NOT the current selection', async () => {
-    const sprint = makeSprint({ name: 'Not Current Sprint' });
-    const OTHER_SPRINT_ID = 'other-sprint-id' as unknown as SprintId;
-
-    const { result } = renderView(<SprintDetailView />, {
-      deps: stubDeps(sprint),
-      initial,
-      // Selection points to a DIFFERENT sprint.
-      selection: { sprintId: OTHER_SPRINT_ID, sprintLabel: 'Other Sprint' },
-    });
-
-    await waitForViewReady(result, (f) => f.includes('Not Current Sprint'));
-    const frame = result.lastFrame() ?? '';
-
-    // The current badge must NOT appear when a different sprint is selected.
+    expect(frame).not.toContain('Selected Sprint');
     expect(frame).not.toMatch(/·\s*current/i);
 
     result.unmount();
@@ -224,7 +202,7 @@ describe('SprintDetailView — m key makes current', () => {
       },
     });
 
-    await waitForViewReady(result, (f) => f.includes('Local Key Sprint'));
+    await waitForViewReady(result, (f) => f.includes('Tickets'));
     result.stdin.write('m');
     await tick(40);
 

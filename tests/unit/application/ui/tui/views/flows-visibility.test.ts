@@ -31,12 +31,13 @@ describe('visibleFlowsFor', () => {
     expect(visible.has('close-sprint')).toBe(false);
   });
 
-  it('planned sprint: implement + remove-ticket are visible; add-ticket/refine/plan are not', () => {
+  it('planned sprint: implement is visible; remove-ticket/add-ticket/refine/plan are not', () => {
     // add-ticket stays draft-only: once a sprint is planned the tickets are already decomposed
     // into tasks, and no other entry point offers appending there either.
     const visible = visibleFlowsFor({ hasProject: true, sprintStatus: 'planned', showAll: false });
     expect(visible.has('implement')).toBe(true);
-    expect(visible.has('remove-ticket')).toBe(true);
+    // remove-ticket's trigger is draft-only — a planned-sprint row would always be disabled.
+    expect(visible.has('remove-ticket')).toBe(false);
     expect(visible.has('add-ticket')).toBe(false);
     expect(visible.has('refine')).toBe(false);
     expect(visible.has('plan')).toBe(false);
@@ -49,11 +50,13 @@ describe('visibleFlowsFor', () => {
     expect(visible.has('remove-ticket')).toBe(false);
   });
 
-  it('review sprint: only review + close-sprint are visible (no refine/plan/implement)', () => {
+  it('review sprint: review + close-sprint + create-pr are visible (no refine/plan/implement)', () => {
     const visible = visibleFlowsFor({ hasProject: true, sprintStatus: 'review', showAll: false });
     expect(visible.has('review')).toBe(true);
     expect(visible.has('close-sprint')).toBe(true);
-    for (const id of ['refine', 'plan', 'implement', 'create-pr']) {
+    // create-pr's manifest allows review; hiding it here left Flows unable to open a PR early.
+    expect(visible.has('create-pr')).toBe(true);
+    for (const id of ['refine', 'plan', 'implement']) {
       expect(visible.has(id)).toBe(false);
     }
   });

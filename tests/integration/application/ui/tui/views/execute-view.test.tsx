@@ -53,6 +53,27 @@ const stubDeps = (): AppDeps =>
   }) as unknown as AppDeps;
 
 describe('ExecuteView', () => {
+  it('stamps the flow once and the sprint name only — never "Implement — Implement"', async () => {
+    const sessions = createSessionManager();
+    sessions.register({
+      runner: fakeRunner('r-stamp', 'running'),
+      flowId: 'implement',
+      title: 'Implement — ready to implement',
+    });
+
+    const { result } = renderView(
+      <WithLocation>
+        <ExecuteView />
+      </WithLocation>,
+      { deps: stubDeps(), initial: { id: 'execute', props: { sessionId: 'r-stamp' } }, sessions }
+    );
+    await waitForViewReady(result, (f) => f.includes('ready to implement'));
+    const frame = result.lastFrame() ?? '';
+    expect(frame.split('Implement — Implement').length - 1).toBe(0);
+    expect(frame).toContain('ready to implement');
+    result.unmount();
+  });
+
   it('shows running indicators and the cancel / detach hints while the session runs', async () => {
     const sessions = createSessionManager();
     const runner = fakeRunner('r-1', 'running');

@@ -12,12 +12,15 @@ import React from 'react';
 import { Box, Text } from 'ink';
 import { Card } from '@src/application/ui/tui/components/card.tsx';
 import { sprintStatusKind, StatusChip } from '@src/application/ui/tui/components/status-chip.tsx';
-import { PipelineMap } from '@src/application/ui/tui/components/pipeline-map.tsx';
+import { SprintPipeline } from '@src/application/ui/tui/components/sprint-pipeline.tsx';
 import { Spinner } from '@src/application/ui/tui/components/spinner.tsx';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { computeTaskHealthCounts, type AppStateSnapshot } from '@src/application/ui/shared/state-snapshot.ts';
+import { plural } from '@src/application/ui/shared/plural.ts';
 import { buildNextSteps, nextStepsInputFromSnapshot } from '@src/application/ui/shared/next-steps.ts';
 import { NextStepList } from '@src/application/ui/tui/components/next-steps.tsx';
+
+const Sep = (): React.JSX.Element => <Text dimColor> {glyphs.bullet} </Text>;
 
 /**
  * A short instruction line: "press <KEY> to <do thing>". Renders the key in highlight, the
@@ -129,7 +132,7 @@ const ActiveSprintCard = ({ state }: { readonly state: AppStateSnapshot }): Reac
   const { blockedTaskCount } = computeTaskHealthCounts(state.tasks);
   return (
     <Card
-      title={`${glyphs.actionCursor} ${sprint.name}`}
+      title={sprint.name}
       tone="primary"
       right={<StatusChip label={sprint.status} kind={sprintStatusKind(sprint.status)} />}
     >
@@ -142,21 +145,23 @@ const ActiveSprintCard = ({ state }: { readonly state: AppStateSnapshot }): Reac
         </Box>
         <Box marginTop={spacing.section}>
           <Text>
-            <Text bold>{String(sprint.tickets.length)}</Text>
-            <Text dimColor> ticket{sprint.tickets.length === 1 ? '' : 's'} </Text>
+            <Text bold>{plural(sprint.tickets.length, 'ticket')}</Text>
+            <Sep />
             <Text bold color={inkColors.warning}>
               {String(state.triggerInputs.pendingTicketCount)}
             </Text>
-            <Text dimColor> pending </Text>
+            <Text dimColor> pending</Text>
+            <Sep />
             <Text bold color={inkColors.success}>
               {String(state.triggerInputs.approvedTicketCount)}
             </Text>
-            <Text dimColor> approved {glyphs.bullet} </Text>
-            <Text bold>{String(state.triggerInputs.resumableTaskCount)}</Text>
-            <Text dimColor> tasks pending</Text>
+            <Text dimColor> approved</Text>
+            <Sep />
+            <Text bold>{plural(state.triggerInputs.resumableTaskCount, 'task')}</Text>
+            <Text dimColor> pending</Text>
             {blockedTaskCount > 0 && (
               <Text>
-                <Text dimColor> {glyphs.bullet} </Text>
+                <Sep />
                 <Text bold color={inkColors.error}>
                   {String(blockedTaskCount)}
                 </Text>
@@ -166,7 +171,7 @@ const ActiveSprintCard = ({ state }: { readonly state: AppStateSnapshot }): Reac
           </Text>
         </Box>
         <Box marginTop={spacing.section}>
-          <PipelineMap status={sprint.status} />
+          <SprintPipeline snapshot={state} />
         </Box>
         <Box marginTop={spacing.section}>
           <NextStepList steps={steps} prefix={`${glyphs.bullet} next: `} />

@@ -142,15 +142,15 @@ describe('SprintDetailView — no auto-sync', () => {
     result.unmount();
   });
 
-  it('renders the sprint name in the title without auto-syncing', async () => {
+  it('renders the body without auto-syncing', async () => {
     const sprint = makeSprint({ status: 'draft', name: 'Visible Sprint' });
     const { result } = renderView(<SprintDetailView />, { deps: stubDeps(sprint), initial });
 
-    await waitForViewReady(result, (f) => f.includes('Visible Sprint'));
+    await waitForViewReady(result, (f) => f.includes('Tickets'));
     const frame = result.lastFrame() ?? '';
 
-    // The view should still render correctly (sprint name appears).
-    expect(frame).toContain('Visible Sprint');
+    // The view still renders its body; the sprint name itself lives in the LocationBar.
+    expect(frame).toContain('Tickets');
 
     result.unmount();
   });
@@ -180,10 +180,10 @@ describe('SprintDetailView — setSprint is reachable via m key after redesign',
     } as unknown as AppDeps;
 
     const { result } = renderView(<SprintDetailView />, { deps, initial: initialWithId });
-    await waitForViewReady(result, (f) => f.includes('Renderable Sprint'));
+    await waitForViewReady(result, (f) => f.includes('Tickets'));
 
     const frame = result.lastFrame() ?? '';
-    expect(frame).toContain('Renderable Sprint');
+    expect(frame).toContain('Tickets');
     result.unmount();
   });
 });

@@ -10,10 +10,10 @@ import React from 'react';
 import { Box, Text } from 'ink';
 import { LoadErrorRow, LoadingRow } from '@src/application/ui/tui/components/async-rows.tsx';
 import { ConfirmCard } from '@src/application/ui/tui/components/confirm-card.tsx';
-import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { Project } from '@src/domain/entity/project.ts';
 import type { Ticket } from '@src/domain/entity/ticket.ts';
-import { NextPhaseCard, SprintHeader } from '@src/application/ui/tui/views/sprint-detail-internals/header-card.tsx';
+import { SprintHeaderStrip } from '@src/application/ui/tui/components/sprint-header-strip.tsx';
+import { snapshotFromLoadedSprint } from '@src/application/ui/shared/state-snapshot.ts';
 import { OutcomeReportCard } from '@src/application/ui/tui/views/sprint-detail-internals/outcome-card.tsx';
 import { TicketsSection } from '@src/application/ui/tui/views/sprint-detail-internals/ticket-list.tsx';
 import { TasksSection } from '@src/application/ui/tui/views/sprint-detail-internals/task-summary.tsx';
@@ -32,7 +32,6 @@ export interface SprintDetailContentProps {
   readonly cursorIdx: number;
   readonly openIds: ReadonlySet<string>;
   readonly ticketsEditable: boolean;
-  readonly currentSprintId: SprintId | undefined;
 }
 
 /**
@@ -50,7 +49,6 @@ export const SprintDetailContent = ({
   cursorIdx,
   openIds,
   ticketsEditable,
-  currentSprintId,
 }: SprintDetailContentProps): React.JSX.Element => {
   if (state.kind === 'loading' || state.kind === 'idle') return <LoadingRow label="Loading…" />;
   if (state.kind === 'error') return <LoadErrorRow message="Failed to load sprint." />;
@@ -76,7 +74,6 @@ export const SprintDetailContent = ({
       cursorIdx={Math.min(cursorIdx, Math.max(0, focusList.length - 1))}
       openIds={openIds}
       ticketsEditable={ticketsEditable}
-      isCurrent={currentSprintId === state.value.sprint.id}
     />
   );
 };
@@ -88,23 +85,13 @@ interface BodyProps {
   readonly cursorIdx: number;
   readonly openIds: ReadonlySet<string>;
   readonly ticketsEditable: boolean;
-  readonly isCurrent: boolean;
 }
 
-const Body = ({
-  bundle,
-  project,
-  focusList,
-  cursorIdx,
-  openIds,
-  ticketsEditable,
-  isCurrent,
-}: BodyProps): React.JSX.Element => {
+const Body = ({ bundle, project, focusList, cursorIdx, openIds, ticketsEditable }: BodyProps): React.JSX.Element => {
   const { sprint, tasks } = bundle;
   return (
     <Box flexDirection="column">
-      <SprintHeader sprint={sprint} tasks={tasks} isCurrent={isCurrent} />
-      <NextPhaseCard sprint={sprint} tasks={tasks} />
+      <SprintHeaderStrip snapshot={snapshotFromLoadedSprint({ project, sprint, tasks })} variant="detail" />
       {(sprint.status === 'review' || sprint.status === 'done') && <OutcomeReportCard sprint={sprint} tasks={tasks} />}
       <TicketsSection
         sprint={sprint}

@@ -506,7 +506,9 @@ export const FlowsView = (): React.JSX.Element => {
         <LoadingRow label="Loading state…" />
       ) : (
         <Box flexDirection="column">
-          <SprintPipeline snapshot={state.value} />
+          <Box paddingX={spacing.indent}>
+            <SprintPipeline snapshot={state.value} />
+          </Box>
           <Box marginTop={spacing.section}>
             <OrientationCard snapshot={state.value} showAll={showAll} />
           </Box>

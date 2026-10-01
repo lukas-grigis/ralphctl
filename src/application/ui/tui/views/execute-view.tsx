@@ -127,6 +127,16 @@ const FLOW_TITLES: Record<string, string> = {
 const flowIdToTitle = (flowId: string): string => FLOW_TITLES[flowId] ?? flowId;
 
 /**
+ * Launchers title a session `<Flow> — <sprint or project name>`; the shell already prints the flow
+ * as its title, so the subtitle keeps only the name (otherwise it reads `Implement — Implement — …`).
+ */
+const sprintNameOf = (sessionTitle: string): string => {
+  const sep = ' — ';
+  const at = sessionTitle.indexOf(sep);
+  return at === -1 ? sessionTitle : sessionTitle.slice(at + sep.length);
+};
+
+/**
  * Buffer sizing for long Implement runs:
  *   - harness signals: ~20-40 per task (changes, learnings, decisions, commit messages, …),
  *     so 10 tasks × 30 = 300; 1000 keeps healthy headroom for a multi-hour 20-task sprint.
@@ -390,7 +400,7 @@ const ExecuteViewFrame = ({
     <ViewShell
       title={flowIdToTitle(descriptor.flowId)}
       crumb={flowIdToTitle(descriptor.flowId)}
-      subtitle={descriptor.title}
+      subtitle={sprintNameOf(descriptor.title)}
       // The Tasks panel owns ↑/↓ (and j/k) as its card / row cursor — without this the page
       // ScrollRegion moved the whole viewport on the same keypress that moved the cursor. Every
       // section on this page is row-capped against the terminal height (see

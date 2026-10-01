@@ -272,7 +272,6 @@ interface BuildSprintDetailResultArgs {
   readonly ticketsEditable: boolean;
   readonly feedback: string | undefined;
   readonly edit: ReturnType<typeof useEditField>;
-  readonly selection: ReturnType<typeof useSelection>;
   readonly handlers: SprintDetailHandlers;
 }
 
@@ -289,7 +288,6 @@ const buildSprintDetailResult = (args: BuildSprintDetailResultArgs): UseSprintDe
     ticketsEditable,
     feedback,
     edit,
-    selection,
     handlers,
   } = args;
   return {
@@ -310,7 +308,6 @@ const buildSprintDetailResult = (args: BuildSprintDetailResultArgs): UseSprintDe
       cursorIdx: focus.cursorIdx,
       openIds,
       ticketsEditable,
-      currentSprintId: selection.sprintId,
     },
   };
 };
@@ -422,7 +419,6 @@ export const useSprintDetailBody = (): UseSprintDetailBodyResult => {
     ticketsEditable,
     feedback,
     edit,
-    selection,
     handlers,
   });
 };

@@ -56,7 +56,9 @@ export const TicketsSection = ({
           <EmptyState
             title="No tickets yet"
             hint={
-              ticketsEditable ? 'Press a to add the first one.' : 'Sprint is no longer in draft — tickets are frozen.'
+              ticketsEditable
+                ? 'Press a to add the first one.'
+                : `Sprint is in ${sprint.status} — tickets can only be added while it's a draft`
             }
           />
         </Box>
