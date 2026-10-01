@@ -5,6 +5,7 @@ import type { Logger } from '@src/business/observability/logger.ts';
 import type { SessionId } from '@src/integration/ai/providers/_engine/session-id.ts';
 import { listDir, writeTextAtomic } from '@src/integration/io/fs.ts';
 import type { WriteFile } from '@src/business/io/write-file.ts';
+import type { RecordedGeneratorRound } from '@src/business/task/crash-resume.ts';
 
 /**
  * Per-task on-disk audit trail at `<sprintDir>/implement/<task-id>/rounds/<N>/{generator,
@@ -37,16 +38,20 @@ import type { WriteFile } from '@src/business/io/write-file.ts';
  * the chain.
  */
 
-export const nextRoundNum = async (workspaceRoot: AbsolutePath): Promise<number> => {
+/** Round numbers present on disk, highest first. */
+const roundsOnDisk = async (workspaceRoot: AbsolutePath): Promise<number[]> => {
   const entries = await listDir(join(String(workspaceRoot), 'rounds'));
-  if (!entries.ok) return 1;
-  let max = 0;
+  if (!entries.ok) return [];
+  const rounds: number[] = [];
   for (const name of entries.value) {
     const n = Number.parseInt(name, 10);
-    if (Number.isInteger(n) && String(n) === name && n > max) max = n;
+    if (Number.isInteger(n) && n > 0 && String(n) === name) rounds.push(n);
   }
-  return max + 1;
+  return rounds.sort((a, b) => b - a);
 };
+
+export const nextRoundNum = async (workspaceRoot: AbsolutePath): Promise<number> =>
+  ((await roundsOnDisk(workspaceRoot))[0] ?? 0) + 1;
 
 /**
  * Absolute path to `rounds/<N>/<role>/signals.json` for the given workspace + round + role.
@@ -103,6 +108,34 @@ export const readRoundSessionId = async (
   }
   const trimmed = content.trim();
   return trimmed.length === 0 ? undefined : (trimmed as SessionId);
+};
+
+const readJsonRecord = async (path: string): Promise<Record<string, unknown> | undefined> => {
+  try {
+    const parsed: unknown = JSON.parse(await fs.readFile(path, 'utf8'));
+    return typeof parsed === 'object' && parsed !== null ? (parsed as Record<string, unknown>) : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
+/**
+ * The newest generator round that captured a session id, with the attribution its `role-meta.json`
+ * recorded before the spawn. `undefined` when no round has an id, or the newest one with an id has
+ * no readable attribution — a session nobody can attribute is never resumed.
+ */
+export const readLastGeneratorRound = async (
+  workspaceRoot: AbsolutePath
+): Promise<RecordedGeneratorRound | undefined> => {
+  for (const roundN of await roundsOnDisk(workspaceRoot)) {
+    const sessionId = await readRoundSessionId(workspaceRoot, roundN, 'generator');
+    if (sessionId === undefined) continue;
+    const meta = await readJsonRecord(join(roundDir(workspaceRoot, roundN, 'generator'), 'role-meta.json'));
+    const { attemptN, provider, model, cwd } = meta ?? {};
+    if (typeof attemptN !== 'number' || typeof provider !== 'string' || typeof model !== 'string') return undefined;
+    return { roundN, attemptN, sessionId, provider, model, ...(typeof cwd === 'string' ? { cwd } : {}) };
+  }
+  return undefined;
 };
 
 /**

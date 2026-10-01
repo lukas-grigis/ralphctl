@@ -23,7 +23,7 @@ import {
   type EscalationDecision,
   type EscalationTrigger,
 } from '@src/business/task/escalation-policy.ts';
-import { clearRunningAttemptPlateauWarning } from '@src/domain/entity/task-attempts.ts';
+import { budgetedAttemptCount, clearRunningAttemptPlateauWarning } from '@src/domain/entity/task-attempts.ts';
 
 /** {@link GenEvalExit} kind for a loop whose turn budget ran out without a terminal verdict. */
 const BUDGET_EXHAUSTED_EXIT = 'budget-exhausted';
@@ -321,7 +321,7 @@ const resolveMalformedRemedy = (
   log: Logger
 ): Remedy => {
   const effectiveMaxAttempts = props.task.maxAttempts ?? cfg.maxAttempts;
-  const budgetRemains = props.task.attempts.length < effectiveMaxAttempts;
+  const budgetRemains = budgetedAttemptCount(props.task) < effectiveMaxAttempts;
   const shouldFailAttempt = cfg.escalateOnPlateau && budgetRemains;
   log.info(
     shouldFailAttempt
@@ -329,7 +329,7 @@ const resolveMalformedRemedy = (
       : 'malformed exit: keeping the work (done-with-warning)',
     {
       taskId: props.task.id,
-      attemptsUsed: props.task.attempts.length,
+      attemptsUsed: budgetedAttemptCount(props.task),
       maxAttempts: effectiveMaxAttempts,
       flagOn: cfg.escalateOnPlateau,
     }
@@ -346,7 +346,8 @@ const resolveMalformedRemedy = (
  * attempts reach the configured fallback budget (`cfg.maxAttempts`), block here directly instead.
  */
 const resolveCrashedRemedy = (props: FinalizeGenEvalProps, cfg: { readonly maxAttempts: number }): Remedy => {
-  const legacyBudgetExhausted = props.task.maxAttempts === undefined && props.task.attempts.length >= cfg.maxAttempts;
+  const legacyBudgetExhausted =
+    props.task.maxAttempts === undefined && budgetedAttemptCount(props.task) >= cfg.maxAttempts;
   return legacyBudgetExhausted
     ? {
         task: props.task,

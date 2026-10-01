@@ -1,6 +1,6 @@
 ---
 name: seams_process_lifecycle
-description: Process groups, the orphan reaper sidecar, live-run records and the lock owner file — the traps behind each and how the real-process tests must be shaped
+description: Process groups, the orphan reaper sidecar, live-run records, the lock owner file and crash resume — the traps behind each and how the tests must be shaped
 metadata:
   type: project
 ---
@@ -47,4 +47,21 @@ are serialised per run and dropped after `end`; tests await `recorder.idle()`, n
 Run id = `rootSessionId()` at the spawn site (outermost runner), so parallel branch spawns land in
 the host run's record.
 
-Related: [[seams_provider_engine_streaming]], [[seams_chain_runner_core]].
+## Crash resume (harness-interrupted)
+
+`session-id.txt` is written as the stream yields the id (polled after every stdout chunk in
+`run-provider-attempt`), so it now survives a failed spawn — provider tests assert its PRESENCE on a
+non-zero exit. Grok reports its id only on `end`, so it can never be captured early.
+
+The resume lookup reads the newest generator round's `session-id.txt` + `role-meta.json`, not the
+live-run record: records are keyed by run id and would need a scan. `role-meta.json` gained `cwd`;
+a round without it (stamped before) never resumes, and best-of-N candidate spawns don't stamp
+role-meta, so an interruption mid-candidate resumes cold. Budget counts go through
+`budgetedAttemptCount` — never `attempts.length` — or an interruption silently costs a slot again.
+Tests that want start-attempt's resume-time BLOCK need counted attempts already at the cap (e.g.
+[failed, running] with `maxAttempts: 1`); a lone interrupted attempt no longer blocks.
+
+A stranded `wt-<task>` block raised in `setupWorktree` rides the branch ctx only — the wave merge
+persists it, so a single-branch test must read `runner.ctx.tasks`, not the task repo.
+
+Related: [[seams_provider_engine_streaming]], [[seams_chain_runner_core]], [[seams_escalation_ladder]].

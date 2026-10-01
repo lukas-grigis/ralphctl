@@ -7,6 +7,7 @@ import {
   type VerifiedAttempt,
 } from '@src/domain/entity/attempt.ts';
 import type { BlockedTask, DoneTask, InProgressTask, Task, TodoTask } from '@src/domain/entity/task.ts';
+import { budgetedAttemptCount } from '@src/domain/entity/task-attempts.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import { parseRequiredString } from '@src/domain/value/parsers/parse-required-string.ts';
 import { requireStatus } from '@src/domain/value/require-status.ts';
@@ -143,7 +144,7 @@ export const failCurrentAttempt = (
   if (!settledResult.ok) return Result.error(settledResult.error);
 
   const inProgressNext: InProgressTask = replaceLastAttempt(guard.value, settledResult.value);
-  if (guard.value.maxAttempts !== undefined && inProgressNext.attempts.length >= guard.value.maxAttempts) {
+  if (guard.value.maxAttempts !== undefined && budgetedAttemptCount(inProgressNext) >= guard.value.maxAttempts) {
     const blocked: BlockedTask = {
       ...inProgressNext,
       status: 'blocked',

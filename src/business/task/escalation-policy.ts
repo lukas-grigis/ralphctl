@@ -1,4 +1,5 @@
 import { Result } from '@src/domain/result.ts';
+import { budgetedAttemptCount } from '@src/domain/entity/task-attempts.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
 import { escalationLadderCyclicFrom, mergeEscalationMap, nextEffortRung } from '@src/business/task/escalation-map.ts';
@@ -298,10 +299,11 @@ export const decideEscalation = (props: DecideEscalationProps): EscalationDecisi
   // back to the configured `settings.harness.maxAttempts` rather than letting the budget check
   // go silent (which would let a legacy task climb the ladder unbounded). Domain entity untouched.
   const effectiveMaxAttempts = props.task.maxAttempts ?? props.fallbackMaxAttempts;
-  const budgetExhausted = props.task.attempts.length >= effectiveMaxAttempts;
+  const attemptsUsed = budgetedAttemptCount(props.task);
+  const budgetExhausted = attemptsUsed >= effectiveMaxAttempts;
   const budgetExhaustedDecision: EscalationDecision = {
     kind: 'budget-exhausted',
-    attemptsUsed: props.task.attempts.length,
+    attemptsUsed,
     maxAttempts: effectiveMaxAttempts,
   };
 

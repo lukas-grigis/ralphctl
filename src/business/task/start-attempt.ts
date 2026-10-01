@@ -8,17 +8,17 @@ import type { BlockedTask, InProgressTask, Task } from '@src/domain/entity/task.
 import { startNextAttempt } from '@src/domain/entity/task-attempts.ts';
 import { failCurrentAttempt } from '@src/domain/entity/task-settle.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
+import { type CrashResumeLookup, decideCrashResume } from '@src/business/task/crash-resume.ts';
 import type { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
 import type { StorageError } from '@src/domain/value/error/storage-error.ts';
 import type { ValidationError } from '@src/domain/value/error/validation-error.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 
 /**
- * Conservative {@link AbortCause} for a leftover `running` attempt: a prior process exited without
- * settling it (Ctrl-C, SIGTERM, watchdog, OOM all leave the same trace), so we cannot attribute a
- * precise cause on the cross-process resume path.
+ * {@link AbortCause} for a leftover `running` attempt: the prior harness process went away without
+ * settling it (quit, Ctrl-C, SIGKILL, OOM all leave the same trace). Free against `maxAttempts`.
  */
-const PROCESS_CRASH_CAUSE = 'process-crash';
+const INTERRUPTED_CAUSE = 'harness-interrupted';
 
 /**
  * Start a fresh `running` attempt on a task and persist the transition. Domain transition +
@@ -26,8 +26,11 @@ const PROCESS_CRASH_CAUSE = 'process-crash';
  *
  * Resume semantics: if the task carries a leftover `running` attempt from a prior aborted chain
  * (e.g. the user hit Ctrl+C or the host crashed mid-task), the use case settles that attempt as
- * `aborted` first, then opens a fresh attempt. This makes the next Implement launch a transparent
- * resume — no manual cleanup required. The trigger is the running attempt itself, NOT the carried
+ * `aborted` (`harness-interrupted`, which spends no attempt budget) first, then opens a fresh
+ * attempt. When `crashResume` finds the interrupted generator's session and it still matches the
+ * configured provider, model and cwd, the fresh attempt opens carrying that `sessionId` so the
+ * first turn resumes the thread instead of starting cold. This makes the next Implement launch a
+ * transparent resume — no manual cleanup required. The trigger is the running attempt itself, NOT the carried
  * status: a crash can persist a status-corrupt `todo` task whose last attempt is still `running`,
  * and that is healed identically (the leftover attempt is aborted, the status repaired to
  * `in_progress`, a fresh attempt opened) rather than dead-ending at `startNextAttempt`.
@@ -42,6 +45,8 @@ export interface StartAttemptProps {
   readonly taskRepo: UpdateTask & FindTaskById;
   readonly clock: () => IsoTimestamp;
   readonly logger: Logger;
+  /** Where to find, and what to match, the interrupted attempt's generator session. */
+  readonly crashResume?: CrashResumeLookup;
 }
 
 export type StartAttemptOutput = InProgressTask;
@@ -75,7 +80,30 @@ const detectDivergence = (inMemory: Task, persisted: Task): boolean => {
 interface ResumeOutcome {
   readonly taskToStart: Task;
   readonly recovering: RecoveryContext;
+  /** The interrupted generator thread to continue, when it can be resumed. */
+  readonly resumeSessionId?: string;
 }
+
+/** Look up the interrupted attempt's generator session; `undefined` means start cold. */
+const findResumableSession = async (
+  props: StartAttemptProps,
+  interruptedAttemptN: number,
+  log: Logger
+): Promise<string | undefined> => {
+  if (props.crashResume === undefined) return undefined;
+  const round = await props.crashResume.findLastGeneratorRound();
+  const decision = decideCrashResume(props.task, interruptedAttemptN, round, props.crashResume.target);
+  if (decision.kind === 'cold') {
+    log.info('crash resume: starting the generator cold', { taskId: props.task.id, reason: decision.reason });
+    return undefined;
+  }
+  log.info('crash resume: continuing the interrupted generator session', {
+    taskId: props.task.id,
+    sessionId: decision.sessionId,
+    roundN: decision.roundN,
+  });
+  return decision.sessionId;
+};
 
 /**
  * Settling the leftover attempt pushed the task over `maxAttempts`, so the domain blocked it.
@@ -152,18 +180,14 @@ const resumeFromLeftoverAttempt = async (
     );
   }
 
-  // Cause attribution on the cross-process resume path: we don't know what killed the
-  // previous process (Ctrl-C, SIGTERM, idle-watchdog, v8 OOM all leave the same trace —
-  // a leftover `running` attempt). `process-crash` is the conservative label; the
-  // in-process abort path passes a richer cause via `failCurrentAttempt`.
   const priorAttemptN = props.task.attempts.length;
   const abortedAt = props.clock();
   log.info('recovering aborted attempt before resume', {
     taskId: props.task.id,
     priorAttemptN,
-    cause: PROCESS_CRASH_CAUSE,
+    cause: INTERRUPTED_CAUSE,
   });
-  const aborted = failCurrentAttempt(props.task, abortedAt, 'aborted', { abortCause: PROCESS_CRASH_CAUSE });
+  const aborted = failCurrentAttempt(props.task, abortedAt, 'aborted', { abortCause: INTERRUPTED_CAUSE });
   if (!aborted.ok) {
     log.warn('failed to settle prior running attempt during resume', {
       taskId: props.task.id,
@@ -174,9 +198,11 @@ const resumeFromLeftoverAttempt = async (
   if (aborted.value.status === 'blocked') {
     return persistBlockedAfterResume(props, aborted.value, log);
   }
+  const resumeSessionId = await findResumableSession(props, priorAttemptN, log);
   return Result.ok({
     taskToStart: aborted.value,
-    recovering: { fromAttemptN: priorAttemptN, cause: PROCESS_CRASH_CAUSE, abortedAt },
+    recovering: { fromAttemptN: priorAttemptN, cause: INTERRUPTED_CAUSE, abortedAt },
+    ...(resumeSessionId !== undefined ? { resumeSessionId } : {}),
   });
 };
 
@@ -197,14 +223,16 @@ export const startAttemptUseCase = async (
   // `in_progress` as it settles) instead of dead-ending in `startNextAttempt`.
   let taskToStart: Task = props.task;
   let recovering: RecoveryContext | undefined;
+  let resumeSessionId: string | undefined;
   if (hasRunningAttempt(props.task)) {
     const resumed = await resumeFromLeftoverAttempt(props, log);
     if (!resumed.ok) return Result.error(resumed.error);
     taskToStart = resumed.value.taskToStart;
     recovering = resumed.value.recovering;
+    resumeSessionId = resumed.value.resumeSessionId;
   }
 
-  const transitioned = startNextAttempt(taskToStart, props.clock(), undefined, recovering);
+  const transitioned = startNextAttempt(taskToStart, props.clock(), resumeSessionId, recovering);
   if (!transitioned.ok) {
     log.warn('cannot start next attempt', { taskId: props.task.id, error: transitioned.error.message });
     return Result.error(transitioned.error);

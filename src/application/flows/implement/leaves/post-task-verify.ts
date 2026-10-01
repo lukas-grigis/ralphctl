@@ -11,7 +11,11 @@ import { gitDiffFootprint } from '@src/integration/io/git-operations.ts';
 import type { GitRunner } from '@src/integration/io/git-runner.ts';
 import { writeTextAtomic } from '@src/integration/io/fs.ts';
 import type { WriteFile } from '@src/business/io/write-file.ts';
-import { appendAttemptVerifyRun, setAttemptAttribution } from '@src/domain/entity/task-attempts.ts';
+import {
+  appendAttemptVerifyRun,
+  budgetedAttemptCount,
+  setAttemptAttribution,
+} from '@src/domain/entity/task-attempts.ts';
 import type { InProgressTask, Task } from '@src/domain/entity/task.ts';
 import type { TaskId } from '@src/domain/value/id/task-id.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
@@ -213,7 +217,7 @@ const legacyVerifyResult = (
  * the pre-T6 behaviour.
  */
 const budgetRemains = (task: InProgressTask, cap: number | undefined): boolean =>
-  cap !== undefined && task.attempts.length < cap;
+  cap !== undefined && budgetedAttemptCount(task) < cap;
 
 /**
  * Compute the diff-footprint scope for the structured verify gates, or `undefined` to signal the

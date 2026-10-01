@@ -177,7 +177,7 @@ describe('createCopilotProvider', () => {
     await expect(fs.access(sidPath)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
-  it('does not write session-id.txt on non-zero exit (spawn failure path)', async () => {
+  it('keeps session-id.txt on a non-zero exit — the id is written as the stream yields it, so a crashed thread stays resumable', async () => {
     const cap = createCapturingBus();
     const sess = session();
     const { spawn } = makeSpawn([
@@ -193,7 +193,7 @@ describe('createCopilotProvider', () => {
     expect(out.ok).toBe(false);
 
     const sidPath = join(dirname(String(sess.signalsFile)), 'session-id.txt');
-    await expect(fs.access(sidPath)).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(await fs.readFile(sidPath, 'utf8')).toBe('sess-doomed\n');
     await expect(fs.access(String(sess.signalsFile))).rejects.toMatchObject({ code: 'ENOENT' });
   });
 

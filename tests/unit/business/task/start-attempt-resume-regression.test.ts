@@ -9,6 +9,13 @@ import type { TaskId } from '@src/domain/value/id/task-id.ts';
 import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
 import { FIXED_LATER, makeInProgressTaskWithRunningAttempt, makeTodoTask } from '@tests/fixtures/domain.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
+import { failCurrentAttempt } from '@src/domain/entity/task-settle.ts';
+import { budgetedAttemptCount, startNextAttempt } from '@src/domain/entity/task-attempts.ts';
+
+const unwrap = <T, E>(r: Result<T, E>): T => {
+  if (!r.ok) throw new Error(String(r.error));
+  return r.value as T;
+};
 
 const SPRINT_ID = 'sprint-x' as SprintId;
 
@@ -68,12 +75,11 @@ describe('startAttemptUseCase — resume from crashed running attempt', () => {
     expect(writes).toHaveLength(1);
     expect(writes[0]?.attempts).toHaveLength(priorAttemptCount + 1);
 
-    // The just-settled prior attempt carries the inferred `process-crash` cause — we
-    // don't know if it was Ctrl-C, SIGTERM or v8 OOM from a fresh process, but the cause
-    // is at minimum populated (no longer 'unknown') so post-mortem tooling has a label.
+    // The just-settled prior attempt carries `harness-interrupted` — we don't know if it was a quit,
+    // Ctrl-C, SIGKILL or v8 OOM from a fresh process, only that the harness went away mid-attempt.
     const priorAborted = next.attempts.at(-2);
     if (priorAborted?.status === 'aborted') {
-      expect(priorAborted.abortCause).toBe('process-crash');
+      expect(priorAborted.abortCause).toBe('harness-interrupted');
     }
 
     // The fresh running attempt carries the recovery context pointing at the prior n.
@@ -81,7 +87,7 @@ describe('startAttemptUseCase — resume from crashed running attempt', () => {
     if (fresh?.status === 'running') {
       expect(fresh.recovering).toBeDefined();
       expect(fresh.recovering?.fromAttemptN).toBe(priorAttemptCount);
-      expect(fresh.recovering?.cause).toBe('process-crash');
+      expect(fresh.recovering?.cause).toBe('harness-interrupted');
     }
   });
 
@@ -121,14 +127,16 @@ describe('startAttemptUseCase — resume from crashed running attempt', () => {
   });
 
   it('persists the blocked transition when settling the leftover attempt exhausts the budget', async () => {
-    // The task crashed DURING its final allowed attempt (maxAttempts=1, one running attempt). On
-    // resume the leftover attempt settles `aborted`, pushing the task over budget → `blocked`. The
-    // use case must PERSIST that blocked state before surfacing the error — otherwise the running
-    // attempt stays on disk and every relaunch re-hits the same resume path and re-errors (a stuck
-    // loop), while the task never reports as blocked and the operator has nothing to `unblock`.
-    const crashed = makeInProgressTaskWithRunningAttempt();
+    // The task's counted attempts already reach its cap (an operator lowered `maxAttempts` under a
+    // failed attempt) while a later attempt was left running. On resume the leftover attempt settles
+    // `aborted` and the task is over budget → `blocked`. The use case must PERSIST that blocked state
+    // before surfacing the error — otherwise the running attempt stays on disk and every relaunch
+    // re-hits the same resume path and re-errors (a stuck loop), while the task never reports as
+    // blocked and the operator has nothing to `unblock`.
+    const failedOnce = unwrap(failCurrentAttempt(makeInProgressTaskWithRunningAttempt(), FIXED_LATER, 'failed'));
+    const crashed = unwrap(startNextAttempt(failedOnce, FIXED_LATER));
     const atBudget: Task = { ...crashed, maxAttempts: 1 };
-    expect(atBudget.attempts).toHaveLength(1);
+    expect(atBudget.attempts).toHaveLength(2);
 
     const { repo, writes } = fakeTaskRepo(new Map([[String(atBudget.id), atBudget]]));
 
@@ -150,6 +158,39 @@ describe('startAttemptUseCase — resume from crashed running attempt', () => {
     expect(writes).toHaveLength(1);
     expect(writes[0]?.status).toBe('blocked');
     expect(writes[0]?.attempts.at(-1)?.status).toBe('aborted');
+  });
+
+  it('an interrupted attempt spends no budget: a task interrupted in its only allowed attempt resumes', async () => {
+    const crashed = makeInProgressTaskWithRunningAttempt();
+    const atBudget: Task = { ...crashed, maxAttempts: 1 };
+    const { repo, writes } = fakeTaskRepo(new Map([[String(atBudget.id), atBudget]]));
+
+    const result = await startAttemptUseCase({
+      task: atBudget,
+      sprintId: SPRINT_ID,
+      taskRepo: repo,
+      clock: () => FIXED_LATER,
+      logger: noopLogger,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.status).toBe('in_progress');
+    expect(result.value.attempts.map((a) => a.status)).toEqual(['aborted', 'running']);
+    expect(budgetedAttemptCount(result.value)).toBe(1);
+    expect(writes).toHaveLength(1);
+  });
+
+  it('an in-process crash still spends budget — only harness interruptions are free', () => {
+    const crashed = makeInProgressTaskWithRunningAttempt();
+    const blocked = unwrap(
+      failCurrentAttempt({ ...crashed, maxAttempts: 1 }, FIXED_LATER, 'aborted', { abortCause: 'process-crash' })
+    );
+    expect(blocked.status).toBe('blocked');
+    const resumed = unwrap(
+      failCurrentAttempt({ ...crashed, maxAttempts: 1 }, FIXED_LATER, 'aborted', { abortCause: 'harness-interrupted' })
+    );
+    expect(resumed.status).toBe('in_progress');
   });
 
   it('baseline: starting from a todo task appends exactly one running attempt and no aborted entries', async () => {

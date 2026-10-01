@@ -48,6 +48,7 @@ const AbortCauseSchema = z.enum([
   'watchdog-killed',
   'rate-limit-exhausted',
   'process-crash',
+  'harness-interrupted',
   'self-blocked',
   'unknown',
 ]);

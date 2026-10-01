@@ -107,6 +107,8 @@ export const abortCauseLabel = (cause: AbortCause): string | undefined => {
       return 'rate limit';
     case 'process-crash':
       return 'process crash';
+    case 'harness-interrupted':
+      return 'interrupted';
     case 'self-blocked':
       return 'self-blocked';
     case 'unknown':

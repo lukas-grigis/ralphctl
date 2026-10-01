@@ -6,7 +6,11 @@ import type { AbortCause, AbortMetadata, AttemptUsage, AttemptWarning } from '@s
 import type { UpdateTask } from '@src/domain/repository/task/update-task.ts';
 import type { BlockedTask, DoneTask, FaultSide, InProgressTask } from '@src/domain/entity/task.ts';
 import { publishTaskBlocked } from '@src/business/task/publish-task-blocked.ts';
-import { recordRunningAttemptUsage, recordRunningAttemptWarning } from '@src/domain/entity/task-attempts.ts';
+import {
+  recordRunningAttemptSessionId,
+  recordRunningAttemptUsage,
+  recordRunningAttemptWarning,
+} from '@src/domain/entity/task-attempts.ts';
 import { failCurrentAttempt, markTaskDone } from '@src/domain/entity/task-settle.ts';
 import { applyCriteriaVerdicts } from '@src/domain/entity/task-criteria.ts';
 import { classifyBlock, markTaskBlocked } from '@src/domain/entity/task-lifecycle.ts';
@@ -96,6 +100,8 @@ export interface SettleAttemptProps {
    * `token-usage` events). Absent → nothing is stamped, and no zero is invented.
    */
   readonly usage?: AttemptUsage;
+  /** The session the attempt's last generator turn ran on — stamped as `Attempt.sessionId`. */
+  readonly generatorSessionId?: string;
   readonly taskRepo: UpdateTask;
   readonly clock: () => IsoTimestamp;
   readonly logger: Logger;
@@ -240,6 +246,7 @@ const settleTask = (
     | 'shouldFailAttempt'
     | 'verdict'
     | 'usage'
+    | 'generatorSessionId'
     | 'abortCause'
     | 'signalOrExitCode'
     | 'blockerClass'
@@ -253,6 +260,11 @@ const settleTask = (
   // one, so anything not recorded by this point is lost with it.
   if (props.usage !== undefined) {
     const stamped = recordRunningAttemptUsage(task, props.usage);
+    if (!stamped.ok) return Result.error(stamped.error);
+    task = stamped.value;
+  }
+  if (props.generatorSessionId !== undefined) {
+    const stamped = recordRunningAttemptSessionId(task, props.generatorSessionId);
     if (!stamped.ok) return Result.error(stamped.error);
     task = stamped.value;
   }

@@ -60,6 +60,7 @@ const ABORT_ORDER: readonly AbortCauseKey[] = [
   'rate-limit-exhausted',
   'watchdog-killed',
   'process-crash',
+  'harness-interrupted',
   'sigterm',
   'user-cancel',
   'self-blocked',

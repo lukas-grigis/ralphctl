@@ -18,6 +18,7 @@ import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
 import { buildImplementPrompt } from '@src/integration/ai/prompts/implement/definition.ts';
 import { buildImplementContinuationPrompt } from '@src/integration/ai/prompts/implement-continuation/definition.ts';
+import { buildImplementCrashResumePrompt } from '@src/integration/ai/prompts/implement-crash-resume/definition.ts';
 import type { BuildPromptError } from '@src/integration/ai/prompts/_engine/build-prompt.ts';
 import { renderContractSectionFor } from '@src/integration/ai/contract/_engine/render-contract-section.ts';
 import type { SessionId } from '@src/integration/ai/providers/_engine/session-id.ts';
@@ -112,6 +113,11 @@ interface GeneratorInput {
    * reporting an id) → fresh session.
    */
   readonly priorGeneratorSessionId?: SessionId;
+  /**
+   * This turn resumes a thread the harness was interrupted in (see `ctx.crashResumePending`): it
+   * sends the crash-resume prompt rather than the round continuation.
+   */
+  readonly crashResume?: boolean;
   /**
    * Pre-composed "## Dimension trajectory" feed-forward block (principles 6 + 15) — built in the
    * input projection from `ctx.plateauHistory` via `composeDimensionTrajectory`. Empty on round 1
@@ -233,6 +239,16 @@ export const isPlateauBreakAttempt = (task: InProgressTask): boolean => {
 };
 
 /**
+ * Which prompt a turn sends: a resumed thread gets the slim continuation — or, right after a harness
+ * interruption, the crash-resume prompt — and everything else (or the stale-resume cold fallback)
+ * the full brief.
+ */
+const generatorPromptKind = (input: GeneratorInput, forceFull: boolean): 'full' | 'continuation' | 'crash-resume' => {
+  if (input.priorGeneratorSessionId === undefined || forceFull) return 'full';
+  return input.crashResume === true ? 'crash-resume' : 'continuation';
+};
+
+/**
  * Select and build this turn's generator prompt by session continuity.
  *
  * The FIRST turn of a session thread (`priorGeneratorSessionId === undefined`) re-sends the full
@@ -293,7 +309,11 @@ const buildGeneratorPrompt = async (
     ...(input.reproduction !== undefined ? { reproduction: input.reproduction } : {}),
   };
 
-  if (input.priorGeneratorSessionId !== undefined && args.forceFull !== true) {
+  const kind = generatorPromptKind(input, args.forceFull === true);
+  if (kind === 'crash-resume') {
+    return buildImplementCrashResumePrompt(deps.templateLoader, { outputContractSection: args.outputContractSection });
+  }
+  if (kind === 'continuation') {
     return buildImplementContinuationPrompt(deps.templateLoader, {
       ...sharedValues,
       roundNumber: input.roundNum,
@@ -609,6 +629,7 @@ const makeGeneratorInput =
       workspaceRoot,
       roundNum,
       ...(ctx.priorGeneratorSessionId !== undefined ? { priorGeneratorSessionId: ctx.priorGeneratorSessionId } : {}),
+      ...(ctx.crashResumePending === true ? { crashResume: true } : {}),
       ...feedForward,
       ...(reproduction !== undefined ? { reproduction } : {}),
     };
@@ -652,6 +673,7 @@ const generatorOutput = (ctx: ImplementCtx, out: GeneratorOutput): ImplementCtx 
     tasks,
     genEvalTurn: out.turn,
     currentRoundNum: out.roundNum,
+    crashResumePending: undefined,
     ...carry,
     ...sessionCarry,
     ...decisionsCarry,

@@ -13,13 +13,15 @@ import type { EventBus } from '@src/business/observability/event-bus.ts';
 import type { DirtyTreePolicy } from '@src/business/task/preflight-task.ts';
 import { publishTaskBlocked } from '@src/business/task/publish-task-blocked.ts';
 import { createPublishSignal, type PublishSignal } from '@src/application/flows/_shared/publish-signal.ts';
-import type { GitRunner } from '@src/integration/io/git-runner.ts';
 import {
   gitDeleteBranch,
   gitWorktreeAdd,
   gitWorktreePrune,
   gitWorktreeRef,
 } from '@src/integration/io/git-operations.ts';
+import { gitWorktreeList, type GitWorktreeEntry } from '@src/integration/io/git-worktree-list.ts';
+import { pathExists } from '@src/integration/io/fs.ts';
+import { realpath } from 'node:fs/promises';
 
 import type { AppendFile } from '@src/business/io/append-file.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
@@ -213,9 +215,8 @@ const withWorktree = (
     name: `worktree(${String(taskId)})`,
     children: [bodyShape],
     async execute(ctx, signal, onTrace): Promise<ElementResult<ImplementCtx>> {
-      const gitRunner = deps.implement.gitRunner;
       const quarantinedAtStart = await snapshotQuarantinedDiff(deps, repoRoot, ctx.sprintId, taskId);
-      const setupError = await setupWorktree(gitRunner, repoRoot, worktreePath, branchRef, taskId, onTrace);
+      const setupError = await setupWorktree(deps, ctx, { repoRoot, worktreePath, branchRef, taskId }, onTrace);
       if (setupError !== undefined) {
         // A worktree that never got created has nothing to clean up — return the setup failure as-is
         // (non-fatal → the wave reducer leaves this task untouched so it resets/re-runs).
@@ -404,19 +405,75 @@ const blockTaskInWorktree = (
   return Result.ok({ ctx: { ...ctx, tasks: [blocked.value] }, trace: [entry] });
 };
 
+/** Where one task's worktree lives and which ref it is checked out on. */
+interface WorktreeTarget {
+  readonly repoRoot: AbsolutePath;
+  readonly worktreePath: AbsolutePath;
+  readonly branchRef: string;
+  readonly taskId: TaskId;
+}
+
+const samePath = async (a: string, b: string): Promise<boolean> => {
+  if (a === b) return true;
+  const [ra, rb] = await Promise.all([realpath(a).catch(() => a), realpath(b).catch(() => b)]);
+  return ra === rb;
+};
+
 /**
- * Create the worktree. Returns `undefined` on success (the subchain advances ctx), or a failed
- * {@link ElementResult} on `worktree add` failure so the branch fails without ever materialising a
- * worktree to clean up.
+ * `worktree add` failed. When that is because this task's worktree from an earlier run is still
+ * there, adopt it if the task has an interrupted attempt to resume in it (its work is in that
+ * tree), else block the task with what to do — leaving it untouched used to wedge the task forever,
+ * every launch failing the same `add`. Any other failure returns `undefined` (not ours to handle).
+ */
+const resolveStrandedWorktree = async (
+  deps: BuildWaveBranchesDeps,
+  ctx: ImplementCtx,
+  target: WorktreeTarget,
+  name: string,
+  durationMs: number,
+  onTrace: OnTrace | undefined
+): Promise<ElementResult<ImplementCtx> | 'adopted' | undefined> => {
+  const { repoRoot, worktreePath, branchRef, taskId } = target;
+  const path = String(worktreePath);
+  const listed = await gitWorktreeList(deps.implement.gitRunner, repoRoot);
+  let registered: GitWorktreeEntry | undefined;
+  for (const entry of listed.ok ? listed.value : []) {
+    if (await samePath(entry.path, path)) registered = entry;
+  }
+  const blockTask = (reason: string): ElementResult<ImplementCtx> =>
+    blockTaskInWorktree(deps, ctx, taskId, name, durationMs, reason, onTrace);
+  if (registered === undefined) {
+    const exists = await pathExists(path);
+    if (!exists.ok || !exists.value) return undefined;
+    return blockTask(
+      `a leftover directory blocks this task's worktree at ${path} — inspect it, delete it, then unblock the task`
+    );
+  }
+  const interrupted = ctx.tasks?.find((t) => t.id === taskId)?.attempts.at(-1)?.status === 'running';
+  if (interrupted && registered.branch === `refs/heads/${branchRef}`) {
+    deps.implement.logger.info('adopting the interrupted attempt’s worktree', { taskId: String(taskId), path });
+    onTrace?.({ elementName: name, status: 'completed', durationMs });
+    return 'adopted';
+  }
+  return blockTask(
+    `a worktree from an earlier run is still at ${path} and there is no interrupted attempt to resume in it — ` +
+      `inspect it, run \`git worktree remove --force ${path}\` in ${String(repoRoot)}, then unblock the task`
+  );
+};
+
+/**
+ * Create the worktree. Returns `undefined` on success or adoption (the subchain advances ctx), a
+ * narrowed `Result.ok` when a stranded worktree blocks the task, or a failed {@link ElementResult}
+ * on any other `worktree add` failure so the branch fails without materialising a worktree.
  */
 const setupWorktree = async (
-  gitRunner: GitRunner,
-  repoRoot: AbsolutePath,
-  worktreePath: AbsolutePath,
-  branchRef: string,
-  taskId: TaskId,
-  onTrace: ((entry: TraceEntry) => void) | undefined
+  deps: BuildWaveBranchesDeps,
+  ctx: ImplementCtx,
+  target: WorktreeTarget,
+  onTrace: OnTrace | undefined
 ): Promise<ElementResult<ImplementCtx> | undefined> => {
+  const { repoRoot, worktreePath, branchRef, taskId } = target;
+  const gitRunner = deps.implement.gitRunner;
   const name = `worktree-setup-${String(taskId)}`;
   const start = performance.now();
   // Prune defensively first: a crashed prior run can leave a stale `.git/worktrees/<name>` record
@@ -433,6 +490,9 @@ const setupWorktree = async (
   const added = await gitWorktreeAdd(gitRunner, repoRoot, worktreePath, branchRef);
   const durationMs = performance.now() - start;
   if (!added.ok) {
+    const stranded = await resolveStrandedWorktree(deps, ctx, target, name, durationMs, onTrace);
+    if (stranded === 'adopted') return undefined;
+    if (stranded !== undefined) return stranded;
     const entry: TraceEntry = { elementName: name, status: 'failed', durationMs, error: added.error };
     onTrace?.(entry);
     return Result.error({ error: added.error, trace: [entry] });

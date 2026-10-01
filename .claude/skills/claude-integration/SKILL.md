@@ -62,8 +62,9 @@ ralphctl does NOT parse stdout for signals or session IDs. Instead, every spawn 
 
 - `signals.json` — structured JSON the adapter (or the AI's wrapper) writes during the run. The harness
   reads it back post-spawn via `validateSignalsFile(...)` and dispatches to the parser registry.
-- `sessionId` — a single-line text file containing the provider's session id. The harness reads it
-  post-spawn and persists on `Task.attempts[]` for resume.
+- `session-id.txt` — a single-line text file containing the provider's session id, written the moment
+  the stream yields the id (while the child still runs, so a killed harness leaves it behind) and noted
+  in the live-run record. Grok reports its id only on the final `end` record, so it lands at exit.
 
 This replaces v0.6.x's brittle stdout-parsing path. Provider JSON-shape drift no longer breaks the harness;
 the contract is the file content.
@@ -141,8 +142,11 @@ Implementation contract in `runHeadlessSpawn`:
   result.
 - `RateLimitError` carries the captured `sessionId` so the retry pass passes `--resume <id>` on the next
   attempt.
-- The per-task chain (in `src/application/flows/implement/`) persists `sessionId` on `Task.attempts[]` so
-  the apply-feedback flow can resume the right session.
+- The implement chain stamps the session of an attempt's last generator turn on `Attempt.sessionId` at
+  settle. After a harness interruption, `start-attempt` reads the newest generator round's
+  `session-id.txt` + `role-meta.json`; when provider, model and cwd still match it seeds the fresh
+  attempt with that session and sends the `implement-crash-resume` prompt, with the full brief as
+  `coldPrompt` so a vanished session falls back cold.
 
 ## Known startup issues
 

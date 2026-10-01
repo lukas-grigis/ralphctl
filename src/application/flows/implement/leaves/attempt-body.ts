@@ -205,7 +205,9 @@ const attemptWorkLeaves = (
 ): Array<Element<ImplementCtx>> => [
   startAttemptLeaf(
     { taskRepo: deps.taskRepo, clock: deps.clock, logger: deps.logger, eventBus: deps.eventBus },
-    taskId
+    taskId,
+    // A crash resume only continues the interrupted session under the generator it ran on.
+    { provider: opts.generator.providerId, model: opts.generator.model, cwd: String(repo.path) }
   ),
   // PRE-task verify — captures the baseline state of the working tree BEFORE the AI runs
   // so the post-task-verify can attribute correctly: a red post on a green pre means the

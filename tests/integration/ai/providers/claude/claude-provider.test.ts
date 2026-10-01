@@ -332,7 +332,7 @@ describe('createClaudeProvider', () => {
     await expect(fs.access(sidPath)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
-  it('does not write session-id.txt on non-zero exit (spawn failure path)', async () => {
+  it('keeps session-id.txt on a non-zero exit — the id is written as the stream yields it, so a crashed thread stays resumable', async () => {
     const cap = createCapturingBus();
     const sess = session();
     const init = JSON.stringify({ type: 'system', subtype: 'init', session_id: 'sess-doomed', model: 'sonnet' });
@@ -343,7 +343,7 @@ describe('createClaudeProvider', () => {
     expect(out.ok).toBe(false);
 
     const sidPath = join(dirname(String(sess.signalsFile)), 'session-id.txt');
-    await expect(fs.access(sidPath)).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(await fs.readFile(sidPath, 'utf8')).toBe('sess-doomed\n');
     // signals.json is also never written on the failure path.
     await expect(fs.access(String(sess.signalsFile))).rejects.toMatchObject({ code: 'ENOENT' });
   });

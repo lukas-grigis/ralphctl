@@ -2,6 +2,7 @@ import { Result } from '@src/domain/result.ts';
 import {
   appendVerifyRun,
   type Attempt,
+  countsTowardAttemptBudget,
   type AttemptUsage,
   type AttemptWarning,
   type Attribution,
@@ -10,6 +11,7 @@ import {
   recordAttemptCommit,
   recordAttemptCritique,
   recordAttemptEvaluation,
+  recordAttemptSessionId,
   recordAttemptUsage,
   recordAttemptVerification,
   recordAttemptWarning,
@@ -28,6 +30,13 @@ import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.t
 import { type ValidationError } from '@src/domain/value/error/validation-error.ts';
 
 const lastAttempt = (task: Task): Attempt | undefined => task.attempts[task.attempts.length - 1];
+
+/**
+ * Attempts that count against `maxAttempts` — every attempt, the running one included, except those
+ * the harness abandoned when it was itself interrupted. The one count every budget check reads.
+ */
+export const budgetedAttemptCount = (task: Pick<Task, 'attempts'>): number =>
+  task.attempts.filter(countsTowardAttemptBudget).length;
 
 const requireRunningAttempt = (
   task: InProgressTask
@@ -173,6 +182,15 @@ export const recordRunningAttemptWarning = (
  * settle use case just before the terminal transition, so the figures ride into the persisted
  * terminal attempt. Counts the caller does not have stay absent — see {@link recordAttemptUsage}.
  */
+export const recordRunningAttemptSessionId = (
+  task: InProgressTask,
+  sessionId: string
+): Result<InProgressTask, InvalidStateError> => {
+  const guard = requireRunningAttempt(task);
+  if (!guard.ok) return Result.error(guard.error);
+  return Result.ok(replaceLastAttempt(task, recordAttemptSessionId(guard.value.running, sessionId)));
+};
+
 export const recordRunningAttemptUsage = (
   task: InProgressTask,
   usage: AttemptUsage

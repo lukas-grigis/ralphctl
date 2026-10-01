@@ -241,7 +241,7 @@ const computeTaskRecovering = (todoTasks: readonly Task[], now: IsoTimestamp): M
     if (last === undefined || last.status !== 'running') continue;
     taskRecovering.set(String(t.id), {
       fromAttemptN: t.attempts.length,
-      cause: 'process-crash',
+      cause: 'harness-interrupted',
       abortedAt: now,
     });
   }

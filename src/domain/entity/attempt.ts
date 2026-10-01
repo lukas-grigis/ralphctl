@@ -85,11 +85,15 @@ export type AttemptWarning =
  *                              in-process when the crash that blocked the task carried the
  *                              watchdog marker (see `ProcessCrashError.watchdogKilled`).
  *  - `rate-limit-exhausted` — provider 429 retries gave up after `harness.rateLimitRetries`.
- *  - `process-crash`        — either the prior process exited without settling the attempt
- *                              (inferred on the next launch when start-attempt finds a leftover
- *                              `running` attempt — we can't tell from a fresh process what killed
- *                              the previous one, so `process-crash` is the conservative label), or
- *                              the in-process AI child died in a way the watchdog did not claim.
+ *  - `process-crash`        — the in-process AI child died in a way the watchdog did not claim.
+ *                              Older records also carry it for a leftover `running` attempt found
+ *                              on relaunch, which is `harness-interrupted` now.
+ *  - `harness-interrupted`  — the harness itself went away mid-attempt (quit, crash, SIGKILL,
+ *                              reboot) and the next launch found the attempt still `running`.
+ *                              Stamped by start-attempt's cross-process recovery, which resumes the
+ *                              attempt's provider session when it can. Does NOT count toward
+ *                              `maxAttempts` (see {@link countsTowardAttemptBudget}): the model did
+ *                              not fail, the harness did.
  *  - `self-blocked`         — nothing was killed: the harness settled the running attempt as
  *                              aborted because the TASK blocked (generator `<task-blocked>`
  *                              signal, a signals-contract failure, or a red harness verify gate).
@@ -102,7 +106,14 @@ export type AttemptWarning =
  * (`(SIGTERM)`, `(rate limit)`, etc.).
  */
 export type AbortCause =
-  'user-cancel' | 'sigterm' | 'watchdog-killed' | 'rate-limit-exhausted' | 'process-crash' | 'self-blocked' | 'unknown';
+  | 'user-cancel'
+  | 'sigterm'
+  | 'watchdog-killed'
+  | 'rate-limit-exhausted'
+  | 'process-crash'
+  | 'harness-interrupted'
+  | 'self-blocked'
+  | 'unknown';
 
 /**
  * Context attached to a `RunningAttempt` when it was opened as a resume of a prior aborted
@@ -115,8 +126,8 @@ export type AbortCause =
  *  - `cause`         — best-known reason the prior attempt aborted.
  *  - `abortedAt`     — when the prior attempt's settle (in `failCurrentAttempt`) ran, which is
  *                      the same clock value as the new running attempt's `startedAt` for
- *                      in-process aborts. For cross-process resumes (the process-crash path)
- *                      it's the resume clock, which is the closest proxy we have.
+ *                      in-process aborts. For cross-process resumes (the harness-interrupted
+ *                      path) it's the resume clock, which is the closest proxy we have.
  */
 export interface RecoveryContext {
   readonly fromAttemptN: number;
@@ -208,7 +219,10 @@ interface AttemptBase {
   /** Free-form critique fed into the next iteration's prompt. */
   readonly critique?: string;
   readonly commitSha?: CommitSha;
-  /** Provider session id for replay / cost attribution. */
+  /**
+   * Generator session id for replay / resume: the resumed thread when the attempt opened as a
+   * crash resume, then the session the attempt's last generator turn ran on, stamped at settle.
+   */
   readonly sessionId?: string;
   /**
    * Structured warning recorded when the inner loop terminates without a passed evaluation
@@ -439,6 +453,19 @@ export const completeAttempt = (
   }
   return Result.ok({ ...att, status, finishedAt });
 };
+
+/**
+ * Whether `att` spends one of the task's `maxAttempts`. An attempt the harness abandoned because
+ * it was itself interrupted (`harness-interrupted`) is free: the work continues on the next one.
+ */
+export const countsTowardAttemptBudget = (att: Attempt): boolean =>
+  !(att.status === 'aborted' && att.abortCause === 'harness-interrupted');
+
+/** Stamp the generator session id the attempt ran on. */
+export const recordAttemptSessionId = (att: RunningAttempt, sessionId: string): RunningAttempt => ({
+  ...att,
+  sessionId,
+});
 
 /** True iff `att` is a {@link VerifiedAttempt}. Useful for narrowing without a switch. */
 export const isVerifiedAttempt = (att: Attempt): att is VerifiedAttempt => att.status === 'verified';

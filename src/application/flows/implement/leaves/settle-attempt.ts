@@ -341,9 +341,10 @@ const deriveRoundVerdict = (verdict: RunTaskVerdict, warning: AttemptWarning | u
  * the audit artefact is logged and swallowed — the chain must not halt on a derived file.
  *
  * Prefers the per-round generator session id projected from `ctx.priorGeneratorSessionId` over the
- * attempt-level `attempt.sessionId` fallback (the latter is the FIRST round's id; the ctx field is
- * the LATEST round's, which matches THIS outcome.md). The evaluator session id has no attempt-level
- * fallback — it comes solely from `ctx.priorEvaluatorSessionId`. Either missing → renderer shows `—`.
+ * attempt-level `attempt.sessionId` fallback (settle stamps the same id there; the fallback only
+ * matters for a crash-resumed attempt that settled before its first turn reported one). The
+ * evaluator session id has no attempt-level fallback — it comes solely from
+ * `ctx.priorEvaluatorSessionId`. Either missing → renderer shows `—`.
  */
 const writeRoundOutcome = async (params: {
   readonly workspaceRoot: AbsolutePath;
@@ -364,7 +365,7 @@ const writeRoundOutcome = async (params: {
       .warn('no attempt recorded on task; skipping outcome.md', { taskId: String(params.task.id) });
     return;
   }
-  // Prefer the per-round ctx generator id; fall back to the attempt-level id stamped by start-attempt.
+  // Prefer the per-round ctx generator id; fall back to the attempt-level id.
   const generatorSessionId = params.generatorSessionId ?? attempt.sessionId;
   const content = renderRoundOutcome({
     roundN: params.roundNum,

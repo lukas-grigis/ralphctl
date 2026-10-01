@@ -243,7 +243,7 @@ const createIdleTelemetry = (
   };
 };
 
-/** Best-effort `sessionId.txt` write; a failure only degrades resume re-attach, never the run. */
+/** Best-effort `session-id.txt` write; a failure only degrades resume re-attach, never the run. */
 const persistSessionId = async (input: ProviderAttemptInput, sessionId: string | undefined): Promise<void> => {
   const wrote = await persistSessionIdFile(input.session.signalsFile, sessionId);
   if (wrote === undefined || wrote.ok) return;
@@ -254,6 +254,34 @@ const persistSessionId = async (input: ProviderAttemptInput, sessionId: string |
     meta: { error: wrote.error.message },
     at: IsoTimestamp.now(),
   });
+};
+
+/**
+ * Persist the provider's session id the moment the stream yields it — `session-id.txt` plus the
+ * live-run record — so a harness killed mid-spawn still leaves a resumable thread on disk. Checked
+ * after every stdout chunk; writes are chained so a (rare) id change never lands out of order.
+ */
+const createSessionIdCapture = (
+  input: ProviderAttemptInput,
+  registered: RegisteredChildHandle | undefined
+): { readonly onChunk: () => void; readonly settled: () => Promise<string | undefined> } => {
+  let captured: string | undefined;
+  let writes: Promise<void> = Promise.resolve();
+  const onSessionId = (sessionId: string): void => {
+    captured = sessionId;
+    registered?.noteSessionId(sessionId);
+    writes = writes.then(() => persistSessionId(input, sessionId));
+  };
+  return {
+    onChunk: () => {
+      const sessionId = input.getSessionId();
+      if (sessionId !== undefined && sessionId !== captured) onSessionId(sessionId);
+    },
+    settled: async () => {
+      await writes;
+      return captured;
+    },
+  };
 };
 
 /**
@@ -289,7 +317,13 @@ const mirrorBodyFile = async (input: ProviderAttemptInput): Promise<DomainError 
  * persist per-attempt cost instead of only rendering it in the TUI.
  */
 const createSuccessHandler =
-  (input: ProviderAttemptInput, sessionId: string | undefined, code: number | null, startedAtMs: number) =>
+  (
+    input: ProviderAttemptInput,
+    sessionId: string | undefined,
+    code: number | null,
+    startedAtMs: number,
+    alreadyPersisted: boolean
+  ) =>
   async (): Promise<AttemptOutcome> => {
     let usage: ProviderUsage = { durationMs: Date.now() - startedAtMs };
     if (sessionId !== undefined) {
@@ -305,7 +339,7 @@ const createSuccessHandler =
           : {}),
       };
     }
-    await persistSessionId(input, sessionId);
+    if (!alreadyPersisted) await persistSessionId(input, sessionId);
     const bodyError = await mirrorBodyFile(input);
     if (bodyError !== undefined) return { kind: 'error', error: bodyError };
     return {
@@ -360,11 +394,13 @@ const superviseAttempt = async (
   const stderrTail = createBoundedTail(STDERR_TAIL_CAP);
   const watchdogBannerId = `watchdog-${providerSlug}-${String(child.pid ?? 'unknown')}`;
   const idle = createIdleTelemetry(input, watchdogBannerId);
+  const sessionIdCapture = createSessionIdCapture(input, registered);
 
   const { code, signal, spawnError } = await runHeadlessSpawn({
     child,
     onStdout: (chunk) => {
       input.onStdoutChunk(chunk);
+      sessionIdCapture.onChunk();
     },
     onStderr: (chunk) => {
       stderrTail.append(chunk);
@@ -376,9 +412,11 @@ const superviseAttempt = async (
     onIdle: idle.onIdle,
   });
   input.flush();
+  // Ids only reported on the final record (grok's `end`) are caught here, after the flush.
+  sessionIdCapture.onChunk();
+  const eagerSessionId = await sessionIdCapture.settled();
 
   const sessionId = input.getSessionId();
-  if (sessionId !== undefined) registered?.noteSessionId(sessionId);
   const stdoutTail = input.getStdoutTail();
   const processErrorText = input.getProcessErrorText?.();
   return classifySpawnExit({
@@ -396,7 +434,7 @@ const superviseAttempt = async (
     watchdogBannerId,
     // Only meaningful on a crash branch; the classifier ignores it everywhere else.
     ...(idle.killedByWatchdog() ? { watchdogKilled: true } : {}),
-    onSuccess: createSuccessHandler(input, sessionId, code, startedAtMs),
+    onSuccess: createSuccessHandler(input, sessionId, code, startedAtMs, eagerSessionId === sessionId),
   });
 };
 

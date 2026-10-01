@@ -20,6 +20,21 @@ import type { AppEvent } from '@src/business/observability/events.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import { startAttemptLeaf } from '@src/application/flows/implement/leaves/start-attempt.ts';
+import { failCurrentAttempt } from '@src/domain/entity/task-settle.ts';
+import { startNextAttempt } from '@src/domain/entity/task-attempts.ts';
+
+/**
+ * A leftover running attempt on a task whose COUNTED attempts already reach its cap (one failed
+ * attempt, `maxAttempts` lowered to 1). The interrupted attempt itself is free, so this is the shape
+ * where settling it still blocks.
+ */
+const overBudgetWithLeftover = (): Task => {
+  const failed = failCurrentAttempt(makeInProgressTaskWithRunningAttempt(), FIXED_LATER, 'failed');
+  if (!failed.ok) throw failed.error;
+  const running = startNextAttempt(failed.value, FIXED_LATER);
+  if (!running.ok) throw running.error;
+  return { ...running.value, maxAttempts: 1 };
+};
 
 const captureLogEvents = (
   bus: ReturnType<typeof createInMemoryEventBus>
@@ -227,12 +242,12 @@ describe('startAttemptLeaf', () => {
   });
 
   it('resume: persists the blocked transition AND returns InvalidStateError when the budget is exhausted', async () => {
-    // Task with maxAttempts=1 and one running attempt → settling it pushes the task to `blocked`,
+    // Counted attempts already at the cap plus a leftover running one → settling it blocks the task,
     // which the use case surfaces as an InvalidStateError so the chain doesn't start an attempt on a
     // blocked task. Crucially the blocked state is PERSISTED before the error is raised: otherwise
     // the leftover running attempt stays on disk and every relaunch re-hits this path and re-errors
     // (a stuck loop), while the task never reports as blocked and the launch queue can't filter it.
-    const inProgressMaxed = makeInProgressTaskWithRunningAttempt({ maxAttempts: 1 });
+    const inProgressMaxed = overBudgetWithLeftover();
     const { repo, calls } = fakeUpdateTask({
       tasksById: new Map([[String(inProgressMaxed.id), inProgressMaxed]]),
     });
@@ -320,7 +335,7 @@ describe('startAttemptLeaf', () => {
 
 describe('startAttemptLeaf — task-blocked notification', () => {
   it('publishes exactly one task-blocked event when resume recovery exhausts the attempt budget', async () => {
-    const inProgressMaxed = makeInProgressTaskWithRunningAttempt({ maxAttempts: 1 });
+    const inProgressMaxed = overBudgetWithLeftover();
     const { repo, calls } = fakeUpdateTask({
       tasksById: new Map([[String(inProgressMaxed.id), inProgressMaxed]]),
     });
@@ -346,7 +361,7 @@ describe('startAttemptLeaf — task-blocked notification', () => {
   });
 
   it('publishes nothing when the blocked write fails — the block never became durable', async () => {
-    const inProgressMaxed = makeInProgressTaskWithRunningAttempt({ maxAttempts: 1 });
+    const inProgressMaxed = overBudgetWithLeftover();
     const { repo } = fakeUpdateTask({
       fail: new StorageError({ subCode: 'io', message: 'disk full' }),
       tasksById: new Map([[String(inProgressMaxed.id), inProgressMaxed]]),

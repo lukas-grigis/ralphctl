@@ -27,6 +27,8 @@ import {
   type BuildWaveBranchesDeps,
 } from '@src/application/flows/implement/wave-branch.ts';
 import type { RepoExecConfig } from '@src/application/flows/implement/leaves/resolve-repo.ts';
+import { failCurrentAttempt } from '@src/domain/entity/task-settle.ts';
+import { startNextAttempt } from '@src/domain/entity/task-attempts.ts';
 import { startAttemptLeaf } from '@src/application/flows/implement/leaves/start-attempt.ts';
 import { settleAttemptLeaf } from '@src/application/flows/implement/leaves/settle-attempt.ts';
 import { adoptPersistedBlocksLeaf } from '@src/application/flows/implement/leaves/adopt-persisted-blocks.ts';
@@ -590,7 +592,13 @@ describe('createParallelImplementElement — durable blocks survive the epilogue
 
   it('a task resumed at its attempt budget stays blocked, and a sibling that already completed keeps its done status', async () => {
     const sprint = makePlannedSprint();
-    const resumed = makeInProgressTaskWithRunningAttempt({ maxAttempts: 1 });
+    // Counted attempts already at the cap (one failed, cap lowered to 1) plus a leftover running one:
+    // the interrupted attempt is free, so it is the failed one that exhausts the budget.
+    const failedOnce = failCurrentAttempt(makeInProgressTaskWithRunningAttempt(), FIXED_LATER, 'failed');
+    if (!failedOnce.ok) throw failedOnce.error;
+    const leftover = startNextAttempt(failedOnce.value, FIXED_LATER);
+    if (!leftover.ok) throw leftover.error;
+    const resumed: Task = { ...leftover.value, maxAttempts: 1 };
     const sibling = makeTodoTask({ name: 'sibling' });
     const taskRepo = recordingTaskRepo([sibling, resumed]);
     const git = fakeGitRecordingCwd(); // clean tree throughout — nothing to quarantine.
