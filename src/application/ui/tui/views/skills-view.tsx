@@ -156,12 +156,16 @@ const SkillsList = ({
 
   return (
     <Box flexDirection="column">
-      <Box paddingX={spacing.indent} marginBottom={spacing.section}>
-        <Text dimColor>
+      <Box paddingX={spacing.indent} marginBottom={spacing.section} flexDirection="column">
+        <Text dimColor wrap="truncate-end">
           {plural(entries.length, 'skill')} {glyphs.bullet} {plural(updateAvailableCount, 'update')} available
-          {!anyOptIn &&
-            ` ${glyphs.bullet} no opt-in copies yet — press e to enable one (folder: ${operatorSkillsRoot}/<flow>/<skill>)`}
+          {!anyOptIn && ` ${glyphs.bullet} no opt-in copies yet — press e to enable one`}
         </Text>
+        {!anyOptIn && (
+          <Text dimColor wrap="truncate-middle">
+            folder: {operatorSkillsRoot}/&lt;flow&gt;/&lt;skill&gt;
+          </Text>
+        )}
       </Box>
       <OverflowRow direction="above" count={window.hiddenAbove} />
       {visibleItems.map((entry, localIdx) => (

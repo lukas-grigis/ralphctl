@@ -29,7 +29,7 @@ its alt-screen behaviour differs.
 
 **Setup:** at least one project registered with one repository.
 
-1. From the Home action menu, press `p` to open the Projects view
+1. Press `3` to open the Projects view
 2. Drill into a project → repository detail
 3. Pick the "Run readiness" flow
 4. **Expected:** routed to Execute view, project/repo selection prompt appears over a quiet canvas
@@ -42,7 +42,7 @@ its alt-screen behaviour differs.
    it does NOT trigger a global hotkey on the underlying execute view.
 9. Submit each confirm prompt
 10. **Expected:** session ends with a result card showing `✓ Readiness — <project-name> — completed`. The breadcrumb shows the path.
-11. Press Esc back to Home
+11. Press Esc back to Work
 
 ---
 
@@ -50,7 +50,7 @@ its alt-screen behaviour differs.
 
 **Setup:** a draft sprint with at least 2 tickets, all `pending`.
 
-1. From Home pipeline-map (or the flows view), select the **Refine** flow
+1. From Work (`1`), focus the **Refine** row (NEXT or FLOWS) and press `↵`
 2. **Expected:** routed to Execute view, `refine <sprint-id>` in breadcrumb. Per-ticket "Start refinement
    session for this ticket?" confirm appears (each ticket asks individually)
 3. Press Enter to accept first ticket
@@ -64,8 +64,8 @@ its alt-screen behaviour differs.
 7. Press Enter to approve
 8. **Expected:** ticket 1 transitions to `approved`, sprint saved, chain moves to ticket 2
 9. Repeat for ticket 2
-10. **Expected:** session completes once all tickets done. Press Enter — lands on Home with the same
-    project/sprint still selected. Pipeline-map's Refine phase is now ✓ done.
+10. **Expected:** session completes once all tickets done. Press Enter — lands on Work with the same
+    project/sprint still selected. The pipeline's Refine stage is now ■ done.
 
 **Negative tests:**
 
@@ -80,7 +80,7 @@ its alt-screen behaviour differs.
 
 **Setup:** a draft sprint with all tickets `approved`.
 
-1. From Home pipeline-map, select the **Plan** flow
+1. From Work (`1`), focus the **Plan** row and press `↵`
 2. **Expected:** routed to Execute view, `plan <sprint-id>` in breadcrumb
 3. **Expected:** repo selection prompt appears (which repos to explore)
 4. Pick repos → confirm
@@ -94,8 +94,8 @@ its alt-screen behaviour differs.
    decide:" block renders above the task list, error findings before warnings
 9. **Expected:** "Confirm ready to execute?" prompt regardless of findings — the critic never blocks
 10. Press Enter
-11. **Expected:** tasks saved, session completes. Pipeline-map now shows Implement as `◆ ready` with the next
-    task count.
+11. **Expected:** tasks saved, session completes. The pipeline now shows Implement as the current stage (`◆`) with the
+    pending task count.
 
 ---
 
@@ -103,7 +103,7 @@ its alt-screen behaviour differs.
 
 **Setup:** an active sprint with planned tasks.
 
-1. From Home, select the **Implement** flow
+1. From Work (`1`), focus the **Implement** row and press `↵`
 2. **Expected:** session starts, task panel populates with the planned task list (cards collapsed by
    default), the first task transitions to `IN PROGRESS`. Press `j`/`k` to move between cards; press
    `Enter` or `Space` to expand the focused card. Press `e` to expand done-criteria.
@@ -138,7 +138,7 @@ cancel', 'own')` — the task lands `blocked` and is not re-entered automaticall
 **Negative tests:**
 
 - Refine / plan / readiness sessions: pressing `D` must do NOTHING (those flows are foreground-only).
-- Tab between sessions multiple times → breadcrumb stack must stay flat (`Home › Execute`), never grow.
+- Tab between sessions multiple times → breadcrumb stack must stay flat (`Work › Execute`), never grow.
 - Press `g` outside an active sprint → must show an appropriate empty / error state, not crash.
 
 ---
@@ -197,13 +197,13 @@ For every prompt context (an editor, a select, an input):
 1. **Expected:** lands on the `WelcomeView` (above home in the stack) — first-run guidance
 2. Drill into Projects → Create project
 3. Fill in project name + repo path
-4. **Expected:** project saved, returns to Home with the pipeline-map ready for sprint creation
+4. **Expected:** project saved, returns to Work with the pipeline ready for sprint creation
 
 **8a — zero-CLI keypress gate.** Repeat with no AI CLI on `PATH` (e.g. a scrubbed `PATH` env var).
 
 1. **Expected:** lands on `WelcomeView` showing "No AI CLIs detected — install one …" plus "Press ↵ to
    continue" — the view holds here instead of auto-routing away
-2. Press `↵` (or space) — **expected:** routes to create-project (or Home if a project already exists)
+2. Press `↵` (or space) — **expected:** routes to create-project (or Work if a project already exists)
 3. Repeat, press `Esc` instead — **expected:** same route; the global back-navigation handler does NOT
    also fire on the same keystroke
 
@@ -225,7 +225,7 @@ For every prompt context (an editor, a select, an input):
 
 **Setup:** a sprint in `review` status (every task `done`).
 
-1. From Home, select the **Review** flow
+1. From Work (`1`), focus the **Review** row and press `↵`
 2. **Expected:** routed to Execute view, the multi-line editor prompt appears asking for feedback
 3. Type a short feedback message; Ctrl+D to submit
 4. **Expected:** AI CLI takes over; resumes the relevant tasks via session-id resume to apply the feedback
@@ -279,7 +279,7 @@ leaves whose `name` contains an absolute repo path).
 8. **Expected:** both the active project and active sprint update atomically — the breadcrumb reflects the
    new project/sprint combination (including a `[S]` affordance next to the sprint name), and no partial
    state is visible mid-transition.
-9. Press `S` again from Home with NO project loaded
+9. Press `S` again from Work with NO project loaded
 10. **Expected:** picker opens in all-projects scope; `t` and `f` still toggle without crashing.
 
 **Negative tests:**
@@ -290,16 +290,15 @@ leaves whose `name` contains an absolute repo path).
 
 ---
 
-## Scenario 13 — Home digit shortcuts and Projects browse-only behaviour
+## Scenario 13 — Section digits and Projects browse-only behaviour
 
-**Setup:** at least two sprints exist under the current project (so the "switch sprint" section of the
-Home action menu shows multiple recent-sprint rows).
+**Setup:** at least two sprints exist under the current project.
 
-1. From Home, note the recent-sprint rows in the "switch sprint" section — up to five are listed
-2. Press `1`, then `2` (digit keys)
-3. **Expected:** pressing `1` selects the first recent sprint; a `✓ now on <name>` toast flashes above
-   the menu. Pressing `2` switches to the second. The breadcrumb `[S]` label updates to reflect each switch.
-4. Navigate to Projects (`p` from Home)
+1. From Work, press `2`, then `3`, then `4`, then `5`, then `1` (digit keys)
+2. **Expected:** each digit jumps to its section — Sprints, Projects, Runs, System, Work — and the tab bar
+   brackets the active one (`[2 Sprints]`). Each section remembers where you were inside it.
+3. Press `S`, move onto the second sprint, press `↵`
+4. Navigate to Projects (`3`)
 5. Move the cursor over a project that is NOT the current one
 6. Press `Enter` to open its detail view
 7. **Expected:** the breadcrumb right-side still shows the original project and sprint — opening a
@@ -354,7 +353,7 @@ ralphctl settings apply-preset opencode-only
 **15a — interactive flow (refine):**
 
 1. Register a project with at least one draft-sprint ticket in `pending`
-2. From Home pipeline-map, select the **Refine** flow
+2. From Work (`1`), focus the **Refine** row and press `↵`
 3. Accept the per-ticket confirm prompt
 4. **Expected:** `opencode` takes over the full terminal (alt-screen exits, OpenCode's own UI appears);
    converse briefly, then exit
@@ -390,7 +389,7 @@ fail with a clear provider error — not a silent hang or an empty `signals.json
    actually on your PATH — launching Implement on the "ready to implement" sprint must not fail
    preflight asking for a _second_ provider's CLI. With no AI CLI installed at all the line reads
    `claude-only preset (no AI CLI on PATH — placeholder …)`
-3. `ralphctl demo` (no `--no-launch`) — **expected:** TUI opens directly into the sandbox's Home view,
+3. `ralphctl demo` (no `--no-launch`) — **expected:** TUI opens directly into the sandbox's Work view,
    no `WelcomeView` (settings are pre-seeded)
 4. Re-run `ralphctl demo --no-launch` — **expected:** the sandbox is wiped and reseeded from scratch
    (the `.ralphctl-demo` marker lets the command trust it owns the directory)
@@ -452,13 +451,13 @@ ralphctl settings set harness.plateauThreshold 3
 
 1. Let a flow run to completion — **expected:** the settled result card ends with a `Next steps` block naming
    the recommended flow and the key that launches it; the settled hint row reads
-   `↵ home · r re-run · g progress` (plus `v evaluation` when the focused task has a verdict)
-2. Press `r` — **expected:** it returns to Flows, which re-checks triggers against the sprint's status **now**
+   `↵ work · r re-run · g progress` (plus `v evaluation` when the focused task has a verdict)
+2. Press `r` — **expected:** it returns to Work, whose flow list re-checks triggers against the sprint's status **now**
    (a sprint that advanced during the run offers the next flow, not a stale repeat)
 3. Cancel a run with `Ctrl+C` — **expected:** a `Post-mortem` block lists only artifacts that actually exist on
    disk (`progress.md`, trace, verify logs, sprint dir); a `create-sprint` that failed before creating a sprint
    shows no paths rather than a guessed one
-4. **Pass condition:** Home and Flows recommend the same next action for the same sprint, in every state —
+4. **Pass condition:** Work's NEXT row and the Execute footer recommend the same next action for the same sprint, in every state —
    including `review` (two flows offered) and `done` (points at the pull request)
 
 ---
@@ -504,7 +503,7 @@ applied. If Grok is not yet configured, apply the preset first, then re-run doct
 **20a — interactive flow (refine):**
 
 1. Register a project with at least one draft-sprint ticket in `pending`
-2. From Home pipeline-map, select the **Refine** flow
+2. From Work (`1`), focus the **Refine** row and press `↵`
 3. Accept the per-ticket confirm prompt
 4. **Expected:** `grok` takes over the full terminal (alt-screen exits, Grok's own UI appears);
    converse briefly, then exit. ralphctl restores its TUI afterwards.
@@ -564,7 +563,7 @@ Confirm OS notifications are on (default): `ralphctl settings show | grep -A1 no
 
 **21a — a task blocks mid-run, the banner fires, the card stays put:**
 
-1. From Home, start the **Implement** flow on the sprint
+1. From Work (`1`), start the **Implement** flow on the sprint
 2. Watch Task A's card in the Tasks panel
 3. **Expected:** once the generator turn ends, Task A's card header switches to the △ triangle glyph in
    red and the status word reads `blocked` — never the grey `pending` uses
@@ -579,30 +578,29 @@ Confirm OS notifications are on (default): `ralphctl settings show | grep -A1 no
 7. **Expected:** once Task B settles and nothing is left `todo` / `in_progress`, the whole run settles.
    Task A's card is STILL visible on screen (not hidden behind a dim "N more above" cue) even though it
    sits earlier in the list than Task B
-8. **Expected:** the settled hint strip reads `↵ home · r re-run · g progress · v evaluation · u unblock`
+8. **Expected:** the settled hint strip reads `↵ work · r re-run · g progress · v evaluation · u unblock`
 
 **21b — finding it again from a cold TUI launch:**
 
 1. Force-quit ralphctl (`Ctrl+C`)
-2. Re-launch `pnpm dev` — **Expected:** lands on Home
-3. **Expected:** the sprint's hero card's ticket/task line ends with `· 1 blocked` in red, right after the
+2. Re-launch `pnpm dev` — **Expected:** lands on Work
+3. **Expected:** Work's facts row (`N tickets · N tasks …`) ends with `· 1 blocked` in red, right after the
    `tasks pending` count
-4. Press `r` to open the Sprints list — **Expected:** the sprint's card shows `· 1 blocked` in red, after
+4. Press `2` to open the Sprints list — **Expected:** the sprint's card shows `· 1 blocked` in red, after
    its ticket / pending / approved counts
 5. Press `Esc`, then `S` to open the cross-project sprint picker; move the cursor onto the sprint —
    **Expected:** its expanded detail line shows `1 blocked` in red
-6. Press `Esc` to close the picker (back to Home), press `r`, then `Enter` on the sprint's row to open
+6. Press `Esc` to close the picker (back to Work), press `2`, then `Enter` on the sprint's row to open
    its detail view —
-   **Expected:** the `Tasks` field reads `2  (1 done · 1 blocked)`; below it, a "Next phase" panel reads
-   `1 task(s) blocked` with hint `Press B to jump to one, u to retry it, or n → close-sprint to accept
-as-is …`
+   **Expected:** the `Tasks` field reads `2  (1 done · 1 blocked)`; the header strip's `next:` row
+   names the blocked task (`B` jumps to one, `u` retries it)
 7. Press `B` — **Expected:** the cursor jumps straight to Task A's row without arrow-keying past Task B
 
 **21c — closing a sprint with a blocked task:**
 
 1. The mixed done/blocked run in 21a auto-transitioned the sprint to `review` — confirm with
    `ralphctl sprint list`
-2. From the sprint-detail view, press `n` to open Flows and select **Close sprint** (only offered on a
+2. From the sprint-detail view, press `n` (Work, flow list focused) and select **Close sprint** (only offered on a
    `review` sprint)
 3. **Expected:** routed to Execute view; a confirm prompt whose first line reads
    `1 task(s) are blocked and won't run again until this sprint is reopened (unblocking one reopens it):`,
@@ -639,7 +637,7 @@ followed by `note: 1 task(s) stayed blocked: Task A` and `recover with: ralphctl
    closed-sprint blocked work, alongside the manual `sprint reopen` from 21d.)
 3. `ralphctl task list --sprint <id>` — **Expected:** Task A shows `[todo    ]` with no indented
    blocked-reason lines under it; Task B still shows `[done    ]`
-4. From Home, start **Implement** again on the sprint
+4. From Work (`1`), start **Implement** again on the sprint
 5. **Expected:** Task A (the only `todo` task; Task B is `done` and is skipped) is the one that runs —
    the harness actually picks the unblocked task up rather than leaving it stranded. No "resumed from
    aborted" banner renders under its header — this is a fresh attempt, not a resume
@@ -648,8 +646,8 @@ followed by `note: 1 task(s) stayed blocked: Task A` and `recover with: ralphctl
    unblocked task, not that one probe ticket produces a different outcome on retry. `ralphctl task show
 <task-A-id>` — **Expected:** `retiredAttempts` now holds one archived entry from the FIRST block, kept
    rather than discarded, separate from the fresh `attempts` this second block just settled
-7. **Expected:** the blocked count is still `1` (not `2`, not `0`) on every surface exercised in 21b (Home
-   card, Sprints list, sprint-detail's `Tasks` field) — one task, blocked twice, still reads as one
+7. **Expected:** the blocked count is still `1` (not `2`, not `0`) on every surface exercised in 21b (Work
+   facts row, Sprints list, sprint-detail's `Tasks` field) — one task, blocked twice, still reads as one
    blocked task
 
 ---

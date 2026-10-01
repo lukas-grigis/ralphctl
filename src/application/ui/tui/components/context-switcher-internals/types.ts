@@ -58,10 +58,15 @@ export interface CreateActionRow {
   readonly kind: 'create';
 }
 
-export type FlatRow = HeaderRow | SprintRow | CreateActionRow;
+/** Synthetic row that opens the create-project wizard; always offered, since a project needs no context. */
+export interface CreateProjectActionRow {
+  readonly kind: 'create-project';
+}
 
-/** Rows the cursor can land on: create, sprint, and any non-orphan project header. */
-export type CursorRow = HeaderRow | SprintRow | CreateActionRow;
+export type FlatRow = HeaderRow | SprintRow | CreateActionRow | CreateProjectActionRow;
+
+/** Rows the cursor can land on: the create actions, sprints, and any non-orphan project header. */
+export type CursorRow = FlatRow;
 
 export interface SprintGroup {
   readonly key: string;

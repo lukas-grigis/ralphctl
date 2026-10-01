@@ -53,17 +53,22 @@ const Row = ({
   readonly firstOfGroup: boolean;
 }): React.JSX.Element => (
   <Box paddingX={spacing.indent}>
-    <Text color={focused ? inkColors.primary : inkColors.rule}>{focused ? glyphs.actionCursor : ' '} </Text>
-    <Text color={checked ? inkColors.success : inkColors.muted}>[{checked ? glyphs.check : ' '}]</Text>
+    <Box flexShrink={0}>
+      <Text color={focused ? inkColors.primary : inkColors.rule}>{focused ? glyphs.actionCursor : ' '} </Text>
+      <Text color={checked ? inkColors.success : inkColors.muted}>[{checked ? glyphs.check : ' '}]</Text>
+    </Box>
     <Box width={GROUP_WIDTH} marginLeft={1} flexShrink={0}>
       <Text dimColor wrap="truncate-end">
         {firstOfGroup ? GROUP_LABELS[row.candidate.kind] : ''}
       </Text>
     </Box>
-    <Box flexGrow={1} flexShrink={1}>
+    <Box flexShrink={1} flexGrow={1} minWidth={0}>
       <Text bold={focused} wrap="truncate-end">
-        {row.name} <Text dimColor>{row.detail}</Text>
+        {row.name}
       </Text>
+    </Box>
+    <Box flexShrink={0} marginLeft={1}>
+      <Text dimColor>{row.detail}</Text>
     </Box>
     <Box width={SIZE_WIDTH} justifyContent="flex-end" flexShrink={0}>
       <Text dimColor>{formatBytes(row.candidate.bytes)}</Text>
@@ -94,7 +99,7 @@ const useHousekeepingKeys = (args: {
 }): void => {
   useViewKeys(
     [
-      listMoveBinding,
+      { ...listMoveBinding, enabled: args.hasRows },
       { keys: ['space'], hint: 'select', enabled: args.hasRows, run: args.toggle },
       { keys: ['a'], hint: 'all', enabled: args.hasRows, run: args.selectAll },
       { keys: ['c'], hint: 'clear', hidden: true, run: args.clear },
@@ -251,7 +256,6 @@ export const HousekeepingView = (): React.JSX.Element => {
             <EmptyState
               title="Nothing to reclaim"
               hint="No orphan sprints or memory, and nothing older than the threshold."
-              action={`r ${glyphs.arrowRight} rescan  ${glyphs.bullet}  esc ${glyphs.arrowRight} back`}
             />
             <FeedbackLine text={note} />
           </Box>

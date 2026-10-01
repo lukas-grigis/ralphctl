@@ -58,8 +58,10 @@ export const FieldList = ({ fields, labelWidth }: FieldListProps): React.JSX.Ele
       {fields.map((f, i) => (
         <Box key={`${f.label}-${String(i)}`} flexDirection="column">
           <Box>
-            <Text dimColor>{padLabel(f.label, width)}</Text>
-            <Box>
+            <Box flexShrink={0}>
+              <Text dimColor>{padLabel(f.label, width)}</Text>
+            </Box>
+            <Box flexShrink={1} minWidth={0}>
               {typeof f.value === 'string' || typeof f.value === 'number' ? (
                 <Text dimColor={f.dim ?? false}>{f.value}</Text>
               ) : (

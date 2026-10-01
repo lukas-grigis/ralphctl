@@ -606,6 +606,46 @@ describe('ContextSwitcher — + New sprint row', () => {
   });
 });
 
+describe('ContextSwitcher — + New project row', () => {
+  const oneSprint: DepsOpts = {
+    sprints: [makeSprint({ id: SID_A1, projectId: PID_A, name: 'existing sprint' })],
+    projects: [projectAlpha],
+  };
+
+  it('is offered right after + New sprint, and without a current project', async () => {
+    const withProject = await open(oneSprint, { selection: SEL_A });
+    const lines = frameOf(withProject).split('\n');
+    expect(lines.findIndex((l) => l.includes('+ New project'))).toBe(
+      lines.findIndex((l) => l.includes('+ New sprint')) + 1
+    );
+    withProject.result.unmount();
+
+    const bare = await open(oneSprint, { selection: {} });
+    expect(frameOf(bare)).toContain('+ New project');
+    expect(frameOf(bare)).not.toContain('+ New sprint');
+    bare.result.unmount();
+  });
+
+  it('n closes the overlay and pushes the create-project wizard without touching the selection', async () => {
+    const f = await open(oneSprint, { selection: SEL_A });
+    f.result.stdin.write('n');
+    await waitFor(() => expect(f.router().current.id).toBe('create-project'));
+    await waitFor(() => expect(frameOf(f)).not.toContain('switch sprint or project'));
+    f.result.unmount();
+  });
+
+  it('↵ on the row does the same', async () => {
+    const f = await open(oneSprint, { selection: SEL_A });
+    f.result.stdin.write(HOME);
+    await waitFor(() => expect(focusedLine(frameOf(f))).toContain('+ New sprint'));
+    f.result.stdin.write('j');
+    await waitFor(() => expect(focusedLine(frameOf(f))).toContain('+ New project'));
+    f.result.stdin.write(ENTER);
+    await waitFor(() => expect(f.router().current.id).toBe('create-project'));
+    f.result.unmount();
+  });
+});
+
 describe('ContextSwitcher — long lists', () => {
   const manySprints = (): readonly Sprint[] =>
     Array.from({ length: 30 }, (_u, i) => {

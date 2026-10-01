@@ -30,6 +30,7 @@ import { homedir } from 'node:os';
 import { Box, Text, useInput, type Key } from 'ink';
 import { TextPrompt } from '@src/application/ui/tui/prompts/text-prompt.tsx';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
+import { useTerminalSize } from '@src/application/ui/tui/runtime/use-terminal-size.ts';
 
 export interface PathPickerPromptProps {
   readonly message: string;
@@ -50,7 +51,10 @@ interface Entry {
 type Row =
   { readonly kind: 'parent' } | { readonly kind: 'select' } | { readonly kind: 'entry'; readonly entry: Entry };
 
-const VISIBLE_ROWS = 12;
+const MAX_VISIBLE_ROWS = 12;
+const MIN_VISIBLE_ROWS = 4;
+/** Rows the frame, wizard card, picker header, counter and hint line spend around the list. */
+const AROUND_LIST_ROWS = 17;
 const clamp = (n: number, min: number, max: number): number => Math.max(min, Math.min(max, n));
 
 const expandHome = (input: string): string => {
@@ -231,7 +235,7 @@ const PathPickerRows = ({ rows, start, end, cursor }: PathPickerRowsProps): Reac
         </Box>
       );
     })}
-    {rows.length > VISIBLE_ROWS && (
+    {rows.length > end - start && (
       <Box paddingX={spacing.indent}>
         <Text dimColor>
           {String(cursor + 1)} of {String(rows.length)}
@@ -252,6 +256,7 @@ export const PathPickerPrompt = ({
   const { entries, error, setError } = useDirectoryEntries(cwd, showHidden);
   const [cursor, setCursor] = useState(1); // Default to `[Select this directory]`.
   const [typing, setTyping] = useState(false);
+  const { rows: termRows } = useTerminalSize();
 
   // Synthetic rows: parent (..) → [Select this directory] → directory entries.
   const rows: readonly Row[] = [
@@ -283,9 +288,10 @@ export const PathPickerPrompt = ({
   );
 
   // Windowed slice around the cursor so deep directories stay scrollable.
-  const half = Math.floor(VISIBLE_ROWS / 2);
-  const start = clamp(cursor - half, 0, Math.max(0, rows.length - VISIBLE_ROWS));
-  const end = Math.min(rows.length, start + VISIBLE_ROWS);
+  const visibleRows = clamp(termRows - AROUND_LIST_ROWS, MIN_VISIBLE_ROWS, MAX_VISIBLE_ROWS);
+  const half = Math.floor(visibleRows / 2);
+  const start = clamp(cursor - half, 0, Math.max(0, rows.length - visibleRows));
+  const end = Math.min(rows.length, start + visibleRows);
 
   return (
     <Box flexDirection="column">

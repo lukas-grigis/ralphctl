@@ -115,10 +115,6 @@ export const DoctorView = (): React.JSX.Element => {
               <Text color={inkColors.primary}>
                 {glyphs.check} {String(healthyCount)} passed
               </Text>
-              <Text dimColor>
-                {'  '}
-                {glyphs.bullet} {showPassed ? '↵ hide' : '↵ show'}
-              </Text>
             </Box>
           )}
           {showPassed && healthy.map((bucket) => <GroupSection key={bucket.group} bucket={bucket} />)}
@@ -160,7 +156,7 @@ const SummaryHeader = ({ probes }: { readonly probes: readonly ProbeResult[] }):
       <Text dimColor>
         {' '}
         {String(warnings)} warning{warnings === 1 ? '' : 's'} {glyphs.bullet} {String(failures)} failure
-        {failures === 1 ? '' : 's'} {glyphs.bullet} {String(unknowns)} unknown {glyphs.bullet} r reload
+        {failures === 1 ? '' : 's'} {glyphs.bullet} {String(unknowns)} unknown
       </Text>
     </Box>
   );

@@ -144,11 +144,11 @@ describe('StatusBar — one-row hint strip', () => {
     r.unmount();
   });
 
-  it('shows only local hints and ctrl+c quit while a prompt holds the keyboard', async () => {
+  it('shows only ctrl+c quit while a prompt holds the keyboard — the view keys are muted', async () => {
     const r = mount(100, true);
     await waitForPredicate(() => (r.lastFrame() ?? '').includes('ctrl+c quit'), { label: 'prompt footer' });
     const frame = stripAnsi(r.lastFrame() ?? '');
-    expect(frame).toContain('↵ open');
+    expect(frame).not.toContain('↵ open');
     expect(frame).not.toContain('? help');
     expect(frame).not.toContain('(press !)');
     r.unmount();

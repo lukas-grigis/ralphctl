@@ -109,6 +109,7 @@ export const buildGroups = (
 export const flatten = (groups: readonly SprintGroup[], includeCreate: boolean): readonly FlatRow[] => {
   const rows: FlatRow[] = [];
   if (includeCreate) rows.push({ kind: 'create' });
+  rows.push({ kind: 'create-project' });
   for (const g of groups) {
     rows.push({
       kind: 'header',
@@ -128,6 +129,7 @@ export const flatten = (groups: readonly SprintGroup[], includeCreate: boolean):
 
 /** Sentinel id for the synthetic `+ New sprint` row — never collides with a real sprint id. */
 const CREATE_ROW_ID = '__create__';
+const CREATE_PROJECT_ROW_ID = '__create-project__';
 
 const HEADER_ID_PREFIX = 'project:';
 
@@ -138,6 +140,7 @@ export const cursorableRows = (rows: readonly FlatRow[]): readonly CursorRow[] =
 /** Stable id for a cursorable row — the `getId` fed to `useListWindow`. */
 export const cursorableRowId = (row: CursorRow): string => {
   if (row.kind === 'create') return CREATE_ROW_ID;
+  if (row.kind === 'create-project') return CREATE_PROJECT_ROW_ID;
   if (row.kind === 'header') return `${HEADER_ID_PREFIX}${row.groupKey}`;
   return row.sprint.id;
 };
@@ -174,5 +177,5 @@ export const preferredCursorId = (
   const firstHeader = rows.find((r): r is HeaderRow => r.kind === 'header' && !r.orphan);
   if (firstHeader !== undefined) return cursorableRowId(firstHeader);
   const firstCreate = rows.find((r): r is CreateActionRow => r.kind === 'create');
-  return firstCreate !== undefined ? CREATE_ROW_ID : '';
+  return firstCreate !== undefined ? CREATE_ROW_ID : CREATE_PROJECT_ROW_ID;
 };

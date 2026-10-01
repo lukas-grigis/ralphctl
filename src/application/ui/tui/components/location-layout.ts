@@ -12,7 +12,8 @@
  *   1. the subtitle,
  *   2. the trail, from its start (`▣ … › Sprint`),
  *   3. the `[STATUS]` chip (whole or not at all — never `[ACTI`),
- *   4. the project / sprint names, shortened with `…`.
+ *   4. below `lg` on a drilled-in view or one carrying a status chip: the sprint, then the project — the trail outranks the context,
+ *   5. the project / sprint names, shortened with `…`.
  */
 
 import { glyphs } from '@src/application/ui/tui/theme/tokens.ts';
@@ -183,8 +184,22 @@ export const layoutLocation = (input: LocationInput): LocationLayout => {
 
   // Steps 1–2: give up subtitle / trail while the right side stays intact; step 3: drop the status
   // chip, keeping the most-trimmed left.
+  const hasSubtitle = input.subtitle !== undefined && input.subtitle.length > 0;
+  const unclipped = hasSubtitle ? 2 : 1;
+  const noSubtitleLeft = lefts[unclipped - 1] as LocationSegment[];
+  const none: RightSpec = { project: undefined, sprint: undefined, chip: undefined };
+  const drilledIn = !input.wide && (input.trail.length > 0 || (input.leftExtraWidth ?? 0) > 0);
+  const toFull = (left: LocationSegment[]): readonly [LocationSegment[], RightSpec] => [left, fullSpec];
   const attempts: ReadonlyArray<readonly [LocationSegment[], RightSpec]> = [
-    ...lefts.map((left): readonly [LocationSegment[], RightSpec] => [left, fullSpec]),
+    ...lefts.slice(0, unclipped).map(toFull),
+    ...(drilledIn
+      ? [
+          [noSubtitleLeft, noChipSpec] as const,
+          [noSubtitleLeft, { ...none, project: input.project }] as const,
+          [noSubtitleLeft, none] as const,
+        ]
+      : []),
+    ...lefts.slice(unclipped).map(toFull),
     ...(chipFull !== undefined ? [[tightestLeft, noChipSpec] as const] : []),
   ];
   for (const [left, spec] of attempts) {

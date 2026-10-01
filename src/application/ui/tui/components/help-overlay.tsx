@@ -74,7 +74,9 @@ const HelpRowView = ({ row }: { readonly row: HelpRow }): React.JSX.Element => {
         <Box width={20}>
           <Text color={inkColors.highlight}>{rowKeys.join(' · ')}</Text>
         </Box>
-        <Text dimColor>{row.label}</Text>
+        <Text dimColor wrap="truncate-end">
+          {row.label}
+        </Text>
       </Box>
     );
   }
@@ -85,7 +87,9 @@ const HelpRowView = ({ row }: { readonly row: HelpRow }): React.JSX.Element => {
           {row.label}
         </Text>
       </Box>
-      <Text dimColor>{row.description ?? ''}</Text>
+      <Text dimColor wrap="truncate-end">
+        {row.description ?? ''}
+      </Text>
     </Box>
   );
 };

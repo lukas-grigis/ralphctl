@@ -64,7 +64,7 @@ export const TasksSection = ({
       <Text bold>{glyphs.badge} Tasks</Text>
       {tasks.length === 0 ? (
         <Box marginTop={spacing.section}>
-          <EmptyState title="No tasks yet" hint="Run plan from Flows (n) once tickets are approved." />
+          <EmptyState title="No tasks yet" hint="Run plan from Work (n) once tickets are approved." />
         </Box>
       ) : (
         <Box flexDirection="column" marginTop={spacing.section}>
@@ -94,9 +94,6 @@ export const TasksSection = ({
           <OverflowRow direction="below" count={tasks.length - window.end} />
         </Box>
       )}
-      <Box paddingX={spacing.indent} marginTop={spacing.section}>
-        <Text dimColor>{glyphs.bullet} ↵/o expand/collapse</Text>
-      </Box>
     </Box>
   );
 };

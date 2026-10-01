@@ -117,6 +117,39 @@ describe('SessionsView', () => {
     result.unmount();
   });
 
+  it('keeps a long title to one line, ahead of the flow / status / elapsed columns, at 60 columns', async () => {
+    const sessions = createSessionManager();
+    sessions.register({
+      runner: fakeRunner('r-1', 'running'),
+      flowId: 'implement',
+      title: `Implement — ${'a-very-long-sprint-name-'.repeat(4)}`,
+    });
+    const { result } = renderView(<SessionsView />, {
+      deps: emptyDeps,
+      initial: { id: 'sessions' },
+      sessions,
+      size: { columns: 60, rows: 24 },
+    });
+    await waitForViewReady(result, (f) => f.includes('Implement'));
+    const lines = (result.lastFrame() ?? '').split('\n');
+    const row = lines.find((l) => l.includes(glyphs.actionCursor)) ?? '';
+    expect(row).toContain('…');
+    expect(row).toContain('[RUNNING]');
+    expect(row).toMatch(/\d+(ms|s)/);
+    result.unmount();
+  });
+
+  it('publishes no list hints while there are no sessions', async () => {
+    const { result } = renderView(<SessionsView />, {
+      deps: emptyDeps,
+      initial: { id: 'sessions' },
+      sessions: createSessionManager(),
+    });
+    await waitForViewReady(result, (f) => f.includes('No sessions yet'));
+    expect(result.lastFrame() ?? '').not.toContain('stop run');
+    result.unmount();
+  });
+
   it('keeps the cursor on the same session id after the list reorders (L7)', async () => {
     const a = fakeRecord('s-a', 'Alpha', 'running');
     const b = fakeRecord('s-b', 'Bravo', 'running');

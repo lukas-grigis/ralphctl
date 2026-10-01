@@ -177,14 +177,11 @@ export const fluid = (
 ): number => Math.min(opts.max, Math.max(opts.min, Math.floor(columns * opts.ratio)));
 
 /**
- * Default vertical chrome a windowed-list view reserves outside the list itself: the
- * app chrome (tab bar + location line + rule), the `StatusBanner` / `PromptHost` slots (collapsed
- * when empty, but budgeted for so a banner popping up doesn't shove the list off-screen), and
- * the footer `StatusBar` rule + hint row. Individual views commonly add their own chrome on top
- * (a section stamp, a summary line, a footer hint) — pass an explicit `chromeRows` to
- * {@link listCapacity} to account for it; this default is the shared floor every view pays.
+ * Default vertical chrome a windowed-list view reserves outside the list itself: the five chrome
+ * rows (tab bar, location line, rule, footer rule, hint row) plus the two overflow-cue rows. Views
+ * that add their own rows (summary, count line, feedback) pass an explicit `chromeRows`.
  */
-export const LIST_CHROME_ROWS = 12;
+export const LIST_CHROME_ROWS = 7;
 
 /**
  * Visible-row (or visible-card) budget for a windowed list, derived from the terminal height.

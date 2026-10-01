@@ -57,7 +57,14 @@ export const RepoCard = ({ repo, focused }: RepoCardProps): React.JSX.Element =>
       </Text>
       <FieldList
         fields={[
-          { label: 'Path', value: <Text dimColor>{repo.path}</Text> },
+          {
+            label: 'Path',
+            value: (
+              <Text dimColor wrap="truncate-middle">
+                {repo.path}
+              </Text>
+            ),
+          },
           { label: 'Setup', value: focusable(setupFocused, repo.setupScript ?? noneText) },
           { label: 'Verify', value: focusable(verifyFocused, repo.verifyScript ?? noneText) },
         ]}

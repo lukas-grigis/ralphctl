@@ -59,6 +59,27 @@ describe('ProjectsView', () => {
     result.unmount();
   });
 
+  it('middle-truncates a long repository path to one line at 60 columns', async () => {
+    const path = `/Users/someone/${'deeply-nested/'.repeat(8)}hello-python`;
+    const project = makeProject({
+      displayName: 'Demo Project',
+      slug: 'demo-proj',
+      repositories: [makeRepository({ name: 'hello-python', path })],
+    });
+    const { result } = renderView(<ProjectsView />, {
+      deps: stubDeps([project]),
+      initial: { id: 'projects' },
+      size: { columns: 60, rows: 24 },
+    });
+    await waitForViewReady(result, (f) => f.includes('Demo Project'));
+    const lines = (result.lastFrame() ?? '').split('\n');
+    const row = lines.find((l) => l.includes('hello-python /')) ?? '';
+    expect(row).toContain('…');
+    expect(row).toMatch(/\/hello-python\s+│/);
+    expect(lines.some((l) => l.includes('deeply-nested/hello-python') && !l.includes('hello-python /'))).toBe(false);
+    result.unmount();
+  });
+
   it('marks only the focused row with the ▸ cursor, so focus survives NO_COLOR', async () => {
     const projects = [
       makeProject({ id: ProjectId.generate(), displayName: 'First One', slug: 'first' }),

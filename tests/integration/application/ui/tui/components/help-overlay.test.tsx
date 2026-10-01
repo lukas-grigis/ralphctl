@@ -16,6 +16,7 @@ import { describe, expect, it } from 'vitest';
 import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx';
 import { DOWN, UP, PAGE_DOWN, tick } from '@tests/integration/application/ui/tui/_keys.ts';
 import { HintsProvider } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
+import { renderAtSize } from '@tests/helpers/render-at-size.tsx';
 
 /** ink-testing-library's stdout stub exposes no `rows`, so `useTerminalSize` falls back to 24. */
 const STUB_TERMINAL_ROWS = 24;
@@ -244,6 +245,19 @@ describe('HelpOverlay', () => {
     const r = renderOverlay('home');
     await tick(30);
     expect(r.lastFrame() ?? '').toContain('Work / Sprints / Projects / Runs / System');
+    r.unmount();
+  });
+
+  it('renders one terminal row per help row at 80 columns — long labels truncate instead of wrapping', async () => {
+    const r = renderAtSize(
+      <HintsProvider>
+        <HelpOverlay routeId="home" />
+      </HintsProvider>,
+      { columns: 80, rows: 24 }
+    );
+    await tick(30);
+    const parsed = parseFrame(r.lastFrame() ?? '');
+    expect(parsed.body.length).toBe(parsed.last - parsed.first + 1);
     r.unmount();
   });
 });

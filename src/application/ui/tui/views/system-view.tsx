@@ -48,14 +48,18 @@ const Row = ({ row, focused }: { readonly row: SystemRow; readonly focused: bool
   const color = SUMMARY_COLOR[row.tone];
   return (
     <Box paddingX={spacing.indent}>
-      <Text color={focused ? inkColors.primary : inkColors.rule}>{focused ? glyphs.actionCursor : ' '}</Text>
-      <Text bold={focused} {...(focused ? { color: inkColors.primary } : {})}>
-        {' '}
-        {row.label.padEnd(LABEL_WIDTH)}
-      </Text>
-      <Text wrap="truncate-end" {...(color !== undefined ? { color } : { dimColor: true })}>
-        {row.summary}
-      </Text>
+      <Box flexShrink={0}>
+        <Text color={focused ? inkColors.primary : inkColors.rule}>{focused ? glyphs.actionCursor : ' '}</Text>
+        <Text wrap="truncate-end" bold={focused} {...(focused ? { color: inkColors.primary } : {})}>
+          {' '}
+          {row.label.padEnd(LABEL_WIDTH)}
+        </Text>
+      </Box>
+      <Box flexShrink={1} flexGrow={1} minWidth={0}>
+        <Text wrap="truncate-end" {...(color !== undefined ? { color } : { dimColor: true })}>
+          {row.summary}
+        </Text>
+      </Box>
     </Box>
   );
 };

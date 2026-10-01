@@ -21,7 +21,7 @@
 
 import React, { useState } from 'react';
 import { Box, Text, useInput, type Key } from 'ink';
-import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
+import { inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { useTerminalSize } from '@src/application/ui/tui/runtime/use-terminal-size.ts';
 
 /** Smallest body window worth showing, however short the terminal. */
@@ -125,7 +125,7 @@ export const ScrollableMessage = ({
   return (
     <>
       <Text color={inkColors.primary} bold>
-        {glyphs.actionCursor} {header}
+        {header}
       </Text>
       {body.length > 0 && (
         <Box flexDirection="column" marginTop={spacing.section}>

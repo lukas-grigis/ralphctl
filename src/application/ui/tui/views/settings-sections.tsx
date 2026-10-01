@@ -8,7 +8,7 @@ import React from 'react';
 import { Box, Text } from 'ink';
 import { Card } from '@src/application/ui/tui/components/card.tsx';
 import { FieldList } from '@src/application/ui/tui/components/field-list.tsx';
-import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
+import { inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import type { PresetWarning } from '@src/application/flows/settings-apply-preset/ctx.ts';
 import { PresetBar } from '@src/application/ui/tui/views/preset-bar.tsx';
 import { AiRow, ImplementAiRow } from '@src/application/ui/tui/views/ai-row.tsx';
@@ -21,13 +21,13 @@ export interface SectionStripProps {
 }
 
 export const SectionStrip = ({ sections, activeIdx }: SectionStripProps): React.JSX.Element => (
-  <Box flexWrap="wrap">
+  <Box flexWrap="wrap" paddingX={spacing.indent}>
     {sections.map((sec, i) => {
       const isActive = i === activeIdx;
       return (
         <Box key={sec.id} marginRight={spacing.indent}>
           <Text {...(isActive ? { color: inkColors.primary } : { dimColor: true })} bold={isActive}>
-            {isActive ? `${glyphs.actionCursor} ${sec.label}` : `  ${sec.label}`}
+            {isActive ? `[${sec.label}]` : ` ${sec.label} `}
           </Text>
         </Box>
       );

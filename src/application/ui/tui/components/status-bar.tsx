@@ -25,14 +25,14 @@ import { Divider } from '@src/application/ui/tui/components/divider.tsx';
 const QUIT_HINT: FitHint = { keys: 'ctrl+c', label: 'quit' };
 
 /**
- * While a prompt holds the keyboard every single-letter global is muted, so only the local hints
- * and `ctrl+c quit` are honest; otherwise the local hints lead and the globals follow.
+ * While a prompt holds the keyboard the view's keys and every global letter are muted (the prompt
+ * card carries its own hints), so only `ctrl+c quit` is honest; otherwise local hints lead.
  */
 const orderFooterHints = (args: {
   readonly local: readonly FitHint[];
   readonly globals: readonly FitHint[];
   readonly promptActive: boolean;
-}): readonly FitHint[] => (args.promptActive ? [...args.local, QUIT_HINT] : [...args.local, ...args.globals]);
+}): readonly FitHint[] => (args.promptActive ? [QUIT_HINT] : [...args.local, ...args.globals]);
 
 /** One row, never wrapping: fitted cells inside a single truncating `<Text>`. */
 const HintStrip = ({ hints, budget }: { readonly hints: readonly FitHint[]; readonly budget: number }) => {

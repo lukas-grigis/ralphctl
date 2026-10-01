@@ -85,13 +85,11 @@ export const TicketsSection = ({
           <OverflowRow direction="below" count={sprint.tickets.length - window.end} />
         </Box>
       )}
-      <Box paddingX={spacing.indent} marginTop={spacing.section}>
-        <Text dimColor>
-          {ticketsEditable
-            ? `${glyphs.bullet} a add ${glyphs.bullet} ↵/o expand/collapse ${glyphs.bullet} d remove`
-            : `${glyphs.bullet} tickets frozen (sprint not in draft) ${glyphs.bullet} ↵/o expand/collapse`}
-        </Text>
-      </Box>
+      {!ticketsEditable && (
+        <Box paddingX={spacing.indent}>
+          <Text dimColor>{glyphs.bullet} tickets frozen (sprint not in draft)</Text>
+        </Box>
+      )}
     </Box>
   );
 };

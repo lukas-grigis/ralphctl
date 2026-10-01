@@ -231,7 +231,7 @@ describe('buildNextSteps — settled-run prepend', () => {
       runStatus: 'failed',
       failedLeafLabel: 'generate patch',
     });
-    expect(steps[0]).toMatchObject({ key: 'r', label: 're-run from Flows' });
+    expect(steps[0]).toMatchObject({ key: 'r', label: 're-run from Work' });
     expect(steps[0]?.detail).toContain('generate patch');
     // The state rows still follow — a failed run does not erase where the sprint stands.
     expect(steps.map((s) => s.flow)).toContain('review');
@@ -239,7 +239,7 @@ describe('buildNextSteps — settled-run prepend', () => {
 
   it('an aborted run leads with re-run and says the sprint is unchanged', () => {
     const { steps } = buildNextSteps({ ...withSprint('draft'), runStatus: 'aborted' });
-    expect(steps[0]).toMatchObject({ key: 'r', label: 're-run from Flows' });
+    expect(steps[0]).toMatchObject({ key: 'r', label: 're-run from Work' });
     expect(steps[0]?.detail).toContain('unchanged');
   });
 

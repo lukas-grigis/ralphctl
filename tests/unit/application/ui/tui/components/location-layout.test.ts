@@ -41,9 +41,25 @@ describe('layoutLocation', () => {
     const noSubtitle = layoutLocation({ ...input, columns: 50 });
     expect(noSubtitle.leftText).not.toContain('long subtitle');
 
-    const tight = layoutLocation({ ...input, columns: 34, subtitle: undefined, project: 'Hello Python', sprint: 'S1' });
+    const tight = layoutLocation({ ...input, columns: 24, subtitle: undefined, project: 'Hello Python', sprint: 'S1' });
     expect(tight.leftText.startsWith('▣ … › ')).toBe(true);
     expect(tight.leftText.endsWith('Sprint')).toBe(true);
+  });
+
+  it('below lg a drilled-in view keeps its whole trail and sheds the context instead', () => {
+    const l = layoutLocation(
+      base({
+        columns: 80,
+        section: 'Sprints',
+        trail: ['ready to implement · 36bf2290'],
+        project: 'Hello Python (demo 36bf2290)',
+        sprint: 'ready to plan · 36bf2290',
+        status: 'draft',
+      })
+    );
+    expect(l.leftText).toBe('▣ Sprints › ready to implement · 36bf2290');
+    expect(l.rightText).toBe('Hello Python (demo 36bf2290)');
+    expect(l.rightText).not.toContain('…');
   });
 
   it('drops the whole [STATUS] chip before it shortens any name', () => {
@@ -63,7 +79,7 @@ describe('layoutLocation', () => {
 
   it('shortens names with … only as the last resort, and never exceeds the row', () => {
     const l = layoutLocation(
-      base({ columns: 40, trail: ['x'], project: 'A very long project name', sprint: 'An equally long sprint name' })
+      base({ columns: 40, trail: [], project: 'A very long project name', sprint: 'An equally long sprint name' })
     );
     expect(l.rightText).toContain('…');
     expect(rowWidth(l)).toBeLessThanOrEqual(40);

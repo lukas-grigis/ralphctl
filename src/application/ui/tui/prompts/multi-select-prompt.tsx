@@ -118,20 +118,24 @@ const OptionRow = ({ opt, focused, checked }: OptionRowProps): React.JSX.Element
   const disabled = opt.disabled === true;
   return (
     <Box>
-      <Text color={focused ? inkColors.primary : inkColors.muted}>{focused ? glyphs.actionCursor : ' '} </Text>
-      <Text color={checked ? inkColors.success : inkColors.muted} bold={!disabled}>
-        [{checked ? glyphs.check : ' '}]
-      </Text>
-      <Text bold={focused} dimColor={disabled}>
-        {' '}
-        {opt.label}
-      </Text>
-      {opt.description !== undefined && (
-        <Text dimColor>
-          {' '}
-          {glyphs.emDash} {opt.description}
+      <Box flexShrink={0}>
+        <Text color={focused ? inkColors.primary : inkColors.muted}>{focused ? glyphs.actionCursor : ' '} </Text>
+        <Text color={checked ? inkColors.success : inkColors.muted} bold={!disabled}>
+          [{checked ? glyphs.check : ' '}]
         </Text>
-      )}
+        <Text> </Text>
+      </Box>
+      <Text>
+        <Text bold={focused} dimColor={disabled}>
+          {opt.label}
+        </Text>
+        {opt.description !== undefined && (
+          <Text dimColor>
+            {' '}
+            {glyphs.emDash} {opt.description}
+          </Text>
+        )}
+      </Text>
     </Box>
   );
 };

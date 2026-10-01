@@ -157,14 +157,13 @@ describe('SprintDetailView — `v` opens the focused task evaluation', () => {
     result.unmount();
   });
 
-  it('advertises the chord in the static action bar', async () => {
-    // The action bar is static copy (like `↵/o expand`), so it names `v` unconditionally; the
-    // per-focus gating lives in the FOOTER hint, which `buildDetailHints` drives off
-    // `focusedEvaluatedTask`. Pinning the bar keeps the affordance discoverable.
+  it('keeps the chord out of the body — the footer owns key hints', async () => {
     const task = evaluatedTask('wire the migration', 'rounds/2/evaluator/evaluation.md');
     const { result } = renderDetail([task]);
     await waitForViewReady(result, (f) => f.includes('wire the migration'));
-    expect(result.lastFrame() ?? '').toContain('v evaluation');
+    const frame = result.lastFrame() ?? '';
+    expect(frame).not.toContain('↑/↓ focus');
+    expect(frame).not.toContain('↵/o expand/collapse');
     result.unmount();
   });
 });

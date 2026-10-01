@@ -450,8 +450,8 @@ const TextAreaFrame = ({
       })}
       {hasBelow ? <Text dimColor>{`  ${glyphs.clipEllipsis}`}</Text> : null}
     </Box>
-    <Text dimColor>
-      ↵ submit · \↵ newline · ←/→/↑/↓ cursor · home/end edge · esc {escLabel} · ctrl+w word · ctrl+u clear
+    <Text dimColor wrap="truncate-end">
+      ↵ submit · \↵ newline · esc {escLabel} · ←/→/↑/↓ cursor · home/end edge · ctrl+w word · ctrl+u clear
     </Text>
   </Box>
 );

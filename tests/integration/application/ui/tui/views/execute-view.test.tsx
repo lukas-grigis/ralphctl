@@ -121,8 +121,8 @@ describe('ExecuteView', () => {
     // A settled run must also say what to do next — the card's `nextSteps` block was dead code
     // until the footer started feeding it.
     expect(frame).toContain('Next steps');
-    // Press ↵ to return — the not-running hint routes Home.
-    expect(frame).toContain('home');
+    // Press ↵ to return — the not-running hint routes to Work.
+    expect(frame).toContain('↵ work');
     result.unmount();
   });
 

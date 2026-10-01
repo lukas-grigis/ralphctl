@@ -111,16 +111,23 @@ const ProjectRow = ({ project, focused }: { project: Project; focused: boolean }
     title={project.displayName}
     rightSlot={<Text dimColor>{plural(project.repositories.length, 'repo')}</Text>}
   >
-    <Text dimColor>
+    <Text dimColor wrap="truncate-end">
       {project.slug}
       {project.description !== undefined && project.description.length > 0
         ? ` ${glyphs.bullet} ${project.description}`
         : ''}
     </Text>
     {project.repositories.slice(0, 2).map((r) => (
-      <Text key={r.id} dimColor>
-        {glyphs.activityArrow} {r.name} <Text dimColor>{r.path}</Text>
-      </Text>
+      <Box key={r.id}>
+        <Box flexShrink={0}>
+          <Text dimColor>
+            {glyphs.activityArrow} {r.name}{' '}
+          </Text>
+        </Box>
+        <Text dimColor wrap="truncate-middle">
+          {r.path}
+        </Text>
+      </Box>
     ))}
     {project.repositories.length > 2 && (
       <Text dimColor italic>
@@ -282,7 +289,7 @@ const projectsKeyBindings = ({
   { keys: ['↵'], hint: 'open' },
   {
     keys: ['m'],
-    hint: 'make current',
+    hint: 'current',
     run: () => {
       // Explicit make-current — switching projects clears the sprint cursor by design, so
       // this is the deliberate action, not a side effect of browsing.

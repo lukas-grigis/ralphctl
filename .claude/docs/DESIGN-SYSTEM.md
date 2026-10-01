@@ -141,8 +141,7 @@ All terminal-width decisions use the named breakpoints exported from `src/applic
   falling through to the next smaller specified value. `sm` is required as the floor.
 - `listCapacity(rows, { rowHeight?, chromeRows?, min, max? }): number` — the row-count counterpart to
   `fluid`, for windowed lists. Computes `floor(max(0, rows - chromeRows) / rowHeight)`, floored at `min`
-  and (if supplied) capped at `max`. `chromeRows` defaults to `LIST_CHROME_ROWS` (12 — the app chrome +
-  `StatusBanner` + `PromptHost` + footer stack every view pays; conservative since the chrome shrank to 5 rows); pass an explicit `chromeRows`
+  and (if supplied) capped at `max`. `chromeRows` defaults to `LIST_CHROME_ROWS` (7 — the five chrome rows plus the two overflow-cue rows); pass an explicit `chromeRows`
   when a view's own chrome (section stamp, summary line, footer hint, …) adds more. `rowHeight` defaults
   to `1`; set it higher for a card-based list whose rows span several terminal lines. Replaces the
   per-view `Math.max(min, terminalRows - ownChromeConstant)` idiom (the sprint picker, now the context switcher, used to hand-roll
@@ -273,7 +272,9 @@ degrades (wordmark, then padding, then badges, then the right side) so the five 
 
 **Location line fit order.** Drop the subtitle, then trim the trail from its start (`▣ … › Sprint`), then
 drop the `[STATUS]` chip (whole or not at all — never `[ACTI`), then shorten the project / sprint names with
-`…`. The row is always exactly one line. Crumbs come from `ROUTE_LABELS` in `runtime/nav-tree.ts`; detail
+`…`. Below `lg`, on a drilled-in view (trail present) or one carrying a status chip (Execute), the trail
+outranks the context: the chip, then the sprint, then the project give way _before_ the trail is clipped, so
+the row never shows two truncated sprint names. The row is always exactly one line. Crumbs come from `ROUTE_LABELS` in `runtime/nav-tree.ts`; detail
 routes label themselves from route props (`sprintName` / `projectName`), and Execute names the flow it runs
 (`ViewShell`'s `crumb`). When an Execute run is focused, both right-hand labels come from the run's pinned
 context — never one from the run and one from the global selection.
@@ -520,7 +521,8 @@ accelerators are never listed. The first hint that does not fit
 ends the run, and a trailing `… ? more` cell is reserved whenever anything is dropped — a
 low-priority hint never survives a higher one. Honesty rules: `esc` is omitted at the Work
 root (a no-op there); `q` is omitted everywhere it does not quit; while a prompt holds `claimPrompt` the
-strip shows only the view-local hints plus `ctrl+c quit`, because every global letter is muted.
+strip shows only `ctrl+c quit` — the view's own keys and every global letter are muted, and the prompt
+card carries its hints.
 
 Layout tests that depend on terminal width use `renderAtSize(node, { columns, rows })` from
 `tests/helpers/render-at-size.tsx`; `ink-testing-library` is pinned to 100 columns.
@@ -580,11 +582,12 @@ and closes, `esc` closes, and `router.stack` is untouched either way — the vie
 | `↑` / `↓` | Move (`j` / `k` aliases) — over the create row, project headers and sprint rows                   |
 | `↵`       | Sprint → `setProjectAndSprint`; project header → `setProject` (clears the sprint when it changes) |
 | `c`       | New sprint in the current project (`+ New sprint in <project>` row) — closes, then launches       |
+| `n`       | New project (`+ New project` row, always offered) — closes, then pushes the create-project wizard |
 | `t`       | Toggle scope — all projects ↔ current project only                                                |
 | `f`       | Toggle hide-done — hide / show `done` sprints                                                     |
 | `esc`     | Close                                                                                             |
 
-Rows: a `+ New sprint in <project>` row (only with a current project), then each project as a selectable
+Rows: a `+ New sprint in <project>` row (only with a current project), a `+ New project` row, then each project as a selectable
 header — `<NAME> · N repo(s)` with `↵ switch project` on the right, or `no sprints · ↵ switch` — followed by
 its sprints (name, status chip, `current`, `⚠ N blocked`). Sprints whose project was deleted group under a
 non-selectable `⚠ UNKNOWN PROJECT` header. Width: full width below `md`; `min(96, columns − 4)` from `md`,
@@ -818,7 +821,7 @@ pushes a dedicated `*-detail-view.tsx`).
 ### 7.5 Settings view — section tabs
 
 `SettingsView` is the only configuration surface dense enough to need an in-view nav primitive.
-It uses a **segmented section strip** (text tabs, no chrome) along the top: `← / →` cycle
+It uses a **segmented section strip** (text tabs, no chrome; the active one bracketed `[Label]` — `▸` stays the row cursor) along the top: `← / →` cycle
 sections; `↑ / ↓` navigate fields inside the active section; `↵ / e` opens the editor for the
 focused field. Only one section's fields render at a time. The view subtitle names the active section;
 the keys live only in the footer strip. `[` / `]` are not bound. The view passes `suppressScrollArrows`
@@ -919,6 +922,10 @@ Use one spelling everywhere. `DRAFT`, `PLANNED`, `ACTIVE`, `REVIEW`, `DONE`, `TO
   names a use case or reaches into `AppDeps`. Reach for this only when there is genuinely no chain to
   run — inventing a one-leaf chain to satisfy the layering buys nothing. Anything with steps, prompts,
   or a trace is a flow.
+- ❌ A row `<Box>` whose leading `<Text>` siblings (cursor, checkbox, label) are not wrapped in `flexShrink={0}` — Yoga
+  shrinks them to nothing when the trailing text is long, so the cursor vanishes and the row grows a blank second
+  line. Wrap the fixed cells, give the flexible cell `flexShrink={1} minWidth={0}` and `wrap="truncate-end"`
+  (`truncate-middle` for paths). Rows are exactly one line (§ 6.4).
 - ❌ View mounts a prompt outside the injected `InteractivePrompt` port.
 - ❌ Mixing `<Text color={inkColors.error}>` with `ResultCard` in the same state.
 - ❌ New prompt component — reuse the `InteractivePrompt` port + `createInkInteractivePrompt`.

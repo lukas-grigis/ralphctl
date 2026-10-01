@@ -64,6 +64,23 @@ describe('HousekeepingView', () => {
     result.unmount();
   });
 
+  it('keeps each candidate on one line with its cursor and checkbox at 60 columns', async () => {
+    const { result } = renderView(<HousekeepingView />, {
+      deps: app.deps,
+      initial: { id: 'housekeeping' },
+      size: { columns: 60, rows: 24 },
+    });
+    await waitForViewReady(result, (f) => f.includes('Orphan sprints'));
+    const lines = (result.lastFrame() ?? '').split('\n');
+    const rows = lines.filter((l) => l.includes('[ ]'));
+    expect(rows.length).toBeGreaterThanOrEqual(4);
+    expect(rows[0]).toContain('▸');
+    // No blank spacer line between consecutive candidate rows.
+    const first = lines.indexOf(rows[0] as string);
+    expect(lines.slice(first, first + rows.length).every((l) => l.includes('[ ]'))).toBe(true);
+    result.unmount();
+  });
+
   it('deletes one orphan sprint through ConfirmCard and leaves the other groups untouched', async () => {
     const scan = await app.deps.housekeeping.scan();
     if (!scan.ok) throw scan.error;

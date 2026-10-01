@@ -136,7 +136,7 @@ describe('Execute view — settled-run next steps', () => {
     });
     await waitForViewReady(result, (f) => f.includes('re-run'));
     const frame = result.lastFrame() ?? '';
-    expect(frame).toContain('home');
+    expect(frame).toContain('↵ work');
     expect(frame).toContain('re-run');
     expect(frame).toContain('progress');
     result.unmount();

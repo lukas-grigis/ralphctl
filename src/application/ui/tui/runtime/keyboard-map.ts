@@ -31,7 +31,7 @@ export interface KeyBinding {
  * sections are what the UI teaches.
  */
 export const globalKeys = {
-  back: { keys: ['esc'], label: 'back — up one level, or to Work from a section root' },
+  back: { keys: ['esc'], label: 'back — up one level, or to Work from a root' },
   sections: { keys: ['1', '2', '3', '4', '5'], label: 'jump to Work / Sprints / Projects / Runs / System' },
   home: { keys: ['h'], label: 'Work, reset to its root' },
   flows: { keys: ['n'], label: 'flows (Work, flow list focused)' },
@@ -188,7 +188,7 @@ export const scrollKeys = {
 export const executeKeys = {
   cancel: { keys: ['c'], label: 'cancel run (while running)' },
   detach: { keys: ['D'], label: 'detach (background)' },
-  rerun: { keys: ['r'], label: 're-run from Flows (once settled)' },
+  rerun: { keys: ['r'], label: 're-run from Work (once settled)' },
   copyTask: { keys: ['y'], label: 'copy the active task summary (Execute only)' },
 } as const satisfies Record<string, KeyBinding>;
 

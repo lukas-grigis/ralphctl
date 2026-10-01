@@ -78,7 +78,7 @@ const runStatusRows = (input: NextStepsInput): readonly NextStep[] => {
     return [
       {
         key: 'r',
-        label: 're-run from Flows',
+        label: 're-run from Work',
         detail:
           input.failedLeafLabel !== undefined
             ? `${input.failedLeafLabel} failed — triggers are re-checked first`
@@ -87,7 +87,7 @@ const runStatusRows = (input: NextStepsInput): readonly NextStep[] => {
     ];
   }
   if (input.runStatus === 'aborted') {
-    return [{ key: 'r', label: 're-run from Flows', detail: 'the cancelled step left the sprint unchanged' }];
+    return [{ key: 'r', label: 're-run from Work', detail: 'the cancelled step left the sprint unchanged' }];
   }
   return [];
 };

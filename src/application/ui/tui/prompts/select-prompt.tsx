@@ -112,18 +112,22 @@ export const SelectPrompt = ({
           // the visual affordance matches the keyboard behaviour — they aren't reachable.
           return (
             <Box key={`opt-${String(i)}`}>
-              <Text color={focused && !disabled ? inkColors.primary : inkColors.muted}>
-                {focused && !disabled ? glyphs.actionCursor : ' '}{' '}
-              </Text>
-              <Text bold={focused && !disabled} dimColor={disabled}>
-                {opt.label}
-              </Text>
-              {opt.description !== undefined && (
-                <Text dimColor>
-                  {' '}
-                  {glyphs.emDash} {opt.description}
+              <Box flexShrink={0}>
+                <Text color={focused && !disabled ? inkColors.primary : inkColors.muted}>
+                  {focused && !disabled ? glyphs.actionCursor : ' '}{' '}
                 </Text>
-              )}
+              </Box>
+              <Text>
+                <Text bold={focused && !disabled} dimColor={disabled}>
+                  {opt.label}
+                </Text>
+                {opt.description !== undefined && (
+                  <Text dimColor>
+                    {' '}
+                    {glyphs.emDash} {opt.description}
+                  </Text>
+                )}
+              </Text>
             </Box>
           );
         })}

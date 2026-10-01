@@ -250,7 +250,9 @@ export const TextPrompt = ({
         </Text>
       )}
       {previewText !== undefined && <Text dimColor>{previewText}</Text>}
-      <Text dimColor>↵ submit · ←/→ cursor · home/end edge · esc {escLabel} · ctrl+w word · ctrl+u clear</Text>
+      <Text dimColor wrap="truncate-end">
+        ↵ submit · esc {escLabel} · ←/→ cursor · home/end edge · ctrl+w word · ctrl+u clear
+      </Text>
     </Box>
   );
 };

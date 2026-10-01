@@ -43,25 +43,23 @@ const sessionId = (s: SessionRecord): string => s.descriptor.id;
 /** Column header above the session rows — widths mirror the row cells below. */
 const SessionsHeader = (): React.JSX.Element => (
   <Box paddingX={spacing.indent}>
-    <Text dimColor bold>
-      {'  '}
-    </Text>
-    <Box flexGrow={1}>
+    <Box width={2} flexShrink={0} />
+    <Box flexGrow={1} minWidth={0} marginRight={1}>
       <Text dimColor bold>
-        Session{'  '}
+        Session
       </Text>
     </Box>
-    <Box width={FLOW_COL_WIDTH}>
+    <Box width={FLOW_COL_WIDTH} flexShrink={0}>
       <Text dimColor bold>
-        Flow{'  '}
+        Flow
       </Text>
     </Box>
-    <Box width={STATUS_COL_WIDTH}>
+    <Box width={STATUS_COL_WIDTH} flexShrink={0}>
       <Text dimColor bold>
-        Status{'  '}
+        Status
       </Text>
     </Box>
-    <Box width={ELAPSED_COL_WIDTH}>
+    <Box width={ELAPSED_COL_WIDTH} flexShrink={0}>
       <Text dimColor bold>
         Elapsed
       </Text>
@@ -80,27 +78,28 @@ const SessionRow = ({
   readonly waiting: boolean;
 }): React.JSX.Element => (
   <Box paddingX={spacing.indent}>
-    <Text color={focused ? inkColors.primary : inkColors.muted}>{focused ? glyphs.actionCursor : ' '} </Text>
-    <Box flexGrow={1}>
-      <Text bold={focused}>{record.descriptor.title}</Text>
-      <Text> </Text>
+    <Box flexShrink={0}>
+      <Text color={focused ? inkColors.primary : inkColors.muted}>{focused ? glyphs.actionCursor : ' '} </Text>
     </Box>
-    <Box width={FLOW_COL_WIDTH}>
-      <Text bold={focused} dimColor>
+    <Box flexGrow={1} flexShrink={1} minWidth={0} marginRight={1}>
+      <Text bold={focused} wrap="truncate-end">
+        {record.descriptor.title}
+      </Text>
+    </Box>
+    <Box width={FLOW_COL_WIDTH} flexShrink={0}>
+      <Text bold={focused} dimColor wrap="truncate-end">
         {record.descriptor.flowId}
       </Text>
-      <Text> </Text>
     </Box>
-    <Box width={STATUS_COL_WIDTH}>
+    <Box width={STATUS_COL_WIDTH} flexShrink={0}>
       <Text bold={focused}>
         <StatusChip
           label={waiting ? 'waiting' : record.descriptor.status}
           kind={waiting ? 'warning' : runnerStatusKind(record.descriptor.status)}
         />
       </Text>
-      <Text> </Text>
     </Box>
-    <Box width={ELAPSED_COL_WIDTH}>
+    <Box width={ELAPSED_COL_WIDTH} flexShrink={0}>
       <Text bold={focused} dimColor>
         {fmtElapsed(record.descriptor.startedAt, record.descriptor.finishedAt ?? Date.now())}
       </Text>
@@ -174,11 +173,12 @@ export const SessionsView = (): React.JSX.Element => {
 
   useViewKeys(
     [
-      listMoveBinding,
-      { keys: ['↵'], hint: 'open' },
+      { ...listMoveBinding, enabled: sessions.length > 0 },
+      { keys: ['↵'], hint: 'open', enabled: sessions.length > 0 },
       {
         keys: ['c'],
         hint: 'stop run',
+        enabled: sessions.length > 0,
         run: () => {
           const target = focusedItem ?? sessions[0];
           if (target === undefined) return;

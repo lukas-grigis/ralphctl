@@ -157,7 +157,7 @@ const buildBindings = (args: SprintDetailShortcutArgs): readonly ViewKeyBinding[
       // selection onto the viewed sprint, then navigate. The view owns `n` (it claims it), so the
       // global handler stands down and this binding does the push itself — exactly once.
       keys: ['n'],
-      hint: 'flows',
+      hint: 'work',
       run: () => {
         if (sprint !== undefined && !args.isCurrent) args.markCurrent(sprint);
         args.openFlows();

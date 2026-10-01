@@ -65,11 +65,11 @@ const stubDeps = (skills: readonly unknown[] = []): AppDeps =>
     taskRepo: { findBySprintId: async () => Result.ok([]) },
   }) as unknown as AppDeps;
 
-const mountHub = async (r: DoctorReport, skills: readonly unknown[] = []): Promise<AppFrame> => {
+const mountHub = async (r: DoctorReport, skills: readonly unknown[] = [], columns = 100): Promise<AppFrame> => {
   reportRef.current = r;
   reportRef.calls = 0;
   const f = mountFrame({
-    columns: 100,
+    columns,
     rows: 24,
     deps: stubDeps(skills),
     initial: { id: 'system' },
@@ -100,6 +100,29 @@ describe('SystemView', () => {
       'Skills',
       'Housekeeping',
     ]);
+    f.result.unmount();
+  });
+
+  it('keeps every row to one line with its cursor when the doctor summary is long and the terminal is narrow', async () => {
+    const long = {
+      probes: [{ id: 'p0', label: `${'very-long-project-slug/'.repeat(5)}default branch`, status: 'warn' as const }],
+      allPassed: false,
+      hasFailures: false,
+    };
+    const f = await mountHub(long, [], 60);
+    await waitFor(() => expect(hubRows(f)[0] ?? '').toContain('Doctor'));
+    const lines = f.lines().map(stripAnsi);
+    const idx = lines.findIndex((l) => /Doctor\b/.test(l));
+    expect(lines[idx]).toContain('…');
+    // Four consecutive one-line rows, exactly one cursor, none lost to a wrapped neighbour.
+    const block = lines.slice(idx, idx + 4);
+    expect(block.map((l) => /(Settings|Skills|Doctor|Housekeeping)/.exec(l)?.[1])).toEqual([
+      'Doctor',
+      'Settings',
+      'Skills',
+      'Housekeeping',
+    ]);
+    expect(block.filter((l) => l.includes('▸'))).toHaveLength(1);
     f.result.unmount();
   });
 

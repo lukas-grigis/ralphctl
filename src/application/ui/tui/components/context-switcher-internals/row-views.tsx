@@ -113,6 +113,9 @@ export const PickerRowList = ({
         if (row.kind === 'create') {
           return <CreateRowView key="create" focused={focusedId === cursorableRowId(row)} label={createLabel} />;
         }
+        if (row.kind === 'create-project') {
+          return <CreateProjectRowView key="create-project" focused={focusedId === cursorableRowId(row)} />;
+        }
         if (row.kind === 'header') {
           return (
             <HeaderRowView
@@ -159,6 +162,21 @@ const CreateRowView = ({
     </Box>
     <Text color={inkColors.highlight} bold>
       c
+    </Text>
+  </Box>
+);
+
+const CreateProjectRowView = ({ focused }: { readonly focused: boolean }): React.JSX.Element => (
+  <Box justifyContent="space-between">
+    <Box>
+      <Cursor focused={focused} />
+      <Text color={focused ? inkColors.primary : inkColors.highlight} bold>
+        {' '}
+        + New project
+      </Text>
+    </Box>
+    <Text color={inkColors.highlight} bold>
+      n
     </Text>
   </Box>
 );

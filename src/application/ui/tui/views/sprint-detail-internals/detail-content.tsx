@@ -17,7 +17,6 @@ import { snapshotFromLoadedSprint } from '@src/application/ui/shared/state-snaps
 import { OutcomeReportCard } from '@src/application/ui/tui/views/sprint-detail-internals/outcome-card.tsx';
 import { TicketsSection } from '@src/application/ui/tui/views/sprint-detail-internals/ticket-list.tsx';
 import { TasksSection } from '@src/application/ui/tui/views/sprint-detail-internals/task-summary.tsx';
-import { ActionBar } from '@src/application/ui/tui/views/sprint-detail-internals/action-bar.tsx';
 import type { FocusItem } from '@src/application/ui/tui/views/sprint-detail-internals/focus-list.ts';
 import type { AsyncLoadState } from '@src/application/ui/tui/runtime/use-async-load.ts';
 import type { SprintBundle } from '@src/application/ui/tui/views/sprint-detail-internals/use-sprint-bundle.ts';
@@ -134,7 +133,6 @@ const Body = ({ bundle, project, focusList, cursorIdx, openIds, ticketsEditable 
         project={project}
         openIds={openIds}
       />
-      <ActionBar />
     </Box>
   );
 };

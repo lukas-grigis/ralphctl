@@ -4,7 +4,7 @@
  * Bindings (and so hints) adapt to three states:
  *   - running + cancel-scope picker open: `1 / 2 / esc` set
  *   - running, picker closed              : `c / D` set
- *   - not running                         : `↵ home · r re-run · g progress · u unblock`
+ *   - not running                         : `↵ work · r re-run · g progress · u unblock`
  *
  * `u` (unblock) is advertised ONLY in the settled set: the Tasks panel's own `u` chord is a
  * no-op while a run is live (`TasksPanelHost` empties `blockedTaskIds` mid-run — see its
@@ -103,8 +103,8 @@ export const useExecuteInput = ({
     : [
         // Settled run: land on Home, whatever the route stack looks like. The global selection
         // is untouched, so Home renders the user's own project/sprint card.
-        { keys: ['↵'], hint: 'home', run: () => router.reset({ id: 'home' }) },
-        { keys: ['esc'], hint: 'home', hidden: true, run: () => router.reset({ id: 'home' }) },
+        { keys: ['↵'], hint: 'work', run: () => router.reset({ id: 'home' }) },
+        { keys: ['esc'], hint: 'work', hidden: true, run: () => router.reset({ id: 'home' }) },
         // Reset (not push) — see the header note: the dead run leaves the stack and Flows
         // re-checks every trigger against the sprint's current status.
         { keys: ['r'], hint: 're-run', run: () => router.reset({ id: 'flows' }) },

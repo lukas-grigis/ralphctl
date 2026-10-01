@@ -28,6 +28,7 @@ import { breakpoints, glyphs, inkColors, listCapacity, spacing } from '@src/appl
 import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
 import { useTerminalSize } from '@src/application/ui/tui/runtime/use-terminal-size.ts';
+import { useRouter } from '@src/application/ui/tui/runtime/router.tsx';
 import { useUiState, type SwitcherFocus } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { useLaunchCreateSprint } from '@src/application/ui/tui/runtime/use-launch-create-sprint.ts';
 import type { CursorRow, PickerData } from '@src/application/ui/tui/components/context-switcher-internals/types.ts';
@@ -95,8 +96,13 @@ const useSwitcherActions = (
   selection: SelectionApi,
   data: PickerData,
   setFeedback: (text: string | undefined) => void
-): { readonly onSubmit: (row: CursorRow) => void; readonly createSprint: () => void } => {
+): {
+  readonly onSubmit: (row: CursorRow) => void;
+  readonly createSprint: () => void;
+  readonly createProject: () => void;
+} => {
   const closeOverlay = useUiState().closeOverlay;
+  const router = useRouter();
   const launchCreateSprint = useLaunchCreateSprint({
     onError: setFeedback,
     noProjectMessage: NO_PROJECT_MESSAGE,
@@ -111,9 +117,18 @@ const useSwitcherActions = (
     void launchCreateSprint();
   };
 
+  const createProject = (): void => {
+    closeOverlay();
+    router.push({ id: 'create-project' });
+  };
+
   const onSubmit = (row: CursorRow): void => {
     if (row.kind === 'create') {
       createSprint();
+      return;
+    }
+    if (row.kind === 'create-project') {
+      createProject();
       return;
     }
     if (row.kind === 'header') {
@@ -132,13 +147,14 @@ const useSwitcherActions = (
     }
     closeOverlay();
   };
-  return { onSubmit, createSprint };
+  return { onSubmit, createSprint, createProject };
 };
 
 const switcherHints = (canCreate: boolean): FitHint[] => [
   { keys: '↑/↓', label: 'move' },
   { keys: '↵', label: 'switch' },
   ...(canCreate ? [{ keys: 'c', label: 'new sprint' }] : []),
+  { keys: 'n', label: 'new project' },
   { keys: 't', label: 'scope' },
   { keys: 'f', label: 'hide done' },
   { keys: 'esc', label: 'close' },
@@ -171,7 +187,7 @@ export const ContextSwitcher = ({ focus }: ContextSwitcherProps): React.JSX.Elem
 
   const picker = usePickerRows(deps, selection.projectId);
   const { state, data, rows, sprintCount, projectCount, hiddenByDoneFilter, scopeAll, hideDone } = picker;
-  const { onSubmit, createSprint } = useSwitcherActions(selection, data, setFeedback);
+  const { onSubmit, createSprint, createProject } = useSwitcherActions(selection, data, setFeedback);
 
   const closeOverlay = ui.closeOverlay;
   useInput((input, key) => {
@@ -183,6 +199,7 @@ export const ContextSwitcher = ({ focus }: ContextSwitcherProps): React.JSX.Elem
     if (input === 't') picker.toggleScope();
     else if (input === 'f') picker.toggleHideDone();
     else if (input === 'c' || input === '+') createSprint();
+    else if (input === 'n') createProject();
   });
 
   const wide = columns >= breakpoints.md;
@@ -191,7 +208,10 @@ export const ContextSwitcher = ({ focus }: ContextSwitcherProps): React.JSX.Elem
     () => preferredCursorId(rows, { focus, sprintId: selection.sprintId, projectId: selection.projectId }),
     [rows, focus, selection.sprintId, selection.projectId]
   );
-  const hasCursorRows = useMemo(() => cursorableRows(rows).length > 0, [rows]);
+  const hasCursorRows = useMemo(
+    () => cursorableRows(rows).some((r) => r.kind === 'sprint' || r.kind === 'header'),
+    [rows]
+  );
 
   const hints = switcherHints(selection.projectId !== undefined);
 
