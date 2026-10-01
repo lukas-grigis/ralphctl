@@ -1,5 +1,5 @@
-import { promises as fs } from 'node:fs';
-import { dirname } from 'node:path';
+import { type Dirent, promises as fs } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { Result } from '@src/domain/result.ts';
 import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
@@ -225,6 +225,34 @@ export const pathIsWritable = async (path: string): Promise<Result<boolean, Stor
     }
     return Result.error(new StorageError({ subCode: 'io', message: `access failed: ${path}`, path, cause }));
   }
+};
+
+/**
+ * Sum file sizes under `dir`, recursively. Symlinks are not followed (`Dirent` + `lstat`), and an
+ * unreadable or vanished entry counts as zero so one bad file never fails the whole walk.
+ */
+export const dirSizeBytes = async (dir: string): Promise<number> => {
+  let entries: Dirent[];
+  try {
+    entries = await fs.readdir(dir, { withFileTypes: true });
+  } catch {
+    return 0;
+  }
+  let total = 0;
+  for (const entry of entries) {
+    const entryPath = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      total += await dirSizeBytes(entryPath);
+      continue;
+    }
+    try {
+      const stat = await fs.lstat(entryPath);
+      if (stat.isFile()) total += stat.size;
+    } catch {
+      // vanished mid-walk
+    }
+  }
+  return total;
 };
 
 export const isNodeErrnoCode = (cause: unknown, code: string): boolean =>

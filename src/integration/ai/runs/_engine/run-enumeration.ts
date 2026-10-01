@@ -3,6 +3,9 @@ import { join } from 'node:path';
 import { Result } from '@src/domain/result.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { ValidationError } from '@src/domain/value/error/validation-error.ts';
+import type { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
+import { StorageError } from '@src/domain/value/error/storage-error.ts';
+import { dirSizeBytes, removeDir } from '@src/integration/io/fs.ts';
 
 /**
  * Enumeration + parsing helpers for per-run forensic artifact directories under
@@ -195,7 +198,7 @@ const listRunsForFlow = async (
     const runPath = join(flowPath, runDir.name);
     const parsedPath = AbsolutePath.parse(runPath);
     if (!parsedPath.ok) continue;
-    const sizeBytes = await computeDirSize(runPath);
+    const sizeBytes = await dirSizeBytes(runPath);
     entries.push({
       flow: flowName,
       runId: runDir.name,
@@ -232,6 +235,28 @@ export const listRuns = async (runsRoot: AbsolutePath): Promise<Result<readonly 
   return Result.ok(entries);
 };
 
+const isPlainSegment = (segment: string): boolean =>
+  segment.length > 0 && segment !== '.' && segment !== '..' && !/[/\\\0]/.test(segment);
+
+/**
+ * Delete one run dir `<runsRoot>/<flow>/<runId>/`. Both names must be single path segments, so
+ * the delete can never escape `runsRoot`. `NotFoundError` when the run is already gone.
+ */
+export const removeRun = async (
+  runsRoot: AbsolutePath,
+  run: { readonly flow: string; readonly runId: string }
+): Promise<Result<void, NotFoundError | StorageError>> => {
+  if (!isPlainSegment(run.flow) || !isPlainSegment(run.runId)) {
+    return Result.error(
+      new StorageError({
+        subCode: 'io',
+        message: `refusing to delete run outside the runs root: ${run.flow}/${run.runId}`,
+      })
+    );
+  }
+  return removeDir(join(String(runsRoot), run.flow, run.runId));
+};
+
 /**
  * Group entries by flow and sort within each group newest-first (parsed timestamp; entries
  * with `timestamp === null` sort last and keep stable lexicographic order between themselves
@@ -249,34 +274,6 @@ export const groupByFlow = (entries: readonly RunEntry[]): Map<string, readonly 
     groups.set(flow, bucket);
   }
   return new Map(Array.from(groups.entries()).sort(([a], [b]) => a.localeCompare(b)));
-};
-
-/**
- * Sum file sizes recursively under `dir`. Symlinks are not followed (we use `lstat`); per-entry
- * errors are swallowed and treated as zero so an unreadable file doesn't break the whole scan.
- */
-const computeDirSize = async (dir: string): Promise<number> => {
-  let total = 0;
-  let entries: Dirent[];
-  try {
-    entries = await fs.readdir(dir, { withFileTypes: true });
-  } catch {
-    return 0;
-  }
-  for (const entry of entries) {
-    const entryPath = join(dir, entry.name);
-    if (entry.isDirectory()) {
-      total += await computeDirSize(entryPath);
-      continue;
-    }
-    try {
-      const stat = await fs.lstat(entryPath);
-      if (stat.isFile()) total += stat.size;
-    } catch {
-      // best-effort; missing file in the middle of a scan is fine
-    }
-  }
-  return total;
 };
 
 const compareNewestFirst = (a: RunEntry, b: RunEntry): number => {

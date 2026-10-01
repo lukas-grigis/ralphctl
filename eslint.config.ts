@@ -258,6 +258,8 @@ const FLOWS = [
   'add-ticket',
   'publish-ticket',
   'remove-ticket',
+  'housekeeping',
+  'delete-project',
 ] as const;
 
 const PROMPTS = [
@@ -281,6 +283,7 @@ const PROMPTS = [
 const BUSINESS_SIBLINGS = [
   'context-file',
   'feedback',
+  'housekeeping',
   'interactive',
   'io',
   'observability',

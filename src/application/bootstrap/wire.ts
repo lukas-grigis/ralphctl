@@ -72,6 +72,9 @@ import { createOperatorAgentDefinitionSource } from '@src/integration/ai/agents/
 import { warnIfVague } from '@src/integration/ai/agents/_engine/agent-definition-quality.ts';
 import type { NotificationDispatcher } from '@src/business/observability/notification-dispatcher.ts';
 import { startFileLogSink } from '@src/integration/observability/sinks/file-log-sink.ts';
+import { createFsHousekeepingDisk } from '@src/integration/persistence/housekeeping/fs-housekeeping-disk.ts';
+import { createHousekeeping, type Housekeeping } from '@src/application/flows/housekeeping/housekeeping.ts';
+import { createProjectRemoval, type ProjectRemoval } from '@src/application/flows/delete-project/project-removal.ts';
 import type { FileLogSink, FileLogSinkDeps } from '@src/integration/observability/_engine/file-log-sink.ts';
 
 /**
@@ -282,6 +285,10 @@ export interface AppDeps {
    * "is debug tracing on?" question.
    */
   readonly chainLogSink: (deps: ChainLogSinkLaunchDeps) => FileLogSink;
+  /** Housekeeping view backend — dry-run scan of reclaimable data and a re-verifying purge. */
+  readonly housekeeping: Housekeeping;
+  /** Project removal with the opt-in sprints + memory cascade. */
+  readonly projectRemoval: ProjectRemoval;
 }
 
 /**
@@ -438,6 +445,26 @@ const buildWireProvider = (opts: WireOptions, eventBus: EventBus, spawn: Provide
     ...(spawn !== undefined ? { spawn } : {}),
   });
 
+/** Project + sprint repositories and the services that delete across them, sharing one disk adapter. */
+const buildDataServices = (
+  storage: StoragePaths,
+  logger: Logger
+): Pick<AppDeps, 'projectRepo' | 'sprintRepo' | 'housekeeping' | 'projectRemoval'> => {
+  const projectRepo = createFsProjectRepository({ root: storage.dataRoot });
+  const sprintRepo = createFsSprintRepository({ root: storage.dataRoot });
+  const housekeepingDisk = createFsHousekeepingDisk({
+    dataRoot: storage.dataRoot,
+    memoryRoot: storage.memoryRoot,
+    runsRoot: storage.runsRoot,
+  });
+  return {
+    projectRepo,
+    sprintRepo,
+    housekeeping: createHousekeeping({ projectRepo, sprintRepo, housekeepingDisk, clock: IsoTimestamp.now, logger }),
+    projectRemoval: createProjectRemoval({ projectRepo, sprintRepo, housekeepingDisk, logger }),
+  };
+};
+
 export const wire = (opts: WireOptions): AppDeps => {
   const spawn: Spawn = opts.spawn ?? defaultPipeSpawn;
   // AI adapters prefer the dedicated override, then fall back to the general seam so existing
@@ -505,8 +532,7 @@ export const wire = (opts: WireOptions): AppDeps => {
   const gitRunner = createGitRunner();
   return {
     storage: opts.storage,
-    projectRepo: createFsProjectRepository({ root: opts.storage.dataRoot }),
-    sprintRepo: createFsSprintRepository({ root: opts.storage.dataRoot }),
+    ...buildDataServices(opts.storage, logger),
     sprintExecutionRepo: createFsSprintExecutionRepository({ root: opts.storage.dataRoot }),
     taskRepo: createFsTaskRepository({ root: opts.storage.dataRoot, fileLocker }),
     settings: opts.settings,

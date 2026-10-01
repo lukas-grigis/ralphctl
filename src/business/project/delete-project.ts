@@ -6,11 +6,8 @@ import type { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
 import type { StorageError } from '@src/domain/value/error/storage-error.ts';
 
 /**
- * Remove a project by id. Thin wrapper over `projectRepo.remove` with named logging.
- *
- * Caveat: this use case does NOT cascade — sprints / tasks tied to the project remain on
- * disk. Cascading deletes are a separate orchestration concern (a meta-flow) and pushing them
- * into a single use case would couple two aggregates here.
+ * Remove a project by id. Does not cascade — the opt-in sprint + memory cascade is orchestrated by
+ * `createProjectRemoval` in application/flows/delete-project.
  */
 export interface DeleteProjectProps {
   readonly id: ProjectId;
