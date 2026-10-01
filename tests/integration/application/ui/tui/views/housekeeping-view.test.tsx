@@ -5,9 +5,11 @@
 
 import { promises as fs } from 'node:fs';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { HousekeepingView } from '@src/application/ui/tui/views/housekeeping-view.tsx';
 import { createRealFsApp, type RealFsApp } from '@tests/helpers/real-fs-app.ts';
+import { holdFlowLock } from '@tests/helpers/hold-flow-lock.ts';
+import type { Housekeeping } from '@src/application/flows/housekeeping/housekeeping.ts';
 import { makeDoneSprint, makeDraftSprint, makeProject, projectId } from '@tests/fixtures/domain.ts';
 import { ENTER, ESC, tick } from '@tests/integration/application/ui/tui/_keys.ts';
 import { waitForPredicate } from '@tests/integration/application/ui/tui/_wait.ts';
@@ -118,6 +120,66 @@ describe('HousekeepingView', () => {
     result.stdin.write(ESC);
     await waitForPredicate(() => !(result.lastFrame() ?? '').includes('Delete 1 item'));
     expect(await exists(targetDir)).toBe(true);
+    result.unmount();
+  });
+
+  const confirmFirstRow = async (result: ReturnType<typeof renderView>['result']): Promise<void> => {
+    await waitForViewReady(result, (f) => f.includes('ghost-a'));
+    result.stdin.write(' ');
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('1 of'));
+    result.stdin.write(ENTER);
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('Delete 1 item'));
+    result.stdin.write('y');
+  };
+
+  it('shows the refusal and deletes nothing while a flow is running', async () => {
+    const scan = await app.deps.housekeeping.scan();
+    if (!scan.ok) throw scan.error;
+    const targetDir = await app.resolveSprintDir(scan.value.orphanSprints[0]!.sprintId);
+    const lock = await holdFlowLock(app.paths);
+    try {
+      const result = mount();
+      await confirmFirstRow(result);
+      await waitForPredicate(() => (result.lastFrame() ?? '').includes('A flow is running'));
+      expect(await exists(targetDir)).toBe(true);
+      result.unmount();
+    } finally {
+      await lock.release();
+    }
+  });
+
+  it('keeps the list inactive until an in-flight purge resolves', async () => {
+    let finish!: () => void;
+    const gate = new Promise<void>((resolve) => (finish = resolve));
+    const real = app.deps.housekeeping;
+    const purge = vi.fn<Housekeeping['purge']>(async (candidates) => {
+      await gate;
+      return real.purge(candidates);
+    });
+    const { result } = renderView(<HousekeepingView />, {
+      deps: { ...app.deps, housekeeping: { scan: real.scan, purge } },
+      initial: { id: 'housekeeping' },
+    });
+    await confirmFirstRow(result);
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('deleting'));
+
+    result.stdin.write(ENTER);
+    await tick(40);
+    expect(result.lastFrame() ?? '').not.toContain('Delete 1 item');
+    result.stdin.write(' ');
+    await tick(40);
+    expect(result.lastFrame() ?? '').toContain('1 of');
+    expect(purge).toHaveBeenCalledTimes(1);
+
+    finish();
+    await waitForPredicate(() => {
+      const frame = result.lastFrame() ?? '';
+      return frame.includes('removed 1 item') && frame.includes('0 of');
+    });
+    await tick(40); // let the re-activated input handlers subscribe
+    result.stdin.write(ENTER);
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('nothing selected'));
+    expect(purge).toHaveBeenCalledTimes(1);
     result.unmount();
   });
 });

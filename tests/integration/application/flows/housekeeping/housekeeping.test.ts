@@ -2,6 +2,8 @@ import { promises as fs } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createRealFsApp, type RealFsApp } from '@tests/helpers/real-fs-app.ts';
+import { holdFlowLock } from '@tests/helpers/hold-flow-lock.ts';
+import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import { makeDoneSprint, makeDraftSprint, makeProject, projectId } from '@tests/fixtures/domain.ts';
 
 const GONE = projectId('01900000-0000-7000-8000-0000000000ff');
@@ -71,5 +73,23 @@ describe('AppDeps.housekeeping (wired)', () => {
     if (!purged.ok) throw purged.error;
 
     expect(await fs.readdir(root)).toEqual([]);
+  });
+
+  it('scans but refuses to purge while a flow holds its run lock', async () => {
+    const ghost = makeDraftSprint({ name: 'ghost', projectId: GONE });
+    await app.deps.sprintRepo.save(ghost);
+    const ghostDir = await app.resolveSprintDir(ghost.id);
+    const lock = await holdFlowLock(app.paths);
+    try {
+      const scanned = await app.deps.housekeeping.scan();
+      if (!scanned.ok) throw scanned.error;
+      expect(scanned.value.orphanSprints).toHaveLength(1);
+      const purged = await app.deps.housekeeping.purge(scanned.value.orphanSprints);
+      expect(purged.ok).toBe(false);
+      if (!purged.ok) expect(purged.error).toBeInstanceOf(InvalidStateError);
+    } finally {
+      await lock.release();
+    }
+    expect(await exists(ghostDir)).toBe(true);
   });
 });

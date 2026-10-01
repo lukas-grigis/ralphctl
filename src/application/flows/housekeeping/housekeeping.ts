@@ -1,6 +1,7 @@
 import type { Result } from '@src/domain/result.ts';
 import type { StorageError } from '@src/domain/value/error/storage-error.ts';
 import type { ValidationError } from '@src/domain/value/error/validation-error.ts';
+import type { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import {
   scanHousekeepingUseCase,
   type HousekeepingCandidate,
@@ -15,7 +16,7 @@ import type { HousekeepingDeps } from '@src/application/flows/housekeeping/deps.
 /** View-facing housekeeping surface: a read-only scan, and a purge of candidates picked from it. */
 export interface Housekeeping {
   scan(opts?: { readonly staleAfterDays?: number }): Promise<Result<HousekeepingScan, StorageError | ValidationError>>;
-  purge(candidates: readonly HousekeepingCandidate[]): Promise<Result<HousekeepingPurgeReport, never>>;
+  purge(candidates: readonly HousekeepingCandidate[]): Promise<Result<HousekeepingPurgeReport, InvalidStateError>>;
 }
 
 export const createHousekeeping = (deps: HousekeepingDeps): Housekeeping => ({
@@ -34,6 +35,7 @@ export const createHousekeeping = (deps: HousekeepingDeps): Housekeeping => ({
       projectRepo: deps.projectRepo,
       sprintRepo: deps.sprintRepo,
       disk: deps.housekeepingDisk,
+      runActivity: deps.runActivity,
       logger: deps.logger,
     }),
 });

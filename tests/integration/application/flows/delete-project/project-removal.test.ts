@@ -4,6 +4,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createRealFsApp, type RealFsApp } from '@tests/helpers/real-fs-app.ts';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
 import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
+import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
+import { holdFlowLock } from '@tests/helpers/hold-flow-lock.ts';
 import {
   FIXED_PROJECT_ID,
   makeApprovedTicket,
@@ -89,5 +91,43 @@ describe('AppDeps.projectRemoval (wired)', () => {
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.error).toBeInstanceOf(NotFoundError);
     expect(await exists(await app.resolveSprintDir(ghost.id))).toBe(true);
+  });
+
+  it('refuses a cascade while a flow holds its run lock and deletes nothing', async () => {
+    const ownedDirs = await Promise.all(owned.map((s) => app.resolveSprintDir(s.id)));
+    const lock = await holdFlowLock(app.paths);
+    try {
+      const r = await app.deps.projectRemoval.remove(FIXED_PROJECT_ID, { cascade: true });
+      expect(r.ok).toBe(false);
+      if (!r.ok) {
+        expect(r.error).toBeInstanceOf(InvalidStateError);
+        expect(r.error.message).toBe('A flow is running — let it finish (or cancel it) before removing data.');
+      }
+    } finally {
+      await lock.release();
+    }
+    for (const dir of ownedDirs) expect(await exists(dir)).toBe(true);
+    expect(await exists(memoryDir)).toBe(true);
+    expect((await app.deps.projectRepo.findById(FIXED_PROJECT_ID)).ok).toBe(true);
+  });
+
+  it('allows the cascade again once the run lock is released', async () => {
+    const lock = await holdFlowLock(app.paths);
+    await lock.release();
+    const r = await app.deps.projectRemoval.remove(FIXED_PROJECT_ID, { cascade: true });
+    if (!r.ok) throw r.error;
+    expect(r.value.removedSprints).toBe(2);
+  });
+
+  it('still removes the project file alone while a flow is running', async () => {
+    const lock = await holdFlowLock(app.paths);
+    try {
+      const r = await app.deps.projectRemoval.remove(FIXED_PROJECT_ID, { cascade: false });
+      if (!r.ok) throw r.error;
+    } finally {
+      await lock.release();
+    }
+    for (const s of owned) expect(await exists(await app.resolveSprintDir(s.id))).toBe(true);
+    expect((await app.deps.projectRepo.findById(FIXED_PROJECT_ID)).ok).toBe(false);
   });
 });

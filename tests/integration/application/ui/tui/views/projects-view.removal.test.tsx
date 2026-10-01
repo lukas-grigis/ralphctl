@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ProjectsView } from '@src/application/ui/tui/views/projects-view.tsx';
 import { createRealFsApp, type RealFsApp } from '@tests/helpers/real-fs-app.ts';
+import { holdFlowLock } from '@tests/helpers/hold-flow-lock.ts';
 import { FIXED_PROJECT_ID, makeDraftSprint, makeProject } from '@tests/fixtures/domain.ts';
 import { waitForPredicate } from '@tests/integration/application/ui/tui/_wait.ts';
 import { renderView, waitForViewReady } from '@tests/integration/application/ui/tui/_harness.tsx';
@@ -71,5 +72,20 @@ describe('ProjectsView removal', () => {
     if (!scan.ok) throw scan.error;
     expect(scan.value.orphanSprints).toHaveLength(1);
     result.unmount();
+  });
+
+  it('Yes while a flow is running shows the refusal and keeps the project and its sprints', async () => {
+    const lock = await holdFlowLock(app.paths);
+    try {
+      const result = await open();
+      result.stdin.write('y');
+      await waitForPredicate(() => (result.lastFrame() ?? '').includes('A flow is running'));
+      expect(result.lastFrame() ?? '').toContain('Demo Project');
+      expect(await exists(sprintDir)).toBe(true);
+      expect(await exists(memoryDir)).toBe(true);
+      result.unmount();
+    } finally {
+      await lock.release();
+    }
   });
 });

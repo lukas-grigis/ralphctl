@@ -174,9 +174,10 @@ const useHousekeepingModel = () => {
   const [picked, setPicked] = useState<ReadonlySet<string>>(() => new Set());
   const [confirming, setConfirming] = useState(false);
   const [note, setNote] = useState<StructuredFeedback | undefined>(undefined);
+  const [purging, setPurging] = useState(false);
 
   const rows = state.kind === 'ok' ? buildHousekeepingRows(state.value) : [];
-  const listActive = !ui.modalOpen && !confirming;
+  const listActive = !ui.modalOpen && !confirming && !purging;
   const list = useListWindow<HousekeepingRow>({
     items: rows,
     getId: (r) => r.key,
@@ -218,11 +219,21 @@ const useHousekeepingModel = () => {
 
   const purge = async (): Promise<void> => {
     setConfirming(false);
-    const r = await deps.housekeeping.purge(selected);
-    if (!mountedRef.current) return;
-    setPicked(new Set());
-    setNote(purgeNote(r.value));
-    reload();
+    setPurging(true);
+    setNote(feedback('info', 'deleting…'));
+    try {
+      const r = await deps.housekeeping.purge(selected);
+      if (!mountedRef.current) return;
+      if (!r.ok) {
+        setNote(feedback('error', r.error.message));
+        return;
+      }
+      setPicked(new Set());
+      setNote(purgeNote(r.value));
+      reload();
+    } finally {
+      if (mountedRef.current) setPurging(false);
+    }
   };
 
   return { state, rows, list, picked, totals, selected, confirming, setConfirming, note, purge };

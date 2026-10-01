@@ -7,6 +7,8 @@ import type { Remove } from '@src/domain/repository/_base/remove.ts';
 import { ProjectId } from '@src/domain/value/id/project-id.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
+import type { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
+import { runActiveRefusal, type RunActivityProbe } from '@src/business/housekeeping/run-activity-probe.ts';
 import type { HousekeepingDisk } from '@src/business/housekeeping/housekeeping-disk.ts';
 import {
   housekeepingCandidateKey,
@@ -41,6 +43,7 @@ export interface PurgeHousekeepingProps {
   readonly projectRepo: FindById<Project, ProjectId>;
   readonly sprintRepo: FindById<Sprint, SprintId> & Remove<SprintId>;
   readonly disk: Pick<HousekeepingDisk, 'removeMemoryDirs' | 'removeRunArtifact'>;
+  readonly runActivity: RunActivityProbe;
   readonly logger: Logger;
 }
 
@@ -112,11 +115,15 @@ const purgeOne = (props: PurgeHousekeepingProps, candidate: HousekeepingCandidat
   }
 };
 
-/** Delete scanned housekeeping candidates. */
+/** Delete scanned housekeeping candidates; refuses up front while a flow run is active. */
 export const purgeHousekeepingUseCase = async (
   props: PurgeHousekeepingProps
-): Promise<Result<HousekeepingPurgeReport, never>> => {
+): Promise<Result<HousekeepingPurgeReport, InvalidStateError>> => {
   const log = props.logger.named('housekeeping.purge');
+  if (await props.runActivity.anyRunActive()) {
+    log.warn('purge refused — a flow is running');
+    return Result.error(runActiveRefusal('purge'));
+  }
   const seen = new Set<string>();
   const removedList: HousekeepingCandidate[] = [];
   const skippedList: PurgeSkip[] = [];

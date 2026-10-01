@@ -1,6 +1,7 @@
 import { promises as fs } from 'node:fs';
 import { join } from 'node:path';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
+import type { RunActivityProbe } from '@src/business/housekeeping/run-activity-probe.ts';
 import { listDir } from '@src/integration/io/fs.ts';
 import { DEFAULT_STALE_AFTER_MS } from '@src/integration/io/file-locker.ts';
 
@@ -22,8 +23,8 @@ const HELD_WITHIN_MS: number = DEFAULT_STALE_AFTER_MS;
 
 /**
  * Whether ANY advisory flow lock is currently HELD under `<stateRoot>/locks/`. The migration's
- * `apply` step refuses to run while a lock is held — a rename must never race a running flow that has
- * a sprint dir path baked into its ctx (the user was burned by exactly this class of data corruption).
+ * `apply` step, project cascade removal and housekeeping purges refuse to run while a lock is held —
+ * none of them may race a running flow that has a sprint dir path baked into its ctx.
  *
  * A lock is a `proper-lockfile` directory (`repo-<hash>.lock`) whose mtime is heartbeated while its
  * holder is alive. We treat a lock as held when its mtime is within {@link HELD_WITHIN_MS}; an older
@@ -51,3 +52,8 @@ export const anyLockHeld = async (stateRoot: AbsolutePath): Promise<boolean> => 
   }
   return false;
 };
+
+/** {@link RunActivityProbe} over the advisory flow locks: a run counts as active while its lock is held. */
+export const createLockRunActivityProbe = (stateRoot: AbsolutePath): RunActivityProbe => ({
+  anyRunActive: () => anyLockHeld(stateRoot),
+});

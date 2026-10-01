@@ -36,7 +36,7 @@ const DEFAULT_MAX_RETRIES = 100;
 /**
  * Default crash-reclaim latency (ms). Exported as the single source of truth for any consumer
  * that needs to reason about "is a `proper-lockfile`-heartbeated lock still fresh" without
- * constructing a `FileLocker` — e.g. `data-migration/lock-guard.ts`'s `anyLockHeld`, which must
+ * constructing a `FileLocker` — e.g. `io/lock-guard.ts`'s `anyLockHeld`, which must
  * treat a lock as HELD using the exact same window the locker itself uses, or the migration's
  * notion of "held" silently diverges from the locker's notion of "live".
  */

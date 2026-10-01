@@ -73,6 +73,7 @@ import { warnIfVague } from '@src/integration/ai/agents/_engine/agent-definition
 import type { NotificationDispatcher } from '@src/business/observability/notification-dispatcher.ts';
 import { startFileLogSink } from '@src/integration/observability/sinks/file-log-sink.ts';
 import { createFsHousekeepingDisk } from '@src/integration/persistence/housekeeping/fs-housekeeping-disk.ts';
+import { createLockRunActivityProbe } from '@src/integration/io/lock-guard.ts';
 import { createHousekeeping, type Housekeeping } from '@src/application/flows/housekeeping/housekeeping.ts';
 import { createProjectRemoval, type ProjectRemoval } from '@src/application/flows/delete-project/project-removal.ts';
 import type { FileLogSink, FileLogSinkDeps } from '@src/integration/observability/_engine/file-log-sink.ts';
@@ -310,11 +311,19 @@ const buildDataServices = (
     memoryRoot: storage.memoryRoot,
     runsRoot: storage.runsRoot,
   });
+  const runActivity = createLockRunActivityProbe(storage.stateRoot);
   return {
     projectRepo,
     sprintRepo,
-    housekeeping: createHousekeeping({ projectRepo, sprintRepo, housekeepingDisk, clock: IsoTimestamp.now, logger }),
-    projectRemoval: createProjectRemoval({ projectRepo, sprintRepo, housekeepingDisk, logger }),
+    housekeeping: createHousekeeping({
+      projectRepo,
+      sprintRepo,
+      housekeepingDisk,
+      runActivity,
+      clock: IsoTimestamp.now,
+      logger,
+    }),
+    projectRemoval: createProjectRemoval({ projectRepo, sprintRepo, housekeepingDisk, runActivity, logger }),
   };
 };
 

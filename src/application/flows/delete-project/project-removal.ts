@@ -4,6 +4,8 @@ import type { ProjectId } from '@src/domain/value/id/project-id.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
 import type { StorageError } from '@src/domain/value/error/storage-error.ts';
+import type { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
+import { runActiveRefusal } from '@src/business/housekeeping/run-activity-probe.ts';
 import { deleteProjectUseCase } from '@src/business/project/delete-project.ts';
 import { deleteSprintUseCase } from '@src/business/sprint/delete-sprint.ts';
 import type { DeleteProjectDeps } from '@src/application/flows/delete-project/deps.ts';
@@ -27,13 +29,13 @@ export interface ProjectRemovalReport {
   readonly removedMemoryDirs: number;
 }
 
-/** Project removal with an opt-in cascade. */
+/** Project removal with an opt-in cascade; the cascade refuses while a flow run is active. */
 export interface ProjectRemoval {
   preview(projectId: ProjectId): Promise<Result<ProjectRemovalPreview, StorageError>>;
   remove(
     projectId: ProjectId,
     opts: { readonly cascade: boolean }
-  ): Promise<Result<ProjectRemovalReport, NotFoundError | StorageError>>;
+  ): Promise<Result<ProjectRemovalReport, NotFoundError | StorageError | InvalidStateError>>;
 }
 
 const listOwnedSprints = async (
@@ -81,6 +83,9 @@ export const createProjectRemoval = (deps: DeleteProjectDeps): ProjectRemoval =>
   async remove(projectId, opts) {
     const exists = await deps.projectRepo.findById(projectId);
     if (!exists.ok) return Result.error(exists.error);
+    if (opts.cascade && (await deps.runActivity.anyRunActive())) {
+      return Result.error(runActiveRefusal('remove project with its sprints'));
+    }
     let report: ProjectRemovalReport = { removedSprints: 0, removedMemoryDirs: 0 };
     if (opts.cascade) {
       const children = await removeChildren(deps, projectId);

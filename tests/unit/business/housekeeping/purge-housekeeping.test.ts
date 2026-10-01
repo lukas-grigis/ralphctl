@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { Result } from '@src/domain/result.ts';
 import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
+import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import {
@@ -65,6 +66,7 @@ const harness = (opts: {
   readonly projects?: readonly string[];
   readonly sprints?: readonly Sprint[];
   readonly failRun?: string;
+  readonly runActive?: boolean;
 }): Harness => {
   const projects = new Set(opts.projects ?? []);
   const sprints = new Map((opts.sprints ?? []).map((s) => [s.id, s]));
@@ -78,6 +80,7 @@ const harness = (opts: {
     props: (candidates) => ({
       candidates,
       logger: noopLogger,
+      runActivity: { anyRunActive: async () => opts.runActive ?? false },
       projectRepo: {
         async findById(id) {
           return projects.has(id)
@@ -163,5 +166,19 @@ describe('purgeHousekeepingUseCase', () => {
     if (!r.ok) throw r.error;
     expect(r.value.removed).toHaveLength(1);
     expect(r.value.freedBytes).toBe(0);
+  });
+
+  it('refuses while a flow is running and touches nothing', async () => {
+    const orphan = makeActiveSprint();
+    const h = harness({ sprints: [orphan], runActive: true });
+    const r = await purgeHousekeepingUseCase(h.props([orphanSprint(orphan), orphanMemory(GONE), staleRun('r1')]));
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.error).toBeInstanceOf(InvalidStateError);
+      expect(r.error.message).toBe('A flow is running — let it finish (or cancel it) before removing data.');
+    }
+    expect(h.removedSprints).toEqual([]);
+    expect(h.removedMemory).toEqual([]);
+    expect(h.removedRuns).toEqual([]);
   });
 });
