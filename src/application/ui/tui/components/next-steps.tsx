@@ -1,13 +1,6 @@
 /**
- * Renderer for {@link NextStep} rows — the one visual spelling of "what to do next", shared by
- * the settled `ResultCard`, Home's sprint card, and the Flows orientation card. Keeping the
- * renderer here (rather than one per view) is what makes the three surfaces literally identical
- * instead of merely similar.
- *
- * Row shapes: a flow row is `◆ <Flow> — <why>` with no key (↵ on the focused row, or the footer,
- * launches it); any other row is `<key> → <label> (<detail>)`. The key is highlighted (the
- * focus/next treatment from DESIGN-SYSTEM § 2.4); the detail is dim so a count never competes
- * with the action.
+ * Renderer for {@link NextStep} rows — the one visual spelling of "what to do next", shared by the settled
+ * `ResultCard`, Home's sprint card, and the Flows orientation card.
  */
 
 import React from 'react';
@@ -49,11 +42,7 @@ export const NextStepRow = ({ step }: { readonly step: NextStep }): React.JSX.El
 
 export interface NextStepListProps {
   readonly steps: readonly NextStep[];
-  /**
-   * Optional lead-in printed before the first row (`· next: ` on Home, `— next: ` on Flows).
-   * Subsequent rows are blank-padded to the same width so a multi-row recommendation (the
-   * `review` state emits two) stays aligned under the first.
-   */
+  /** Optional lead-in printed before the first row (`· next: ` on Home, `— next: ` on Flows). */
   readonly prefix?: string;
 }
 

@@ -1,7 +1,6 @@
 /**
- * `AppDeps` accessed via React context — every view that needs a repository or the AI provider
- * pulls it from here, never from a global. The bootstrap layer wires the deps once and renders
- * `<DepsProvider value={deps}>` around the router.
+ * `AppDeps` accessed via React context — every view that needs a repository or the AI provider pulls it from here,
+ * never from a global.
  */
 
 import React, { createContext, useContext } from 'react';

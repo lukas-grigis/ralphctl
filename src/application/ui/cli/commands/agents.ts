@@ -65,17 +65,8 @@ const listAgentsAction = async (): Promise<void> => {
 };
 
 /**
- * Register the `agents` command group.
- *
- *   ralphctl agents list
- *
- * Operator-facing catalog of the portable agent definitions available to bind to the implement
- * generator/evaluator role — the bundled vetted set plus any operator drop-ins under
- * `<appRoot>/agents`. Project-authored definitions have no enumerable source (they already live
- * where the provider's CLI looks for them — see `composeAgentDefinitionSources`'s doc comment),
- * so they don't appear here; a project definition still wins a name collision at launch. A
- * dedicated TUI catalog view is deferred — this CLI listing is the only inspection surface for
- * now, mirroring how `runs list` / `project list` serve as the CLI-only view for their domains.
+ * Register the `agents` command group. ralphctl agents list Operator-facing catalog of the portable agent definitions
+ * available to bind to the implement generator/evaluator role.
  */
 export const registerAgentsCommand = (program: Command): void => {
   const agents = program.command('agents').description('inspect portable agent definitions');

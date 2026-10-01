@@ -1,19 +1,6 @@
 /**
- * `FeedbackLine` — the transient inline result line shared by the list / detail views (sprints,
- * projects, project-detail, sessions).
- *
- * Accepts either a structured `{ tone, text }` object (preferred) or a plain string (legacy).
- *
- * Structured form: `tone` drives the glyph prefix and semantic color from tokens — no inline
- * glyphs or string-prefix branching at call sites.
- *
- * Legacy plain-string form: accepted for gradual migration. A leading {@link glyphs.cross}
- * selects the error tone; a leading {@link glyphs.warningGlyph} the warning tone; a leading
- * {@link glyphs.check} the success tone; a leading {@link glyphs.refresh} the info tone; all other strings render in the primary color. Call sites should migrate to the structured form.
- *
- * Renders nothing when `text` is `undefined`, so callers can unconditionally render
- * `<FeedbackLine … />` without a conditional guard.
- *
+ * `FeedbackLine` — the transient inline result line shared by the list / detail views (sprints, projects,
+ * project-detail, sessions).
  * @public
  */
 
@@ -30,10 +17,8 @@ export interface StructuredFeedback {
 
 export interface FeedbackLineProps {
   /**
-   * Feedback content — either:
-   *   - A {@link StructuredFeedback} `{ tone, text }` object (preferred).
-   *   - A plain string (legacy). A leading `glyphs.cross` triggers error tone; a leading
-   *     `glyphs.check` success tone; a leading `glyphs.refresh` info tone; others render primary.
+   * Feedback content — either: - A {@link StructuredFeedback} `{ tone, text }` object (preferred). - A plain string
+   * (legacy).
    */
   readonly text: string | StructuredFeedback | undefined;
 }
@@ -84,9 +69,8 @@ export const FeedbackLine = ({ text }: FeedbackLineProps): React.JSX.Element | n
 };
 
 /**
- * Construct a {@link StructuredFeedback} value. Convenience factory so call sites
- * don't inline the literal object shape.
- *
+ * Construct a {@link StructuredFeedback} value. Convenience factory so call sites don't inline the literal object
+ * shape.
  * @public
  */
 export const feedback = (tone: FeedbackTone, text: string): StructuredFeedback => ({ tone, text });

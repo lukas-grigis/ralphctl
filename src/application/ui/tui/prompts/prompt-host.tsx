@@ -1,11 +1,6 @@
 /**
- * Prompt host — the React side of the prompt queue. Subscribes to the queue, renders the head
- * prompt component, and maps user actions back to `resolveHead` / `rejectHead`. While a prompt
- * is mounted, the global key handler is suspended (via `UiState.promptActive`) so view-level
- * keys can't fight the modal.
- *
- * The host renders nothing when the queue is empty — composers can mount it unconditionally
- * and trust it to stay invisible until needed.
+ * Prompt host — the React side of the prompt queue. Subscribes to the queue, renders the head prompt component, and
+ * maps user actions back to `resolveHead` / `rejectHead`.
  */
 
 import React, { useEffect, useState } from 'react';
@@ -55,13 +50,7 @@ export const PromptHost = ({ queue }: PromptHostProps): React.JSX.Element | null
     return queue.subscribe(sync);
   }, [queue]);
 
-  // Claim the global-key mute only while a queued prompt is mounted. The previous code set
-  // `promptActive=false` whenever the queue was empty, which clobbered view-level claims
-  // (wizards setting it to true) on every commit cycle.
-  //
-  // Stash `claimPrompt` in a local so the effect depends on the stable callback — depending on
-  // `ui` itself would re-fire whenever any unrelated UI state (helpOpen, claims counter, …)
-  // toggled, which would release + re-claim the mute on every keystroke.
+  // Claim the global-key mute only while a queued prompt is mounted.
   const claimPrompt = ui.claimPrompt;
   useEffect(() => (head !== undefined ? claimPrompt() : undefined), [head, claimPrompt]);
 

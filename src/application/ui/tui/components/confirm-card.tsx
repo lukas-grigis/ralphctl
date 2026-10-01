@@ -1,9 +1,5 @@
 /**
- * `ConfirmCard` — the destructive-confirm body shared by every list / detail view. One `verb`
- * feeds both the title (`Remove sprint "X"?`) and the prompt (`Remove?`), so the two can't
- * disagree. Claims the prompt on mount (muting global keys) and releases on unmount, so hosts
- * mount it only while the confirmation is pending.
- *
+ * `ConfirmCard` — the destructive-confirm body shared by every list / detail view.
  * @public
  */
 

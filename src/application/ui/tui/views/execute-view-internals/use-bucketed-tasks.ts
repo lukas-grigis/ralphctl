@@ -1,19 +1,4 @@
-/**
- * Composite derivation hook for the per-task view of an execute session. Runs
- * `bucketTaskSignals` over the descriptor's trace + chain events + harness signal stream,
- * then overlays the authoritative round counter from `useTaskRoundTracker`.
- *
- * Why the round overlay matters: the chain trace is a ring buffer (see
- * `MAX_TRACE_ENTRIES` in `runner.ts`). Counting `generator-<taskId>` entries silently
- * undercounts once early ones get evicted. The round tracker holds a monotonic high-water
- * keyed by task id sourced from `task-round-started` events, so the merged bucket's
- * `genEvalRound` only ever moves forward — even after a long-running task has spilled its
- * generator entries out of the ring.
- *
- * `latest-event-wins, but never regress` — if the tracker is empty (e.g. a post-mortem
- * view of an aborted runner with no incoming events) the bucketed value derived from the
- * descriptor's frozen trace wins, so a freshly-reloaded session still reads correctly.
- */
+/** Composite derivation hook for the per-task view of an execute session. */
 
 import { useMemo } from 'react';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
@@ -50,14 +35,7 @@ export interface BucketedDerivation {
 const isCompletedBucket = (t: TaskBucket): boolean => t.status === 'completed';
 
 /**
- * Counters + the "what is happening right now" trio the header card reads, derived from the merged
- * bucket. Split out so the hook body stays a chain of memos rather than a wall of optional-chained
- * lookups.
- *
- * `tasksDone` deliberately counts ONLY `completed` buckets: a run that ends with a dependency-
- * blocked task shows `2/3` (not green) because the third task genuinely did not get done and needs
- * the operator. The CURSOR, by contrast, only tracks in-flight buckets ({@link isInFlightBucket}),
- * so a settled-but-not-completed task never holds the "current task" readout hostage.
+ * Counters + the "what is happening right now" trio the header card reads, derived from the merged bucket.
  */
 const summariseProgress = (
   bucketed: BucketedExecution | undefined,
@@ -86,9 +64,8 @@ export const useBucketedTasks = ({
   signals,
   eventBus,
 }: UseBucketedInput): BucketedDerivation => {
-  // Stable array of known task ids — only recomputed when the task set itself changes, not on
-  // every chain-event or signal flush. Hoisted out of rawBucketed so the [...keys()] spread
-  // does not produce a new array reference on every bucketTaskSignals call.
+  // Stable array of known task ids — only recomputed when the task set itself changes, not on every chain-event or
+  // signal flush.
   const knownTaskIds = useMemo(
     () => (descriptor?.taskNames !== undefined ? [...descriptor.taskNames.keys()] : undefined),
 
@@ -104,10 +81,8 @@ export const useBucketedTasks = ({
             ...(descriptor.terminalSubstepName !== undefined
               ? { terminalSubstepName: descriptor.terminalSubstepName }
               : {}),
-            // taskNames carries every task the launcher knew about — surfacing the ids here
-            // makes pending rows appear in the panel even when the chain failed before per-task
-            // work started (e.g. setup-script-runner abort). Without this, a sprint with real
-            // tasks renders the misleading "panel empty · Run plan" empty state.
+            // taskNames carries every task the launcher knew about — surfacing the ids here makes pending rows appear
+            // in the panel even when the chain failed before per-task work started (e.g. setup-script-runner abort).
             ...(knownTaskIds !== undefined ? { knownTaskIds } : {}),
           })
         : undefined,
@@ -127,9 +102,8 @@ export const useBucketedTasks = ({
       const tracked = taskRounds.get(t.id);
       if (tracked === undefined) return t;
       const roundN = Math.max(t.genEvalRound, tracked.roundN);
-      // `tracked.roundN` is a monotonic high-water ≥ the trace-derived count, so a tracked entry is
-      // always the authoritative source for the attempt-relative pair — overlay it unconditionally,
-      // mirroring how `genEvalMaxRounds: tracked.totalCap` is already overlaid.
+      // `tracked.roundN` is a monotonic high-water ≥ the trace-derived count, so a tracked entry is always the
+      // authoritative source for the attempt-relative pair.
       return {
         ...t,
         genEvalRound: roundN,

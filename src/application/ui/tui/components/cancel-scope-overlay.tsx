@@ -1,24 +1,4 @@
-/**
- * Inline confirm overlay shown when the operator presses `c` on the Implement view. Replaces the
- * historic "press c, run aborts immediately" UX where the scope of the cancel was ambiguous —
- * was it just this attempt, or the whole flow?
- *
- * Two scoped options — both stop the run now; the only difference is what state the current task
- * is left in. There is no live retry: cancelling does not re-spawn the generator in the same run.
- *  1. Stop run now: the task stays unsettled and resumes from `todo` on the next launch. Surfaces
- *     an estimated waste time (`~Xm of generator output`) computed from the active attempt's wall
- *     clock so the operator can weigh the cost.
- *  2. Stop run and mark blocked: marks the current task `blocked` (reason: `'user cancel'`) and
- *     aborts the chain, so it won't resume automatically on the next launch. Shows the count of
- *     tasks remaining in the queue so the operator sees what they are giving up.
- *
- *  Esc dismisses without action.
- *
- * The overlay is rendered inline inside the execute view (NOT mounted at the App layout level
- * like the help / progress overlays) because it carries flow-specific state — wasted-time
- * estimate and queue depth — that no other view can produce. Same modal contract though: while
- * mounted it claims keyboard input and the underlying view's `c` handler stays dormant.
- */
+/** Inline confirm overlay shown when the operator presses `c` on the Implement view. */
 
 import React, { useEffect } from 'react';
 import { Box, Text, useInput } from 'ink';
@@ -51,9 +31,8 @@ export const CancelScopeOverlay = ({
   // must not also fire on them.
   useClaimKeys(['1', '2']);
 
-  // Stable input claim while mounted; the parent view sets `inputActive` props on its own
-  // panels to dim them out so they don't compete for the same keystrokes. Unmount happens via
-  // any of the three callbacks (the parent unconditionally hides the overlay after the action).
+  // Stable input claim while mounted; the parent view sets `inputActive` props on its own panels to dim them out so
+  // they don't compete for the same keystrokes.
   useInput((input, key) => {
     if (input === '1') {
       onCancelAttempt();
@@ -68,9 +47,8 @@ export const CancelScopeOverlay = ({
     }
   });
 
-  // Belt-and-braces: clear the overlay if the keypress that opened it never fires its
-  // companion (e.g. a TUI bug or a forced unmount mid-render). React's effect cleanup handles
-  // the normal path; this is no-op when the parent already unmounted us.
+  // Belt-and-braces: clear the overlay if the keypress that opened it never fires its companion (e.g. a TUI bug or a
+  // forced unmount mid-render).
   useEffect(() => undefined, []);
 
   const wasted = attemptElapsedMs !== undefined ? fmtDuration(attemptElapsedMs) : undefined;

@@ -1,17 +1,6 @@
 /**
- * Read-on-open loader for an attempt's `evaluation.md`, mirroring `useProgressFile`'s contract:
- * load on mount / dep-change behind a `cancelled` flag, `ENOENT` → a friendly missing state,
- * anything else → a diag line. No tailing — closing and re-pressing `v` gets a fresh snapshot.
- *
- * Two arms exist here that the progress overlay has no need for, and both are HARD DEGRADE paths
- * rather than errors:
- *
- *   - `unrecorded` — the attempt has a verdict but no artifact path. Legacy `tasks.json` rows
- *     predate the artifact, and a hand-edited or hostile row can carry an absolute path or one
- *     climbing out of the workspace; `evaluationArtifactSprintPath` refuses those, and refusal
- *     lands here. Resolved WITHOUT touching disk.
- *   - `missing` — the path is fine but the file is gone (a pruned workspace, a `data/` restore).
- *     Carries the relative path so the operator can see what was looked for.
+ * Read-on-open loader for an attempt's `evaluation.md`, mirroring `useProgressFile`'s contract: load on mount /
+ * dep-change behind a `cancelled` flag.
  */
 
 import { promises as fs } from 'node:fs';

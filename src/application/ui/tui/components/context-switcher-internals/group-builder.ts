@@ -1,8 +1,6 @@
 /**
- * Pure list-shaping helpers for the context switcher: bucket sprints into project groups, flatten
- * the groups into the cursor-navigable row list, and derive the id-keyed cursorable subset that
- * feeds the shared `useListWindow` primitive. Project headers are cursor targets (`↵` switches the
- * project); only the orphan bucket's header is not.
+ * Pure list-shaping helpers for the context switcher: bucket sprints into project groups, flatten the groups into the
+ * cursor-navigable row list.
  */
 
 import type { Sprint } from '@src/domain/entity/sprint.ts';
@@ -20,17 +18,7 @@ import {
   UNKNOWN_PROJECT_LABEL,
 } from '@src/application/ui/tui/components/context-switcher-internals/types.ts';
 
-/**
- * Build the grouped + sorted list of sprint groups.
- *
- * Ordering:
- *  - Current project first (when known and non-empty / present in projects).
- *  - Then alphabetical by displayName.
- *  - Within each group: newest first (UUIDv7 lex sort, reversed).
- *  - Orphan "unknown project" group always last.
- *
- * When `scopeAll` is false we filter to only the current project's group.
- */
+/** Build the grouped + sorted list of sprint groups. */
 export const buildGroups = (
   data: PickerData,
   currentProjectId: ProjectId | undefined,
@@ -100,12 +88,7 @@ export const buildGroups = (
   return all.filter((g) => g.key === currentProjectId);
 };
 
-/**
- * Flatten groups into the cursor-navigable row list. Empty groups still emit a header. The
- * `+ Create new sprint` action row is prepended (when `includeCreate` is true) so it sits at
- * the top of the cursor's reachable rows; Enter on it launches create-sprint via the shared
- * launcher (which reseats selection on success).
- */
+/** Flatten groups into the cursor-navigable row list. Empty groups still emit a header. */
 export const flatten = (groups: readonly SprintGroup[], includeCreate: boolean): readonly FlatRow[] => {
   const rows: FlatRow[] = [];
   if (includeCreate) rows.push({ kind: 'create' });
@@ -146,9 +129,8 @@ export const cursorableRowId = (row: CursorRow): string => {
 };
 
 /**
- * Preferred landing id within `rows`. `focus: 'project'` (`P`) lands on the current project's
- * header; `'sprint'` (`S`) lands on the current sprint. Either falls back to the first sprint row,
- * then the first header, then the create row — so `↵` always has something sensible to confirm.
+ * Preferred landing id within `rows`. `focus: 'project'` (`P`) lands on the current project's header; `'sprint'`
+ * (`S`) lands on the current sprint.
  */
 export const preferredCursorId = (
   rows: readonly FlatRow[],

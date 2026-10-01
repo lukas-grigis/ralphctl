@@ -1,13 +1,4 @@
-/**
- * Ancillary row renderers + presentation maps for the {@link TaskBlock} card. Carved out so
- * the main task-row file can focus on the per-task header + signals layout without spilling
- * over the 350-LOC per-file ceiling.
- *
- *   - {@link STATUS_PRESENTATION} / {@link SUB_STEP_PRESENTATION} — color + glyph lookups
- *   - {@link RecoveryLine}  — resume banner under the active-task header
- *   - {@link SubStepLine}   — one sub-step row inside a task card
- *   - {@link CriteriaBlock} — collapsed / expanded verification-criteria summary
- */
+/** Ancillary row renderers + presentation maps for the {@link TaskBlock} card. */
 
 import React from 'react';
 import { Box, Text } from 'ink';
@@ -32,10 +23,8 @@ export const STATUS_PRESENTATION: Readonly<
   failed: { color: inkColors.error, glyph: glyphs.cross },
   aborted: { color: inkColors.warning, glyph: glyphs.warningGlyph },
   skipped: { color: inkColors.muted, glyph: glyphs.phaseDisabled },
-  // Error-level, NOT muted: a dependency-blocked task needs the operator's attention — it must
-  // never read as the same grey as a merely-`pending` task. `glyphFor('blocked')` is the same
-  // triangle already reserved for the `blocked` harness-signal kind, distinct from `cross`
-  // (failed) / `warningGlyph` (aborted) / `phaseDisabled` (skipped).
+  // Error-level, NOT muted: a dependency-blocked task needs the operator's attention — it must never read as the same
+  // grey as a merely-`pending` task.
   blocked: { color: inkColors.error, glyph: glyphFor('blocked') },
 };
 
@@ -53,9 +42,7 @@ export const RecoveryLine = ({
   readonly attemptN: number;
   readonly context: RecoveryContext;
 }): React.JSX.Element => {
-  // HH:MM from the ISO timestamp in local time — keep `fmtIsoTime` for the seconds-precise
-  // variant; the resume banner shows wall-clock at minute granularity to match what a user
-  // sees on a sprint header (we don't need second precision).
+  // HH:MM from the ISO timestamp in local time — keep `fmtIsoTime` for the seconds-precise variant.
   const hhmm = fmtIsoHHMM(String(context.abortedAt));
   const label = abortCauseLabel(context.cause);
   return (
@@ -74,11 +61,8 @@ export const RecoveryLine = ({
 };
 
 /**
- * Two-item gen-eval activity indicator for the expanded active-task card. The currently-busy
- * role renders bright (`inkColors.info`); the idle role stays dim. When `role` is `undefined`
- * (the tail sub-step names neither role — e.g. a commit leaf, or a pre-attempt empty trace)
- * both render dim so the line reads as a neutral "no role active" state rather than implying
- * one side is working.
+ * Two-item gen-eval activity indicator for the expanded active-task card. The currently-busy role renders bright
+ * (`inkColors.info`); the idle role stays dim.
  */
 export const BusyIndicator = ({
   role,

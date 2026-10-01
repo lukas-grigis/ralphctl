@@ -1,15 +1,6 @@
 /**
- * Location line — row 1 of every frame. Left: where you are in the ACTIVE section's stack
- * (`▣ Sprints › ready to implement — subtitle`). Right: the working context the next action will
- * target (`Hello Python › ready to implement [ACTIVE]`, with `S switch` from `lg`).
- *
- * Fitting (subtitle → trail → status chip → names) lives in {@link layoutLocation}; this
- * component resolves the labels and paints the result. Always exactly one row. Hidden while no
- * section is active (the first-run wizard).
- *
- * The right side coalesces from ONE source: when an Execute view is focused, both labels come from
- * the run's pinned context; otherwise both come from the global selection — never one from each.
- * A project-only run (detect-scripts) therefore shows no sprint rather than a stale one.
+ * Location line — row 1 of every frame. Left: where you are in the ACTIVE section's stack (`▣ Sprints › ready to
+ * implement — subtitle`).
  */
 
 import React from 'react';
@@ -85,10 +76,8 @@ const Segments = ({
 type SelectionApi = ReturnType<typeof useSelection>;
 
 /**
- * Right-hand context. A focused run pins BOTH labels (a project-only run shows no sprint); with no
- * run focused both come from the global selection. The status chip only ever comes from the
- * selection — the focused-run context carries labels only, so a stale lifecycle status never rides
- * along with a run's sprint.
+ * Right-hand context. A focused run pins BOTH labels (a project-only run shows no sprint); with no run focused both
+ * come from the global selection.
  */
 const useWorkingContext = (
   selection: SelectionApi

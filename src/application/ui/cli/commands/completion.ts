@@ -4,13 +4,8 @@ import { generateCompletion, type Shell } from '@src/application/ui/cli/completi
 const SUPPORTED: readonly Shell[] = ['bash', 'zsh'];
 
 /**
- * Register the `completion <shell>` CLI command.
- *
- *   ralphctl completion bash >> ~/.bashrc
- *   ralphctl completion zsh  >> ~/.zshrc
- *
- * Prints the completion script to stdout. The user redirects to their shell config — keeps
- * this command side-effect-free and avoids touching arbitrary files in the user's home.
+ * Register the `completion <shell>` CLI command. ralphctl completion bash >> ~/.bashrc ralphctl completion zsh >>
+ * ~/.zshrc Prints the completion script to stdout.
  */
 export const registerCompletionCommand = (program: Command): void => {
   program

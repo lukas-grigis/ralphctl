@@ -1,12 +1,4 @@
-/**
- * Single-select prompt. Vertical list of `Choice<T>`; arrows navigate, Enter submits, Esc
- * cancels. Long option lists scroll within a fixed window so the prompt frame stays predictable.
- *
- * When the prompt message carries a body region longer than the viewport (see `ScrollableMessage`),
- * the body yields ↑/↓ to the option cursor (passed via `ownsArrows={false}`) so arrows behave the
- * same as everywhere else in the app. The body still scrolls — just via PgUp/PgDn (page) and
- * Ctrl+u/d (half-page), keys that don't conflict with option navigation.
- */
+/** Single-select prompt. Vertical list of `Choice<T>`; arrows navigate, Enter submits, Esc cancels. */
 
 import React, { useState } from 'react';
 import { Box, Text, useInput } from 'ink';
@@ -23,21 +15,13 @@ export interface SelectPromptProps {
   readonly options: ReadonlyArray<Choice<unknown>>;
   readonly onSubmit: (value: unknown) => void;
   readonly onCancel: () => void;
-  /**
-   * Optional dim line rendered between the option list and the navigation legend. Used by the
-   * Settings provider picker to surface install guidance ("install codex CLI with …") so the
-   * user can act on the gate without leaving the prompt.
-   */
+  /** Optional dim line rendered between the option list and the navigation legend. */
   readonly footer?: string;
 }
 
 const isEnabled = (opt: Choice<unknown> | undefined): boolean => opt !== undefined && opt.disabled !== true;
 
-/**
- * Walk from `from` (exclusive) in `direction` (-1 or +1) and return the first enabled index.
- * Returns `from` unchanged when no enabled option exists in that direction so the cursor never
- * jumps onto a disabled row.
- */
+/** Walk from `from` (exclusive) in `direction` (-1 or +1) and return the first enabled index. */
 const nextEnabledIndex = (options: ReadonlyArray<Choice<unknown>>, from: number, direction: -1 | 1): number => {
   for (let i = from + direction; i >= 0 && i < options.length; i += direction) {
     if (isEnabled(options[i])) return i;

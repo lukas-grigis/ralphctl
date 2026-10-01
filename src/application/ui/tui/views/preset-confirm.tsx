@@ -1,6 +1,6 @@
 /**
- * Preset-apply confirmation: shows which values the preset would rewrite (`SETTING  NOW → AFTER`)
- * before anything is written. A preset that changes nothing says so and writes nothing.
+ * Preset-apply confirmation: shows which values the preset would rewrite (`SETTING NOW → AFTER`) before anything is
+ * written.
  */
 
 import React from 'react';

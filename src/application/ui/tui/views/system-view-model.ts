@@ -1,11 +1,5 @@
 /**
- * Pure row model for the System hub: which children exist, in what order, and the one-line
- * summary each carries. No React, no I/O — the view loads settings / the skill catalog and hands
- * them in, so ordering and copy are unit-testable.
- *
- * Doctor sorts to the top whenever its report holds a warning or a failure: that is the child that
- * needs the operator, and the hub's `↵` should land on it without a hunt. Everything else keeps
- * the fixed order (Settings, Skills, Doctor, Housekeeping).
+ * Pure row model for the System hub: which children exist, in what order, and the one-line summary each carries.
  */
 
 import type { DoctorReport } from '@src/application/flows/doctor/ctx.ts';

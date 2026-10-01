@@ -1,44 +1,4 @@
-/**
- * Vertical scroll viewport — the middle slot of {@link ViewShell}. Tall views (long settings
- * pages, projects with ten repos) clip inside this region so the banner and the status bar
- * stay pinned at top and bottom.
- *
- * Measures the viewport and the inner content via `measureElement` so the offset always clamps
- * against `contentHeight - viewportHeight` — keyboard or mouse-wheel scroll never lets the
- * user fall off the end of the content into blank space. A zero-height viewport measurement is
- * ignored rather than clamped against: that only happens while the whole view sits inside a
- * `display: "none"` box (a document overlay is open), and treating it as real would reset the
- * offset to the top behind the overlay. Mouse wheel is wired through xterm
- * SGR mouse-tracking (`?1000h` + `?1006h`) and only enabled when stdout is a real TTY, so the
- * test harness (a piped stream) never sees the enable sequence.
- *
- * Keyboard model (only when not disabled — prompts / wizards mute the region):
- *   ↑ / ↓                     → scroll one row (primary on laptops without a PgUp/PgDn key)
- *   PageUp / PageDown / Ctrl+b / Ctrl+f → scroll a full page
- *   Ctrl+u / Ctrl+d           → half-page jumps
- *   Home / End                → top / bottom (the clamped max)
- *   (`g` / `G` are deliberately NOT bound: `g` is the global progress-overlay toggle)
- *
- * When the content is taller than the viewport the region paints a dim `▴ N more` / `▾ N more`
- * row over the clipped edge, so silent clipping never hides content without a cue.
- *
- * Arrow keys are dual-purpose: windowed-list views that own their own cursor via `useListWindow`
- * also handle arrow keys for row navigation. The early return on `max === 0` (content fits the
- * viewport) keeps the dominant case — a list shorter than the screen — conflict-free; only when
- * the page itself overflows do both handlers fire on the same key. Pass `suppressArrows` (via
- * `ViewShell suppressScrollArrows`) to prevent that double-act: the scroll region yields all
- * arrow / paging keys so only the view's own cursor handler fires.
- *
- * Reveal-on-focus is the other half of that bargain. Yielding the arrows leaves the PAGE with no
- * keyboard scroll, so a view whose chrome already fills the viewport used to strand everything
- * below the fold. Cards published through {@link useScrollAnchor} are kept inside the viewport
- * automatically, so the cursor can never walk off-screen — see that hook for the mechanics.
- *
- * Mouse tracking is also gated on `disabled`: while a prompt is open the SGR enable sequence
- * is withdrawn so wheel events stop emitting `\x1b[<64;…M` / `\x1b[<65;…M` bytes onto stdin,
- * which would otherwise leak through Ink's input parser into TextPrompt / TextAreaPrompt as
- * stray printable characters (`M`, `;`, digits).
- */
+/** Vertical scroll viewport — the middle slot of {@link ViewShell}. */
 
 import React, { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { glyphs, spacing } from '@src/application/ui/tui/theme/tokens.ts';
@@ -49,29 +9,15 @@ export interface ScrollRegionProps {
   /** When true (prompt active, overlay open, etc.), swallow no keys and no mouse events. */
   readonly disabled?: boolean;
   /**
-   * When true, the keyboard scroll handler ignores the arrow / paging / vim keys (↑ ↓ PageUp
-   * PageDown Ctrl+b/f/u/d g G k j) so they fall through to a view that owns its own list cursor
-   * — preventing a single keypress from both moving the cursor AND page-scrolling. Mouse-wheel
-   * scroll is UNAFFECTED: the wheel still drives the viewport regardless of this flag. The
-   * `disabled` gate still mutes everything (keys and wheel) when set.
+   * When true, the keyboard scroll handler ignores the arrow / paging / vim keys (↑ ↓ PageUp PageDown Ctrl+b/f/u/d g
+   * G k j) so they fall through to a view that owns its own list cursor.
    */
   readonly suppressArrows?: boolean;
 }
 
 /**
- * Registry the {@link ScrollRegion} exposes to its subtree so a view that owns its own list
- * cursor can say "this card is the focused one" and have the page scroll follow it.
- *
- * Why this exists: `suppressArrows` hands ↑/↓ to the view's cursor, which means the PAGE has no
- * keyboard scroll left. On a view whose chrome (banner + header cards) already fills the
- * viewport, everything below the fold — further list sections, the action-result line — was
- * then unreachable, and the cursor moved invisibly through rows nobody could see. Reveal-on-
- * focus closes that: the region keeps the registered element inside the viewport, so moving the
- * cursor (or jumping to it, e.g. sprint-detail's `B`) scrolls the page exactly as much as it
- * takes and no more.
- *
- * Deliberately a registry of ONE: a viewport can only follow a single anchor, and every consumer
- * registers on focus / deregisters on blur, so the last focused element wins.
+ * Registry the {@link ScrollRegion} exposes to its subtree so a view that owns its own list cursor can say "this card
+ * is the focused one" and have the page scroll follow it.
  */
 interface ScrollAnchorRegistry {
   readonly register: (node: DOMElement | null) => void;
@@ -80,19 +26,7 @@ interface ScrollAnchorRegistry {
 const ScrollAnchorContext = createContext<ScrollAnchorRegistry | undefined>(undefined);
 
 /**
- * Mark a card as the scroll anchor while `active` is true and hand back the ref to spread onto
- * its outer `<Box>`. Registering the card's OWN box (rather than rendering a marker element)
- * keeps the layout byte-identical — nothing is added to the tree, so a view that adopts this
- * cannot shift by a row.
- *
- * Inert outside a {@link ScrollRegion} (the context is absent in component-level tests), and
- * inert while `active` is false, so a list can call it unconditionally for every row.
- *
- * A LAYOUT effect, not a plain one, and that is load-bearing: React flushes child layout effects
- * before the parent's, so registering here lands before the region's measure-and-reveal pass in
- * the SAME commit as the cursor move. Registering in a plain `useEffect` runs after that pass,
- * which left the region revealing the previous anchor — one keypress behind, forever.
- *
+ * Mark a card as the scroll anchor while `active` is true and hand back the ref to spread onto its outer `<Box>`.
  * @public
  */
 export const useScrollAnchor = (active: boolean): React.RefObject<DOMElement | null> => {
@@ -109,16 +43,7 @@ export const useScrollAnchor = (active: boolean): React.RefObject<DOMElement | n
   return ref;
 };
 
-/**
- * Row offset of `node` inside `container`, by summing each yoga box's computed top on the way
- * up. Ink exposes `yogaNode` / `parentNode` on its `DOMElement`, and yoga's computed top is
- * relative to the parent box — so the walk is the only way to turn a child ref into a position
- * (`measureElement` reports size, never position).
- *
- * `undefined` when the walk cannot complete: either node has no laid-out yoga box yet (first
- * paint), or `node` is not a descendant of `container` (a stale ref from a card that has since
- * unmounted). Both mean "don't scroll", never "scroll to zero".
- */
+/** Row offset of `node` inside `container`, by summing each yoga box's computed top on the way up. */
 const offsetWithin = (node: DOMElement, container: DOMElement): number | undefined => {
   let top = 0;
   let current: DOMElement | undefined = node;
@@ -131,15 +56,8 @@ const offsetWithin = (node: DOMElement, container: DOMElement): number | undefin
 };
 
 /**
- * Smallest offset change that brings `[top, top + height)` fully inside the viewport — scroll up
- * when the anchor sits above the fold, down when it sits below, and leave the offset alone when
- * it is already visible.
- *
- * An anchor TALLER than the viewport (an expanded card on a short terminal) can't fit; aligning
- * its top is the useful answer there — the operator reads a card from the top down. Below the
- * fold that is `Math.min`: a short anchor's bottom-aligned offset (`bottom - viewport`) never
- * exceeds its top, a tall one's always does. Picking the larger one instead bottom-aligned a tall
- * anchor, which put its top above the fold and sent the next pass back up — forever.
+ * Smallest offset change that brings `[top, top + height)` fully inside the viewport — scroll up when the anchor sits
+ * above the fold, down when it sits below.
  */
 const revealOffset = (args: {
   readonly top: number;
@@ -162,9 +80,8 @@ interface AnchorPlacement {
 }
 
 /**
- * The registered anchor's placement, or `undefined` when there is none to act on — no anchor, or
- * no laid-out position yet. `top` is measured against the content box, whose own `marginTop` is
- * the scroll offset, so a scroll alone never changes a placement.
+ * The registered anchor's placement, or `undefined` when there is none to act on — no anchor, or no laid-out position
+ * yet.
  */
 const placementOf = (anchor: DOMElement | null, content: DOMElement | null): AnchorPlacement | undefined => {
   if (anchor === null || content === null) return undefined;
@@ -187,12 +104,7 @@ interface ScrollLayout {
   readonly half: number;
 }
 
-/**
- * Largest scroll offset. While the content overflows, the overflow cues take rows OUT of the
- * viewport (one per edge that still has hidden content), so the clamp is `content - viewport + 1`:
- * at the bottom only the `▴` cue remains, which costs exactly one row. Content that fits has no
- * cues and no scroll.
- */
+/** Largest scroll offset. */
 const maxOffsetFor = (viewport: number, content: number): number => (content > viewport ? content - viewport + 1 : 0);
 
 const computeLayout = (offset: number, viewport: number, content: number): ScrollLayout => {
@@ -219,9 +131,8 @@ const ScrollCue = ({
 );
 
 /**
- * One row per recognised scroll key: `matches` tests the raw `useInput` payload, `nextOffset`
- * derives the target offset from the current layout. Replaces the if/else cascade that used to
- * live directly in the `useInput` callback.
+ * One row per recognised scroll key: `matches` tests the raw `useInput` payload, `nextOffset` derives the target
+ * offset from the current layout.
  */
 const SCROLL_KEY_ACTIONS: ReadonlyArray<{
   readonly matches: (input: string, key: Key) => boolean;
@@ -237,14 +148,7 @@ const SCROLL_KEY_ACTIONS: ReadonlyArray<{
   { matches: (_input, key) => key.end, nextOffset: (l) => l.max },
 ];
 
-/**
- * Mouse-wheel scrolling over xterm SGR mouse-tracking (`?1000h` + `?1006h`).
- *
- * Extracted from the component body so {@link ScrollRegion} itself reads as measure → keys →
- * render. Behaviour is unchanged: enabled only on a real TTY (the test harness's piped stream
- * never sees the enable sequence) and withdrawn whenever `disabled` is set, so wheel bytes stop
- * reaching ink's input parser while a prompt owns the keyboard.
- */
+/** Mouse-wheel scrolling over xterm SGR mouse-tracking (`?1000h` + `?1006h`). */
 const useWheelScroll = (args: {
   readonly disabled: boolean;
   readonly setOffset: React.Dispatch<React.SetStateAction<number>>;
@@ -299,14 +203,11 @@ export const ScrollRegion = ({
   const [size, setSize] = useState<{ viewport: number; content: number }>({ viewport: 0, content: 0 });
   const viewportRef = useRef<DOMElement | null>(null);
   const contentRef = useRef<DOMElement | null>(null);
-  // The element the viewport should keep visible, published by `useScrollAnchor` from whichever
-  // card currently holds the view's list cursor. A ref (not state) so registering does not
-  // re-render the whole subtree on every cursor move — the layout effect below reads it after
-  // the commit that moved the focus, which is exactly when the new position is measurable.
+  // The element the viewport should keep visible, published by `useScrollAnchor` from whichever card currently holds
+  // the view's list cursor.
   const anchorRef = useRef<DOMElement | null>(null);
-  // A new anchor must re-run the measure-and-reveal pass below even when the cursor lives in a
-  // descendant (ActionMenu) whose state change never re-renders this region. Bumping a counter
-  // re-renders only the region — its `children` element is unchanged, so React reuses the subtree.
+  // A new anchor must re-run the measure-and-reveal pass below even when the cursor lives in a descendant
+  // (ActionMenu) whose state change never re-renders this region.
   const [, setAnchorTick] = useState(0);
   const register = useCallback((node: DOMElement | null) => {
     const changed = node !== null && node !== anchorRef.current;
@@ -314,14 +215,11 @@ export const ScrollRegion = ({
     if (changed) setAnchorTick((t) => t + 1);
   }, []);
   const anchorRegistry = React.useMemo<ScrollAnchorRegistry>(() => ({ register }), [register]);
-  // The anchor placement the last reveal pass looked at. Reveal only runs when the placement
-  // differs — a different card, or the same card moved or resized — so a render caused purely by
-  // an offset change (a mouse-wheel scroll, or reveal's own scroll) leaves the offset alone.
+  // The anchor placement the last reveal pass looked at.
   const revealedRef = useRef<AnchorPlacement | undefined>(undefined);
 
-  // Memoised because `useWheelScroll` lists it as a dependency: `maxOffset` only reads a ref, so
-  // it has no inputs of its own, and a fresh identity each render would re-arm the mouse-tracking
-  // effect (rewriting the SGR enable sequence) on every paint.
+  // Memoised because `useWheelScroll` lists it as a dependency: `maxOffset` only reads a ref, so it has no inputs of
+  // its own.
   const maxOffset = useCallback((): number => maxOffsetFor(sizeRef.current.viewport, sizeRef.current.content), []);
   const clamp = (next: number): number => Math.max(0, Math.min(next, maxOffset()));
 
@@ -353,10 +251,8 @@ export const ScrollRegion = ({
       setOffset(max);
       return;
     }
-    // Reveal-on-focus. Runs after the commit that moved the cursor, so the anchor's yoga box is
-    // laid out at its new position. An unchanged placement means nothing about the focus moved,
-    // so whatever brought the offset here — typically the wheel — wins. Losing the anchor clears
-    // the record, so a card that regains focus is revealed again even though it never moved.
+    // Reveal-on-focus. Runs after the commit that moved the cursor, so the anchor's yoga box is laid out at its new
+    // position.
     const placement = placementOf(anchorRef.current, contentRef.current);
     if (samePlacement(placement, revealedRef.current)) return;
     revealedRef.current = placement;
@@ -371,9 +267,7 @@ export const ScrollRegion = ({
   useInput(
     (input, key) => {
       if (disabled) return;
-      // The view owns its own list cursor — leave every scroll key (↑ ↓ PageUp PageDown
-      // Ctrl+b/f/u/d g G, plus k/j if the view binds them) for its handler so a single press
-      // doesn't double-act (cursor move AND page scroll). Mouse-wheel scroll below is untouched.
+      // The view owns its own list cursor — leave every scroll key (↑ ↓ PageUp PageDown Ctrl+b/f/u/d g G.
       if (suppressArrows) return;
       const layout = computeLayout(0, sizeRef.current.viewport, sizeRef.current.content);
       if (layout.max === 0) return;

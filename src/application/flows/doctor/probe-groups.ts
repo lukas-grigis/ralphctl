@@ -40,11 +40,7 @@ const probeWritable = async (id: string, label: string, path: AbsolutePath): Pro
   return mkProbe(id, label, 'fail', `${String(path)} — not writable by the current user`, 'storage', hint);
 };
 
-/**
- * Parse the `vX.Y.Z` prefix off `process.version` and compare the major against
- * `MIN_NODE_MAJOR`. Older majors fail (the implement loop expects modern Node APIs); future
- * majors pass with an informational detail.
- */
+/** Parse the `vX.Y.Z` prefix off `process.version` and compare the major against `MIN_NODE_MAJOR`. */
 export const probeNodeVersion = (nodeVersion: string): ProbeResult => {
   const NODE_VERSION_ID = 'node-version';
   const NODE_VERSION_LABEL = 'Node version';
@@ -86,10 +82,8 @@ const probeBinary = async (
 };
 
 /**
- * `git config --get <key>` returns the value on stdout with a trailing newline, exit 0; exits
- * non-zero with empty output when the key is not set. Treats unset values as `warn` (not
- * `fail`) — ralphctl can still operate without identity configured, but commits authored by
- * the implement chain would lack proper attribution.
+ * `git config --get <key>` returns the value on stdout with a trailing newline, exit 0; exits non-zero with empty
+ * output when the key is not set.
  */
 const probeGitConfig = async (
   id: string,
@@ -129,11 +123,7 @@ const STORAGE_PATHS = [
   { id: 'config-root', label: 'Config root', path: (input: DoctorInput) => input.configRoot },
 ];
 
-/**
- * Probe storage paths for readability and writability. Readability is checked for every path
- * first, then writability — preserves the historical probe order (`data-root`, `config-root`,
- * `data-root-writable`, `config-root-writable`) callers key off.
- */
+/** Probe storage paths for readability and writability. */
 export const probeStorageGroup = async (input: DoctorInput): Promise<readonly ProbeResult[]> => {
   const probes: ProbeResult[] = [];
   for (const config of STORAGE_PATHS) {
@@ -261,8 +251,8 @@ export const probeVcsToolingGroup = async (deps: DoctorDeps): Promise<readonly P
 };
 
 /**
- * A provider binary missing from PATH: a warning when a settings row relies on it, otherwise a
- * pass — an uninstalled CLI nobody asked for is not a problem worth a permanent doctor nag.
+ * A provider binary missing from PATH: a warning when a settings row relies on it, otherwise a pass — an uninstalled
+ * CLI nobody asked for is not a problem worth a permanent doctor nag.
  */
 const downgradeMissingBinary = (probe: ProbeResult, isConfigured: boolean): ProbeResult => {
   if (probe.status !== 'fail') return probe;
@@ -280,9 +270,8 @@ export const probeAiProvidersGroup = async (deps: DoctorDeps): Promise<readonly 
   const ai = settings.ok ? settings.value.ai : undefined;
   const configuredProviders: ReadonlySet<AiProvider> = new Set(ai === undefined ? [] : uniqueProvidersFromAi(ai));
 
-  // Binary rows first (so a provider's PATH check always precedes its auth check), then one
-  // auth row per provider that is both configured and confirmed installed — every provider
-  // gets the same treatment now, not just codex. `probeProviderAuth` never returns 'fail'.
+  // Binary rows first (so a provider's PATH check always precedes its auth check), then one auth row per provider
+  // that is both configured and confirmed installed.
   const installedByProvider = new Map<AiProvider, boolean>();
   for (const provider of Object.keys(PROVIDER_BINARY) as readonly AiProvider[]) {
     const binary = PROVIDER_BINARY[provider];
@@ -361,11 +350,7 @@ const probeProjectDefaultBranches = async (
   return out;
 };
 
-/**
- * Surface sprints whose execution record is missing AND whose work-in-flight is fully
- * recoverable. `active`, `review`, and `done` orphans are NOT reported — those would surface
- * as `NotFoundError` at run time. Always reports as `warn` (never `fail`).
- */
+/** Surface sprints whose execution record is missing AND whose work-in-flight is fully recoverable. */
 const probeSprintExecutionPairing = async (
   sprints: readonly Sprint[],
   sprintExecutionRepo: SprintExecutionRepository

@@ -1,9 +1,6 @@
 /**
- * Navigation metadata keyed by view id. Typed `Record<ViewId, …>` so registering a view without a
- * label and a section is a compile error.
- *
- * The five persistent sections (Work · Sprints · Projects · Runs · System) live here too: each
- * owns its own route stack in `router.tsx`, and `sectionOf` says which one a view belongs to.
+ * Navigation metadata keyed by view id. Typed `Record<ViewId, …>` so registering a view without a label and a section
+ * is a compile error.
  */
 
 import type { ViewId } from '@src/application/ui/tui/views/view-registry.tsx';

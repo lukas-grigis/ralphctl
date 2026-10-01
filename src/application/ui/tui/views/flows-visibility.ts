@@ -1,23 +1,6 @@
 /**
- * State-machine visibility helper for the Flows menu. Pure — given the current sprint state,
- * returns the set of flow ids that should be visible.
- *
- * Sprint-scoped flows are gated by `sprint.status`:
- *  - `draft`   → refine, plan, add-ticket, remove-ticket
- *  - `planned` → implement
- *  - `active`  → implement
- *  - `review`  → review, close-sprint, create-pr
- *  - `done`    → create-pr
- *
- * Project-scoped flows (create-sprint, ideate, readiness, detect-scripts, detect-skills,
- * export-*, doctor, settings) are unconditional and always returned.
- *
- * `showAll: true` overrides every state-machine gate and returns the union of every known
- * flow — the menu still dims disabled ones via `evaluateTriggers`, but at least the
- * inapplicable rows are visible for discovery / context.
- *
- * Unknown sprint states fall through to "no sprint-scoped flows" so the helper degrades
- * gracefully if the domain adds a new state without updating this file.
+ * State-machine visibility helper for the Flows menu. Pure — given the current sprint state, returns the set of flow
+ * ids that should be visible.
  */
 
 import type { SprintStatus } from '@src/domain/entity/sprint.ts';
@@ -25,15 +8,7 @@ import type { SprintStatus } from '@src/domain/entity/sprint.ts';
 /** Flow id surfaced in both the sprint-scoped list and several per-status allow-lists. */
 const REMOVE_TICKET = 'remove-ticket';
 
-/**
- * Ticket-append flow. Draft-only everywhere it is offered: Home dims its `a` row with
- * "tickets can only be added in draft", sprint-detail gates the same chord on `ticketsEditable`
- * (`status === 'draft'`), and the manifest declares `currentSprintStatus: ['draft']`. The Flows
- * menu mirrors that — a
- * `planned` sprint has already been decomposed into tasks, so appending a ticket there has no
- * entry point anywhere else in the UI. `remove-ticket` is draft-only for the same reason: its
- * trigger rejects every non-draft sprint, so listing it at `planned` only offered a dead row.
- */
+/** Ticket-append flow. */
 const ADD_TICKET = 'add-ticket';
 
 /** Sprint-scoped flow ids — only meaningful when a sprint is selected. */
@@ -48,13 +23,7 @@ export const SPRINT_SCOPED_FLOW_IDS: readonly string[] = [
   REMOVE_TICKET,
 ];
 
-/**
- * Project-scoped flow ids — meaningful anytime a project is loaded.
- *
- * `doctor` and `settings` are intentionally absent: they aren't flows (no chain, no state
- * transition) and they already have global Home shortcuts (`!` and `s`). Surfacing them here
- * pollutes the "pick a flow" mental model.
- */
+/** Project-scoped flow ids — meaningful anytime a project is loaded. */
 export const PROJECT_SCOPED_FLOW_IDS: readonly string[] = [
   'create-sprint',
   'readiness',
@@ -64,24 +33,14 @@ export const PROJECT_SCOPED_FLOW_IDS: readonly string[] = [
   'export-requirements',
 ];
 
-/**
- * Flows hidden from the default menu but reachable via the `v` (show-all) toggle. Use for
- * flows we want to deprecate progressively — keep the code path alive while removing the
- * default affordance. Currently: `ideate` (one-shot combo of refine + plan; the separated
- * pair gives better state-machine visibility and a HITL checkpoint between requirements and
- * tasks, so we hide ideate by default).
- */
+/** Flows hidden from the default menu but reachable via the `v` (show-all) toggle. */
 export const HIDDEN_BY_DEFAULT_FLOW_IDS: readonly string[] = ['ideate'];
 
 const SPRINT_SCOPED_SET: ReadonlySet<string> = new Set(SPRINT_SCOPED_FLOW_IDS);
 const PROJECT_SCOPED_SET: ReadonlySet<string> = new Set(PROJECT_SCOPED_FLOW_IDS);
 const HIDDEN_SET: ReadonlySet<string> = new Set(HIDDEN_BY_DEFAULT_FLOW_IDS);
 
-/**
- * Per-sprint-status allow-list. Each entry is the set of sprint-scoped flow ids that should
- * surface to the user in that state; everything else is hidden by default (or dimmed when
- * `showAll` is on).
- */
+/** Per-sprint-status allow-list. */
 const ALLOWED_BY_STATUS: Readonly<Record<SprintStatus, ReadonlySet<string>>> = {
   draft: new Set(['refine', 'plan', ADD_TICKET, REMOVE_TICKET]),
   planned: new Set(['implement']),
@@ -96,12 +55,7 @@ export interface VisibilityInput {
   readonly showAll: boolean;
 }
 
-/**
- * Compute the visible-flow id set for the current selection. Project-scoped flows are
- * unconditionally visible when a project is loaded; sprint-scoped flows are visible only
- * when (1) a sprint is selected AND (2) the current status's allow-list includes them.
- * `showAll` bypasses both gates so the menu shows every known flow with dim styling.
- */
+/** Compute the visible-flow id set for the current selection. */
 export const visibleFlowsFor = (input: VisibilityInput): ReadonlySet<string> => {
   if (input.showAll) {
     return new Set([...PROJECT_SCOPED_FLOW_IDS, ...SPRINT_SCOPED_FLOW_IDS, ...HIDDEN_BY_DEFAULT_FLOW_IDS]);

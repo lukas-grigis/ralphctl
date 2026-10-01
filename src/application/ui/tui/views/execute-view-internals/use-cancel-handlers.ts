@@ -1,18 +1,5 @@
 /**
- * Cancel-scope handler factory hook — wires the two cancel options exposed by the
- * `CancelScopeOverlay`. Both stop the run now via a chain-runner abort; there is no live
- * retry. The two paths differ only in the task state they leave behind:
- *
- *   1. Stop run now (`onCancelAttempt`) — chain-runner abort with no repo write. The task
- *      stays `in_progress`; the next launch resumes it (the harness detects the settled
- *      attempt and re-enters the gen-eval loop rather than re-queuing from scratch).
- *   2. Stop run and mark blocked (`onCancelFlow`) — marks the current task `blocked` via
- *      `cancelActiveTaskUseCase` (reason: 'user cancel', scope: 'own'), then aborts the
- *      chain. The block keeps the task off the auto-resume queue on the next launch. The
- *      unwind is otherwise identical to option 1 from the runner's perspective.
- *
- * The repo write happens BEFORE the abort so a follow-up settle-attempt-leaf in the same
- * tick can't overwrite our pin to `blocked`.
+ * Cancel-scope handler factory hook — wires the two cancel options exposed by the `CancelScopeOverlay`.
  */
 
 import React from 'react';

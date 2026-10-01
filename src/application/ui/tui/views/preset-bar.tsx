@@ -1,12 +1,5 @@
 /**
- * Preset bar — twenty-six preset buttons across five families (Standard / Economic / Strong-gate /
- * Fast / Frontier). Each family renders under a dim bold sub-header so the rows stay scannable.
- * Activating a row opens a confirmation prompt in the parent view; this component is purely
- * the read-side render of the preset section card. Warnings from the most recent apply-preset
- * fan out as dimmed rows underneath so the operator sees missing-CLI guidance in-line.
- *
- * Keyboard navigation is unchanged — the sub-headers are visual-only; the cursor still walks
- * only the preset `EditableField` rows (the parent's `activeFields` array carries no headers).
+ * Preset bar — twenty-six preset buttons across five families (Standard / Economic / Strong-gate / Fast / Frontier).
  */
 
 import React from 'react';

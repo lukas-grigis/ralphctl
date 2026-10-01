@@ -1,19 +1,4 @@
-/**
- * Scroll model shared by the read-only document overlays (`ProgressOverlay`, `EvaluationOverlay`).
- * Both show one on-disk artifact windowed to the terminal height, and both must scroll it the same
- * way — extracted here rather than copied so the two cannot drift apart keystroke by keystroke.
- *
- *   ↑ / ↓                               → one line
- *   PageUp / PageDown / Ctrl+b / Ctrl+f → one viewport
- *   Ctrl+u / Ctrl+d                     → half viewport
- *
- * Deliberately NO `g` / `G` vim aliases: `g` is the global progress-overlay toggle and `v` the
- * evaluation-overlay toggle, so claiming either inside an overlay would close it mid-scroll.
- * Home/End are likewise left alone — they belong to the list primitive, not to a document view.
- *
- * The offset resets to the top whenever the line count changes (a re-open of a different / longer
- * document), and every move clamps into `[0, lineCount - bodyRows]`.
- */
+/** Scroll model shared by the read-only document overlays (`ProgressOverlay`, `EvaluationOverlay`). */
 
 import { useEffect, useState } from 'react';
 import { useInput } from 'ink';
@@ -24,11 +9,6 @@ export interface DocumentScroll {
   readonly visibleLines: number;
 }
 
-/**
- * @param lineCount total rows in the document; pass `0` when no document is loaded (every key is
- *   then inert, which is what the missing / empty / failed overlay states want).
- * @param bodyRows viewport height in rows.
- */
 export const useDocumentScroll = (lineCount: number, bodyRows: number): DocumentScroll => {
   const [offset, setOffset] = useState<number>(0);
 

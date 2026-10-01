@@ -1,16 +1,4 @@
-/**
- * Consumer-side coalescer — decouples event-arrival rate from downstream flush rate.
- *
- * The EventBus / BusSink contract stays synchronous fire-and-forget; this buffer is the seam
- * that lets a hot subscription (a DEBUG-floor stream-json fan-out, or a per-`step` session
- * notify) push thousands of values per second while only delivering a trailing window to its
- * consumer at most once per `flushMs`. In the TUI that consumer is a `setItems`, so each flush
- * is one React commit instead of one-per-push — the fix for the commit-storm OOM.
- *
- * Pure + framework-agnostic: no React, no class, no `this`. Owns a single `setInterval`. The
- * `slice(-limit)` cap runs once per flush (or on overflow), never the `[...prev, v]` spread per
- * push that was the actual O(n)/event heap-churn source.
- */
+/** Consumer-side coalescer — decouples event-arrival rate from downstream flush rate. */
 
 /** Lower bound on the flush interval. Below this the coalescing buys nothing and just burns CPU. */
 const MIN_FLUSH_MS = 16;
@@ -28,13 +16,8 @@ export interface CoalescedBufferOptions<T> {
   /** Seed values — trimmed to the trailing `limit` and used as the initial window. */
   readonly initial?: readonly T[];
   /**
-   * When `true`, the window is emptied immediately after each `onFlush` so a flush delivers only
-   * the values admitted since the previous flush (a true delta), not a rolling trailing window.
-   * Default `false` (rolling-window REPLACE semantics, for `setItems` consumers).
-   *
-   * Used by forwarders whose `onFlush` re-emits each window value into a downstream sink: a
-   * rolling window would re-emit prior-flush values every tick and re-grow the sink. `limit`
-   * still caps a single pre-flush interval.
+   * When `true`, the window is emptied immediately after each `onFlush` so a flush delivers only the values admitted
+   * since the previous flush (a true delta), not a rolling trailing window.
    */
   readonly clearOnFlush?: boolean;
 }
@@ -45,21 +28,14 @@ export interface CoalescedBuffer<T> {
   push(value: T): void;
   /** Force an immediate flush of the current window (used for replay-seed + unmount). */
   flushNow(): void;
-  /**
-   * Drop the held window WITHOUT calling `onFlush`, and clear the dirty flag. Use to abandon a
-   * pending batch (e.g. a forwarder on heap-critical that must not re-feed its downstream sink
-   * right before that sink is cleared).
-   */
+  /** Drop the held window WITHOUT calling `onFlush`, and clear the dirty flag. */
   discard(): void;
   /** Idempotent timer teardown. Safe to call more than once. */
   stop(): void;
 }
 
 /**
- * Build a trailing-window coalescer. Accumulates pushes, applies the `limit` cap once per flush
- * or overflow, and delivers a copy of the window to `onFlush` at most once per `flushMs` — only
- * when there is something new to deliver.
- *
+ * Build a trailing-window coalescer.
  * @public
  */
 export const createCoalescedBuffer = <T>(opts: CoalescedBufferOptions<T>): CoalescedBuffer<T> => {

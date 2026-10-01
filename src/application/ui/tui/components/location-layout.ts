@@ -1,19 +1,6 @@
 /**
- * Pure fitting for the one-row location line. No React, no Ink; widths are code points (every
- * glyph in `tokens.ts` is one cell).
- *
- *   `  ▣ Sprints › ready to implement — scoped to project      Hello Python › ready to implement [ACTIVE]  `
- *
- * Left is where you are (`▣ <section> › <crumb> … — <subtitle>`); right is the working context
- * (`<project> › <sprint> [STATUS]`, with the words `project` / `sprint` and `S switch` from `lg`).
- * When the row is too narrow the pieces give way in a fixed order, so the cheapest information
- * goes first and nothing is ever split mid-glyph:
- *
- *   1. the subtitle,
- *   2. the trail, from its start (`▣ … › Sprint`),
- *   3. the `[STATUS]` chip (whole or not at all — never `[ACTI`),
- *   4. below `lg` on a drilled-in view or one carrying a status chip: the sprint, then the project — the trail outranks the context,
- *   5. the project / sprint names, shortened with `…`.
+ * Pure fitting for the one-row location line. No React, no Ink; widths are code points (every glyph in `tokens.ts` is
+ * one cell).
  */
 
 import { glyphs } from '@src/application/ui/tui/theme/tokens.ts';
@@ -120,8 +107,8 @@ const buildRight = (wide: boolean, spec: RightSpec): LocationSegment[] => {
 };
 
 /**
- * Left candidates in drop order: full → no subtitle → trail clipped from its start, one part at a
- * time, until only the last part remains.
+ * Left candidates in drop order: full → no subtitle → trail clipped from its start, one part at a time, until only
+ * the last part remains.
  */
 const leftCandidates = (input: LocationInput): LocationSegment[][] => {
   const parts = [input.section, ...input.trail];

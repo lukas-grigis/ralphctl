@@ -37,21 +37,13 @@ const doctorAction = async (): Promise<void> => {
   }
   const report = result.value.ctx.output!;
   for (const probe of report.probes) printProbe(probe);
-  // Exit non-zero on hard failures (provider CLI missing, repo unreachable). Warnings —
-  // notably "settings file not yet persisted on first run" — pass with exit 0 so the
-  // welcome flow can resolve them on the next launch without scaring CI scripts. Setting
-  // exitCode (not process.exit) lets pending stdout writes above flush before Node exits.
+  // Exit non-zero on hard failures (provider CLI missing, repo unreachable).
   process.exitCode = report.hasFailures ? 1 : 0;
 };
 
 /**
- * Register the `doctor` CLI command.
- *
- *   ralphctl doctor
- *
- * Runs the same probes the TUI's Doctor view runs (storage roots reachable, project + sprint
- * repositories respond) and prints a one-line summary per probe. Exits 0 when all probes pass,
- * 1 otherwise — suitable for CI / health-check scripts.
+ * Register the `doctor` CLI command. ralphctl doctor Runs the same probes the TUI's Doctor view runs (storage roots
+ * reachable.
  */
 export const registerDoctorCommand = (program: Command): void => {
   program

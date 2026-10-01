@@ -1,26 +1,6 @@
 /**
- * Path picker — browse the filesystem and select a directory. Tailored for ralphctl's repo
- * paths, which are always directories. Free-text entry is unreliable (no auto-completion,
- * easy to typo) so the wizard funnels users through a navigable list instead — but a `t`
- * shortcut drops to a text-entry overlay for users who know the exact path.
- *
- * Layout per render:
- *   - Current directory header
- *   - `..` row (parent)
- *   - `[Select this directory]` row (confirms the current `cwd`)
- *   - sorted subdirectories, dotfiles hidden by default
- *
- * Keys:
- *   ↑/↓ or k/j   move cursor
- *   ↵            open directory, or confirm when on `[Select]`/`..`
- *   ⌫            jump to parent directory (same as activating `..`)
- *   ~ or h       jump to home directory
- *   t            type a path manually (validates as an existing directory before commit)
- *   .            toggle hidden entries
- *   esc          cancel
- *
- * Starts in `initial` when provided; otherwise `process.cwd()`. If neither is readable, the
- * picker falls back to `os.homedir()` so the user is never stuck on an error frame.
+ * Path picker — browse the filesystem and select a directory. Tailored for ralphctl's repo paths, which are always
+ * directories.
  */
 
 import React, { useEffect, useState } from 'react';
@@ -36,10 +16,7 @@ export interface PathPickerPromptProps {
   readonly message: string;
   readonly onSubmit: (path: string) => void;
   readonly onCancel: () => void;
-  /**
-   * Starting directory. Defaults to `process.cwd()` (the directory the user ran ralphctl from).
-   * Tilde-expanded automatically.
-   */
+  /** Starting directory. Defaults to `process.cwd()` (the directory the user ran ralphctl from). */
   readonly initial?: string;
 }
 

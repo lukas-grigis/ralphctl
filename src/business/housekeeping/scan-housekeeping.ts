@@ -141,8 +141,8 @@ const classifySprints = async (
 };
 
 /**
- * Dry-run inventory of what can be reclaimed under the data root: orphan sprints and memory dirs
- * (their project is gone), done sprints and run artifacts older than `staleAfterDays`. Read-only.
+ * Dry-run inventory of what can be reclaimed under the data root: orphan sprints and memory dirs (their project is
+ * gone), done sprints and run artifacts older than `staleAfterDays`.
  */
 export const scanHousekeepingUseCase = async (
   props: ScanHousekeepingProps

@@ -1,9 +1,4 @@
-/**
- * Create-project wizard: name → slug → description → repository → repo name → confirm → save.
- * Prompts render inline (this view is a sequence of prompts) and claim keyboard focus only while
- * one is on screen, so `h` / `esc` still work on the saving and error states. A draft outlives
- * the step so going back (or returning from a storage error) keeps every earlier value.
- */
+/** Create-project wizard: name → slug → description → repository → repo name → confirm → save. */
 
 import React, { useEffect, useState } from 'react';
 import { Box, Text, useInput } from 'ink';

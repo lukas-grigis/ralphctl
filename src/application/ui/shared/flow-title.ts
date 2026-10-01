@@ -1,8 +1,4 @@
-/**
- * Human-readable section title per flow id. Keeps the Execute view header accurate for any
- * flow that reuses this view (refine, plan, review, create-pr, …) instead of always showing
- * "Implement".
- */
+/** Human-readable section title per flow id. */
 const FLOW_TITLES: Record<string, string> = {
   implement: 'Implement',
   refine: 'Refine',
@@ -24,7 +20,7 @@ const FLOW_TITLES: Record<string, string> = {
 };
 
 /**
- * Derive a human-readable section title from a flow id. Falls back to the raw flowId so a
- * future flow never shows a blank header.
+ * Derive a human-readable section title from a flow id. Falls back to the raw flowId so a future flow never shows a
+ * blank header.
  */
 export const flowIdToTitle = (flowId: string): string => FLOW_TITLES[flowId] ?? flowId;

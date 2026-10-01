@@ -1,37 +1,4 @@
-/**
- * StatusBanner — tiered, event-driven status strip layered above the active view body.
- *
- * Replaces the single-purpose rate-limit banner with a generic system that any subsystem can
- * surface state through (rate-limit pause, idle-stdout watchdog kill, lock contention,
- * setup-script failure, baseline-broken warning, provider-disconnect, …). Emitters publish
- * `banner-show` / `banner-clear` on the EventBus keyed by a stable `id`; this component holds
- * the active set in local state and renders a stack ordered most-urgent-first.
- *
- * Three tiers, distinct visual treatment so the operator can categorise at a glance:
- *
- *   error → red, bold, `✗` glyph
- *   warn  → yellow, bold, `⚠` glyph
- *   info  → cyan, dim background, `i` glyph
- *
- * Stack mechanics:
- *
- *  - Active banners are deduped by `id`; re-publishing the same id replaces the previous
- *    entry. Insertion order is the publish order; sort flows error → warn → info before
- *    render so urgency stays visually consistent regardless of when each emitter fired.
- *  - Up to `MAX_VISIBLE` (3) banners render; the rest collapse into a `… + N more` row.
- *  - `d` dismisses the topmost (most-urgent) banner, and stands down while a prompt or overlay
- *    holds the keyboard (`ui.modalOpen`) — the component is mounted in every `ViewShell`, so an
- *    ungated `d` would fire mid-word inside a text prompt. Requires a `UiStateProvider` above
- *    it for that reason (unlike the EventBus, which it tolerates being absent).
- *  - Dismissal is local to the TUI session —
- *    the underlying state remains; if the emitter publishes the same id again the banner
- *    reappears. Re-display after dismiss requires a re-publish from the emitter (the bus
- *    has no replay), which matches the design intent: "I don't need to see this right now"
- *    rather than "this state is resolved".
- *
- * Rendering footprint is single-line per banner so the chrome stays calm — actionable detail
- * belongs in the chain log, not the banner itself.
- */
+/** StatusBanner — tiered, event-driven status strip layered above the active view body. */
 
 import React, { useCallback, useEffect, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
@@ -44,15 +11,7 @@ import type { BannerShowEvent } from '@src/business/observability/events.ts';
 /** Hard cap on visible banners before the collapse marker takes over. */
 const MAX_VISIBLE = 3;
 
-/**
- * Hard cap on retained banners regardless of visibility. Banner ids from the AI provider
- * adapters embed per-spawn / per-pid suffixes (`rate-limit-claude-<sessionId>`,
- * `watchdog-claude-<pid>`) and so do not dedupe across a long-running sprint; without this cap
- * a Rate-limit-heavy or watchdog-thrash run would accumulate one entry per occurrence for the
- * TUI's lifetime. The cap is well above MAX_VISIBLE so the collapse marker ("+N more") still
- * communicates depth while drop-oldest keeps memory bounded. Re-published ids continue to
- * replace in place (see `upsert`); only truly distinct ids hit the cap.
- */
+/** Hard cap on retained banners regardless of visibility. */
 const MAX_RETAINED = 50;
 
 type Tier = 'info' | 'warn' | 'error';
@@ -80,11 +39,8 @@ const toActive = (event: BannerShowEvent): ActiveBanner => ({
 });
 
 /**
- * Update strategy: re-publishing an id replaces the existing entry in place (preserves
- * insertion position so the visual order is stable across refreshes). A new id appends; once
- * the retained-cap is hit the oldest *non-error* entry is dropped (errors get priority retention
- * because they are the entry most likely to need operator attention). A pathological all-error
- * burst still drops oldest-first because we fall back to the front of the array.
+ * Update strategy: re-publishing an id replaces the existing entry in place (preserves insertion position so the
+ * visual order is stable across refreshes).
  */
 const upsert = (current: readonly ActiveBanner[], next: ActiveBanner): readonly ActiveBanner[] => {
   const idx = current.findIndex((b) => b.id === next.id);
@@ -108,9 +64,8 @@ export const StatusBanner = (): React.JSX.Element | null => {
   const [banners, setBanners] = useState<readonly ActiveBanner[]>([]);
 
   useEffect(() => {
-    // ViewShell mounts this banner inside every view, including ones whose tests pass a
-    // partial AppDeps without a real EventBus. Guard so the banner is a no-op (renders null)
-    // rather than crashing the host view when the bus isn't wired.
+    // ViewShell mounts this banner inside every view, including ones whose tests pass a partial AppDeps without a
+    // real EventBus.
     const bus = deps.eventBus;
     if (bus === undefined) return undefined;
     return bus.subscribe((event) => {
@@ -139,21 +94,8 @@ export const StatusBanner = (): React.JSX.Element | null => {
     });
   }, []);
 
-  // Only claim `d` while there's something to dismiss — otherwise we'd intercept a keystroke
-  // any view-level handler might want for its own use. We gate inside the handler rather than
-  // via `useInput`'s `isActive` option because the option flips the subscription itself, which
-  // races with the first render where banners arrive and the keystroke can land on the same
-  // tick. The in-handler check is cheap and avoids that race.
-  //
-  // `modalOpen` is the same stand-down every other keyboard owner honours (DESIGN-SYSTEM § 4.4):
-  // it folds in promptActive, so a `d` typed into an askText/askTextArea prompt is a character,
-  // not a dismissal — this banner sits inside every ViewShell next to PromptHost, and silently
-  // discarding a rate-limit / watchdog warning mid-word is exactly the visibility loss the
-  // banner exists to prevent. It also covers the help / progress / evaluation overlays, where
-  // the operator cannot see what they would be dismissing.
-  //
-  // A view that binds `d` itself (delete in the list views) claims it in the claimed-keys
-  // registry; the banner then stays put and the key does the view's job once, not two.
+  // Only claim `d` while there's something to dismiss — otherwise we'd intercept a keystroke any view-level handler
+  // might want for its own use.
   useInput((input) => {
     if (overlay.modalOpen) return;
     if (input === 'd' && sorted.length > 0 && !isClaimed('d')) dismissTop();
@@ -187,23 +129,16 @@ interface BannerRowProps {
 }
 
 /**
- * Threshold above which a `cause` string forces the two-line layout — headline on row 1,
- * cause + dismiss hint on a dim row 2. Inline rendering wraps mid-word at typical terminal
- * widths once the cause runs ~150 chars (e.g. the pnpm no-TTY hint), so we promote to a column
- * before Ink hits its own wrap. Threshold is conservative; short toasts (`Copied to
- * clipboard`, dozens of chars) stay inline so the typical case keeps its single-row footprint.
+ * Threshold above which a `cause` string forces the two-line layout — headline on row 1, cause + dismiss hint on a
+ * dim row 2.
  */
 const LONG_CAUSE_THRESHOLD = 60;
 
 const BannerRow = ({ banner, dismissable }: BannerRowProps): React.JSX.Element => {
   const color = tones[TIER_TONE[banner.tier]].color;
   const glyph = tones[TIER_TONE[banner.tier]].glyph;
-  // Info tier renders dim to read as "ambient" rather than "alarm"; warn/error stay bold so
-  // they punch above the surrounding chrome.
-  //
-  // Padding is intentionally minimal: rows have no paddingY so the bottom-of-screen footprint
-  // stays calm. The horizontal indent matches the rest of the view chrome so the glyph aligns
-  // with section bullets above it. The multi-line variant is the two-line budget — no third.
+  // Info tier renders dim to read as "ambient" rather than "alarm"; warn/error stay bold so they punch above the
+  // surrounding chrome.
   const isInfo = banner.tier === 'info';
   const isMultiline = banner.cause !== undefined && banner.cause.length > LONG_CAUSE_THRESHOLD;
   if (isMultiline) {

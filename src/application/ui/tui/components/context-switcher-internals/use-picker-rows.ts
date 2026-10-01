@@ -1,8 +1,6 @@
 /**
- * Data pipeline for the context switcher: load the raw sprint / project / task-health snapshot,
- * derive the filtered + grouped + flattened row list, and own the scope (`t`) and done-filter
- * (`f`) toggles. One hook so the rows the cursor walks and the rows the screen draws can never
- * derive from different lists.
+ * Data pipeline for the context switcher: load the raw sprint / project / task-health snapshot, derive the filtered +
+ * grouped + flattened row list, and own the scope (`t`) and done-filter (`f`) toggles.
  */
 
 import { useMemo, useState } from 'react';
@@ -37,9 +35,8 @@ export const usePickerRows = (deps: AppDeps, currentProjectId: ProjectId | undef
   const { state, reload } = useAsyncLoad<PickerData>(
     async (signal) => {
       const [sprintsR, projectsR] = await Promise.all([deps.sprintRepo.list(), deps.projectRepo.list()]);
-      // Short-circuit on unmount / re-fetch: the underlying repo calls don't yet accept a signal,
-      // so we can't truly cancel the I/O — but bailing here avoids parsing a stale result and
-      // lets `useAsyncLoad` swallow the AbortError as a silent cancel.
+      // Short-circuit on unmount / re-fetch: the underlying repo calls don't yet accept a signal, so we can't truly
+      // cancel the I/O.
       signal.throwIfAborted();
       if (!sprintsR.ok) throw new Error(sprintsR.error.message);
       if (!projectsR.ok) throw new Error(projectsR.error.message);

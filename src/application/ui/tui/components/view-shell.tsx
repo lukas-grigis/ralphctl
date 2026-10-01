@@ -1,40 +1,4 @@
-/**
- * Frame every view shares — four explicit zones under the app chrome that `Layout` owns (tab bar,
- * location line and rule sit ABOVE this component):
- *
- *   ┌─────────────────────────────────────────────┐
- *   │ HEADER  (fixed; empty except Work's wordmark)│   ← full banner, only when it fits
- *   ├─────────────────────────────────────────────┤
- *   │ CONTENT (scrolls when it overflows the      │   ← page body inside a ScrollRegion
- *   │          viewport; clipped at the edges)    │
- *   ├─────────────────────────────────────────────┤
- *   │ STATUS  (fixed; collapses when no banner)   │   ← dismissible StatusBanner stack
- *   ├─────────────────────────────────────────────┤
- *   │ PROMPT  (fixed; collapses when no prompt)   │   ← modal Question card from PromptHost
- *   ├─────────────────────────────────────────────┤
- *   │ FOOTER  (fixed, never scrolls, never shrinks)│   ← rule + one hint row
- *   └─────────────────────────────────────────────┘
- *
- * The title row is gone from the body: `title` / `subtitle` / `right` are PUBLISHED to the
- * location line (`view-title-context.tsx`), which shows `▣ Section › crumb — subtitle` once for
- * the whole frame instead of every view stamping its own.
- *
- * The fixed zones are wrapped in their own `flexShrink={0}` boxes — without that, Yoga is
- * free to compress them when the inner content is taller than the terminal, which is exactly
- * what we want to avoid (a "fixed footer" that disappears when content overflows isn't fixed).
- *
- * The prompt slot pins the queued Question card above the footer so the keyboard hints stay
- * visible while the user answers. The PromptHost returns null when the queue is empty so this
- * row collapses to zero height between prompts.
- *
- * The status slot sits between content and the prompt so the dismissible banner stack lands
- * next to the other footer-adjacent surfaces (PromptHost, StatusBar). StatusBanner returns null
- * when no banners are active, so this row collapses too.
- *
- * The wordmark `'full'` banner is reserved for the Work root and only when it fits
- * (`resolveBannerMode`); everywhere else the header zone is empty and the tab bar's `ralphctl`
- * text is the only brand.
- */
+/** Frame every view shares — four explicit zones under the app chrome that `Layout` owns (tab bar. */
 
 import React from 'react';
 import { Box } from 'ink';
@@ -58,25 +22,18 @@ export interface ViewShellProps {
   /** Cells `right` needs, so the location line can budget for it. */
   readonly rightWidth?: number;
   /**
-   * Overrides the last location crumb when the route label is not the view's name (Execute shows
-   * the flow it is running). Detail routes label themselves from route props instead.
+   * Overrides the last location crumb when the route label is not the view's name (Execute shows the flow it is
+   * running).
    */
   readonly crumb?: string;
   /**
-   * When true, the inner {@link ScrollRegion} ignores arrow / paging / vim scroll keys so a view
-   * that owns its own list cursor handles them itself (no double-scroll). Mouse-wheel scroll is
-   * unaffected. Default `undefined` / false — every current caller keeps the page-scroll keys.
+   * When true, the inner {@link ScrollRegion} ignores arrow / paging / vim scroll keys so a view that owns its own
+   * list cursor handles them itself (no double-scroll).
    */
   readonly suppressScrollArrows?: boolean;
   /**
-   * Result of the last action the operator took in this view (`✓ unblocked "…"`, `✗ <error>`),
-   * rendered in the PINNED status row rather than inside the scroll body.
-   *
-   * Pinned because the scroll body is not a place a one-shot message can be trusted to land: on
-   * a view tall enough to overflow, an inline result line sits wherever its section happens to
-   * fall, which on a default-height terminal is below the fold — so the operator performs an
-   * action and sees nothing. Views that overflow (sprint detail) pass their feedback here; short
-   * list views that render {@link FeedbackLine} inline are unaffected.
+   * Result of the last action the operator took in this view (`✓ unblocked "…"`, `✗ <error>`), rendered in the PINNED
+   * status row rather than inside the scroll body.
    */
   readonly feedback?: string | StructuredFeedback;
   readonly children: React.ReactNode;

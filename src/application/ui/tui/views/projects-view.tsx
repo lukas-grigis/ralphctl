@@ -1,10 +1,4 @@
-/**
- * Projects list — read-only enumeration of every project in storage. Selecting a row pushes
- * the project detail view to BROWSE it; browsing never switches the current selection (a
- * project switch clears the sprint cursor as a side effect, so a passive look-around must not
- * cost the user their working sprint). Press `m` on a focused row to make it current —
- * mirroring the sprint-detail view's explicit opt-in.
- */
+/** Projects list — read-only enumeration of every project in storage. */
 
 import React, { useEffect, useState, useCallback } from 'react';
 import { Box, Text } from 'ink';
@@ -34,8 +28,8 @@ import { createBindings, listMoveBinding } from '@src/application/ui/tui/runtime
 import { useBreakpoint } from '@src/application/ui/tui/runtime/use-breakpoint.ts';
 
 /**
- * Rendered height (rows) of one {@link ProjectRow} card at its typical size: border top, name,
- * slug/description, two repository lines, border bottom — plus the section margin below it.
+ * Rendered height (rows) of one {@link ProjectRow} card at its typical size: border top, name, slug/description, two
+ * repository lines, border bottom — plus the section margin below it.
  */
 const ROW_HEIGHT = 5;
 
@@ -139,8 +133,8 @@ const ProjectRow = ({ project, focused }: { project: Project; focused: boolean }
 );
 
 /**
- * Two-step removal gate: remove the project, then — only when it owns sprints or memory — ask
- * whether to take those too. Declining keeps today's behaviour (they become housekeeping orphans).
+ * Two-step removal gate: remove the project, then — only when it owns sprints or memory — ask whether to take those
+ * too.
  */
 const ProjectDeleteConfirm = ({
   project,

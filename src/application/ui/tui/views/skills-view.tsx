@@ -1,27 +1,6 @@
 /**
- * Skills catalog view — browse every bundled skill, see where it's currently enabled (per flow)
- * and whether that copy is in sync, and enable / disable / update it. The filesystem under
- * `<appRoot>/skills/<flow>/<name>/` is the single source of truth (see
- * `integration/ai/skills/phase/catalog.ts`); this view is a thin driver over
- * `AppDeps.skillCatalog`. Action sequencing (enable/disable/update/update-all, confirm gating)
- * lives in `skills-view-internals/use-skill-catalog-actions.ts`; the per-row layout lives in
- * `skills-view-internals/skill-row.tsx`.
- *
- * Local keys:
- *   ↑/↓       move the focus cursor (windowed list — `useListWindow` also accepts the j/k alias)
- *   e         enable the focused skill for picked flows (multi-select, recommendedFor preselected)
- *   d         disable the focused skill for picked flows (multi-select over currently-installed flows)
- *   u         update the focused skill from the bundle (confirms first if it would overwrite a
- *             locally-modified copy)
- *   U         update every install whose status is update-available, catalog-wide (never touches
- *             locally-modified or manual installs — no confirm needed)
- *   c         clear the focused skill's saved opt-out (`settings.ai.skills.<flow>.disabled`) —
- *             only offered when it actually has one; otherwise the only way to clear it is
- *             re-running a flow's customize picker and choosing "remember" again
- *   r         reload
- *
- * A `defaultFor` flow always renders "always on (default)" regardless of any phase-folder copy —
- * default loading doesn't go through the phase folder at all (see `flowChipVisual`'s doc comment).
+ * Skills catalog view — browse every bundled skill, see where it's currently enabled (per flow) and whether that copy
+ * is in sync, and enable / disable / update it.
  */
 
 import React, { useEffect, useMemo } from 'react';
@@ -62,8 +41,8 @@ import {
 /** Non-list rows consumed by ViewShell chrome + summary line + overflow rows + feedback. */
 const CHROME_ROWS = 8;
 /**
- * Rendered height (rows) of one `SkillRow` card at its tallest: border top, name, description,
- * chip strip, "recommended:" line, border bottom, plus the section margin below the card.
+ * Rendered height (rows) of one `SkillRow` card at its tallest: border top, name, description, chip strip,
+ * "recommended:" line, border bottom, plus the section margin below the card.
  */
 const ROW_HEIGHT = 7;
 
@@ -73,11 +52,8 @@ interface SkillsViewState {
 }
 
 /**
- * Loader for `useAsyncLoad` — the catalog listing plus a settings read, used both to make a
- * "default" chip honest ("default, off (saved)") and to drive the clear-opt-out action. A
- * settings read failure is non-fatal — the catalog still renders, chips just lose that nuance
- * and the clear-opt-out action has nothing to clear. Extracted so `SkillsView` stays under the
- * per-function line budget.
+ * Loader for `useAsyncLoad` — the catalog listing plus a settings read, used both to make a "default" chip honest
+ * ("default, off (saved)") and to drive the clear-opt-out action.
  */
 const loadSkillsViewState = async (deps: AppDeps): Promise<SkillsViewState> => {
   const r = await deps.skillCatalog.list();
@@ -229,10 +205,7 @@ interface SkillsKeysInput {
   readonly reload: () => void;
 }
 
-/**
- * The catalog key map. Extracted from the view body so the component stays a wiring surface and
- * the table of "key → what it does → when it is live" reads in one place.
- */
+/** The catalog key map. */
 const skillsKeyBindings = ({
   actions,
   focusedItem,

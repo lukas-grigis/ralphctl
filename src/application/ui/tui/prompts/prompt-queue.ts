@@ -1,14 +1,6 @@
 /**
- * Module-level prompt queue. The TUI bridges sync chain code (use cases call
- * `interactive.askConfirm(...)` and `await` the answer) into the React tree by:
- *  1. Enqueuing a `PendingPrompt` here, returning a Promise that the chain awaits.
- *  2. The `<PromptHost>` component reads the head of this queue and renders the matching
- *     prompt component. When the user resolves / cancels, we resolve / reject the promise.
- *  3. The next prompt — if any — slides into view; chains see a sequential, non-overlapping
- *     stream of questions even when the surrounding code naively kicks off many at once.
- *
- * Mutex semantics are critical. Only the head renders at any given time. Callers that want to
- * batch-collect answers must serialise them themselves; the queue serialises them by default.
+ * Module-level prompt queue. The TUI bridges sync chain code (use cases call `interactive.askConfirm(...)` and
+ * `await` the answer) into the React tree by: 1.
  */
 
 import type { Choice } from '@src/business/interactive/prompt.ts';
@@ -66,9 +58,8 @@ export interface MultiChoicePrompt<T = unknown> extends BasePrompt {
 export type PendingPrompt = TextPrompt | TextAreaPrompt | ConfirmPrompt | ChoicePrompt | MultiChoicePrompt;
 
 /**
- * Distributive `Omit` over the prompt union — preserves the discriminant so each variant's
- * input shape stays narrowable. `Omit<PendingPrompt, 'id'>` would collapse the union to a
- * structural intersection where the per-variant `options` field is invisible to the caller.
+ * Distributive `Omit` over the prompt union — preserves the discriminant so each variant's input shape stays
+ * narrowable.
  */
 export type PendingPromptInput =
   | Omit<TextPrompt, 'id'>

@@ -176,24 +176,7 @@ const publishTicketAction = async (rawTicketId: string, opts: SprintOpt): Promis
   );
 };
 
-/**
- * Register the `ticket` command group. Tickets are nested in the Sprint aggregate (no separate
- * repo), so list/show route through `sprintRepo.findById` directly; add/remove/publish dispatch to
- * use-cases because they carry domain invariants (only-when-draft, conflict on duplicate id) or
- * tracker I/O (create issue / idempotent comment).
- *
- *   ralphctl ticket list    [--sprint <id>]
- *   ralphctl ticket show    [--sprint <id>] <ticket-id>
- *   ralphctl ticket add     [--sprint <id>] --title <title> [--description <text>] [--link <url>]
- *   ralphctl ticket publish [--sprint <id>] <ticket-id>
- *   ralphctl ticket remove  [--sprint <id>] <ticket-id>
- *
- * `--sprint` defaults to the pinned current sprint (`ralphctl sprint set-current <id>` or any
- * TUI sprint pick); the fallback path prints a one-line stderr notice naming the substituted
- * sprint, and the add/remove/publish success lines always name the resolved sprint so the mutation
- * target is never ambiguous. A stale pin fails naturally downstream (`findById` not-found /
- * the only-when-draft invariant). Publish does not prompt.
- */
+/** Register the `ticket` command group. */
 export const registerTicketCommand = (program: Command): void => {
   const ticketCmd = program.command('ticket').description('inspect and manage tickets within a sprint');
 

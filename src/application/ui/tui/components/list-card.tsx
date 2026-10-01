@@ -1,17 +1,4 @@
-/**
- * ListCard — the shared frame for a card in a vertical list (tickets, tasks). Thin wrapper
- * around {@link Card} that centralises the visual contract — border tone, dim policy, internal
- * padding, marginBottom gutter, and the title row layout (cursor + index + title on the left,
- * status chip on the right). Both TicketCard and TaskCard render through this primitive so they
- * cannot drift.
- *
- * Tone semantics:
- *   focused   → tone='info'  (highlighted border, no dim)
- *   unfocused → tone='rule'  (recessive divider tone, dimmed border)
- *
- * The focused row carries `▸` as text, so focus survives NO_COLOR. Projects, Sprints, Skills,
- * tickets and tasks all use it. Open/closed state is the caller's concern — pass the body via `children`.
- */
+/** ListCard — the shared frame for a card in a vertical list (tickets, tasks). */
 
 import React from 'react';
 import { Box, Text } from 'ink';

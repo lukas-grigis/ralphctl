@@ -1,15 +1,6 @@
 /**
- * Loaders + session-manager subscription wiring for the sprint-detail view.
- *
- * Hides three side effects behind one hook so the orchestrator only deals with the result:
- *
- *   1. `useAsyncLoad` fetches sprint + tasks in parallel keyed on `sprintId`.
- *   2. {@link useSessionTransitionReload} reloads whenever a tracked flow status transitions
- *      (registered, running → completed / failed / aborted, or removed) so cancelling or
- *      finishing a flow doesn't leave the view frozen on its mount-time snapshot.
- *   3. A best-effort project lookup (no Result envelope leak) used to resolve
- *      `repositoryId → name` for task cards. Failures surface via `logger.warn` rather than
- *      breaking the view.
+ * Loaders + session-manager subscription wiring for the sprint-detail view. Hides three side effects behind one hook
+ * so the orchestrator only deals with the result: 1.
  */
 
 import { useEffect, useState } from 'react';

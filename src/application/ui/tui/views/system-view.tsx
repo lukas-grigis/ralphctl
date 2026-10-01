@@ -1,12 +1,6 @@
 /**
- * System hub — the fifth section's root: Settings, Skills, Doctor and Housekeeping, one row each
- * with a live one-line summary, so the operator sees what needs attention before opening anything.
- * `↵` pushes the child onto the System stack; `esc` in the child returns here.
- *
- * Summaries come from the shared sources the children use: the doctor report from
- * `useSystemStatus` (also feeding the tab-bar badge), `settingsRepo.load()`, `skillCatalog.list()`
- * and `housekeeping.scan()`. `r` reloads all of them. Ordering and copy live in
- * `system-view-model.ts`.
+ * System hub — the fifth section's root: Settings, Skills, Doctor and Housekeeping, one row each with a live one-line
+ * summary, so the operator sees what needs attention before opening anything.
  */
 
 import React, { useMemo } from 'react';

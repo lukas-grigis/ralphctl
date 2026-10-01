@@ -1,11 +1,4 @@
-/**
- * Outcome summary card — shown when a chain settles. Encodes the outcome in both the title bar
- * (colour + glyph) and the body (FieldList of relevant metadata), then answers the two questions
- * a settled run leaves open: what to do next, and — on a failure — where to look.
- *
- * Both trailing blocks are supplied by the caller: `nextSteps` from `buildNextSteps`, `forensics`
- * from `useRunForensics` (already existence-checked, so a rendered path always resolves).
- */
+/** Outcome summary card — shown when a chain settles. */
 
 import React from 'react';
 import { Box, Text } from 'ink';

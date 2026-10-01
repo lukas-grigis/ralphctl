@@ -1,22 +1,4 @@
-/**
- * Shared wrapper for sprint-bound flow launches. Every flow whose final ctx carries a
- * `sprint` (or `sprintId`) field is launched through this helper so the post-completion
- * selection reseat happens in one place — not duplicated per call site.
- *
- * Behaviour:
- *  - Delegates to {@link launchFlow} for the actual chain construction.
- *  - On `runner.subscribe('completed')`, reads `ctx.sprint` (preferred — carries the canonical
- *    name) or falls back to `ctx.sprintId` (uses `fallbackLabel` when supplied; otherwise
- *    leaves the label unchanged).
- *  - Notifies the caller via `onReseat({ id, name })` so views can render transient
- *    "✓ now on <sprint-name>" feedback above their menus.
- *  - Does NOT reseat on `aborted` or `failed` events. The user's prior selection stays put;
- *    cancelling a create-sprint flow must not yank them onto an unrelated sprint.
- *
- * Subscription is registered before the caller invokes `runner.start()` — the runner's
- * late-subscriber replay (see runner.ts) makes this race-free even if the chain completes
- * synchronously.
- */
+/** Shared wrapper for sprint-bound flow launches. */
 
 import type { Runner } from '@src/application/chain/run/runner.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
@@ -30,9 +12,8 @@ import {
 } from '@src/application/ui/shared/launcher.ts';
 
 /**
- * Minimal shape every sprint-bound chain's terminal ctx exposes. `sprint` is preferred —
- * it carries the canonical name and status. `sprintId` is the fallback for flows that surface
- * only the id post-completion (currently none, but kept resilient).
+ * Minimal shape every sprint-bound chain's terminal ctx exposes. `sprint` is preferred — it carries the canonical
+ * name and status.
  */
 interface SprintBoundCtx {
   readonly sprint?: { readonly id: SprintId; readonly name: string; readonly status?: SprintStatus };
@@ -40,24 +21,11 @@ interface SprintBoundCtx {
 }
 
 export interface SprintBoundLaunchExtras extends LaunchExtras {
-  /**
-   * Called when the chain completes with a `sprint` (or `sprintId`) on ctx. The caller wires
-   * this to `selection.setSprint(id, name, status)` AND any transient-feedback state — all
-   * happen in one place so the UI never shows the reseat without the toast.
-   */
+  /** Called when the chain completes with a `sprint` (or `sprintId`) on ctx. */
   readonly onReseat?: (info: { readonly id: SprintId; readonly name: string; readonly status?: SprintStatus }) => void;
-  /**
-   * Display name to use when ctx surfaces only `sprintId` (no `sprint` object). Defaults to
-   * `String(id)`; callers that have a friendlier label (e.g. the snapshot's sprint name)
-   * should pass it.
-   */
+  /** Display name to use when ctx surfaces only `sprintId` (no `sprint` object). */
   readonly fallbackLabel?: string;
-  /**
-   * Called when the sprint's id/name become known (same moment as `onReseat`, but receives the
-   * runner id so the caller can retroactively pin the sprint onto the session descriptor without
-   * needing a closure over the `LaunchResult` value that isn't defined at callback-creation time).
-   * Intended for callers that pass `sessions.setPinnedSprint(runnerId, id, name)` here.
-   */
+  /** Called when the sprint's id/name become known (same moment as `onReseat`. */
   readonly onSprintResolved?: (
     runnerId: string,
     info: { readonly id: SprintId; readonly name: string; readonly status?: SprintStatus }
@@ -93,9 +61,8 @@ const attachReseatSubscriber = (
       ) => void)
     | undefined
 ): void => {
-  // Self-unsubscribe on terminal events so the listener (and the captured closures) don't pin
-  // the runner across a long TUI session — historically a load-bearing OOM contributor for
-  // sprint-bound flows that get re-launched repeatedly.
+  // Self-unsubscribe on terminal events so the listener (and the captured closures) don't pin the runner across a
+  // long TUI session.
   const unsub: () => void = runner.subscribe((event) => {
     if (event.type === 'failed' || event.type === 'aborted') {
       unsub();

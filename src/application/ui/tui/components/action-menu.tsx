@@ -1,23 +1,6 @@
 /**
- * Vertical action menu — keyboard-driven list of clickable items. Each item has a label, an
- * optional description, an optional `disabledReason`, and an `onSelect` callback. Disabled
- * items are dimmed and skipped during cursor movement (so the cursor never lands on a dead
- * row). Selecting an enabled item fires `onSelect`.
- *
- * Items can opt into a `section` label; when one item's section differs from the previous
- * item's, a small uppercase header is rendered above the first item of the new group. The
- * header is purely typographic — it never receives the cursor.
- *
- * Keyboard model (windowed-list contract, DESIGN-SYSTEM §6.4):
- *   ↑/k            — previous enabled item
- *   ↓/j            — next enabled item
- *   PgUp / Home    — first enabled item (g/G removed: `g` is the global progress-overlay toggle)
- *   PgDn / End     — last enabled item
- *   ↵              — select
- *   space          — select (hotkey handler)
- *
- * Navigation is implemented via `useListWindow` over the *enabled* item subset. Section headers
- * are render-only rows excluded from the cursorable set, mirroring the context-switcher group approach.
+ * Vertical action menu — keyboard-driven list of clickable items. Each item has a label, an optional description, an
+ * optional `disabledReason`, and an `onSelect` callback.
  */
 
 import React, { useEffect, useMemo } from 'react';
@@ -37,15 +20,13 @@ export interface MenuItem {
   /** Optional section label — small uppercased eyebrow above the group's first item. */
   readonly section?: string;
   /**
-   * When true, the menu shows the hotkey hint but does NOT bind it locally — a higher-level
-   * handler (typically `useGlobalKeys`) owns the binding. Without this, pressing the key would
-   * fire both handlers and push the destination view onto the router stack twice.
+   * When true, the menu shows the hotkey hint but does NOT bind it locally — a higher-level handler (typically
+   * `useGlobalKeys`) owns the binding.
    */
   readonly globalHotkey?: boolean;
   /**
-   * Optional factual cost/session hint rendered dimmed on a third line beneath the focused
-   * row's description. Only the focused row shows it — unfocused rows remain compact.
-   * Sourced from {@link FlowManifest.costHint} for flows that have one.
+   * Optional factual cost/session hint rendered dimmed on a third line beneath the focused row's description. Only
+   * the focused row shows it — unfocused rows remain compact.
    */
   readonly costHint?: string;
   /** Glyph in front of the label; when any item has one, the rest reserve the same two columns. */
@@ -64,11 +45,7 @@ export interface ActionMenuProps {
   readonly items: readonly MenuItem[];
   readonly initialIndex?: number;
   readonly active?: boolean;
-  /**
-   * Number of enabled items visible at once. Defaults to all items (no windowing) when
-   * undefined. Pass a value derived from `useBreakpoint().rows` to cap the list on short
-   * terminals.
-   */
+  /** Number of enabled items visible at once. Defaults to all items (no windowing) when undefined. */
   readonly visibleRows?: number;
   /** Count shown after a section header (`NEEDS YOU  1`), keyed by the section label. */
   readonly sectionCounts?: Readonly<Record<string, number>>;
@@ -83,12 +60,8 @@ const NOTE_LABEL_MAX = 30;
 const isEnabled = (item: MenuItem): boolean => item.disabledReason === undefined;
 
 /**
- * Single-character nav aliases reserved by the windowed-list contract (DESIGN-SYSTEM §6.4) —
- * derived from `listKeys` so it can never drift from the actual `useListWindow` bindings. A
- * `MenuItem.hotkey` on one of these would double-fire: `useListWindow`'s own `useInput` (mounted
- * alongside this component's) moves the cursor on the same keystroke that `matchHotkey` would
- * fire the item's `onSelect`. `matchHotkey` refuses to match them outright, so a future item
- * defining `hotkey: 'j'` fails closed (hotkey silently inert) instead of double-firing.
+ * Single-character nav aliases reserved by the windowed-list contract (DESIGN-SYSTEM §6.4) — derived from `listKeys`
+ * so it can never drift from the actual `useListWindow` bindings.
  */
 const RESERVED_NAV_KEYS: ReadonlySet<string> = new Set(
   [...listKeys.up.keys, ...listKeys.down.keys].filter((k) => /^[a-z]$/.test(k))
@@ -108,8 +81,8 @@ const findInitialCursorId = (
 };
 
 /**
- * Hotkey match for the space-as-select / hotkey `useInput` handler (skips global hotkeys and the
- * reserved `j`/`k` list-nav aliases — see {@link RESERVED_NAV_KEYS}).
+ * Hotkey match for the space-as-select / hotkey `useInput` handler (skips global hotkeys and the reserved `j`/`k`
+ * list-nav aliases — see {@link RESERVED_NAV_KEYS}).
  */
 const matchHotkey = (items: readonly MenuItem[], input: string): MenuItem | undefined => {
   if (RESERVED_NAV_KEYS.has(input)) return undefined;
@@ -123,8 +96,8 @@ interface RenderRow {
 }
 
 /**
- * An enabled item is visible when it falls inside the current window; a disabled item is
- * visible only when its section is also represented in the window (or the window is empty).
+ * An enabled item is visible when it falls inside the current window; a disabled item is visible only when its
+ * section is also represented in the window (or the window is empty).
  */
 const isRowVisible = (
   it: MenuItem,
@@ -138,9 +111,8 @@ const isRowVisible = (
 };
 
 /**
- * Walk the full items array, skipping enabled items outside the window and disabled items not
- * adjacent to a visible section. Section headers render only when at least one of their members
- * will render.
+ * Walk the full items array, skipping enabled items outside the window and disabled items not adjacent to a visible
+ * section.
  */
 const buildRenderRows = (
   items: readonly MenuItem[],

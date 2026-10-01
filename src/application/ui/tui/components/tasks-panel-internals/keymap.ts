@@ -1,12 +1,4 @@
-/**
- * Keyboard model for the Tasks panel. Bundles the j/k/↑/↓ row+card cursor logic, the
- * Enter/Space toggle (card expand or commit-message body expand), `e` to toggle the focused
- * card's criteria block, `v` to open the focused card's evaluation verdict, `u` to unblock the
- * focused card's stuck task, and Esc to collapse a focused expanded card.
- *
- * Extracted from the panel orchestrator so the input layer can be reasoned about in isolation
- * from the render tree.
- */
+/** Keyboard model for the Tasks panel. */
 
 import { useInput, type Key } from 'ink';
 import type { BucketedExecution } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
@@ -53,26 +45,15 @@ const handleCriteriaToggle = (
   activeTaskId: string | undefined,
   setCriteriaExpandedIds: (updater: (prev: ReadonlySet<string>) => ReadonlySet<string>) => void
 ): boolean => {
-  // Done-criteria toggle, anchored on the FOCUSED card with the active (running) task as a
-  // fallback — matching how `handleOpenEvaluation` resolves its target below. Anchoring on
-  // `activeTaskId` alone went dead the moment a run settled (every post-run state has no active
-  // task), which is exactly when reading a blocked card's criteria matters most.
+  // Done-criteria toggle, anchored on the FOCUSED card with the active (running) task as a fallback — matching how
+  // `handleOpenEvaluation` resolves its target below.
   const target = focusedCardId ?? activeTaskId;
   if (input !== 'e' || target === undefined) return false;
   setCriteriaExpandedIds((prev) => toggleSetMembership(prev, target));
   return true;
 };
 
-/**
- * `v` opens the read-only evaluation overlay for the FOCUSED card — not the active one. Unlike the
- * `e` criteria toggle (which anchors on the running task, because that is what the operator is
- * reading during a run), this is a "show me that verdict" action about a card the operator has
- * deliberately moved the cursor onto, frequently a completed one further up the list.
- *
- * Inert — returns `false`, so the keystroke keeps travelling — when the target has no recorded
- * verdict or the host wired no handler. Swallowing it there would silently eat `v` on every
- * pending card.
- */
+/** `v` opens the read-only evaluation overlay for the FOCUSED card — not the active one. */
 const handleOpenEvaluation = (
   input: string,
   focusedCardId: string | undefined,
@@ -86,14 +67,8 @@ const handleOpenEvaluation = (
 };
 
 /**
- * `u` revives the FOCUSED card's stuck task — same target-resolution shape as
- * {@link handleOpenEvaluation} (the focused card, not the active one: an operator unblocks
- * whatever card they've moved the cursor onto, which is frequently a settled one earlier in the
- * list, not whatever happens to still be running).
- *
- * Inert — returns `false`, so the keystroke keeps travelling — when the target isn't in
- * `blockedTaskIds` or the host wired no handler. Swallowing it there would silently eat `u` on
- * every non-blocked card.
+ * `u` revives the FOCUSED card's stuck task — same target-resolution shape as {@link handleOpenEvaluation} (the
+ * focused card.
  */
 const handleUnblock = (
   input: string,
@@ -113,9 +88,7 @@ const handleEscapeCollapse = (
   expandedTaskIds: ReadonlySet<string>,
   setExpandedTaskIds: (updater: (prev: ReadonlySet<string>) => ReadonlySet<string>) => void
 ): boolean => {
-  // Esc collapses an expanded focused card. Works on any expanded card, including the
-  // active task — the auto-expand-on-activation seed only fires when the active id
-  // transitions, so collapsing it stays collapsed until the next transition.
+  // Esc collapses an expanded focused card.
   if (!key.escape) return false;
   if (focusedCardId !== undefined && expandedTaskIds.has(focusedCardId)) {
     setExpandedTaskIds((prev) => {
@@ -137,14 +110,7 @@ interface VerticalMoveArgs {
   readonly setCardCursor: (index: number) => void;
 }
 
-// j / k AND ↑ / ↓ share one cursor; the scope shifts with the focused card's state and
-// the current row-cursor anchor:
-//   - collapsed card → card cursor moves between cards.
-//   - expanded card AND a row cursor is already anchored → row cursor moves within the
-//     card; jumping past either edge hands off to the card cursor (no need to collapse
-//     the card first).
-//   - expanded card with no row anchor yet → card cursor (lets the operator pan
-//     between cards without first clicking into a row).
+// j / k AND ↑ / ↓ share one cursor; the scope shifts with the focused card's state and the current row-cursor anchor.
 const handleVerticalMove = (direction: 1 | -1, input: string, key: Key, args: VerticalMoveArgs): boolean => {
   const isDown = direction === 1;
   const matchesKey = isDown ? key.downArrow || input === 'j' : key.upArrow || input === 'k';

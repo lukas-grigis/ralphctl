@@ -1,18 +1,4 @@
-/**
- * Baseline-Health Chip — single-line companion to the right-context {@link BaselineHealthCard}.
- *
- * Renders above the active-task header so the verify-gate state is visible without scrolling.
- * Four states (colour is the load-bearing signal; glyphs / words are the fallback for
- * monochrome / colour-blind operators):
- *
- *  - `green`   — at least one signal has run and nothing is red / amber.
- *  - `amber`   — broken-baseline attempts OR the latest verify ran long enough ago to be stale.
- *  - `red`     — any regression, any red setup row, or the LATEST pre/post verify row is red.
- *  - `unknown` — initial state; no setup, no verify runs yet.
- *
- * Tier source is {@link synthesiseBaselineHealth} — the same predicate the card consumes, so
- * chip and card cannot disagree.
- */
+/** Baseline-Health Chip — single-line companion to the right-context {@link BaselineHealthCard}. */
 
 import React from 'react';
 import { Box, Text } from 'ink';

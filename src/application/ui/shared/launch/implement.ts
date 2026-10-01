@@ -44,13 +44,8 @@ import { createAiProvider } from '@src/application/bootstrap/provider-factory.ts
 import type { HeadlessAiProvider } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
 
 /**
- * Apply role-level overrides from {@link LaunchExtras.implementRoleOverrides} on top of the
- * persisted `settings.ai.implement` pair. Each role accepts `{ provider?, model?, effort? }`
- * with every field independently optional — supplying only `provider` keeps the persisted
- * model / effort for that role. The TUI customize picker assembles coherent overrides (a
- * provider switch always rides with a fresh model from the new provider's catalog); the CLI
- * parser still rejects half-supplied provider/model pairs upstream. The discriminated-union
- * cast remains sound under both call sites.
+ * Apply role-level overrides from {@link LaunchExtras.implementRoleOverrides} on top of the persisted
+ * `settings.ai.implement` pair.
  */
 const mergeImplementRole = (
   base: AiFlowSettings,
@@ -81,10 +76,8 @@ const applyImplementRoleOverrides = (
 };
 
 /**
- * The cross-aggregate bundle that lets {@link resolveImplementQueue} run the FULL referential-
- * integrity check instead of the dependency graph alone. Optional at the seam so callers holding
- * only a task list (and the queue-ordering tests) keep the graph-only behaviour.
- *
+ * The cross-aggregate bundle that lets {@link resolveImplementQueue} run the FULL referential- integrity check
+ * instead of the dependency graph alone.
  * @public
  */
 export interface ImplementQueueBundle {
@@ -95,53 +88,21 @@ export interface ImplementQueueBundle {
 
 /**
  * Resolve the ordered launch queue from a sprint's FULL task set — the pre-launch human gate.
- *
- * Validation runs first, so a cyclic / self-edge / dangling-dependency sprint fails fast here with
- * the rendered issue — a deadlock can't hide behind an innocuous "No tasks to implement" message
- * that only appears after unschedulable tasks are filtered out. When the caller supplies the
- * project / sprint / execution bundle, the broader referential-integrity checks
- * ({@link validateSprintConsistency} — sprint belongs to the project, execution belongs to the
- * sprint, every task's ticket and repository resolve) run alongside the graph check, so a task
- * pointing at a ticket or repository that no longer exists is caught before any AI session opens
- * rather than mid-run. Without the bundle only the dependency graph is checked.
- *
- * On a sound DAG the queue is built by a dependency-respecting PRIORITY topological sort over the
- * RESUMABLE subset (`todo` + `in_progress`): a task is emitted only after every resumable
- * prerequisite it depends on has been emitted, and among the tasks that are legally runnable at
- * each step the resumed (`in_progress`) ones lead, then `Task.order` ASC breaks the tie. A done /
- * blocked prerequisite is NOT in the resumable subgraph, so it never blocks ordering — a resumed
- * task whose prerequisites are all `done` still leads the queue.
- *
- * Why a priority topo-sort and not the old flat in-progress-first sort: the flat sort could hoist a
- * resumed `in_progress` task AHEAD of a still-`todo` prerequisite it depends on (e.g. after a crash
- * + manual unblock leaves `{prereq: todo, dependent: in_progress}`). In the serial path the per-task
- * subchains run in queue order, so the dependent's `dependency-gate` would then fire BEFORE its
- * prerequisite ran, blocking the dependent `blocked upstream` and dead-ending it for the launch.
- * Making dependency order a hard constraint (a prerequisite always precedes its dependent) means the
- * gate never sees a not-yet-run prerequisite — the prereq runs first, settles, and the dependent
- * resumes behind it.
- *
- * Returns the rendered `TaskGraphIssue` string on an invalid graph, otherwise the ordered queue
- * (possibly empty when nothing is resumable — the caller reports that separately).
- *
  * @public
  */
 export const resolveImplementQueue = (
   tasks: readonly Task[],
   bundle?: ImplementQueueBundle
 ): Result<readonly Task[], string> => {
-  // Validate first (cross-aggregate references when the bundle is supplied, always the graph's
-  // cycle / self-edge / dangling checks) so a deadlock or a dangling reference surfaces as the
-  // rendered issue rather than a silently-truncated queue.
+  // Validate first (cross-aggregate references when the bundle is supplied.
   const validation = bundle === undefined ? validateTaskGraph(tasks) : validateSprintConsistency({ ...bundle, tasks });
   if (!validation.ok) return Result.error(renderSprintConsistencyIssue(validation.error));
 
   const resumable = tasks.filter((t) => t.status === 'todo' || t.status === 'in_progress');
   const resumableIds = new Set(resumable.map((t) => t.id));
 
-  // In-degree + successors over the RESUMABLE subgraph only — a dependency that resolves to a
-  // done / blocked (non-resumable) task is already satisfied (or terminal) and must not gate the
-  // dependent here; the dependency-gate leaf handles the blocked-prerequisite case at run time.
+  // In-degree + successors over the RESUMABLE subgraph only — a dependency that resolves to a done / blocked
+  // (non-resumable) task is already satisfied (or terminal) and must not gate the dependent here.
   const byId = new Map<TaskId, Task>(resumable.map((t) => [t.id, t]));
   const inDegree = new Map<TaskId, number>(resumable.map((t) => [t.id, 0]));
   const successors = new Map<TaskId, TaskId[]>(resumable.map((t) => [t.id, []]));
@@ -179,11 +140,8 @@ export const resolveImplementQueue = (
 };
 
 /**
- * Clamp `settings.concurrency.maxParallelTasks` to `[1,5]` — the parallel cap. `=== 1`
- * selects the serial implement path; `> 1` selects the parallel worktree-fan-out path. The settings
- * schema already validates `[1,5]`, but the launcher re-clamps defensively (a hand-edited settings
- * file or a future schema change can never push the harness past the budget it was sized against).
- *
+ * Clamp `settings.concurrency.maxParallelTasks` to `[1,5]` — the parallel cap. `=== 1` selects the serial implement
+ * path; `> 1` selects the parallel worktree-fan-out path.
  * @public
  */
 export const clampParallel = (n: number): number => {
@@ -191,35 +149,18 @@ export const clampParallel = (n: number): number => {
   return Math.min(5, Math.max(1, Math.trunc(n)));
 };
 
-/**
- * Build the `>1` parallel implement element. Computes the wave plan from the same deps/opts the
- * serial path uses, then wraps the prologue → `runWaves` → epilogue orchestration in the
- * {@link createParallelImplementElement} adapter — run on ONE outer runner under ONE held lock.
- *
- * `buildWaveBranches` rebuilds each branch's `publishSignal` off `parallelDeps.eventBus`, keyed
- * on the branch's `taskId` (see `wave-branch.ts`'s `perBranchSignalPublisher`) — the flow-wide
- * `publishSignal` on `implementDeps` (built by the caller for the serial path) is not reused here.
- */
+/** Build the `>1` parallel implement element. */
 const buildParallelElement = (
   implementDeps: ImplementDeps,
   implementOpts: CreateImplementFlowOpts,
   maxParallel: number,
   sessionId: () => string
 ): Result<Element<ImplementCtx>, TaskGraphIssue> => {
-  // Built via the shared `buildAttemptReadConfig` (see `attempt-body.ts`) — the same builder
-  // `flow.ts`'s serial launcher uses, so a field added to `AttemptReadConfig`'s return shape
-  // (e.g. the opt-in best-of-N knob) reaches both launchers by construction instead of requiring
-  // each `readConfig` literal to be updated by hand.
+  // Built via the shared `buildAttemptReadConfig` (see `attempt-body.ts`) — the same builder `flow.ts`'s serial
+  // launcher uses.
   const readConfig = buildAttemptReadConfig(implementDeps.config.harness);
 
-  // Serialise every append for the WHOLE parallel run — prologue, all branches, and the epilogue
-  // share ONE mutex. Concurrent branches append to the same project learnings ledger (and the
-  // prologue/epilogue's `progress.md` separator lines, which no other mutex covers); funnelling
-  // them through one queue keeps each line atomic (no torn NDJSON lines under fan-out). The serial
-  // path keeps the raw port — it has no concurrency. The two whole-file read-modify-writes are
-  // SEPARATE paths, guarded by `ImplementDeps.journalMutex` (progress.md sections) and
-  // `ImplementDeps.ledgerMutex` (learnings.ndjson appends + size bounding) — both built once per
-  // run in `buildImplementDepsBag` and inherited by every branch, not by this append mutex.
+  // Serialise every append for the WHOLE parallel run — prologue, all branches, and the epilogue share ONE mutex.
   const parallelDeps: ImplementDeps = { ...implementDeps, appendFile: serializeAppendFile(implementDeps.appendFile) };
 
   const branchDeps: BuildWaveBranchesDeps = {
@@ -245,10 +186,8 @@ const buildParallelElement = (
 };
 
 /**
- * Direct-build the canonical `<id>--<slug>/` sprint dir plus its `progress.md` / `events.ndjson`
- * siblings, collapsing the three `AbsolutePath.parse` checks into one `Result` chain. The launcher
- * holds the full sprint entity, so no async resolver scan is needed — building the bare `<id>`
- * path here would split-brain against a slug-renamed dir the repos converge on.
+ * Direct-build the canonical `<id>--<slug>/` sprint dir plus its `progress.md` / `events.ndjson` siblings, collapsing
+ * the three `AbsolutePath.parse` checks into one `Result` chain.
  */
 const resolveImplementSprintPaths = (
   dataRoot: AbsolutePath,
@@ -275,11 +214,8 @@ const resolveImplementSprintPaths = (
 };
 
 /**
- * Stop the file-log + bus subscriptions when the runner reaches a terminal state. Pending writes
- * still drain in the background — events.ndjson remains consistent post-exit. The subscription
- * self-unsubscribes on the terminal event so we don't pin a dead listener (and its closure scope)
- * to the runner's internal listener Set across a long multi-run TUI session — historically a
- * load-bearing OOM contributor.
+ * Stop the file-log + bus subscriptions when the runner reaches a terminal state. Pending writes still drain in the
+ * background — events.ndjson remains consistent post-exit.
  */
 const wireChainLogStop = (
   runner: Runner<ImplementCtx>,
@@ -295,14 +231,8 @@ const wireChainLogStop = (
 };
 
 /**
- * Detect resumes at launch time: any task whose last attempt is still `running` (the v8 OOM /
- * Ctrl-C / SIGTERM signature in a prior process) gets a `RecoveryContext` pinned to its id. We
- * pre-derive here — rather than waiting for the chain's start-attempt leaf to settle — so the
- * TUI's resume-from-aborted banner shows up *before* the chain starts executing, not after the
- * first leaf finishes. Keyed on the leftover running attempt, NOT on `status === 'in_progress'`:
- * a crash can persist a status-corrupt `todo` task whose last attempt is still `running` (which
- * `startAttemptUseCase` heals), and the banner must fire for it too. `process-crash` is the
- * conservative cause for the cross-process inference; P1j's signal-aware path will refine it.
+ * Detect resumes at launch time: any task whose last attempt is still `running` (the v8 OOM / Ctrl-C / SIGTERM
+ * signature in a prior process) gets a `RecoveryContext` pinned to its id.
  */
 const computeTaskRecovering = (todoTasks: readonly Task[], now: IsoTimestamp): Map<string, RecoveryContext> => {
   const taskRecovering = new Map<string, RecoveryContext>();
@@ -319,10 +249,8 @@ const computeTaskRecovering = (todoTasks: readonly Task[], now: IsoTimestamp): M
 };
 
 /**
- * Plan-time label lookup — keyed by element name so the rail can render friendly labels for rows
- * that haven't traced yet (pending / running). Once a leaf executes, the trace entry's own `label`
- * carries the same value and supersedes this lookup. Only leaves that supplied a non-empty label
- * are entered; lookups fall through to the raw name for everything else.
+ * Plan-time label lookup — keyed by element name so the rail can render friendly labels for rows that haven't traced
+ * yet (pending / running).
  */
 const computePlanLabels = (flattened: ReadonlyArray<Element<ImplementCtx>>): Map<string, string> => {
   const planLabelByName = new Map<string, string>();
@@ -333,14 +261,8 @@ const computePlanLabels = (flattened: ReadonlyArray<Element<ImplementCtx>>): Map
 };
 
 /**
- * Build the implement chain element for this launch — the deps/opts bags plus the
- * serial-vs-parallel topology decision. Parallel cap: `settings.concurrency.maxParallelTasks`
- * clamped to `[1,5]`. `=== 1` → the serial path: `createImplementFlow` built directly, the
- * chain owning its own internal `withRepoLock`. `> 1` → the parallel path: one held lock
- * hoisted to the launcher across prologue + waves + epilogue, one worktree per task, folds
- * serialised onto the single shared sprint branch → one PR. The parallel path rebuilds its own
- * per-branch `publishSignal` (see `wave-branch.ts`'s `perBranchSignalPublisher`), keyed on each
- * task's id — the flow-wide serial-path instance in `args.publishSignal` is not reused there.
+ * Build the implement chain element for this launch — the deps/opts bags plus the serial-vs-parallel topology
+ * decision.
  */
 const buildImplementElement = (
   ctx: LaunchContext,
@@ -353,11 +275,7 @@ const buildImplementElement = (
     readonly sprint: Sprint;
     readonly project: Project;
     readonly todoTasks: readonly Task[];
-    /**
-     * EVERY task on the sprint, not just the resumable queue. Tasks outside `todoTasks` are the
-     * already-settled prerequisites a dependent may still point at; naming them keeps a narrowed
-     * resumed run's graph valid — see `CreateImplementFlowOpts.satisfiedDependencyIds`.
-     */
+    /** EVERY task on the sprint, not just the resumable queue. */
     readonly allTasks: readonly Task[];
     readonly progressPath: AbsolutePath;
     readonly sprintDirPath: AbsolutePath;
@@ -373,12 +291,7 @@ const buildImplementElement = (
     skillSource,
     { generator: args.agentBindings.generatorAdapter, evaluator: args.agentBindings.evaluatorAdapter }
   );
-  // Every task the sprint holds that is NOT in the resumable queue is, by construction, already
-  // settled — `done`, or `blocked` (which the per-task `dependency-gate` leaf parks a dependent
-  // behind at run time, not the scheduler). Naming them keeps a dependency on such a prerequisite
-  // from reading as a dangling edge once the graph is narrowed to the queue alone, which is what
-  // used to fail a resumed parallel run's whole schedule closed. A dependency on an id that exists
-  // on NO task still fails, as it should.
+  // Every task the sprint holds that is NOT in the resumable queue is, by construction, already settled — `done`.
   const queuedIds = new Set<TaskId>(args.todoTasks.map((t) => t.id));
   const satisfiedDependencyIds = new Set<TaskId>(args.allTasks.filter((t) => !queuedIds.has(t.id)).map((t) => t.id));
   const implementOpts: CreateImplementFlowOpts = {
@@ -401,13 +314,8 @@ const buildImplementElement = (
 };
 
 /**
- * Pre-launch human gate: load the sprint's execution record and resolve the ordered queue against
- * the full cross-aggregate bundle, so a cyclic / dangling graph — or a task pointing at a ticket or
- * repository that no longer exists — fails before any AI session opens rather than mid-run.
- *
- * A sprint whose execution record can't be read (none written yet — no implement run has happened)
- * still gets the dependency-graph check; the missing record only narrows what can be verified, and
- * the implement chain writes one as it goes.
+ * A sprint whose execution record can't be read (none written yet — no implement run has happened) still gets the
+ * dependency-graph check.
  */
 const resolveQueueForLaunch = async (
   deps: LaunchContext['deps'],
@@ -420,17 +328,7 @@ const resolveQueueForLaunch = async (
   return resolveImplementQueue(tasks, { project, sprint, execution: execution.value });
 };
 
-/**
- * Re-key both role adapters onto `AppDeps.providerSpawn` when one is wired.
- *
- * `buildImplementProviders` builds the pair from settings alone — it has no view of the spawn
- * seam, and it lives in a module this launcher shares with the parallel path, so the override is
- * applied here at the single call site rather than widening that helper's signature. Models,
- * efforts, and the agent-definition resolution it performed are carried through untouched; only
- * the two `HeadlessAiProvider` instances are rebuilt.
- *
- * Returns the input unchanged in ordinary runs (no override wired).
- */
+/** Re-key both role adapters onto `AppDeps.providerSpawn` when one is wired. */
 const withProviderSpawnOverride = (
   providers: ReturnType<typeof buildImplementProviders>,
   ctx: LaunchContext,
@@ -449,15 +347,8 @@ const withProviderSpawnOverride = (
 };
 
 /**
- * PATH pre-flight for both roles — skipped when a provider spawn override is wired, because "is
- * the CLI installed?" is not a question that applies when nothing will be spawned. The only
- * producer of `providerSpawn` today is `ralphctl demo --script` (and hermetic tests); an ordinary
- * run leaves it undefined and the gate behaves exactly as before. See `AppDeps.providerSpawn`.
- *
- * Deliberately implement-only: `providerSpawn` overrides HEADLESS spawns, and implement is the
- * headless flow. The interactive flows (refine / plan / ideate) hand the terminal to a real CLI
- * regardless of the override, so their unconditional `checkCli` gate is protective, not stale —
- * do not extend this skip to them.
+ * PATH pre-flight for both roles — skipped when a provider spawn override is wired, because "is the CLI installed?"
+ * is not a question that applies when nothing will be spawned.
  */
 const preflightCli = async (ctx: LaunchContext, effectiveSettings: Settings): Promise<LaunchResult | undefined> =>
   ctx.deps.app.providerSpawn !== undefined
@@ -465,12 +356,7 @@ const preflightCli = async (ctx: LaunchContext, effectiveSettings: Settings): Pr
     : checkCli('implement', effectiveSettings, { implementRoleOverrides: ctx.extras.implementRoleOverrides });
 
 /**
- * Build the implement element for this launch and unwrap `buildImplementElement`'s `Result` into
- * a launch failure. Split out of `launchImplement` because the wave-plan's error channel
- * (`planImplementWaves` → `buildParallelElement` → `buildImplementElement`) needs its own
- * translation step at the call site: a schedule that cannot be built is reported here as
- * `{ ok: false }` rather than launching a run with no waves — an empty parallel plan used to read
- * to the operator as "nothing to do" instead of "the task graph is broken".
+ * Build the implement element for this launch and unwrap `buildImplementElement`'s `Result` into a launch failure.
  */
 const buildImplementElementOrFailure = (
   ctx: LaunchContext,
@@ -481,12 +367,7 @@ const buildImplementElementOrFailure = (
 };
 
 /**
- * Resolve each role's opt-in agent-definition binding, then build the two per-role providers on
- * top of it. Kept as one step because of the ordering dependency between them: AC2 (an unknown
- * bound name is reported and the role runs unaided) must resolve BEFORE `buildImplementProviders`
- * runs, since AC5 has a bound definition's model/effort override the persisted row. The roles may
- * target distinct providers — see `buildImplementProviders`'s doc comment for why `ctx.provider`
- * is unused here.
+ * Resolve each role's opt-in agent-definition binding, then build the two per-role providers on top of it.
  */
 const resolveImplementAgentBindingsAndProviders = async (
   ctx: LaunchContext,
@@ -512,10 +393,8 @@ const resolveImplementAgentBindingsAndProviders = async (
 
 export const launchImplement = async (ctx: LaunchContext): Promise<LaunchResult> => {
   const { deps, snapshot, extras, settings, bridge, sessionId } = ctx;
-  // Apply per-role overrides (from CLI flags via `LaunchExtras.implementRoleOverrides`) onto
-  // a settings copy before either readiness probing or provider construction — both must see
-  // the overridden providers / models to avoid spawning the persisted pair while reporting on
-  // the overridden one.
+  // Apply per-role overrides (from CLI flags via `LaunchExtras.implementRoleOverrides`) onto a settings copy before
+  // either readiness probing or provider construction.
   const implementPair = applyImplementRoleOverrides(settings.ai.implement, extras.implementRoleOverrides);
   const effectiveSettings: Settings = {
     ...settings,
@@ -536,17 +415,12 @@ export const launchImplement = async (ctx: LaunchContext): Promise<LaunchResult>
   if (!sprintPaths.ok) return { ok: false, reason: sprintPaths.error };
   const { sprintDirPath, progressPath, eventsNdjsonPath } = sprintPaths.value;
 
-  // Tee every AppEvent on the bus to <sprintDir>/events.ndjson for postmortem debugging.
-  // Stopped when the runner exits (success or fail) — wired below via `wireChainLogStop`.
-  // The factory is env-gated at `wire()` time: when `RALPHCTL_DEBUG_TRACE` is unset the
-  // returned handle is a no-op, so production runs do not write the file unless the operator
-  // explicitly opts in.
+  // Tee every AppEvent on the bus to <sprintDir>/events.ndjson for postmortem debugging. Stopped when the runner
+  // exits (success or fail) — wired below via `wireChainLogStop`.
   const chainLog = deps.app.chainLogSink({ file: eventsNdjsonPath, bus: deps.app.eventBus });
 
-  // Flow-wide publisher for the serial path — every gen-eval turn's signal publishes onto the
-  // application bus as a typed `ai-signal` event with `source: 'implement'`. The parallel path
-  // rebuilds its own per-branch publisher in `wave-branch.ts` (keyed on each task's `taskId`), so
-  // this instance is never reused there.
+  // Flow-wide publisher for the serial path — every gen-eval turn's signal publishes onto the application bus as a
+  // typed `ai-signal` event with `source: 'implement'`.
   const publishSignal = createPublishSignal(deps.app.eventBus, 'implement');
   const { agentBindings, providers } = await resolveImplementAgentBindingsAndProviders(
     ctx,
@@ -583,10 +457,8 @@ export const launchImplement = async (ctx: LaunchContext): Promise<LaunchResult>
   const flattened = flattenLeaves(element);
   const plannedLeaves = flattened.map((e) => e.name);
   const planLabelByName = computePlanLabels(flattened);
-  // Providers are drawn from the post-merge implementPair, and the models from `providers`
-  // (which already carry a bound definition's override — see `buildImplementProviders`), so
-  // per-launch role overrides AND agent-definition bindings both flow through to the
-  // rail/banner without a second settings read.
+  // Providers are drawn from the post-merge implementPair, and the models from `providers` (which already carry a
+  // bound definition's override — see `buildImplementProviders`).
   const generatorProviderId = implementPair.generator.provider;
   const evaluatorProviderId = implementPair.evaluator.provider;
   return {

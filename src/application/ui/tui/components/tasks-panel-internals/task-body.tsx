@@ -1,15 +1,6 @@
 /**
- * Expanded body of a task card — everything below the header cluster:
- *
- *   - {@link ActiveBusyIndicator}   — two-role gen-eval activity dot
- *   - {@link ExpandedNotices}       — idle ticker, resume banner, first-run hint, criteria, error
- *   - {@link ExpandedProgressBlock} — sub-steps, eval verdict, signals
- *
- * Each component self-gates on `cardExpanded` (and its own data-presence condition), so the
- * composing card never repeats a gate. The eval verdict is sourced from the AUTHORITATIVE
- * per-task `taskEvaluation` — never the timestamp-bucketed `TaskBucket.evaluations` signal
- * stream, which mis-attributes evaluator signals to the wrong task under parallel/wave sprints
- * (overlapping windows + AI-fabricated timestamps).
+ * Expanded body of a task card — everything below the header cluster: - {@link ActiveBusyIndicator} — two-role
+ * gen-eval activity dot - {@link ExpandedNotices} — idle ticker.
  */
 
 import React, { useMemo } from 'react';
@@ -85,13 +76,7 @@ const SubStepsSection = ({
   </Box>
 );
 
-/**
- * Eval verdict block under an expanded card: the AUTHORITATIVE one-line verdict, and only that.
- * Per-dimension detail lives in the evaluation overlay (`v`), which reads the attempt's own
- * `evaluation.md` — the card must never widen into a multi-line panel sourced from the bucketed
- * signal stream, which mis-attributes evaluator signals across lanes under parallel sprints, and
- * must never do a disk read: this subtree re-renders every second while a task runs.
- */
+/** Eval verdict block under an expanded card: the AUTHORITATIVE one-line verdict, and only that. */
 const EvalVerdictSection = ({ taskEvaluation }: { readonly taskEvaluation: TaskEvaluation }): React.JSX.Element => (
   <Box flexDirection="column" paddingLeft={spacing.indent} marginTop={spacing.section}>
     <EvaluationLine evaluation={taskEvaluation} />
@@ -139,20 +124,7 @@ const SignalsSection = ({
   </Box>
 );
 
-/**
- * Idle-ticker hint — the only genuinely 1 Hz-dependent bit of an expanded task card. Owns its
- * own tick internally via {@link useIdleClock} (mirrors the `ElapsedLabel` pattern from
- * `execute-view-internals/elapsed-label.tsx`) instead of reading a `now` prop that the parent
- * re-renders on every second — so a clock tick re-renders only this leaf, not `TaskBlock` or the
- * rest of the card. `seedNowMs` seeds the leaf's clock on mount (the caller's freshest known
- * "now"); the leaf free-runs from `Date.now()` afterwards while `active`.
- *
- * Surfaces the last 1–2 note / learning signals when the task is running and the most recent
- * stream signal is older than `IDLE_TICKER_THRESHOLD_MS` — reassurance that the harness is alive
- * during long tool calls. Hides immediately when a new signal lands. `active` should be
- * `isActive && isSpinning` — completed / blocked / non-focused cards have no use for "what's the
- * AI been thinking about" hints and never start a timer.
- */
+/** Idle-ticker hint — the only genuinely 1 Hz-dependent bit of an expanded task card. */
 const IdleTickerNotice = ({
   active,
   signals,
@@ -184,9 +156,8 @@ const IdleTickerNotice = ({
 };
 
 /**
- * Resume banner / first-run hint / criteria / error message — the "notice-ish" rows directly
- * under the header, plus the idle ticker (delegated to {@link IdleTickerNotice}). Self-gates on
- * `cardExpanded`.
+ * Resume banner / first-run hint / criteria / error message — the "notice-ish" rows directly under the header, plus
+ * the idle ticker (delegated to {@link IdleTickerNotice}).
  */
 export const ExpandedNotices = ({
   cardExpanded,
@@ -229,9 +200,8 @@ export const ExpandedNotices = ({
 };
 
 /**
- * Sub-steps, eval verdict (or its "awaiting eval" placeholder), and signals — the trailing,
- * data-heavy rows of an expanded card. Self-gates on `cardExpanded`; slices `task.subSteps` /
- * `task.signals` to the render window itself so the caller only threads the raw task + limits.
+ * Sub-steps, eval verdict (or its "awaiting eval" placeholder), and signals — the trailing, data-heavy rows of an
+ * expanded card.
  */
 export const ExpandedProgressBlock = ({
   cardExpanded,
@@ -277,10 +247,8 @@ export const ExpandedProgressBlock = ({
         />
       )}
       {isActive && taskEvaluation === undefined && (
-        // An active card with no AUTHORITATIVE evaluation yet — surface a single dim placeholder
-        // so the operator sees the eval slot is live-but-empty rather than missing. We gate on the
-        // ABSENCE of an authoritative verdict (not the bucketed signal stream, which can mis-
-        // attribute a stale signal). `activityArrow` matches the other indented continuation lines.
+        // An active card with no AUTHORITATIVE evaluation yet — surface a single dim placeholder so the operator sees
+        // the eval slot is live-but-empty rather than missing.
         <Box paddingLeft={spacing.indent} marginTop={spacing.section}>
           <Text dimColor>{glyphs.activityArrow} awaiting eval</Text>
         </Box>

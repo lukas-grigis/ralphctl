@@ -1,26 +1,4 @@
-/**
- * Modal help reference. Renders a card listing the bindings that apply to where the operator
- * is. The global key handler intercepts `?` to open / close it; while open, every other global
- * key is suspended (only `esc` and `?` close, and `Tab` flips the scope below).
- *
- * Mounted ONCE, in the App Layout, beside the progress / evaluation overlays — the active view
- * stays mounted underneath under `display: none`, so its registered hints (the top
- * 'This view' section) are still the live ones.
- *
- * Scope: by default the overlay shows 'This view' + the general sections, and only the sections
- * of surfaces mounted on the current route (`KeySection.onlyOn`: Execute / Tasks panel / Signals
- * on `execute`, the Context switcher keys appear under 'All keys' — the switcher is an overlay, not a route). `Tab` toggles 'All keys', which adds the rest.
- *
- * Scroll model (active when content overflows the viewport):
- *   ↑ / ↓         → one line
- *   PgUp / PgDn   → one viewport
- *   lines X–Y of N footer cue when scrollable
- *
- * Windowing invariant: **one {@link HelpRow} renders exactly one terminal row**. The blank line
- * before each non-first section title is therefore a real `blank` row in the array rather than a
- * `marginTop` on the title — otherwise a window holding N titles renders N rows taller than the
- * budget, overflowing the card and making the `lines X–Y of N` counter name rows nobody can see.
- */
+/** Modal help reference. Renders a card listing the bindings that apply to where the operator is. */
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
@@ -31,9 +9,8 @@ import { useActiveHints } from '@src/application/ui/tui/runtime/use-view-hints.t
 import { useTerminalSize } from '@src/application/ui/tui/runtime/use-terminal-size.ts';
 
 /**
- * Rows the overlay spends on its own chrome, so the card never outgrows the terminal:
- * outer paddingY (top + bottom) + card border (top + bottom) + header + body marginTop +
- * footer marginTop + footer row.
+ * Rows the overlay spends on its own chrome, so the card never outgrows the terminal: outer paddingY (top + bottom) +
+ * card border (top + bottom) + header + body marginTop + footer marginTop + footer row.
  */
 const CHROME_ROWS = spacing.section * 2 + 2 + 1 + spacing.section + spacing.section + 1;
 /** Floor on the scrollable body so a tiny terminal still shows something. */
@@ -53,9 +30,10 @@ interface HelpRow {
   readonly color?: string | undefined;
 }
 
-/** Renders one row of the flattened help list — a section spacer, a section title, a key-chord
- * binding, or a plain reference row (signal vocabulary etc. with no key chord). Every branch
- * occupies exactly one terminal row. */
+/**
+ * Renders one row of the flattened help list — a section spacer, a section title, a key-chord binding, or a plain
+ * reference row (signal vocabulary etc. with no key chord).
+ */
 const HelpRowView = ({ row }: { readonly row: HelpRow }): React.JSX.Element => {
   if (row.kind === BLANK) {
     return <Text> </Text>;
@@ -94,10 +72,7 @@ const HelpRowView = ({ row }: { readonly row: HelpRow }): React.JSX.Element => {
   );
 };
 
-/**
- * Pushes a section title, preceded by `spacing.section` blank rows unless it opens the list.
- * The spacer is a row (not a margin) so the windowing math stays one-row-per-`HelpRow`.
- */
+/** Pushes a section title, preceded by `spacing.section` blank rows unless it opens the list. */
 const pushSectionTitle = (rows: HelpRow[], title: string): void => {
   if (rows.length > 0) {
     for (let i = 0; i < spacing.section; i++) rows.push({ kind: BLANK });

@@ -1,12 +1,4 @@
-/**
- * `InteractivePrompt` adapter that pushes prompts onto the TUI's queue. Composition root passes
- * this to chain factories so use cases that call `interactive.ask*` end up rendering inside the
- * Ink tree instead of blocking the terminal with raw stdin reads.
- *
- * Cancellation surfaces through the `Result` channel as a `ValidationError` for input parsing
- * issues (matching the console adapter), and as an `AbortError` when the queue is drained
- * (e.g. on shutdown).
- */
+/** `InteractivePrompt` adapter that pushes prompts onto the TUI's queue. */
 
 import { Result } from '@src/domain/result.ts';
 import type { AskConfirmInput, Choice, InteractivePrompt } from '@src/business/interactive/prompt.ts';

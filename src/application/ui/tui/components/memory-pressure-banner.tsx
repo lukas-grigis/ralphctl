@@ -1,15 +1,4 @@
-/**
- * MemoryPressureBanner — process-wide heap-pressure indicator. Subscribes to the EventBus's
- * `'memory-pressure'` events (emitted by the heap watchdog on every band transition) and
- * surfaces a single-line strip above the routed view so the operator gets a 30-second warning
- * before V8 SIGKILLs the harness.
- *
- * Renders nothing while the heap is healthy. On `'warning'` shows a warning-tone strip;
- * on `'critical'` shows an error-tone strip and notes that in-memory buffers were auto-cleared
- * (the watchdog's `onCritical` hatch is what does the clearing — this component only reflects
- * the state). On `'recovered'` we collapse back to nothing so the chrome stays calm once the
- * heap drains.
- */
+/** MemoryPressureBanner — process-wide heap-pressure indicator. */
 
 import React, { useEffect, useState } from 'react';
 import { Box, Text } from 'ink';

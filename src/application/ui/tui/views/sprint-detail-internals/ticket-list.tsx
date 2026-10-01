@@ -1,11 +1,4 @@
-/**
- * Tickets pane for the sprint-detail view.
- *
- * One bordered Jira-style card per ticket. Each card collapses to a description excerpt and
- * expands inline (full description + requirements + referenced tasks) when the orchestrator
- * passes `expanded=true` via the `openIds` set. Empty state and the local footer hints stay
- * here so the orchestrator only has to position the section.
- */
+/** Tickets pane for the sprint-detail view. One bordered Jira-style card per ticket. */
 
 import React from 'react';
 import { Box, Text } from 'ink';
@@ -42,10 +35,7 @@ export const TicketsSection = ({
   openIds,
 }: TicketsSectionProps): React.JSX.Element => {
   const { rows } = useBreakpoint();
-  // Tickets sit at the head of the shared focus list, so the shared cursor doubles as the local
-  // ticket index. When it has moved past the tickets into the tasks pane, the index exceeds the
-  // ticket count and `computeListWindow` clamps it to the last ticket — the window stays anchored
-  // at the tail rather than scrolling away while focus lives below.
+  // Tickets sit at the head of the shared focus list, so the shared cursor doubles as the local ticket index.
   const window = computeListWindow(sprint.tickets.length, cursorIdx, sectionWindowCards(rows));
   const visibleTickets = sprint.tickets.slice(window.start, window.end);
   return (

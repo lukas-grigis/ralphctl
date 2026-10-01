@@ -1,8 +1,4 @@
-/**
- * Field-group renderers for the project-detail view — the project info card and the per-repo
- * cards. Split out of `project-detail-view.tsx` so the orchestrator component and its hooks stay
- * the sole content of that file; rendering is identical to before the split.
- */
+/** Field-group renderers for the project-detail view — the project info card and the per-repo cards. */
 
 import React from 'react';
 import { Box, Text } from 'ink';
@@ -15,8 +11,7 @@ import type { Project } from '@src/domain/entity/project.ts';
 import type { Repository } from '@src/domain/entity/repository.ts';
 import type { Field } from '../project-detail-view.tsx';
 
-/** Wrap a field value with the action-cursor glyph + primary color when focused. Mirrors the
- *  pattern from settings-view.tsx so the focus signal stays consistent across detail views. */
+/** Wrap a field value with the action-cursor glyph + primary color when focused. */
 export const focusable = (focused: boolean, node: React.ReactNode): React.ReactNode => (
   <Text {...(focused ? { color: inkColors.primary } : {})} bold={focused}>
     {focused ? `${glyphs.actionCursor} ` : '  '}

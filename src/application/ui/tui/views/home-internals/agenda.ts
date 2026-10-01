@@ -1,6 +1,6 @@
 /**
- * Work's agenda — one ordered list answering "is something stuck, what's running, what next, which
- * key?": NEEDS YOU → RUNNING → NEXT → FLOWS. Pure: callers pass the clock and every lookup.
+ * Work's agenda — one ordered list answering "is something stuck, what's running, what next, which key?": NEEDS YOU →
+ * RUNNING → NEXT → FLOWS.
  */
 
 import { flowRegistry } from '@src/application/registry.ts';

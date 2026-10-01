@@ -1,7 +1,6 @@
 /**
- * Housekeeping — dry-run preview of reclaimable data (orphan sprints and memory, old done sprints
- * and runs) with sizes. `space` marks candidates, `↵` deletes the marked ones after a confirm;
- * nothing is removed before that. The scan and the purge are the use cases behind `deps.housekeeping`.
+ * Housekeeping — dry-run preview of reclaimable data (orphan sprints and memory, old done sprints and runs) with
+ * sizes.
  */
 
 import React, { useState } from 'react';

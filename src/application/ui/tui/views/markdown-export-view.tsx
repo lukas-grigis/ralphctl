@@ -1,9 +1,5 @@
 /**
- * Presentation shell shared by the two per-sprint markdown export views (context.md /
- * requirements.md). It owns the run lifecycle via {@link useMarkdownExport} and renders the
- * one-shot idle/running/done/error states; the wrapping views supply only their copy (title,
- * subtitle, spinner label) and a `run` callback that executes their flow. This keeps the two
- * views as thin, declarative wrappers instead of near-identical ~90-line components.
+ * Presentation shell shared by the two per-sprint markdown export views (context.md / requirements.md).
  */
 
 import React from 'react';

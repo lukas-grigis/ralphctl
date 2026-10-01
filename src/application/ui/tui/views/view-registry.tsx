@@ -1,11 +1,4 @@
-/**
- * Maps view ids to their component. `ViewId` is derived from this table's keys, so registering a
- * new view here is the one edit that makes it a valid `ViewEntry.id` everywhere the id is
- * type-checked — the router, launch routing, the home menu builder, and the global keyboard
- * shortcuts all consume this same union. `App` reads `router.current.id` and renders the
- * matching entry; an id that somehow isn't registered at runtime (e.g. a stale persisted route)
- * falls through to the registry-level fallback.
- */
+/** Maps view ids to their component. */
 
 import React from 'react';
 import { UnknownViewFallback, type ViewEntry } from '@src/application/ui/tui/runtime/router.tsx';
@@ -30,11 +23,7 @@ import { AddRepositoryView } from '@src/application/ui/tui/views/add-repository-
 import { AddTicketView } from '@src/application/ui/tui/views/add-ticket-view.tsx';
 import { SystemView } from '@src/application/ui/tui/views/system-view.tsx';
 
-/**
- * The single source of truth for every navigable view. `satisfies` (rather than annotating this
- * with `Record<ViewId, …>`) is what lets `ViewId` be derived from the table's own keys below —
- * the annotation would otherwise have to name the type it's defining.
- */
+/** The single source of truth for every navigable view. */
 /** @public — read by the nav-tree label-coverage test. */
 export const VIEW_REGISTRY = {
   home: HomeView,
@@ -63,9 +52,8 @@ export const VIEW_REGISTRY = {
 export type ViewId = keyof typeof VIEW_REGISTRY;
 
 export const renderView = (entry: ViewEntry): React.JSX.Element => {
-  // `ViewId` guarantees every literal in the tree is registered at compile time, but a runtime id
-  // can still miss the table (a persisted route from a since-removed view) — index through a
-  // widened view so the miss falls through to the fallback instead of `undefined` blowing up.
+  // `ViewId` guarantees every literal in the tree is registered at compile time, but a runtime id can still miss the
+  // table (a persisted route from a since-removed view).
   const Component = (VIEW_REGISTRY as Record<string, React.ComponentType | undefined>)[entry.id];
   if (Component === undefined) return <UnknownViewFallback id={entry.id} />;
   return <Component />;

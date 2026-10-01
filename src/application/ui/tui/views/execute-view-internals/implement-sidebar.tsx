@@ -1,28 +1,6 @@
 /**
- * ImplementSidebar — left sidebar for the redesigned Implement view (≥140 col breakpoint).
- *
- * Section order (top → bottom):
- *
- *   1. BaselineHealthCard — bordered card at the top of the sidebar (not a chip). Shows the
- *      harness verify-gate data (setup, pre/post verify, attribution).
- *   2. Flow-steps rail — reuses `FlowStepsRail` verbatim. Compact/suppressed (`suppressMeta`)
- *      when the sidebar is narrow; capped at `sidebarFlowStepsRows`.
- *   3. Task nav list — PASSIVE minimap: highlights the card focused in the main area. No keyboard
- *      capture — the main-area TasksPanel is the sole input owner and reports its cursor via
- *      `focusedTaskId`. The list scrolls to keep the highlighted row visible.
- *   4. TokenBudgetCard at the bottom — shows cumulative token usage (honest claude-p style: raw
- *      totals when cumulative, context bar when plausible single-call).
- *
- * Width is fixed at `sidebarWidth` columns — never `flexGrow`. The sidebar column height is
- * bounded by the terminal rows (managed via the windowed task-nav list and fixed component
- * heights).
- *
- * Visual discipline:
- *   - All colours from `inkColors.*`, all glyphs from `glyphs.*`, all spacing from `spacing.*`.
- *   - Section separators: a single dim `─` rule of `sidebarWidth - 2` chars (matching the
- *     style of the Card component's border), wrapped in a 1-padding Box.
- *   - Section headers: `dimColor bold` bullet + title, matching `SectionHeader` from
- *     `section.tsx`.
+ * ImplementSidebar — left sidebar for the redesigned Implement view (≥140 col breakpoint). Section order (top →
+ * bottom): 1.
  */
 
 import React, { useMemo } from 'react';
@@ -45,19 +23,11 @@ import type { Task } from '@src/domain/entity/task.ts';
 import { overlayEntityBlockedStatus } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
 import type { BucketedExecution, TaskBucket } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
 
-// ---------------------------------------------------------------------------
-// Section divider
-// ---------------------------------------------------------------------------
-
 const SidebarDivider = ({ width }: { readonly width: number }): React.JSX.Element => (
   <Box paddingX={spacing.gutter} marginTop={spacing.gutter}>
     <Text color={inkColors.rule}>{glyphs.sectionRule.repeat(Math.max(0, width - 2))}</Text>
   </Box>
 );
-
-// ---------------------------------------------------------------------------
-// Task nav list — PASSIVE minimap
-// ---------------------------------------------------------------------------
 
 interface TaskNavListProps {
   readonly tasks: readonly TaskBucket[];
@@ -134,10 +104,6 @@ const TaskNavList = ({
   );
 };
 
-// ---------------------------------------------------------------------------
-// Props
-// ---------------------------------------------------------------------------
-
 export interface ImplementSidebarProps {
   /** Fixed column width for the sidebar — never flexGrow. */
   readonly sidebarWidth: number;
@@ -146,9 +112,8 @@ export interface ImplementSidebarProps {
   /** Max rows for the flow-steps rail — derived from terminal height. */
   readonly sidebarFlowStepsRows: number;
   /**
-   * When true, render BaselineHealthCard and TokenBudgetCard side by side in one horizontal
-   * row instead of stacking them. True at ≥xl (180 cols) — the sidebar is wide enough to fit
-   * two CONTEXT_WIDTH (28) cards with room to spare. Reclaims vertical space for the log panel.
+   * When true, render BaselineHealthCard and TokenBudgetCard side by side in one horizontal row instead of stacking
+   * them.
    */
   readonly sidebarContextSideBySide: boolean;
   /** Session / sprint / model info from the session manager. */
@@ -158,34 +123,25 @@ export interface ImplementSidebarProps {
   /** Whether the run is still in flight (drives status glyph + spinner). */
   readonly isRunning: boolean;
   /**
-   * Id of the card currently focused in the main-area TasksPanel. The task-nav list highlights
-   * this row and scrolls to keep it visible. `undefined` when no card has been explicitly focused
-   * yet (the panel auto-focuses the active task before reporting).
+   * Id of the card currently focused in the main-area TasksPanel. The task-nav list highlights this row and scrolls
+   * to keep it visible.
    */
   readonly focusedTaskId: string | undefined;
-  /**
-   * Token usage for the current session — rendered in the TokenBudgetCard at the bottom of the
-   * sidebar. Undefined until the first TokenUsageEvent fires (the card renders an empty-state
-   * placeholder so the operator sees the slot is live).
-   */
+  /** Token usage for the current session — rendered in the TokenBudgetCard at the bottom of the sidebar. */
   readonly tokenUsage?: TokenUsage;
   /**
-   * Sprint execution state — feeds the BaselineHealthCard at the top of the sidebar.
-   * Undefined when the pinned sprint is stale or not yet loaded.
+   * Sprint execution state — feeds the BaselineHealthCard at the top of the sidebar. Undefined when the pinned sprint
+   * is stale or not yet loaded.
    */
   readonly executionState?: SprintExecution;
   /**
-   * Task list — feeds the BaselineHealthCard (verify-run derivation + attribution counts).
-   * Undefined until the first baseline-health poll resolves.
+   * Task list — feeds the BaselineHealthCard (verify-run derivation + attribution counts). Undefined until the first
+   * baseline-health poll resolves.
    */
   readonly taskState?: readonly Task[];
   /** Wall-clock timestamp — passed to the BaselineHealthCard for "N ago" labels. */
   readonly now: number;
 }
-
-// ---------------------------------------------------------------------------
-// Component
-// ---------------------------------------------------------------------------
 
 /** Cumulative token usage for the session. Rendered at the top or the bottom depending on regime. */
 const SidebarTokenCard = ({
@@ -198,12 +154,7 @@ const SidebarTokenCard = ({
   <TokenBudgetCard sessionId={sessionId} {...(tokenUsage !== undefined ? { usage: tokenUsage } : {})} />
 );
 
-/**
- * Baseline-health (+ token, at ≥xl) cards at the top of the sidebar. At ≥xl the sidebar is wide
- * enough to fit two CONTEXT_WIDTH cards side by side, which reclaims vertical space for the log
- * panel; below that the baseline card fills the sidebar width and the token card moves to the
- * bottom of the column.
- */
+/** Baseline-health (+ token, at ≥xl) cards at the top of the sidebar. */
 const SidebarContextCards = ({
   sideBySide,
   sidebarWidth,
@@ -284,13 +235,8 @@ export const ImplementSidebar = ({
   taskState,
   now,
 }: ImplementSidebarProps): React.JSX.Element => {
-  // Stabilize the array reference: a fresh `[]` (or even the same tasks behind a new `bucketed`) each
-  // render would defeat TaskNavList's memoization. Keyed on `bucketed` + `taskState`.
-  //
-  // Runs the trace-derived bucket through `overlayEntityBlockedStatus` first: a task blocked on
-  // its own merits (budget exhausted, red verify, generator self-block) traces as a clean
-  // `completed` (see `bucket-task-signals.ts`'s module docstring), so without this the minimap
-  // would paint it the same green `phaseDone` glyph as a task that actually finished.
+  // Stabilize the array reference: a fresh `[]` (or even the same tasks behind a new `bucketed`) each render would
+  // defeat TaskNavList's memoization.
   const tasks = useMemo(
     () => (bucketed !== undefined ? overlayEntityBlockedStatus(bucketed, taskState, isRunning).tasks : []),
     [bucketed, taskState, isRunning]

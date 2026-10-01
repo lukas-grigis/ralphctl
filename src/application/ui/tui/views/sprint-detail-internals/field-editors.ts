@@ -1,13 +1,4 @@
-/**
- * Edit-field prompt builders for ticket and task fields.
- *
- * Each builder returns an `OpenEditPromptInput` describing the modal (title, kind, initial
- * value, save handler, success label) for one field on one entity. The shared `runEdit` helper
- * routes the user through a choice prompt to pick which field to edit and then opens the modal.
- *
- * Lives outside the view file so the orchestrator's render path doesn't carry the ~120 LOC of
- * edit machinery that has no rendering concerns of its own.
- */
+/** Edit-field prompt builders for ticket and task fields. */
 
 import { Result } from '@src/domain/result.ts';
 import { AbortError } from '@src/domain/value/error/abort-error.ts';
@@ -115,10 +106,8 @@ interface RunEditArgs {
 }
 
 /**
- * Drive the edit flow end-to-end: if the user has a ticket focused, prompt them to pick a
- * field and open the corresponding modal; if a todo task is focused, do the same for the task
- * fields. The non-zero-options gate routes single-option tickets straight to the title editor
- * without bouncing the user through a one-choice prompt.
+ * Drive the edit flow end-to-end: if the user has a ticket focused, prompt them to pick a field and open the
+ * corresponding modal; if a todo task is focused, do the same for the task fields.
  */
 export const runEdit = (args: RunEditArgs): void => {
   const { sprint, focusedTicket, focusedTodoTask, queue, sprintRepo, taskRepo, reload, openEditPrompt } = args;

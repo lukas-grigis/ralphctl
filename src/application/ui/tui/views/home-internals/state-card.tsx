@@ -1,6 +1,6 @@
 /**
- * Work's hero cards for the states with no sprint to show: no project in storage, none picked, or
- * a project without a sprint. With a sprint loaded Work renders the header strip + agenda instead.
+ * Work's hero cards for the states with no sprint to show: no project in storage, none picked, or a project without a
+ * sprint.
  */
 
 import React from 'react';
@@ -11,8 +11,7 @@ import type { AppStateSnapshot } from '@src/application/ui/shared/state-snapshot
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 
 /**
- * A short instruction line: "press <KEY> to <do thing>". Renders the key in highlight, the
- * label in plain text. Used by every regime of StateCard to make the next action obvious.
+ * A short instruction line: "press <KEY> to <do thing>". Renders the key in highlight, the label in plain text.
  */
 const KeyCue = ({ keys, label }: { readonly keys: string; readonly label: string }): React.JSX.Element => (
   <Text>
@@ -26,8 +25,8 @@ const KeyCue = ({ keys, label }: { readonly keys: string; readonly label: string
 );
 
 /**
- * A one-liner explaining how the app is laid out — visible only when the user hasn't yet
- * created a sprint. Once they're in the flow it stays out of the way.
+ * A one-liner explaining how the app is laid out — visible only when the user hasn't yet created a sprint. Once
+ * they're in the flow it stays out of the way.
  */
 const OrientationLine = (): React.JSX.Element => (
   <Box marginTop={spacing.section}>
@@ -38,12 +37,9 @@ const OrientationLine = (): React.JSX.Element => (
   </Box>
 );
 
-/*
- * NOTE — the three empty-state heroes below (NoProjectCard / PickProjectCard /
- * PickOrCreateSprintCard) keep their own big CTAs rather than rendering `buildNextSteps`'
- * pre-sprint rows. Those rows exist so the settled-run and Flows surfaces have something to say
- * in the same states; here a full-width hero with one prominent action already does that job
- * better. Do not "unify" these into one-line hints — that would be a regression, not a cleanup.
+/**
+ * NOTE — the three empty-state heroes below (NoProjectCard / PickProjectCard / PickOrCreateSprintCard) keep their own
+ * big CTAs rather than rendering `buildNextSteps`' pre-sprint rows.
  */
 
 /** Regime: no project exists yet anywhere in storage. */

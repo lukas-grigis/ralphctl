@@ -1,8 +1,6 @@
 /**
- * Section helpers used across the execute view's panels — a bullet-led header strip and a
- * top-margin wrapper that pairs the header with its children. Extracted so the column
- * layouts in `layout.tsx` and the inline single-column branch in the orchestrator both
- * compose the same primitive.
+ * Section helpers used across the execute view's panels — a bullet-led header strip and a top-margin wrapper that
+ * pairs the header with its children.
  */
 
 import React from 'react';

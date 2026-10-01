@@ -1,27 +1,4 @@
-/**
- * Adapter that wires the live bucketed-task derivation into the shared `TasksPanel`. Folds
- * five concerns the orchestrator would otherwise carry inline:
- *
- *   - Translates the `Task.verificationCriteria` array into per-task bullet strings (the
- *     panel renders one criterion per line; audit-[05] says `Task.verificationCriteria`
- *     is the canonical source — never read `done-criteria.md`).
- *   - Forwards optional descriptor maps (`taskNames`, `taskRecovering`) only when present
- *     so the panel's prop diff stays clean.
- *   - Corrects the trace-derived `bucketed` via `overlayEntityBlockedStatus` before it ever
- *     reaches `TasksPanel` — a task blocked on its own merits (budget exhausted, red verify,
- *     generator self-block) traces as a clean `completed` (see `bucket-task-signals.ts`'s module
- *     docstring), so without this the card would show a green check on a task that never finished.
- *   - Wires the `u` unblock affordance: derives `blockedTaskIds` from the same polled entities as
- *     `blockedReasonById`, and builds the `onUnblock` handler over `useUnblockTask` + the run's
- *     own pinned sprint (`descriptor.pinnedSprintId`) so the panel never has to know the use case.
- *     Both are suppressed WHILE THE RUN IS LIVE: `unblockTaskUseCase`'s own docblock states its
- *     cascade path is unsafe to run concurrently with an active Implement run (an unlocked read
- *     feeds a locked rewrite), and the implement epilogue's `saveTasksLeaf` rewrites `tasks.json`
- *     wholesale from its own stale in-memory snapshot at the end of every run — either would
- *     silently clobber a mid-run unblock. The chord re-arms the instant the run settles.
- *   - Returns `null` when no bucket has been produced yet (early descriptor / no session),
- *     keeping the orchestrator's JSX a single expression.
- */
+/** Adapter that wires the live bucketed-task derivation into the shared `TasksPanel`. */
 
 import React, { useCallback, useMemo } from 'react';
 import { TasksPanel } from '@src/application/ui/tui/components/tasks-panel.tsx';
@@ -39,10 +16,7 @@ import { latestRecordedEvaluation } from '@src/business/task/evaluation-artifact
 /** Stable empty set — never recreated per render while a run is live (see {@link blockedTaskIds}). */
 const NO_BLOCKED_TASK_IDS: ReadonlySet<string> = new Set();
 
-/**
- * Dynamic gen-eval leaf names that repeat an unknown number of rounds. These are excluded from
- * the pending-sub-steps list so we never fabricate a fixed count of future rounds.
- */
+/** Dynamic gen-eval leaf names that repeat an unknown number of rounds. */
 const DYNAMIC_LEAF_NAMES = new Set(['generator', 'evaluator']);
 
 /** One-line summary for a flagged completion shown under the task card. Kind-specific prose. */
@@ -79,11 +53,7 @@ const criteriaBulletsByTaskId = (taskState: readonly Task[]): ReadonlyMap<string
   return byId;
 };
 
-/**
- * `taskId → blockedReason` for blocked tasks, so the panel can render WHY a card blocked. The live
- * TaskBucket status is trace-derived and carries no reason; the reason lives on the polled entity.
- * Undefined when no task is blocked (keeps the panel's prop diff clean).
- */
+/** `taskId → blockedReason` for blocked tasks, so the panel can render WHY a card blocked. */
 const blockedReasonsByTaskId = (taskState: readonly Task[]): ReadonlyMap<string, string> | undefined => {
   const byId = new Map<string, string>();
   for (const t of taskState) {
@@ -93,11 +63,8 @@ const blockedReasonsByTaskId = (taskState: readonly Task[]): ReadonlyMap<string,
 };
 
 /**
- * `taskId → structured block triage` for a blocked task whose self-block signal supplied the
- * generator's own question / what-would-unblock-it fields (see `BlockedTask.question` /
- * `.whatUnblocksMe` on the domain entity). Absent for a plain-reason block (upstream cascade,
- * verify-gate red, fold conflict, operator cancel) and for a self-block whose signal omitted them
- * — both fields are optional there too. Undefined when no task has either (clean prop diff).
+ * `taskId → structured block triage` for a blocked task whose self-block signal supplied the generator's own question
+ * / what-would-unblock-it fields (see `BlockedTask.question` / `.whatUnblocksMe` on the domain entity).
  */
 const blockedTriageByTaskId = (taskState: readonly Task[]): ReadonlyMap<string, BlockedTriage> | undefined => {
   const byId = new Map<string, BlockedTriage>();
@@ -112,11 +79,7 @@ const blockedTriageByTaskId = (taskState: readonly Task[]): ReadonlyMap<string, 
   return byId.size > 0 ? byId : undefined;
 };
 
-/**
- * `taskId → one-line summary` for a done task whose FINAL attempt carries a warning. Mirrors the
- * blocked-reason map: the live TaskBucket is trace-derived and carries no warning, so the data
- * comes off the polled entity. Undefined when every done task landed clean (clean prop diff).
- */
+/** `taskId → one-line summary` for a done task whose FINAL attempt carries a warning. */
 const warningSummariesByTaskId = (taskState: readonly Task[]): ReadonlyMap<string, string> | undefined => {
   const byId = new Map<string, string>();
   for (const t of taskState) {
@@ -128,12 +91,8 @@ const warningSummariesByTaskId = (taskState: readonly Task[]): ReadonlyMap<strin
 };
 
 /**
- * `taskId → AUTHORITATIVE evaluation verdict`, sourced from the task entity's attempts (keyed by
- * task id, so there is no cross-task / stale-window leak). The card renders THIS verdict — never
- * the timestamp-bucketed signal stream, which mis-attributes evaluator signals under parallel/wave
- * sprints where task windows overlap. We prefer the LAST attempt's evaluation; if the last attempt
- * has none yet, fall back to the most recent attempt that does. Undefined when no task has settled
- * an evaluation (clean prop diff, mirroring the sibling maps).
+ * `taskId → AUTHORITATIVE evaluation verdict`, sourced from the task entity's attempts (keyed by task id, so there is
+ * no cross-task / stale-window leak).
  */
 const evaluationsByTaskId = (taskState: readonly Task[]): ReadonlyMap<string, TaskEvaluation> | undefined => {
   const byId = new Map<string, TaskEvaluation>();
@@ -152,18 +111,7 @@ const evaluationsByTaskId = (taskState: readonly Task[]): ReadonlyMap<string, Ta
   return byId.size > 0 ? byId : undefined;
 };
 
-/**
- * `taskId → pending (not-yet-executed) sub-step leaf names`, derived from the planned leaves.
- * `plannedLeaves` contains ALL planned leaf names including UUID-suffixed per-task ones (e.g.
- * `generator-<taskId>`, `commit-task-<taskId>`, `uninstall-skills-<taskId>`).
- *
- * For each task: collect the planned leaves carrying that task's UUID suffix, strip the suffix to
- * recover the `leafName` (matching `TaskSubStep.leafName`), subtract the already-executed leaves so
- * only future steps show, and drop the dynamic generator/evaluator leaves — they repeat an unknown
- * number of rounds, so listing them as pending would fabricate a fixed count of future rounds.
- *
- * Undefined when nothing is pending anywhere.
- */
+/** `taskId → pending (not-yet-executed) sub-step leaf names`, derived from the planned leaves. */
 const pendingLeavesByTaskId = (
   tasks: readonly TaskBucket[],
   plannedLeaves: readonly string[]
@@ -197,21 +145,8 @@ interface UnblockAffordance {
 }
 
 /**
- * The `u` chord's gate + handler, split out of {@link TasksPanelHostImpl} purely to keep that
- * component under the file's per-function line budget — this is the SAME logic, just named.
- *
- * Same entity source as `blockedReasonById` (NOT the live TaskBucket status, which only ever
- * reflects the dependency-gate case) — the `u` chord's gate, so it also reaches a task stuck on
- * its own failure (maxAttempts exhausted / verify failed), not only a dependency block.
- *
- * Forced empty WHILE RUNNING: `unblockTaskUseCase`'s own docblock names an explicit TOCTOU
- * precondition — its cascade path does an unlocked read that feeds a locked rewrite, so it "MUST
- * NOT run while an Implement run is active on the same sprint". Even the non-cascade path would
- * lose to the implement epilogue's `saveTasksLeaf`, which rewrites `tasks.json` wholesale from its
- * own in-memory snapshot at the end of every run — a mid-run unblock would be silently overwritten
- * the moment the run settles, reading as the harness re-blocking the operator's own fix. Emptying
- * the set here (rather than only guarding `onUnblock`) also keeps the footer/hint contract honest:
- * nothing downstream can treat a live card as unblockable.
+ * The `u` chord's gate + handler, split out of {@link TasksPanelHostImpl} purely to keep that component under the
+ * file's per-function line budget — this is the SAME logic, just named.
  */
 const useUnblockAffordance = ({
   isRunning,
@@ -226,16 +161,11 @@ const useUnblockAffordance = ({
   const unblockTask = useUnblockTask();
   const onUnblock = useCallback(
     (taskId: string): void => {
-      // Defense in depth — see the TOCTOU note above. `TasksPanel` already can't reach this
-      // callback for a live run (the set it gates on is empty), but a future caller of
-      // `onUnblock` must not be able to bypass the precondition just by not checking.
+      // Defense in depth — see the TOCTOU note above.
       if (isRunning || sprintId === undefined) return;
       const target = taskState?.find((t) => String(t.id) === taskId);
       if (target === undefined) return;
-      // Fire-and-forget: the use case logs its own outcome through the injected `Logger`, which
-      // publishes onto the same event bus the Execute view's Recent-log panel already reads —
-      // no separate feedback plumbing needed here. The 3s baseline-health poll picks up the
-      // revived entity on its own next tick.
+      // Fire-and-forget: the use case logs its own outcome through the injected `Logger`.
       void unblockTask(target, sprintId);
     },
     [isRunning, sprintId, taskState, unblockTask]
@@ -286,9 +216,8 @@ const TasksPanelHostImpl = ({
     () => (taskState !== undefined ? blockedTriageByTaskId(taskState) : undefined),
     [taskState]
   );
-  // The run's own pinned sprint — same field `execute-view.tsx` reads to scope this session
-  // independently of the mutable global selection. Undefined only for a flow launched with no
-  // sprint context (e.g. create-sprint), in which case `onUnblock` below is a safe no-op.
+  // The run's own pinned sprint — same field `execute-view.tsx` reads to scope this session independently of the
+  // mutable global selection.
   const sprintId = descriptor.pinnedSprintId;
   const { blockedTaskIds, onUnblock } = useUnblockAffordance({ isRunning, blockedReasonById, taskState, sprintId });
   const warningSummaryById = useMemo(
@@ -299,10 +228,7 @@ const TasksPanelHostImpl = ({
     () => (taskState !== undefined ? evaluationsByTaskId(taskState) : undefined),
     [taskState]
   );
-  // Correct the trace-only blind spot BEFORE anything downstream reads a task's status — see
-  // `overlayEntityBlockedStatus`'s doc for why the trace alone can't tell an own-failure block
-  // from a clean completion. Stable reference when nothing needed correcting (no blocked entity,
-  // or the trace already agrees), so this doesn't defeat `TasksPanel`'s internal memoization.
+  // Correct the trace-only blind spot BEFORE anything downstream reads a task's status.
   const correctedBucketed = useMemo(
     () => (bucketed !== undefined ? overlayEntityBlockedStatus(bucketed, taskState, isRunning) : undefined),
     [bucketed, taskState, isRunning]
@@ -344,8 +270,6 @@ const TasksPanelHostImpl = ({
   );
 };
 
-// Memoized for hygiene / protection against unrelated-prop churn elsewhere in the tree (e.g. a
-// sibling resize or cancel-scope toggle). NOTE: unlike HeaderCard / FlowStepsRail / LogPanel,
-// this does NOT skip the 1 Hz tick itself — `now` is a genuine dependency (live per-task
-// elapsed time), so TasksPanel is expected to re-render every second while a task is running.
+// Memoized for hygiene / protection against unrelated-prop churn elsewhere in the tree (e.g. a sibling resize or
+// cancel-scope toggle).
 export const TasksPanelHost = React.memo(TasksPanelHostImpl);

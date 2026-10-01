@@ -1,10 +1,6 @@
 /**
- * `y` on the Execute view — copy the markdown summary of the task being watched and confirm with
- * a short-lived info banner. Execute-local: nothing outside this view binds `y`, so there is no
- * "no active task" toast to explain a dead key.
- *
- * The banner id is stable, so re-presses replace the toast instead of stacking, and the pending
- * clear timer is cancelled by the latest copy (and on unmount).
+ * `y` on the Execute view — copy the markdown summary of the task being watched and confirm with a short-lived info
+ * banner.
  */
 
 import { useCallback, useEffect, useMemo, useRef } from 'react';

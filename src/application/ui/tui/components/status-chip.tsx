@@ -1,6 +1,6 @@
 /**
- * Inline status badge — `[DRAFT]`, `[ACTIVE]`, `[DONE]`. Color is the only signal the chip
- * carries; the bracketed label keeps it readable even in monochrome terminals.
+ * Inline status badge — `[DRAFT]`, `[ACTIVE]`, `[DONE]`. Color is the only signal the chip carries; the bracketed
+ * label keeps it readable even in monochrome terminals.
  */
 
 import React from 'react';

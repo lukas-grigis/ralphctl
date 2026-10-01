@@ -1,25 +1,6 @@
 /**
- * Ink-aware launcher host. Owns the live Ink instance and the "pause" semantics used when
- * an interactive AI session needs to take over the terminal.
- *
- * Lifecycle:
- *   - `render()` is called with `alternateScreen: true` so the wordmark + chrome appear on a
- *     fresh buffer; on unmount Ink automatically restores the user's original screen.
- *   - `runInTerminal(fn)` performs a *real* unmount before invoking `fn`: the React tree is
- *     torn down, the alternate screen is exited, `process.stdin` is released (see
- *     `stdin-handoff.ts`), and `fn` runs against the user's primary terminal. When `fn` settles we
- *     restore stdin and `render()` a *freshly built* App element — `renderElement()` is called
- *     again so the new tree mounts with the latest seed (e.g. the in-session sprint selection),
- *     not a frozen launch-time element.
- *   - `waitForShutdown()` keeps the launcher alive across these pause/resume cycles. Each
- *     pause unmounts the current Ink instance, which would normally resolve
- *     `waitUntilExit()` and let the process drop the TUI; the host loop instead checks
- *     whether a pause is in flight and re-awaits the next instance.
- *
- * Why a full unmount rather than `instance.clear()`: while `fn` runs the user owns the
- * terminal. If we left the React tree mounted, any bus/state update would cause Ink to
- * write to stdout and clobber the AI session's UI. Tearing the tree down severs every
- * subscription cleanly.
+ * Ink-aware launcher host. Owns the live Ink instance and the "pause" semantics used when an interactive AI session
+ * needs to take over the terminal.
  */
 import type { ReactElement } from 'react';
 import { type Instance as InkInstance, render } from 'ink';
@@ -27,13 +8,7 @@ import { AbortError } from '@src/domain/value/error/abort-error.ts';
 import { releaseStdinForChild } from '@src/application/ui/shared/stdin-handoff.ts';
 import type { RunInTerminal } from '@src/integration/io/run-in-terminal.ts';
 
-/**
- * DEC private mode 2004 — bracketed paste. With it on, the terminal wraps pasted content in
- * `ESC[200~` … `ESC[201~` so the prompts can tell a paste apart from typed keystrokes (without
- * it, pasted line breaks arrive as bare `\r` and Ink reports them as Enter → premature submit and
- * collapsed multi-line input). Enabled on mount, disabled on teardown so the mode never leaks into
- * the user's shell. Best-effort + TTY-guarded: a non-TTY (pipe / CI) writes nothing.
- */
+/** DEC private mode 2004 — bracketed paste. */
 const BRACKETED_PASTE_ON = '\x1b[?2004h';
 const BRACKETED_PASTE_OFF = '\x1b[?2004l';
 
@@ -48,27 +23,15 @@ const setBracketedPaste = (enabled: boolean): void => {
 };
 
 export interface InkHostDeps {
-  /**
-   * Factory that builds the App element to mount. Invoked on the initial mount *and* on every
-   * pause/resume cycle, so a fresh element is rebuilt each time — letting the caller re-seed the
-   * tree from live state (e.g. the user's current sprint selection) rather than replaying a frozen
-   * launch-time element.
-   */
+  /** Factory that builds the App element to mount. */
   readonly renderElement: () => ReactElement;
-  /**
-   * Override whether Ink uses the terminal's alternate-screen buffer. Defaults to `true` so
-   * starting ralphctl gives the operator a clean screen and exiting restores their scrollback.
-   */
+  /** Override whether Ink uses the terminal's alternate-screen buffer. */
   readonly alternateScreen?: boolean;
 }
 
 export interface InkHost {
   readonly runInTerminal: RunInTerminal;
-  /**
-   * Resolves when the user truly quits the TUI (Ctrl-C / `q` / a fatal error). Pauses for AI
-   * sessions are transparent — they unmount and remount the Ink instance, but this promise
-   * does not resolve.
-   */
+  /** Resolves when the user truly quits the TUI (Ctrl-C / `q` / a fatal error). */
   waitForShutdown(): Promise<void>;
 }
 
@@ -92,17 +55,7 @@ export const createInkHost = (deps: InkHostDeps): InkHost => {
     const current = instance;
     current.unmount();
     await current.waitUntilExit();
-    // Hand `process.stdin` over before the child is spawned. Unmounting Ink is not enough: the tty
-    // handle is left reading, so the terminal's reply to the child's capability queries lands in
-    // this process's buffer and the child hangs waiting for an answer that went somewhere else —
-    // measured through this very host in a real iTerm window at 0 / 8 launches reaching Grok's
-    // pager without the release, 8 / 8 with it. The release is awaited because Node stops reading
-    // the fd a tick after `pause()`, and the child must not be spawned before that. Ordering is
-    // load-bearing on both sides: release only after `waitUntilExit()` so Ink's own teardown has
-    // already run, and restore in the `finally` BEFORE `renderOnce()` so the remounting tree finds
-    // the stream exactly as it left it. See `.claude/docs/INTERACTIVE-HANDOFF-HANG.md` and
-    // `stdin-handoff.ts` — in particular before reaching for `removeAllListeners`, which is what
-    // broke ScrollRegion.
+    // Hand `process.stdin` over before the child is spawned.
     const restoreStdin = await releaseStdinForChild();
     // The user owns the terminal while `fn` runs — turn bracketed paste off so a paste into the
     // AI session isn't wrapped in markers. `renderOnce()` re-enables it when the TUI remounts.
@@ -132,13 +85,8 @@ export const createInkHost = (deps: InkHostDeps): InkHost => {
       try {
         await instance.waitUntilExit();
       } catch (error) {
-        // `waitUntilExit()` rejects only when Ink tears down on a fatal error — either a deliberate
-        // `exit(err)` or an uncaught render error. A plain quit (`exit()` with no arg) RESOLVES, so
-        // reaching this catch means something actually went wrong. The old blanket `catch {}` treated
-        // every fatal as a clean shutdown, masking TUI crashes as exit 0.
-        //
-        // AbortError propagates untouched (project rule). Anything else: surface a one-line message
-        // and a non-zero exit code before returning so wrapping scripts and CI see the failure.
+        // `waitUntilExit()` rejects only when Ink tears down on a fatal error — either a deliberate `exit(err)` or an
+        // uncaught render error.
         if (error instanceof AbortError) throw error;
         const msg = error instanceof Error ? error.message : String(error);
         process.stderr.write(`ralphctl: the TUI exited with an error — ${msg}\n`);

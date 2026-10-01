@@ -1,10 +1,6 @@
 /**
- * Context-switcher internals — shared row + grouping types.
- *
- * `FlatRow` is the cursor-navigable row in the switcher; `SprintGroup` is the pre-flatten
- * grouping. `PickerData` is the raw loaded snapshot the switcher reduces over. Kept here so the
- * orchestrator, the row builders, and the row renderers all reference one source of truth without
- * circular imports.
+ * Context-switcher internals — shared row + grouping types. `FlatRow` is the cursor-navigable row in the switcher;
+ * `SprintGroup` is the pre-flatten grouping.
  */
 
 import type { Project } from '@src/domain/entity/project.ts';
@@ -20,18 +16,13 @@ export interface PickerData {
   readonly sprints: readonly Sprint[];
   readonly projectsById: ReadonlyMap<ProjectId, Project>;
   /**
-   * Task-blocked health per sprint, loaded once alongside `sprints` (a single batched fetch in
-   * the picker's own loader) — never per rendered row, which would re-fetch on every scroll and
-   * could stall the picker on a project with many sprints. Absent entry (a sprint id with no map
-   * key) reads as zero counts, never as "unknown."
+   * Task-blocked health per sprint, loaded once alongside `sprints` (a single batched fetch in the picker's own
+   * loader) — never per rendered row.
    */
   readonly taskHealthBySprintId: ReadonlyMap<SprintId, TaskHealthCounts>;
 }
 
-/**
- * A project's header. Selectable (`↵` switches the project and clears the sprint) unless the group
- * is the orphan bucket — sprints whose project was deleted have no project to switch to.
- */
+/** A project's header. */
 export interface HeaderRow {
   readonly kind: 'header';
   readonly groupKey: string;
@@ -49,11 +40,7 @@ export interface SprintRow {
   readonly sprint: Sprint;
 }
 
-/**
- * Synthetic top row that launches the create-sprint flow. Sits above the project groups
- * so the user can launch creation without scrolling past every existing sprint, and so an
- * "empty-storage" picker (no sprints anywhere yet) still surfaces a productive action.
- */
+/** Synthetic top row that launches the create-sprint flow. */
 export interface CreateActionRow {
   readonly kind: 'create';
 }

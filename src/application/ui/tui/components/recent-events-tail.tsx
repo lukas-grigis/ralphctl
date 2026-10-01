@@ -1,8 +1,4 @@
-/**
- * Recent log entries panel — short rolling tail of the latest log events, one per row. Time is
- * shown HH:MM:SS, the level chip is colour-coded, and the message is truncated at the visible
- * width.
- */
+/** Recent log entries panel — short rolling tail of the latest log events, one per row. */
 
 import React from 'react';
 import { Box, Text } from 'ink';

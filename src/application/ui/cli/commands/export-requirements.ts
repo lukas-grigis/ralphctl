@@ -41,14 +41,8 @@ const exportRequirementsAction = async (opts: Opts): Promise<void> => {
 };
 
 /**
- * Register the `export-requirements` CLI command.
- *
- *   ralphctl export-requirements [--sprint <id>] --output <path>
- *
- * Writes the sprint's approved-ticket requirements to the supplied
- * markdown path. `--sprint` defaults to the pinned current sprint.
- * Exits 0 with a one-line confirmation, or 1 with a stderr message on
- * validation / NotFound / IO error.
+ * Register the `export-requirements` CLI command. ralphctl export-requirements [--sprint <id>] --output <path> Writes
+ * the sprint's approved-ticket requirements to the supplied markdown path.
  */
 export const registerExportRequirementsCommand = (program: Command): void => {
   program

@@ -1,24 +1,6 @@
 /**
- * MigrationGate — the consent screen shown as the FIRST Ink route when a data migration is pending,
- * before the main app mounts. This is the entire safety story for the v1 → v2 `data/` layout move:
- * NOTHING here mutates data without an explicit "Migrate now" click. The Wave-1 tolerant readers are
- * the net underneath — every non-consent outcome (skip / lock-held / dry-run-blocked / failed) just
- * proceeds into the app on the legacy data and re-offers the migration next launch.
- *
- * State machine:
- *
- *   scanning ──dryRun ok, no problems──▶ consent ──[Not now]──────────▶ resolve('skipped')
- *      │                                    │
- *      │                                    └──[Migrate now]──▶ applying ─┬─ ok ───────▶ resolve('migrated')
- *      │                                                                  ├─ lock-held ▶ lockHeld ─[continue]▶ resolve('skipped')
- *      │                                                                  └─ failed ───▶ failed ───┬─[continue]▶ resolve('failed-continue')
- *      │                                                                                           └─[quit]────▶ onQuit()
- *      ├──dryRun has problems──▶ dryRunBlocked ─[continue]─────────────▶ resolve('skipped')
- *      └──dryRun threw─────────▶ dryRunBlocked ─[continue]─────────────▶ resolve('skipped')
- *
- * This is a PRE-APP component: it has no router / deps / prompt context (those mount with the main
- * app). Everything it needs — the engine, the data root, the apply ctx ingredients, and the two exit
- * callbacks — arrives as props from the launch pre-flight.
+ * MigrationGate — the consent screen shown as the FIRST Ink route when a data migration is pending, before the main
+ * app mounts.
  */
 
 import React, { useEffect, useRef, useState } from 'react';
@@ -37,23 +19,14 @@ import {
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 
 /**
- * How the gate resolved into the main app:
- *  - `migrated`        — apply ran and stamped the marker; the app reads the v2 layout.
- *  - `skipped`         — the user declined, a lock was held, or the dry-run was blocked; the app runs
- *                        on the tolerant readers and the migration is re-offered next launch.
- *  - `failed-continue` — apply faulted mid-run but the user chose to continue; atomic per-item renames
- *                        + tolerant readers ⇒ a half-migrated tree is still runnable; re-offered next
- *                        launch (idempotent resume finishes the rest).
- *
+ * How the gate resolved into the main app: - `migrated` — apply ran and stamped the marker; the app reads the v2
+ * layout. - `skipped` — the user declined, a lock was held.
  * @public
  */
 export type MigrationGateOutcome = 'migrated' | 'skipped' | 'failed-continue';
 
 /**
- * Props for {@link MigrationGate}. The apply-ctx ingredients (`appVersion`, `stateRoot`, `writeFile`)
- * are threaded in rather than reached from a context because the gate mounts before the app's provider
- * stack exists. `renderLearnings` is built internally from the application-layer adapter.
- *
+ * Props for {@link MigrationGate}.
  * @public
  */
 export interface MigrationGateProps {
@@ -79,10 +52,8 @@ type GateState =
       readonly kind: 'failed';
       readonly backupPath: string | undefined;
       /**
-       * A real prior app version sourced from the marker's `lastWrittenByAppVersion`, or `undefined`
-       * when none is recorded. We NEVER guess: on an apply failure the marker is unstamped, so the
-       * data is still readable by the CURRENT version — printing a wrong downgrade command would be
-       * actively harmful. When undefined the failure screen omits the version-specific install line.
+       * A real prior app version sourced from the marker's `lastWrittenByAppVersion`, or `undefined` when none is
+       * recorded.
        */
       readonly downgradeVersion: string | undefined;
     };
@@ -114,12 +85,8 @@ const summarize = (report: DryRunReport): { readonly sprints: number; readonly p
 };
 
 /**
- * Scan + apply state machine, extracted from {@link MigrationGate} so the component itself is
- * just input-handling + render. The dry-run must fire exactly once even if React re-runs the
- * effect (e.g. on a parent re-render) — a re-scan would reset a consent screen the user is
- * mid-decision on — so `scannedRef` guards the scan body itself rather than the effect's
- * dependency array: adding `appVersion` / `onResolve` below lets a re-run's cleanup fire without
- * ever starting a second `scan()`, which is the one outcome the guard exists to prevent.
+ * The dry-run must fire exactly once even if React re-runs the effect (e.g. on a parent re-render) — a re-scan would
+ * reset a consent screen the user is mid-decision on.
  */
 const useMigrationScan = (args: {
   readonly engine: DataMigrationEngine;
@@ -152,9 +119,8 @@ const useMigrationScan = (args: {
           setState({ kind: DRY_RUN_BLOCKED, issues: report.problems.map((p) => `${p.name} — ${p.reason}`) });
           return;
         }
-        // No-op migration (brand-new install, or everything already reconciled): there is nothing to
-        // rename or merge and no problems, so the consent prompt would be pointless. Silently stamp
-        // the marker to CURRENT and proceed straight into the app — a new user never sees the splash.
+        // No-op migration (brand-new install, or everything already reconciled): there is nothing to rename or merge
+        // and no problems, so the consent prompt would be pointless.
         if (report.planned.length === 0 && report.merges.length === 0) {
           await engine.stampCurrent(dataRoot, appVersion);
           if (cancelled) return;
@@ -194,9 +160,8 @@ const useMigrationScan = (args: {
       setState({ kind: 'lock-held' });
       return;
     }
-    // On a failure the marker was NOT stamped (it is written ONLY on full success), so the CURRENT
-    // version still reads the data via the tolerant readers. Only name a downgrade version if the
-    // marker actually records a prior `lastWrittenByAppVersion`; otherwise omit it rather than guess.
+    // On a failure the marker was NOT stamped (it is written ONLY on full success), so the CURRENT version still
+    // reads the data via the tolerant readers.
     const marker = await engine.readMarker(dataRoot);
     const prior = marker.lastWrittenByAppVersion.trim();
     setState({

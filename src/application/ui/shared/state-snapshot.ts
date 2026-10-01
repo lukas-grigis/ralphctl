@@ -1,12 +1,6 @@
 /**
- * Snapshot loader — reads the current selection's project + sprint + ticket / task counts and
- * reduces them to {@link TriggerInputs} so the flow registry can decide which menu items are
- * enabled.
- *
- * Used by:
- *  - The flows view (renders enabled / disabled state with reasons).
- *  - The home view (summary card).
- *  - The flow launcher (sanity check before instantiating a runner).
+ * Snapshot loader — reads the current selection's project + sprint + ticket / task counts and reduces them to {@link
+ * TriggerInputs} so the flow registry can decide which menu items are enabled.
  */
 
 import type { Project } from '@src/domain/entity/project.ts';
@@ -29,41 +23,22 @@ export interface AppStateSnapshot {
   readonly projectCount: number;
   /** Total sprints in storage scoped to the selected project (or 0 when none). */
   readonly sprintCount: number;
-  /**
-   * Top 5 non-done sprints of the selected project, newest first (UUIDv7 lex DESC). Powers
-   * the Home view's inline sprint picker — pick one to switch the current selection without
-   * leaving Home. `done` sprints are intentionally excluded so the shortcut surfaces only work
-   * the user can still act on; closed sprints stay reachable via the full `S` picker. Empty
-   * when no project is selected. When there are > 5 candidates the full list is still
-   * reachable via the picker; this slice is the at-a-glance affordance.
-   */
+  /** Top 5 non-done sprints of the selected project, newest first (UUIDv7 lex DESC). */
   readonly recentSprints: readonly Sprint[];
 }
 
 const RECENT_SPRINTS_LIMIT = 5;
 
 /**
- * Blocked-task health derived from a task list — independent of `TriggerInputs.resumableTaskCount`,
- * which counts `todo` + `in_progress` and excludes `blocked` entirely. A sprint whose entire
- * remainder is blocked has `resumableTaskCount === 0`, which used to read as "nothing pending"
- * everywhere this shows up; these two numbers are how every orientation surface (Home, the
- * settled ResultCard, the Sprints list, the sprint picker) counts the stuck work instead of
- * silently dropping it.
- *
- * NOT folded into {@link TriggerInputs} — that type is owned by the flow-gating registry
- * (`registry-triggers.ts`) and no flow trigger gates on it today. Kept as a standalone helper so
- * every consumer (this module, `next-steps.ts`, the Execute view's settled-run projection) derives
- * it the same way from whatever task list it already has, rather than each re-deriving its own
- * `todo`/`in_progress`-shaped filter.
+ * Blocked-task health derived from a task list — independent of `TriggerInputs.resumableTaskCount`, which counts
+ * `todo` + `in_progress` and excludes `blocked` entirely.
  */
 export interface TaskHealthCounts {
   /** Every task currently `blocked`, upstream + own combined. */
   readonly blockedTaskCount: number;
   /**
-   * Subset of `blockedTaskCount` blocked solely on an unfinished prerequisite
-   * ({@link isUpstreamBlocked}) — mechanically clearable once the root task unblocks / completes.
-   * `blockedTaskCount - upstreamBlockedTaskCount` is blocked on its OWN merits (eval / verify /
-   * budget / operator cancel) and needs a real fix, never an automatic cascade.
+   * Subset of `blockedTaskCount` blocked solely on an unfinished prerequisite ({@link isUpstreamBlocked}) —
+   * mechanically clearable once the root task unblocks / completes.
    */
   readonly upstreamBlockedTaskCount: number;
 }
@@ -80,16 +55,8 @@ export const computeTaskHealthCounts = (tasks: readonly Task[]): TaskHealthCount
 };
 
 /**
- * Batch-loads {@link computeTaskHealthCounts} for a set of sprints — one `findBySprintId` per
- * sprint, run in parallel via a single `Promise.all`, never a fetch per rendered row (which would
- * re-run on every scroll / re-render and could stall a list with many sprints). One sprint's
- * fetch throwing degrades ONLY that sprint to zero counts rather than failing the whole batch;
- * `AbortError` is the one exception — it propagates so a cancelled load surfaces as a cancel, not
- * a silently-degraded result.
- *
- * The Sprints list and the cross-project sprint picker both need this — extracted here (instead
- * of each view re-deriving its own fetch-and-guard loop) so a future change to the fetch (e.g.
- * batching by project) has exactly one call site to edit.
+ * Batch-loads {@link computeTaskHealthCounts} for a set of sprints — one `findBySprintId` per sprint, run in parallel
+ * via a single `Promise.all`.
  */
 export const loadTaskHealthBySprintId = async (
   taskRepo: TaskRepository,
@@ -160,9 +127,7 @@ interface InventoryCounts {
 }
 
 const loadInventoryCounts = async (deps: LoadSnapshotDeps, project: Project | undefined): Promise<InventoryCounts> => {
-  // Inventory: total projects and total sprints scoped to the selected project. Used by the
-  // home view to differentiate "no projects yet" from "many projects, none picked" — the
-  // CTAs differ ("create a project" vs "pick a project").
+  // Inventory: total projects and total sprints scoped to the selected project.
   const allProjects = await deps.projectRepo.list();
   const projectCount = allProjects.ok ? allProjects.value.length : 0;
   let sprintCount = 0;
@@ -172,9 +137,7 @@ const loadInventoryCounts = async (deps: LoadSnapshotDeps, project: Project | un
     if (sprints.ok) {
       const projectSprints = sprints.value.filter((s) => s.projectId === project.id);
       sprintCount = projectSprints.length;
-      // UUIDv7 ids are time-ordered, so a reverse on the sorted list gives newest-first. Done
-      // sprints are dropped from the shortcut window so Home only surfaces work the user can
-      // still act on; the full picker (`S`) still lists them.
+      // UUIDv7 ids are time-ordered, so a reverse on the sorted list gives newest-first.
       recentSprints = [...projectSprints]
         .reverse()
         .filter((s) => s.status !== 'done')
@@ -193,10 +156,7 @@ const computeTriggerInputs = (
 ): TriggerInputs => {
   const pendingTicketCount = sprint !== undefined ? sprint.tickets.filter((t) => t.status === 'pending').length : 0;
   const approvedTicketCount = sprint !== undefined ? sprint.tickets.filter((t) => t.status === 'approved').length : 0;
-  // Resumable = anything `launchImplement` would pick up. `todo` is the obvious case;
-  // `in_progress` is the resume case (a leftover running attempt from a crashed prior run
-  // settles as `aborted` and the task gets a fresh attempt). Counting only `todo` would gray
-  // out Implement after a crash, defeating resume.
+  // Resumable = anything `launchImplement` would pick up.
   const resumableTaskCount = tasks.filter((t) => t.status === 'todo' || t.status === 'in_progress').length;
 
   return {
@@ -205,18 +165,15 @@ const computeTriggerInputs = (
     pendingTicketCount,
     approvedTicketCount,
     resumableTaskCount,
-    // Not a gate — the ONLY consumer is the `minResumableTasks` failure sentence, which needs to
-    // tell "no task list yet, run Plan" apart from "the list exists and every remaining task is
-    // blocked". Derived from the same helper every other blocked-work surface uses so the Flows
-    // menu cannot disagree with Home / Sprints / sprint-detail about how many tasks are stuck.
+    // Not a gate — the ONLY consumer is the `minResumableTasks` failure sentence, which needs to tell "no task list
+    // yet, run Plan" apart from "the list exists and every remaining task is blocked".
     blockedTaskCount: computeTaskHealthCounts(tasks).blockedTaskCount,
   };
 };
 
 /**
- * Snapshot for a view that already holds a loaded sprint + its tasks (sprint detail) and so has
- * no reason to re-poll the repos. Inventory counts are 1 — the sprint exists, so the pre-sprint
- * rows that read them are never reached.
+ * Snapshot for a view that already holds a loaded sprint + its tasks (sprint detail) and so has no reason to re-poll
+ * the repos.
  */
 export const snapshotFromLoadedSprint = (input: {
   readonly project?: Project | undefined;

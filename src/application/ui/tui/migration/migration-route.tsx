@@ -1,14 +1,6 @@
 /**
- * Pre-app route wrapper that gates the main {@link App} behind the {@link MigrationGate}.
- *
- * Mounted by `launch.ts` ONLY when `needsMigration(dataRoot)` is true. It renders the consent gate
- * first; once the gate resolves (migrated / skipped / failed-continue) it swaps to the real App with
- * the same props. A `quit` from the failure screen exits the Ink host instead of mounting the app.
- *
- * Keeping the gate INSIDE the Ink host (an initial route, not a separate process) means one
- * alternate-screen session, one clean teardown, and no second mount flash between the gate and the
- * app. The App's own provider stack mounts only after the gate is gone, so the gate never competes
- * with it for input or context.
+ * Pre-app route wrapper that gates the main {@link App} behind the {@link MigrationGate}. Mounted by `launch.ts` ONLY
+ * when `needsMigration(dataRoot)` is true.
  */
 
 import React, { useState } from 'react';
@@ -22,9 +14,8 @@ export interface MigrationRouteProps {
   /** Props for the main app, mounted once the gate resolves. */
   readonly app: AppProps;
   /**
-   * Notify the launcher that the gate resolved, so a later pause/resume remount renders the App
-   * directly rather than re-showing the gate (the render thunk reads this flag). Within a single
-   * mount the local state already swaps to the App; this is purely for the remount case.
+   * Notify the launcher that the gate resolved, so a later pause/resume remount renders the App directly rather than
+   * re-showing the gate (the render thunk reads this flag).
    */
   readonly onResolved?: () => void;
 }
@@ -38,9 +29,8 @@ export const MigrationRoute = ({ gate, app, onResolved }: MigrationRouteProps): 
     <MigrationGate
       {...gate}
       onResolve={(): void => {
-        // Every non-quit outcome (migrated / skipped / failed-continue) proceeds into the app — the
-        // tolerant readers serve any tree the migration left behind. The specific outcome only
-        // affects whether the data is v2 yet; the app boots the same way either way.
+        // Every non-quit outcome (migrated / skipped / failed-continue) proceeds into the app — the tolerant readers
+        // serve any tree the migration left behind.
         onResolved?.();
         setResolved(true);
       }}

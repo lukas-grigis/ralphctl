@@ -27,11 +27,7 @@ export interface ProjectRemovalReport {
   readonly removedMemoryDirs: number;
 }
 
-/**
- * Project removal with an opt-in cascade. Without it only the project file goes (its sprints and
- * memory become housekeeping orphans); with it the sprints and memory go first and the project
- * last, so a failure part-way leaves the project in place and a retry finishes the job.
- */
+/** Project removal with an opt-in cascade. */
 export interface ProjectRemoval {
   preview(projectId: ProjectId): Promise<Result<ProjectRemovalPreview, StorageError>>;
   remove(

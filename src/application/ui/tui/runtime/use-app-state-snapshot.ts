@@ -1,21 +1,6 @@
 /**
- * `useAppStateSnapshot` — loads the {@link AppStateSnapshot} for the current selection and keeps
- * it fresh as the selection changes. Wraps the `useAsyncLoad(() => loadAppStateSnapshot(deps,
- * selection), [selection.projectId, selection.sprintId])` boilerplate that both the flow launcher and
- * home-view carried verbatim.
- *
- * `AppDeps` structurally satisfies {@link LoadSnapshotDeps}, so the repo trio is passed straight
- * through — no `{ projectRepo, sprintRepo, taskRepo }` wrapper. The selection ids are forwarded
- * with the same `exactOptionalPropertyTypes`-safe conditional spread (omit the key when the id
- * is `undefined`) the call sites used.
- *
- * Also wires {@link useSessionTransitionReload} so every consumer — the flow launcher, home-view, and
- * any future view built on this hook — refreshes the snapshot the moment a tracked flow
- * completes, fails, or aborts, rather than only on the next selection change or manual `r`.
- *
- * Returns the same `{ state, reload }` shape as {@link useAsyncLoad} so callers narrow on
- * `state.kind` exactly as before.
- *
+ * `useAppStateSnapshot` — loads the {@link AppStateSnapshot} for the current selection and keeps it fresh as the
+ * selection changes.
  * @public
  */
 

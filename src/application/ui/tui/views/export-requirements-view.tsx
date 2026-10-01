@@ -1,10 +1,6 @@
 /**
- * Export-requirements view — runs the export-requirements flow for the selected sprint and
- * reports where the markdown was written. A thin wrapper over {@link MarkdownExportView}, which
- * owns the shared one-shot run lifecycle (run token, sprint-dir resolution, `r` re-run).
- *
- * Output convention matches the other per-sprint artifacts (context.md, plan/, refinement/):
- *   `<dataRoot>/sprints/<sprintId>/requirements.md`
+ * Export-requirements view — runs the export-requirements flow for the selected sprint and reports where the markdown
+ * was written.
  */
 
 import React from 'react';

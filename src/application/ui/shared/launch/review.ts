@@ -11,11 +11,8 @@ import type { LaunchResult } from '@src/application/ui/shared/launcher.ts';
 import { resolveDistillComposition } from '@src/application/ui/shared/launch/distill.ts';
 
 /**
- * Derive the set of repositories the sprint actually touches — `Project.repositories`
- * filtered down to the ones referenced by `Task.repositoryId`. Empty `snapshot.tasks` (the
- * sprint reached `review` with no tasks somehow) falls back to every project repo so the
- * AI still has something to act on. Stable, project-repository order (no shuffling) — the
- * launcher renders the prompt block and adapter `--add-dir` list in the same sequence.
+ * Derive the set of repositories the sprint actually touches — `Project.repositories` filtered down to the ones
+ * referenced by `Task.repositoryId`.
  */
 const sprintAffectedRepositories = (
   repositories: readonly Repository[],
@@ -26,9 +23,8 @@ const sprintAffectedRepositories = (
 };
 
 /**
- * Render the `{{REPOSITORIES}}` block fed to apply-feedback. Mirrors plan / ideate format:
- * `` - `<absolute-path>` (<name>) ``. The AI uses this to decide which repo(s) the latest
- * feedback round touches.
+ * Render the `{{REPOSITORIES}}` block fed to apply-feedback. Mirrors plan / ideate format: `` - `<absolute-path>`
+ * (<name>) ``.
  */
 const renderRepositoriesBlock = (affected: readonly Repository[]): string =>
   affected.map((r) => `- \`${String(r.path)}\` (${r.name})`).join('\n');
@@ -40,11 +36,7 @@ export const launchReview = async (ctx: LaunchContext): Promise<LaunchResult> =>
   if (snapshot.project.repositories.length === 0) {
     return { ok: false, reason: 'Project has no repositories — add one first.' };
   }
-  // Opt-in, default-NO HITL — symmetric with close-sprint. Review's auto-done path (empty round →
-  // transition) runs the SAME distill step, so the user gets the same prompt whether they close
-  // explicitly or let review auto-finish. A non-ok result is a cancellation (Ctrl+C / Esc →
-  // `AbortError`, `.ok === false`) — cancel the whole launch. Only a deliberate `false` proceeds
-  // without distilling (the in-chain `distill-gate` guard then skips the body).
+  // Opt-in, default-NO HITL — symmetric with close-sprint.
   const distillConfirm = await deps.interactive.askConfirm({
     message: "Distill this sprint's learnings into project context files when review finishes? [y/N]",
   });
@@ -58,14 +50,10 @@ export const launchReview = async (ctx: LaunchContext): Promise<LaunchResult> =>
   const progressPath = AbsolutePath.parse(join(String(sprintDir.value), 'progress.md'));
   if (!progressPath.ok) return { ok: false, reason: progressPath.error.message };
   // `<sprintDir>/review/` — parent of per-round AI session dirs (`round-1/`, `round-2/`, …).
-  // The review-round leaf `mkdir -p`s each round subfolder; we don't materialise the parent
-  // here so a dry-run launch (rejected downstream) leaves no on-disk trace.
   const reviewRoot = AbsolutePath.parse(join(String(sprintDir.value), 'review'));
   if (!reviewRoot.ok) return { ok: false, reason: reviewRoot.error.message };
 
-  // Sprint-affected repos: intersect `task.repositoryId` with `project.repositories`. Empty
-  // task set (degenerate review on a tasks-less sprint) → full project repo list, so the AI
-  // is never rooted with zero mounts.
+  // Sprint-affected repos: intersect `task.repositoryId` with `project.repositories`.
   const taskRepoIds = new Set<string>(snapshot.tasks.map((t) => String(t.repositoryId)));
   const affected = sprintAffectedRepositories(snapshot.project.repositories, taskRepoIds);
   if (affected.length === 0) {
@@ -97,11 +85,8 @@ export const launchReview = async (ctx: LaunchContext): Promise<LaunchResult> =>
       fileLocker: deps.app.fileLocker,
       locksRoot: deps.storage.locksRoot,
       appendFile: deps.app.appendFile,
-      // Review uses the implement generator model + effort — same code-mutation profile, same
-      // accuracy expectations. No per-flow `review` row in settings today. Override flows in
-      // through ctx.settings (launcher applied it to ai.implement.generator when the picker
-      // emitted a non-empty override), so per-field fallback is automatic; `ctx.effort` is the
-      // launcher's `resolveEffort('implement', settings)` over those same settings.
+      // Review uses the implement generator model + effort — same code-mutation profile, same accuracy expectations.
+      // No per-flow `review` row in settings today.
       model: settings.ai.implement.generator.model,
       ...(effort !== undefined ? { effort } : {}),
       ...(distill !== undefined ? { distill } : {}),

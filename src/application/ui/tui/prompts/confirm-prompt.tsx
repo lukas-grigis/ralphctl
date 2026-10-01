@@ -1,8 +1,4 @@
-/**
- * Yes / no confirmation. Highlights the focused choice; ←/→/h/l toggle, Enter commits, Esc
- * cancels. Default focus is "yes"; destructive confirms pass `destructive` (and
- * `defaultYes={false}`) so a reflexive Enter or a stray `h` (global Home) can't commit.
- */
+/** Yes / no confirmation. Highlights the focused choice; ←/→/h/l toggle, Enter commits, Esc cancels. */
 
 import React, { useState } from 'react';
 import { Box, Text, useInput } from 'ink';
@@ -13,11 +9,7 @@ export interface ConfirmPromptProps {
   readonly message: string;
   readonly onSubmit: (value: boolean) => void;
   readonly onCancel: () => void;
-  /**
-   * Which option is focused on mount. `true` (default) is appropriate for additive confirms
-   * ("Save this project?"); pass `false` for destructive ones so the user has to deliberately
-   * move the cursor before committing.
-   */
+  /** Which option is focused on mount. */
   readonly defaultYes?: boolean;
   /** Only ←/→/y/n move or answer; `h`/`l` are ignored. */
   readonly destructive?: boolean;

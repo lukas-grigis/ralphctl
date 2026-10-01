@@ -1,12 +1,4 @@
-/**
- * Row presentation for the context switcher. `PickerRowList` owns cursor + windowing via the
- * shared `useListWindow` primitive (id-keyed on the cursorable subset — create, sprint and project
- * header rows); the row components below are pure presentation, driven entirely by props.
- *
- * One row pattern: a 1-cell cursor slot, the label, then right-hand context. `▸` is the only
- * cursor. Project headers sit at the list's left edge in bold caps; their sprints are indented one
- * step so the hierarchy reads without colour.
- */
+/** Row presentation for the context switcher. */
 
 import React, { useMemo } from 'react';
 import { Box, Text } from 'ink';
@@ -49,16 +41,8 @@ const NAME_MAX = 40;
 const SPRINT_TAIL_WIDTH = 34;
 
 /**
- * Windowed row list — id-keyed cursor via `useListWindow` over the cursorable subset drives focus
- * and keyboard handling. The RENDER slice is a separate window over the full flat row list
- * (non-cursorable orphan headers included), centred on the focused row's index in that full list,
- * so the rendered height stays bounded by `visibleRows` regardless of how many headers sit inside
- * or outside the window.
- *
- * Deliberately NOT `<WindowedList>`: that wrapper owns cursor movement AND the render window over
- * the *same* `items` array, but this view needs the cursor to move over the cursorable subset
- * while the render window slices the full row list — two different arrays. That is the "custom row
- * layout" case `WindowedList`'s own doc comment defers to `useListWindow` for.
+ * Windowed row list — id-keyed cursor via `useListWindow` over the cursorable subset drives focus and keyboard
+ * handling.
  */
 export const PickerRowList = ({
   rows,

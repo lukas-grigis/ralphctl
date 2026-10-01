@@ -1,8 +1,6 @@
 /**
- * Work — the cockpit for the current sprint: the sprint header strip plus ONE agenda
- * (NEEDS YOU → RUNNING → NEXT → FLOWS) where ↵ does the focused row's job. From `lg` a glance
- * column (TASKS, RECENT SPRINTS) sits to the right. The `flows` route alias renders this view with
- * the flow list focused.
+ * Work — the cockpit for the current sprint: the sprint header strip plus ONE agenda (NEEDS YOU → RUNNING → NEXT →
+ * FLOWS) where ↵ does the focused row's job.
  */
 
 import React, { useMemo, useState } from 'react';

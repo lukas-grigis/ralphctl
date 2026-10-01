@@ -1,18 +1,6 @@
 /**
- * Single-line stage tracker — `Refine → Plan → Implement → Review → Done` — the one pipeline
- * widget every surface renders (Home, Flows, `SprintHeaderStrip`). The current stage renders in
- * the primary accent; everything else is dimmed. The caller owns padding.
- *
- * Stage resolution from {@link AppStateSnapshot}:
- *
- *   - No sprint                                → no pipeline (render `null`).
- *   - sprint.status === 'draft', no tickets    → Refine (nothing refined yet)
- *   - sprint.status === 'draft' + pending tix  → Refine
- *   - sprint.status === 'draft', none pending  → Plan (refinement complete; ready to plan)
- *   - sprint.status === 'planned'              → Implement (plan complete; ready to run)
- *   - sprint.status === 'active'               → Implement (running)
- *   - sprint.status === 'review'               → Review
- *   - sprint.status === 'done'                 → Done
+ * Single-line stage tracker — `Refine → Plan → Implement → Review → Done` — the one pipeline widget every surface
+ * renders (Home, Flows, `SprintHeaderStrip`).
  */
 
 import React from 'react';

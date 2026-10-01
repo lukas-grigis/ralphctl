@@ -1,10 +1,4 @@
-/**
- * Sprint detail — presentational render branch.
- *
- * `SprintDetailContent` is the top-level branch (help overlay > load/error states > remove
- * confirm > the loaded body) and `Body` is the loaded-state layout. Both are pure render —
- * every prop is handed down from `useSprintDetailBody` in `detail-body.tsx`.
- */
+/** Sprint detail — presentational render branch. */
 
 import React from 'react';
 import { Box, Text } from 'ink';
@@ -36,11 +30,7 @@ export interface SprintDetailContentProps {
   readonly ticketsEditable: boolean;
 }
 
-/**
- * Top-level render branch: load/error states > remove confirm > the loaded
- * body. Flat if-returns instead of a nested ternary chain — same branch order and same props
- * as before, just laid out as one branch per line.
- */
+/** Top-level render branch: load/error states > remove confirm > the loaded body. */
 export const SprintDetailContent = ({
   state,
   confirmRemove,

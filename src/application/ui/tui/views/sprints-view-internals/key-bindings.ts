@@ -1,8 +1,3 @@
-/**
- * The sprint-list key map, extracted from `sprints-view.tsx` so the view stays a wiring surface and
- * the table of "key → what it does → when it is live" reads in one place.
- */
-
 import { glyphs } from '@src/application/ui/tui/theme/tokens.ts';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { ViewKeyBinding } from '@src/application/ui/tui/runtime/use-view-keys.ts';
@@ -23,13 +18,7 @@ export interface SprintsKeysInput {
   readonly makeCurrent: (sprint: Sprint) => void;
 }
 
-/**
- * The sprint-list key map. `e` hides its hint on a done sprint but keeps the handler live —
- * someone who found the key in the `?` overlay still presses it, and a swallowed keystroke reads
- * as a bug, so the handler says why instead. `u` goes the other way: with no stuck tasks there is
- * nothing to explain, so the hint and the handler go dark together. Both read the one gate the
- * body of this function derives, so a hint can never disagree with what the key does.
- */
+/** The sprint-list key map. */
 export const sprintsKeyBindings = ({
   focusedSprint,
   stuck,

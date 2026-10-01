@@ -1,42 +1,4 @@
-/**
- * EventBus → NotificationDispatcher bridge. Subscribes to the application's event stream and
- * fires OS notifications for events the operator likely walked away from the terminal for.
- *
- * The bridge stays at the bus boundary on purpose: producers (chain runner, leaves, adapters)
- * publish their existing events; the bridge filters and routes. No producer needs to know that
- * a notification dispatcher exists.
- *
- * Triggers (kept conservative — anything we surface here costs the operator a NotificationCenter
- * ding, so the bar is "you should care, not just be informed"):
- *
- *  - `chain-step-failed` for `'setup-script-runner'` → `failure` ("setup failed").
- *  - `chain-aborted`                                 → `failure` ("ralphctl aborted").
- *  - `log` event with `meta.delayMs ≥ 60_000`        → `paused`  ("Waiting for rate limit").
- *      (The headless AI adapters publish a log info with `{ delayMs, nextAttempt, maxAttempts }`
- *      before sleeping; a delay ≥ 60s is the operator-visible "ralphctl is asleep" threshold.)
- *  - `log` warn message containing `'baseline already red'` → `attention` ("Pre-verify red").
- *      (The pre-task-verify leaf publishes this when the working tree is broken before the AI
- *      gets to touch it.)
- *  - `awaiting-input`                                → `attention` ("Waiting on you").
- *  - `chain-completed` after ≥ 2 minutes             → `attention` ("Run finished").
- *  - `task-blocked`                                  → `attention` ("Task blocked").
- *      (`settleAttemptUseCase` publishes this the moment a task settles into `blocked` — the
- *      harness's principal unattended-failure mode, otherwise announced only passively via the
- *      Tasks panel / progress.md.)
- *
- * Notes for future maintainers:
- *
- *  - `disabled()` is a getter, not a captured boolean, so the Settings view can flip the flag
- *    at runtime without re-wiring the subscriber. When the flag is off, the bridge stays
- *    subscribed but every event is a no-op — keeps the wiring simple.
- *  - Dispatch is fire-and-forget (`void dispatcher.notify(...)`). The dispatcher contract
- *    guarantees no throws; we still don't `await` because the bus subscribe handler is
- *    synchronous and we don't want to stall delivery to other subscribers.
- *  - String-match heuristics (`'baseline already red'`, `meta.delayMs`) are an explicit
- *    compromise to keep this subscriber decoupled from leaf-specific event types. If a
- *    producer renames its log message, the corresponding notification stops firing — covered
- *    by a unit test that pins the substring.
- */
+/** EventBus → NotificationDispatcher bridge. */
 
 import type { EventBus } from '@src/business/observability/event-bus.ts';
 import type { AppEvent, LogEvent } from '@src/business/observability/events.ts';
@@ -57,16 +19,11 @@ const SETUP_SCRIPT_LEAF_PREFIX = 'setup-script-runner';
 export interface NotificationSubscriberDeps {
   readonly eventBus: EventBus;
   readonly dispatcher: NotificationDispatcher;
-  /**
-   * Read-on-call disable gate. The settings repo's notifications-enabled flag is read via this
-   * thunk so a Settings view toggle takes effect immediately — no need to re-wire the bridge.
-   */
+  /** Read-on-call disable gate. */
   readonly disabled: () => boolean;
 }
 
-/**
- * Subscribe to the bus and return an unsubscribe function. Call once at composition-root time.
- */
+/** Subscribe to the bus and return an unsubscribe function. Call once at composition-root time. */
 export const startNotificationSubscriber = (deps: NotificationSubscriberDeps): (() => void) => {
   // chainId → { first start, nesting depth }. Implement's prologue / epilogue sub-runners reuse the
   // host's chainId, so only the outermost completion may ping.
@@ -98,10 +55,8 @@ export const startNotificationSubscriber = (deps: NotificationSubscriberDeps): (
     if (deps.disabled()) return;
     const decision = completion ?? classify(event);
     if (decision === undefined) return;
-    // Fire-and-forget: the dispatcher contract guarantees no throws, but a misbehaving impl
-    // would otherwise surface as an unhandled-rejection that crashes the harness on
-    // `process.on('unhandledRejection')`. `.catch(noop)` keeps the bus subscriber synchronous
-    // (Promises are scheduled to a microtask, never awaited here).
+    // Fire-and-forget: the dispatcher contract guarantees no throws, but a misbehaving impl would otherwise surface
+    // as an unhandled-rejection that crashes the harness on `process.on('unhandledRejection')`.
     deps.dispatcher.notify(decision.level, decision.title, decision.body).catch(() => undefined);
   };
   return deps.eventBus.subscribe(handle);
@@ -114,8 +69,8 @@ interface NotificationDecision {
 }
 
 /**
- * Pure decision function over an AppEvent. Exported so unit tests can pin the trigger taxonomy
- * without driving the bus end-to-end.
+ * Pure decision function over an AppEvent. Exported so unit tests can pin the trigger taxonomy without driving the
+ * bus end-to-end.
  */
 export const classifyEventForNotification = (event: AppEvent): NotificationDecision | undefined => classify(event);
 
@@ -183,9 +138,8 @@ const readNumber = (meta: LogEvent['meta'], key: string): number | undefined => 
 };
 
 /**
- * Trim `pre-task-verify <path>: baseline already red (...) — task will start on broken baseline`
- * down to the path-shaped prefix. Best-effort; if the producer message changes the body falls
- * back to the full message, which is still useful to the operator.
+ * Trim `pre-task-verify <path>: baseline already red (...) — task will start on broken baseline` down to the
+ * path-shaped prefix.
  */
 const extractTaskHint = (message: string): string => {
   const colon = message.indexOf(':');

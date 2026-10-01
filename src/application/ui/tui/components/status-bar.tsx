@@ -1,14 +1,4 @@
-/**
- * Footer — always visible: a rule and ONE hint row. Doctor health, the running-session count and
- * the update nudge that used to sit above the hints are tab-bar badges now (`tab-bar.tsx`).
- *
- * The strip shows the merged keyboard hints (view-local first, then the globals
- * {@link buildFooterGlobalHints} derives from where you are), fitted to the terminal width. The
- * single-letter accelerators (`h n x s ! S P`) are never listed here — they live in `? help`.
- *
- * Hints are read from the {@link useActiveHints} registry; views declare their own via
- * `useViewKeys` / `useViewHints`.
- */
+/** Footer — always visible: a rule and ONE hint row. */
 
 import React from 'react';
 import { Box, Text } from 'ink';
@@ -25,8 +15,8 @@ import { Divider } from '@src/application/ui/tui/components/divider.tsx';
 const QUIT_HINT: FitHint = { keys: 'ctrl+c', label: 'quit' };
 
 /**
- * While a prompt holds the keyboard the view's keys and every global letter are muted (the prompt
- * card carries its own hints), so only `ctrl+c quit` is honest; otherwise local hints lead.
+ * While a prompt holds the keyboard the view's keys and every global letter are muted (the prompt card carries its
+ * own hints), so only `ctrl+c quit` is honest; otherwise local hints lead.
  */
 const orderFooterHints = (args: {
   readonly local: readonly FitHint[];
@@ -66,9 +56,8 @@ export const StatusBar = (): React.JSX.Element => {
     atOtherSectionRoot: router.stack.length <= 1 && router.activeSection !== 'work' && router.activeSection !== 'none',
     wide: columns >= breakpoints.lg,
   });
-  // Per-view suppressions hide specific footer hints (matched by their `keys` string) so the
-  // footer never advertises a key combo whose default meaning is contradicted by the
-  // currently-mounted view. A suppressed key absent from the globals is simply a no-op.
+  // Per-view suppressions hide specific footer hints (matched by their `keys` string) so the footer never advertises
+  // a key combo whose default meaning is contradicted by the currently-mounted view.
   const visibleGlobals = suppressedKeys.size === 0 ? globals : globals.filter((h) => !suppressedKeys.has(h.keys));
   const hints = orderFooterHints({ local: localHints, globals: visibleGlobals, promptActive: ui.promptActive });
 
@@ -76,8 +65,8 @@ export const StatusBar = (): React.JSX.Element => {
 };
 
 /**
- * The footer itself — a rule and one hint row. Exported so an overlay that hides the view (and so
- * its StatusBar) can pin its own hints in the same place.
+ * The footer itself — a rule and one hint row. Exported so an overlay that hides the view (and so its StatusBar) can
+ * pin its own hints in the same place.
  */
 export const FooterBar = ({
   hints,

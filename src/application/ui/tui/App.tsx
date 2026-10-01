@@ -1,11 +1,4 @@
-/**
- * Top-level Ink component for the TUI. Composes every provider (deps, sinks, sessions, prompts,
- * UI state, hints, selection, router), then renders the current view from the registry. The
- * persistent prompt host lives inside ViewShell so the Question card sits above the footer
- * instead of being pushed off the bottom of the screen.
- *
- * Bootstrap is performed before this component mounts; props arrive fully wired.
- */
+/** Top-level Ink component for the TUI. */
 
 import React from 'react';
 import { Box } from 'ink';
@@ -48,24 +41,21 @@ export interface AppProps {
   readonly buses: TuiBuses;
   readonly sessions: SessionManager;
   readonly queue: PromptQueue;
-  /**
-   * Mutable holder for the active log-level floor. The TUI's `EventBus -> logBus` forwarder
-   * reads it on every event; the Settings view writes to it when the user changes log level.
-   */
+  /** Mutable holder for the active log-level floor. */
   readonly logLevelGate: LogLevelGate;
   /**
-   * Initial view to mount. Production launches with `{ id: 'welcome' }` on first run (no
-   * settings file yet) and `{ id: 'home' }` otherwise; tests can pass anything.
+   * Initial view to mount. Production launches with `{ id: 'welcome' }` on first run (no settings file yet) and `{
+   * id: 'home' }` otherwise; tests can pass anything.
    */
   readonly initialView: ViewEntry;
   /**
-   * Pre-seeded selection — launch passes the singleton project's id/label when storage
-   * contains exactly one so the user lands on a productive home view instead of an empty one.
+   * Pre-seeded selection — launch passes the singleton project's id/label when storage contains exactly one so the
+   * user lands on a productive home view instead of an empty one.
    */
   readonly initialSelection?: SelectionSeed;
   /**
-   * Called whenever the user's project/sprint selection changes. Production threads this to
-   * the last-selection-store so the next launch pre-selects the same project.
+   * Called whenever the user's project/sprint selection changes. Production threads this to the last-selection-store
+   * so the next launch pre-selects the same project.
    */
   readonly onSelectionChange?: (next: SelectionSeed) => void;
 }
@@ -113,15 +103,7 @@ export const App = ({
 );
 
 /**
- * Hosts the global key handler and pins the active view inside a fixed-height frame. The outer
- * Box is sized to the full terminal height so the alternate-screen frame fills the window
- * instead of stacking against the previous shell output; ViewShell owns the column inside it
- * — header, scroll content, prompt host, and footer — so tall content scrolls within this
- * frame instead of pushing the status bar (or the prompt card) off-screen.
- *
- * Exported for the off-Home quit-hint suppression test, which mounts it directly under the
- * provider stack with a probe child rather than the full view registry.
- *
+ * Hosts the global key handler and pins the active view inside a fixed-height frame.
  * @public
  */
 export const Layout = ({ children }: { readonly children: React.ReactNode }): React.JSX.Element => {
@@ -131,33 +113,8 @@ export const Layout = ({ children }: { readonly children: React.ReactNode }): Re
   // Suspend global key bindings while a prompt is in flight so view-level handlers don't fight
   // for input. The prompt's own component owns Esc / Enter / etc. while it's mounted.
   useGlobalKeys({ disabled: ui.promptActive });
-  // ViewShell owns the full column inside this fixed-height frame: header → scroll content →
-  // status banner → prompt-host → footer, with header / banner / prompt / footer pinned via
-  // `flexShrink={0}`. The dismissible StatusBanner sits inside ViewShell so it lands next to
-  // the other footer-adjacent surfaces (PromptHost, StatusBar) rather than detaching from the
-  // running view at the top of the screen. Memory + chain-log banners stay at the top because
-  // they signal harness-level degradations that the operator should see immediately.
-  //
-  // The overlays (help via `?`, progress.md via `g`, evaluation.md via `v`) are true modals — while
-  // one is open, the active view is hidden (`display: "none"`) so no parallel ScrollRegion / list
-  // cursor competes for keystrokes. Children remain MOUNTED (not conditionally rendered) so list
-  // cursors, expanded cards, and scroll offsets are preserved when the overlay closes. Mounted
-  // alone does not buy the scroll offset: a `display: "none"` subtree measures 0 rows, and
-  // ScrollRegion used to clamp against that and reset to the top. Its hidden-subtree guard (a
-  // zero viewport measurement is ignored) is what makes the "scroll offsets are preserved" half
-  // of this sentence true — see `scroll-region.tsx`. Every
-  // view-level useInput and listActive expression gates on `ui.modalOpen` (which includes both)
-  // so the hidden-but-mounted view is fully inert while an overlay is visible. The global handler
-  // closes them (esc / g, esc / v); `selection.sprintId` gates the progress open, and the focused
-  // task's recorded verdict gates the evaluation open (view-local, since only a view knows which
-  // card is focused).
-  //
-  // There is ONE overlay slot (`ui.overlay`): help, switcher, progress and evaluation replace one
-  // another, and all four mount here — never inside a view. Help is scoped by the current route.
-  //
-  // The chrome — tab bar, location line, rule — is rows 0–2 of the frame, above the view. The
-  // switcher keeps it on screen (it is a light overlay about the context shown there); help,
-  // progress and evaluation are full-frame documents and hide it with the view.
+  // ViewShell owns the full column inside this fixed-height frame: header → scroll content → status banner →
+  // prompt-host → footer, with header / banner / prompt / footer pinned via `flexShrink={0}`.
   const overlayOpen = ui.overlay !== undefined;
   const chromeHidden = overlayOpen && ui.switcherFocus === undefined;
   return (

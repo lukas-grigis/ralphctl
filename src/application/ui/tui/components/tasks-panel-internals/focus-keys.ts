@@ -1,24 +1,15 @@
-/**
- * Focus-key plumbing for the Tasks panel cursor model. Keys are stable across re-renders
- * (composed of `scope:absoluteIndex`) so a moving cursor doesn't jump when a new signal lands.
- */
+/** Focus-key plumbing for the Tasks panel cursor model. */
 
 import type { BucketedExecution } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
 import type { HarnessSignal } from '@src/domain/signal.ts';
 
 /**
- * Build a stable focusable-row key. Composed of `scope:absoluteIndex` where `scope` is either
- * the literal string `orphan` or a task id (uuid v7). Absolute index is the signal's position
- * in the original (unsliced) signal array — surviving the slice means the key stays valid even
- * when newer signals push older ones off the visible window.
+ * Build a stable focusable-row key. Composed of `scope:absoluteIndex` where `scope` is either the literal string
+ * `orphan` or a task id (uuid v7).
  */
 export const focusKey = (scope: string, absoluteIndex: number): string => `${scope}:${String(absoluteIndex)}`;
 
-/**
- * Predicate: is this signal type focusable in the cursor model? Non-focusable signals are
- * either rendered by a dedicated component outside the signal stream (evaluation) or render as
- * a dedented lifecycle boundary (context-compacted) where focus would feel out of place.
- */
+/** Predicate: is this signal type focusable in the cursor model? */
 export const isFocusable = (sig: HarnessSignal): boolean =>
   sig.type !== 'evaluation' && sig.type !== 'context-compacted';
 
@@ -38,10 +29,8 @@ export const focusKeysForSlice = (
 };
 
 /**
- * Compute the flat sequence of focusable row keys in render order: orphans first (matching
- * the on-screen ordering), then each task's visible signal slice. Keys are stable across
- * re-renders so a moving cursor doesn't jump when a new signal lands; non-focusable signals
- * (`evaluation`, `context-compacted`) are excluded from the cursor model but still render.
+ * Compute the flat sequence of focusable row keys in render order: orphans first (matching the on-screen ordering),
+ * then each task's visible signal slice.
  */
 export const buildFlatFocusKeys = (
   bucketed: BucketedExecution,

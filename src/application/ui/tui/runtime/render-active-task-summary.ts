@@ -1,29 +1,11 @@
-/**
- * Render the markdown summary copied to the clipboard by the global `y` (yank) hotkey.
- *
- * Format (matches the spec verbatim — every line is a `-` list item under a ### heading):
- *
- *   ### <task name>
- *   - status: <status>
- *   - attempts: <n> (last: <verdict>)?
- *   - last commit: <fullCommitSha>?
- *   - change/learning/decision/verified/blocked/commit: <counts in current attempt>
- *
- * The signal-kind counts are derived from the `TaskBucket.signals` slice for the most-recent
- * generator turn (between the last `generator-<id>` substep and the bucket's tail), so the
- * operator sees the verdict of the round they are looking at — not the cumulative tally of
- * every earlier rejected attempt.
- *
- * Pure — no I/O. Empty / partial inputs degrade gracefully so the hotkey never throws while the
- * task is still booting (no signals yet, no commit yet, no verdict yet).
- */
+/** Render the markdown summary copied to the clipboard by the global `y` (yank) hotkey. */
 
 import type { TaskBucket } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
 import type { HarnessSignal } from '@src/domain/signal.ts';
 
 /**
- * Signal kinds the summary line counts. Order is the spec's reading order (most-frequent first)
- * so the rendered counts match the operator's mental model.
+ * Signal kinds the summary line counts. Order is the spec's reading order (most-frequent first) so the rendered
+ * counts match the operator's mental model.
  */
 const COUNTED_KINDS = ['change', 'learning', 'decision', 'verified', 'blocked', 'commit'] as const;
 type CountedKind = (typeof COUNTED_KINDS)[number];
@@ -48,17 +30,10 @@ const kindOf = (signal: HarnessSignal): CountedKind | undefined => {
   }
 };
 
-/**
- * Count signals belonging to the most-recent generator turn within the bucket. Generator turns
- * are not delimited on the signal stream itself — we slice from the latest substep index that
- * has the `generator` leafName forwards. When no generator turn has happened yet (still in
- * preflight), the full signal list is counted so the summary stays useful even pre-round-1.
- */
+/** Count signals belonging to the most-recent generator turn within the bucket. */
 const sliceCurrentAttemptSignals = (task: TaskBucket): readonly HarnessSignal[] => {
-  // We cannot directly correlate signal indices to substep indices (they live in separate
-  // arrays), so fall back to the simpler heuristic: count every signal in the bucket. The
-  // execute view caps `task.signals` at `maxSignalsPerTask` (default 8) anyway, which
-  // approximates "current attempt" for live runs.
+  // We cannot directly correlate signal indices to substep indices (they live in separate arrays), so fall back to
+  // the simpler heuristic: count every signal in the bucket.
   return task.signals;
 };
 
@@ -79,8 +54,7 @@ const countByKind = (signals: readonly HarnessSignal[]): Record<CountedKind, num
 };
 
 /**
- * Latest evaluation verdict (passed / failed / malformed) — pulled from the bucket's
- * `evaluations` list. Returns undefined while the gen-eval loop hasn't produced any verdict yet.
+ * Latest evaluation verdict (passed / failed / malformed) — pulled from the bucket's `evaluations` list.
  */
 const lastVerdict = (task: TaskBucket): string | undefined => {
   const last = task.evaluations[task.evaluations.length - 1];
@@ -93,10 +67,7 @@ export interface ActiveTaskSummaryInput {
   readonly displayName: string;
 }
 
-/**
- * Render the markdown summary for one task bucket. Spec line ordering is preserved verbatim so
- * the operator can grep the clipboard payload reliably (e.g. paste into a bug report).
- */
+/** Render the markdown summary for one task bucket. */
 export const renderActiveTaskSummary = ({ task, displayName }: ActiveTaskSummaryInput): string => {
   const lines: string[] = [];
   lines.push(`### ${displayName}`);

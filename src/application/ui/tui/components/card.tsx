@@ -1,12 +1,4 @@
-/**
- * Card — a bordered, padded container. The default border colour is the muted rule tone so the
- * card recedes; set `tone` to highlight a card that should grab attention (active session,
- * error state, primary CTA).
- *
- * The border defaults to dim only for the `rule` tone (the recessive default). Other tones
- * are explicitly highlighting something, so dimming their border would defeat the purpose; an
- * explicit `dim` prop still wins when the caller wants to override.
- */
+/** Card — a bordered, padded container. */
 
 import React from 'react';
 import { Box, Text } from 'ink';

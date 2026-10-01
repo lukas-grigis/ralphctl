@@ -1,6 +1,6 @@
 /**
- * Aligned label / value rows. `label` column is dim and fixed-width; values render plain so they
- * stand out without the labels having to compete on color.
+ * Aligned label / value rows. `label` column is dim and fixed-width; values render plain so they stand out without
+ * the labels having to compete on color.
  */
 
 import React from 'react';
@@ -12,38 +12,27 @@ export interface Field {
   readonly value: React.ReactNode;
   readonly dim?: boolean;
   /**
-   * Optional one-line explanation rendered on the row below the value (indented to align under
-   * the value column, dim styled). Use for setting cards where a bare number isn't
-   * self-descriptive — e.g. "Max turns: 5" benefits from "Cap on gen/eval iterations per attempt."
+   * Optional one-line explanation rendered on the row below the value (indented to align under the value column, dim
+   * styled).
    */
   readonly hint?: string;
 }
 
 export interface FieldListProps {
   readonly fields: readonly Field[];
-  /**
-   * Fixed label column width. When omitted the column auto-sizes to the widest label in the
-   * `fields` array (label length + colon + 1 space of padding), with `FIELD_LABEL_WIDTH` as
-   * the floor so callers with short labels still get the standard rhythm. Pass an explicit
-   * value to override (e.g. when two adjacent `FieldList` instances must share a column width).
-   */
+  /** Fixed label column width. */
   readonly labelWidth?: number;
 }
 
 const padLabel = (label: string, width: number): string => {
-  // Width-based clip on an over-wide label — appends `clipEllipsis` (audit-[03] display-clip
-  // marker) so the operator sees the label was abbreviated rather than silently misspelled.
-  // The colon still follows; rare in practice because field labels are short fixed strings.
+  // Width-based clip on an over-wide label — appends `clipEllipsis` (audit-[03] display-clip marker) so the operator
+  // sees the label was abbreviated rather than silently misspelled.
   const trimmed = label.length > width - 1 ? `${label.slice(0, width - 2)}${glyphs.clipEllipsis}` : label;
   const withColon = `${trimmed}:`;
   return withColon.padEnd(width, ' ');
 };
 
-/**
- * Compute the label column width from the field set when no explicit width was given.
- * Formula: max(label.length) + 2 (colon + one trailing space), floored at FIELD_LABEL_WIDTH.
- * The extra space keeps a breathing gap between the longest label and its value.
- */
+/** Compute the label column width from the field set when no explicit width was given. */
 const resolveWidth = (fields: readonly Field[], explicit?: number): number => {
   if (explicit !== undefined) return explicit;
   if (fields.length === 0) return FIELD_LABEL_WIDTH;

@@ -1,22 +1,6 @@
 /**
- * Resolves the post-mortem artifacts a settled-with-failure run left on disk, for the settled
- * `ResultCard`'s `Post-mortem` block.
- *
- * Two rules the block exists to keep:
- *
- *  1. **Never print a path that does not resolve.** Every candidate is `fs.stat`-gated. That
- *     matters most for `events.ndjson`: it is written by the implement flow only, and only when
- *     `RALPHCTL_DEBUG_TRACE` is truthy (`wire.ts` otherwise installs a no-op chain-log sink), so
- *     on a default install it simply is not there. (There is no `chain.log` file anywhere in the
- *     tree — only doc-comment prose refers to one.)
- *  2. **Never guess a sprint.** Path resolution needs the run's pinned sprint, and a create-sprint
- *     run has none at launch — a run that failed BEFORE creating one never gets a pin back-filled.
- *     No pin ⇒ empty list, with no filesystem call at all.
- *
- * The `<runsRoot>/<flowId>/<run-id>/` artifacts of the one-shot flows stop one level short: the
- * `<run-id>` segment is generated inside the chain (`run-artifacts.ts`) and never reaches the
- * descriptor, so the entry points at the flow directory and names `ralphctl runs list` instead of
- * fabricating an id.
+ * Resolves the post-mortem artifacts a settled-with-failure run left on disk, for the settled `ResultCard`'s
+ * `Post-mortem` block.
  */
 
 import { promises as fs } from 'node:fs';

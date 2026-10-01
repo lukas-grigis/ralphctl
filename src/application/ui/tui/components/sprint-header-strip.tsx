@@ -1,15 +1,4 @@
-/**
- * Sprint header strip — the one place Work and Sprint detail say where a sprint stands. It has no
- * name row: the sprint name and status chip already live in the LocationBar.
- *
- *   row 1  `SprintPipeline` + right-aligned counts (`3/7 done · 2 blocked`, `· 2 ready` at ≥ md)
- *   row 2  facts (`3 tickets · 7 tasks · active since 1d ago`); the detail variant at ≥ lg shows
- *          the phase transitions and slug instead
- *   row 3  `next: …` (detail variant only) — the first `buildNextSteps` row, `· +N more` below lg,
- *          every row joined with `· then` at ≥ lg
- *
- * The next-step wording comes from `buildNextSteps` — this component never derives its own.
- */
+/** Sprint header strip — the one place Work and Sprint detail say where a sprint stands. */
 
 import React from 'react';
 import { Box, Text } from 'ink';

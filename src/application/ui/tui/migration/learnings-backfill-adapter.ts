@@ -32,10 +32,7 @@ const parseBody = (ndjsonBody: string): LearningRecord[] => {
 };
 
 /**
- * Build the backfill renderer the migration `ApplyCtx.renderLearnings` expects. Parses the NDJSON
- * body line-by-line (skipping blanks + malformed rows) then renders the markdown mirror. Returns
- * `undefined` when no record parses, so the engine skips writing an empty file.
- *
+ * Build the backfill renderer the migration `ApplyCtx.renderLearnings` expects.
  * @public
  */
 export const createLearningsBackfillRenderer =
@@ -49,13 +46,7 @@ export const createLearningsBackfillRenderer =
   };
 
 /**
- * Build the ledger merger the migration `ApplyCtx.mergeLearnings` expects. Unions the slugged + legacy
- * NDJSON bodies, de-duplicating by record `id` (the slugged body wins on a collision — it is the
- * canonical dir the writer is already appending to), serializes the union back to NDJSON, and renders
- * the `learnings.md` mirror. The union preserves on-disk order: slugged rows first (in their original
- * order), then legacy rows whose id was not already present. `md` is `undefined` when the union has no
- * renderable records.
- *
+ * Build the ledger merger the migration `ApplyCtx.mergeLearnings` expects.
  * @public
  */
 export const createLearningsMerger =

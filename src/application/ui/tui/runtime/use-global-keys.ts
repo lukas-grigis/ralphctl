@@ -1,9 +1,4 @@
-/**
- * Global keyboard handler. Mounted once at the app root; suspended whenever a prompt is in
- * flight or the help overlay is open so the underlying view's local handler doesn't fight the
- * modal. Quitting (`q` / Ctrl-C) is allowed to win unconditionally — it's the operator's escape
- * hatch.
- */
+/** Global keyboard handler. */
 
 import { useApp, useInput, type Key } from 'ink';
 import { useRouter, type RouterApi, type ViewEntry } from '@src/application/ui/tui/runtime/router.tsx';
@@ -71,8 +66,8 @@ const handleQuitChord = (
 };
 
 /**
- * Help toggle is recognised even when the overlay is open — pressing `?` dismisses it. Once open,
- * help mode swallows the rest of the keystrokes; only Esc dismisses.
+ * Help toggle is recognised even when the overlay is open — pressing `?` dismisses it. Once open, help mode swallows
+ * the rest of the keystrokes; only Esc dismisses.
  */
 const handleHelpOverlay = (ui: UiStateApi, input: string, key: Key): boolean => {
   if (input === '?') {
@@ -87,19 +82,14 @@ const handleHelpOverlay = (ui: UiStateApi, input: string, key: Key): boolean => 
 };
 
 /**
- * Context switcher — while it is open it owns the keyboard: its own `useInput` handles ↑/↓, ↵, `c`,
- * `t`, `f` and `esc` (closing the overlay). Here we only swallow, so no global chord (`g`, digits,
- * `esc` → pop) fires on the hidden view underneath. `?` and `ctrl+c` are handled before this.
+ * Context switcher — while it is open it owns the keyboard: its own `useInput` handles ↑/↓, ↵, `c`, `t`, `f` and
+ * `esc` (closing the overlay).
  */
 const handleSwitcherOverlay = (ui: UiStateApi): boolean => ui.switcherFocus !== undefined;
 
 /**
- * Progress overlay — same modal contract as help. `g` opens (only when a sprint is loaded);
- * `g` also dismisses while open so the operator can mash the same key to toggle. `esc`
- * dismisses. The open-gate mirrors the overlay's own sprint resolution
- * (`focusedRunSprintId ?? selection.sprintId`): when an Execute view pins a run whose sprint
- * is not the global selection, `g` must still open onto the pinned run instead of silently
- * no-op'ing. Home — neither pinned nor selected — stays a no-op as the spec demands.
+ * Progress overlay — same modal contract as help. `g` opens (only when a sprint is loaded); `g` also dismisses while
+ * open so the operator can mash the same key to toggle.
  */
 const handleProgressOverlay = (
   ui: UiStateApi,
@@ -120,14 +110,8 @@ const handleProgressOverlay = (
 };
 
 /**
- * Evaluation overlay — CLOSE-ONLY here. `esc` or `v` dismisses while open, and the swallow keeps
- * the keystroke off the hidden view underneath.
- *
- * Opening is deliberately NOT global: the overlay needs the focused task's recorded verdict, and
- * only the Execute Tasks panel / sprint-detail know which card the cursor is on. Home, Flows and
- * Settings have no such notion, so a global `v` would need an open-gate they cannot satisfy — and
- * Work already binds a view-local `v` of its own. Handling the CLOSE centrally (rather
- * than in each view) is what lets it win over those now-inert view handlers.
+ * Evaluation overlay — CLOSE-ONLY here. `esc` or `v` dismisses while open, and the swallow keeps the keystroke off
+ * the hidden view underneath.
  */
 const handleEvaluationOverlay = (ui: UiStateApi, input: string, key: Key): boolean => {
   if (ui.evaluationTarget === undefined) return false;
@@ -136,10 +120,8 @@ const handleEvaluationOverlay = (ui: UiStateApi, input: string, key: Key): boole
 };
 
 /**
- * Multi-flow navigation. Tab / Shift+Tab cycle through the RUNNING sessions; Ctrl+1..9 jump
- * to the Nth running session (1-indexed). Reaches this point only when no prompt is mounted
- * (opts.disabled gate above) and no overlay is open (help / progress early-returned). Focusing
- * a session lands on the `execute` route keyed on the session id, in the Runs section. With zero running sessions every chord is a silent no-op.
+ * Multi-flow navigation. Tab / Shift+Tab cycle through the RUNNING sessions; Ctrl+1..9 jump to the Nth running
+ * session (1-indexed).
  */
 const handleSessionNav = (
   sessions: { list(): readonly SessionRecord[] },
@@ -159,8 +141,7 @@ const handleSessionNav = (
 };
 
 /**
- * Section digits `1`–`5`. Pressing the active section's digit resets it to its root (handled by
- * `goSection`). Inert in the first-run wizard, where there is no tab bar to jump through.
+ * Section digits `1`–`5`. Pressing the active section's digit resets it to its root (handled by `goSection`).
  */
 const handleSectionDigit = (input: string, key: Key, router: RouterApi): boolean => {
   if (key.ctrl || key.meta || router.activeSection === 'none') return false;
@@ -170,12 +151,7 @@ const handleSectionDigit = (input: string, key: Key, router: RouterApi): boolean
   return true;
 };
 
-/**
- * Hidden single-letter accelerators — `h n x s ! S P`. They are not advertised in the footer (the
- * tab bar teaches the five sections); each lands on an explicit destination through `reset`, which
- * is what keeps pressing one from a deep stack from ballooning history. Pressing the accelerator
- * for the view you are already on is a no-op.
- */
+/** Hidden single-letter accelerators — `h n x s ! S P`. */
 const handleAccelerator = (input: string, router: RouterApi, ui: UiStateApi): boolean => {
   const land = (entry: ViewEntry): boolean => {
     const atRoot = router.stack.length <= 1;
@@ -186,9 +162,7 @@ const handleAccelerator = (input: string, router: RouterApi, ui: UiStateApi): bo
 
   switch (input) {
     case 'h':
-      // Explicit destination — `reset` never infers one. On a first-run session the launch
-      // entry is the welcome wizard, and inferring it here sent `h` backwards into first-run
-      // setup instead of Work.
+      // Explicit destination — `reset` never infers one.
       return land({ id: 'home' });
     case 'n':
       // Always re-enter: Work at its root still has to move its cursor onto the flow list.
@@ -212,17 +186,8 @@ const handleAccelerator = (input: string, router: RouterApi, ui: UiStateApi): bo
 };
 
 /**
- * Navigate to a running session's Execute view, reusing the exact route the Sessions view's
- * open action pushes (`{ id: 'execute', props: { sessionId } }`).
- *
- * `target` is either an absolute 0-based index (Ctrl+1..9 jump) or a relative direction
- * (`'next'` / `'prev'` for Tab / Shift+Tab). Relative cycling wraps modularly off the currently
- * focused session's index; entering from a non-execute view starts at the first (`'next'`) or
- * last (`'prev'`) running session. An out-of-range jump index and an empty running list are both
- * silent no-ops.
- *
- * On the Execute view we `replace` (don't stack history while hopping between live runs); from any
- * other view we `reset` onto the Runs section (`[Runs, Execute]`), so `esc` climbs Runs → Work.
+ * Navigate to a running session's Execute view, reusing the exact route the Sessions view's open action pushes (`{
+ * id: 'execute', props: { sessionId } }`).
  */
 const focusRunningSession = (
   sessions: { list(): readonly SessionRecord[] },
@@ -241,8 +206,6 @@ const focusRunningSession = (
     if (target < 0 || target >= running.length) return;
     next = target;
   } else if (focusedIndex === -1) {
-    // Entering from a non-execute view (or focused session no longer running): Tab → first,
-    // Shift+Tab → last.
     next = target === 'next' ? 0 : running.length - 1;
   } else {
     const delta = target === 'next' ? 1 : -1;
@@ -251,9 +214,7 @@ const focusRunningSession = (
 
   const targetSession = running[next];
   if (targetSession === undefined) return;
-  // Guard: if the target is already the focused session, skip the router call — a replace with
-  // an identical entry is a wasteful re-render when Tab cycles a single running session back to
-  // itself (e.g. only one running session and Tab wraps modularly to the same id).
+  // Guard: if the target is already the focused session, skip the router call.
   if (targetSession.descriptor.id === focusedId) return;
   const entry: ViewEntry = { id: 'execute', props: { sessionId: targetSession.descriptor.id } };
   if (onExecute) router.replace(entry);

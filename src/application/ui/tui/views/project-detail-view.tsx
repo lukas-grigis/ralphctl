@@ -1,13 +1,4 @@
-/**
- * Project detail — info card + repository roster + per-repo health (paths + scripts).
- *
- * Opening the detail is a BROWSE — it never switches the current selection (a project switch
- * clears the sprint cursor as a side effect). Press `m` to make the viewed project current,
- * mirroring the sprint-detail view's explicit opt-in.
- *
- * Every local key is declared once through `useViewKeys`, which also claims the printable ones —
- * `S` (detect skills) therefore never also opens the global sprint picker.
- */
+/** Project detail — info card + repository roster + per-repo health (paths + scripts). */
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { Text } from 'ink';
@@ -53,11 +44,8 @@ type EditTarget =
   { readonly kind: 'project' } | { readonly kind: 'repo'; readonly field: RepoFieldKey; readonly repo: Repository };
 
 /**
- * Once the project loads, refresh the display-name label in the selection cache so the status
- * bar can show "proj: <name>" without re-loading the aggregate — but ONLY for the project that
- * is already current. Re-stamping a *different* project here would switch the selection (and
- * clear the sprint cursor) as a side effect of merely browsing its detail; the explicit `m`
- * chord is the only path that switches.
+ * Once the project loads, refresh the display-name label in the selection cache so the status bar can show "proj:
+ * <name>" without re-loading the aggregate.
  */
 const useSyncCurrentProjectLabel = (
   state: AsyncLoadState<Project, unknown>,
@@ -82,9 +70,7 @@ interface BuildFieldEditArgs {
   readonly reload: () => void;
 }
 
-/** Build the edit-prompt config for the focused row — the project's displayName or one repo
- *  field. Takes the entity + repo port as explicit args instead of closing over them so it can
- *  live outside the component's render scope. */
+/** Build the edit-prompt config for the focused row — the project's displayName or one repo field. */
 const buildFieldEdit = (args: BuildFieldEditArgs): OpenEditPromptInput => {
   const { target, project, projectRepo, reload } = args;
   if (target.kind === 'project') {
@@ -112,10 +98,8 @@ const buildFieldEdit = (args: BuildFieldEditArgs): OpenEditPromptInput => {
     kind: field === 'name' ? 'short' : 'long',
     currentValue: current,
     onSave: async (value) => {
-      // For optional script fields, route through the setter directly so `value === ''`
-      // explicitly *clears* the field (the entity setter accepts `undefined` for clear).
-      // `updateRepository`'s partial type — with exactOptionalPropertyTypes — disallows
-      // direct undefined assignment, so we update the repo and persist the parent project.
+      // For optional script fields, route through the setter directly so `value === ''` explicitly *clears* the field
+      // (the entity setter accepts `undefined` for clear).
       if (field === 'name') {
         const next = updateRepository(project, repo.id, { name: value });
         if (!next.ok) return Result.error(next.error);
@@ -149,12 +133,7 @@ interface LaunchPerRepoFlowCtx {
   readonly setFeedback: (message: string | undefined) => void;
 }
 
-/**
- * Launch the `detect-scripts` / `detect-skills` one-shot flow scoped to a single repository.
- * `c`/`S` don't claim the global key-mute, so the operator can navigate away (unmounting this
- * view) while the launcher resolves — the mounted-ref guard skips the post-await view-local
- * writes (setFeedback / session open) so neither fires into an unmounted tree.
- */
+/** Launch the `detect-scripts` / `detect-skills` one-shot flow scoped to a single repository. */
 const launchPerRepoFlow = async (
   ctx: LaunchPerRepoFlowCtx,
   project: Project | undefined,
@@ -194,11 +173,8 @@ interface ProjectDetailShortcutArgs extends LaunchPerRepoFlowCtx {
 }
 
 /**
- * Keymap hook for the project-detail view — encapsulates every `useInput` chord (add repo, mark
- * current, edit field, flat-cursor navigation, per-repo CRUD + detect flows, sprints shortcut)
- * so the orchestrator only has to wire state and setters. Mirrors `useSprintDetailShortcuts` on
- * the sibling sprint-detail view. Extends {@link LaunchPerRepoFlowCtx} — `args` doubles as that
- * context for the two detect-flow chords, so no separate object needs assembling.
+ * Keymap hook for the project-detail view — encapsulates every `useInput` chord (add repo, mark current, edit field,
+ * flat-cursor navigation, per-repo CRUD + detect flows.
  */
 const useProjectDetailShortcuts = (args: ProjectDetailShortcutArgs): void => {
   const { deps, router, ui, selection, edit, project, focused, reload } = args;
@@ -284,12 +260,7 @@ const useProjectDetailShortcuts = (args: ProjectDetailShortcutArgs): void => {
   );
 };
 
-/**
- * Flat field cursor — every editable row gets one stable index. Top-to-bottom order matches
- * the rendered card layout: project displayName first, then each repo's name / setup / verify
- * in turn. The cursor advances through the same array the renderer walks. Takes `project`
- * itself (not a derived array) so callers don't have to worry about a fresh reference per render.
- */
+/** Flat field cursor — every editable row gets one stable index. */
 const useProjectFields = (project: Project | undefined): readonly Field[] =>
   useMemo<readonly Field[]>(() => {
     if (project === undefined) return [];
@@ -312,8 +283,7 @@ interface RemoveRepoConfirmedArgs {
   readonly reload: () => void;
 }
 
-/** `ConfirmCard`'s Yes/No answer for the pending repo removal. Dismisses the overlay
- *  unconditionally, then — only on a Yes with a project still loaded — persists the removal. */
+/** `ConfirmCard`'s Yes/No answer for the pending repo removal. */
 const handleRemoveConfirmed = async (
   args: RemoveRepoConfirmedArgs,
   target: Repository,
@@ -340,9 +310,10 @@ interface DetailContentProps {
   readonly feedback: string | undefined;
 }
 
-/** The view's single content slot — load states, the remove-repo confirm, or the
- *  loaded project body, in that priority order. Pulled out of the orchestrator so the component
- *  itself only wires state and handlers. */
+/**
+ * The view's single content slot — load states, the remove-repo confirm, or the loaded project body, in that priority
+ * order.
+ */
 const DetailContent = ({
   state,
   confirmRemove,
@@ -394,10 +365,8 @@ export const ProjectDetailView = (): React.JSX.Element => {
   const [confirmRemove, setConfirmRemove] = useState<Repository | undefined>(undefined);
   const [feedback, setFeedback] = useState<string | undefined>(undefined);
 
-  // Mounted-ref guard for the async remove-repo handler: dismissing the confirm overlay unblocks the
-  // router, so the operator can navigate away (unmounting this view) before the awaited save resolves.
-  // The guard skips the post-await view-local writes (setFeedback / reload) so they never fire into an
-  // unmounted tree.
+  // Mounted-ref guard for the async remove-repo handler: dismissing the confirm overlay unblocks the router, so the
+  // operator can navigate away (unmounting this view) before the awaited save resolves.
   const mountedRef = useIsMounted();
 
   const project = state.kind === 'ok' ? state.value : undefined;
@@ -405,11 +374,8 @@ export const ProjectDetailView = (): React.JSX.Element => {
   const fields = useProjectFields(project);
   const focused = fields[Math.min(cursorIdx, Math.max(0, fields.length - 1))];
 
-  // Reset the cursor when the underlying project changes — both the first successful load
-  // (loading → ok) and a re-route to a different projectId. Without this, switching from a
-  // project with 4 fields to one with 1 would leave the cursor pinned at index 3 (clamped) and
-  // visually parked on the only available row, but a subsequent reload back to the larger
-  // project would resume mid-list — surprising.
+  // Reset the cursor when the underlying project changes — both the first successful load (loading → ok) and a
+  // re-route to a different projectId.
   useEffect(() => {
     if (state.kind === 'ok') setCursorIdx(0);
   }, [state.kind, projectId]);

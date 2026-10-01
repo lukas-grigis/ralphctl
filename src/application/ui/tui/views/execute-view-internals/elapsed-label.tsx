@@ -1,10 +1,4 @@
-/**
- * Leaf that owns its own 1 Hz tick for the header's "elapsed" text. Isolated from
- * `HeaderCard` so the tick re-renders only this one `<Text>` node — not the whole card (model
- * lines, task-focus row) or anything above it in the tree. See `use-live-clock.ts`: the clock
- * pauses (no interval) the moment the run settles, so a finished view stops re-rendering
- * entirely once `isRunning` is false.
- */
+/** Leaf that owns its own 1 Hz tick for the header's "elapsed" text. */
 
 import React from 'react';
 import { Text } from 'ink';

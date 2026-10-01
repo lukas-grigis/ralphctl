@@ -1,6 +1,5 @@
 /**
- * Provides the `PromptQueue` via context so views (mostly the prompt host) can access it
- * without prop-drilling.
+ * Provides the `PromptQueue` via context so views (mostly the prompt host) can access it without prop-drilling.
  */
 
 import React, { createContext, useContext } from 'react';

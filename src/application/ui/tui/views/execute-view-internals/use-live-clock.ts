@@ -1,9 +1,5 @@
 /**
- * 1-Hz live clock used by the execute view for elapsed-time formatting + the cancel-scope
- * elapsed display. Ticks while `isRunning` is true; pauses (clearInterval) the moment the run
- * settles so a finished view stops re-rendering every second. Note: `useCancelScopeStats` no
- * longer depends on `now` — it returns a stable `attemptStartedAt` and the execute view does the
- * `now - attemptStartedAt` subtraction inline, so a tick re-renders without re-scanning chainEvents.
+ * 1-Hz live clock used by the execute view for elapsed-time formatting + the cancel-scope elapsed display.
  */
 
 import { useEffect, useState } from 'react';

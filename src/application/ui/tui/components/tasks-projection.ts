@@ -4,12 +4,8 @@ import type { Task } from '@src/domain/entity/task.ts';
 import type { TaskEvaluation } from '@src/application/ui/tui/components/tasks-panel-internals/evaluation-row.tsx';
 
 /**
- * TUI-local minimal projection for the Tasks panel — the narrow slice the panel needs from a
- * Task entity to render ETAs + commit-sha chips. Wave 7 deleted the wider
- * `state-projection.ts` (audit-[07] — no more chain.log mining); this module replaces just
- * the per-task fields the live TUI was reading from that projection.
- *
- * Pure — no I/O. Same Task in, same projection out.
+ * TUI-local minimal projection for the Tasks panel — the narrow slice the panel needs from a Task entity to render
+ * ETAs + commit-sha chips.
  */
 export interface TaskProjection {
   readonly id: string;
@@ -28,11 +24,8 @@ export interface SprintState {
 }
 
 /**
- * Structured "why is it stuck" detail beyond the free-form {@link TaskOverlay.blockedReason} —
- * the generator's own question and what it said would unblock it, verbatim from
- * `BlockedTask.question` / `.whatUnblocksMe` (see `domain/entity/task.ts`). Both optional: a
- * self-block signal can omit either, and every non-self-block (upstream cascade, verify-gate red,
- * fold conflict, operator cancel) has neither.
+ * Structured "why is it stuck" detail beyond the free-form {@link TaskOverlay.blockedReason} — the generator's own
+ * question and what it said would unblock it.
  */
 export interface BlockedTriage {
   readonly question?: string;
@@ -40,13 +33,8 @@ export interface BlockedTriage {
 }
 
 /**
- * Everything the Tasks panel knows about ONE task beyond its live `TaskBucket` — the entity- and
- * projection-sourced extras the bucketed trace cannot carry (a resume banner, verification
- * criteria, a blocked reason, a flagged-completion warning, the authoritative evaluation verdict,
- * the pending sub-steps still ahead, and the round/commit projection).
- *
- * Every field is optional and every absent field means "nothing to show for this task", so a card
- * with no extras is simply an empty overlay rather than a missing entry.
+ * Everything the Tasks panel knows about ONE task beyond its live `TaskBucket` — the entity- and projection-sourced
+ * extras the bucketed trace cannot carry (a resume banner.
  */
 export interface TaskOverlay {
   /** Set when the launcher detected this task resuming a prior aborted attempt. */
@@ -93,7 +81,6 @@ const summariseAttempt = (att: Attempt): TaskProjection['lastAttempt'] => {
 
 /**
  * Project one task into the minimal {@link TaskProjection} the Tasks panel reads.
- *
  * @public
  */
 export const projectTask = (task: Task): TaskProjection => {
@@ -110,7 +97,6 @@ export const projectTask = (task: Task): TaskProjection => {
 
 /**
  * Project every task into the TUI sprint-state shape.
- *
  * @public
  */
 export const projectTasksSprintState = (tasks: readonly Task[]): SprintState => ({

@@ -3,17 +3,8 @@ import { AI_PROVIDERS, AI_PROVIDERS_HINT } from '@src/domain/entity/settings.ts'
 import type { LaunchExtras } from '@src/application/ui/shared/launcher.ts';
 
 /**
- * Validate and shape the four bare-`ralphctl` flags that override the persisted
- * `settings.ai.implement` pair for one launch:
- *
- *   --implement-generator-provider <AI_PROVIDERS_HINT>
- *   --implement-generator-model    <id>
- *   --implement-evaluator-provider <AI_PROVIDERS_HINT>
- *   --implement-evaluator-model    <id>
- *
- * Each role is `{ provider, model }` together. Supplying only one half of a pair is rejected
- * with a focused message naming the required matching flag — the operator should never end
- * up with a half-baked override silently falling back to the persisted row.
+ * Validate and shape the four bare-`ralphctl` flags that override the persisted `settings.ai.implement` pair for one
+ * launch.
  */
 
 export type ParseImplementRoleOverridesResult =
@@ -36,10 +27,8 @@ const parseRole = (
   provider: string | undefined,
   model: string | undefined
 ): { ok: true; row?: { provider: AiProvider; model: string } } | { ok: false; error: string } => {
-  // Validate well-formed pair: both flags or neither. The error message names the missing
-  // counterpart so the operator sees exactly which flag to add. We surface this before any
-  // value validation so a typo'd provider on the supplied half doesn't shadow the more
-  // actionable "you forgot the matching flag" message.
+  // Validate well-formed pair: both flags or neither. The error message names the missing counterpart so the operator
+  // sees exactly which flag to add.
   if (provider !== undefined && model === undefined) {
     return {
       ok: false,

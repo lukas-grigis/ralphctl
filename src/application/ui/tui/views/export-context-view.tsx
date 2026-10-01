@@ -1,10 +1,6 @@
 /**
- * Export-harness-context view — runs the export-context flow for the selected project + sprint
- * and reports where the markdown was written. A thin wrapper over {@link MarkdownExportView},
- * which owns the shared one-shot run lifecycle (run token, sprint-dir resolution, `r` re-run).
- *
- * Output convention mirrors the other per-sprint artifacts (progress.md, plan/, refinement/):
- *   `<dataRoot>/sprints/<sprintId>/context.md`
+ * Export-harness-context view — runs the export-context flow for the selected project + sprint and reports where the
+ * markdown was written.
  */
 
 import React from 'react';

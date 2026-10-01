@@ -1,11 +1,4 @@
-/**
- * Keymap hook for the sprint-detail view. One `useViewKeys` declaration covers every chord —
- * focus navigation, expand/collapse, ticket add/remove/publish, edit field, mark-current,
- * unblock, jump-to-next-blocked — so the footer hints and the handlers share one gate each.
- *
- * Mute conditions (an app overlay, a queued prompt, the remove-confirm sub-view) mute the whole
- * dispatcher; an unloaded sprint simply leaves every sprint-bound binding disabled.
- */
+/** Keymap hook for the sprint-detail view. */
 
 import { useViewKeys, type ViewKeyBinding } from '@src/application/ui/tui/runtime/use-view-keys.ts';
 import { listMoveBinding } from '@src/application/ui/tui/runtime/keyboard-map.ts';
@@ -35,10 +28,8 @@ interface SprintDetailShortcutArgs {
   readonly closeAllExpanded: () => void;
   readonly openAddTicket: (sprintId: Sprint['id']) => void;
   readonly toggleExpand: (id: string) => void;
-  // Note: moveCursor removed — cursor navigation (↑/↓ / j/k / PgUp/PgDn / Home/End) is normally
-  // owned by `useListWindow` in the orchestrator; this hook's own movement rows (bottom of
-  // `SHORTCUT_ROWS`) only take over once a `B` jump has engaged `jump.active`. Otherwise this
-  // hook handles only view-local keys.
+  // Note: moveCursor removed — cursor navigation (↑/↓ / j/k / PgUp/PgDn / Home/End) is normally owned by
+  // `useListWindow` in the orchestrator.
   readonly beginRemove: (ticket: Ticket) => void;
   readonly markCurrent: (sprint: Sprint) => void;
   /** Push the Flows view. The view owns `n` (see the binding below), so it navigates itself. */
@@ -47,25 +38,20 @@ interface SprintDetailShortcutArgs {
   readonly handlePublish: (ticket: Ticket) => void;
   readonly handleUnblock: (task: Task) => void;
   readonly openEvaluation: (task: Task) => void;
-  /**
-   * Re-read the sprint bundle from disk. Mirrors `sprints-view.tsx`'s `r` — the fix for the
-   * conflict toast's "then u again here" instruction: this view never polls, so an out-of-process
-   * `ralphctl sprint reopen` (or any other external mutation) is invisible here until something
-   * re-triggers `useSprintBundle`'s loader. `r` is that trigger.
-   */
+  /** Re-read the sprint bundle from disk. */
   readonly reloadSprint: () => void;
 }
 
-/** Item under the cursor in the flat focus list, clamped to the last entry when the cursor has
- * drifted past the end (e.g. the list just shrank). `undefined` for an empty list. */
+/**
+ * Item under the cursor in the flat focus list, clamped to the last entry when the cursor has drifted past the end
+ * (e.g. the list just shrank).
+ */
 const focusedItem = (args: SprintDetailShortcutArgs): FocusItem | undefined =>
   args.focusList[Math.min(args.cursorIdx, args.focusList.length - 1)];
 
 /**
- * The rows below only ever fire once a `B` jump has engaged `jump.active` — until then
- * ↑/↓/j/k/PgUp/PgDn/Home/End stay owned entirely by `useListWindow` in the orchestrator.
- * `useListWindow`'s cursor is paused the moment a jump engages (see `detail-body.tsx`'s
- * `useFocusModel`), so these never double-handle a keypress against it.
+ * The rows below only ever fire once a `B` jump has engaged `jump.active` — until then ↑/↓/j/k/PgUp/PgDn/Home/End
+ * stay owned entirely by `useListWindow` in the orchestrator.
  */
 const buildJumpMovementBindings = (jump: JumpControls): readonly ViewKeyBinding[] => [
   { keys: ['↑', 'k'], hint: 'move', hidden: true, enabled: jump.active, run: () => jump.moveBy(-1) },
@@ -77,8 +63,8 @@ const buildJumpMovementBindings = (jump: JumpControls): readonly ViewKeyBinding[
 ];
 
 /**
- * The bindings that act on the sprint / focused task's STATE (make current, unblock, reload, jump
- * to blocked, open the evaluation). `canPublish` only decides whether `m` hides its hint.
+ * The bindings that act on the sprint / focused task's STATE (make current, unblock, reload, jump to blocked, open
+ * the evaluation).
  */
 const buildStateBindings = (args: SprintDetailShortcutArgs, canPublish: boolean): readonly ViewKeyBinding[] => {
   const { sprint, jump } = args;
@@ -104,9 +90,8 @@ const buildStateBindings = (args: SprintDetailShortcutArgs, canPublish: boolean)
       },
     },
     {
-      // Always available, like `sprints-view.tsx`'s `r` — re-fetches the sprint bundle so an
-      // out-of-process mutation (e.g. `ralphctl sprint reopen`) becomes visible here without
-      // leaving and re-entering the view.
+      // Always available, like `sprints-view.tsx`'s `r` — re-fetches the sprint bundle so an out-of-process mutation
+      // (e.g.
       keys: ['r'],
       hint: 'reload',
       hidden: true,
@@ -122,9 +107,8 @@ const buildStateBindings = (args: SprintDetailShortcutArgs, canPublish: boolean)
       run: jump.jumpToNextBlocked,
     },
     {
-      // `v` opens the focused task's evaluation verdict. Ticket rows and tasks that never reached
-      // the evaluator stay inert. CLOSING is global — the dispatcher mutes itself the moment the
-      // overlay opens, which keeps the two halves from fighting.
+      // `v` opens the focused task's evaluation verdict. Ticket rows and tasks that never reached the evaluator stay
+      // inert.
       keys: ['v'],
       hint: 'evaluation',
       enabled: args.focusedEvaluatedTask !== undefined,
@@ -135,13 +119,7 @@ const buildStateBindings = (args: SprintDetailShortcutArgs, canPublish: boolean)
   ];
 };
 
-/**
- * The sprint-detail keymap, in declaration order — the first enabled binding whose key matches
- * wins. Labels stay terse: the rendered strip must fit a 100-column terminal on ONE line, which
- * is also why `m` hides its hint (handler stays live) while a stuck task or ticket is focused,
- * and why there is no `r reload` hint although the chord is always live — the help overlay lists
- * `r`, and the reopen-conflict toast (the one moment it matters) names it.
- */
+/** The sprint-detail keymap, in declaration order — the first enabled binding whose key matches wins. */
 const buildBindings = (args: SprintDetailShortcutArgs): readonly ViewKeyBinding[] => {
   const sprint = args.sprint;
   const loaded = sprint !== undefined;
@@ -153,9 +131,8 @@ const buildBindings = (args: SprintDetailShortcutArgs): readonly ViewKeyBinding[
   return [
     listMoveBinding,
     {
-      // The view advertises `n — flows` as "scoped to this sprint", so honour it: reseat the
-      // selection onto the viewed sprint, then navigate. The view owns `n` (it claims it), so the
-      // global handler stands down and this binding does the push itself — exactly once.
+      // The view advertises `n — flows` as "scoped to this sprint", so honour it: reseat the selection onto the
+      // viewed sprint, then navigate.
       keys: ['n'],
       hint: 'work',
       run: () => {
@@ -192,10 +169,7 @@ const buildBindings = (args: SprintDetailShortcutArgs): readonly ViewKeyBinding[
       },
     },
     {
-      // `p` is unused globally (`P` is pick-project) and unused elsewhere in this view. Fires on
-      // any focused ticket row of an open sprint — draft or not — so the comment path is
-      // reachable after the sprint leaves draft. No prompt; the flow writes or surfaces the
-      // tracker error.
+      // `p` is unused globally (`P` is pick-project) and unused elsewhere in this view.
       keys: ['p'],
       hint: 'publish',
       enabled: canPublish,

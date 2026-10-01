@@ -1,12 +1,4 @@
-/**
- * Session manager — tracks live `Runner`s and broadcasts their lifecycle to the TUI. The
- * execute view is one of several panels that subscribe; sessions are referenced by the chain
- * runner's id everywhere else (events, view props, history).
- *
- * Late-attachment is built in: the runner already replays its trace on `subscribe`, and this
- * manager keeps the descriptor around past terminal so navigating into a finished session shows
- * its outcome instead of a stale "running" frame.
- */
+/** Session manager — tracks live `Runner`s and broadcasts their lifecycle to the TUI. */
 
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import type { AiProvider } from '@src/domain/entity/settings.ts';
@@ -17,45 +9,25 @@ import type { Trace } from '@src/application/chain/trace.ts';
 import type { Runner, RunnerStatus } from '@src/application/chain/run/runner.ts';
 
 /**
- * Terminal SessionRecords older than this are eligible for TTL eviction. Bounds the descriptor
- * map for long-running TUI sessions that fire many runs back-to-back.
+ * Terminal SessionRecords older than this are eligible for TTL eviction. Bounds the descriptor map for long-running
+ * TUI sessions that fire many runs back-to-back.
  */
 const SESSION_RECORD_TTL_MS = 30 * 60 * 1000;
-/**
- * Soft cap on the descriptor map. Only terminal records are dropped to honour it; running and
- * queued records are kept regardless of pressure so the operator never loses the live view. The
- * hard {@link SESSION_RUNNING_CEILING} is the emergency relief that CAN drop running records.
- */
+/** Soft cap on the descriptor map. */
 const SESSION_LRU_CAP = 50;
 
-/**
- * Hard ceiling — the emergency-relief tier. The soft {@link SESSION_LRU_CAP} only sheds terminal
- * records, so a pathological burst of never-terminating runs (the long-session leak signature)
- * could grow the map unboundedly while every record reports `running`. Once the map exceeds THIS
- * ceiling we drop the OLDEST running records too, oldest-first, as last-resort memory relief.
- * Sized comfortably above the soft cap so it only ever fires under genuine pathology — a healthy
- * session never has 200 concurrent live runs.
- */
+/** Hard ceiling — the emergency-relief tier. */
 const SESSION_RUNNING_CEILING = 200;
 
 const isTerminal = (status: RunnerStatus): boolean =>
   status === 'completed' || status === 'failed' || status === 'aborted';
 
-// Age key for ordering / TTL: prefer the descriptor's `finishedAt`. Terminal records registered
-// via the synthetic-replay path (runner reaches terminal before `register()` runs) will have
-// `finishedAt` populated during the sync replay — but if a future runner contract change drops
-// that guarantee, fall back to `startedAt` so the record is still LRU-eligible instead of
-// becoming an un-evictable leak.
+// Age key for ordering / TTL: prefer the descriptor's `finishedAt`.
 const ageKey = (rec: SessionRecord): number => rec.descriptor.finishedAt ?? rec.descriptor.startedAt;
 
 /**
- * Replace a terminal record's live {@link Runner} with a frozen stub that preserves the identity +
- * status + trace the UI reads, but drops the strong reference to the live runner closure — whose
- * captured `ctx` is the heavy forked `ImplementCtx` (worktree paths, task list, accumulators) that
- * would otherwise be pinned until the record's TTL / LRU eviction. The descriptor already snapshots
- * the trace, and no UI path reads `record.runner.ctx` after terminal; `abort()` is a no-op once
- * terminal and `subscribe()` replays the (already-captured) trace + terminal event, so the stub is
- * behaviourally indistinguishable to every consumer while freeing the dominant retainer at terminal.
+ * Replace a terminal record's live {@link Runner} with a frozen stub that preserves the identity + status + trace the
+ * UI reads.
  */
 const terminalRunnerStub = (
   id: string,
@@ -91,74 +63,34 @@ export interface SessionDescriptor {
   readonly finishedAt?: number;
   readonly trace: Trace;
   readonly error?: DomainError;
-  /**
-   * Map of `taskId → displayName` for runs that operate on a known task set (e.g. Implement).
-   * The execute view substitutes these into the Tasks panel so per-task blocks render with the
-   * sprint's task name (`Implement multi-select`) instead of the raw uuid prefix (`019e2d4b…`).
-   */
+  /** Map of `taskId → displayName` for runs that operate on a known task set (e.g. Implement). */
   readonly taskNames?: ReadonlyMap<string, string>;
   /** Configured max iterations for any gen-eval loop inside the run (used as the `round N/M` cap). */
   readonly maxTurns?: number;
   /** Configured cap on attempts per task (used as the `attempt A/X` cap). */
   readonly maxAttempts?: number;
-  /**
-   * Element-tree leaf names in DFS order, captured at chain construction time. The Flow-steps
-   * panel renders these as pending rows so the operator sees the *whole* plan upfront and
-   * which steps are still ahead — not just the trace of what already ran.
-   */
+  /** Element-tree leaf names in DFS order, captured at chain construction time. */
   readonly plannedLeaves?: readonly string[];
   /**
-   * Display label per planned leaf name, captured at chain construction time so the rail can
-   * render pending / running rows with their friendly label instead of falling back to the
-   * raw element name (which embeds the absolute path for per-repo leaves like
-   * `preflight-task-1-/abs/path/to/repo`). Once a leaf executes, the trace entry's own label
-   * supersedes this lookup.
+   * Display label per planned leaf name.
    */
   readonly planLabelByName?: ReadonlyMap<string, string>;
-  /**
-   * Name of the per-task subchain's final leaf (`'uninstall-skills'` for the implement flow). When
-   * the bucketing sees this leaf for a task id it flips the task to `completed`. Threaded from
-   * the launcher so flows with a different terminal leaf — or future renames — don't break the
-   * UI silently.
-   */
+  /** Name of the per-task subchain's final leaf (`'uninstall-skills'` for the implement flow). */
   readonly terminalSubstepName?: string;
   /**
-   * Map of `taskId → RecoveryContext` for tasks the launcher detected as resuming a prior
-   * aborted attempt. The launcher derives this at click time from any `in_progress` tasks
-   * whose last attempt is still `running` (a v8 OOM / Ctrl-C / SIGTERM in the prior process
-   * leaves that signature). The execute view surfaces it as an annotation under the active
-   * task header. Empty / undefined when no task is resuming.
+   * Map of `taskId → RecoveryContext` for tasks the launcher detected as resuming a prior aborted attempt.
    */
   readonly taskRecovering?: ReadonlyMap<string, RecoveryContext>;
-  /**
-   * Implement-flow gen-eval models, captured from the launcher at click time. The execute
-   * view renders `<gen-model> → <eval-model> (eval)` on the active-attempt rail when the two
-   * models differ, and collapses to a single name when they match. Only set for the implement
-   * flow; every other flow leaves these undefined.
-   */
+  /** Implement-flow gen-eval models, captured from the launcher at click time. */
   readonly generatorModel?: string;
   readonly evaluatorModel?: string;
-  /**
-   * Provider id backing each implement role (`claude-code` / `github-copilot` / `openai-codex`).
-   * The HeaderCard renders it dim before the model name so the operator sees which backend each
-   * role runs on. Only set for the implement flow; every other flow leaves these undefined.
-   */
+  /** Provider id backing each implement role (`claude-code` / `github-copilot` / `openai-codex`). */
   readonly generatorProvider?: AiProvider;
   readonly evaluatorProvider?: AiProvider;
-  /**
-   * Resolved effort strings for each implement role (`low|medium|high|xhigh|max`). Displayed
-   * alongside the model name in the HeaderCard so the operator can see the effort at a glance.
-   * Only set for the implement flow; every other flow leaves these undefined.
-   */
+  /** Resolved effort strings for each implement role (`low|medium|high|xhigh|max`). */
   readonly generatorEffort?: string;
   readonly evaluatorEffort?: string;
-  /**
-   * Project and sprint the run was launched against, pinned at launch time for the run's
-   * lifetime. The execute view reads these to identify the run's own sprint independently of
-   * the mutable global selection. Undefined when the flow was not launched against a project
-   * or sprint (e.g. create-sprint leaves pinnedSprintId unset because the sprint does not
-   * yet exist at launch time).
-   */
+  /** Project and sprint the run was launched against, pinned at launch time for the run's lifetime. */
   readonly pinnedProjectId?: ProjectId;
   readonly pinnedProjectLabel?: string;
   readonly pinnedSprintId?: SprintId;
@@ -174,11 +106,8 @@ export interface SessionRecord {
 export type SessionListener = () => void;
 
 /**
- * The subset of {@link SessionDescriptor}'s optional fields that `register()` accepts directly
- * from the caller (as opposed to `finishedAt` / `error`, which are only ever set internally by
- * {@link update}). Named explicitly — rather than derived via `Omit` from the whole descriptor —
- * so the whitelist stays a compile-time-checked, self-contained contract for
- * {@link withDefinedFields}.
+ * The subset of {@link SessionDescriptor}'s optional fields that `register()` accepts directly from the caller (as
+ * opposed to `finishedAt` / `error`.
  */
 type RegisterOptionalFields = Pick<
   SessionDescriptor,
@@ -202,27 +131,14 @@ type RegisterOptionalFields = Pick<
 >;
 
 /**
- * Mirrors {@link RegisterOptionalFields} but with every key REQUIRED (its value may still be
- * `undefined`) — the shape of a destructured `{ taskNames, maxTurns, ... }` object literal, where
- * every name is always present as a key even when its value is `undefined`. Distinct from the
- * optional-key `RegisterOptionalFields` because of `exactOptionalPropertyTypes: true`.
+ * Mirrors {@link RegisterOptionalFields} but with every key REQUIRED (its value may still be `undefined`) — the shape
+ * of a destructured `{ taskNames, maxTurns.
  */
 type RegisterOptionalFieldsInput = {
   readonly [K in keyof RegisterOptionalFields]-?: RegisterOptionalFields[K] | undefined;
 };
 
-/**
- * Copy only the DEFINED keys from `fields` onto a fresh object. Replaces 17 independent
- * `...(x !== undefined ? {x} : {})` conditional spreads — the sole source of `register`'s former
- * complexity/cognitive warnings — with one loop over an explicit whitelist. Keys are OMITTED
- * (never set to `undefined`) per `exactOptionalPropertyTypes: true` and the "leaves pinned fields
- * undefined when not supplied" contract.
- *
- * Callers MUST pass an explicit whitelist object literal (`{ taskNames, maxTurns, ... }`), never
- * the raw `register()` input — the input also carries the always-defined `runner` / `flowId` /
- * `title`, which this generic copy would otherwise reattach to the descriptor and pin the live
- * runner's heavy ctx past terminal (the exact retention `terminalRunnerStub` exists to avoid).
- */
+/** Copy only the DEFINED keys from `fields` onto a fresh object. */
 const withDefinedFields = (fields: RegisterOptionalFieldsInput): RegisterOptionalFields => {
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(fields)) {
@@ -231,13 +147,7 @@ const withDefinedFields = (fields: RegisterOptionalFieldsInput): RegisterOptiona
   return out as RegisterOptionalFields;
 };
 
-/**
- * Subscribe to `runner`'s lifecycle, auto-detaching once the run reaches terminal — mirrors the
- * chain-runner-bridge pattern (see `observability/chain-runner-bridge.ts`) so every dead
- * Implement run drops its listener instead of accumulating on `runner.subscribe`'s internal Set
- * across a long multi-run TUI session, each closure otherwise pinning the runner's trace buffer
- * for the harness lifetime.
- */
+/** Subscribe to `runner`'s lifecycle, auto-detaching once the run reaches terminal. */
 const attachRunnerLifecycle = (
   runner: Runner<unknown>,
   handlers: {
@@ -248,10 +158,8 @@ const attachRunnerLifecycle = (
     readonly onAborted: () => void;
   }
 ): void => {
-  // `unsub` doubles as state: `null` before subscribe completes or after detach; a function while
-  // the subscription is live. The listener can fire synchronously during `runner.subscribe(...)`
-  // for an already-terminal runner (sync-replay); when that happens `unsub` is still null inside
-  // `detach()`, so we record `pendingDetach` and re-run detach once subscribe has returned.
+  // `unsub` doubles as state: `null` before subscribe completes or after detach; a function while the subscription is
+  // live.
   let unsub: (() => void) | null = null;
   let pendingDetach = false;
   const detach = (): void => {
@@ -285,9 +193,8 @@ const attachRunnerLifecycle = (
         detach();
     }
   });
-  // Sync-replay case (already-terminal runner during register): the listener fired before
-  // `unsub` was assigned, so detach() recorded `pendingDetach` and returned. Re-run it now that
-  // the assignment has completed.
+  // Sync-replay case (already-terminal runner during register): the listener fired before `unsub` was assigned, so
+  // detach() recorded `pendingDetach` and returned.
   if (pendingDetach) detach();
 };
 
@@ -336,9 +243,8 @@ const evict = (records: Map<string, SessionRecord>, now: number): boolean => {
   // Soft LRU: shed the oldest TERMINAL records (running / queued are protected).
   removed =
     evictOldestWhileOverCap(records, SESSION_LRU_CAP, (r) => isTerminal(r.descriptor.status), ageKey) || removed;
-  // Emergency relief: if STILL over the hard ceiling, terminal records are exhausted and the
-  // overflow is live runs (the leak pathology). Shed the oldest RUNNING records as last resort —
-  // a healthy session never reaches the ceiling; their runners keep running detached.
+  // Emergency relief: if STILL over the hard ceiling, terminal records are exhausted and the overflow is live runs
+  // (the leak pathology).
   removed =
     evictOldestWhileOverCap(
       records,
@@ -360,11 +266,8 @@ const update = (
   if (!cur) return;
   const descriptor = { ...cur.descriptor, ...patch };
   const goingTerminal = patch.status !== undefined && isTerminal(patch.status);
-  // On the terminal transition, swap the live runner for a frozen stub that keeps id/status/trace
-  // but drops the strong reference to the heavy forked ctx (the implement worktree ctx). The
-  // descriptor already snapshots the trace; nothing reads `runner.ctx` after terminal. This frees
-  // the dominant retainer AT terminal instead of waiting for TTL / LRU eviction. The original
-  // runner is no longer needed — its `abort()` is a no-op once terminal.
+  // On the terminal transition, swap the live runner for a frozen stub that keeps id/status/trace but drops the
+  // strong reference to the heavy forked ctx (the implement worktree ctx).
   const runner = goingTerminal
     ? terminalRunnerStub(cur.runner.id, patch.status!, descriptor.trace, descriptor.error)
     : cur.runner;
@@ -373,18 +276,7 @@ const update = (
   notify(listeners);
 };
 
-/**
- * Trace-only "step" wakeup. The descriptor's `trace` field already points at the runner's
- * shared-mutable trace array from `register()` (the runner never reassigns it — see runner.ts),
- * so a `step` mutates that array IN PLACE and the descriptor needs NO rebuild. We therefore notify
- * subscribers WITHOUT spreading a fresh descriptor / record. This kills the per-step amplifier:
- * previously every `step` allocated a new descriptor object, which invalidated the execute view's
- * `useBucketedTasks` memo (keyed on the descriptor reference) and re-ran `bucketTaskSignals` over
- * the whole trace on every leaf step of every task. Status-gated consumers (`useSessions` /
- * `useSession` / `use-sprint-bundle`) already ignore step notifies; the live flow-steps rail stays
- * current via the shared-mutable trace array + the sibling chainEvents re-render, exactly as the
- * sigOf comment in sessions-context.tsx documents.
- */
+/** Trace-only "step" wakeup. */
 const touchTrace = (
   records: ReadonlyMap<string, SessionRecord>,
   listeners: ReadonlySet<SessionListener>,
@@ -493,11 +385,7 @@ const registerSession = (
 export interface SessionManager {
   list(): readonly SessionRecord[];
   get(id: string): SessionRecord | undefined;
-  /**
-   * Register a runner with the manager. The manager subscribes immediately, drives the
-   * descriptor through its lifecycle (running → completed/failed/aborted), and notifies the
-   * registered listeners on every transition.
-   */
+  /** Register a runner with the manager. */
   register(input: {
     readonly runner: Runner<unknown>;
     readonly flowId: string;
@@ -525,18 +413,10 @@ export interface SessionManager {
   /** Drop a session from the registry. Used after the user dismisses a finished run. */
   remove(id: string): void;
   /**
-   * Emergency memory relief: drop EVERY terminal record immediately, ignoring TTL / LRU. Returns
-   * the number dropped. Invoked by the heap-critical handler when the heap crosses the critical
-   * band — terminal records (with their trace snapshots) are the largest sheddable retainer the
-   * app root can reach without disturbing any live run. Running / queued records are untouched, so
-   * a healthy in-flight run is never aborted.
+   * Emergency memory relief: drop EVERY terminal record immediately, ignoring TTL / LRU. Returns the number dropped.
    */
   shedTerminal(): number;
-  /**
-   * Retroactively pin the sprint on an existing descriptor. Called by sprint-bound launchers
-   * when the sprint is created mid-run (e.g. create-sprint) so the descriptor's pinned sprint
-   * fields are updated once the id/name become known. No-op if the runner id is not found.
-   */
+  /** Retroactively pin the sprint on an existing descriptor. */
   setPinnedSprint(runnerId: string, sprintId: SprintId, sprintLabel: string): void;
   /** Subscribe to "registry changed" notifications. */
   subscribe(fn: SessionListener): () => void;

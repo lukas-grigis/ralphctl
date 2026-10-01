@@ -62,15 +62,8 @@ const showTaskAction = async (rawTaskId: string, opts: SprintOpt): Promise<void>
 };
 
 /**
- * Print the latest `evaluation.md` for a task — the evaluator's operator-readable verdict, which
- * before this command was written to disk every round and readable by nothing.
- *
- * ABSENCE IS NOT AN ERROR. A task that never reached the evaluator, a legacy `tasks.json` row that
- * recorded a verdict but no artifact path, and a workspace someone pruned all print one line and
- * exit 0. Only a bad sprint / task id — the operator mistyping the question — exits 1, matching
- * `showTaskAction`. The file body goes to stdout verbatim (an inspection command must not reformat
- * markdown someone may be piping into a pager or a diff); the provenance header goes to stderr so
- * `ralphctl task evaluation <id> > verdict.md` yields exactly the artifact.
+ * Print the latest `evaluation.md` for a task — the evaluator's operator-readable verdict, which before this command
+ * was written to disk every round and readable by nothing.
  */
 const evaluationTaskAction = async (rawTaskId: string, opts: SprintOpt): Promise<void> => {
   const { deps, storage } = await bootstrapCli();
@@ -160,9 +153,8 @@ const unblockTaskAction = async (rawTaskId: string, opts: SprintOpt): Promise<vo
   );
   const sprintRef = String(sprintId.value.sprintId);
   const retry = `ralphctl task unblock --sprint ${sprintRef} ${taskRef}`;
-  // A settled sprint coming back open changes what the operator can do with it (a closed one
-  // holds the project again), so it is reported, never left to a log line the CLI doesn't render.
-  // Same wording as `sprint reopen`'s own confirmation.
+  // A settled sprint coming back open changes what the operator can do with it (a closed one holds the project
+  // again), so it is reported, never left to a log line the CLI doesn't render.
   const reopened = result.value.sprintReopened;
   if (reopened !== undefined) {
     // A retried review → active hop that failed again reports `from === status`: nothing moved,
@@ -177,11 +169,8 @@ const unblockTaskAction = async (rawTaskId: string, opts: SprintOpt): Promise<vo
       process.stderr.write(`note: the review → active step did not persist — run '${retry}' again to finish it\n`);
     }
   }
-  // The reopen is best-effort, so an unblock that revived the task but left the sprint closed
-  // still exits 0 — it must not also report as if the sprint had reopened. The conflict message
-  // names the peer holding the project and its hint names the command that releases it. Re-running
-  // unblock on the now-`todo` task does not reopen a closed sprint, so the last line names the two
-  // commands that do.
+  // The reopen is best-effort, so an unblock that revived the task but left the sprint closed still exits 0 — it must
+  // not also report as if the sprint had reopened.
   const conflict = result.value.sprintReopenConflict;
   if (conflict !== undefined) {
     process.stderr.write(`note: ${conflict.message}\n`);
@@ -192,25 +181,7 @@ const unblockTaskAction = async (rawTaskId: string, opts: SprintOpt): Promise<vo
   }
 };
 
-/**
- * Register the `task` command group. Read-side plus a single recovery hatch (`unblock`) —
- * task creation is owned by the planning chain (AI generates the task graph from approved
- * tickets); manual `task add` / `task edit` are deferred until there's a concrete UX for
- * tweaking AI-generated plans.
- *
- *   ralphctl task list [--sprint <id>]
- *   ralphctl task show [--sprint <id>] <task-id>
- *   ralphctl task evaluation [--sprint <id>] <task-id>
- *   ralphctl task unblock [--sprint <id>] <task-id>
- *
- * `--sprint` defaults to the pinned current sprint (`ralphctl sprint set-current <id>` or any
- * TUI sprint pick); the fallback path prints a one-line stderr notice naming the substituted
- * sprint so a stale pin never silently targets the wrong one.
- *
- * `unblock` calls `unblockTaskUseCase` directly (not a registered flow) — there's no competing
- * flow surface to route through, unlike `sprint close` which now shares `close-sprint`'s flow
- * with the TUI.
- */
+/** Register the `task` command group. */
 export const registerTaskCommand = (program: Command): void => {
   const task = program.command('task').description('inspect tasks for a sprint (planning generates them)');
 
@@ -239,26 +210,7 @@ export const registerTaskCommand = (program: Command): void => {
     .action(unblockTaskAction);
 };
 
-/**
- * `task list`'s one line per task. A `blocked` entry gets extra indented lines: the first line of
- * `blockedReason` (the quarantine stash handle, when one was recorded, rides in that text — see
- * `record-quarantine.ts`); when the block came from a generator `task-blocked` signal that supplied
- * its own structured triage (`BlockedTask.blockerClass` / `.question` / `.whatUnblocksMe` — see
- * `domain/entity/task.ts`), the model's classification, the concrete question, and what would
- * unblock it; and a `recover with:` footer naming the exact unblock command — previously the
- * recovery hatch was discoverable only by reading `--help`. The three triage fields are all
- * optional (absent for non-self-block paths, and for a self-block whose signal omitted them), so
- * `ralphctl task list` degrades to the reason-only line whenever they weren't recorded.
- *
- * The task NAME, the reason, the question and `whatUnblocksMe` are all MODEL-authored prose off a
- * generator that just read the target repository, so each goes through {@link sanitizeDisplayText}
- * on the way to stdout: ANSI/OSC bytes in a prompt-injected answer would otherwise be executed by
- * the operator's terminal, and an unbounded field would flood the row. The clamp is per field, so a
- * long question cannot push the `recover with:` footer off the screen either. `blockerClass` is the
- * one value pushed out raw — a closed three-value enum the signal schema already validates, so
- * there is nothing to neuter. The name is sanitised on EVERY row, blocked or not: the planner
- * authors it for every task, so a `todo` row carries the same injection surface as a blocked one.
- */
+/** `task list`'s one line per task. */
 const formatTaskLine = (t: Task): string => {
   const orderStr = String(t.order).padStart(3, ' ');
   const show = (text: string): string => sanitizeDisplayText(text, DISPLAY_TEXT_MAX_CHARS);

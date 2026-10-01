@@ -1,11 +1,4 @@
-/**
- * Sprint detail — shortcut action closures.
- *
- * `buildShortcutsActions` assembles the `a`/`m`/↵/`d`/`p`/`u`/`r` closures `useSprintDetailShortcuts`
- * needs, spread into its config alongside the plain gate fields `detail-body.tsx` computes
- * directly. Split out purely to keep `detail-body.tsx` under the file line budget — same
- * behaviour, just relocated.
- */
+/** Sprint detail — shortcut action closures. */
 
 import type { Dispatch, SetStateAction } from 'react';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
@@ -33,8 +26,8 @@ export interface BuildShortcutsActionsArgs {
 }
 
 /**
- * Build the `useSprintDetailShortcuts` action closures (`a`/`m`/↵/`d`/`p`/`u`/`r`) — spread into the
- * hook's config alongside the plain gate fields so the call site stays a flat list.
+ * Build the `useSprintDetailShortcuts` action closures (`a`/`m`/↵/`d`/`p`/`u`/`r`) — spread into the hook's config
+ * alongside the plain gate fields so the call site stays a flat list.
  */
 export const buildShortcutsActions = (args: BuildShortcutsActionsArgs) => {
   const {

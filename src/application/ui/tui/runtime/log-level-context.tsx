@@ -1,9 +1,6 @@
 /**
- * Wraps a {@link LogLevelGate} in React state so the Settings view's `logging.level` write path
- * can update the live floor used by the TUI's `EventBus -> logBus` forwarder. The forwarder
- * keeps a stable reference to the gate (initialised in `launch.ts`) and reads the current floor
- * on every event; this context exposes a `setLevel` to mutate that gate plus a React-tracked
- * mirror so views can render the current value without subscribing to the gate directly.
+ * Wraps a {@link LogLevelGate} in React state so the Settings view's `logging.level` write path can update the live
+ * floor used by the TUI's `EventBus -> logBus` forwarder.
  */
 
 import React, { createContext, useCallback, useContext, useMemo, useState } from 'react';

@@ -1,19 +1,4 @@
-/**
- * Pre-launch customize picker used by `use-flow-launcher.ts`. For an AI-driven flow the user gets
- * three choices on the entry prompt — `Start (use defaults)`, `Customize for this run…`, or
- * `Cancel`. Customize walks the user through provider → model → effort, with `Keep default`
- * as the first option on each step; implement walks generator (three steps) then evaluator
- * (three steps). A skills step follows the row walk(s) — once, flow-level, never per role — when
- * the caller supplies {@link SkillCandidatesResult}; see {@link runSkillsStep}. The picker only
- * ever reads {@link Settings}; it never calls `save()`, so the on-disk file is byte-identical
- * before and after any picker session — a "remember" choice on the skills step is surfaced on the
- * result for `use-flow-launcher.ts` to persist, not written here.
- *
- * Extracted from the view into a standalone module so tests can drive it with a scripted
- * {@link InteractivePrompt} fake without mounting Ink. The view's `onSelect` calls
- * {@link runCustomizePicker} and threads the returned {@link CustomizePickerResult} into the
- * launcher's {@link LaunchExtras}.
- */
+/** Pre-launch customize picker used by `use-flow-launcher.ts`. */
 
 import type { Choice, InteractivePrompt } from '@src/business/interactive/prompt.ts';
 import {
@@ -34,17 +19,12 @@ import type { FlowId } from '@src/domain/value/flow-id.ts';
 import type { LaunchExtras, SkillCandidate, SkillCandidatesResult } from '@src/application/ui/shared/launcher.ts';
 
 /**
- * Catalog lookup for the customize picker — delegates to {@link PROVIDER_TRAITS} so the TUI
- * carries zero copies of the provider-to-catalog switch (`settings-view-model.ts`'s
- * `modelOptionsFor` does the same).
+ * Catalog lookup for the customize picker — delegates to {@link PROVIDER_TRAITS} so the TUI carries zero copies of
+ * the provider-to-catalog switch (`settings-view-model.ts`'s `modelOptionsFor` does the same).
  */
 export const modelCatalogFor = (provider: AiProvider): readonly string[] => PROVIDER_TRAITS[provider].modelCatalog;
 
-/**
- * Resolve the model catalog the picker offers for a provider. Prefers the injected
- * availability lookup (account-narrowed subset) when present; falls back to the full static
- * catalog (the test / no-deps path).
- */
+/** Resolve the model catalog the picker offers for a provider. */
 const resolveModelCatalog = async (
   provider: AiProvider,
   availableModelsFor: ((provider: AiProvider) => Promise<readonly string[]>) | undefined
@@ -53,16 +33,7 @@ const resolveModelCatalog = async (
 /** Sentinel value returned for the `Keep default` option — never collides with a real id. */
 const KEEP = '__keep__';
 
-/**
- * Map a model id to a picker choice. Appends the context-window size and (when applicable) the
- * suspension note to the LABEL only — the `value` stays the bare id so a pre-pinned choice still
- * round-trips; if the user picks a suspended model, the adapter guard rejects it at launch.
- * Applies to both the static and account-narrowed catalogs.
- *
- *   'claude-sonnet-4-6'    →  'claude-sonnet-4-6  ·  200K'
- *   'claude-opus-4-8[1m]' →  'claude-opus-4-8[1m]  ·  1M'
- *   'gpt-5.5'             →  'gpt-5.5'   (no window known — no annotation)
- */
+/** Map a model id to a picker choice. */
 const modelChoice = (m: string): Choice<string> => {
   const windowPart = contextWindowLabel(m);
   const suspendedPart = isSuspendedModel(m) ? `(${SUSPENSION_NOTE})` : undefined;
@@ -72,33 +43,15 @@ const modelChoice = (m: string): Choice<string> => {
 };
 
 /**
- * Outcome of the skills step (see {@link runSkillsStep}) — carried on every non-cancel
- * {@link CustomizePickerResult} variant. `disabled` is the full per-run disable set (any origin);
- * `saveAsDefault` tells `use-flow-launcher.ts` whether to persist the registry-default subset of
- * `disabled` into `settings.ai.skills[flow].disabled` (see `applySkillsRememberChoice` in
- * `flows-launch-extras.ts` — names are matched against `skillsForFlow`, so a phase-folder copy
- * shadowing a bundled default still persists). Absent `skills` on a result means the user kept
- * the current skill set (either
- * the picker had no candidates to offer, or the user picked "Keep skills").
+ * Outcome of the skills step (see {@link runSkillsStep}) — carried on every non-cancel {@link CustomizePickerResult}
+ * variant.
  */
 export interface SkillsCustomizeResult {
   readonly disabled: readonly string[];
   readonly saveAsDefault: boolean;
 }
 
-/**
- * Outcome of one picker session. `kind` discriminates:
- *   - `cancel`: user pressed Esc / picked Cancel at any step — launcher should NOT launch
- *   - `defaults`: user picked Start, OR customized and kept every row default — launcher should
- *     launch with no row override (`skills` may still be set — the skills step runs independently
- *     of whether the row walk changed anything)
- *   - `single`: customize completed for a single-row flow; `override` is the per-field diff
- *   - `implement`: customize completed for implement; `implementRoleOverrides` carries both
- *     roles (each independently optional)
- *
- * The picker never returns `single` for implement and never returns `implement` for any
- * other flow.
- */
+/** Outcome of one picker session. */
 export type CustomizePickerResult =
   | { readonly kind: 'cancel' }
   | { readonly kind: 'defaults'; readonly skills?: SkillsCustomizeResult }
@@ -114,8 +67,7 @@ export type CustomizePickerResult =
     };
 
 /**
- * Map a TUI flow id to the AI {@link FlowId} that owns its session — same mapping the launcher
- * and check-cli use. Returns `undefined` for non-AI flows; the picker is skipped for those.
+ * Map a TUI flow id to the AI {@link FlowId} that owns its session — same mapping the launcher and check-cli use.
  */
 const aiFlowIdForPicker = (flowId: string): FlowId | undefined => {
   switch (flowId) {
@@ -135,10 +87,7 @@ const aiFlowIdForPicker = (flowId: string): FlowId | undefined => {
   }
 };
 
-/**
- * Resolve the single row the picker should present as the default for a non-implement-launch
- * flow. For review the launcher uses `ai.implement.generator`; the picker shows that row.
- */
+/** Resolve the single row the picker should present as the default for a non-implement-launch flow. */
 const defaultRowFor = (flowId: string, settings: Settings): AiFlowSettings | undefined => {
   const aiFlow = aiFlowIdForPicker(flowId);
   if (aiFlow === undefined) return undefined;
@@ -159,11 +108,7 @@ interface ProviderStepResult {
   readonly effectiveProvider: AiProvider;
 }
 
-/**
- * Step 1 of {@link customizeRow} — provider. Keep default first, then every provider option
- * (including the default's own provider; picking it explicitly is treated as "no change").
- * Returns `undefined` when the user cancels.
- */
+/** Step 1 of {@link customizeRow} — provider. */
 const pickProviderStep = async (
   interactive: InteractivePrompt,
   header: string,
@@ -180,12 +125,7 @@ const pickProviderStep = async (
   return { providerValue: providerAns.value, providerChanged, effectiveProvider };
 };
 
-/**
- * Step 2 of {@link customizeRow} — model. When the provider switched, the saved default model
- * belongs to a different provider's catalog; omit `Keep default` so the user can't accidentally
- * pick an incompatible model. Otherwise show `Keep default` first. Returns `undefined` when the
- * user cancels.
- */
+/** Step 2 of {@link customizeRow} — model. */
 const pickModelStep = async (
   interactive: InteractivePrompt,
   header: string,
@@ -203,18 +143,7 @@ const pickModelStep = async (
   return modelAns.value;
 };
 
-/**
- * Compute the `Keep default` label for the effort step. When the provider switched, the saved
- * row's effort may not exist in the new provider's vocabulary; `Keep default` then means "let
- * the launcher resolve" (the row carries no per-flow effort, so resolveEffort floors the global
- * value to the new provider).
- *
- * When the provider stayed the same but the model changed, the saved row's effort would be
- * silently inherited — which is the bug: sonnet @ xhigh (the worst wall-clock combination)
- * appears when the user's intent was only "use a cheaper model". Make the inheritance visible by
- * labelling the keep-default option with the concrete value it carries, flagging whether it
- * comes from the saved row or the global default so the user can decide deliberately.
- */
+/** Compute the `Keep default` label for the effort step. */
 const computeEffortDefaultLabel = (
   defaultRow: AiFlowSettings,
   globalEffort: Settings['ai']['effort'],
@@ -240,11 +169,7 @@ const computeEffortDefaultLabel = (
   return labelKeepDefault(resolvedRowEffort ?? 'auto');
 };
 
-/**
- * Step 3 of {@link customizeRow} — effort. See {@link computeEffortDefaultLabel} for how the
- * model-changed case shifts the highlighted default to the global effort (or 'auto') rather
- * than the per-row value, so the safest option leads. Returns `undefined` when the user cancels.
- */
+/** Step 3 of {@link customizeRow} — effort. */
 const pickEffortStep = async (
   interactive: InteractivePrompt,
   header: string,
@@ -273,12 +198,7 @@ const pickEffortStep = async (
   return effortAns.value;
 };
 
-/**
- * Assemble the per-field override from the three step answers. When the provider switched but
- * model / effort were not chosen, we still need a model (the launcher can't merge a model from
- * the old provider's catalog) — forced through when it was unset above (because it matched
- * `defaultRow.model` on a single catalog overlap).
- */
+/** Assemble the per-field override from the three step answers. */
 const assembleRowOverride = (
   defaultRow: AiFlowSettings,
   providerChanged: boolean,
@@ -294,11 +214,7 @@ const assembleRowOverride = (
   return override;
 };
 
-/**
- * Walk one row through the three sequential prompts — provider → model → effort. Returns the
- * per-field override (only fields the user changed) or `undefined` when the user cancels at
- * any step. Empty when the user picked `Keep default` on every step.
- */
+/** Walk one row through the three sequential prompts — provider → model → effort. */
 const customizeRow = async (
   interactive: InteractivePrompt,
   header: string,
@@ -342,32 +258,19 @@ export interface RunCustomizePickerArgs {
   readonly flowId: string;
   readonly flowTitle: string;
   readonly settings: Settings;
-  /**
-   * Optional per-provider availability lookup (injected from `AppDeps.availableModelsFor`). When
-   * present the model step shows only the operator's account-available models; when absent the
-   * step falls back to the full {@link modelCatalogFor} catalog (the test / no-deps path).
-   */
+  /** Optional per-provider availability lookup (injected from `AppDeps.availableModelsFor`). */
   readonly availableModelsFor?: (provider: AiProvider) => Promise<readonly string[]>;
   /**
-   * Pre-fetched skill candidates for this flow, built by `launcher.ts`'s `buildSkillCandidates`
-   * BEFORE the picker runs (it needs `AppDeps` the picker itself is never given). Absent or empty
-   * skips the skills step entirely — see {@link runSkillsStep}.
+   * Pre-fetched skill candidates for this flow, built by `launcher.ts`'s `buildSkillCandidates` BEFORE the picker
+   * runs (it needs `AppDeps` the picker itself is never given).
    */
   readonly skillCandidates?: SkillCandidatesResult;
-  /**
-   * Re-fetch candidates for a provider the row walk just picked. The prefetched snapshot was
-   * built with the SAVED provider, but operator drop-in skills are provider-scoped — a per-run
-   * provider override changes what would actually install. When present and the walk overrode
-   * the provider, the skills step lists the rebuilt set; a failed/degraded rebuild falls back to
-   * the prefetched snapshot rather than dropping the step.
-   */
+  /** Re-fetch candidates for a provider the row walk just picked. */
   readonly rebuildSkillCandidates?: (provider: AiProvider) => Promise<SkillCandidatesResult | undefined>;
 }
 
 /**
- * Header context — shown at the top of every prompt frame so the user always knows what the
- * current defaults are. For implement we render both gen and eval; for everything else we
- * render the single resolved row.
+ * Header context — shown at the top of every prompt frame so the user always knows what the current defaults are.
  */
 const buildPickerHeader = (flowId: string, flowTitle: string, settings: Settings, aiFlow: FlowId): string =>
   flowId === 'implement'
@@ -396,12 +299,7 @@ interface SkillsStepInput {
   readonly rebuild?: RebuildSkillCandidates;
 }
 
-/**
- * Candidates the skills step should actually list, given the provider the row walk just chose.
- * No override / no rebuild hook / nothing prefetched → the prefetched snapshot as-is. A rebuild
- * that fails or comes back degraded keeps the prefetched snapshot — a stale-but-complete list
- * beats silently dropping the step.
- */
+/** Candidates the skills step should actually list, given the provider the row walk just chose. */
 const effectiveSkillCandidates = async (
   prefetched: SkillCandidatesResult | undefined,
   rebuild: RebuildSkillCandidates | undefined,
@@ -419,17 +317,8 @@ interface SkillsStepResult {
 }
 
 /**
- * Skills step — appended once, after the row walk(s) complete (implement: after BOTH generator
- * and evaluator, never per-role). Entry prompt mirrors the top-level Start/Customize split:
- * `Keep skills (N active)` is the zero-friction default; only `Customize skills for this run…`
- * opens the checklist. Skipped ENTIRELY (no prompt at all) when `skillCandidates` is `undefined`
- * or carries no candidates — `use-flow-launcher.ts` only supplies it for a flow whose launch context
- * actually threads a `skillSource` ({@link flowMountsSkills} in `launcher.ts`).
- *
- * The checklist opens PRE-CHECKED to today's effective state — checked = would currently load
- * (default and not saved-disabled), unchecked = saved-disabled — via `askMultiChoice`'s `initial`
- * seeding (`business/interactive/prompt.ts`). The result the user submits IS the enabled set;
- * `disabled` is its complement over `candidates`, so unchecking a row is exactly "disable this".
+ * Skills step — appended once, after the row walk(s) complete (implement: after BOTH generator and evaluator, never
+ * per-role).
  */
 const runSkillsStep = async (
   interactive: InteractivePrompt,
@@ -482,10 +371,8 @@ const runSkillsStep = async (
 };
 
 /**
- * Customize path for the `implement` flow — walk generator first, then evaluator, then (once,
- * flow-level) the skills step. Cancel at any step (including mid-evaluator or mid-skills) closes
- * the picker without launching and discards any override already collected — the launcher must
- * not apply a half-completed customize session.
+ * Customize path for the `implement` flow — walk generator first, then evaluator, then (once, flow-level) the skills
+ * step.
  */
 const runImplementCustomize = async (
   interactive: InteractivePrompt,
@@ -535,8 +422,7 @@ const runImplementCustomize = async (
 };
 
 /**
- * Customize path for every non-implement flow — a single row walk through {@link customizeRow},
- * then the skills step.
+ * Customize path for every non-implement flow — a single row walk through {@link customizeRow}, then the skills step.
  */
 const runSingleRowCustomize = async (
   interactive: InteractivePrompt,
@@ -568,15 +454,7 @@ const runSingleRowCustomize = async (
   return skills !== undefined ? { kind: 'single', override, skills } : { kind: 'single', override };
 };
 
-/**
- * Drive the pre-launch picker for one click of an AI-driven flow row. Returns `kind: 'cancel'`
- * for the cancel path (launcher should not launch); `kind: 'defaults'` when the user picked
- * Start (launcher should launch with no override); `kind: 'single'` / `kind: 'implement'`
- * with the override payload when the user completed Customize.
- *
- * Non-AI flows (create-sprint, ticket-*, etc.) never reach this function — the picker is only
- * called when {@link aiFlowIdForPicker} resolves to a flow id.
- */
+/** Drive the pre-launch picker for one click of an AI-driven flow row. */
 export const runCustomizePicker = async ({
   interactive,
   flowId,

@@ -1,13 +1,6 @@
 /**
- * Banner — the wordmark. Rendered under the chrome on the Work root when it fits; everywhere else
- * it is absent (the tab bar's `ralphctl` text carries the brand). Two modes:
- *
- *  - `full` (Work root, when it fits — see {@link resolveBannerMode}): wordmark art inside a thin
- *    frame plus the Ralph quote rail.
- *  - `compact` (everywhere else): nothing. The old one-line strip is gone with the tab bar.
- *
- * Stable per process: rolling the gradient or the quote on every navigation reads as visual
- * jitter; one frozen value per launch keeps the chrome calm.
+ * Banner — the wordmark. Rendered under the chrome on the Work root when it fits; everywhere else it is absent (the
+ * tab bar's `ralphctl` text carries the brand).
  */
 
 import React from 'react';
@@ -28,12 +21,7 @@ export const BANNER_FULL_ROWS = 11;
 
 export type BannerMode = 'full' | 'compact';
 
-/**
- * Pure banner-mode decision. The wordmark is reserved for Home and only when the terminal is wide
- * (`breakpoints.md`) AND tall enough that the content below it still fits; every other route — and
- * every smaller terminal — shows no banner. `userToggle` (`b` on Home) flips whichever mode the
- * auto rule picked, in both directions.
- */
+/** Pure banner-mode decision. */
 export const resolveBannerMode = (args: {
   readonly routeId: string;
   readonly columns: number;

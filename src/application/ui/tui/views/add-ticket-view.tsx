@@ -1,23 +1,6 @@
 /**
- * Add-ticket view — interactive wizard that funnels through the `ticket-add` use case so the
- * TUI and CLI share one append path. Walks: link → (fetch + prefill, when an `IssueFetcher`
- * is wired and the URL is non-empty) → title → description → confirm → optional create-issue
- * prompt (default No) when the ticket has no link and the first repository origin resolves.
- * Mirrors the chain-side ordering so the URL becomes the source of truth: enter a GitHub /
- * GitLab issue URL and we pre-fill title + description from the issue body, so the user
- * doesn't copy-paste them by hand. Empty URL skips the fetch and falls back to manual entry.
- *
- * This is the ONE canonical "add tickets to a sprint" path (the redundant `add-tickets` chain
- * flow was removed). To keep the user in the flow of adding things, a successful save no longer
- * pops the view immediately: it lands on an `added` step that shows a brief acknowledgement plus
- * a running session count and an "Add another ticket?" confirm. Answering YES resets the machine
- * to a fresh `link` step (preserving the incremented count); answering NO pops the view.
- *
- * The sprint must be in `draft` (the use case enforces this) — non-draft sprints surface as
- * an error step.
- *
- * Step machine + per-step prompt views + the review scroll viewport all live under
- * `add-ticket-internals/`; this file owns the side-effects (fetcher dispatch, submit, count).
+ * Add-ticket view — interactive wizard that funnels through the `ticket-add` use case so the TUI and CLI share one
+ * append path.
  */
 
 import React, { useEffect, useState } from 'react';
@@ -56,11 +39,7 @@ type PersistOutcome =
   | { readonly kind: 'error'; readonly message: string }
   | { readonly kind: 'create-failed'; readonly message: string; readonly hint: string };
 
-/**
- * Recovery copy for a tracker failure after the local save. When the issue was created but its
- * link could not be saved, retrying would open a duplicate — the error message already names the
- * URL to link by hand, so the hint says not to re-publish instead of pointing at the retry command.
- */
+/** Recovery copy for a tracker failure after the local save. */
 const createFailedHint = (sprintId: SprintId, ticketId: string | undefined, orphaned: boolean): string => {
   if (orphaned) return 'The ticket was saved locally without the link — do not re-publish it.';
   const target = ticketId ?? '<ticket-id>';
@@ -118,10 +97,7 @@ export const AddTicketView = (): React.JSX.Element => {
 
   const cancel = (): void => router.pop();
 
-  // Run the fetch once we transition into the 'fetching' step. Result advances to either
-  // 'title' (with prefill from the issue) or 'fetch-failed' (user acks then falls back to
-  // manual entry with the URL preserved). When no IssueFetcher is wired, the link step
-  // routes straight to 'title' and this effect never fires.
+  // Run the fetch once we transition into the 'fetching' step.
   useEffect(() => {
     if (step.kind !== 'fetching') return;
     const fetcher = deps.issueFetcher;
@@ -150,10 +126,8 @@ export const AddTicketView = (): React.JSX.Element => {
       return;
     }
     if (outcome.kind === 'added') {
-      // Stay in the flow: increment the session count and land on the `added` step, which offers
-      // "Add another ticket?". YES resets the machine to a fresh `link` (handled in StepView); NO
-      // pops the view. The count is read back via the functional updater so concurrent saves can't
-      // race a stale closure value.
+      // Stay in the flow: increment the session count and land on the `added` step, which offers "Add another
+      // ticket?".
       setAddedCount((prev) => {
         const count = prev + 1;
         setStep({ kind: 'added', title: draft.title.trim(), count });

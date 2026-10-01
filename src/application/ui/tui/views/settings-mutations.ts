@@ -1,11 +1,6 @@
 /**
- * Settings mutation orchestration — wraps the apply-key + set-provider + set + apply-preset
- * flows behind a single `submitField` entry point. The TUI's SettingsView consumes this so the
- * orchestrator file stays focused on render + key handling.
- *
- * Every routing decision (`ai.implement.<role>.provider` vs `ai.<flow>.provider` vs everything
- * else) lives here; the view only forwards the raw submitted value + the editable field
- * descriptor.
+ * Settings mutation orchestration — wraps the apply-key + set-provider + set + apply-preset flows behind a single
+ * `submitField` entry point.
  */
 
 import { createSettingsApplyPresetFlow } from '@src/application/flows/settings-apply-preset/flow.ts';
@@ -28,8 +23,10 @@ export type PresetOutcome =
   | { readonly kind: 'ok'; readonly text: string; readonly warnings: readonly PresetWarning[] }
   | { readonly kind: 'error'; readonly text: string };
 
-/** Provider-switch key shapes: implement carries a generator + evaluator pair addressed via a
- * 4-segment key; every other flow is the 3-segment shape. */
+/**
+ * Provider-switch key shapes: implement carries a generator + evaluator pair addressed via a 4-segment key; every
+ * other flow is the 3-segment shape.
+ */
 const IMPLEMENT_ROLE_PROVIDER_KEY = /^ai\.implement\.(generator|evaluator)\.provider$/;
 const FLAT_PROVIDER_KEY = /^ai\.(refine|plan|readiness|ideate|createPr)\.provider$/;
 
@@ -44,8 +41,7 @@ interface SubmitRoute {
   ) => Promise<MutationOutcome>;
 }
 
-/** Route: any per-flow / per-role provider picker. Rebuilds the row's model from the target
- * provider's defaults via `settings-set-provider` instead of the generic apply-key path. */
+/** Route: any per-flow / per-role provider picker. */
 const handleProviderRoute = async (
   _settings: Settings,
   field: EditableField,
@@ -65,8 +61,10 @@ const handleProviderRoute = async (
   return { kind: 'ok', text: `${label} provider = ${raw} · model reset to default` };
 };
 
-/** Route: the escalation-map "add a rung" action row — submits a `from=to` pair built by the
- * two-step picker, reusing the `harness.escalationMap.<from>` key the CLI's `settings set` speaks. */
+/**
+ * Route: the escalation-map "add a rung" action row — submits a `from=to` pair built by the two-step picker, reusing
+ * the `harness.escalationMap.<from>` key the CLI's `settings set` speaks.
+ */
 const handleMapAddRoute = async (
   settings: Settings,
   _field: EditableField,
@@ -82,8 +80,10 @@ const handleMapAddRoute = async (
   });
 };
 
-/** Route: one editable escalation-map override row — an empty submitted value deletes it (the
- * apply-key grammar's clear semantic). */
+/**
+ * Route: one editable escalation-map override row — an empty submitted value deletes it (the apply-key grammar's
+ * clear semantic).
+ */
 const handleMapEntryRoute = async (
   settings: Settings,
   field: EditableField,
@@ -98,8 +98,10 @@ const handleMapEntryRoute = async (
   return persistKey(settings, field.key, raw, settingsRepo, { okText });
 };
 
-/** Fallback route: every other key through the generic `applySettingsKey` → `settings-set`
- * pipeline. `Default` clears effort overrides. */
+/**
+ * Fallback route: every other key through the generic `applySettingsKey` → `settings-set` pipeline. `Default` clears
+ * effort overrides.
+ */
 const handleDefaultRoute = async (
   settings: Settings,
   field: EditableField,
@@ -110,8 +112,10 @@ const handleDefaultRoute = async (
   return persistKey(settings, field.key, normalised, settingsRepo, { okText: `${field.label} = ${raw}` });
 };
 
-/** Ordered submit routes — first match wins, mirroring `evaluateTriggers`'s gate array. The
- * fallback route always matches, so it must stay last. */
+/**
+ * Ordered submit routes — first match wins, mirroring `evaluateTriggers`'s gate array. The fallback route always
+ * matches, so it must stay last.
+ */
 const SUBMIT_ROUTES: readonly SubmitRoute[] = [
   {
     match: (field) => IMPLEMENT_ROLE_PROVIDER_KEY.test(field.key) || FLAT_PROVIDER_KEY.test(field.key),
@@ -122,15 +126,7 @@ const SUBMIT_ROUTES: readonly SubmitRoute[] = [
   { match: () => true, handle: handleDefaultRoute },
 ];
 
-/**
- * Persist a single field edit. Routes provider switches through `settings-set-provider`
- * (rebuilds the row's model from the target provider's defaults) and every other key through
- * the generic `applySettingsKey` → `settings-set` pipeline. `Default` clears effort overrides.
- *
- * Returns a `MutationOutcome` rather than throwing so the view can render a feedback banner
- * without an additional try/catch wrapper. The `next` payload is the persisted record — the
- * view uses it to mirror per-key side effects (e.g. log-level sync) without re-reading from disk.
- */
+/** Persist a single field edit. */
 export const submitField = async (
   settings: Settings,
   field: EditableField,
@@ -157,10 +153,7 @@ const persistKey = async (
   return { kind: 'ok', text: opts.okText, next: next.value };
 };
 
-/**
- * Apply a settings preset and return the warnings the apply-preset flow emitted. The view
- * renders those warnings underneath the preset bar until the next preset / row edit clears them.
- */
+/** Apply a settings preset and return the warnings the apply-preset flow emitted. */
 export const applyPreset = async (preset: PresetName, settingsRepo: SettingsRepository): Promise<PresetOutcome> => {
   const flow = createSettingsApplyPresetFlow({ settingsRepo });
   const saved = await flow.execute({ input: { preset } });

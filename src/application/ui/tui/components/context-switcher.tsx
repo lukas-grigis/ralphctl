@@ -1,21 +1,5 @@
 /**
- * Context switcher — the one overlay for "which project and sprint am I working on?". Opened by `S`
- * (cursor on the current sprint) or `P` (cursor on the current project's header) from anywhere; it
- * replaces the old pick-project and pick-sprint screens.
- *
- * It never navigates. `↵` on a sprint switches project + sprint in one batch (`setProjectAndSprint`),
- * `↵` on a project header switches the project (clearing the sprint when it changes), `esc` closes —
- * and in every case `router.stack` is untouched, so the view underneath is exactly where you left
- * it. Mounted in `Layout` (the view below stays mounted but hidden, so its cursor and scroll
- * survive); it pins its own footer because the hidden view's footer is hidden with it.
- *
- * Rows: `+ New sprint in <project>` (`c`), then each project as a selectable header with its
- * sprints beneath. Cursor and windowing come from the shared `useListWindow` primitive over the
- * cursorable subset (see `context-switcher-internals/row-views.tsx`). `t` toggles all-projects /
- * current-project scope; `f` hides done sprints (default off — closed sprints stay reachable here
- * by contract).
- *
- * Width: full width below `md`; `min(96, columns − 4)` from `md`, left-aligned at the page indent.
+ * Context switcher — the one overlay for "which project and sprint am I working on?". It never navigates.
  */
 
 import React, { useMemo, useState } from 'react';
@@ -88,10 +72,7 @@ export interface ContextSwitcherProps {
 
 type SelectionApi = ReturnType<typeof useSelection>;
 
-/**
- * What each row does on `↵` (and what `c` / `esc` do), as one hook. Every path ends in
- * `closeOverlay` and none touches the router: the switcher changes the selection, never the view.
- */
+/** What each row does on `↵` (and what `c` / `esc` do), as one hook. */
 const useSwitcherActions = (
   selection: SelectionApi,
   data: PickerData,

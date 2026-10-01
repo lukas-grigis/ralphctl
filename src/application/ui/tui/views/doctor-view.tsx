@@ -1,14 +1,4 @@
-/**
- * Doctor view — sanity probes the operator can run when something feels off. Probes execute
- * via the `doctor` use-case so the TUI and `ralphctl doctor` CLI report the same data.
- *
- * Probes are bucketed by their `group` field and rendered under section headers. Probes
- * without a group fall under a "General" section.
- *
- * The view reads the doctor report from {@link useSystemStatus} so the StatusBar footer and
- * the view share a single source of truth — pressing `r` here also refreshes the footer's
- * "X doctor warnings" indicator.
- */
+/** Doctor view — sanity probes the operator can run when something feels off. */
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { Box, Text } from 'ink';
@@ -52,9 +42,8 @@ interface GroupBucket {
 }
 
 /**
- * Bucket probes by group and order the buckets worst-first (fail, warn, unknown, pass), keeping
- * {@link GROUP_ORDER} as the tiebreak. Healthy groups sort last so the rows that need action are
- * reachable without scrolling past dozens of passes.
+ * Bucket probes by group and order the buckets worst-first (fail, warn, unknown, pass), keeping {@link GROUP_ORDER}
+ * as the tiebreak.
  */
 const bucketProbes = (results: readonly ProbeResult[]): readonly GroupBucket[] =>
   GROUP_ORDER.flatMap((group): GroupBucket[] => {
@@ -83,10 +72,8 @@ export const DoctorView = (): React.JSX.Element => {
     { keys: ['r'], hint: 'reload', run: () => void system.refreshDoctor() },
   ]);
 
-  // Trigger a refresh on first mount when the shared provider hasn't auto-fired yet (e.g. the
-  // test-env gate suppressed the boot-time probe). A ref guards against re-firing if the
-  // refreshDoctor callback identity changes mid-life. Explicit re-runs go through the `r`
-  // keybind below.
+  // Trigger a refresh on first mount when the shared provider hasn't auto-fired yet (e.g. the test-env gate
+  // suppressed the boot-time probe).
   const refreshDoctor = system.refreshDoctor;
   const triggered = React.useRef(false);
   useEffect(() => {
@@ -138,9 +125,8 @@ const GroupSection = ({ bucket }: { readonly bucket: GroupBucket }): React.JSX.E
 );
 
 /**
- * Renders a one-line tally above the grouped probe list so users get the verdict at a glance
- * without scanning every section. Color of the leading icon reflects the worst category
- * present: red if any fail, yellow if any warn, green when everything passes.
+ * Renders a one-line tally above the grouped probe list so users get the verdict at a glance without scanning every
+ * section.
  */
 const SummaryHeader = ({ probes }: { readonly probes: readonly ProbeResult[] }): React.JSX.Element => {
   const warnings = probes.filter((p) => p.status === 'warn').length;

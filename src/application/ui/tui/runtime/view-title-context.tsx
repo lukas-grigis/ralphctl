@@ -1,13 +1,6 @@
 /**
- * View-title channel — `ViewShell` publishes the active view's `title` / `subtitle` / `right`
- * node; the location line (mounted once in `Layout`, above the view) reads them.
- *
- * The two halves live in separate contexts on purpose. The setter is stable, so `ViewShell`
- * (which only publishes) never re-renders when the value changes — otherwise publishing a fresh
- * `right` node on every render would loop. Only the location line subscribes to the value.
- *
- * Both hooks degrade to a no-op without a provider, so isolated `ViewShell` / component tests
- * need no extra wrapper.
+ * View-title channel — `ViewShell` publishes the active view's `title` / `subtitle` / `right` node; the location line
+ * (mounted once in `Layout`, above the view) reads them.
  */
 
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
@@ -16,8 +9,8 @@ export interface ViewTitle {
   readonly title: string;
   readonly subtitle?: string | undefined;
   /**
-   * Overrides the last location crumb for views whose name is not their route label (Execute
-   * names the flow it is showing). Detail routes keep labelling themselves from route props.
+   * Overrides the last location crumb for views whose name is not their route label (Execute names the flow it is
+   * showing).
    */
   readonly crumb?: string | undefined;
   /** Node rendered right after the left text — Execute's status chip. */

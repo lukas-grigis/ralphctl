@@ -1,19 +1,4 @@
-/**
- * Sprint-id resolution for CLI commands — explicit argument first, pinned selection second.
- *
- * `ralphctl sprint set-current <id>` (and every TUI sprint pick) persists the user's current
- * sprint in `<stateRoot>/last-selection.json`; commands that take a sprint fall back to that
- * pin when the argument is omitted, so day-to-day invocations don't repeat the UUID the user
- * already pinned. The explicit argument always wins.
- *
- * The pinned id is re-parsed through `SprintId.parse` before use: the store's read is silent
- * on corruption (it's a UX optimisation, not a contract), so a stale or hand-edited file must
- * fail with the same actionable message an invalid explicit argument gets.
- *
- * When the fallback path is taken, the calling action prints {@link pinFallbackNotice} to
- * stderr — write paths (`unblock`, `ticket add`/`remove`) especially must disambiguate a
- * possibly-stale pin from a deliberate target.
- */
+/** Sprint-id resolution for CLI commands — explicit argument first, pinned selection second. */
 
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { Result } from '@src/domain/result.ts';
@@ -33,8 +18,8 @@ const DEFAULT_MISSING_MESSAGE =
 
 export interface ResolveSprintIdOptions {
   /**
-   * Guidance emitted when neither an explicit id nor a pin exists. Defaults to the
-   * `--sprint <id>` phrasing; commands with a positional `[id]` pass their own wording.
+   * Guidance emitted when neither an explicit id nor a pin exists. Defaults to the `--sprint <id>` phrasing; commands
+   * with a positional `[id]` pass their own wording.
    */
   readonly missingMessage?: string;
 }
@@ -70,8 +55,8 @@ export const resolveSprintId = async (
 };
 
 /**
- * One-line stderr notice for the fallback path — tells the user which sprint was substituted
- * and how to override it, so a stale pin never silently targets the wrong sprint.
+ * One-line stderr notice for the fallback path — tells the user which sprint was substituted and how to override it,
+ * so a stale pin never silently targets the wrong sprint.
  */
 export const pinFallbackNotice = (id: SprintId): string =>
   `using current sprint ${String(id)} (from sprint set-current; pass --sprint to override)\n`;

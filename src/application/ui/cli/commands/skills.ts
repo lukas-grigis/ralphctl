@@ -15,10 +15,8 @@ const savedDisabledFrom = (skills: AiSkillsSettings | undefined): ((flowId: Flow
 };
 
 /**
- * Flows where `entry` will actually load on the next run: `defaultFor` minus any saved
- * opt-out, plus any mounting flow carrying a live (non-`broken`) opt-in phase-folder copy.
- * Mirrors the decision tree in the TUI catalog's `flowChipVisual` (same module) without the
- * Ink chip rendering.
+ * Flows where `entry` will actually load on the next run: `defaultFor` minus any saved opt-out, plus any mounting
+ * flow carrying a live (non-`broken`) opt-in phase-folder copy.
  */
 const enabledFlowsFor = (
   entry: SkillCatalogEntry,
@@ -31,11 +29,8 @@ const enabledFlowsFor = (
   });
 
 /**
- * Worst-first severity rank for one {@link SkillInstallStatus} — a `Record` over the full union
- * so adding a 6th status without a rank here fails typecheck instead of silently sorting it
- * last. `in-sync` outranks `manual` only to preserve the exact precedence the original
- * `Set.has` fallthrough used; the two never actually co-occur on one entry (a bundled entry's
- * installs are never `manual`, a hand-dropped entry's installs are always `manual`).
+ * Worst-first severity rank for one {@link SkillInstallStatus} — a `Record` over the full union so adding a 6th
+ * status without a rank here fails typecheck instead of silently sorting it last.
  */
 const PROVENANCE_RANK: Record<SkillInstallStatus, number> = {
   'locally-modified': 5,
@@ -62,11 +57,8 @@ const provenanceLabel = (status: SkillInstallStatus): string => {
 };
 
 /**
- * Provenance/staleness summary across every install of `entry`, worst-first so a
- * locally-modified or broken copy is never masked by a merely update-available sibling. `-` is
- * reserved for the no-install case — the common shape for a skill that only ever loads via
- * `defaultFor` (default loading never goes through the phase folder, so it has no install to
- * report on).
+ * Provenance/staleness summary across every install of `entry`, worst-first so a locally-modified or broken copy is
+ * never masked by a merely update-available sibling.
  */
 const provenanceFor = (entry: SkillCatalogEntry): string => {
   if (entry.installs.length === 0) return '-';
@@ -112,16 +104,8 @@ const listSkillsAction = async (): Promise<void> => {
 };
 
 /**
- * Register the `skills` command group.
- *
- *   ralphctl skills list
- *
- * Operator-facing catalog of the bundled skills available to opt in per flow, plus any
- * hand-dropped ("manual") phase-folder skill the operator installed directly. Mirrors
- * `ralphctl agents list` — the CLI-only inspection surface for a catalog the TUI otherwise
- * manages interactively (`Skills` view, hotkey `K`). "Enabled flows" already folds in saved
- * `settings.ai.skills` opt-outs so the column reflects what actually loads next, not just the
- * registry defaults.
+ * Register the `skills` command group. ralphctl skills list Operator-facing catalog of the bundled skills available
+ * to opt in per flow.
  */
 export const registerSkillsCommand = (program: Command): void => {
   const skills = program.command('skills').description('inspect the bundled skill catalog');

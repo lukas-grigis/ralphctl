@@ -1,38 +1,6 @@
 /**
- * UI-only state — pieces of state that aren't owned by any specific view but are read by many
- * (help-overlay open, prompt mounted, terminal columns).
- *
- * Keeping this isolated means the global key handler, ViewShell, and PromptHost can coordinate
- * (e.g. "while a prompt is mounted, ignore global keys") without cross-imports between views.
- *
- * The "prompt active" gate is a counter-based claim, not a boolean toggle: multiple sources
- * (the PromptHost for queued prompts, view-level inline prompts, transient editors) can each
- * hold a claim, and the global handler stays muted while at least one is live. Earlier we had
- * a single boolean which raced when two callers fought to set it true vs. false on the same
- * commit — the typed-character "n" leaking through to the flows hotkey is exactly that race.
- *
- * `claimEscape` is the same shape but narrower — only the `esc` key is muted, not the entire
- * global handler. A view (e.g. sprint detail's detail card) flips it on while it wants to own
- * `esc` for a local close action; the global `router.pop()` stands down for the duration.
- *
- * This module actually hosts FOUR independent contexts, each with its own state and its own
- * memo, composed together inside one {@link UiStateProvider} so `App.tsx` still only ever
- * mounts a single provider:
- *
- *   - {@link useOverlayState} — the 30-consumer hot path (help/progress/evaluation/prompt/modal/
- *     escape, the banner toggle).
- *   - {@link useFocusedRun} — the focused-run pinning quartet, written once per Execute-view
- *     mount/unmount and read by the breadcrumb + progress overlay.
- *   - {@link useYankProvider} — the active-task-summary ref registry read by the global `y`
- *     hotkey.
- *   - {@link useSessionScratch} — `sessionRepositoryId`, which is launch state threaded into
- *     `launchFlow.extras.repositoryId` (not UI state at all) but has no other session-scoped
- *     home yet; kept behind its own context/memo here rather than folded into the overlay
- *     concern so a repo pin doesn't re-render every overlay consumer.
- *
- * {@link useUiState} is a thin alias over all four, kept ONLY so the existing call sites (which
- * read a single merged `ui` object) keep compiling unchanged. New code should reach for the
- * narrowest hook that covers what it needs instead of `useUiState`.
+ * UI-only state — pieces of state that aren't owned by any specific view but are read by many (help-overlay open,
+ * prompt mounted, terminal columns).
  */
 
 import React, { createContext, useCallback, useContext, useMemo, useRef, useState } from 'react';
@@ -40,11 +8,7 @@ import type { RepositoryId } from '@src/domain/value/id/repository-id.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { EvaluationTarget } from '@src/application/ui/tui/runtime/evaluation-target.ts';
 
-/**
- * Project/sprint context captured from the currently-focused Execute view. Set on mount and
- * cleared on unmount so the breadcrumb and progress overlay reflect the run's own sprint rather
- * than the mutable global selection while the user is watching a run.
- */
+/** Project/sprint context captured from the currently-focused Execute view. */
 export interface FocusedRunCtx {
   readonly projectLabel: string | undefined;
   readonly sprintId: SprintId | undefined;
@@ -52,21 +16,15 @@ export interface FocusedRunCtx {
 }
 
 /**
- * Closure returned by the focused view that, on demand, renders the markdown summary of the
- * task the operator is currently watching. `undefined` means "no active task right now" (e.g.
- * the focused view doesn't know about tasks, or the run hasn't reached its first task yet).
- * The execute view registers one of these via {@link UiStateApi.setActiveTaskSummaryProvider}
- * whenever its `bucketed` data changes; the global `y` hotkey calls it.
+ * Closure returned by the focused view that, on demand, renders the markdown summary of the task the operator is
+ * currently watching.
  */
 export type ActiveTaskSummaryProvider = () => string | undefined;
 
 /** Where the context switcher lands its cursor: on the current sprint (`S`) or the current project's header (`P`). */
 export type SwitcherFocus = 'sprint' | 'project';
 
-/**
- * The ONE modal-overlay slot. At most one of help / switcher / progress / evaluation is open; opening another
- * replaces the current one (so `g` while help is up shows progress, never both stacked).
- */
+/** The ONE modal-overlay slot. */
 export type Overlay =
   | { readonly kind: 'help' }
   | { readonly kind: 'switcher'; readonly focus: SwitcherFocus }
@@ -80,36 +38,24 @@ interface OverlayApi {
   /** The context switcher's focus while it is open, else `undefined`. */
   readonly switcherFocus: SwitcherFocus | undefined;
   /**
-   * Open-state for the read-only `progress.md` overlay. Bound to the global `g` hotkey via
-   * {@link useGlobalKeys}, gated on a sprint being loaded in {@link useSelection}. Mounted
-   * once at the {@link App} Layout level so every view inherits it without per-view wiring.
+   * Open-state for the read-only `progress.md` overlay. Bound to the global `g` hotkey via {@link useGlobalKeys},
+   * gated on a sprint being loaded in {@link useSelection}.
    */
   readonly progressOpen: boolean;
   /**
-   * The attempt whose `evaluation.md` the read-only evaluation overlay is showing, or `undefined`
-   * when it is closed. Unlike {@link progressOpen} this is not a bare boolean: the overlay is
-   * opened from a FOCUSED CARD, so the opening view has to hand over which task/attempt it means
-   * (see {@link EvaluationTarget}). Opening is view-local (`v` on the Execute Tasks panel or on a
-   * sprint-detail task row); closing is global, in {@link useGlobalKeys}, so `esc` / `v` win over
-   * the now-inert view handlers underneath.
+   * The attempt whose `evaluation.md` the read-only evaluation overlay is showing, or `undefined` when it is closed.
    */
   readonly evaluationTarget: EvaluationTarget | undefined;
   /** `true` whenever any caller currently holds a {@link claimPrompt} release token. */
   readonly promptActive: boolean;
   /**
-   * Derived convenience flag — `true` whenever any modal overlay or prompt is open:
-   * `overlay !== undefined || promptActive`. Views and
-   * components use this single flag in `useInput` early-returns and `listActive` expressions so
-   * hidden-but-mounted views are fully inert while an overlay is shown.
+   * Derived convenience flag — `true` whenever any modal overlay or prompt is open: `overlay !== undefined ||
+   * promptActive`.
    */
   readonly modalOpen: boolean;
   /** `true` whenever any caller currently holds a {@link claimEscape} release token. */
   readonly escapeClaimed: boolean;
-  /**
-   * User-toggle for the banner mode. `false` (default) keeps the automatic choice from
-   * `resolveBannerMode`; `true` flips it (compact ↔ wordmark) until the user toggles it back. Bound to `b` on Home; persists for the
-   * session (does not reset on navigation).
-   */
+  /** User-toggle for the banner mode. */
   readonly bannerCompact: boolean;
 
   /** Open `next`, replacing whichever overlay is currently open. */
@@ -134,42 +80,22 @@ interface OverlayApi {
   toggleBanner(): void;
 
   /**
-   * Claim "input is captured by a prompt; suspend global keys." Returns a release function
-   * matched 1:1 to the claim — calling release more than once is a no-op. The natural way to
-   * use it is from a `useEffect`:
-   *
-   * ```tsx
-   * useEffect(() => ui.claimPrompt(), [ui.claimPrompt]);
-   * ```
-   *
-   * For a conditional claim, return the release fn (or undefined) from the effect so React's
-   * cleanup handles the release:
-   *
-   * ```tsx
-   * useEffect(() => editing ? ui.claimPrompt() : undefined, [editing, ui.claimPrompt]);
-   * ```
+   * Claim "input is captured by a prompt; suspend global keys." Returns a release function matched 1:1 to the claim —
+   * calling release more than once is a no-op.
    */
   claimPrompt(): () => void;
 
   /**
-   * Claim the `esc` keystroke for a view-local handler; the global `router.pop()` stays out
-   * of the way until every claim is released. Counter-based (same shape as {@link claimPrompt})
-   * so multiple overlapping claims are safe. Use this when a view wants `esc` to close an
-   * inline panel rather than navigate up the breadcrumb stack — every other global hotkey
-   * (`?`, `b`, `g`, `y`, navigation) keeps working.
-   *
-   * ```tsx
-   * useEffect(() => inDetail ? ui.claimEscape() : undefined, [inDetail, ui.claimEscape]);
-   * ```
+   * Claim the `esc` keystroke for a view-local handler; the global `router.pop()` stays out of the way until every
+   * claim is released.
    */
   claimEscape(): () => void;
 }
 
 interface FocusedRunApi {
   /**
-   * Pin the project/sprint context of the currently-focused Execute view. Breadcrumb and
-   * progress overlay prefer this over the global selection while a value is set. Cleared to
-   * `undefined` when the Execute view unmounts.
+   * Pin the project/sprint context of the currently-focused Execute view. Breadcrumb and progress overlay prefer this
+   * over the global selection while a value is set.
    */
   setFocusedRunContext(ctx: FocusedRunCtx | undefined): void;
   /** Project label from the focused Execute view's pinned descriptor, or `undefined`. */
@@ -182,29 +108,18 @@ interface FocusedRunApi {
 
 interface YankProviderApi {
   /**
-   * Register a provider for the markdown summary of the operator's currently-focused task —
-   * read by the global `y` hotkey via {@link getActiveTaskSummary}. Stored in a ref (not
-   * state), so registering / unregistering does not trigger a re-render on every render of the
-   * execute view. The execute view calls this from a `useEffect`, returning `() =>
-   * setActiveTaskSummaryProvider(undefined)` as the cleanup.
-   *
-   * Pass `undefined` to clear. The provider is itself synchronous so the hotkey can copy +
-   * surface its toast in one tick.
+   * Register a provider for the markdown summary of the operator's currently-focused task — read by the global `y`
+   * hotkey via {@link getActiveTaskSummary}.
    */
   setActiveTaskSummaryProvider(provider: ActiveTaskSummaryProvider | undefined): void;
-  /**
-   * Invoke the currently-registered provider, or return `undefined` if none is. Read by the
-   * global `y` hotkey only — view code that owns the task data renders its own markdown.
-   */
+  /** Invoke the currently-registered provider, or return `undefined` if none is. */
   getActiveTaskSummary(): string | undefined;
 }
 
 interface SessionScratchApi {
   /**
-   * Session-scoped pin for the repository the user most recently picked inside one of the
-   * project-scoped flows (detect-scripts / detect-skills / readiness). Cleared when the TUI
-   * exits; not persisted to disk. Threaded via `launchFlow.extras.repositoryId` so subsequent
-   * flows skip the repo prompt for the rest of the session.
+   * Session-scoped pin for the repository the user most recently picked inside one of the project-scoped flows
+   * (detect-scripts / detect-skills / readiness).
    */
   readonly sessionRepositoryId: RepositoryId | undefined;
 
@@ -216,8 +131,8 @@ interface UiStateApi extends OverlayApi, FocusedRunApi, YankProviderApi, Session
 const OverlayContext = createContext<OverlayApi | undefined>(undefined);
 
 /**
- * A counter-based claim: each call to the returned `claim` bumps the count and hands back a
- * release matched 1:1 (releasing twice is a no-op). Shared by the prompt and escape claims.
+ * A counter-based claim: each call to the returned `claim` bumps the count and hands back a release matched 1:1
+ * (releasing twice is a no-op).
  */
 const useClaimCounter = (): readonly [number, () => () => void] => {
   const [count, setCount] = useState(0);
@@ -356,9 +271,8 @@ export const useFocusedRun = (): FocusedRunApi => {
 const YankProviderContext = createContext<YankProviderApi | undefined>(undefined);
 
 const YankProviderRegistryProvider = ({ children }: { readonly children: React.ReactNode }): React.JSX.Element => {
-  // The active-task summary provider is registered through a ref so swapping it does not churn
-  // the context value (which would re-render every consumer including unrelated views). The
-  // hotkey reads through `getActiveTaskSummary()` on press; until then the ref is dormant.
+  // The active-task summary provider is registered through a ref so swapping it does not churn the context value
+  // (which would re-render every consumer including unrelated views).
   const activeTaskSummaryProviderRef = useRef<ActiveTaskSummaryProvider | undefined>(undefined);
   const setActiveTaskSummaryProvider = useCallback((provider: ActiveTaskSummaryProvider | undefined): void => {
     activeTaskSummaryProviderRef.current = provider;
@@ -407,10 +321,7 @@ const SessionScratchProvider = ({ children }: { readonly children: React.ReactNo
   return <SessionScratchContext.Provider value={api}>{children}</SessionScratchContext.Provider>;
 };
 
-/**
- * `sessionRepositoryId` — launch state threaded into `launchFlow.extras.repositoryId`, not UI
- * state. Kept behind its own context/memo so a repo pin doesn't re-render the overlay hot path.
- */
+/** `sessionRepositoryId` — launch state threaded into `launchFlow.extras.repositoryId`, not UI state. */
 export const useSessionScratch = (): SessionScratchApi => {
   const ctx = useContext(SessionScratchContext);
   if (!ctx) throw new Error('useSessionScratch: must be used inside <UiStateProvider>');
@@ -428,10 +339,8 @@ export const UiStateProvider = ({ children }: { readonly children: React.ReactNo
 );
 
 /**
- * Thin alias over the four contexts above, kept ONLY so existing call sites that destructure a
- * single merged `ui` object keep compiling unchanged. Do NOT migrate those call sites as part of
- * this change — reach for the narrower hook ({@link useOverlayState}, {@link useFocusedRun},
- * {@link useYankProvider}, {@link useSessionScratch}) in new code instead.
+ * Thin alias over the four contexts above, kept ONLY so existing call sites that destructure a single merged `ui`
+ * object keep compiling unchanged.
  */
 export const useUiState = (): UiStateApi => {
   const overlay = useOverlayState();

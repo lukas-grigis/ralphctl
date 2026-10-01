@@ -1,32 +1,4 @@
-/**
- * Multi-line free-text input. Buffer holds raw text incl. newlines and renders one Ink row per
- * line. Cursor navigation (←/→/↑/↓, Home/End, ctrl+a/ctrl+e) is fully supported for mid-line
- * and multi-line editing. Newline insertion follows the convention familiar from Claude Code's
- * prompt — every key label below matches what the hint row at the bottom of the prompt shows
- * verbatim, so docs and UI stay in lockstep:
- *
- *   • ↵       → submit
- *   • \↵      → insert newline (the trailing backslash is consumed)
- *   • ctrl+j  → insert newline (terminal-native LF; useful when shells eat the backslash)
- *   • pasted text that already contains newlines → preserved verbatim
- *
- * Why not shift+↵? Most terminals can't distinguish shift+↵ from plain ↵ without Kitty / iTerm
- * CSI-u modes, and Ink's `useInput` flattens them. The \↵ chord is portable everywhere.
- *
- * Visual: the text rows live inside a rule-toned rounded border — same direction as the
- * `PromptHost` queued-prompt frame, just recessive so the typed content owns the contrast.
- * The "▸ message" header sits above the box; the chord-hint row sits below.
- *
- * Viewport: long bodies render through a cursor-following window. A row budget is derived from
- * the terminal height minus a chrome reserve; when the buffer overflows it, the visible lines are
- * sliced so the cursor's line — and the hint row below the field — always stay on screen, and a
- * dim cue marks any content hidden above / below the window. When the whole buffer fits, every
- * line renders with no slicing and no cue — byte-for-byte the short-body behaviour.
- *
- * Key bindings (shown in the hint row):
- *   ↵ submit · \↵ newline · ←/→/↑/↓ cursor · home/end edge · esc {escLabel} · ctrl+w word · ctrl+u clear
- *   (pgup/pgdn jump roughly a screenful, scrolling the window at the edges)
- */
+/** Multi-line free-text input. Buffer holds raw text incl. newlines and renders one Ink row per line. */
 
 import React, { useEffect, useRef, useState, type MutableRefObject } from 'react';
 import { Box, Text, useInput, type Key } from 'ink';
@@ -40,18 +12,15 @@ export interface TextAreaPromptProps {
   readonly onCancel: () => void;
   readonly initial?: string;
   /**
-   * Label shown after `esc` in the hint row. Defaults to "cancel"; wizards that interpret Esc
-   * as "step back" should pass "back" so the hint matches the actual behaviour.
+   * Label shown after `esc` in the hint row. Defaults to "cancel"; wizards that interpret Esc as "step back" should
+   * pass "back" so the hint matches the actual behaviour.
    */
   readonly escLabel?: string;
 }
 
 /**
- * Reserve rows for the chrome around the editable text window — the prompt header above the
- * field, the rounded border, the marginTop / marginBottom gutters, the keyboard-hint row below,
- * the hidden-content cues, plus the surrounding prompt-host / breadcrumb / status chrome. Mirrors
- * the reserve approach used by the review-step scrollable description; the floor keeps a tiny
- * terminal usable — the field always shows a few rows even when the reserve would zero it out.
+ * Reserve rows for the chrome around the editable text window — the prompt header above the field, the rounded
+ * border, the marginTop / marginBottom gutters.
  */
 const TEXT_AREA_CHROME_ROWS = 14;
 const TEXT_AREA_MIN_VIEWPORT = 4;
@@ -77,9 +46,8 @@ const lineColToOffset = (buf: string, lineIdx: number, col: number): number => {
 };
 
 /**
- * Shift the window offset so the cursor's line stays inside it, preserving the previous offset
- * (hysteresis) when the cursor is already visible. Clamped to [0, lastPossibleOffset] with no
- * wrap-around — at the extremes the window simply stops.
+ * Shift the window offset so the cursor's line stays inside it, preserving the previous offset (hysteresis) when the
+ * cursor is already visible.
  */
 const followCursorOffset = (prevOffset: number, cursorLine: number, viewport: number, totalLines: number): number => {
   const maxOffset = Math.max(0, totalLines - viewport);
@@ -89,12 +57,7 @@ const followCursorOffset = (prevOffset: number, cursorLine: number, viewport: nu
   return Math.max(0, Math.min(next, maxOffset));
 };
 
-/**
- * Detect an xterm SGR mouse report (e.g. ESC[<65;10;10M). The field is keyboard-only, but a wheel
- * event can leak onto stdin while mouse-tracking is being torn down for a prompt; Ink strips the
- * leading ESC, leaving "[<…M"/"[<…m" — all-printable ASCII that would otherwise be typed into the
- * buffer. Reject it so stray wheel bytes never become text.
- */
+/** Detect an xterm SGR mouse report (e.g. ESC[<65;10;10M). */
 const isMouseReport = (input: string): boolean => {
   const stripped = input.startsWith(String.fromCharCode(27)) ? input.slice(1) : input;
   return /^\[<\d+;\d+;\d+[Mm]$/.test(stripped);
@@ -119,10 +82,8 @@ const pageMoveOffset = (buf: string, line: number, targetCol: number, viewport: 
 };
 
 /**
- * Derive the window of buffer lines to render this render pass: which lines are visible, whether
- * content is hidden above/below the window, and where the cursor sits within it. `firstVisible`
- * is the persisted window offset (hysteresis); when the whole buffer fits, the window collapses
- * to showing every line with no slicing and no cue — byte-for-byte the short-body behaviour.
+ * Derive the window of buffer lines to render this render pass: which lines are visible, whether content is hidden
+ * above/below the window, and where the cursor sits within it.
  */
 interface TextAreaViewportState {
   readonly cursorLine: number;
@@ -166,11 +127,7 @@ interface TextAreaKeyCtx {
   readonly onCancel: () => void;
 }
 
-/**
- * Resolve the cursor's current line + the "remembered" column for ↑/↓/PgUp/PgDn navigation.
- * Seeds `desiredColRef` from the current column on first use so a run of vertical moves keeps
- * tracking the original column through shorter lines, until a horizontal move or edit clears it.
- */
+/** Resolve the cursor's current line + the "remembered" column for ↑/↓/PgUp/PgDn navigation. */
 const resolveDesiredCol = (ctx: TextAreaKeyCtx): { line: number; targetCol: number } => {
   const { line, col } = offsetToLineCol(ctx.bufRef.current, ctx.cursorRef.current);
   const targetCol = ctx.desiredColRef.current ?? col;
@@ -178,10 +135,7 @@ const resolveDesiredCol = (ctx: TextAreaKeyCtx): { line: number; targetCol: numb
   return { line, targetCol };
 };
 
-/**
- * Escape / Enter chords — cancel, the \↵ newline-insert convention, and plain-Enter submit.
- * Always handled (returns true) when reached — the caller has already consumed paste bytes.
- */
+/** Escape / Enter chords — cancel, the \↵ newline-insert convention, and plain-Enter submit. */
 const handleControlKeys = (_input: string, key: Key, ctx: TextAreaKeyCtx): boolean => {
   if (key.escape) {
     ctx.onCancel();
@@ -204,11 +158,7 @@ const handleControlKeys = (_input: string, key: Key, ctx: TextAreaKeyCtx): boole
   return false;
 };
 
-/**
- * Cursor-navigation chords: arrows, Home/End (+ ctrl+a/ctrl+e aliases), PgUp/PgDn. Vertical and
- * page moves share desiredColumn tracking via {@link resolveDesiredCol} so both ↑/↓ and PgUp/PgDn
- * remember the column through shorter lines.
- */
+/** Cursor-navigation chords: arrows, Home/End (+ ctrl+a/ctrl+e aliases), PgUp/PgDn. */
 const handleCursorMovement = (input: string, key: Key, ctx: TextAreaKeyCtx): boolean => {
   if (key.leftArrow) {
     ctx.updateCursor((c) => Math.max(0, c - 1));
@@ -262,10 +212,8 @@ const handleCursorMovement = (input: string, key: Key, ctx: TextAreaKeyCtx): boo
 };
 
 /**
- * Buffer-mutating chords: delete/backspace, ctrl+u (clear), ctrl+w (delete word), ctrl+j / literal
- * `\n` (newline insert), and finally plain printable/pasted-text insertion at the cursor. Reached
- * only once control keys and cursor movement have both declined the keystroke, so it dispatches
- * unconditionally instead of returning a handled flag.
+ * Buffer-mutating chords: delete/backspace, ctrl+u (clear), ctrl+w (delete word), ctrl+j / literal `\n` (newline
+ * insert), and finally plain printable/pasted-text insertion at the cursor.
  */
 const handleTextEditing = (input: string, key: Key, ctx: TextAreaKeyCtx): void => {
   if (key.backspace || key.delete) {
@@ -304,10 +252,8 @@ const handleTextEditing = (input: string, key: Key, ctx: TextAreaKeyCtx): void =
     ctx.desiredColRef.current = null;
     return;
   }
-  // Printable characters incl. pasted text. Mouse SGR reports are rejected — the field is
-  // keyboard-only and a leaked wheel event must not type stray bytes. Fallback for terminals
-  // that don't honour mode 2004: a single-chunk paste lands here, so strip any stray paste
-  // markers and normalize `\r\n`/`\r` → `\n` before inserting (kept multi-line, never submit).
+  // Printable characters incl. pasted text. Mouse SGR reports are rejected — the field is keyboard-only and a leaked
+  // wheel event must not type stray bytes.
   if (input.length > 0 && !key.meta && !key.ctrl && !key.tab && !isMouseReport(input)) {
     const ins = normalizePasteNewlines(stripPasteMarkers(input));
     ctx.insertAtCursor(ins);
@@ -325,9 +271,8 @@ const useCaretBlink = (setCaretOn: (next: (prev: boolean) => boolean) => void): 
 };
 
 /**
- * Derive this render's viewport state and persist the followed window offset so the next
- * interaction keeps the window where it settled. The persistence effect is idempotent once the
- * cursor is inside the window, so it cannot loop.
+ * Derive this render's viewport state and persist the followed window offset so the next interaction keeps the window
+ * where it settled.
  */
 const useTextAreaViewport = (
   buf: string,
@@ -343,10 +288,7 @@ const useTextAreaViewport = (
   return state;
 };
 
-/**
- * Wire the three key-dispatch groups into Ink's `useInput`. Bracketed paste is consumed first so
- * its bytes and embedded line breaks never reach the dispatch groups — no premature submit.
- */
+/** Wire the three key-dispatch groups into Ink's `useInput`. */
 const useTextAreaKeyHandler = (ctx: TextAreaKeyCtx, consumePaste: (input: string) => boolean): void => {
   useInput((input, key) => {
     if (consumePaste(input)) return;
@@ -480,11 +422,7 @@ export const TextAreaPrompt = ({
   // Set to current column on any horizontal move or edit; preserved across up/down moves only.
   const desiredColRef = useRef<number | null>(null);
 
-  // Atomically update both buf and cursor to avoid stale-closure races on rapid keystrokes. The
-  // refs are the synchronous source of truth: write them immediately so a keystroke that arrives
-  // before React flushes (paste + Enter, fast typing) still reads the latest value. Subscribing
-  // to terminal-size context defers React's commit, so the refs must not depend on the setState
-  // updater running synchronously — they are updated here, then mirrored into render state.
+  // Atomically update both buf and cursor to avoid stale-closure races on rapid keystrokes.
   const updateBufAndCursor = (transform: (b: string, c: number) => [string, number]): void => {
     const [newBuf, newCursor] = transform(bufRef.current, cursorRef.current);
     bufRef.current = newBuf;
@@ -499,9 +437,8 @@ export const TextAreaPrompt = ({
     setCursor(value);
   };
 
-  // Insert literal pasted text at the cursor, newlines preserved. A pasted newline is never a
-  // submit — that ambiguity is exactly why bracketed paste exists. Routed through the same
-  // updateBufAndCursor seam so the refs stay the synchronous source of truth.
+  // Insert literal pasted text at the cursor, newlines preserved. A pasted newline is never a submit — that ambiguity
+  // is exactly why bracketed paste exists.
   const insertAtCursor = (text: string): void => {
     if (text.length === 0) return;
     updateBufAndCursor((b, c) => [b.slice(0, c) + text + b.slice(c), c + text.length]);

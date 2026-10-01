@@ -1,20 +1,6 @@
 /**
- * Outcome report card — a sprint-scoped read-only rollup answering "what did the harness catch,
- * and what resolved each stall". Folds the sprint's already-loaded tasks through
- * `foldOutcomeStats` (`src/business/runs/outcome-stats.ts`); no I/O, no new loader.
- *
- * Deliberately minimal (council-scoped): outcome mix, first-pass rate, plateau-by-source (only
- * nonzero sources), the regression / warning / abort taxonomy (regressions and warnings always,
- * aborts only when one happened), escalation-rung efficacy (only rungs that fired at least once),
- * and the criteria k/N. No attempts-to-done histogram, no failed-dimension breakdown, no
- * cross-sprint trend — those are explicitly out of scope here.
- *
- * Task-based and attempt-based numbers coexist here, so the attempt-based ones say so in their
- * value text ("1 of 2 attributed attempts") rather than leaving a bare count to be read against
- * the task counts above it.
- *
- * Shown only for `review` / `done` sprints (see `SprintDetailContent`'s `Body`) — the report has
- * nothing to say before the harness has run an attempt.
+ * Outcome report card — a sprint-scoped read-only rollup answering "what did the harness catch, and what resolved
+ * each stall".
  */
 
 import React from 'react';
@@ -52,8 +38,8 @@ const RUNG_LABEL: Readonly<Record<EscalationRung, string>> = {
 const pct = (rate: number): string => `${String(Math.round(rate * 100))}%`;
 
 /**
- * One-line `label count` list, separated by the theme bullet — the same separator idiom every
- * sibling line in this card uses (`regressionLine`, `outcomeMixLine`, `rungFields`).
+ * One-line `label count` list, separated by the theme bullet — the same separator idiom every sibling line in this
+ * card uses (`regressionLine`, `outcomeMixLine`, `rungFields`).
  */
 const joinCounts = (entries: ReadonlyArray<readonly [string, number]>): string | undefined => {
   const nonzero = entries.filter(([, count]) => count > 0);
@@ -61,11 +47,7 @@ const joinCounts = (entries: ReadonlyArray<readonly [string, number]>): string |
   return nonzero.map(([label, count]) => `${label} ${String(count)}`).join(` ${glyphs.bullet} `);
 };
 
-/**
- * The severity row. `attributed` — not the raw attempt count — is the denominator, because an
- * attempt whose pre/post verify pair never ran carries no verdict either way; quoting it would
- * make a repo with no verify script look regression-free.
- */
+/** The severity row. */
 const regressionLine = (rollup: OutcomeRollup): string => {
   const { attributed, byVerdict } = rollup.attribution;
   if (attributed === 0) return 'no attribution verdicts';
@@ -107,10 +89,8 @@ const rungFields = (rollup: OutcomeRollup): readonly Field[] => {
 };
 
 /**
- * True once the rollup carries at least one genuine attempt-shaped signal — a completion, a
- * plateau, a granted escalation rung, or a declared criteria checklist. `false` means the loaded
- * tasks are empty or entirely pre-attempt (a fresh/legacy sprint), so the report has nothing
- * concrete to say yet.
+ * True once the rollup carries at least one genuine attempt-shaped signal — a completion, a plateau, a granted
+ * escalation rung, or a declared criteria checklist.
  */
 const hasAttemptData = (rollup: OutcomeRollup): boolean =>
   rollup.attemptCount > 0 ||

@@ -1,15 +1,6 @@
 /**
- * Header cluster of a task card — the rows that render whether the card is collapsed or expanded:
- *
- *   - {@link TaskHeaderCore}     — cursor caret, status glyph/spinner, name, duration, status word
- *   - {@link HeaderSummaryChips} — collapsed-only attempt count + latest commit sha
- *   - {@link RoundAttemptChip}   — expanded-only `attempt A/X · round R/M`
- *   - {@link EtaChip}            — expanded-only ETA for the active task
- *   - {@link HeaderNotices}      — blocked reason / flagged-completion warning
- *
- * Each component self-gates: it checks its own `cardExpanded` / data-presence condition and
- * returns `null` when it has nothing to show, so the composing card never repeats a gate.
- * {@link IndentedNotice} is the shared one-line notice shape, also used by the expanded body.
+ * Header cluster of a task card — the rows that render whether the card is collapsed or expanded: - {@link
+ * TaskHeaderCore} — cursor caret, status glyph/spinner, name.
  */
 
 import React, { useMemo } from 'react';
@@ -24,8 +15,8 @@ import { collapseWhitespace, formatEtaChip } from '@src/application/ui/tui/compo
 import { STATUS_PRESENTATION } from '@src/application/ui/tui/components/tasks-panel-internals/task-card-parts.tsx';
 
 /**
- * Cursor caret, status glyph/spinner, display name, duration, and status word — the header's
- * fixed-position core, rendered collapsed OR expanded.
+ * Cursor caret, status glyph/spinner, display name, duration, and status word — the header's fixed-position core,
+ * rendered collapsed OR expanded.
  */
 export const TaskHeaderCore = ({
   cardFocused,
@@ -77,9 +68,8 @@ export const HeaderSummaryChips = ({
   readonly cardExpanded: boolean;
   readonly taskProjection: TaskProjection | undefined;
 }): React.JSX.Element | null => {
-  // Most recent commit SHA for the collapsed summary line — sourced from the projection's
-  // lastAttempt when a TaskProjection is supplied. Truncated to 7 chars (git's `--short`
-  // default).
+  // Most recent commit SHA for the collapsed summary line — sourced from the projection's lastAttempt when a
+  // TaskProjection is supplied.
   const latestCommitSha = useMemo<string | undefined>(() => {
     const sha = taskProjection?.lastAttempt?.commitSha;
     return sha !== undefined ? String(sha).slice(0, 7) : undefined;
@@ -104,10 +94,7 @@ export const HeaderSummaryChips = ({
   );
 };
 
-/**
- * Expanded-header `round N/M` (+ `attempt A/X` when relevant) chip for an active gen-eval task.
- * Self-gates on `cardExpanded` and on the task having entered a gen-eval round yet.
- */
+/** Expanded-header `round N/M` (+ `attempt A/X` when relevant) chip for an active gen-eval task. */
 export const RoundAttemptChip = ({
   cardExpanded,
   task,
@@ -119,9 +106,8 @@ export const RoundAttemptChip = ({
   const round = task.genEvalRound;
   if (round === undefined || round <= 0) return null;
   const maxTurns = task.genEvalMaxRounds;
-  // Prefer the live tracker-sourced attempt coordinates; fall back to the `perAttemptRound`
-  // division heuristic when only a `maxTurns` cap is known (post-mortem replay). `undefined` means
-  // neither is available → show the bare round with no `/M` that could overshoot.
+  // Prefer the live tracker-sourced attempt coordinates; fall back to the `perAttemptRound` division heuristic when
+  // only a `maxTurns` cap is known (post-mortem replay).
   const coords = resolveAttemptCoords(task);
   if (coords === undefined) {
     return (
@@ -147,10 +133,7 @@ export const RoundAttemptChip = ({
   );
 };
 
-/**
- * Expanded-header ETA chip, active task only. Self-gates on `cardExpanded` / `isActive` / the task
- * having entered a gen-eval round, then drops (returns null) once no estimate applies.
- */
+/** Expanded-header ETA chip, active task only. */
 export const EtaChip = ({
   cardExpanded,
   isActive,
@@ -170,11 +153,8 @@ export const EtaChip = ({
 };
 
 /**
- * One indented, optionally-truncated notice line under the header — shared shape for the
- * blocked-reason / warning-summary / idle-ticker / first-run-waiting rows. `truncate` mirrors
- * whether the original render wrapped the `Text` in a `flexGrow`/`flexShrink`/`minWidth: 0` Box
- * with `wrap="truncate-end"` (the blocked/warning/idle rows) or rendered a bare `Text` (the
- * first-run-waiting row).
+ * One indented, optionally-truncated notice line under the header — shared shape for the blocked-reason /
+ * warning-summary / idle-ticker / first-run-waiting rows.
  */
 export const IndentedNotice = ({
   tone,
@@ -206,11 +186,7 @@ export const IndentedNotice = ({
   );
 };
 
-/**
- * One conditional {@link IndentedNotice} — renders nothing for an empty/whitespace-only value.
- * Pulled out of {@link HeaderNotices} so that component's body is a flat list of these instead of
- * four repeated `length > 0 && (...)` branches (keeps it under the file's complexity budget).
- */
+/** One conditional {@link IndentedNotice} — renders nothing for an empty/whitespace-only value. */
 const OptionalNotice = ({
   tone,
   icon,
@@ -223,23 +199,12 @@ const OptionalNotice = ({
   text.length > 0 ? <IndentedNotice tone={tone} icon={icon} text={collapseWhitespace(text)} truncate /> : null;
 
 /**
- * Trim for the three MODEL-authored notice fields, sanitised BEFORE the emptiness gate rather
- * than only on the way into `collapseWhitespace` at render time. A field of nothing but control
- * bytes survives `.trim()` (JS whitespace does not cover C0 / DEL / C1), so the gate would score
- * it non-empty and render a notice whose entire body the strip then removes — a lone warning
- * glyph on the card, courtesy of a generator that just read an attacker-controllable repository.
- * See {@link sanitizeDisplayText}. `warningSummary` is harness-authored and keeps a plain trim.
+ * Trim for the three MODEL-authored notice fields, sanitised BEFORE the emptiness gate rather than only on the way
+ * into `collapseWhitespace` at render time.
  */
 const cleanNotice = (text: string | undefined): string => sanitizeDisplayText(text ?? '').trim();
 
-/**
- * Resolve the (possibly empty) text for each notice line {@link HeaderNotices} can show. Guards
- * an empty / whitespace-only `blockedReason` (both `BlockedTask.blockedReason` and the
- * task-blocked signal permit ''): without this an AI that self-blocks with a blank reason renders
- * a lone warning glyph. `warningSummary` only applies to a `completed` card (mutually exclusive
- * with a blocked one by status). `question` / `whatUnblocksMe` only apply while EXPANDED — see
- * {@link HeaderNotices}'s doc for why.
- */
+/** Resolve the (possibly empty) text for each notice line {@link HeaderNotices} can show. */
 const resolveNoticeTexts = (
   task: TaskBucket,
   cardExpanded: boolean,
@@ -258,16 +223,7 @@ const resolveNoticeTexts = (
   warningSummaryText: task.status === 'completed' ? (warningSummary?.trim() ?? '') : '',
 });
 
-/**
- * Blocked-reason / flagged-completion notice lines under the header. Rendered collapsed OR
- * expanded — a blocked card's reason, or a done card's final-attempt warning, is its most
- * important line regardless of expand state. Self-gates: renders nothing when both are empty.
- *
- * `blockedTriage`'s question / what-unblocks-it lines render EXPANDED ONLY (unlike the reason
- * line above them): they're the generator's own elaboration on the reason, genuinely supplementary
- * rather than the headline fact, so the collapsed one-liner stays exactly as compact as before a
- * task ever carried this structure.
- */
+/** Blocked-reason / flagged-completion notice lines under the header. */
 export const HeaderNotices = ({
   task,
   cardExpanded,

@@ -1,16 +1,6 @@
 /**
- * Registers the active-task summary provider with `UiState` and returns the Execute-local `y`
- * (yank) handler, which copies a markdown snapshot of whatever task the operator is currently
- * watching. The provider closes over the latest `currentTask` + display name; React
- * re-runs the effect each render they change, so the closure always reflects the current
- * frame.
- *
- * The registration setters are stable `useCallback`s, so passing them off the merged `ui` object does
- * not re-fire the effect when an unrelated overlay toggle changes that object's identity.
- *
- * Cleanup clears the registration on unmount or when the deps change — important because
- * the yank handler reads the provider through a ref and a stale closure would leak
- * yesterday's task name into copies.
+ * Registers the active-task summary provider with `UiState` and returns the Execute-local `y` (yank) handler, which
+ * copies a markdown snapshot of whatever task the operator is currently watching.
  */
 
 import { useEffect } from 'react';

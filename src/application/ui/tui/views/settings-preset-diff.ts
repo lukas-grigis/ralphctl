@@ -1,6 +1,6 @@
 /**
- * Pure before/after of applying a preset: every value a preset can rewrite (`ai.*` leaves plus the
- * two harness flags it stamps), compared against what `applyPreset` would produce.
+ * Pure before/after of applying a preset: every value a preset can rewrite (`ai.*` leaves plus the two harness flags
+ * it stamps), compared against what `applyPreset` would produce.
  */
 
 import { applyPreset, type PresetName } from '@src/business/settings/presets.ts';

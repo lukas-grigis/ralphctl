@@ -8,16 +8,7 @@ import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import { dirSizeBytes, removeDir } from '@src/integration/io/fs.ts';
 
 /**
- * Enumeration + parsing helpers for per-run forensic artifact directories under
- * `<dataRoot>/runs/<flow>/<run-id>/`. Used by the `ralphctl runs list` / `ralphctl runs prune`
- * CLI surface to inspect and tidy what the one-shot AI flows (detect-scripts / detect-skills /
- * readiness) leave on disk.
- *
- * All filesystem helpers swallow `ENOENT` on the supplied `runsRoot` and return `[]` so a
- * fresh install where the directory doesn't exist yet looks identical to an empty one — the
- * CLI prints an empty-state message in both cases. Parse helpers return `Result<…>` so
- * downstream callers can render a single clear error line and exit non-zero without scanning
- * the filesystem.
+ * Enumeration + parsing helpers for per-run forensic artifact directories under `<dataRoot>/runs/<flow>/<run-id>/`.
  */
 
 export interface RunEntry {
@@ -35,10 +26,7 @@ export interface RunEntry {
 
 /**
  * Convert a `buildRunDirName` output back to a `Date`. The dir-name convention is
- * `YYYY-MM-DDTHH-MM-SS-mmmZ-<6-char-suffix>` (colons + dot replaced with `-`). We rebuild
- * the canonical ISO shape and `new Date(...)` it. Returns `null` (not an error) for names
- * that don't match the pattern — those are valid manual additions an operator may have made,
- * and the caller surfaces them as a warning rather than failing the scan.
+ * `YYYY-MM-DDTHH-MM-SS-mmmZ-<6-char-suffix>` (colons + dot replaced with `-`).
  */
 export const parseRunTimestamp = (runDirName: string): Date | null => {
   const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2})-(\d{2})-(\d{2})-(\d{3})Z-/.exec(runDirName);
@@ -51,13 +39,7 @@ export const parseRunTimestamp = (runDirName: string): Date | null => {
 
 const DURATION_HINT = 'use a value like 24h, 7d, or 2w';
 
-/**
- * Parse a duration like `7d`, `24h`, `2w`. Suffixes are deliberately restricted to `h` / `d` /
- * `w` — minute granularity isn't useful when forensic dirs live for hours-to-weeks, and `m`
- * being ambiguous (minutes vs months) is a common foot-gun. The function returns a
- * `ValidationError` for negative, zero, NaN, unsupported suffix, or unparsable input so the
- * CLI can print a single clear error line before any filesystem access.
- */
+/** Parse a duration like `7d`, `24h`, `2w`. */
 export const parseDuration = (input: string): Result<number, ValidationError> => {
   const trimmed = input.trim();
   if (trimmed.length === 0) {
@@ -133,8 +115,8 @@ export const formatBytes = (bytes: number): string => {
 };
 
 /**
- * Format an age relative to now in coarse buckets — seconds / minutes / hours / days / weeks.
- * `now` is injectable so tests get deterministic output.
+ * Format an age relative to now in coarse buckets — seconds / minutes / hours / days / weeks. `now` is injectable so
+ * tests get deterministic output.
  */
 export const formatRelativeAge = (timestamp: Date | null, now: Date = new Date()): string => {
   if (timestamp === null) return 'unknown age';
@@ -152,14 +134,7 @@ export const formatRelativeAge = (timestamp: Date | null, now: Date = new Date()
   return `${weeks}w ago`;
 };
 
-/**
- * Read a directory's entries, tolerating a missing path. Returns `undefined` (not an error) when
- * `path` doesn't exist (`ENOENT`) — callers decide their own recovery: the runs-root call site
- * treats a missing root as "no runs yet" ( `[]` ), while the per-flow call site treats a missing
- * flow dir (a race with a concurrent delete) as "skip this flow". Any other I/O error is surfaced
- * as a `ValidationError` tagged with `field` so the caller's context (root vs. one flow dir) is
- * visible in the message.
- */
+/** Read a directory's entries, tolerating a missing path. */
 const readDirTolerant = async (
   path: string,
   field: string
@@ -178,11 +153,7 @@ const readDirTolerant = async (
   }
 };
 
-/**
- * Enumerate every run dir under one flow directory (`<runsRoot>/<flowName>/`). A missing flow
- * dir (race with a concurrent delete) yields `[]` rather than an error — the scan simply has
- * nothing to report for that flow.
- */
+/** Enumerate every run dir under one flow directory (`<runsRoot>/<flowName>/`). */
 const listRunsForFlow = async (
   root: string,
   flowName: string
@@ -211,13 +182,7 @@ const listRunsForFlow = async (
 };
 
 /**
- * Enumerate every run dir under `runsRoot`. Returns one `RunEntry` per `<runsRoot>/<flow>/<run-id>/`
- * directory. ENOENT on `runsRoot` returns `[]`. Per-flow / per-run ENOENT (race with a concurrent
- * delete) is also tolerated — the affected entry is skipped. Other I/O errors propagate as
- * `Result.error`.
- *
- * Symbolic links are not followed: directory entries are filtered by `Dirent.isDirectory()` only,
- * and size accumulation uses `lstat`. Together this confines the scan to `runsRoot`.
+ * Enumerate every run dir under `runsRoot`. Returns one `RunEntry` per `<runsRoot>/<flow>/<run-id>/` directory.
  */
 export const listRuns = async (runsRoot: AbsolutePath): Promise<Result<readonly RunEntry[], ValidationError>> => {
   const root = String(runsRoot);
@@ -239,8 +204,8 @@ const isPlainSegment = (segment: string): boolean =>
   segment.length > 0 && segment !== '.' && segment !== '..' && !/[/\\\0]/.test(segment);
 
 /**
- * Delete one run dir `<runsRoot>/<flow>/<runId>/`. Both names must be single path segments, so
- * the delete can never escape `runsRoot`. `NotFoundError` when the run is already gone.
+ * Delete one run dir `<runsRoot>/<flow>/<runId>/`. Both names must be single path segments, so the delete can never
+ * escape `runsRoot`.
  */
 export const removeRun = async (
   runsRoot: AbsolutePath,
@@ -257,11 +222,7 @@ export const removeRun = async (
   return removeDir(join(String(runsRoot), run.flow, run.runId));
 };
 
-/**
- * Group entries by flow and sort within each group newest-first (parsed timestamp; entries
- * with `timestamp === null` sort last and keep stable lexicographic order between themselves
- * so an operator's `ls` output and the CLI agree).
- */
+/** Group entries by flow and sort within each group newest-first (parsed timestamp. */
 export const groupByFlow = (entries: readonly RunEntry[]): Map<string, readonly RunEntry[]> => {
   const groups = new Map<string, RunEntry[]>();
   for (const entry of entries) {

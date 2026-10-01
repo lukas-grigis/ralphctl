@@ -61,16 +61,8 @@ const exportContextAction = async (opts: Opts): Promise<void> => {
 };
 
 /**
- * Register the `export-context` CLI command.
- *
- *   ralphctl export-context [--sprint <id>] [--project <id>] --output <path>
- *
- * Renders the harness-context markdown (sprint + project + tasks) to the
- * supplied path. `--sprint` defaults to the pinned current sprint;
- * `--project` defaults to the sprint's own project and, when supplied, is
- * validated and cross-checked against the sprint by the flow. Exits 0 with a
- * one-line confirmation, or 1 with a stderr message on validation / NotFound /
- * IO error.
+ * Register the `export-context` CLI command. ralphctl export-context [--sprint <id>] [--project <id>] --output <path>
+ * Renders the harness-context markdown (sprint + project + tasks) to the supplied path.
  */
 export const registerExportContextCommand = (program: Command): void => {
   program

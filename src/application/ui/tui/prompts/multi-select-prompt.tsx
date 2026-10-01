@@ -1,12 +1,6 @@
 /**
- * Multi-select prompt. Space toggles the focused option; Enter submits the current selection;
- * `a` selects all (enabled options only); `n` clears selection. Esc cancels with empty. Long
- * option lists scroll within a fixed window so the prompt frame stays predictable; `picked`
- * keeps original-index references so toggling survives scrolling.
- *
- * Disabled options (`Choice.disabled`) render dim, are skipped by cursor movement, and reject
- * both a direct toggle and `a` select-all — same gating contract as {@link SelectPrompt}'s
- * single-select cursor, extended here to the toggle set.
+ * Multi-select prompt. Space toggles the focused option; Enter submits the current selection; `a` selects all
+ * (enabled options only); `n` clears selection.
  */
 
 import React, { useState } from 'react';
@@ -145,12 +139,7 @@ export interface MultiSelectPromptProps {
   readonly options: ReadonlyArray<Choice<unknown>>;
   readonly onSubmit: (values: readonly unknown[]) => void;
   readonly onCancel: () => void;
-  /**
-   * Pre-check every option whose `value` appears here (`===` match). Enabled callers pass
-   * e.g. a skill's `recommendedFor` list so the picker opens with a sensible starting selection
-   * instead of forcing every choice to be made from scratch. Values matching a `disabled`
-   * option are ignored — a disabled row can never be pre-selected.
-   */
+  /** Pre-check every option whose `value` appears here (`===` match). */
   readonly initialSelectedValues?: readonly unknown[];
 }
 

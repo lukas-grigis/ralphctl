@@ -5,17 +5,7 @@ import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
 
 /**
- * Read a JSON file and return its parsed contents (still as `unknown` — caller decodes via the
- * relevant codec). Distinguishes the three failure shapes callers care about:
- *  - file missing       → `NotFoundError` (a normal outcome for `findById`)
- *  - file unreadable    → `StorageError` (subCode `'io'`)
- *  - file not valid JSON → `StorageError` (subCode `'parse'`)
- *
- * `ENOTDIR` (a path component along the way isn't a directory) is reported as `NotFoundError`,
- * not `StorageError`: callers that iterate `listDir(<root>/sprints)` looking for
- * `<root>/sprints/<id>/sprint.json` legitimately hit this when a stray FILE (`.DS_Store`,
- * `.gitkeep`, …) sits next to the per-id subfolders. Treating it as "file not there" lets the
- * existing skip-on-NotFound loops handle the case without special casing.
+ * Read a JSON file and return its parsed contents (still as `unknown` — caller decodes via the relevant codec).
  */
 export const readJson = async (path: string): Promise<Result<unknown, NotFoundError | StorageError>> => {
   let content: string;
@@ -35,15 +25,8 @@ export const readJson = async (path: string): Promise<Result<unknown, NotFoundEr
 };
 
 /**
- * Write text content to a file atomically: write to a sibling temp file, **fsync the file's data
- * to disk**, then rename over the target. The fsync-before-rename is what makes the contract real —
- * without it the rename can be journaled before the temp file's data blocks reach disk, leaving a
- * zero-length or partially-written file at the target after a power loss / OS crash. Since the
- * sprint state files (`sprint.json` / `execution.json` / `tasks.json`) are the only copy of harness
- * state, that durability matters. The rename itself is atomic on POSIX filesystems, so readers
- * either see the old content or the full new content — never a half-written file. Creates parent
- * directories as needed. The parent directory is also fsync'd on POSIX (best-effort) so the rename
- * survives a crash; this is skipped on Windows where directory fsync is unsupported.
+ * Write text content to a file atomically: write to a sibling temp file, **fsync the file's data to disk**, then
+ * rename over the target.
  */
 let tmpSeq = 0;
 const nextTmpSeq = (): number => {
@@ -58,9 +41,7 @@ export const writeTextAtomic = async (path: string, content: string): Promise<Re
   } catch (cause) {
     return Result.error(new StorageError({ subCode: 'io', message: `mkdir failed: ${dir}`, path: dir, cause }));
   }
-  // pid distinguishes processes; the monotonic counter distinguishes same-millisecond calls within
-  // this process — without it two concurrent writers to the same target could share a scratch file
-  // and publish a spliced body via the rename.
+  // pid distinguishes processes; the monotonic counter distinguishes same-millisecond calls within this process.
   const tmp = `${path}.tmp.${String(process.pid)}.${String(Date.now())}.${String(nextTmpSeq())}`;
   try {
     const handle = await fs.open(tmp, 'w');
@@ -81,11 +62,7 @@ export const writeTextAtomic = async (path: string, content: string): Promise<Re
   }
 };
 
-/**
- * fsync a directory so a rename into it is durable across a crash. POSIX-only — Windows rejects
- * opening a directory handle, and dir-fsync is not a meaningful operation there, so a failure is
- * swallowed rather than failing the write.
- */
+/** fsync a directory so a rename into it is durable across a crash. */
 const fsyncDir = async (dir: string): Promise<void> => {
   let handle: Awaited<ReturnType<typeof fs.open>> | undefined;
   try {
@@ -101,16 +78,12 @@ const fsyncDir = async (dir: string): Promise<void> => {
 };
 
 /**
- * Write a JSON file atomically. Pretty-prints with 2-space indent so on-disk diffs in
- * `git status` are reviewable. Delegates to `writeTextAtomic` for the rename-based atomicity.
+ * Write a JSON file atomically. Pretty-prints with 2-space indent so on-disk diffs in `git status` are reviewable.
  */
 export const writeJsonAtomic = async (path: string, value: unknown): Promise<Result<void, StorageError>> =>
   writeTextAtomic(path, `${JSON.stringify(value, null, 2)}\n`);
 
-/**
- * Delete a file. Returns `NotFoundError` if the file did not exist (callers can decide whether
- * "remove if exists" is acceptable via the error code) or `StorageError` for other I/O issues.
- */
+/** Delete a file. */
 export const removeFile = async (path: string): Promise<Result<void, NotFoundError | StorageError>> => {
   try {
     await fs.unlink(path);
@@ -124,8 +97,8 @@ export const removeFile = async (path: string): Promise<Result<void, NotFoundErr
 };
 
 /**
- * Recursively delete a directory and its contents. Returns `NotFoundError` when the directory
- * doesn't exist; `StorageError` for other I/O issues.
+ * Recursively delete a directory and its contents. Returns `NotFoundError` when the directory doesn't exist;
+ * `StorageError` for other I/O issues.
  */
 export const removeDir = async (path: string): Promise<Result<void, NotFoundError | StorageError>> => {
   try {
@@ -139,15 +112,7 @@ export const removeDir = async (path: string): Promise<Result<void, NotFoundErro
   }
 };
 
-/**
- * Atomically rename a path (file or directory) to a new name on the SAME filesystem. Used by the
- * sprint repository's reconcile-on-save to upgrade a legacy `<id>/` dir (or a stale
- * `<id>--<oldSlug>/` dir) to the canonical `<id>--<slug>/` name in one move — `fs.rename` moves the
- * whole subtree atomically, so the three sub-files (`sprint.json` / `execution.json` /
- * `tasks.json`) never appear split between two dirs. Returns `NotFoundError` if the source is
- * absent; `StorageError` for other I/O issues (e.g. a cross-device rename, which the caller treats
- * as best-effort and leaves the source in place).
- */
+/** Atomically rename a path (file or directory) to a new name on the SAME filesystem. */
 export const renamePath = async (from: string, to: string): Promise<Result<void, NotFoundError | StorageError>> => {
   try {
     await fs.rename(from, to);
@@ -163,8 +128,8 @@ export const renamePath = async (from: string, to: string): Promise<Result<void,
 };
 
 /**
- * List the immediate entries of a directory. A missing directory returns an empty list (not an
- * error) — callers treat "no entries yet" the same as "directory absent."
+ * List the immediate entries of a directory. A missing directory returns an empty list (not an error) — callers treat
+ * "no entries yet" the same as "directory absent."
  */
 export const listDir = async (path: string): Promise<Result<readonly string[], StorageError>> => {
   try {
@@ -175,11 +140,7 @@ export const listDir = async (path: string): Promise<Result<readonly string[], S
   }
 };
 
-/**
- * Stat a path and report whether it exists as a directory. Returns `false` (not an error) when
- * the path is missing or is a non-directory entry — callers that distinguish those two need to
- * use `fs.stat` directly. Other I/O failures (permission denied, etc.) surface as `StorageError`.
- */
+/** Stat a path and report whether it exists as a directory. */
 export const pathIsDirectory = async (path: string): Promise<Result<boolean, StorageError>> => {
   try {
     const stat = await fs.stat(path);
@@ -191,9 +152,8 @@ export const pathIsDirectory = async (path: string): Promise<Result<boolean, Sto
 };
 
 /**
- * Report whether anything (file, directory, symlink) exists at the path. Resolves `false` for
- * `ENOENT` / `ENOTDIR`; other I/O failures surface as `StorageError`. Used by callers that
- * want a yes/no without caring about the entry kind (e.g. first-run detection).
+ * Report whether anything (file, directory, symlink) exists at the path. Resolves `false` for `ENOENT` / `ENOTDIR`;
+ * other I/O failures surface as `StorageError`.
  */
 export const pathExists = async (path: string): Promise<Result<boolean, StorageError>> => {
   try {
@@ -205,11 +165,7 @@ export const pathExists = async (path: string): Promise<Result<boolean, StorageE
   }
 };
 
-/**
- * Probe whether the current process can write to a path (via `fs.access(W_OK)`). Resolves
- * `false` for `EACCES` / `EROFS` / missing-path; other I/O failures surface as `StorageError`.
- * Doctor uses this to flag a read-only home before flows hit it at write time.
- */
+/** Probe whether the current process can write to a path (via `fs.access(W_OK)`). */
 export const pathIsWritable = async (path: string): Promise<Result<boolean, StorageError>> => {
   try {
     await fs.access(path, fs.constants.W_OK);
@@ -227,10 +183,7 @@ export const pathIsWritable = async (path: string): Promise<Result<boolean, Stor
   }
 };
 
-/**
- * Sum file sizes under `dir`, recursively. Symlinks are not followed (`Dirent` + `lstat`), and an
- * unreadable or vanished entry counts as zero so one bad file never fails the whole walk.
- */
+/** Sum file sizes under `dir`, recursively. */
 export const dirSizeBytes = async (dir: string): Promise<number> => {
   let entries: Dirent[];
   try {

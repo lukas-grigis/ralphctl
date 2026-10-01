@@ -1,6 +1,6 @@
 /**
- * "Nothing here yet" placeholder card. Used when a list is empty so the screen still has a
- * meaningful focal point with a call-to-action.
+ * "Nothing here yet" placeholder card. Used when a list is empty so the screen still has a meaningful focal point
+ * with a call-to-action.
  */
 
 import React from 'react';

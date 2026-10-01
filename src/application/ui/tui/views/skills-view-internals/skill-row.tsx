@@ -1,7 +1,6 @@
 /**
- * One catalog row: name (+ "(manual)" tag for a non-bundled entry), one-line description,
- * per-flow status chips, and a dim "recommended:" line when the registry suggests extra phases.
- * Presentational only — `skills-view.tsx` owns the cursor + action wiring.
+ * One catalog row: name (+ "(manual)" tag for a non-bundled entry), one-line description, per-flow status chips, and
+ * a dim "recommended:" line when the registry suggests extra phases.
  */
 
 import React from 'react';

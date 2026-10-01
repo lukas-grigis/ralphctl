@@ -1,10 +1,4 @@
-/**
- * First-run welcome. Probes PATH for the supported CLIs, seeds a preset (one CLI → `<provider>-only`,
- * zero or 2+ → `mixed`) unless settings already exist on disk, then holds on an orientation card
- * until a key is pressed. Held states: orientation (≥ 1 CLI, no project yet), the zero-CLI warning
- * and the seed-failed error; `esc` is claimed locally in all of them. With a project already on
- * disk the view routes straight to Work.
- */
+/** First-run welcome. */
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
@@ -81,11 +75,7 @@ const useWelcomeSeeding = (): UseWelcomeSeedingResult => {
     if (seededRef.current) return;
     seededRef.current = true;
     const seed = async (): Promise<void> => {
-      // Durable idempotence gate. A settings file on disk means first-run setup already
-      // happened, so re-seeding would replace the whole `ai` section (that is what
-      // `applyPreset` does) over whatever the user configured in Settings since. Route onward
-      // without probing PATH or writing anything. A storage error fails OPEN — a first run must
-      // never be blocked by an unreadable settings probe.
+      // Durable idempotence gate.
       const already = await deps.settingsRepo.exists();
       if (already.ok && already.value) {
         router.reset(await resolveNextRoute(deps.projectRepo));

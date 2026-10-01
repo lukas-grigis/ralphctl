@@ -1,9 +1,4 @@
-/**
- * Resolve the implement flow's per-role opt-in agent-definition bindings. Split out of
- * `launch/implement.ts` (which composes these results into the deps/opts bags) so that file
- * stays under the line-count ratchet — these are pure/async composition helpers with no
- * dependency on the rest of the launcher's control flow.
- */
+/** Resolve the implement flow's per-role opt-in agent-definition bindings. */
 
 import { type AiImplementRole, type AiImplementSettings, primaryAgentBinding } from '@src/domain/entity/settings.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
@@ -14,13 +9,8 @@ import { createAgentDefinitionAdapter } from '@src/integration/ai/agents/adapter
 import type { LauncherDeps } from '@src/application/ui/shared/launcher.ts';
 
 /**
- * Resolve one implement role's agent-definition binding into the concrete {@link AgentDefinition},
- * or `undefined` when the role has no binding at all. A bound name that does NOT resolve against
- * the composed bundled+operator source (a typo, or a definition the operator removed) is reported
- * as a logged warning rather than a launch failure — the role's session then runs unaided, exactly
- * as if no binding had been configured (the resilience posture the skills subsystem already uses
- * for its own opt-in seams).
- *
+ * Resolve one implement role's agent-definition binding into the concrete {@link AgentDefinition}, or `undefined`
+ * when the role has no binding at all.
  * @public
  */
 export const resolveRoleAgentBinding = async (
@@ -51,14 +41,7 @@ export const resolveRoleAgentBinding = async (
 };
 
 /**
- * Build the per-role "## Agent Definition" prompt section for a resolved binding. Every current
- * provider adapter (Claude / Copilot / Codex) is filesystem-native — the launcher has already
- * installed the definition's native file by the time the generator/evaluator prompt is built —
- * so the section ANNOUNCES that file via the adapter's `describeConvention()` rather than
- * injecting the raw body. A future provider with no native discovery format would inject
- * `definition.content` directly instead; the seam here is generic enough to add that branch
- * without touching call sites.
- *
+ * Build the per-role "## Agent Definition" prompt section for a resolved binding.
  * @public
  */
 export const buildAgentDefinitionSection = (definition: AgentDefinition, adapter: AgentDefinitionAdapter): string =>
@@ -75,13 +58,8 @@ export interface RoleAgentBinding {
 }
 
 /**
- * Resolve both implement roles' agent-definition bindings against the composed bundled+operator
- * source, and build a role-scoped {@link AgentDefinitionAdapter} for each — generator and
- * evaluator may target different providers, so each gets its own adapter unconditionally (mirrors
- * `buildImplementProviders`'s per-role provider construction). A role's `definition`/`section`
- * stay absent when it has no binding, so downstream composition (install leaves, prompt sections,
- * model/effort override) is a byte-for-byte no-op for that role.
- *
+ * Resolve both implement roles' agent-definition bindings against the composed bundled+operator source, and build a
+ * role-scoped {@link AgentDefinitionAdapter} for each.
  * @public
  */
 export const resolveImplementAgentBindings = async (

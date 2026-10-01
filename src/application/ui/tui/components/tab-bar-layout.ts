@@ -1,18 +1,4 @@
-/**
- * Pure layout for the one-row tab bar. No React, no Ink: it returns whole-cell segments so the
- * component only paints them and a test can assert on the plain text at any width.
- *
- *   ` ralphctl │ [1 Work]  2 Sprints   3 Projects   4 Runs ●1   5 System ✚2      ? help `
- *
- * The active tab is wrapped in `[ ]` — the NO_COLOR cue; colour adds primary + bold on top.
- * Below `lg` badges are compact (`●N`, `✚N`) and the right side is `? help`; at `lg` and wider
- * they are spelled out (`● N live`, `✚ N warning(s)`) and the right side also carries the
- * version and, when one exists, the available update.
- *
- * Width is measured in code points (every glyph in `tokens.ts` is one cell). When the full form
- * does not fit, the layout degrades in order — drop the wordmark, then the tab padding, then the
- * badges, then the right side — so all five labels always survive whole.
- */
+/** Pure layout for the one-row tab bar. */
 
 import { breakpoints, glyphs } from '@src/application/ui/tui/theme/tokens.ts';
 import { SECTIONS, type SectionId } from '@src/application/ui/tui/runtime/nav-tree.ts';

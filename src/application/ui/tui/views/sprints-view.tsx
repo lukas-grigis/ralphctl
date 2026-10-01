@@ -1,14 +1,6 @@
 /**
- * Sprints list — every sprint, scoped to the current project when one is selected. Selecting
- * a row sets it as the current sprint and pushes its detail view.
- *
- * Local keys:
- *   c   launch the create-sprint flow against the current project.
- *   e   rename the focused sprint (inert on a done sprint, which is immutable).
- *   d   confirm + remove the focused sprint (cascades execution + tasks via sprintRepo.remove).
- *   r   reload the list.
- *   u   bulk-unblock the focused sprint's stuck tasks.
- *   ↵   open the sprint's detail view.
+ * Sprints list — every sprint, scoped to the current project when one is selected. Selecting a row sets it as the
+ * current sprint and pushes its detail view.
  */
 
 import React, { useEffect, useState } from 'react';
@@ -58,22 +50,7 @@ export interface UseStuckSprintTasksResult {
 }
 
 /**
- * Loads the focused sprint's tasks (cancel-safe on sprint change / unmount) and derives the
- * bulk-unblockable subset. That's `blocked` + `in_progress`, plus — only when neither of those
- * exist and the sprint itself is still `review` — the single stray `todo` task an interrupted
- * `unblockTaskUseCase` `review` → `active` hop can leave behind (`finishInterruptedReopen` in
- * `business/task/unblock-task.ts`). Capped at ONE `todo` task on purpose: that use case's
- * already-`todo` short-circuit persists no task write, so folding every `todo` task on the sprint
- * in here would call it N times over and report "unblocked N tasks" for a run that revived none of
- * them. `unblockAll` mirrors the original inline handler's mounted-ref-gated ordering: the unblock
- * loop runs unconditionally, a mount check gates the feedback write, and a second mount check
- * (after the further awaited refresh) gates the task-list write — mount state can change between
- * the two awaits.
- *
- * `reload` is the outer list loader's own reload (same one `e` / `d` already call on success) —
- * this hook's `tasks` state only feeds the footer hint's stuck count; the card's `· N blocked`
- * sub-count and status chip come from the separate `SprintListEntry` snapshot that loader owns,
- * so without this call a successful bulk unblock left that badge stale until `r` or a remount.
+ * Loads the focused sprint's tasks (cancel-safe on sprint change / unmount) and derives the bulk-unblockable subset.
  */
 const useStuckSprintTasks = (
   sprintId: Sprint['id'] | undefined,
@@ -163,12 +140,7 @@ const useStuckSprintTasks = (
   return { stuckCount: stuckTasks.length, unblockAll };
 };
 
-/**
- * One row's worth of loading — the sprint plus its task-blocked health. Loaded once per list
- * fetch (a single batched `Promise.all` over every sprint in scope), never per rendered row: a
- * per-row fetch would re-run on every scroll / re-render and could stall the list on a project
- * with many sprints.
- */
+/** One row's worth of loading — the sprint plus its task-blocked health. */
 interface SprintListEntry {
   readonly sprint: Sprint;
   readonly health: TaskHealthCounts;
@@ -184,18 +156,13 @@ export interface UseSprintRowActionsResult {
 }
 
 /**
- * Rename + delete-confirm state and handlers for the focused sprint row, shaped like
- * {@link useLaunchCreateSprint} — the caller (the render + key dispatcher) supplies the
- * `edit` field-prompt hook and `reload` callback it already owns rather than this hook
- * instantiating its own competing instances.
+ * Rename + delete-confirm state and handlers for the focused sprint row, shaped like {@link useLaunchCreateSprint}.
  */
 const useSprintRowActions = (edit: UseEditFieldState, reload: () => void): UseSprintRowActionsResult => {
   const deps = useDeps();
   const selection = useSelection();
-  // Mounted-ref guard: dismissing the confirm overlay unblocks the router, so the operator can
-  // navigate away (unmounting this view) before the awaited repo write resolves. The guard skips
-  // the post-await view-local writes (setFeedback / reload) so they never fire into an unmounted
-  // tree.
+  // Mounted-ref guard: dismissing the confirm overlay unblocks the router, so the operator can navigate away
+  // (unmounting this view) before the awaited repo write resolves.
   const mountedRef = useIsMounted();
   const [confirmDelete, setConfirmDelete] = useState<Sprint | undefined>(undefined);
   const [feedback, setFeedback] = useState<string | undefined>(undefined);
@@ -362,9 +329,8 @@ export const SprintsView = (): React.JSX.Element => {
     if (!r.ok) throw new Error(r.error.message);
     const scoped =
       selection.projectId !== undefined ? r.value.filter((s) => s.projectId === selection.projectId) : r.value;
-    // sprintRepo.list() returns ids ascending (UUIDv7 ≈ creation order); reverse to newest-first
-    // so this list matches the home view and the cross-project picker. Copy before sorting —
-    // r.value may alias the repository's own array.
+    // sprintRepo.list() returns ids ascending (UUIDv7 ≈ creation order); reverse to newest-first so this list matches
+    // the home view and the cross-project picker.
     const sorted = [...scoped].sort((a, b) => (a.id < b.id ? 1 : a.id > b.id ? -1 : 0));
     // Task-blocked health folded into THIS loader via the shared batch helper — one
     // `Promise.all` per list load, not a fetch per rendered row (see its doc comment for why).
@@ -379,9 +345,8 @@ export const SprintsView = (): React.JSX.Element => {
   const actions = useSprintRowActions(edit, reload);
   const { confirmDelete } = actions;
 
-  // Windowed cursor — owns ↑/↓ + j/k + PgUp/PgDn + Home/End + Enter; the cursor is the sprint id,
-  // so a reload/reorder keeps focus on the same sprint. Enter opens the sprint detail (browse only).
-  // Disabled while a prompt/help/confirm is up so its keys don't fight the modal.
+  // Windowed cursor — owns ↑/↓ + j/k + PgUp/PgDn + Home/End + Enter; the cursor is the sprint id, so a reload/reorder
+  // keeps focus on the same sprint.
   const listActive = !ui.modalOpen && confirmDelete === undefined;
   const list = useListWindow<SprintListEntry>({
     items,

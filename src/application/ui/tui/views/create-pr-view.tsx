@@ -1,12 +1,6 @@
 /**
- * Create-pull-request view — opens a PR / MR for the selected sprint's branch via the
- * configured platform CLI (`gh` / `glab`). Unlike the export-* views, this has an
- * external side effect (creates an upstream PR), so the view shows a one-line confirm
- * prompt before firing — pressing the view by mistake doesn't ship an unwanted PR.
- *
- * Defaults: base = `main`, draft = false, AI authoring = on. Press `a` on the idle
- * screen to toggle AI authoring off (the template-derived title + body wins instead).
- * Users who need other options run the `ralphctl create-pr` CLI command directly.
+ * Create-pull-request view — opens a PR / MR for the selected sprint's branch via the configured platform CLI (`gh` /
+ * `glab`).
  */
 
 import React, { useCallback, useEffect, useState } from 'react';
@@ -54,11 +48,8 @@ export const CreatePrView = (): React.JSX.Element => {
   // Resolve cwd (project's first repo path) and branch (sprint-execution.branch) up front,
   // so the confirm card can show concrete values rather than spinning twice.
   useEffect(() => {
-    // Guard the setPrep write behind a `cancelled` flag: if the selection changes (a new load
-    // starts) or the view unmounts while `resolvePrepState`'s awaits are in flight, the stale
-    // run must not write state — matches the cancelled-flag idiom used across the other async
-    // views. `resolvePrepState` itself runs to natural completion regardless (see its own doc
-    // comment); only the state write is gated here.
+    // Guard the setPrep write behind a `cancelled` flag: if the selection changes (a new load starts) or the view
+    // unmounts while `resolvePrepState`'s awaits are in flight.
     let cancelled = false;
     void resolvePrepState(deps, selection.projectId, selection.sprintId).then((next) => {
       if (!cancelled) setPrep(next);
@@ -119,10 +110,7 @@ export const CreatePrView = (): React.JSX.Element => {
 };
 
 /**
- * Resolve the confirm card's inputs: the project's first repo path (`cwd`) and the sprint
- * execution's branch. Pure I/O, no state writes — the caller's effect owns the cancelled-flag
- * gate around the resulting `setPrep`, so (like `useAsyncLoad`'s untracked loaders) this runs
- * to natural completion even if the caller ends up discarding the result.
+ * Resolve the confirm card's inputs: the project's first repo path (`cwd`) and the sprint execution's branch.
  */
 const resolvePrepState = async (
   deps: AppDeps,
@@ -147,14 +135,8 @@ const resolvePrepState = async (
 };
 
 /**
- * Guard chain for the `runCreate` handler: sprint-selected check, then the PATH gate for the AI
- * step, then the sprint-dir resolve + parse. PATH-gates the AI step FIRST: the create-pr AI
- * session spawns the `createPr` row's provider CLI. Probe for it before any sprint I/O so a
- * missing binary surfaces the same actionable "binary not found" message every other AI flow
- * gives, instead of an opaque spawn failure mid-run. Only relevant when AI authoring is on — the
- * template path spawns no AI. Resolves the sprint dir via the tolerant id-prefix resolver (both
- * `<id>--<slug>/` and the legacy bare `<id>/`) — the view only holds the sprint id, not the
- * entity. Returns the failure `RunState` on error so the caller can `setRun` it directly.
+ * Guard chain for the `runCreate` handler: sprint-selected check, then the PATH gate for the AI step, then the
+ * sprint-dir resolve + parse.
  */
 const resolveCreatePrInputs = async (
   deps: AppDeps,
@@ -189,20 +171,7 @@ interface ExecuteCreatePrFlowArgs {
   readonly useAi: boolean;
 }
 
-/**
- * Build the createPr provider + flow and run it. Rebuilds the provider from the `createPr`
- * settings row rather than reusing `deps.provider` (the wire-time seed keyed on the `implement`
- * row) — in a mixed-provider config that would hand the createPr model string to the implement
- * provider's CLI, a provider/model mismatch. The model is already sourced from
- * `ai.createPr.model`, so the provider must match it.
- *
- * The composed skill source is built directly via `buildComposedSkillSource` rather than through
- * `launchFlow` — this view never reaches that dispatch switch (see `flowMountsSkills`'s doc
- * comment). The snapshot is intentionally project-less: this is a one-shot summarisation step
- * over an already-pushed diff, not a per-repo engineering session, so the project-scoped skill
- * source (detect-skills output) contributes nothing here by design, and omitting it keeps this
- * view's composition symmetric with the CLI command's (which has no project on hand either).
- */
+/** Build the createPr provider + flow and run it. */
 const executeCreatePrFlow = async (args: ExecuteCreatePrFlowArgs): Promise<RunState> => {
   const { deps, sprintId, sprintDir, cwd, useAi } = args;
   const resolvedProvider = deps.settings.ai.createPr.provider;
@@ -263,11 +232,7 @@ interface BodyProps {
   readonly useAi: boolean;
 }
 
-/**
- * Flat if-returns instead of a nested ternary chain — same branch order and same JSX as before,
- * just laid out as one branch per line (mirrors `SprintDetailContent` in sprint-detail-view.tsx,
- * the established fix for this exact cognitive-complexity shape in this codebase).
- */
+/** Flat if-returns instead of a nested ternary chain — same branch order and same JSX as before. */
 const Body = ({ prep, run, useAi }: BodyProps): React.JSX.Element => {
   const content = renderBody(prep, run, useAi);
   return (

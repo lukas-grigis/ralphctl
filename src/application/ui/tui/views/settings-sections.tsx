@@ -1,8 +1,4 @@
-/**
- * Read-side render of the Settings view's section strip + active-section body. Keeps the
- * orchestrator focused on hooks, key handling, and prompt mounting; this file owns the
- * "what does the active section look like" decision tree.
- */
+/** Read-side render of the Settings view's section strip + active-section body. */
 
 import React from 'react';
 import { Box, Text } from 'ink';

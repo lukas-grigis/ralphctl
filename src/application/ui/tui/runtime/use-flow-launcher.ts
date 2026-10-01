@@ -1,7 +1,6 @@
 /**
- * `useFlowLauncher` — the one launch path for every flow row: view route → repository picker →
- * customize picker → launch → session registration. Work's agenda and the `flows` alias both
- * go through it, so ↵ is never a blind launch.
+ * `useFlowLauncher` — the one launch path for every flow row: view route → repository picker → customize picker →
+ * launch → session registration.
  */
 
 import { useCallback, useState } from 'react';
@@ -43,10 +42,7 @@ import type { Runner } from '@src/application/chain/run/runner.ts';
 /** Flow id whose launch needs special sprint-rebinding handling. */
 const CREATE_SPRINT_FLOW_ID = 'create-sprint';
 
-/**
- * Use-case-shaped flows (no chain runner) that have a dedicated view. A table so the covered ids
- * read as data — the registry reachability fence derives {@link VIEW_ROUTED_FLOW_IDS} from it.
- */
+/** Use-case-shaped flows (no chain runner) that have a dedicated view. */
 const VIEW_ROUTES: Readonly<Record<string, (snapshot: AppStateSnapshot) => ViewEntry | undefined>> = {
   doctor: () => ({ id: 'doctor' }),
   settings: () => ({ id: 'settings' }),
@@ -63,9 +59,7 @@ const VIEW_ROUTES: Readonly<Record<string, (snapshot: AppStateSnapshot) => ViewE
 export const VIEW_ROUTED_FLOW_IDS: readonly string[] = Object.keys(VIEW_ROUTES);
 
 /**
- * The view a flow opens, or `undefined` when it launches a chain (or needs a sprint and none is
- * selected).
- *
+ * The view a flow opens, or `undefined` when it launches a chain (or needs a sprint and none is selected).
  * @public — exported for the route-shape tests.
  */
 export const viewRouteFor = (flowId: string, snapshot: AppStateSnapshot): ViewEntry | undefined =>
@@ -87,12 +81,6 @@ interface RunFlowLaunchDeps {
   readonly sessions: SessionManager;
 }
 
-/**
- * create-sprint and close-sprint change which sprint the user is on — they go through the
- * sprint-bound wrapper so the post-completion reseat happens in one place. create-sprint strips
- * the launch-time sprint from the snapshot: the new one doesn't exist yet, and pinning the old one
- * would mislabel every panel (`onSprintResolved` pins the real one).
- */
 const runFlowLaunch = async (
   launcherDeps: LauncherDeps,
   entry: FlowEntry,
@@ -116,8 +104,6 @@ const runFlowLaunch = async (
           selection.setSprint(id, name, status);
           return;
         }
-        // close-sprint: refresh the chip without replaying the switch toast; no-ops if the user
-        // moved to another sprint mid-run.
         if (status !== undefined) selection.syncSprintStatus(id, status);
       },
       onSprintResolved: (runnerId, { id, name }) => {
@@ -127,10 +113,7 @@ const runFlowLaunch = async (
   );
 };
 
-/**
- * Subscribe BEFORE `start()` so a synchronous completion isn't missed. Self-unsubscribes on every
- * terminal event — a dead listener pins the runner's closure scope (historically an OOM source).
- */
+/** Subscribe BEFORE `start()` so a synchronous completion isn't missed. */
 const attachRepositoryCapture = (runner: Runner<unknown>, ui: ReturnType<typeof useUiState>): void => {
   const unsubRepoCapture: () => void = runner.subscribe((event) => {
     if (event.type === 'failed' || event.type === 'aborted') {

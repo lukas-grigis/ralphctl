@@ -1,18 +1,4 @@
-/**
- * Live step trace — renders the planned flow as a vertical list of rows with a glyph per status.
- * Combines two inputs:
- *
- *  - `plan` (optional): the *full* list of expected leaves in execution order. Captured at
- *    chain-construction time via `flattenLeaves(element)`. Each plan entry renders even before
- *    it runs — pending steps show a dim hollow glyph (`◇`) so the operator sees what's ahead.
- *  - `trace`: the live record of what has executed; status drives the glyph for plan entries
- *    that match by name (last terminal entry wins, so a re-run leaf shows its newest state).
- *
- * Without `plan`, falls back to the legacy mode of rendering trace entries only.
- *
- * Filtering: applies before the plan/trace merge; pass the same predicate the execute view uses
- * to exclude per-task substeps (the Tasks panel renders those).
- */
+/** Live step trace — renders the planned flow as a vertical list of rows with a glyph per status. */
 
 import React, { useMemo } from 'react';
 import { Box, Text } from 'ink';
@@ -28,42 +14,21 @@ export interface StepTraceProps {
   readonly maxRows?: number;
   /** When the chain is running and the last entry is settled, append a synthetic "in flight" row. */
   readonly inFlightLabel?: string;
-  /**
-   * Planned leaf names in execution order. Renders pending rows for steps not yet in the trace;
-   * the in-flight cursor (first unmatched plan entry while running) gets a spinner.
-   */
+  /** Planned leaf names in execution order. */
   readonly plan?: readonly string[];
-  /**
-   * Display label for plan entries that have not yet executed — keyed by element name. Pending /
-   * running rows have no trace entry yet, so without this map they fall back to rendering the
-   * raw `name`, which for per-repo leaves embeds the full filesystem path
-   * (`preflight-task-1-/abs/path/to/repo`). Once a leaf runs, its TraceEntry carries the same
-   * label and supersedes this lookup. Optional — callers that don't need plan labels (legacy /
-   * tests) can omit it.
-   */
+  /** Display label for plan entries that have not yet executed — keyed by element name. */
   readonly labelByName?: ReadonlyMap<string, string>;
   /**
-   * When `true`, only the per-row status glyph renders — leaf name, duration, trailing label,
-   * and error message are all suppressed. Used by the compact-rail breakpoint (~100-139 cols) so
-   * the rail still communicates "where the runner is" without consuming the column width labels
-   * need. Default `false`.
+   * When `true`, only the per-row status glyph renders — leaf name, duration, trailing label, and error message are
+   * all suppressed.
    */
   readonly compact?: boolean;
   /**
-   * When `true`, each row renders `glyph + name` only — duration, trailing status label, and
-   * error message are suppressed. Use this for narrow sidebar rails (railWidth < 32) where
-   * appending the meta tail would overflow or wrap into the name. The name is still truncated to
-   * `textBudget` so the row stays within the column. Default `false`.
+   * When `true`, each row renders `glyph + name` only — duration, trailing status label, and error message are
+   * suppressed.
    */
   readonly suppressMeta?: boolean;
-  /**
-   * Optional rail-column width (in characters). When provided, displayed labels longer than the
-   * available text budget (`railWidth - 4` to leave room for the leading glyph, padding, and an
-   * ellipsis) are mid-truncated with an `…` suffix so a single long name can't push the rail
-   * wider than its resolved width. Omit the prop for callers that aren't laying the trace out
-   * inside a fixed-width column (default behaviour: no truncation, preserving callers in
-   * non-Execute contexts).
-   */
+  /** Optional rail-column width (in characters). */
   readonly railWidth?: number;
 }
 
@@ -71,21 +36,16 @@ type RowStatus = TraceEntry['status'] | 'pending' | 'running';
 
 interface MergedRow {
   readonly name: string;
-  /** Optional display label sourced from `Element.label` / `TraceEntry.label`; renderer prefers
-   * this over `name`. */
+  /**
+   * Optional display label sourced from `Element.label` / `TraceEntry.label`; renderer prefers this over `name`.
+   */
   readonly label?: string;
   readonly status: RowStatus;
   readonly durationMs?: number;
   readonly errorMessage?: string;
 }
 
-/**
- * Per-row glyph instruction. Either a static glyph (rendered inline by the caller's `<Text>`) or
- * a `spinner` sentinel — in which case the caller renders a `<Spinner />` leaf, which owns its
- * own 90 ms re-render scope. Returning the sentinel (instead of calling `spinnerGlyph(frame)`
- * here) is what allows StepTrace to drop the `useSpinnerFrame` call at the top of the component:
- * the spinner re-render no longer ticks the whole row list, only the spinner node itself.
- */
+/** Per-row glyph instruction. */
 type GlyphInstruction =
   | { readonly kind: 'static'; readonly glyph: string; readonly color: string }
   | { readonly kind: 'spinner'; readonly color: string };
@@ -107,12 +67,7 @@ const glyphFor = (status: RowStatus): GlyphInstruction => {
   }
 };
 
-/**
- * Short label appended next to non-success terminal statuses. Without this, a `skipped` entry
- * shows only a dim glyph, which reads as "still pending / frozen" rather than "this step was
- * cancelled because an earlier step failed". `failed` and `completed` are obvious from glyph +
- * error message and don't need extra text.
- */
+/** Short label appended next to non-success terminal statuses. */
 const trailingLabelFor = (status: RowStatus): string | undefined => {
   switch (status) {
     case 'skipped':
@@ -126,12 +81,7 @@ const trailingLabelFor = (status: RowStatus): string | undefined => {
   }
 };
 
-/**
- * Merge plan + trace into a single ordered row list. Plan entries are matched against trace
- * entries by name; the *last* trace entry wins (so a re-running leaf reflects its newest
- * state). Unmatched plan entries stay `pending`. While the chain is running, the first
- * `pending` row promotes to `running` so the operator sees the in-flight cursor.
- */
+/** Merge plan + trace into a single ordered row list. */
 const mergePlanWithTrace = (
   plan: readonly string[],
   trace: Trace,
@@ -146,9 +96,8 @@ const mergePlanWithTrace = (
     if (entry !== undefined) {
       return {
         name,
-        // TraceEntry-supplied label wins over the static lookup so a leaf that mutates its
-        // label between construction and execution is still reflected; the lookup is the
-        // fallback for rows that haven't traced yet.
+        // TraceEntry-supplied label wins over the static lookup so a leaf that mutates its label between construction
+        // and execution is still reflected.
         ...(entry.label !== undefined
           ? { label: entry.label }
           : labelByName?.get(name) !== undefined
@@ -179,10 +128,8 @@ const traceToRows = (trace: Trace): readonly MergedRow[] =>
   }));
 
 /**
- * Mid-truncate a display string so it fits inside `budget` characters, suffixed with the
- * `clipEllipsis` token (audit-[03] display-clip marker). When `budget` is too small (≤ 1) or
- * the string already fits, returns the input unchanged. Callers pass the column's *text*
- * budget (rail width minus glyph + padding + ellipsis gutter).
+ * Mid-truncate a display string so it fits inside `budget` characters, suffixed with the `clipEllipsis` token
+ * (audit-[03] display-clip marker).
  */
 const truncateLabel = (text: string, budget: number): string => {
   if (budget <= 1) return text;
@@ -199,8 +146,9 @@ interface StepTraceRowProps {
   readonly textBudget: number | undefined;
 }
 
-/** One row of the trace list: status glyph/spinner, optional name + duration + trailing label
- * + error tail. Compact and suppress-meta variants drop everything after the glyph/name. */
+/**
+ * One row of the trace list: status glyph/spinner, optional name + duration + trailing label + error tail.
+ */
 const StepTraceRow = ({ row, running, compact, suppressMeta, textBudget }: StepTraceRowProps): React.JSX.Element => {
   const instruction = glyphFor(row.status);
   const trailing = trailingLabelFor(row.status);
@@ -255,18 +203,7 @@ export const StepTrace = ({
   suppressMeta = false,
   railWidth,
 }: StepTraceProps): React.JSX.Element => {
-  // Memoize the plan/trace merge — `mergePlanWithTrace` walks the entire trace to build a
-  // lookup Map on every call. For long running sessions (5k+ trace entries) re-allocating that
-  // every render adds avoidable GC pressure even though the cost is fast in absolute terms.
-  //
-  // The runner mutates `trace` in place via push (+ ring eviction at the cap), so the array
-  // reference is stable across pushes — react-hooks/exhaustive-deps believes a single `trace`
-  // dep is sufficient (and so flags `trace.length` + `traceLastEntry` as "unnecessary"). It is
-  // NOT: with `trace` ref-stable, listing only `trace` would freeze the memo on the initial
-  // value and never recompute as items are pushed. The length + last-entry identity covers
-  // both regimes (length flips while the buffer fills; once we hit the ring cap, length sticks
-  // but the last entry's object identity still changes per push). Disable the rule locally
-  // with this explanation rather than restructuring around it.
+  // Memoize the plan/trace merge — `mergePlanWithTrace` walks the entire trace to build a lookup Map on every call.
   const traceLastEntry = trace[trace.length - 1];
   const merged = useMemo(
     () => (plan !== undefined ? mergePlanWithTrace(plan, trace, running, labelByName) : traceToRows(trace)),
@@ -286,11 +223,8 @@ export const StepTrace = ({
       ? filtered.slice(Math.max(0, runningIdx - Math.floor(maxRows / 2))).slice(0, maxRows)
       : filtered.slice(-maxRows);
 
-  // Text-budget calculation: subtract 4 from the rail width to reserve room for the leading
-  // glyph (1), its trailing space (1), the column's `paddingX={spacing.indent}` left edge (2).
-  // The trailing-label / duration / error tail is rendered AFTER the truncated name; on the
-  // wide breakpoints (≥180 cols) that tail typically fits on the same row, and on tighter
-  // layouts the line wraps cleanly inside the rail column rather than pushing it sideways.
+  // Text-budget calculation: subtract 4 from the rail width to reserve room for the leading glyph (1), its trailing
+  // space (1), the column's `paddingX={spacing.indent}` left edge (2).
   const textBudget = railWidth !== undefined ? Math.max(1, railWidth - 4) : undefined;
 
   return (

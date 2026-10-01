@@ -1,11 +1,6 @@
 /**
- * Tab bar — row 0 of every frame. The five persistent sections (`1 Work`, `2 Sprints`,
- * `3 Projects`, `4 Runs`, `5 System`) with live badges, plus `? help` on the right. The layout is
- * computed by {@link layoutTabs}; this component only paints it.
- *
- * Hidden while no section is active (the first-run wizard). Badges read the session list and the
- * shared system status, so a run starting or a doctor probe degrading shows up on every screen
- * without a view wiring it.
+ * Tab bar — row 0 of every frame. The five persistent sections (`1 Work`, `2 Sprints`, `3 Projects`, `4 Runs`, `5
+ * System`) with live badges, plus `? help` on the right.
  */
 
 import React from 'react';

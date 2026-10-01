@@ -39,22 +39,8 @@ type ScopedRunsResult =
 type FlowFilterResult = { readonly ok: true; readonly flowFilter: string | undefined } | { readonly ok: false };
 
 /**
- * Register the `runs` command group — inspection + tidy-up for per-run forensic artifacts
- * under `<dataRoot>/runs/<flow>/<run-id>/`, plus the harness outcome rollup folded from the
- * sprint aggregates those runs produced.
- *
- *   ralphctl runs list   [--flow <name>]
- *   ralphctl runs prune  [--older-than <dur>] [--keep-last <n>] [--flow <name>]
- *                        [--dry-run] [--yes|-y]
- *   ralphctl runs stats  [--json] [--since <date>] [--sprint <id>] [--project <id>]
- *
- * Lifecycle of the runs tree is user-managed (`rm -rf` at will, no auto-GC). This surface
- * gives operators a safer alternative to `rm -rf` — with filters, a confirm prompt, dry-run,
- * and per-failure tolerance so a single permission-denied entry doesn't strand the rest.
- *
- * `stats` lives here (rather than under `sprint`) because it answers a run-forensics question —
- * how the harness performed across runs — and is the read side of the same post-mortem surface.
- * It reads sprints / tasks, never the runs tree, so pruning artifacts never changes its output.
+ * Register the `runs` command group — inspection + tidy-up for per-run forensic artifacts under
+ * `<dataRoot>/runs/<flow>/<run-id>/`.
  */
 export const registerRunsCommand = (program: Command): void => {
   const runs = program.command('runs').description('inspect and prune per-run forensic artifacts');
@@ -209,8 +195,7 @@ const resolveScopedRuns = async (flow: string | undefined): Promise<ScopedRunsRe
 };
 
 /**
- * Shared tail of both prune paths: select candidates, surface unknown-timestamp warnings, and
- * print the summary. Returns `undefined` when there is nothing to prune (caller should stop).
+ * Shared tail of both prune paths: select candidates, surface unknown-timestamp warnings, and print the summary.
  */
 const computeAndAnnouncePruneCandidates = (
   grouped: ReadonlyMap<string, readonly RunEntry[]>,
@@ -344,12 +329,8 @@ const promptFlowFilterChoice = async (
 };
 
 /**
- * Per-flow candidate selection. When both criteria are set, a dir qualifies only when it is
- * older than the duration AND not among the N most-recent for its flow. When only one is set,
- * only that criterion gates the dir. Non-conforming dir names (no embedded timestamp) cannot
- * satisfy `--older-than`; they're surfaced via `unknownStampWarnings` so the caller can warn
- * once, and skipped from the age branch but still considered for `--keep-last` ordering
- * (they sort to the tail in groupByFlow).
+ * Per-flow candidate selection. When both criteria are set, a dir qualifies only when it is older than the duration
+ * AND not among the N most-recent for its flow.
  */
 const selectCandidates = (
   grouped: ReadonlyMap<string, readonly RunEntry[]>,

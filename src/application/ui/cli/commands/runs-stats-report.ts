@@ -1,20 +1,6 @@
 /**
- * Human-readable projection of the harness outcome rollup. Pure: `OutcomeStats` in, text out —
- * no clock, no filesystem, no `process.stdout`. Every number rendered here is READ from the fold
- * (`business/runs/outcome-stats.ts`); nothing is re-derived, so the text report and the `--json`
- * payload can never disagree.
- *
- * Layout follows the sibling CLI commands (`sprint progress`, `runs list`): a headline, then
- * two-space-indented sections, no colour and no box drawing — the CLI output is expected to be
- * piped, grepped and diffed. The TUI owns the rendered-with-theme surface.
- *
- * ## Two denominators
- *
- * Task-based rates (outcome mix, first-pass, plateau incidence, escalation) and attempt-based
- * rates (attribution, warnings, aborts) sit in the same report and are NOT comparable. Every
- * section therefore names its own denominator in its header — `(of N tasks)` vs `(of N attempts)`
- * — and the two summary rates spell theirs out inline. An unlabelled percentage here would be
- * read as comparable with the one above it, which is the failure mode this layout exists to stop.
+ * Human-readable projection of the harness outcome rollup. Pure: `OutcomeStats` in, text out — no clock, no
+ * filesystem, no `process.stdout`.
  */
 
 import type {
@@ -49,14 +35,7 @@ const RUNG_ORDER: readonly EscalationRung[] = ['model', 'effort', 'evaluator-eff
 
 const PLATEAU_SOURCE_ORDER: readonly PlateauSourceKey[] = ['threshold', 'diversity', 'entropy', 'unspecified'];
 
-/**
- * Severity first — the row an operator must not miss leads the block. Declaration order IS render
- * order (see {@link ATTRIBUTION_ORDER}), and the `Record` is exhaustive over the union, so a new
- * verdict cannot reach the fold without also being given a slot here.
- *
- * `unspecified` is the canonical key (and stays that way in `--json`); `unattributed` is the
- * word an operator reads faster. Presentation affordance only.
- */
+/** Severity first — the row an operator must not miss leads the block. */
 const ATTRIBUTION_LABEL: Readonly<Record<AttributionKey, string>> = {
   regressed: 'regressed',
   'baseline-broken': 'baseline-broken',
@@ -104,11 +83,8 @@ const key = (text: string): string => keyAt(text, LABEL_WIDTH);
 const taxonomyKey = (text: string): string => keyAt(text, TAXONOMY_LABEL_WIDTH);
 
 /**
- * The nonzero rows of one taxonomy block, curated order first and then any key the block carries
- * that the order array was never taught about. The fold's zero records are exhaustive over their
- * unions, but a bare `readonly K[]` ordering cannot be — without the tail a warning kind or abort
- * cause added later would be counted by the fold and then silently vanish from the report, which
- * is precisely the blind spot these sections exist to close.
+ * The nonzero rows of one taxonomy block, curated order first and then any key the block carries that the order array
+ * was never taught about.
  */
 const taxonomyRows = (counts: Readonly<Record<string, number>>, order: readonly string[]): readonly string[] => {
   const tail = Object.keys(counts).filter((candidate) => !order.includes(candidate));
@@ -137,12 +113,7 @@ const renderOutcomes = (rollup: OutcomeRollup): readonly string[] => {
   return lines;
 };
 
-/**
- * The severity headline. Spelled out rather than shown as a bare percentage because its
- * denominator is neither the task count nor the attempt count: attempts with no derivable verdict
- * (no verify script, pre-verify spawn-error) are excluded, so quoting them as `attributed` is what
- * keeps the rate honest in a repo that never runs a check.
- */
+/** The severity headline. */
 const regressionLine = (attribution: AttributionStats): string => {
   if (attribution.attributed === 0) return `${key('regressions')}— (no attempt carries an attribution verdict)`;
   const broke = `${count(attribution.byVerdict.regressed, 'attempt')} broke a green baseline`;
@@ -189,12 +160,7 @@ const renderPlateau = (plateau: PlateauStats, taskCount: number, attemptCount: n
   return lines;
 };
 
-/**
- * The regression taxonomy. `regressed` renders even at zero — a rollup that silently omits its
- * severity headline is exactly the blind spot this section exists to close — but only once some
- * attempt carries a verdict at all; with nothing attributed, a `0` would read as "no regressions"
- * when the truth is "no evidence either way".
- */
+/** The regression taxonomy. */
 const renderAttribution = (attribution: AttributionStats, attemptCount: number): readonly string[] => {
   const lines = [`Attribution ${denominator(attemptCount, 'attempt')}`];
   if (attribution.attributed === 0) {
@@ -284,10 +250,8 @@ const renderBySprint = (bySprint: readonly SprintOutcomeRollup[]): readonly stri
 ];
 
 /**
- * The full report. Sections are separated by a blank line; the trailing newline is included so
- * callers can `process.stdout.write(render(...))` directly. The per-sprint breakdown is omitted
- * for a single-sprint scope, where it would just restate the totals.
- *
+ * The full report. Sections are separated by a blank line; the trailing newline is included so callers can
+ * `process.stdout.write(render(...))` directly.
  * @public
  */
 export const renderOutcomeStats = (stats: OutcomeStats): string => {

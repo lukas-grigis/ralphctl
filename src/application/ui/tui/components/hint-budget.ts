@@ -1,16 +1,4 @@
-/**
- * Width-budgeted hint fitting for the one-row footer strip. Pure: no React, no Ink.
- *
- * A cell is the whole string `<keys> <label>`; cells are joined with ` · ` (`glyphs.bullet`).
- * Width is measured in code points — the same convention as `wrap-document-rows.ts`; every glyph
- * in `tokens.ts` is one cell wide.
- *
- * The caller passes hints already in priority order (view-local first, then `esc back`,
- * `? help`, then the remaining globals). Hints are taken greedily from the front and the first
- * one that does not fit ends the run, so what is dropped is always a suffix — a low-priority
- * hint never survives while a higher one is cut. When anything is dropped, room is reserved for a
- * trailing `… ? more` cell, which is appended to `visible`.
- */
+/** Width-budgeted hint fitting for the one-row footer strip. Pure: no React, no Ink. */
 
 import { glyphs } from '@src/application/ui/tui/theme/tokens.ts';
 

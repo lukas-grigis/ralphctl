@@ -1,6 +1,6 @@
 /**
- * Pure presentation model for Housekeeping: the scan flattened into one ordered candidate list
- * (so the one windowed-list primitive can drive it), and the hub's one-line summary.
+ * Pure presentation model for Housekeeping: the scan flattened into one ordered candidate list (so the one
+ * windowed-list primitive can drive it), and the hub's one-line summary.
  */
 
 import { plural } from '@src/application/ui/shared/plural.ts';

@@ -1,21 +1,4 @@
-/**
- * "Given where this run / sprint ended up, what should the operator do next?" — one pure
- * function, every surface:
- *
- *  - the settled `ResultCard` in the Execute-view footer (`result-footer.tsx`),
- *  - Work's NEXT rows (`home-internals/agenda.ts`),
- *  - the `next:` row of the `SprintHeaderStrip` (sprint detail).
- *
- * The table takes no view id: a step either names a flow (rendered `◆ <Flow> — <why>`, launched
- * by ↵ on the focused row or from the footer — never by a letter of its own) or a real global key
- * (`c`, `a`, `S`, `P`). The unit test asserts every recommended flow against `visibleFlowsFor`
- * and against the stage `SprintPipeline` highlights.
- *
- * Input shape: a flat bag of primitives rather than an `AppStateSnapshot`. Work holds a
- * snapshot, but the settled footer holds only a `SessionDescriptor` + the run's pinned sprint;
- * a snapshot-shaped input would force a second repo-polling loop into the Execute view.
- * {@link nextStepsInputFromSnapshot} keeps the two snapshot call sites one line each.
- */
+/** "Given where this run / sprint ended up, what should the operator do next?" — one pure function. */
 
 import type { SprintStatus } from '@src/domain/entity/sprint.ts';
 import { computeTaskHealthCounts, type AppStateSnapshot } from '@src/application/ui/shared/state-snapshot.ts';
@@ -23,8 +6,7 @@ import { plural } from '@src/application/ui/shared/plural.ts';
 
 export interface NextStep {
   /**
-   * A chord that does the step's job (`c` create, `a` add ticket, `S` / `P` switch, `r` on the
-   * settled-run surface). Never set on flow rows — those launch via ↵ on the focused row.
+   * A chord that does the step's job (`c` create, `a` add ticket, `S` / `P` switch, `r` on the settled-run surface).
    */
   readonly key?: string;
   /** Registry id when this row IS a flow launch; `label` then carries the display name. */
@@ -68,11 +50,7 @@ export interface NextSteps {
   readonly forensics: readonly ForensicPath[];
 }
 
-/**
- * The settled-run prepend. A completed run adds nothing — the sprint-state rows below already
- * say what to do; a failed / aborted run gets `r`, which routes to Flows rather than relaunching
- * blind (see `use-execute-input.ts` for why that distinction is load-bearing).
- */
+/** The settled-run prepend. */
 const runStatusRows = (input: NextStepsInput): readonly NextStep[] => {
   if (input.runStatus === 'failed') {
     return [
@@ -94,11 +72,7 @@ const runStatusRows = (input: NextStepsInput): readonly NextStep[] => {
 
 const flowStep = (flow: string, label: string, detail: string): NextStep => ({ flow, label, detail });
 
-/**
- * Rows for a context with no sprint yet. Work renders a dedicated hero card in these regimes and
- * keeps it — these exist so the settled-run and Flows surfaces have something to say too. Do not
- * "unify" Home's heroes into these rows; a full-width CTA and a one-line hint are different jobs.
- */
+/** Rows for a context with no sprint yet. */
 const preSprintRows = (input: NextStepsInput): readonly NextStep[] => {
   if (!input.hasProject) {
     return input.projectCount === 0
@@ -111,13 +85,7 @@ const preSprintRows = (input: NextStepsInput): readonly NextStep[] => {
 };
 
 /**
- * Detail line for the blocked-task callout below — states the counts without asserting a causal
- * link between the own- and upstream-blocked subsets (an upstream-blocked task's own root
- * prerequisite may be a still-`todo` task rather than one of the own-blocked ones counted here).
- *
- * `sprintIsDone` appends the reopen callout: at every other status `u` unblocks in place, but on
- * a `done` sprint it also reopens it (`done` → `review` → `active` — see `unblock-task.ts`'s
- * "Sprint reopen" doc block), which the plain wording below would otherwise leave unsaid.
+ * Detail line for the blocked-task callout below.
  */
 const blockedTaskDetail = (
   blockedTaskCount: number,
@@ -136,17 +104,8 @@ const blockedTaskDetail = (
 };
 
 /**
- * Blocked-task callout, prepended ahead of the ordinary status row at planned / active / review
- * / done whenever the sprint has stuck work. Independent of `resumableTaskCount` (which excludes
- * `blocked` entirely) so it shows up even when there is ALSO resumable work to run.
- *
- * `done` is not a dead end: unblocking a task there reopens the sprint (see `blockedTaskDetail`'s
- * `sprintIsDone` note) rather than leaving it permanently unreachable, so this row belongs there
- * too — a closed sprint with stuck tasks must keep pointing at how to get them running again.
- *
- * Keyless: `u` bulk-unblocks from the Sprints list and from sprint-detail, neither of which every
- * surface reading this table (Work / the settled ResultCard) routes through, so a key here
- * would advertise a chord some surfaces don't bind. The detail names the route instead.
+ * Blocked-task callout, prepended ahead of the ordinary status row at planned / active / review / done whenever the
+ * sprint has stuck work.
  */
 const blockedTaskRow = (input: NextStepsInput, sprintIsDone = false): readonly NextStep[] =>
   input.blockedTaskCount <= 0
@@ -158,11 +117,7 @@ const blockedTaskRow = (input: NextStepsInput, sprintIsDone = false): readonly N
         },
       ];
 
-/**
- * Rows for a loaded sprint, keyed on its lifecycle status. Every flow id here is
- * cross-checked against `ALLOWED_BY_STATUS` (`flows-visibility.ts`) by the unit test — a status
- * must never recommend a flow its own menu hides.
- */
+/** Rows for a loaded sprint, keyed on its lifecycle status. */
 const sprintRows = (status: SprintStatus, input: NextStepsInput): readonly NextStep[] => {
   switch (status) {
     case 'draft':
@@ -180,9 +135,7 @@ const sprintRows = (status: SprintStatus, input: NextStepsInput): readonly NextS
       if (input.resumableTaskCount > 0) {
         return [...blocked, flowStep('implement', 'Implement', `${plural(input.resumableTaskCount, 'task')} pending`)];
       }
-      // Every remaining task is blocked (not merely idle) — the blocked row above already says
-      // so with a real count; only fall back to the vague "nothing pending" line when there is
-      // truly nothing left to explain (no resumable AND no blocked task).
+      // Every remaining task is blocked (not merely idle) — the blocked row above already says so with a real count.
       return blocked.length > 0
         ? blocked
         : [{ label: 'open the sprint and unblock stuck tasks', detail: 'no task is left to run' }];
@@ -197,19 +150,13 @@ const sprintRows = (status: SprintStatus, input: NextStepsInput): readonly NextS
         flowStep('close-sprint', 'Close sprint', 'mark the sprint done'),
       ];
     case 'done':
-      // A closed sprint with blocked tasks is not "nothing left" — the confirm-and-proceed
-      // close-sprint gate lets a sprint close with blocked work still in it, and unblocking one
-      // of those tasks reopens the sprint (see `blockedTaskRow`'s doc comment). Every other
-      // orientation surface (the Sprints list badge, the picker badge, sprint-detail's header)
-      // already says so; this table used to be the one place that went silent.
+      // A closed sprint with blocked tasks is not "nothing left" — the confirm-and-proceed close-sprint gate lets a
+      // sprint close with blocked work still in it.
       return [...blockedTaskRow(input, true), flowStep('create-pr', 'Create PR', 'open a pull request')];
   }
 };
 
-/**
- * Pure — never touches the filesystem and never builds a path. Forensic paths are resolved and
- * existence-checked by the caller (`use-run-forensics.ts`) and passed straight through.
- */
+/** Pure — never touches the filesystem and never builds a path. */
 export const buildNextSteps = (input: NextStepsInput): NextSteps => {
   const stateRows = input.sprintStatus !== undefined ? sprintRows(input.sprintStatus, input) : preSprintRows(input);
   return { steps: [...runStatusRows(input), ...stateRows], forensics: input.forensics ?? [] };

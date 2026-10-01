@@ -1,10 +1,6 @@
 /**
- * Add-repository view — short wizard for attaching another repository to an existing project.
- * Walks: path → name → confirm. Persists via `addRepository(project, repo)` + `projectRepo.save`
- * so the aggregate's slug/id uniqueness invariants are enforced before disk write.
- *
- * Edit / remove live on the project-detail view; this is the dedicated `add` path so that the
- * wizard owns input focus for the duration of the prompts.
+ * Add-repository view — short wizard for attaching another repository to an existing project. Walks: path → name →
+ * confirm.
  */
 
 import React, { useEffect, useState } from 'react';
@@ -65,9 +61,7 @@ export const AddRepositoryView = (): React.JSX.Element => {
   const { projectId } = useViewProps<AddRepoProps>();
   const [step, setStep] = useState<Step>({ kind: 'path' });
 
-  // Claim prompt focus only while a real prompt is rendered. In 'saving' / 'error' states no
-  // component is listening for Esc, so we must release the claim so the parent router's global
-  // Esc handler fires and the "Press esc to go back" hint becomes truthful.
+  // Claim prompt focus only while a real prompt is rendered.
   const claimPrompt = ui.claimPrompt;
   useEffect(() => {
     if (step.kind === 'path' || step.kind === 'name' || step.kind === 'confirm') {
@@ -147,9 +141,8 @@ interface StepViewProps {
 }
 
 const StepView = ({ step, onChange, onCancel, onSubmit }: StepViewProps): React.JSX.Element => {
-  // Per-step `key` so each prompt is a fresh instance — otherwise React's reconciliation
-  // preserves the previous step's buffer at the same tree position. Esc on a non-first step
-  // steps back instead of exiting the wizard.
+  // Per-step `key` so each prompt is a fresh instance — otherwise React's reconciliation preserves the previous
+  // step's buffer at the same tree position.
   const prev = backStep(step);
   const cancelOrBack = prev !== undefined ? (): void => onChange(prev) : onCancel;
   switch (step.kind) {

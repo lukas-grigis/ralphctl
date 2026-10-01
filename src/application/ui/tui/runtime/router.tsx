@@ -1,16 +1,6 @@
 /**
- * Sectioned stack router. The whole TUI lives inside one Ink render tree; navigation happens by
- * pushing / popping {@link ViewEntry} objects. Each entry names a view id and an opaque props
- * payload — concrete views know how to type-narrow the props they expect.
- *
- * The app has five persistent sections (Work · Sprints · Projects · Runs · System, see
- * `nav-tree.ts`), and each owns its OWN stack. `push` / `pop` / `replace` / `reset` act on the
- * active section's stack; `goSection` switches between them, restoring the stack the section was
- * left with. That is what makes `esc` mean "up one level in this section" instead of "back through
- * whatever screens I happened to visit", and what lets the location line show where you are.
- *
- * Modal overlays (help, switcher, prompts) compose on top of whichever view is on the stack; they
- * never replace it.
+ * Sectioned stack router. The whole TUI lives inside one Ink render tree; navigation happens by pushing / popping
+ * {@link ViewEntry} objects.
  */
 
 import React, { createContext, useCallback, useContext, useMemo, useState } from 'react';
@@ -34,23 +24,19 @@ export interface RouterApi {
   readonly activeSection: ActiveSection;
   push(entry: ViewEntry): void;
   /**
-   * One level up in the active section. At a section root that is not Work it jumps to Work; at
-   * the Work root (and in `'none'`) it is a no-op.
+   * One level up in the active section. At a section root that is not Work it jumps to Work; at the Work root (and in
+   * `'none'`) it is a no-op.
    */
   pop(): void;
   replace(entry: ViewEntry): void;
   /**
-   * Activate a section, creating `[root]` if it has no stack yet. Re-selecting the section that is
-   * already active resets it to its root.
+   * Activate a section, creating `[root]` if it has no stack yet. Re-selecting the section that is already active
+   * resets it to its root.
    */
   goSection(id: SectionId): void;
   /**
-   * Land on `entry` in ITS section: the section's stack becomes `[root]` when `entry` is the root,
-   * else `[root, entry]`. The destination is REQUIRED — an optional "fall back to the launch
-   * entry" form used to exist, and both of its callers (`h` = Home, `D` = detach) meant Home. On a
-   * first-run session the launch entry is the welcome / create-project wizard, so the bare form
-   * silently re-mounted the first-run wizard (which then re-applied its AI preset over the user's
-   * Settings edits). Making the parameter required keeps that class of bug unrepresentable.
+   * Land on `entry` in ITS section: the section's stack becomes `[root]` when `entry` is the root, else `[root,
+   * entry]`.
    */
   reset(entry: ViewEntry): void;
 }
@@ -66,11 +52,7 @@ export const useRouter = (): RouterApi => {
 /** `undefined` outside a provider — for passive surfaces that merely annotate the current route. */
 export const useOptionalRouter = (): RouterApi | undefined => useContext(RouterContext);
 
-/**
- * Type-narrowing helper for views that expect specific props. Throws a developer-visible error
- * (rendered as a fallback view) when invoked from a view that wasn't pushed with the right
- * shape — beats silent `undefined` propagation.
- */
+/** Type-narrowing helper for views that expect specific props. */
 export const useViewProps = <T extends ViewProps>(): T => {
   const { current } = useRouter();
   return (current.props ?? {}) as T;
@@ -91,8 +73,8 @@ interface RouterState {
 const EMPTY_STACKS: Stacks = { work: [], sprints: [], projects: [], runs: [], system: [], none: [] };
 
 /**
- * The first-run wizards run outside any section so the tab bar and location line stay hidden;
- * every other launch entry lands in its own section.
+ * The first-run wizards run outside any section so the tab bar and location line stay hidden; every other launch
+ * entry lands in its own section.
  */
 const initialSection = (entry: ViewEntry): ActiveSection =>
   entry.id === 'welcome' || entry.id === 'create-project' ? 'none' : sectionOf(entry.id);

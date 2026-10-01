@@ -1,32 +1,4 @@
-/**
- * ImplementLayout — layout compositor for the redesigned Implement view.
- *
- * Two regimes, derived from `layout.sidebarLayout`:
- *
- *   ≥140 cols (sidebarLayout === true):
- *     [ImplementSidebar | ImplementMainArea]
- *
- *     HeaderCard + BaselineHealthChip are rendered by `body.tsx` above the column row at all
- *     widths (user ask #1). The sidebar is navigation-only (task minimap + flow steps +
- *     TokenBudgetCard at the bottom).
- *
- *     The keyboard model is a PASSIVE MINIMAP: `ImplementMainArea` is the single input owner.
- *     The sidebar's task list is a read-only mirror that highlights whichever card is focused in
- *     the main area. There is NO separate sidebar focus, NO Tab toggle, ONE cursor.
- *
- *   <140 cols:
- *     Delegates entirely to `ExecuteLayout` — the existing three/two/compact/single logic is
- *     preserved verbatim for narrow terminals.
- *
- * NOTE: <140 cols intentionally uses the legacy layout — see `use-responsive-layout.ts` for the
- * design rationale.
- *
- * Focus model:
- *   - `WideLayout` stores `focusedTaskId` (the id reported by the main-area panel).
- *   - `ImplementMainArea`'s `onFocusedCardChange` fires (deduped) whenever the card cursor moves.
- *   - `ImplementSidebar` receives `focusedTaskId` and highlights that row; it does not capture
- *     any keyboard input.
- */
+/** ImplementLayout — layout compositor for the redesigned Implement view. */
 
 import React, { useCallback, useState } from 'react';
 import { Box } from 'ink';
@@ -41,23 +13,13 @@ import type { SprintExecution } from '@src/domain/entity/sprint-execution.ts';
 import type { Task } from '@src/domain/entity/task.ts';
 import type { TokenUsage } from '@src/application/ui/tui/runtime/use-token-usage.ts';
 
-// ---------------------------------------------------------------------------
-// Props
-// ---------------------------------------------------------------------------
-
 export interface ImplementLayoutProps {
-  // ── Passed straight through to ExecuteLayout (narrow fallback) ───────────
   readonly descriptor: SessionDescriptor;
   readonly isRunning: boolean;
   readonly sessionId: string;
   readonly termColumns: number;
   readonly termRows: number;
-  /**
-   * Pre-built TasksPanel node used by the narrow (<140 col) ExecuteLayout fallback only.
-   * The wide sidebar path builds its own TasksPanelHost inside ImplementMainArea and ignores
-   * this prop — it is built unconditionally in execute-view.tsx because the layout decision is
-   * made after the hook call. A comment in execute-view.tsx documents the narrow-only usage.
-   */
+  /** Pre-built TasksPanel node used by the narrow (<140 col) ExecuteLayout fallback only. */
   readonly tasksPanel: React.ReactNode;
   readonly executionState: SprintExecution | undefined;
   readonly taskState: readonly Task[] | undefined;
@@ -65,28 +27,20 @@ export interface ImplementLayoutProps {
   readonly tokenUsage: TokenUsage | undefined;
   readonly pinnedSprintStale: boolean;
 
-  // ── Sidebar-only ─────────────────────────────────────────────────────────
   /** Full responsive-layout record — drives the sidebarLayout switch + sidebar sizing. */
   readonly layout: ResponsiveLayout;
   /** Bucketed task execution state — drives the sidebar task-nav list + ImplementMainArea. */
   readonly bucketed: BucketedExecution | undefined;
   /**
-   * When true, keyboard input is active for this compositor and its children.
-   * Gating prevents double-consumption when a cancel-scope overlay or other overlay is open.
+   * When true, keyboard input is active for this compositor and its children. Gating prevents double-consumption when
+   * a cancel-scope overlay or other overlay is open.
    */
   readonly inputActive: boolean;
-  /**
-   * Optional `v` handler — opens the evaluation overlay for a card with a recorded verdict.
-   * Needed by the WIDE branch only: the narrow branch inherits it from the pre-built `tasksPanel`
-   * node, but the wide branch builds its own `TasksPanelHost` and would otherwise leave `v` a
-   * silent no-op while the footer still advertises the chord.
-   */
+  /** Optional `v` handler — opens the evaluation overlay for a card with a recorded verdict. */
   readonly onOpenEvaluation?: (taskId: string) => void;
 }
 
-// ---------------------------------------------------------------------------
 // Wide compositor (sidebarLayout === true, ≥140 cols)
-// ---------------------------------------------------------------------------
 
 interface WideLayoutProps {
   readonly descriptor: SessionDescriptor;
@@ -164,17 +118,9 @@ const WideLayout = ({
   );
 };
 
-// ---------------------------------------------------------------------------
-// Public compositor
-// ---------------------------------------------------------------------------
-
 /**
- * Compositor that selects the correct layout regime for the Implement view.
- *
- * At ≥140 cols (`layout.sidebarLayout === true`) it renders [sidebar | main-area]. The
- * HeaderCard + BaselineHealthChip are rendered by `body.tsx` above this compositor at all widths.
- * Below 140 cols it falls back to `ExecuteLayout` unchanged.
- *
+ * Compositor that selects the correct layout regime for the Implement view. At ≥140 cols (`layout.sidebarLayout ===
+ * true`) it renders [sidebar | main-area].
  * @public — wired by `body.tsx`.
  */
 export const ImplementLayout = ({
@@ -214,8 +160,6 @@ export const ImplementLayout = ({
   }
 
   // Narrow fallback — preserve existing behaviour exactly.
-  // `tasksPanel` is the narrow-only pre-built node; the wide path builds its own inside
-  // ImplementMainArea and never touches this prop.
   return (
     <ExecuteLayout
       descriptor={descriptor}

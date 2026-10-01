@@ -1,8 +1,6 @@
 /**
- * Per-step body for the add-ticket wizard. Owns the prompt renderers and the small fetch
- * shim that maps an `IssueFetcher` result onto the next step. The orchestrator passes the
- * active `Step`, the state-transition callback, and the cancel + submit handlers; everything
- * else (which prompt, which label) is decided here based on `step.kind`.
+ * Per-step body for the add-ticket wizard. Owns the prompt renderers and the small fetch shim that maps an
+ * `IssueFetcher` result onto the next step.
  */
 
 import React from 'react';
@@ -25,8 +23,10 @@ interface StepViewProps {
   readonly onSubmit: (s: TicketDraft) => Promise<void>;
 }
 
-/** Shared context every per-step renderer below needs: how to step back (or cancel on the first
- *  step) and the label esc should carry in the prompt's own footer hint. */
+/**
+ * Shared context every per-step renderer below needs: how to step back (or cancel on the first step) and the label
+ * esc should carry in the prompt's own footer hint.
+ */
 interface StepRenderCtx {
   readonly onChange: (next: Step) => void;
   readonly cancelOrBack: () => void;
@@ -210,10 +210,7 @@ const renderAddedStep = (
   );
 };
 
-/**
- * Failed save — nothing was written. The wizard claims the prompt channel, so the global Esc
- * never reaches the router here; the confirm owns the exit instead of leaving a dead end.
- */
+/** Failed save — nothing was written. */
 const renderErrorStep = (
   step: Extract<Step, { kind: 'error' }>,
   onChange: StepViewProps['onChange'],
@@ -262,9 +259,8 @@ const renderCreateFailedStep = (
 );
 
 export const StepView = ({ step, onChange, onCancel, onSubmit }: StepViewProps): React.JSX.Element => {
-  // Per-step `key` so each TextPrompt is a fresh instance — otherwise React's reconciliation
-  // preserves the previous step's buffer at the same tree position. Esc on a non-first step
-  // steps back instead of exiting the wizard.
+  // Per-step `key` so each TextPrompt is a fresh instance — otherwise React's reconciliation preserves the previous
+  // step's buffer at the same tree position.
   const prev = backStep(step);
   const cancelOrBack = prev !== undefined ? (): void => onChange(prev) : onCancel;
   const escLabel = prev !== undefined ? 'back' : 'cancel';
@@ -295,12 +291,7 @@ export const StepView = ({ step, onChange, onCancel, onSubmit }: StepViewProps):
   }
 };
 
-/**
- * Fetch the issue at `url` and map the result onto the next wizard step. Mirrors the chain-
- * side `fetchPrefill`: `ok(issue)` becomes a `title` step with prefill; `ok(null)` and
- * `Result.error` both become a `fetch-failed` ack screen with a short reason. The URL is
- * always preserved on the eventual `link` field so the user never loses what they typed.
- */
+/** Fetch the issue at `url` and map the result onto the next wizard step. */
 export const runFetch = async (fetcher: IssueFetcher, url: string): Promise<Step> => {
   const result = await fetcher(url);
   if (result.ok && result.value !== null) {

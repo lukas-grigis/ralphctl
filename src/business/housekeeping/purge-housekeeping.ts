@@ -112,11 +112,7 @@ const purgeOne = (props: PurgeHousekeepingProps, candidate: HousekeepingCandidat
   }
 };
 
-/**
- * Delete scanned housekeeping candidates. Each one is re-checked against current state first, so a
- * stale scan never removes a sprint whose project came back or a reopened sprint. One failure does
- * not stop the rest; every candidate lands in exactly one report bucket.
- */
+/** Delete scanned housekeeping candidates. */
 export const purgeHousekeepingUseCase = async (
   props: PurgeHousekeepingProps
 ): Promise<Result<HousekeepingPurgeReport, never>> => {

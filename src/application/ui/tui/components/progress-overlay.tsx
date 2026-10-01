@@ -1,19 +1,5 @@
 /**
- * Read-only modal that surfaces `<sprintDir>/progress.md` — the artifact the next AI session
- * bootstraps from. Embodies the Anthropic principle: the TUI is a view onto the artifact, not
- * a parallel runtime. The harness's `progress.md` writer (progress-file-sink) keeps the file
- * fresh; this overlay just reflects what's on disk.
- *
- * Mounted at the {@link App} Layout when `ui.progressOpen` is true so every view inherits it
- * without per-view wiring; same dismiss contract as the help overlay (`esc` or `g` toggles).
- *
- * Scroll model (only while a file is loaded and overflow exists):
- *   ↑ / ↓                               → one line
- *   PageUp / PageDown / Ctrl+b / Ctrl+f → one viewport
- *   Ctrl+u / Ctrl+d                     → half viewport
- *
- * Empty / missing file: friendly message — no crash. Read errors surface as a short diag line
- * so the operator can see *why* (missing vs permission denied vs read failure).
+ * Read-only modal that surfaces `<sprintDir>/progress.md` — the artifact the next AI session bootstraps from.
  */
 
 import { promises as fs } from 'node:fs';
@@ -65,12 +51,7 @@ const formatAgo = (modifiedAtMs: number, now: number): string => {
   return `${fmtDuration(elapsed)} ago`;
 };
 
-/**
- * Loads `<sprintDir>/progress.md` on mount / whenever `sprintId` or `dataRoot` change. The sprint
- * dir is resolved via the tolerant id-prefix resolver so both the new `<id>--<slug>/` and legacy
- * bare `<id>/` names are found — building the bare path here would split-brain against a
- * slug-renamed dir. We don't tail the file; a re-open (close + `g` again) gets the latest snapshot.
- */
+/** Loads `<sprintDir>/progress.md` on mount / whenever `sprintId` or `dataRoot` change. */
 const useProgressFile = (sprintId: SprintId | undefined, dataRoot: AbsolutePath): ProgressState => {
   const [state, setState] = useState<ProgressState>({ kind: 'loading' });
 
@@ -172,9 +153,7 @@ const ProgressBody = ({
         {state.kind === 'ok' && (
           <Box flexDirection="column">
             {visibleLines.map((line, idx) => (
-              // `truncate-end` is the backstop behind the pre-wrap: a row we mis-measured (tabs,
-              // wide glyphs) is clipped rather than allowed to spill onto a second terminal row
-              // and desync the row-count windowing above.
+              // `truncate-end` is the backstop behind the pre-wrap: a row we mis-measured (tabs.
               <Text key={`row-${String(offset + idx)}`} wrap="truncate-end">
                 {line.length === 0 ? ' ' : line}
               </Text>

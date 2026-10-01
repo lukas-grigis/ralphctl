@@ -1,6 +1,6 @@
 /**
- * Task status glyph/colour tables shared by every task minimap, plus `TaskMinimap` — the passive
- * TASKS list in Work's glance column (glyph, name, and `blocked` / `waits on #N` / `running`).
+ * Task status glyph/colour tables shared by every task minimap, plus `TaskMinimap` — the passive TASKS list in Work's
+ * glance column (glyph, name, and `blocked` / `waits on #N` / `running`).
  */
 
 import React from 'react';

@@ -1,9 +1,6 @@
 /**
- * Row presentation for the sprints list — one sprint per `ListCard`: name + status chip,
- * slug, and ticket count with pending/approved/blocked sub-counts. Pulled out of `sprints-view.tsx`
- * (which still owns data loading, cursor, and key handling) because the blocked-task sub-count
- * grew this into its own cohesive rendering unit, mirroring how `context-switcher-internals/row-views.tsx`
- * splits row presentation out of its orchestrator.
+ * Row presentation for the sprints list — one sprint per `ListCard`: name + status chip, slug, and ticket count with
+ * pending/approved/blocked sub-counts.
  */
 
 import React from 'react';
@@ -15,8 +12,8 @@ import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { TaskHealthCounts } from '@src/application/ui/shared/state-snapshot.ts';
 
 /**
- * Rendered height (rows) of one {@link SprintRow} card: border top, name, slug, ticket counts,
- * border bottom — plus the section margin below the card.
+ * Rendered height (rows) of one {@link SprintRow} card: border top, name, slug, ticket counts, border bottom — plus
+ * the section margin below the card.
  */
 export const ROW_HEIGHT = 5;
 

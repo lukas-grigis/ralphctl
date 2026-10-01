@@ -1,34 +1,4 @@
-/**
- * Settings view orchestrator — owns hooks, state, key handling, and prompt mounting. The
- * render-side render is factored into sibling files; this file's only responsibility is to
- * wire those pieces together with the EventBus + dependency-injected flow factories.
- *
- * `←/→` switch sections; `↑/↓` move between fields inside the active section; `↵/e` mounts the
- * prompt appropriate to the field's type (SelectPrompt for enums + model catalogs, TextPrompt
- * for numbers / free-text strings). Most routes funnel through `applySettingsKey` (validation)
- * → `settingsSet` use-case (persistence) so the TUI and `ralphctl settings set` share a
- * single mutation grammar.
- *
- * Siblings:
- *   - `settings-view-model.ts`   — pure types + section builder
- *   - `settings-sections.tsx`    — section strip + active-section body switch
- *   - `preset-bar.tsx`           — preset section body
- *   - `ai-row.tsx`               — per-flow + Implement section bodies
- *   - `harness-row.tsx`          — harness budgets section body
- *   - `settings-editor.tsx`      — field-aware prompt mounting + provider-availability gate
- *   - `settings-mutations.ts`    — apply-key / set-provider / apply-preset routing
- *
- * AI configuration is per-flow. Each flow renders as a dedicated section with three editable
- * rows. Switching a row's provider routes through `settings-set-provider` (which rebuilds that
- * row's `{ provider, model }` from the new provider's defaults so the persistence schema stays
- * satisfied). Off-catalog persisted model values stay visible on read; the catalog gate only
- * constrains the editor surface.
- *
- * `SettingsView` itself is a short composition of local hooks (`useSettingsData`,
- * `useInstalledProviders`, `useAvailableModelsMap`, `useSectionNavigation`,
- * `useSettingsKeyHandler`) plus the `SettingsViewBody` display-state subcomponent — each owns one
- * cohesive slice of the view's state/effects so the orchestrator itself stays a thin wire-up.
- */
+/** Settings view orchestrator — owns hooks, state, key handling, and prompt mounting. */
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { Box, Text } from 'ink';
@@ -63,11 +33,7 @@ import {
 /** Feedback banner rendered under the active section — `undefined` clears it. */
 type SettingsFeedback = { readonly tone: 'ok' | 'error'; readonly text: string } | undefined;
 
-/**
- * A field's current value with the active-cursor glyph. The focused row registers as the scroll
- * anchor (the Box is the row's own box, so layout is unchanged) — `suppressScrollArrows` hands
- * ↑/↓ to the field cursor, and the page has to follow it.
- */
+/** A field's current value with the active-cursor glyph. */
 const FieldValue = ({ focused, value }: { readonly focused: boolean; readonly value: string }): React.JSX.Element => {
   const anchorRef = useScrollAnchor(focused);
   return (
@@ -103,9 +69,7 @@ interface SettingsDataResult {
 }
 
 /**
- * Owns the loaded `Settings` record and its load/mutate lifecycle: initial load, preset apply,
- * and per-field submit. Every mutation re-runs `refresh` on success so the view always reflects
- * the persisted record rather than an optimistic local patch.
+ * Owns the loaded `Settings` record and its load/mutate lifecycle: initial load, preset apply, and per-field submit.
  */
 const useSettingsData = (params: SettingsDataParams): SettingsDataResult => {
   const { settingsRepo, setLogLevel, setFeedback, setPresetWarnings, closeEditor } = params;
@@ -157,13 +121,7 @@ const useSettingsData = (params: SettingsDataParams): SettingsDataResult => {
   return { settings, loadError, handlePreset, handleSubmit };
 };
 
-/**
- * Set of providers whose CLI binary resolved on PATH at mount time. Probed once per Settings
- * session — the per-row Settings editor never re-probes; the user has to leave and re-enter
- * Settings to refresh the gate (matches the apply-preset / launch-time probe sites). Resolves to
- * `undefined` while the probe is in flight; the provider picker treats `undefined` as "all
- * enabled" so the picker is usable in the rare frame between mount and probe-completion.
- */
+/** Set of providers whose CLI binary resolved on PATH at mount time. */
 const useInstalledProviders = (): ReadonlySet<AiProvider> | undefined => {
   const [installedProviders, setInstalledProviders] = useState<ReadonlySet<AiProvider> | undefined>(undefined);
   useEffect(() => {
@@ -179,11 +137,8 @@ const useInstalledProviders = (): ReadonlySet<AiProvider> | undefined => {
 };
 
 /**
- * Per-provider account-available model subset, resolved lazily after settings load — one probe
- * per distinct provider in the loaded config. Keyed by provider; absent entries fall back to the
- * full catalog inside {@link buildSections}. Empty while the availability probes are in flight —
- * the full catalog renders, then re-renders filtered once each provider resolves. The probe never
- * throws (fail open); never blocks the view.
+ * Per-provider account-available model subset, resolved lazily after settings load — one probe per distinct provider
+ * in the loaded config.
  */
 const useAvailableModelsMap = (
   settings: Settings | undefined,
@@ -191,10 +146,7 @@ const useAvailableModelsMap = (
 ): ReadonlyMap<AiProvider, readonly string[]> => {
   const [availableModels, setAvailableModels] = useState<ReadonlyMap<AiProvider, readonly string[]>>(new Map());
   useEffect(() => {
-    // `availableModelsFor` is a required `AppDeps` field in production (`wire()` always assigns
-    // it), but several tests build an `AppDeps` by hand via `{} as unknown as AppDeps` and the
-    // cast suppresses the missing-field typecheck — the runtime value can still be `undefined`
-    // there, so this guard stays even though the parameter type says otherwise.
+    // `availableModelsFor` is a required `AppDeps` field in production (`wire()` always assigns it).
     if (settings === undefined || typeof availableModelsFor !== 'function') return;
     let cancelled = false;
     for (const provider of uniqueProvidersFromAi(settings.ai)) {
@@ -221,10 +173,8 @@ interface SectionNavigationResult {
 }
 
 /**
- * Builds the section list from the loaded settings + resolved model catalog, and owns the
- * section/cursor pointers into it — including the two clamp effects that keep both pointers in
- * bounds when the underlying field set shrinks (e.g. a provider switch resets a section's model
- * options, or the section list itself changes shape).
+ * Builds the section list from the loaded settings + resolved model catalog, and owns the section/cursor pointers
+ * into it.
  */
 const useSectionNavigation = (
   settings: Settings | undefined,
@@ -237,11 +187,7 @@ const useSectionNavigation = (
   const [sectionIdx, setSectionIdx] = useState(0);
   const [cursor, setCursor] = useState(0);
   const activeSection = sections[sectionIdx];
-  /**
-   * `useMemo` keeps the same array reference across renders while the section's field set is
-   * unchanged, which keeps the cursor-clamp effect below stable (running it on every render
-   * would either no-op uselessly or fight the user's ↑/↓ presses).
-   */
+  /** `useMemo` keeps the same array reference across renders while the section's field set is unchanged. */
   const activeFields = useMemo<readonly EditableField[]>(() => activeSection?.fields ?? [], [activeSection]);
 
   // Clamp cursor when the active section's field set changes (e.g. a provider switch resets
@@ -272,10 +218,8 @@ interface SettingsKeyHandlerParams {
 }
 
 /**
- * Owns the Settings view's keyboard routing: `←/→` switch sections, `↑/↓`/j/k (plus
- * PageUp/PageDown/Home/End) move the cursor within the active section's fields, `↵`/`e` activates
- * the focused field. Muted while a modal overlay, editor, or preset confirmation is active —
- * those own their own `useInput` handlers.
+ * Owns the Settings view's keyboard routing: `←/→` switch sections, `↑/↓`/j/k (plus PageUp/PageDown/Home/End) move
+ * the cursor within the active section's fields, `↵`/`e` activates the focused field.
  */
 const useSettingsKeyHandler = (params: SettingsKeyHandlerParams): void => {
   const {
@@ -349,9 +293,8 @@ interface SettingsViewBodyProps {
 }
 
 /**
- * The Settings view's mutually-exclusive display states, in priority order: preset
- * confirmation, field editor, load error, loading spinner, then the section strip + active-section
- * body. Isolated from `SettingsView` so the hook-heavy orchestrator stays a short composition.
+ * The Settings view's mutually-exclusive display states, in priority order: preset confirmation, field editor, load
+ * error, loading spinner, then the section strip + active-section body.
  */
 const SettingsViewBody = ({
   pendingPreset,
@@ -438,10 +381,7 @@ export const SettingsView = (): React.JSX.Element => {
   /** Pending preset confirmation — populated when the user activates a preset button. */
   const [pendingPreset, setPendingPreset] = useState<PresetName | undefined>(undefined);
   const [feedback, setFeedback] = useState<SettingsFeedback>(undefined);
-  /**
-   * Warnings from the most recent apply-preset. Rendered as a dimmed multi-line note below the
-   * preset action group; cleared when the user activates a new preset or edits any other row.
-   */
+  /** Warnings from the most recent apply-preset. */
   const [presetWarnings, setPresetWarnings] = useState<readonly PresetWarning[]>([]);
 
   const closeEditor = (): void => setEditingField(undefined);
@@ -473,9 +413,7 @@ export const SettingsView = (): React.JSX.Element => {
     onActivate: (field) => activateField(field, { setFeedback, setPresetWarnings, setPendingPreset, setEditingField }),
   });
 
-  // Tie the prompt-active claim to the editing-field state so React's effect cleanup matches
-  // the claim 1:1. Earlier we toggled imperatively from inside event handlers and the boolean
-  // got clobbered by the PromptHost when its queue was empty.
+  // Tie the prompt-active claim to the editing-field state so React's effect cleanup matches the claim 1:1.
   const claimPrompt = ui.claimPrompt;
   useEffect(
     () => (editingField !== undefined || pendingPreset !== undefined ? claimPrompt() : undefined),

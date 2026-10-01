@@ -1,17 +1,4 @@
-/**
- * Claimed-keys registry — the answer to "who owns this keystroke?".
- *
- * Ink fans every keystroke out to every mounted `useInput`, so a key bound both by the active
- * view and by a global / ambient handler fires twice (`S` detect-skills AND the sprint picker,
- * `d` delete AND banner dismiss). Whoever uses a printable key locally claims it here; the
- * ambient handlers (`useGlobalKeys`, `StatusBanner`, section digits) ask {@link ClaimedKeysApi.isClaimed}
- * before acting and stand down. `useViewKeys` claims its enabled printable bindings automatically;
- * an overlay that uses keys without `useViewKeys` calls {@link useClaimKeys} directly.
- *
- * The registry is a ref (a counter per key), not state: claims are read at keypress time, so
- * registering never re-renders anyone. Both hooks degrade to a no-op without a provider so
- * isolated component tests need no extra wrapper.
- */
+/** Claimed-keys registry — the answer to "who owns this keystroke?". */
 
 import React, { createContext, useContext, useEffect, useMemo, useRef } from 'react';
 
@@ -54,8 +41,8 @@ const NOOP_API: ClaimedKeysApi = { claim: () => () => undefined, isClaimed: () =
 export const useClaimedKeys = (): ClaimedKeysApi => useContext(ClaimedKeysContext) ?? NOOP_API;
 
 /**
- * Claim `keys` for as long as the caller is mounted and `enabled`. The effect is keyed on the
- * joined key string, so a fresh array each render does not churn the registry.
+ * Claim `keys` for as long as the caller is mounted and `enabled`. The effect is keyed on the joined key string, so a
+ * fresh array each render does not churn the registry.
  */
 export const useClaimKeys = (keys: readonly string[], enabled = true): void => {
   const api = useClaimedKeys();

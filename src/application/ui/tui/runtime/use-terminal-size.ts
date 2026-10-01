@@ -1,8 +1,4 @@
-/**
- * Terminal size + resize handling. Ink exposes columns/rows on `useStdout`; one shared `'resize'`
- * listener per stdout fans out to every hook instance, so views relayout cleanly on resize without
- * each component adding its own listener (Node warns past ten).
- */
+/** Terminal size + resize handling. */
 
 import { useSyncExternalStore } from 'react';
 import { useStdout } from 'ink';

@@ -1,7 +1,6 @@
 /**
- * Colour opt-out, shared by the launcher (which forces chalk to level 0) and `useNoColor` (which
- * swaps colour-only cues for shapes). `NO_COLOR` counts when non-empty (<https://no-color.org/>);
- * `TERM=dumb` cannot render colour either.
+ * Colour opt-out, shared by the launcher (which forces chalk to level 0) and `useNoColor` (which swaps colour-only
+ * cues for shapes).
  */
 
 import { useMemo } from 'react';

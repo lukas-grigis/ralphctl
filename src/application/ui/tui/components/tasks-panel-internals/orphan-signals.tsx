@@ -1,9 +1,6 @@
 /**
- * Cross-task notes pin for the Tasks panel — the signals whose timestamp doesn't fall inside any
- * task window, rendered above the per-task cards so notes-about-the-run aren't lost.
- *
- * Structurally unrelated to a task card: it has no status, no sub-steps and no evaluation, just a
- * capped list of stream rows, which is why it lives beside `task-row.tsx` rather than inside it.
+ * Cross-task notes pin for the Tasks panel — the signals whose timestamp doesn't fall inside any task window,
+ * rendered above the per-task cards so notes-about-the-run aren't lost.
  */
 
 import React from 'react';
@@ -59,7 +56,5 @@ const OrphanSignalsImpl = ({
   );
 };
 
-/** Default shallow-compare memo — no `nowMs`-style ticking prop here, so a plain `React.memo`
- *  is enough to skip re-rendering the cross-task notes block when an unrelated task card change
- *  (focus, expansion, a new per-task signal) triggers `TasksPanel` to re-render. */
+/** Default shallow-compare memo — no `nowMs`-style ticking prop here. */
 export const OrphanSignals = React.memo(OrphanSignalsImpl);

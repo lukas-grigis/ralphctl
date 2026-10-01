@@ -17,11 +17,7 @@ interface LoadedPrompt {
 const formatPromptLine = (loaded: LoadedPrompt): string =>
   `${loaded.name.padEnd(26)}  ${loaded.kind.padEnd(8)}  ${String(loaded.bytes).padStart(6)} bytes`;
 
-/**
- * Load every bundled prompt asset through the wired `TemplateLoader` and print one line each.
- * The listing is the point but the LOAD is the gate: an empty body or a missing file is a failed
- * install, so both fail the command rather than printing a zero-byte row.
- */
+/** Load every bundled prompt asset through the wired `TemplateLoader` and print one line each. */
 const listPromptsAction = async (): Promise<void> => {
   const { deps } = await bootstrapCli();
 
@@ -50,18 +46,8 @@ const listPromptsAction = async (): Promise<void> => {
 };
 
 /**
- * Register the `prompts` command group.
- *
- *   ralphctl prompts list
- *
- * Inspection surface for the bundled prompt templates — and, deliberately, the only
- * non-interactive command that exercises the prompt-template resolver end to end. Prompts are the
- * largest bundled asset class and every AI flow depends on them, but their resolver
- * (`fs-template-loader.ts`) is a separate copy of the beside-the-module probe from the ones
- * `skills list` / `agents list` / `bundle-integrity` walk, and it falls back silently. Without a
- * command that reads a template back out of the built bundle, the CI + release dist smokes stay
- * green on an install whose prompts are all unreadable — the 0.15.0 failure class, scoped to
- * prompts. The workflows grep this command's output for exactly that reason.
+ * Register the `prompts` command group. ralphctl prompts list Inspection surface for the bundled prompt templates —
+ * and, deliberately.
  */
 export const registerPromptsCommand = (program: Command): void => {
   const prompts = program.command('prompts').description('inspect the bundled prompt templates');

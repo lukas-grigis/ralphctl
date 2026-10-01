@@ -1,17 +1,4 @@
-/**
- * `useAsyncLoad` — fetch-and-cache helper for views that pull data from a repo on mount. Tracks
- * `loading` / `error` / `value` so the view can render loading + error states uniformly.
- *
- * Discriminated state means consumers narrow once and stop checking: `state.kind === 'ok'`
- * gives them `value`; `state.kind === 'error'` gives them `error`.
- *
- * Cancellation: the loader receives an `AbortSignal` keyed to the current fetch. On unmount
- * (or when `deps` change and we trigger a fresh fetch) the previous signal is aborted, so
- * callers that thread the signal into their underlying fetch / repo call can short-circuit
- * real work — not just suppress state writes. Callers that ignore the signal still benefit
- * from the existing `cancelled` flag (state writes are gated; in-flight work just keeps
- * running until natural completion, then gets discarded).
- */
+/** `useAsyncLoad` — fetch-and-cache helper for views that pull data from a repo on mount. */
 
 import { useEffect, useRef, useState } from 'react';
 
@@ -36,10 +23,8 @@ export const useAsyncLoad = <T, E = unknown>(
   const [state, setState] = useState<AsyncLoadState<T, E>>({ kind: 'idle' });
   const [version, setVersion] = useState(0);
 
-  // Capture `loader` and `errorMap` in refs so the effect reads the latest closure WITHOUT
-  // re-firing on every render (callers commonly pass fresh arrows). The dep list stays
-  // `[version, ...deps]` — the caller-supplied `deps` are the trigger axis; loader/errorMap
-  // identity is not. Mirrors the filterRef pattern in use-event-bus.ts.
+  // Capture `loader` and `errorMap` in refs so the effect reads the latest closure WITHOUT re-firing on every render
+  // (callers commonly pass fresh arrows).
   const loaderRef = useRef(loader);
   loaderRef.current = loader;
   const errorMapRef = useRef(errorMap);

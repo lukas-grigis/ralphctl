@@ -1,15 +1,6 @@
 /**
  * Runs list (the Runs section root) — every runner the manager knows about, live + recent. Selecting a row reopens
  * the execute view for that session.
- *
- * The focus cursor is identity-based (keyed on the session id, not a list index) via
- * {@link useListWindow}, so it survives a live reorder or eviction of an earlier session instead
- * of jumping to whatever now sits at the old index.
- *
- * Local keys:
- *   ↑/↓  move the focus cursor
- *   ↵    open the execute view for the focused session
- *   c    abort the focused session (if it's running) after a confirm
  */
 
 import React, { useState } from 'react';
@@ -182,9 +173,7 @@ export const SessionsView = (): React.JSX.Element => {
         run: () => {
           const target = focusedItem ?? sessions[0];
           if (target === undefined) return;
-          // A finished run has nothing to abort. The hint stays up because the answer depends on
-          // the focused row, and a swallowed keystroke would read as a broken key — so the
-          // handler says which state blocked it instead.
+          // A finished run has nothing to abort.
           if (target.descriptor.status !== 'running') {
             setSessionFeedback(feedback('error', `session is ${target.descriptor.status}, nothing to stop`));
             return;
