@@ -9,6 +9,7 @@ import { fmtElapsed, fmtSpan } from '@src/application/ui/tui/theme/duration.ts';
 import { plural } from '@src/application/ui/shared/plural.ts';
 import type { NextStep } from '@src/application/ui/shared/next-steps.ts';
 import type { Task } from '@src/domain/entity/task.ts';
+import { interruptedTasksOf, type InterruptedFacts } from '@src/application/ui/shared/interrupted-tasks.ts';
 import { sectionFor, sectionRank } from '@src/application/ui/tui/views/flows-visibility.ts';
 
 export type AgendaSectionId = 'needs-you' | 'running' | 'next' | 'flows';
@@ -70,9 +71,14 @@ export interface BuildAgendaInput {
   readonly showAll: boolean;
   readonly launchability: (flowId: string) => AgendaLaunchability;
   readonly now: number;
+  /** Disk facts for interrupted tasks, keyed by task id; they arrive after the row, which renders without them. */
+  readonly interruptedFacts?: ReadonlyMap<string, InterruptedFacts>;
 }
 
 export const NEEDS_YOU_TASK_CAP = 3;
+const NEEDS_YOU: AgendaSectionId = 'needs-you';
+const IMPLEMENT = 'implement';
+const LAUNCH_FLOW = 'launch-flow' as const;
 const FAILED_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 const BLOCK_FACT: Readonly<Record<string, string>> = {
@@ -119,7 +125,7 @@ const needsYouTasks = (tasks: readonly Task[]): readonly AgendaRow[] => {
       .join(` ${glyphs.bullet} `);
     return {
       id: `task:${task.id}`,
-      section: 'needs-you',
+      section: NEEDS_YOU,
       glyph: glyphFor('blocked'),
       tone: 'error',
       label: `"${task.name}" is blocked`,
@@ -133,12 +139,62 @@ const needsYouTasks = (tasks: readonly Task[]): readonly AgendaRow[] => {
   if (overflow > 0) {
     rows.push({
       id: 'needs-you:overflow',
-      section: 'needs-you',
+      section: NEEDS_YOU,
       glyph: glyphs.moreBelow,
       tone: 'muted',
       label: `${String(overflow)} more blocked ${glyphs.emDash} o open sprint`,
       action: { kind: 'open-sprint' },
       verb: 'open sprint',
+    });
+  }
+  return rows;
+};
+
+/** What the operator needs to know before resuming; unknown facts are left out rather than guessed. */
+const interruptedDetail = (facts: InterruptedFacts | undefined): string | undefined => {
+  const parts = [
+    facts?.uncommitted !== undefined && facts.uncommitted > 0
+      ? `${plural(facts.uncommitted, 'uncommitted change')}`
+      : undefined,
+    facts?.resumable === true ? 'session resumable' : undefined,
+    facts?.resumable === false ? 'no session to resume, restarts from the brief' : undefined,
+  ].filter((p): p is string => p !== undefined);
+  return parts.length > 0 ? parts.join(` ${glyphs.bullet} `) : undefined;
+};
+
+const RESUME_IMPLEMENT: Pick<AgendaRow, 'action' | 'verb'> = {
+  action: { kind: LAUNCH_FLOW, flowId: IMPLEMENT },
+  verb: 'resume implement',
+};
+
+const interruptedRows = (input: BuildAgendaInput): readonly AgendaRow[] => {
+  const implementRunning = input.sessions.some(
+    (s) => s.status === 'running' && s.flowId === IMPLEMENT && s.pinnedSprintId === input.sprintId
+  );
+  const all = interruptedTasksOf(input.tasks, implementRunning);
+  const rows = all.slice(0, NEEDS_YOU_TASK_CAP).map((task): AgendaRow => {
+    const facts = input.interruptedFacts?.get(task.taskId);
+    const detail = interruptedDetail(facts);
+    return {
+      id: `interrupted:${task.taskId}`,
+      section: NEEDS_YOU,
+      glyph: glyphs.warningGlyph,
+      tone: 'warning',
+      label: `"${task.name}" was interrupted`,
+      fact: `attempt ${String(task.attemptN)} ${glyphs.bullet} ${fmtSpan(Math.max(0, input.now - (facts?.since ?? task.startedAt)))} ago`,
+      ...(detail !== undefined ? { detail } : {}),
+      ...RESUME_IMPLEMENT,
+    };
+  });
+  const overflow = all.length - rows.length;
+  if (overflow > 0) {
+    rows.push({
+      id: 'interrupted:overflow',
+      section: NEEDS_YOU,
+      glyph: glyphs.moreBelow,
+      tone: 'muted',
+      label: `${String(overflow)} more interrupted ${glyphs.emDash} resume picks them all up`,
+      ...RESUME_IMPLEMENT,
     });
   }
   return rows;
@@ -154,7 +210,7 @@ const failedSessions = (input: BuildAgendaInput): readonly AgendaRow[] =>
     )
     .map((s): AgendaRow => ({
       id: `run:${s.id}`,
-      section: 'needs-you',
+      section: NEEDS_YOU,
       glyph: glyphs.cross,
       tone: 'error',
       label: `${s.flowId} ${s.status === 'failed' ? 'failed' : 'aborted'} ${fmtSpan(input.now - (s.finishedAt ?? s.startedAt))} ago`,
@@ -201,7 +257,7 @@ const nextRows = (input: BuildAgendaInput, runningFlowIds: ReadonlySet<string>):
         tone: 'highlight',
         label: step.label,
         ...(step.detail !== undefined ? { note: step.detail } : {}),
-        action: { kind: 'launch-flow', flowId: step.flow },
+        action: { kind: LAUNCH_FLOW, flowId: step.flow },
         verb: `run ${step.label}`,
       },
     ];
@@ -220,7 +276,7 @@ const flowRows = (input: BuildAgendaInput, claimed: ReadonlySet<string>): readon
       label: entry.manifest.title,
       note: entry.manifest.description,
       ...(entry.manifest.costHint !== undefined ? { costHint: entry.manifest.costHint } : {}),
-      action: { kind: 'launch-flow', flowId: entry.manifest.id },
+      action: { kind: LAUNCH_FLOW, flowId: entry.manifest.id },
       verb: `run ${entry.manifest.title}`,
       ...(check.ok ? {} : { disabledReason: check.disabledReason }),
     }));
@@ -229,10 +285,13 @@ export const buildAgenda = (input: BuildAgendaInput): readonly AgendaRow[] => {
   const runningFlowIds = new Set(
     input.sessions.filter((s) => s.status === 'running' && s.pinnedSprintId === input.sprintId).map((s) => s.flowId)
   );
-  const next = nextRows(input, runningFlowIds);
+  const interrupted = interruptedRows(input);
+  // Resuming Implement is the interrupted row's ↵, so NEXT never offers the same flow a second time.
+  const next = nextRows(input, interrupted.length > 0 ? new Set([...runningFlowIds, IMPLEMENT]) : runningFlowIds);
   // A flow NEXT recommends never repeats under FLOWS — even while NEXT hides it because it runs.
   const claimed = new Set(input.nextSteps.flatMap((s) => (s.flow !== undefined ? [s.flow] : [])));
   return [
+    ...interrupted,
     ...needsYouTasks(input.tasks),
     ...failedSessions(input),
     ...runningRows(input),

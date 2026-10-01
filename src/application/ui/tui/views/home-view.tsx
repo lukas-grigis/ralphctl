@@ -19,6 +19,7 @@ import { useSelection } from '@src/application/ui/tui/runtime/selection-context.
 import { useFlowLauncher } from '@src/application/ui/tui/runtime/use-flow-launcher.ts';
 import { StateCard } from '@src/application/ui/tui/views/home-internals/state-card.tsx';
 import type { AgendaRow, AgendaSectionId } from '@src/application/ui/tui/views/home-internals/agenda.ts';
+import { useInterrupted } from '@src/application/ui/tui/views/home-internals/use-interrupted.ts';
 import { GlanceColumn, RECENT_SPRINT_ROWS } from '@src/application/ui/tui/views/home-internals/glance-column.tsx';
 import { useFlash, useSwitchToast } from '@src/application/ui/tui/views/home-internals/use-work-feedback.ts';
 import {
@@ -37,19 +38,19 @@ const SECTION_LABEL: Readonly<Record<AgendaSectionId, string>> = {
 };
 
 const GLANCE_GAP = 4;
-const OVERFLOW_ID = 'needs-you:overflow';
+const OVERFLOW_SUFFIX = ':overflow';
 /** App chrome: tab bar, location line, two rules, hint row. */
 const CHROME_ROWS = 5;
 
-/** Header counts — the overflow row stands for N blocked tasks, not one. */
+/** Header counts — an overflow row stands for N tasks, not one. */
 const sectionCounts = (rows: readonly AgendaRow[]): Readonly<Record<string, number>> => {
   const counts: Record<string, number> = {};
   for (const section of ['needs-you', 'running'] as const) {
     const inSection = rows.filter((r) => r.section === section);
     if (inSection.length === 0) continue;
-    const overflow = inSection.find((r) => r.id === OVERFLOW_ID);
-    const hidden = overflow !== undefined ? Number.parseInt(overflow.label, 10) : 0;
-    counts[SECTION_LABEL[section]] = inSection.length - (overflow !== undefined ? 1 : 0) + hidden;
+    const overflows = inSection.filter((r) => r.id.endsWith(OVERFLOW_SUFFIX));
+    const hidden = overflows.reduce((sum, r) => sum + Number.parseInt(r.label, 10), 0);
+    counts[SECTION_LABEL[section]] = inSection.length - overflows.length + hidden;
   }
   return counts;
 };
@@ -89,15 +90,37 @@ export interface HomeViewProps {
   readonly focus?: 'flows';
 }
 
-export const HomeView = ({ focus: focusProp }: HomeViewProps = {}): React.JSX.Element => {
+/** Column split and the row budgets of the agenda menu and the task minimap. */
+const useWorkLayout = (agenda: readonly AgendaRow[]) => {
   const { rows, columns } = useBreakpoint();
   const router = useRouter();
+  const ui = useUiState();
+  const bannerRows =
+    resolveBannerMode({ routeId: router.current.id, columns, rows, userToggle: ui.bannerCompact }) === 'full'
+      ? BANNER_FULL_ROWS
+      : 0;
+  const sectionHeaders = new Set(agenda.map((r) => r.section)).size;
+  return {
+    wide: columns >= breakpoints.lg,
+    glanceWidth: fluid(columns, { min: 44, max: 56, ratio: 0.34 }),
+    // Chrome + strip (2) + gap + headers + the focused row's detail line + the `v` hint.
+    menuRows: listCapacity(rows, { chromeRows: CHROME_ROWS + bannerRows + 3 + sectionHeaders + 2, min: 3 }),
+    taskRows: listCapacity(rows, {
+      chromeRows: CHROME_ROWS + bannerRows + 4 + RECENT_SPRINT_ROWS + 2,
+      min: 3,
+      max: 10,
+    }),
+  };
+};
+
+export const HomeView = ({ focus: focusProp }: HomeViewProps = {}): React.JSX.Element => {
   const ui = useUiState();
   const selection = useSelection();
 
   const { state, snapshot, reload } = useWorkSnapshot();
   const launcher = useFlowLauncher({ snapshot, reload });
-  const { agenda, showAll, toggleShowAll } = useWorkAgenda(snapshot, launcher.launchability);
+  const interrupted = useInterrupted(snapshot);
+  const { agenda, showAll, toggleShowAll } = useWorkAgenda(snapshot, launcher.launchability, interrupted.facts);
   const { seedIndex, epoch } = useMenuSeed(agenda, focusProp);
   const { flash, show } = useFlash();
   const switchToast = useSwitchToast(selection);
@@ -108,7 +131,10 @@ export const HomeView = ({ focus: focusProp }: HomeViewProps = {}): React.JSX.El
     focusedId,
     showAll,
     toggleShowAll,
-    launch: launcher.launch,
+    launch: async (flowId) => {
+      if (flowId === 'implement') await interrupted.dismissStale();
+      await launcher.launch(flowId);
+    },
     reload,
     show,
   });
@@ -116,20 +142,7 @@ export const HomeView = ({ focus: focusProp }: HomeViewProps = {}): React.JSX.El
   const items = useMemo(() => agenda.map((row) => toMenuItem(row, () => run(row))), [agenda, run]);
 
   const sprint = snapshot?.sprint;
-  const wide = columns >= breakpoints.lg;
-  const glanceWidth = fluid(columns, { min: 44, max: 56, ratio: 0.34 });
-  const bannerRows =
-    resolveBannerMode({ routeId: router.current.id, columns, rows, userToggle: ui.bannerCompact }) === 'full'
-      ? BANNER_FULL_ROWS
-      : 0;
-  const sectionHeaders = new Set(agenda.map((r) => r.section)).size;
-  // Chrome + strip (2) + gap + headers + the focused row's detail line + the `v` hint.
-  const menuRows = listCapacity(rows, { chromeRows: CHROME_ROWS + bannerRows + 3 + sectionHeaders + 2, min: 3 });
-  const taskRows = listCapacity(rows, {
-    chromeRows: CHROME_ROWS + bannerRows + 4 + RECENT_SPRINT_ROWS + 2,
-    min: 3,
-    max: 10,
-  });
+  const { wide, glanceWidth, menuRows, taskRows } = useWorkLayout(agenda);
 
   const feedback: StructuredFeedback | undefined =
     flash ?? (launcher.launchError !== undefined ? { tone: 'error', text: launcher.launchError } : switchToast);
@@ -167,7 +180,12 @@ export const HomeView = ({ focus: focusProp }: HomeViewProps = {}): React.JSX.El
         {wide && snapshot !== undefined && sprint !== undefined && (
           <>
             <Box width={GLANCE_GAP} flexShrink={0} />
-            <GlanceColumn snapshot={snapshot} width={glanceWidth} taskRows={taskRows} />
+            <GlanceColumn
+              snapshot={snapshot}
+              width={glanceWidth}
+              taskRows={taskRows}
+              interruptedIds={interrupted.ids}
+            />
           </>
         )}
       </Box>

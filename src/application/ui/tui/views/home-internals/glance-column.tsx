@@ -31,14 +31,21 @@ export const GlanceColumn = ({
   snapshot,
   width,
   taskRows,
+  interruptedIds,
 }: {
   readonly snapshot: AppStateSnapshot;
   readonly width: number;
   readonly taskRows: number;
+  readonly interruptedIds?: ReadonlySet<string>;
 }): React.JSX.Element => (
   <Box flexDirection="column" width={width} flexShrink={0}>
     <GlanceHeader title="TASKS" count={snapshot.tasks.length} />
-    <TaskMinimap tasks={snapshot.tasks} visibleRows={taskRows} width={width} />
+    <TaskMinimap
+      tasks={snapshot.tasks}
+      visibleRows={taskRows}
+      width={width}
+      {...(interruptedIds !== undefined ? { interruptedIds } : {})}
+    />
     <Box marginTop={spacing.section} flexDirection="column">
       <GlanceHeader title="RECENT SPRINTS" right="S switch" />
       {snapshot.recentSprints.slice(0, RECENT_SPRINT_ROWS).map((s) => (

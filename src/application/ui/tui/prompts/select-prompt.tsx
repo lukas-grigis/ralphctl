@@ -1,7 +1,8 @@
 /** Single-select prompt. Vertical list of `Choice<T>`; arrows navigate, Enter submits, Esc cancels. */
 
 import React, { useState } from 'react';
-import { Box, Text, useInput } from 'ink';
+import { Box, Text } from 'ink';
+import { usePromptInput } from '@src/application/ui/tui/prompts/use-prompt-input.ts';
 import type { Choice } from '@src/business/interactive/prompt.ts';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { ScrollableMessage } from '@src/application/ui/tui/prompts/scrollable-message.tsx';
@@ -65,7 +66,7 @@ export const SelectPrompt = ({
 
   usePromptHints(SELECT_HINTS);
 
-  useInput((input, key) => {
+  usePromptInput((input, key) => {
     if (key.escape) {
       onCancel();
       return;

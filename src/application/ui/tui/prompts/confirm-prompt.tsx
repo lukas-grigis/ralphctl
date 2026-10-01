@@ -1,7 +1,8 @@
 /** Yes / no confirmation. Highlights the focused choice; ←/→/h/l toggle, Enter commits, Esc cancels. */
 
 import React, { useState } from 'react';
-import { Box, Text, useInput } from 'ink';
+import { Box, Text } from 'ink';
+import { usePromptInput } from '@src/application/ui/tui/prompts/use-prompt-input.ts';
 import { inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { ScrollableMessage } from '@src/application/ui/tui/prompts/scrollable-message.tsx';
 import { usePromptHints } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
@@ -33,7 +34,7 @@ export const ConfirmPrompt = ({
 
   usePromptHints(CONFIRM_HINTS);
 
-  useInput((input, key) => {
+  usePromptInput((input, key) => {
     if (key.escape) {
       onCancel();
       return;

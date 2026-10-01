@@ -1,7 +1,8 @@
 /** Free-text input prompt (optional inline `validate` / `preview`). */
 
 import React, { useEffect, useRef, useState } from 'react';
-import { Box, Text, useInput, type Key } from 'ink';
+import { Box, Text, type Key } from 'ink';
+import { usePromptInput } from '@src/application/ui/tui/prompts/use-prompt-input.ts';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { stripPasteMarkers, usePaste } from '@src/application/ui/tui/prompts/use-paste.ts';
 import { usePromptHints } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
@@ -179,7 +180,7 @@ export const TextPrompt = ({
 
   usePromptHints(TEXT_HINTS, escLabel);
 
-  useInput((input, key) => {
+  usePromptInput((input, key) => {
     // Bracketed paste first — consumed before any key dispatch so marker bytes and embedded
     // newlines never submit or land verbatim in the buffer.
     if (paste.consume(input)) return;

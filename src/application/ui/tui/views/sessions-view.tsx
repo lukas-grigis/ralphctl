@@ -3,7 +3,7 @@
  * the execute view for that session.
  */
 
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Box, Text } from 'ink';
 import { ViewShell } from '@src/application/ui/tui/components/view-shell.tsx';
 import { EmptyState } from '@src/application/ui/tui/components/empty-state.tsx';
@@ -22,6 +22,9 @@ import { listMoveBinding } from '@src/application/ui/tui/runtime/keyboard-map.ts
 import type { SessionRecord } from '@src/application/ui/tui/runtime/session-manager.ts';
 import { fmtElapsed } from '@src/application/ui/tui/theme/duration.ts';
 import { useBreakpoint } from '@src/application/ui/tui/runtime/use-breakpoint.ts';
+import { useInterruptedRuns } from '@src/application/ui/tui/runtime/use-interrupted-runs.ts';
+import { flowIdToTitle } from '@src/application/ui/shared/flow-title.ts';
+import type { InterruptedRun } from '@src/business/runs/detect-interrupted-runs.ts';
 
 /** Non-list rows consumed by ViewShell chrome + column header + overflow rows + summary + feedback. */
 const CHROME_ROWS = 9;
@@ -29,7 +32,13 @@ const FLOW_COL_WIDTH = 16;
 const STATUS_COL_WIDTH = 14;
 const ELAPSED_COL_WIDTH = 10;
 
-const sessionId = (s: SessionRecord): string => s.descriptor.id;
+/** A row of Runs: a session this process knows, or a run an earlier process left behind. */
+type RunItem =
+  | { readonly kind: 'session'; readonly record: SessionRecord }
+  | { readonly kind: 'interrupted'; readonly run: InterruptedRun };
+
+const itemId = (item: RunItem): string =>
+  item.kind === 'session' ? item.record.descriptor.id : `interrupted:${item.run.record.runId}`;
 
 /** Column header above the session rows — widths mirror the row cells below. */
 const SessionsHeader = (): React.JSX.Element => (
@@ -58,51 +67,78 @@ const SessionsHeader = (): React.JSX.Element => (
   </Box>
 );
 
-/** One session row: focus cursor, title, flow id, status chip, elapsed time. */
+interface RowFacts {
+  readonly title: string;
+  readonly flow: string;
+  readonly chip: { readonly label: string; readonly kind: ReturnType<typeof runnerStatusKind> };
+  readonly elapsed: string;
+}
+
+const factsOf = (item: RunItem, waiting: boolean): RowFacts => {
+  if (item.kind === 'interrupted') {
+    const { record } = item.run;
+    return {
+      title: `${flowIdToTitle(record.flowId)} ${glyphs.emDash} interrupted`,
+      flow: record.flowId,
+      chip: { label: 'interrupted', kind: 'warning' },
+      elapsed: fmtElapsed(Date.parse(record.startedAt), Date.parse(record.updatedAt)),
+    };
+  }
+  const d = item.record.descriptor;
+  return {
+    title: d.title,
+    flow: d.flowId,
+    chip: { label: waiting ? 'waiting' : d.status, kind: waiting ? 'warning' : runnerStatusKind(d.status) },
+    elapsed: fmtElapsed(d.startedAt, d.finishedAt ?? Date.now()),
+  };
+};
+
+/** One row: focus cursor, title, flow id, status chip, elapsed time. */
 const SessionRow = ({
-  record,
+  item,
   focused,
   waiting,
 }: {
-  readonly record: SessionRecord;
+  readonly item: RunItem;
   readonly focused: boolean;
   readonly waiting: boolean;
-}): React.JSX.Element => (
-  <Box paddingX={spacing.indent}>
-    <Box flexShrink={0}>
-      <Text color={focused ? inkColors.primary : inkColors.muted}>{focused ? glyphs.actionCursor : ' '} </Text>
+}): React.JSX.Element => {
+  const facts = factsOf(item, waiting);
+  return (
+    <Box paddingX={spacing.indent}>
+      <Box flexShrink={0}>
+        <Text color={focused ? inkColors.primary : inkColors.muted}>{focused ? glyphs.actionCursor : ' '} </Text>
+      </Box>
+      <Box flexGrow={1} flexShrink={1} minWidth={0} marginRight={1}>
+        <Text bold={focused} wrap="truncate-end">
+          {facts.title}
+        </Text>
+      </Box>
+      <Box width={FLOW_COL_WIDTH} flexShrink={0}>
+        <Text bold={focused} dimColor wrap="truncate-end">
+          {facts.flow}
+        </Text>
+      </Box>
+      <Box width={STATUS_COL_WIDTH} flexShrink={0}>
+        <Text bold={focused}>
+          <StatusChip label={facts.chip.label} kind={facts.chip.kind} />
+        </Text>
+      </Box>
+      <Box width={ELAPSED_COL_WIDTH} flexShrink={0}>
+        <Text bold={focused} dimColor>
+          {facts.elapsed}
+        </Text>
+      </Box>
     </Box>
-    <Box flexGrow={1} flexShrink={1} minWidth={0} marginRight={1}>
-      <Text bold={focused} wrap="truncate-end">
-        {record.descriptor.title}
-      </Text>
-    </Box>
-    <Box width={FLOW_COL_WIDTH} flexShrink={0}>
-      <Text bold={focused} dimColor wrap="truncate-end">
-        {record.descriptor.flowId}
-      </Text>
-    </Box>
-    <Box width={STATUS_COL_WIDTH} flexShrink={0}>
-      <Text bold={focused}>
-        <StatusChip
-          label={waiting ? 'waiting' : record.descriptor.status}
-          kind={waiting ? 'warning' : runnerStatusKind(record.descriptor.status)}
-        />
-      </Text>
-    </Box>
-    <Box width={ELAPSED_COL_WIDTH} flexShrink={0}>
-      <Text bold={focused} dimColor>
-        {fmtElapsed(record.descriptor.startedAt, record.descriptor.finishedAt ?? Date.now())}
-      </Text>
-    </Box>
-  </Box>
-);
+  );
+};
 
 interface SessionsTableProps {
   readonly window: ListWindow;
-  readonly visibleItems: readonly SessionRecord[];
+  readonly visibleItems: readonly RunItem[];
   readonly focusedIndex: number;
   readonly total: number;
+  readonly interruptedCount: number;
   readonly sessionFeedback: StructuredFeedback | undefined;
   readonly awaiting: ReadonlyMap<string, number>;
 }
@@ -113,6 +149,7 @@ const SessionsTable = ({
   visibleItems,
   focusedIndex,
   total,
+  interruptedCount,
   sessionFeedback,
   awaiting,
 }: SessionsTableProps): React.JSX.Element => (
@@ -121,10 +158,12 @@ const SessionsTable = ({
     <OverflowRow direction="above" count={window.hiddenAbove} />
     {visibleItems.map((s, localIdx) => (
       <SessionRow
-        key={s.descriptor.id}
-        record={s}
+        key={itemId(s)}
+        item={s}
         focused={window.start + localIdx === focusedIndex}
-        waiting={s.descriptor.status === 'running' && awaiting.has(s.descriptor.id)}
+        waiting={
+          s.kind === 'session' && s.record.descriptor.status === 'running' && awaiting.has(s.record.descriptor.id)
+        }
       />
     ))}
     <OverflowRow direction="below" count={window.hiddenBelow} />
@@ -132,12 +171,57 @@ const SessionsTable = ({
         the single source of truth. A second hand-typed strip here would drift from it. */}
     <Box paddingX={spacing.indent} marginTop={spacing.section}>
       <Text dimColor>
-        {glyphs.bullet} {plural(total, 'session')}
+        {glyphs.bullet} {plural(total - interruptedCount, 'session')}
+        {interruptedCount > 0 ? ` ${glyphs.bullet} ${String(interruptedCount)} interrupted` : ''}
       </Text>
     </Box>
     <FeedbackLine text={sessionFeedback} />
   </Box>
 );
+
+const dismissFeedback = (ok: boolean, flowId: string): StructuredFeedback =>
+  ok
+    ? feedback('success', `dismissed the interrupted ${flowIdToTitle(flowId)} run`)
+    : feedback('error', 'could not remove the run record — check the state directory permissions');
+
+interface RunsKeysArgs {
+  readonly itemCount: number;
+  readonly sessions: readonly SessionRecord[];
+  readonly focusedItem: RunItem | undefined;
+  readonly active: boolean;
+  readonly stopRun: (target: SessionRecord) => void;
+  readonly dismiss: (run: InterruptedRun) => void;
+}
+
+/** Runs' keys: ↵ open / resume, `c` stop a live session, `d` dismiss an interrupted record — each only on its own row. */
+const useRunsKeys = (args: RunsKeysArgs): void => {
+  const { itemCount, sessions, focusedItem, active, stopRun, dismiss } = args;
+  const kind = focusedItem?.kind;
+  useViewKeys(
+    [
+      { ...listMoveBinding, enabled: itemCount > 0 },
+      { keys: ['↵'], hint: kind === 'interrupted' ? 'resume in Work' : 'open', enabled: itemCount > 0 },
+      {
+        keys: ['c'],
+        hint: 'stop run',
+        enabled: sessions.length > 0 && kind === 'session',
+        run: () => {
+          const target = focusedItem?.kind === 'session' ? focusedItem.record : sessions[0];
+          if (target !== undefined) stopRun(target);
+        },
+      },
+      {
+        keys: ['d'],
+        hint: 'dismiss',
+        enabled: kind === 'interrupted',
+        run: () => {
+          if (focusedItem?.kind === 'interrupted') dismiss(focusedItem.run);
+        },
+      },
+    ],
+    { active }
+  );
+};
 
 export const SessionsView = (): React.JSX.Element => {
   const router = useRouter();
@@ -146,44 +230,50 @@ export const SessionsView = (): React.JSX.Element => {
   const manager = useSessionManager();
   const ui = useUiState();
   const { rows } = useBreakpoint();
+  const interrupted = useInterruptedRuns();
 
   const [confirmCancel, setConfirmCancel] = useState<SessionRecord | undefined>(undefined);
   const [sessionFeedback, setSessionFeedback] = useState<StructuredFeedback | undefined>(undefined);
+
+  const items = useMemo<readonly RunItem[]>(
+    () => [
+      ...sessions.map((record): RunItem => ({ kind: 'session', record })),
+      ...interrupted.runs.map((run): RunItem => ({ kind: 'interrupted', run })),
+    ],
+    [sessions, interrupted.runs]
+  );
 
   // List input is live only when no overlay / prompt is mounted; the global-key mute is claimed
   // separately while the confirm prompt is up.
   const listActive = !ui.modalOpen && confirmCancel === undefined;
 
-  const { window, visibleItems, focusedIndex, focusedItem } = useListWindow<SessionRecord>({
-    items: sessions,
-    getId: sessionId,
+  const { window, visibleItems, focusedIndex, focusedItem } = useListWindow<RunItem>({
+    items,
+    getId: itemId,
     visibleRows: listCapacity(rows, { chromeRows: CHROME_ROWS, min: 5, max: 15 }),
     active: listActive,
-    onSubmit: (s) => router.push({ id: 'execute', props: { sessionId: s.descriptor.id } }),
+    onSubmit: (item) =>
+      item.kind === 'session'
+        ? router.push({ id: 'execute', props: { sessionId: item.record.descriptor.id } })
+        : router.reset({ id: 'home' }),
   });
-
-  useViewKeys(
-    [
-      { ...listMoveBinding, enabled: sessions.length > 0 },
-      { keys: ['↵'], hint: 'open', enabled: sessions.length > 0 },
-      {
-        keys: ['c'],
-        hint: 'stop run',
-        enabled: sessions.length > 0,
-        run: () => {
-          const target = focusedItem ?? sessions[0];
-          if (target === undefined) return;
-          // A finished run has nothing to abort.
-          if (target.descriptor.status !== 'running') {
-            setSessionFeedback(feedback('error', `session is ${target.descriptor.status}, nothing to stop`));
-            return;
-          }
-          setConfirmCancel(target);
-        },
-      },
-    ],
-    { active: listActive }
-  );
+  useRunsKeys({
+    itemCount: items.length,
+    sessions,
+    focusedItem: focusedItem ?? items[0],
+    active: listActive,
+    stopRun: (target) => {
+      // A finished run has nothing to abort.
+      if (target.descriptor.status !== 'running') {
+        setSessionFeedback(feedback('error', `session is ${target.descriptor.status}, nothing to stop`));
+        return;
+      }
+      setConfirmCancel(target);
+    },
+    dismiss: ({ record }) => {
+      void interrupted.dismiss(record.runId).then((ok) => setSessionFeedback(dismissFeedback(ok, record.flowId)));
+    },
+  });
 
   const handleCancelConfirmed = (target: SessionRecord, confirmed: boolean): void => {
     setConfirmCancel(undefined);
@@ -202,14 +292,15 @@ export const SessionsView = (): React.JSX.Element => {
           onSubmit={(value) => handleCancelConfirmed(confirmCancel, value)}
           onCancel={() => setConfirmCancel(undefined)}
         />
-      ) : sessions.length === 0 ? (
+      ) : items.length === 0 ? (
         <EmptyState title="No sessions yet" hint="Start a flow from Work (1)." />
       ) : (
         <SessionsTable
           window={window}
           visibleItems={visibleItems}
           focusedIndex={focusedIndex}
-          total={sessions.length}
+          total={items.length}
+          interruptedCount={interrupted.runs.length}
           sessionFeedback={sessionFeedback}
           awaiting={awaiting}
         />

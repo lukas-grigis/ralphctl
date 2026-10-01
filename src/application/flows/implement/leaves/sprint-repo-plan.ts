@@ -8,7 +8,11 @@ import type { InteractivePrompt } from '@src/business/interactive/prompt.ts';
 import type { GitRunner } from '@src/integration/io/git-runner.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
-import { type DirtyTreePolicy, preflightTaskLeaf } from '@src/application/flows/implement/leaves/preflight-task.ts';
+import {
+  type DirtyTreeMenuOpts,
+  type DirtyTreePolicy,
+  preflightTaskLeaf,
+} from '@src/application/flows/implement/leaves/preflight-task.ts';
 import { type RepoExecConfig, resolveRepoOrThrow } from '@src/application/flows/implement/leaves/resolve-repo.ts';
 
 /**
@@ -71,6 +75,33 @@ export const setupRepoEntriesForTasks = (
   return out;
 };
 
+/** The interrupted attempt whose leftovers a repo's dirty tree most likely holds. */
+export interface InterruptedAttemptHint {
+  readonly taskName: string;
+  readonly attemptN: number;
+}
+
+/** Per repo path, the first task whose last attempt is still `running` — the signature of a dead harness. */
+export const interruptedAttemptsByCwd = (
+  repositories: ReadonlyMap<RepositoryId, RepoExecConfig>,
+  todoTasks: readonly Task[]
+): ReadonlyMap<string, InterruptedAttemptHint> => {
+  const out = new Map<string, InterruptedAttemptHint>();
+  for (const task of todoTasks) {
+    const last = task.attempts.at(-1);
+    if (task.status !== 'in_progress' || last === undefined || last.status !== 'running') continue;
+    const cwd = String(resolveRepoOrThrow(repositories, task).path);
+    if (!out.has(cwd)) out.set(cwd, { taskName: task.name, attemptN: last.n });
+  }
+  return out;
+};
+
+const interruptedMenu = (hint: InterruptedAttemptHint): Omit<DirtyTreeMenuOpts, 'elementName'> => ({
+  question: ({ cwd, dirtyEntries }) =>
+    `Working tree at ${String(cwd)} has ${String(dirtyEntries)} uncommitted change(s), likely from interrupted attempt ${String(hint.attemptN)} of "${hint.taskName}". Keep them to resume, or start clean?`,
+  keepDescription: 'the resumed attempt continues from them',
+});
+
 export interface PreflightLeavesDeps {
   readonly gitRunner: GitRunner;
   readonly interactive: InteractivePrompt;
@@ -90,7 +121,8 @@ export interface PreflightLeavesDeps {
 export const buildPreflightLeaves = (
   deps: PreflightLeavesDeps,
   cwds: readonly AbsolutePath[],
-  dirtyTreePolicy: DirtyTreePolicy
+  dirtyTreePolicy: DirtyTreePolicy,
+  interrupted: ReadonlyMap<string, InterruptedAttemptHint> = new Map()
 ): ReadonlyArray<Element<ImplementCtx>> =>
   cwds.map((cwd, i) =>
     preflightTaskLeaf(
@@ -103,6 +135,10 @@ export const buildPreflightLeaves = (
       },
       cwd,
       `preflight-task-${String(i + 1)}-${String(cwd)}`,
-      { label: `preflight · ${basename(String(cwd))}` }
+      { label: `preflight · ${basename(String(cwd))}` },
+      (() => {
+        const hint = interrupted.get(String(cwd));
+        return hint !== undefined ? interruptedMenu(hint) : {};
+      })()
     )
   );

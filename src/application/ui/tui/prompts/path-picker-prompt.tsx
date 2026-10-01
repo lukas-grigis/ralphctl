@@ -7,7 +7,8 @@ import React, { useEffect, useState } from 'react';
 import { promises as fs, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { homedir } from 'node:os';
-import { Box, Text, useInput, type Key } from 'ink';
+import { Box, Text, type Key } from 'ink';
+import { usePromptInput } from '@src/application/ui/tui/prompts/use-prompt-input.ts';
 import { TextPrompt } from '@src/application/ui/tui/prompts/text-prompt.tsx';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { useTerminalSize } from '@src/application/ui/tui/runtime/use-terminal-size.ts';
@@ -259,7 +260,7 @@ export const PathPickerPrompt = ({
     setCursor((c) => clamp(c, 0, Math.max(0, rows.length - 1)));
   }, [rows.length]);
 
-  useInput(
+  usePromptInput(
     (input, key) =>
       handlePathPickerKey(input, key, {
         cwd,

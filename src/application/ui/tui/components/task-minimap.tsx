@@ -42,8 +42,8 @@ const BUCKET_OF: Readonly<Record<Task['status'], TaskBucketStatus>> = {
   blocked: 'blocked',
 };
 
-const factOf = (task: Task, ordered: readonly Task[]): string | undefined => {
-  if (task.status === 'in_progress') return 'running';
+const factOf = (task: Task, ordered: readonly Task[], interrupted: boolean): string | undefined => {
+  if (task.status === 'in_progress') return interrupted ? 'interrupted' : 'running';
   if (task.status !== 'blocked') return undefined;
   if (task.blockKind === 'own') return 'blocked';
   const byId = new Map(ordered.map((t, i) => [t.id, i + 1] as const));
@@ -56,9 +56,11 @@ export interface TaskMinimapProps {
   /** Task rows shown before `▾ N more`. */
   readonly visibleRows: number;
   readonly width: number;
+  /** In-progress tasks whose run died: shown `interrupted` (warning), not `running`. */
+  readonly interruptedIds?: ReadonlySet<string>;
 }
 
-export const TaskMinimap = ({ tasks, visibleRows, width }: TaskMinimapProps): React.JSX.Element => {
+export const TaskMinimap = ({ tasks, visibleRows, width, interruptedIds }: TaskMinimapProps): React.JSX.Element => {
   const ordered = [...tasks].sort((a, b) => a.order - b.order);
   if (ordered.length === 0) {
     return (
@@ -77,8 +79,9 @@ export const TaskMinimap = ({ tasks, visibleRows, width }: TaskMinimapProps): Re
     <Box flexDirection="column">
       <OverflowRow direction="above" count={win.hiddenAbove} />
       {ordered.slice(win.start, win.end).map((task) => {
-        const status = BUCKET_OF[task.status];
-        const fact = factOf(task, ordered);
+        const interrupted = interruptedIds?.has(task.id) === true;
+        const status = interrupted ? 'aborted' : BUCKET_OF[task.status];
+        const fact = factOf(task, ordered, interrupted);
         const nameBudget = Math.max(4, width - 2 * spacing.indent - 4 - (fact !== undefined ? fact.length + 1 : 0));
         return (
           <Box key={task.id} paddingX={spacing.indent} justifyContent="space-between">

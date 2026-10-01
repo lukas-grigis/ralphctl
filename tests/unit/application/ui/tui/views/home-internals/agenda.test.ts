@@ -11,7 +11,7 @@ import { markTaskBlocked } from '@src/domain/entity/task-lifecycle.ts';
 import type { Task } from '@src/domain/entity/task.ts';
 import type { TaskId } from '@src/domain/value/id/task-id.ts';
 import type { NextStep } from '@src/application/ui/shared/next-steps.ts';
-import { makeTodoTask } from '@tests/fixtures/domain.ts';
+import { makeInProgressTaskWithRunningAttempt, makeTodoTask } from '@tests/fixtures/domain.ts';
 
 const NOW = Date.parse('2026-10-01T12:00:00Z');
 const SPRINT = 'sprint-1';
@@ -211,5 +211,61 @@ describe('initialAgendaRowId', () => {
     const flowsOnly = buildAgenda(input({ nextSteps: [] }));
     expect(initialAgendaRowId(flowsOnly)).toBe(flowsOnly[0]?.id);
     expect(initialAgendaRowId([])).toBeUndefined();
+  });
+});
+
+describe('buildAgenda interrupted rows', () => {
+  const interrupted = makeInProgressTaskWithRunningAttempt();
+  const withFacts = (facts: BuildAgendaInput['interruptedFacts']): ReturnType<typeof buildAgenda> =>
+    buildAgenda(input({ tasks: [interrupted], ...(facts !== undefined ? { interruptedFacts: facts } : {}) }));
+
+  it('puts a NEEDS YOU row first, whose ↵ resumes Implement', () => {
+    const rows = buildAgenda(input({ tasks: [ownBlocked('t1', 'Add test'), interrupted] }));
+    const row = rows[0];
+    expect(row?.id).toBe(`interrupted:${interrupted.id}`);
+    expect(row?.section).toBe('needs-you');
+    expect(row?.label).toBe(`"${interrupted.name}" was interrupted`);
+    expect(row?.fact).toMatch(/^attempt 1 · .+ ago$/);
+    expect(row?.action).toEqual({ kind: 'launch-flow', flowId: 'implement' });
+    expect(row?.verb).toBe('resume implement');
+    expect(initialAgendaRowId(rows)).toBe(row?.id);
+  });
+
+  it('details uncommitted changes and a resumable session, saying only what it knows', () => {
+    const id = interrupted.id;
+    expect(withFacts(new Map([[id, { uncommitted: 3, resumable: true }]]))[0]?.detail).toBe(
+      '3 uncommitted changes · session resumable'
+    );
+    expect(withFacts(new Map([[id, { uncommitted: 0, resumable: true }]]))[0]?.detail).toBe('session resumable');
+    expect(withFacts(new Map([[id, { resumable: false }]]))[0]?.detail).toContain('restarts from the brief');
+    expect(withFacts(undefined)[0]?.detail).toBeUndefined();
+  });
+
+  it('measures "ago" from the dead run when its record is known', () => {
+    const since = NOW - 12 * 60_000;
+    const row = withFacts(new Map([[interrupted.id, { since }]]))[0];
+    expect(row?.fact).toBe('attempt 1 · 12m ago');
+  });
+
+  it('shows nothing while an implement run of this process owns the sprint', () => {
+    const rows = buildAgenda(input({ tasks: [interrupted], sessions: [session({ id: 's1' })] }));
+    expect(rows.some((r) => r.id.startsWith('interrupted:'))).toBe(false);
+  });
+
+  it('does not offer Implement a second time under NEXT', () => {
+    const rows = buildAgenda(input({ tasks: [interrupted] }));
+    expect(rows.filter((r) => r.action.kind === 'launch-flow' && r.action.flowId === 'implement')).toHaveLength(1);
+    expect(rows.some((r) => r.section === 'next')).toBe(false);
+  });
+
+  it('caps the rows and folds the rest into one overflow row that resumes them all', () => {
+    const many = [1, 2, 3, 4, 5].map((n) => ({
+      ...makeInProgressTaskWithRunningAttempt(),
+      id: `i${String(n)}` as TaskId,
+    }));
+    const rows = buildAgenda(input({ tasks: many })).filter((r) => r.section === 'needs-you');
+    expect(rows).toHaveLength(NEEDS_YOU_TASK_CAP + 1);
+    expect(rows.at(-1)).toMatchObject({ id: 'interrupted:overflow', verb: 'resume implement' });
+    expect(rows.at(-1)?.label).toMatch(/^2 more interrupted/);
   });
 });

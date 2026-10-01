@@ -1,7 +1,8 @@
 /** Multi-line free-text input. Buffer holds raw text incl. newlines and renders one Ink row per line. */
 
 import React, { useEffect, useRef, useState, type MutableRefObject } from 'react';
-import { Box, Text, useInput, type Key } from 'ink';
+import { Box, Text, type Key } from 'ink';
+import { usePromptInput } from '@src/application/ui/tui/prompts/use-prompt-input.ts';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { useTerminalSize } from '@src/application/ui/tui/runtime/use-terminal-size.ts';
 import { normalizePasteNewlines, stripPasteMarkers, usePaste } from '@src/application/ui/tui/prompts/use-paste.ts';
@@ -291,7 +292,7 @@ const useTextAreaViewport = (
 
 /** Wire the three key-dispatch groups into Ink's `useInput`. */
 const useTextAreaKeyHandler = (ctx: TextAreaKeyCtx, consumePaste: (input: string) => boolean): void => {
-  useInput((input, key) => {
+  usePromptInput((input, key) => {
     if (consumePaste(input)) return;
     if (handleControlKeys(input, key, ctx)) return;
     if (handleCursorMovement(input, key, ctx)) return;
@@ -439,9 +440,8 @@ export const TextAreaPrompt = ({
   };
 
   const updateCursor = (next: (prev: number) => number): void => {
-    const value = next(cursorRef.current);
-    cursorRef.current = value;
-    setCursor(value);
+    cursorRef.current = next(cursorRef.current);
+    setCursor(cursorRef.current);
   };
 
   // Insert literal pasted text at the cursor, newlines preserved. A pasted newline is never a submit — that ambiguity
@@ -452,8 +452,7 @@ export const TextAreaPrompt = ({
     desiredColRef.current = null;
   };
 
-  // Bracketed-paste channel: the controller buffers chunks across keystrokes and delivers the
-  // whole payload here once the closing marker arrives (markers stripped, newlines normalized).
+  // Bracketed-paste channel: the whole payload arrives here once the closing marker does (markers stripped).
   const paste = usePaste(insertAtCursor);
 
   useCaretBlink(setCaretOn);

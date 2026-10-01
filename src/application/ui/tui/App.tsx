@@ -29,6 +29,7 @@ import { ChainLogDegradedBanner } from '@src/application/ui/tui/components/chain
 import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx';
 import { ProgressOverlay } from '@src/application/ui/tui/components/progress-overlay.tsx';
 import { EvaluationOverlay } from '@src/application/ui/tui/components/evaluation-overlay.tsx';
+import { QuitConfirmOverlay } from '@src/application/ui/tui/components/quit-confirm-overlay.tsx';
 import { ContextSwitcher } from '@src/application/ui/tui/components/context-switcher.tsx';
 import { TabBar } from '@src/application/ui/tui/components/tab-bar.tsx';
 import { LocationBar } from '@src/application/ui/tui/components/location-bar.tsx';
@@ -134,6 +135,7 @@ export const Layout = ({ children }: { readonly children: React.ReactNode }): Re
         {ui.helpOpen && <HelpOverlay routeId={router.current.id} />}
         {ui.progressOpen && <ProgressOverlay />}
         {ui.evaluationTarget !== undefined && <EvaluationOverlay />}
+        {ui.overlay?.kind === 'quit' && <QuitConfirmOverlay runs={ui.overlay.runs} />}
       </Box>
     </ViewTitleProvider>
   );

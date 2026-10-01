@@ -4,7 +4,7 @@
  */
 
 import React, { useState } from 'react';
-import { useApp } from 'ink';
+import { useApp, useInput } from 'ink';
 import { App, type AppProps } from '@src/application/ui/tui/App.tsx';
 import { MigrationGate, type MigrationGateProps } from '@src/application/ui/tui/migration/migration-gate.tsx';
 
@@ -23,6 +23,13 @@ export interface MigrationRouteProps {
 export const MigrationRoute = ({ gate, app, onResolved }: MigrationRouteProps): React.JSX.Element => {
   const [resolved, setResolved] = useState(false);
   const { exit } = useApp();
+  // Ink no longer exits on ctrl+c; the App's quit chord takes over once the gate resolves.
+  useInput(
+    (input, key) => {
+      if (key.ctrl && input === 'c') exit();
+    },
+    { isActive: !resolved }
+  );
 
   if (resolved) return <App {...app} />;
   return (

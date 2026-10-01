@@ -86,6 +86,10 @@ import { createProcessGroupTerminator, createProcessLiveness } from '@src/integr
 import { createFsLiveRunStore } from '@src/integration/persistence/live-run/fs-live-run-store.ts';
 import { createDetectInterruptedRuns, type DetectInterruptedRuns } from '@src/business/runs/detect-interrupted-runs.ts';
 import { createReapInterruptedRuns, type ReapInterruptedRuns } from '@src/business/runs/reap-interrupted-runs.ts';
+import {
+  createDismissInterruptedRuns,
+  type DismissInterruptedRuns,
+} from '@src/business/runs/dismiss-interrupted-runs.ts';
 import { anyRunActivity } from '@src/business/_shared/run-activity-probe.ts';
 import type { FileLogSink, FileLogSinkDeps } from '@src/integration/observability/_engine/file-log-sink.ts';
 
@@ -225,6 +229,8 @@ export interface AppDeps {
   readonly detectInterruptedRuns: DetectInterruptedRuns;
   /** Boot-time fallback reap of the process groups interrupted runs left behind. */
   readonly reapInterruptedRuns: ReapInterruptedRuns;
+  /** Drops the records of interrupted runs the operator has dealt with (resumed, or dismissed from Runs). */
+  readonly dismissInterruptedRuns: DismissInterruptedRuns;
 }
 
 /** Injection points for `wire()`. */
@@ -336,7 +342,10 @@ const buildWireProvider = (
 const buildLiveRunServices = (
   storage: StoragePaths,
   logger: Logger
-): Pick<AppDeps, 'inProcessRuns' | 'childRegistry' | 'detectInterruptedRuns' | 'reapInterruptedRuns'> => {
+): Pick<
+  AppDeps,
+  'inProcessRuns' | 'childRegistry' | 'detectInterruptedRuns' | 'reapInterruptedRuns' | 'dismissInterruptedRuns'
+> => {
   const store = createFsLiveRunStore({ stateRoot: storage.stateRoot });
   const liveness = createProcessLiveness();
   const now = (): string => String(IsoTimestamp.now());
@@ -347,6 +356,7 @@ const buildLiveRunServices = (
     inProcessRuns: createInProcessRuns({ recorder, children: childRegistry }),
     childRegistry,
     detectInterruptedRuns,
+    dismissInterruptedRuns: createDismissInterruptedRuns({ detect: detectInterruptedRuns, store }),
     reapInterruptedRuns: createReapInterruptedRuns({
       detect: detectInterruptedRuns,
       store,

@@ -1,6 +1,7 @@
 /** Global keyboard handler. */
 
 import { useApp, useInput, type Key } from 'ink';
+import { countRunning } from '@src/application/ui/tui/runtime/quit-runs.ts';
 import { useRouter, type RouterApi, type ViewEntry } from '@src/application/ui/tui/runtime/router.tsx';
 import { SECTIONS } from '@src/application/ui/tui/runtime/nav-tree.ts';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
@@ -25,9 +26,18 @@ export const useGlobalKeys = (opts: UseGlobalKeysOptions = {}): void => {
   const sessions = useSessionManager();
   const { isClaimed } = useClaimedKeys();
 
+  // Live runs get a confirm; with none, quitting is immediate.
+  const quit = (): void => {
+    const runs = countRunning(sessions.list());
+    if (runs === 0) exit();
+    else ui.openOverlay({ kind: 'quit', runs });
+  };
+
   useInput((input, key) => {
-    if (handleQuitChord(input, key, router, opts.disabled, exit)) return;
+    if (handleQuitChord(input, key, router, opts.disabled, quit, ui.overlay?.kind === 'quit')) return;
     if (opts.disabled) return;
+    // The quit confirm owns every other key; its own handler answers it.
+    if (ui.overlay?.kind === 'quit') return;
     if (handleHelpOverlay(ui, input, key)) return;
     if (handleSwitcherOverlay(ui)) return;
     if (handleProgressOverlay(ui, selection, input, key, isClaimed)) return;
@@ -50,16 +60,21 @@ export const useGlobalKeys = (opts: UseGlobalKeysOptions = {}): void => {
 const isWorkRoot = (router: Pick<RouterApi, 'current' | 'activeSection' | 'stack'>): boolean =>
   router.activeSection === 'work' && router.stack.length <= 1 && router.current.id === 'home';
 
-/** Quitting (`Ctrl-C` anywhere, or `q` on the Work root) is the operator's escape hatch — it always wins. */
+/**
+ * Quitting (`Ctrl-C` anywhere, or `q` on the Work root) is the operator's escape hatch — it always wins. While the quit
+ * confirm is open it handles both keys itself, so they are not re-read as a second request.
+ */
 const handleQuitChord = (
   input: string,
   key: Key,
   router: Pick<RouterApi, 'current' | 'activeSection' | 'stack'>,
   disabled: boolean | undefined,
-  exit: () => void
+  quit: () => void,
+  confirmOpen: boolean
 ): boolean => {
+  if (confirmOpen) return false;
   if ((key.ctrl && input === 'c') || (input === 'q' && isWorkRoot(router) && !disabled)) {
-    exit();
+    quit();
     return true;
   }
   return false;

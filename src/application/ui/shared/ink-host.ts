@@ -41,7 +41,8 @@ export const createInkHost = (deps: InkHostDeps): InkHost => {
     // Enable bracketed paste alongside the mount; disabled on every unmount path below so it does
     // not bleed into a paused AI session or the user's shell after shutdown.
     setBracketedPaste(true);
-    return render(deps.renderElement(), { alternateScreen });
+    // The app owns ctrl+c (quit chord); Ink's own exit would skip the live-run confirm.
+    return render(deps.renderElement(), { alternateScreen, exitOnCtrlC: false });
   };
 
   let instance: InkInstance = renderOnce();

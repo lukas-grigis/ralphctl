@@ -4,7 +4,8 @@
  */
 
 import React, { useState } from 'react';
-import { Box, Text, useInput } from 'ink';
+import { Box, Text } from 'ink';
+import { usePromptInput } from '@src/application/ui/tui/prompts/use-prompt-input.ts';
 import type { Choice } from '@src/business/interactive/prompt.ts';
 import { glyphs, inkColors, PROMPT_VISIBLE_ROWS, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { usePromptHints } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
@@ -61,7 +62,7 @@ const useMultiSelectKeys = ({
   onSubmit,
   onCancel,
 }: UseMultiSelectKeysArgs): void => {
-  useInput((input, key) => {
+  usePromptInput((input, key) => {
     if (key.escape) {
       onCancel();
       return;

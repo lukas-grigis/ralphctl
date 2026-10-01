@@ -17,6 +17,7 @@ import { toAgendaSession } from '@src/application/ui/tui/views/home-internals/ag
 import { visibleFlowsFor } from '@src/application/ui/tui/views/flows-visibility.ts';
 import { buildNextSteps, nextStepsInputFromSnapshot } from '@src/application/ui/shared/next-steps.ts';
 import type { AppStateSnapshot } from '@src/application/ui/shared/state-snapshot.ts';
+import type { InterruptedFacts } from '@src/application/ui/shared/interrupted-tasks.ts';
 
 /** The last snapshot of the same selection survives a reload, so the agenda never blanks. */
 const useStableSnapshot = (state: AsyncLoadState<AppStateSnapshot, unknown>, key: string) => {
@@ -54,7 +55,8 @@ export interface WorkAgenda {
 
 export const useWorkAgenda = (
   snapshot: AppStateSnapshot | undefined,
-  launchability: (flowId: string) => AgendaLaunchability
+  launchability: (flowId: string) => AgendaLaunchability,
+  interruptedFacts?: ReadonlyMap<string, InterruptedFacts>
 ): WorkAgenda => {
   const sessions = useSessions();
   const awaitingSince = useAwaitingSessions();
@@ -78,8 +80,9 @@ export const useWorkAgenda = (
       showAll,
       launchability,
       now: Date.now(),
+      ...(interruptedFacts !== undefined ? { interruptedFacts } : {}),
     });
-  }, [snapshot, hasProject, sprint, sessions, awaitingSince, showAll, launchability]);
+  }, [snapshot, hasProject, sprint, sessions, awaitingSince, showAll, launchability, interruptedFacts]);
 
   // Elapsed times tick while something runs.
   const [, tick] = useReducer((n: number) => n + 1, 0);

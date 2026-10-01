@@ -27,6 +27,7 @@ import { setupScriptRunnerLeaf } from '@src/application/flows/implement/leaves/s
 import { createSetupTreeGuard } from '@src/application/flows/implement/leaves/setup-tree-guard.ts';
 import {
   buildPreflightLeaves,
+  interruptedAttemptsByCwd,
   setupRepoEntriesForTasks,
   uniqueRepoCwdsForTasks,
 } from '@src/application/flows/implement/leaves/sprint-repo-plan.ts';
@@ -302,7 +303,12 @@ export const buildImplementPrologue = (deps: ImplementDeps, opts: CreateImplemen
     clock: deps.clock,
     logger: deps.logger,
   };
-  const preflightLeaves = buildPreflightLeaves(treeDeps, uniqueRepoCwds, dirtyTreePolicy);
+  const preflightLeaves = buildPreflightLeaves(
+    treeDeps,
+    uniqueRepoCwds,
+    dirtyTreePolicy,
+    interruptedAttemptsByCwd(opts.repositories, opts.todoTasks)
+  );
 
   return sequential<ImplementCtx>('implement-prologue', [
     loadAndAssertSprintSubChain<ImplementCtx>({ sprintRepo: deps.sprintRepo }, ['planned', 'active']),

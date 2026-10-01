@@ -1,7 +1,8 @@
 /** Header + scrollable body for prompt messages. */
 
 import React, { useState } from 'react';
-import { Box, Text, useInput, type Key } from 'ink';
+import { Box, Text, type Key } from 'ink';
+import { usePromptInput } from '@src/application/ui/tui/prompts/use-prompt-input.ts';
 import { inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { useTerminalSize } from '@src/application/ui/tui/runtime/use-terminal-size.ts';
 
@@ -86,7 +87,7 @@ export const ScrollableMessage = ({
   const effOffset = Math.min(offset, maxOffset);
   const overflows = body.length > windowRows;
 
-  useInput((input, key) => {
+  usePromptInput((input, key) => {
     if (!overflows) return;
     const delta = resolveScrollDelta(input, key, ownsArrows, windowRows);
     if (delta !== undefined) setOffset((o) => clamp(Math.min(o, maxOffset) + delta));

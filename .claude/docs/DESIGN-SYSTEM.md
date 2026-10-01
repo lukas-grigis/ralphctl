@@ -208,9 +208,10 @@ Work (`HomeView`, route `home`) is a cockpit for the current sprint, not a menu.
  ■ Refine → ■ Plan → ◆ Implement → ◇ Review → ◇ Done      3/7 done · 2 blocked   ← SprintHeaderStrip (work)
  3 tickets · 7 tasks · 2 ready · active since 1d ago
 
- NEEDS YOU  1
- ▸ △ "Add a --name CLI argument test" is blocked                 verify failed    ← focused: detail line below
-     pytest exited 1 after 3 attempts · 1 more task waits on it
+ NEEDS YOU  2
+ ▸ ⚠ "Add --shout option" was interrupted                    attempt 2 · 12m ago  ← focused: detail line below
+     2 uncommitted changes · session resumable
+   △ "Add a --name CLI argument test" is blocked                 verify failed
  RUNNING  1
    ◆ implement · task 6/7 "Add --shout option" · attempt 1/3          0m41s
  NEXT
@@ -224,12 +225,12 @@ Work (`HomeView`, route `home`) is a cockpit for the current sprint, not a menu.
 The agenda is built by the pure `home-internals/agenda.ts` (`buildAgenda`); empty sections are omitted and every
 row id is stable, so the id-based cursor never jumps on a live update.
 
-- **NEEDS YOU** — own-blocked tasks (max 3, then `▾ N more blocked — o open sprint`; upstream-blocked dependents
+- **NEEDS YOU** — first, `interrupted` rows (§ 5.1a), then own-blocked tasks (max 3, then `▾ N more blocked — o open sprint`; upstream-blocked dependents
   are folded into the root's `· N more task(s) wait on it`, never listed) and failed / aborted runs of this sprint
   from the last 24 h.
 - **RUNNING** — running sessions pinned to this sprint, with task and attempt progress and elapsed time (`[WAITING] waiting 41s` in warning tone while the run waits on a prompt, § 5.0).
-- **NEXT** — the flow rows of `buildNextSteps`, hidden while that flow already runs (the blocked-task row is
-  NEEDS YOU's). **FLOWS** — the other `visibleFlowsFor` flows with their manifest description; flows whose
+- **NEXT** — the flow rows of `buildNextSteps`, hidden while that flow already runs or while an `interrupted` row
+  stands in for Implement (the blocked-task row is NEEDS YOU's). **FLOWS** — the other `visibleFlowsFor` flows with their manifest description; flows whose
   triggers fail are hidden until `v` adds them dim with their reason inline (never selectable).
 - **↵ does the focused row's job** — open the task in sprint detail (cursor on it, card expanded), open the run, or
   launch the flow through `useFlowLauncher` (same repository + customize pickers as every launch; never blind).
@@ -297,7 +298,7 @@ context — never one from the run and one from the global selection.
 | `Divider`           | Horizontal rule.                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | `ScrollRegion`      | Scrollable viewport; PgUp/PgDn, Ctrl+f/b/d/u, Home/End (no `g`/`G`). Paints dim `▴ N more` / `▾ N more` rows outside the clip whenever content overflows, so clipping is never silent.                                                                                                                                                                                                                                                            |
 | `SprintPipeline`    | The one pipeline widget — `Refine → Plan → Implement → Review → Done` — rendered by `SprintHeaderStrip` (Work and Sprint detail). A draft sprint is at Refine while tickets are pending (or none exist), at Plan once they are all approved. No padding of its own.                                                                                                                                                                               |
-| `TaskMinimap`       | `task-minimap.tsx` — the passive TASKS list (glyph, name, `blocked` / `waits on #N` / `running`), windowed with `▾ N more`; also owns `TASK_STATUS_GLYPH` / `TASK_STATUS_COLOR`, which the Execute sidebar minimap imports.                                                                                                                                                                                                                       |
+| `TaskMinimap`       | `task-minimap.tsx` — the passive TASKS list (glyph, name, `blocked` / `waits on #N` / `running` / `interrupted`, the last in warning tone with `⚠`), windowed with `▾ N more`; also owns `TASK_STATUS_GLYPH` / `TASK_STATUS_COLOR`, which the Execute sidebar minimap imports.                                                                                                                                                                    |
 | `SprintHeaderStrip` | `<SprintHeaderStrip snapshot variant="work" \| "detail">` — pipeline row with right-aligned counts (`3/7 done · 2 blocked`, `· N ready` at ≥ md), a facts row (`3 tickets · 7 tasks · active since 1d ago`; transitions + slug at ≥ lg in the detail variant) and, for `detail` only, a `next:` row (first step + `· +N more`; every step joined with `· then` at ≥ lg). No name row — the LocationBar owns name and status.                      |
 | `ActionMenu`        | Work's agenda list. `MenuItem` adds optional `leading {glyph, tone}`, `right` (right-aligned fact), `detail` (focused-only second line; `costHint` stays), `note` (inline dim text — a disabled row's reason replaces it) and a per-section count (`sectionCounts`: `NEEDS YOU  1`); `active=false` draws no `▸`; `onFocusChange` reports the cursor id. Items for Work come from `home-internals/agenda.ts`.                                     |
 
@@ -462,6 +463,26 @@ revived-root correction has no such gate — it fires live-run or not, since unb
 `u` is never gated on run liveness) can happen while other tasks in the same run are still executing,
 e.g. after `D` (Detach) backgrounds a run whose own-failure block already settled that task's trace.
 
+### 5.1a Interrupted tasks
+
+A task is **interrupted** when it is `in_progress`, its last attempt is still `running`, and no implement run of this
+process owns the sprint — the harness died mid-attempt (crash, `kill -9`, power loss). One predicate
+(`ui/shared/interrupted-tasks.ts`, `interruptedTasksOf`) feeds every surface so they never disagree:
+
+- **Work › NEEDS YOU** — a `warning`-tone `⚠` row, first in the section: `"<task>" was interrupted`, right-aligned
+  fact `attempt N · 12m ago` (age of the dead run's last write, else of the attempt's start). The focused detail line
+  says only what was learned from disk: `N uncommitted changes` (the task's worktree, else its repository),
+  `session resumable` (a generator session from that attempt exists) or `no session to resume, restarts from the
+brief`; unknown facts are omitted, never guessed. `↵` = `resume implement` (the normal launcher, same pickers);
+  launching Implement also drops the dead run's record. More than 3 fold into `▾ N more interrupted — resume picks
+them all up`. NEXT stops offering Implement while the row stands.
+- **Task minimap** — `⚠ <name>  interrupted` instead of `running`.
+- **Runs** — each record whose owner is gone is a row (`[INTERRUPTED]` chip, flow, elapsed) under the live sessions;
+  `↵` = `resume in Work`, `d` = dismiss the record (only an interrupted one — a live run's is never removed).
+- **Dirty-tree preflight** — when a repo's tasks include an interrupted attempt the question reads `… has N
+uncommitted change(s), likely from interrupted attempt K of "<task>". Keep them to resume, or start clean?`; Keep
+  stays the first (default) choice and its description says the resumed attempt continues from them.
+
 ## 6. Navigation contract
 
 ### 6.1 Sections and global keys — owned by the router
@@ -491,16 +512,16 @@ take through other sections.
 Digits are ignored while a prompt is claimed, while any overlay is open, while a view or overlay claims the
 digit (the cancel-scope overlay claims `1` / `2`), and in the first-run wizard.
 
-| Key                 | Action                                                                         |
-| ------------------- | ------------------------------------------------------------------------------ |
-| `1`–`5`             | Jump to Work / Sprints / Projects / Runs / System                              |
-| `Esc`               | Up one level; at a non-Work section root, to Work; no-op at the Work root      |
-| `Tab` / `Shift+Tab` | Cycle running flow (next / prev) — lands in Runs                               |
-| `Ctrl+1..9`         | Jump to running flow (Nth running session) — lands in Runs                     |
-| `g`                 | Progress overlay (reads `progress.md` from disk)                               |
-| `S` / `P`           | Context switcher on the sprint rows / on the current project's header (§ 6.2a) |
-| `?`                 | Help overlay (scoped to the current view)                                      |
-| `q`                 | Quit (Work root only)                                                          |
+| Key                 | Action                                                                                      |
+| ------------------- | ------------------------------------------------------------------------------------------- |
+| `1`–`5`             | Jump to Work / Sprints / Projects / Runs / System                                           |
+| `Esc`               | Up one level; at a non-Work section root, to Work; no-op at the Work root                   |
+| `Tab` / `Shift+Tab` | Cycle running flow (next / prev) — lands in Runs                                            |
+| `Ctrl+1..9`         | Jump to running flow (Nth running session) — lands in Runs                                  |
+| `g`                 | Progress overlay (reads `progress.md` from disk)                                            |
+| `S` / `P`           | Context switcher on the sprint rows / on the current project's header (§ 6.2a)              |
+| `?`                 | Help overlay (scoped to the current view)                                                   |
+| `q`                 | Quit (Work root only); `Ctrl+C` quits from anywhere. With runs live both ask first (§ 6.5a) |
 
 **Hidden accelerators.** `h` (Work root), `n` (Work, flow list focused), `x` (Runs), `s` (System › Settings), `!`
 (System › Doctor) keep working from anywhere, land on an explicit destination via `reset`, and yield to a
@@ -738,12 +759,12 @@ by an ambient handler fires twice. Ownership is explicit:
   advertising `(press d to dismiss)` while `d` is claimed. `?`, `Ctrl+C` and `esc` are not claimable;
   `esc` has its own `claimEscape` counter.
 - **One overlay slot.** `ui.overlay` is `{ kind: 'help' } | { kind: 'switcher'; focus } | { kind: 'progress' } | { kind: 'evaluation';
-target } | undefined`, with `openOverlay` / `closeOverlay`. Opening replaces whatever is open;
+target } | { kind: 'quit'; runs } | undefined`, with `openOverlay` / `closeOverlay`. Opening replaces whatever is open;
   `helpOpen`, `switcherFocus`, `progressOpen` and `evaluationTarget` are derived read-only views of it and
   `toggleHelp` / `toggleProgress` / `closeEvaluation` are thin wrappers. `modalOpen` is
   `overlay !== undefined || promptActive`.
-- **Overlays mount in the Layout, never in a view.** `HelpOverlay`, `ContextSwitcher`, `ProgressOverlay` and
-  `EvaluationOverlay` mount beside each other in `App.tsx`; the active view stays mounted under
+- **Overlays mount in the Layout, never in a view.** `HelpOverlay`, `ContextSwitcher`, `ProgressOverlay`,
+  `EvaluationOverlay` and `QuitConfirmOverlay` mount beside each other in `App.tsx`; the active view stays mounted under
   `display: none`, so its hints, cursor and scroll offset survive. No view branches on `helpOpen`.
 - **Context-aware help.** The overlay shows `This view` (the live hints), `Global`, the general
   sections (`Lists`, `Scroll`, `Contextual`) and only the route-bound sections of surfaces mounted on
@@ -753,6 +774,16 @@ target } | undefined`, with `openOverlay` / `closeOverlay`. Opening replaces wha
 - **Ambient vs local.** The section digits and the accelerator letters (`h n x s ! S P g`) yield to a
   claiming view. A view that owns a letter AND needs its global meaning does both itself (sprint-detail's
   `n` reseats the selection, then lands on Work's flow list) — never rely on two handlers composing.
+
+### 6.5a Quit with live runs
+
+`q` (Work root) and `Ctrl+C` (anywhere) quit at once when no session is running. With one or more running they open
+`QuitConfirmOverlay`: `N run(s) live — quit stops them? [y/N]`, default No. `n` / `esc` / `↵` / `q` / `Ctrl+C` keep
+everything running; `y` calls `inProcessRuns.abortAll('quit')` (each run stops cleanly, its AI CLI children exit,
+its record is removed) and exits when that settles. While it stops, the card says so and `Ctrl+C` quits immediately.
+The app, not Ink, owns `Ctrl+C` (`render(…, { exitOnCtrlC: false })`); the migration gate handles it itself.
+Prompt components read input through `usePromptInput`, which is silent while this overlay is open, so its `y` can
+never answer a confirm that is waiting underneath.
 
 ### 6.6 Scroll
 

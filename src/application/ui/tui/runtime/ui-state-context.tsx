@@ -29,7 +29,9 @@ export type Overlay =
   | { readonly kind: 'help' }
   | { readonly kind: 'switcher'; readonly focus: SwitcherFocus }
   | { readonly kind: 'progress' }
-  | { readonly kind: 'evaluation'; readonly target: EvaluationTarget };
+  | { readonly kind: 'evaluation'; readonly target: EvaluationTarget }
+  /** Quit pressed with runs still live: the operator decides whether quitting stops them. */
+  | { readonly kind: 'quit'; readonly runs: number };
 
 interface OverlayApi {
   /** The open overlay, or `undefined`. `helpOpen` / `progressOpen` / `evaluationTarget` derive from it. */
