@@ -1,18 +1,23 @@
 /**
- * Frame every view shares — five explicit zones modelled after a standard webpage layout:
+ * Frame every view shares — four explicit zones under the app chrome that `Layout` owns (tab bar,
+ * location line and rule sit ABOVE this component):
  *
  *   ┌─────────────────────────────────────────────┐
- *   │ HEADER  (fixed, never scrolls, never shrinks)│   ← banner + rule + breadcrumb
+ *   │ HEADER  (fixed; empty except Work's wordmark)│   ← full banner, only when it fits
  *   ├─────────────────────────────────────────────┤
- *   │ CONTENT (scrolls when it overflows the      │   ← section stamp + page body
- *   │          viewport; clipped at the edges)    │     inside a ScrollRegion
+ *   │ CONTENT (scrolls when it overflows the      │   ← page body inside a ScrollRegion
+ *   │          viewport; clipped at the edges)    │
  *   ├─────────────────────────────────────────────┤
  *   │ STATUS  (fixed; collapses when no banner)   │   ← dismissible StatusBanner stack
  *   ├─────────────────────────────────────────────┤
  *   │ PROMPT  (fixed; collapses when no prompt)   │   ← modal Question card from PromptHost
  *   ├─────────────────────────────────────────────┤
- *   │ FOOTER  (fixed, never scrolls, never shrinks)│   ← rule + status bar
+ *   │ FOOTER  (fixed, never scrolls, never shrinks)│   ← rule + one hint row
  *   └─────────────────────────────────────────────┘
+ *
+ * The title row is gone from the body: `title` / `subtitle` / `right` are PUBLISHED to the
+ * location line (`view-title-context.tsx`), which shows `▣ Section › crumb — subtitle` once for
+ * the whole frame instead of every view stamping its own.
  *
  * The fixed zones are wrapped in their own `flexShrink={0}` boxes — without that, Yoga is
  * free to compress them when the inner content is taller than the terminal, which is exactly
@@ -23,25 +28,17 @@
  * row collapses to zero height between prompts.
  *
  * The status slot sits between content and the prompt so the dismissible banner stack lands
- * next to the other footer-adjacent surfaces (PromptHost, StatusBar). Detaching it from the
- * top of the screen keeps it close to the keyboard hints (`press d to dismiss`) and the
- * footer hotkey rail. StatusBanner returns null when no banners are active, so this row
- * collapses too.
+ * next to the other footer-adjacent surfaces (PromptHost, StatusBar). StatusBanner returns null
+ * when no banners are active, so this row collapses too.
  *
- * The section stamp lives INSIDE the scroll region rather than the header — it's per-view
- * metadata that scrolls with the page body. The banner + breadcrumb are global anchors that
- * stay put across navigation.
- *
- * The wordmark `'full'` banner is reserved for the home view and only when it fits
- * (`resolveBannerMode`); every other view, and Home on a short or narrow terminal, gets a
- * single-line compact strip so the viewport stays content-first.
+ * The wordmark `'full'` banner is reserved for the Work root and only when it fits
+ * (`resolveBannerMode`); everywhere else the header zone is empty and the tab bar's `ralphctl`
+ * text is the only brand.
  */
 
 import React from 'react';
 import { Box } from 'ink';
 import { Banner, resolveBannerMode } from '@src/application/ui/tui/components/banner.tsx';
-import { Breadcrumb } from '@src/application/ui/tui/components/breadcrumb.tsx';
-import { SectionStamp } from '@src/application/ui/tui/components/section-stamp.tsx';
 import { StatusBar } from '@src/application/ui/tui/components/status-bar.tsx';
 import { StatusBanner } from '@src/application/ui/tui/components/status-banner.tsx';
 import { FeedbackLine, type StructuredFeedback } from '@src/application/ui/tui/components/feedback-line.tsx';
@@ -51,11 +48,20 @@ import { usePromptQueue } from '@src/application/ui/tui/prompts/prompt-context.t
 import { useRouter } from '@src/application/ui/tui/runtime/router.tsx';
 import { useTerminalSize } from '@src/application/ui/tui/runtime/use-terminal-size.ts';
 import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
+import { usePublishViewTitle } from '@src/application/ui/tui/runtime/view-title-context.tsx';
 
 export interface ViewShellProps {
   readonly title: string;
   readonly subtitle?: string;
+  /** Rendered on the location line after the title — Execute's status chip. */
   readonly right?: React.ReactNode;
+  /** Cells `right` needs, so the location line can budget for it. */
+  readonly rightWidth?: number;
+  /**
+   * Overrides the last location crumb when the route label is not the view's name (Execute shows
+   * the flow it is running). Detail routes label themselves from route props instead.
+   */
+  readonly crumb?: string;
   /**
    * When true, the inner {@link ScrollRegion} ignores arrow / paging / vim scroll keys so a view
    * that owns its own list cursor handles them itself (no double-scroll). Mouse-wheel scroll is
@@ -80,10 +86,13 @@ export const ViewShell = ({
   title,
   subtitle,
   right,
+  rightWidth,
+  crumb,
   suppressScrollArrows,
   feedback,
   children,
 }: ViewShellProps): React.JSX.Element => {
+  usePublishViewTitle({ title, subtitle, crumb, right, rightWidth });
   const ui = useUiState();
   const queue = usePromptQueue();
   const router = useRouter();
@@ -99,12 +108,10 @@ export const ViewShell = ({
       {/* ── HEADER ─────────────────────────────────────────────────────────────────────── */}
       <Box flexDirection="column" flexShrink={0}>
         <Banner mode={bannerMode} />
-        <Breadcrumb />
       </Box>
 
       {/* ── CONTENT ────────────────────────────────────────────────────────────────────── */}
       <ScrollRegion disabled={ui.modalOpen} suppressArrows={suppressScrollArrows ?? false}>
-        <SectionStamp title={title} subtitle={subtitle} right={right} />
         {children}
       </ScrollRegion>
 

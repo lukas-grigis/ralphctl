@@ -1,16 +1,16 @@
 /**
- * Tests for the cursor-centred row windowing used by PickSprintView. The picker shows a
+ * Tests for the cursor-centred row windowing used by the context switcher. The switcher shows a
  * cross-project list that can run to hundreds of rows; rendering the full list violates the
  * `slice-before-map` mandate and degrades Ink reconciliation. `computeListWindow` (the shared
  * windowed-list primitive — see `windowed-list.tsx`) is the pure helper that picks the visible
- * slice; these cases are the characterization of the picker's centring math, now expressed
+ * slice; these cases are the characterization of the switcher's centring math, expressed
  * against the shared function rather than a picker-local `computeWindow`.
  */
 
 import { describe, expect, it } from 'vitest';
 import { computeListWindow } from '@src/application/ui/tui/components/windowed-list.tsx';
 
-describe('computeListWindow (pick-sprint centring math)', () => {
+describe('computeListWindow (context-switcher centring math)', () => {
   it('returns the full list when total <= visible', () => {
     expect(computeListWindow(5, 0, 10)).toEqual({ start: 0, end: 5, hiddenAbove: 0, hiddenBelow: 0 });
   });

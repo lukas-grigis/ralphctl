@@ -24,12 +24,11 @@ import { SessionsProvider } from '@src/application/ui/tui/runtime/sessions-conte
 import { PromptQueueProvider } from '@src/application/ui/tui/prompts/prompt-context.tsx';
 import { UiStateProvider, useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { ClaimedKeysProvider } from '@src/application/ui/tui/runtime/claimed-keys-context.tsx';
-import { HintsProvider, useSuppressGlobalHints } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
+import { HintsProvider } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
 import { SelectionProvider, type SelectionSeed } from '@src/application/ui/tui/runtime/selection-context.tsx';
 import { SystemStatusProvider } from '@src/application/ui/tui/runtime/system-status-context.tsx';
 import { LogLevelProvider } from '@src/application/ui/tui/runtime/log-level-context.tsx';
 import { renderView } from '@src/application/ui/tui/views/view-registry.tsx';
-import { globalKeys } from '@src/application/ui/tui/runtime/keyboard-map.ts';
 import { useGlobalKeys } from '@src/application/ui/tui/runtime/use-global-keys.ts';
 import { useTerminalSize } from '@src/application/ui/tui/runtime/use-terminal-size.ts';
 import { MemoryPressureBanner } from '@src/application/ui/tui/components/memory-pressure-banner.tsx';
@@ -37,13 +36,11 @@ import { ChainLogDegradedBanner } from '@src/application/ui/tui/components/chain
 import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx';
 import { ProgressOverlay } from '@src/application/ui/tui/components/progress-overlay.tsx';
 import { EvaluationOverlay } from '@src/application/ui/tui/components/evaluation-overlay.tsx';
-
-/**
- * Footer `keys` string for the quit hint. Derived the same way `footerGlobalHints` joins a
- * binding's variants (`keys.join('/')`) so the suppression set matches the rendered hint's `keys`
- * exactly — keep this in lockstep with the footer mapping rather than hardcoding `'q/ctrl+c'`.
- */
-const QUIT_FOOTER_KEYS = globalKeys.quit.keys.join('/');
+import { ContextSwitcher } from '@src/application/ui/tui/components/context-switcher.tsx';
+import { TabBar } from '@src/application/ui/tui/components/tab-bar.tsx';
+import { LocationBar } from '@src/application/ui/tui/components/location-bar.tsx';
+import { Divider } from '@src/application/ui/tui/components/divider.tsx';
+import { ViewTitleProvider } from '@src/application/ui/tui/runtime/view-title-context.tsx';
 
 export interface AppProps {
   readonly deps: AppDeps;
@@ -134,14 +131,6 @@ export const Layout = ({ children }: { readonly children: React.ReactNode }): Re
   // Suspend global key bindings while a prompt is in flight so view-level handlers don't fight
   // for input. The prompt's own component owns Esc / Enter / etc. while it's mounted.
   useGlobalKeys({ disabled: ui.promptActive });
-  // `q` only quits from Home (the global handler gates it on `router.current.id === 'home'`), so
-  // the footer must only advertise the quit hint there — otherwise it lies about what `q` does on
-  // every other screen. Suppress the quit hint (matched by its footer `keys` string, the joined
-  // `quit` binding variants) whenever the current view is not Home. The memo keeps the keys array
-  // reference stable across renders so the suppression effect doesn't churn the registry.
-  const isHome = router.current.id === 'home';
-  const suppressedQuit = React.useMemo<readonly string[]>(() => (isHome ? [] : [QUIT_FOOTER_KEYS]), [isHome]);
-  useSuppressGlobalHints(suppressedQuit);
   // ViewShell owns the full column inside this fixed-height frame: header → scroll content →
   // status banner → prompt-host → footer, with header / banner / prompt / footer pinned via
   // `flexShrink={0}`. The dismissible StatusBanner sits inside ViewShell so it lands next to
@@ -163,19 +152,32 @@ export const Layout = ({ children }: { readonly children: React.ReactNode }): Re
   // task's recorded verdict gates the evaluation open (view-local, since only a view knows which
   // card is focused).
   //
-  // There is ONE overlay slot (`ui.overlay`): help, progress and evaluation replace one another,
-  // and all three mount here — never inside a view. Help is scoped by the current route.
+  // There is ONE overlay slot (`ui.overlay`): help, switcher, progress and evaluation replace one
+  // another, and all four mount here — never inside a view. Help is scoped by the current route.
+  //
+  // The chrome — tab bar, location line, rule — is rows 0–2 of the frame, above the view. The
+  // switcher keeps it on screen (it is a light overlay about the context shown there); help,
+  // progress and evaluation are full-frame documents and hide it with the view.
   const overlayOpen = ui.overlay !== undefined;
+  const chromeHidden = overlayOpen && ui.switcherFocus === undefined;
   return (
-    <Box flexDirection="column" height={rows}>
-      <MemoryPressureBanner />
-      <ChainLogDegradedBanner />
-      <Box display={overlayOpen ? 'none' : 'flex'} flexDirection="column" flexGrow={1}>
-        {children}
+    <ViewTitleProvider>
+      <Box flexDirection="column" height={rows}>
+        <MemoryPressureBanner />
+        <ChainLogDegradedBanner />
+        <Box display={chromeHidden ? 'none' : 'flex'} flexDirection="column" flexShrink={0}>
+          <TabBar />
+          <LocationBar />
+          {router.activeSection !== 'none' && <Divider />}
+        </Box>
+        <Box display={overlayOpen ? 'none' : 'flex'} flexDirection="column" flexGrow={1}>
+          {children}
+        </Box>
+        {ui.switcherFocus !== undefined && <ContextSwitcher focus={ui.switcherFocus} />}
+        {ui.helpOpen && <HelpOverlay routeId={router.current.id} />}
+        {ui.progressOpen && <ProgressOverlay />}
+        {ui.evaluationTarget !== undefined && <EvaluationOverlay />}
       </Box>
-      {ui.helpOpen && <HelpOverlay routeId={router.current.id} />}
-      {ui.progressOpen && <ProgressOverlay />}
-      {ui.evaluationTarget !== undefined && <EvaluationOverlay />}
-    </Box>
+    </ViewTitleProvider>
   );
 };

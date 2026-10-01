@@ -229,15 +229,21 @@ describe('HelpOverlay', () => {
     r.unmount();
   });
 
-  it('shows the Sprint picker section only on pick-sprint', async () => {
-    const onPicker = renderOverlay('pick-sprint');
+  it('lists the Context switcher keys only under All keys (it is an overlay, not a route)', async () => {
+    const r = renderOverlay('home');
     await tick(30);
-    expect(await seenWhileScrolling(onPicker, 'Sprint picker')).toBe(true);
-    onPicker.unmount();
+    expect(await seenWhileScrolling(r, 'Context switcher')).toBe(false);
 
-    const onHome = renderOverlay('home');
+    r.stdin.write('\t');
     await tick(30);
-    expect(await seenWhileScrolling(onHome, 'Sprint picker')).toBe(false);
-    onHome.unmount();
+    expect(await seenWhileScrolling(r, 'Context switcher')).toBe(true);
+    r.unmount();
+  });
+
+  it('documents the section digits under Global', async () => {
+    const r = renderOverlay('home');
+    await tick(30);
+    expect(r.lastFrame() ?? '').toContain('Work / Sprints / Projects / Runs / System');
+    r.unmount();
   });
 });

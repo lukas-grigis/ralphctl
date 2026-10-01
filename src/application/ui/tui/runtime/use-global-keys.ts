@@ -7,7 +7,7 @@
 
 import { useApp, useInput, type Key } from 'ink';
 import { useRouter, type RouterApi, type ViewEntry } from '@src/application/ui/tui/runtime/router.tsx';
-import type { ViewId } from '@src/application/ui/tui/views/view-registry.tsx';
+import { SECTIONS } from '@src/application/ui/tui/runtime/nav-tree.ts';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
 import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { useClaimedKeys } from '@src/application/ui/tui/runtime/claimed-keys-context.tsx';
@@ -34,6 +34,7 @@ export const useGlobalKeys = (opts: UseGlobalKeysOptions = {}): void => {
     if (handleQuitChord(input, key, router, opts.disabled, exit)) return;
     if (opts.disabled) return;
     if (handleHelpOverlay(ui, input, key)) return;
+    if (handleSwitcherOverlay(ui)) return;
     if (handleProgressOverlay(ui, selection, input, key, isClaimed)) return;
     if (handleEvaluationOverlay(ui, input, key)) return;
     if (handleSessionNav(sessions, router, input, key)) return;
@@ -43,21 +44,26 @@ export const useGlobalKeys = (opts: UseGlobalKeysOptions = {}): void => {
       return;
     }
 
-    // Ambient single-letter chords: a key the active view (or an open overlay) claims is theirs.
+    // Ambient single-character chords: a key the active view (or an open overlay) claims is theirs.
     if (isClaimed(input)) return;
-    handleViewShortcut(input, router, ui);
+    if (handleSectionDigit(input, key, router)) return;
+    handleAccelerator(input, router, ui);
   });
 };
 
-/** Quitting (`Ctrl-C` anywhere, or `q` on Home) is the operator's escape hatch — it always wins. */
+/** The Work section's root — Home. The only place `q` quits. */
+const isWorkRoot = (router: Pick<RouterApi, 'current' | 'activeSection' | 'stack'>): boolean =>
+  router.activeSection === 'work' && router.stack.length <= 1 && router.current.id === 'home';
+
+/** Quitting (`Ctrl-C` anywhere, or `q` on the Work root) is the operator's escape hatch — it always wins. */
 const handleQuitChord = (
   input: string,
   key: Key,
-  router: { current: ViewEntry },
+  router: Pick<RouterApi, 'current' | 'activeSection' | 'stack'>,
   disabled: boolean | undefined,
   exit: () => void
 ): boolean => {
-  if ((key.ctrl && input === 'c') || (input === 'q' && router.current.id === 'home' && !disabled)) {
+  if ((key.ctrl && input === 'c') || (input === 'q' && isWorkRoot(router) && !disabled)) {
     exit();
     return true;
   }
@@ -79,6 +85,13 @@ const handleHelpOverlay = (ui: UiStateApi, input: string, key: Key): boolean => 
   }
   return false;
 };
+
+/**
+ * Context switcher — while it is open it owns the keyboard: its own `useInput` handles ↑/↓, ↵, `c`,
+ * `t`, `f` and `esc` (closing the overlay). Here we only swallow, so no global chord (`g`, digits,
+ * `esc` → pop) fires on the hidden view underneath. `?` and `ctrl+c` are handled before this.
+ */
+const handleSwitcherOverlay = (ui: UiStateApi): boolean => ui.switcherFocus !== undefined;
 
 /**
  * Progress overlay — same modal contract as help. `g` opens (only when a sprint is loaded);
@@ -126,12 +139,11 @@ const handleEvaluationOverlay = (ui: UiStateApi, input: string, key: Key): boole
  * Multi-flow navigation. Tab / Shift+Tab cycle through the RUNNING sessions; Ctrl+1..9 jump
  * to the Nth running session (1-indexed). Reaches this point only when no prompt is mounted
  * (opts.disabled gate above) and no overlay is open (help / progress early-returned). Focusing
- * a session reuses the Sessions view's mechanism — push / replace the `execute` route keyed on
- * the session id. With zero running sessions every chord is a silent no-op.
+ * a session lands on the `execute` route keyed on the session id, in the Runs section. With zero running sessions every chord is a silent no-op.
  */
 const handleSessionNav = (
   sessions: { list(): readonly SessionRecord[] },
-  router: { current: ViewEntry; push(e: ViewEntry): void; replace(e: ViewEntry): void },
+  router: Pick<RouterApi, 'current' | 'reset' | 'replace'>,
   input: string,
   key: Key
 ): boolean => {
@@ -147,50 +159,50 @@ const handleSessionNav = (
 };
 
 /**
- * The trailing single-letter view shortcuts. Pressing the shortcut for the view you're already
- * on is a no-op — otherwise the breadcrumb stack would balloon as the user mashes the same key.
+ * Section digits `1`–`5`. Pressing the active section's digit resets it to its root (handled by
+ * `goSection`). Inert in the first-run wizard, where there is no tab bar to jump through.
  */
-const handleViewShortcut = (input: string, router: RouterApi, ui: UiStateApi): boolean => {
-  const navigate = (id: ViewId): void => {
-    if (router.current.id === id) return;
-    router.push({ id });
+const handleSectionDigit = (input: string, key: Key, router: RouterApi): boolean => {
+  if (key.ctrl || key.meta || router.activeSection === 'none') return false;
+  const section = SECTIONS.find((s) => s.digit === input);
+  if (section === undefined) return false;
+  router.goSection(section.id);
+  return true;
+};
+
+/**
+ * Hidden single-letter accelerators — `h n x s ! S P`. They are not advertised in the footer (the
+ * tab bar teaches the five sections); each lands on an explicit destination through `reset`, which
+ * is what keeps pressing one from a deep stack from ballooning history. Pressing the accelerator
+ * for the view you are already on is a no-op.
+ */
+const handleAccelerator = (input: string, router: RouterApi, ui: UiStateApi): boolean => {
+  const land = (entry: ViewEntry): boolean => {
+    const atRoot = router.stack.length <= 1;
+    if (router.current.id === entry.id && (entry.id !== 'home' || atRoot)) return true;
+    router.reset(entry);
+    return true;
   };
 
   switch (input) {
     case 'h':
       // Explicit destination — `reset` never infers one. On a first-run session the launch
       // entry is the welcome wizard, and inferring it here sent `h` backwards into first-run
-      // setup instead of Home.
-      if (router.current.id !== 'home') router.reset({ id: 'home' });
-      return true;
+      // setup instead of Work.
+      return land({ id: 'home' });
     case 'n':
-      navigate('flows');
-      return true;
+      return land({ id: 'flows' });
     case 'x':
-      navigate('sessions');
-      return true;
+      return land({ id: 'sessions' });
     case 's':
-      navigate('settings');
-      return true;
+      return land({ id: 'settings' });
     case '!':
-      navigate('doctor');
-      return true;
-    case 'b':
-      // Banner full ↔ compact toggle. Overrides the view's `compactBanner` prop for the rest
-      // of the session — pressing `h` back to Home does not reset the toggle.
-      ui.toggleBanner();
+      return land({ id: 'doctor' });
+    case 'S':
+      ui.openSwitcher('sprint');
       return true;
     case 'P':
-      // Capital P opens the project picker from anywhere — lowercase `p` still routes to
-      // the read-only Projects view. The picker remembers the current selection as its
-      // default cursor so Enter is a one-keystroke confirm.
-      navigate('pick-project');
-      return true;
-    case 'S':
-      // Mirror of `P` for sprints: capital S opens the sprint picker from anywhere;
-      // lowercase `s` still routes to Settings. Picker is project-scoped, so it relies
-      // on a project being loaded; otherwise it shows a "no project loaded" card.
-      navigate('pick-sprint');
+      ui.openSwitcher('project');
       return true;
     default:
       return false;
@@ -207,12 +219,12 @@ const handleViewShortcut = (input: string, router: RouterApi, ui: UiStateApi): b
  * last (`'prev'`) running session. An out-of-range jump index and an empty running list are both
  * silent no-ops.
  *
- * On the Execute view we `replace` (don't stack breadcrumb history while hopping between live
- * runs); from any other view we `push` so `esc` returns to where the operator came from.
+ * On the Execute view we `replace` (don't stack history while hopping between live runs); from any
+ * other view we `reset` onto the Runs section (`[Runs, Execute]`), so `esc` climbs Runs → Work.
  */
 const focusRunningSession = (
   sessions: { list(): readonly SessionRecord[] },
-  router: { current: ViewEntry; push(e: ViewEntry): void; replace(e: ViewEntry): void },
+  router: Pick<RouterApi, 'current' | 'reset' | 'replace'>,
   target: number | 'next' | 'prev'
 ): void => {
   const running = sessions.list().filter((s) => s.descriptor.status === 'running');
@@ -243,5 +255,5 @@ const focusRunningSession = (
   if (targetSession.descriptor.id === focusedId) return;
   const entry: ViewEntry = { id: 'execute', props: { sessionId: targetSession.descriptor.id } };
   if (onExecute) router.replace(entry);
-  else router.push(entry);
+  else router.reset(entry);
 };

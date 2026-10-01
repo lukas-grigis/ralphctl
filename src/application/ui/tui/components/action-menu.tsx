@@ -17,7 +17,7 @@
  *   space          — select (hotkey handler)
  *
  * Navigation is implemented via `useListWindow` over the *enabled* item subset. Section headers
- * are render-only rows excluded from the cursorable set, mirroring the pick-sprint group approach.
+ * are render-only rows excluded from the cursorable set, mirroring the context-switcher group approach.
  */
 
 import React, { useMemo } from 'react';

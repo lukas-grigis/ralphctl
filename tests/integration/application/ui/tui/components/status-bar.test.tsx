@@ -1,15 +1,14 @@
 /**
- * Regression fence: `StatusBar`'s footer stethoscope indicator must never treat an `unknown`
- * doctor probe as a warning. `system-status-context.tsx` is the sole importer of the doctor
- * flow, so mocking it gives full control over the report without depending on which CLIs
- * happen to be on the test runner's PATH.
+ * StatusBar — the footer: a rule and one hint row. Doctor health and the running-session count
+ * moved to the tab bar (see `tab-bar.test.tsx`); what remains is the hint strip, which carries the
+ * view's own keys followed by the globals derived from where the operator is (`esc <parent>`,
+ * `? help`, `q quit` on the Work root) — never the hidden single-letter accelerators.
  */
 
 import { describe, expect, it, vi } from 'vitest';
 import React from 'react';
 import { Result } from '@src/domain/result.ts';
 import { StatusBar } from '@src/application/ui/tui/components/status-bar.tsx';
-import { useSystemStatus } from '@src/application/ui/tui/runtime/system-status-context.tsx';
 import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import type { DoctorReport } from '@src/application/flows/doctor/ctx.ts';
 import { waitForPredicate } from '@tests/integration/application/ui/tui/_wait.ts';
@@ -37,53 +36,6 @@ vi.mock('@src/application/flows/doctor/flow.ts', () => ({
 
 const deps = {} as unknown as AppDeps;
 
-/** StatusBar reads the doctor report passively — nothing triggers the initial fetch in tests, so
- * pull `refreshDoctor()` explicitly and render StatusBar underneath. */
-const TriggerAndRender = (): React.JSX.Element => {
-  const system = useSystemStatus();
-  const refresh = system.refreshDoctor;
-  React.useEffect(() => {
-    void refresh();
-  }, [refresh]);
-  return <StatusBar />;
-};
-
-describe('StatusBar — doctor indicator', () => {
-  it('stays green when every non-pass probe is unknown (never inflates the warning count)', async () => {
-    reportRef.current = {
-      probes: [
-        { id: 'ai-claude-code', label: 'Claude Code', status: 'pass', group: 'ai' },
-        {
-          id: 'ai-auth-github-copilot',
-          label: 'GitHub Copilot authenticated',
-          status: 'unknown',
-          group: 'ai',
-          detail: 'no non-interactive auth-status verb',
-        },
-      ],
-      allPassed: true,
-      hasFailures: false,
-    };
-    const { result } = renderView(<TriggerAndRender />, { deps, initial: { id: 'home' } });
-    await waitForPredicate(() => (result.lastFrame() ?? '').includes('doctor ok'));
-    const frame = result.lastFrame() ?? '';
-    expect(frame).toContain('doctor ok');
-    expect(frame).not.toContain('doctor warning');
-    expect(frame).not.toContain('doctor failure');
-  });
-
-  it('still surfaces a warning when a probe genuinely warns', async () => {
-    reportRef.current = {
-      probes: [{ id: 'settings-persisted', label: 'Settings file present', status: 'warn', group: 'settings' }],
-      allPassed: false,
-      hasFailures: false,
-    };
-    const { result } = renderView(<TriggerAndRender />, { deps, initial: { id: 'home' } });
-    await waitForPredicate(() => (result.lastFrame() ?? '').includes('doctor warning'));
-    expect(result.lastFrame() ?? '').toContain('1 doctor warning');
-  });
-});
-
 /**
  * The footer strip is built from two groups — the view's own hints, then the curated global
  * tail — laid out as separate Boxes so Yoga squeezes only the global half on a narrow terminal.
@@ -108,8 +60,7 @@ describe('StatusBar — hint group separator', () => {
     // width (that is the whole point of the two-group split), so its words clip — matching the
     // full `esc back` text would be asserting on the squeeze, not on the separator.
     const flat = stripAnsi(result.lastFrame() ?? '').replace(/\s+/g, ' ');
-    expect(flat).toContain('u unblock (3) ·');
-    expect(flat).not.toMatch(/unblock \(3\) es/);
+    expect(flat).toContain('u unblock (3) · ? help');
     result.unmount();
   });
 });
@@ -181,8 +132,11 @@ describe('StatusBar — one-row hint strip', () => {
     expect(rows).toHaveLength(1);
     const row = rows[0] ?? '';
     expect(row).toContain('↵ open');
-    expect(frame).not.toContain('es bac');
-    expect(frame).not.toContain('hom ·');
+    expect(row).toContain('? help');
+    // The hidden accelerators are never advertised.
+    for (const stale of ['h home', 'n new flow', 'x sessions', 's settings', 'P pick project']) {
+      expect(frame).not.toContain(stale);
+    }
     expect(row.trim().length).toBeLessThanOrEqual(columns);
     // Nothing spills onto a second hint row: the line after the strip is not a hint remnant.
     const after = frame.split('\n')[frame.split('\n').indexOf(row) + 1] ?? '';
@@ -195,18 +149,44 @@ describe('StatusBar — one-row hint strip', () => {
     await waitForPredicate(() => (r.lastFrame() ?? '').includes('ctrl+c quit'), { label: 'prompt footer' });
     const frame = stripAnsi(r.lastFrame() ?? '');
     expect(frame).toContain('↵ open');
-    expect(frame).not.toContain('h home');
+    expect(frame).not.toContain('? help');
     expect(frame).not.toContain('(press !)');
     r.unmount();
   });
 
-  it('omits esc back at stack depth 1 and shows it deeper', async () => {
+  it('omits esc at the Work root (and offers q quit there), and names the parent deeper', async () => {
     const root = mount(120, false, 1);
     await waitForPredicate(() => (root.lastFrame() ?? '').includes('↵ open'), { label: 'root footer' });
-    expect(stripAnsi(root.lastFrame() ?? '')).not.toContain('esc back');
+    const rootFrame = stripAnsi(root.lastFrame() ?? '');
+    expect(rootFrame).not.toContain('esc ');
+    expect(rootFrame).toContain('q/ctrl+c quit');
     root.unmount();
     const deep = mount(120, false, 2);
-    await waitForPredicate(() => stripAnsi(deep.lastFrame() ?? '').includes('esc back'), { label: 'deep footer' });
+    await waitForPredicate(() => stripAnsi(deep.lastFrame() ?? '').includes('esc Work'), { label: 'deep footer' });
+    expect(stripAnsi(deep.lastFrame() ?? '')).not.toContain('quit');
     deep.unmount();
+  });
+
+  it('adds `1–5 sections` only from 140 columns', async () => {
+    const narrow = mount(120, false, 1);
+    await waitForPredicate(() => (narrow.lastFrame() ?? '').includes('↵ open'), { label: 'narrow footer' });
+    expect(stripAnsi(narrow.lastFrame() ?? '')).not.toContain('1–5 sections');
+    narrow.unmount();
+    const wide = mount(160, false, 1);
+    await waitForPredicate(() => stripAnsi(wide.lastFrame() ?? '').includes('1–5 sections'), {
+      label: 'wide footer',
+    });
+    wide.unmount();
+  });
+
+  it('is exactly a rule and one hint row', async () => {
+    const r = mount(100, false, 1);
+    await waitForPredicate(() => (r.lastFrame() ?? '').includes('↵ open'), { label: 'footer' });
+    const lines = stripAnsi(r.lastFrame() ?? '')
+      .split('\n')
+      .filter((l) => l.trim() !== '');
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toMatch(/^─+$/);
+    r.unmount();
   });
 });

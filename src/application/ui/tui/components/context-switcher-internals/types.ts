@@ -1,10 +1,10 @@
 /**
- * Pick-sprint internals — shared row + grouping types.
+ * Context-switcher internals — shared row + grouping types.
  *
- * `FlatRow` is the cursor-navigable row in the picker; `SprintGroup` is the
- * pre-flatten grouping. `PickerData` is the raw loaded snapshot the picker
- * reduces over. Kept here so the orchestrator, the row builders, and the row
- * renderers all reference one source of truth without circular imports.
+ * `FlatRow` is the cursor-navigable row in the switcher; `SprintGroup` is the pre-flatten
+ * grouping. `PickerData` is the raw loaded snapshot the switcher reduces over. Kept here so the
+ * orchestrator, the row builders, and the row renderers all reference one source of truth without
+ * circular imports.
  */
 
 import type { Project } from '@src/domain/entity/project.ts';
@@ -28,12 +28,19 @@ export interface PickerData {
   readonly taskHealthBySprintId: ReadonlyMap<SprintId, TaskHealthCounts>;
 }
 
+/**
+ * A project's header. Selectable (`↵` switches the project and clears the sprint) unless the group
+ * is the orphan bucket — sprints whose project was deleted have no project to switch to.
+ */
 export interface HeaderRow {
   readonly kind: 'header';
   readonly groupKey: string;
   readonly label: string;
   readonly orphan: boolean;
   readonly empty: boolean;
+  /** Absent for the orphan bucket. */
+  readonly projectId: ProjectId | undefined;
+  readonly repoCount: number;
 }
 
 export interface SprintRow {
@@ -43,7 +50,7 @@ export interface SprintRow {
 }
 
 /**
- * Synthetic top row that routes through the create-sprint flow. Sits above the project groups
+ * Synthetic top row that launches the create-sprint flow. Sits above the project groups
  * so the user can launch creation without scrolling past every existing sprint, and so an
  * "empty-storage" picker (no sprints anywhere yet) still surfaces a productive action.
  */
@@ -53,9 +60,14 @@ export interface CreateActionRow {
 
 export type FlatRow = HeaderRow | SprintRow | CreateActionRow;
 
+/** Rows the cursor can land on: create, sprint, and any non-orphan project header. */
+export type CursorRow = HeaderRow | SprintRow | CreateActionRow;
+
 export interface SprintGroup {
   readonly key: string;
   readonly label: string;
   readonly orphan: boolean;
+  readonly projectId: ProjectId | undefined;
+  readonly repoCount: number;
   readonly sprints: readonly Sprint[];
 }

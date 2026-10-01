@@ -17,69 +17,89 @@ import type { ViewKeyBinding } from '@src/application/ui/tui/runtime/use-view-ke
 export interface KeyBinding {
   /** All accepted variants for this action (printable chars + special keys). */
   readonly keys: readonly string[];
-  /** One-line label shown in the help overlay and (selectively) in the status bar. */
+  /** One-line label shown in the help overlay. */
   readonly label: string;
-  /**
-   * When `true`, this binding is also surfaced in the always-visible status-bar footer (via
-   * {@link footerGlobalHints}) — the curated subset of global chords worth advertising on every
-   * screen. Absent / `false` keeps the binding in the help overlay only.
-   */
-  readonly showInFooter?: boolean;
 }
 
 /**
  * Global bindings — available on every view. Conflict-free across the union below.
  *
- * Bindings tagged `showInFooter` are mirrored into the status-bar footer via
- * {@link footerGlobalHints}; the rest live in the help overlay only.
+ * None of these is advertised in the footer by key: the footer carries view-local keys plus the
+ * handful of globals {@link buildFooterGlobalHints} derives from where you are (`esc <parent>`,
+ * `1–5 sections`, `? help`, `q quit`). The letters below (`h n x s ! S P g`) are hidden
+ * accelerators — they work everywhere and are listed under Global in `?`, but the tab bar's five
+ * sections are what the UI teaches.
  */
 export const globalKeys = {
-  back: { keys: ['esc'], label: 'back', showInFooter: true },
-  home: { keys: ['h'], label: 'home', showInFooter: true },
-  flows: { keys: ['n'], label: 'new flow', showInFooter: true },
+  back: { keys: ['esc'], label: 'back — up one level, or to Work from a section root' },
+  sections: { keys: ['1', '2', '3', '4', '5'], label: 'jump to Work / Sprints / Projects / Runs / System' },
+  home: { keys: ['h'], label: 'Work, reset to its root' },
+  flows: { keys: ['n'], label: 'new flow (Work › Flows)' },
   cycleSession: { keys: ['Tab', 'Shift+Tab'], label: 'cycle running flow' },
   jumpSession: { keys: ['Ctrl+1..9'], label: 'jump to running flow (kitty-protocol term)' },
-  sessions: { keys: ['x'], label: 'sessions', showInFooter: true },
-  settings: { keys: ['s'], label: 'settings', showInFooter: true },
-  doctor: { keys: ['!'], label: 'doctor' },
-  bannerToggle: { keys: ['b'], label: 'toggle banner' },
+  sessions: { keys: ['x'], label: 'Runs' },
+  settings: { keys: ['s'], label: 'System › Settings' },
+  doctor: { keys: ['!'], label: 'System › Doctor' },
   progressOverlay: { keys: ['g'], label: 'show progress.md' },
-  pickProject: { keys: ['P'], label: 'pick project', showInFooter: true },
-  // NOT showInFooter: with `pick sprint` added the strip overflows a 100-col terminal and the
-  // whole footer wraps. The breadcrumb's `[S]` affordance (right next to the sprint name)
-  // carries the discoverability instead.
-  pickSprint: { keys: ['S'], label: 'pick sprint' },
-  help: { keys: ['?'], label: 'help', showInFooter: true },
-  quit: { keys: ['q', 'ctrl+c'], label: 'quit', showInFooter: true },
+  switchSprint: { keys: ['S'], label: 'switch sprint (and project)' },
+  switchProject: { keys: ['P'], label: 'switch project' },
+  help: { keys: ['?'], label: 'help' },
+  quit: { keys: ['q', 'ctrl+c'], label: 'quit (q on the Work root)' },
 } as const satisfies Record<string, KeyBinding>;
 
+/** A footer cell: the keys as typed and a one-word action. */
+export interface FooterGlobalHint {
+  readonly keys: string;
+  readonly label: string;
+}
+
+export interface FooterGlobalsInput {
+  /** The active section's stack depth. */
+  readonly stackDepth: number;
+  /** Display label of the entry below the top of the stack (`Sprints`), when the stack is deeper than 1. */
+  readonly parentLabel: string | undefined;
+  /** The Work section's root view is showing — the only place `q` quits. */
+  readonly onWorkRoot: boolean;
+  /** A section other than Work (or none) is at its root: `esc` goes to Work. */
+  readonly atOtherSectionRoot: boolean;
+  /** Terminal is at least `lg` wide — room for the `1–5 sections` reminder. */
+  readonly wide: boolean;
+}
+
 /**
- * The curated subset of {@link globalKeys} surfaced in the always-visible status-bar footer,
- * pre-mapped to the footer's `{ keys, label }` hint shape (`keys` joined with `/` for
- * multi-variant bindings). Single source of truth for the footer's global hints — the status bar
- * renders this instead of hand-maintaining a parallel list.
+ * The globals the footer advertises, in priority order (after the view-local keys): `esc <parent>`,
+ * `1–5 sections` (wide only), `? help`, `q quit` (Work root only). Derived from where the operator
+ * is, so the footer never offers an `esc` that does nothing or a `q` that does not quit.
  *
  * @public
  */
-export const footerGlobalHints: ReadonlyArray<{ readonly keys: string; readonly label: string }> = (
-  Object.values(globalKeys) as KeyBinding[]
-)
-  .filter((b) => b.showInFooter === true)
-  .map((b) => ({ keys: b.keys.join('/'), label: b.label }));
+export const buildFooterGlobalHints = (input: FooterGlobalsInput): readonly FooterGlobalHint[] => {
+  const hints: FooterGlobalHint[] = [];
+  if (input.stackDepth > 1 && input.parentLabel !== undefined) {
+    hints.push({ keys: globalKeys.back.keys[0], label: input.parentLabel });
+  } else if (input.atOtherSectionRoot) {
+    hints.push({ keys: globalKeys.back.keys[0], label: 'work' });
+  }
+  if (input.wide) hints.push({ keys: '1–5', label: 'sections' });
+  hints.push({ keys: globalKeys.help.keys[0], label: globalKeys.help.label });
+  if (input.onWorkRoot) hints.push({ keys: globalKeys.quit.keys.join('/'), label: 'quit' });
+  return hints;
+};
 
 /**
- * Bindings local to the sprint picker — the cross-project sprint list mounted from `S`.
+ * Bindings local to the context switcher overlay — the project / sprint list mounted from `S` / `P`.
  *
  * `t` toggles between "all projects" (the default) and the current project only. Free across
  * the global / list / execute / tasks-panel maps. Surfaced here so the help overlay groups
- * the picker's lone view-local key alongside the rest of its bindings.
+ * the switcher's view-local keys alongside the rest of its bindings.
  */
-export const pickerKeys = {
+export const switcherKeys = {
   toggleScope: { keys: ['t'], label: 'toggle project scope' },
-  // `f` (filter), NOT `d`: `d` double-fires with the StatusBanner dismiss mounted inside the
-  // picker's ViewShell and means delete-with-confirm in every sibling list view. Plain `f` is
-  // unused TUI-wide.
+  // `f` (filter), NOT `d`: `d` double-fires with the StatusBanner dismiss and means
+  // delete-with-confirm in every sibling list view. Plain `f` is unused TUI-wide.
   hideDone: { keys: ['f'], label: 'hide done sprints' },
+  create: { keys: ['c', '+'], label: 'new sprint in the current project' },
+  close: { keys: ['esc'], label: 'close — never navigates' },
 } as const satisfies Record<string, KeyBinding>;
 
 /**
@@ -95,7 +115,7 @@ export const pickerKeys = {
  * kill). Only active when the cursor is on a blocked or crashed-in-progress task in the
  * sprint-detail view.
  *
- * `c` (alias `+`) creates: a sprint on Home, Sprints and the sprint picker, a project on Projects and the project picker. `m` on the sprint-detail view marks the
+ * `c` (alias `+`) creates: a sprint on Work, Sprints and the context switcher, a project on Projects. `m` on the sprint-detail view marks the
  * opened sprint as the current selection — replaces the prior silent auto-sync on detail mount.
  * The same chord on the projects list / project detail marks the focused (or viewed) project
  * current — opening a project detail is a browse and never switches the selection.
@@ -117,6 +137,7 @@ export const contextualKeys = {
   updateSkill: { keys: ['u'], label: 'update skill from bundle' },
   updateAllSkills: { keys: ['U'], label: 'update every out-of-date skill' },
   openEvaluation: { keys: ['v'], label: "open the focused task's evaluation verdict" },
+  toggleBanner: { keys: ['b'], label: 'toggle the wordmark banner (Work only)' },
   reloadFromDisk: { keys: ['r'], label: 're-read the sprint list / sprint detail from disk' },
 } as const satisfies Record<string, KeyBinding>;
 
@@ -294,7 +315,8 @@ export const keySections: readonly KeySection[] = [
   toSection('Lists', listKeys),
   toSection('Scroll', scrollKeys),
   toSection('Contextual', contextualKeys),
-  toSection('Sprint picker', pickerKeys, ['pick-sprint']),
+  // The switcher is an overlay, not a route: `?` replaces it, so its keys surface under 'All keys'.
+  toSection('Context switcher', switcherKeys, []),
   toSection('Execute', executeKeys, ['execute']),
   toSection('Tasks panel', tasksPanelKeys, ['execute']),
   signalReference,

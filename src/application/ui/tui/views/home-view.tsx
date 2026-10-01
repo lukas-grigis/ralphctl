@@ -25,6 +25,7 @@ import { useBreakpoint } from '@src/application/ui/tui/runtime/use-breakpoint.ts
 import { useRouter } from '@src/application/ui/tui/runtime/router.tsx';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
 import { useAppStateSnapshot } from '@src/application/ui/tui/runtime/use-app-state-snapshot.ts';
+import { useViewKeys } from '@src/application/ui/tui/runtime/use-view-keys.ts';
 import { useLaunchCreateSprint } from '@src/application/ui/tui/runtime/use-launch-create-sprint.ts';
 import { StateCard } from '@src/application/ui/tui/views/home-internals/state-card.tsx';
 import { buildMenuItems } from '@src/application/ui/tui/views/home-internals/menu-items.ts';
@@ -137,6 +138,7 @@ const useCreateSprintHotkey = (args: {
 
 interface HomeMenuItemsArgs {
   readonly router: ReturnType<typeof useRouter>;
+  readonly openSwitcher: ReturnType<typeof useUiState>['openSwitcher'];
   readonly selection: SelectionApi;
   readonly hasProject: boolean;
   /** Projects in storage, regardless of which (if any) is selected — see `BuildMenuItemsInput`. */
@@ -155,6 +157,7 @@ interface HomeMenuItemsArgs {
  *  double as inline callback wiring. */
 const useHomeMenuItems = ({
   router,
+  openSwitcher,
   selection,
   hasProject,
   projectCount,
@@ -179,6 +182,9 @@ const useHomeMenuItems = ({
         switchSprintDisabled,
         addTicketDisabled,
         onPushHome: (id) => router.push({ id }),
+        onGoSection: (id) => router.goSection(id),
+        onOpenSystemChild: (id) => router.reset({ id }),
+        onOpenSwitcher: (focus) => openSwitcher(focus),
         onPushAddTicket: (sprintId) => router.push({ id: 'add-ticket', props: { sprintId } }),
         onSwitchSprint: (s) => selection.setSprint(s.id, s.name, s.status),
         onLaunchCreateSprint: () => {
@@ -187,6 +193,7 @@ const useHomeMenuItems = ({
       }),
     [
       router,
+      openSwitcher,
       hasProject,
       projectCount,
       stateLoaded,
@@ -226,7 +233,7 @@ const HomeFeedbackLines = ({
 );
 
 /**
- * Rows Home spends outside the menu: compact header (2) + breadcrumb + section stamp + state
+ * Rows Home spends outside the menu: app chrome (5) + state
  * card + margins + footer. The menu windows itself to whatever is left; the focused row's
  * description adds a line the ScrollRegion anchor reveals.
  */
@@ -244,7 +251,7 @@ export const HomeView = (): React.JSX.Element => {
   const hasProject = snapshot?.project !== undefined;
   const currentSprint = snapshot?.sprint;
   // Covers the pre-fetch `idle` tick as well as `loading` — matches the guard sibling views
-  // (sprints-view, pick-sprint-view, projects-view, …) use for their own `LoadingRow`. Without
+  // (sprints-view, projects-view, …) use for their own `LoadingRow`. Without
   // it, the single-render `idle` frame shows a blank hero card indistinguishable from "no data".
   const snapshotLoading = state.kind === 'loading' || state.kind === 'idle';
 
@@ -300,6 +307,7 @@ export const HomeView = (): React.JSX.Element => {
 
   const items = useHomeMenuItems({
     router,
+    openSwitcher: ui.openSwitcher,
     selection,
     hasProject,
     projectCount: snapshot?.projectCount ?? 0,
@@ -311,6 +319,9 @@ export const HomeView = (): React.JSX.Element => {
     addTicketDisabled,
     launchCreateSprint,
   });
+
+  // `b` is Home's alone: it flips the wordmark banner, which only Home ever shows.
+  useViewKeys([{ keys: ['b'], hint: 'banner', run: ui.toggleBanner }], { active: !ui.modalOpen });
 
   const menuRows = listCapacity(rows, { chromeRows: HOME_CHROME_ROWS, min: 3 });
 

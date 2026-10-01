@@ -1,0 +1,246 @@
+/**
+ * Context switcher — the one overlay for "which project and sprint am I working on?". Opened by `S`
+ * (cursor on the current sprint) or `P` (cursor on the current project's header) from anywhere; it
+ * replaces the old pick-project and pick-sprint screens.
+ *
+ * It never navigates. `↵` on a sprint switches project + sprint in one batch (`setProjectAndSprint`),
+ * `↵` on a project header switches the project (clearing the sprint when it changes), `esc` closes —
+ * and in every case `router.stack` is untouched, so the view underneath is exactly where you left
+ * it. Mounted in `Layout` (the view below stays mounted but hidden, so its cursor and scroll
+ * survive); it pins its own footer because the hidden view's footer is hidden with it.
+ *
+ * Rows: `+ New sprint in <project>` (`c`), then each project as a selectable header with its
+ * sprints beneath. Cursor and windowing come from the shared `useListWindow` primitive over the
+ * cursorable subset (see `context-switcher-internals/row-views.tsx`). `t` toggles all-projects /
+ * current-project scope; `f` hides done sprints (default off — closed sprints stay reachable here
+ * by contract).
+ *
+ * Width: full width below `md`; `min(96, columns − 4)` from `md`, left-aligned at the page indent.
+ */
+
+import React, { useMemo, useState } from 'react';
+import { Box, Text, useInput } from 'ink';
+import { AsyncListFrame } from '@src/application/ui/tui/components/async-list-frame.tsx';
+import { EmptyState } from '@src/application/ui/tui/components/empty-state.tsx';
+import { FooterBar } from '@src/application/ui/tui/components/status-bar.tsx';
+import type { FitHint } from '@src/application/ui/tui/components/hint-budget.ts';
+import { breakpoints, glyphs, inkColors, listCapacity, spacing } from '@src/application/ui/tui/theme/tokens.ts';
+import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
+import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
+import { useTerminalSize } from '@src/application/ui/tui/runtime/use-terminal-size.ts';
+import { useUiState, type SwitcherFocus } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
+import { useLaunchCreateSprint } from '@src/application/ui/tui/runtime/use-launch-create-sprint.ts';
+import type { CursorRow, PickerData } from '@src/application/ui/tui/components/context-switcher-internals/types.ts';
+import {
+  cursorableRows,
+  preferredCursorId,
+} from '@src/application/ui/tui/components/context-switcher-internals/group-builder.ts';
+import { PickerRowList } from '@src/application/ui/tui/components/context-switcher-internals/row-views.tsx';
+import { usePickerRows } from '@src/application/ui/tui/components/context-switcher-internals/use-picker-rows.ts';
+
+/** The widest the box grows on a big terminal. */
+const MAX_BOX_WIDTH = 96;
+/** Rows the frame spends outside the list: tab bar, location line, rule, footer (2), box border (2), summary (1). */
+const CHROME_ROWS = 9;
+/** Border (2) + horizontal padding (2). */
+const BOX_FRAME_WIDTH = 4;
+
+const TITLE = 'switch sprint or project';
+
+/** `╭─ S switch sprint or project ───╮` — the title sits in the top border; Ink borders cannot. */
+const TopBorder = ({ width }: { readonly width: number }): React.JSX.Element => {
+  const used = [...`╭─ S ${TITLE} `].length + 1;
+  return (
+    <Text color={inkColors.primary}>
+      {'╭─ '}
+      <Text bold>S</Text>
+      {` ${TITLE} `}
+      {'─'.repeat(Math.max(0, width - used))}
+      {'╮'}
+    </Text>
+  );
+};
+
+interface SummaryProps {
+  readonly sprintCount: number;
+  readonly projectCount: number;
+  readonly scopeAll: boolean;
+  readonly hideDone: boolean;
+  readonly wide: boolean;
+}
+
+const Summary = ({ sprintCount, projectCount, scopeAll, hideDone, wide }: SummaryProps): React.JSX.Element => (
+  <Box justifyContent="space-between">
+    <Text dimColor>
+      {String(sprintCount)} sprint{sprintCount === 1 ? '' : 's'} {glyphs.bullet} {String(projectCount)} project
+      {projectCount === 1 ? '' : 's'} {glyphs.bullet} scope: {scopeAll ? (wide ? 'all projects' : 'all') : 'current'}
+    </Text>
+    <Text dimColor>
+      t scope {glyphs.bullet} f hide done: {hideDone ? 'on' : 'off'}
+    </Text>
+  </Box>
+);
+
+export interface ContextSwitcherProps {
+  readonly focus: SwitcherFocus;
+}
+
+type SelectionApi = ReturnType<typeof useSelection>;
+
+/**
+ * What each row does on `↵` (and what `c` / `esc` do), as one hook. Every path ends in
+ * `closeOverlay` and none touches the router: the switcher changes the selection, never the view.
+ */
+const useSwitcherActions = (
+  selection: SelectionApi,
+  data: PickerData,
+  setFeedback: (text: string | undefined) => void
+): { readonly onSubmit: (row: CursorRow) => void; readonly createSprint: () => void } => {
+  const closeOverlay = useUiState().closeOverlay;
+  const launchCreateSprint = useLaunchCreateSprint({
+    onError: setFeedback,
+    noProjectMessage: NO_PROJECT_MESSAGE,
+  });
+  const createSprint = (): void => {
+    if (selection.projectId === undefined) {
+      setFeedback(NO_PROJECT_MESSAGE);
+      return;
+    }
+    // Close first: the launch pushes the Execute view (and may raise prompts) onto the stack.
+    closeOverlay();
+    void launchCreateSprint();
+  };
+
+  const onSubmit = (row: CursorRow): void => {
+    if (row.kind === 'create') {
+      createSprint();
+      return;
+    }
+    if (row.kind === 'header') {
+      if (row.projectId !== undefined) selection.setProject(row.projectId, row.label);
+      closeOverlay();
+      return;
+    }
+    const sprint = row.sprint;
+    const project = data.projectsById.get(sprint.projectId);
+    // Orphan sprint (its project was deleted): fall back to a plain sprint switch — it surfaces
+    // under whatever project the selection still points at, or none.
+    if (project !== undefined) {
+      selection.setProjectAndSprint(project.id, project.displayName, sprint.id, sprint.name, sprint.status);
+    } else {
+      selection.setSprint(sprint.id, sprint.name, sprint.status);
+    }
+    closeOverlay();
+  };
+  return { onSubmit, createSprint };
+};
+
+const switcherHints = (canCreate: boolean): FitHint[] => [
+  { keys: '↑/↓', label: 'move' },
+  { keys: '↵', label: 'switch' },
+  ...(canCreate ? [{ keys: 'c', label: 'new sprint' }] : []),
+  { keys: 't', label: 'scope' },
+  { keys: 'f', label: 'hide done' },
+  { keys: 'esc', label: 'close' },
+];
+
+const NO_PROJECT_MESSAGE = `${glyphs.cross} select a project first`;
+
+const EmptyBody = ({
+  hiddenByDoneFilter,
+  scopeAll,
+}: {
+  readonly hiddenByDoneFilter: boolean;
+  readonly scopeAll: boolean;
+}): React.JSX.Element =>
+  hiddenByDoneFilter ? (
+    <EmptyState title="All sprints here are done (hidden)." hint="Press f to show them, or c to create a new one." />
+  ) : (
+    <EmptyState
+      title="No sprints yet."
+      hint={scopeAll ? 'Press c to create one.' : 'Press t to show all projects, or c to create one.'}
+    />
+  );
+
+export const ContextSwitcher = ({ focus }: ContextSwitcherProps): React.JSX.Element => {
+  const deps = useDeps();
+  const selection = useSelection();
+  const ui = useUiState();
+  const { columns, rows: termRows } = useTerminalSize();
+  const [feedback, setFeedback] = useState<string | undefined>(undefined);
+
+  const picker = usePickerRows(deps, selection.projectId);
+  const { state, data, rows, sprintCount, projectCount, hiddenByDoneFilter, scopeAll, hideDone } = picker;
+  const { onSubmit, createSprint } = useSwitcherActions(selection, data, setFeedback);
+
+  const closeOverlay = ui.closeOverlay;
+  useInput((input, key) => {
+    if (key.ctrl || key.meta) return;
+    if (key.escape) {
+      closeOverlay();
+      return;
+    }
+    if (input === 't') picker.toggleScope();
+    else if (input === 'f') picker.toggleHideDone();
+    else if (input === 'c' || input === '+') createSprint();
+  });
+
+  const wide = columns >= breakpoints.md;
+  const boxWidth = wide ? Math.min(MAX_BOX_WIDTH, columns - 4) : columns;
+  const initialCursorId = useMemo(
+    () => preferredCursorId(rows, { focus, sprintId: selection.sprintId, projectId: selection.projectId }),
+    [rows, focus, selection.sprintId, selection.projectId]
+  );
+  const hasCursorRows = useMemo(() => cursorableRows(rows).length > 0, [rows]);
+
+  const hints = switcherHints(selection.projectId !== undefined);
+
+  return (
+    <Box flexDirection="column" flexGrow={1}>
+      <Box flexDirection="column" flexGrow={1} marginLeft={wide ? spacing.indent : 0}>
+        <TopBorder width={boxWidth} />
+        <Box
+          flexDirection="column"
+          width={boxWidth}
+          borderStyle="round"
+          borderTop={false}
+          borderColor={inkColors.primary}
+          paddingX={1}
+        >
+          <Summary
+            sprintCount={sprintCount}
+            projectCount={projectCount}
+            scopeAll={scopeAll}
+            hideDone={hideDone}
+            wide={wide}
+          />
+          <AsyncListFrame<PickerData>
+            state={state}
+            loadingLabel="Loading sprints…"
+            errorMessage="Failed to load sprints."
+            errorColor={inkColors.error}
+            isEmpty={!hasCursorRows}
+            empty={<EmptyBody hiddenByDoneFilter={hiddenByDoneFilter} scopeAll={scopeAll} />}
+          >
+            <PickerRowList
+              // Remount (re-seating the cursor) on an explicit scope toggle only; the `f` filter keeps a
+              // surviving row focused through `useListWindow`'s own id resolution.
+              key={`${String(scopeAll)}-${focus}`}
+              rows={rows}
+              visibleRows={listCapacity(termRows, { chromeRows: CHROME_ROWS, min: 4 })}
+              active
+              initialCursorId={initialCursorId}
+              currentSprintId={selection.sprintId}
+              createLabel={selection.projectLabel}
+              onSubmit={onSubmit}
+              taskHealthBySprintId={data.taskHealthBySprintId}
+              innerWidth={boxWidth - BOX_FRAME_WIDTH}
+            />
+          </AsyncListFrame>
+          {feedback !== undefined && <Text color={inkColors.error}>{feedback}</Text>}
+        </Box>
+      </Box>
+      <FooterBar hints={hints} columns={columns} />
+    </Box>
+  );
+};

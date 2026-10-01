@@ -9,7 +9,7 @@
  *
  * Scope: by default the overlay shows 'This view' + the general sections, and only the sections
  * of surfaces mounted on the current route (`KeySection.onlyOn`: Execute / Tasks panel / Signals
- * on `execute`, the Sprint picker on `pick-sprint`). `Tab` toggles 'All keys', which adds the rest.
+ * on `execute`, the Context switcher keys appear under 'All keys' — the switcher is an overlay, not a route). `Tab` toggles 'All keys', which adds the rest.
  *
  * Scroll model (active when content overflows the viewport):
  *   ↑ / ↓         → one line

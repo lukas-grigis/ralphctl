@@ -2,7 +2,7 @@
  * Row presentation for the sprints list — one sprint per bordered card: name + status chip,
  * slug, and ticket count with pending/approved/blocked sub-counts. Pulled out of `sprints-view.tsx`
  * (which still owns data loading, cursor, and key handling) because the blocked-task sub-count
- * grew this into its own cohesive rendering unit, mirroring how `pick-sprint-internals/row-views.tsx`
+ * grew this into its own cohesive rendering unit, mirroring how `context-switcher-internals/row-views.tsx`
  * splits row presentation out of its orchestrator.
  */
 

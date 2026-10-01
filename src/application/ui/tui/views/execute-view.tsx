@@ -389,6 +389,7 @@ const ExecuteViewFrame = ({
   return (
     <ViewShell
       title={flowIdToTitle(descriptor.flowId)}
+      crumb={flowIdToTitle(descriptor.flowId)}
       subtitle={descriptor.title}
       // The Tasks panel owns ↑/↓ (and j/k) as its card / row cursor — without this the page
       // ScrollRegion moved the whole viewport on the same keypress that moved the cursor. Every
@@ -398,6 +399,8 @@ const ExecuteViewFrame = ({
       // mouse wheel still scrolls the page regardless of this flag.
       suppressScrollArrows
       right={<StatusChip label={descriptor.status} kind={runnerStatusKind(descriptor.status)} />}
+      // `[STATUS]` — the label's cells plus its brackets, so the location line can budget for it.
+      rightWidth={descriptor.status.length + 2}
     >
       <ExecuteBody
         descriptor={descriptor}

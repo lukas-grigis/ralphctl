@@ -27,8 +27,7 @@ import { WelcomeView } from '@src/application/ui/tui/views/welcome-view.tsx';
 import { CreateProjectView } from '@src/application/ui/tui/views/create-project-view.tsx';
 import { AddRepositoryView } from '@src/application/ui/tui/views/add-repository-view.tsx';
 import { AddTicketView } from '@src/application/ui/tui/views/add-ticket-view.tsx';
-import { PickProjectView } from '@src/application/ui/tui/views/pick-project-view.tsx';
-import { PickSprintView } from '@src/application/ui/tui/views/pick-sprint-view.tsx';
+import { SystemView } from '@src/application/ui/tui/views/system-view.tsx';
 
 /**
  * The single source of truth for every navigable view. `satisfies` (rather than annotating this
@@ -45,6 +44,7 @@ export const VIEW_REGISTRY = {
   'sprint-detail': SprintDetailView,
   execute: ExecuteView,
   sessions: SessionsView,
+  system: SystemView,
   settings: SettingsView,
   skills: SkillsView,
   doctor: DoctorView,
@@ -55,8 +55,6 @@ export const VIEW_REGISTRY = {
   'create-project': CreateProjectView,
   'add-repository': AddRepositoryView,
   'add-ticket': AddTicketView,
-  'pick-project': PickProjectView,
-  'pick-sprint': PickSprintView,
 } as const satisfies Record<string, React.ComponentType>;
 
 /** Every valid destination for a `ViewEntry.id` — add a view by appending one entry above. */

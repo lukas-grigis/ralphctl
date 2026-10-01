@@ -1,6 +1,6 @@
 /**
  * `useLaunchCreateSprint` — the create-sprint launch sequence shared by the three views that
- * offer a "create sprint" affordance (home `+` hotkey, pick-sprint synthetic row,
+ * offer a "create sprint" affordance (home `+` hotkey, context-switcher `+ New sprint` row,
  * sprints `c` chord). Each had a near-verbatim copy of:
  *
  *   load snapshot → createInkInteractivePrompt → launchSprintBoundFlow('create-sprint', …,

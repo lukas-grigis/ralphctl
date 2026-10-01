@@ -14,6 +14,7 @@ import { DEFAULT_SETTINGS } from '@src/business/settings/defaults.ts';
 import { ENTER, RIGHT, tick } from '@tests/integration/application/ui/tui/_keys.ts';
 import { waitForPredicate } from '@tests/integration/application/ui/tui/_wait.ts';
 import { renderView, waitForViewReady } from '@tests/integration/application/ui/tui/_harness.tsx';
+import { WithPublishedTitle } from '@tests/integration/application/ui/tui/_view-title.tsx';
 
 // Hoisted state holder — each test mutates this before rendering so the mocked
 // `detectInstalledProviders` returns the desired set. The mock targets the integration
@@ -120,13 +121,19 @@ describe('SettingsView', () => {
   });
 
   it('describes the active section in the subtitle instead of repeating key hints', async () => {
-    const { result } = renderView(<SettingsView />, { deps, initial: { id: 'settings' } });
+    const { result } = renderView(
+      <WithPublishedTitle>
+        <SettingsView />
+      </WithPublishedTitle>,
+      { deps, initial: { id: 'settings' } }
+    );
     await waitForViewReady(result, (f) => f.includes('Apply: Mixed'));
-    expect(result.lastFrame() ?? '').toMatch(/Settings\n?.*Presets/);
+    expect(result.lastFrame() ?? '').toContain('title:Settings subtitle:Presets');
     await goToSection(result.stdin, 'storage');
     const frame = result.lastFrame() ?? '';
-    // The section stamp now names the section; the keys live only in the footer hint strip.
-    expect(frame).toContain('▣ Settings — Storage paths');
+    // The view publishes the section name as its subtitle (shown on the location line); the keys
+    // live only in the footer hint strip.
+    expect(frame).toContain('title:Settings subtitle:Storage paths');
     expect(frame).not.toContain('esc cancel');
     result.unmount();
   });

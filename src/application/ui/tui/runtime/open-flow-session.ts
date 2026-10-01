@@ -9,7 +9,7 @@
  *   3. Routes to the Execute view for the new runner's session id — pushing a new frame by
  *      default, or replacing the current frame when `opts.mode === 'replace'`.
  *
- * Centralised so the launch call sites (flows / home / pick-sprint / project-detail / sprints,
+ * Centralised so the launch call sites (flows / home / context switcher / project-detail / sprints,
  * plus the create-sprint copies folded into {@link useLaunchCreateSprint}) don't each re-stamp
  * the same three-statement tail. Flows-view passes `mode: 'replace'` and runs its own
  * `reload()` afterwards; the reload stays at the call site because it is flows-view-specific.

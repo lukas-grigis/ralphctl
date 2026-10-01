@@ -1,7 +1,8 @@
 /**
- * Pure list-shaping helpers for the sprint picker: bucket sprints into project groups, flatten
+ * Pure list-shaping helpers for the context switcher: bucket sprints into project groups, flatten
  * the groups into the cursor-navigable row list, and derive the id-keyed cursorable subset that
- * feeds the shared `useListWindow` primitive. Headers are never cursor targets.
+ * feeds the shared `useListWindow` primitive. Project headers are cursor targets (`↵` switches the
+ * project); only the orphan bucket's header is not.
  */
 
 import type { Sprint } from '@src/domain/entity/sprint.ts';
@@ -9,13 +10,15 @@ import type { ProjectId } from '@src/domain/value/id/project-id.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import {
   type CreateActionRow,
+  type CursorRow,
   type FlatRow,
+  type HeaderRow,
   type PickerData,
   type SprintGroup,
   type SprintRow,
   UNKNOWN_PROJECT_KEY,
   UNKNOWN_PROJECT_LABEL,
-} from '@src/application/ui/tui/views/pick-sprint-internals/types.ts';
+} from '@src/application/ui/tui/components/context-switcher-internals/types.ts';
 
 /**
  * Build the grouped + sorted list of sprint groups.
@@ -33,12 +36,21 @@ export const buildGroups = (
   currentProjectId: ProjectId | undefined,
   scopeAll: boolean
 ): readonly SprintGroup[] => {
-  const buckets = new Map<string, { label: string; orphan: boolean; sprints: Sprint[] }>();
+  const buckets = new Map<
+    string,
+    { label: string; orphan: boolean; projectId: ProjectId | undefined; repoCount: number; sprints: Sprint[] }
+  >();
 
   // Pre-seed a bucket for every known project so empty projects still render a header when
   // scopeAll is true. Orphan bucket is created lazily on the first orphan sprint.
   for (const project of data.projectsById.values()) {
-    buckets.set(project.id, { label: project.displayName, orphan: false, sprints: [] });
+    buckets.set(project.id, {
+      label: project.displayName,
+      orphan: false,
+      projectId: project.id,
+      repoCount: project.repositories.length,
+      sprints: [],
+    });
   }
   for (const sprint of data.sprints) {
     const bucket = buckets.get(sprint.projectId);
@@ -50,6 +62,8 @@ export const buildGroups = (
     const orphanBucket = buckets.get(UNKNOWN_PROJECT_KEY) ?? {
       label: UNKNOWN_PROJECT_LABEL,
       orphan: true,
+      projectId: undefined,
+      repoCount: 0,
       sprints: [] as Sprint[],
     };
     orphanBucket.sprints.push(sprint);
@@ -65,6 +79,8 @@ export const buildGroups = (
     key,
     label: b.label,
     orphan: b.orphan,
+    projectId: b.projectId,
+    repoCount: b.repoCount,
     sprints: b.sprints,
   }));
 
@@ -100,6 +116,8 @@ export const flatten = (groups: readonly SprintGroup[], includeCreate: boolean):
       label: g.label,
       orphan: g.orphan,
       empty: g.sprints.length === 0,
+      projectId: g.projectId,
+      repoCount: g.repoCount,
     });
     for (const sprint of g.sprints) {
       rows.push({ kind: 'sprint', groupKey: g.key, sprint });
@@ -108,31 +126,53 @@ export const flatten = (groups: readonly SprintGroup[], includeCreate: boolean):
   return rows;
 };
 
-/** Sentinel id for the synthetic `+ Create new sprint` row — never collides with a real sprint id. */
+/** Sentinel id for the synthetic `+ New sprint` row — never collides with a real sprint id. */
 const CREATE_ROW_ID = '__create__';
 
-/** Rows the cursor is allowed to land on (sprint + create rows; never headers). */
-export const cursorableRows = (rows: readonly FlatRow[]): ReadonlyArray<SprintRow | CreateActionRow> =>
-  rows.filter((r): r is SprintRow | CreateActionRow => r.kind !== 'header');
+const HEADER_ID_PREFIX = 'project:';
+
+/** Rows the cursor is allowed to land on: sprint, create, and non-orphan project headers. */
+export const cursorableRows = (rows: readonly FlatRow[]): readonly CursorRow[] =>
+  rows.filter((r) => r.kind !== 'header' || !r.orphan);
 
 /** Stable id for a cursorable row — the `getId` fed to `useListWindow`. */
-export const cursorableRowId = (row: SprintRow | CreateActionRow): string =>
-  row.kind === 'create' ? CREATE_ROW_ID : row.sprint.id;
+export const cursorableRowId = (row: CursorRow): string => {
+  if (row.kind === 'create') return CREATE_ROW_ID;
+  if (row.kind === 'header') return `${HEADER_ID_PREFIX}${row.groupKey}`;
+  return row.sprint.id;
+};
 
 /**
- * Preferred landing id within `rows`: the row for `preferredSprintId` if present, else the first
- * sprint row, else the first cursorable row (the synthetic create row), else `''`. Used to seed
- * `useListWindow`'s `initialCursorId` — both on first mount (once the async load settles) and on
- * an explicit scope-toggle remount — so "Enter is a one-keystroke confirm" pre-seeds onto the
- * already-selected sprint whenever possible.
+ * Preferred landing id within `rows`. `focus: 'project'` (`P`) lands on the current project's
+ * header; `'sprint'` (`S`) lands on the current sprint. Either falls back to the first sprint row,
+ * then the first header, then the create row — so `↵` always has something sensible to confirm.
  */
-export const preferredCursorId = (rows: readonly FlatRow[], preferredSprintId: SprintId | undefined): string => {
-  if (preferredSprintId !== undefined) {
-    const match = rows.find((r): r is SprintRow => r.kind === 'sprint' && r.sprint.id === preferredSprintId);
-    if (match !== undefined) return match.sprint.id;
+export const preferredCursorId = (
+  rows: readonly FlatRow[],
+  preferred: {
+    readonly focus: 'sprint' | 'project';
+    readonly sprintId: SprintId | undefined;
+    readonly projectId: ProjectId | undefined;
   }
+): string => {
+  const headerOf = (projectId: ProjectId | undefined): HeaderRow | undefined =>
+    projectId === undefined
+      ? undefined
+      : rows.find((r): r is HeaderRow => r.kind === 'header' && !r.orphan && r.groupKey === projectId);
+  const sprintRow =
+    preferred.sprintId !== undefined
+      ? rows.find((r): r is SprintRow => r.kind === 'sprint' && r.sprint.id === preferred.sprintId)
+      : undefined;
+
+  if (preferred.focus === 'project') {
+    const header = headerOf(preferred.projectId);
+    if (header !== undefined) return cursorableRowId(header);
+  }
+  if (sprintRow !== undefined) return cursorableRowId(sprintRow);
   const firstSprint = rows.find((r): r is SprintRow => r.kind === 'sprint');
-  if (firstSprint !== undefined) return firstSprint.sprint.id;
+  if (firstSprint !== undefined) return cursorableRowId(firstSprint);
+  const firstHeader = rows.find((r): r is HeaderRow => r.kind === 'header' && !r.orphan);
+  if (firstHeader !== undefined) return cursorableRowId(firstHeader);
   const firstCreate = rows.find((r): r is CreateActionRow => r.kind === 'create');
   return firstCreate !== undefined ? CREATE_ROW_ID : '';
 };

@@ -13,6 +13,8 @@ import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import { ticketAddManifest } from '@src/application/flows/add-ticket/manifest.ts';
 import type { ViewId } from '@src/application/ui/tui/views/view-registry.tsx';
+import type { SectionId } from '@src/application/ui/tui/runtime/nav-tree.ts';
+import type { SwitcherFocus } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 
 /** The "switch sprint" section groups the loading placeholder, the recent-sprint rows, and the
  *  create-new-sprint row — hoisted so the three rows share one literal instead of three copies. */
@@ -35,7 +37,7 @@ export interface BuildMenuItemsInput {
    * True while the app-state snapshot is still fetching (covers both `loading` and the
    * pre-fetch `idle` tick). `recentSprints` is always empty during this window — without an
    * explicit row the "switch sprint" section looks identical to a genuinely sprint-less
-   * project and the 1–5 digit quick-switch hotkeys silently do nothing.
+   * project.
    */
   readonly loading: boolean;
   readonly currentSprint: Sprint | undefined;
@@ -43,7 +45,14 @@ export interface BuildMenuItemsInput {
   readonly selectionSprintId: SprintId | undefined;
   readonly switchSprintDisabled: string | undefined;
   readonly addTicketDisabled: string | undefined;
+  /** Push a view onto the Work stack (`flows`, `create-project`). */
   readonly onPushHome: (id: ViewId) => void;
+  /** Jump to a section (Sprints / Projects / Runs) — its own stack, its own root. */
+  readonly onGoSection: (id: SectionId) => void;
+  /** Land on a System child (`[System, <child>]`) — esc returns to the System hub. */
+  readonly onOpenSystemChild: (id: 'settings' | 'skills' | 'doctor') => void;
+  /** Open the context switcher (S / P). Never navigates. */
+  readonly onOpenSwitcher: (focus: SwitcherFocus) => void;
   readonly onPushAddTicket: (sprintId: SprintId) => void;
   readonly onSwitchSprint: (sprint: Sprint) => void;
   readonly onLaunchCreateSprint: () => void;
@@ -66,14 +75,13 @@ const buildGetStartedItems = (input: BuildMenuItemsInput): readonly MenuItem[] =
   ];
 };
 
-/** The digit quick-switch rows plus their loading placeholder and the create-new-sprint row. */
+/** The recent-sprint rows plus their loading placeholder and the create-new-sprint row. */
 const buildSwitchSprintItems = (input: BuildMenuItemsInput): readonly MenuItem[] => {
   const items: MenuItem[] = [];
 
   // Loading placeholder — renders in place of the (always-empty-until-loaded) digit list so a
   // fetch-in-progress reads as "loading", not "no sprints yet". Non-interactive: `disabledReason`
-  // keeps it out of the cursorable set, so `1`–`5` stay harmless no-ops during this window instead
-  // of landing on a fake row.
+  // keeps it out of the cursorable set instead of landing the cursor on a fake row.
   if (input.loading && input.recentSprints.length === 0) {
     items.push({
       id: 'sprint-loading',
@@ -86,7 +94,7 @@ const buildSwitchSprintItems = (input: BuildMenuItemsInput): readonly MenuItem[]
     });
   }
 
-  for (const [idx, s] of input.recentSprints.entries()) {
+  for (const s of input.recentSprints) {
     const ticketsSuffix = `${String(s.tickets.length)} ticket${s.tickets.length === 1 ? '' : 's'}`;
     const description =
       s.id === input.currentSprint?.id
@@ -97,10 +105,8 @@ const buildSwitchSprintItems = (input: BuildMenuItemsInput): readonly MenuItem[]
       section: SWITCH_SPRINT_SECTION,
       label: s.name,
       description,
-      // Digit quick-switch — recentSprints is capped at 5 (RECENT_SPRINTS_LIMIT), so 1–5
-      // always suffice. Deliberately NOT a globalHotkey: ActionMenu owns the binding, so the
-      // digits work on Home only and never collide with other views' keys.
-      hotkey: String(idx + 1),
+      // No digit hotkey: `1`–`5` jump between sections everywhere, so a row-local digit would
+      // double-fire. The rows stay arrow-selectable, and `S` opens the full switcher.
       onSelect: (): void => {
         if (s.id === input.selectionSprintId) return;
         // setSprint updates `selection.lastSwitch`, which drives the transient toast line
@@ -145,7 +151,7 @@ const buildWorkItems = (input: BuildMenuItemsInput): readonly MenuItem[] => [
     label: 'Sprints',
     description: 'Construct and run sprints — the main unit of work.',
     hotkey: 'r',
-    onSelect: (): void => input.onPushHome('sprints'),
+    onSelect: (): void => input.onGoSection('sprints'),
   },
   {
     id: 'pick-sprint',
@@ -155,7 +161,7 @@ const buildWorkItems = (input: BuildMenuItemsInput): readonly MenuItem[] => [
     hotkey: 'S',
     globalHotkey: true,
     ...(input.switchSprintDisabled !== undefined ? { disabledReason: input.switchSprintDisabled } : {}),
-    onSelect: (): void => input.onPushHome('pick-sprint'),
+    onSelect: (): void => input.onOpenSwitcher('sprint'),
   },
   {
     id: ticketAddManifest.id,
@@ -176,7 +182,7 @@ const buildWorkItems = (input: BuildMenuItemsInput): readonly MenuItem[] => [
     description: 'Pick a different project — remembered for next launch.',
     hotkey: 'P',
     globalHotkey: true,
-    onSelect: (): void => input.onPushHome('pick-project'),
+    onSelect: (): void => input.onOpenSwitcher('project'),
   },
   {
     id: 'projects',
@@ -184,7 +190,7 @@ const buildWorkItems = (input: BuildMenuItemsInput): readonly MenuItem[] => [
     label: 'Projects',
     description: 'Browse projects and manage their repositories.',
     hotkey: 'p',
-    onSelect: (): void => input.onPushHome('projects'),
+    onSelect: (): void => input.onGoSection('projects'),
   },
 ];
 
@@ -194,11 +200,11 @@ const buildObserveItems = (input: BuildMenuItemsInput): readonly MenuItem[] => [
   {
     id: 'sessions',
     section: 'observe',
-    label: 'Active sessions',
+    label: 'Runs',
     description: 'Live and recent runs of any flow.',
     hotkey: 'x',
     globalHotkey: true,
-    onSelect: (): void => input.onPushHome('sessions'),
+    onSelect: (): void => input.onGoSection('runs'),
   },
 ];
 
@@ -211,7 +217,7 @@ const buildSystemItems = (input: BuildMenuItemsInput): readonly MenuItem[] => [
     description: 'AI provider, models, harness budgets.',
     hotkey: 's',
     globalHotkey: true,
-    onSelect: (): void => input.onPushHome('settings'),
+    onSelect: (): void => input.onOpenSystemChild('settings'),
   },
   {
     id: 'skills',
@@ -219,7 +225,7 @@ const buildSystemItems = (input: BuildMenuItemsInput): readonly MenuItem[] => [
     label: 'Skills catalog',
     description: 'Browse, enable, disable, and update opt-in skills.',
     hotkey: 'K',
-    onSelect: (): void => input.onPushHome('skills'),
+    onSelect: (): void => input.onOpenSystemChild('skills'),
   },
   {
     id: 'doctor',
@@ -228,7 +234,7 @@ const buildSystemItems = (input: BuildMenuItemsInput): readonly MenuItem[] => [
     description: 'Sanity checks for paths, config, and runtime.',
     hotkey: '!',
     globalHotkey: true,
-    onSelect: (): void => input.onPushHome('doctor'),
+    onSelect: (): void => input.onOpenSystemChild('doctor'),
   },
 ];
 

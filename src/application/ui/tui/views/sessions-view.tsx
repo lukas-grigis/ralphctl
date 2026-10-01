@@ -1,5 +1,5 @@
 /**
- * Sessions list — every runner the manager knows about, live + recent. Selecting a row reopens
+ * Runs list (the Runs section root) — every runner the manager knows about, live + recent. Selecting a row reopens
  * the execute view for that session.
  *
  * The focus cursor is identity-based (keyed on the session id, not a list index) via
@@ -193,7 +193,7 @@ export const SessionsView = (): React.JSX.Element => {
   };
 
   return (
-    <ViewShell title="Sessions" subtitle="every chain run, live and recent" suppressScrollArrows>
+    <ViewShell title="Runs" subtitle="every chain run, live and recent" suppressScrollArrows>
       {confirmCancel !== undefined ? (
         <Box flexDirection="column" paddingX={spacing.indent}>
           <Text>
@@ -210,7 +210,7 @@ export const SessionsView = (): React.JSX.Element => {
           </Box>
         </Box>
       ) : sessions.length === 0 ? (
-        <EmptyState title="No sessions yet" hint="Start a flow from the Flows screen (n)." />
+        <EmptyState title="No sessions yet" hint="Start a flow from Work (1)." />
       ) : (
         <SessionsTable
           window={window}

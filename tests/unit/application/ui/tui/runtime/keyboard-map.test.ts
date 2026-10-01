@@ -1,64 +1,56 @@
 /**
- * Pure-data tests for the centralised keyboard map — specifically the derived footer-hint
- * subset and the Wave-3 nav chords.
+ * Pure-data tests for the centralised keyboard map — the footer's global hints (derived from where
+ * the operator is, not a static list) and the nav chords.
  *
- * These pin down the invariants the status bar relies on so the footer can stop hand-maintaining
- * a parallel hint list:
- *  - every `footerGlobalHints` entry traces back to a real `globalKeys` binding tagged
- *    `showInFooter` (no orphaned / stale hints);
- *  - no footer hint references a key the canonical binding does not declare;
- *  - the Wave-3 nav chords (`cycleSession` / `jumpSession`) exist as global bindings but stay out
- *    of the footer (help-overlay only).
+ * Invariants the footer relies on:
+ *  - the hidden accelerators (`h n x s ! S P`) are never advertised;
+ *  - `esc <parent>` appears only when `esc` does something (deeper stack, or a non-Work section root);
+ *  - `q quit` appears only on the Work root;
+ *  - `1–5 sections` appears only at `lg` and wider.
  */
 
 import { describe, expect, it } from 'vitest';
 import {
-  footerGlobalHints,
+  buildFooterGlobalHints,
   globalKeys,
   keySections,
   listKeys,
-  type KeyBinding,
+  type FooterGlobalsInput,
 } from '@src/application/ui/tui/runtime/keyboard-map.ts';
 
-describe('footerGlobalHints', () => {
-  it('maps every entry to a real globalKeys binding tagged showInFooter', () => {
-    const footerEligible = (Object.values(globalKeys) as KeyBinding[]).filter((b) => b.showInFooter === true);
+const hintsFor = (over: Partial<FooterGlobalsInput>): string[] =>
+  buildFooterGlobalHints({
+    stackDepth: 1,
+    parentLabel: undefined,
+    onWorkRoot: false,
+    atOtherSectionRoot: false,
+    wide: false,
+    ...over,
+  }).map((h) => `${h.keys} ${h.label}`);
 
-    // One footer hint per footer-eligible binding — no extras, no drops.
-    expect(footerGlobalHints).toHaveLength(footerEligible.length);
+describe('buildFooterGlobalHints', () => {
+  it('on the Work root: help and quit only', () => {
+    expect(hintsFor({ onWorkRoot: true })).toEqual(['? help', 'q/ctrl+c quit']);
+  });
 
-    for (const hint of footerGlobalHints) {
-      const match = footerEligible.find((b) => b.label === hint.label);
-      expect(match, `footer hint "${hint.label}" must map to a showInFooter binding`).toBeDefined();
-      // The hint's keys string must be the canonical binding's keys, joined — no unknown keys.
-      expect(hint.keys).toBe(match?.keys.join('/'));
+  it('at another section root: esc goes to work, and there is no quit', () => {
+    expect(hintsFor({ atOtherSectionRoot: true })).toEqual(['esc work', '? help']);
+  });
+
+  it('deeper in a stack: esc names the parent', () => {
+    expect(hintsFor({ stackDepth: 2, parentLabel: 'Sprints' })).toEqual(['esc Sprints', '? help']);
+  });
+
+  it('adds `1–5 sections` only from lg, before help', () => {
+    expect(hintsFor({ onWorkRoot: true, wide: true })).toEqual(['1–5 sections', '? help', 'q/ctrl+c quit']);
+    expect(hintsFor({ onWorkRoot: true, wide: false })).not.toContain('1–5 sections');
+  });
+
+  it('never advertises the hidden accelerators', () => {
+    const all = hintsFor({ onWorkRoot: true, wide: true }).join(' | ');
+    for (const stale of ['h home', 'n new flow', 'x sessions', 's settings', 'P pick project', 'S pick sprint']) {
+      expect(all).not.toContain(stale);
     }
-  });
-
-  it('references no key the canonical binding does not declare', () => {
-    const knownKeys = new Set<string>(Object.values(globalKeys).flatMap((b) => b.keys));
-    for (const hint of footerGlobalHints) {
-      for (const key of hint.keys.split('/')) {
-        expect(knownKeys.has(key), `footer hint key "${key}" is not a declared global key`).toBe(true);
-      }
-    }
-  });
-
-  it('covers exactly the curated footer subset', () => {
-    expect(footerGlobalHints.map((h) => h.label)).toEqual([
-      'back',
-      'home',
-      'new flow',
-      'sessions',
-      'settings',
-      'pick project',
-      'help',
-      'quit',
-    ]);
-  });
-
-  it('keeps pick sprint out of the footer (breadcrumb [S] owns discoverability; the strip overflows 100 cols otherwise)', () => {
-    expect((globalKeys.pickSprint as KeyBinding).showInFooter).toBeUndefined();
   });
 });
 
@@ -123,11 +115,22 @@ describe('Wave-3 nav chords', () => {
   });
 
   it('keeps the nav chords out of the footer (help overlay only)', () => {
-    expect((globalKeys.cycleSession as KeyBinding).showInFooter).toBeUndefined();
-    expect((globalKeys.jumpSession as KeyBinding).showInFooter).toBeUndefined();
-    const footerLabels = footerGlobalHints.map((h) => h.label);
-    expect(footerLabels).not.toContain('cycle running flow');
-    expect(footerLabels).not.toContain('jump to running flow');
+    const footer = hintsFor({ onWorkRoot: true, wide: true, stackDepth: 2, parentLabel: 'Work' }).join(' | ');
+    expect(footer).not.toContain('cycle running flow');
+    expect(footer).not.toContain('jump to running flow');
+  });
+});
+
+describe('section keys', () => {
+  it('declares 1–5 as a global binding, listed in the help overlay', () => {
+    expect(globalKeys.sections.keys).toEqual(['1', '2', '3', '4', '5']);
+    const global = keySections.find((sec) => sec.title === 'Global');
+    expect(global?.bindings.some((b) => b.keys.includes('1'))).toBe(true);
+  });
+
+  it('lists the hidden accelerators under Global', () => {
+    const keys = new Set((keySections.find((sec) => sec.title === 'Global')?.bindings ?? []).flatMap((b) => b.keys));
+    for (const k of ['h', 'n', 'x', 's', '!', 'S', 'P', 'g']) expect(keys.has(k), k).toBe(true);
   });
 });
 

@@ -48,6 +48,8 @@ export const glyphs = {
   // renders on vt220-class emulators.
   busyDot: '●',
   arrowRight: '→',
+  // Update-available marker in the tab bar (`↑ v0.26.0`). Shape-only, survives NO_COLOR.
+  arrowUp: '↑',
   activityArrow: '↳',
   // Section markers
   badge: '▣',
@@ -165,7 +167,7 @@ export const fluid = (
 
 /**
  * Default vertical chrome a windowed-list view reserves outside the list itself: the
- * `ViewShell` header (banner + breadcrumb), the `StatusBanner` / `PromptHost` slots (collapsed
+ * app chrome (tab bar + location line + rule), the `StatusBanner` / `PromptHost` slots (collapsed
  * when empty, but budgeted for so a banner popping up doesn't shove the list off-screen), and
  * the footer `StatusBar` rule + hint row. Individual views commonly add their own chrome on top
  * (a section stamp, a summary line, a footer hint) — pass an explicit `chromeRows` to

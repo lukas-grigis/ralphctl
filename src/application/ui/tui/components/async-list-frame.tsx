@@ -19,7 +19,7 @@
  * row count after grouping/filtering, not `state.value.sprints.length === 0`. Callers that DO
  * have a simple predicate can still pass `isEmpty={someList.length === 0}` inline.
  *
- * First consumer: `PickerBody` in `pick-sprint-view.tsx`.
+ * First consumer: the context switcher (`context-switcher.tsx`).
  */
 
 import React from 'react';

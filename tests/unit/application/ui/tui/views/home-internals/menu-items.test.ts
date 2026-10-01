@@ -1,9 +1,7 @@
 /**
- * Home menu builder — digit quick-switch hotkeys on the recent-sprint rows.
- *
- * Each "switch sprint" row carries `hotkey: '1'..'N'` (recentSprints is capped at 5 upstream,
- * so digits always suffice) and must NOT be flagged `globalHotkey` — ActionMenu owns the
- * binding so the digits work on Home only.
+ * Home menu builder — the recent-sprint rows carry no digit hotkey (`1`–`5` are the global section
+ * keys, so a row-local digit would double-fire), and the navigation rows route to sections, System
+ * children and the context switcher instead of pushing their roots.
  */
 
 import { describe, expect, it, vi } from 'vitest';
@@ -31,23 +29,22 @@ const buildWith = (recentSprints: readonly Sprint[]): ReturnType<typeof buildMen
     switchSprintDisabled: undefined,
     addTicketDisabled: undefined,
     onPushHome: vi.fn(),
+    onGoSection: vi.fn(),
+    onOpenSystemChild: vi.fn(),
+    onOpenSwitcher: vi.fn(),
     onPushAddTicket: vi.fn(),
     onSwitchSprint: vi.fn(),
     onLaunchCreateSprint: vi.fn(),
   });
 
-describe('buildMenuItems — recent-sprint digit hotkeys', () => {
-  it('assigns 1..N to the sprint rows in order', () => {
+describe('buildMenuItems — recent-sprint rows', () => {
+  it('has no hotkey on the sprint rows — digits are the global section keys', () => {
     const items = buildWith([makeSprint(1), makeSprint(2), makeSprint(3)]);
     const sprintRows = items.filter((i) => i.id.startsWith('sprint-sprint-'));
-    expect(sprintRows.map((i) => i.hotkey)).toEqual(['1', '2', '3']);
-  });
-
-  it('keeps the digit binding local to the menu (no globalHotkey)', () => {
-    const items = buildWith([makeSprint(1), makeSprint(2)]);
-    for (const row of items.filter((i) => i.id.startsWith('sprint-sprint-'))) {
-      expect(row.globalHotkey).not.toBe(true);
-    }
+    expect(sprintRows).toHaveLength(3);
+    for (const row of sprintRows) expect(row.hotkey).toBeUndefined();
+    const digits = new Set(['1', '2', '3', '4', '5']);
+    expect(items.filter((i) => i.hotkey !== undefined && digits.has(i.hotkey))).toEqual([]);
   });
 
   it('selecting a row via its callback switches to that sprint', () => {
@@ -64,14 +61,73 @@ describe('buildMenuItems — recent-sprint digit hotkeys', () => {
       switchSprintDisabled: undefined,
       addTicketDisabled: undefined,
       onPushHome: vi.fn(),
+      onGoSection: vi.fn(),
+      onOpenSystemChild: vi.fn(),
+      onOpenSwitcher: vi.fn(),
       onPushAddTicket: vi.fn(),
       onSwitchSprint,
       onLaunchCreateSprint: vi.fn(),
     });
-    const second = items.find((i) => i.hotkey === '2');
+    const second = items.find((i) => i.id === 'sprint-sprint-2');
     expect(second).toBeDefined();
     second?.onSelect();
     expect(onSwitchSprint).toHaveBeenCalledWith(sprints[1]);
+  });
+});
+
+describe('buildMenuItems — navigation rows', () => {
+  const wire = (): {
+    readonly items: ReturnType<typeof buildMenuItems>;
+    readonly onGoSection: ReturnType<typeof vi.fn>;
+    readonly onOpenSystemChild: ReturnType<typeof vi.fn>;
+    readonly onOpenSwitcher: ReturnType<typeof vi.fn>;
+    readonly onPushHome: ReturnType<typeof vi.fn>;
+  } => {
+    const onGoSection = vi.fn();
+    const onOpenSystemChild = vi.fn();
+    const onOpenSwitcher = vi.fn();
+    const onPushHome = vi.fn();
+    const items = buildMenuItems({
+      hasProject: true,
+      projectCount: 1,
+      stateLoaded: true,
+      loading: false,
+      currentSprint: undefined,
+      recentSprints: [],
+      selectionSprintId: undefined,
+      switchSprintDisabled: undefined,
+      addTicketDisabled: undefined,
+      onPushHome,
+      onGoSection,
+      onOpenSystemChild,
+      onOpenSwitcher,
+      onPushAddTicket: vi.fn(),
+      onSwitchSprint: vi.fn(),
+      onLaunchCreateSprint: vi.fn(),
+    });
+    return { items, onGoSection, onOpenSystemChild, onOpenSwitcher, onPushHome };
+  };
+
+  it('jumps to sections instead of pushing their roots', () => {
+    const { items, onGoSection, onPushHome } = wire();
+    items.find((i) => i.id === 'sprints')?.onSelect();
+    items.find((i) => i.id === 'projects')?.onSelect();
+    items.find((i) => i.id === 'sessions')?.onSelect();
+    expect(onGoSection.mock.calls.map((c) => c[0])).toEqual(['sprints', 'projects', 'runs']);
+    expect(onPushHome).not.toHaveBeenCalled();
+  });
+
+  it('opens Settings / Skills / Doctor as System children', () => {
+    const { items, onOpenSystemChild } = wire();
+    for (const id of ['settings', 'skills', 'doctor']) items.find((i) => i.id === id)?.onSelect();
+    expect(onOpenSystemChild.mock.calls.map((c) => c[0])).toEqual(['settings', 'skills', 'doctor']);
+  });
+
+  it('opens the switcher for Switch sprint / Switch project', () => {
+    const { items, onOpenSwitcher } = wire();
+    items.find((i) => i.id === 'pick-sprint')?.onSelect();
+    items.find((i) => i.id === 'pick-project')?.onSelect();
+    expect(onOpenSwitcher.mock.calls.map((c) => c[0])).toEqual(['sprint', 'project']);
   });
 });
 
@@ -88,6 +144,9 @@ describe('buildMenuItems — loading placeholder', () => {
       switchSprintDisabled: 'no project loaded',
       addTicketDisabled: 'pick a sprint first',
       onPushHome: vi.fn(),
+      onGoSection: vi.fn(),
+      onOpenSystemChild: vi.fn(),
+      onOpenSwitcher: vi.fn(),
       onPushAddTicket: vi.fn(),
       onSwitchSprint: vi.fn(),
       onLaunchCreateSprint: vi.fn(),
@@ -135,6 +194,9 @@ describe('buildMenuItems — get-started row', () => {
       switchSprintDisabled: undefined,
       addTicketDisabled: undefined,
       onPushHome: vi.fn(),
+      onGoSection: vi.fn(),
+      onOpenSystemChild: vi.fn(),
+      onOpenSwitcher: vi.fn(),
       onPushAddTicket: vi.fn(),
       onSwitchSprint: vi.fn(),
       onLaunchCreateSprint: vi.fn(),

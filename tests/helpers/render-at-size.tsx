@@ -73,6 +73,22 @@ export interface RenderAtSizeResult {
   readonly unmount: () => void;
 }
 
+// eslint-disable-next-line no-control-regex
+const CONTROL_ONLY = /^(?:\x1b\[[?0-9;]*[A-Za-z])+$/;
+
+/**
+ * The last write that is a rendered frame. Ink also writes bare control sequences to the same
+ * stream (mouse-reporting toggles from `ScrollRegion`, cursor show / hide); one of those landing
+ * after the final repaint must not read as an empty screen.
+ */
+const lastRenderedFrame = (frames: readonly string[]): string | undefined => {
+  for (let i = frames.length - 1; i >= 0; i--) {
+    const f = frames[i];
+    if (f !== undefined && !CONTROL_ONLY.test(f)) return f;
+  }
+  return undefined;
+};
+
 export const renderAtSize = (node: React.ReactNode, dims: TerminalDims): RenderAtSizeResult => {
   const stdout = new FakeStdout(dims);
   const stderr = new FakeStdout(dims);
@@ -86,7 +102,7 @@ export const renderAtSize = (node: React.ReactNode, dims: TerminalDims): RenderA
     patchConsole: false,
   });
   return {
-    lastFrame: () => stdout.frames[stdout.frames.length - 1],
+    lastFrame: () => lastRenderedFrame(stdout.frames),
     frames: stdout.frames,
     stdin: { write: stdin.write },
     rerender: instance.rerender,

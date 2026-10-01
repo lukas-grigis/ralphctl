@@ -19,7 +19,8 @@ describe('resolveBannerMode', () => {
     ['home', 100, 40, 'compact'],
     ['home', 160, 36, 'full'],
     ['home', 99, 50, 'full'],
-    ['settings', 200, 50, 'full'],
+    // The toggle is Home's (`b`); other routes never show the wordmark.
+    ['settings', 200, 50, 'compact'],
   ])('userToggle flips %s @ %ix%i → %s', (routeId, columns, rows, expected) => {
     expect(mode(routeId, columns, rows, true)).toBe(expected);
   });

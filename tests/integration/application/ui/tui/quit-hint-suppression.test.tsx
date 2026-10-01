@@ -1,13 +1,11 @@
 /**
- * Off-Home quit-hint suppression (audit L6). The global key handler only quits on `q` when the
- * current view is Home (`use-global-keys.ts` gates it on `router.current.id === 'home'`), so the
- * always-visible footer must only advertise the `q/ctrl+c quit` hint on Home — otherwise the
- * footer lies about what `q` does on every other screen.
- *
- * `Layout` calls `useSuppressGlobalHints(['q/ctrl+c'])` off-Home; `StatusBar` filters
- * `footerGlobalHints` by the suppressed `keys` strings. We mount the real `Layout` with the real
- * `StatusBar` as its child under the production provider stack and assert the quit hint is present
- * on Home and absent everywhere else — including across a live route transition.
+ * Off-Work-root quit-hint suppression. The global key handler only quits on `q` at the Work root
+ * (`use-global-keys.ts` gates it on the Work section's root view), so the always-visible footer
+ * must only advertise the `q/ctrl+c quit` hint there — otherwise the footer lies about what `q`
+ * does on every other screen. `StatusBar` derives its globals from where the operator is
+ * (`buildFooterGlobalHints`). We mount the real `Layout` with the real `StatusBar` as its child
+ * under the production provider stack and assert the quit hint is present on Home and absent
+ * everywhere else — including across a live route transition.
  */
 
 import React from 'react';
@@ -31,7 +29,7 @@ import { createInMemoryEventBus } from '@src/integration/observability/in-memory
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { tick } from '@tests/integration/application/ui/tui/_keys.ts';
 
-/** The footer hint string for quit, derived exactly as `footerGlobalHints` joins variants. */
+/** The footer hint string for quit — the `quit` binding's variants, joined. */
 const QUIT_KEYS = globalKeys.quit.keys.join('/');
 
 /** Minimal AppDeps stub — Layout's `useGlobalKeys` only reaches for `deps.eventBus`. */
@@ -119,8 +117,9 @@ describe('quit hint suppression off Home', () => {
     // No footer cell advertises the quit chord anywhere on the screen.
     expect(frame).not.toContain(QUIT_KEYS);
     expect(footerLine(frame)).toBe('');
-    // Other footer hints (e.g. home) still render — only quit is suppressed.
-    expect(frame).toContain('home');
+    // Other footer hints still render — only quit is suppressed, and `esc` says where it goes.
+    expect(frame).toContain('? help');
+    expect(frame).toContain('esc work');
     unmount();
   });
 

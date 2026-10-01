@@ -60,12 +60,16 @@ export interface FocusedRunCtx {
  */
 export type ActiveTaskSummaryProvider = () => string | undefined;
 
+/** Where the context switcher lands its cursor: on the current sprint (`S`) or the current project's header (`P`). */
+export type SwitcherFocus = 'sprint' | 'project';
+
 /**
- * The ONE modal-overlay slot. At most one of help / progress / evaluation is open; opening another
+ * The ONE modal-overlay slot. At most one of help / switcher / progress / evaluation is open; opening another
  * replaces the current one (so `g` while help is up shows progress, never both stacked).
  */
 export type Overlay =
   | { readonly kind: 'help' }
+  | { readonly kind: 'switcher'; readonly focus: SwitcherFocus }
   | { readonly kind: 'progress' }
   | { readonly kind: 'evaluation'; readonly target: EvaluationTarget };
 
@@ -73,6 +77,8 @@ interface OverlayApi {
   /** The open overlay, or `undefined`. `helpOpen` / `progressOpen` / `evaluationTarget` derive from it. */
   readonly overlay: Overlay | undefined;
   readonly helpOpen: boolean;
+  /** The context switcher's focus while it is open, else `undefined`. */
+  readonly switcherFocus: SwitcherFocus | undefined;
   /**
    * Open-state for the read-only `progress.md` overlay. Bound to the global `g` hotkey via
    * {@link useGlobalKeys}, gated on a sprint being loaded in {@link useSelection}. Mounted
@@ -101,7 +107,7 @@ interface OverlayApi {
   readonly escapeClaimed: boolean;
   /**
    * User-toggle for the banner mode. `false` (default) keeps the automatic choice from
-   * `resolveBannerMode`; `true` flips it (compact ↔ wordmark) until the user toggles it back. Bound to the global `b` hotkey via {@link useGlobalKeys}; persists for the
+   * `resolveBannerMode`; `true` flips it (compact ↔ wordmark) until the user toggles it back. Bound to `b` on Home; persists for the
    * session (does not reset on navigation).
    */
   readonly bannerCompact: boolean;
@@ -115,6 +121,9 @@ interface OverlayApi {
   toggleHelp(): void;
 
   toggleProgress(): void;
+
+  /** Open the context switcher (`S` / `P`), replacing whichever overlay is open. */
+  openSwitcher(focus: SwitcherFocus): void;
 
   /** Open the evaluation overlay onto `target`. Re-opening with a new target swaps it in place. */
   openEvaluation(target: EvaluationTarget): void;
@@ -246,6 +255,10 @@ const OverlayProvider = ({ children }: { readonly children: React.ReactNode }): 
     setOverlay((cur) => (cur?.kind === 'progress' ? undefined : { kind: 'progress' }));
   }, []);
 
+  const openSwitcher = useCallback((focus: SwitcherFocus) => {
+    setOverlay({ kind: 'switcher', focus });
+  }, []);
+
   const openEvaluation = useCallback((target: EvaluationTarget) => {
     setOverlay({ kind: 'evaluation', target });
   }, []);
@@ -262,6 +275,7 @@ const OverlayProvider = ({ children }: { readonly children: React.ReactNode }): 
     () => ({
       overlay,
       helpOpen: overlay?.kind === 'help',
+      switcherFocus: overlay?.kind === 'switcher' ? overlay.focus : undefined,
       progressOpen: overlay?.kind === 'progress',
       evaluationTarget: overlay?.kind === 'evaluation' ? overlay.target : undefined,
       promptActive: claims > 0,
@@ -272,6 +286,7 @@ const OverlayProvider = ({ children }: { readonly children: React.ReactNode }): 
       closeOverlay,
       toggleHelp,
       toggleProgress,
+      openSwitcher,
       openEvaluation,
       closeEvaluation,
       toggleBanner,
@@ -287,6 +302,7 @@ const OverlayProvider = ({ children }: { readonly children: React.ReactNode }): 
       closeOverlay,
       toggleHelp,
       toggleProgress,
+      openSwitcher,
       openEvaluation,
       closeEvaluation,
       toggleBanner,

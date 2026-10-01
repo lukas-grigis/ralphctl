@@ -764,10 +764,10 @@ application/ui/
     ├── runtime/                     ← session-manager, router, *-context, use-* hooks (use-event-bus,
     │                                  use-global-keys, …); alt-screen mount is launchTui → createInkHost (ui/shared/)
     ├── theme/                       ← tokens.ts (single source of visual truth)
-    ├── components/                  ← ViewShell, SectionStamp, ResultCard, FieldList, Spinner, …
+    ├── components/                  ← ViewShell, TabBar, LocationBar, ContextSwitcher, ResultCard, FieldList, Spinner, …
     ├── prompts/                     ← InkInteractivePrompt + per-kind components
-    └── views/                       ← Home, Sprints, Sprint detail, Projects, Settings, Skills, Doctor,
-                                       Sessions, Execute, Welcome, browse/, crud/
+    └── views/                       ← Home, Sprints, Sprint detail, Projects, System (hub), Settings, Skills, Doctor,
+                                       Runs (sessions), Execute, Welcome, browse/, crud/
 ```
 
 The mount path enters the **alt-screen buffer** (`CSI ? 1049 h`) and hides the cursor so ralphctl takes over the
