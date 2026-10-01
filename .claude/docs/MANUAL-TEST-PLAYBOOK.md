@@ -166,14 +166,17 @@ optional `events.ndjson` step below, run that implement spawn with `RALPHCTL_DEB
 
 **Setup:** a sprint mid-implement with at least one task `in_progress`.
 
-1. Force-quit ralphctl (Ctrl+C or kill the process)
+1. Force-quit ralphctl (`kill -9` the process; a plain `q` / Ctrl+C with a live run asks first — Scenario 25)
 2. Re-launch `pnpm dev`
 3. Re-enter the **Implement** flow on the same sprint
 4. **Expected:** any task left in `in_progress` from the prior run stays `in_progress` and is queued FIRST.
-   On its first `start-attempt` the prior `running` attempt is settled as `aborted` (cause `process-crash`,
-   visible in the per-task attempts panel) — you WILL see the aborted attempt in history. A fresh attempt
-   opens and the task resumes in place; it does not reset to `todo`.
+   On its first `start-attempt` the prior `running` attempt is settled as `aborted` (cause
+   `harness-interrupted`, visible in the per-task attempts panel) — you WILL see the aborted attempt in history.
+   A fresh attempt opens and the task resumes in place; it does not reset to `todo`, and the aborted attempt
+   does not use up a `maxAttempts` slot.
 5. **Expected:** completed tasks stay `DONE`; planned ones stay `TODO`; no double-execution
+
+For the full crash-and-resume walk-through (interrupted rows, orphaned AI processes), see Scenario 25.
 
 ---
 
@@ -331,6 +334,9 @@ original project selection must be unchanged on the location line.
 7. **Expected:** terminal B acquires the lock and resumes normally — the previously `in_progress` task stays
    `in_progress` and is queued FIRST; `start-attempt` settles the crashed `running` attempt as `aborted`
    (kept in history) and opens a fresh attempt automatically
+8. Repeat steps 1–4 but `kill -9` terminal A's ralphctl and re-launch in B immediately — **expected:** a dead
+   owner on the same host is reclaimed at once (no ~30 s wait). While A is still alive, B's contention message
+   names it: "another ralphctl (pid N) is running implement on this repo"
 
 **Negative tests:**
 
@@ -695,6 +701,42 @@ with `D` or left via `Tab`.
 4. Confirm — **expected:** a removed / skipped / failed report, then the list rescans; `r` rescans on demand
 5. Projects (`3`), `d` on a project that owns sprints — **expected:** removal asks separately whether to also
    remove its sprints and memory; declining removes only the project
+
+---
+
+## Scenario 25 — crash and resume
+
+**Setup:** a sprint mid-implement on a real AI CLI, with a task whose generator has started (an AI process is
+running). Do this on a throwaway sprint.
+
+1. From another terminal, `kill -9` the ralphctl process (not the AI CLI) — **expected:** within a few seconds the
+   orphaned AI CLI and the tool processes it started are gone (`ps` shows no leftover `claude` / `codex` / …
+   children of that run); `<stateRoot>/runs/<run-id>.json` is still on disk
+2. Re-launch `pnpm dev` — **expected:** Work's NEEDS YOU shows `"<task>" was interrupted · attempt N · <age>` with
+   the uncommitted-change count and `session resumable`; the task minimap says `interrupted`, not running; Runs
+   lists the dead run with `↵` back to Work and `d` dismiss
+3. `↵` on the NEEDS YOU row — **expected:** Implement launches; the dirty-tree preflight says the changes come
+   from the interrupted attempt and `Keep` is the default
+4. **Expected:** the task's attempts panel shows the old attempt as `aborted` (`harness-interrupted`) and a new
+   attempt; the generator continues the session with the short resume prompt (see `rounds/<N>/generator/prompt.md`).
+   If the provider no longer has the session the run falls back to the full brief
+5. Change the provider or model in Settings between steps 1 and 3 — **expected:** the resume starts cold (no
+   session reuse); nothing blocks
+6. Parallel sprint (≥2 independent tasks): repeat step 1 — **expected:** the stranded `wt-<task>` worktree is
+   adopted on relaunch; with no interrupted attempt it blocks the task with a worktree hint instead of
+   wedging every launch
+7. `d` on an interrupted run in Runs — **expected:** the record is dismissed and the row disappears
+
+---
+
+## Scenario 26 — quit with live runs
+
+**Setup:** an Implement run in progress.
+
+1. Press `q` — **expected:** `1 run live — quit stops them? [y/N]`; `n`, `Esc` or `↵` keeps the run going
+2. Press `q` then `y` — **expected:** the run is aborted cleanly (no AI processes left, the task is not left
+   `running`) and ralphctl exits; `Ctrl+C` during the stop quits at once
+3. With no live runs, `q` exits immediately
 
 ---
 

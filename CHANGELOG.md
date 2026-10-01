@@ -20,11 +20,22 @@ to [Semantic Versioning](https://semver.org/).
 - **Housekeeping.** A dry-run scan lists orphaned sprints and memory, old done sprints and old runs with their
   sizes; select what to delete and confirm. Removing a project asks separately whether to remove its sprints and
   memory too.
+- **Crash recovery.** If ralphctl dies mid-run (crash, `kill -9`, power loss), an interrupted task shows in
+  NEEDS YOU with its attempt, age and uncommitted changes; `↵` resumes Implement. The Task minimap shows
+  `interrupted` and Runs lists the dead run (`d` dismisses it). On a best-effort basis the generator continues its
+  previous provider session when provider, model and working directory are unchanged, and starts from the full
+  brief otherwise. An interruption does not use up a task attempt.
+- **Quit asks first.** `q` / `ctrl+c` with runs live asks `[y/N]` (default No) and stops them cleanly on yes.
 - **Waiting runs say so.** A run blocked on your answer shows `[WAITING]` on Work, Runs, the tab badge and the run
   view, and fires an OS notification (honouring `ui.notifications`). Runs that finish after two minutes notify too.
 
 ### Changed
 
+- **No more orphaned AI processes.** AI CLIs run in their own process group; abort and the idle watchdog stop the
+  whole group, and a helper cleans up what a dead ralphctl left behind (on POSIX; on Windows the next launch
+  does it). Session ids are saved as soon as the CLI reports them.
+- **Stale locks recover faster.** A repository lock records its owner; a dead owner on the same machine is reclaimed
+  at once, and a held lock names the process that holds it.
 - **Quieter chrome.** The footer is one row with only the current view's keys plus `? help`; the status area is
   five rows at 80x24. `h`, `n`, `x`, `s` and `!` still work as hidden shortcuts.
 - **Sprint detail and Work share one header strip**, with a single pipeline and next-step list.

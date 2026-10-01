@@ -110,7 +110,8 @@ dirty-tree preflight — not the CLI permission gate.
 `src/integration/ai/providers/_engine/idle-watchdog.ts` kills a headless child whose stdout has been silent
 past a configurable idle threshold. Prevents a stuck child from stranding the harness, whichever tool it
 is. The watchdog timer resets on every stdout chunk; killing the child surfaces as a `RateLimitError`-
-adjacent failure that the chain's retry policy handles. The threshold is operator-configurable via
+adjacent failure that the chain's retry policy handles. The kill reaches the child's whole process group
+(`killProcessTree`; headless children are spawned `detached` on POSIX), so tool subprocesses die with it. The threshold is operator-configurable via
 `settings.harness.idleWatchdogMs` (60_000–3_600_000 ms, default 300_000 = 5 min); `provider-factory.ts`
 threads it into each adapter's `deps.idleMs`. Tests lower it via the `idleMs` dep override to exercise the
 watchdog path fast.

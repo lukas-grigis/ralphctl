@@ -74,8 +74,20 @@ network / short tasks to reclaim a hung child sooner.
 
 **Resume of aborted Implement runs.** Tasks left in `in_progress` from a prior crash stay `in_progress` and
 are queued FIRST on the next launch. The `start-attempt` leaf settles the leftover `running` attempt as
-`aborted` (cause `process-crash`, kept in `attempts[]`) then opens a fresh attempt — no manual cleanup
-required. The only path that resets a task to `todo` is `task unblock`.
+`aborted` (cause `harness-interrupted`, kept in `attempts[]`) then opens a fresh attempt — no manual cleanup
+required. An interruption by the harness dying spends no `maxAttempts` slot; in-process crashes
+(`process-crash`) still do. The only path that resets a task to `todo` is `task unblock`.
+
+**Crash resume.** Session ids are persisted eagerly: the provider scaffold writes `session-id.txt` the moment
+the stream yields the id (Grok reports its id only on the final record, so it lands at exit), and `role-meta.json`
+records the spawn's `cwd`. On the recovery path `decideCrashResume` (`business/task/crash-resume.ts`) reads the
+newest generator round of the interrupted attempt (or of the predecessor it was itself opened to resume). When
+provider, model and cwd all match the current run it seeds `priorGeneratorSessionId` after the attempt reset and
+the first turn sends the short `implement-crash-resume` prompt ("you were interrupted; check git status / diff
+and continue"), with the full brief as `coldPrompt` so the stale-resume fallback covers a session the provider no
+longer has. Any mismatch starts cold with the normal brief. Settling an attempt stamps the last generator session
+on `Attempt.sessionId`. Whether each CLI accepts resuming a session killed mid-tool-call is unverified; the
+cold fallback is what makes that safe.
 
 **Iteration budget.** `settings.harness` carries:
 

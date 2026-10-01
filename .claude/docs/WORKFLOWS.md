@@ -340,6 +340,19 @@ context switcher overlay (sprints grouped by project) — it switches the curren
 System is a hub over Settings, Skills, Doctor and Housekeeping (a dry-run scan of orphan and old data; `space`
 marks, `↵` confirms, nothing is deleted before the confirm). A run waiting on a prompt reads `[WAITING]` on Work,
 Runs, the tab badge and the Execute header, and fires an OS notification when `settings.ui.notifications` allows.
+**Interrupted runs.** When the harness died mid-attempt (crash, SIGKILL, power loss) an `in_progress` task whose
+last attempt is still `running`, with no live run of this process owning the sprint, is _interrupted_ (one
+predicate in `ui/shared/interrupted-tasks.ts`, shared by the agenda and the task minimap). Work's NEEDS YOU lists
+it (`"<task>" was interrupted · attempt N · 12m ago`, with its uncommitted-change count and whether the session is
+resumable); `↵` resumes Implement and drops the dead run's record, and the minimap shows `interrupted` rather than
+running. Runs lists the dead runs' live-run records (`↵` back to Work, `d` dismisses). The dirty-tree preflight
+names the interrupted attempt as the source of the changes and keeps `Keep` as the default. On the parallel path a
+stranded `wt-<task>` worktree is adopted when the task has an interrupted attempt; otherwise the task blocks with
+a `worktree-setup-failure` blocker and a removal hint so it surfaces in NEEDS YOU. **Quit** (`q` / `ctrl+c`) with
+live runs asks `N runs live — quit stops them? [y/N]` (default No); yes aborts the sessions cleanly then exits,
+`ctrl+c` again quits at once and leftover AI processes are cleaned up by the orphan reaper or the next launch
+([SECURITY.md](./SECURITY.md)). No live runs: quit exits immediately. Resume mechanics and attempt accounting:
+[PERFORMANCE.md](./PERFORMANCE.md) § Resume of aborted Implement runs.
 Hidden accelerators — `h` Work, `n` flows, `x` Runs, `s` Settings, `!` Doctor — still work from anywhere but are
 never advertised; the footer carries only view-local keys plus `? help`. Multi-flow navigation: Tab / Shift+Tab
 cycle running flows, `Ctrl+1..9` direct-jump to the Nth running flow — both operate over RUNNING sessions only and

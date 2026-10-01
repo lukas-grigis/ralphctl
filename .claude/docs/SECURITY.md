@@ -137,6 +137,31 @@ is held across the whole run by the implement flow (serial path via `withRepoLoc
 key directly) and by the review flow (`withRepoLock`, same sprint-dir key — implement and review of one
 sprint mutually exclude). `withRepoLock` (`flows/_shared/`) is the one ctx-generic wrapper both use.
 
+**Lock owner.** A lock taken with a `purpose` carries `owner.json` (pid, host, process start, purpose) inside the
+lock directory. A lock whose owner pid is dead on this host is reclaimed at once rather than after `staleAfterMs`;
+a live or foreign-host owner still waits for the heartbeat to go stale. Contention names the holder ("another
+ralphctl (pid N) is running implement on this repo"). The `fs` handed to `proper-lockfile` unlinks `owner.json`
+before its bare `rmdir`.
+
+**Process groups and the orphan reaper.** Headless AI CLI children are spawned `detached: true` on non-Windows,
+so each leads its own process group; interactive spawns keep the terminal. Abort and the idle watchdog kill the
+whole group (`killProcessTree`, `integration/io/kill-process-tree.ts`, shared with the shell-script runner), so
+tool subprocesses the CLI started die with it. Only children marked as group leaders are group-killed — a test
+fake with a made-up pid gets a single-pid kill. Spawns announce themselves through the `ChildRegistry` port
+(`providers/_engine/child-registry.ts`, wired in `wire()`): the registry feeds the **orphan reaper**
+(`integration/io/orphan-reaper.ts`), a lazily started detached sidecar that holds a pipe from the harness. When
+the pipe closes — the harness exited, crashed or was SIGKILLed — it SIGTERMs every registered group, waits a
+grace period, then SIGKILLs. POSIX only. Windows and reaper failure fall back to the boot-time reap
+(`reapInterruptedRuns`): it walks dead runs' live-run records and signals recorded groups only after
+`ProcessLiveness` confirms the group is still ours (a live leader must match the recorded `ps` start time and
+command, so a recycled pid is never signalled).
+
+**Live-run records** at `<stateRoot>/runs/<runId>.json` are written atomically when a tracked run starts,
+updated per spawn (pid, pgid, provider, cwd, round, session id once known) and deleted when the run settles. A
+record whose owner is dead is the evidence of an interrupted run (`detectInterruptedRuns`); resuming or
+dismissing it drops the record. Quit with live runs asks first and, on yes, aborts them through
+`inProcessRuns.abortAll` — see [WORKFLOWS.md](./WORKFLOWS.md).
+
 **Atomic file writes** via `business/io/write-file.ts` for all persisted state. Direct `fs.writeFile` is
 fenced from business code by the layer rules.
 
