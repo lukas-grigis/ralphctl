@@ -10,7 +10,7 @@
 import React from 'react';
 import { UnknownViewFallback, type ViewEntry } from '@src/application/ui/tui/runtime/router.tsx';
 import { HomeView } from '@src/application/ui/tui/views/home-view.tsx';
-import { FlowsView } from '@src/application/ui/tui/views/flows-view.tsx';
+import { FlowsAliasView } from '@src/application/ui/tui/views/flows-view.tsx';
 import { ProjectsView } from '@src/application/ui/tui/views/projects-view.tsx';
 import { ProjectDetailView } from '@src/application/ui/tui/views/project-detail-view.tsx';
 import { SprintsView } from '@src/application/ui/tui/views/sprints-view.tsx';
@@ -37,7 +37,7 @@ import { SystemView } from '@src/application/ui/tui/views/system-view.tsx';
 /** @public — read by the nav-tree label-coverage test. */
 export const VIEW_REGISTRY = {
   home: HomeView,
-  flows: FlowsView,
+  flows: FlowsAliasView, // alias of Work — remove next release
   projects: ProjectsView,
   'project-detail': ProjectDetailView,
   sprints: SprintsView,

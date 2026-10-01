@@ -126,7 +126,7 @@ const handleProgressOverlay = (
  * Opening is deliberately NOT global: the overlay needs the focused task's recorded verdict, and
  * only the Execute Tasks panel / sprint-detail know which card the cursor is on. Home, Flows and
  * Settings have no such notion, so a global `v` would need an open-gate they cannot satisfy — and
- * `flows-view` already binds a view-local `v` of its own. Handling the CLOSE centrally (rather
+ * Work already binds a view-local `v` of its own. Handling the CLOSE centrally (rather
  * than in each view) is what lets it win over those now-inert view handlers.
  */
 const handleEvaluationOverlay = (ui: UiStateApi, input: string, key: Key): boolean => {
@@ -191,7 +191,9 @@ const handleAccelerator = (input: string, router: RouterApi, ui: UiStateApi): bo
       // setup instead of Work.
       return land({ id: 'home' });
     case 'n':
-      return land({ id: 'flows' });
+      // Always re-enter: Work at its root still has to move its cursor onto the flow list.
+      router.reset({ id: 'home', props: { focus: 'flows' } });
+      return true;
     case 'x':
       return land({ id: 'sessions' });
     case 's':

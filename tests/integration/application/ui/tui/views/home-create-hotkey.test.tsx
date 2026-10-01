@@ -1,14 +1,13 @@
 /**
- * Behavior 4 — Home `+` hotkey.
+ * Work's `c` (new sprint / new project) and its silent `+` alias.
  *
- * Pressing `+` on Home when `hasProject === true` (a project is selected) MUST launch the
- * create-sprint flow. When no project is selected the key is a no-op (or shows a gating reason).
- *
- * NOTE: These tests will FAIL until the implementer lands the `+` hotkey on HomeView.
+ * With a project selected they launch create-sprint; with none in storage they open the
+ * create-project wizard instead — never a create-sprint launch.
  */
 
 import { describe, expect, it } from 'vitest';
 import { Result } from '@src/domain/result.ts';
+import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
 import { HomeView } from '@src/application/ui/tui/views/home-view.tsx';
 import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import type { ProjectRepository } from '@src/domain/repository/project/project-repository.ts';
@@ -27,6 +26,7 @@ const noopVersionChecker = async (): Promise<null> => null;
 
 const baseDeps = (overrides: Partial<AppDeps> = {}): AppDeps =>
   ({
+    eventBus: createInMemoryEventBus(),
     projectRepo: {
       async list() {
         return Result.ok([]);
@@ -146,6 +146,46 @@ describe('HomeView — + hotkey', () => {
     // We don't assert `hasGatingMessage` since silent is also valid per spec.
     void hasGatingMessage; // referenced to prevent unused-var lint
 
+    result.unmount();
+  });
+
+  it('c launches create-sprint just like the + alias', async () => {
+    const project = makeProject({ displayName: 'Chord Project' });
+    const projectRepo: ProjectRepository = {
+      async list() {
+        return Result.ok([project]);
+      },
+      async findById() {
+        return Result.ok(project);
+      },
+    } as unknown as ProjectRepository;
+    const routedIds: string[] = [];
+    const { result } = renderView(<HomeView />, {
+      deps: baseDeps({ projectRepo }),
+      initial: { id: 'home' },
+      selection: { projectId: project.id, projectLabel: project.displayName },
+      onRoute: (entry) => {
+        routedIds.push(entry.id);
+      },
+    });
+    await waitForViewReady(result, (f) => f.includes('Chord Project'));
+    result.stdin.write('c');
+    await waitForPredicate(() => routedIds[routedIds.length - 1] === 'execute');
+    result.unmount();
+  });
+
+  it('c opens the create-project wizard when no project exists anywhere', async () => {
+    const routedIds: string[] = [];
+    const { result } = renderView(<HomeView />, {
+      deps: baseDeps(),
+      initial: { id: 'home' },
+      onRoute: (entry) => {
+        routedIds.push(entry.id);
+      },
+    });
+    await waitForViewReady(result, (f) => f.includes('Start by creating a project'));
+    result.stdin.write('c');
+    await waitForPredicate(() => routedIds[routedIds.length - 1] === 'create-project');
     result.unmount();
   });
 });

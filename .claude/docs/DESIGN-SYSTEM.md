@@ -17,7 +17,7 @@ A developer tool should read like a well-set page, not a game HUD. That gives th
 
 1. **Typography carries hierarchy.** Bold + dim are the workhorse. Color is reserved for semantic state.
 2. **Glyphs are a curated family.** One set, used consistently. A new glyph is a design decision, not a convenience.
-3. **Personality is concentrated, not smeared.** Ralph lives in the Home banner and the occasional pull-quote —
+3. **Personality is concentrated, not smeared.** Ralph lives in the Work banner and the occasional pull-quote —
    not on every screen.
 
 If a change trades legibility for decoration, it fails the test. Restraint is the aesthetic.
@@ -184,13 +184,56 @@ wizard).
 **Content-first header.** The wordmark (9–12 rows) is reserved for the Work root and only when the terminal
 can spare it: `resolveBannerMode({ routeId, columns, rows, userToggle })` returns `full` only for route `home`
 at `columns ≥ breakpoints.md` and `rows ≥ 40`, otherwise `compact` — which now renders **nothing** (the
-tab bar's `ralphctl` text is the brand). `b` (`UiState.bannerCompact`, bound by `HomeView` as `b banner`)
-flips whichever mode was chosen on Home only. `ViewShell` is the only caller that mounts `Banner`;
+tab bar's `ralphctl` text is the brand). `b` (`UiState.bannerCompact`, bound by Work as `b banner`)
+flips whichever mode was chosen on Work only. `ViewShell` is the only caller that mounts `Banner`;
 anything that reserves chrome for the header calls the same function.
 
 **Overlays and the chrome.** Help, progress and evaluation are full-frame documents and hide the chrome with
 the view. The context switcher is a light overlay about the context shown in the location line, so the chrome
 stays and the switcher pins its own footer (§ 6.2a).
+
+### 3.1 Work anatomy
+
+Work (`HomeView`, route `home`) is a cockpit for the current sprint, not a menu. One cursor, one list:
+
+```
+ ■ Refine → ■ Plan → ◆ Implement → ◇ Review → ◇ Done      3/7 done · 2 blocked   ← SprintHeaderStrip (work)
+ 3 tickets · 7 tasks · 2 ready · active since 1d ago
+
+ NEEDS YOU  1
+ ▸ △ "Add a --name CLI argument test" is blocked                 verify failed    ← focused: detail line below
+     pytest exited 1 after 3 attempts · 1 more task waits on it
+ RUNNING  1
+   ◆ implement · task 6/7 "Add --shout option" · attempt 1/3          0m41s
+ NEXT
+   ◆ Implement           2 tasks pending
+ FLOWS
+     Readiness           check setup + verify scripts before a long run
+     Create sprint       start a fresh sprint in <project>                  c
+ · v all flows — adds the unavailable ones, each with its reason
+```
+
+The agenda is built by the pure `home-internals/agenda.ts` (`buildAgenda`); empty sections are omitted and every
+row id is stable, so the id-based cursor never jumps on a live update.
+
+- **NEEDS YOU** — own-blocked tasks (max 3, then `▾ N more blocked — o open sprint`; upstream-blocked dependents
+  are folded into the root's `· N more task(s) wait on it`, never listed) and failed / aborted runs of this sprint
+  from the last 24 h.
+- **RUNNING** — running sessions pinned to this sprint, with task and attempt progress and elapsed time.
+- **NEXT** — the flow rows of `buildNextSteps`, hidden while that flow already runs (the blocked-task row is
+  NEEDS YOU's). **FLOWS** — the other `visibleFlowsFor` flows with their manifest description; flows whose
+  triggers fail are hidden until `v` adds them dim with their reason inline (never selectable).
+- **↵ does the focused row's job** — open the task in sprint detail (cursor on it, card expanded), open the run, or
+  launch the flow through `useFlowLauncher` (same repository + customize pickers as every launch; never blind).
+  The cursor seeds on the first NEEDS YOU row, else NEXT, else FLOWS; `n` / the `flows` route alias seed on FLOWS.
+- Heroes for no project / no sprint (`state-card.tsx`) stay; with a project but no sprint the flow list sits below.
+- From `lg` a glance column (`fluid(columns, { min: 44, max: 56, ratio: 0.34 })`, 4-col gap) shows `TASKS`
+  (`TaskMinimap`) and `RECENT SPRINTS` (current marked `▍`, `S switch`). Below `lg` it is one column.
+- Counts and NEEDS YOU stay live during detached runs: `useAppStateSnapshot({ liveTasks: true })` reloads (750 ms
+  debounce) on `task-attempt-evaluated` / `task-blocked` for the loaded sprint's tasks.
+- Switch toasts and errors use `ViewShell`'s `feedback` row; Work has no inline feedback lines of its own.
+
+The `flows` route is a one-release alias that renders Work with the flow list focused; it goes away next release.
 
 ## 4. Component inventory
 
@@ -227,24 +270,25 @@ context — never one from the run and one from the global selection.
 
 ### 4.2 Content surfaces
 
-| Component           | Purpose                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Card`              | Bordered content box. Base for ResultCard.                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| `ResultCard`        | Chain-settlement outcome card for the Execute-view footer: `kind` is `success` / `failed` / `aborted`. Carries `title`, `summary`, `fields`, `nextSteps`, `forensics`. For info / warning / precondition surfaces in other views, use `Card` (tone `info` / `warning` / `error` / `success`) or `EmptyState`.                                                                                                                                                                   |
-| `NextStepList`      | Renders "what to do next" rows from `buildNextSteps` (`ui/shared/next-steps.ts`, takes no view id): a flow row is `◆ <Flow> — <why>` with no key (↵ on the focused row or the footer launches it); any other row is `<key> → <label> (<detail>)` naming a real key (`c`, `a`, `S`, `P`). One renderer for every surface — the settled `ResultCard`, Home's sprint card, the Flows orientation card, the `SprintHeaderStrip` `next:` row. Never re-derive the wording in a view. |
-| `WindowedList`      | Universal windowed-list primitive (`windowed-list.tsx`). Id-based cursor, arrows-primary navigation, `▴/▾` overflow cues. **Use this for every long, scrollable, homogeneous list** — replaces the deleted `CardList` and `ListView`.                                                                                                                                                                                                                                           |
-| `ListCard`          | Shared frame for cards in a vertical list (tickets, tasks); thin wrapper over `Card`.                                                                                                                                                                                                                                                                                                                                                                                           |
-| `FieldList`         | Aligned `[label, value]` rows. Used inside cards and detail views.                                                                                                                                                                                                                                                                                                                                                                                                              |
-| `StatusChip`        | `[DRAFT]` / `[ACTIVE]` / `[REVIEW]` / `[DONE]` bracketed tag.                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| `Spinner`           | Braille-frame loading indicator with trailing label.                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| `EmptyState`        | "Nothing here yet" surface with optional next-step pointer.                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| `OverflowRow`       | `▴ N more` / `▾ N more` cue row emitted by `WindowedList` when items are clipped above or below the visible window. Optional `label` overrides the trailing word (default `more`) for a caller with its own copy.                                                                                                                                                                                                                                                               |
-| `AsyncListFrame`    | Owns the `overlay → loading → error → empty → children` ladder for a `useAsyncLoad`-backed view (`async-list-frame.tsx`). Reuses `LoadingRow` / `LoadErrorRow`; pass an `EmptyState` as `empty`. Consumer: the context switcher (`ContextSwitcher`).                                                                                                                                                                                                                            |
-| `Divider`           | Horizontal rule.                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| `ScrollRegion`      | Scrollable viewport; PgUp/PgDn, Ctrl+f/b/d/u, Home/End (no `g`/`G`). Paints dim `▴ N more` / `▾ N more` rows outside the clip whenever content overflows, so clipping is never silent.                                                                                                                                                                                                                                                                                          |
-| `SprintPipeline`    | The one pipeline widget — `Refine → Plan → Implement → Review → Done` — rendered by Home, Flows and `SprintHeaderStrip`. A draft sprint is at Refine while tickets are pending (or none exist), at Plan once they are all approved. No padding of its own.                                                                                                                                                                                                                      |
-| `SprintHeaderStrip` | `<SprintHeaderStrip snapshot variant="work" \| "detail">` — pipeline row with right-aligned counts (`3/7 done · 2 blocked`, `· N ready` at ≥ md), a facts row (`3 tickets · 7 tasks · active since 1d ago`; transitions + slug at ≥ lg in the detail variant) and, for `detail` only, a `next:` row (first step + `· +N more`; every step joined with `· then` at ≥ lg). No name row — the LocationBar owns name and status.                                                    |
-| `ActionMenu`        | Home action menu + submenus. Items built by `home-internals/menu-items.ts` (`buildMenuItems`).                                                                                                                                                                                                                                                                                                                                                                                  |
+| Component           | Purpose                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Card`              | Bordered content box. Base for ResultCard.                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `ResultCard`        | Chain-settlement outcome card for the Execute-view footer: `kind` is `success` / `failed` / `aborted`. Carries `title`, `summary`, `fields`, `nextSteps`, `forensics`. For info / warning / precondition surfaces in other views, use `Card` (tone `info` / `warning` / `error` / `success`) or `EmptyState`.                                                                                                                                     |
+| `NextStepList`      | Renders "what to do next" rows from `buildNextSteps` (`ui/shared/next-steps.ts`, takes no view id): a flow row is `◆ <Flow> — <why>` with no key (↵ on the focused row or the footer launches it); any other row is `<key> → <label> (<detail>)` naming a real key (`c`, `a`, `S`, `P`). One renderer for every surface — the settled `ResultCard`, Work's NEXT rows, the `SprintHeaderStrip` `next:` row. Never re-derive the wording in a view. |
+| `WindowedList`      | Universal windowed-list primitive (`windowed-list.tsx`). Id-based cursor, arrows-primary navigation, `▴/▾` overflow cues. **Use this for every long, scrollable, homogeneous list** — replaces the deleted `CardList` and `ListView`.                                                                                                                                                                                                             |
+| `ListCard`          | Shared frame for cards in a vertical list (tickets, tasks); thin wrapper over `Card`.                                                                                                                                                                                                                                                                                                                                                             |
+| `FieldList`         | Aligned `[label, value]` rows. Used inside cards and detail views.                                                                                                                                                                                                                                                                                                                                                                                |
+| `StatusChip`        | `[DRAFT]` / `[ACTIVE]` / `[REVIEW]` / `[DONE]` bracketed tag.                                                                                                                                                                                                                                                                                                                                                                                     |
+| `Spinner`           | Braille-frame loading indicator with trailing label.                                                                                                                                                                                                                                                                                                                                                                                              |
+| `EmptyState`        | "Nothing here yet" surface with optional next-step pointer.                                                                                                                                                                                                                                                                                                                                                                                       |
+| `OverflowRow`       | `▴ N more` / `▾ N more` cue row emitted by `WindowedList` when items are clipped above or below the visible window. Optional `label` overrides the trailing word (default `more`) for a caller with its own copy.                                                                                                                                                                                                                                 |
+| `AsyncListFrame`    | Owns the `overlay → loading → error → empty → children` ladder for a `useAsyncLoad`-backed view (`async-list-frame.tsx`). Reuses `LoadingRow` / `LoadErrorRow`; pass an `EmptyState` as `empty`. Consumer: the context switcher (`ContextSwitcher`).                                                                                                                                                                                              |
+| `Divider`           | Horizontal rule.                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `ScrollRegion`      | Scrollable viewport; PgUp/PgDn, Ctrl+f/b/d/u, Home/End (no `g`/`G`). Paints dim `▴ N more` / `▾ N more` rows outside the clip whenever content overflows, so clipping is never silent.                                                                                                                                                                                                                                                            |
+| `SprintPipeline`    | The one pipeline widget — `Refine → Plan → Implement → Review → Done` — rendered by `SprintHeaderStrip` (Work and Sprint detail). A draft sprint is at Refine while tickets are pending (or none exist), at Plan once they are all approved. No padding of its own.                                                                                                                                                                               |
+| `TaskMinimap`       | `task-minimap.tsx` — the passive TASKS list (glyph, name, `blocked` / `waits on #N` / `running`), windowed with `▾ N more`; also owns `TASK_STATUS_GLYPH` / `TASK_STATUS_COLOR`, which the Execute sidebar minimap imports.                                                                                                                                                                                                                       |
+| `SprintHeaderStrip` | `<SprintHeaderStrip snapshot variant="work" \| "detail">` — pipeline row with right-aligned counts (`3/7 done · 2 blocked`, `· N ready` at ≥ md), a facts row (`3 tickets · 7 tasks · active since 1d ago`; transitions + slug at ≥ lg in the detail variant) and, for `detail` only, a `next:` row (first step + `· +N more`; every step joined with `· then` at ≥ lg). No name row — the LocationBar owns name and status.                      |
+| `ActionMenu`        | Work's agenda list. `MenuItem` adds optional `leading {glyph, tone}`, `right` (right-aligned fact), `detail` (focused-only second line; `costHint` stays), `note` (inline dim text — a disabled row's reason replaces it) and a per-section count (`sectionCounts`: `NEEDS YOU  1`); `active=false` draws no `▸`; `onFocusChange` reports the cursor id. Items for Work come from `home-internals/agenda.ts`.                                     |
 
 ### 4.3 Execute-view family
 
@@ -327,7 +371,7 @@ yet". Every surface that renders a task's own status agrees on `inkColors.error`
 signal kind, reused verbatim on the status card and the sidebar minimap so a blocked row never
 reads as an ordinary skip (`phaseDisabled ◌`) or pending (`phasePending ◇`) row.
 
-Rollup counts (Home's hero card, the Sprints-list row) render as a trailing `N blocked` — a bold
+Rollup counts (Work's header strip, the Sprints-list row) render as a trailing `N blocked` — a bold
 `inkColors.error` count + a dim label, appended after the existing `pending` / `approved` sub-counts
 with the same bullet-separated, iconless shape those already use. Don't prefix it with
 `glyphs.warningGlyph` or any other icon — the count + color carries the state on its own, matching how
@@ -416,10 +460,10 @@ digit (the cancel-scope overlay claims `1` / `2`), and in the first-run wizard.
 | `?`                 | Help overlay (scoped to the current view)                                      |
 | `q`                 | Quit (Work root only)                                                          |
 
-**Hidden accelerators.** `h` (Work root), `n` (Work › Flows), `x` (Runs), `s` (System › Settings), `!`
+**Hidden accelerators.** `h` (Work root), `n` (Work, flow list focused), `x` (Runs), `s` (System › Settings), `!`
 (System › Doctor) keep working from anywhere, land on an explicit destination via `reset`, and yield to a
 view that claims the letter. They are listed under Global in `?` help and **never advertised in the
-footer** — the tab bar teaches the five sections. `b` is not global: Home binds it as `b banner`.
+footer** — the tab bar teaches the five sections. `b` is not global: Work binds it as `b banner`.
 
 Switch between running flows via `Tab` / `Shift+Tab` (cycle next / prev) or `Ctrl+1..9` (jump to the Nth
 running session); the Runs section (`4`) lists them all. Both chords cycle / jump over RUNNING sessions
@@ -455,7 +499,7 @@ Layout tests that depend on terminal width use `renderAtSize(node, { columns, ro
 | `c`               | Open cancel-scope picker (attempt vs flow)                                             |
 | `D`               | Detach (background the flow)                                                           |
 | `y`               | Copy the active task's markdown summary (Execute-local; inert everywhere else)         |
-| `r`               | Settled run only — reset to Flows so the launch triggers are re-evaluated              |
+| `r`               | Settled run only — reset to Work (flow list) so the launch triggers are re-evaluated   |
 | `u`               | Settled run only, with a blocked task focused — unblock it ([§5.1](#51-blocked-tasks)) |
 
 `c` / `D` are live only while the chain runs; `r` only once it has settled, so the two sets never
@@ -531,7 +575,7 @@ useViewKeys(
   `←`, `→`, `PgUp`, `PgDn`, `Home`, `End`. Everything else matches the literal input character.
 - Two helpers in `keyboard-map.ts` keep the vocabulary identical across views: `listMoveBinding`
   (the documentation-only `↑/↓ move`) and `createBindings(run)` (`c create` with `+` as a silent
-  alias — `n` is never "create", it opens Flows).
+  alias — `n` is never "create", it focuses the Work flow list). Work spells it `c new sprint`.
 
 Views never call `useViewHints` directly — a source grep fails the suite if one does. A second,
 hand-synced hint array is how footers and handlers drifted. A view subtitle describes the screen
@@ -548,6 +592,19 @@ Canonical vocabulary — reuse these spellings so users build one mental model:
 | `Tab` / `Shift+Tab`                | next / prev field                     |
 | `↵` / `\↵`                         | submit / newline in multi-line editor |
 | a single letter (`b`, `r`, `n`, …) | the view's primary action             |
+
+**Work local keys** (footer order; each is declared once in `use-work-actions.ts`):
+
+| Key | Hint (changes with the focused row)     | Action                                                                    |
+| --- | --------------------------------------- | ------------------------------------------------------------------------- |
+| `↵` | `open task` / `open run` / `run <flow>` | the focused row's job (list primitive owns the key; hint only)            |
+| `u` | `unblock`                               | only on a blocked-task row (`useUnblockTask`; the row vanishes on reload) |
+| `o` | `sprint`                                | push sprint detail                                                        |
+| `c` | `new sprint` / `new project`            | `+` is a silent alias; `new project` while storage holds none             |
+| `a` | `add ticket`                            | draft sprints only                                                        |
+| `v` | `all flows` / `fewer flows`             | toggle the unavailable flows (dim, with reason)                           |
+| `b` | `banner`                                | wordmark toggle (Work only)                                               |
+| `r` | `reload`                                | re-read the snapshot                                                      |
 
 Rules:
 
@@ -602,7 +659,7 @@ a list cursor leave `ScrollRegion` to handle arrows normally.
 **Cursor-stays-visible rule.** A list row holding the cursor registers `useScrollAnchor(focused)`
 (`ActionMenu` does it for its focused row), so the region scrolls to keep it on screen even when the
 arrows are suppressed. A new anchor re-runs the region's reveal pass itself — the cursor state may live
-in a descendant that never re-renders the region. `ActionMenu` also honours `visibleRows`; Home passes
+in a descendant that never re-renders the region. `ActionMenu` also honours `visibleRows`; Work passes
 `listCapacity(rows, …)`.
 
 **Doctor ordering.** Doctor lists groups worst-first (fail, warn, unknown, pass). All-pass groups collapse
@@ -637,7 +694,7 @@ target } | undefined`, with `openOverlay` / `closeOverlay`. Opening replaces wha
   overlay rather than a route, appear under `All keys`). `Tab` toggles `All keys`.
 - **Ambient vs local.** The section digits and the accelerator letters (`h n x s ! S P g`) yield to a
   claiming view. A view that owns a letter AND needs its global meaning does both itself (sprint-detail's
-  `n` reseats the selection, then pushes Flows) — never rely on two handlers composing.
+  `n` reseats the selection, then lands on Work's flow list) — never rely on two handlers composing.
 
 ### 6.6 Scroll
 
@@ -693,7 +750,7 @@ pushes a dedicated `*-detail-view.tsx`).
 - `FieldList` for metadata.
 - `StatusChip` for lifecycle state.
 - Detail views are primarily read-only browse surfaces. An explicit `m` chord is allowed to make the viewed entity current when opening the detail must not implicitly switch the selection (e.g. `ProjectsView` and `ProjectDetailView` — browsing must not clear the sprint cursor as a side effect).
-- **Execute view is the one deliberate exception.** Focusing a session (Tab / Ctrl+1..9 / Sessions-open) auto-converges the global selection onto that run's pinned sprint — unlike Projects/Sprint-detail browsing, this view IS the thing currently being worked, so `n → Flows` must target what's on screen, not a stale pick from before the focus switch. The convergence is non-persisting (an exploratory Tab-cycle through old sessions must never corrupt the next boot's default sprint — see `selection-context.tsx`'s `followFocusedRun`) and fires the "✓ now on …" toast so the switch is visible, never silent.
+- **Execute view is the one deliberate exception.** Focusing a session (Tab / Ctrl+1..9 / Sessions-open) auto-converges the global selection onto that run's pinned sprint — unlike Projects/Sprint-detail browsing, this view IS the thing currently being worked, so `n` (Work flow list) must target what's on screen, not a stale pick from before the focus switch. The convergence is non-persisting (an exploratory Tab-cycle through old sessions must never corrupt the next boot's default sprint — see `selection-context.tsx`'s `followFocusedRun`) and fires the "✓ now on …" toast so the switch is visible, never silent.
 
 ### 7.4 Phase views (refine / plan / implement / review)
 
@@ -819,7 +876,7 @@ If you reach step 4 or 5, open a design note before the PR — this document sho
 
 Run this before opening a PR on a new TUI surface:
 
-- [ ] Wrapped in `<ViewShell>` (not bare, unless Home).
+- [ ] Wrapped in `<ViewShell>` (not bare).
 - [ ] `ViewShell` `title` / `subtitle` name the view (they publish to the location line); the view's section is registered in `nav-tree.ts` `sectionOf`.
 - [ ] Every color / glyph / spacing value comes from `tokens.ts`.
 - [ ] All interaction is an `InteractivePrompt` call.

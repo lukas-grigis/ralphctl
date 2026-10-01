@@ -1,5 +1,5 @@
 /**
- * Pre-launch repository-selection step used by `flows-view.tsx`. Runs BEFORE
+ * Pre-launch repository-selection step used by `use-flow-launcher.ts`. Runs BEFORE
  * {@link runCustomizePicker} so the launch sequence reads "pick repo, then customize provider".
  *
  * Historically the session-pinned repository (`ui.sessionRepositoryId`) was threaded as a HARD

@@ -1,5 +1,5 @@
 /**
- * Pre-launch customize picker used by `flows-view.tsx`. For an AI-driven flow the user gets
+ * Pre-launch customize picker used by `use-flow-launcher.ts`. For an AI-driven flow the user gets
  * three choices on the entry prompt — `Start (use defaults)`, `Customize for this run…`, or
  * `Cancel`. Customize walks the user through provider → model → effort, with `Keep default`
  * as the first option on each step; implement walks generator (three steps) then evaluator
@@ -7,7 +7,7 @@
  * the caller supplies {@link SkillCandidatesResult}; see {@link runSkillsStep}. The picker only
  * ever reads {@link Settings}; it never calls `save()`, so the on-disk file is byte-identical
  * before and after any picker session — a "remember" choice on the skills step is surfaced on the
- * result for `flows-view.tsx` to persist, not written here.
+ * result for `use-flow-launcher.ts` to persist, not written here.
  *
  * Extracted from the view into a standalone module so tests can drive it with a scripted
  * {@link InteractivePrompt} fake without mounting Ink. The view's `onSelect` calls
@@ -74,7 +74,7 @@ const modelChoice = (m: string): Choice<string> => {
 /**
  * Outcome of the skills step (see {@link runSkillsStep}) — carried on every non-cancel
  * {@link CustomizePickerResult} variant. `disabled` is the full per-run disable set (any origin);
- * `saveAsDefault` tells `flows-view.tsx` whether to persist the registry-default subset of
+ * `saveAsDefault` tells `use-flow-launcher.ts` whether to persist the registry-default subset of
  * `disabled` into `settings.ai.skills[flow].disabled` (see `applySkillsRememberChoice` in
  * `flows-launch-extras.ts` — names are matched against `skillsForFlow`, so a phase-folder copy
  * shadowing a bundled default still persists). Absent `skills` on a result means the user kept
@@ -423,7 +423,7 @@ interface SkillsStepResult {
  * and evaluator, never per-role). Entry prompt mirrors the top-level Start/Customize split:
  * `Keep skills (N active)` is the zero-friction default; only `Customize skills for this run…`
  * opens the checklist. Skipped ENTIRELY (no prompt at all) when `skillCandidates` is `undefined`
- * or carries no candidates — `flows-view.tsx` only supplies it for a flow whose launch context
+ * or carries no candidates — `use-flow-launcher.ts` only supplies it for a flow whose launch context
  * actually threads a `skillSource` ({@link flowMountsSkills} in `launcher.ts`).
  *
  * The checklist opens PRE-CHECKED to today's effective state — checked = would currently load

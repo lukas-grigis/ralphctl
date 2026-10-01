@@ -3,8 +3,7 @@
  * function, every surface:
  *
  *  - the settled `ResultCard` in the Execute-view footer (`result-footer.tsx`),
- *  - Home's `ActiveSprintCard` (`home-internals/state-card.tsx`),
- *  - the Flows `OrientationCard` (`flows-view.tsx`),
+ *  - Work's NEXT rows (`home-internals/agenda.ts`),
  *  - the `next:` row of the `SprintHeaderStrip` (sprint detail).
  *
  * The table takes no view id: a step either names a flow (rendered `◆ <Flow> — <why>`, launched
@@ -12,7 +11,7 @@
  * (`c`, `a`, `S`, `P`). The unit test asserts every recommended flow against `visibleFlowsFor`
  * and against the stage `SprintPipeline` highlights.
  *
- * Input shape: a flat bag of primitives rather than an `AppStateSnapshot`. Home and Flows hold a
+ * Input shape: a flat bag of primitives rather than an `AppStateSnapshot`. Work holds a
  * snapshot, but the settled footer holds only a `SessionDescriptor` + the run's pinned sprint;
  * a snapshot-shaped input would force a second repo-polling loop into the Execute view.
  * {@link nextStepsInputFromSnapshot} keeps the two snapshot call sites one line each.
@@ -43,7 +42,7 @@ export interface ForensicPath {
 }
 
 export interface NextStepsInput {
-  /** Settled-run surface only; undefined on Home / Flows (and while a run is still live). */
+  /** Settled-run surface only; undefined on Work (and while a run is still live). */
   readonly runStatus?: 'completed' | 'failed' | 'aborted';
   /** Display label of the leaf that failed, from the trace. Colours the failed prepend only. */
   readonly failedLeafLabel?: string;
@@ -96,7 +95,7 @@ const runStatusRows = (input: NextStepsInput): readonly NextStep[] => {
 const flowStep = (flow: string, label: string, detail: string): NextStep => ({ flow, label, detail });
 
 /**
- * Rows for a context with no sprint yet. Home renders a dedicated hero card in these regimes and
+ * Rows for a context with no sprint yet. Work renders a dedicated hero card in these regimes and
  * keeps it — these exist so the settled-run and Flows surfaces have something to say too. Do not
  * "unify" Home's heroes into these rows; a full-width CTA and a one-line hint are different jobs.
  */
@@ -146,7 +145,7 @@ const blockedTaskDetail = (
  * too — a closed sprint with stuck tasks must keep pointing at how to get them running again.
  *
  * Keyless: `u` bulk-unblocks from the Sprints list and from sprint-detail, neither of which every
- * surface reading this table (Home / Flows / the settled ResultCard) routes through, so a key here
+ * surface reading this table (Work / the settled ResultCard) routes through, so a key here
  * would advertise a chord some surfaces don't bind. The detail names the route instead.
  */
 const blockedTaskRow = (input: NextStepsInput, sprintIsDone = false): readonly NextStep[] =>

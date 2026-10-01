@@ -23,6 +23,9 @@ const STABLE_QUOTE = getRandomQuote();
 /** Wordmark frame height (art + quote + border) plus chrome — Home needs this many rows to still show its menu. */
 const MIN_FULL_ROWS = 40;
 
+/** Rows the full banner occupies (frame + art + quote). */
+export const BANNER_FULL_ROWS = 11;
+
 export type BannerMode = 'full' | 'compact';
 
 /**

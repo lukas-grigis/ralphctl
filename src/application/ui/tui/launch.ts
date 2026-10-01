@@ -465,7 +465,7 @@ export interface LaunchTuiOptions {
   /**
    * Per-launch overrides for `settings.ai.implement` — parsed from the bare-`ralphctl`
    * `--implement-{generator,evaluator}-{provider,model}` flags. Stored on the module-level
-   * holder so the TUI's `flows-view` reads them when assembling the implement {@link
+   * holder so the TUI's `use-flow-launcher` reads them when assembling the implement {@link
    * LaunchExtras}; cleared on every fresh launch so a prior run's overrides don't leak.
    */
   readonly implementRoleOverrides?: LaunchExtras['implementRoleOverrides'];

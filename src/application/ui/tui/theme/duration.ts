@@ -68,3 +68,16 @@ export const fmtIsoAbsolute = (iso: string): string => {
   if (isNaN(d.getTime())) return iso.slice(0, 16).replace('T', ' ');
   return `${String(d.getFullYear())}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 };
+
+const MINUTE = 60_000;
+const HOUR = 60 * MINUTE;
+const DAY = 24 * HOUR;
+
+/** Coarsest whole unit — `5m`, `3h`, `2d`. Sub-minute spans read `<1m`. */
+export const fmtSpan = (ms: number): string => {
+  const span = Math.max(0, ms);
+  if (span >= DAY) return `${String(Math.floor(span / DAY))}d`;
+  if (span >= HOUR) return `${String(Math.floor(span / HOUR))}h`;
+  if (span >= MINUTE) return `${String(Math.floor(span / MINUTE))}m`;
+  return '<1m';
+};

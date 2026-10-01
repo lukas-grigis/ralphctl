@@ -1,7 +1,7 @@
 /**
- * Flows view — sprint-bound launch wiring.
+ * Flows alias — sprint-bound launch wiring.
  *
- * Launching `create-sprint` from the Flows menu must not pin the PREVIOUS selection's sprint
+ * Launching `create-sprint` from the Work flow list must not pin the PREVIOUS selection's sprint
  * onto the new run's session descriptor: the run's sprint does not exist at launch time, and a
  * stale pin would mislabel the execute view / breadcrumb for the whole run. The project still
  * pins (the new sprint will belong to it). The real sprint is pinned later via the sprint-bound
@@ -11,7 +11,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { Result } from '@src/domain/result.ts';
-import { FlowsView } from '@src/application/ui/tui/views/flows-view.tsx';
+import { FlowsAliasView } from '@src/application/ui/tui/views/flows-view.tsx';
 import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import type { Project } from '@src/domain/entity/project.ts';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
@@ -93,12 +93,12 @@ const makeDeps = (): AppDeps =>
     skillSource: { skillsFor: () => [] },
   }) as unknown as AppDeps;
 
-describe('FlowsView — create-sprint launch does not pin the stale sprint', () => {
+describe('FlowsAliasView — create-sprint launch does not pin the stale sprint', () => {
   it('registers the session with pinnedProjectId set and pinnedSprintId unset', async () => {
     const sessions = createSessionManager();
     const routedIds: string[] = [];
 
-    const { result } = renderView(<FlowsView />, {
+    const { result } = renderView(<FlowsAliasView />, {
       deps: makeDeps(),
       initial: { id: 'flows' },
       sessions,

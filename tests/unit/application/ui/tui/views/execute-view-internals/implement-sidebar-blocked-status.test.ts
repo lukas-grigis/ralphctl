@@ -5,10 +5,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import {
-  TASK_STATUS_COLOR,
-  TASK_STATUS_GLYPH,
-} from '@src/application/ui/tui/views/execute-view-internals/implement-sidebar.tsx';
+import { TASK_STATUS_COLOR, TASK_STATUS_GLYPH } from '@src/application/ui/tui/components/task-minimap.tsx';
 import { STATUS_PRESENTATION } from '@src/application/ui/tui/components/tasks-panel-internals/task-card-parts.tsx';
 import { inkColors } from '@src/application/ui/tui/theme/tokens.ts';
 

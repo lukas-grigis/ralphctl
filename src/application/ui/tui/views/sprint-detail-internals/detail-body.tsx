@@ -30,6 +30,7 @@ import { useSprintDetailShortcuts } from '@src/application/ui/tui/views/sprint-d
 import {
   buildFocusList,
   clampFocusIndex,
+  indexOfTask,
   nextBlockedIndex,
   sectionWindowCards,
   type FocusItem,
@@ -51,6 +52,8 @@ import type { SprintDetailContentProps } from '@src/application/ui/tui/views/spr
 
 export interface SprintDetailProps extends Readonly<Record<string, unknown>> {
   readonly sprintId: SprintId;
+  /** Work's blocked-task row: seed the cursor on this task and open its card. */
+  readonly focusTaskId?: string;
 }
 
 interface FocusedSelection {
@@ -116,9 +119,13 @@ interface UseFocusModelArgs {
   readonly loaded: boolean;
   /** Feeds the third `focusedStuckTask` case — a `todo` task stranded on a `review` sprint. */
   readonly sprintStatus: Sprint['status'] | undefined;
+  /** First load only: jump the cursor here, through the same takeover `B` uses. */
+  readonly seedTaskId: string | undefined;
 }
 
 export interface FocusModel extends FocusedSelection {
+  /** Route-requested task to land on (Work's blocked row); consumed on the first load. */
+  readonly seedTaskId: string | undefined;
   readonly cursorIdx: number;
   /** Count of `kind === 'task' && status === 'blocked'` entries anywhere in `focusList`. */
   readonly blockedCount: number;
@@ -138,7 +145,7 @@ export interface FocusModel extends FocusedSelection {
  * not unmounted) so it never double-handles a keypress once the override engages.
  */
 const useFocusModel = (args: UseFocusModelArgs): FocusModel => {
-  const { focusList, ticketsEditable, modalOpen, loaded, sprintStatus } = args;
+  const { focusList, ticketsEditable, modalOpen, loaded, sprintStatus, seedTaskId } = args;
   const { rows } = useBreakpoint();
   const focusVisibleRows = Math.max(8, sectionWindowCards(rows) * 2);
   // Id-stable cursor over the flat focus list. Items are keyed as `ticket:<id>` / `task:<id>`
@@ -157,6 +164,14 @@ const useFocusModel = (args: UseFocusModelArgs): FocusModel => {
     // The shortcuts hook also provides the other view-local keys (a/e/m/d/p/u/B/↵/q).
     active: modalOpen === false && loaded && jumpOverrideIdx === undefined,
   });
+
+  const seededRef = useRef(false);
+  useEffect(() => {
+    if (seededRef.current || seedTaskId === undefined || !loaded) return;
+    seededRef.current = true;
+    const idx = indexOfTask(focusList, seedTaskId);
+    if (idx !== undefined) setJumpOverrideIdx(idx);
+  }, [seedTaskId, loaded, focusList]);
 
   const cursorIdx = jumpOverrideIdx !== undefined ? clampFocusIndex(jumpOverrideIdx, focusList.length) : listCursorIdx;
   const blockedCount = useMemo(
@@ -177,6 +192,7 @@ const useFocusModel = (args: UseFocusModelArgs): FocusModel => {
   };
 
   return {
+    seedTaskId,
     cursorIdx,
     blockedCount,
     jump,
@@ -221,7 +237,7 @@ const useSprintDetailData = (): SprintDetailData => {
   const deps = useDeps();
   const router = useRouter();
   const ui = useUiState();
-  const { sprintId } = useViewProps<SprintDetailProps>();
+  const { sprintId, focusTaskId } = useViewProps<SprintDetailProps>();
   const selection = useSelection();
 
   const { state, project, reload } = useSprintBundle({ sprintId, deps });
@@ -244,6 +260,7 @@ const useSprintDetailData = (): SprintDetailData => {
     modalOpen: ui.modalOpen,
     loaded: state.kind === 'ok',
     sprintStatus: sprint?.status,
+    seedTaskId: focusTaskId,
   });
 
   return {
@@ -330,6 +347,22 @@ const useSprintStatusChipSync = (sprint: Sprint | undefined, selection: ReturnTy
   }, [sprint, syncSprintStatus]);
 };
 
+/** First load only: open the card of the task Work asked to land on. */
+const useSeedOpenCard = (args: {
+  readonly focusTaskId: string | undefined;
+  readonly loaded: boolean;
+  readonly focusList: readonly FocusItem[];
+  readonly setOpenIds: (ids: ReadonlySet<string>) => void;
+}): void => {
+  const { focusTaskId, loaded, focusList, setOpenIds } = args;
+  const seededRef = useRef(false);
+  useEffect(() => {
+    if (seededRef.current || focusTaskId === undefined || !loaded) return;
+    seededRef.current = true;
+    if (indexOfTask(focusList, focusTaskId) !== undefined) setOpenIds(new Set([focusTaskId]));
+  }, [focusTaskId, loaded, focusList, setOpenIds]);
+};
+
 /**
  * Own every hook call, side-effect handler, and derived value the detail view needs, and hand
  * back exactly the props `SprintDetailView` renders. Splitting this out of the view component
@@ -341,6 +374,7 @@ export const useSprintDetailBody = (): UseSprintDetailBodyResult => {
     useSprintDetailData();
 
   const [openIds, setOpenIds] = useState<ReadonlySet<string>>(() => new Set());
+  useSeedOpenCard({ focusTaskId: focus.seedTaskId, loaded: state.kind === 'ok', focusList, setOpenIds });
   const [confirmRemove, setConfirmRemove] = useState<Ticket | undefined>(undefined);
   const [feedback, setFeedback] = useState<string | undefined>(undefined);
   const inDetail = openIds.size > 0;

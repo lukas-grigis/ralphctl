@@ -20,25 +20,13 @@ import { breakpoints, glyphs, inkColors, spacing } from '@src/application/ui/tui
 import { buildNextSteps, nextStepsInputFromSnapshot } from '@src/application/ui/shared/next-steps.ts';
 import { plural } from '@src/application/ui/shared/plural.ts';
 import { computeTaskHealthCounts, type AppStateSnapshot } from '@src/application/ui/shared/state-snapshot.ts';
+import { fmtSpan } from '@src/application/ui/tui/theme/duration.ts';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
 
 export interface SprintHeaderStripProps {
   readonly snapshot: AppStateSnapshot;
   readonly variant: 'work' | 'detail';
 }
-
-const MINUTE = 60_000;
-const HOUR = 60 * MINUTE;
-const DAY = 24 * HOUR;
-
-/** Coarsest whole unit — `5m`, `3h`, `2d`. Sub-minute spans read `<1m`. */
-const fmtSpan = (ms: number): string => {
-  const span = Math.max(0, ms);
-  if (span >= DAY) return `${String(Math.floor(span / DAY))}d`;
-  if (span >= HOUR) return `${String(Math.floor(span / HOUR))}h`;
-  if (span >= MINUTE) return `${String(Math.floor(span / MINUTE))}m`;
-  return '<1m';
-};
 
 const stampMs = (iso: string | null | undefined): number | undefined => {
   if (iso === null || iso === undefined) return undefined;

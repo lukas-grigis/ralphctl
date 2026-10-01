@@ -1,8 +1,8 @@
 /**
  * Behavior 8 — Switch feedback line.
  *
- * After any sprint switch action (Home inline shortcut from the "switch sprint" section),
- * a confirmation line "✓ now on <sprint-name>" MUST appear above the Home menu. It MUST
+ * After any sprint switch, a confirmation line "✓ now on <sprint-name>" MUST appear on the
+ * pinned feedback row. It MUST
  * disappear after ~3s.
  *
  * Uses a `Date.now` spy to control the freshness window without real-time delays.
@@ -16,6 +16,8 @@ import React from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup } from 'ink-testing-library';
 import { Result } from '@src/domain/result.ts';
+import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
+import { Text, useInput } from 'ink';
 import { HomeView } from '@src/application/ui/tui/views/home-view.tsx';
 import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import type { ProjectRepository } from '@src/domain/repository/project/project-repository.ts';
@@ -29,13 +31,14 @@ import { DEFAULT_SETTINGS } from '@src/business/settings/defaults.ts';
 import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
 import { makeDraftSprint, makeProject } from '@tests/fixtures/domain.ts';
-import { ENTER, tick } from '@tests/integration/application/ui/tui/_keys.ts';
+import { tick } from '@tests/integration/application/ui/tui/_keys.ts';
 import { renderView, waitForViewReady } from '@tests/integration/application/ui/tui/_harness.tsx';
 
 const noopVersionChecker = async (): Promise<null> => null;
 
 const makeDepsWithProject = (sprints: readonly Sprint[], project: ReturnType<typeof makeProject>): AppDeps =>
   ({
+    eventBus: createInMemoryEventBus(),
     projectRepo: {
       async list() {
         return Result.ok([project]);
@@ -93,6 +96,15 @@ const SwitchTrigger = ({ id, name }: { readonly id: SprintId; readonly name: str
     }
   });
   return <></>;
+};
+
+/** Switches to `id` when `z` is pressed — stands in for any other surface reseating the selection. */
+const SwitchOnKey = ({ id, name }: { readonly id: SprintId; readonly name: string }): React.JSX.Element => {
+  const selection = useSelection();
+  useInput((input) => {
+    if (input === 'z') selection.setSprint(id, name);
+  });
+  return <Text> </Text>;
 };
 
 describe('HomeView — switch feedback line', () => {
@@ -185,12 +197,6 @@ describe('HomeView — switch feedback line', () => {
     const project = makeProject({ displayName: 'Timer Test Project' });
     // sprintA (Alpha Sprint) created first → smaller UUID.
     // sprintB (Timer Sprint) created second → larger UUID.
-    // After SwitchTrigger sets sprintB as current:
-    //   recentSprints = [sprintB, sprintA] (desc), currentSprint = sprintB
-    //   initialMenuIndex = 0 (sprintB is at index 0)
-    //   ActionMenu cursor starts at 0 (Timer Sprint)
-    //   Press 'j' → cursor moves to 1 (Alpha Sprint)
-    //   Press ENTER → setSprint(sprintA.id, 'Alpha Sprint') → selection changes → re-render
     const sprintA = { ...makeDraftSprint({ name: 'Alpha Sprint' }), projectId: project.id } as unknown as Sprint;
     const sprintB = { ...makeDraftSprint({ name: 'Timer Sprint' }), projectId: project.id } as unknown as Sprint;
 
@@ -203,6 +209,7 @@ describe('HomeView — switch feedback line', () => {
       <>
         <HomeView />
         <SwitchTrigger id={sprintB.id} name="Timer Sprint" />
+        <SwitchOnKey id={sprintA.id} name="Alpha Sprint" />
       </>,
       {
         deps,
@@ -226,13 +233,9 @@ describe('HomeView — switch feedback line', () => {
     // Advance the mock clock past the 3-second window.
     dateNowSpy.mockReturnValue(BASE_TIME + 3_100);
 
-    // Navigate to Alpha Sprint (j from cursor=0 → cursor=1) and select it.
-    // This calls setSprint(sprintA.id) which: changes selection.sprintId → HomeView re-renders →
-    // switchToastVisible checks Date.now() - lastSwitch.at = 3100 > 3000 → false (hidden).
-    // Also lastSwitch.sprintId (sprintB) ≠ new selection.sprintId (sprintA) → also false.
-    result.stdin.write('j');
-    await tick(50);
-    result.stdin.write(ENTER);
+    // Reseat to Alpha Sprint: the selection changes, HomeView re-renders and re-reads the clock
+    // (3100 ms > the 3000 ms window), and `lastSwitch.sprintId` no longer matches.
+    result.stdin.write('z');
     await tick(80);
 
     // Feedback line must have disappeared.

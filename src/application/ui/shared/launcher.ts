@@ -130,7 +130,7 @@ export type LaunchResult =
  * Optional per-launch overrides supplied by the caller. `repositoryId` skips the in-flow pick
  * prompt (used when launching from a focused repo row on the project-detail view or when the
  * TUI's session-scoped repo pin has been set). `override` swaps the settings-default
- * provider / model / effort for one launch — flows-view's pre-launch customize picker writes
+ * provider / model / effort for one launch — the flow launcher's pre-launch customize picker writes
  * here when the user picks different values than the configured defaults. Each field is
  * independently optional: an unset field falls back to the matching `settings.ai[flow]` slot.
  *
@@ -252,7 +252,7 @@ const pickDefined = <T extends object, K extends keyof T>(obj: T, keys: readonly
 
 /**
  * Project the optional UI-hint fields from a successful {@link LaunchResult} into the shape
- * `SessionManager.register` accepts. Centralised so the four call sites (flows-view,
+ * `SessionManager.register` accepts. Centralised so the four call sites (the flow launcher,
  * pick-sprint-view, project-detail-view, sprints-view) don't each stamp the same
  * conditional-spread pattern. Adding a new UI hint becomes one edit to {@link HINT_KEYS} instead
  * of four.
@@ -395,7 +395,7 @@ const cwdFromSnapshot = (snapshot: AppStateSnapshot): AbsolutePath | undefined =
  * picker's per-launch override applied on top. The boot-time `app.settings` is the floor; it's
  * stale across any Settings-view edit, and the adapter-rebuild in {@link buildLaunchAdapters}
  * depends on the per-flow row's provider matching the user's current choice. Callers that
- * already reloaded (e.g. flows-view, for its model picker) just pass their fresh snapshot via
+ * already reloaded (e.g. the flow launcher, for its model picker) just pass their fresh snapshot via
  * `extras.settingsSnapshot`; callers that didn't (project-detail-view) implicitly opt into a
  * one-roundtrip reload here so they don't have to remember.
  *
@@ -570,7 +570,7 @@ export interface SkillCandidatesResult {
    * At least one source's listing FAILED, so `candidates` is incomplete. The caller must not
    * show a checklist built from it (an unchecked-set complement over a partial list reads as
    * "disable everything missing") and must never persist a "remember" choice computed from it —
-   * `flows-view.tsx` skips the skills step outright when this is set.
+   * `use-flow-launcher.ts` skips the skills step outright when this is set.
    */
   readonly degraded: boolean;
 }

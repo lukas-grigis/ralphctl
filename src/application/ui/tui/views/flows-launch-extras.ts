@@ -1,5 +1,5 @@
 /**
- * `flows-view.tsx`'s post-picker tail: assemble {@link LaunchExtras} from the customize picker's
+ * `use-flow-launcher.ts`'s post-picker tail: assemble {@link LaunchExtras} from the customize picker's
  * outcome, and persist the skills step's "remember" choice. Split out of the view so the click
  * handler's cyclomatic complexity and the file's line budget both stay under the lint ratchet —
  * mirrors the existing `flows-repository-picker.ts` pattern of a small, view-scoped helper module

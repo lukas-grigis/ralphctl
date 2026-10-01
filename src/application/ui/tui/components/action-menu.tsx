@@ -20,7 +20,7 @@
  * are render-only rows excluded from the cursorable set, mirroring the context-switcher group approach.
  */
 
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { useListWindow, OverflowRow } from '@src/application/ui/tui/components/windowed-list.tsx';
@@ -48,7 +48,17 @@ export interface MenuItem {
    * Sourced from {@link FlowManifest.costHint} for flows that have one.
    */
   readonly costHint?: string;
+  /** Glyph in front of the label; when any item has one, the rest reserve the same two columns. */
+  readonly leading?: { readonly glyph: string; readonly tone: MenuTone };
+  /** Right-aligned short fact. */
+  readonly right?: string;
+  /** Focused-only second line (generalises `costHint`). */
+  readonly detail?: string;
+  /** Inline dim text after the label; on a disabled row the reason takes its place (one line). */
+  readonly note?: string;
 }
+
+export type MenuTone = 'error' | 'warning' | 'info' | 'success' | 'muted' | 'highlight';
 
 export interface ActionMenuProps {
   readonly items: readonly MenuItem[];
@@ -60,7 +70,15 @@ export interface ActionMenuProps {
    * terminals.
    */
   readonly visibleRows?: number;
+  /** Count shown after a section header (`NEEDS YOU  1`), keyed by the section label. */
+  readonly sectionCounts?: Readonly<Record<string, number>>;
+  /** Called with the focused item's id on mount and whenever the cursor moves. */
+  readonly onFocusChange?: (id: string | undefined) => void;
+  /** Blank rows above every section header but the first. Default 1. */
+  readonly sectionGap?: number;
 }
+
+const NOTE_LABEL_MAX = 30;
 
 const isEnabled = (item: MenuItem): boolean => item.disabledReason === undefined;
 
@@ -159,13 +177,18 @@ const buildRenderRows = (
 const SectionHeader = ({
   section,
   renderIdx,
+  count,
+  gap,
 }: {
   readonly section: string | undefined;
   readonly renderIdx: number;
+  readonly count: number | undefined;
+  readonly gap: number;
 }): React.JSX.Element => (
-  <Box paddingX={spacing.indent} marginTop={renderIdx === 0 ? 0 : 1}>
+  <Box paddingX={spacing.indent} marginTop={renderIdx === 0 ? 0 : gap}>
     <Text color={inkColors.muted} bold>
       {(section ?? '').toUpperCase()}
+      {count !== undefined ? `  ${String(count)}` : ''}
     </Text>
   </Box>
 );
@@ -199,6 +222,23 @@ const RowDescription = ({
   return (
     <Box paddingX={spacing.indent}>
       <Text dimColor>{description}</Text>
+    </Box>
+  );
+};
+
+const RowDetail = ({
+  focused,
+  detail,
+}: {
+  readonly focused: boolean;
+  readonly detail: string | undefined;
+}): React.JSX.Element | null => {
+  if (!focused || detail === undefined || detail.length === 0) return null;
+  return (
+    <Box paddingLeft={spacing.indent * 2}>
+      <Text dimColor wrap="truncate-end">
+        {detail}
+      </Text>
     </Box>
   );
 };
@@ -248,40 +288,124 @@ const RowDisabledReason = ({
 interface ActionMenuRowProps {
   readonly item: MenuItem;
   readonly focused: boolean;
+  readonly showCursor: boolean;
   readonly showHeader: boolean;
   readonly renderIdx: number;
+  readonly sectionCount: number | undefined;
+  readonly sectionGap: number;
+  readonly reserveLeading: boolean;
+  readonly labelWidth: number;
 }
 
-const ActionMenuRow = ({ item: it, focused, showHeader, renderIdx }: ActionMenuRowProps): React.JSX.Element => {
+const LeadingSlot = ({
+  leading,
+  enabled,
+  reserve,
+}: {
+  readonly leading: MenuItem['leading'];
+  readonly enabled: boolean;
+  readonly reserve: boolean;
+}): React.JSX.Element | null => {
+  if (leading !== undefined) {
+    return <Text color={enabled ? inkColors[leading.tone] : inkColors.muted}>{leading.glyph} </Text>;
+  }
+  return reserve ? <Text>{'  '}</Text> : null;
+};
+
+/** The row's single line: cursor, leading glyph, label, inline note, hotkey, right-aligned fact. */
+const RowLine = ({
+  item: it,
+  focused,
+  showCursor,
+  reserveLeading,
+  labelWidth,
+}: Pick<
+  ActionMenuRowProps,
+  'item' | 'focused' | 'showCursor' | 'reserveLeading' | 'labelWidth'
+>): React.JSX.Element => {
   const enabled = isEnabled(it);
+  const inline = !enabled && it.note !== undefined ? it.disabledReason : it.note;
+  const cursorOn = focused && showCursor;
+  return (
+    <Box justifyContent="space-between">
+      <Text wrap="truncate-end">
+        <Text color={cursorOn ? inkColors.primary : inkColors.muted} bold={focused}>
+          {cursorOn ? glyphs.actionCursor : ' '}{' '}
+        </Text>
+        <LeadingSlot leading={it.leading} enabled={enabled} reserve={reserveLeading} />
+        <Text {...(enabled ? {} : { color: inkColors.muted })} bold={focused && enabled} dimColor={!enabled}>
+          {inline !== undefined ? it.label.padEnd(labelWidth) : it.label}
+        </Text>
+        {inline !== undefined && <Text dimColor>{`  ${inline}`}</Text>}
+        <RowHotkeyHint hotkey={it.hotkey} enabled={enabled} />
+      </Text>
+      {it.right !== undefined && (
+        <Box flexShrink={0} marginLeft={1}>
+          <Text color={inkColors.muted} dimColor={!focused}>
+            {it.right}
+          </Text>
+        </Box>
+      )}
+    </Box>
+  );
+};
+
+const ActionMenuRow = ({
+  item: it,
+  focused,
+  showHeader,
+  renderIdx,
+  sectionCount,
+  sectionGap,
+  ...lineProps
+}: ActionMenuRowProps): React.JSX.Element => {
   // The focused row anchors the surrounding ScrollRegion so the cursor can never walk off-screen.
   const anchorRef = useScrollAnchor(focused);
   return (
     <Box ref={anchorRef} flexDirection="column">
-      {showHeader && <SectionHeader section={it.section} renderIdx={renderIdx} />}
+      {showHeader && <SectionHeader section={it.section} renderIdx={renderIdx} count={sectionCount} gap={sectionGap} />}
       <Box flexDirection="column" paddingX={spacing.indent}>
-        <Box>
-          <Text color={focused ? inkColors.primary : inkColors.muted} bold={focused}>
-            {focused ? glyphs.actionCursor : ' '}{' '}
-          </Text>
-          <Text {...(enabled ? {} : { color: inkColors.muted })} bold={focused && enabled} dimColor={!enabled}>
-            {it.label}
-          </Text>
-          <RowHotkeyHint hotkey={it.hotkey} enabled={enabled} />
-        </Box>
+        <RowLine item={it} focused={focused} {...lineProps} />
         <RowDescription focused={focused} description={it.description} />
+        <RowDetail focused={focused} detail={it.detail} />
         <RowCostHint focused={focused} costHint={it.costHint} />
-        <RowDisabledReason enabled={enabled} focused={focused} disabledReason={it.disabledReason} />
+        {it.note === undefined && (
+          <RowDisabledReason enabled={isEnabled(it)} focused={focused} disabledReason={it.disabledReason} />
+        )}
       </Box>
     </Box>
   );
 };
+
+/** Space selects the focused row; a row's `hotkey` selects it directly. Navigation is `useListWindow`'s. */
+const useMenuHotkeys = (items: readonly MenuItem[], focusedItem: MenuItem | undefined, active: boolean): void => {
+  useInput(
+    (input) => {
+      if (!active) return;
+      if (input === ' ') focusedItem?.onSelect();
+      else if (input.length > 0) matchHotkey(items, input)?.onSelect();
+    },
+    { isActive: active }
+  );
+};
+
+/** Column decisions shared by every row: the leading-glyph slot and the label column before notes. */
+const menuLayout = (items: readonly MenuItem[]): { readonly reserveLeading: boolean; readonly labelWidth: number } => ({
+  reserveLeading: items.some((it) => it.leading !== undefined),
+  labelWidth: Math.min(
+    NOTE_LABEL_MAX,
+    items.reduce((w, it) => (it.note !== undefined ? Math.max(w, it.label.length) : w), 0)
+  ),
+});
 
 export const ActionMenu = ({
   items,
   initialIndex = 0,
   active = true,
   visibleRows,
+  sectionCounts,
+  onFocusChange,
+  sectionGap = 1,
 }: ActionMenuProps): React.JSX.Element => {
   // Derive the cursorable subset. Only ENABLED items enter the windowed list; disabled and
   // section-header rows are render-only.
@@ -311,21 +435,12 @@ export const ActionMenu = ({
     },
   });
 
-  // Space-as-select and hotkey matching (navigation is owned by useListWindow).
-  useInput(
-    (input) => {
-      if (!active) return;
-      if (input === ' ') {
-        focusedItem?.onSelect();
-        return;
-      }
-      if (input.length > 0) {
-        const hit = matchHotkey(items, input);
-        hit?.onSelect();
-      }
-    },
-    { isActive: active }
-  );
+  useEffect(() => {
+    onFocusChange?.(focusedItem?.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fire on cursor movement only
+  }, [focusedItem?.id]);
+
+  useMenuHotkeys(items, focusedItem, active);
 
   if (items.length === 0) {
     return (
@@ -338,12 +453,24 @@ export const ActionMenu = ({
   const aboveCount = window.start;
   const belowCount = enabledItems.length - window.end;
   const renderRows = buildRenderRows(items, windowedEnabled, cursorId);
+  const { reserveLeading, labelWidth } = menuLayout(items);
 
   return (
     <Box flexDirection="column">
       <OverflowRow direction="above" count={aboveCount} />
       {renderRows.map(({ item: it, focused, showHeader }, renderIdx) => (
-        <ActionMenuRow key={it.id} item={it} focused={focused} showHeader={showHeader} renderIdx={renderIdx} />
+        <ActionMenuRow
+          key={it.id}
+          item={it}
+          focused={focused}
+          showCursor={active}
+          showHeader={showHeader}
+          renderIdx={renderIdx}
+          sectionCount={it.section !== undefined ? sectionCounts?.[it.section] : undefined}
+          sectionGap={sectionGap}
+          reserveLeading={reserveLeading}
+          labelWidth={labelWidth}
+        />
       ))}
       <OverflowRow direction="below" count={belowCount} />
     </Box>

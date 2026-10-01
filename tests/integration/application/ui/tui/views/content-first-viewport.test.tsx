@@ -9,7 +9,8 @@ import React from 'react';
 import { Box } from 'ink';
 import { Result } from '@src/domain/result.ts';
 import { HomeView } from '@src/application/ui/tui/views/home-view.tsx';
-import { FlowsView } from '@src/application/ui/tui/views/flows-view.tsx';
+import { FlowsAliasView } from '@src/application/ui/tui/views/flows-view.tsx';
+import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
 import { DoctorView } from '@src/application/ui/tui/views/doctor-view.tsx';
 import { SettingsView } from '@src/application/ui/tui/views/settings-view.tsx';
 import type { AppDeps } from '@src/application/bootstrap/wire.ts';
@@ -50,6 +51,7 @@ const sprint = {
 } as unknown as Sprint;
 
 const deps = {
+  eventBus: createInMemoryEventBus(),
   projectRepo: {
     async list() {
       return Result.ok([project]);
@@ -115,7 +117,7 @@ describe.each([
   { columns: 100, rows: 30 },
   { columns: 120, rows: 36 },
 ])('wordmark suppressed at $columns x $rows', ({ columns, rows }) => {
-  it('Home shows its menu, not the wordmark', async () => {
+  it('Work shows its agenda, not the wordmark', async () => {
     const { result } = renderFramed(
       <HomeView />,
       {
@@ -125,13 +127,13 @@ describe.each([
       },
       { columns, rows }
     );
-    await waitForPredicate(() => (result.lastFrame() ?? '').includes('Start a flow'));
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('FLOWS'));
     expect(result.lastFrame() ?? '').not.toContain(WORDMARK_ROW);
   });
 
   it('Flows shows at least one flow row', async () => {
     const { result } = renderFramed(
-      <FlowsView />,
+      <FlowsAliasView />,
       {
         deps,
         initial: { id: 'flows' },

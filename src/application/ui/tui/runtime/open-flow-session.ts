@@ -12,7 +12,7 @@
  * Centralised so the launch call sites (flows / home / context switcher / project-detail / sprints,
  * plus the create-sprint copies folded into {@link useLaunchCreateSprint}) don't each re-stamp
  * the same three-statement tail. Flows-view passes `mode: 'replace'` and runs its own
- * `reload()` afterwards; the reload stays at the call site because it is flows-view-specific.
+ * `reload()` afterwards; the reload stays at the call site because it is the flow launcher-specific.
  *
  * @public
  */
@@ -29,7 +29,7 @@ export interface OpenFlowSessionDeps {
 export interface OpenFlowSessionOpts {
   /**
    * How to route to the Execute view. `push` (default) stacks a new frame so `Esc` returns to
-   * the launching view; `replace` swaps the current frame (flows-view uses this so the menu
+   * the launching view; `replace` swaps the current frame (the flow launcher uses this so the menu
    * isn't left on the stack behind the run).
    */
   readonly mode?: 'push' | 'replace';

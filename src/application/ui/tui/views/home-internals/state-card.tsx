@@ -1,26 +1,14 @@
 /**
- * Home view's main hero card. Three regimes pick the layout:
- *   - no project           → big empty state with "create your first project" CTA
- *   - project, no sprint   → ready-to-start-a-sprint card with a single prominent CTA
- *   - project + sprint     → sprint-centric overview: name + status + counts + pipeline
- *
- * The point: when the user lands on home, the most relevant action should be the visual focus.
- * A dense FieldList of project / repo / ticket metadata buries that action.
+ * Work's hero cards for the states with no sprint to show: no project in storage, none picked, or
+ * a project without a sprint. With a sprint loaded Work renders the header strip + agenda instead.
  */
 
 import React from 'react';
 import { Box, Text } from 'ink';
 import { Card } from '@src/application/ui/tui/components/card.tsx';
-import { sprintStatusKind, StatusChip } from '@src/application/ui/tui/components/status-chip.tsx';
-import { SprintPipeline } from '@src/application/ui/tui/components/sprint-pipeline.tsx';
 import { Spinner } from '@src/application/ui/tui/components/spinner.tsx';
+import type { AppStateSnapshot } from '@src/application/ui/shared/state-snapshot.ts';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
-import { computeTaskHealthCounts, type AppStateSnapshot } from '@src/application/ui/shared/state-snapshot.ts';
-import { plural } from '@src/application/ui/shared/plural.ts';
-import { buildNextSteps, nextStepsInputFromSnapshot } from '@src/application/ui/shared/next-steps.ts';
-import { NextStepList } from '@src/application/ui/tui/components/next-steps.tsx';
-
-const Sep = (): React.JSX.Element => <Text dimColor> {glyphs.bullet} </Text>;
 
 /**
  * A short instruction line: "press <KEY> to <do thing>". Renders the key in highlight, the
@@ -118,69 +106,6 @@ const PickOrCreateSprintCard = ({
   );
 };
 
-/** Regime: a sprint is loaded — the main overview with counts + pipeline + next action. */
-const ActiveSprintCard = ({ state }: { readonly state: AppStateSnapshot }): React.JSX.Element => {
-  const sprint = state.sprint;
-  const project = state.project;
-  if (sprint === undefined || project === undefined) return <Box />;
-  // One shared table for Home, Flows, and the settled ResultCard — and it is checked against the
-  // flow menu's own visibility rules, so `review` no longer points at create-pr (hidden there).
-  const { steps } = buildNextSteps(nextStepsInputFromSnapshot(state));
-  // Independent of `resumableTaskCount` below (which excludes `blocked` entirely) — a sprint
-  // whose entire remainder is blocked used to read "0 tasks pending" with nothing else on the
-  // card to say otherwise.
-  const { blockedTaskCount } = computeTaskHealthCounts(state.tasks);
-  return (
-    <Card
-      title={sprint.name}
-      tone="primary"
-      right={<StatusChip label={sprint.status} kind={sprintStatusKind(sprint.status)} />}
-    >
-      <Box flexDirection="column" paddingX={spacing.indent}>
-        <Box>
-          <Text dimColor>
-            {project.displayName} {glyphs.bullet} {String(project.repositories.length)} repo
-            {project.repositories.length === 1 ? '' : 's'}
-          </Text>
-        </Box>
-        <Box marginTop={spacing.section}>
-          <Text>
-            <Text bold>{plural(sprint.tickets.length, 'ticket')}</Text>
-            <Sep />
-            <Text bold color={inkColors.warning}>
-              {String(state.triggerInputs.pendingTicketCount)}
-            </Text>
-            <Text dimColor> pending</Text>
-            <Sep />
-            <Text bold color={inkColors.success}>
-              {String(state.triggerInputs.approvedTicketCount)}
-            </Text>
-            <Text dimColor> approved</Text>
-            <Sep />
-            <Text bold>{plural(state.triggerInputs.resumableTaskCount, 'task')}</Text>
-            <Text dimColor> pending</Text>
-            {blockedTaskCount > 0 && (
-              <Text>
-                <Sep />
-                <Text bold color={inkColors.error}>
-                  {String(blockedTaskCount)}
-                </Text>
-                <Text dimColor> blocked</Text>
-              </Text>
-            )}
-          </Text>
-        </Box>
-        <Box marginTop={spacing.section}>
-          <SprintPipeline snapshot={state} />
-        </Box>
-        <Box marginTop={spacing.section}>
-          <NextStepList steps={steps} prefix={`${glyphs.bullet} next: `} />
-        </Box>
-      </Box>
-    </Card>
-  );
-};
-
 export const StateCard = ({
   state,
   loading,
@@ -200,5 +125,5 @@ export const StateCard = ({
   if (!state.project) return <PickProjectCard projectCount={state.projectCount} />;
   if (!state.sprint)
     return <PickOrCreateSprintCard projectName={state.project.displayName} sprintCount={state.sprintCount} />;
-  return <ActiveSprintCard state={state} />;
+  return <Box />;
 };

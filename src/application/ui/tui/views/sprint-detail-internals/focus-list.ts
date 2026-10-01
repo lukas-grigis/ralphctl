@@ -48,6 +48,12 @@ export const nextBlockedIndex = (focusList: readonly FocusItem[], fromIdx: numbe
   return undefined;
 };
 
+/** Index of the task with `taskId` in `focusList`, or `undefined` when absent. */
+export const indexOfTask = (focusList: readonly FocusItem[], taskId: string): number | undefined => {
+  const idx = focusList.findIndex((item) => item.kind === 'task' && String(item.task.id) === taskId);
+  return idx >= 0 ? idx : undefined;
+};
+
 /**
  * Controls for the `B` jump-to-next-blocked chord (`shortcuts.ts`) and its footer hint
  * (`detail-body.tsx`'s `buildDetailHints`).

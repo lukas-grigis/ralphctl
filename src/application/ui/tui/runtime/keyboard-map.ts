@@ -34,7 +34,7 @@ export const globalKeys = {
   back: { keys: ['esc'], label: 'back — up one level, or to Work from a section root' },
   sections: { keys: ['1', '2', '3', '4', '5'], label: 'jump to Work / Sprints / Projects / Runs / System' },
   home: { keys: ['h'], label: 'Work, reset to its root' },
-  flows: { keys: ['n'], label: 'new flow (Work › Flows)' },
+  flows: { keys: ['n'], label: 'flows (Work, flow list focused)' },
   cycleSession: { keys: ['Tab', 'Shift+Tab'], label: 'cycle running flow' },
   jumpSession: { keys: ['Ctrl+1..9'], label: 'jump to running flow (kitty-protocol term)' },
   sessions: { keys: ['x'], label: 'Runs' },
@@ -208,7 +208,7 @@ export const executeKeys = {
  * `evaluation` uses `v` (verdict), shared with {@link contextualKeys.openEvaluation} on
  * sprint-detail — the same deliberate overlap as `e` above, and for the same reason: the live
  * Execute view and the sprint-detail browse view are never mounted at once, so the two `v`
- * handlers cannot both see a keystroke. (`flows-view` binds a third, equally disjoint `v`.)
+ * handlers cannot both see a keystroke. (Work binds a third, equally disjoint `v`.)
  * OPENING is view-local because only a view knows which card the cursor is on; CLOSING is global
  * (`use-global-keys`) so `esc` / `v` beat the hidden view's handler.
  *

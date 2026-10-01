@@ -7,7 +7,7 @@
  * on selection ids, so without this subscription the flows menu and home overview keep showing
  * launch-time counts (e.g. "refine tickets (N pending)") until the user manually presses `r`.
  *
- * Shared by `useAppStateSnapshot` (flows-view, home-view) and `useSprintBundle` (sprint-detail),
+ * Shared by `useAppStateSnapshot` (the flow launcher, home-view) and `useSprintBundle` (sprint-detail),
  * which is where this subscription originated.
  *
  * We diff session statuses rather than reloading on every `notify()` because the session manager
