@@ -7,6 +7,7 @@ import {
   type LiveRunRecord,
   type LiveRunSpawn,
   type LiveRunStore,
+  type ProcessIdentity,
   type ProcessLiveness,
 } from '@src/business/runs/live-run.ts';
 
@@ -23,17 +24,22 @@ export interface DetectInterruptedRunsDeps {
 }
 
 /**
- * The owner is gone when its pid is dead, or alive but no longer the recorded process (a recycled
- * pid). Only meaningful for a record from this machine.
+ * A process is gone when its pid is dead, or alive but no longer the recorded process (a recycled
+ * pid). Only meaningful for a pid from this machine.
  */
-export const ownerGone = async (record: LiveRunRecord, liveness: ProcessLiveness): Promise<boolean> => {
-  const { owner } = record;
+export const processGone = async (
+  owner: { readonly pid: number; readonly identity?: ProcessIdentity },
+  liveness: ProcessLiveness
+): Promise<boolean> => {
   if (!liveness.isAlive(owner.pid)) return true;
   if (owner.identity === undefined) return false;
   const current = await liveness.identify(owner.pid);
-  // An unidentifiable live pid proves nothing — treat the run as still owned.
+  // An unidentifiable live pid proves nothing — treat it as still the owner.
   return current !== undefined && !sameIdentity(current, owner.identity);
 };
+
+export const ownerGone = (record: LiveRunRecord, liveness: ProcessLiveness): Promise<boolean> =>
+  processGone(record.owner, liveness);
 
 export interface DetectInterruptedRuns {
   execute(): Promise<Result<readonly InterruptedRun[], StorageError>>;

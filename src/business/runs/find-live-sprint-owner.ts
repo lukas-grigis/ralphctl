@@ -2,13 +2,22 @@ import { Result } from '@src/domain/result.ts';
 import type { StorageError } from '@src/domain/value/error/storage-error.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { Slug } from '@src/domain/value/slug.ts';
-import { sameMachine, type LiveRunStore, type MachineRef, type ProcessLiveness } from '@src/business/runs/live-run.ts';
-import { ownerGone } from '@src/business/runs/detect-interrupted-runs.ts';
+import {
+  sameMachine,
+  type LiveRunStore,
+  type MachineRef,
+  type ProcessIdentity,
+  type ProcessLiveness,
+} from '@src/business/runs/live-run.ts';
+import { ownerGone, processGone } from '@src/business/runs/detect-interrupted-runs.ts';
 
 export interface LockHolder extends MachineRef {
   readonly pid: number;
+  /** `ps` identity the holder stamped; compared so a recycled pid does not read as the holder. */
+  readonly identity?: ProcessIdentity;
 }
 
+/** Resolves the holder of a sprint's flow lock, or `undefined` when there is none or its heartbeat has gone stale. */
 export interface SprintLockReader {
   holderOf(sprint: { readonly id: SprintId; readonly slug: Slug }): Promise<LockHolder | undefined>;
 }
@@ -47,7 +56,7 @@ export const createFindLiveSprintOwner = (deps: FindLiveSprintOwnerDeps): FindLi
       }
     }
     const holder = await deps.locks.holderOf(sprint);
-    if (holder !== undefined && foreignHere(holder) && deps.liveness.isAlive(holder.pid)) {
+    if (holder !== undefined && foreignHere(holder) && !(await processGone(holder, deps.liveness))) {
       return Result.ok({ pid: holder.pid, via: 'lock' }) as Result<LiveSprintOwner, StorageError>;
     }
     return Result.ok(undefined) as Result<LiveSprintOwner | undefined, StorageError>;

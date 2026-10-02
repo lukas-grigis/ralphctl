@@ -78,6 +78,7 @@ describe('scanHousekeepingUseCase over a real data root', () => {
     await writeFile(join(memory, `${FIXED_PROJECT_ID}--demo-project`, 'learnings.ndjson'), 'kept\n');
     await writeFile(join(memory, `${ORPHAN_PROJECT_ID}--gone`, 'learnings.ndjson'), '0123456789');
     await writeFile(join(memory, '.DS_Store'), 'x');
+    await writeFile(join(memory, 'backup', 'learnings.ndjson'), 'hand-made');
 
     const runs = String(paths.runsRoot);
     await writeFile(join(runs, 'detect-scripts', '2026-01-01T00-00-00-000Z-aaaaaa', 'prompt.md'), 'old run');

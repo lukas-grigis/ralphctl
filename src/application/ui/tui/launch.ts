@@ -422,6 +422,8 @@ export const launchTui = async (options: LaunchTuiOptions = {}): Promise<void> =
   try {
     await host.waitForShutdown();
   } finally {
+    // Land pending live-run record removals before exit, or the next launch reads a false interruption.
+    await booted.app.deps.inProcessRuns.flush();
     booted.drain();
   }
 };

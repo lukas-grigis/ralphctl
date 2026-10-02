@@ -51,3 +51,25 @@ describe('createInProcessRuns', () => {
     expect(await runs.anyRunActive()).toBe(false);
   });
 });
+
+describe('createInProcessRuns — flush', () => {
+  it('waits for the recorder to go idle', async () => {
+    let idled = false;
+    const runs = createInProcessRuns({
+      recorder: {
+        begin: () => undefined,
+        end: () => undefined,
+        idle: () => new Promise<void>((resolve) => setTimeout(() => ((idled = true), resolve()), 5)),
+      },
+    });
+    await runs.flush();
+    expect(idled).toBe(true);
+  });
+
+  it('gives up after timeoutMs when a record write never lands, so quitting cannot hang', async () => {
+    const runs = createInProcessRuns({
+      recorder: { begin: () => undefined, end: () => undefined, idle: () => new Promise<void>(() => undefined) },
+    });
+    await expect(runs.flush({ timeoutMs: 10 })).resolves.toBeUndefined();
+  });
+});

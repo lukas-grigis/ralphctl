@@ -16,23 +16,31 @@ export interface RunCommandResult {
 
 /**
  * One-shot command runner used by sanity probes (doctor) — captures stdout/stderr and exit
- * code without surfacing process-spawn errors as exceptions. Stripped of the cwd/env knobs
- * the longer-running runners need; probes only ever ask "did `gh auth status` exit clean?".
+ * code without surfacing process-spawn errors as exceptions. No cwd knob and only an env
+ * overlay; probes only ever ask "did `gh auth status` exit clean?".
  *
  * Spawns through {@link crossPlatformSpawn} rather than `execFile` so Windows `.cmd` shims
  * resolve — `gh` / `codex` are installed as `gh.cmd` / `codex.cmd` by npm/winget, which a bare
  * `execFile` cannot launch. A 5s wall-clock timeout kills a wedged probe and resolves with
  * `ok: false`.
  */
-export type RunCommand = (name: string, args: readonly string[]) => Promise<RunCommandResult>;
+export type RunCommand = (name: string, args: readonly string[], opts?: RunCommandOptions) => Promise<RunCommandResult>;
+
+export interface RunCommandOptions {
+  /** Merged over the inherited environment (e.g. `LC_ALL=C` to pin a tool's output format). */
+  readonly env?: Readonly<Record<string, string>>;
+}
 
 const PROBE_TIMEOUT_MS = 5000;
 
-export const runCommand: RunCommand = (name, args) =>
+export const runCommand: RunCommand = (name, args, opts = {}) =>
   new Promise((resolve) => {
     let child;
     try {
-      child = crossPlatformSpawn(name, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+      child = crossPlatformSpawn(name, args, {
+        stdio: ['ignore', 'pipe', 'pipe'],
+        ...(opts.env !== undefined ? { env: { ...process.env, ...opts.env } } : {}),
+      });
     } catch {
       // Synchronous spawn failure (e.g. invalid command shape) — treat as missing binary.
       resolve({ ok: false, code: null, stdout: '', stderr: '' });

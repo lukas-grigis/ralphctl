@@ -94,7 +94,8 @@ import {
   createDismissInterruptedRuns,
   type DismissInterruptedRuns,
 } from '@src/business/runs/dismiss-interrupted-runs.ts';
-import { anyRunActivity } from '@src/business/_shared/run-activity-probe.ts';
+import { anyRunActivity, type RunActivityProbe } from '@src/business/_shared/run-activity-probe.ts';
+import { createLiveRunActivityProbe } from '@src/business/runs/live-run-activity-probe.ts';
 import type { FileLogSink, FileLogSinkDeps } from '@src/integration/observability/_engine/file-log-sink.ts';
 
 /**
@@ -357,7 +358,7 @@ const buildLiveRunServices = (
   | 'reapInterruptedRuns'
   | 'dismissInterruptedRuns'
   | 'findLiveSprintOwner'
-> => {
+> & { readonly liveRunActivity: RunActivityProbe } => {
   const store = createFsLiveRunStore({ stateRoot: storage.stateRoot });
   const liveness = createProcessLiveness();
   const now = (): string => String(IsoTimestamp.now());
@@ -376,6 +377,7 @@ const buildLiveRunServices = (
     }),
     childRegistry,
     detectInterruptedRuns,
+    liveRunActivity: createLiveRunActivityProbe({ store, liveness }),
     findLiveSprintOwner: createFindLiveSprintOwner({
       store,
       liveness,
@@ -397,7 +399,8 @@ const buildLiveRunServices = (
 const buildDataServices = (
   storage: StoragePaths,
   logger: Logger,
-  inProcessRuns: InProcessRuns
+  inProcessRuns: InProcessRuns,
+  liveRunActivity: RunActivityProbe
 ): Pick<AppDeps, 'projectRepo' | 'sprintRepo' | 'housekeeping' | 'projectRemoval' | 'sprintRemoval'> => {
   const projectRepo = createFsProjectRepository({ root: storage.dataRoot });
   const sprintRepo = createFsSprintRepository({ root: storage.dataRoot });
@@ -406,7 +409,7 @@ const buildDataServices = (
     memoryRoot: storage.memoryRoot,
     runsRoot: storage.runsRoot,
   });
-  const runActivity = anyRunActivity(inProcessRuns, createLockRunActivityProbe(storage.stateRoot));
+  const runActivity = anyRunActivity(inProcessRuns, liveRunActivity, createLockRunActivityProbe(storage.stateRoot));
   return {
     projectRepo,
     sprintRepo,
@@ -474,11 +477,11 @@ export const wire = (opts: WireOptions): AppDeps => {
   // GitRunner instance AppDeps already exposes.
   const gitRunner = createGitRunner();
   const taskRepo = createFsTaskRepository({ root: opts.storage.dataRoot, fileLocker });
-  const liveRuns = buildLiveRunServices(opts.storage, logger, taskRepo);
+  const { liveRunActivity, ...liveRuns } = buildLiveRunServices(opts.storage, logger, taskRepo);
   return {
     storage: opts.storage,
     ...liveRuns,
-    ...buildDataServices(opts.storage, logger, liveRuns.inProcessRuns),
+    ...buildDataServices(opts.storage, logger, liveRuns.inProcessRuns, liveRunActivity),
     sprintExecutionRepo: createFsSprintExecutionRepository({ root: opts.storage.dataRoot }),
     taskRepo,
     settings: opts.settings,

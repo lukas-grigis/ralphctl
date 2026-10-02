@@ -40,6 +40,20 @@ export const signalProcessGroup = (pgid: number, sig: NodeJS.Signals): boolean =
   }
 };
 
+/**
+ * Whether any process is still in group `pgid`. `ESRCH` means gone; `EPERM` (another user's group)
+ * and any other failure prove nothing, so both count as alive.
+ */
+export const isProcessGroupAlive = (pgid: number): boolean => {
+  if (!supportsProcessGroups() || !Number.isInteger(pgid) || pgid <= 1) return false;
+  try {
+    process.kill(-pgid, 0);
+    return true;
+  } catch (cause) {
+    return (cause as { code?: unknown } | null)?.code !== 'ESRCH';
+  }
+};
+
 /** Kill the child's whole process group when it leads one, else just the child. Never throws. */
 export const killProcessTree = (child: Pick<ChildProcess, 'pid' | 'kill'>, sig: NodeJS.Signals): void => {
   const pgid = processGroupOf(child);

@@ -85,10 +85,12 @@ const purgeStaleSprint = async (props: PurgeHousekeepingProps, c: StaleSprintCan
   const current = await props.sprintRepo.findById(c.sprintId);
   if (!current.ok) return current.error instanceof NotFoundError ? removed(0) : failed(current.error.message);
   if (current.value.status !== 'done') return skipped(`sprint is ${current.value.status} again`);
+  if (current.value.doneAt !== c.doneAt) return skipped('sprint was reopened and closed again');
   return removeSprint(props.sprintRepo, c.sprintId, c.bytes);
 };
 
 const purgeOrphanMemory = async (props: PurgeHousekeepingProps, c: OrphanMemoryCandidate): Promise<Outcome> => {
+  if (!ProjectId.parse(c.projectId).ok) return skipped('not a project memory dir');
   const gone = await projectIsGone(props.projectRepo, c.projectId);
   if (gone !== true) return gone;
   const r = await props.disk.removeMemoryDirs(c.projectId);

@@ -2,8 +2,8 @@ import * as nodeFs from 'node:fs';
 import { promises as fs } from 'node:fs';
 import { dirname, join } from 'node:path';
 import properLockfile from 'proper-lockfile';
-import { currentMachine, isProcessAlive } from '@src/integration/io/process-liveness.ts';
-import { sameMachine, type MachineRef } from '@src/business/runs/live-run.ts';
+import { currentMachine, currentProcessIdentity, isProcessAlive } from '@src/integration/io/process-liveness.ts';
+import { sameMachine, type MachineRef, type ProcessIdentity } from '@src/business/runs/live-run.ts';
 import { Result } from '@src/domain/result.ts';
 import { messageOf } from '@src/domain/value/error/error-message.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
@@ -28,7 +28,7 @@ import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
  * All failures map to `StorageError({ subCode: 'lock' })`. The release runs in a `finally` so the
  * lock is always cleared, even when the wrapped function throws.
  *
- * **Owner file.** A lock taken with a `purpose` carries `owner.json` (pid, host, process start,
+ * **Owner file.** A lock taken with a `purpose` carries `owner.json` (pid, host, process start, `ps` identity,
  * purpose) inside the lock directory, written before the library stamps the directory's mtime so
  * the heartbeat's "mtime is still ours" check is undisturbed. It buys two things: a lock whose
  * owner pid is dead on this host is reclaimed at once instead of after `staleAfterMs`, and
@@ -109,6 +109,8 @@ interface LockOwner extends MachineRef {
   readonly startedAt: string;
   readonly acquiredAt: string;
   readonly purpose?: string;
+  /** `ps` identity of the holder, so a reader can tell a recycled pid from the original holder. */
+  readonly identity?: ProcessIdentity;
 }
 
 const OWNER_FILE = 'owner.json';
@@ -127,7 +129,8 @@ export const readLockOwner = async (lockDir: string): Promise<LockOwner | undefi
   }
 };
 
-const ownerDeadHere = async (owner: LockOwner): Promise<boolean> =>
+/** The owner pid is dead on this machine (and is not us), so its lock is a crash leftover. */
+export const ownerDeadHere = async (owner: LockOwner): Promise<boolean> =>
   sameMachine(owner, await currentMachine()) && owner.pid !== process.pid && !isProcessAlive(owner.pid);
 
 /**
@@ -195,6 +198,7 @@ export const createFileLocker = (opts: FileLockerOptions = {}): FileLocker => {
     lockOpts: WithLockOptions = {}
   ): Promise<Result<T, StorageError>> => {
     const path = String(lockPath);
+    const identity = lockOpts.purpose === undefined ? undefined : await currentProcessIdentity();
     const owner: LockOwner | undefined =
       lockOpts.purpose === undefined
         ? undefined
@@ -204,6 +208,7 @@ export const createFileLocker = (opts: FileLockerOptions = {}): FileLocker => {
             startedAt: processStartedAt(),
             acquiredAt: new Date().toISOString(),
             purpose: lockOpts.purpose,
+            ...(identity !== undefined ? { identity } : {}),
           };
     // Aborts if the held lock is compromised — handed to `fn` so a long-running holder can tear
     // its work down instead of mutating a resource a competitor may have taken over.

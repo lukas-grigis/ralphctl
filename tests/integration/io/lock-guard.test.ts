@@ -3,8 +3,9 @@
  * lock is held, so none of them races a running flow that has a sprint dir path baked into its ctx.
  */
 
+import { spawn } from 'node:child_process';
 import { promises as fs } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { hostname, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { absolutePath } from '@tests/fixtures/domain.ts';
@@ -22,6 +23,19 @@ afterEach(async () => {
 });
 
 const locksDir = () => join(stateRoot, 'locks');
+
+const deadPid = async (): Promise<number> => {
+  const child = spawn(process.execPath, ['-e', ''], { stdio: 'ignore' });
+  await new Promise((resolve) => child.once('exit', resolve));
+  return child.pid!;
+};
+
+/** A fresh lock dir whose `owner.json` names `pid` on `host`. */
+const plantOwnedLock = async (name: string, pid: number, host = hostname()): Promise<void> => {
+  const lock = join(locksDir(), name);
+  await fs.mkdir(lock, { recursive: true });
+  await fs.writeFile(join(lock, 'owner.json'), JSON.stringify({ pid, host, startedAt: 'x', acquiredAt: 'y' }));
+};
 
 describe('anyLockHeld', () => {
   it('absent locks dir → not held', async () => {
@@ -69,6 +83,22 @@ describe('anyLockHeld', () => {
     const pastMtime = new Date(Date.now() - (DEFAULT_STALE_AFTER_MS + 1_000));
     await fs.utimes(justPast, pastMtime, pastMtime);
     expect(await anyLockHeld(absolutePath(stateRoot))).toBe(false);
+  });
+});
+
+describe('anyLockHeld — owner file', () => {
+  it('a fresh lock whose owner pid is dead on this machine → NOT held', async () => {
+    await plantOwnedLock('repo-crashed.lock', await deadPid());
+    expect(await anyLockHeld(absolutePath(stateRoot))).toBe(false);
+  });
+
+  it('a fresh lock whose owner is alive, or dead on another machine → held', async () => {
+    await plantOwnedLock('repo-alive.lock', process.ppid);
+    expect(await anyLockHeld(absolutePath(stateRoot))).toBe(true);
+
+    await fs.rm(join(locksDir(), 'repo-alive.lock'), { recursive: true, force: true });
+    await plantOwnedLock('repo-elsewhere.lock', await deadPid(), 'some-other-host');
+    expect(await anyLockHeld(absolutePath(stateRoot))).toBe(true);
   });
 });
 

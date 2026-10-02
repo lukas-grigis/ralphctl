@@ -35,7 +35,7 @@ const staleSprint = (sprint: Sprint, bytes = 50): StaleSprintCandidate => ({
   sprintId: sprint.id,
   projectId: sprint.projectId,
   name: sprint.name,
-  doneAt: isoTimestamp('2026-01-01T00:00:00.000Z'),
+  doneAt: sprint.doneAt ?? isoTimestamp('2026-01-01T00:00:00.000Z'),
   ticketCount: 0,
   bytes,
 });
@@ -148,6 +148,24 @@ describe('purgeHousekeepingUseCase', () => {
     if (!r.ok) throw r.error;
     expect(r.value.skipped).toEqual([{ candidate: staleSprint(reopened), reason: 'sprint is active again' }]);
     expect(h.removedSprints).toEqual([]);
+  });
+
+  it('skips a stale sprint that was reopened and closed again since the scan', async () => {
+    const done = makeDoneSprint();
+    const h = harness({ sprints: [done] });
+    const scanned = { ...staleSprint(done), doneAt: isoTimestamp('2026-01-01T00:00:00.000Z') };
+    const r = await purgeHousekeepingUseCase(h.props([scanned]));
+    if (!r.ok) throw r.error;
+    expect(r.value.skipped).toEqual([{ candidate: scanned, reason: 'sprint was reopened and closed again' }]);
+    expect(h.removedSprints).toEqual([]);
+  });
+
+  it('never removes a memory dir whose name carries no project id', async () => {
+    const h = harness({});
+    const r = await purgeHousekeepingUseCase(h.props([orphanMemory('backup')]));
+    if (!r.ok) throw r.error;
+    expect(r.value.skipped).toEqual([{ candidate: orphanMemory('backup'), reason: 'not a project memory dir' }]);
+    expect(h.removedMemory).toEqual([]);
   });
 
   it('keeps going past a failure and reports it', async () => {

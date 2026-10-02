@@ -11,6 +11,7 @@ import type {
 import { createDetectInterruptedRuns } from '@src/business/runs/detect-interrupted-runs.ts';
 import { createReapInterruptedRuns } from '@src/business/runs/reap-interrupted-runs.ts';
 import { createFindLiveSprintOwner, type LockHolder } from '@src/business/runs/find-live-sprint-owner.ts';
+import { createLiveRunActivityProbe } from '@src/business/runs/live-run-activity-probe.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { Slug } from '@src/domain/value/slug.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
@@ -128,6 +129,36 @@ describe('detectInterruptedRuns', () => {
   });
 });
 
+describe('liveRunActivityProbe', () => {
+  const probeFor = (store: Pick<LiveRunStore, 'list'>, world: World) =>
+    createLiveRunActivityProbe({ store, liveness: livenessOf(world) });
+
+  it('is active while another live process on this machine owns a run, lock-less flows included', async () => {
+    const probe = probeFor(storeOf([record('plan', 12, { flowId: 'plan' })]), { alive: new Set([12]) });
+    expect(await probe.anyRunActive()).toBe(true);
+  });
+
+  it('ignores dead owners, recycled pids, this process and other machines', async () => {
+    const probe = probeFor(
+      storeOf([
+        record('dead', 11),
+        record('recycled', 12, { owner: { pid: 12, host: HOST, startedAt: 'x', identity: ID_A } }),
+        record('mine', SELF_PID, { owner: { pid: SELF_PID, host: HOST, startedAt: 'x' } }),
+        record('remote', 13, { owner: { pid: 13, host: 'elsewhere', machineId: 'other', startedAt: 'x' } }),
+      ]),
+      { alive: new Set([12, 13, SELF_PID]), identities: new Map([[12, ID_B]]) }
+    );
+    expect(await probe.anyRunActive()).toBe(false);
+  });
+
+  it('refuses (reports active) when the records cannot be listed', async () => {
+    const failing: Pick<LiveRunStore, 'list'> = {
+      list: () => Promise.resolve(Result.error({ subCode: 'io' } as unknown as StorageError)),
+    };
+    expect(await probeFor(failing, { alive: new Set() }).anyRunActive()).toBe(true);
+  });
+});
+
 describe('findLiveSprintOwner', () => {
   const SPRINT = { id: 'sprint-1' as SprintId, slug: 'demo' as Slug };
   const ownerFor = (records: readonly LiveRunRecord[], world: World, holder?: LockHolder) =>
@@ -168,6 +199,30 @@ describe('findLiveSprintOwner', () => {
     );
     const result = await find.execute(SPRINT);
     expect(result.ok && result.value).toBeUndefined();
+  });
+
+  it('ignores a lock holder whose live pid is no longer the process that stamped the lock', async () => {
+    const recycled = ownerFor(
+      [],
+      { alive: new Set([13]), identities: new Map([[13, ID_B]]) },
+      {
+        pid: 13,
+        host: HOST,
+        identity: ID_A,
+      }
+    );
+    const result = await recycled.execute(SPRINT);
+    expect(result.ok && result.value).toBeUndefined();
+  });
+
+  it('keeps a lock holder whose identity matches, or whose live pid cannot be identified', async () => {
+    const holder: LockHolder = { pid: 13, host: HOST, identity: ID_A };
+    const same = ownerFor([], { alive: new Set([13]), identities: new Map([[13, ID_A]]) }, holder);
+    const unknown = ownerFor([], { alive: new Set([13]) }, holder);
+    for (const find of [same, unknown]) {
+      const result = await find.execute(SPRINT);
+      expect(result.ok && result.value).toEqual({ pid: 13, via: 'lock' });
+    }
   });
 });
 

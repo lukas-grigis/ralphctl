@@ -137,9 +137,11 @@ is held across the whole run by the implement flow (serial path via `withRepoLoc
 key directly) and by the review flow (`withRepoLock`, same sprint-dir key — implement and review of one
 sprint mutually exclude). `withRepoLock` (`flows/_shared/`) is the one ctx-generic wrapper both use.
 
-**Lock owner.** A lock taken with a `purpose` carries `owner.json` (pid, host, machine id, process start, purpose)
-inside the lock directory. A lock whose owner pid is dead on this machine is reclaimed at once rather than after
-`staleAfterMs`; a live or other-machine owner still waits for the heartbeat to go stale. Contention names the holder
+**Lock owner.** A lock taken with a `purpose` carries `owner.json` (pid, host, machine id, process start, `ps`
+identity, purpose) inside the lock directory. A lock whose owner pid is dead on this machine is reclaimed at once
+rather than after `staleAfterMs`; a live or other-machine owner still waits for the heartbeat to go stale. The same
+dead-owner check keeps `anyLockHeld` (`integration/io/lock-guard.ts`, the purge / removal / migration guard) from
+counting a crash leftover as held for the rest of its stale window. Contention names the holder
 ("another ralphctl (pid N) is running implement on this repo"). The `fs` handed to `proper-lockfile` unlinks
 `owner.json` before its bare `rmdir`.
 
@@ -155,8 +157,11 @@ between machines (NFS home) would then let one machine reclaim another's live lo
 
 **Another process on the same sprint.** A `running` attempt is shown as interrupted only when no other live
 ralphctl on this machine works the sprint: `findLiveSprintOwner` (`business/runs/`) checks the live-run records
-naming the sprint (owner alive, same process identity) and the sprint lock's `owner.json`. While that check is
-pending or fails, Work hides the interrupted rows and re-checks every 5s.
+naming the sprint (owner alive, same process identity) and the sprint lock's `owner.json` — counted only while the
+lock's heartbeat is within the stale window and the owner pid is alive with the stamped `ps` identity (an
+unidentifiable live pid still counts), so a crash leftover with a recycled pid can't hide interrupted tasks. `ps`
+runs with `LC_ALL=C`, since `lstart` is localised otherwise and would silently disable every identity check.
+While that check is pending or fails, Work hides the interrupted rows and re-checks every 5s.
 
 **Process groups and the orphan reaper.** Headless AI CLI children are spawned `detached: true` on non-Windows,
 so each leads its own process group; interactive spawns keep the terminal. Abort and the idle watchdog kill the

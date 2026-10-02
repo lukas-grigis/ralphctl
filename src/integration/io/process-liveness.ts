@@ -7,7 +7,11 @@ import type {
   ProcessLiveness,
 } from '@src/business/runs/live-run.ts';
 import { runCommand, type RunCommand } from '@src/integration/io/run-command.ts';
-import { signalProcessGroup, supportsProcessGroups } from '@src/integration/io/kill-process-tree.ts';
+import {
+  isProcessGroupAlive,
+  signalProcessGroup,
+  supportsProcessGroups,
+} from '@src/integration/io/kill-process-tree.ts';
 import { DEFAULT_KILL_GRACE_MS } from '@src/integration/io/kill-with-escalation.ts';
 
 const errnoCode = (cause: unknown): string | undefined =>
@@ -28,17 +32,6 @@ export const isProcessAlive = (pid: number): boolean => {
   }
 };
 
-/** Whether any process is still in group `pgid`. Same EPERM rule as {@link isProcessAlive}. */
-const isProcessGroupAlive = (pgid: number): boolean => {
-  if (!supportsProcessGroups() || !Number.isInteger(pgid) || pgid <= 1) return false;
-  try {
-    process.kill(-pgid, 0);
-    return true;
-  } catch (cause) {
-    return errnoCode(cause) !== 'ESRCH';
-  }
-};
-
 /** This machine's name, as recorded in lock owner files and live-run records. */
 export const currentHost = (): string => hostname();
 
@@ -46,7 +39,7 @@ const LINUX_MACHINE_ID_FILES = ['/etc/machine-id', '/var/lib/dbus/machine-id'];
 const MAC_PLATFORM_UUID = /"IOPlatformUUID" = "([^"]+)"/;
 
 /** `undefined` on Windows (its hostname is stable) or when unreadable; callers then compare hostnames. */
-const readMachineId = async (run: RunCommand): Promise<string | undefined> => {
+export const readMachineId = async (run: RunCommand): Promise<string | undefined> => {
   if (process.platform === 'linux') {
     for (const file of LINUX_MACHINE_ID_FILES) {
       try {
@@ -79,7 +72,8 @@ const identifyWith =
   (run: RunCommand) =>
   async (pid: number): Promise<ProcessIdentity | undefined> => {
     if (!supportsProcessGroups() || !Number.isInteger(pid) || pid <= 0) return undefined;
-    const result = await run('ps', ['-o', 'lstart=', '-o', 'comm=', '-p', String(pid)]);
+    // lstart follows LC_TIME (de_DE prints "Fr.  2 Okt. …"), so pin the C locale or the match fails.
+    const result = await run('ps', ['-o', 'lstart=', '-o', 'comm=', '-p', String(pid)], { env: { LC_ALL: 'C' } });
     if (!result.ok) return undefined;
     const line = result.stdout.trim();
     // lstart is a fixed five-field date ("Thu Oct  1 21:11:32 2026"); comm is the rest.
@@ -87,6 +81,12 @@ const identifyWith =
     if (match === null) return undefined;
     return { startedAt: match[1]!.replace(/\s+/g, ' '), command: match[2]!.trim() };
   };
+
+let selfIdentityOnce: Promise<ProcessIdentity | undefined> | undefined;
+
+/** This process's `ps` identity, probed once; stamped into lock owner files. */
+export const currentProcessIdentity = (run: RunCommand = runCommand): Promise<ProcessIdentity | undefined> =>
+  (selfIdentityOnce ??= identifyWith(run)(process.pid));
 
 export interface ProcessLivenessDeps {
   /** Test seam for the `ps` call. */

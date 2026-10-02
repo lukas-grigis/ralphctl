@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { RunActivityProbe } from '@src/business/_shared/run-activity-probe.ts';
 import { listDir } from '@src/integration/io/fs.ts';
-import { DEFAULT_STALE_AFTER_MS } from '@src/integration/io/file-locker.ts';
+import { DEFAULT_STALE_AFTER_MS, ownerDeadHere, readLockOwner } from '@src/integration/io/file-locker.ts';
 
 const LOCKS_SUBDIR = 'locks';
 
@@ -28,7 +28,8 @@ const HELD_WITHIN_MS: number = DEFAULT_STALE_AFTER_MS;
  *
  * A lock is a `proper-lockfile` directory (`repo-<hash>.lock`) whose mtime is heartbeated while its
  * holder is alive. We treat a lock as held when its mtime is within {@link HELD_WITHIN_MS}; an older
- * entry is a stale crash-leftover and is ignored. An absent / empty `locks/` dir ⇒ no lock held.
+ * entry is a stale crash-leftover and is ignored, as is a fresh one whose `owner.json` names a pid
+ * that is dead on this machine. An absent / empty `locks/` dir ⇒ no lock held.
  *
  * @public
  */
@@ -40,15 +41,20 @@ export const anyLockHeld = async (stateRoot: AbsolutePath): Promise<boolean> => 
   const now = Date.now();
   for (const name of entries.value) {
     if (!name.endsWith('.lock')) continue;
-    let mtimeMs: number;
+    const lockPath = join(locksDir, name);
+    let stat: Awaited<ReturnType<typeof fs.lstat>>;
     try {
       // `lstat`, not `stat`: read the entry itself rather than following it, so a symlinked lock entry
       // cannot masquerade as a fresh lock by pointing at a recently-touched file elsewhere.
-      ({ mtimeMs } = await fs.lstat(join(locksDir, name)));
+      stat = await fs.lstat(lockPath);
     } catch {
       continue; // vanished between listdir and lstat — not held
     }
-    if (now - mtimeMs <= HELD_WITHIN_MS) return true;
+    if (now - stat.mtimeMs > HELD_WITHIN_MS) continue;
+    // A crashed holder's dir stays fresh for the whole window; its owner file says it is already gone.
+    const owner = stat.isDirectory() ? await readLockOwner(lockPath) : undefined;
+    if (owner !== undefined && (await ownerDeadHere(owner))) continue;
+    return true;
   }
   return false;
 };

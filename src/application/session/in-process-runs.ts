@@ -35,8 +35,8 @@ export interface InProcessRuns extends RunActivityProbe {
    * gone from disk — or, after `timeoutMs`, kill the registered process groups and resolve with `forced`.
    */
   abortAll(reason?: string, opts?: AbortAllOptions): Promise<AbortAllOutcome>;
-  /** Resolves once every queued live-run record write and removal has landed. */
-  flush(): Promise<void>;
+  /** Resolves once every queued live-run record write and removal has landed, or after `timeoutMs` (best effort). */
+  flush(opts?: AbortAllOptions): Promise<void>;
 }
 
 export interface AbandonedRun {
@@ -130,8 +130,9 @@ export const createInProcessRuns = (deps: InProcessRunsDeps = {}): InProcessRuns
       const stuckFlows = stopping.filter(([runner]) => active.has(runner)).map(([, run]) => run.meta.flowId);
       return { runs: stopping.length, forced: true, stuckFlows, killed: deps.children?.killAll() ?? 0 };
     },
-    flush: async () => {
-      await deps.recorder?.idle();
+    flush: async (opts = {}) => {
+      if (deps.recorder === undefined) return;
+      await withinTimeout(deps.recorder.idle(), opts.timeoutMs ?? ABORT_ALL_TIMEOUT_MS);
     },
   };
 };

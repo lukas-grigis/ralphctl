@@ -1,5 +1,5 @@
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
-import { killProcessTree, processGroupOf } from '@src/integration/io/kill-process-tree.ts';
+import { isProcessGroupAlive, killProcessTree, processGroupOf } from '@src/integration/io/kill-process-tree.ts';
 
 /**
  * Stuck-process safeguard for headless AI spawns.
@@ -57,6 +57,9 @@ export const installIdleWatchdog = (child: ChildProcessWithoutNullStreams, opts:
   const escalate = (): void => {
     killGraceTimer = setTimeout(() => {
       killGraceTimer = null;
+      // The group may have emptied during the grace; its pgid could already lead someone else's group.
+      const pgid = processGroupOf(child);
+      if (pgid !== undefined && !isProcessGroupAlive(pgid)) return;
       killProcessTree(child, 'SIGKILL');
     }, graceMs);
   };

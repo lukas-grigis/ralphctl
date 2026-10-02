@@ -4,7 +4,7 @@ import type { Project } from '@src/domain/entity/project.ts';
 import type { Sprint, SprintStatus } from '@src/domain/entity/sprint.ts';
 import type { ListAll } from '@src/domain/repository/_base/list-all.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
-import type { ProjectId } from '@src/domain/value/id/project-id.ts';
+import { ProjectId } from '@src/domain/value/id/project-id.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { StorageError } from '@src/domain/value/error/storage-error.ts';
 import { ValidationError } from '@src/domain/value/error/validation-error.ts';
@@ -174,7 +174,8 @@ export const scanHousekeepingUseCase = async (
   const { orphans, stale } = await classifySprints(sprints.value, projectIds, props.disk, nowMs, thresholdMs);
 
   const orphanMemoryDirs: OrphanMemoryCandidate[] = memoryDirs.value
-    .filter((dir) => !projectIds.has(dir.projectId))
+    // A dir without a project-id prefix (a hand-made backup, `.git`) isn't ours to reclaim.
+    .filter((dir) => ProjectId.parse(dir.projectId).ok && !projectIds.has(dir.projectId))
     .map((dir) => ({ kind: 'orphan-memory', projectId: dir.projectId, name: dir.name, bytes: dir.bytes }));
   orphanMemoryDirs.sort((a, b) => a.name.localeCompare(b.name));
 

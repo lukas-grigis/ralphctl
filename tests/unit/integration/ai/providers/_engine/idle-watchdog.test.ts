@@ -221,7 +221,27 @@ describe('installIdleWatchdog — process-group leaders', () => {
     wd.stop(); // the leader exited on SIGTERM; its tool subprocesses may not have
     vi.advanceTimersByTime(500);
 
-    expect(signalled).toEqual(['-4242:SIGTERM', '-4242:SIGKILL']);
+    expect(signalled).toEqual(['-4242:SIGTERM', '-4242:0', '-4242:SIGKILL']);
+    expect(kills).toEqual([]);
+  });
+
+  it('skips the delayed SIGKILL when the group emptied during the grace (its pgid may be reused)', () => {
+    const signalled: string[] = [];
+    vi.spyOn(process, 'kill').mockImplementation((pid: number, sig?: string | number) => {
+      signalled.push(`${String(pid)}:${String(sig)}`);
+      if (sig === 0) throw Object.assign(new Error('kill ESRCH'), { code: 'ESRCH' });
+      return true;
+    });
+    const { child, kills } = makeFakeChild();
+    Object.assign(child, { pid: 4242 });
+    markProcessGroupLeader(child);
+    const wd = installIdleWatchdog(child, { idleMs: 1000, graceMs: 500 });
+
+    vi.advanceTimersByTime(1000);
+    wd.stop();
+    vi.advanceTimersByTime(500);
+
+    expect(signalled).toEqual(['-4242:SIGTERM', '-4242:0']);
     expect(kills).toEqual([]);
   });
 });

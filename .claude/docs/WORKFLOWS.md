@@ -338,7 +338,10 @@ stack. Work is one agenda (NEEDS YOU → RUNNING → NEXT → FLOWS) where `↵`
 blocked task, open the run, launch the flow); `v` adds the unavailable flows with their reason. `S` / `P` open the
 context switcher overlay (sprints grouped by project) — it switches the current sprint / project and never navigates.
 System is a hub over Settings, Skills, Doctor and Housekeeping (a dry-run scan of orphan and old data; `space`
-marks, `↵` confirms, nothing is deleted before the confirm). A run waiting on a prompt reads `[WAITING]` on Work,
+marks, `↵` confirms, nothing is deleted before the confirm). Housekeeping purge, sprint delete and the project
+removal cascade refuse while any flow runs: a run tracked in this process, a live run record owned by another live
+process on this machine (covers lock-less plan / refine / ideate started from a second terminal), or a held flow
+lock. Purge checks once up front, so a flow started mid-purge is not seen. A run waiting on a prompt reads `[WAITING]` on Work,
 Runs, the tab badge and the Execute header, and fires an OS notification when `settings.ui.notifications` allows.
 **Interrupted runs.** When the harness died mid-attempt (crash, SIGKILL, power loss) an `in_progress` task whose
 last attempt is still `running`, with no live run of this process owning the sprint, is _interrupted_ (one
