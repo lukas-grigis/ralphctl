@@ -445,7 +445,6 @@ interface FlowManifest {
   readonly id: string; // stable kebab-case identifier
   readonly title: string; // shown in TUI menu / CLI help
   readonly description: string;
-  readonly canBackground: boolean;
   readonly triggers: FlowTriggers; // pre-launch readiness predicates
 }
 ```
@@ -673,8 +672,8 @@ and the non-obvious mutators.
 - **`Settings`** — declared by `SettingsSchema` in `domain/entity/settings.ts`. Top-level fields:
   `schemaVersion` (currently `2`), `ai`,
   `harness: { maxTurns, maxAttempts, rateLimitRetries, plateauThreshold, escalateOnPlateau, escalationMap, skipPreVerifyOnFreshSetup, bestOfNCandidates? }`,
-  `logging: { level }`, `concurrency: { maxParallelTasks }`, `ui: { notifications: { enabled } }`,
-  `scm: { postRefinementComment }`. `ai` is a flat per-flow record: an optional global
+  `logging: { level }`, `concurrency: { maxParallelTasks }`, `ui: { notifications: { enabled } }`.
+  `ai` is a flat per-flow record: an optional global
   `ai.effort` plus one row per flow — `ai.{refine, plan, readiness, ideate, createPr}`, each
   `{ provider, model, effort? }`, and `ai.implement`, a nested `{ generator, evaluator }` pair
   where each role is its own `{ provider, model, effort? }` row. `provider` is one of

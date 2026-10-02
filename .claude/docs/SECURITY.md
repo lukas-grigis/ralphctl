@@ -273,8 +273,7 @@ the error names the created URL so it can be linked by hand — re-publishing wo
 Comment is opt-in from the refine approval menu. The default is Approve. "Post as comment" appears
 only when the ticket has a linked issue; the body is the approved requirements plus a stable
 `<!-- ralphctl:refined-requirements -->` marker. A repeat of the same approved text does not add
-another comment (`listComments` already contains that body). `settings.scm.postRefinementComment`
-does not post — a headless refine never comments. Publish retries the comment when the ticket
+another comment (`listComments` already contains that body). A headless refine never comments. Publish retries the comment when the ticket
 already has a link; comments use the ticket link, not the create origin.
 
 `Project.defaultIssueOrigin` survives as a persisted field but these writes do not consult it.

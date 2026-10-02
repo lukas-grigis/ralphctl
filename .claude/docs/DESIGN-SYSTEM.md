@@ -140,8 +140,6 @@ All terminal-width decisions use the named breakpoints exported from `src/applic
 - `breakpointFor(columns): Breakpoint` — returns the largest satisfied breakpoint key.
 - `fluid(columns, { min, max, ratio }): number` — clamps `floor(columns × ratio)` to `[min, max]`.
   Use for numeric widths that should grow proportionally but never overwhelm or vanish.
-- `responsive<T>(columns, { sm, md?, lg?, xl?, xxl? }): T` — picks the value for the active breakpoint,
-  falling through to the next smaller specified value. `sm` is required as the floor.
 - `listCapacity(rows, { rowHeight?, chromeRows?, min, max? }): number` — the row-count counterpart to
   `fluid`, for windowed lists. Computes `floor(max(0, rows - chromeRows) / rowHeight)`, floored at `min`
   and (if supplied) capped at `max`. `chromeRows` defaults to `LIST_CHROME_ROWS` (7 — the five chrome rows plus the two overflow-cue rows); pass an explicit `chromeRows`

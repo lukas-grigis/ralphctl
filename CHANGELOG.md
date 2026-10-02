@@ -43,11 +43,12 @@ to [Semantic Versioning](https://semver.org/).
 - **Sprint detail and Work share one header strip**, with a single pipeline and next-step list.
 - **Destructive confirms state the concrete loss**, and preset changes show a diff before applying.
 - **Overlong lists and screens show overflow cues** instead of clipping silently; `NO_COLOR` is honoured.
+- **Sizes use binary units.** Byte sizes show as KiB / MiB / GiB, not KB / MB / GB.
 
 ### Fixed
 
-- **Create sprint checks the name as you type.** An empty or punctuation-only name stays at the prompt with an
-  inline error instead of failing the run.
+- **Create sprint checks the name as you type.** An empty, punctuation-only or too-long name (its slug may not
+  exceed 64 characters) stays at the prompt with an inline error instead of failing the run.
 - **Project slugs are unique.** Creating a project whose slug another project already uses is refused, and the
   wizard says so at the slug step.
 - **Review's distill question defaults to No**, matching its `[y/N]` label (close sprint's too). `esc` on the
@@ -56,6 +57,22 @@ to [Semantic Versioning](https://semver.org/).
   flows, instead of failing on a spawn error.
 - **progress.md's `State:` line follows the sprint** to active, review and done.
 - **Refine's unavailable reason** no longer says "add at least one ticket" when every ticket is already approved.
+- **Create PR checks the sprint first.** An ineligible sprint is refused before anything is pushed, and if any AI
+  authoring step fails the PR opens with the template text instead of failing.
+- **A PR without a URL is an error.** When `gh` / `glab` exits 0 without printing a URL, create PR now reports it
+  instead of storing the last line of output as the PR URL.
+- **Context-file writes never overwrite blind.** Readiness and distill refuse to replace an existing file they
+  can't read for a backup.
+- **Cancelling a task settles its attempt.** The running attempt is marked `aborted` instead of staying running.
+- **Parallel implement stops after a failed setup.** It no longer runs the closing steps when the prologue failed.
+- **Sprint delete respects running flows.** `ralphctl sprint remove` is refused while a flow runs, including a
+  flow in another process that holds no lock.
+- **A blank task description is rejected** instead of silently clearing the field.
+- **`ralphctl task evaluation`** prints an error to stderr and exits 1 when the artifact can't be read.
+
+### Removed
+
+- **`scm.postRefinementComment` setting.** It had no effect; existing settings files still load and drop it.
 
 ## [0.24.0] - 2026-09-30
 

@@ -18,8 +18,8 @@ module gate.
 
 `verifyGates` wins when present AND non-empty; legacy `verifyScript` is equivalent to a single catch-all
 gate `{ pathPrefix: '', command }` (`''` matches everything). `normalizeVerifyGates(script, gates)`
-collapses both into ONE list so there is a single code path. `runVerifyGatesUseCase` is the new use case;
-`runVerifyScriptUseCase` is kept verbatim for its existing callers and tests.
+collapses both into ONE list so there is a single code path. `runVerifyGatesUseCase` is the single use case
+(`business/task/run-verify-script.ts`); the old `runVerifyScriptUseCase` was deleted.
 
 ## Multi-gate VerifyRun representation (entity shape unchanged)
 

@@ -162,50 +162,65 @@ export const buildGeminiArgs = (session: AiSession): Result<readonly string[], I
 };
 ```
 
-The factory delegates the hard parts to shared `_engine` helpers — you write almost no control
-flow:
+The factory delegates everything shared to `createHeadlessProvider` in
+`_engine/run-provider-attempt.ts` — it resolves the deps (spawn seam, command, idle threshold,
+child registry), builds the provider name, and wraps each `generate()` in the rate-limit retry
+loop, so no adapter can forget a seam. You supply the slug, the default binary, your CLI's
+"session gone" wording, and a per-`generate()` context holding the attempt function:
 
 ```ts
-export const createGeminiProvider = (deps: HeadlessProviderDeps): HeadlessAiProvider => {
-  const spawnFn = deps.spawn ?? defaultSpawn;
-  const command = deps.command ?? 'gemini';
-  return {
-    async generate(session) {
-      const args = buildGeminiArgs(session);
-      if (!args.ok) return Result.error(args.error) as Result<ProviderOutput, DomainError>;
-      return runWithRateLimitRetry({
-        session,
-        rateLimitRetries: deps.rateLimitRetries,
-        eventBus: deps.eventBus,
-        providerSlug: 'gemini',
-        providerName: 'gemini-provider',
-        resumeStaleRe: RESUME_STALE_RE, // your CLI's "session gone" wording → one cold respawn
-        attempt: async (attemptSession) => {
-          const built = buildGeminiArgs(attemptSession);
-          if (!built.ok) return { kind: 'error', error: built.error };
-          return spawnAttempt({ deps, spawnFn, command, args: built.value, session: attemptSession });
-        },
-      });
-    },
-  };
-};
+export const createGeminiProvider = (deps: HeadlessProviderDeps): HeadlessAiProvider =>
+  createHeadlessProvider({
+    providerSlug: 'gemini',
+    deps,
+    defaultCommand: 'gemini',
+    resumeStaleRe: RESUME_STALE_RE, // your CLI's "session gone" wording → one cold respawn
+    createGenerateContext: (base) => ({
+      attempt: async (attemptSession) => {
+        const built = buildGeminiArgs(attemptSession);
+        if (!built.ok) return { kind: 'error', error: built.error };
+        // per-attempt stream state (parser, tails) is created fresh here
+        return runProviderAttempt({
+          ...base,
+          args: built.value,
+          session: attemptSession,
+          resolveOn: 'close',
+          stdin: attemptSession.prompt,
+          rateLimitRe: RATE_LIMIT_RE,
+          onStdoutChunk: (chunk) => parser.feed(chunk),
+          flush: () => parser.flush(),
+          getSessionId: () => parser.snapshot().sessionId,
+          getStdoutTail: () => parser.snapshot().body || undefined,
+          getBody: () => Promise.resolve(Result.ok(parser.snapshot().body)),
+          emitProviderTokenUsage: (sessionId) =>
+            emitTokenUsage(deps.eventBus, attemptSession, sessionId, { provider: 'gemini' /* …counts… */ }),
+        });
+      },
+      // cleanup?: async () => {…} — runs once after all attempts (codex deletes its output tempfile)
+    }),
+  });
 ```
 
-Inside `spawnAttempt`, three `_engine` helpers carry the weight (study `claude/headless.ts` for
-the full shape):
+`ProviderSlug` in `_engine/classify-spawn-exit.ts` is the closed union of adapter slugs
+(`ProviderName` derives from it as `<slug>-provider`), so add `'gemini'` there first — and
+`PROVIDER_BY_SLUG` in `run-provider-attempt.ts` needs the matching `AiProvider` entry.
 
-- `runHeadlessSpawn({ child, onStdout, onStderr, stdin: session.prompt, resolveOn, idleMs?, abortSignal?, onIdle })`
-  — owns the spawn lifecycle, the idle-stdout watchdog (SIGTERMs a wedged child after
-  `idleMs` of silence), and abort propagation. There is **no** wall-clock timeout; implement
-  sessions can run for hours.
-- `runWithRateLimitRetry(…)` — owns the retry loop, backoff schedule, banners, abort-during-
-  backoff, and the resume rebuild. You supply a `rateLimitRe` and a `resumeStaleRe`.
-- `classifySpawnExit({ session, exit, stderr, rateLimitRe, stdoutTail?, capturedSessionId?, providerName, eventBus, watchdogBannerId, onSuccess })`
-  — decides success / rate-limit / abort / signals-recovery / hard-fail uniformly across all
-  adapters. Your per-provider success work (publish `token-usage`, `persistSessionIdFile`,
-  optional `bodyFile` mirror, return `ProviderOutput`) goes in the `onSuccess` closure. It runs
-  on clean exit **and** on signals-present recovery, so a watchdog SIGTERM that landed after the
-  agent finished still counts as success.
+`runProviderAttempt` is the shared per-attempt scaffold; three `_engine` helpers do the work
+underneath it (study `claude/headless.ts` for the full shape):
+
+- `runHeadlessSpawn(…)` — owns the spawn lifecycle, the idle-stdout watchdog (SIGTERMs a wedged
+  child after `idleMs` of silence), stdin delivery, and abort propagation. There is **no**
+  wall-clock timeout; implement sessions can run for hours.
+- `runWithRateLimitRetry(…)` — called by `createHeadlessProvider`; owns the retry loop, backoff
+  schedule, banners, abort-during-backoff, and the resume rebuild. You supply `rateLimitRe` (via
+  the attempt) and `resumeStaleRe`.
+- `classifySpawnExit(…)` — decides success / rate-limit / abort / signals-recovery / hard-fail
+  uniformly across all adapters. Its `onSuccess` closure is built by `runProviderAttempt`: it
+  publishes the session-id and `token-usage` events, persists the session id
+  (`persistSessionIdBestEffort`, also called as soon as the stream yields an id), mirrors the
+  optional `bodyFile`, and returns `ProviderOutput`. It runs on clean exit **and** on
+  signals-present recovery, so a watchdog SIGTERM that landed after the agent finished still
+  counts as success.
 
 ### Prompt delivery — keep the body out of argv
 

@@ -382,7 +382,7 @@ reload — the filesystem under `<appRoot>/skills/<flow>/` is the source of trut
 
 Execute view: three-column at `xl` (≥180), two-column at `lg` (≥140), compact-rail at `md` (100–139),
 single-column below `md`. Rail grows fluidly 36→56 cols at `xl`+ via `resolveRailWidth`. Named breakpoints
-(`sm 80 / md 100 / lg 140 / xl 180 / xxl 220`) are canonical — use `breakpointFor`, `fluid`, `responsive`
+(`sm 80 / md 100 / lg 140 / xl 180 / xxl 220`) are canonical — use `breakpointFor`, `fluid`
 from `theme/tokens.ts` and `useBreakpoint` from `runtime/use-breakpoint.ts`; no hardcoded column literals.
 Global keys: `g` progress, `S` / `P` context switcher;
 `b` banner is Work-local, `y` yank is Execute-local. Execute-view: `j`/`k` nav, `e` verification-criteria, `c` cancel-scope.
