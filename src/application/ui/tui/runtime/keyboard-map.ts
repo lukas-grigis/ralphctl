@@ -17,6 +17,7 @@ export const globalKeys = {
   flows: { keys: ['n'], label: 'flows (Work, flow list focused)' },
   cycleSession: { keys: ['Tab', 'Shift+Tab'], label: 'cycle running flow' },
   jumpSession: { keys: ['Ctrl+1..9'], label: 'jump to running flow (kitty-protocol term)' },
+  projects: { keys: ['p'], label: 'Projects' },
   sessions: { keys: ['x'], label: 'Runs' },
   settings: { keys: ['s'], label: 'System › Settings' },
   doctor: { keys: ['!'], label: 'System › Doctor' },

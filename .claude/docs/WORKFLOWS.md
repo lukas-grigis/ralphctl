@@ -359,7 +359,7 @@ task. If the runs have not stopped after 5s, their AI CLI process groups are SIG
 a one-line note in the shell. `ctrl+c` again quits at once and leftover AI processes are cleaned up by the orphan
 reaper or the next launch ([SECURITY.md](./SECURITY.md)). No live runs: quit exits immediately. Resume mechanics and attempt accounting:
 [PERFORMANCE.md](./PERFORMANCE.md) § Resume of aborted Implement runs.
-Hidden accelerators — `h` Work, `n` flows, `x` Runs, `s` Settings, `!` Doctor — still work from anywhere but are
+Hidden accelerators — `h` Work, `n` flows, `p` Projects, `x` Runs, `s` Settings, `!` Doctor — still work from anywhere but are
 never advertised; the footer carries only view-local keys plus `? help`. Multi-flow navigation: Tab / Shift+Tab
 cycle running flows, `Ctrl+1..9` direct-jump to the Nth running flow — both operate over RUNNING sessions only and
 are suspended while a prompt / overlay is mounted; `SessionsView` (Runs) lists every runner. `Ctrl+1..9` only fires

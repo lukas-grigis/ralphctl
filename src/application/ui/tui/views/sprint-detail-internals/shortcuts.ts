@@ -162,7 +162,7 @@ const buildBindings = (args: SprintDetailShortcutArgs): readonly ViewKeyBinding[
       },
     },
     {
-      // `p` is unused globally (`P` is pick-project) and unused elsewhere in this view.
+      // Claimed while enabled, so it outranks the global `p` (Projects) here.
       keys: ['p'],
       hint: 'publish',
       enabled: canPublish,

@@ -531,7 +531,7 @@ digit (the cancel-scope overlay claims `1` / `2`), and in the first-run wizard.
 | `?`                 | Help overlay (scoped to the current view)                                                   |
 | `q`                 | Quit (Work root only); `Ctrl+C` quits from anywhere. With runs live both ask first (§ 6.5a) |
 
-**Hidden accelerators.** `h` (Work root), `n` (Work, flow list focused), `x` (Runs), `s` (System › Settings), `!`
+**Hidden accelerators.** `h` (Work root), `n` (Work, flow list focused), `p` (Projects), `x` (Runs), `s` (System › Settings), `!`
 (System › Doctor) keep working from anywhere, land on an explicit destination via `reset`, and yield to a
 view that claims the letter. They are listed under Global in `?` help and **never advertised in the
 footer** — the tab bar teaches the five sections. `b` is not global: Work binds it as `b banner`.
@@ -786,7 +786,7 @@ target } | { kind: 'quit'; runs } | undefined`, with `openOverlay` / `closeOverl
   the current route (`KeySection.onlyOn`: `Execute` / `Tasks panel` / `Signals` on `execute`; the `Context switcher` keys, an
   overlay rather than a route, appear under `All keys`). `Tab` toggles `All keys`. The key column is sized to the
   longest chord in the list (12–34 cells) and chords truncate rather than spill, so no row overlaps another.
-- **Ambient vs local.** The section digits and the accelerator letters (`h n x s ! S P g`) yield to a
+- **Ambient vs local.** The section digits and the accelerator letters (`h n p x s ! S P g`) yield to a
   claiming view. A view that owns a letter AND needs its global meaning does both itself (sprint-detail's
   `n` reseats the selection, then lands on Work's flow list) — never rely on two handlers composing.
 
@@ -984,7 +984,7 @@ Use one spelling everywhere. `DRAFT`, `PLANNED`, `ACTIVE`, `REVIEW`, `DONE`, `TO
 - ❌ Magic spacing number — always `spacing.*`.
 - ❌ Raw emoji inside an Ink view.
 - ❌ View renders its own header / title row / hint strip / status bar.
-- ❌ Advertising `h n x s ! S P` in a footer or hint strip — the tab bar teaches the sections; the letters are hidden accelerators.
+- ❌ Advertising `h n p x s ! S P` in a footer or hint strip — the tab bar teaches the sections; the letters are hidden accelerators.
 - ❌ View calls `console.log` / writes stdout directly — use the injected `Logger`.
 - ❌ View calls a use case directly — use flow factories from `src/application/flows/<flow>/` and the chain runner.
   **Escape hatch:** a single-shot mutation with no registered flow (manual task unblock, cancel the

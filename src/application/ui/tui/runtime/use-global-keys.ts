@@ -181,7 +181,7 @@ const handleSectionDigit = (input: string, key: Key, router: RouterApi): boolean
   return true;
 };
 
-/** Hidden single-letter accelerators — `h n x s ! S P`. */
+/** Hidden single-letter accelerators — `h n p x s ! S P`. */
 const handleAccelerator = (input: string, router: RouterApi, ui: UiStateApi): boolean => {
   const land = (entry: ViewEntry): boolean => {
     const atRoot = router.stack.length <= 1;
@@ -198,6 +198,8 @@ const handleAccelerator = (input: string, router: RouterApi, ui: UiStateApi): bo
       // Always re-enter: Work at its root still has to move its cursor onto the flow list.
       router.reset({ id: 'home', props: { focus: 'flows' } });
       return true;
+    case 'p':
+      return land({ id: 'projects' });
     case 'x':
       return land({ id: 'sessions' });
     case 's':

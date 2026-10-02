@@ -130,7 +130,7 @@ describe('section keys', () => {
 
   it('lists the hidden accelerators under Global', () => {
     const keys = new Set((keySections.find((sec) => sec.title === 'Global')?.bindings ?? []).flatMap((b) => b.keys));
-    for (const k of ['h', 'n', 'x', 's', '!', 'S', 'P', 'g']) expect(keys.has(k), k).toBe(true);
+    for (const k of ['h', 'n', 'p', 'x', 's', '!', 'S', 'P', 'g']) expect(keys.has(k), k).toBe(true);
   });
 });
 

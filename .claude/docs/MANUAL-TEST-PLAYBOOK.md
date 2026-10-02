@@ -668,7 +668,7 @@ followed by `note: 1 task(s) stayed blocked: Task A` and `recover with: ralphctl
 3. Press `Esc` twice — **expected:** first to the hub with `▸` on Settings (the row you left), then to Work (`esc work` in the footer); `Esc` on the Work
    root does nothing and the footer shows `q quit` only there
 4. Press `5` while already in System — **expected:** resets to the hub root
-5. Hidden accelerators: from any section press `h`, `x`, `s`, `!`, `n` — **expected:** Work root, Runs, Settings,
+5. Hidden accelerators: from any section press `h`, `p`, `x`, `s`, `!`, `n` — **expected:** Work root, Projects, Runs, Settings,
    Doctor, Work with the flow list focused. None appear in the footer; all are listed in `?` help
 6. Work agenda: with a blocked task, **expected:** NEEDS YOU lists it with its reason; `↵` opens it in sprint
    detail with the card expanded; `u` unblocks it. A running flow shows under RUNNING and `↵` opens its run

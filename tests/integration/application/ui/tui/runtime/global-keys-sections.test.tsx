@@ -91,7 +91,7 @@ describe('section keys — navigation flow', () => {
 });
 
 describe('hidden accelerators', () => {
-  it('s → System › Settings, ! → System › Doctor, x → Runs, h → Work root, n → Work', async () => {
+  it('s → System › Settings, ! → System › Doctor, p → Projects, x → Runs, h → Work root, n → Work', async () => {
     const f = mount();
     await press(f, '2');
     expect(location(f)).toMatch(/^ {2}▣ Sprints/);
@@ -103,6 +103,10 @@ describe('hidden accelerators', () => {
     await press(f, '!');
     expect(location(f)).toContain('▣ System › Doctor');
     expect(f.router().stack.map((e) => e.id)).toEqual(['system', 'doctor']);
+
+    await press(f, 'p');
+    expect(location(f)).toMatch(/^ {2}▣ Projects/);
+    expect(f.router().stack.map((e) => e.id)).toEqual(['projects']);
 
     await press(f, 'x');
     expect(location(f)).toMatch(/^ {2}▣ Runs/);
