@@ -170,7 +170,7 @@ and `done → review` — that keep `done` from being a genuine dead end for the
       `foldOutcomeStats`) instead of discarding them, resets the attempt budget, cascades to every
       upstream-blocked dependent, and reopens the sprint when needed (skipped, with a note naming the
       peer, when another sprint of the project already holds it). Blocked work is counted on
-      every orientation surface (Work header strip, Sprints list, context switcher, sprint-detail, settled-run
+      every orientation surface (Home card, Sprints list, sprint picker, sprint-detail, settled-run
       summary, next-steps) and cannot be windowed off-screen in the Tasks panel. On the parallel path, a
       block a task already persisted to disk survives even when its own branch then errors or aborts
       (`adopt-persisted-blocks` re-reads it ahead of the run's task-list write, and the fan-in itself only
@@ -414,8 +414,8 @@ See [DESIGN-SYSTEM.md](./DESIGN-SYSTEM.md) for tokens, components, view patterns
       `resolveRailWidth`. `StepTrace` renders `Element.label` when present; long labels mid-truncated to
       fit the rail column budget.
 - [x] **TUI hotkeys** — `b` banner compact ↔ full toggle; `g` progress overlay (reads `progress.md` on
-      demand); `y` yank active-task summary to clipboard; `S` / `P` context
-      switcher overlay (with `t` toggle-scope and `f` hide-done inside it); `j`/`k`
+      demand); `y` yank active-task summary to clipboard; `P` cross-project project picker; `S`
+      cross-project sprint picker (with `t` toggle-scope and `f` hide-done inside the picker); `j`/`k`
       task-card navigation; `e` expand done-criteria for the focused card (falls back to the active
       task while nothing is focused yet); `c` cancel-scope picker (attempt vs whole flow).
 - [x] **Baseline-health card + chip** — `BaselineHealthCard` and `BaselineHealthChip` surface
@@ -433,16 +433,16 @@ See [DESIGN-SYSTEM.md](./DESIGN-SYSTEM.md) for tokens, components, view patterns
 - [x] **Idle-state ticker** — tasks panel shows last-note signals when no task is `in_progress`.
 - [x] **ETA estimate** — attempt header shows a median-round-duration ETA derived from past settled
       attempts for the same task.
-- [x] **Blocked-task visibility** — a `blocked` task is counted on every orientation surface: the Work
-      header strip and the settled-run summary add a `· N blocked` count beside the pending
-      count, the Sprints list and context switcher carry a `N blocked` badge per sprint
-      (`loadTaskHealthBySprintId`), and sprint-detail's header strip / next-steps rows name the blocked tasks
+- [x] **Blocked-task visibility** — a `blocked` task is counted on every orientation surface: the Home
+      active-sprint card and the settled-run summary add a `· N blocked` count beside the pending
+      count, the Sprints list and cross-project sprint picker carry a `N blocked` badge per sprint
+      (`loadTaskHealthBySprintId`), and sprint-detail's header / `NextPhaseCard` name the blocked tasks
       in a warning presentation even once the sprint is `done`. The Tasks panel anchors its post-run
       card cursor and auto-expanded card on the first `blocked` task (never the last) so a blocked card
       cannot be windowed off-screen behind an overflow cue. `u` unblocks the focused card (Tasks panel,
       sprint-detail) or bulk-unblocks every stuck task in the focused sprint (Sprints list);
       sprint-detail's `B` jumps the cursor to the next blocked task, wrapping.
-- [x] **Skills catalog view (#216)** — `SkillsView` (System hub) lists every bundled skill
+- [x] **Skills catalog view (#216)** — `SkillsView` (Home menu, hotkey `K`) lists every bundled skill
       with its per-flow install status; `e`/`d`/`u`/`U`/`r` enable / disable / update / update-all /
       reload. A destructive `update` on a `locally-modified` install confirms first via `ConfirmCard`;
       `updateAll` never touches `locally-modified` or `manual` installs. The pre-launch customize

@@ -9,26 +9,19 @@ to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
-- **Five sections.** The TUI has a tab bar — Work, Sprints, Projects, Runs, System (`1`–`5`) — with live
-  badges and a location line. Each section keeps its own stack, so `esc` goes up one level and `5 › 2 › 5` returns
-  to where you were.
-- **Work agenda.** Work merges Home and Flows into one list — needs you, running, next, flows — and `↵` does
-  the focused row's job. `v` adds the flows that aren't available, each with its reason.
-- **Context switcher.** `S` / `P` open one overlay to switch sprint or project; it never navigates away from
-  the current view.
-- **System hub.** Settings, Skills, Doctor and Housekeeping live under System (`5`). Doctor shows what to fix.
-- **Housekeeping.** A dry-run scan lists orphaned sprints and memory, old done sprints and old runs with their
-  sizes; select what to delete and confirm. Removing a project asks separately whether to remove its sprints and
-  memory too.
+- **Housekeeping, from Home's SYSTEM group (`H`).** A dry-run scan lists orphaned sprints and memory, old done
+  sprints and old runs with their sizes (KiB / MiB / GiB); select what to delete and confirm. Removing a project asks
+  separately whether to remove its sprints and memory too.
+- **Doctor shows what to fix first.** `!` groups failing probes ahead of the passing ones, which `↵` reveals.
 - **Crash recovery.** If ralphctl dies mid-run (crash, `kill -9`, power loss), an interrupted task shows in
-  NEEDS YOU with its attempt, age and uncommitted changes; `↵` resumes Implement. The Task minimap shows
-  `interrupted` and Runs lists the dead run (`d` dismisses it). On a best-effort basis the generator continues its
-  previous provider session when provider, model and working directory are unchanged, and starts from the full
-  brief otherwise. An interruption does not use up a task attempt (up to three in a row).
-- **Quit asks first.** `q` / `ctrl+c` with runs live asks `[y/N]` (default No) and stops them cleanly on yes,
+  Home's NEEDS ATTENTION group with its attempt, age and uncommitted changes; `↵` resumes Implement. Active sessions
+  lists the dead run (`d` dismisses it). On a best-effort basis the generator continues its previous provider
+  session when provider, model and working directory are unchanged, and starts from the full brief otherwise. An
+  interruption does not use up a task attempt (up to three in a row).
+- **Quit asks first.** `q` on Home / `ctrl+c` with runs live asks `[y/N]` (default No) and stops them cleanly on yes,
   even when a run is waiting on your answer. A run that does not stop within 5s is force-stopped. Stopping a run
   yourself does not use up a task attempt either, and the attempt counter shows `· resumed` after a free restart.
-- **Waiting runs say so.** A run blocked on your answer shows `[WAITING]` on Work, Runs, the tab badge and the run
+- **Waiting runs say so.** A run blocked on your answer shows `[WAITING]` in NEEDS ATTENTION, the footer and the run
   view, and fires an OS notification (honouring `ui.notifications`). Runs that finish after two minutes notify too.
 
 ### Changed
@@ -38,12 +31,8 @@ to [Semantic Versioning](https://semver.org/).
   does it). Session ids are saved as soon as the CLI reports them.
 - **Stale locks recover faster.** A repository lock records its owner; a dead owner on the same machine is reclaimed
   at once, and a held lock names the process that holds it.
-- **Quieter chrome.** The footer is one row with only the current view's keys plus `? help`; the status area is
-  five rows at 80x24. `h`, `n`, `x`, `s` and `!` still work as hidden shortcuts.
-- **Sprint detail and Work share one header strip**, with a single pipeline and next-step list.
-- **Destructive confirms state the concrete loss**, and preset changes show a diff before applying.
-- **Overlong lists and screens show overflow cues** instead of clipping silently; `NO_COLOR` is honoured.
-- **Sizes use binary units.** Byte sizes show as KiB / MiB / GiB, not KB / MB / GB.
+- **Overlays outrank prompts.** An open overlay stays closable while a prompt is queued, and `q` never quits through
+  one. The header and footer clip to one line at narrow widths.
 
 ### Fixed
 
