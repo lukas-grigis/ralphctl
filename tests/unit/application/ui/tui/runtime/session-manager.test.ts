@@ -16,8 +16,6 @@ import { leaf } from '@src/application/chain/build/leaf.ts';
 import { sequential } from '@src/application/chain/build/sequential.ts';
 import { createRunner } from '@src/application/chain/run/runner.ts';
 import { createSessionManager } from '@src/application/ui/tui/runtime/session-manager.ts';
-import { createInProcessRuns } from '@src/application/session/in-process-runs.ts';
-import { createGatedRunner } from '@tests/helpers/gated-runner.ts';
 import { sessionHintsFromLaunchResult } from '@src/application/ui/shared/launcher.ts';
 import type { LaunchResult } from '@src/application/ui/shared/launcher.ts';
 import type { ProjectId } from '@src/domain/value/id/project-id.ts';
@@ -34,18 +32,6 @@ const okLeaf = (name: string): Element<Ctx> =>
   });
 
 describe('session-manager', () => {
-  it('reports every registered runner to the in-process run tracker until it settles', async () => {
-    const runs = createInProcessRuns();
-    const sessions = createSessionManager({ runs });
-    const { runner, finish } = createGatedRunner();
-    sessions.register({ runner, flowId: 'plan', title: 'Plan' });
-    const started = runner.start();
-    expect(await runs.anyRunActive()).toBe(true);
-    finish();
-    await started;
-    expect(await runs.anyRunActive()).toBe(false);
-  });
-
   it('detaches its runner listener after the run reaches terminal', async () => {
     const sessions = createSessionManager();
     let notifyCount = 0;

@@ -1,6 +1,15 @@
 /**
- * Expanded body of a task card — the activity dot, the notices (ticker, resume banner, hints, criteria, error) and the
- * progress block. Each part self-gates on `cardExpanded`, so the card never repeats a gate.
+ * Expanded body of a task card — everything below the header cluster:
+ *
+ *   - {@link ActiveBusyIndicator}   — two-role gen-eval activity dot
+ *   - {@link ExpandedNotices}       — idle ticker, resume banner, first-run hint, criteria, error
+ *   - {@link ExpandedProgressBlock} — sub-steps, eval verdict, signals
+ *
+ * Each component self-gates on `cardExpanded` (and its own data-presence condition), so the
+ * composing card never repeats a gate. The eval verdict is sourced from the AUTHORITATIVE
+ * per-task `taskEvaluation` — never the timestamp-bucketed `TaskBucket.evaluations` signal
+ * stream, which mis-attributes evaluator signals to the wrong task under parallel/wave sprints
+ * (overlapping windows + AI-fabricated timestamps).
  */
 
 import React, { useMemo } from 'react';
@@ -14,7 +23,7 @@ import {
   latestIdleSnippets,
   resolveActiveRole,
 } from '@src/application/ui/tui/components/tasks-panel-internals/format.ts';
-import { focusKey, tailSlice } from '@src/application/ui/tui/components/tasks-panel-internals/focus-keys.ts';
+import { focusKey } from '@src/application/ui/tui/components/tasks-panel-internals/focus-keys.ts';
 import {
   EvaluationLine,
   type TaskEvaluation,
@@ -50,31 +59,39 @@ const SubStepsSection = ({
   subStepRows,
   subStepElided,
   pendingSubSteps,
+  running,
 }: {
   readonly taskId: string;
   readonly subStepRows: TaskBucket['subSteps'];
   readonly subStepElided: number;
   readonly pendingSubSteps: readonly string[] | undefined;
+  readonly running: boolean;
 }): React.JSX.Element => (
   <Box flexDirection="column" paddingLeft={spacing.indent}>
     {subStepElided > 0 && <Text dimColor>{`${glyphs.clipEllipsis} ${String(subStepElided)} earlier sub-steps`}</Text>}
     {subStepRows.map((s, i) => (
-      <SubStepLine key={`${taskId}-sub-${String(i)}`} sub={s} />
+      <SubStepLine key={`${taskId}-sub-${String(i)}`} sub={s} running={running} />
     ))}
     {/* Pending sub-steps from the plan — not yet executed. Grey ◇ rows, matching the Steps rail. */}
     {pendingSubSteps !== undefined &&
       pendingSubSteps.map((leafName) => (
-        <Text key={`${taskId}-pending-${leafName}`} wrap="truncate-end">
+        <Box key={`${taskId}-pending-${leafName}`}>
           <Text color={inkColors.muted}>
             {glyphs.activityArrow} {glyphs.phasePending}
           </Text>
           <Text dimColor> {leafName}</Text>
-        </Text>
+        </Box>
       ))}
   </Box>
 );
 
-/** Eval verdict block under an expanded card: the AUTHORITATIVE one-line verdict, and only that. */
+/**
+ * Eval verdict block under an expanded card: the AUTHORITATIVE one-line verdict, and only that.
+ * Per-dimension detail lives in the evaluation overlay (`v`), which reads the attempt's own
+ * `evaluation.md` — the card must never widen into a multi-line panel sourced from the bucketed
+ * signal stream, which mis-attributes evaluator signals across lanes under parallel sprints, and
+ * must never do a disk read: this subtree re-renders every second while a task runs.
+ */
 const EvalVerdictSection = ({ taskEvaluation }: { readonly taskEvaluation: TaskEvaluation }): React.JSX.Element => (
   <Box flexDirection="column" paddingLeft={spacing.indent} marginTop={spacing.section}>
     <EvaluationLine evaluation={taskEvaluation} />
@@ -85,28 +102,33 @@ const EvalVerdictSection = ({ taskEvaluation }: { readonly taskEvaluation: TaskE
 const SignalsSection = ({
   taskId,
   signalRows,
-  start,
+  signalsElided,
   focusedKey,
   expandedKeys,
+  scopeId,
+  sliceStart,
 }: {
   readonly taskId: string;
   readonly signalRows: TaskBucket['signals'];
-  /** Absolute index of the first rendered signal — also the count of elided earlier ones. */
-  readonly start: number;
+  readonly signalsElided: number;
   readonly focusedKey: string | undefined;
   readonly expandedKeys: ReadonlySet<string>;
+  readonly scopeId: string;
+  readonly sliceStart: number;
 }): React.JSX.Element => (
   <Box flexDirection="column" paddingLeft={spacing.indent} marginTop={spacing.section}>
     <Text dimColor>signals</Text>
     <Box flexDirection="column" paddingLeft={spacing.indent}>
-      {start > 0 && (
-        <Text dimColor>{`${glyphs.clipEllipsis} ${String(start)} earlier signal${start === 1 ? '' : 's'}`}</Text>
+      {signalsElided > 0 && (
+        <Text
+          dimColor
+        >{`${glyphs.clipEllipsis} ${String(signalsElided)} earlier signal${signalsElided === 1 ? '' : 's'}`}</Text>
       )}
       {signalRows.map((s, i) => {
-        const key = focusKey(taskId, start + i);
+        const key = focusKey(scopeId, sliceStart + i);
         return (
           <StreamSignalRow
-            key={`${taskId}-sig-${String(start + i)}`}
+            key={`${taskId}-sig-${String(sliceStart + i)}`}
             signal={s}
             focused={focusedKey === key}
             expanded={expandedKeys.has(key)}
@@ -117,7 +139,20 @@ const SignalsSection = ({
   </Box>
 );
 
-/** Idle-ticker hint — the only genuinely 1 Hz-dependent bit of an expanded task card. */
+/**
+ * Idle-ticker hint — the only genuinely 1 Hz-dependent bit of an expanded task card. Owns its
+ * own tick internally via {@link useIdleClock} (mirrors the `ElapsedLabel` pattern from
+ * `execute-view-internals/elapsed-label.tsx`) instead of reading a `now` prop that the parent
+ * re-renders on every second — so a clock tick re-renders only this leaf, not `TaskBlock` or the
+ * rest of the card. `seedNowMs` seeds the leaf's clock on mount (the caller's freshest known
+ * "now"); the leaf free-runs from `Date.now()` afterwards while `active`.
+ *
+ * Surfaces the last 1–2 note / learning signals when the task is running and the most recent
+ * stream signal is older than `IDLE_TICKER_THRESHOLD_MS` — reassurance that the harness is alive
+ * during long tool calls. Hides immediately when a new signal lands. `active` should be
+ * `isActive && isSpinning` — completed / blocked / non-focused cards have no use for "what's the
+ * AI been thinking about" hints and never start a timer.
+ */
 const IdleTickerNotice = ({
   active,
   signals,
@@ -149,8 +184,9 @@ const IdleTickerNotice = ({
 };
 
 /**
- * Resume banner / first-run hint / criteria / error message — the "notice-ish" rows directly under the header, plus
- * the idle ticker (delegated to {@link IdleTickerNotice}).
+ * Resume banner / first-run hint / criteria / error message — the "notice-ish" rows directly
+ * under the header, plus the idle ticker (delegated to {@link IdleTickerNotice}). Self-gates on
+ * `cardExpanded`.
  */
 export const ExpandedNotices = ({
   cardExpanded,
@@ -193,8 +229,9 @@ export const ExpandedNotices = ({
 };
 
 /**
- * Sub-steps, eval verdict (or its "awaiting eval" placeholder), and signals — the trailing, data-heavy rows of an
- * expanded card.
+ * Sub-steps, eval verdict (or its "awaiting eval" placeholder), and signals — the trailing,
+ * data-heavy rows of an expanded card. Self-gates on `cardExpanded`; slices `task.subSteps` /
+ * `task.signals` to the render window itself so the caller only threads the raw task + limits.
  */
 export const ExpandedProgressBlock = ({
   cardExpanded,
@@ -202,25 +239,32 @@ export const ExpandedProgressBlock = ({
   maxSubSteps,
   maxSignals,
   pendingSubSteps,
+  running,
   isActive,
   taskEvaluation,
   focusedKey,
   expandedKeys,
+  scopeId,
+  sliceStart,
 }: {
   readonly cardExpanded: boolean;
   readonly task: TaskBucket;
   readonly maxSubSteps: number;
   readonly maxSignals: number;
   readonly pendingSubSteps: readonly string[] | undefined;
+  readonly running: boolean;
   readonly isActive: boolean;
   readonly taskEvaluation: TaskEvaluation | undefined;
   readonly focusedKey: string | undefined;
   readonly expandedKeys: ReadonlySet<string>;
+  readonly scopeId: string;
+  readonly sliceStart: number;
 }): React.JSX.Element | null => {
   if (!cardExpanded) return null;
   const subStepRows = task.subSteps.slice(-maxSubSteps);
   const subStepElided = task.subSteps.length - subStepRows.length;
-  const { rows: signalRows, start: signalsStart } = tailSlice(task.signals, maxSignals);
+  const signalRows = task.signals.slice(-maxSignals);
+  const signalsElided = task.signals.length - signalRows.length;
   return (
     <>
       {(subStepRows.length > 0 || (pendingSubSteps !== undefined && pendingSubSteps.length > 0)) && (
@@ -229,11 +273,14 @@ export const ExpandedProgressBlock = ({
           subStepRows={subStepRows}
           subStepElided={subStepElided}
           pendingSubSteps={pendingSubSteps}
+          running={running}
         />
       )}
       {isActive && taskEvaluation === undefined && (
-        // An active card with no AUTHORITATIVE evaluation yet — surface a single dim placeholder so the operator sees
-        // the eval slot is live-but-empty rather than missing.
+        // An active card with no AUTHORITATIVE evaluation yet — surface a single dim placeholder
+        // so the operator sees the eval slot is live-but-empty rather than missing. We gate on the
+        // ABSENCE of an authoritative verdict (not the bucketed signal stream, which can mis-
+        // attribute a stale signal). `activityArrow` matches the other indented continuation lines.
         <Box paddingLeft={spacing.indent} marginTop={spacing.section}>
           <Text dimColor>{glyphs.activityArrow} awaiting eval</Text>
         </Box>
@@ -243,9 +290,11 @@ export const ExpandedProgressBlock = ({
         <SignalsSection
           taskId={task.id}
           signalRows={signalRows}
-          start={signalsStart}
+          signalsElided={signalsElided}
           focusedKey={focusedKey}
           expandedKeys={expandedKeys}
+          scopeId={scopeId}
+          sliceStart={sliceStart}
         />
       )}
     </>

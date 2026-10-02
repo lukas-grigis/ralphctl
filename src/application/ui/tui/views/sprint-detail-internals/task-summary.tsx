@@ -1,6 +1,12 @@
 /**
- * Tasks pane for the sprint-detail view — task count / status breakdown rendered as a list of bordered cards, one per
- * task.
+ * Tasks pane for the sprint-detail view — task count / status breakdown rendered as a list of
+ * bordered cards, one per task. Each card collapses to a metadata row (ticket / deps / repo /
+ * attempts / last-attempt elapsed) and expands inline to show steps, verification criteria,
+ * dependencies, and attempt history when the orchestrator marks it via `openIds`.
+ *
+ * Holds the task list + per-task render helpers (`buildTaskMetadataParts`, the inline-vs-wrap
+ * metadata splitter, repo-name lookup) because they're only used here. Per-attempt rendering
+ * lives in `attempt-card.tsx` to keep this file under the 350-LOC budget.
  */
 
 import React from 'react';
@@ -45,7 +51,10 @@ export const TasksSection = ({
   openIds,
 }: TasksSectionProps): React.JSX.Element => {
   const { rows } = useBreakpoint();
-  // Tasks occupy the tail of the shared focus list (tickets first, then tasks).
+  // Tasks occupy the tail of the shared focus list (tickets first, then tasks). The local
+  // focused-task index is the shared cursor minus the ticket count; when the cursor is parked
+  // on a ticket it is negative, which `computeListWindow` clamps to the top of the task slice —
+  // so the window stays anchored at the head while focus lives in the tickets pane.
   const ticketCount = focusList.length - tasks.length;
   const localFocus = cursorIdx - ticketCount;
   const window = computeListWindow(tasks.length, localFocus, sectionWindowCards(rows));
@@ -55,7 +64,7 @@ export const TasksSection = ({
       <Text bold>{glyphs.badge} Tasks</Text>
       {tasks.length === 0 ? (
         <Box marginTop={spacing.section}>
-          <EmptyState title="No tasks yet" hint="Run plan from Work (n) once tickets are approved." />
+          <EmptyState title="No tasks yet" hint="Run plan from Flows (n) once tickets are approved." />
         </Box>
       ) : (
         <Box flexDirection="column" marginTop={spacing.section}>
@@ -85,6 +94,9 @@ export const TasksSection = ({
           <OverflowRow direction="below" count={tasks.length - window.end} />
         </Box>
       )}
+      <Box paddingX={spacing.indent} marginTop={spacing.section}>
+        <Text dimColor>{glyphs.bullet} ↵/o expand/collapse</Text>
+      </Box>
     </Box>
   );
 };
@@ -113,8 +125,9 @@ const TaskCard = ({
   const lastAttempt: Attempt | undefined = task.attempts[task.attempts.length - 1];
   const lastAttemptElapsed = lastAttempt !== undefined ? attemptElapsedMs(lastAttempt) : undefined;
   const { atLeast } = useBreakpoint();
-  // At ≥md (≥100 cols) the metadata row stays on a single line and ellides on overflow so the task card height stays
-  // a predictable two lines.
+  // At ≥md (≥100 cols) the metadata row stays on a single line and ellides on overflow so the
+  // task card height stays a predictable two lines. Below md, the row is allowed to wrap so
+  // narrow terminals don't lose information at the tail.
   const singleLineMetadata = atLeast('md');
   const metadataParts: readonly React.ReactNode[] = buildTaskMetadataParts({
     ticketTitle,
@@ -169,7 +182,11 @@ interface TaskMetadataInput {
   readonly lastAttemptElapsed: number | undefined;
 }
 
-/** Build the per-field React nodes for the task metadata row. */
+/**
+ * Build the per-field React nodes for the task metadata row. Each entry already carries its
+ * leading bullet glyph (`·`); the caller decides whether to join them on one line (with an
+ * intervening space) or render them as wrapped flex items.
+ */
 const buildTaskMetadataParts = (input: TaskMetadataInput): readonly React.ReactNode[] => {
   const parts: React.ReactNode[] = [];
   if (input.ticketTitle !== undefined) {
@@ -223,10 +240,8 @@ const repositoryName = (project: Project | undefined, id: RepositoryId): string 
   return repo?.name;
 };
 
-/**
- * The task's own metadata rows — order, repository, ticket, and the two conditional rows (final attempt / extra
- * dimensions) that only apply to a subset of tasks.
- */
+/** The task's own metadata rows — order, repository, ticket, and the two conditional rows
+ * (final attempt / extra dimensions) that only apply to a subset of tasks. */
 const buildDetailFields = (task: Task, ticket: Ticket | undefined, repoName: string | undefined): readonly Field[] => [
   { label: 'Order', value: String(task.order) },
   {
@@ -284,9 +299,9 @@ const DependsOnSection = ({ dependsOnTasks }: { readonly dependsOnTasks: readonl
   </Section>
 );
 
-/**
- * One `AttemptCard` per past attempt, oldest first — the expanded task card's "Attempt history" section body.
- */
+/** One `AttemptCard` per past attempt, oldest first — the expanded task card's "Attempt history"
+ * section body. `openableAttemptN` is the single attempt the task-scoped `v` chord resolves to;
+ * it is threaded down so only that card advertises the chord. */
 const AttemptHistorySection = ({
   attempts,
   openableAttemptN,

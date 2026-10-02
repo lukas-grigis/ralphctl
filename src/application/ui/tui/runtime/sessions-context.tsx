@@ -1,5 +1,7 @@
 /**
- * Provides the {@link SessionManager} via React context plus a hook that re-renders on every registry change.
+ * Provides the {@link SessionManager} via React context plus a hook that re-renders on every
+ * registry change. Views that show "active sessions" or stream a single session's events use
+ * the hook so they pick up new runs without prop drilling.
  */
 
 import React, { createContext, useContext, useEffect, useState } from 'react';
@@ -16,18 +18,23 @@ export const SessionsProvider = ({ value, children }: SessionsProviderProps): Re
   <SessionsContext.Provider value={value}>{children}</SessionsContext.Provider>
 );
 
+/** Like {@link useSessionManager} but `undefined` outside a provider — for passive indicators. */
+export const useOptionalSessionManager = (): SessionManager | undefined => useContext(SessionsContext);
+
 export const useSessionManager = (): SessionManager => {
   const ctx = useContext(SessionsContext);
   if (!ctx) throw new Error('useSessionManager: must be used inside <SessionsProvider>');
   return ctx;
 };
 
-/** `undefined` outside a provider — for passive surfaces that merely annotate a session. */
-export const useOptionalSessionManager = (): SessionManager | undefined => useContext(SessionsContext);
-
 /**
- * Build an id→signature map for the registry. The signature folds in status, error presence, and the pinned-sprint
- * identity.
+ * Build an id→signature map for the registry. The signature folds in status, error presence, and
+ * the pinned-sprint identity. Trace-only `step` notifies mutate the descriptor's `trace` but never
+ * any of these fields, so two snapshots with the same signature are render-equivalent. The pinned
+ * sprint IS included: a `setPinnedSprint` mid-run (create-sprint) changes no status but must
+ * re-render so the execute view drops the stale (undefined) sprint. `trace` is deliberately
+ * EXCLUDED — the live flow-steps rail stays current via the shared-mutable trace array plus the
+ * sibling chainEvents re-render, and adding it here would re-introduce the per-step render storm.
  */
 const sigOf = (descriptor: SessionRecord['descriptor']): string =>
   `${descriptor.status}|${descriptor.error ? '1' : '0'}|${descriptor.pinnedSprintId ?? ''}|${descriptor.pinnedSprintLabel ?? ''}`;
@@ -49,7 +56,13 @@ const sameSignature = (prev: Map<string, string>, next: Map<string, string>): bo
 };
 
 /**
- * Re-render the caller whenever the session registry changes in a status-relevant way. Returns the current snapshot.
+ * Re-render the caller whenever the session registry changes in a status-relevant way. Returns
+ * the current snapshot.
+ *
+ * Guarded with a status-diff (mirroring `use-sprint-bundle.ts`): the session manager fires
+ * `notify()` on every chain `step`, but those trace-only updates leave each descriptor's
+ * status/error untouched. We only `setState` when set-membership or a status/error actually
+ * changed — otherwise the always-mounted StatusBar would re-render once per leaf step.
  */
 export const useSessions = (): readonly SessionRecord[] => {
   const mgr = useSessionManager();
@@ -70,8 +83,9 @@ export const useSessions = (): readonly SessionRecord[] => {
 };
 
 /**
- * Re-render whenever the named session's status, error presence, or pinned sprint changes. Returns `undefined` when
- * unknown.
+ * Re-render whenever the named session's status, error presence, or pinned sprint changes.
+ * Returns `undefined` when unknown. Trace-only `step` notifies are ignored — see {@link
+ * useSessions}.
  */
 export const useSession = (id: string | undefined): SessionRecord | undefined => {
   const mgr = useSessionManager();

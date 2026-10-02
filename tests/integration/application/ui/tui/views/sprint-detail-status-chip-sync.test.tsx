@@ -95,7 +95,7 @@ describe('SprintDetailView — breadcrumb status chip', () => {
         selection: { projectId: PROJECT_ID, sprintId: SPRINT_ID, sprintLabel: 'Chip Fixture' },
       }
     );
-    await waitForViewReady(result, (f) => f.includes('Tickets'));
+    await waitForViewReady(result, (f) => f.includes('Chip Fixture'));
 
     // Without the sync the probe stays `chip=none` for the life of the view — the seed carries
     // no status and nothing else on this screen writes one.

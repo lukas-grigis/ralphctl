@@ -1,4 +1,20 @@
-/** {@link TaskBlock} — one task card for the Tasks panel. */
+/**
+ * {@link TaskBlock} — one task card for the Tasks panel. This file owns only the card's props
+ * contract, its memo comparator, and the composition of the parts:
+ *
+ *   - `task-header.tsx`      — cursor / status / name row, summary + round + ETA chips, notices
+ *   - `task-body.tsx`        — busy indicator, expanded notices, sub-steps / eval / signals
+ *   - `task-card-parts.tsx`  — the smallest shared leaves (status maps, recovery / sub-step /
+ *                              criteria rows)
+ *
+ * Every part self-gates — it checks its own `cardExpanded` / data-presence condition and returns
+ * `null` when it has nothing to show — so the card below never repeats a gate.
+ *
+ * The per-task extras (recovery context, criteria, blocked reason, warning, evaluation verdict,
+ * pending sub-steps, projection) arrive as ONE {@link TaskOverlay} rather than as separate props:
+ * the panel folds the host's parallel id-keyed maps into it once per change, so a card looks its
+ * extras up once and the memo comparator has a single reference to compare.
+ */
 
 import React from 'react';
 import { Box } from 'ink';
@@ -19,8 +35,8 @@ import {
 } from '@src/application/ui/tui/components/tasks-panel-internals/task-body.tsx';
 
 /**
- * Props for {@link TaskBlock}. Named (rather than inlined on the function) purely to keep the function body's own
- * line count legible.
+ * Props for {@link TaskBlock}. Named (rather than inlined on the function) purely to keep the
+ * function body's own line count legible.
  */
 type TaskBlockProps = {
   readonly task: TaskBucket;
@@ -30,23 +46,33 @@ type TaskBlockProps = {
   readonly maxSubSteps: number;
   readonly focusedKey: string | undefined;
   readonly expandedKeys: ReadonlySet<string>;
+  readonly scopeId: string;
+  /** Absolute signal index where the rendered slice starts (`task.signals.length - sliceLen`). */
+  readonly sliceStart: number;
   /** When true the criteria block renders all bullets; otherwise the 3-line summary. */
   readonly criteriaExpanded: boolean;
   /** True for the active (running) task; gates ETA rendering to the operator's focus. */
   readonly isActive: boolean;
   /**
-   * Run-wide first-run flag — true when no harness signal or evaluation has fired across any task in the panel.
+   * Run-wide first-run flag — true when no harness signal or evaluation has fired across any
+   * task in the panel. Surfaces a `waiting for first attempt…` line below the active task's
+   * spinner so the operator sees the run is alive but pre-signal.
    */
   readonly firstRun: boolean;
-  /** When `true` the full card body (criteria, sub-steps, evaluations, signals) renders. */
+  /**
+   * When `true` the full card body (criteria, sub-steps, evaluations, signals) renders. When
+   * `false` only the one-line header summary is shown — the operator expands by focusing the
+   * card cursor and pressing Enter / Space.
+   */
   readonly cardExpanded: boolean;
   /** Card-level focus indicator — drives the leading cursor caret on the header row. */
   readonly cardFocused: boolean;
   /** Wall-clock reference for the idle ticker (current time, ms epoch). */
   readonly nowMs: number;
   /**
-   * Entity- and projection-sourced extras for this task — see {@link TaskOverlay}. The live `TaskBucket` is
-   * trace-derived and carries none of them.
+   * Entity- and projection-sourced extras for this task — see {@link TaskOverlay}. The live
+   * `TaskBucket` is trace-derived and carries none of them. Omitted ⇒ the card renders from the
+   * bucket alone (no criteria, verdict, ETA or notices).
    */
   readonly overlay?: TaskOverlay;
 };
@@ -55,8 +81,12 @@ type TaskBlockProps = {
 const NO_OVERLAY: TaskOverlay = {};
 
 /**
- * `TaskBlock`'s props-equality check for {@link React.memo} — identical to React's own default shallow compare EXCEPT
- * it ignores `nowMs`.
+ * `TaskBlock`'s props-equality check for {@link React.memo} — identical to React's own default
+ * shallow compare EXCEPT it ignores `nowMs`. The host (`tasks-panel.tsx`) re-derives `nowMs` from
+ * a polled 1 Hz clock every second, so a naive default `React.memo` would still re-render every
+ * card on every tick even though only the idle-ticker leaf (`IdleTickerNotice`, which now owns
+ * its own timer — see `use-idle-clock.ts`) ever needed it. Excluding just that one field is what
+ * turns the memo into a real bail-out for the 1 Hz tick without touching the host's prop shape.
  */
 const TASK_BLOCK_IGNORED_KEYS: ReadonlySet<keyof TaskBlockProps> = new Set(['nowMs']);
 
@@ -80,6 +110,8 @@ const TaskBlockImpl = ({
   maxSubSteps,
   focusedKey,
   expandedKeys,
+  scopeId,
+  sliceStart,
   criteriaExpanded,
   isActive,
   firstRun,
@@ -125,13 +157,21 @@ const TaskBlockImpl = ({
       maxSubSteps={maxSubSteps}
       maxSignals={maxSignals}
       pendingSubSteps={overlay.pendingSubSteps}
+      running={running}
       isActive={isActive}
       taskEvaluation={overlay.taskEvaluation}
       focusedKey={focusedKey}
       expandedKeys={expandedKeys}
+      scopeId={scopeId}
+      sliceStart={sliceStart}
     />
   </Box>
 );
 
-/** Memoized with the custom `nowMs`-excluding comparator above. */
+/**
+ * Memoized with the custom `nowMs`-excluding comparator above. `tasks-panel.tsx` rebuilds this
+ * component's props from scratch every render (including every 1 Hz tick), so without a memo the
+ * card would re-render regardless; with it, a card whose only "changed" prop is `nowMs` bails out
+ * before touching its subtree (`ExpandedNotices`, `ExpandedProgressBlock`, …).
+ */
 export const TaskBlock = React.memo(TaskBlockImpl, taskBlockPropsEqual);

@@ -1,6 +1,6 @@
 /**
- * Smoke tests for SprintDetailView's phase-aware workspace layout. Verifies the header strip's
- * `next:` row per status and that tickets lead the body.
+ * Smoke tests for SprintDetailView's phase-aware workspace layout. Verifies the "Next phase"
+ * card per status and that the ticket panel leads when draft, tasks otherwise.
  */
 
 import { describe, expect, it, vi } from 'vitest';
@@ -67,36 +67,13 @@ const stubDeps = (sprint: Sprint, tasks: readonly Task[]): AppDeps =>
 const initial: ViewEntry = { id: 'sprint-detail', props: { sprintId: FIXED_SPRINT_ID } };
 
 describe('SprintDetailView — phase workspace', () => {
-  it('at 80x24 the first ticket starts within the first ten rows and no Next-phase card renders', async () => {
-    const sprint = makeSprint({
-      status: 'active',
-      tickets: [
-        { id: 't1' as never, title: 'Alpha ticket', status: 'approved' } as never,
-        { id: 't2' as never, title: 'Beta ticket', status: 'approved' } as never,
-        { id: 't3' as never, title: 'Gamma ticket', status: 'approved' } as never,
-      ],
-    });
-    const { result } = renderView(<SprintDetailView />, {
-      deps: stubDeps(sprint, []),
-      initial,
-      size: { columns: 80, rows: 24 },
-    });
-    await waitForViewReady(result, (f) => f.includes('Alpha ticket'));
-    const lines = (result.lastFrame() ?? '').split('\n');
-    const row = lines.findIndex((l) => l.includes('Alpha ticket'));
-    expect(row).toBeGreaterThan(-1);
-    expect(row).toBeLessThanOrEqual(10);
-    expect(lines.join('\n')).not.toContain('Next phase');
-    result.unmount();
-  });
-
   it('draft sprint with no tickets suggests "Add tickets"', async () => {
     const sprint = makeSprint({ status: 'draft', tickets: [] });
     const { result } = renderView(<SprintDetailView />, { deps: stubDeps(sprint, []), initial });
-    await waitForViewReady(result, (f) => f.includes('next:'));
+    await waitForViewReady(result, (f) => f.includes('Add tickets'));
     const frame = result.lastFrame() ?? '';
-    expect(frame).not.toContain('Next phase');
-    expect(frame).toContain('next: a → add a ticket');
+    expect(frame).toContain('Next phase');
+    expect(frame).toContain('Add tickets');
     result.unmount();
   });
 
@@ -109,8 +86,8 @@ describe('SprintDetailView — phase workspace', () => {
       ],
     });
     const { result } = renderView(<SprintDetailView />, { deps: stubDeps(sprint, []), initial });
-    await waitForViewReady(result, (f) => f.includes('next:'));
-    expect(result.lastFrame() ?? '').toContain('next: ◆ Refine — clarify 2 pending tickets');
+    await waitForViewReady(result, (f) => f.includes('Refine 2 pending ticket(s)'));
+    expect(result.lastFrame() ?? '').toContain('Refine 2 pending ticket(s)');
     result.unmount();
   });
 
@@ -140,9 +117,9 @@ describe('SprintDetailView — phase workspace', () => {
       } as never,
     ];
     const { result } = renderView(<SprintDetailView />, { deps: stubDeps(sprint, tasks), initial });
-    await waitForViewReady(result, (f) => f.includes('next:'));
+    await waitForViewReady(result, (f) => f.includes('Implement 2 resumable task(s)'));
     const frame = result.lastFrame() ?? '';
-    expect(frame).toContain('next: ◆ Implement — 2 tasks pending');
+    expect(frame).toContain('Implement 2 resumable task(s)');
     const tasksHeader = frame.indexOf('▣ Tasks');
     const ticketsHeader = frame.indexOf('▣ Tickets');
     expect(tasksHeader).toBeGreaterThan(-1);
@@ -152,15 +129,14 @@ describe('SprintDetailView — phase workspace', () => {
     result.unmount();
   });
 
-  it('review sprint leads with Review and counts the other flows as "more"', async () => {
+  it('review sprint suggests opening a pull request', async () => {
     const sprint = makeSprint({
       status: 'review',
       tickets: [{ id: 't1' as never, title: 'first', status: 'approved' } as never],
     });
     const { result } = renderView(<SprintDetailView />, { deps: stubDeps(sprint, []), initial });
-    await waitForViewReady(result, (f) => f.includes('next:'));
-    expect(result.lastFrame() ?? '').toContain('next: ◆ Review');
-    expect(result.lastFrame() ?? '').toContain('+2 more');
+    await waitForViewReady(result, (f) => f.includes('Open a pull request'));
+    expect(result.lastFrame() ?? '').toContain('Open a pull request');
     result.unmount();
   });
 
@@ -498,35 +474,6 @@ describe('SprintDetailView — phase workspace', () => {
     result.unmount();
   });
 
-  it('drops the collapse and remove hints once the expanded last ticket is gone, and shows only collapse while a card is open', async () => {
-    let sprint = makeSprint({
-      status: 'draft',
-      tickets: [{ id: 't1' as never, title: 'first', status: 'pending' } as never],
-    });
-    const deps = {
-      ...stubDeps(sprint, []),
-      sprintRepo: {
-        async findById() {
-          return Result.ok(sprint);
-        },
-      } as unknown as SprintRepository,
-    } as AppDeps;
-    const { result } = renderView(<SprintDetailView />, { deps, initial });
-    await waitForViewReady(result, (f) => f.includes('d remove'));
-    result.stdin.write('\r');
-    await waitForPredicate(() => (result.lastFrame() ?? '').includes('esc/q collapse'));
-    // While a card is expanded, esc collapses — the footer must not also advertise leaving the view.
-    expect(result.lastFrame() ?? '').not.toMatch(/esc \w+ ·|esc Work|esc Sprint/);
-    // The ticket disappears underneath the open card (removed elsewhere), then the view reloads.
-    sprint = makeSprint({ status: 'draft', tickets: [] });
-    result.stdin.write('r');
-    await waitForPredicate(() => !(result.lastFrame() ?? '').includes('esc/q collapse'));
-    const frame = result.lastFrame() ?? '';
-    expect(frame).not.toContain('d remove');
-    expect(frame).not.toContain('collapse');
-    result.unmount();
-  });
-
   it('hides the a/d ticket-CRUD hints on a non-draft sprint (handlers are no-ops there)', async () => {
     const sprint = makeSprint({
       status: 'active',
@@ -678,8 +625,6 @@ describe('SprintDetailView — phase workspace', () => {
     const { result } = renderView(<SprintDetailView />, { deps, initial: initialWithId });
     await waitForViewReady(result, (f) => f.includes('ship it'));
     result.stdin.write('p');
-    await waitForPredicate(() => (result.lastFrame() ?? '').includes('Publish ticket'));
-    result.stdin.write('y');
     await waitForPredicate(() => (result.lastFrame() ?? '').includes('created'));
     expect(createCalls).toEqual([{ title: 'ship it', body: '' }]);
     expect(commentCalls).toEqual([]);
@@ -740,8 +685,6 @@ describe('SprintDetailView — phase workspace', () => {
     const { result } = renderView(<SprintDetailView />, { deps, initial: initialWithId });
     await waitForViewReady(result, (f) => f.includes('linked ticket'));
     result.stdin.write('p');
-    await waitForPredicate(() => (result.lastFrame() ?? '').includes('Publish ticket'));
-    result.stdin.write('y');
     await waitForPredicate(() => (result.lastFrame() ?? '').includes('commented'));
     expect(createCalls).toEqual([]);
     expect(commentCalls).toHaveLength(1);
@@ -796,8 +739,6 @@ describe('SprintDetailView — phase workspace', () => {
     const { result } = renderView(<SprintDetailView />, { deps, initial: initialWithId });
     await waitForViewReady(result, (f) => f.includes('stays put'));
     result.stdin.write('p');
-    await waitForPredicate(() => (result.lastFrame() ?? '').includes('Publish ticket'));
-    result.stdin.write('y');
     await waitForPredicate(() => (result.lastFrame() ?? '').includes('gh is down'));
     const frame = result.lastFrame() ?? '';
     expect(frame).toContain('stays put');
@@ -857,12 +798,8 @@ describe('SprintDetailView — phase workspace', () => {
     const { result } = renderView(<SprintDetailView />, { deps, initial: initialWithId });
     await waitForViewReady(result, (f) => f.includes('double tap'));
     result.stdin.write('p');
-    await waitForPredicate(() => (result.lastFrame() ?? '').includes('Publish ticket'));
-    result.stdin.write('y');
     await waitForPredicate(() => releaseCreate !== undefined);
     result.stdin.write('p');
-    await waitForPredicate(() => (result.lastFrame() ?? '').includes('Publish ticket'));
-    result.stdin.write('y');
     await tick(40);
     expect(createCalls).toBe(1);
     releaseCreate?.();
@@ -910,77 +847,6 @@ describe('SprintDetailView — phase workspace', () => {
     result.stdin.write('p');
     await tick(40);
     expect(trackerCalls).toBe(0);
-    result.unmount();
-  });
-});
-
-describe('SprintDetailView — publish confirmation', () => {
-  const mount = (): { readonly result: ReturnType<typeof renderView>['result']; readonly calls: () => number } => {
-    const ticket = makeApprovedTicket({ title: 'gate me' });
-    const sprint = { ...makeDraftSprint(), tickets: [ticket] } as unknown as Sprint;
-    let calls = 0;
-    const pusher: IssuePusher = {
-      async resolveOrigin() {
-        calls += 1;
-        return Result.ok({ provider: 'github', hostname: 'github.com', owner: 'x', repo: 'y' });
-      },
-      async create() {
-        calls += 1;
-        return Result.ok({ url: 'https://github.com/x/y/issues/1' });
-      },
-      async listComments() {
-        return Result.ok([]);
-      },
-      async comment() {
-        return Result.ok(undefined);
-      },
-    };
-    const base = stubDeps(sprint, []);
-    const deps = {
-      ...base,
-      sprintRepo: {
-        ...base.sprintRepo,
-        async save() {
-          return Result.ok(undefined);
-        },
-      },
-      projectRepo: {
-        async findById() {
-          return Result.ok(makeProject());
-        },
-      } as unknown as ProjectRepository,
-      logger: noopLogger,
-      issuePusher: pusher,
-    } as unknown as AppDeps;
-    const { result } = renderView(<SprintDetailView />, {
-      deps,
-      initial: { id: 'sprint-detail', props: { sprintId: sprint.id } },
-    });
-    return { result, calls: () => calls };
-  };
-
-  it('p names the destination and launches nothing until y', async () => {
-    const { result, calls } = mount();
-    await waitForViewReady(result, (f) => f.includes('gate me'));
-    result.stdin.write('p');
-    await waitForPredicate(() => (result.lastFrame() ?? '').includes('Publish ticket'));
-    expect(result.lastFrame() ?? '').toContain('origin tracker');
-    await tick(40);
-    expect(calls()).toBe(0);
-    result.stdin.write('y');
-    await waitForPredicate(() => calls() > 0);
-    result.unmount();
-  });
-
-  it('n cancels without touching the tracker', async () => {
-    const { result, calls } = mount();
-    await waitForViewReady(result, (f) => f.includes('gate me'));
-    result.stdin.write('p');
-    await waitForPredicate(() => (result.lastFrame() ?? '').includes('Publish ticket'));
-    result.stdin.write('n');
-    await tick(60);
-    expect(result.lastFrame() ?? '').not.toContain('Publish ticket');
-    expect(calls()).toBe(0);
     result.unmount();
   });
 });

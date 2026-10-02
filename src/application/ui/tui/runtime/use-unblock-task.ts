@@ -1,5 +1,18 @@
 /**
- * `useUnblockTask` — the runtime seam every view uses to revive a stuck task.
+ * `useUnblockTask` — the runtime seam every view uses to revive a stuck task, shaped like
+ * {@link useLaunchCreateSprint}: the hook closes over `useDeps()` and assembles the use case's
+ * six-field argument once, so a view supplies only the two things it actually knows (the task and
+ * the sprint it belongs to).
+ *
+ * Manual unblock has no registered flow — it is a single repository write with no chain, no
+ * prompts and no trace, so routing it through a flow factory would mean inventing a one-leaf
+ * chain purely to satisfy the layering. A runtime hook is the sanctioned alternative for that
+ * shape (DESIGN-SYSTEM §9): the view still never names a use case or reaches into `AppDeps`, and
+ * the repository wiring lives in exactly one place instead of being re-derived per call site.
+ *
+ * The hook deliberately owns nothing else. Post-write concerns — mounted-ref guards, toast copy,
+ * list refreshes — stay in the calling view, because each view sequences them differently.
+ *
  * @public
  */
 

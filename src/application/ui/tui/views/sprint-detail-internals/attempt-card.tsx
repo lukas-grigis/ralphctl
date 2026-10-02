@@ -1,4 +1,14 @@
-/** Per-attempt sub-card rendered inside the expanded task detail body. */
+/**
+ * Per-attempt sub-card rendered inside the expanded task detail body.
+ *
+ * Shows the attempt number, status chip, started / finished timestamps, elapsed, session id,
+ * commit sha, evaluation outcome, any warning, and the leading line of the evaluator critique.
+ * The `v to open` chord hint is gated on `openableAttemptN` — the chord is task-scoped, so only
+ * the attempt it actually resolves to may advertise it.
+ * Lifted out of `task-summary.tsx` so the tasks list file stays under 350 LOC and the
+ * attempt-specific helpers (`attemptStatusKind`, `evaluationColor`, `renderWarningDetail`) live
+ * next to their sole call site.
+ */
 
 import React from 'react';
 import { Box, Text } from 'ink';
@@ -20,8 +30,10 @@ export const AttemptCard = ({
 }: {
   readonly attempt: Attempt;
   /**
-   * Attempt number the task-scoped `v` chord actually resolves to (`latestRecordedEvaluation(task)?.attemptN`), or
-   * `undefined` when the task has no verdict at all.
+   * Attempt number the task-scoped `v` chord actually resolves to
+   * (`latestRecordedEvaluation(task)?.attemptN`), or `undefined` when the task has no verdict at
+   * all. Only that attempt's card advertises the chord — every other card would name a file `v`
+   * does not open.
    */
   readonly openableAttemptN: number | undefined;
 }): React.JSX.Element => {
@@ -111,7 +123,10 @@ const evaluationColor = (status: 'passed' | 'failed' | 'malformed'): string => {
   }
 };
 
-/** Human-readable detail tail for an attempt warning. */
+/**
+ * Human-readable detail tail for an attempt warning. The base label (`budget-exhausted`,
+ * `plateau`, …) is rendered by the caller; this returns the suffix (` · 5/5 turns`, etc.).
+ */
 const renderWarningDetail = (w: NonNullable<Attempt['warning']>): string => {
   switch (w.kind) {
     case 'budget-exhausted':
@@ -121,7 +136,7 @@ const renderWarningDetail = (w: NonNullable<Attempt['warning']>): string => {
     case 'malformed':
       return `  ${glyphs.bullet} ${firstLine(w.detail)}`;
     case 'verify-failed':
-      return `  ${glyphs.bullet} exit ${String(w.exitCode ?? '?')}${w.stderr.length > 0 ? ` ${glyphs.bullet} ${firstLine(w.stderr)}` : ''}`;
+      return `  ${glyphs.bullet} exit ${String(w.exitCode ?? '?')}${w.stderr.length > 0 ? ` · ${firstLine(w.stderr)}` : ''}`;
     case 'crashed':
       return `  ${glyphs.bullet} ${firstLine(w.detail)}`;
   }

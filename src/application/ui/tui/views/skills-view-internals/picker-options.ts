@@ -1,4 +1,8 @@
-/** Flow-picker option builders for the enable / disable multi-select prompts. */
+/**
+ * Flow-picker option builders for the enable / disable multi-select prompts. Pure — kept
+ * separate from `skills-view.tsx` so the gating rules (what's disabled, what's offered at all)
+ * are unit-testable without mounting Ink.
+ */
 
 import type { Choice } from '@src/business/interactive/prompt.ts';
 import type { FlowId } from '@src/domain/value/flow-id.ts';
@@ -10,8 +14,13 @@ import {
 } from '@src/application/ui/tui/views/skills-view-internals/flow-visual.ts';
 
 /**
- * Every skill-MOUNTING flow is offered. Flows the skill is already default-ON for, and edit-protected copies, are shown
- * but disabled, so the operator sees why they're greyed out.
+ * Every skill-MOUNTING flow is offered (a flow whose launch never mounts a skill source — none
+ * today; every real `FlowId` mounts, createPr included — is not listed at all: enabling there
+ * would advertise an effect that never happens). A flow the skill is already default-ON for is
+ * disabled (opting it in would be a no-op — it loads regardless, see `flowChipVisual`'s doc
+ * comment) but still shown so the operator understands why it's greyed out; likewise an
+ * edit-protected copy (`locally-modified` / `manual`) is shown disabled — `enable` deliberately
+ * skips those, `u` (update, with confirm) is the overwrite path.
  */
 export const enableOptions = (entry: SkillCatalogEntry): ReadonlyArray<Choice<FlowId>> =>
   SKILL_MOUNTING_FLOW_IDS.map((flowId) => {
@@ -33,8 +42,9 @@ export const enableOptions = (entry: SkillCatalogEntry): ReadonlyArray<Choice<Fl
   });
 
 /**
- * Preselection for the enable picker: `recommendedFor`, narrowed to rows that are actually selectable (mounting
- * flows, not default-on, not edit-protected).
+ * Preselection for the enable picker: `recommendedFor`, narrowed to rows that are actually
+ * selectable (mounting flows, not default-on, not edit-protected) — seeding a disabled row
+ * checked would misstate what submit will do.
  */
 export const enablePreselect = (entry: SkillCatalogEntry): readonly FlowId[] => {
   const selectable = new Set(

@@ -1,5 +1,21 @@
 /**
- * Read-only modal that surfaces an attempt's `<sprintDir>/implement/<task-id>/rounds/<N>/evaluator/ evaluation.md`.
+ * Read-only modal that surfaces an attempt's `<sprintDir>/implement/<task-id>/rounds/<N>/evaluator/
+ * evaluation.md` — the operator-readable verdict the evaluator has always written and nothing has
+ * ever opened. Same principle as {@link ProgressOverlay}: the TUI is a view onto the artifact, not
+ * a parallel runtime.
+ *
+ * Mounted at the {@link App} Layout when `ui.evaluationTarget` is set, so both opening surfaces
+ * (the Execute Tasks panel and sprint-detail) inherit it without per-view wiring. Opened with `v`
+ * on the focused task; `esc` or `v` closes (handled globally, so it wins over the hidden view).
+ *
+ * Scroll model — identical to the progress overlay, via the shared {@link useDocumentScroll}:
+ *   ↑ / ↓ line · PgUp/PgDn / Ctrl+b/f viewport · Ctrl+u/d half viewport
+ *
+ * HARD DEGRADE RULE. A `tasks.json` row may carry a stale, refused, or absent artifact path, and a
+ * pruned workspace makes a valid one unreadable. Every such case renders today's one-line
+ * `EvaluationLine` — the exact card the Tasks panel already shows — plus one dim explanatory row.
+ * Never an error card: the operator asked to see a verdict, and the verdict itself is still known
+ * even when its prose is not.
  */
 
 import React, { useMemo, useState } from 'react';
@@ -9,6 +25,7 @@ import { Spinner } from '@src/application/ui/tui/components/spinner.tsx';
 import { useStorage } from '@src/application/ui/tui/runtime/storage-context.tsx';
 import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { useTerminalSize } from '@src/application/ui/tui/runtime/use-terminal-size.ts';
+import { fmtDuration } from '@src/application/ui/tui/theme/duration.ts';
 import { EvaluationLine } from '@src/application/ui/tui/components/tasks-panel-internals/evaluation-row.tsx';
 import {
   EvaluationLines,
@@ -23,8 +40,6 @@ import {
   overlayBodyColumns,
   wrapRow,
 } from '@src/application/ui/tui/components/overlay-internals/wrap-document-rows.ts';
-import { DocumentScrollFooter } from '@src/application/ui/tui/components/overlay-internals/document-scroll-footer.tsx';
-import { formatAgo } from '@src/application/ui/tui/components/overlay-internals/read-sprint-document.ts';
 import {
   useEvaluationFile,
   type EvaluationFileState,
@@ -32,8 +47,8 @@ import {
 import type { EvaluationTarget } from '@src/application/ui/tui/runtime/evaluation-target.ts';
 
 /**
- * The rows the body scrolls, plus the dim notice shown above them. A degrade arm contributes a notice and no rows;
- * the loaded arm contributes rows and no notice.
+ * The rows the body scrolls, plus the dim notice shown above them. A degrade arm contributes a
+ * notice and no rows; the loaded arm contributes rows and no notice.
  */
 interface EvaluationBodyModel {
   readonly notice: string | undefined;
@@ -43,7 +58,11 @@ interface EvaluationBodyModel {
 
 const EMPTY_LINES: readonly EvaluationLineSpec[] = [];
 
-/** One arm per {@link EvaluationFileState}. */
+/**
+ * One arm per {@link EvaluationFileState}. The `ok` arm falls back to the raw file rows when the
+ * parse recognised nothing at all (a truncated write, a future format) — showing the bytes on disk
+ * beats showing a blank panel, and the verdict line above it is unaffected either way.
+ */
 const buildBodyModel = (state: EvaluationFileState): EvaluationBodyModel => {
   switch (state.kind) {
     case 'loading':
@@ -81,10 +100,15 @@ const withText =
   (line: EvaluationLineSpec) =>
   (text: string): EvaluationLineSpec => ({ ...line, text });
 
+const formatAgo = (modifiedAtMs: number, now: number): string => `${fmtDuration(Math.max(0, now - modifiedAtMs))} ago`;
+
 const modifiedAtOf = (state: EvaluationFileState): number | undefined =>
   state.kind === 'ok' || state.kind === 'empty' ? state.modifiedAtMs : undefined;
 
-/** The always-present verdict line. */
+/**
+ * The always-present verdict line. Identical to the Tasks-panel card's rendering, which is what
+ * makes every degrade arm a strict superset of today's behaviour rather than a replacement for it.
+ */
 const VerdictHeadline = ({ target }: { readonly target: EvaluationTarget }): React.JSX.Element => (
   <EvaluationLine
     evaluation={{
@@ -108,6 +132,8 @@ const EvaluationBody = ({
   readonly offset: number;
   readonly bodyRows: number;
 }): React.JSX.Element => {
+  const lineCount = model.lines.length;
+  const maxOffset = Math.max(0, lineCount - bodyRows);
   return (
     <>
       <Box flexDirection="column" marginTop={spacing.section}>
@@ -128,7 +154,16 @@ const EvaluationBody = ({
           </>
         )}
       </Box>
-      <DocumentScrollFooter offset={offset} bodyRows={bodyRows} lineCount={model.lines.length} />
+      {maxOffset > 0 && (
+        <Box marginTop={spacing.section} justifyContent="space-between">
+          <Text dimColor>
+            lines {String(offset + 1)}–{String(Math.min(lineCount, offset + bodyRows))} of {String(lineCount)}
+          </Text>
+          <Text dimColor>
+            {glyphs.bullet} ↑/↓ scroll {glyphs.bullet} PgUp/PgDn page
+          </Text>
+        </Box>
+      )}
     </>
   );
 };

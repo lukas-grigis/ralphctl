@@ -1,17 +1,27 @@
 /**
- * Work's hero cards for the states with no sprint to show: no project in storage, none picked, or a project without a
- * sprint.
+ * Home view's main hero card. Three regimes pick the layout:
+ *   - no project           → big empty state with "create your first project" CTA
+ *   - project, no sprint   → ready-to-start-a-sprint card with a single prominent CTA
+ *   - project + sprint     → sprint-centric overview: name + status + counts + pipeline
+ *
+ * The point: when the user lands on home, the most relevant action should be the visual focus.
+ * A dense FieldList of project / repo / ticket metadata buries that action.
  */
 
 import React from 'react';
 import { Box, Text } from 'ink';
 import { Card } from '@src/application/ui/tui/components/card.tsx';
+import { sprintStatusKind, StatusChip } from '@src/application/ui/tui/components/status-chip.tsx';
+import { PipelineMap } from '@src/application/ui/tui/components/pipeline-map.tsx';
 import { Spinner } from '@src/application/ui/tui/components/spinner.tsx';
-import type { AppStateSnapshot } from '@src/application/ui/shared/state-snapshot.ts';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
+import { computeTaskHealthCounts, type AppStateSnapshot } from '@src/application/ui/shared/state-snapshot.ts';
+import { buildNextSteps, nextStepsInputFromSnapshot } from '@src/application/ui/shared/next-steps.ts';
+import { NextStepList } from '@src/application/ui/tui/components/next-steps.tsx';
 
 /**
- * A short instruction line: "press <KEY> to <do thing>". Renders the key in highlight, the label in plain text.
+ * A short instruction line: "press <KEY> to <do thing>". Renders the key in highlight, the
+ * label in plain text. Used by every regime of StateCard to make the next action obvious.
  */
 const KeyCue = ({ keys, label }: { readonly keys: string; readonly label: string }): React.JSX.Element => (
   <Text>
@@ -25,8 +35,8 @@ const KeyCue = ({ keys, label }: { readonly keys: string; readonly label: string
 );
 
 /**
- * A one-liner explaining how the app is laid out — visible only when the user hasn't yet created a sprint. Once
- * they're in the flow it stays out of the way.
+ * A one-liner explaining how the app is laid out — visible only when the user hasn't yet
+ * created a sprint. Once they're in the flow it stays out of the way.
  */
 const OrientationLine = (): React.JSX.Element => (
   <Box marginTop={spacing.section}>
@@ -37,9 +47,12 @@ const OrientationLine = (): React.JSX.Element => (
   </Box>
 );
 
-/**
- * NOTE — the three empty-state heroes below (NoProjectCard / PickProjectCard / PickOrCreateSprintCard) keep their own
- * big CTAs rather than rendering `buildNextSteps`' pre-sprint rows.
+/*
+ * NOTE — the three empty-state heroes below (NoProjectCard / PickProjectCard /
+ * PickOrCreateSprintCard) keep their own big CTAs rather than rendering `buildNextSteps`'
+ * pre-sprint rows. Those rows exist so the settled-run and Flows surfaces have something to say
+ * in the same states; here a full-width hero with one prominent action already does that job
+ * better. Do not "unify" these into one-line hints — that would be a regression, not a cleanup.
  */
 
 /** Regime: no project exists yet anywhere in storage. */
@@ -92,11 +105,72 @@ const PickOrCreateSprintCard = ({
         )}
         <Box marginTop={spacing.section}>
           <KeyCue
-            keys="2"
+            keys="r"
             label={sprintCount === 0 ? 'open Sprints and press c to create one' : 'open Sprints to pick or create one'}
           />
         </Box>
         {sprintCount === 0 && <OrientationLine />}
+      </Box>
+    </Card>
+  );
+};
+
+/** Regime: a sprint is loaded — the main overview with counts + pipeline + next action. */
+const ActiveSprintCard = ({ state }: { readonly state: AppStateSnapshot }): React.JSX.Element => {
+  const sprint = state.sprint;
+  const project = state.project;
+  if (sprint === undefined || project === undefined) return <Box />;
+  // One shared table for Home, Flows, and the settled ResultCard — and it is checked against the
+  // flow menu's own visibility rules, so `review` no longer points at create-pr (hidden there).
+  const { steps } = buildNextSteps(nextStepsInputFromSnapshot(state));
+  // Independent of `resumableTaskCount` below (which excludes `blocked` entirely) — a sprint
+  // whose entire remainder is blocked used to read "0 tasks pending" with nothing else on the
+  // card to say otherwise.
+  const { blockedTaskCount } = computeTaskHealthCounts(state.tasks);
+  return (
+    <Card
+      title={`${glyphs.actionCursor} ${sprint.name}`}
+      tone="primary"
+      right={<StatusChip label={sprint.status} kind={sprintStatusKind(sprint.status)} />}
+    >
+      <Box flexDirection="column" paddingX={spacing.indent}>
+        <Box>
+          <Text dimColor>
+            {project.displayName} {glyphs.bullet} {String(project.repositories.length)} repo
+            {project.repositories.length === 1 ? '' : 's'}
+          </Text>
+        </Box>
+        <Box marginTop={spacing.section}>
+          <Text>
+            <Text bold>{String(sprint.tickets.length)}</Text>
+            <Text dimColor> ticket{sprint.tickets.length === 1 ? '' : 's'} </Text>
+            <Text bold color={inkColors.warning}>
+              {String(state.triggerInputs.pendingTicketCount)}
+            </Text>
+            <Text dimColor> pending </Text>
+            <Text bold color={inkColors.success}>
+              {String(state.triggerInputs.approvedTicketCount)}
+            </Text>
+            <Text dimColor> approved {glyphs.bullet} </Text>
+            <Text bold>{String(state.triggerInputs.resumableTaskCount)}</Text>
+            <Text dimColor> tasks pending</Text>
+            {blockedTaskCount > 0 && (
+              <Text>
+                <Text dimColor> {glyphs.bullet} </Text>
+                <Text bold color={inkColors.error}>
+                  {String(blockedTaskCount)}
+                </Text>
+                <Text dimColor> blocked</Text>
+              </Text>
+            )}
+          </Text>
+        </Box>
+        <Box marginTop={spacing.section}>
+          <PipelineMap status={sprint.status} />
+        </Box>
+        <Box marginTop={spacing.section}>
+          <NextStepList steps={steps} prefix={`${glyphs.bullet} next: `} />
+        </Box>
       </Box>
     </Card>
   );
@@ -121,5 +195,5 @@ export const StateCard = ({
   if (!state.project) return <PickProjectCard projectCount={state.projectCount} />;
   if (!state.sprint)
     return <PickOrCreateSprintCard projectName={state.project.displayName} sprintCount={state.sprintCount} />;
-  return <Box />;
+  return <ActiveSprintCard state={state} />;
 };

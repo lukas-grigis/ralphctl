@@ -1,6 +1,11 @@
 /**
- * Settings mutation orchestration — wraps the apply-key + set-provider + set + apply-preset flows behind a single
- * `submitField` entry point.
+ * Settings mutation orchestration — wraps the apply-key + set-provider + set + apply-preset
+ * flows behind a single `submitField` entry point. The TUI's SettingsView consumes this so the
+ * orchestrator file stays focused on render + key handling.
+ *
+ * Every routing decision (`ai.implement.<role>.provider` vs `ai.<flow>.provider` vs everything
+ * else) lives here; the view only forwards the raw submitted value + the editable field
+ * descriptor.
  */
 
 import { createSettingsApplyPresetFlow } from '@src/application/flows/settings-apply-preset/flow.ts';
@@ -23,21 +28,35 @@ export type PresetOutcome =
   | { readonly kind: 'ok'; readonly text: string; readonly warnings: readonly PresetWarning[] }
   | { readonly kind: 'error'; readonly text: string };
 
-/**
- * Provider-switch key shapes: implement carries a generator + evaluator pair addressed via a 4-segment key; every
- * other flow is the 3-segment shape.
- */
+/** Provider-switch key shapes: implement carries a generator + evaluator pair addressed via a
+ * 4-segment key; every other flow is the 3-segment shape. */
 const IMPLEMENT_ROLE_PROVIDER_KEY = /^ai\.implement\.(generator|evaluator)\.provider$/;
 const FLAT_PROVIDER_KEY = /^ai\.(refine|plan|readiness|ideate|createPr)\.provider$/;
 
-/** Route: any per-flow / per-role provider picker. */
-const setProvider = async (
-  flow: FlowId,
-  role: 'generator' | 'evaluator' | undefined,
+/** One `submitField` routing rule — same declarative shape as `evaluateTriggers`'s gate array. */
+interface SubmitRoute {
+  readonly match: (field: EditableField) => boolean;
+  readonly handle: (
+    settings: Settings,
+    field: EditableField,
+    raw: string,
+    settingsRepo: SettingsRepository
+  ) => Promise<MutationOutcome>;
+}
+
+/** Route: any per-flow / per-role provider picker. Rebuilds the row's model from the target
+ * provider's defaults via `settings-set-provider` instead of the generic apply-key path. */
+const handleProviderRoute = async (
+  _settings: Settings,
+  field: EditableField,
   raw: string,
   settingsRepo: SettingsRepository
 ): Promise<MutationOutcome> => {
+  const implementRoleProviderMatch = IMPLEMENT_ROLE_PROVIDER_KEY.exec(field.key);
+  const flatProviderMatch = FLAT_PROVIDER_KEY.exec(field.key);
   const providerFlow = createSettingsSetProviderFlow({ settingsRepo });
+  const flow: FlowId = implementRoleProviderMatch !== null ? 'implement' : (flatProviderMatch![1] as FlowId);
+  const role = implementRoleProviderMatch?.[1] as 'generator' | 'evaluator' | undefined;
   const saved = await providerFlow.execute({
     input: { flow, provider: raw as AiProvider, ...(role !== undefined ? { role } : {}) },
   });
@@ -46,12 +65,11 @@ const setProvider = async (
   return { kind: 'ok', text: `${label} provider = ${raw} · model reset to default` };
 };
 
-/**
- * Route: the escalation-map "add a rung" action row — submits a `from=to` pair built by the two-step picker, reusing
- * the `harness.escalationMap.<from>` key the CLI's `settings set` speaks.
- */
+/** Route: the escalation-map "add a rung" action row — submits a `from=to` pair built by the
+ * two-step picker, reusing the `harness.escalationMap.<from>` key the CLI's `settings set` speaks. */
 const handleMapAddRoute = async (
   settings: Settings,
+  _field: EditableField,
   raw: string,
   settingsRepo: SettingsRepository
 ): Promise<MutationOutcome> => {
@@ -64,16 +82,15 @@ const handleMapAddRoute = async (
   });
 };
 
-/**
- * Route: one editable escalation-map override row — an empty submitted value deletes it (the apply-key grammar's
- * clear semantic).
- */
+/** Route: one editable escalation-map override row — an empty submitted value deletes it (the
+ * apply-key grammar's clear semantic). */
 const handleMapEntryRoute = async (
   settings: Settings,
-  field: Extract<EditableField, { kind: 'map-entry' }>,
+  field: EditableField,
   raw: string,
   settingsRepo: SettingsRepository
 ): Promise<MutationOutcome> => {
+  if (field.kind !== 'map-entry') throw new Error('handleMapEntryRoute requires a map-entry field');
   const okText =
     raw.trim().length === 0
       ? `removed escalation override for ${field.from}`
@@ -81,10 +98,8 @@ const handleMapEntryRoute = async (
   return persistKey(settings, field.key, raw, settingsRepo, { okText });
 };
 
-/**
- * Fallback route: every other key through the generic `applySettingsKey` → `settings-set` pipeline. `Default` clears
- * effort overrides.
- */
+/** Fallback route: every other key through the generic `applySettingsKey` → `settings-set`
+ * pipeline. `Default` clears effort overrides. */
 const handleDefaultRoute = async (
   settings: Settings,
   field: EditableField,
@@ -95,20 +110,35 @@ const handleDefaultRoute = async (
   return persistKey(settings, field.key, normalised, settingsRepo, { okText: `${field.label} = ${raw}` });
 };
 
-/** Persist a single field edit — provider keys first, then the escalation-map rows, then the generic fallback. */
+/** Ordered submit routes — first match wins, mirroring `evaluateTriggers`'s gate array. The
+ * fallback route always matches, so it must stay last. */
+const SUBMIT_ROUTES: readonly SubmitRoute[] = [
+  {
+    match: (field) => IMPLEMENT_ROLE_PROVIDER_KEY.test(field.key) || FLAT_PROVIDER_KEY.test(field.key),
+    handle: handleProviderRoute,
+  },
+  { match: (field) => field.kind === 'map-add', handle: handleMapAddRoute },
+  { match: (field) => field.kind === 'map-entry', handle: handleMapEntryRoute },
+  { match: () => true, handle: handleDefaultRoute },
+];
+
+/**
+ * Persist a single field edit. Routes provider switches through `settings-set-provider`
+ * (rebuilds the row's model from the target provider's defaults) and every other key through
+ * the generic `applySettingsKey` → `settings-set` pipeline. `Default` clears effort overrides.
+ *
+ * Returns a `MutationOutcome` rather than throwing so the view can render a feedback banner
+ * without an additional try/catch wrapper. The `next` payload is the persisted record — the
+ * view uses it to mirror per-key side effects (e.g. log-level sync) without re-reading from disk.
+ */
 export const submitField = async (
   settings: Settings,
   field: EditableField,
   raw: string,
   settingsRepo: SettingsRepository
 ): Promise<MutationOutcome> => {
-  const role = IMPLEMENT_ROLE_PROVIDER_KEY.exec(field.key);
-  if (role !== null) return setProvider('implement', role[1] as 'generator' | 'evaluator', raw, settingsRepo);
-  const flat = FLAT_PROVIDER_KEY.exec(field.key);
-  if (flat !== null) return setProvider(flat[1] as FlowId, undefined, raw, settingsRepo);
-  if (field.kind === 'map-add') return handleMapAddRoute(settings, raw, settingsRepo);
-  if (field.kind === 'map-entry') return handleMapEntryRoute(settings, field, raw, settingsRepo);
-  return handleDefaultRoute(settings, field, raw, settingsRepo);
+  const route = SUBMIT_ROUTES.find((r) => r.match(field));
+  return route!.handle(settings, field, raw, settingsRepo);
 };
 
 /** Shared applySettingsKey → settings-set tail used by every non-provider route above. */
@@ -127,7 +157,10 @@ const persistKey = async (
   return { kind: 'ok', text: opts.okText, next: next.value };
 };
 
-/** Apply a settings preset and return the warnings the apply-preset flow emitted. */
+/**
+ * Apply a settings preset and return the warnings the apply-preset flow emitted. The view
+ * renders those warnings underneath the preset bar until the next preset / row edit clears them.
+ */
 export const applyPreset = async (preset: PresetName, settingsRepo: SettingsRepository): Promise<PresetOutcome> => {
   const flow = createSettingsApplyPresetFlow({ settingsRepo });
   const saved = await flow.execute({ input: { preset } });

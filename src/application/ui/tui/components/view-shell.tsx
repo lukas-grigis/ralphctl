@@ -1,42 +1,84 @@
 /**
- * Frame every view shares — four zones (header, content, status, prompt) under the chrome `Layout` owns. The fixed
- * zones are `flexShrink={0}` so Yoga can't squeeze them away when content overflows.
+ * Frame every view shares — five explicit zones modelled after a standard webpage layout:
+ *
+ *   ┌─────────────────────────────────────────────┐
+ *   │ HEADER  (fixed, never scrolls, never shrinks)│   ← banner + rule + breadcrumb
+ *   ├─────────────────────────────────────────────┤
+ *   │ CONTENT (scrolls when it overflows the      │   ← section stamp + page body
+ *   │          viewport; clipped at the edges)    │     inside a ScrollRegion
+ *   ├─────────────────────────────────────────────┤
+ *   │ STATUS  (fixed; collapses when no banner)   │   ← dismissible StatusBanner stack
+ *   ├─────────────────────────────────────────────┤
+ *   │ PROMPT  (fixed; collapses when no prompt)   │   ← modal Question card from PromptHost
+ *   ├─────────────────────────────────────────────┤
+ *   │ FOOTER  (fixed, never scrolls, never shrinks)│   ← rule + status bar
+ *   └─────────────────────────────────────────────┘
+ *
+ * The fixed zones are wrapped in their own `flexShrink={0}` boxes — without that, Yoga is
+ * free to compress them when the inner content is taller than the terminal, which is exactly
+ * what we want to avoid (a "fixed footer" that disappears when content overflows isn't fixed).
+ *
+ * The prompt slot pins the queued Question card above the footer so the keyboard hints stay
+ * visible while the user answers. The PromptHost returns null when the queue is empty so this
+ * row collapses to zero height between prompts.
+ *
+ * The status slot sits between content and the prompt so the dismissible banner stack lands
+ * next to the other footer-adjacent surfaces (PromptHost, StatusBar). Detaching it from the
+ * top of the screen keeps it close to the keyboard hints (`press d to dismiss`) and the
+ * footer hotkey rail. StatusBanner returns null when no banners are active, so this row
+ * collapses too.
+ *
+ * The section stamp lives INSIDE the scroll region rather than the header — it's per-view
+ * metadata that scrolls with the page body. The banner + breadcrumb are global anchors that
+ * stay put across navigation.
+ *
+ * The wordmark `'full'` banner is reserved for the home view; every other view defaults to a
+ * single-line compact strip so the viewport stays content-first.
  */
 
 import React from 'react';
 import { Box } from 'ink';
-import { Banner, resolveBannerMode } from '@src/application/ui/tui/components/banner.tsx';
+import { Banner } from '@src/application/ui/tui/components/banner.tsx';
+import { Breadcrumb } from '@src/application/ui/tui/components/breadcrumb.tsx';
+import { SectionStamp } from '@src/application/ui/tui/components/section-stamp.tsx';
 import { StatusBar } from '@src/application/ui/tui/components/status-bar.tsx';
 import { StatusBanner } from '@src/application/ui/tui/components/status-banner.tsx';
 import { FeedbackLine, type StructuredFeedback } from '@src/application/ui/tui/components/feedback-line.tsx';
 import { ScrollRegion } from '@src/application/ui/tui/components/scroll-region.tsx';
 import { PromptHost } from '@src/application/ui/tui/prompts/prompt-host.tsx';
 import { usePromptQueue } from '@src/application/ui/tui/prompts/prompt-context.tsx';
-import { useRouter } from '@src/application/ui/tui/runtime/router.tsx';
-import { useTerminalSize } from '@src/application/ui/tui/runtime/use-terminal-size.ts';
 import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
-import { usePublishViewTitle } from '@src/application/ui/tui/runtime/view-title-context.tsx';
 
 export interface ViewShellProps {
   readonly title: string;
   readonly subtitle?: string;
-  /** Rendered on the location line after the title — Execute's status chip. */
   readonly right?: React.ReactNode;
-  /** Cells `right` needs, so the location line can budget for it. */
-  readonly rightWidth?: number;
   /**
-   * Overrides the last location crumb when the route label is not the view's name (Execute shows the flow it is
-   * running).
+   * View-level banner preference:
+   *   - `true` → render the compact two-row strip (long-running flows pass this so the wordmark
+   *     doesn't eat vertical real estate from the task stream).
+   *   - `undefined` (default) → let the {@link Banner} auto-switch on terminal width (full above
+   *     `MIN_FULL_WIDTH`, compact below).
+   *
+   * Precedence: a user `b`-toggle (`UiState.bannerCompact`) always wins; this prop is the
+   * fallback the view declares; absent both, Banner's width-based auto-switch applies.
    */
-  readonly crumb?: string;
+  readonly compactBanner?: boolean;
   /**
-   * When true, the inner {@link ScrollRegion} ignores arrow / paging / vim scroll keys so a view that owns its own
-   * list cursor handles them itself (no double-scroll).
+   * When true, the inner {@link ScrollRegion} ignores arrow / paging / vim scroll keys so a view
+   * that owns its own list cursor handles them itself (no double-scroll). Mouse-wheel scroll is
+   * unaffected. Default `undefined` / false — every current caller keeps the page-scroll keys.
    */
   readonly suppressScrollArrows?: boolean;
   /**
-   * Result of the last action the operator took in this view (`✓ unblocked "…"`, `✗ <error>`), rendered in the PINNED
-   * status row rather than inside the scroll body.
+   * Result of the last action the operator took in this view (`✓ unblocked "…"`, `✗ <error>`),
+   * rendered in the PINNED status row rather than inside the scroll body.
+   *
+   * Pinned because the scroll body is not a place a one-shot message can be trusted to land: on
+   * a view tall enough to overflow, an inline result line sits wherever its section happens to
+   * fall, which on a default-height terminal is below the fold — so the operator performs an
+   * action and sees nothing. Views that overflow (sprint detail) pass their feedback here; short
+   * list views that render {@link FeedbackLine} inline are unaffected.
    */
   readonly feedback?: string | StructuredFeedback;
   readonly children: React.ReactNode;
@@ -46,32 +88,28 @@ export const ViewShell = ({
   title,
   subtitle,
   right,
-  rightWidth,
-  crumb,
+  compactBanner,
   suppressScrollArrows,
   feedback,
   children,
 }: ViewShellProps): React.JSX.Element => {
-  usePublishViewTitle({ title, subtitle, crumb, right, rightWidth });
   const ui = useUiState();
   const queue = usePromptQueue();
-  const router = useRouter();
-  const { columns, rows } = useTerminalSize();
-  const bannerMode = resolveBannerMode({
-    routeId: router.current.id,
-    columns,
-    rows,
-    userToggle: ui.bannerCompact,
-  });
+  // Precedence: user toggle (`bannerCompact`) wins over the view's `compactBanner` prop, which
+  // wins over `Banner`'s internal width-based auto-switch. When neither is set we pass
+  // `undefined` so the auto-switch fires.
+  const banner = ui.bannerCompact ? true : compactBanner;
   return (
     <Box flexDirection="column" flexGrow={1}>
       {/* ── HEADER ─────────────────────────────────────────────────────────────────────── */}
       <Box flexDirection="column" flexShrink={0}>
-        <Banner mode={bannerMode} />
+        <Banner {...(banner !== undefined ? { compact: banner } : {})} />
+        <Breadcrumb />
       </Box>
 
       {/* ── CONTENT ────────────────────────────────────────────────────────────────────── */}
       <ScrollRegion disabled={ui.modalOpen} suppressArrows={suppressScrollArrows ?? false}>
+        <SectionStamp title={title} subtitle={subtitle} right={right} />
         {children}
       </ScrollRegion>
 

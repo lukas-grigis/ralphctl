@@ -1,89 +1,135 @@
-/** Footer — always visible: a rule and ONE hint row. */
+/**
+ * Bottom status bar — always visible, two rows. The top row right-aligns the health indicators
+ * (a stethoscope glyph tinted by the worst probe status, plus the npm update hint, plus the
+ * current project/sprint and session counts). The bottom row shows merged keyboard hints
+ * (global + the current view's local set).
+ *
+ * Hints are read from the {@link useActiveHints} registry; views declare their own via
+ * `useViewHints([{ keys: 'n', label: 'new' }])`. Global hints are appended last.
+ */
 
 import React from 'react';
 import { Box, Text } from 'ink';
-import { glyphs, inkColors, spacing, breakpoints } from '@src/application/ui/tui/theme/tokens.ts';
+import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { useActiveHints, useSuppressedGlobalKeys } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
-import { buildFooterGlobalHints } from '@src/application/ui/tui/runtime/keyboard-map.ts';
-import { fitHints, type FitHint } from '@src/application/ui/tui/components/hint-budget.ts';
-import { useRouter } from '@src/application/ui/tui/runtime/router.tsx';
-import { ROUTE_LABELS } from '@src/application/ui/tui/runtime/nav-tree.ts';
-import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
+import { useSessions } from '@src/application/ui/tui/runtime/sessions-context.tsx';
+import { useAwaitingSessions } from '@src/application/ui/tui/runtime/use-awaiting-sessions.ts';
 import { useTerminalSize } from '@src/application/ui/tui/runtime/use-terminal-size.ts';
+import { useSystemStatus } from '@src/application/ui/tui/runtime/system-status-context.tsx';
+import { footerGlobalHints, globalKeys } from '@src/application/ui/tui/runtime/keyboard-map.ts';
+import { fitHints, KeyboardHints } from '@src/application/ui/tui/components/keyboard-hints.tsx';
 import { Divider } from '@src/application/ui/tui/components/divider.tsx';
+import { Spinner } from '@src/application/ui/tui/components/spinner.tsx';
+import type { DoctorReport } from '@src/application/flows/doctor/ctx.ts';
 
-const QUIT_HINT: FitHint = { keys: 'ctrl+c', label: 'quit' };
+/** Never dropped to make room: the two keys that answer "how do I get help / leave". */
+const PINNED_HINT_KEYS: ReadonlySet<string> = new Set([globalKeys.help.keys.join('/'), globalKeys.quit.keys.join('/')]);
 
-/**
- * While a prompt holds the keyboard the view's keys and every global letter are muted, so only the prompt's own keys
- * (published through `usePromptHints`) and `ctrl+c quit` are honest; otherwise local hints lead.
- */
-const orderFooterHints = (args: {
-  readonly local: ReadonlyArray<FitHint & { readonly prompt?: boolean }>;
-  readonly globals: readonly FitHint[];
-  readonly promptActive: boolean;
-}): readonly FitHint[] => {
-  if (!args.promptActive) return [...args.local.filter((h) => h.prompt !== true), ...args.globals];
-  // The prompt's own keys lead; with none published (a bare confirm overlay) only quit is honest.
-  return [...args.local.filter((h) => h.prompt === true), QUIT_HINT];
-};
+export const StatusBar = (): React.JSX.Element => {
+  const sessions = useSessions();
+  const localHints = useActiveHints();
+  const suppressedKeys = useSuppressedGlobalKeys();
+  const system = useSystemStatus();
+  const awaiting = useAwaitingSessions();
+  const { columns } = useTerminalSize();
+  // Per-view suppressions hide specific footer hints (matched by their `keys` string) so the
+  // footer never advertises a key combo whose default meaning is contradicted by the
+  // currently-mounted view. A suppressed key absent from footerGlobalHints is simply a no-op.
+  const visibleGlobalHints =
+    suppressedKeys.size === 0 ? footerGlobalHints : footerGlobalHints.filter((h) => !suppressedKeys.has(h.keys));
 
-/** One row, never wrapping: fitted cells inside a single truncating `<Text>`. */
-const HintStrip = ({ hints, budget }: { readonly hints: readonly FitHint[]; readonly budget: number }) => {
-  const { visible } = fitHints(hints, budget);
+  const running = sessions.filter((s) => s.descriptor.status === 'running').length;
+  const waiting = sessions.filter((s) => s.descriptor.status === 'running' && awaiting.has(s.descriptor.id)).length;
+  const sessionSummary =
+    sessions.length > 0
+      ? `${String(running)} running ${glyphs.bullet} ${String(sessions.length)} total`
+      : 'no active runs';
+
   return (
-    <Text wrap="truncate-end">
-      {visible.map((h, i) => (
-        <Text key={`${h.keys}-${String(i)}`}>
-          {i > 0 && <Text dimColor> {glyphs.bullet} </Text>}
-          <Text color={inkColors.primary} bold>
-            {h.keys}
+    <Box flexDirection="column" marginTop={spacing.section}>
+      <Divider />
+      <Box justifyContent="flex-end" paddingX={spacing.indent}>
+        <Box>
+          <DoctorIndicator loading={system.doctorLoading} report={system.doctor} />
+          {system.version?.updateAvailable === true && (
+            <Text dimColor>
+              {'  '}
+              {glyphs.bullet} update {system.version.current} {glyphs.arrowRight} {system.version.latest}
+            </Text>
+          )}
+          <Text dimColor>
+            {'  '}
+            {glyphs.bullet} {sessionSummary}
           </Text>
-          <Text dimColor> {h.label}</Text>
-        </Text>
-      ))}
-    </Text>
+          {waiting > 0 && (
+            <Text color={inkColors.warning} bold>
+              {'  '}
+              {glyphs.warningGlyph} [WAITING]
+              {waiting > 1 ? ` ${String(waiting)}` : ''}
+            </Text>
+          )}
+        </Box>
+      </Box>
+      {/* One line, local hints first: when it overflows the global tail is what gets clipped. */}
+      <Box paddingX={spacing.indent}>
+        <KeyboardHints
+          hints={fitHints(
+            [...localHints, ...visibleGlobalHints],
+            columns - 2 * spacing.indent,
+            localHints.length,
+            PINNED_HINT_KEYS
+          )}
+        />
+      </Box>
+    </Box>
   );
 };
 
-export const StatusBar = (): React.JSX.Element => {
-  const localHints = useActiveHints();
-  const suppressedKeys = useSuppressedGlobalKeys();
-  const { columns } = useTerminalSize();
-  const router = useRouter();
-  const ui = useUiState();
-  const parent = router.stack[router.stack.length - 2];
-  const globals = buildFooterGlobalHints({
-    stackDepth: router.stack.length,
-    parentLabel: parent !== undefined ? ROUTE_LABELS[parent.id] : undefined,
-    onWorkRoot: router.activeSection === 'work' && router.stack.length <= 1 && router.current.id === 'home',
-    atOtherSectionRoot: router.stack.length <= 1 && router.activeSection !== 'work' && router.activeSection !== 'none',
-    wide: columns >= breakpoints.lg,
-  });
-  // Per-view suppressions hide specific footer hints (matched by their `keys` string) so the footer never advertises
-  // a key combo whose default meaning is contradicted by the currently-mounted view.
-  // A claimed `esc` closes something local (a card, an overlay) — advertising "esc <parent>" would lie.
-  const visibleGlobals = globals.filter((h) => !suppressedKeys.has(h.keys) && !(ui.escapeClaimed && h.keys === 'esc'));
-  const hints = orderFooterHints({ local: localHints, globals: visibleGlobals, promptActive: ui.promptActive });
-
-  return <FooterBar hints={hints} columns={columns} />;
-};
-
-/**
- * The footer itself — a rule and one hint row. Exported so an overlay that hides the view (and so its StatusBar) can
- * pin its own hints in the same place.
- */
-export const FooterBar = ({
-  hints,
-  columns,
+const DoctorIndicator = ({
+  loading,
+  report,
 }: {
-  readonly hints: readonly FitHint[];
-  readonly columns: number;
-}): React.JSX.Element => (
-  <Box flexDirection="column">
-    <Divider />
-    <Box paddingX={spacing.indent}>
-      <HintStrip hints={hints} budget={columns - 2 * spacing.indent} />
-    </Box>
-  </Box>
-);
+  readonly loading: boolean;
+  readonly report: DoctorReport | undefined;
+}): React.JSX.Element => {
+  if (loading || !report) {
+    return (
+      <Box>
+        <Spinner color={inkColors.muted} />
+        <Text dimColor> doctor</Text>
+      </Box>
+    );
+  }
+  const failed = report.probes.filter((p) => p.status === 'fail').length;
+  const warned = report.probes.filter((p) => p.status === 'warn').length;
+  if (failed > 0) {
+    return (
+      <Text>
+        <Text color={inkColors.error}>{glyphs.stethoscope}</Text>
+        <Text color={inkColors.error}>
+          {' '}
+          {String(failed)} doctor failure{failed === 1 ? '' : 's'}
+        </Text>
+        <Text dimColor> (press !)</Text>
+      </Text>
+    );
+  }
+  if (warned > 0) {
+    return (
+      <Text>
+        <Text color={inkColors.warning}>{glyphs.stethoscope}</Text>
+        <Text color={inkColors.warning}>
+          {' '}
+          {String(warned)} doctor warning{warned === 1 ? '' : 's'}
+        </Text>
+        <Text dimColor> (press !)</Text>
+      </Text>
+    );
+  }
+  return (
+    <Text>
+      <Text color={inkColors.success}>{glyphs.stethoscope}</Text>
+      <Text dimColor> doctor ok</Text>
+    </Text>
+  );
+};

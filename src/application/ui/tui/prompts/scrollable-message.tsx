@@ -1,16 +1,36 @@
-/** Header + scrollable body for prompt messages. */
+/**
+ * Header + scrollable body for prompt messages. When a prompt is asked to display a long body
+ * (e.g. the refine flow's approval prompt shows the full refined-requirements markdown), the
+ * single-`<Text>` rendering used to overflow the terminal with no way to scroll. This component
+ * splits the message at the first blank line — everything before is the bold header, everything
+ * after becomes a windowed viewport sized to the terminal height.
+ *
+ * Default scroll bindings (used by hosts whose own option nav doesn't take ↑/↓ — e.g. the
+ * yes/no `ConfirmPrompt`, which navigates with ←/→):
+ *
+ *   ↑ / ↓             → one row
+ *   PgUp / PgDn       → full page (fn+↑/↓ on Mac laptops)
+ *   Ctrl+u / Ctrl+d   → half page
+ *   Ctrl+b / Ctrl+f   → full page (vim alias)
+ *
+ * Hosts that already own ↑/↓ for option navigation (e.g. `SelectPrompt`) pass `ownsArrows={false}`
+ * so the body yields arrows back to them. The body still scrolls via PgUp/PgDn, Ctrl+u/d, and
+ * Ctrl+b/f — keys that don't conflict with the host. The hint row reflects the active scheme so
+ * the user doesn't have to guess.
+ */
 
 import React, { useState } from 'react';
 import { Box, Text, type Key } from 'ink';
 import { usePromptInput } from '@src/application/ui/tui/prompts/use-prompt-input.ts';
-import { inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
+import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { useTerminalSize } from '@src/application/ui/tui/runtime/use-terminal-size.ts';
 
 /** Smallest body window worth showing, however short the terminal. */
 const MIN_BODY_ROWS = 5;
 /**
- * Rows the surrounding chrome consumes besides the header and the body itself: view header + key hints (~6), body
- * border (2), scroll hint + margins (3), and the host's own controls (~4).
+ * Rows the surrounding chrome consumes besides the header and the body itself: view header +
+ * key hints (~6), body border (2), scroll hint + margins (3), and the host's own controls (Yes/No
+ * pills or option list + legend, ~4).
  */
 const DEFAULT_RESERVED_ROWS = 15;
 /** Columns lost to prompt indent + body border + body padding. */
@@ -37,7 +57,9 @@ const wrapLine = (line: string, width: number): readonly string[] => {
 };
 
 /**
- * Resolve the scroll-offset delta for a keypress, or `undefined` for a key this component doesn't handle.
+ * Resolve the scroll-offset delta for a keypress, or `undefined` for a key this component
+ * doesn't handle. Extracted from the `useInput` callback so each scroll action reads as one
+ * `if`/`return` rather than a single branchy handler.
  */
 const resolveScrollDelta = (input: string, key: Key, ownsArrows: boolean, page: number): number | undefined => {
   const half = Math.max(1, Math.floor(page / 2));
@@ -59,12 +81,16 @@ const splitHeaderBody = (msg: string): { readonly header: string; readonly body:
 export interface ScrollableMessageProps {
   readonly message: string;
   /**
-   * When `false`, the body skips ↑/↓ handling so the host (e.g. a select prompt whose option cursor uses arrows)
-   * keeps sole ownership of arrow keys.
+   * When `false`, the body skips ↑/↓ handling so the host (e.g. a select prompt whose option
+   * cursor uses arrows) keeps sole ownership of arrow keys. The body still scrolls via
+   * PgUp/PgDn, Ctrl+u/d, and Ctrl+b/f. Defaults to `true` for hosts whose option nav uses ←/→
+   * or no arrows at all.
    */
   readonly ownsArrows?: boolean;
   /**
-   * Extra rows the host renders below the message (option list, legend, …), on top of the default chrome allowance.
+   * Extra rows the host renders below the message (option list, legend, …), on top of the
+   * default chrome allowance. The body window is sized to terminal height minus header, chrome,
+   * and this.
    */
   readonly reservedRows?: number;
 }
@@ -100,7 +126,7 @@ export const ScrollableMessage = ({
   return (
     <>
       <Text color={inkColors.primary} bold>
-        {header}
+        {glyphs.actionCursor} {header}
       </Text>
       {body.length > 0 && (
         <Box flexDirection="column" marginTop={spacing.section}>

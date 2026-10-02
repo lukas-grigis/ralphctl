@@ -1,6 +1,17 @@
 /**
- * Responsive layout switcher for the execute view's main body — rail / tasks / context column composition that adapts
- * to the terminal width.
+ * Responsive layout switcher for the execute view's main body — rail / tasks / context
+ * column composition that adapts to the terminal width. Four regimes:
+ *
+ *   ≥180 cols (xl+):  three-column — fluid-width rail (resolveRailWidth) + flex Tasks + fixed
+ *                     context column (BaselineHealthCard + TokenBudgetCard).
+ *   140–179 cols:     two-column — fixed RAIL_WIDTH rail + flex Tasks. No context column.
+ *   100–139 cols:     compact two-column — glyph-only rail + flex Tasks. "Flow steps"
+ *                     header is dropped because it would overflow the narrow rail.
+ *   <100 cols:        single-column stack — labelled rail + Tasks rendered as sections.
+ *
+ * `width={term.columns}` on each row is load-bearing: without it the outer row inherits
+ * its intrinsic content width and the Tasks column's `flexGrow={1}` resolves against an
+ * un-budgeted parent — leaving a band of unused space on the right at the widest regimes.
  */
 
 import React from 'react';
@@ -100,7 +111,11 @@ const ThreeColumnLayout = ({
   </Box>
 );
 
-/** 140–179 cols — fixed `RAIL_WIDTH` rail + flex Tasks. */
+/**
+ * 140–179 cols — fixed `RAIL_WIDTH` rail + flex Tasks. The rail keeps the fixed width because
+ * there is no context column to compete with the Tasks stream here, so a wider rail would just
+ * steal pixels from it.
+ */
 const TwoColumnLayout = ({
   termColumns,
   flowStepsPanel,
@@ -117,7 +132,10 @@ const TwoColumnLayout = ({
   </Box>
 );
 
-/** 100–139 cols — glyph-only rail + flex Tasks. */
+/**
+ * 100–139 cols — glyph-only rail + flex Tasks. The rail's SectionHeader is dropped because
+ * "Flow steps" overflows the narrow column; the glyph-only column reads as a status spine.
+ */
 const CompactTwoColumnLayout = ({
   termColumns,
   compactFlowStepsPanel,

@@ -1,9 +1,18 @@
-/** Ancillary row renderers + presentation maps for the {@link TaskBlock} card. */
+/**
+ * Ancillary row renderers + presentation maps for the {@link TaskBlock} card. Carved out so
+ * the main task-row file can focus on the per-task header + signals layout without spilling
+ * over the 350-LOC per-file ceiling.
+ *
+ *   - {@link STATUS_PRESENTATION} / {@link SUB_STEP_PRESENTATION} — color + glyph lookups
+ *   - {@link RecoveryLine}  — resume banner under the active-task header
+ *   - {@link SubStepLine}   — one sub-step row inside a task card
+ *   - {@link CriteriaBlock} — collapsed / expanded verification-criteria summary
+ */
 
 import React from 'react';
 import { Box, Text } from 'ink';
 import type { TaskBucketStatus, TaskSubStep } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
-import { isFreeAbortCause, type RecoveryContext } from '@src/domain/entity/attempt.ts';
+import type { RecoveryContext } from '@src/domain/entity/attempt.ts';
 import { glyphFor, glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { fmtDuration, fmtIsoHHMM } from '@src/application/ui/tui/theme/duration.ts';
 import {
@@ -11,6 +20,8 @@ import {
   collapseWhitespace,
   CRITERIA_COLLAPSED_LINES,
 } from '@src/application/ui/tui/components/tasks-panel-internals/format.ts';
+
+type TraceLikeStatus = 'completed' | 'failed' | 'aborted' | 'skipped';
 
 export const STATUS_PRESENTATION: Readonly<
   Record<TaskBucketStatus, { readonly color: string; readonly glyph: string }>
@@ -21,9 +32,18 @@ export const STATUS_PRESENTATION: Readonly<
   failed: { color: inkColors.error, glyph: glyphs.cross },
   aborted: { color: inkColors.warning, glyph: glyphs.warningGlyph },
   skipped: { color: inkColors.muted, glyph: glyphs.phaseDisabled },
-  // Error-level, NOT muted: a dependency-blocked task needs the operator's attention — it must never read as the same
-  // grey as a merely-`pending` task.
+  // Error-level, NOT muted: a dependency-blocked task needs the operator's attention — it must
+  // never read as the same grey as a merely-`pending` task. `glyphFor('blocked')` is the same
+  // triangle already reserved for the `blocked` harness-signal kind, distinct from `cross`
+  // (failed) / `warningGlyph` (aborted) / `phaseDisabled` (skipped).
   blocked: { color: inkColors.error, glyph: glyphFor('blocked') },
+};
+
+const SUB_STEP_PRESENTATION: Readonly<Record<TraceLikeStatus, { readonly color: string; readonly glyph: string }>> = {
+  completed: { color: inkColors.success, glyph: glyphs.phaseDone },
+  failed: { color: inkColors.error, glyph: glyphs.cross },
+  aborted: { color: inkColors.warning, glyph: glyphs.warningGlyph },
+  skipped: { color: inkColors.muted, glyph: glyphs.phaseDisabled },
 };
 
 export const RecoveryLine = ({
@@ -33,43 +53,32 @@ export const RecoveryLine = ({
   readonly attemptN: number;
   readonly context: RecoveryContext;
 }): React.JSX.Element => {
-  // HH:MM from the ISO timestamp in local time — keep `fmtIsoTime` for the seconds-precise variant.
+  // HH:MM from the ISO timestamp in local time — keep `fmtIsoTime` for the seconds-precise
+  // variant; the resume banner shows wall-clock at minute granularity to match what a user
+  // sees on a sprint header (we don't need second precision).
   const hhmm = fmtIsoHHMM(String(context.abortedAt));
   const label = abortCauseLabel(context.cause);
-  // A free resume continues the same budgeted attempt; raw attempt numbers would contradict the `attempt A/X` chip.
-  if (isFreeAbortCause(context.cause)) {
-    return (
-      <Box paddingLeft={spacing.indent}>
-        <Text wrap="truncate-end">
-          <Text dimColor>{glyphs.activityArrow} </Text>
-          <Text color={inkColors.warning}>resumed</Text>
-          <Text> after the stop at {hhmm}</Text>
-          {label !== undefined && <Text dimColor> ({label})</Text>}
-          <Text dimColor> {glyphs.bullet} no attempt used</Text>
-        </Text>
-      </Box>
-    );
-  }
   return (
     <Box paddingLeft={spacing.indent}>
-      <Text wrap="truncate-end">
-        <Text dimColor>{glyphs.activityArrow} </Text>
-        <Text>attempt {String(attemptN)}</Text>
-        <Text dimColor> {glyphs.bullet} </Text>
-        <Text color={inkColors.warning}>resumed from aborted</Text>
-        <Text>
-          {' '}
-          {String(context.fromAttemptN)} at {hhmm}
-        </Text>
-        {label !== undefined && <Text dimColor> ({label})</Text>}
+      <Text dimColor>{glyphs.activityArrow} </Text>
+      <Text>attempt {String(attemptN)}</Text>
+      <Text dimColor> {glyphs.bullet} </Text>
+      <Text color={inkColors.warning}>resumed from aborted</Text>
+      <Text>
+        {' '}
+        {String(context.fromAttemptN)} at {hhmm}
       </Text>
+      {label !== undefined && <Text dimColor> ({label})</Text>}
     </Box>
   );
 };
 
 /**
- * Two-item gen-eval activity indicator for the expanded active-task card. The currently-busy role renders bright
- * (`inkColors.info`); the idle role stays dim.
+ * Two-item gen-eval activity indicator for the expanded active-task card. The currently-busy
+ * role renders bright (`inkColors.info`); the idle role stays dim. When `role` is `undefined`
+ * (the tail sub-step names neither role — e.g. a commit leaf, or a pre-attempt empty trace)
+ * both render dim so the line reads as a neutral "no role active" state rather than implying
+ * one side is working.
  */
 export const BusyIndicator = ({
   role,
@@ -91,13 +100,19 @@ export const BusyIndicator = ({
   </Box>
 );
 
-export const SubStepLine = ({ sub }: { readonly sub: TaskSubStep }): React.JSX.Element => {
-  const presentation = STATUS_PRESENTATION[sub.status];
-  // One truncating <Text>: sibling flex items shrink and shed the rail glyph / separating spaces.
+export const SubStepLine = ({
+  sub,
+  running,
+}: {
+  readonly sub: TaskSubStep;
+  readonly running: boolean;
+}): React.JSX.Element => {
+  const presentation = SUB_STEP_PRESENTATION[sub.status];
+  const glyph = running && sub.status === 'completed' ? presentation.glyph : presentation.glyph;
   return (
-    <Text wrap="truncate-end">
+    <Box>
       <Text color={presentation.color} bold>
-        {glyphs.activityArrow} {presentation.glyph}
+        {glyphs.activityArrow} {glyph}
       </Text>
       <Text> {sub.leafName}</Text>
       <Text dimColor>
@@ -105,12 +120,14 @@ export const SubStepLine = ({ sub }: { readonly sub: TaskSubStep }): React.JSX.E
         {glyphs.bullet} {fmtDuration(sub.durationMs)}
       </Text>
       {sub.errorMessage !== undefined && (
-        <Text color={inkColors.error}>
-          {' '}
-          {glyphs.emDash} {collapseWhitespace(sub.errorMessage)}
-        </Text>
+        <Box flexGrow={1} flexShrink={1} minWidth={0}>
+          <Text color={inkColors.error} wrap="truncate-end">
+            {' '}
+            {glyphs.emDash} {collapseWhitespace(sub.errorMessage)}
+          </Text>
+        </Box>
       )}
-    </Text>
+    </Box>
   );
 };
 

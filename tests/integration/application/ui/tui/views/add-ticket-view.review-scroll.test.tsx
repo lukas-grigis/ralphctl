@@ -23,7 +23,7 @@ import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { SprintRepository } from '@src/domain/repository/sprint/sprint-repository.ts';
 import type { ExternalIssue, IssueFetcher } from '@src/business/scm/issue-fetcher.ts';
 import { makeDraftSprint } from '@tests/fixtures/domain.ts';
-import { DOWN, ENTER, UP } from '@tests/integration/application/ui/tui/_keys.ts';
+import { DOWN, ENTER, PAGE_DOWN, UP } from '@tests/integration/application/ui/tui/_keys.ts';
 import { waitFor } from '@tests/integration/application/ui/tui/_wait.ts';
 import { renderView } from '@tests/integration/application/ui/tui/_harness.tsx';
 
@@ -230,29 +230,48 @@ describe('AddTicketView — Review step scrollable description', () => {
     expect(after).toContain('LAST-LINE-SENTINEL');
   });
 
-  it('compact header on a wide terminal: growing the terminal lets the whole body fit, with the Link row and confirm pills still on screen', async () => {
+  it('wide terminal with the full-size header: body stays a bounded scroll area so the Link row and confirm pills are never pushed off-screen', async () => {
     const description = buildDescription(20);
     const { deps, sprint } = makeDepsWithFetchedDescription(description);
     const result = await walkToReview(deps, sprint.id);
 
-    // Only Home may draw the wordmark, so this view keeps the compact strip at 100 columns. The
-    // body window is bounded at the default 24 rows; at 40 rows the reserve is the compact chrome
-    // and all 20 lines fit — the indicator disappears — with the Link row and pills still shown.
+    // ink-testing-library reports a 100-column terminal — at/above the Banner's full-wordmark
+    // width threshold, so this view already renders the tall full-size header. Capture the body
+    // window at the default 24 rows, then grow the terminal to 40 rows. A reserve that ignored
+    // the full banner would leave room for all 20 lines on a 40-row terminal — expanding the
+    // body and shoving the Link row + confirm pills past the bottom in a real terminal. The
+    // robust layout reserves the taller full banner, so the body stays a bounded scroll window.
     const preEnd = Number(/lines 1[–-](\d+) of 20/.exec(result.lastFrame() ?? '')?.[1] ?? '0');
-    expect(preEnd).toBeGreaterThan(0);
-    expect(preEnd).toBeLessThan(20);
     const stdout = result.stdout as unknown as { rows?: number; emit(event: string): boolean };
     stdout.rows = 40;
     stdout.emit('resize');
 
+    // Growing the terminal grows the window — but it stays a bounded window (the indicator is
+    // still present, i.e. fewer than all 20 lines are visible). A banner-blind reserve would fit
+    // every line on 40 rows and drop the indicator entirely, so this is the regression guard.
     await waitFor(() => {
-      const frame = result.lastFrame() ?? '';
-      expect(frame).toContain('LAST-LINE-SENTINEL');
-      expect(frame).not.toMatch(/lines 1[–-]\d+ of 20/);
+      const m = /lines 1[–-](\d+) of 20/.exec(result.lastFrame() ?? '');
+      expect(m).not.toBeNull();
+      const end = Number(m?.[1] ?? '0');
+      expect(end).toBeGreaterThan(preEnd);
+      expect(end).toBeLessThan(20);
     });
+
     const top = result.lastFrame() ?? '';
     expect(top).toContain('FIRST-LINE-SENTINEL');
     expect(top).toContain('https://github.com/acme/repo/issues/42');
     expect(top).toContain('Add this ticket?');
+
+    // Scroll to the bottom of the body — the Link row and confirm pills remain on screen at this
+    // scroll position too.
+    for (let i = 0; i < 12; i++) {
+      result.stdin.write(PAGE_DOWN);
+      await tick(20);
+    }
+    await waitFor(() => expect(result.lastFrame()).toContain('LAST-LINE-SENTINEL'));
+    const bottom = result.lastFrame() ?? '';
+    expect(bottom).not.toContain('FIRST-LINE-SENTINEL');
+    expect(bottom).toContain('https://github.com/acme/repo/issues/42');
+    expect(bottom).toContain('Add this ticket?');
   });
 });

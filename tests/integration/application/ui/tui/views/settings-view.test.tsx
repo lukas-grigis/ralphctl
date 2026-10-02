@@ -11,11 +11,9 @@ import { SettingsView } from '@src/application/ui/tui/views/settings-view.tsx';
 import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import type { SettingsRepository } from '@src/domain/repository/settings/settings-repository.ts';
 import { DEFAULT_SETTINGS } from '@src/business/settings/defaults.ts';
-import { applyPreset, PRESET_NAMES } from '@src/business/settings/presets.ts';
 import { ENTER, RIGHT, tick } from '@tests/integration/application/ui/tui/_keys.ts';
 import { waitForPredicate } from '@tests/integration/application/ui/tui/_wait.ts';
 import { renderView, waitForViewReady } from '@tests/integration/application/ui/tui/_harness.tsx';
-import { WithPublishedTitle } from '@tests/integration/application/ui/tui/_view-title.tsx';
 
 // Hoisted state holder — each test mutates this before rendering so the mocked
 // `detectInstalledProviders` returns the desired set. The mock targets the integration
@@ -99,43 +97,25 @@ const goToSection = async (stdin: { write: (s: string) => void }, target: (typeo
 describe('SettingsView', () => {
   it('renders the section strip and the active section after the load completes', async () => {
     const { result } = renderView(<SettingsView />, { deps, initial: { id: 'settings' } });
-    await waitForViewReady(result, (f) => f.includes('▸ Mixed'));
+    await waitForViewReady(result, (f) => f.includes('Apply: Mixed'));
     const frame = result.lastFrame() ?? '';
-    // The strip is one line: the active tab plus its neighbours, with a `›` cue for the rest (100 columns).
-    const strip = frame.split('\n').find((l) => l.includes('[Presets]')) ?? '';
-    for (const label of ['Presets', 'Global', 'Refine', 'Plan']) {
-      expect(strip).toContain(label);
+    // Every section label is in the strip.
+    for (const label of [
+      'Presets',
+      'Global',
+      'Refine',
+      'Plan',
+      'Implement',
+      'Readiness',
+      'Ideate',
+      'Harness',
+      'Other',
+      'Storage',
+    ]) {
+      expect(frame).toContain(label);
     }
-    expect(strip).toContain('›');
     // The active (initial) section is Presets; its card title renders below the strip.
-    expect(frame).toContain('▸ Mixed');
-    result.unmount();
-  });
-
-  it('describes the active section in the subtitle instead of repeating key hints', async () => {
-    const { result } = renderView(
-      <WithPublishedTitle>
-        <SettingsView />
-      </WithPublishedTitle>,
-      { deps, initial: { id: 'settings' } }
-    );
-    await waitForViewReady(result, (f) => f.includes('▸ Mixed'));
-    expect(result.lastFrame() ?? '').toContain('title:Settings subtitle:Presets');
-    await goToSection(result.stdin, 'storage');
-    const frame = result.lastFrame() ?? '';
-    // The view publishes the section name as its subtitle (shown on the location line); the keys
-    // live only in the footer hint strip.
-    expect(frame).toContain('title:Settings subtitle:Storage paths');
-    expect(frame).not.toContain('esc cancel');
-    result.unmount();
-  });
-
-  it('`[` / `]` no longer switch sections (they were never hinted)', async () => {
-    const { result } = renderView(<SettingsView />, { deps, initial: { id: 'settings' } });
-    await waitForViewReady(result, (f) => f.includes('▸ Mixed'));
-    result.stdin.write(']');
-    await tick(30);
-    expect(result.lastFrame() ?? '').toContain('▸ Mixed');
+    expect(frame).toContain('Apply: Mixed');
     result.unmount();
   });
 
@@ -152,7 +132,7 @@ describe('SettingsView', () => {
 
   it('shows the storage paths card when the storage section is active', async () => {
     const { result } = renderView(<SettingsView />, { deps, initial: { id: 'settings' } });
-    await waitForViewReady(result, (f) => f.includes('▸ Mixed'));
+    await waitForViewReady(result, (f) => f.includes('Apply: Mixed'));
     await goToSection(result.stdin, 'storage');
     const frame = result.lastFrame() ?? '';
     expect(frame).toContain('Storage paths');
@@ -160,50 +140,19 @@ describe('SettingsView', () => {
     result.unmount();
   });
 
-  it('exposes ←/→ section, ↑/↓ move and ↵ apply on Presets, ↵ edit on every other section', async () => {
+  it('exposes ←/→ section, ↑/↓ move, ↵/e edit hints', async () => {
     const { result } = renderView(<SettingsView />, { deps, initial: { id: 'settings' } });
     await waitForViewReady(result, (f) => f.includes('section'));
     const frame = result.lastFrame() ?? '';
     expect(frame).toContain('section');
     expect(frame).toContain('move');
-    expect(frame).toContain('↵ apply');
-    expect(frame).not.toContain('↵ edit');
-    await goToSection(result.stdin, 'global');
-    expect(result.lastFrame() ?? '').toContain('↵ edit');
-    result.unmount();
-  });
-
-  it('lists presets as plain names with a dim plan / implement summary under their family headings', async () => {
-    const { result } = renderView(<SettingsView />, { deps, initial: { id: 'settings' } });
-    await waitForViewReady(result, (f) => f.includes('▸ Mixed'));
-    const lines = (result.lastFrame() ?? '').split('\n');
-    const frame = lines.join('\n');
-    expect(frame).not.toContain('Apply:');
-    expect(frame).not.toMatch(/:\s*:/);
-    expect(frame).not.toMatch(/Mixed.*↵/);
-    const standard = lines.findIndex((l) => /\bStandard\b/.test(l));
-    const economic = lines.findIndex((l) => /\bEconomic\b/.test(l));
-    expect(standard).toBeGreaterThanOrEqual(0);
-    expect(economic).toBeGreaterThan(standard);
-    const mixed = lines.find((l) => l.includes('▸ Mixed')) ?? '';
-    expect(mixed).toMatch(/plan \S+ \w+ · implement \S+ \w+/);
-    result.unmount();
-  });
-
-  it('moves the ▸ down the preset list and ↵ opens the confirm for the focused preset', async () => {
-    const { result } = renderView(<SettingsView />, { deps, initial: { id: 'settings' } });
-    await waitForViewReady(result, (f) => f.includes('▸ Mixed'));
-    result.stdin.write('j');
-    await tick(30);
-    expect(result.lastFrame() ?? '').toContain('▸ Claude');
-    result.stdin.write(ENTER);
-    await waitForPredicate(() => /claude-only/.test(result.lastFrame() ?? ''));
+    expect(frame).toContain('edit');
     result.unmount();
   });
 
   it('renders Implement as a parent card with indented generator and evaluator sub-rows', async () => {
     const { result } = renderView(<SettingsView />, { deps, initial: { id: 'settings' } });
-    await waitForViewReady(result, (f) => f.includes('▸ Mixed'));
+    await waitForViewReady(result, (f) => f.includes('Apply: Mixed'));
     await goToSection(result.stdin, 'implement');
     const frame = result.lastFrame() ?? '';
     // The parent card carries the non-editable Implement label exactly once; the two role
@@ -255,7 +204,7 @@ describe('SettingsView', () => {
     // evaluator triple) and is the right stress-test for the ≤ ~8-row cap.
     it('caps ↓ at the Implement section last row no matter how many presses arrive', async () => {
       const { result } = renderView(<SettingsView />, { deps, initial: { id: 'settings' } });
-      await waitForViewReady(result, (f) => f.includes('▸ Mixed'));
+      await waitForViewReady(result, (f) => f.includes('Apply: Mixed'));
       await goToSection(result.stdin, 'implement');
       // The Implement section has six fields (generator.{provider,model,effort} +
       // evaluator.{provider,model,effort}). Ten ↓ presses pin the cursor at the last row.
@@ -282,7 +231,7 @@ describe('SettingsView', () => {
 
     it('caps ↑ at the first row inside a section', async () => {
       const { result } = renderView(<SettingsView />, { deps, initial: { id: 'settings' } });
-      await waitForViewReady(result, (f) => f.includes('▸ Mixed'));
+      await waitForViewReady(result, (f) => f.includes('Apply: Mixed'));
       await goToSection(result.stdin, 'harness');
       // Park the cursor on the last row first, then hammer ↑.
       for (let i = 0; i < 5; i += 1) {
@@ -301,52 +250,10 @@ describe('SettingsView', () => {
     });
   });
 
-  describe('preset confirmation', () => {
-    const openFirstPreset = async (settings: Settings) => {
-      const stub = stubRepoWith(settings);
-      const save = vi.fn();
-      const repo: SettingsRepository = {
-        ...stub.repo,
-        async save(next: Settings) {
-          save(next);
-          return stub.repo.save(next);
-        },
-      };
-      const stubDeps: AppDeps = { settingsRepo: repo } as unknown as AppDeps;
-      const { result } = renderView(<SettingsView />, { deps: stubDeps, initial: { id: 'settings' } });
-      await waitForViewReady(result, (f) => f.includes('▸ Mixed'));
-      result.stdin.write(ENTER);
-      return { result, save };
-    };
-
-    it('shows what changes before anything is written', async () => {
-      const { result, save } = await openFirstPreset(applyPreset('grok-frontier', DEFAULT_SETTINGS));
-      await waitForViewReady(result, (f) => f.includes('Applying'));
-      const frame = result.lastFrame() ?? '';
-      expect(frame).toMatch(/Applying \S+ changes \d+ of \d+ values:/);
-      expect(frame).toContain('→');
-      expect(frame).toContain('Unchanged:');
-      expect(save).not.toHaveBeenCalled();
-      result.unmount();
-    });
-
-    it('says so and writes nothing when the preset already matches', async () => {
-      const first = PRESET_NAMES[0]!;
-      const { result, save } = await openFirstPreset(applyPreset(first, DEFAULT_SETTINGS));
-      await waitForViewReady(result, (f) => f.includes('nothing to change'));
-      expect(result.lastFrame() ?? '').toContain(`Already matches ${first}`);
-      result.stdin.write(ENTER);
-      await tick(40);
-      expect(result.lastFrame() ?? '').not.toContain('nothing to change');
-      expect(save).not.toHaveBeenCalled();
-      result.unmount();
-    });
-  });
-
   describe('model field is catalog-only', () => {
     it('does not mount a TextPrompt on a model row (no free-text input affordance)', async () => {
       const { result } = renderView(<SettingsView />, { deps, initial: { id: 'settings' } });
-      await waitForViewReady(result, (f) => f.includes('▸ Mixed'));
+      await waitForViewReady(result, (f) => f.includes('Apply: Mixed'));
       await goToSection(result.stdin, 'refine');
       // Refine section field order: 0 provider, 1 model, 2 effort. One ↓ lands on the model
       // row; ↵ opens the picker.
@@ -382,7 +289,7 @@ describe('SettingsView', () => {
     const stub = stubRepoWith(initial);
     const stubDeps: AppDeps = { settingsRepo: stub.repo } as unknown as AppDeps;
     const { result } = renderView(<SettingsView />, { deps: stubDeps, initial: { id: 'settings' } });
-    await waitForViewReady(result, (f) => f.includes('▸ Mixed'));
+    await waitForViewReady(result, (f) => f.includes('Apply: Mixed'));
     await goToSection(result.stdin, 'refine');
     const frame = result.lastFrame() ?? '';
     expect(frame).toContain(offCatalogModel);
@@ -407,7 +314,7 @@ describe('SettingsView', () => {
       const stub = stubRepoWith(DEFAULT_SETTINGS);
       const stubDeps: AppDeps = { settingsRepo: stub.repo } as unknown as AppDeps;
       const { result } = renderView(<SettingsView />, { deps: stubDeps, initial: { id: 'settings' } });
-      await waitForViewReady(result, (f) => f.includes('▸ Mixed'));
+      await waitForViewReady(result, (f) => f.includes('Apply: Mixed'));
       await openRefineProviderPicker(result.stdin, result.lastFrame);
       const frame = result.lastFrame() ?? '';
       expect(frame).toContain('github-copilot (not installed)');
@@ -422,7 +329,7 @@ describe('SettingsView', () => {
       const stub = stubRepoWith(DEFAULT_SETTINGS);
       const stubDeps: AppDeps = { settingsRepo: stub.repo } as unknown as AppDeps;
       const { result } = renderView(<SettingsView />, { deps: stubDeps, initial: { id: 'settings' } });
-      await waitForViewReady(result, (f) => f.includes('▸ Mixed'));
+      await waitForViewReady(result, (f) => f.includes('Apply: Mixed'));
       await openRefineProviderPicker(result.stdin, result.lastFrame);
       // Strip the rendered frame's word-wrap whitespace before asserting — ink may break the
       // footer across multiple lines depending on terminal width, but the install command must
@@ -444,7 +351,7 @@ describe('SettingsView', () => {
       const stub = stubRepoWith(DEFAULT_SETTINGS);
       const stubDeps: AppDeps = { settingsRepo: stub.repo } as unknown as AppDeps;
       const { result } = renderView(<SettingsView />, { deps: stubDeps, initial: { id: 'settings' } });
-      await waitForViewReady(result, (f) => f.includes('▸ Mixed'));
+      await waitForViewReady(result, (f) => f.includes('Apply: Mixed'));
       await openRefineProviderPicker(result.stdin, result.lastFrame);
       const frame = result.lastFrame() ?? '';
       expect(frame).toContain('No AI provider CLI is installed.');

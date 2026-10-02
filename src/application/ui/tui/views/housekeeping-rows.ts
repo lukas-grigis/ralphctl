@@ -1,10 +1,9 @@
 /**
  * Pure presentation model for Housekeeping: the scan flattened into one ordered candidate list (so the one
- * windowed-list primitive can drive it), and the hub's one-line summary.
+ * windowed-list primitive can drive it).
  */
 
 import { plural } from '@src/application/ui/shared/plural.ts';
-import { formatBytes } from '@src/application/ui/shared/format-bytes.ts';
 import { glyphs } from '@src/application/ui/tui/theme/tokens.ts';
 import {
   housekeepingCandidateKey,
@@ -88,17 +87,4 @@ export const groupCounts = (candidates: readonly HousekeepingCandidate[]): reado
   return (Object.keys(GROUP_LABELS) as HousekeepingGroup[])
     .filter((g) => counts.has(g))
     .map((g) => `${GROUP_LABELS[g]} ${String(counts.get(g))}`);
-};
-
-/** System-hub summary: `6.4 MB reclaimable · 5 orphan sprints · 3 memory dirs`. */
-export const housekeepingSummary = (scan: HousekeepingScan | undefined): string => {
-  if (scan === undefined) return 'unavailable';
-  if (scan.reclaimableBytes === 0 && scan.orphanSprints.length + scan.orphanMemoryDirs.length === 0) {
-    return 'nothing to reclaim';
-  }
-  return [
-    `${formatBytes(scan.reclaimableBytes)} reclaimable`,
-    plural(scan.orphanSprints.length, 'orphan sprint'),
-    plural(scan.orphanMemoryDirs.length, 'memory dir'),
-  ].join(` ${glyphs.bullet} `);
 };

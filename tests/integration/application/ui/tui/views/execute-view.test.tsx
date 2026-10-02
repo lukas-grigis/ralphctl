@@ -18,7 +18,6 @@ import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { ProjectId } from '@src/domain/value/id/project-id.ts';
 import type { TaskId } from '@src/domain/value/id/task-id.ts';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
-import { WithLocation, WithPublishedTitle } from '@tests/integration/application/ui/tui/_view-title.tsx';
 import type { ViewEntry } from '@src/application/ui/tui/runtime/router.tsx';
 import { createSessionManager } from '@src/application/ui/tui/runtime/session-manager.ts';
 import { DOWN, ENTER, ESC, PAGE_DOWN, tick, UP } from '@tests/integration/application/ui/tui/_keys.ts';
@@ -53,42 +52,16 @@ const stubDeps = (): AppDeps =>
   }) as unknown as AppDeps;
 
 describe('ExecuteView', () => {
-  it('stamps the flow once and the sprint name only — never "Implement — Implement"', async () => {
-    const sessions = createSessionManager();
-    sessions.register({
-      runner: fakeRunner('r-stamp', 'running'),
-      flowId: 'implement',
-      title: 'Implement — ready to implement',
-    });
-
-    const { result } = renderView(
-      <WithLocation>
-        <ExecuteView />
-      </WithLocation>,
-      { deps: stubDeps(), initial: { id: 'execute', props: { sessionId: 'r-stamp' } }, sessions }
-    );
-    await waitForViewReady(result, (f) => f.includes('ready to implement'));
-    const frame = result.lastFrame() ?? '';
-    expect(frame.split('Implement — Implement').length - 1).toBe(0);
-    expect(frame).toContain('ready to implement');
-    result.unmount();
-  });
-
   it('shows running indicators and the cancel / detach hints while the session runs', async () => {
     const sessions = createSessionManager();
     const runner = fakeRunner('r-1', 'running');
     sessions.register({ runner, flowId: 'refine', title: 'Refine — Demo' });
 
-    const { result } = renderView(
-      <WithLocation>
-        <ExecuteView />
-      </WithLocation>,
-      {
-        deps: stubDeps(),
-        initial: { id: 'execute', props: { sessionId: 'r-1' } },
-        sessions,
-      }
-    );
+    const { result } = renderView(<ExecuteView />, {
+      deps: stubDeps(),
+      initial: { id: 'execute', props: { sessionId: 'r-1' } },
+      sessions,
+    });
     await waitForViewReady(result, (f) => f.includes('Refine — Demo'));
     const frame = result.lastFrame() ?? '';
     expect(frame).toContain('Refine — Demo');
@@ -121,8 +94,8 @@ describe('ExecuteView', () => {
     // A settled run must also say what to do next — the card's `nextSteps` block was dead code
     // until the footer started feeding it.
     expect(frame).toContain('Next steps');
-    // Press ↵ to return — the not-running hint routes to Work.
-    expect(frame).toContain('↵ work');
+    // Press ↵ to return — the not-running hint routes Home.
+    expect(frame).toContain('home');
     result.unmount();
   });
 
@@ -534,7 +507,7 @@ describe('ExecuteView', () => {
     result.unmount();
   });
 
-  it('two sessions pinned to different sprints each show their own sprint context on the location line', async () => {
+  it('two sessions pinned to different sprints each show their own sprint context in the breadcrumb', async () => {
     const sessions = createSessionManager();
     const runnerA = fakeRunner('r-ctx-a', 'running');
     const sprintA = 'sprint-ctx-a' as unknown as SprintId;
@@ -546,7 +519,7 @@ describe('ExecuteView', () => {
       pinnedSprintLabel: 'Sprint Alpha',
       pinnedProjectLabel: 'Project One',
     });
-    // Session B is registered but never viewed — A's context should show on the location line.
+    // Session B is registered but never viewed — A's context should show in the breadcrumb.
     const runnerB = fakeRunner('r-ctx-b', 'running');
     const sprintB = 'sprint-ctx-b' as unknown as SprintId;
     sessions.register({
@@ -557,17 +530,12 @@ describe('ExecuteView', () => {
       pinnedSprintLabel: 'Sprint Beta',
     });
 
-    const { result } = renderView(
-      <WithLocation>
-        <ExecuteView />
-      </WithLocation>,
-      {
-        deps: stubDeps(),
-        initial: { id: 'execute', props: { sessionId: 'r-ctx-a' } },
-        sessions,
-        selection: { sprintId: sprintB, sprintLabel: 'Sprint Beta' },
-      }
-    );
+    const { result } = renderView(<ExecuteView />, {
+      deps: stubDeps(),
+      initial: { id: 'execute', props: { sessionId: 'r-ctx-a' } },
+      sessions,
+      selection: { sprintId: sprintB, sprintLabel: 'Sprint Beta' },
+    });
     await waitForViewReady(result, (f) => f.includes('Sprint Alpha'));
     const frame = result.lastFrame() ?? '';
     expect(frame).toContain('Sprint Alpha');
@@ -725,9 +693,9 @@ describe('ExecuteView', () => {
   });
 
   it('derives the section title from the flowId (audit 1-C)', async () => {
-    // Each non-implement flowId should produce its own display name for the location line, not
-    // the hardcoded "Implement" that previously appeared for every flow. The view publishes the
-    // title verbatim (no forced uppercasing); flowIdToTitle returns title-cased names.
+    // Each non-implement flowId should produce its own display name in the SectionStamp, not
+    // the hardcoded "Implement" that previously appeared for every flow. SectionStamp renders
+    // the title string verbatim (no forced uppercasing); flowIdToTitle returns title-cased names.
     const flowCases: ReadonlyArray<[string, string]> = [
       ['refine', 'Refine'],
       ['plan', 'Plan'],
@@ -751,20 +719,15 @@ describe('ExecuteView', () => {
       const runner = fakeRunner(`r-title-${flowId}`, 'running');
       sessions.register({ runner, flowId, title: `${flowId} — Demo` });
 
-      const { result } = renderView(
-        <WithPublishedTitle>
-          <ExecuteView />
-        </WithPublishedTitle>,
-        {
-          deps: stubDeps(),
-          initial: { id: 'execute', props: { sessionId: `r-title-${flowId}` } },
-          sessions,
-        }
-      );
+      const { result } = renderView(<ExecuteView />, {
+        deps: stubDeps(),
+        initial: { id: 'execute', props: { sessionId: `r-title-${flowId}` } },
+        sessions,
+      });
 
-      await waitForViewReady(result, (f) => f.includes(`title:${expectedTitle} `));
+      await waitForViewReady(result, (f) => f.includes(expectedTitle));
       const frame = result.lastFrame() ?? '';
-      expect(frame, `flowId="${flowId}" should publish "${expectedTitle}"`).toContain(`title:${expectedTitle} `);
+      expect(frame, `flowId="${flowId}" should show "${expectedTitle}"`).toContain(expectedTitle);
       // The old hardcoded title must not appear for non-implement flows.
       // (We check for the word boundary to avoid false positives in titles like "Create Sprint"
       // which do not contain "Implement".)
@@ -793,7 +756,7 @@ describe('ExecuteView', () => {
     result.unmount();
   });
 
-  it('focused-run context shows the pinned sprint and project on the location line while the execute view is mounted', async () => {
+  it('focused-run context shows the pinned sprint and project in the breadcrumb while the execute view is mounted', async () => {
     const sessions = createSessionManager();
     const runner = fakeRunner('r-focused-ctx', 'running');
     const sprintA = 'sprint-focused-a' as unknown as SprintId;
@@ -806,16 +769,11 @@ describe('ExecuteView', () => {
       pinnedProjectLabel: 'Project Alpha',
     });
 
-    const { result } = renderView(
-      <WithLocation>
-        <ExecuteView />
-      </WithLocation>,
-      {
-        deps: stubDeps(),
-        initial: { id: 'execute', props: { sessionId: 'r-focused-ctx' } },
-        sessions,
-      }
-    );
+    const { result } = renderView(<ExecuteView />, {
+      deps: stubDeps(),
+      initial: { id: 'execute', props: { sessionId: 'r-focused-ctx' } },
+      sessions,
+    });
     await waitForViewReady(result, (f) => f.includes('Sprint Pinned'));
     const frame = result.lastFrame() ?? '';
     expect(frame).toContain('Sprint Pinned');

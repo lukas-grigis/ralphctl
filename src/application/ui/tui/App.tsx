@@ -1,4 +1,11 @@
-/** Top-level Ink component for the TUI. */
+/**
+ * Top-level Ink component for the TUI. Composes every provider (deps, sinks, sessions, prompts,
+ * UI state, hints, selection, router), then renders the current view from the registry. The
+ * persistent prompt host lives inside ViewShell so the Question card sits above the footer
+ * instead of being pushed off the bottom of the screen.
+ *
+ * Bootstrap is performed before this component mounts; props arrive fully wired.
+ */
 
 import React from 'react';
 import { Box } from 'ink';
@@ -16,25 +23,26 @@ import { StorageProvider } from '@src/application/ui/tui/runtime/storage-context
 import { SessionsProvider } from '@src/application/ui/tui/runtime/sessions-context.tsx';
 import { PromptQueueProvider } from '@src/application/ui/tui/prompts/prompt-context.tsx';
 import { UiStateProvider, useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
-import { ClaimedKeysProvider } from '@src/application/ui/tui/runtime/claimed-keys-context.tsx';
-import { HintsProvider } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
+import { HintsProvider, useSuppressGlobalHints } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
 import { SelectionProvider, type SelectionSeed } from '@src/application/ui/tui/runtime/selection-context.tsx';
 import { SystemStatusProvider } from '@src/application/ui/tui/runtime/system-status-context.tsx';
 import { LogLevelProvider } from '@src/application/ui/tui/runtime/log-level-context.tsx';
 import { renderView } from '@src/application/ui/tui/views/view-registry.tsx';
+import { globalKeys } from '@src/application/ui/tui/runtime/keyboard-map.ts';
 import { useGlobalKeys } from '@src/application/ui/tui/runtime/use-global-keys.ts';
 import { useTerminalSize } from '@src/application/ui/tui/runtime/use-terminal-size.ts';
 import { MemoryPressureBanner } from '@src/application/ui/tui/components/memory-pressure-banner.tsx';
 import { ChainLogDegradedBanner } from '@src/application/ui/tui/components/chain-log-degraded-banner.tsx';
-import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx';
 import { ProgressOverlay } from '@src/application/ui/tui/components/progress-overlay.tsx';
 import { EvaluationOverlay } from '@src/application/ui/tui/components/evaluation-overlay.tsx';
 import { QuitConfirmOverlay } from '@src/application/ui/tui/components/quit-confirm-overlay.tsx';
-import { ContextSwitcher } from '@src/application/ui/tui/components/context-switcher.tsx';
-import { TabBar } from '@src/application/ui/tui/components/tab-bar.tsx';
-import { LocationBar } from '@src/application/ui/tui/components/location-bar.tsx';
-import { Divider } from '@src/application/ui/tui/components/divider.tsx';
-import { ViewTitleProvider } from '@src/application/ui/tui/runtime/view-title-context.tsx';
+
+/**
+ * Footer `keys` string for the quit hint. Derived the same way `footerGlobalHints` joins a
+ * binding's variants (`keys.join('/')`) so the suppression set matches the rendered hint's `keys`
+ * exactly — keep this in lockstep with the footer mapping rather than hardcoding `'q/ctrl+c'`.
+ */
+const QUIT_FOOTER_KEYS = globalKeys.quit.keys.join('/');
 
 export interface AppProps {
   readonly deps: AppDeps;
@@ -42,21 +50,24 @@ export interface AppProps {
   readonly buses: TuiBuses;
   readonly sessions: SessionManager;
   readonly queue: PromptQueue;
-  /** Mutable holder for the active log-level floor. */
+  /**
+   * Mutable holder for the active log-level floor. The TUI's `EventBus -> logBus` forwarder
+   * reads it on every event; the Settings view writes to it when the user changes log level.
+   */
   readonly logLevelGate: LogLevelGate;
   /**
-   * Initial view to mount. Production launches with `{ id: 'welcome' }` on first run (no settings file yet) and `{
-   * id: 'home' }` otherwise; tests can pass anything.
+   * Initial view to mount. Production launches with `{ id: 'welcome' }` on first run (no
+   * settings file yet) and `{ id: 'home' }` otherwise; tests can pass anything.
    */
   readonly initialView: ViewEntry;
   /**
-   * Pre-seeded selection — launch passes the singleton project's id/label when storage contains exactly one so the
-   * user lands on a productive home view instead of an empty one.
+   * Pre-seeded selection — launch passes the singleton project's id/label when storage
+   * contains exactly one so the user lands on a productive home view instead of an empty one.
    */
   readonly initialSelection?: SelectionSeed;
   /**
-   * Called whenever the user's project/sprint selection changes. Production threads this to the last-selection-store
-   * so the next launch pre-selects the same project.
+   * Called whenever the user's project/sprint selection changes. Production threads this to
+   * the last-selection-store so the next launch pre-selects the same project.
    */
   readonly onSelectionChange?: (next: SelectionSeed) => void;
 }
@@ -79,21 +90,19 @@ export const App = ({
           <PromptQueueProvider value={queue}>
             <UiStateProvider>
               <HintsProvider>
-                <ClaimedKeysProvider>
-                  <SelectionProvider
-                    {...(initialSelection !== undefined ? { seed: initialSelection } : {})}
-                    {...(onSelectionChange !== undefined ? { onChange: onSelectionChange } : {})}
-                    sprintRepo={deps.sprintRepo}
-                  >
-                    <LogLevelProvider gate={logLevelGate}>
-                      <SystemStatusProvider>
-                        <RouterProvider initial={initialView}>
-                          {(current) => <Layout>{renderView(current)}</Layout>}
-                        </RouterProvider>
-                      </SystemStatusProvider>
-                    </LogLevelProvider>
-                  </SelectionProvider>
-                </ClaimedKeysProvider>
+                <SelectionProvider
+                  {...(initialSelection !== undefined ? { seed: initialSelection } : {})}
+                  {...(onSelectionChange !== undefined ? { onChange: onSelectionChange } : {})}
+                  sprintRepo={deps.sprintRepo}
+                >
+                  <LogLevelProvider gate={logLevelGate}>
+                    <SystemStatusProvider>
+                      <RouterProvider initial={initialView}>
+                        {(current) => <Layout>{renderView(current)}</Layout>}
+                      </RouterProvider>
+                    </SystemStatusProvider>
+                  </LogLevelProvider>
+                </SelectionProvider>
               </HintsProvider>
             </UiStateProvider>
           </PromptQueueProvider>
@@ -104,7 +113,15 @@ export const App = ({
 );
 
 /**
- * Hosts the global key handler and pins the active view inside a fixed-height frame.
+ * Hosts the global key handler and pins the active view inside a fixed-height frame. The outer
+ * Box is sized to the full terminal height so the alternate-screen frame fills the window
+ * instead of stacking against the previous shell output; ViewShell owns the column inside it
+ * — header, scroll content, prompt host, and footer — so tall content scrolls within this
+ * frame instead of pushing the status bar (or the prompt card) off-screen.
+ *
+ * Exported for the off-Home quit-hint suppression test, which mounts it directly under the
+ * provider stack with a probe child rather than the full view registry.
+ *
  * @public
  */
 export const Layout = ({ children }: { readonly children: React.ReactNode }): React.JSX.Element => {
@@ -114,29 +131,45 @@ export const Layout = ({ children }: { readonly children: React.ReactNode }): Re
   // Suspend global key bindings while a prompt is in flight so view-level handlers don't fight
   // for input. The prompt's own component owns Esc / Enter / etc. while it's mounted.
   useGlobalKeys({ disabled: ui.promptActive });
-  // ViewShell owns the full column inside this fixed-height frame: header → scroll content → status banner →
-  // prompt-host → footer, with header / banner / prompt / footer pinned via `flexShrink={0}`.
-  const overlayOpen = ui.overlay !== undefined;
-  const chromeHidden = overlayOpen && ui.switcherFocus === undefined;
+  // `q` only quits from Home (the global handler gates it on `router.current.id === 'home'`), so
+  // the footer must only advertise the quit hint there — otherwise it lies about what `q` does on
+  // every other screen. Suppress the quit hint (matched by its footer `keys` string, the joined
+  // `quit` binding variants) whenever the current view is not Home. The memo keeps the keys array
+  // reference stable across renders so the suppression effect doesn't churn the registry.
+  const isHome = router.current.id === 'home';
+  const suppressedQuit = React.useMemo<readonly string[]>(() => (isHome ? [] : [QUIT_FOOTER_KEYS]), [isHome]);
+  useSuppressGlobalHints(suppressedQuit);
+  // ViewShell owns the full column inside this fixed-height frame: header → scroll content →
+  // status banner → prompt-host → footer, with header / banner / prompt / footer pinned via
+  // `flexShrink={0}`. The dismissible StatusBanner sits inside ViewShell so it lands next to
+  // the other footer-adjacent surfaces (PromptHost, StatusBar) rather than detaching from the
+  // running view at the top of the screen. Memory + chain-log banners stay at the top because
+  // they signal harness-level degradations that the operator should see immediately.
+  //
+  // The document overlays (progress.md via `g`, evaluation.md via `v`) are true modals — while
+  // one is open, the active view is hidden (`display: "none"`) so no parallel ScrollRegion / list
+  // cursor competes for keystrokes. Children remain MOUNTED (not conditionally rendered) so list
+  // cursors, expanded cards, and scroll offsets are preserved when the overlay closes. Mounted
+  // alone does not buy the scroll offset: a `display: "none"` subtree measures 0 rows, and
+  // ScrollRegion used to clamp against that and reset to the top. Its hidden-subtree guard (a
+  // zero viewport measurement is ignored) is what makes the "scroll offsets are preserved" half
+  // of this sentence true — see `scroll-region.tsx`. Every
+  // view-level useInput and listActive expression gates on `ui.modalOpen` (which includes both)
+  // so the hidden-but-mounted view is fully inert while an overlay is visible. The global handler
+  // closes them (esc / g, esc / v); `selection.sprintId` gates the progress open, and the focused
+  // task's recorded verdict gates the evaluation open (view-local, since only a view knows which
+  // card is focused).
+  const overlayOpen = ui.progressOpen || ui.evaluationTarget !== undefined || ui.quitRuns !== undefined;
   return (
-    <ViewTitleProvider>
-      <Box flexDirection="column" height={rows}>
-        <MemoryPressureBanner />
-        <ChainLogDegradedBanner />
-        <Box display={chromeHidden ? 'none' : 'flex'} flexDirection="column" flexShrink={0}>
-          <TabBar />
-          <LocationBar />
-          {router.activeSection !== 'none' && <Divider />}
-        </Box>
-        <Box display={overlayOpen ? 'none' : 'flex'} flexDirection="column" flexGrow={1}>
-          {children}
-        </Box>
-        {ui.switcherFocus !== undefined && <ContextSwitcher focus={ui.switcherFocus} />}
-        {ui.helpOpen && <HelpOverlay routeId={router.current.id} />}
-        {ui.progressOpen && <ProgressOverlay />}
-        {ui.evaluationTarget !== undefined && <EvaluationOverlay />}
-        {ui.overlay?.kind === 'quit' && <QuitConfirmOverlay runs={ui.overlay.runs} />}
+    <Box flexDirection="column" height={rows}>
+      <MemoryPressureBanner />
+      <ChainLogDegradedBanner />
+      <Box display={overlayOpen ? 'none' : 'flex'} flexDirection="column" flexGrow={1}>
+        {children}
       </Box>
-    </ViewTitleProvider>
+      {ui.quitRuns !== undefined && <QuitConfirmOverlay runs={ui.quitRuns} />}
+      {ui.quitRuns === undefined && ui.progressOpen && <ProgressOverlay />}
+      {ui.quitRuns === undefined && !ui.progressOpen && ui.evaluationTarget !== undefined && <EvaluationOverlay />}
+    </Box>
   );
 };

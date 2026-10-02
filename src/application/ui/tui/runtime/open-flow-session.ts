@@ -1,6 +1,19 @@
 /**
- * `openFlowSession` — the register + start + route tail shared by every TUI call site that launches a flow runner:
- * registers it with the {@link SessionManager}, fires `runner.start()`, then pushes (or replaces) the Execute view.
+ * `openFlowSession` — the register + start + route tail shared by every TUI call site that
+ * launches a flow runner. Given a successful {@link LaunchResult}, it:
+ *
+ *   1. Registers the runner with the {@link SessionManager}, projecting the launch result's
+ *      optional UI hints via {@link sessionHintsFromLaunchResult}.
+ *   2. Fires `runner.start()` (fire-and-forget — events flow into the session manager via the
+ *      manager's own subscription, established during `register`).
+ *   3. Routes to the Execute view for the new runner's session id — pushing a new frame by
+ *      default, or replacing the current frame when `opts.mode === 'replace'`.
+ *
+ * Centralised so the launch call sites (flows / home / pick-sprint / project-detail / sprints,
+ * plus the create-sprint copies folded into {@link useLaunchCreateSprint}) don't each re-stamp
+ * the same three-statement tail. Flows-view passes `mode: 'replace'` and runs its own
+ * `reload()` afterwards; the reload stays at the call site because it is flows-view-specific.
+ *
  * @public
  */
 
@@ -14,7 +27,11 @@ export interface OpenFlowSessionDeps {
 }
 
 export interface OpenFlowSessionOpts {
-  /** How to route to the Execute view. */
+  /**
+   * How to route to the Execute view. `push` (default) stacks a new frame so `Esc` returns to
+   * the launching view; `replace` swaps the current frame (flows-view uses this so the menu
+   * isn't left on the stack behind the run).
+   */
   readonly mode?: 'push' | 'replace';
 }
 

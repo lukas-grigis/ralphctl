@@ -1,6 +1,15 @@
 /**
- * Everything the Execute view derives from the run's OWN pinned sprint, in one call: the pinned-sprint context, the
- * baseline health data, and the settled next steps that read both.
+ * Everything the Execute view derives from the run's OWN pinned sprint, in one call:
+ *
+ *  1. `usePinnedSprintContext` — availability probe (`pinnedSprintStale`), focused-run context
+ *     registration, selection convergence, and the resolved `Sprint` entity.
+ *  2. `useBaselineHealthData` — the polled `SprintExecution` + task list behind the baseline chip.
+ *  3. `useSettledNextSteps` — the settled ResultCard's "what next" + post-mortem paths, which
+ *     consume (1) and (2).
+ *
+ * Grouped because they share one input (`pinnedSprintId`) and because (3) reads the output of
+ * both others — threading that through the orchestrator body only spread one concern across
+ * three separate call sites.
  */
 
 import { usePinnedSprintContext } from '@src/application/ui/tui/views/execute-view-internals/use-pinned-sprint-context.ts';

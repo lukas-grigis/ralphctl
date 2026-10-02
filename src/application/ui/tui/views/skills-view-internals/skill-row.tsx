@@ -1,6 +1,7 @@
 /**
- * One catalog row: name (+ "(manual)" tag for a non-bundled entry), one-line description, per-flow status chips, and
- * a dim "recommended:" line when the registry suggests extra phases.
+ * One catalog row: name (+ "(manual)" tag for a non-bundled entry), one-line description,
+ * per-flow status chips, and a dim "recommended:" line when the registry suggests extra phases.
+ * Presentational only — `skills-view.tsx` owns the cursor + action wiring.
  */
 
 import React from 'react';
@@ -8,7 +9,7 @@ import { Box, Text } from 'ink';
 import type { FlowId } from '@src/domain/value/flow-id.ts';
 import type { SkillCatalogEntry } from '@src/integration/ai/skills/_engine/skill-catalog-port.ts';
 import { StatusChip } from '@src/application/ui/tui/components/status-chip.tsx';
-import { ListCard } from '@src/application/ui/tui/components/list-card.tsx';
+import { inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import {
   chipFlowsFor,
   FLOW_ABBR,
@@ -27,37 +28,41 @@ export interface SkillRowProps {
 export const SkillRow = ({ entry, focused, isBundled, savedDisabled }: SkillRowProps): React.JSX.Element => {
   const updateCount = entry.installs.filter((i) => i.status === 'update-available').length;
   return (
-    <ListCard
-      focused={focused}
-      title={
-        <>
-          {entry.name}
-          {!isBundled && <Text dimColor> (manual)</Text>}
-        </>
-      }
-      rightSlot={
-        updateCount > 0 ? (
-          <StatusChip label={`${String(updateCount)} ${updateCount === 1 ? 'update' : 'updates'}`} kind="warning" />
-        ) : undefined
-      }
-    >
-      <Text dimColor wrap="truncate-end">
-        {entry.description.length > 0 ? entry.description : '(no description)'}
-      </Text>
-      <Box>
-        {chipFlowsFor(entry).map((flowId) => {
-          const visual = flowChipVisual(flowId, entry, savedDisabled);
-          return (
-            <Text key={flowId} color={visual.color} bold={visual.bold}>
-              {visual.glyph} {FLOW_ABBR[flowId]}
-              {'  '}
-            </Text>
-          );
-        })}
+    <Box flexDirection="column" marginBottom={spacing.section}>
+      <Box
+        flexDirection="column"
+        borderStyle="round"
+        borderColor={focused ? inkColors.primary : inkColors.rule}
+        borderDimColor={!focused}
+        paddingX={spacing.cardPadX}
+      >
+        <Box justifyContent="space-between">
+          <Text bold {...(focused ? { color: inkColors.primary } : {})}>
+            {entry.name}
+            {!isBundled && <Text dimColor> (manual)</Text>}
+          </Text>
+          {updateCount > 0 && (
+            <StatusChip label={`${String(updateCount)} update${updateCount === 1 ? '' : 's'}`} kind="warning" />
+          )}
+        </Box>
+        <Text dimColor wrap="truncate-end">
+          {entry.description.length > 0 ? entry.description : '(no description)'}
+        </Text>
+        <Box>
+          {chipFlowsFor(entry).map((flowId) => {
+            const visual = flowChipVisual(flowId, entry, savedDisabled);
+            return (
+              <Text key={flowId} color={visual.color} bold={visual.bold}>
+                {visual.glyph} {FLOW_ABBR[flowId]}
+                {'  '}
+              </Text>
+            );
+          })}
+        </Box>
+        {entry.recommendedFor.length > 0 && (
+          <Text dimColor>recommended: {entry.recommendedFor.map((f) => FLOW_ABBR[f]).join(', ')}</Text>
+        )}
       </Box>
-      {entry.recommendedFor.length > 0 && (
-        <Text dimColor>recommended: {entry.recommendedFor.map((f) => FLOW_ABBR[f]).join(', ')}</Text>
-      )}
-    </ListCard>
+    </Box>
   );
 };

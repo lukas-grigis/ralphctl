@@ -13,7 +13,6 @@
 
 import { render } from 'ink-testing-library';
 import { describe, expect, it } from 'vitest';
-import { glyphs } from '@src/application/ui/tui/theme/tokens.ts';
 import { BaselineHealthCard } from '@src/application/ui/tui/components/baseline-health-card.tsx';
 import type { SetupRun, SprintExecution } from '@src/domain/entity/sprint-execution.ts';
 import type { Attempt, Attribution, VerifyRun } from '@src/domain/entity/attempt.ts';
@@ -109,8 +108,8 @@ describe('BaselineHealthCard', () => {
       <BaselineHealthCard execution={executionWith([setupRow()])} tasks={[task]} now={now} />
     );
     const frame = lastFrame() ?? '';
-    // Post-task row should show "failed"
-    expect(frame).toContain('Post-task');
+    // Post verify row should show "failed"
+    expect(frame).toContain('Post verify');
     expect(frame).toContain('failed');
     // Attribution sub-line includes "broken"
     expect(frame).toContain('broken');
@@ -157,11 +156,8 @@ describe('BaselineHealthCard', () => {
     const { lastFrame } = render(<BaselineHealthCard execution={executionWith([setupRow()])} tasks={[]} now={now} />);
     const frame = lastFrame() ?? '';
     // Pre and Post rows should be visible with "not run yet" status
-    expect(frame).toContain('Pre-task');
-    expect(frame).toContain('Post-task');
+    expect(frame).toContain('Pre verify');
+    expect(frame).toContain('Post verify');
     expect(frame).toContain('not run yet');
-    for (const line of frame.split('\n').filter((l) => l.includes('not run yet'))) {
-      expect(line).toContain(glyphs.phasePending);
-    }
   });
 });

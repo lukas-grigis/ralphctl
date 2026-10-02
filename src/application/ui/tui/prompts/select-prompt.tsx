@@ -1,19 +1,21 @@
-/** Single-select prompt. Vertical list of `Choice<T>`; arrows navigate, Enter submits, Esc cancels. */
+/**
+ * Single-select prompt. Vertical list of `Choice<T>`; arrows navigate, Enter submits, Esc
+ * cancels. Long option lists scroll within a fixed window so the prompt frame stays predictable.
+ *
+ * When the prompt message carries a body region longer than the viewport (see `ScrollableMessage`),
+ * the body yields ↑/↓ to the option cursor (passed via `ownsArrows={false}`) so arrows behave the
+ * same as everywhere else in the app. The body still scrolls — just via PgUp/PgDn (page) and
+ * Ctrl+u/d (half-page), keys that don't conflict with option navigation.
+ */
 
 import React, { useState } from 'react';
 import { Box, Text } from 'ink';
 import { usePromptInput } from '@src/application/ui/tui/prompts/use-prompt-input.ts';
 import type { Choice } from '@src/business/interactive/prompt.ts';
-import { glyphs, inkColors, PROMPT_VISIBLE_ROWS, spacing } from '@src/application/ui/tui/theme/tokens.ts';
+import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { ScrollableMessage } from '@src/application/ui/tui/prompts/scrollable-message.tsx';
-import { usePromptHints } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
-import { isChord } from '@src/application/ui/tui/runtime/key-chord.ts';
-import { computeListWindow } from '@src/application/ui/tui/components/windowed-list.tsx';
-import {
-  firstEnabledIndex,
-  lastEnabledIndex,
-  nextEnabledIndex,
-} from '@src/application/ui/tui/prompts/choice-cursor.ts';
+
+const VISIBLE_ROWS = 8;
 
 const clamp = (n: number, min: number, max: number): number => Math.max(min, Math.min(max, n));
 
@@ -22,15 +24,41 @@ export interface SelectPromptProps {
   readonly options: ReadonlyArray<Choice<unknown>>;
   readonly onSubmit: (value: unknown) => void;
   readonly onCancel: () => void;
-  /** Optional dim line rendered between the option list and the navigation legend. */
+  /**
+   * Optional dim line rendered between the option list and the navigation legend. Used by the
+   * Settings provider picker to surface install guidance ("install codex CLI with …") so the
+   * user can act on the gate without leaving the prompt.
+   */
   readonly footer?: string;
 }
 
-const SELECT_HINTS = [
-  { keys: '↑/↓', label: 'move' },
-  { keys: '↵', label: 'submit' },
-  { keys: 'esc', label: 'cancel' },
-];
+const isEnabled = (opt: Choice<unknown> | undefined): boolean => opt !== undefined && opt.disabled !== true;
+
+/**
+ * Walk from `from` (exclusive) in `direction` (-1 or +1) and return the first enabled index.
+ * Returns `from` unchanged when no enabled option exists in that direction so the cursor never
+ * jumps onto a disabled row.
+ */
+const nextEnabledIndex = (options: ReadonlyArray<Choice<unknown>>, from: number, direction: -1 | 1): number => {
+  for (let i = from + direction; i >= 0 && i < options.length; i += direction) {
+    if (isEnabled(options[i])) return i;
+  }
+  return from;
+};
+
+const firstEnabledIndex = (options: ReadonlyArray<Choice<unknown>>): number => {
+  for (let i = 0; i < options.length; i += 1) {
+    if (isEnabled(options[i])) return i;
+  }
+  return 0;
+};
+
+const lastEnabledIndex = (options: ReadonlyArray<Choice<unknown>>): number => {
+  for (let i = options.length - 1; i >= 0; i -= 1) {
+    if (isEnabled(options[i])) return i;
+  }
+  return Math.max(0, options.length - 1);
+};
 
 export const SelectPrompt = ({
   message,
@@ -45,8 +73,6 @@ export const SelectPrompt = ({
   // we tolerate an all-disabled list by leaving the cursor at 0 with submission blocked).
   const [cursor, setCursor] = useState(() => firstEnabledIndex(options));
 
-  usePromptHints(SELECT_HINTS);
-
   usePromptInput((input, key) => {
     if (key.escape) {
       onCancel();
@@ -60,7 +86,6 @@ export const SelectPrompt = ({
       if (opt !== undefined && opt.disabled !== true) onSubmit(opt.value);
       return;
     }
-    if (isChord(key)) return;
     if (key.upArrow || input === 'k') setCursor((c) => clamp(nextEnabledIndex(options, c, -1), 0, options.length - 1));
     else if (key.downArrow || input === 'j')
       setCursor((c) => clamp(nextEnabledIndex(options, c, 1), 0, options.length - 1));
@@ -68,14 +93,16 @@ export const SelectPrompt = ({
     else if (input === 'G') setCursor(lastEnabledIndex(options));
   });
 
-  const { start, end } = computeListWindow(options.length, cursor, PROMPT_VISIBLE_ROWS);
+  const half = Math.floor(VISIBLE_ROWS / 2);
+  const start = clamp(cursor - half, 0, Math.max(0, options.length - VISIBLE_ROWS));
+  const end = Math.min(options.length, start + VISIBLE_ROWS);
 
   return (
     <Box flexDirection="column" paddingX={spacing.indent}>
       <ScrollableMessage
         message={message}
         ownsArrows={false}
-        reservedRows={Math.min(options.length, PROMPT_VISIBLE_ROWS) + (footer !== undefined ? 1 : 0)}
+        reservedRows={Math.min(options.length, VISIBLE_ROWS) + (footer !== undefined ? 1 : 0)}
       />
       <Box flexDirection="column" marginTop={spacing.section}>
         {options.slice(start, end).map((opt, localIdx) => {
@@ -86,27 +113,23 @@ export const SelectPrompt = ({
           // the visual affordance matches the keyboard behaviour — they aren't reachable.
           return (
             <Box key={`opt-${String(i)}`}>
-              <Box flexShrink={0}>
-                <Text color={focused && !disabled ? inkColors.primary : inkColors.muted}>
-                  {focused && !disabled ? glyphs.actionCursor : ' '}{' '}
-                </Text>
-              </Box>
-              <Text>
-                <Text bold={focused && !disabled} dimColor={disabled}>
-                  {opt.label}
-                </Text>
-                {opt.description !== undefined && (
-                  <Text dimColor>
-                    {' '}
-                    {glyphs.emDash} {opt.description}
-                  </Text>
-                )}
+              <Text color={focused && !disabled ? inkColors.primary : inkColors.muted}>
+                {focused && !disabled ? glyphs.actionCursor : ' '}{' '}
               </Text>
+              <Text bold={focused && !disabled} dimColor={disabled}>
+                {opt.label}
+              </Text>
+              {opt.description !== undefined && (
+                <Text dimColor>
+                  {' '}
+                  {glyphs.emDash} {opt.description}
+                </Text>
+              )}
             </Box>
           );
         })}
       </Box>
-      {options.length > PROMPT_VISIBLE_ROWS && (
+      {options.length > VISIBLE_ROWS && (
         <Text dimColor>
           {String(cursor + 1)} of {String(options.length)}
         </Text>

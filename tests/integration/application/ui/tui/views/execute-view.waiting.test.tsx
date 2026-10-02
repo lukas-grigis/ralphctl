@@ -9,7 +9,6 @@ import type { Runner } from '@src/application/chain/run/runner.ts';
 import { createSessionManager } from '@src/application/ui/tui/runtime/session-manager.ts';
 import { createPromptQueue, type PromptQueue } from '@src/application/ui/tui/prompts/prompt-queue.ts';
 import { glyphs } from '@src/application/ui/tui/theme/tokens.ts';
-import { WithLocation } from '@tests/integration/application/ui/tui/_view-title.tsx';
 import { renderView, waitForViewReady } from '@tests/integration/application/ui/tui/_harness.tsx';
 
 const deps = { eventBus: { publish: vi.fn(), subscribe: () => () => undefined } } as unknown as AppDeps;
@@ -44,19 +43,21 @@ describe('WAITING state', () => {
     const queue = createPromptQueue();
     ask(queue, 'r-w');
 
-    const { result } = renderView(
-      <WithLocation>
-        <ExecuteView />
-      </WithLocation>,
-      { deps, initial: { id: 'execute', props: { sessionId: 'r-w' } }, sessions, queue }
-    );
+    const { result } = renderView(<ExecuteView />, {
+      deps,
+      initial: { id: 'execute', props: { sessionId: 'r-w' } },
+      sessions,
+      queue,
+    });
     await waitForViewReady(result, (f) => f.includes('Implement — Demo'));
     const frame = result.lastFrame() ?? '';
     expect(frame).toContain('[WAITING]');
     expect(frame).toContain('waiting');
     expect(frame).not.toContain('[RUNNING]');
     expect(frame).not.toContain('live');
-    expect(hasSpinnerFrame(frame)).toBe(false);
+    // The footer's doctor probe spins independently; only the run's own header row is under test.
+    const headerRow = frame.split('\n').find((l) => l.includes('flow implement')) ?? '';
+    expect(hasSpinnerFrame(headerRow)).toBe(false);
     result.unmount();
   });
 
@@ -66,12 +67,12 @@ describe('WAITING state', () => {
     const queue = createPromptQueue();
     ask(queue, 'someone-else');
 
-    const { result } = renderView(
-      <WithLocation>
-        <ExecuteView />
-      </WithLocation>,
-      { deps, initial: { id: 'execute', props: { sessionId: 'r-a' } }, sessions, queue }
-    );
+    const { result } = renderView(<ExecuteView />, {
+      deps,
+      initial: { id: 'execute', props: { sessionId: 'r-a' } },
+      sessions,
+      queue,
+    });
     await waitForViewReady(result, (f) => f.includes('Implement — Demo'));
     const frame = result.lastFrame() ?? '';
     expect(frame).toContain('[RUNNING]');
@@ -79,7 +80,7 @@ describe('WAITING state', () => {
     result.unmount();
   });
 
-  it('the Runs list row shows WAITING for the awaiting session only', async () => {
+  it('the Sessions list row shows WAITING for the awaiting session only', async () => {
     const sessions = createSessionManager();
     sessions.register({ runner: fakeRunner('r-1'), flowId: 'implement', title: 'Alpha run' });
     sessions.register({ runner: fakeRunner('r-2'), flowId: 'refine', title: 'Beta run' });

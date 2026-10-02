@@ -1,10 +1,51 @@
-/** Implement view — live dashboard for an Implement chain run. */
+/**
+ * Implement view — live dashboard for an Implement chain run.
+ *
+ * The orchestrator wires data hooks to presentational sibling pieces under
+ * `execute-view-internals/`:
+ *   - `body.tsx`                — composes header / layout / log / footer / overlay
+ *   - `header-card.tsx`         — flow / elapsed / tasks / model / active-task header
+ *   - `rail.tsx`                — labelled + compact flow-steps StepTrace variants
+ *   - `layout.tsx`              — responsive column switcher (3 / 2 / compact-2 / 1)
+ *   - `log-panel.tsx`           — bottom Recent-log panel + buffer-cap rationale
+ *   - `tasks-panel-host.tsx`    — TasksPanel adapter folding verificationCriteria mapping
+ *   - `result-footer.tsx`       — settled ResultCard / running spinner
+ *   - `section.tsx`             — shared SectionHeader / Section helpers
+ *   - `use-baseline-health-data.ts`  — 3 s polling of SprintExecution + Task list
+ *   - `use-bucketed-tasks.ts`        — bucketTaskSignals + monotonic round overlay
+ *   - `use-active-task-summary.ts`   — yank-provider registration effect
+ *   - `use-cancel-handlers.ts`       — cancel-attempt / cancel-flow handlers
+ *   - `use-cancel-scope-stats.ts`    — attempt-elapsed + remaining-task stats
+ *   - `use-execute-input.ts`         — keyboard + view-hint registration
+ *   - `use-live-clock.ts`            — 1-Hz tick while running
+ *   - `use-pinned-sprint-context.ts` — pin availability probe, focused-run context, selection converge
+ *   - `use-run-sprint-context.ts`    — the three pin-derived hooks in one call
+ *   - `use-run-forensics.ts`         — existence-checked post-mortem paths for a failed run
+ *   - `use-settled-next-steps.ts`    — session data → `buildNextSteps` input bag
+ *   - `use-responsive-layout.ts`     — width-regime + row-cap derivation
+ *
+ * Layout regimes (driven by terminal width):
+ *  - ≥180 cols (xl+): three-column — fluid-width rail, flex Tasks, fixed context column.
+ *  - 140–179 cols   : two-column — fixed RAIL_WIDTH rail + flex Tasks. No context column.
+ *  - 100–139 cols   : compact two-column — glyph-only rail + flex Tasks.
+ *  - <100 cols      : single-column stack.
+ *
+ * Local keys:
+ *   c — open the cancel-scope picker (1 = cancel attempt, 2 = cancel whole flow)
+ *   D — detach (return to home; the runner keeps running in the background)
+ *   r — (settled only) reset to Flows so the launch triggers are re-evaluated
+ *   v — open the focused task's evaluation verdict (owned by the Tasks panel's keymap)
+ *
+ * ↑ / ↓ (and j / k, PgUp / PgDn, g / G) belong to the Tasks panel cursor, not to the page: the
+ * ViewShell passes `suppressScrollArrows`, so the page ScrollRegion yields every scroll key. The
+ * page still scrolls by mouse wheel, and every section is row-capped so nothing hides below the
+ * fold — see `use-responsive-layout.ts` and `result-footer.tsx`.
+ */
 
 import React from 'react';
 import { Box, Text } from 'ink';
-import { useAwaitingSessions } from '@src/application/ui/tui/runtime/use-awaiting-sessions.ts';
-import { flowIdToTitle } from '@src/application/ui/shared/flow-title.ts';
 import { ViewShell } from '@src/application/ui/tui/components/view-shell.tsx';
+import { useAwaitingSessions } from '@src/application/ui/tui/runtime/use-awaiting-sessions.ts';
 import { runnerStatusKind, StatusChip } from '@src/application/ui/tui/components/status-chip.tsx';
 import { spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { useTokenUsage } from '@src/application/ui/tui/runtime/use-token-usage.ts';
@@ -19,6 +60,7 @@ import { useTerminalSize } from '@src/application/ui/tui/runtime/use-terminal-si
 import type { AppEvent } from '@src/business/observability/events.ts';
 import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
+import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx';
 import { fmtElapsed } from '@src/application/ui/tui/theme/duration.ts';
 import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import type { BucketedExecution } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
@@ -56,18 +98,44 @@ interface ExecuteProps extends Readonly<Record<string, unknown>> {
 }
 
 /**
- * Launchers title a session `<Flow> — <sprint or project name>`; the shell already prints the flow as its title, so
- * the subtitle keeps only the name (otherwise it reads `Implement — Implement — …`).
+ * Human-readable section title per flow id. Keeps the Execute view header accurate for any
+ * flow that reuses this view (refine, plan, review, create-pr, …) instead of always showing
+ * "Implement".
  */
-const sprintNameOf = (sessionTitle: string): string => {
-  const sep = ' — ';
-  const at = sessionTitle.indexOf(sep);
-  return at === -1 ? sessionTitle : sessionTitle.slice(at + sep.length);
+const FLOW_TITLES: Record<string, string> = {
+  implement: 'Implement',
+  refine: 'Refine',
+  plan: 'Plan',
+  ideate: 'Ideate',
+  review: 'Review',
+  'create-pr': 'Create PR',
+  readiness: 'Readiness',
+  'detect-scripts': 'Detect Scripts',
+  'detect-skills': 'Detect Skills',
+  'create-sprint': 'Create Sprint',
+  'close-sprint': 'Close Sprint',
+  'add-ticket': 'Add Ticket',
+  'remove-ticket': 'Remove Ticket',
+  'export-context': 'Export Context',
+  'export-requirements': 'Export Requirements',
+  doctor: 'Doctor',
+  settings: 'Settings',
 };
 
 /**
- * Buffer sizing for long Implement runs: ~30 harness signals per task, so 1000 leaves headroom for a 20-task sprint;
- * 2000 chain events keep early tasks' time windows intact. Overflow drops the oldest; chain.log stays authoritative.
+ * Derive a human-readable section title from a flow id. Falls back to the raw flowId so a
+ * future flow never shows a blank header.
+ */
+const flowIdToTitle = (flowId: string): string => FLOW_TITLES[flowId] ?? flowId;
+
+/**
+ * Buffer sizing for long Implement runs:
+ *   - harness signals: ~20-40 per task (changes, learnings, decisions, commit messages, …),
+ *     so 10 tasks × 30 = 300; 1000 keeps healthy headroom for a multi-hour 20-task sprint.
+ *   - chainEvents: drives per-task time windows in bucketTaskSignals. We need the EARLIEST
+ *     events for early tasks to keep their signal correlation intact. 2000 covers ~15 tasks
+ *     × ~12 substeps × ~5 gen-eval rounds + outer-flow leaves.
+ * When a buffer overflows it drops the OLDEST entry. The on-disk chain.log is authoritative.
  */
 const HARNESS_SIGNAL_LIMIT = 1000;
 const CHAIN_EVENT_LIMIT = 2000;
@@ -90,8 +158,10 @@ interface ExecuteSessionData {
 }
 
 /**
- * Every hook that just wires this view to shared runtime context (session registry, event buses, deps, terminal size,
- * …) rather than deriving Execute-specific state.
+ * Every hook that just wires this view to shared runtime context (session registry, event
+ * buses, deps, terminal size, …) rather than deriving Execute-specific state. Grouped into one
+ * call so the component body reads as "get my wiring, then derive my state" instead of a long
+ * flat prelude — the individual hooks are unchanged, still called in the same relative order.
  */
 const useExecuteSessionData = (sessionId: string): ExecuteSessionData => {
   const session = useSession(sessionId);
@@ -132,12 +202,18 @@ interface DeriveTasksPanelResult {
   // this result straight onto `<ExecuteBody>` — see `ExecuteViewFrame` below.
   readonly executionState: SprintExecution | undefined;
   readonly taskState: readonly Task[] | undefined;
-  /** Handed back verbatim because the ≥140-col sidebar layout builds its own panel and needs the handler itself. */
+  /**
+   * Handed back verbatim: the narrow layout consumes it through the pre-built `tasksPanel` node
+   * above, but the ≥140-col sidebar layout builds its own panel and needs the handler itself, so
+   * both regimes are wired from this single derivation.
+   */
   readonly onOpenEvaluation: (taskId: string) => void;
-  /** Handed back for the same reason — the wide panel must honour the same modal gate. */
-  readonly tasksInputActive: boolean;
 }
 
+/**
+ * When the pinned sprint is no longer available (done or removed), blank the panels that
+ * depend on it and surface a pick-a-sprint prompt so the user knows what happened.
+ */
 const deriveTasksPanel = ({
   pinnedSprintStale,
   bucketed,
@@ -173,7 +249,6 @@ const deriveTasksPanel = ({
     executionState: pinnedSprintStale ? undefined : executionState,
     taskState: pinnedSprintStale ? undefined : taskState,
     onOpenEvaluation,
-    tasksInputActive,
   };
 };
 
@@ -187,8 +262,11 @@ const SessionNotFoundNotice = (): React.JSX.Element => (
 );
 
 /**
- * Not derived inside `useCancelScopeStats` itself so the O(chainEvents) scan that produces `attemptStartedAt` does
- * not re-run on every 1 Hz `useLiveClock` tick — only this cheap subtraction does.
+ * Not derived inside `useCancelScopeStats` itself so the O(chainEvents) scan that produces
+ * `attemptStartedAt` does not re-run on every 1 Hz `useLiveClock` tick — only this cheap
+ * subtraction does. `Math.max` guards the initial render: `now` (`useLiveClock`'s `Date.now()`
+ * seed) can be fractionally behind an attempt timestamp parsed in the same tick, yielding a
+ * small negative delta we clamp to 0.
  */
 const computeAttemptElapsedMs = (attemptStartedAt: number | undefined, now: number): number | undefined =>
   attemptStartedAt !== undefined ? Math.max(0, now - attemptStartedAt) : undefined;
@@ -202,13 +280,17 @@ interface UseExecuteRunControlsInput {
   /** Gates the `v evaluation` hint — the chord no-ops until some task has recorded a verdict. */
   readonly hasEvaluation: boolean;
   /**
-   * Gates the settled-only `u unblock` hint — read off the SAME polled entities the Tasks panel's own chord resolves
-   * against (`taskState`), never the bucketed chain signals.
+   * Gates the settled-only `u unblock` hint — read off the SAME polled entities the Tasks panel's
+   * own chord resolves against (`taskState`), never the bucketed chain signals, so the hint and
+   * the handler can never disagree about what counts as blocked.
+   *
+   * The caller ALSO has to subtract `pinnedSprintStale`: the poll behind `taskState` is not gated
+   * on the availability probe, so a closed/removed pin keeps reporting blocked tasks long after
+   * {@link deriveTasksPanel} has replaced the whole panel — handler and all — with the
+   * pick-a-sprint notice. Reachable on the ordinary path: a settled review run closes its sprint,
+   * and the Execute view is left sitting on a `done` pin.
    */
   readonly hasBlockedTask: boolean;
-  /** `y` handler and its gate — see {@link useExecuteInput}. */
-  readonly onCopyTask: () => void;
-  readonly canCopyTask: boolean;
 }
 
 export interface ExecuteRunControls {
@@ -218,7 +300,11 @@ export interface ExecuteRunControls {
   readonly now: number;
 }
 
-/** Bundles three pieces of state that only make sense together: run liveness, the cancel-scope picker, the clock. */
+/**
+ * Bundles the three pieces of state/derivation that only make sense together: whether the run
+ * is live, the cancel-scope picker's open/closed state (claimed by `useExecuteInput`'s `c` key),
+ * and the 1 Hz clock that only ticks while running.
+ */
 const useExecuteRunControls = ({
   descriptor,
   modalOpen,
@@ -226,13 +312,13 @@ const useExecuteRunControls = ({
   hasPinnedSprint,
   hasEvaluation,
   hasBlockedTask,
-  onCopyTask,
-  canCopyTask,
 }: UseExecuteRunControlsInput): ExecuteRunControls => {
   const isRunning = descriptor?.status === 'running';
 
-  // The overlay claims the keyboard while mounted so the picker's `1` / `2` / `esc` keystrokes don't fight this
-  // handler.
+  // Cancel-scope picker — `c` no longer aborts immediately; it opens an inline overlay that
+  // distinguishes "cancel current attempt" (keep task queued, retry next round) from "cancel
+  // whole flow" (mark current task blocked + exit chain). The overlay claims the keyboard
+  // while mounted so the picker's `1` / `2` / `esc` keystrokes don't fight this handler.
   const [cancelScopeOpen, setCancelScopeOpen] = React.useState(false);
 
   useExecuteInput({
@@ -244,8 +330,6 @@ const useExecuteRunControls = ({
     hasPinnedSprint,
     hasEvaluation,
     hasBlockedTask,
-    onCopyTask,
-    canCopyTask,
   });
 
   const now = useLiveClock(isRunning);
@@ -254,6 +338,7 @@ const useExecuteRunControls = ({
 };
 
 interface ExecuteViewFrameProps {
+  readonly ui: UiStateApi;
   readonly descriptor: SessionDescriptor;
   readonly sessionList: readonly SessionRecord[];
   readonly sessionId: string;
@@ -271,8 +356,13 @@ interface ExecuteViewFrameProps {
   readonly nextSteps: NextSteps;
 }
 
-/** The settled render for a found session — header chip + the full `ExecuteBody`. */
+/**
+ * The settled render for a found session — header chip + either the help overlay or the full
+ * `ExecuteBody`. Takes the grouped hook results as-is (rather than 20+ flat props) so the
+ * caller reads as "assemble the frame from what I already computed".
+ */
 const ExecuteViewFrame = ({
+  ui,
   descriptor,
   sessionList,
   sessionId,
@@ -292,6 +382,7 @@ const ExecuteViewFrame = ({
   // Wall-clock elapsed since the run started — a display string for the header / footer.
   const endedAt = descriptor.finishedAt ?? runControls.now;
   const elapsed = fmtElapsed(descriptor.startedAt, endedAt);
+  // A run parked on a prompt reads WAITING: the operator, not the run, is the bottleneck.
   const awaiting = useAwaitingSessions();
   const waiting = runControls.isRunning && awaiting.has(sessionId);
   const statusLabel = waiting ? 'waiting' : descriptor.status;
@@ -299,67 +390,47 @@ const ExecuteViewFrame = ({
   return (
     <ViewShell
       title={flowIdToTitle(descriptor.flowId)}
-      crumb={flowIdToTitle(descriptor.flowId)}
-      subtitle={sprintNameOf(descriptor.title)}
-      // The Tasks panel owns ↑/↓ (and j/k) as its card / row cursor — without this the page ScrollRegion moved the
-      // whole viewport on the same keypress that moved the cursor.
+      subtitle={descriptor.title}
+      compactBanner
+      // The Tasks panel owns ↑/↓ (and j/k) as its card / row cursor — without this the page
+      // ScrollRegion moved the whole viewport on the same keypress that moved the cursor. Every
+      // section on this page is row-capped against the terminal height (see
+      // `use-responsive-layout.ts` for the rail / tasks / log budgets and `result-footer.tsx`
+      // for the settled card), so yielding the paging keys costs no reachable content; the
+      // mouse wheel still scrolls the page regardless of this flag.
       suppressScrollArrows
       right={<StatusChip label={statusLabel} kind={waiting ? 'warning' : runnerStatusKind(descriptor.status)} />}
-      // `[STATUS]` — the label's cells plus its brackets, so the location line can budget for it.
-      rightWidth={statusLabel.length + 2}
     >
-      <ExecuteBody
-        descriptor={descriptor}
-        sessionList={sessionList}
-        sessionId={sessionId}
-        isRunning={runControls.isRunning}
-        now={runControls.now}
-        elapsed={elapsed}
-        layout={layout}
-        termColumns={term.columns}
-        tokenUsage={tokenUsage}
-        logEntries={logEntries}
-        cancelScopeOpen={runControls.cancelScopeOpen}
-        attemptElapsedMs={attemptElapsedMs}
-        remainingTaskCount={remainingTaskCount}
-        onCancelAttempt={cancelHandlers.onCancelAttempt}
-        onCancelFlow={cancelHandlers.onCancelFlow}
-        onDismissCancelScope={cancelHandlers.onDismiss}
-        pinnedSprintStale={pinnedSprintStale}
-        nextSteps={nextSteps}
-        awaiting={awaiting}
-        {...bucketedTasks}
-        {...tasksPanelDerivation}
-      />
+      {ui.helpOpen ? (
+        <HelpOverlay />
+      ) : (
+        <ExecuteBody
+          descriptor={descriptor}
+          sessionList={sessionList}
+          sessionId={sessionId}
+          isRunning={runControls.isRunning}
+          now={runControls.now}
+          elapsed={elapsed}
+          layout={layout}
+          termColumns={term.columns}
+          termRows={term.rows}
+          tokenUsage={tokenUsage}
+          logEntries={logEntries}
+          cancelScopeOpen={runControls.cancelScopeOpen}
+          attemptElapsedMs={attemptElapsedMs}
+          remainingTaskCount={remainingTaskCount}
+          onCancelAttempt={cancelHandlers.onCancelAttempt}
+          onCancelFlow={cancelHandlers.onCancelFlow}
+          onDismissCancelScope={cancelHandlers.onDismiss}
+          pinnedSprintStale={pinnedSprintStale}
+          nextSteps={nextSteps}
+          awaiting={awaiting}
+          {...bucketedTasks}
+          {...tasksPanelDerivation}
+        />
+      )}
     </ViewShell>
   );
-};
-
-interface BucketedTasksAndCopyInput {
-  readonly descriptor: SessionDescriptor | undefined;
-  readonly chainEvents: readonly AppEvent[];
-  readonly signals: readonly SignalBusEntry[];
-  readonly ui: UiStateApi;
-  readonly eventBus: AppDeps['eventBus'];
-}
-
-/** The per-task derivation plus the Execute-local `y` handler that copies the active task's summary. */
-const useBucketedTasksAndCopy = ({
-  descriptor,
-  chainEvents,
-  signals,
-  ui,
-  eventBus,
-}: BucketedTasksAndCopyInput): { readonly bucketedTasks: BucketedDerivation; readonly copyTask: () => void } => {
-  const bucketedTasks = useBucketedTasks({ descriptor, chainEvents, signals, eventBus });
-  const copyTask = useActiveTaskSummary({
-    currentTask: bucketedTasks.currentTask,
-    currentTaskName: bucketedTasks.currentTaskName,
-    setActiveTaskSummaryProvider: ui.setActiveTaskSummaryProvider,
-    getActiveTaskSummary: ui.getActiveTaskSummary,
-    eventBus,
-  });
-  return { bucketedTasks, copyTask };
 };
 
 export const ExecuteView = (): React.JSX.Element => {
@@ -373,8 +444,9 @@ export const ExecuteView = (): React.JSX.Element => {
   const descriptor = session?.descriptor;
   const pinnedSprintId = descriptor?.pinnedSprintId as SprintId | undefined;
 
-  // Everything derived from the pin: the availability probe + focused-run context + selection convergence, the polled
-  // baseline-health entities, and the settled card's next steps / post-mortem paths.
+  // Everything derived from the pin: the availability probe + focused-run context + selection
+  // convergence, the polled baseline-health entities, and the settled card's next steps /
+  // post-mortem paths. See `use-run-sprint-context.ts` for why the three travel together.
   const { pinnedSprintStale, executionState, taskState, nextSteps } = useRunSprintContext({
     descriptor,
     pinnedSprintId,
@@ -386,7 +458,6 @@ export const ExecuteView = (): React.JSX.Element => {
 
   // `v` — the panel supplies the focused card id; this resolves the overlay target.
   const evaluation = useEvaluationChord({ sprintId: pinnedSprintId, taskState, openEvaluation: ui.openEvaluation });
-  const { bucketedTasks, copyTask } = useBucketedTasksAndCopy({ descriptor, chainEvents, signals, ui, eventBus });
   const runControls = useExecuteRunControls({
     descriptor,
     modalOpen: ui.modalOpen,
@@ -396,13 +467,21 @@ export const ExecuteView = (): React.JSX.Element => {
     // `!pinnedSprintStale` mirrors the panel's own gate below — a stale pin unmounts the
     // `TasksPanelHost` that owns the `u` handler, so the hint must go with it.
     hasBlockedTask: !pinnedSprintStale && (taskState?.some((t) => t.status === 'blocked') ?? false),
-    onCopyTask: copyTask,
-    canCopyTask: bucketedTasks.currentTask !== undefined,
   });
+
+  const bucketedTasks = useBucketedTasks({ descriptor, chainEvents, signals, eventBus });
 
   // Per-session token usage — latest `TokenUsageEvent` per sessionId. The execute view is
   // sessionId-scoped so we only look up the current runner's entry; absent ⇒ empty state.
   const tokenUsage = useTokenUsage(eventBus).get(sessionId);
+
+  useActiveTaskSummary({
+    currentTask: bucketedTasks.currentTask,
+    currentTaskName: bucketedTasks.currentTaskName,
+    // The setter is its own stable `useCallback`, so reading it off the merged `ui` object does
+    // not re-fire the effect when an unrelated overlay toggle changes that object's identity.
+    setActiveTaskSummaryProvider: ui.setActiveTaskSummaryProvider,
+  });
 
   const cancelStats = useCancelScopeStats({
     chainEvents,
@@ -422,8 +501,9 @@ export const ExecuteView = (): React.JSX.Element => {
 
   const layout = useResponsiveLayout({ columns: term.columns, rows: term.rows, isRunning: runControls.isRunning });
 
-  // Early-return for "no session in registry" must come AFTER every hook above so the Hook call order is identical
-  // across renders.
+  // Early-return for "no session in registry" must come AFTER every hook above so the Hook
+  // call order is identical across renders. Hooks below this line do not exist — every Hook
+  // the view needs has already run.
   if (!session || descriptor === undefined) return <SessionNotFoundNotice />;
 
   // `pinnedSprintStale` (closed/removed pin) is computed above, alongside the selection
@@ -434,7 +514,9 @@ export const ExecuteView = (): React.JSX.Element => {
     descriptor,
     isRunning: runControls.isRunning,
     layout,
-    // TasksPanel claims input for its cursor chords (j/k, Enter/Space, `e`, `v`).
+    // TasksPanel claims input for its cursor chords (j/k, Enter/Space, `e`, `v`). Disabled while
+    // any modal owns the keyboard — help (`?`), progress (`g`), evaluation (`v`), a prompt, or the
+    // inline cancel-scope picker (`c`) — else the hidden panel double-handles every keystroke.
     tasksInputActive: !ui.modalOpen && !runControls.cancelScopeOpen,
     now: runControls.now,
     executionState,
@@ -444,6 +526,7 @@ export const ExecuteView = (): React.JSX.Element => {
 
   return (
     <ExecuteViewFrame
+      ui={ui}
       descriptor={descriptor}
       sessionList={sessionList}
       sessionId={sessionId}

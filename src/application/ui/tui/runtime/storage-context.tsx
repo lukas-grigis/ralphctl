@@ -1,6 +1,7 @@
 /**
- * Provides resolved {@link StoragePaths} via context so views and the flow launcher don't need to thread paths
- * through props.
+ * Provides resolved {@link StoragePaths} via context so views and the flow launcher don't need
+ * to thread paths through props. The bootstrap layer assembles paths once and supplies them
+ * here.
  */
 
 import React, { createContext, useContext } from 'react';

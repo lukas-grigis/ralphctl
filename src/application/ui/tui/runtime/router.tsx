@@ -1,12 +1,16 @@
 /**
- * Sectioned stack router. The whole TUI lives inside one Ink render tree; navigation happens by pushing / popping
- * {@link ViewEntry} objects.
+ * Stack-based view router. The whole TUI lives inside one Ink render tree; navigation happens by
+ * pushing / popping {@link ViewEntry} objects. Each entry names a view id and an opaque props
+ * payload — concrete views know how to type-narrow the props they expect.
+ *
+ * Why stack-based: every flow in the app is a forward-then-back interaction (open list → drill
+ * into detail → escape back). Modal overlays (help, prompts) compose on top of whichever view is
+ * on the stack; they never replace it.
  */
 
 import React, { createContext, useCallback, useContext, useMemo, useState } from 'react';
 import { Box, Text } from 'ink';
 import { inkColors } from '@src/application/ui/tui/theme/tokens.ts';
-import { sectionDef, sectionOf, type ActiveSection, type SectionId } from '@src/application/ui/tui/runtime/nav-tree.ts';
 import type { ViewId } from '@src/application/ui/tui/views/view-registry.tsx';
 
 export type ViewProps = Readonly<Record<string, unknown>>;
@@ -17,31 +21,26 @@ export interface ViewEntry {
 }
 
 export interface RouterApi {
-  /** The ACTIVE section's stack. */
   readonly stack: readonly ViewEntry[];
   readonly current: ViewEntry;
-  /** The section whose stack is active; `'none'` during the first-run wizard. */
-  readonly activeSection: ActiveSection;
   push(entry: ViewEntry): void;
-  /**
-   * One level up in the active section; the revealed entry gains `props.returnedFrom` (the left view's id). At a
-   * section root that is not Work it jumps to Work; at the Work root (and in `'none'`) it is a no-op.
-   */
   pop(): void;
   replace(entry: ViewEntry): void;
   /**
-   * Activate a section, creating `[root]` if it has no stack yet. Re-selecting the section that is already active
-   * resets it to its root.
-   */
-  goSection(id: SectionId): void;
-  /**
-   * Land on `entry` in ITS section: the section's stack becomes `[root]` when `entry` is the root, else `[root,
-   * entry]`.
+   * Drop the whole stack and land on `entry`. The destination is REQUIRED — an optional
+   * "fall back to the launch entry" form used to exist, and both of its callers (`h` = Home,
+   * `D` = detach) meant Home. On a first-run session the launch entry is the welcome / create-
+   * project wizard, so the bare form silently re-mounted the first-run wizard (which then
+   * re-applied its AI preset over the user's Settings edits). Making the parameter required
+   * keeps that class of bug unrepresentable.
    */
   reset(entry: ViewEntry): void;
 }
 
 const RouterContext = createContext<RouterApi | undefined>(undefined);
+
+/** Like {@link useRouter} but `undefined` outside a provider — for passive indicators. */
+export const useOptionalRouter = (): RouterApi | undefined => useContext(RouterContext);
 
 export const useRouter = (): RouterApi => {
   const ctx = useContext(RouterContext);
@@ -49,10 +48,11 @@ export const useRouter = (): RouterApi => {
   return ctx;
 };
 
-/** `undefined` outside a provider — for passive surfaces that merely annotate the current route. */
-export const useOptionalRouter = (): RouterApi | undefined => useContext(RouterContext);
-
-/** Type-narrowing helper for views that expect specific props. */
+/**
+ * Type-narrowing helper for views that expect specific props. Throws a developer-visible error
+ * (rendered as a fallback view) when invoked from a view that wasn't pushed with the right
+ * shape — beats silent `undefined` propagation.
+ */
 export const useViewProps = <T extends ViewProps>(): T => {
   const { current } = useRouter();
   return (current.props ?? {}) as T;
@@ -63,97 +63,30 @@ export interface RouterProviderProps {
   readonly children: (current: ViewEntry) => React.ReactNode;
 }
 
-type Stacks = Readonly<Record<ActiveSection, readonly ViewEntry[]>>;
-
-interface RouterState {
-  readonly active: ActiveSection;
-  readonly stacks: Stacks;
-}
-
-const EMPTY_STACKS: Stacks = { work: [], sprints: [], projects: [], runs: [], system: [], none: [] };
-
-/**
- * The first-run wizards run outside any section so the tab bar and location line stay hidden; every other launch
- * entry lands in its own section.
- */
-const initialSection = (entry: ViewEntry): ActiveSection =>
-  entry.id === 'welcome' || entry.id === 'create-project' ? 'none' : sectionOf(entry.id);
-
-const withStack = (state: RouterState, section: ActiveSection, stack: readonly ViewEntry[]): RouterState => ({
-  ...state,
-  stacks: { ...state.stacks, [section]: stack },
-});
-
-/**
- * Drop the top entry and stamp `returnedFrom` (the dropped view's id) on the one it reveals, so a parent list can put
- * its cursor back on the child the operator just left.
- */
-const revealParent = (stack: readonly ViewEntry[]): readonly ViewEntry[] => {
-  const child = stack[stack.length - 1];
-  const parent = stack[stack.length - 2];
-  if (child === undefined || parent === undefined) return stack.slice(0, -1);
-  return [...stack.slice(0, -2), { ...parent, props: { ...parent.props, returnedFrom: child.id } }];
-};
-
-const rootEntry = (id: SectionId): ViewEntry => {
-  const def = sectionDef(id);
-  return { id: def?.rootView ?? 'home' };
-};
-
-const activate = (state: RouterState, id: SectionId): RouterState => {
-  const existing = state.stacks[id];
-  if (state.active === id) return withStack(state, id, [rootEntry(id)]);
-  if (existing.length > 0) return { ...state, active: id };
-  return { ...withStack(state, id, [rootEntry(id)]), active: id };
-};
-
 export const RouterProvider = ({ initial, children }: RouterProviderProps): React.JSX.Element => {
-  const [state, setState] = useState<RouterState>(() => {
-    const section = initialSection(initial);
-    return { active: section, stacks: { ...EMPTY_STACKS, [section]: [initial] } };
-  });
+  const [stack, setStack] = useState<readonly ViewEntry[]>(() => [initial]);
 
   const push = useCallback((entry: ViewEntry) => {
-    setState((s) => withStack(s, s.active, [...s.stacks[s.active], entry]));
+    setStack((s) => [...s, entry]);
   }, []);
 
   const pop = useCallback(() => {
-    setState((s) => {
-      const stack = s.stacks[s.active];
-      if (stack.length > 1) return withStack(s, s.active, revealParent(stack));
-      if (s.active !== 'work' && s.active !== 'none') return activate(s, 'work');
-      return s;
-    });
+    setStack((s) => (s.length > 1 ? s.slice(0, -1) : s));
   }, []);
 
   const replace = useCallback((entry: ViewEntry) => {
-    setState((s) => {
-      const stack = s.stacks[s.active];
-      return withStack(s, s.active, stack.length === 0 ? [entry] : [...stack.slice(0, -1), entry]);
-    });
-  }, []);
-
-  const goSection = useCallback((id: SectionId) => {
-    setState((s) => activate(s, id));
+    setStack((s) => (s.length === 0 ? [entry] : [...s.slice(0, -1), entry]));
   }, []);
 
   const reset = useCallback((entry: ViewEntry) => {
-    setState((s) => {
-      const section = initialSection(entry);
-      if (section === 'none') return { ...withStack(s, 'none', [entry]), active: 'none' };
-      const root = rootEntry(section);
-      const stack = entry.id === root.id ? [entry] : [root, entry];
-      return { ...withStack(s, section, stack), active: section };
-    });
+    setStack(() => [entry]);
   }, []);
 
-  const stack = state.stacks[state.active];
   const current = stack[stack.length - 1] ?? initial;
-  const activeSection = state.active;
 
   const api = useMemo<RouterApi>(
-    () => ({ stack, current, activeSection, push, pop, replace, goSection, reset }),
-    [stack, current, activeSection, push, pop, replace, goSection, reset]
+    () => ({ stack, current, push, pop, replace, reset }),
+    [stack, current, push, pop, replace, reset]
   );
 
   return <RouterContext.Provider value={api}>{children(current)}</RouterContext.Provider>;
@@ -163,6 +96,6 @@ export const RouterProvider = ({ initial, children }: RouterProviderProps): Reac
 export const UnknownViewFallback = ({ id }: { readonly id: string }): React.JSX.Element => (
   <Box flexDirection="column" padding={1}>
     <Text color={inkColors.error}>Unknown view: {id}</Text>
-    <Text dimColor>Press esc to go back, or 1 for Work.</Text>
+    <Text dimColor>Press esc to go back, h to return home.</Text>
   </Box>
 );

@@ -175,7 +175,9 @@ describe('quit with live runs', () => {
   it('keeps its y away from a confirm that is open underneath', async () => {
     const abortAll = vi.fn(() => Promise.resolve(STOPPED));
     const onSubmit = vi.fn();
-    const body = <ConfirmCard verb="Remove" target="sprint" onSubmit={onSubmit} onCancel={vi.fn()} />;
+    const body = (
+      <ConfirmCard title={<Text>Remove sprint?</Text>} message="Remove?" onSubmit={onSubmit} onCancel={vi.fn()} />
+    );
     const { stdin, lastFrame, unmount } = mount(runningManager(1), abortAll, body);
     await tick();
     stdin.write('y');

@@ -1,26 +1,45 @@
 /**
- * Path picker — browse the filesystem and select a directory. Tailored for ralphctl's repo paths, which are always
- * directories.
+ * Path picker — browse the filesystem and select a directory. Tailored for ralphctl's repo
+ * paths, which are always directories. Free-text entry is unreliable (no auto-completion,
+ * easy to typo) so the wizard funnels users through a navigable list instead — but a `t`
+ * shortcut drops to a text-entry overlay for users who know the exact path.
+ *
+ * Layout per render:
+ *   - Current directory header
+ *   - `..` row (parent)
+ *   - `[Select this directory]` row (confirms the current `cwd`)
+ *   - sorted subdirectories, dotfiles hidden by default
+ *
+ * Keys:
+ *   ↑/↓ or k/j   move cursor
+ *   ↵            open directory, or confirm when on `[Select]`/`..`
+ *   ⌫            jump to parent directory (same as activating `..`)
+ *   ~ or h       jump to home directory
+ *   t            type a path manually (validates as an existing directory before commit)
+ *   .            toggle hidden entries
+ *   esc          cancel
+ *
+ * Starts in `initial` when provided; otherwise `process.cwd()`. If neither is readable, the
+ * picker falls back to `os.homedir()` so the user is never stuck on an error frame.
  */
 
 import React, { useEffect, useState } from 'react';
-import { promises as fs, statSync } from 'node:fs';
+import { promises as fs } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { homedir } from 'node:os';
 import { Box, Text, type Key } from 'ink';
 import { usePromptInput } from '@src/application/ui/tui/prompts/use-prompt-input.ts';
 import { TextPrompt } from '@src/application/ui/tui/prompts/text-prompt.tsx';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
-import { useTerminalSize } from '@src/application/ui/tui/runtime/use-terminal-size.ts';
-import { usePromptHints, type PromptHint } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
-import { computeListWindow } from '@src/application/ui/tui/components/windowed-list.tsx';
-import { messageOf } from '@src/domain/value/error/error-message.ts';
 
 export interface PathPickerPromptProps {
   readonly message: string;
   readonly onSubmit: (path: string) => void;
   readonly onCancel: () => void;
-  /** Starting directory. Defaults to `process.cwd()` (the directory the user ran ralphctl from). */
+  /**
+   * Starting directory. Defaults to `process.cwd()` (the directory the user ran ralphctl from).
+   * Tilde-expanded automatically.
+   */
   readonly initial?: string;
 }
 
@@ -32,10 +51,7 @@ interface Entry {
 type Row =
   { readonly kind: 'parent' } | { readonly kind: 'select' } | { readonly kind: 'entry'; readonly entry: Entry };
 
-const MAX_VISIBLE_ROWS = 12;
-const MIN_VISIBLE_ROWS = 4;
-/** Rows the frame, wizard card, picker header, counter and hint line spend around the list. */
-const AROUND_LIST_ROWS = 17;
+const VISIBLE_ROWS = 12;
 const clamp = (n: number, min: number, max: number): number => Math.max(min, Math.min(max, n));
 
 const expandHome = (input: string): string => {
@@ -71,7 +87,7 @@ const useDirectoryEntries = (cwd: string, showHidden: boolean): DirectoryEntries
       } catch (err) {
         if (cancelled) return;
         setEntries([]);
-        setError(messageOf(err));
+        setError(err instanceof Error ? err.message : String(err));
       }
     };
     void load();
@@ -170,29 +186,33 @@ const handlePathPickerKey = (input: string, key: Key, deps: PathPickerKeyDeps): 
   }
 };
 
-/** Inline check for the typed-path field: the path must be an existing directory. */
-const checkTypedPath = (raw: string): string | undefined => {
-  const expanded = expandHome(raw.trim());
-  if (expanded.length === 0) return 'Path is required';
-  try {
-    return statSync(expanded).isDirectory() ? undefined : `${expanded} is not a directory`;
-  } catch {
-    return `${expanded} does not exist`;
-  }
-};
-
-interface TypedPathFieldProps {
-  readonly initial: string;
-  readonly onSubmit: (value: string) => void;
-  readonly onCancel: () => void;
+interface SubmitTypedPathDeps {
+  readonly setError: React.Dispatch<React.SetStateAction<string | undefined>>;
+  readonly setTyping: React.Dispatch<React.SetStateAction<boolean>>;
+  readonly onSubmit: (path: string) => void;
 }
 
-const TypedPathField = ({ initial, onSubmit, onCancel }: TypedPathFieldProps): React.JSX.Element => (
-  <Box flexDirection="column" marginTop={spacing.section} paddingX={spacing.indent}>
-    <Text dimColor>Type a path (~/ ok). esc returns to the picker.</Text>
-    <TextPrompt message="Path" initial={initial} validate={checkTypedPath} onSubmit={onSubmit} onCancel={onCancel} />
-  </Box>
-);
+/** Validates a manually-typed path exists and is a directory, then submits or reports an error. */
+const submitTypedPath = async (raw: string, { setError, setTyping, onSubmit }: SubmitTypedPathDeps): Promise<void> => {
+  const expanded = expandHome(raw.trim());
+  if (expanded.length === 0) {
+    setTyping(false);
+    return;
+  }
+  try {
+    const stat = await fs.stat(expanded);
+    if (!stat.isDirectory()) {
+      setError(`${expanded} is not a directory`);
+      setTyping(false);
+      return;
+    }
+    setTyping(false);
+    onSubmit(expanded);
+  } catch (err) {
+    setError(err instanceof Error ? err.message : String(err));
+    setTyping(false);
+  }
+};
 
 interface PathPickerRowsProps {
   readonly rows: readonly Row[];
@@ -216,7 +236,7 @@ const PathPickerRows = ({ rows, start, end, cursor }: PathPickerRowsProps): Reac
         </Box>
       );
     })}
-    {rows.length > end - start && (
+    {rows.length > VISIBLE_ROWS && (
       <Box paddingX={spacing.indent}>
         <Text dimColor>
           {String(cursor + 1)} of {String(rows.length)}
@@ -225,14 +245,6 @@ const PathPickerRows = ({ rows, start, end, cursor }: PathPickerRowsProps): Reac
     )}
   </>
 );
-
-const PICKER_HINTS = [
-  { keys: '↵', label: 'open/select' },
-  { keys: '⌫', label: 'up' },
-  { keys: 't', label: 'type' },
-  { keys: 'esc', label: 'cancel' },
-];
-const NO_HINTS: readonly PromptHint[] = [];
 
 export const PathPickerPrompt = ({
   message,
@@ -245,10 +257,6 @@ export const PathPickerPrompt = ({
   const { entries, error, setError } = useDirectoryEntries(cwd, showHidden);
   const [cursor, setCursor] = useState(1); // Default to `[Select this directory]`.
   const [typing, setTyping] = useState(false);
-  const { rows: termRows } = useTerminalSize();
-
-  // The typed-path TextPrompt publishes its own keys.
-  usePromptHints(typing ? NO_HINTS : PICKER_HINTS);
 
   // Synthetic rows: parent (..) → [Select this directory] → directory entries.
   const rows: readonly Row[] = [
@@ -280,8 +288,9 @@ export const PathPickerPrompt = ({
   );
 
   // Windowed slice around the cursor so deep directories stay scrollable.
-  const visibleRows = clamp(termRows - AROUND_LIST_ROWS, MIN_VISIBLE_ROWS, MAX_VISIBLE_ROWS);
-  const { start, end } = computeListWindow(rows.length, cursor, visibleRows);
+  const half = Math.floor(VISIBLE_ROWS / 2);
+  const start = clamp(cursor - half, 0, Math.max(0, rows.length - VISIBLE_ROWS));
+  const end = Math.min(rows.length, start + VISIBLE_ROWS);
 
   return (
     <Box flexDirection="column">
@@ -298,20 +307,19 @@ export const PathPickerPrompt = ({
           <Text color={inkColors.error}>{error}</Text>
         </Box>
       )}
-      {!typing && (
-        <Box flexDirection="column" marginTop={spacing.section}>
-          <PathPickerRows rows={rows} start={start} end={end} cursor={cursor} />
-        </Box>
-      )}
+      <Box flexDirection="column" marginTop={spacing.section}>
+        <PathPickerRows rows={rows} start={start} end={end} cursor={cursor} />
+      </Box>
       {typing ? (
-        <TypedPathField
-          initial={cwd}
-          onSubmit={(value) => {
-            setTyping(false);
-            onSubmit(expandHome(value.trim()));
-          }}
-          onCancel={() => setTyping(false)}
-        />
+        <Box flexDirection="column" marginTop={spacing.section} paddingX={spacing.indent}>
+          <Text dimColor>Type an absolute path (~/ allowed). Enter validates; esc returns to the picker.</Text>
+          <TextPrompt
+            message="Path"
+            initial={cwd}
+            onSubmit={(value) => void submitTypedPath(value, { setError, setTyping, onSubmit })}
+            onCancel={() => setTyping(false)}
+          />
+        </Box>
       ) : (
         <Box paddingX={spacing.indent} marginTop={spacing.section}>
           <Text dimColor>

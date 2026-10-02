@@ -1,6 +1,23 @@
 /**
- * Header card for the execute view — flow id, elapsed, task counter, optional model lines, and active-task focus row
- * (task index, current substep, gen-eval round).
+ * Header card for the execute view — flow id, elapsed, task counter, optional model lines,
+ * and active-task focus row (task index, current substep, gen-eval round). Extracted from
+ * the orchestrator so the long JSX block isn't competing for visual attention with the
+ * layout / column switching code.
+ *
+ * Model line semantics (implement runs only): when `generatorModel` / `evaluatorModel` are
+ * set on the descriptor the card renders TWO explicit lines — `generator <model> · <effort>`
+ * and `evaluator <model> · <effort>` — even when the two models are the same. This gives the
+ * operator unambiguous visibility into both roles. The effort suffix is omitted when undefined.
+ * Non-implement flows (no gen/eval split) keep a single `model <name>` line if either field
+ * happens to be set by their launcher; in practice those flows leave both undefined.
+ *
+ * Round counter: `TaskBucket.genEvalRound` is monotonic across the whole task (the `rounds/`
+ * dir is shared by every attempt), while `genEvalMaxRounds` (`maxTurns`) caps a single attempt.
+ * Rendering the raw ratio overshoots on a 2nd+ attempt (e.g. `round 4/3`), so the focus row
+ * folds the round into per-attempt coordinates via `resolveAttemptCoords` (which prefers the live
+ * tracker-sourced attempt number and falls back to the `perAttemptRound` division heuristic) and
+ * shows the attempt counter alongside it (`attempt A/X · round R/maxTurns`) whenever more than one
+ * attempt is in play; single-attempt runs keep the bare `round R/maxTurns`.
  */
 
 import React from 'react';
@@ -26,7 +43,19 @@ interface HeaderCardProps {
   readonly waitingSince?: number | undefined;
 }
 
-/** Renders the model + effort lines inside the HeaderCard. */
+/**
+ * Renders the model + effort lines inside the HeaderCard.
+ *
+ * Implement runs (both `generatorModel` and `evaluatorModel` set): two explicit lines so the
+ * operator can clearly see each role, even when generator === evaluator. When the role's provider
+ * id is known it renders dim before the model (secondary context) — model stays highlighted.
+ *
+ *   ↳ generator  github-copilot · claude-opus-4.8 · high
+ *   ↳ evaluator  openai-codex · gpt-5.5 · medium
+ *
+ * Non-implement flows (at most one model set): single `model <name>` line, optionally prefixed
+ * with the provider when one is available. When neither model is set: nothing rendered.
+ */
 const RoleLine = ({
   role,
   provider,
@@ -95,7 +124,29 @@ const ModelLines = ({
   // Non-implement flows: single model line (whichever is set), with its provider + window when available.
   const model = generatorModel ?? evaluatorModel;
   const provider = generatorProvider ?? evaluatorProvider;
-  return model !== undefined ? <RoleLine role="model" provider={provider} model={model} effort={undefined} /> : null;
+  if (model !== undefined) {
+    const ctxWindow = contextWindowLabel(model);
+    return (
+      <Box>
+        <Text dimColor>{glyphs.activityArrow} model </Text>
+        {provider !== undefined && (
+          <>
+            <Text dimColor>{provider}</Text>
+            <Text dimColor> {glyphs.bullet} </Text>
+          </>
+        )}
+        <Text color={inkColors.highlight}>{model}</Text>
+        {ctxWindow !== undefined && (
+          <>
+            <Text dimColor> {glyphs.bullet} </Text>
+            <Text dimColor>{ctxWindow}</Text>
+          </>
+        )}
+      </Box>
+    );
+  }
+
+  return null;
 };
 
 /** Flow id, elapsed, task counter and the live spinner — the card's always-present first row. */
@@ -155,8 +206,9 @@ const SummaryRow = ({
 );
 
 /**
- * `attempt A/X · round R/maxTurns` chip for the focus row — see the module docstring for why the monotonic round is
- * folded into per-attempt coordinates first.
+ * `attempt A/X · round R/maxTurns` chip for the focus row — see the module docstring for why the
+ * monotonic round is folded into per-attempt coordinates first. Self-gates on the task having
+ * entered a gen-eval round.
  */
 const RoundCounter = ({ task }: { readonly task: TaskBucket }): React.JSX.Element | null => {
   if (task.genEvalRound <= 0) return null;
@@ -184,7 +236,6 @@ const RoundCounter = ({ task }: { readonly task: TaskBucket }): React.JSX.Elemen
             {String(attemptN)}
             {maxAttempts !== undefined ? `/${String(maxAttempts)}` : ''}
           </Text>
-          {coords.resumed === true && <Text dimColor> {glyphs.bullet} resumed</Text>}
         </>
       )}
       <Text dimColor> {glyphs.bullet} round </Text>
@@ -211,9 +262,8 @@ const ActiveTaskRow = ({
   readonly tasksTotal: number;
 }): React.JSX.Element | null => {
   if (currentTask === undefined || currentTaskName === undefined) return null;
-  // One truncating <Text>: separate flex items shrink and drop their trailing spaces ("task1/1"), and wrap a tick early.
   return (
-    <Text wrap="truncate-end">
+    <Box>
       <Text dimColor>{glyphs.activityArrow} task </Text>
       <Text color={inkColors.info}>
         {String(currentTaskIdx + 1)}/{String(tasksTotal)}
@@ -227,7 +277,7 @@ const ActiveTaskRow = ({
         </>
       )}
       <RoundCounter task={currentTask} />
-    </Text>
+    </Box>
   );
 };
 
@@ -281,6 +331,8 @@ const HeaderCardImpl = ({
   </Card>
 );
 
-// Memoized: `elapsed` moved into the self-ticking `<ElapsedLabel>` leaf above, so this card's own props are now
-// stable across the 1 Hz clock tick.
+// Memoized: `elapsed` moved into the self-ticking `<ElapsedLabel>` leaf above, so this card's
+// own props are now stable across the 1 Hz clock tick — memo lets React skip re-rendering the
+// model lines + task-focus row (and everything ElapsedLabel isn't part of) except when the
+// task actually advances.
 export const HeaderCard = React.memo(HeaderCardImpl);

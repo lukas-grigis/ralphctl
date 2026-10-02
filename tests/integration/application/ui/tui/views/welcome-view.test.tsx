@@ -4,10 +4,7 @@
  * detect-cli module so behavior is deterministic regardless of what's on the host's PATH.
  */
 
-import React from 'react';
-import { Text, useInput } from 'ink';
 import { describe, expect, it, vi } from 'vitest';
-import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { Result } from '@src/domain/result.ts';
 import { DEFAULT_SETTINGS } from '@src/business/settings/defaults.ts';
 import type { AiProvider, Settings } from '@src/domain/entity/settings.ts';
@@ -16,7 +13,7 @@ import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import type { Project } from '@src/domain/entity/project.ts';
 import type { ProjectRepository } from '@src/domain/repository/project/project-repository.ts';
 import type { SettingsRepository } from '@src/domain/repository/settings/settings-repository.ts';
-import { ENTER, ESC, tick } from '@tests/integration/application/ui/tui/_keys.ts';
+import { ENTER } from '@tests/integration/application/ui/tui/_keys.ts';
 import { waitForPredicate } from '@tests/integration/application/ui/tui/_wait.ts';
 import { renderView, waitForViewReady } from '@tests/integration/application/ui/tui/_harness.tsx';
 import { makeProject } from '@tests/fixtures/domain.ts';
@@ -57,44 +54,7 @@ const fakeProjectRepo = (projects: readonly Project[]): ProjectRepository =>
     },
   }) as unknown as ProjectRepository;
 
-/** Stands in for the global `?` binding: opens the modal overlay the welcome view must yield to. */
-const HelpToggle = (): React.JSX.Element => {
-  const ui = useUiState();
-  useInput((input) => {
-    if (input === '?') ui.toggleHelp();
-  });
-  return <Text>{ui.helpOpen ? 'overlay:open' : 'overlay:closed'}</Text>;
-};
-
 describe('WelcomeView — first-run UX', () => {
-  it('yields ↵ and esc to an open overlay instead of leaving the screen', async () => {
-    detectRef.installed = new Set(['claude-code']);
-    const deps: AppDeps = {
-      settingsRepo: fakeSettingsRepo(async () => Result.ok(undefined)),
-      projectRepo: fakeProjectRepo([]),
-    } as unknown as AppDeps;
-    const routes: ViewEntry[] = [];
-    const { result } = renderView(
-      <>
-        <WelcomeView />
-        <HelpToggle />
-      </>,
-      { deps, initial: { id: 'welcome' }, onRoute: (e) => routes.push(e) }
-    );
-    await waitForViewReady(result, (f) => f.includes('ralphctl demo'));
-    result.stdin.write('?');
-    await waitForPredicate(() => (result.lastFrame() ?? '').includes('overlay:open'));
-    result.stdin.write(ENTER);
-    await tick(60);
-    result.stdin.write(ESC);
-    await tick(60);
-    expect(routes.at(-1)?.id).toBe('welcome');
-    result.stdin.write('?');
-    await tick(60);
-    result.stdin.write(ESC);
-    await waitForPredicate(() => routes.at(-1)?.id !== 'welcome');
-  });
-
   it('seeds the claude-only preset silently when only claude is on PATH', async () => {
     detectRef.installed = new Set(['claude-code']);
     const saved: Settings[] = [];
@@ -126,37 +86,7 @@ describe('WelcomeView — first-run UX', () => {
     expect(frame).toContain('based on detected CLIs');
     expect(frame).not.toContain('No AI CLIs detected');
     expect(frame).not.toContain('Pick an AI provider');
-    // Held on the orientation card until a key is pressed.
-    expect(routes.at(-1)?.id).toBe('welcome');
-    result.stdin.write(ENTER);
-    await waitForPredicate(() => routes.at(-1)?.id === 'create-project');
-  });
-
-  it('holds an orientation card with the pipeline, demo command and closing line — outside the sections', async () => {
-    detectRef.installed = new Set(['claude-code']);
-    const deps: AppDeps = {
-      settingsRepo: fakeSettingsRepo(async () => Result.ok(undefined)),
-      projectRepo: fakeProjectRepo([]),
-    } as unknown as AppDeps;
-    const routes: ViewEntry[] = [];
-    const { result } = renderView(<WelcomeView />, {
-      deps,
-      initial: { id: 'welcome' },
-      onRoute: (e) => routes.push(e),
-    });
-    await waitForViewReady(result, (f) => f.includes('ralphctl demo'));
-
-    const frame = result.lastFrame() ?? '';
-    for (const stage of ['Refine', 'Plan', 'Implement', 'Review', 'Done']) expect(frame).toContain(stage);
-    expect(frame).toContain('claude');
-    expect(frame).toContain('Create a project');
-    expect(frame).toContain('keyboard help');
-    expect(frame).toContain('1–5 switch sections · S switches sprint · ? shows every key');
-    expect(frame).not.toContain('1 Work');
-
-    await tick(2000);
-    expect(routes.at(-1)?.id).toBe('welcome');
-    result.unmount();
+    expect(routes.at(-1)?.id).toBe('create-project');
   });
 
   // Every provider must map to its own single-provider preset. The table covers all five so a

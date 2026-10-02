@@ -110,43 +110,10 @@ describe('SessionsView', () => {
     const frame = result.lastFrame() ?? '';
     expect(frame).toContain('Refine — Demo');
     expect(frame).toContain('refine');
-    expect(frame).toContain('[RUNNING]');
-    expect(frame).toContain('1 session');
+    expect(frame).toContain('running');
+    expect(frame).toContain('1 session(s)');
     // DESIGN-SYSTEM §6.4 — arrows only in the per-view hint strip; j/k stays bound but unadvertised.
     expect(frame).not.toContain('j/k');
-    result.unmount();
-  });
-
-  it('keeps a long title to one line, ahead of the flow / status / elapsed columns, at 60 columns', async () => {
-    const sessions = createSessionManager();
-    sessions.register({
-      runner: fakeRunner('r-1', 'running'),
-      flowId: 'implement',
-      title: `Implement — ${'a-very-long-sprint-name-'.repeat(4)}`,
-    });
-    const { result } = renderView(<SessionsView />, {
-      deps: emptyDeps,
-      initial: { id: 'sessions' },
-      sessions,
-      size: { columns: 60, rows: 24 },
-    });
-    await waitForViewReady(result, (f) => f.includes('Implement'));
-    const lines = (result.lastFrame() ?? '').split('\n');
-    const row = lines.find((l) => l.includes(glyphs.actionCursor)) ?? '';
-    expect(row).toContain('…');
-    expect(row).toContain('[RUNNING]');
-    expect(row).toMatch(/\d+(ms|s)/);
-    result.unmount();
-  });
-
-  it('publishes no list hints while there are no sessions', async () => {
-    const { result } = renderView(<SessionsView />, {
-      deps: emptyDeps,
-      initial: { id: 'sessions' },
-      sessions: createSessionManager(),
-    });
-    await waitForViewReady(result, (f) => f.includes('No sessions yet'));
-    expect(result.lastFrame() ?? '').not.toContain('stop run');
     result.unmount();
   });
 
@@ -212,84 +179,5 @@ describe('SessionsView', () => {
     expect(routed.at(-1)).toBe('s-c');
 
     result.unmount();
-  });
-
-  describe('interrupted runs', () => {
-    const interruptedRun = {
-      record: {
-        version: 1,
-        runId: 'dead-run',
-        flowId: 'implement',
-        owner: { pid: 1, host: 'h', startedAt: '2026-10-01T10:00:00.000Z' },
-        startedAt: '2026-10-01T10:00:00.000Z',
-        updatedAt: '2026-10-01T10:12:00.000Z',
-        spawns: [],
-      },
-      liveSpawns: [],
-    };
-    const depsWith = (dismissed: string[]): AppDeps =>
-      ({
-        detectInterruptedRuns: { execute: () => Promise.resolve({ ok: true, value: [interruptedRun] }) },
-        dismissInterruptedRuns: {
-          execute: (ids: readonly string[]) => {
-            dismissed.push(...ids);
-            return Promise.resolve({ ok: true, value: ids.length });
-          },
-        },
-      }) as unknown as AppDeps;
-
-    it('lists a run left behind by a dead process instead of "No sessions yet"', async () => {
-      const { result } = renderView(<SessionsView />, {
-        deps: depsWith([]),
-        initial: { id: 'sessions' },
-        sessions: createSessionManager(),
-      });
-      await waitForViewReady(result, (f) => f.includes('[INTERRUPTED]'));
-      const frame = result.lastFrame() ?? '';
-      expect(frame).toContain('Implement');
-      expect(frame).toContain('12m');
-      expect(frame).toContain('1 interrupted');
-      expect(frame).toContain('dismiss');
-      expect(frame).not.toContain('stop run');
-      expect(frame).not.toContain('No sessions yet');
-    });
-
-    it('d dismisses the focused interrupted run and the row goes away', async () => {
-      const dismissed: string[] = [];
-      let remaining = true;
-      const deps = depsWith(dismissed);
-      (deps.detectInterruptedRuns as unknown as { execute: () => Promise<unknown> }).execute = () =>
-        Promise.resolve({ ok: true, value: remaining ? [interruptedRun] : [] });
-      (deps.dismissInterruptedRuns as unknown as { execute: (ids: readonly string[]) => Promise<unknown> }).execute = (
-        ids
-      ) => {
-        dismissed.push(...ids);
-        remaining = false;
-        return Promise.resolve({ ok: true, value: ids.length });
-      };
-      const { result } = renderView(<SessionsView />, {
-        deps,
-        initial: { id: 'sessions' },
-        sessions: createSessionManager(),
-      });
-      await waitForViewReady(result, (f) => f.includes('[INTERRUPTED]'));
-      result.stdin.write('d');
-      await waitForPredicate(() => !(result.lastFrame() ?? '').includes('[INTERRUPTED]'));
-      expect(dismissed).toEqual(['dead-run']);
-    });
-
-    it('↵ on it goes back to Work, where the resume row lives', async () => {
-      const routed: string[] = [];
-      const { result } = renderView(<SessionsView />, {
-        deps: depsWith([]),
-        initial: { id: 'sessions' },
-        sessions: createSessionManager(),
-        onRoute: (entry) => routed.push(entry.id),
-      });
-      await waitForViewReady(result, (f) => f.includes('[INTERRUPTED]'));
-      result.stdin.write('\r');
-      await waitForPredicate(() => routed.includes('home'));
-      expect(routed).toContain('home');
-    });
   });
 });

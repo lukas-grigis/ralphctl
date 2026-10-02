@@ -1,6 +1,31 @@
 /**
- * Baseline-Health Card — surfaces the deterministic verify gate data the harness captures per implement run, in the
- * right-hand context column of the implement dashboard.
+ * Baseline-Health Card — surfaces the deterministic verify gate data the harness captures per
+ * implement run, in the right-hand context column of the implement dashboard.
+ *
+ * Four signals collapse onto one card:
+ *
+ *  - `Setup`              — latest harness-side setup-script row per affected repo
+ *                           (`SprintExecution.setupRanAt[last]`).
+ *  - `Pre-task verify`    — most recent pre-task-verify row across every running/settled attempt.
+ *  - `Post-task verify`   — most recent post-task-verify row.
+ *  - `Attribution`        — count of `clean` / `regressed` / `fixed-baseline` / `baseline-broken`
+ *                           verdicts across the sprint's attempts.
+ *
+ * Visual contract:
+ *  - One row pattern throughout: `<BaselineRow>` — glyph + label, optional dim sub-line.
+ *  - All-clean compact variant: a single summary line with four ticks; avoids wasted vertical space.
+ *  - Title bar accent: error state → title reads `Baseline · <cause>` in `inkColors.error`;
+ *    clean state → `Baseline · clean` in dim; pending/mixed → plain `Baseline`.
+ *  - Fluid width at `xxl`: caller passes `width` (default `CONTEXT_WIDTH`); the card never
+ *    hardcodes its own width.
+ *
+ * The card derives in-place from `SprintExecution` + `Task[]` — the entities the dashboard
+ * already has access to. The wider `SprintState` projection this once anticipated was deleted
+ * in Wave 7 (see the `tasks-projection.ts` header); there is no sprint-level verify
+ * projection, by design.
+ *
+ * The chip variant in {@link BaselineHealthChip} is the single-line companion that
+ * sits next to the breadcrumb.
  */
 
 import React, { useMemo } from 'react';
@@ -9,7 +34,7 @@ import type { SetupRun, SprintExecution } from '@src/domain/entity/sprint-execut
 import type { VerifyRun } from '@src/domain/entity/attempt.ts';
 import type { Task } from '@src/domain/entity/task.ts';
 import { Card } from '@src/application/ui/tui/components/card.tsx';
-import { CONTEXT_WIDTH, type Tone, tones } from '@src/application/ui/tui/theme/tokens.ts';
+import { CONTEXT_WIDTH, glyphs, inkColors } from '@src/application/ui/tui/theme/tokens.ts';
 import { fmtElapsed } from '@src/application/ui/tui/theme/duration.ts';
 import {
   type AttributionCounts,
@@ -20,8 +45,8 @@ import {
 } from '@src/application/ui/tui/components/baseline-health.ts';
 
 /**
- * Visual tier driven by status — maps to the existing semantic-state tokens. `ok` / `warning` / `error` mirror the
- * Card tone vocabulary; `pending` covers not-yet-run.
+ * Visual tier driven by status — maps to the existing semantic-state tokens.
+ * `ok` / `warning` / `error` mirror the Card tone vocabulary; `pending` covers not-yet-run.
  */
 type Tier = 'ok' | 'warning' | 'error' | 'pending';
 
@@ -34,37 +59,64 @@ export interface BaselineHealthCardProps {
   readonly tasks?: readonly Task[];
   /** Required for the "Xm ago" labels — falls back to `Date.now()` if absent. */
   readonly now?: number;
-  /** Card width in columns. Defaults to `CONTEXT_WIDTH` (28). */
+  /**
+   * Card width in columns. Defaults to `CONTEXT_WIDTH` (28). Callers at `xxl` breakpoints may
+   * pass a fluid value (e.g. `fluid(columns, { min: 28, max: 36, ratio: 0.14 })`).
+   */
   readonly width?: number;
 }
 
-const TIER_TONE: Readonly<Record<Tier, Tone>> = { ok: 'success', warning: 'warning', error: 'error', pending: 'muted' };
+// ---------------------------------------------------------------------------
+// Tier helpers
+// ---------------------------------------------------------------------------
 
+const tierColor = (tier: Tier): string => {
+  if (tier === 'ok') return inkColors.success;
+  if (tier === 'warning') return inkColors.warning;
+  if (tier === 'error') return inkColors.error;
+  return inkColors.muted;
+};
+
+const tierGlyph = (tier: Tier): string => {
+  if (tier === 'ok') return glyphs.check;
+  if (tier === 'warning') return glyphs.warningGlyph;
+  if (tier === 'error') return glyphs.cross;
+  return glyphs.phasePending;
+};
+
+// ---------------------------------------------------------------------------
 // Data model for a single indicator row
+// ---------------------------------------------------------------------------
 
 interface RowData {
   /**
-   * Display label for the indicator (e.g. "Setup", "Pre-task"). Keep under ~14 chars so it never wraps at
-   * CONTEXT_WIDTH (28 cols).
+   * Display label for the indicator (e.g. "Setup", "Pre verify").
+   * Keep under ~14 chars so it never wraps at CONTEXT_WIDTH (28 cols).
    */
   readonly label: string;
   /** Visual tier drives glyph + color. */
   readonly tier: Tier;
   /**
-   * Short status phrase shown inline after the label (e.g. "failed", "not run yet"). For `error`/`warning`/`pending`
-   * rows this is the primary detail token.
+   * Short status phrase shown inline after the label (e.g. "failed", "not run yet").
+   * For `error`/`warning`/`pending` rows this is the primary detail token.
+   * For `ok` rows the first `subline` (elapsed) takes priority.
    */
   readonly status?: string;
   /**
-   * Secondary detail tokens — elapsed time, count, repo name, etc. For `ok` rows the first entry is shown inline; for
-   * other tiers `status` takes priority.
+   * Secondary detail tokens — elapsed time, count, repo name, etc.
+   * For `ok` rows the first entry is shown inline; for other tiers `status` takes priority.
+   * Only the first entry is ever rendered (single-line constraint).
    */
   readonly sublines?: readonly string[];
 }
 
+// ---------------------------------------------------------------------------
+// Setup-script derivation
+// ---------------------------------------------------------------------------
+
 /**
- * Latest-row-per-repo from `SetupRun[]`. The audit array is append-only, so the LAST entry for a given repo is its
- * current state.
+ * Latest-row-per-repo from `SetupRun[]`. The audit array is append-only, so the LAST entry
+ * for a given repo is its current state.
  */
 const latestSetupPerRepo = (rows: readonly SetupRun[]): readonly SetupRun[] => {
   const byRepo = new Map<string, SetupRun>();
@@ -117,7 +169,15 @@ const setupRowData = (execution: SprintExecution | undefined, now: number): RowD
   return { label: 'Setup', tier: 'pending', status: 'no script', sublines: [`${ago} ago`] };
 };
 
-/** Map a VerifyRun (or absence of one) to a RowData entry. */
+// ---------------------------------------------------------------------------
+// Verify-run derivation
+// ---------------------------------------------------------------------------
+
+/**
+ * Map a VerifyRun (or absence of one) to a RowData entry.
+ * `shortLabel` is the display name for the row — callers pass "Pre verify" / "Post verify"
+ * (≤12 chars) to guarantee the label never wraps inside the 28-col card.
+ */
 const verifyRowData = (run: VerifyRun | undefined, now: number, shortLabel: string): RowData => {
   if (run === undefined) {
     return { label: shortLabel, tier: 'pending', status: 'not run yet' };
@@ -140,6 +200,10 @@ const verifyRowData = (run: VerifyRun | undefined, now: number, shortLabel: stri
   return { label: shortLabel, tier: 'pending', status: 'skipped', sublines: [`${ago} ago`] };
 };
 
+// ---------------------------------------------------------------------------
+// Attribution derivation
+// ---------------------------------------------------------------------------
+
 const attributionRowData = (counts: AttributionCounts): RowData => {
   // "Attrib" keeps the label ≤12 chars and avoids wrap in the 28-col card.
   const label = 'Attrib';
@@ -158,10 +222,18 @@ const attributionRowData = (counts: AttributionCounts): RowData => {
   return { label, tier, sublines: [subline] };
 };
 
+// ---------------------------------------------------------------------------
+// Card-level tone
+// ---------------------------------------------------------------------------
+
 /** Card-tone palette. Mirrors the {@link Card} tone vocabulary. */
 type CardTone = 'success' | 'warning' | 'error' | 'rule';
 
-/** Map the shared baseline tier onto a Card tone. */
+/**
+ * Map the shared baseline tier onto a Card tone. This is the load-bearing call that keeps
+ * the card's border / title color in sync with the {@link BaselineHealthChip} — both surfaces
+ * read the same tier from {@link synthesiseBaselineHealth}.
+ */
 const toneFromTier = (tier: BaselineTier): CardTone => {
   if (tier === 'red') return 'error';
   if (tier === 'amber') return 'warning';
@@ -170,8 +242,12 @@ const toneFromTier = (tier: BaselineTier): CardTone => {
 };
 
 /**
- * Title suffix, refined from the tone's tier: `red` → the first failing row's label (e.g. `"setup failed"`), `green` →
- * `"clean"` only when every row is ok, otherwise no suffix.
+ * Title-suffix logic uses the same predicate tier as the tone, then refines with the rows
+ * for fine-grained labels:
+ *
+ *  - tier `red`   → first failing row's label, e.g. `"setup failed"` / `"post verify failed"`.
+ *  - tier `green` → `"clean"` only when EVERY row is ok (not mixed ok + pending).
+ *  - otherwise    → no suffix; plain `"Baseline"` title.
  */
 const titleSuffix = (rows: readonly RowData[], tier: BaselineTier): string | undefined => {
   if (tier === 'red') {
@@ -182,26 +258,43 @@ const titleSuffix = (rows: readonly RowData[], tier: BaselineTier): string | und
   return undefined;
 };
 
+// ---------------------------------------------------------------------------
+// Internal primitives
+// ---------------------------------------------------------------------------
+
 /**
- * Single indicator row — compact inline variant for the expanded (mixed) state. Layout: `<glyph> <label> <detail>` —
- * everything on one line.
+ * Single indicator row — compact inline variant for the expanded (mixed) state.
+ *
+ * Layout: `<glyph> <label>  <detail>`  — everything on one line.
+ *
+ * Detail selection (fits in the ~11 chars remaining after glyph + label at 24 usable cols):
+ *  - `error` / `warning`: status phrase (e.g. "failed", "spawn error"), bold on error.
+ *  - `ok`: first subline (elapsed "Xm ago").
+ *  - `pending`: status phrase (e.g. "not run yet", "no script").
+ *
+ * When `tier` is `error` the label is bold so the actionable signal is dominant.
+ * No multi-line stacking — terseness wins over completeness at this width.
  */
 const BaselineRow = ({ row }: { readonly row: RowData }): React.JSX.Element => {
-  const color = tones[TIER_TONE[row.tier]].color;
-  const glyph = tones[TIER_TONE[row.tier]].glyph;
+  const color = tierColor(row.tier);
+  const glyph = tierGlyph(row.tier);
   const isError = row.tier === 'error';
 
-  // Pick the single most important detail token to show inline. error/warning: status phrase is more actionable than
-  // elapsed. ok: elapsed (first subline).
+  // Pick the single most important detail token to show inline.
+  // error/warning: status phrase is more actionable than elapsed.
+  // ok: elapsed (first subline); status is absent for ok rows.
+  // pending: status phrase ("not run yet", "no script", etc.).
   const detail: string | undefined =
     (row.tier === 'ok' ? (row.sublines?.[0] ?? row.status) : row.status) ?? row.sublines?.[0];
 
   return (
-    <Text wrap="truncate-end">
-      <Text color={color}>{glyph}</Text> <Text bold={isError}>{row.label}</Text>
+    <Box>
+      <Text color={color}>{glyph}</Text>
+      <Text> </Text>
+      <Text bold={isError}>{row.label}</Text>
       {detail !== undefined && (
         <>
-          {' '}
+          <Text> </Text>
           {isError ? (
             <Text color={color} bold>
               {detail}
@@ -211,22 +304,37 @@ const BaselineRow = ({ row }: { readonly row: RowData }): React.JSX.Element => {
           )}
         </>
       )}
-    </Text>
+    </Box>
   );
 };
 
-/** Compact all-clean row — four ticks with abbreviated labels on a single line. */
+/**
+ * Compact all-clean row — four ticks with abbreviated labels on a single line.
+ * Rendered only when every indicator is `ok`; saves vertical space when nothing needs attention.
+ *
+ * To prevent wrapping inside the 28-col card (24 usable chars with borders/padding) we use
+ * abbreviated one-word labels and render the entire content as a single `<Text>` node so ink
+ * never breaks mid-label. The plain-text line fits: "✓ Setup  ✓ Pre  ✓ Post  ✓ Attrib" = 32
+ * chars — still too long, so we use single-char separators and the tightest abbrevs that read.
+ * Final shape: "✓ Stp  ✓ Pre  ✓ Post  ✓ Att" ≈ 28 chars → fits within the card body.
+ *
+ * Abbreviated map (kept stable so snapshots don't shift):
+ *   Setup       → Stp
+ *   Pre verify  → Pre
+ *   Post verify → Post
+ *   Attrib      → Att
+ */
 const COMPACT_ABBREV: Readonly<Record<string, string>> = {
   Setup: 'Stp',
-  'Pre-task': 'Pre',
-  'Post-task': 'Post',
+  'Pre verify': 'Pre',
+  'Post verify': 'Post',
   Attrib: 'Att',
 };
 
 const CompactCleanRow = ({ rows }: { readonly rows: readonly RowData[] }): React.JSX.Element => {
   // Build as a plain string to prevent ink from word-wrapping between label fragments.
   // No space between glyph and abbrev, single-space separator: "✓Stp ✓Pre ✓Post ✓Att" = 21 chars.
-  const parts = rows.map((row) => `${tones[TIER_TONE[row.tier]].glyph}${COMPACT_ABBREV[row.label] ?? row.label}`);
+  const parts = rows.map((row) => `${tierGlyph(row.tier)}${COMPACT_ABBREV[row.label] ?? row.label}`);
   return (
     <Box>
       <Text dimColor>{parts.join(' ')}</Text>
@@ -234,10 +342,16 @@ const CompactCleanRow = ({ rows }: { readonly rows: readonly RowData[] }): React
   );
 };
 
+// ---------------------------------------------------------------------------
+// Card
+// ---------------------------------------------------------------------------
+
 export const BaselineHealthCard = ({ execution, tasks, now, width }: BaselineHealthCardProps): React.JSX.Element => {
   const tNow = now ?? Date.now();
-  // Wrap the `tasks ?? []` fallback in its own useMemo so the identity is stable across renders that don't change
-  // `tasks`.
+  // Wrap the `tasks ?? []` fallback in its own useMemo so the identity is stable across
+  // renders that don't change `tasks`. Without this, the inline `??` allocates a fresh empty
+  // array each render, which would cascade into re-running every downstream `useMemo` that
+  // takes `taskList` as a dep — defeating the memo'd setup/verify-row computations.
   const taskList = useMemo(() => tasks ?? [], [tasks]);
   const cardWidth = width ?? CONTEXT_WIDTH;
 
@@ -245,8 +359,8 @@ export const BaselineHealthCard = ({ execution, tasks, now, width }: BaselineHea
   const preRun = useMemo(() => latestVerifyRun(taskList, 'pre'), [taskList]);
   const postRun = useMemo(() => latestVerifyRun(taskList, 'post'), [taskList]);
   // Short labels (≤12 chars) to prevent wrapping inside the 28-col card.
-  const preData = verifyRowData(preRun, tNow, 'Pre-task');
-  const postData = verifyRowData(postRun, tNow, 'Post-task');
+  const preData = verifyRowData(preRun, tNow, 'Pre verify');
+  const postData = verifyRowData(postRun, tNow, 'Post verify');
   const counts = useMemo(() => countAttributions(taskList), [taskList]);
   const attribData = attributionRowData(counts);
 

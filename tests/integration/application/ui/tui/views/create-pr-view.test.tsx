@@ -38,8 +38,6 @@ const factoryRef = vi.hoisted(() => ({
   calls: [] as Array<{ readonly flow?: string }>,
 }));
 const detectRef = vi.hoisted(() => ({ installed: new Set<AiProvider>() }));
-// Optional gate on `resolveSprintDir` so a test can hold the view inside its pre-flight guards.
-const sprintDirRef = vi.hoisted(() => ({ pending: undefined as Promise<string> | undefined }));
 
 vi.mock('@src/application/bootstrap/provider-factory.ts', async () => {
   const actual = await vi.importActual<typeof ProviderFactoryModule>('@src/application/bootstrap/provider-factory.ts');
@@ -78,7 +76,7 @@ vi.mock('@src/integration/persistence/storage.ts', async () => {
   const actual = await vi.importActual<typeof StorageModule>('@src/integration/persistence/storage.ts');
   return {
     ...actual,
-    resolveSprintDir: async (): Promise<string> => sprintDirRef.pending ?? '/tmp/data/sprints/s-1',
+    resolveSprintDir: async (): Promise<string> => '/tmp/data/sprints/s-1',
   };
 });
 
@@ -175,7 +173,6 @@ describe('CreatePrView — provider rebuild + PATH gate', () => {
     detectRef.installed = new Set(['claude-code', 'github-copilot', 'openai-codex']);
   });
   afterEach(() => {
-    sprintDirRef.pending = undefined;
     vi.clearAllMocks();
   });
 
@@ -223,31 +220,6 @@ describe('CreatePrView — provider rebuild + PATH gate', () => {
     expect(frame).toContain('ai.createPr.provider');
     // The gate fired BEFORE the provider was built — no factory call when the binary is absent.
     expect(factoryRef.calls).toHaveLength(0);
-  });
-
-  it('ignores a second Enter while the pre-flight guards are still pending (one PR, not two)', async () => {
-    let releaseSprintDir: (dir: string) => void = () => {};
-    sprintDirRef.pending = new Promise<string>((resolve) => {
-      releaseSprintDir = resolve;
-    });
-    const pullRequestCreator = vi.fn(async () => Result.ok({ url: 'https://x/pr/1', platform: 'github' }));
-    const deps = makeDeps({ pullRequestCreator } as unknown as Partial<AppDeps>);
-    const { result } = renderView(<CreatePrView />, {
-      deps,
-      initial: { id: 'create-pr' },
-      selection: { projectId: PROJECT_ID, sprintId: SPRINT_ID },
-    });
-    await waitForViewReady(result, (f) => f.includes('Confirm'));
-
-    result.stdin.write(ENTER);
-    await tick(40);
-    result.stdin.write(ENTER);
-    await tick(40);
-    releaseSprintDir('/tmp/data/sprints/s-1');
-    await waitForPredicate(() => (result.lastFrame() ?? '').includes('https://x/pr/1'));
-    await tick(40);
-
-    expect(pullRequestCreator).toHaveBeenCalledTimes(1);
   });
 
   it('does not PATH-gate when AI authoring is toggled off, even with no provider CLI installed', async () => {

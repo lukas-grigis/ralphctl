@@ -1,6 +1,13 @@
 /**
- * Shared system-status context — surfaces the doctor probe and the npm version check to any component that wants to
- * render them (currently the StatusBar's footer info row and the Doctor view).
+ * Shared system-status context — surfaces the doctor probe and the npm version check to any
+ * component that wants to render them (currently the StatusBar's footer info row and the
+ * Doctor view).
+ *
+ * Doctor + version probes are run lazily on first mount of the provider so the rest of the UI
+ * doesn't pay the cost on every view change. The doctor probe can be re-run on demand via
+ * `refreshDoctor()` — both the Doctor view's `r` keybind and any future "rerun health checks"
+ * affordance call the same callback so the StatusBar footer and the Doctor view always reflect
+ * the same single source of truth.
  */
 
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
@@ -18,7 +25,11 @@ export interface SystemStatus {
   readonly doctorLoading: boolean;
   /** `null` while pending or when no update is available; the check otherwise. */
   readonly version: VersionCheck | null;
-  /** Re-runs the doctor probes and updates {@link doctor} / {@link doctorLoading} in place. */
+  /**
+   * Re-runs the doctor probes and updates {@link doctor} / {@link doctorLoading} in place.
+   * Both the StatusBar footer and the Doctor view subscribe to the same state, so calling
+   * this from one surface reflects in every other surface automatically.
+   */
   readonly refreshDoctor: () => Promise<void>;
 }
 
@@ -44,8 +55,14 @@ export const SystemStatusProvider = ({ children }: { readonly children: React.Re
   const [doctorLoading, setDoctorLoading] = useState<boolean>(!testEnv);
   const [version, setVersion] = useState<VersionCheck | null>(null);
 
-  // The doctor flow + `VersionChecker` port don't accept an `AbortSignal`, so we can't hard-cancel in-flight work —
-  // the no-op callback below is a state-write gate, not a true cancellation.
+  // The doctor flow + `VersionChecker` port don't accept an `AbortSignal`, so we can't
+  // hard-cancel in-flight work — the no-op callback below is a state-write gate, not a true
+  // cancellation. Acceptable: probes are short and the provider only unmounts at app exit.
+  //
+  // `refreshDoctor` itself always runs — the test-env gate only suppresses the *initial*
+  // auto-fire so unrelated view tests don't pay for the doctor flow on every harness mount.
+  // The Doctor view explicitly calls `refreshDoctor()` on mount, so opening it (even in tests)
+  // runs the probes deterministically.
   const refreshDoctor = useCallback(async (): Promise<void> => {
     setDoctorLoading(true);
     try {

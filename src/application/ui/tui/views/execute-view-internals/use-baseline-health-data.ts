@@ -1,6 +1,11 @@
 /**
- * Polling hook for the baseline-health chip and card — reads the SprintExecution + Task list from disk at a tight
- * cadence while the run is live.
+ * Polling hook for the baseline-health chip and card — reads the SprintExecution + Task
+ * list from disk at a tight cadence while the run is live. The persisted entities are the
+ * source of truth (chain leaves write to taskRepo / sprintExecutionRepo before any bus
+ * event fires), so polling keeps the wiring simple at the cost of a 3s read-latency band.
+ *
+ * Test bootstraps wire a partial `AppDeps`; the hook guards on undefined repos so missing
+ * deps in a test render don't crash the view.
  */
 
 import React from 'react';

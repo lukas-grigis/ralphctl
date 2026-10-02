@@ -44,7 +44,7 @@ export const QuitConfirmOverlay = ({ runs }: { readonly runs: number }): React.J
       void stopped.then((outcome) => exit(forcedStopNote(outcome)), exit);
       return;
     }
-    if (input === 'n' || input === 'q' || key.escape || key.return || ctrlC) ui.closeOverlay();
+    if (input === 'n' || input === 'q' || key.escape || key.return || ctrlC) ui.closeQuit();
   });
 
   return (

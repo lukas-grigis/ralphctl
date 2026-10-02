@@ -1,23 +1,72 @@
-/** Vertical scroll viewport — the middle slot of {@link ViewShell}. */
+/**
+ * Vertical scroll viewport — the middle slot of {@link ViewShell}. Tall views (long settings
+ * pages, projects with ten repos) clip inside this region so the banner and the status bar
+ * stay pinned at top and bottom.
+ *
+ * Measures the viewport and the inner content via `measureElement` so the offset always clamps
+ * against `contentHeight - viewportHeight` — keyboard or mouse-wheel scroll never lets the
+ * user fall off the end of the content into blank space. A zero-height viewport measurement is
+ * ignored rather than clamped against: that only happens while the whole view sits inside a
+ * `display: "none"` box (a document overlay is open), and treating it as real would reset the
+ * offset to the top behind the overlay. Mouse wheel is wired through xterm
+ * SGR mouse-tracking (`?1000h` + `?1006h`) and only enabled when stdout is a real TTY, so the
+ * test harness (a piped stream) never sees the enable sequence.
+ *
+ * Keyboard model (only when not disabled — prompts / wizards mute the region):
+ *   ↑ / ↓                     → scroll one row (primary on laptops without a PgUp/PgDn key)
+ *   PageUp / PageDown / Ctrl+b / Ctrl+f → scroll a full page
+ *   Ctrl+u / Ctrl+d           → half-page jumps
+ *   Home / End                → top / bottom (the clamped max); `g` is the global progress overlay, never a scroll key
+ *
+ * Arrow keys are dual-purpose: windowed-list views that own their own cursor via `useListWindow`
+ * also handle arrow keys for row navigation. The early return on `max === 0` (content fits the
+ * viewport) keeps the dominant case — a list shorter than the screen — conflict-free; only when
+ * the page itself overflows do both handlers fire on the same key. Pass `suppressArrows` (via
+ * `ViewShell suppressScrollArrows`) to prevent that double-act: the scroll region yields all
+ * arrow / paging keys so only the view's own cursor handler fires.
+ *
+ * Reveal-on-focus is the other half of that bargain. Yielding the arrows leaves the PAGE with no
+ * keyboard scroll, so a view whose chrome already fills the viewport used to strand everything
+ * below the fold. Cards published through {@link useScrollAnchor} are kept inside the viewport
+ * automatically, so the cursor can never walk off-screen — see that hook for the mechanics.
+ *
+ * Mouse tracking is also gated on `disabled`: while a prompt is open the SGR enable sequence
+ * is withdrawn so wheel events stop emitting `\x1b[<64;…M` / `\x1b[<65;…M` bytes onto stdin,
+ * which would otherwise leak through Ink's input parser into TextPrompt / TextAreaPrompt as
+ * stray printable characters (`M`, `;`, digits).
+ */
 
 import React, { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { borderGlyphs, glyphs, spacing, type BorderGlyphSet } from '@src/application/ui/tui/theme/tokens.ts';
-import { Box, Text, type DOMElement, type Key, measureElement, useInput, useStdin, useStdout } from 'ink';
+import { Box, type DOMElement, type Key, measureElement, useInput, useStdin, useStdout } from 'ink';
 
 export interface ScrollRegionProps {
   readonly children: React.ReactNode;
   /** When true (prompt active, overlay open, etc.), swallow no keys and no mouse events. */
   readonly disabled?: boolean;
   /**
-   * When true, the keyboard scroll handler ignores the arrow / paging / vim keys (↑ ↓ PageUp PageDown Ctrl+b/f/u/d g
-   * G k j) so they fall through to a view that owns its own list cursor.
+   * When true, the keyboard scroll handler ignores the arrow / paging / vim keys (↑ ↓ PageUp
+   * PageDown Ctrl+b/f/u/d Home End) so they fall through to a view that owns its own list cursor
+   * — preventing a single keypress from both moving the cursor AND page-scrolling. Mouse-wheel
+   * scroll is UNAFFECTED: the wheel still drives the viewport regardless of this flag. The
+   * `disabled` gate still mutes everything (keys and wheel) when set.
    */
   readonly suppressArrows?: boolean;
 }
 
 /**
- * Registry the {@link ScrollRegion} exposes to its subtree so a view that owns its own list cursor can say "this card
- * is the focused one" and have the page scroll follow it.
+ * Registry the {@link ScrollRegion} exposes to its subtree so a view that owns its own list
+ * cursor can say "this card is the focused one" and have the page scroll follow it.
+ *
+ * Why this exists: `suppressArrows` hands ↑/↓ to the view's cursor, which means the PAGE has no
+ * keyboard scroll left. On a view whose chrome (banner + header cards) already fills the
+ * viewport, everything below the fold — further list sections, the action-result line — was
+ * then unreachable, and the cursor moved invisibly through rows nobody could see. Reveal-on-
+ * focus closes that: the region keeps the registered element inside the viewport, so moving the
+ * cursor (or jumping to it, e.g. sprint-detail's `B`) scrolls the page exactly as much as it
+ * takes and no more.
+ *
+ * Deliberately a registry of ONE: a viewport can only follow a single anchor, and every consumer
+ * registers on focus / deregisters on blur, so the last focused element wins.
  */
 interface ScrollAnchorRegistry {
   readonly register: (node: DOMElement | null) => void;
@@ -26,7 +75,19 @@ interface ScrollAnchorRegistry {
 const ScrollAnchorContext = createContext<ScrollAnchorRegistry | undefined>(undefined);
 
 /**
- * Mark a card as the scroll anchor while `active` is true and hand back the ref to spread onto its outer `<Box>`.
+ * Mark a card as the scroll anchor while `active` is true and hand back the ref to spread onto
+ * its outer `<Box>`. Registering the card's OWN box (rather than rendering a marker element)
+ * keeps the layout byte-identical — nothing is added to the tree, so a view that adopts this
+ * cannot shift by a row.
+ *
+ * Inert outside a {@link ScrollRegion} (the context is absent in component-level tests), and
+ * inert while `active` is false, so a list can call it unconditionally for every row.
+ *
+ * A LAYOUT effect, not a plain one, and that is load-bearing: React flushes child layout effects
+ * before the parent's, so registering here lands before the region's measure-and-reveal pass in
+ * the SAME commit as the cursor move. Registering in a plain `useEffect` runs after that pass,
+ * which left the region revealing the previous anchor — one keypress behind, forever.
+ *
  * @public
  */
 export const useScrollAnchor = (active: boolean): React.RefObject<DOMElement | null> => {
@@ -43,84 +104,16 @@ export const useScrollAnchor = (active: boolean): React.RefObject<DOMElement | n
   return ref;
 };
 
-/** Column offset of `node` inside `container`, same walk as {@link offsetWithin}. */
-const leftWithin = (node: DOMElement, container: DOMElement): number | undefined => {
-  let left = 0;
-  let current: DOMElement | undefined = node;
-  while (current !== undefined && current !== container) {
-    if (current.yogaNode === undefined) return undefined;
-    left += current.yogaNode.getComputedLeft();
-    current = current.parentNode;
-  }
-  return current === container ? left : undefined;
-};
-
-/** A bordered box the clip edge cuts through — the cue is drawn inside its (re-drawn) border row. */
-interface ClippedBox {
-  readonly left: number;
-  readonly width: number;
-  readonly color: string | undefined;
-  readonly glyphs: BorderGlyphSet;
-}
-
-interface BoxHit {
-  readonly node: DOMElement;
-  readonly top: number;
-  readonly height: number;
-}
-
-/** Does bordered `el` straddle `row` with its own border on the `edge` side outside the view? */
-const straddles = (el: DOMElement, root: DOMElement, row: number, edge: 'top' | 'bottom'): BoxHit | undefined => {
-  const style = el.style as { borderStyle?: unknown };
-  if (typeof style.borderStyle !== 'string' || el.yogaNode === undefined) return undefined;
-  const top = offsetWithin(el, root);
-  if (top === undefined) return undefined;
-  const height = el.yogaNode.getComputedHeight();
-  const last = top + height - 1;
-  const hit = edge === 'bottom' ? top <= row && last > row : last >= row && top < row;
-  return hit ? { node: el, top, height } : undefined;
-};
-
-/** Outermost bordered box under `root` whose rows span `row` while its own border on `edge` lies outside the view. */
-const findClippedBox = (
-  root: DOMElement,
-  row: number,
-  edge: 'top' | 'bottom',
-  parent: DOMElement = root
-): BoxHit | undefined => {
-  for (const child of parent.childNodes) {
-    if (child.nodeName === '#text') continue;
-    const el = child as DOMElement;
-    const hit = straddles(el, root, row, edge) ?? findClippedBox(root, row, edge, el);
-    if (hit !== undefined) return hit;
-  }
-  return undefined;
-};
-
-const clippedBoxAt = (content: DOMElement | null, row: number, edge: 'top' | 'bottom'): ClippedBox | undefined => {
-  if (content === null) return undefined;
-  const hit = findClippedBox(content, row, edge);
-  if (hit === undefined) return undefined;
-  const style = hit.node.style as { borderStyle?: string; borderColor?: string };
-  const glyphSet =
-    style.borderStyle !== undefined && Object.hasOwn(borderGlyphs, style.borderStyle)
-      ? borderGlyphs[style.borderStyle as keyof typeof borderGlyphs]
-      : undefined;
-  const left = leftWithin(hit.node, content);
-  if (glyphSet === undefined || left === undefined || hit.node.yogaNode === undefined) return undefined;
-  return { left, width: hit.node.yogaNode.getComputedWidth(), color: style.borderColor, glyphs: glyphSet };
-};
-
-const sameBox = (a: ClippedBox | undefined, b: ClippedBox | undefined): boolean =>
-  a === b ||
-  (a !== undefined &&
-    b !== undefined &&
-    a.left === b.left &&
-    a.width === b.width &&
-    a.color === b.color &&
-    a.glyphs === b.glyphs);
-
-/** Row offset of `node` inside `container`, by summing each yoga box's computed top on the way up. */
+/**
+ * Row offset of `node` inside `container`, by summing each yoga box's computed top on the way
+ * up. Ink exposes `yogaNode` / `parentNode` on its `DOMElement`, and yoga's computed top is
+ * relative to the parent box — so the walk is the only way to turn a child ref into a position
+ * (`measureElement` reports size, never position).
+ *
+ * `undefined` when the walk cannot complete: either node has no laid-out yoga box yet (first
+ * paint), or `node` is not a descendant of `container` (a stale ref from a card that has since
+ * unmounted). Both mean "don't scroll", never "scroll to zero".
+ */
 const offsetWithin = (node: DOMElement, container: DOMElement): number | undefined => {
   let top = 0;
   let current: DOMElement | undefined = node;
@@ -133,8 +126,15 @@ const offsetWithin = (node: DOMElement, container: DOMElement): number | undefin
 };
 
 /**
- * Smallest offset change that brings `[top, top + height)` fully inside the viewport — scroll up when the anchor sits
- * above the fold, down when it sits below.
+ * Smallest offset change that brings `[top, top + height)` fully inside the viewport — scroll up
+ * when the anchor sits above the fold, down when it sits below, and leave the offset alone when
+ * it is already visible.
+ *
+ * An anchor TALLER than the viewport (an expanded card on a short terminal) can't fit; aligning
+ * its top is the useful answer there — the operator reads a card from the top down. Below the
+ * fold that is `Math.min`: a short anchor's bottom-aligned offset (`bottom - viewport`) never
+ * exceeds its top, a tall one's always does. Picking the larger one instead bottom-aligned a tall
+ * anchor, which put its top above the fold and sent the next pass back up — forever.
  */
 const revealOffset = (args: {
   readonly top: number;
@@ -157,8 +157,9 @@ interface AnchorPlacement {
 }
 
 /**
- * The registered anchor's placement, or `undefined` when there is none to act on — no anchor, or no laid-out position
- * yet.
+ * The registered anchor's placement, or `undefined` when there is none to act on — no anchor, or
+ * no laid-out position yet. `top` is measured against the content box, whose own `marginTop` is
+ * the scroll offset, so a scroll alone never changes a placement.
  */
 const placementOf = (anchor: DOMElement | null, content: DOMElement | null): AnchorPlacement | undefined => {
   if (anchor === null || content === null) return undefined;
@@ -181,52 +182,15 @@ interface ScrollLayout {
   readonly half: number;
 }
 
-/** Largest scroll offset. */
-const maxOffsetFor = (viewport: number, content: number): number => (content > viewport ? content - viewport + 1 : 0);
-
 const computeLayout = (offset: number, viewport: number, content: number): ScrollLayout => {
-  const max = maxOffsetFor(viewport, content);
+  const max = Math.max(0, content - viewport);
   return { offset, max, page: Math.max(4, viewport - 2), half: Math.max(2, Math.floor(viewport / 2)) };
 };
 
-/** Rows a cue-bearing viewport is guaranteed to show whichever cues are active. */
-const CUE_SAFE_ROWS = 2;
-
-/** Dim `▴ N more` / `▾ N more` row marking clipped content at one edge of the viewport. */
-const ScrollCue = ({
-  direction,
-  count,
-  box,
-}: {
-  readonly direction: 'above' | 'below';
-  readonly count: number;
-  /** Set when the clip edge cuts a bordered box: the cue then rides inside a re-drawn border row. */
-  readonly box?: ClippedBox | undefined;
-}): React.JSX.Element => {
-  const label = `${direction === 'above' ? glyphs.moreAbove : glyphs.moreBelow} ${String(count)} more`;
-  if (box === undefined) {
-    return (
-      <Box flexShrink={0} paddingX={spacing.indent}>
-        <Text dimColor>{label}</Text>
-      </Box>
-    );
-  }
-  const [l, r] = direction === 'above' ? [box.glyphs.tl, box.glyphs.tr] : [box.glyphs.bl, box.glyphs.br];
-  const rule = Math.max(0, box.width - 5 - [...label].length);
-  return (
-    <Box flexShrink={0} marginLeft={box.left}>
-      <Text {...(box.color !== undefined ? { color: box.color } : {})} wrap="truncate-end">
-        {l}
-        {box.glyphs.h} <Text dimColor>{label}</Text> {box.glyphs.h.repeat(rule)}
-        {r}
-      </Text>
-    </Box>
-  );
-};
-
 /**
- * One row per recognised scroll key: `matches` tests the raw `useInput` payload, `nextOffset` derives the target
- * offset from the current layout.
+ * One row per recognised scroll key: `matches` tests the raw `useInput` payload, `nextOffset`
+ * derives the target offset from the current layout. Replaces the if/else cascade that used to
+ * live directly in the `useInput` callback.
  */
 const SCROLL_KEY_ACTIONS: ReadonlyArray<{
   readonly matches: (input: string, key: Key) => boolean;
@@ -242,7 +206,14 @@ const SCROLL_KEY_ACTIONS: ReadonlyArray<{
   { matches: (_input, key) => key.end, nextOffset: (l) => l.max },
 ];
 
-/** Mouse-wheel scrolling over xterm SGR mouse-tracking (`?1000h` + `?1006h`). */
+/**
+ * Mouse-wheel scrolling over xterm SGR mouse-tracking (`?1000h` + `?1006h`).
+ *
+ * Extracted from the component body so {@link ScrollRegion} itself reads as measure → keys →
+ * render. Behaviour is unchanged: enabled only on a real TTY (the test harness's piped stream
+ * never sees the enable sequence) and withdrawn whenever `disabled` is set, so wheel bytes stop
+ * reaching ink's input parser while a prompt owns the keyboard.
+ */
 const useWheelScroll = (args: {
   readonly disabled: boolean;
   readonly setOffset: React.Dispatch<React.SetStateAction<number>>;
@@ -258,6 +229,9 @@ const useWheelScroll = (args: {
     const disableSeq = '\x1b[?1006l\x1b[?1000l';
     stdout.write(enable);
     const onData = (chunk: Buffer): void => {
+      // Belt-and-suspenders: a wheel chunk can still arrive after `disabled` flipped on but
+      // before the OS has stopped delivering bytes from the previous enable sequence.
+      if (disabled) return;
       const str = chunk.toString('utf8');
       // xterm SGR mouse sequences start with ESC[< — `\x1b` is the literal escape byte the
       // terminal emits, not a stylistic choice, so the no-control-regex lint disable stays.
@@ -282,31 +256,6 @@ const useWheelScroll = (args: {
   }, [stdin, stdout, isRawModeSupported, disabled, setOffset, maxOffset]);
 };
 
-/** Bordered boxes the clip edges cut — the overflow cues are drawn as their border row. */
-const useEdgeBoxes = (args: {
-  readonly offset: number;
-  readonly sizeRef: React.RefObject<{ viewport: number; content: number }>;
-  readonly contentRef: React.RefObject<DOMElement | null>;
-}): { above?: ClippedBox | undefined; below?: ClippedBox | undefined } => {
-  const { offset, sizeRef, contentRef } = args;
-  const [edgeBoxes, setEdgeBoxes] = useState<{ above?: ClippedBox | undefined; below?: ClippedBox | undefined }>({});
-  // Derived from the same layout the cues are, after every render.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useLayoutEffect(() => {
-    const { viewport, content } = sizeRef.current;
-    const maxNow = maxOffsetFor(viewport, content);
-    const above = maxNow > 0 && offset > 0;
-    const below = maxNow > 0 && offset < maxNow;
-    const clipRows = viewport - (above ? 1 : 0) - (below ? 1 : 0);
-    const next = {
-      above: above ? clippedBoxAt(contentRef.current, offset, 'top') : undefined,
-      below: below ? clippedBoxAt(contentRef.current, offset + clipRows - 1, 'bottom') : undefined,
-    };
-    setEdgeBoxes((prev) => (sameBox(prev.above, next.above) && sameBox(prev.below, next.below) ? prev : next));
-  });
-  return edgeBoxes;
-};
-
 export const ScrollRegion = ({
   children,
   disabled = false,
@@ -314,29 +263,26 @@ export const ScrollRegion = ({
 }: ScrollRegionProps): React.JSX.Element => {
   const [offset, setOffset] = useState(0);
   const sizeRef = useRef<{ viewport: number; content: number }>({ viewport: 0, content: 0 });
-  // Mirror of `sizeRef` as state: the overflow cues are painted from it, and a ref write alone
-  // would not re-render them into view.
-  const [size, setSize] = useState<{ viewport: number; content: number }>({ viewport: 0, content: 0 });
   const viewportRef = useRef<DOMElement | null>(null);
   const contentRef = useRef<DOMElement | null>(null);
-  // The element the viewport should keep visible, published by `useScrollAnchor` from whichever card currently holds
-  // the view's list cursor.
+  // The element the viewport should keep visible, published by `useScrollAnchor` from whichever
+  // card currently holds the view's list cursor. A ref (not state) so registering does not
+  // re-render the whole subtree on every cursor move — the layout effect below reads it after
+  // the commit that moved the focus, which is exactly when the new position is measurable.
   const anchorRef = useRef<DOMElement | null>(null);
-  // A new anchor must re-run the measure-and-reveal pass below even when the cursor lives in a descendant
-  // (ActionMenu) whose state change never re-renders this region.
-  const [, setAnchorTick] = useState(0);
   const register = useCallback((node: DOMElement | null) => {
-    const changed = node !== null && node !== anchorRef.current;
     anchorRef.current = node;
-    if (changed) setAnchorTick((t) => t + 1);
   }, []);
   const anchorRegistry = React.useMemo<ScrollAnchorRegistry>(() => ({ register }), [register]);
-  // The anchor placement the last reveal pass looked at.
+  // The anchor placement the last reveal pass looked at. Reveal only runs when the placement
+  // differs — a different card, or the same card moved or resized — so a render caused purely by
+  // an offset change (a mouse-wheel scroll, or reveal's own scroll) leaves the offset alone.
   const revealedRef = useRef<AnchorPlacement | undefined>(undefined);
 
-  // Memoised because `useWheelScroll` lists it as a dependency: `maxOffset` only reads a ref, so it has no inputs of
-  // its own.
-  const maxOffset = useCallback((): number => maxOffsetFor(sizeRef.current.viewport, sizeRef.current.content), []);
+  // Memoised because `useWheelScroll` lists it as a dependency: `maxOffset` only reads a ref, so
+  // it has no inputs of its own, and a fresh identity each render would re-arm the mouse-tracking
+  // effect (rewriting the SGR enable sequence) on every paint.
+  const maxOffset = useCallback((): number => Math.max(0, sizeRef.current.content - sizeRef.current.viewport), []);
   const clamp = (next: number): number => Math.max(0, Math.min(next, maxOffset()));
 
   // No dep array: runs after every render so sizeRef stays current as content grows or
@@ -359,33 +305,33 @@ export const ScrollRegion = ({
   useLayoutEffect(() => {
     const viewport = viewportRef.current ? measureElement(viewportRef.current).height : 0;
     if (viewport === 0) return;
-    const content = contentRef.current ? measureElement(contentRef.current).height : 0;
-    sizeRef.current = { viewport, content };
-    setSize((prev) => (prev.viewport === viewport && prev.content === content ? prev : { viewport, content }));
+    sizeRef.current = {
+      viewport,
+      content: contentRef.current ? measureElement(contentRef.current).height : 0,
+    };
     const max = maxOffset();
     if (offset > max) {
       setOffset(max);
       return;
     }
-    // Reveal-on-focus. Runs after the commit that moved the cursor, so the anchor's yoga box is laid out at its new
-    // position.
+    // Reveal-on-focus. Runs after the commit that moved the cursor, so the anchor's yoga box is
+    // laid out at its new position. An unchanged placement means nothing about the focus moved,
+    // so whatever brought the offset here — typically the wheel — wins. Losing the anchor clears
+    // the record, so a card that regains focus is revealed again even though it never moved.
     const placement = placementOf(anchorRef.current, contentRef.current);
     if (samePlacement(placement, revealedRef.current)) return;
     revealedRef.current = placement;
     if (placement === undefined) return;
-    // While overflowing, reveal against the cue-safe viewport so the anchor stays visible
-    // whichever cue rows end up drawn.
-    const visible = sizeRef.current.content > viewport ? viewport - CUE_SAFE_ROWS : viewport;
-    const next = revealOffset({ top: placement.top, height: placement.height, offset, viewport: visible });
+    const next = revealOffset({ top: placement.top, height: placement.height, offset, viewport });
     if (next !== offset) setOffset(Math.min(next, max));
   });
-
-  const edgeBoxes = useEdgeBoxes({ offset, sizeRef, contentRef });
 
   useInput(
     (input, key) => {
       if (disabled) return;
-      // The view owns its own list cursor — leave every scroll key to its handler so one press doesn't double-act.
+      // The view owns its own list cursor — leave every scroll key (↑ ↓ PageUp PageDown
+      // Ctrl+b/f/u/d g G, plus k/j if the view binds them) for its handler so a single press
+      // doesn't double-act (cursor move AND page scroll). Mouse-wheel scroll below is untouched.
       if (suppressArrows) return;
       const layout = computeLayout(0, sizeRef.current.viewport, sizeRef.current.content);
       if (layout.max === 0) return;
@@ -398,27 +344,15 @@ export const ScrollRegion = ({
 
   useWheelScroll({ disabled, setOffset, maxOffset });
 
-  // Cue bookkeeping — derived from the last measurement, so it is one frame stale at worst.
-  const max = maxOffsetFor(size.viewport, size.content);
-  const showAbove = max > 0 && offset > 0;
-  const showBelow = max > 0 && offset < max;
-  const shownRows = size.viewport - (showAbove ? 1 : 0) - (showBelow ? 1 : 0);
-  const hiddenBelow = Math.max(0, size.content - offset - shownRows);
-
   return (
-    // Viewport: takes all remaining vertical space (flexGrow=1). The cue rows sit OUTSIDE the
-    // clip box so they never cover content; the clip box takes whatever rows remain.
-    <Box ref={viewportRef} flexDirection="column" flexGrow={1}>
-      {showAbove && <ScrollCue direction="above" count={offset} box={edgeBoxes.above} />}
-      {/* Clip: overflow=hidden so an oversized inner box can't push the status bar off-screen. */}
-      <Box flexDirection="column" flexGrow={1} flexShrink={1} overflowY="hidden">
-        {/* Inner: renders content at its natural height (flexShrink=0); marginTop=-offset
-            shifts it up, the clip's overflow=hidden does the clipping. */}
-        <Box ref={contentRef} flexDirection="column" marginTop={-offset} flexShrink={0}>
-          <ScrollAnchorContext.Provider value={anchorRegistry}>{children}</ScrollAnchorContext.Provider>
-        </Box>
+    // Viewport: takes all remaining vertical space (flexGrow=1) AND clips overflow so an
+    // oversized inner box can't push the status bar off-screen.
+    <Box ref={viewportRef} flexDirection="column" flexGrow={1} overflowY="hidden">
+      {/* Inner: renders content at its natural height (flexShrink=0); marginTop=-offset
+          shifts it up, the viewport's overflow=hidden does the clipping. */}
+      <Box ref={contentRef} flexDirection="column" marginTop={-offset} flexShrink={0}>
+        <ScrollAnchorContext.Provider value={anchorRegistry}>{children}</ScrollAnchorContext.Provider>
       </Box>
-      {showBelow && <ScrollCue direction="below" count={hiddenBelow} box={edgeBoxes.below} />}
     </Box>
   );
 };

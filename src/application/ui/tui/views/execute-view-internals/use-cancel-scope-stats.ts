@@ -1,6 +1,11 @@
 /**
- * Stats consumed by the `CancelScopeOverlay`: when the active task's latest attempt started (the caller derives
- * elapsed, so this memo doesn't re-scan on every tick) and how many tasks are still not completed.
+ * Stats consumed by the `CancelScopeOverlay`:
+ *
+ *   - `attemptStartedAt`: wall-clock ms of the most recent `task-attempt-started` event for the
+ *     active task. The caller computes elapsed from `now - attemptStartedAt` so this memo does
+ *     not re-scan chainEvents on every clock tick. Undefined when no attempt has started yet.
+ *   - `remainingTaskCount`: count of non-completed buckets, including the in-flight one.
+ *     Surfaced as "N other tasks still queued" on the flow-cancel option.
  */
 
 import { useMemo } from 'react';

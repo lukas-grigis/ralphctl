@@ -1,5 +1,12 @@
 /**
- * Body composition for the execute view — the contents of the running-frame `Box` when no help overlay is mounted.
+ * Body composition for the execute view — the contents of the running-frame `Box` when no
+ * help overlay is mounted. Stitches together the multi-flow strip, baseline-health chip,
+ * header card, responsive layout, log section, settled-run footer, and the cancel-scope
+ * overlay. Mostly pure presentational — the orchestrator does the data wrangling and just
+ * threads the derived values + handlers down — with one exception: it recomputes the header/
+ * footer `tasksDone` counter from `bucketed` + `taskState` via `overlayEntityBlockedStatus`
+ * rather than trusting the orchestrator's own (trace-only) count, so the counter agrees with
+ * what the Tasks panel and sidebar minimap render for a task blocked on its own merits.
  */
 
 import React, { useMemo } from 'react';
@@ -32,6 +39,8 @@ export interface ExecuteBodyProps {
   readonly elapsed: string;
   readonly layout: ResponsiveLayout;
   readonly termColumns: number;
+  /** Raw terminal row count — needed by the wide sidebar (ImplementLayout) path. */
+  readonly termRows: number;
   /** Bucketed task execution state — feeds the sidebar task-nav list + main area. */
   readonly bucketed: BucketedExecution | undefined;
   readonly executionState: SprintExecution | undefined;
@@ -44,12 +53,14 @@ export interface ExecuteBodyProps {
   readonly currentTaskName: string | undefined;
   readonly currentSubStep: string | undefined;
   readonly tasksPanel: React.ReactNode;
-  /** `v` handler for the task cards. */
+  /**
+   * `v` handler for the task cards. The narrow layout gets it baked into `tasksPanel`; the wide
+   * sidebar layout builds its own panel, so it needs the handler threaded separately — see
+   * `ImplementLayoutProps.onOpenEvaluation`.
+   */
   readonly onOpenEvaluation: (taskId: string) => void;
   readonly logEntries: readonly LogEvent[];
   readonly cancelScopeOpen: boolean;
-  /** False while an overlay, prompt or cancel picker is open — gates the wide Tasks panel's keys. */
-  readonly tasksInputActive: boolean;
   readonly attemptElapsedMs: number | undefined;
   readonly remainingTaskCount: number;
   readonly onCancelAttempt: () => void;
@@ -63,15 +74,21 @@ export interface ExecuteBodyProps {
   readonly awaiting?: ReadonlyMap<string, number>;
 }
 
-/** The rail / tasks / context region between the header card and the log panel. */
+/**
+ * The rail / tasks / context region between the header card and the log panel. Which composition
+ * renders is a width decision: at ≥140 cols the sidebar layout owns the region, below that the
+ * column-switching `ExecuteLayout` does. Both take the same already-derived data, so the choice is
+ * the only thing this component adds.
+ */
 const MainRegion = ({
   layout,
   descriptor,
   isRunning,
   sessionId,
   termColumns,
+  termRows,
   bucketed,
-  tasksInputActive,
+  cancelScopeOpen,
   tasksPanel,
   onOpenEvaluation,
   executionState,
@@ -86,8 +103,9 @@ const MainRegion = ({
   | 'isRunning'
   | 'sessionId'
   | 'termColumns'
+  | 'termRows'
   | 'bucketed'
-  | 'tasksInputActive'
+  | 'cancelScopeOpen'
   | 'tasksPanel'
   | 'onOpenEvaluation'
   | 'executionState'
@@ -100,9 +118,11 @@ const MainRegion = ({
     <ImplementLayout
       layout={layout}
       bucketed={bucketed}
-      inputActive={tasksInputActive}
+      termRows={termRows}
+      inputActive={!cancelScopeOpen}
       descriptor={descriptor}
       isRunning={isRunning}
+      sessionId={sessionId}
       termColumns={termColumns}
       tasksPanel={tasksPanel}
       onOpenEvaluation={onOpenEvaluation}
@@ -134,7 +154,11 @@ const MainRegion = ({
     />
   );
 
-/** Cancel-scope picker — mounted only while running AND the operator pressed `c`. */
+/**
+ * Cancel-scope picker — mounted only while running AND the operator pressed `c`. While mounted it
+ * claims keyboard input via its own useInput hook; the surrounding view's `c` handler is gated
+ * behind `cancelScopeOpen` so the keystroke isn't consumed twice. Self-gates on both flags.
+ */
 const CancelScopePicker = ({
   isRunning,
   cancelScopeOpen,
@@ -166,8 +190,8 @@ const CancelScopePicker = ({
 };
 
 /**
- * `MainRegion` and `CancelScopePicker` each declare the exact slice of {@link ExecuteBodyProps} they consume, so the
- * whole bag is spread into them rather than re-listing two dozen names here.
+ * `MainRegion` and `CancelScopePicker` each declare the exact slice of {@link ExecuteBodyProps}
+ * they consume, so the whole bag is spread into them rather than re-listing two dozen names here.
  */
 export const ExecuteBody = (props: ExecuteBodyProps): React.JSX.Element => {
   const {
@@ -177,6 +201,7 @@ export const ExecuteBody = (props: ExecuteBodyProps): React.JSX.Element => {
     isRunning,
     now,
     elapsed,
+    awaiting,
     layout,
     tasksDone,
     tasksTotal,
@@ -188,10 +213,14 @@ export const ExecuteBody = (props: ExecuteBodyProps): React.JSX.Element => {
     currentSubStep,
     logEntries,
     nextSteps,
-    awaiting,
   } = props;
-  // `tasksDone` is trace-derived (`use-bucketed-tasks.ts`'s `summariseProgress`) and can undercount a task's
-  // own-failure block as a pass.
+  // `tasksDone` is trace-derived (`use-bucketed-tasks.ts`'s `summariseProgress`) and can undercount
+  // a task's own-failure block as a pass — see `overlayEntityBlockedStatus`'s doc for why the trace
+  // alone can't tell a self-block from a clean completion. Recompute it here from the same
+  // entity-corrected bucket the Tasks panel and sidebar minimap already read, so the header/footer
+  // counter never disagrees with what the cards show. `tasksTotal` needs no correction — the
+  // overlay only ever changes a task's `status`, never the task count. Falls back to the raw prop
+  // when there's no bucket yet, mirroring `summariseProgress`'s own `bucketed?.tasks ?? []`.
   const effectiveTasksDone = useMemo(
     () =>
       bucketed !== undefined
@@ -219,8 +248,10 @@ export const ExecuteBody = (props: ExecuteBodyProps): React.JSX.Element => {
         waitingSince={awaiting?.get(sessionId)}
       />
 
-      {/* Verdict first: a settled run's outcome + next steps sit under the header, so they stay
-        on screen at any height instead of below the tasks and log. */}
+      <MainRegion {...props} />
+
+      <LogPanel entries={logEntries} maxRows={layout.logRows} />
+
       <ResultFooter
         descriptor={descriptor}
         isRunning={isRunning}
@@ -229,10 +260,6 @@ export const ExecuteBody = (props: ExecuteBodyProps): React.JSX.Element => {
         elapsed={elapsed}
         nextSteps={nextSteps}
       />
-
-      <MainRegion {...props} />
-
-      <LogPanel entries={logEntries} maxRows={layout.logRows} />
 
       <CancelScopePicker {...props} />
     </Box>

@@ -1,4 +1,15 @@
-/** Thin React hook over {@link createCoalescedBuffer}. */
+/**
+ * Thin React hook over {@link createCoalescedBuffer}. Owns one buffer per mount and routes a
+ * caller-supplied subscribe seam through it, so a hot source re-renders the consumer at most
+ * once per `flushMs` instead of once per emitted value.
+ *
+ * The subscribe seam is captured in a ref so a caller passing a fresh arrow each render does NOT
+ * churn the underlying subscription (which would drop already-buffered values) — same anti-churn
+ * invariant the bus hooks rely on. The effect's dependency array stays caller-owned.
+ *
+ * Mount-replay: state is seeded from `initial` and a `flushNow()` runs on mount, so a panel that
+ * mounts mid-run paints its history in a single frame rather than waiting for the first tick.
+ */
 
 import { useEffect, useRef, useState } from 'react';
 import { type CoalescedBuffer, createCoalescedBuffer } from '@src/application/ui/tui/runtime/coalesced-buffer.ts';
@@ -10,16 +21,23 @@ export interface UseCoalescedBufferOptions<T> {
   readonly flushMs?: number;
   /** Seed values for the initial window (mount-replay). */
   readonly initial?: readonly T[];
-  /** Attach the source to the buffer's `push`. Returns an unsubscribe. */
+  /**
+   * Attach the source to the buffer's `push`. Returns an unsubscribe. Captured in a ref so a
+   * fresh arrow each render does not churn the subscription — the effect re-runs only on `deps`.
+   */
   readonly subscribe: (push: (value: T) => void) => () => void;
   /**
-   * Effect dependency list — owned by the caller so they decide what re-establishes the subscription (e.g. `[bus,
-   * limit]`).
+   * Effect dependency list — owned by the caller so they decide what re-establishes the
+   * subscription (e.g. `[bus, limit]`). The buffer is rebuilt whenever any of these change.
    */
   readonly deps: readonly unknown[];
 }
 
-/** Maintain a coalesced trailing window in component state. */
+/**
+ * Maintain a coalesced trailing window in component state. Re-renders at most once per `flushMs`
+ * while the source is hot; flushes immediately on mount (so seeded history paints) and on
+ * cleanup (so no final batch is lost).
+ */
 export const useCoalescedBuffer = <T>(opts: UseCoalescedBufferOptions<T>): readonly T[] => {
   const limit = opts.limit ?? 100;
   const [items, setItems] = useState<readonly T[]>(() => (opts.initial ? opts.initial.slice(-limit) : []));
@@ -30,8 +48,9 @@ export const useCoalescedBuffer = <T>(opts: UseCoalescedBufferOptions<T>): reado
   // Seed must be read from a ref too — only the explicit `deps` should rebuild the buffer.
   const initialRef = useRef(opts.initial);
   initialRef.current = opts.initial;
-  // First effect run only: the useState lazy initializer already holds `initial.slice(-limit)`, so an explicit
-  // re-seed there is a redundant extra commit on mount.
+  // First effect run only: the useState lazy initializer already holds `initial.slice(-limit)`, so
+  // an explicit re-seed there is a redundant extra commit on mount. A later deps-change re-run
+  // still needs the re-seed (state holds the prior deps' window), so we gate on this flag.
   const mountedRef = useRef(false);
 
   useEffect(() => {

@@ -123,17 +123,6 @@ describe('StepTrace plan/trace merge', () => {
     r.unmount();
   });
 
-  it('fills the window from above when the running step sits near the end of the plan', () => {
-    const plan = Array.from({ length: 20 }, (_, i) => `step-${String(i + 1).padStart(2, '0')}`);
-    const trace: TraceEntry[] = plan.slice(0, 19).map((name) => entry(name));
-    const r = render(<StepTrace trace={trace} running={true} plan={plan} maxRows={12} />);
-    const frame = r.lastFrame() ?? '';
-    expect(frame).toContain('step-20');
-    expect(frame).toContain('step-09');
-    expect(frame).not.toContain('step-08');
-    r.unmount();
-  });
-
   it('railWidth omitted = no truncation (preserves non-Execute callers)', () => {
     const longName = 'this-is-an-extremely-long-step-name-overflowing';
     const trace: TraceEntry[] = [entry(longName)];

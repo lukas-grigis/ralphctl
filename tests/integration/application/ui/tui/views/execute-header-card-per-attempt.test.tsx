@@ -8,8 +8,6 @@
  */
 
 import { render } from 'ink-testing-library';
-import { glyphs } from '@src/application/ui/tui/theme/tokens.ts';
-import { renderAtSize } from '@tests/helpers/render-at-size.tsx';
 import { describe, expect, it } from 'vitest';
 import { HeaderCard } from '@src/application/ui/tui/views/execute-view-internals/header-card.tsx';
 import type { SessionDescriptor } from '@src/application/ui/tui/runtime/session-manager.ts';
@@ -57,24 +55,6 @@ describe('HeaderCard per-attempt round', () => {
     expect(frame).toContain('attempt 2/3');
     expect(frame).toContain('round 1/3');
     expect(frame).not.toContain('round 4/3');
-    r.unmount();
-  });
-
-  it('counts a free resume against the budget as the attempt it continues, with a resumed note', () => {
-    const r = renderHeader(
-      task({
-        genEvalRound: 2,
-        genEvalMaxRounds: 5,
-        genEvalMaxAttempts: 3,
-        attemptN: 1,
-        roundInAttempt: 1,
-        attemptResumed: true,
-      })
-    );
-    const frame = r.lastFrame() ?? '';
-
-    expect(frame).toContain(`attempt 1/3 ${glyphs.bullet} resumed`);
-    expect(frame).not.toContain('attempt 2/3');
     r.unmount();
   });
 
@@ -128,32 +108,6 @@ describe('HeaderCard per-attempt round', () => {
     expect(frame).toContain('round 1/3');
     expect(frame).not.toContain('attempt 1/3');
     expect(frame).not.toContain('round 2/3');
-    r.unmount();
-  });
-});
-
-describe('HeaderCard focus row at narrow widths', () => {
-  it('keeps the spaces around task, step and attempt values and stays on one row', async () => {
-    const r = renderAtSize(
-      <HeaderCard
-        descriptor={descriptor()}
-        isRunning={true}
-        tasksDone={0}
-        tasksTotal={1}
-        currentTask={task({ genEvalRound: 2, genEvalMaxRounds: 5, genEvalMaxAttempts: 3 })}
-        currentTaskIdx={0}
-        currentTaskName="Make hello.py print Hello, world!"
-        currentSubStep="finalize-gen-eval"
-      />,
-      { columns: 60, rows: 24 }
-    );
-    await new Promise((resolve) => setTimeout(resolve, 30));
-    const frame = r.lastFrame() ?? '';
-    const row = frame.split('\n').find((l) => l.includes(`${glyphs.activityArrow} task`)) ?? '';
-    expect(row).toContain(`${glyphs.activityArrow} task 1/1`);
-    expect(row).not.toMatch(/task1|step[a-z]|attempt\d/);
-    // One row: nothing of the focus line wraps under the card.
-    expect(frame.split('\n').filter((l) => l.includes(`${glyphs.activityArrow} task`))).toHaveLength(1);
     r.unmount();
   });
 });

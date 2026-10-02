@@ -1,14 +1,27 @@
 /**
- * `FeedbackLine` — the transient inline result line shared by the list / detail views (sprints, projects,
- * project-detail, sessions).
+ * `FeedbackLine` — the transient inline result line shared by the list / detail views (sprints,
+ * projects, project-detail, sessions).
+ *
+ * Accepts either a structured `{ tone, text }` object (preferred) or a plain string (legacy).
+ *
+ * Structured form: `tone` drives the glyph prefix and semantic color from tokens — no inline
+ * glyphs or string-prefix branching at call sites.
+ *
+ * Legacy plain-string form: accepted for gradual migration. A leading {@link glyphs.cross}
+ * selects the error tone; a leading {@link glyphs.warningGlyph} the warning tone; a leading
+ * {@link glyphs.refresh} the info tone; all other strings render in the primary color. Call sites should migrate to the structured form.
+ *
+ * Renders nothing when `text` is `undefined`, so callers can unconditionally render
+ * `<FeedbackLine … />` without a conditional guard.
+ *
  * @public
  */
 
 import React from 'react';
 import { Box, Text } from 'ink';
-import { glyphs, inkColors, spacing, tones } from '@src/application/ui/tui/theme/tokens.ts';
+import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 
-export type FeedbackTone = 'success' | 'warning' | 'error' | 'info';
+export type FeedbackTone = 'success' | 'error' | 'info';
 
 export interface StructuredFeedback {
   readonly tone: FeedbackTone;
@@ -17,8 +30,10 @@ export interface StructuredFeedback {
 
 export interface FeedbackLineProps {
   /**
-   * Feedback content — a {@link StructuredFeedback} `{ tone, text }` (preferred) or a legacy plain string whose leading
-   * glyph (cross / check / refresh) picks the tone.
+   * Feedback content — either:
+   *   - A {@link StructuredFeedback} `{ tone, text }` object (preferred).
+   *   - A plain string (legacy). A leading `glyphs.cross` triggers error tone; a leading
+   *     `glyphs.refresh` triggers info tone; all other strings default to primary/success.
    */
   readonly text: string | StructuredFeedback | undefined;
 }
@@ -26,22 +41,25 @@ export interface FeedbackLineProps {
 const toneConfig = (tone: FeedbackTone): { glyph: string; color: string } => {
   switch (tone) {
     case 'success':
-      return tones.success;
-    case 'warning':
-      return tones.warning;
+      return { glyph: glyphs.check, color: inkColors.success };
     case 'error':
-      return tones.error;
+      return { glyph: glyphs.cross, color: inkColors.error };
     case 'info':
-      return { glyph: glyphs.refresh, color: tones.info.color };
+      return { glyph: glyphs.refresh, color: inkColors.info };
   }
 };
 
-const resolveStructured = (raw: string): { color: string; body: string } => {
-  if (raw.startsWith(glyphs.cross)) return { color: tones.error.color, body: raw };
-  if (raw.startsWith(glyphs.warningGlyph)) return { color: tones.warning.color, body: raw };
-  if (raw.startsWith(glyphs.refresh)) return { color: tones.info.color, body: raw };
-  if (raw.startsWith(glyphs.check)) return { color: tones.success.color, body: raw };
-  return { color: inkColors.primary, body: raw };
+const resolveStructured = (raw: string): { glyph: string; color: string; body: string } => {
+  if (raw.startsWith(glyphs.cross)) {
+    return { glyph: '', color: inkColors.error, body: raw };
+  }
+  if (raw.startsWith(glyphs.warningGlyph)) {
+    return { glyph: '', color: inkColors.warning, body: raw };
+  }
+  if (raw.startsWith(glyphs.refresh)) {
+    return { glyph: '', color: inkColors.info, body: raw };
+  }
+  return { glyph: '', color: inkColors.primary, body: raw };
 };
 
 export const FeedbackLine = ({ text }: FeedbackLineProps): React.JSX.Element | null => {
@@ -58,21 +76,20 @@ export const FeedbackLine = ({ text }: FeedbackLineProps): React.JSX.Element | n
 
   // Structured form
   const { glyph, color } = toneConfig(text.tone);
-  // Callers often pass text that already leads with a status glyph; the tone supplies one, so never double it.
-  const body = glyph.length > 0 && text.text.startsWith(`${glyph} `) ? text.text.slice(glyph.length + 1) : text.text;
   return (
     <Box paddingX={spacing.indent} marginTop={spacing.section}>
       <Text color={color}>
         {glyph.length > 0 ? `${glyph} ` : ''}
-        {body}
+        {text.text}
       </Text>
     </Box>
   );
 };
 
 /**
- * Construct a {@link StructuredFeedback} value. Convenience factory so call sites don't inline the literal object
- * shape.
+ * Construct a {@link StructuredFeedback} value. Convenience factory so call sites
+ * don't inline the literal object shape.
+ *
  * @public
  */
 export const feedback = (tone: FeedbackTone, text: string): StructuredFeedback => ({ tone, text });

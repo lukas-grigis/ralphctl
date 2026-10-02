@@ -131,7 +131,7 @@ describe('BaselineHealthChip / BaselineHealthCard harmony', () => {
     const { chip, card } = renderBoth(task);
     expect(chip).toContain('red');
     // The card surfaces the failing post-verify row.
-    expect(card).toContain('Post-task');
+    expect(card).toContain('Post verify');
     expect(card).toContain('failed');
   });
 

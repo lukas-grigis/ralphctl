@@ -1,6 +1,14 @@
 /**
- * Sprints list — every sprint, scoped to the current project when one is selected. Selecting a row sets it as the
- * current sprint and pushes its detail view.
+ * Sprints list — every sprint, scoped to the current project when one is selected. Selecting
+ * a row sets it as the current sprint and pushes its detail view.
+ *
+ * Local keys:
+ *   c   launch the create-sprint flow against the current project.
+ *   e   rename the focused sprint (inert on a done sprint, which is immutable).
+ *   d   confirm + remove the focused sprint (cascades execution + tasks via sprintRepo.remove).
+ *   r   reload the list.
+ *   u   bulk-unblock the focused sprint's stuck tasks.
+ *   ↵   open the sprint's detail view.
  */
 
 import React, { useEffect, useState } from 'react';
@@ -21,27 +29,25 @@ import { useEditField } from '@src/application/ui/tui/runtime/use-edit-field.ts'
 import type { UseEditFieldState } from '@src/application/ui/tui/runtime/use-edit-field.ts';
 import { useIsMounted } from '@src/application/ui/tui/runtime/use-is-mounted.ts';
 import { Result } from '@src/domain/result.ts';
-import { glyphs, LIST_CHROME_ROWS, listCapacity, spacing } from '@src/application/ui/tui/theme/tokens.ts';
-import { plural } from '@src/application/ui/shared/plural.ts';
+import { glyphs, listCapacity, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { useAsyncLoad, type AsyncLoadState } from '@src/application/ui/tui/runtime/use-async-load.ts';
 import { useRouter } from '@src/application/ui/tui/runtime/router.tsx';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
 import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
-import { useViewKeys } from '@src/application/ui/tui/runtime/use-view-keys.ts';
-import { sprintsKeyBindings } from '@src/application/ui/tui/views/sprints-view-internals/key-bindings.ts';
+import { useViewKeys, type ViewKeyBinding } from '@src/application/ui/tui/runtime/use-view-keys.ts';
 import { useUnblockTask } from '@src/application/ui/tui/runtime/use-unblock-task.ts';
 import { useLaunchCreateSprint } from '@src/application/ui/tui/runtime/use-launch-create-sprint.ts';
+import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx';
 import { useBreakpoint } from '@src/application/ui/tui/runtime/use-breakpoint.ts';
 import type { Task } from '@src/domain/entity/task.ts';
 import { ROW_HEIGHT, SprintRow } from '@src/application/ui/tui/views/sprints-view-internals/row-views.tsx';
-import { editFresh } from '@src/application/ui/tui/runtime/edit-fresh.ts';
 import {
   formatUnblockFeedback,
   type UnblockFeedbackInput,
 } from '@src/application/ui/tui/views/sprints-view-internals/unblock-feedback.ts';
 
-export interface UseStuckSprintTasksResult {
+interface UseStuckSprintTasksResult {
   readonly stuckCount: number;
   readonly unblockAll: (
     sprint: Sprint | undefined,
@@ -51,7 +57,22 @@ export interface UseStuckSprintTasksResult {
 }
 
 /**
- * Loads the focused sprint's tasks (cancel-safe on sprint change / unmount) and derives the bulk-unblockable subset.
+ * Loads the focused sprint's tasks (cancel-safe on sprint change / unmount) and derives the
+ * bulk-unblockable subset. That's `blocked` + `in_progress`, plus — only when neither of those
+ * exist and the sprint itself is still `review` — the single stray `todo` task an interrupted
+ * `unblockTaskUseCase` `review` → `active` hop can leave behind (`finishInterruptedReopen` in
+ * `business/task/unblock-task.ts`). Capped at ONE `todo` task on purpose: that use case's
+ * already-`todo` short-circuit persists no task write, so folding every `todo` task on the sprint
+ * in here would call it N times over and report "unblocked N tasks" for a run that revived none of
+ * them. `unblockAll` mirrors the original inline handler's mounted-ref-gated ordering: the unblock
+ * loop runs unconditionally, a mount check gates the feedback write, and a second mount check
+ * (after the further awaited refresh) gates the task-list write — mount state can change between
+ * the two awaits.
+ *
+ * `reload` is the outer list loader's own reload (same one `e` / `d` already call on success) —
+ * this hook's `tasks` state only feeds the footer hint's stuck count; the card's `· N blocked`
+ * sub-count and status chip come from the separate `SprintListEntry` snapshot that loader owns,
+ * so without this call a successful bulk unblock left that badge stale until `r` or a remount.
  */
 const useStuckSprintTasks = (
   sprintId: Sprint['id'] | undefined,
@@ -60,20 +81,18 @@ const useStuckSprintTasks = (
   const deps = useDeps();
   const unblockTask = useUnblockTask();
   const mountedRef = useIsMounted();
-  // Tagged with its sprint: tasks of a previous sprint never count for the current one, even if its load fails.
-  const [loaded, setLoaded] = useState<{ readonly sprintId: Sprint['id']; readonly tasks: readonly Task[] }>();
-  const tasks: readonly Task[] = loaded !== undefined && loaded.sprintId === sprintId ? loaded.tasks : [];
+  const [tasks, setTasks] = useState<readonly Task[]>([]);
 
   useEffect(() => {
     if (sprintId === undefined) {
-      setLoaded(undefined);
+      setTasks([]);
       return undefined;
     }
     let cancelled = false;
     const load = async (): Promise<void> => {
       const r = await deps.taskRepo.findBySprintId(sprintId);
       if (cancelled) return;
-      if (r.ok) setLoaded({ sprintId, tasks: r.value });
+      if (r.ok) setTasks(r.value);
     };
     load().catch(() => undefined);
     return () => {
@@ -137,19 +156,24 @@ const useStuckSprintTasks = (
     if (succeeded > 0) reload();
     // Refresh this hook's own task list so the hint and count update immediately.
     const refreshed = await deps.taskRepo.findBySprintId(sprint.id);
-    if (mountedRef.current && refreshed.ok) setLoaded({ sprintId: sprint.id, tasks: refreshed.value });
+    if (mountedRef.current && refreshed.ok) setTasks(refreshed.value);
   };
 
   return { stuckCount: stuckTasks.length, unblockAll };
 };
 
-/** One row's worth of loading — the sprint plus its task-blocked health. */
+/**
+ * One row's worth of loading — the sprint plus its task-blocked health. Loaded once per list
+ * fetch (a single batched `Promise.all` over every sprint in scope), never per rendered row: a
+ * per-row fetch would re-run on every scroll / re-render and could stall the list on a project
+ * with many sprints.
+ */
 interface SprintListEntry {
   readonly sprint: Sprint;
   readonly health: TaskHealthCounts;
 }
 
-export interface UseSprintRowActionsResult {
+interface UseSprintRowActionsResult {
   readonly confirmDelete: Sprint | undefined;
   readonly setConfirmDelete: (sprint: Sprint | undefined) => void;
   readonly feedback: string | undefined;
@@ -159,13 +183,18 @@ export interface UseSprintRowActionsResult {
 }
 
 /**
- * Rename + delete-confirm state and handlers for the focused sprint row, shaped like {@link useLaunchCreateSprint}.
+ * Rename + delete-confirm state and handlers for the focused sprint row, shaped like
+ * {@link useLaunchCreateSprint} — the caller (the render + key dispatcher) supplies the
+ * `edit` field-prompt hook and `reload` callback it already owns rather than this hook
+ * instantiating its own competing instances.
  */
 const useSprintRowActions = (edit: UseEditFieldState, reload: () => void): UseSprintRowActionsResult => {
   const deps = useDeps();
   const selection = useSelection();
-  // Mounted-ref guard: dismissing the confirm overlay unblocks the router, so the operator can navigate away
-  // (unmounting this view) before the awaited repo write resolves.
+  // Mounted-ref guard: dismissing the confirm overlay unblocks the router, so the operator can
+  // navigate away (unmounting this view) before the awaited repo write resolves. The guard skips
+  // the post-await view-local writes (setFeedback / reload) so they never fire into an unmounted
+  // tree.
   const mountedRef = useIsMounted();
   const [confirmDelete, setConfirmDelete] = useState<Sprint | undefined>(undefined);
   const [feedback, setFeedback] = useState<string | undefined>(undefined);
@@ -177,13 +206,11 @@ const useSprintRowActions = (edit: UseEditFieldState, reload: () => void): UseSp
       kind: 'short',
       currentValue: target.name,
       onSave: async (value) => {
-        const saved = await editFresh(
-          () => deps.sprintRepo.findById(target.id),
-          (fresh) => renameSprint(fresh, value),
-          (next) => deps.sprintRepo.save(next)
-        );
+        const renamed = renameSprint(target, value);
+        if (!renamed.ok) return Result.error(renamed.error);
+        const saved = await deps.sprintRepo.save(renamed.value);
         if (!saved.ok) return Result.error(saved.error);
-        if (selection.sprintId === target.id) selection.setSprint(target.id, saved.value.name, saved.value.status);
+        if (selection.sprintId === target.id) selection.setSprint(target.id, value.trim(), target.status);
         reload();
         return Result.ok(undefined);
       },
@@ -210,7 +237,7 @@ const useSprintRowActions = (edit: UseEditFieldState, reload: () => void): UseSp
   return { confirmDelete, setConfirmDelete, feedback, setFeedback, handleRename, handleDeleteConfirmed };
 };
 
-/** Destructive-delete gate for one sprint, stating what is lost (tickets live in the sprint's own files). */
+/** Destructive-delete gate for one sprint, spelling out what the cascade takes with it. */
 const SprintDeleteConfirm = ({
   sprint,
   onSubmit,
@@ -219,36 +246,26 @@ const SprintDeleteConfirm = ({
   readonly sprint: Sprint;
   readonly onSubmit: (confirmed: boolean) => void;
   readonly onCancel: () => void;
-}): React.JSX.Element => {
-  const deps = useDeps();
-  const [taskCount, setTaskCount] = useState<number | undefined>(undefined);
-
-  useEffect(() => {
-    let cancelled = false;
-    void deps.taskRepo.findBySprintId(sprint.id).then((r) => {
-      if (!cancelled && r.ok) setTaskCount(r.value.length);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [deps.taskRepo, sprint.id]);
-
-  const loss =
-    taskCount === undefined
-      ? `Deletes ${plural(sprint.tickets.length, 'ticket')} and its tasks.`
-      : `Deletes ${plural(sprint.tickets.length, 'ticket')} and ${plural(taskCount, 'task')}.`;
-  return (
-    <ConfirmCard
-      verb="Remove"
-      target={`sprint "${sprint.name}"`}
-      body={<Text dimColor>{loss} This cannot be undone.</Text>}
-      onSubmit={onSubmit}
-      onCancel={onCancel}
-    />
-  );
-};
+}): React.JSX.Element => (
+  <ConfirmCard
+    title={
+      <Text>
+        Remove sprint <Text bold>{sprint.name}</Text>?
+      </Text>
+    }
+    body={
+      <Text dimColor>
+        Cascades to its execution record + tasks. Tickets stay in the sprint history if you re-create.
+      </Text>
+    }
+    message="Delete?"
+    onSubmit={onSubmit}
+    onCancel={onCancel}
+  />
+);
 
 interface SprintsBodyProps {
+  readonly helpOpen: boolean;
   readonly confirmDelete: Sprint | undefined;
   readonly onDeleteSubmit: (confirmed: boolean) => void;
   readonly onDeleteCancel: () => void;
@@ -260,6 +277,7 @@ interface SprintsBodyProps {
 
 /** Loading / error / overlay / empty / list-of-cards presentation — pure props in. */
 const SprintsBody = ({
+  helpOpen,
   confirmDelete,
   onDeleteSubmit,
   onDeleteCancel,
@@ -269,11 +287,13 @@ const SprintsBody = ({
   feedback,
 }: SprintsBodyProps): React.JSX.Element => {
   const total = state.kind === 'ok' ? state.value.length : 0;
-  // The delete gate takes over the whole frame; everything below it is the ordinary async ladder.
-  const overlay =
-    confirmDelete !== undefined ? (
-      <SprintDeleteConfirm sprint={confirmDelete} onSubmit={onDeleteSubmit} onCancel={onDeleteCancel} />
-    ) : undefined;
+  // The help screen and the delete gate each take over the whole frame; everything below them is
+  // the ordinary async ladder.
+  const overlay = helpOpen ? (
+    <HelpOverlay />
+  ) : confirmDelete !== undefined ? (
+    <SprintDeleteConfirm sprint={confirmDelete} onSubmit={onDeleteSubmit} onCancel={onDeleteCancel} />
+  ) : undefined;
 
   return (
     <AsyncListFrame
@@ -283,15 +303,19 @@ const SprintsBody = ({
       errorMessage="Failed to load sprints."
       isEmpty={total === 0}
       empty={
-        <EmptyState
-          title="No sprints yet"
-          hint={
-            hasProject
-              ? 'Press c to start the create-sprint flow.'
-              : 'Pick a project first (Projects view) then press c to create one.'
-          }
-          action={`c ${glyphs.arrowRight} create  ${glyphs.bullet}  esc ${glyphs.arrowRight} back`}
-        />
+        <Box flexDirection="column">
+          <EmptyState
+            title="No sprints yet"
+            hint={
+              hasProject
+                ? 'Press c to start the create-sprint flow.'
+                : 'Pick a project first (Projects view) then press c to create one.'
+            }
+            action={`c ${glyphs.arrowRight} create  ${glyphs.bullet}  esc ${glyphs.arrowRight} back`}
+          />
+          {/* Removing the last sprint lands here: its confirmation must not vanish with the list. */}
+          <FeedbackLine text={feedback} />
+        </Box>
       }
     >
       <Box flexDirection="column">
@@ -312,13 +336,86 @@ const SprintsBody = ({
           Duplicating the keys inline would re-advertise them ungated and contradict the gate. */}
         <Box paddingX={spacing.indent} marginTop={spacing.section}>
           <Text dimColor>
-            {glyphs.bullet} {plural(total, 'sprint')}
+            {glyphs.bullet} {total} sprint(s)
           </Text>
         </Box>
         <FeedbackLine text={feedback} />
       </Box>
     </AsyncListFrame>
   );
+};
+
+interface SprintsKeysInput {
+  readonly focusedSprint: Sprint | undefined;
+  readonly stuck: UseStuckSprintTasksResult;
+  readonly actions: UseSprintRowActionsResult;
+  readonly launchCreateSprint: () => Promise<void>;
+  readonly reload: () => void;
+}
+
+/**
+ * The sprint-list key map. `e` hides its hint on a done sprint but keeps the handler live —
+ * someone who found the key in the `?` overlay still presses it, and a swallowed keystroke reads
+ * as a bug, so the handler says why instead. `u` goes the other way: with no stuck tasks there is
+ * nothing to explain, so the hint and the handler go dark together. Both read the one gate the
+ * body of this function derives, so a hint can never disagree with what the key does.
+ */
+const sprintsKeyBindings = ({
+  focusedSprint,
+  stuck,
+  actions,
+  launchCreateSprint,
+  reload,
+}: SprintsKeysInput): readonly ViewKeyBinding[] => {
+  const { setFeedback } = actions;
+  const focusedDone = focusedSprint?.status === 'done';
+  return [
+    { keys: ['↑', '↓'], hint: 'move' },
+    { keys: ['↵'], hint: 'open' },
+    {
+      keys: ['c'],
+      hint: 'create',
+      run: () => {
+        void launchCreateSprint();
+      },
+    },
+    {
+      keys: ['e'],
+      hint: 'rename',
+      hidden: focusedDone,
+      run: () => {
+        if (focusedSprint === undefined) return;
+        if (focusedDone) {
+          setFeedback(`${glyphs.cross} done sprints can't be renamed`);
+          return;
+        }
+        actions.handleRename(focusedSprint);
+      },
+    },
+    {
+      keys: ['d'],
+      hint: 'delete',
+      run: () => {
+        if (focusedSprint !== undefined) actions.setConfirmDelete(focusedSprint);
+      },
+    },
+    {
+      keys: ['r'],
+      hint: 'reload',
+      run: () => {
+        setFeedback(`${glyphs.refresh} reloading…`);
+        reload();
+      },
+    },
+    {
+      keys: ['u'],
+      hint: `unblock (${String(stuck.stuckCount)})`,
+      enabled: stuck.stuckCount > 0,
+      run: () => {
+        void stuck.unblockAll(focusedSprint, setFeedback, reload);
+      },
+    },
+  ];
 };
 
 export const SprintsView = (): React.JSX.Element => {
@@ -334,8 +431,9 @@ export const SprintsView = (): React.JSX.Element => {
     if (!r.ok) throw new Error(r.error.message);
     const scoped =
       selection.projectId !== undefined ? r.value.filter((s) => s.projectId === selection.projectId) : r.value;
-    // sprintRepo.list() returns ids ascending (UUIDv7 ≈ creation order); reverse to newest-first so this list matches
-    // the home view and the cross-project picker.
+    // sprintRepo.list() returns ids ascending (UUIDv7 ≈ creation order); reverse to newest-first
+    // so this list matches the home view and the cross-project picker. Copy before sorting —
+    // r.value may alias the repository's own array.
     const sorted = [...scoped].sort((a, b) => (a.id < b.id ? 1 : a.id > b.id ? -1 : 0));
     // Task-blocked health folded into THIS loader via the shared batch helper — one
     // `Promise.all` per list load, not a fetch per rendered row (see its doc comment for why).
@@ -350,19 +448,18 @@ export const SprintsView = (): React.JSX.Element => {
   const actions = useSprintRowActions(edit, reload);
   const { confirmDelete } = actions;
 
-  // Windowed cursor — owns ↑/↓ + j/k + PgUp/PgDn + Home/End + Enter; the cursor is the sprint id, so a reload/reorder
-  // keeps focus on the same sprint.
+  // Windowed cursor — owns ↑/↓ + j/k + PgUp/PgDn + Home/End + Enter; the cursor is the sprint id,
+  // so a reload/reorder keeps focus on the same sprint. Enter selects (sets current + drills in).
+  // Disabled while a prompt/help/confirm is up so its keys don't fight the modal.
   const listActive = !ui.modalOpen && confirmDelete === undefined;
   const list = useListWindow<SprintListEntry>({
     items,
     getId: (entry) => entry.sprint.id,
-    // The `· N sprints` footer (margin + line) lives in the same scroll body, so reserve it.
-    visibleRows: listCapacity(rows, { rowHeight: ROW_HEIGHT, chromeRows: LIST_CHROME_ROWS + 2, min: 2, max: 12 }),
+    visibleRows: listCapacity(rows, { rowHeight: ROW_HEIGHT, min: 4, max: 12 }),
     active: listActive,
     onSubmit: (entry) => {
-      // Browse only — the selection is untouched (`m` makes a sprint current). The crumb is
-      // labelled from the route's own sprint name, not the selection.
-      router.push({ id: 'sprint-detail', props: { sprintId: entry.sprint.id, sprintName: entry.sprint.name } });
+      selection.setSprint(entry.sprint.id, entry.sprint.name, entry.sprint.status);
+      router.push({ id: 'sprint-detail', props: { sprintId: entry.sprint.id } });
     },
   });
 
@@ -379,23 +476,9 @@ export const SprintsView = (): React.JSX.Element => {
     noProjectMessage: `${glyphs.cross} pick a project first (Projects ${glyphs.arrowRight} open one)`,
   });
 
-  const makeCurrent = (sprint: Sprint): void => {
-    selection.setSprint(sprint.id, sprint.name, sprint.status);
-    actions.setFeedback(`${glyphs.check} now on ${sprint.name}`);
-  };
-
-  useViewKeys(
-    sprintsKeyBindings({
-      focusedSprint,
-      stuck,
-      actions,
-      launchCreateSprint,
-      reload,
-      currentSprintId: selection.sprintId,
-      makeCurrent,
-    }),
-    { active: listActive }
-  );
+  useViewKeys(sprintsKeyBindings({ focusedSprint, stuck, actions, launchCreateSprint, reload }), {
+    active: listActive,
+  });
 
   return (
     <ViewShell
@@ -404,6 +487,7 @@ export const SprintsView = (): React.JSX.Element => {
       suppressScrollArrows
     >
       <SprintsBody
+        helpOpen={ui.helpOpen}
         confirmDelete={confirmDelete}
         onDeleteSubmit={(value) => {
           if (confirmDelete !== undefined) void actions.handleDeleteConfirmed(confirmDelete, value);

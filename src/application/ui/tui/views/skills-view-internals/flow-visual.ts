@@ -1,6 +1,6 @@
 /**
- * Pure display-mapping helpers for the Skills catalog view. Kept separate from `skills-view.tsx` so the
- * glyph/colour/label decisions are unit-testable without mounting Ink.
+ * Pure display-mapping helpers for the Skills catalog view. Kept separate from `skills-view.tsx`
+ * so the glyph/colour/label decisions are unit-testable without mounting Ink.
  */
 
 import type { FlowId } from '@src/domain/value/flow-id.ts';
@@ -8,12 +8,17 @@ import type { SkillCatalogEntry, SkillInstallStatus } from '@src/integration/ai/
 import { SKILL_MOUNTING_FLOW_IDS } from '@src/application/ui/shared/launcher.ts';
 import { glyphs, inkColors } from '@src/application/ui/tui/theme/tokens.ts';
 
-/** Re-exported for existing consumers (`picker-options.ts`, this module's own tests). */
+/**
+ * Re-exported for existing consumers (`picker-options.ts`, this module's own tests) — the
+ * canonical derivation now lives in `ui/shared/launcher.ts` next to `flowMountsSkills` so the
+ * TUI catalog and `ralphctl skills list` can never drift on which flows a skill can load into.
+ */
 export { SKILL_MOUNTING_FLOW_IDS };
 
 /**
- * Flows a row renders chips for: every mounting flow, plus any NON-mounting flow that already holds an install, so a
- * leftover copy stays visible (as `inactive`) and can be disabled.
+ * Flows a row renders chips for: every mounting flow, plus any NON-mounting flow that already
+ * holds an install (a leftover copy must stay visible so it can be disabled — it renders as
+ * `inactive`, never as a live status).
  */
 export const chipFlowsFor = (entry: SkillCatalogEntry): readonly FlowId[] => {
   const mounting = new Set(SKILL_MOUNTING_FLOW_IDS);
@@ -65,7 +70,14 @@ export const statusVisual = (status: SkillInstallStatus): FlowChipVisual => {
   }
 };
 
-/** Resolve one flow's chip glyph/colour/label for a catalog entry row. */
+/**
+ * Resolve one flow's chip glyph/colour/label for a catalog entry row. `defaultFor` wins over any
+ * install status — a default-on skill loads regardless of a phase-folder copy (see the registry's
+ * module doc), so the display must say so even when a redundant opt-in copy exists (decision:
+ * overlap is tolerated, never hidden) — UNLESS the flow's saved `settings.ai.skills` row durably
+ * opts the skill out, in which case the chip must not claim "always on". A leftover install on a
+ * non-mounting flow renders `inactive` — that flow loads no skills at all.
+ */
 export const flowChipVisual = (
   flowId: FlowId,
   entry: SkillCatalogEntry,

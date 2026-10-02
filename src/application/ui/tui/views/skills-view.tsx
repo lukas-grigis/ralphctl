@@ -1,6 +1,27 @@
 /**
- * Skills catalog view — browse every bundled skill, see where it's currently enabled (per flow) and whether that copy
- * is in sync, and enable / disable / update it.
+ * Skills catalog view — browse every bundled skill, see where it's currently enabled (per flow)
+ * and whether that copy is in sync, and enable / disable / update it. The filesystem under
+ * `<appRoot>/skills/<flow>/<name>/` is the single source of truth (see
+ * `integration/ai/skills/phase/catalog.ts`); this view is a thin driver over
+ * `AppDeps.skillCatalog`. Action sequencing (enable/disable/update/update-all, confirm gating)
+ * lives in `skills-view-internals/use-skill-catalog-actions.ts`; the per-row layout lives in
+ * `skills-view-internals/skill-row.tsx`.
+ *
+ * Local keys:
+ *   ↑/↓       move the focus cursor (windowed list — `useListWindow` also accepts the j/k alias)
+ *   e         enable the focused skill for picked flows (multi-select, recommendedFor preselected)
+ *   d         disable the focused skill for picked flows (multi-select over currently-installed flows)
+ *   u         update the focused skill from the bundle (confirms first if it would overwrite a
+ *             locally-modified copy)
+ *   U         update every install whose status is update-available, catalog-wide (never touches
+ *             locally-modified or manual installs — no confirm needed)
+ *   c         clear the focused skill's saved opt-out (`settings.ai.skills.<flow>.disabled`) —
+ *             only offered when it actually has one; otherwise the only way to clear it is
+ *             re-running a flow's customize picker and choosing "remember" again
+ *   r         reload
+ *
+ * A `defaultFor` flow always renders "always on (default)" regardless of any phase-folder copy —
+ * default loading doesn't go through the phase folder at all (see `flowChipVisual`'s doc comment).
  */
 
 import React, { useEffect, useMemo } from 'react';
@@ -12,18 +33,17 @@ import { EmptyState } from '@src/application/ui/tui/components/empty-state.tsx';
 import { ConfirmCard } from '@src/application/ui/tui/components/confirm-card.tsx';
 import { FeedbackLine, type StructuredFeedback } from '@src/application/ui/tui/components/feedback-line.tsx';
 import { MultiSelectPrompt } from '@src/application/ui/tui/prompts/multi-select-prompt.tsx';
+import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx';
 import { glyphs, listCapacity, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { useAsyncLoad, type AsyncLoadState } from '@src/application/ui/tui/runtime/use-async-load.ts';
 import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { useViewKeys, type ViewKeyBinding } from '@src/application/ui/tui/runtime/use-view-keys.ts';
-import { listMoveBinding } from '@src/application/ui/tui/runtime/keyboard-map.ts';
 import { useBreakpoint } from '@src/application/ui/tui/runtime/use-breakpoint.ts';
 import { FLOW_IDS, type FlowId } from '@src/domain/value/flow-id.ts';
 import type { Settings } from '@src/domain/entity/settings.ts';
 import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import type { SkillCatalogEntry } from '@src/integration/ai/skills/_engine/skill-catalog-port.ts';
-import { plural } from '@src/application/ui/shared/plural.ts';
 import { SkillRow } from '@src/application/ui/tui/views/skills-view-internals/skill-row.tsx';
 import {
   disableOptions,
@@ -31,8 +51,7 @@ import {
   enablePreselect,
 } from '@src/application/ui/tui/views/skills-view-internals/picker-options.ts';
 import {
-  confirmTarget,
-  confirmVerb,
+  confirmTitle,
   type ConfirmState,
   type PickerState,
   useSkillCatalogActions,
@@ -41,8 +60,8 @@ import {
 /** Non-list rows consumed by ViewShell chrome + summary line + overflow rows + feedback. */
 const CHROME_ROWS = 8;
 /**
- * Rendered height (rows) of one `SkillRow` card at its tallest: border top, name, description, chip strip,
- * "recommended:" line, border bottom, plus the section margin below the card.
+ * Rendered height (rows) of one `SkillRow` card at its tallest: border top, name, description,
+ * chip strip, "recommended:" line, border bottom, plus the section margin below the card.
  */
 const ROW_HEIGHT = 7;
 
@@ -52,8 +71,11 @@ interface SkillsViewState {
 }
 
 /**
- * Loader for `useAsyncLoad` — the catalog listing plus a settings read, used both to make a "default" chip honest
- * ("default, off (saved)") and to drive the clear-opt-out action.
+ * Loader for `useAsyncLoad` — the catalog listing plus a settings read, used both to make a
+ * "default" chip honest ("default, off (saved)") and to drive the clear-opt-out action. A
+ * settings read failure is non-fatal — the catalog still renders, chips just lose that nuance
+ * and the clear-opt-out action has nothing to clear. Extracted so `SkillsView` stays under the
+ * per-function line budget.
  */
 const loadSkillsViewState = async (deps: AppDeps): Promise<SkillsViewState> => {
   const r = await deps.skillCatalog.list();
@@ -63,6 +85,7 @@ const loadSkillsViewState = async (deps: AppDeps): Promise<SkillsViewState> => {
 };
 
 interface SkillsBodyProps {
+  readonly helpOpen: boolean;
   readonly state: AsyncLoadState<SkillsViewState, unknown>;
   readonly picker: PickerState | undefined;
   readonly confirmState: ConfirmState | undefined;
@@ -132,16 +155,13 @@ const SkillsList = ({
 
   return (
     <Box flexDirection="column">
-      <Box paddingX={spacing.indent} marginBottom={spacing.section} flexDirection="column">
-        <Text dimColor wrap="truncate-end">
-          {plural(entries.length, 'skill')} {glyphs.bullet} {plural(updateAvailableCount, 'update')} available
-          {!anyOptIn && ` ${glyphs.bullet} no opt-in copies yet — press e to enable one`}
+      <Box paddingX={spacing.indent} marginBottom={spacing.section}>
+        <Text dimColor>
+          {String(entries.length)} skill(s) {glyphs.bullet} {String(updateAvailableCount)} update
+          {updateAvailableCount === 1 ? '' : 's'} available
+          {!anyOptIn &&
+            ` ${glyphs.bullet} no opt-in copies yet — press e to enable one (folder: ${operatorSkillsRoot}/<flow>/<skill>)`}
         </Text>
-        {!anyOptIn && (
-          <Text dimColor wrap="truncate-middle">
-            folder: {operatorSkillsRoot}/&lt;flow&gt;/&lt;skill&gt;
-          </Text>
-        )}
       </Box>
       <OverflowRow direction="above" count={window.hiddenAbove} />
       {visibleItems.map((entry, localIdx) => (
@@ -161,6 +181,7 @@ const SkillsList = ({
 
 /** Loading / error / picker / confirm / empty / list-of-rows presentation — pure props in. */
 const SkillsBody = ({
+  helpOpen,
   state,
   picker,
   confirmState,
@@ -169,20 +190,21 @@ const SkillsBody = ({
   onSubmitConfirm,
   ...list
 }: SkillsBodyProps): React.JSX.Element => {
-  // The flow picker and the destructive-overwrite confirm each take over the whole frame;
-  // everything below them is the ordinary async ladder.
-  const overlay =
-    picker !== undefined ? (
-      <SkillFlowPicker picker={picker} onSubmit={onSubmitPicker} onCancel={onCancelPicker} />
-    ) : confirmState !== undefined ? (
-      <ConfirmCard
-        verb={confirmVerb(confirmState)}
-        target={confirmTarget(confirmState)}
-        body={<Text dimColor>Local edits in the selected flows will be permanently lost.</Text>}
-        onSubmit={onSubmitConfirm}
-        onCancel={() => onSubmitConfirm(false)}
-      />
-    ) : undefined;
+  // The help screen, the flow picker and the destructive-overwrite confirm each take over the
+  // whole frame; everything below them is the ordinary async ladder.
+  const overlay = helpOpen ? (
+    <HelpOverlay />
+  ) : picker !== undefined ? (
+    <SkillFlowPicker picker={picker} onSubmit={onSubmitPicker} onCancel={onCancelPicker} />
+  ) : confirmState !== undefined ? (
+    <ConfirmCard
+      title={<Text bold>{confirmTitle(confirmState)}</Text>}
+      body={<Text dimColor>Local edits in the selected flow(s) will be permanently lost.</Text>}
+      message={confirmState.kind === 'disable' ? 'Remove?' : 'Overwrite?'}
+      onSubmit={onSubmitConfirm}
+      onCancel={() => onSubmitConfirm(false)}
+    />
+  ) : undefined;
 
   return (
     <AsyncListFrame
@@ -205,14 +227,17 @@ interface SkillsKeysInput {
   readonly reload: () => void;
 }
 
-/** The catalog key map. */
+/**
+ * The catalog key map. Extracted from the view body so the component stays a wiring surface and
+ * the table of "key → what it does → when it is live" reads in one place.
+ */
 const skillsKeyBindings = ({
   actions,
   focusedItem,
   canClearOptOut,
   reload,
 }: SkillsKeysInput): readonly ViewKeyBinding[] => [
-  listMoveBinding,
+  { keys: ['↑', '↓'], hint: 'move' },
   {
     keys: ['e'],
     hint: 'enable',
@@ -298,6 +323,7 @@ export const SkillsView = (): React.JSX.Element => {
   return (
     <ViewShell title="Skills" subtitle="Browse, enable, disable, and update opt-in skills" suppressScrollArrows>
       <SkillsBody
+        helpOpen={ui.helpOpen}
         state={state}
         picker={picker}
         confirmState={confirmState}

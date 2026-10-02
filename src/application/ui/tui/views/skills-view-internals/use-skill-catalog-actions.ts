@@ -1,6 +1,13 @@
 /**
- * Action state + handlers for the Skills catalog view — enable / disable / update / update-all, plus the
- * enable/disable flow-picker.
+ * Action state + handlers for the Skills catalog view — enable / disable / update / update-all,
+ * plus the enable/disable flow-picker, the destructive-confirm state they drive, and clearing a
+ * durable `settings.ai.skills` opt-out. Extracted from `skills-view.tsx` so the view stays a thin
+ * render + key-dispatch layer; the sequencing rules (when a confirm is required, what "up to
+ * date" means) live here where they're one hook away from a unit test.
+ *
+ * Handlers are module-level functions taking an explicit {@link ActionCtx} rather than closures
+ * inside the hook — keeps `useSkillCatalogActions` itself a thin dispatch table and each rule
+ * independently readable.
  */
 
 import { useMemo, useState } from 'react';
@@ -43,17 +50,19 @@ const isDestructiveDisable = (entry: SkillCatalogEntry, flows: readonly FlowId[]
   });
 
 /**
- * Flows worth updating for `entry`: already-stale copies, edited ones (confirm-gated), and `broken` folders (no
- * SKILL.md — update rewrites them, which is a pure repair).
+ * Flows worth updating for `entry`: already-stale copies, edited ones (confirm-gated), and
+ * `broken` folders (no SKILL.md — update rewrites them, which is a pure repair).
  */
 const updateTargets = (entry: SkillCatalogEntry): readonly FlowId[] =>
   entry.installs
     .filter((i) => i.status === 'update-available' || i.status === LOCALLY_MODIFIED || i.status === 'broken')
     .map((i) => i.flow);
 
-/** Verb and target for the destructive-confirm card. */
-export const confirmVerb = (cs: ConfirmState): string => (cs.kind === 'disable' ? 'Remove' : 'Overwrite');
-export const confirmTarget = (cs: ConfirmState): string => `"${cs.entry.name}" for ${String(cs.flows.length)} flow(s)`;
+/** Human title for the destructive-confirm card. */
+export const confirmTitle = (cs: ConfirmState): string =>
+  cs.kind === 'disable'
+    ? `Remove "${cs.entry.name}" for ${String(cs.flows.length)} flow(s)?`
+    : `Update "${cs.entry.name}" for ${String(cs.flows.length)} flow(s)?`;
 
 /** Threaded through every module-level handler below — one bag, one signature per handler. */
 interface ActionCtx {
@@ -67,7 +76,11 @@ interface ActionCtx {
   readonly setConfirmState: (value: ConfirmState | undefined) => void;
 }
 
-/** Flows where `settings.ai.skills[flow].disabled` currently names `skillName`. */
+/**
+ * Flows where `settings.ai.skills[flow].disabled` currently names `skillName` — the ONLY way
+ * this state can be cleared today is by re-running a flow's customize picker and choosing
+ * "remember" again with the skill re-checked. {@link doClearSavedOptOut} is the direct clear.
+ */
 const savedOptOutFlowsFor = (settings: Settings | undefined, skillName: string): readonly FlowId[] =>
   FLOW_IDS.filter((flowId) => (settings?.ai.skills?.[flowId]?.disabled ?? []).includes(skillName));
 
@@ -85,8 +98,9 @@ const runCatalogOp = async <T>(
     ctx.setActionFeedback(feedback('error', `${glyphs.cross} ${r.error.message}`));
     return;
   }
-  // `r.value`'s static type is a deferred conditional (`typescript-result`'s `ValueOr`) that TS can't collapse for a
-  // generic `T` bound only at the call site.
+  // `r.value`'s static type is a deferred conditional (`typescript-result`'s `ValueOr`) that TS
+  // can't collapse for a generic `T` bound only at the call site — same shape as the cast in
+  // `integration/io/file-locker.ts`'s `withLock`.
   ctx.setActionFeedback(feedback('success', successLabel(r.value as T)));
   ctx.reload();
 };
@@ -195,8 +209,10 @@ const runSettingsOp = async (ctx: ActionCtx, next: Settings, successLabel: () =>
 };
 
 /**
- * Remove `entry.name` from every flow's `settings.ai.skills[flow].disabled` row — the direct counterpart to the
- * customize picker's "remember" opt-out.
+ * Remove `entry.name` from every flow's `settings.ai.skills[flow].disabled` row — the direct
+ * counterpart to the customize picker's "remember" opt-out, which today is the only other way to
+ * touch this state. No-op (and never called by the view — see the hint's `enabledWhen`) when
+ * settings failed to load or the entry has no saved opt-out anywhere.
  */
 const doClearSavedOptOut = (ctx: ActionCtx, settings: Settings | undefined, entry: SkillCatalogEntry): void => {
   const flows = savedOptOutFlowsFor(settings, entry.name);

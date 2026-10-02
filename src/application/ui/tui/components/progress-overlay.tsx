@@ -1,8 +1,25 @@
 /**
- * Read-only modal that surfaces `<sprintDir>/progress.md` — the artifact the next AI session bootstraps from.
+ * Read-only modal that surfaces `<sprintDir>/progress.md` — the artifact the next AI session
+ * bootstraps from. Embodies the Anthropic principle: the TUI is a view onto the artifact, not
+ * a parallel runtime. The harness's `progress.md` writer (progress-file-sink) keeps the file
+ * fresh; this overlay just reflects what's on disk.
+ *
+ * Mounted at the {@link App} Layout when `ui.progressOpen` is true so every view inherits it
+ * without per-view wiring; same dismiss contract as the help overlay (`esc` or `g` toggles).
+ *
+ * Scroll model (only while a file is loaded and overflow exists):
+ *   ↑ / ↓                               → one line
+ *   PageUp / PageDown / Ctrl+b / Ctrl+f → one viewport
+ *   Ctrl+u / Ctrl+d                     → half viewport
+ *
+ * Empty / missing file: friendly message — no crash. Read errors surface as a short diag line
+ * so the operator can see *why* (missing vs permission denied vs read failure).
  */
 
+import { promises as fs } from 'node:fs';
+import { join } from 'node:path';
 import React, { useEffect, useMemo, useState } from 'react';
+import { resolveSprintDir } from '@src/integration/persistence/storage.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import { Box, Text } from 'ink';
@@ -12,6 +29,7 @@ import { useSelection } from '@src/application/ui/tui/runtime/selection-context.
 import { useStorage } from '@src/application/ui/tui/runtime/storage-context.tsx';
 import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { useTerminalSize } from '@src/application/ui/tui/runtime/use-terminal-size.ts';
+import { fmtDuration } from '@src/application/ui/tui/theme/duration.ts';
 import {
   overlayBodyRows,
   useDocumentScroll,
@@ -20,12 +38,6 @@ import {
   overlayBodyColumns,
   wrapRows,
 } from '@src/application/ui/tui/components/overlay-internals/wrap-document-rows.ts';
-import { DocumentScrollFooter } from '@src/application/ui/tui/components/overlay-internals/document-scroll-footer.tsx';
-import {
-  formatAgo,
-  readSprintDocument,
-  splitDocumentLines,
-} from '@src/application/ui/tui/components/overlay-internals/read-sprint-document.ts';
 
 interface ProgressFile {
   readonly kind: 'ok';
@@ -48,7 +60,17 @@ type ProgressState = ProgressFile | ProgressMissing | ProgressEmpty | ProgressFa
 
 const EMPTY_LINES: readonly string[] = [];
 
-/** Loads `<sprintDir>/progress.md` on mount / whenever `sprintId` or `dataRoot` change. */
+const formatAgo = (modifiedAtMs: number, now: number): string => {
+  const elapsed = Math.max(0, now - modifiedAtMs);
+  return `${fmtDuration(elapsed)} ago`;
+};
+
+/**
+ * Loads `<sprintDir>/progress.md` on mount / whenever `sprintId` or `dataRoot` change. The sprint
+ * dir is resolved via the tolerant id-prefix resolver so both the new `<id>--<slug>/` and legacy
+ * bare `<id>/` names are found — building the bare path here would split-brain against a
+ * slug-renamed dir. We don't tail the file; a re-open (close + `g` again) gets the latest snapshot.
+ */
 const useProgressFile = (sprintId: SprintId | undefined, dataRoot: AbsolutePath): ProgressState => {
   const [state, setState] = useState<ProgressState>({ kind: 'loading' });
 
@@ -59,11 +81,34 @@ const useProgressFile = (sprintId: SprintId | undefined, dataRoot: AbsolutePath)
       return undefined;
     }
     const load = async (): Promise<void> => {
-      const doc = await readSprintDocument(dataRoot, sprintId, 'progress.md');
-      if (cancelled) return;
-      setState(
-        doc.kind === 'ok' ? { kind: 'ok', lines: splitDocumentLines(doc.content), modifiedAtMs: doc.modifiedAtMs } : doc
-      );
+      try {
+        const dir = await resolveSprintDir(dataRoot, sprintId);
+        if (cancelled) return;
+        if (dir === undefined) {
+          setState({ kind: 'missing' });
+          return;
+        }
+        const progressPath = join(dir, 'progress.md');
+        const [stat, content] = await Promise.all([fs.stat(progressPath), fs.readFile(progressPath, 'utf8')]);
+        if (cancelled) return;
+        const modifiedAtMs = stat.mtimeMs;
+        if (content.trim().length === 0) {
+          setState({ kind: 'empty', modifiedAtMs });
+          return;
+        }
+        // Strip a trailing newline so the last visible row isn't blank; preserve interior empties.
+        const lines = content.replace(/\n+$/, '').split('\n');
+        setState({ kind: 'ok', lines, modifiedAtMs });
+      } catch (cause) {
+        if (cancelled) return;
+        const code = (cause as { code?: string } | undefined)?.code;
+        if (code === 'ENOENT') {
+          setState({ kind: 'missing' });
+          return;
+        }
+        const message = cause instanceof Error ? cause.message : String(cause);
+        setState({ kind: 'failed', message });
+      }
     };
     void load();
     return () => {
@@ -91,52 +136,65 @@ const ProgressBody = ({
   bodyRows,
   lineCount,
   modifiedAgo,
-}: ProgressBodyProps): React.JSX.Element => (
-  <>
-    <Box flexDirection="column" marginTop={spacing.section}>
-      {state.kind === 'loading' && <Spinner label="Loading…" />}
-      {state.kind === 'missing' && (
-        <Box flexDirection="column">
-          <Text>{glyphs.infoGlyph} No progress file yet.</Text>
-          <Box marginTop={spacing.section}>
-            <Text dimColor>
-              The harness writes <Text>progress.md</Text> as the implementer reports signals. It will appear once a run
-              starts.
-            </Text>
+}: ProgressBodyProps): React.JSX.Element => {
+  const maxOffset = Math.max(0, lineCount - bodyRows);
+  return (
+    <>
+      <Box flexDirection="column" marginTop={spacing.section}>
+        {state.kind === 'loading' && <Spinner label="Loading…" />}
+        {state.kind === 'missing' && (
+          <Box flexDirection="column">
+            <Text>{glyphs.infoGlyph} No progress file yet.</Text>
+            <Box marginTop={spacing.section}>
+              <Text dimColor>
+                The harness writes <Text>progress.md</Text> as the implementer reports signals. It will appear once a
+                run starts.
+              </Text>
+            </Box>
           </Box>
-        </Box>
-      )}
-      {state.kind === 'empty' && (
-        <Box flexDirection="column">
-          <Text>{glyphs.infoGlyph} Progress file exists but is empty.</Text>
-          <Box marginTop={spacing.section}>
-            <Text dimColor>Touched {modifiedAgo}; no signals have been recorded yet.</Text>
+        )}
+        {state.kind === 'empty' && (
+          <Box flexDirection="column">
+            <Text>{glyphs.infoGlyph} Progress file exists but is empty.</Text>
+            <Box marginTop={spacing.section}>
+              <Text dimColor>Touched {modifiedAgo}; no signals have been recorded yet.</Text>
+            </Box>
           </Box>
-        </Box>
-      )}
-      {state.kind === 'failed' && (
-        <Box flexDirection="column">
-          <Text color={inkColors.error}>{glyphs.cross} Could not read progress file.</Text>
-          <Box marginTop={spacing.section}>
-            <Text dimColor>{state.message}</Text>
+        )}
+        {state.kind === 'failed' && (
+          <Box flexDirection="column">
+            <Text color={inkColors.error}>{glyphs.cross} Could not read progress file.</Text>
+            <Box marginTop={spacing.section}>
+              <Text dimColor>{state.message}</Text>
+            </Box>
           </Box>
+        )}
+        {state.kind === 'ok' && (
+          <Box flexDirection="column">
+            {visibleLines.map((line, idx) => (
+              // `truncate-end` is the backstop behind the pre-wrap: a row we mis-measured (tabs,
+              // wide glyphs) is clipped rather than allowed to spill onto a second terminal row
+              // and desync the row-count windowing above.
+              <Text key={`row-${String(offset + idx)}`} wrap="truncate-end">
+                {line.length === 0 ? ' ' : line}
+              </Text>
+            ))}
+          </Box>
+        )}
+      </Box>
+      {state.kind === 'ok' && maxOffset > 0 && (
+        <Box marginTop={spacing.section} justifyContent="space-between">
+          <Text dimColor>
+            lines {String(offset + 1)}–{String(Math.min(lineCount, offset + bodyRows))} of {String(lineCount)}
+          </Text>
+          <Text dimColor>
+            {glyphs.bullet} ↑/↓ scroll {glyphs.bullet} PgUp/PgDn page
+          </Text>
         </Box>
       )}
-      {state.kind === 'ok' && (
-        <Box flexDirection="column">
-          {visibleLines.map((line, idx) => (
-            // `truncate-end` backs up the pre-wrap: a mis-measured row (tabs, wide glyphs) is clipped, not wrapped,
-            // so the row-count windowing stays in sync.
-            <Text key={`row-${String(offset + idx)}`} wrap="truncate-end">
-              {line.length === 0 ? ' ' : line}
-            </Text>
-          ))}
-        </Box>
-      )}
-    </Box>
-    {state.kind === 'ok' && <DocumentScrollFooter offset={offset} bodyRows={bodyRows} lineCount={lineCount} />}
-  </>
-);
+    </>
+  );
+};
 
 export const ProgressOverlay = (): React.JSX.Element => {
   const selection = useSelection();

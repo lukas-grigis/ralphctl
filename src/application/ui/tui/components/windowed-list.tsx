@@ -1,16 +1,31 @@
 /**
- * Windowed-list primitive — the single mechanism for long, scrollable, homogeneous item lists in the TUI.
+ * Windowed-list primitive — the single mechanism for long, scrollable, homogeneous item lists
+ * in the TUI. One pure window calculator, one cursor-owning hook, and a pair of thin render
+ * wrappers replace what used to be three divergent implementations (the sprint picker's
+ * `computeWindow`, the Tasks-panel's anchored `computeAnchoredWindow`, and this file).
+ *
+ *   - {@link computeListWindow} — pure cursor-centred slice math (no header / create-row special
+ *     cases). Every caller that needs a "keep this index visible, cap the rendered count" window
+ *     — a flat item list, a mixed row list windowed by absolute index, or a card list anchored on
+ *     the active card — goes through this one function.
+ *   - {@link useListWindow} — owns cursor + keyboard. CRITICAL: the cursor is stored as an *id*
+ *     string, not an index, so a reorder or eviction of items keeps focus on the same logical
+ *     item (or snaps to the nearest survivor) rather than silently jumping to whatever now sits
+ *     at the old index.
+ *   - {@link WindowedList} + {@link OverflowRow} — render wrappers for views that don't need
+ *     bespoke layout. Overflow cues use the `glyphs.moreAbove` / `glyphs.moreBelow` tokens.
  */
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Box, Text, useInput, type Key } from 'ink';
+import { Box, Text, useInput } from 'ink';
 import { glyphs, spacing } from '@src/application/ui/tui/theme/tokens.ts';
-import { isChord } from '@src/application/ui/tui/runtime/key-chord.ts';
 
-/** How long after mount a move may wait for the rows to arrive. */
-const TYPE_AHEAD_MS = 1500;
-
-/** Visible slice of a list. `start` inclusive, `end` exclusive. */
+/**
+ * Visible slice of a list. `start` inclusive, `end` exclusive. `hiddenAbove` / `hiddenBelow` are
+ * the counts of items clipped off each edge — zero when the whole list fits in the window — so a
+ * caller can feed them straight into {@link OverflowRow} without re-deriving
+ * `items.length - window.end` at every call site.
+ */
 export interface ListWindow {
   readonly start: number;
   readonly end: number;
@@ -20,7 +35,17 @@ export interface ListWindow {
 
 const clamp = (n: number, min: number, max: number): number => Math.max(min, Math.min(max, n));
 
-/** Compute a cursor-centred slice of a flat, homogeneous item list. */
+/**
+ * Compute a cursor-centred slice of a flat, homogeneous item list. Keeps `focusedIndex` inside
+ * `[start, end)` with roughly one window-half of context on either side, clamped to list bounds.
+ * Returns the full list (no hidden items) when everything fits within `visibleRows`.
+ *
+ * Defensive on bad inputs: an empty list (`totalItems <= 0`) yields an empty window. A
+ * non-positive `visibleRows` means "no cap supplied" (mirrors the anchored card-window
+ * convention a `maxTasks?: number` caller relies on when the budget is absent) and returns the
+ * full range rather than an empty one, so an unbounded caller is a transparent no-op. Pure —
+ * safe to memoise on its three inputs.
+ */
 export const computeListWindow = (totalItems: number, focusedIndex: number, visibleRows: number): ListWindow => {
   if (totalItems <= 0) return { start: 0, end: 0, hiddenAbove: 0, hiddenBelow: 0 };
   if (visibleRows <= 0 || totalItems <= visibleRows) {
@@ -45,8 +70,6 @@ export interface UseListWindowOptions<T> {
   readonly active?: boolean | undefined;
   readonly onSubmit?: ((item: T) => void) | undefined;
   readonly initialCursorId?: string | undefined;
-  /** Space submits like ↵ — off by default because other lists give Space their own meaning. */
-  readonly submitOnSpace?: boolean | undefined;
 }
 
 export interface UseListWindowResult<T> {
@@ -57,36 +80,21 @@ export interface UseListWindowResult<T> {
   readonly focusedItem: T | undefined;
 }
 
-/** Moves typed before the rows load (section switch + immediate ↓) wait for the data instead of vanishing. */
-const useTypeAheadMoves = (
-  itemCount: number,
-  active: boolean,
-  apply: (input: string, key: Key) => void
-): { readonly hold: (input: string, key: Key) => void } => {
-  const mountedAt = useRef(Date.now());
-  const pending = useRef<Array<{ input: string; key: Key }>>([]);
-  const applyRef = useRef(apply);
-  applyRef.current = apply;
-
-  useEffect(() => {
-    if (itemCount === 0 || pending.current.length === 0) return;
-    const held = pending.current;
-    pending.current = [];
-    if (!active || Date.now() - mountedAt.current >= TYPE_AHEAD_MS) return;
-    for (const m of held) applyRef.current(m.input, m.key);
-  }, [itemCount, active]);
-
-  return {
-    hold: (input, key) => {
-      const isMove = key.upArrow || key.downArrow || key.pageUp || key.pageDown || input === 'j' || input === 'k';
-      if (isMove && Date.now() - mountedAt.current < TYPE_AHEAD_MS && pending.current.length < 8) {
-        pending.current.push({ input, key });
-      }
-    },
-  };
-};
-
-/** Hook that owns cursor + keyboard for a windowed list. */
+/**
+ * Hook that owns cursor + keyboard for a windowed list.
+ *
+ * The cursor is an *id*, not an index: every render resolves the focused index by locating the
+ * stored id in the current `items`. When the id is gone (item evicted, or reordered out of the
+ * list), we snap to the nearest survivor by the *prior* index — clamped — so focus stays on
+ * something stable instead of teleporting. A reorder that keeps the id present keeps focus on the
+ * same logical item even though its index changed.
+ *
+ * Keys (active gated by `active`, default true): ↑/`k` up, ↓/`j` down (arrows primary, vim
+ * aliases), PageUp/PageDown by `visibleRows`, Home first, End last, Enter/Return submits.
+ * `g`/`G` vim aliases are intentionally absent — `g` is bound to the global progress overlay
+ * and binding it here causes a double-fire on list surfaces. Home/End cover the same ground.
+ * Movement clamps at both bounds and rewrites the cursor id to the landing item's id.
+ */
 export function useListWindow<T>({
   items,
   getId,
@@ -94,16 +102,18 @@ export function useListWindow<T>({
   active = true,
   onSubmit,
   initialCursorId,
-  submitOnSpace = false,
 }: UseListWindowOptions<T>): UseListWindowResult<T> {
   const [cursorId, setCursorId] = useState<string>(initialCursorId ?? '');
 
-  // The prior resolved index — the snap anchor for an eviction.
+  // The prior resolved index — the snap anchor for an eviction. Kept in a ref (not state) so
+  // updating it never schedules a render; it's read only inside the render-pure resolution below
+  // and the keypress handler.
   const lastIndexRef = useRef<number>(0);
-  // Several keys in one stdin chunk run before any re-render, so each move must start from the last move, not the render.
-  const liveCursorRef = useRef<string>(initialCursorId ?? '');
 
-  // Resolve the effective focus for THIS render, purely. When the stored id is present, that's the focus.
+  // Resolve the effective focus for THIS render, purely. When the stored id is present, that's
+  // the focus. When it's absent (item evicted, or reordered out), snap to the nearest survivor by
+  // the prior index, clamped into range. The returned values use this resolution directly, so the
+  // current render is already correct — no flash, no extra round-trip through an effect.
   const focusedIndex = useMemo(() => {
     if (items.length === 0) return -1;
     const found = items.findIndex((item) => getId(item) === cursorId);
@@ -116,11 +126,11 @@ export function useListWindow<T>({
   // before the reconciliation effect persists it back into state.
   const effectiveCursorId = focusedItem !== undefined ? getId(focusedItem) : cursorId;
 
-  // Persist the snap: keep the ref anchor and the cursor-id state in sync with the resolved focus so the next
-  // interaction starts from a stable, correct position.
+  // Persist the snap: keep the ref anchor and the cursor-id state in sync with the resolved focus
+  // so the next interaction starts from a stable, correct position. Runs after render; the values
+  // this hook returns already reflect `focusedIndex`, so this only matters for subsequent input.
   useEffect(() => {
     if (focusedIndex >= 0) lastIndexRef.current = focusedIndex;
-    liveCursorRef.current = effectiveCursorId;
     if (effectiveCursorId !== cursorId) setCursorId(effectiveCursorId);
   }, [focusedIndex, effectiveCursorId, cursorId]);
 
@@ -129,39 +139,24 @@ export function useListWindow<T>({
     const item = items[target];
     if (item !== undefined) {
       lastIndexRef.current = target;
-      liveCursorRef.current = getId(item);
       setCursorId(getId(item));
     }
   };
 
-  const liveIndex = (): number => {
-    const found = items.findIndex((item) => getId(item) === liveCursorRef.current);
-    if (found >= 0) return found;
-    return focusedIndex < 0 ? 0 : focusedIndex;
-  };
-
-  const applyKey = (input: string, key: Key): void => {
-    const at = liveIndex();
-    const letter = isChord(key) ? '' : input;
-    if (key.upArrow || letter === 'k') moveTo(at - 1);
-    else if (key.downArrow || letter === 'j') moveTo(at + 1);
-    else if (key.pageUp) moveTo(at - visibleRows);
-    else if (key.pageDown) moveTo(at + visibleRows);
-    else if (key.home) moveTo(0);
-    else if (key.end) moveTo(items.length - 1);
-    else if (key.return || (submitOnSpace && letter === ' ')) {
-      const item = items[at];
-      if (item !== undefined) onSubmit?.(item);
-    }
-  };
-
-  const typeAhead = useTypeAheadMoves(items.length, active, applyKey);
-
   useInput(
     (input, key) => {
-      if (!active) return;
-      if (items.length === 0) typeAhead.hold(input, key);
-      else applyKey(input, key);
+      if (!active || items.length === 0) return;
+      const at = focusedIndex < 0 ? 0 : focusedIndex;
+      if (key.upArrow || input === 'k') moveTo(at - 1);
+      else if (key.downArrow || input === 'j') moveTo(at + 1);
+      else if (key.pageUp) moveTo(at - visibleRows);
+      else if (key.pageDown) moveTo(at + visibleRows);
+      else if (key.home) moveTo(0);
+      else if (key.end) moveTo(items.length - 1);
+      else if (key.return) {
+        const item = items[at];
+        if (item !== undefined) onSubmit?.(item);
+      }
     },
     { isActive: active }
   );
@@ -185,13 +180,16 @@ export function useListWindow<T>({
 export interface OverflowRowProps {
   readonly direction: 'above' | 'below';
   readonly count: number;
-  /** Trailing word(s) after the count — defaults to `more`. */
+  /**
+   * Trailing word(s) after the count — defaults to `more`. Override for a caller with its own
+   * copy (e.g. the Tasks panel's anchored card window says `more above` / `more below`).
+   */
   readonly label?: string;
 }
 
 /**
- * Dim "N more" overflow cue headed by the `moreAbove` / `moreBelow` glyph token. Renders nothing when `count <= 0` so
- * callers can mount it unconditionally.
+ * Dim "N more" overflow cue headed by the `moreAbove` / `moreBelow` glyph token. Renders nothing
+ * when `count <= 0` so callers can mount it unconditionally.
  */
 export const OverflowRow = ({ direction, count, label = 'more' }: OverflowRowProps): React.JSX.Element | null => {
   if (count <= 0) return null;
@@ -217,8 +215,13 @@ export interface WindowedListProps<T> {
 }
 
 /**
- * Thin render wrapper for views that don't need bespoke layout: builds the window via {@link useListWindow}, renders
- * the sliced visible items between two {@link OverflowRow}s.
+ * Thin render wrapper for views that don't need bespoke layout: builds the window via
+ * {@link useListWindow}, renders an {@link OverflowRow} above, the sliced visible items, and an
+ * {@link OverflowRow} below. Long lists obey the slice-before-map mandate by construction.
+ *
+ * Views that need a custom row layout consume {@link useListWindow} directly instead; this wrapper
+ * is the documented drop-in for the simple homogeneous-list case (DESIGN-SYSTEM §6.4).
+ *
  * @public
  */
 export function WindowedList<T>({

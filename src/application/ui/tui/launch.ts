@@ -1,4 +1,14 @@
-/** TUI bootstrap. */
+/**
+ * TUI bootstrap. Resolves storage paths, ensures roots exist, loads settings, builds the
+ * harness signal bus (populated from the EventBus's `'ai-signal'` AppEvents) + the log entry bus
+ * (populated from the `'log'` AppEvents), wires deps, then renders App with everything threaded in.
+ *
+ * Pre-render errors fall through to a tiny stderr message + non-zero exit so the operator
+ * sees exactly what went wrong without staring at a blank Ink frame.
+ *
+ * Doctor probes are not run here — `HomeView` re-runs them on every mount so the banner
+ * reflects the current state (e.g. right after the welcome flow saves settings).
+ */
 
 import React from 'react';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
@@ -37,14 +47,15 @@ import { writeHeapSnapshotToDir } from '@src/integration/observability/heap-snap
 import { createOsNotificationDispatcher } from '@src/integration/observability/os-notification-dispatcher.ts';
 import { startNotificationSubscriber } from '@src/business/observability/notification-subscriber.ts';
 import { runBundleIntegrityCheck } from '@src/application/bootstrap/run-bundle-integrity-check.ts';
-import { messageOf } from '@src/domain/value/error/error-message.ts';
 
 interface Bootstrapped {
   readonly app: Parameters<typeof App>[0];
   readonly drain: () => void;
   /**
-   * Pending-migration pre-flight. When `pending` is true, `launchTui` routes the {@link MigrationRoute} consent gate
-   * before the App on the initial mount.
+   * Pending-migration pre-flight. When `pending` is true, `launchTui` routes the
+   * {@link MigrationRoute} consent gate before the App on the initial mount. Absent (`pending`
+   * false) ⇒ the App mounts directly. The engine + ctx ingredients are carried so the render thunk
+   * can build the gate without re-resolving them.
    */
   readonly migration: {
     readonly pending: boolean;
@@ -56,7 +67,23 @@ interface Bootstrapped {
   };
 }
 
-/** Build the EventBus-`log` → logBus forwarder. */
+/**
+ * Build the EventBus-`log` → logBus forwarder. This forwarder is the UI-floor chokepoint: the
+ * log-level gate is applied HERE, at ingest, against the live gate (`gate.get()` per event) —
+ * providers publish every stream-json line to the EventBus verbatim, so this is the single place
+ * that drops sub-floor events before they reach the UI. (The persistent events.ndjson sink writes
+ * them regardless of floor.)
+ *
+ * Admitted events are pushed through a CoalescedBuffer rather than emitted one-by-one: at a DEBUG
+ * floor a long run fans thousands of lines/sec, and one `logBus.emit` per line drove one React
+ * commit per line in `useSinkStream` → unthrottled Yoga layout → OOM. The buffer delivers a
+ * trailing window at most ~16fps; each flush emits its batch into `logBus` inside one synchronous
+ * turn so the downstream setStates collapse into a single commit.
+ *
+ * Returns the buffer (for `flushNow` on heap-critical + `stop` on drain) and the bus-unsubscribe
+ * (so a re-launched TUI in the same Node process does not stack a second forwarder on the dead one
+ * and double-publish every event).
+ */
 const createLogForwarder = (
   eventBus: AppDeps['eventBus'],
   logBus: BusSink<LogEvent>,
@@ -64,7 +91,9 @@ const createLogForwarder = (
 ): { readonly buffer: CoalescedBuffer<LogEvent>; readonly unsubscribe: () => void } => {
   const buffer = createCoalescedBuffer<LogEvent>({
     limit: 2000,
-    // Delta semantics: a rolling window would re-emit earlier flushes into `logBus` (duplicate lines + heap regrowth).
+    // Delta semantics: this forwarder re-emits each window value into `logBus`. A rolling window
+    // would re-emit prior-flush events every tick and re-grow the bus (the OOM we are fixing), so
+    // each flush must deliver only the events admitted since the previous flush.
     clearOnFlush: true,
     onFlush: (window) => {
       for (const event of window) logBus.emit(event);
@@ -77,7 +106,20 @@ const createLogForwarder = (
 };
 
 /**
- * Build the EventBus-`ai-signal` → harnessBus forwarder — the harness-signal mirror of {@link createLogForwarder}.
+ * Build the EventBus-`ai-signal` → harnessBus forwarder — the harness-signal mirror of {@link
+ * createLogForwarder}. Every AI-spawning leaf publishes a validated signal onto the bus as a
+ * single `ai-signal` AppEvent (see `publish-signal.ts`); this is the one place that re-shapes it
+ * into the TUI's {@link SignalBusEntry} and forwards it into `harnessBus`.
+ *
+ * Unlike the log forwarder this does NOT coalesce through a buffer: per-task signal volume is two
+ * orders of magnitude below a DEBUG-floor log stream (~20-40 signals per task vs. thousands of
+ * stream-json lines/sec — see `execute-view.tsx`'s `HARNESS_SIGNAL_LIMIT` sizing note), so a
+ * direct forward-per-emit never approaches the commit-storm rate `createLogForwarder`'s buffering
+ * exists to guard against.
+ *
+ * Returns the bus-unsubscribe (so a re-launched TUI in the same Node process does not stack a
+ * second forwarder on the dead one and double-publish every event) — disposed alongside
+ * `unsubLogForward` at drain.
  */
 const createSignalForwarder = (eventBus: AppDeps['eventBus'], harnessBus: BusSink<SignalBusEntry>): (() => void) =>
   eventBus.subscribe((event) => {
@@ -99,7 +141,11 @@ interface ObservabilityWiring {
 }
 
 /**
- * Wire both observability buses off the composition root's EventBus: build the harness-signal bus + log bus.
+ * Wire both observability buses off the composition root's EventBus: build the harness-signal
+ * bus + log bus, forward `'ai-signal'` into the harness bus (see {@link createSignalForwarder})
+ * and `'log'` into the log bus through the log-level gate (see {@link createLogForwarder}).
+ * Extracted so `bootstrap` reads as a linear sequence of phases rather than inlining both
+ * forwarders' setup.
  */
 const wireObservability = (eventBus: AppDeps['eventBus'], settings: Settings): ObservabilityWiring => {
   // Both buses are populated below by subscribing to the wired EventBus's `'ai-signal'` / `'log'`
@@ -111,8 +157,10 @@ const wireObservability = (eventBus: AppDeps['eventBus'], settings: Settings): O
   // for the full rationale.
   const unsubSignalForward = createSignalForwarder(eventBus, harnessBus);
 
-  // Forward EventBus 'log' events into the TUI's log bus (coalesced, gate-at-ingest). See createLogForwarder for the
-  // full rationale.
+  // Forward EventBus 'log' events into the TUI's log bus (coalesced, gate-at-ingest). See
+  // createLogForwarder for the full rationale. Log-level gate is a small mutable holder seeded
+  // from `settings.logging.level`; the Settings view swaps the floor at runtime via
+  // `gate.set(newLevel)` through the LogLevelContext, and the forwarder reads it per event.
   const logLevelGate = createLogLevelGate(settings.logging.level);
   const { buffer: logForwarder, unsubscribe: unsubLogForward } = createLogForwarder(eventBus, logBus, logLevelGate);
 
@@ -120,7 +168,11 @@ const wireObservability = (eventBus: AppDeps['eventBus'], settings: Settings): O
 };
 
 /**
- * Build the heap-watchdog `onWarning` callback — early, non-disruptive relief on entering the 0.80 band.
+ * Build the heap-watchdog `onWarning` callback — early, non-disruptive relief on entering the
+ * 0.80 band. Sheds finished SessionRecords (the dominant app-root-reachable retainer) so GC
+ * reclaims headroom BEFORE pressure reaches critical. Unlike the critical handler it does NOT
+ * clear the live log/harness buffers (the operator keeps their log panel) and writes no heap
+ * snapshot (no event-loop stall). `shedTerminal` never touches a running record. Must never throw.
  */
 const createHeapWarningHandler = (args: {
   readonly logger: AppDeps['logger'];
@@ -128,7 +180,10 @@ const createHeapWarningHandler = (args: {
 }): (() => void) => {
   const { logger, sessions } = args;
   return () => {
-    // Clear the perf-hooks timeline FIRST.
+    // Clear the perf-hooks timeline FIRST. React's dev-reconciler per-fiber measures are the
+    // dominant retainer, and they live outside every app buffer — `shedTerminal` below cannot
+    // reach them. Clearing here makes 0.80-band relief drop the real weight, not just finished
+    // records. Safe: React never reads its own measures back. See startPerfTimelineGuard.
     performance.clearMeasures();
     performance.clearMarks();
     const dropped = sessions.shedTerminal();
@@ -139,8 +194,10 @@ const createHeapWarningHandler = (args: {
 };
 
 /**
- * Build the heap-watchdog `onCritical` callback. Captured into its own factory so `bootstrap` stays lean and the
- * post-mortem logic is testable/readable in isolation.
+ * Build the heap-watchdog `onCritical` callback. Captured into its own factory so `bootstrap`
+ * stays lean and the post-mortem logic is testable/readable in isolation. The snapshot is the
+ * real diagnostic (it names the dominant retainer); the buffer-clear is just defensive — those
+ * buffers are small-capped so clearing them frees little. Must never throw.
  */
 const createHeapCriticalHandler = (args: {
   readonly logger: AppDeps['logger'];
@@ -151,18 +208,25 @@ const createHeapCriticalHandler = (args: {
 }): (() => void) => {
   const { logger, logForwarder, harnessBus, logBus, sessions } = args;
   return () => {
-    // Defensive buffer-clear: synchronous, fast in-memory ops — run these first so memory is reclaimed immediately
-    // (before the snapshot write steals time).
+    // Defensive buffer-clear: synchronous, fast in-memory ops — run these first so memory is
+    // reclaimed immediately (before the snapshot write steals time). Drop (do NOT flush) the
+    // batch the forwarder is holding; flushing would re-emit into `logBus` immediately before
+    // we empty it — pointless churn. discard() empties the window without emitting.
     logForwarder.discard();
     harnessBus.clear();
     logBus.clear();
 
-    // Clear the perf-hooks timeline too: React's dev-reconciler measures are the dominant retainer and live OUTSIDE
-    // every app buffer — which is exactly why shedTerminal here historically freed nothing.
+    // Clear the perf-hooks timeline too: React's dev-reconciler measures are the dominant retainer
+    // and live OUTSIDE every app buffer — which is exactly why shedTerminal here historically freed
+    // nothing. Safe: React never reads its own measures back. See startPerfTimelineGuard.
     performance.clearMeasures();
     performance.clearMarks();
 
-    // Shed the dominant reachable retainer: drop EVERY terminal SessionRecord (with its trace snapshot).
+    // Shed the dominant reachable retainer: drop EVERY terminal SessionRecord (with its trace
+    // snapshot). The small-capped buffers above free little; completed/aborted/failed run records
+    // accumulated across a long session are the real weight the app root can reach. shedTerminal
+    // never touches a running record, so a healthy in-flight run is never disturbed — this only
+    // sheds memory from work that is already done.
     const dropped = sessions.shedTerminal();
     if (dropped > 0) {
       logger.warn(`heap critical — shed ${dropped} finished session record(s) for memory relief`);
@@ -172,8 +236,12 @@ const createHeapCriticalHandler = (args: {
       );
     }
 
-    // Heap snapshot deferred off the hot path via setImmediate. v8.writeHeapSnapshot() is a synchronous V8 operation
-    // that blocks the Node.js event loop for several seconds on large heaps.
+    // Heap snapshot deferred off the hot path via setImmediate. v8.writeHeapSnapshot() is a
+    // synchronous V8 operation that blocks the Node.js event loop for several seconds on large
+    // heaps — manifesting as a complete TUI freeze if called here synchronously. Deferring with
+    // setImmediate gives the event loop one turn to process any pending work (re-render, GC
+    // from the buffer clears above) before we block it. The snapshot is purely diagnostic; a
+    // one-tick delay has no operational impact.
     setImmediate(() => {
       const snapshot = writeHeapSnapshotToDir('.diagnostics');
       if (snapshot.ok) {
@@ -189,8 +257,25 @@ const createHeapCriticalHandler = (args: {
 };
 
 /**
- * Bound Node's process-global performance timeline. Safe only while nothing reads marks / measures back and React
- * emits numeric `{start,end}` measures — re-audit on a React upgrade.
+ * Bound Node's process-global performance timeline. React 19's DEVELOPMENT reconciler writes a
+ * `performance.measure()` per committed fiber on every commit (the changed-props diff is attached
+ * as the measure's `detail`), and Node's `perf_hooks` retains every entry unbounded. A multi-hour
+ * TUI run commits constantly, so the timeline grows without bound and OOMs from OUTSIDE every app
+ * buffer — the heap watchdog's `shedTerminal` structurally cannot reach it. Nothing in this process
+ * consumes marks/measures (the app + Ink only ever call `performance.now()`), so we drop the whole
+ * timeline on a fixed cadence. Under a production React build this is a silent no-op (the reconciler
+ * emits nothing), so it is safe to install unconditionally.
+ *
+ * Throw-safety (timing-independent): `clearMeasures()` / `clearMarks()` can never make React's
+ * `performance.measure` throw, because React 19.2's reconciler builds every measure from a numeric
+ * `{ start, end }` options object — never a named start-mark — and never reads the timeline back
+ * (zero `getEntries*` calls). So a clear can neither split a mark→measure pair nor perturb
+ * reconciliation, however it interleaves with a commit. Unref'd so it never keeps the process
+ * alive; `clear*` are cheap in-memory splices.
+ *
+ * INVARIANT: this clear is process-global. If a future dependency ever emits a `performance.measure`
+ * that references a NAMED start mark (not numeric `{ start, end }` options), or any TUI-process
+ * feature ever CONSUMES marks/measures, re-audit before assuming this guard stays safe.
  */
 const startPerfTimelineGuard = (): { readonly stop: () => void } => {
   const handle = setInterval(() => {
@@ -201,7 +286,12 @@ const startPerfTimelineGuard = (): { readonly stop: () => void } => {
   return { stop: (): void => clearInterval(handle) };
 };
 
-/** Wire OS-attention notifications. */
+/**
+ * Wire OS-attention notifications. Kept out of `wire()` so tests that build `wire()` never
+ * accidentally pop NotificationCenter dings on the dev machine — only the TUI bootstrap attaches
+ * the real adapter + subscriber. Disable gate reads the boot-time settings snapshot (a runtime
+ * toggle requires relaunch; see wire.ts comment).
+ */
 const wireOsNotifications = (deps: AppDeps, settings: Settings): (() => void) => {
   const osNotificationDispatcher = createOsNotificationDispatcher({ logger: deps.logger });
   return startNotificationSubscriber({
@@ -212,7 +302,10 @@ const wireOsNotifications = (deps: AppDeps, settings: Settings): (() => void) =>
 };
 
 /**
- * Resolve the launch-time view state — first-run detection lives in launch-routing.ts as a pure function.
+ * Resolve the launch-time view state — first-run detection lives in launch-routing.ts as a pure
+ * function; here we resolve its side-effecting inputs (settings + projects + persisted
+ * last-selection) and hand them off. Extracted so `bootstrap` reads as a linear sequence of
+ * phases rather than inlining every read this phase needs.
  */
 const resolveLaunchViewState = async (
   deps: AppDeps,
@@ -233,18 +326,13 @@ const resolveLaunchViewState = async (
   return { ...initialState, lastSelectionStore };
 };
 
-const runBootChecks = async (deps: AppDeps): Promise<void> => {
-  await runBundleIntegrityCheck(deps.logger);
-  // Fallback for the orphan reaper: kill AI CLI process groups that a crashed earlier run left alive.
-  void deps.reapInterruptedRuns.execute();
-};
-
 const bootstrap = async (options: LaunchTuiOptions = {}): Promise<Bootstrapped> => {
   const paths = resolveStoragePaths();
   if (!paths.ok) throw new Error(`storage-paths: ${paths.error.message}`);
 
-  // Legacy-layout check runs BEFORE ensureStorageRoots and BEFORE the Ink mount so the user sees the recovery message
-  // on the regular terminal (alt-screen hasn't engaged yet).
+  // Legacy-layout check runs BEFORE ensureStorageRoots and BEFORE the Ink mount so
+  // the user sees the recovery message on the regular terminal (alt-screen hasn't
+  // engaged yet). On hit we exit non-zero.
   const legacy = await detectLegacyLayout(paths.value.appRoot);
   if (legacy.kind === 'legacy-v0.6') {
     process.stderr.write(renderLegacyLayoutMessage(legacy));
@@ -264,9 +352,13 @@ const bootstrap = async (options: LaunchTuiOptions = {}): Promise<Bootstrapped> 
     ...(options.providerSpawn !== undefined ? { providerSpawn: options.providerSpawn } : {}),
   });
 
-  // Runs once per process: `launchTui` is the single bare-`ralphctl` entry point and `bootstrap` runs exactly once
-  // per invocation.
-  await runBootChecks(deps);
+  // Runs once per process: `launchTui` is the single bare-`ralphctl` entry point and `bootstrap`
+  // runs exactly once per invocation. A hard failure throws here and is caught by `launchTui`
+  // below, which renders it as a one-line stderr message instead of a raw stack trace. See
+  // run-bundle-integrity-check.ts for the full story.
+  await runBundleIntegrityCheck(deps.logger);
+  // Fallback for the orphan reaper: kill AI CLI process groups that a crashed earlier run left alive.
+  void deps.reapInterruptedRuns.execute();
 
   const { harnessBus, logBus, logLevelGate, logForwarder, unsubSignalForward, unsubLogForward } = wireObservability(
     deps.eventBus,
@@ -277,14 +369,22 @@ const bootstrap = async (options: LaunchTuiOptions = {}): Promise<Bootstrapped> 
   // shed finished SessionRecords (the dominant app-root-reachable retainer) under memory pressure.
   const sessions = createSessionManager({ runs: deps.inProcessRuns });
 
-  // Heap watchdog gives the operator a warning before V8 SIGKILLs the harness on a long-running session.
+  // Heap watchdog gives the operator a warning before V8 SIGKILLs the harness on a long-running
+  // session. Two-tier relief: on 'warning' (0.80) it sheds finished session records EARLY and
+  // non-disruptively (no buffer clear, no snapshot) so GC reclaims headroom before pressure peaks;
+  // on 'critical' it sheds again, clears the small-capped in-memory buffers, and captures a heap
+  // snapshot for post-mortem (names the dominant retainer if the shed was not enough). The session
+  // shed + snapshot are the load-bearing actions; the buffer clear is defensive.
   const heapWatchdog = startHeapWatchdog({
     eventBus: deps.eventBus,
     onWarning: createHeapWarningHandler({ logger: deps.logger, sessions }),
     onCritical: createHeapCriticalHandler({ logger: deps.logger, logForwarder, harnessBus, logBus, sessions }),
   });
 
-  // Bound Node's perf-hooks timeline.
+  // Bound Node's perf-hooks timeline. React's dev reconciler writes a performance.measure per fiber
+  // per commit, retained unbounded by Node — a leak OUTSIDE every app buffer that the heap watchdog
+  // structurally cannot shed. The periodic guard drops it on a cadence; the watchdog handlers above
+  // also clear it the moment real pressure fires. No-op under a production React build.
   const perfTimelineGuard = startPerfTimelineGuard();
 
   const unsubNotifications = wireOsNotifications(deps, settings.value);
@@ -296,7 +396,11 @@ const bootstrap = async (options: LaunchTuiOptions = {}): Promise<Bootstrapped> 
     paths.value.stateRoot
   );
 
-  // Pending-migration pre-flight. Runs AFTER ensureStorageRoots, BEFORE the App mount.
+  // Pending-migration pre-flight. Runs AFTER ensureStorageRoots, BEFORE the App mount. The engine
+  // is a pure factory; `needsMigration` only reads the marker file (absent ⇒ pending). When pending,
+  // launchTui routes the consent gate first. The TUI is already TTY-gated at the top of launchTui, so
+  // this is always interactive — no separate non-TTY branch is needed here (the CLI bootstrap, which
+  // CAN run headless, deliberately skips migration entirely; the TUI owns consent).
   const migrationEngine = createDataMigrationEngine();
   const migrationPending = await migrationEngine.needsMigration(paths.value.dataRoot);
 
@@ -336,14 +440,19 @@ const bootstrap = async (options: LaunchTuiOptions = {}): Promise<Bootstrapped> 
       engine: migrationEngine,
       dataRoot: paths.value.dataRoot,
       stateRoot: paths.value.stateRoot,
-      now: deps.clock,
+      now: () => String(deps.clock()),
       writeFile: deps.writeFile,
     },
   };
 };
 
 /**
- * Decide whether the initial Ink mount routes the {@link MigrationRoute} consent gate (vs. the App directly).
+ * Decide whether the initial Ink mount routes the {@link MigrationRoute} consent gate (vs. the App
+ * directly). The gate shows ONLY when a migration is pending AND it has not already resolved this
+ * session — once resolved, a later pause/resume remount renders the App directly so an AI-session
+ * pause never re-shows the consent screen. Pure so the launch wiring is unit-testable without a
+ * full bootstrap.
+ *
  * @public
  */
 export const shouldShowMigrationGate = (pending: boolean, gateResolved: boolean): boolean => pending && !gateResolved;
@@ -351,15 +460,29 @@ export const shouldShowMigrationGate = (pending: boolean, gateResolved: boolean)
 export interface LaunchTuiOptions {
   /**
    * Per-launch overrides for `settings.ai.implement` — parsed from the bare-`ralphctl`
-   * `--implement-{generator,evaluator}-{provider,model}` flags.
+   * `--implement-{generator,evaluator}-{provider,model}` flags. Stored on the module-level
+   * holder so the TUI's `flows-view` reads them when assembling the implement {@link
+   * LaunchExtras}; cleared on every fresh launch so a prior run's overrides don't leak.
    */
   readonly implementRoleOverrides?: LaunchExtras['implementRoleOverrides'];
-  /** Replaces the AI adapters' `node:child_process.spawn`. */
+  /**
+   * Replaces the AI adapters' `node:child_process.spawn`. Threaded into `wire()` and carried on
+   * `AppDeps.providerSpawn`, so it survives the per-launch adapter rebuild that every flow goes
+   * through. Git / gh keep spawning for real.
+   *
+   * Sole production producer: `ralphctl demo --script`, which replays a canned generator →
+   * evaluator transcript so the first-run recording exercises the real chain without an
+   * authenticated CLI. Omitted everywhere else.
+   */
   readonly providerSpawn?: ProviderSpawn;
 }
 
 export const launchTui = async (options: LaunchTuiOptions = {}): Promise<void> => {
-  // TTY pre-flight.
+  // TTY pre-flight. Ink's raw-mode input fails *post-mount* inside its useInput effect on a
+  // non-TTY stdin (pipe / CI / cron), which bypasses bootstrap's catch and dumps ~2KB of
+  // react-reconciler frames to stdout while exiting 0. Bail before mounting with a one-line
+  // stderr hint and a non-zero exit so wrapping scripts see a real failure. (This is the named
+  // exception to the "mount is unconditional" invariant in CLAUDE.md.)
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
     process.stderr.write(
       'ralphctl: the interactive TUI requires a terminal — run inside a TTY, ' +
@@ -376,20 +499,26 @@ export const launchTui = async (options: LaunchTuiOptions = {}): Promise<void> =
   try {
     booted = await bootstrap(options);
   } catch (err) {
-    const msg = messageOf(err);
+    const msg = err instanceof Error ? err.message : String(err);
     process.stderr.write(`ralphctl: failed to start TUI — ${msg}\n`);
     process.exitCode = 1;
     return;
   }
 
   // Live in-memory holder for the current selection, seeded from the launch-time persisted value.
+  // Each interactive-flow pause unmounts the React tree and remounts it via `renderElement()`;
+  // SelectionProvider re-seeds from this holder, so an in-session sprint switch survives the
+  // remount instead of snapping back to the stale launch-time `initialSelection`.
   let liveSelection = booted.app.initialSelection;
   const onSelectionChange = (next: SelectionSeed): void => {
     liveSelection = next;
     booted.app.onSelectionChange?.(next);
   };
 
-  // Migration consent gate. Routed ONLY on the initial mount while a migration is pending and has not yet resolved.
+  // Migration consent gate. Routed ONLY on the initial mount while a migration is pending and has
+  // not yet resolved. `gateResolved` is a launch-closure flag (not React state, which is lost on the
+  // pause/resume remount): once the gate resolves, every later remount renders the App directly so a
+  // mid-session AI-session pause never re-shows the consent screen.
   let gateResolved = false;
   const appProps = (): Parameters<typeof App>[0] => ({
     ...booted.app,

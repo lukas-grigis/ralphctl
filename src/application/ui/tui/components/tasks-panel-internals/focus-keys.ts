@@ -1,28 +1,26 @@
-/** Focus-key plumbing for the Tasks panel cursor model. */
+/**
+ * Focus-key plumbing for the Tasks panel cursor model. Keys are stable across re-renders
+ * (composed of `scope:absoluteIndex`) so a moving cursor doesn't jump when a new signal lands.
+ */
 
 import type { BucketedExecution } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
 import type { HarnessSignal } from '@src/domain/signal.ts';
-import { rowForSignal } from '@src/application/ui/tui/components/tasks-panel-internals/signal-rows.tsx';
 
 /**
- * Build a stable focusable-row key. Composed of `scope:absoluteIndex` where `scope` is either the literal string
- * `orphan` or a task id (uuid v7).
+ * Build a stable focusable-row key. Composed of `scope:absoluteIndex` where `scope` is either
+ * the literal string `orphan` or a task id (uuid v7). Absolute index is the signal's position
+ * in the original (unsliced) signal array — surviving the slice means the key stays valid even
+ * when newer signals push older ones off the visible window.
  */
 export const focusKey = (scope: string, absoluteIndex: number): string => `${scope}:${String(absoluteIndex)}`;
 
-// Derived from the renderer so the cursor never lands on a row that renders nothing (or only a compaction marker).
-/** Predicate: is this signal type focusable in the cursor model? */
-export const isFocusable = (sig: HarnessSignal): boolean => rowForSignal(sig) !== undefined;
-
-/** Last `max` entries + absolute start; renderers and focus keys share it to agree (`slice(-0)` would return all). */
-export const tailSlice = <T>(
-  list: readonly T[],
-  max: number
-): { readonly rows: readonly T[]; readonly start: number } => {
-  if (max <= 0) return { rows: [], start: list.length };
-  const start = Math.max(0, list.length - max);
-  return { rows: list.slice(start), start };
-};
+/**
+ * Predicate: is this signal type focusable in the cursor model? Non-focusable signals are
+ * either rendered by a dedicated component outside the signal stream (evaluation) or render as
+ * a dedented lifecycle boundary (context-compacted) where focus would feel out of place.
+ */
+export const isFocusable = (sig: HarnessSignal): boolean =>
+  sig.type !== 'evaluation' && sig.type !== 'context-compacted';
 
 /** Build the visible row keys for one scope's signal slice. */
 export const focusKeysForSlice = (
@@ -40,8 +38,10 @@ export const focusKeysForSlice = (
 };
 
 /**
- * Compute the flat sequence of focusable row keys in render order: orphans first (matching the on-screen ordering),
- * then each task's visible signal slice.
+ * Compute the flat sequence of focusable row keys in render order: orphans first (matching
+ * the on-screen ordering), then each task's visible signal slice. Keys are stable across
+ * re-renders so a moving cursor doesn't jump when a new signal lands; non-focusable signals
+ * (`evaluation`, `context-compacted`) are excluded from the cursor model but still render.
  */
 export const buildFlatFocusKeys = (
   bucketed: BucketedExecution,
@@ -49,11 +49,15 @@ export const buildFlatFocusKeys = (
   maxOrphanSignals: number
 ): readonly string[] => {
   const keys: string[] = [];
-  const orphans = tailSlice(bucketed.orphanSignals, maxOrphanSignals);
-  for (const k of focusKeysForSlice('orphan', orphans.rows, orphans.start)) keys.push(k);
+  const orphanSliceLen = Math.min(bucketed.orphanSignals.length, maxOrphanSignals);
+  const orphanSliceStart = bucketed.orphanSignals.length - orphanSliceLen;
+  const orphanSlice = bucketed.orphanSignals.slice(-orphanSliceLen);
+  for (const k of focusKeysForSlice('orphan', orphanSlice, orphanSliceStart)) keys.push(k);
   for (const task of bucketed.tasks) {
-    const { rows, start } = tailSlice(task.signals, maxSignalsPerTask);
-    for (const k of focusKeysForSlice(task.id, rows, start)) keys.push(k);
+    const sliceLen = Math.min(task.signals.length, maxSignalsPerTask);
+    const sliceStart = task.signals.length - sliceLen;
+    const slice = task.signals.slice(-sliceLen);
+    for (const k of focusKeysForSlice(task.id, slice, sliceStart)) keys.push(k);
   }
   return keys;
 };

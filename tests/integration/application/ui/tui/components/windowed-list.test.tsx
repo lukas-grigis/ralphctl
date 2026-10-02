@@ -140,27 +140,6 @@ describe('useListWindow', () => {
     r.unmount();
   });
 
-  it('applies every key of a burst that arrives in one input chunk, including a trailing ↵', async () => {
-    const items = makeRows(6);
-    let latest: UseListWindowResult<Row> | undefined;
-    const submitted: string[] = [];
-    const r = render(
-      <Harness
-        items={items}
-        visibleRows={6}
-        capture={(api) => (latest = api)}
-        onSubmit={(item) => submitted.push(item.id)}
-        initialCursorId="r0"
-      />
-    );
-    await tick(20);
-    r.stdin.write(`${DOWN}${DOWN}${DOWN}\r`);
-    await tick(30);
-    expect(latest?.cursorId).toBe('r3');
-    expect(submitted).toEqual(['r3']);
-    r.unmount();
-  });
-
   it('Home jumps to the first item and End to the last', async () => {
     const items = makeRows(20);
     let latest: UseListWindowResult<Row> | undefined;

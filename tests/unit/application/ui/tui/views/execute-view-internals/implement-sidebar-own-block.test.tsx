@@ -54,7 +54,6 @@ describe('ImplementSidebar minimap — own-failure block', () => {
         sidebarTaskNavRows={8}
         sidebarFlowStepsRows={8}
         sidebarContextSideBySide={false}
-        showBaseline
         descriptor={makeDescriptor()}
         bucketed={bucketed}
         isRunning={false}

@@ -1,4 +1,10 @@
-/** Sprint detail — async action handlers. */
+/**
+ * Sprint detail — async action handlers.
+ *
+ * `buildSprintDetailHandlers` assembles the `e` / `u` / confirmed-`d` handlers `useSprintDetailBody`
+ * wires into `useSprintDetailShortcuts`. `runUnblock` and `runRemoveTicket` are the underlying
+ * async operations, split out as plain helpers so the mounted-ref guard is written once.
+ */
 
 import type { RefObject } from 'react';
 import type { useEditField } from '@src/application/ui/tui/runtime/use-edit-field.ts';
@@ -27,11 +33,26 @@ interface RunUnblockArgs {
   readonly reload: () => void;
 }
 
-/** The `u` toast for one unblocked task. */
+/**
+ * The `u` toast for one unblocked task. Unblocking on a settled sprint normally REOPENS it
+ * (`done` → `review` → `active`, or `review` → `active`), and that state change is named here —
+ * `UnblockTaskOutput.sprintReopened` — so a closed sprint never comes back open without the
+ * operator seeing it. When the single-active-per-project check refused that reopen,
+ * `UnblockTaskOutput.sprintReopenConflict` carries the reason instead; the toast now mirrors all
+ * three lines the CLI prints for the same conflict (`ui/cli/commands/task.ts`'s `note:` /
+ * `conflict.hint` / retry line) so this surface never goes silent about a sprint that stayed
+ * closed. The follow-up names `r` (this view's reload chord, see `shortcuts.ts`) before `u` again
+ * rather than the CLI's `ralphctl task unblock` retry command: `useSprintBundle` never polls, so
+ * an out-of-process `ralphctl sprint reopen` is invisible here until `r` re-reads the sprint — only
+ * then does the stuck-task gate in `detail-body.tsx` (a `todo` task on a `review` sprint) make `u`
+ * reachable again.
+ */
 const unblockedToast = (name: string, sprintId: SprintId, out: UnblockTaskOutput): string => {
   const head = `unblocked "${name}"`;
   const conflict = out.sprintReopenConflict;
-  // The task IS revived, but its sprint stayed closed — so this is not a plain success.
+  // The task IS revived, but its sprint stayed closed — so this is not a plain success. Lead
+  // with the warning glyph rather than `✓`: the operator has to act on this (close the peer,
+  // then `sprint reopen`), and a tick in front of "cannot reopen" reads as "all done".
   if (conflict !== undefined) {
     const hintClause = conflict.hint !== undefined ? ` ${glyphs.emDash} ${conflict.hint}` : '';
     const retry = `then 'ralphctl sprint reopen ${String(sprintId)}', then r to reload, then u again`;
@@ -39,8 +60,9 @@ const unblockedToast = (name: string, sprintId: SprintId, out: UnblockTaskOutput
   }
   const reopened = out.sprintReopened;
   if (reopened === undefined) return `${glyphs.check} ${head}`;
-  // `from === sprint.status` means the retried hop failed AGAIN (see `SprintReopened`'s doc comment in
-  // `business/task/unblock-task.ts`) — nothing actually moved.
+  // `from === sprint.status` means the retried hop failed AGAIN (see `SprintReopened`'s doc
+  // comment in `business/task/unblock-task.ts`) — nothing actually moved, so "reopened X → X"
+  // would misstate what happened. Say the sprint is still stuck instead.
   const hop =
     reopened.from === reopened.sprint.status
       ? `sprint still ${reopened.sprint.status}`
@@ -52,8 +74,10 @@ const unblockedToast = (name: string, sprintId: SprintId, out: UnblockTaskOutput
 };
 
 /**
- * Run the unblock use case (via the shared `useUnblockTask` hook) for one stuck task (the `u` chord) and thread the
- * result to feedback + reload.
+ * Run the unblock use case (via the shared `useUnblockTask` hook) for one stuck task (the `u`
+ * chord) and thread the result to feedback + reload. `mountedRef` guards the post-await writes —
+ * dismissing the confirm overlay (or firing `u`) unblocks the router, so the operator can
+ * navigate away (unmounting the view) before the awaited use-case resolves.
  */
 const runUnblock = async (args: RunUnblockArgs): Promise<void> => {
   const { target, sprintId, unblockTask, mountedRef, setFeedback, reload } = args;
@@ -76,7 +100,11 @@ interface RunRemoveTicketArgs {
   readonly reload: () => void;
 }
 
-/** Run the ticket-remove flow for one confirmed removal and thread the result to feedback + reload. */
+/**
+ * Run the ticket-remove flow for one confirmed removal and thread the result to feedback +
+ * reload. Same `mountedRef` guard as {@link runUnblock} — the confirm overlay dismisses before
+ * the flow resolves, so the view can already be unmounted by the time it settles.
+ */
 const runRemoveTicket = async (args: RunRemoveTicketArgs): Promise<void> => {
   const { target, sprintId, sprintRepo, mountedRef, setFeedback, reload } = args;
   const flow = createTicketRemoveFlow({ sprintRepo });
@@ -102,7 +130,9 @@ interface RunPublishTicketArgs {
 }
 
 /**
- * Run the ticket-publish flow for the focused ticket (the `p` chord) and thread the result to feedback.
+ * Run the ticket-publish flow for the focused ticket (the `p` chord) and thread the result
+ * to feedback. Reloads only after a successful write so a tracker failure leaves the ticket
+ * on screen unchanged. Same `mountedRef` guard as {@link runUnblock}.
  */
 const runPublishTicket = async (args: RunPublishTicketArgs): Promise<void> => {
   const { target, sprintId, sprintRepo, projectRepo, issuePusher, mountedRef, setFeedback, reload } = args;
@@ -133,7 +163,10 @@ export interface BuildSprintDetailHandlersArgs {
   readonly setFeedback: (message: string) => void;
   readonly unblockTask: UnblockTask;
   readonly setConfirmRemove: (ticket: Ticket | undefined) => void;
-  /** In-flight latch for `p`. */
+  /**
+   * In-flight latch for `p`. Set synchronously before the flow's first await and cleared in
+   * `finally`, so a key-repeat or a quick double press can't create the same issue twice.
+   */
   readonly publishInFlightRef: RefObject<boolean>;
 }
 

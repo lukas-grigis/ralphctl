@@ -1,4 +1,8 @@
-/** Horizontal rule. Color stays in the muted band so it doesn't compete with content. */
+/**
+ * Horizontal rule. Two variants: a thin section rule (used inside cards) and a heavy stamp
+ * rule (used to separate the banner from the body). Color stays in the muted band so it doesn't
+ * compete with content.
+ */
 
 import React from 'react';
 import { Text, useStdout } from 'ink';

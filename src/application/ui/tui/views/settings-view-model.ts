@@ -1,6 +1,11 @@
-/** Pure model layer for the Settings view — shared types + section builder. */
+/**
+ * Pure model layer for the Settings view — shared types + section builder. Lives next to the
+ * view files so the orchestrator (`settings-view.tsx`) and the row renderers (`preset-bar.tsx`,
+ * `ai-row.tsx`, `harness-row.tsx`) all consume the same section vocabulary without circular
+ * imports. No JSX in this file by design.
+ */
 
-import { PRESET_NAMES, presetAiSettings, type PresetName } from '@src/business/settings/presets.ts';
+import { PRESET_NAMES, type PresetName } from '@src/business/settings/presets.ts';
 import { mergeEscalationMap } from '@src/business/task/escalation-map.ts';
 import { glyphs } from '@src/application/ui/tui/theme/tokens.ts';
 import type { PresetWarning } from '@src/application/flows/settings-apply-preset/ctx.ts';
@@ -8,12 +13,13 @@ import type { AiFlowSettings, AiProvider, Settings } from '@src/domain/entity/se
 import { AI_PROVIDERS as DOMAIN_AI_PROVIDERS } from '@src/domain/entity/settings.ts';
 import type { FlowId } from '@src/domain/value/flow-id.ts';
 import { PROVIDER_EFFORT_LEVELS } from '@src/domain/value/settings-models/effort.ts';
-import { isSuspendedModel, SUSPENSION_NOTE } from '@src/domain/value/settings-models/suspended-models.ts';
-import { contextWindowLabel } from '@src/domain/value/settings-models/context-window.ts';
 import { PROVIDER_TRAITS } from '@src/integration/ai/providers/_engine/provider-traits.ts';
 
 /**
- * Provider options offered by the Settings view.
+ * Provider options offered by the Settings view. Re-exported from the domain list so the picker
+ * can never drift from the {@link AiProvider} union — a hand-written copy here silently omitted
+ * OpenCode from the Settings view when it shipped.
+ *
  * @public
  */
 export const AI_PROVIDERS: readonly AiProvider[] = DOMAIN_AI_PROVIDERS;
@@ -29,8 +35,9 @@ export type EditableField =
   | { readonly kind: 'text'; readonly key: string; readonly label: string; readonly current: string }
   | {
       /**
-       * Preset button — activating it opens a confirmation prompt and (on yes) stamps the preset onto the settings
-       * record via the apply-preset flow.
+       * Preset button — activating it opens a confirmation prompt and (on yes) stamps the
+       * preset onto the settings record via the apply-preset flow. The preset action group
+       * renders as four equal buttons; no preset is marked as "recommended" or "default".
        */
       readonly kind: 'preset';
       readonly key: string;
@@ -39,14 +46,24 @@ export type EditableField =
       readonly current: string;
     }
   | {
-      /** Escalation-map "add a rung" action row. */
+      /**
+       * Escalation-map "add a rung" action row. Activating it (↵/e) walks a two-step picker —
+       * choose the FROM model, then the model it escalates TO — and submits the pair as
+       * `from=to`; `submitField` translates that to the `harness.escalationMap.<from>` key the
+       * CLI grammar already speaks.
+       */
       readonly kind: 'map-add';
       readonly key: string;
       readonly label: string;
       readonly current: string;
     }
   | {
-      /** One editable escalation-map override (`harness.escalationMap.<from>`). */
+      /**
+       * One editable escalation-map override (`harness.escalationMap.<from>`). Activating it
+       * opens a target picker pre-scoped to catalogs containing `from`, plus a
+       * `(remove this override)` choice that submits the empty string — the apply-key grammar's
+       * delete semantic.
+       */
       readonly kind: 'map-entry';
       readonly key: string;
       readonly label: string;
@@ -55,7 +72,11 @@ export type EditableField =
       readonly to: string;
     };
 
-/** Top-level section identifier — drives the segmented strip and the per-section field list. */
+/**
+ * Top-level section identifier — drives the segmented strip and the per-section field list.
+ * Sections are picked so no one section exceeds the ~8-row cursor cap; Implement (six rows —
+ * generator + evaluator triples) is the largest.
+ */
 export type SectionId =
   | 'presets'
   | 'global'
@@ -78,43 +99,33 @@ export interface SettingsSection {
   readonly readonly: boolean;
 }
 
-/** Row name inside its family group — the family heading carries the rest. */
 export const PRESET_LABEL: Readonly<Record<PresetName, string>> = {
-  mixed: 'Mixed',
-  'claude-only': 'Claude',
-  'copilot-only': 'Copilot',
-  'codex-only': 'Codex',
-  'opencode-only': 'OpenCode',
-  'grok-only': 'Grok',
-  'mixed-economic': 'Mixed',
-  'claude-economic': 'Claude',
-  'copilot-economic': 'Copilot',
-  'codex-economic': 'Codex',
-  'grok-economic': 'Grok',
-  'mixed-strong-gate': 'Mixed',
-  'claude-strong-gate': 'Claude',
-  'copilot-strong-gate': 'Copilot',
-  'codex-strong-gate': 'Codex',
-  'grok-strong-gate': 'Grok',
-  'mixed-fast': 'Mixed',
-  'claude-fast': 'Claude',
-  'copilot-fast': 'Copilot',
-  'codex-fast': 'Codex',
-  'grok-fast': 'Grok',
-  'mixed-frontier': 'Mixed',
-  'claude-frontier': 'Claude',
-  'copilot-frontier': 'Copilot',
-  'codex-frontier': 'Codex',
-  'grok-frontier': 'Grok',
-};
-
-const modelAndEffort = (row: { readonly model: string; readonly effort?: string | undefined }): string =>
-  row.effort === undefined ? row.model : `${row.model} ${row.effort}`;
-
-/** One-line account of what a preset sets: the plan row and the implement generator, model and effort each. */
-export const presetSummary = (preset: PresetName): string => {
-  const ai = presetAiSettings(preset);
-  return `plan ${modelAndEffort(ai.plan)} ${glyphs.bullet} implement ${modelAndEffort(ai.implement.generator)}`;
+  mixed: 'Apply: Mixed',
+  'claude-only': 'Apply: Claude only',
+  'copilot-only': 'Apply: Copilot only',
+  'codex-only': 'Apply: Codex only',
+  'opencode-only': 'Apply: OpenCode only',
+  'grok-only': 'Apply: Grok only',
+  'mixed-economic': 'Apply: Mixed (economic)',
+  'claude-economic': 'Apply: Claude (economic)',
+  'copilot-economic': 'Apply: Copilot (economic)',
+  'codex-economic': 'Apply: Codex (economic)',
+  'grok-economic': 'Apply: Grok (economic)',
+  'mixed-strong-gate': 'Apply: Mixed strong-gate',
+  'claude-strong-gate': 'Apply: Claude strong-gate',
+  'copilot-strong-gate': 'Apply: Copilot strong-gate',
+  'codex-strong-gate': 'Apply: Codex strong-gate',
+  'grok-strong-gate': 'Apply: Grok strong-gate',
+  'mixed-fast': 'Apply: Mixed (fast)',
+  'claude-fast': 'Apply: Claude (fast)',
+  'copilot-fast': 'Apply: Copilot (fast)',
+  'codex-fast': 'Apply: Codex (fast)',
+  'grok-fast': 'Apply: Grok (fast)',
+  'mixed-frontier': 'Apply: Mixed (frontier)',
+  'claude-frontier': 'Apply: Claude (frontier)',
+  'copilot-frontier': 'Apply: Copilot (frontier)',
+  'codex-frontier': 'Apply: Codex (frontier)',
+  'grok-frontier': 'Apply: Grok (frontier)',
 };
 
 /** Display names for the five preset families — used by the grouped preset bar. */
@@ -191,17 +202,29 @@ export const HARNESS_HINTS: Readonly<Record<string, string>> = {
 export const ESCALATION_ENTRY_HINT = 'Change the escalation target — pick (remove this override) to drop the rung.';
 
 /**
- * Every provider's model catalog, in {@link AI_PROVIDERS} order — the catalog family pool the escalation pickers draw
- * from.
+ * Every provider's model catalog, in {@link AI_PROVIDERS} order — the catalog family pool the
+ * escalation pickers draw from. Sourced from {@link PROVIDER_TRAITS} so a fourth backend cannot
+ * be missed here the way a hand-written catalog list missed OpenCode.
+ *
+ * For OpenCode this is the zero-auth free-tier floor: the runtime `opencode models` probe (which
+ * reports whatever the operator's authenticated upstream providers serve) is deliberately NOT
+ * consulted here — the escalation map is static settings, not a live picker.
  */
 const MODEL_CATALOGS: ReadonlyArray<readonly string[]> = AI_PROVIDERS.map((p) => PROVIDER_TRAITS[p].modelCatalog);
 
-/** Union of every provider's model catalog — the FROM options for a new escalation rung. */
+/**
+ * Union of every provider's model catalog — the FROM options for a new escalation rung. Order:
+ * every provider's catalog, in `AI_PROVIDERS` order; duplicates (ids shared across catalogs)
+ * collapse to their first occurrence.
+ */
 export const escalationModelOptions = (): readonly string[] => [...new Set<string>(MODEL_CATALOGS.flat())];
 
 /**
- * Target options for an escalation rung starting at `from` — the union of the catalogs that list `from`, minus `from`
- * itself (a self-loop has no runtime effect and the schema-load path only warns).
+ * Target options for an escalation rung starting at `from` — the union of the catalogs that
+ * list `from`, minus `from` itself (a self-loop has no runtime effect and the schema-load path
+ * only warns). Scoping targets to the same catalog family keeps the picker from inviting
+ * cross-provider ids the generator's CLI could never spawn. A `from` no catalog knows (a
+ * custom id set via the CLI) falls back to the full union.
  */
 export const escalationTargetsFor = (from: string): readonly string[] => {
   const owning = MODEL_CATALOGS.filter((c) => c.includes(from));
@@ -211,8 +234,8 @@ export const escalationTargetsFor = (from: string): readonly string[] => {
 
 export interface EscalationChain {
   /**
-   * The generator provider whose ladder this chain belongs to, or `undefined` for a user-only chain rooted at a
-   * custom id no catalog knows (it applies to whichever provider runs it).
+   * The generator provider whose ladder this chain belongs to, or `undefined` for a user-only
+   * chain rooted at a custom id no catalog knows (it applies to whichever provider runs it).
    */
   readonly provider: AiProvider | undefined;
   /** Model ids in climb order, e.g. `['claude-haiku-4-5', 'claude-sonnet-5-5', 'claude-opus-5-5']`. */
@@ -222,8 +245,9 @@ export interface EscalationChain {
 }
 
 /**
- * Walk every chain of `merged` whose root passes `isRoot` — a root is a model that is not itself an escalation
- * target.
+ * Walk every chain of `merged` whose root passes `isRoot` — a root is a model that is not itself
+ * an escalation target. Follows the map until it ends or would revisit a model (user-authored
+ * cycles are cut rather than walked forever; the runtime treats cyclic rungs as top-of-ladder too).
  */
 const chainsOf = (
   provider: AiProvider | undefined,
@@ -253,8 +277,11 @@ const chainsOf = (
 };
 
 /**
- * The EFFECTIVE escalation ladders — the flat user overrides merged over each provider's built-in ladder — flattened
- * into display chains, grouped by provider in {@link AI_PROVIDERS} order.
+ * The EFFECTIVE escalation ladders — the flat user overrides merged over each provider's built-in
+ * ladder — flattened into display chains, grouped by provider in {@link AI_PROVIDERS} order. A
+ * provider's chains start at models its own ladder or catalog knows, so a shared slug such as
+ * `claude-sonnet-5` shows the climb each backend really takes. User rungs rooted at a custom id no
+ * catalog lists come last, with no provider.
  */
 export const effectiveEscalationChains = (user: Readonly<Record<string, string>>): readonly EscalationChain[] => {
   const perProvider = AI_PROVIDERS.flatMap((provider) => {
@@ -267,19 +294,12 @@ export const effectiveEscalationChains = (user: Readonly<Record<string, string>>
 };
 
 /**
- * Full static model catalog for `provider` — delegates to {@link PROVIDER_TRAITS} so this file carries no copy of the
- * provider-to-catalog switch.
+ * Full static model catalog for `provider` — delegates to {@link PROVIDER_TRAITS} so this file
+ * carries no copy of the provider-to-catalog switch. Kept as a named export (rather than inlined
+ * at its one call site) because it is also the reference catalog the availability-map tests
+ * compare narrowed subsets against.
  */
 export const modelOptionsFor = (provider: AiProvider): readonly string[] => PROVIDER_TRAITS[provider].modelCatalog;
-
-/** Build the display label for a model picker option. */
-export const annotateModelLabel = (model: string): string => {
-  const windowPart = contextWindowLabel(model);
-  const suspendedPart = isSuspendedModel(model) ? `(${SUSPENSION_NOTE})` : undefined;
-  const annotations = [windowPart, suspendedPart].filter((s): s is string => s !== undefined);
-  if (annotations.length === 0) return model;
-  return `${model}  ${glyphs.bullet}  ${annotations.join('  ')}`;
-};
 
 export const capitalize = (s: string): string => (s.length === 0 ? s : s[0]!.toUpperCase() + s.slice(1));
 
@@ -323,7 +343,7 @@ const buildPresetFields = (): readonly EditableField[] =>
     key: `presets.${preset}`,
     label: PRESET_LABEL[preset],
     preset,
-    current: presetSummary(preset),
+    current: '↵ apply',
   }));
 
 const buildGlobalFields = (s: Settings): readonly EditableField[] => [
@@ -357,7 +377,9 @@ const buildFlowSection = (
 });
 
 /**
- * One editable row per escalation-map user override, directly under the add-row so the group reads as one unit.
+ * One editable row per escalation-map user override, directly under the add-row so the group
+ * reads as one unit. Keys reuse the CLI grammar (`harness.escalationMap.<from>`) — submit routes
+ * through the same `applySettingsKey` path `settings set` uses.
  */
 const buildEscalationOverrideFields = (escalationOverrides: ReadonlyArray<readonly [string, string]>) =>
   escalationOverrides.map(([from, to]): EditableField => ({
@@ -464,11 +486,19 @@ export const buildSections = (
   { id: 'storage', label: 'Storage', title: 'Storage paths', fields: [], readonly: true },
 ];
 
-/** `true` when `field` is a per-flow / per-role provider picker. */
+/**
+ * `true` when `field` is a per-flow / per-role provider picker. Provider fields surface the
+ * availability gate (dimmed unavailable rows, install-guidance footer); every other select
+ * stays plain.
+ */
 export const isProviderField = (field: EditableField): boolean =>
   field.kind === 'select' && (field.key.endsWith('.provider') || field.key === 'ai.provider');
 
-/** Setter bag {@link activateField} needs to open the right sub-view for a field's `kind`. */
+/**
+ * Setter bag {@link activateField} needs to open the right sub-view for a field's `kind`. Typed
+ * against `undefined` (not the view's `SettingsFeedback` union) because the only call clears the
+ * banner — a React state setter for the wider union is still assignable here.
+ */
 export interface FieldActivationSetters {
   readonly setFeedback: (feedback: undefined) => void;
   readonly setPresetWarnings: (warnings: readonly PresetWarning[]) => void;
@@ -477,8 +507,8 @@ export interface FieldActivationSetters {
 }
 
 /**
- * `↵/e` activation for the focused field — opens the preset-confirm prompt for a `preset` field, the field editor for
- * every other kind.
+ * `↵/e` activation for the focused field — opens the preset-confirm prompt for a `preset` field,
+ * the field editor for every other kind.
  */
 export const activateField = (field: EditableField, setters: FieldActivationSetters): void => {
   setters.setFeedback(undefined);
@@ -492,7 +522,8 @@ export const activateField = (field: EditableField, setters: FieldActivationSett
 };
 
 /**
- * `true` when `field` is a per-flow / per-role model picker — its options are model ids, so the editor flags
- * temporarily-suspended entries.
+ * `true` when `field` is a per-flow / per-role model picker — its options are model ids, so the
+ * editor flags temporarily-suspended entries. The escalation FROM/TO pickers are separate field
+ * kinds (`map-add` / `map-entry`), not `select`, so they are unaffected here.
  */
 export const isModelField = (field: EditableField): boolean => field.kind === 'select' && field.key.endsWith('.model');

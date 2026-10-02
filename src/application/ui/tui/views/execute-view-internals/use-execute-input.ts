@@ -1,7 +1,44 @@
-/** View-hint registration + keyboard handling for the execute view. */
+/**
+ * View-hint registration + keyboard handling for the execute view.
+ *
+ * Hints adapt to three states:
+ *   - running + cancel-scope picker open: `1 / 2 / esc` set
+ *   - running, picker closed              : `c / D` set
+ *   - not running                         : `↵ home · r re-run · g progress · u unblock`
+ *
+ * `u` (unblock) is advertised ONLY in the settled set: the Tasks panel's own `u` chord is a
+ * no-op while a run is live (`TasksPanelHost` empties `blockedTaskIds` mid-run — see its
+ * docstring for the TOCTOU precondition that forces this), so hinting it during a run would
+ * advertise a key whose handler rejects every press, which is the exact thing DESIGN-SYSTEM's
+ * hint-strip invariant forbids.
+ *
+ * Key handling:
+ *   - help / prompt overlays own the keyboard — early-return when active.
+ *   - while running: `c` opens the cancel-scope picker (unless already open); `D` detaches
+ *     to Home (router.reset, runner continues in background). `r` is deliberately inert here —
+ *     a stray keystroke must not navigate off a live run.
+ *   - when settled: Enter / Esc resets to Home. ALWAYS Home — never sprint-detail or a
+ *     stack pop. A finished flow (refine / plan / implement / …) drops the user back on the
+ *     Home card with their own project/sprint selection intact. Browsing a run must not
+ *     decide where the user "is".
+ *   - when settled: `r` resets to Flows. It overlaps the global `n` on destination only —
+ *     `n` PUSHES, leaving the dead run on the stack for `esc` to fall back into, whereas the
+ *     reset drops it. Flows then re-evaluates every launch trigger against the sprint's
+ *     CURRENT status, so a sprint that moved review → done during the run offers create-pr
+ *     rather than a stale re-launch of what just ran.
+ *   - `g` (progress overlay) has NO handler here on purpose: it is a global chord owned by
+ *     `use-global-keys.ts`, and its open-gate (`focusedRunSprintId`) is already satisfied on a
+ *     settled Execute view with a pinned sprint. A local handler would toggle it twice per
+ *     press. Only the hint is published, gated on the run actually having a sprint to open.
+ *
+ * Why not `useViewKeys`: that primitive matches on the `input` string and so cannot bind Enter
+ * or Esc, which are the settled state's primary keys. The hint array and the handler below sit
+ * five lines apart and are reviewed together.
+ */
 
+import { useInput } from 'ink';
 import type { RouterApi } from '@src/application/ui/tui/runtime/router.tsx';
-import { useViewKeys, type ViewKeyBinding } from '@src/application/ui/tui/runtime/use-view-keys.ts';
+import { useViewHints } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
 
 interface UseExecuteInputDeps {
   readonly isRunning: boolean;
@@ -14,14 +51,13 @@ interface UseExecuteInputDeps {
   /** Gates the `v evaluation` hint — the chord no-ops until some task has recorded a verdict. */
   readonly hasEvaluation: boolean;
   /**
-   * Gates the settled-only `u unblock` hint — the Tasks panel's `u` chord only fires for a task the polled entities
-   * report `status === 'blocked'`.
+   * Gates the settled-only `u unblock` hint — the Tasks panel's `u` chord only fires for a task
+   * the polled entities report `status === 'blocked'`. Meaningless while running: the panel
+   * forces the chord inert on a live run regardless of this flag, so the hint is never shown then.
+   * Defaults to `false` (no hint) so a caller that hasn't wired an entity-blocked signal yet
+   * degrades to the pre-existing settled hint set rather than failing to compile.
    */
   readonly hasBlockedTask?: boolean;
-  /** `y` handler — copies the active task's summary. Omit (or pair with `canCopyTask: false`) to drop the key. */
-  readonly onCopyTask?: () => void;
-  /** Gates the `y copy task` hint + handler — `true` only while there is an active task to copy. */
-  readonly canCopyTask?: boolean;
 }
 
 export const useExecuteInput = ({
@@ -33,56 +69,47 @@ export const useExecuteInput = ({
   hasPinnedSprint,
   hasEvaluation,
   hasBlockedTask = false,
-  onCopyTask,
-  canCopyTask = false,
 }: UseExecuteInputDeps): void => {
-  const copyTask: ViewKeyBinding = {
-    keys: ['y'],
-    hint: 'copy task',
-    enabled: canCopyTask && onCopyTask !== undefined,
-    run: () => onCopyTask?.(),
-  };
-
-  const bindings: readonly ViewKeyBinding[] = isRunning
-    ? cancelScopeOpen
-      ? [
-          // The cancel-scope overlay owns these three (and claims `1` / `2`); listed so the strip teaches them.
-          { keys: ['1'], hint: 'cancel attempt' },
-          { keys: ['2'], hint: 'cancel whole flow' },
-          { keys: ['esc'], hint: 'back to run' },
-        ]
+  useViewHints(
+    isRunning
+      ? cancelScopeOpen
+        ? [
+            { keys: '1', label: 'cancel attempt' },
+            { keys: '2', label: 'cancel whole flow' },
+            { keys: 'esc', label: 'back to run' },
+          ]
+        : [
+            { keys: 'c', label: 'cancel' },
+            { keys: 'D', label: 'detach' },
+            // Advertised WHILE RUNNING too: a failed round mid-run is exactly when an operator
+            // wants the critique, and the next generator turn is already consuming it.
+            { keys: 'v', label: 'evaluation', enabledWhen: hasEvaluation },
+          ]
       : [
-          // Open the picker.
-          { keys: ['c'], hint: 'cancel', run: () => setCancelScopeOpen(true) },
-          { keys: ['D'], hint: 'detach', run: () => router.reset({ id: 'home' }) },
-          // Advertised WHILE RUNNING too: a failed round mid-run is exactly when an operator
-          // wants the critique, and the next generator turn is already consuming it.
-          { keys: ['v'], hint: 'evaluation', enabled: hasEvaluation },
-          copyTask,
+          { keys: '↵', label: 'home' },
+          { keys: 'r', label: 're-run' },
+          { keys: 'g', label: 'progress', enabledWhen: hasPinnedSprint },
+          { keys: 'v', label: 'evaluation', enabledWhen: hasEvaluation },
+          // Settled only — see `hasBlockedTask`'s doc for why running never shows this.
+          { keys: 'u', label: 'unblock', enabledWhen: hasBlockedTask },
         ]
-    : [
-        // Settled run: land on Home, whatever the route stack looks like. The global selection
-        // is untouched, so Home renders the user's own project/sprint card.
-        { keys: ['↵'], hint: 'work', run: () => router.reset({ id: 'home' }) },
-        // `esc` back out of a run opened from Runs / Flows is the global pop (what the footer's `esc <parent>` names);
-        // only a run at the stack root has nowhere to pop to and lands on Work.
-        {
-          keys: ['esc'],
-          hint: 'work',
-          hidden: true,
-          run: () => {
-            if (router.stack.length <= 1) router.reset({ id: 'home' });
-          },
-        },
-        // Reset (not push) — see the header note: the dead run leaves the stack and Flows
-        // re-checks every trigger against the sprint's current status.
-        { keys: ['r'], hint: 're-run', run: () => router.reset({ id: 'flows' }) },
-        { keys: ['g'], hint: 'progress', enabled: hasPinnedSprint },
-        { keys: ['v'], hint: 'evaluation', enabled: hasEvaluation },
-        // Settled only — see `hasBlockedTask`'s doc for why running never shows this.
-        { keys: ['u'], hint: 'unblock', enabled: hasBlockedTask },
-        copyTask,
-      ];
+  );
 
-  useViewKeys(bindings, { active: !modalOpen });
+  useInput((input, key) => {
+    if (modalOpen) return;
+    if (!isRunning) {
+      // Settled run: land on Home, whatever the route stack looks like. The global selection
+      // is untouched, so Home renders the user's own project/sprint card.
+      if (key.return || key.escape) router.reset({ id: 'home' });
+      // Reset (not push) — see the header note: the dead run leaves the stack and Flows
+      // re-checks every trigger against the sprint's current status.
+      if (input === 'r') router.reset({ id: 'flows' });
+      return;
+    }
+    if (input === 'c' && !cancelScopeOpen) setCancelScopeOpen(true);
+    // Detach: drop the run's view and land on Home — the same destination a settled run's
+    // Enter/Esc uses. Named explicitly; `reset` never infers a destination (a bare form used to
+    // re-mount the process's launch entry, i.e. the first-run wizard on a fresh install).
+    if (input === 'D') router.reset({ id: 'home' });
+  });
 };

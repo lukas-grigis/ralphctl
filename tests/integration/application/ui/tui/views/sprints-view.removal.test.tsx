@@ -45,7 +45,11 @@ describe('SprintsView removal', () => {
 
   it('Yes removes the sprint directory', async () => {
     const result = await confirmDelete();
-    await waitForPredicate(() => !(result.lastFrame() ?? '').includes('Doomed Sprint'));
+    // The toast lands before the list reload; wait for both rather than assume an order.
+    await waitForPredicate(() => {
+      const frame = result.lastFrame() ?? '';
+      return frame.includes('removed Doomed Sprint') && frame.includes('No sprints yet');
+    });
     expect(await exists(sprintDir)).toBe(false);
     result.unmount();
   });

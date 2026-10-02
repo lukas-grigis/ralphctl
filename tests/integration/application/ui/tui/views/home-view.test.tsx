@@ -1,58 +1,31 @@
 /**
- * Work (HomeView): the hero cards for the no-project / no-sprint states, and the agenda —
- * NEEDS YOU → RUNNING → NEXT → FLOWS — with ↵ doing the focused row's job. Layout cases render
- * at real sizes; the launcher and the unblock hook are mocked so ↵ / u are observable.
+ * Smoke tests for HomeView. Three regimes: no project (empty state + create-project CTA),
+ * project + sprint loaded (state card + Next-steps suggestions), and the action-menu surfaces.
+ *
+ * The Update / Doctor banners depend on async network + shell work; we leave them off the
+ * critical path by stubbing the doctor probes with a no-op (everything passes) and pointing
+ * the version checker at a noop adapter.
  */
 
-import React from 'react';
-import { describe, expect, it, vi } from 'vitest';
-import { Box, Text } from 'ink';
+import { describe, expect, it } from 'vitest';
 import { Result } from '@src/domain/result.ts';
 import { HomeView } from '@src/application/ui/tui/views/home-view.tsx';
-import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import type { ProjectRepository } from '@src/domain/repository/project/project-repository.ts';
 import type { SprintRepository } from '@src/domain/repository/sprint/sprint-repository.ts';
 import type { SprintExecutionRepository } from '@src/domain/repository/sprint/sprint-execution-repository.ts';
 import type { TaskRepository } from '@src/domain/repository/task/task-repository.ts';
 import type { SettingsRepository } from '@src/domain/repository/settings/settings-repository.ts';
-import type { Sprint } from '@src/domain/entity/sprint.ts';
-import type { Task } from '@src/domain/entity/task.ts';
-import type { TaskId } from '@src/domain/value/id/task-id.ts';
-import { markTaskBlocked } from '@src/domain/entity/task-lifecycle.ts';
+import type { VersionChecker } from '@src/business/version/version-checker.ts';
 import { DEFAULT_SETTINGS } from '@src/business/settings/defaults.ts';
-import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
 import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
-import {
-  absolutePath,
-  makeActiveSprint,
-  makeInProgressTaskWithRunningAttempt,
-  makeProject,
-  makeTodoTask,
-} from '@tests/fixtures/domain.ts';
-import { DOWN, ENTER, tick } from '@tests/integration/application/ui/tui/_keys.ts';
-import { waitForPredicate } from '@tests/integration/application/ui/tui/_wait.ts';
-import { mountFrame } from '@tests/integration/application/ui/tui/_app-frame.tsx';
-import { renderView, stripAnsi, waitForViewReady } from '@tests/integration/application/ui/tui/_harness.tsx';
+import { makeProject } from '@tests/fixtures/domain.ts';
+import { renderView, waitForViewReady } from '@tests/integration/application/ui/tui/_harness.tsx';
 
-const mocks = vi.hoisted(() => ({
-  launch: vi.fn(async (flowId: string) => flowId.length > 0),
-  unblock: vi.fn(async () => ({ ok: true, value: {} })),
-}));
-
-vi.mock('@src/application/ui/tui/runtime/use-flow-launcher.ts', async (importOriginal) => ({
-  ...(await importOriginal<Record<string, unknown>>()),
-  useFlowLauncher: () => ({
-    launch: mocks.launch,
-    launchability: () => ({ ok: true }),
-    launchError: undefined,
-  }),
-}));
-vi.mock('@src/application/ui/tui/runtime/use-unblock-task.ts', () => ({ useUnblockTask: () => mocks.unblock }));
+const noopVersionChecker: VersionChecker = async () => null;
 
 const baseDeps = (overrides: Partial<AppDeps>): AppDeps =>
   ({
-    eventBus: createInMemoryEventBus(),
     projectRepo: {
       async list() {
         return Result.ok([]);
@@ -87,93 +60,26 @@ const baseDeps = (overrides: Partial<AppDeps>): AppDeps =>
         return Result.ok(undefined);
       },
     } as unknown as SettingsRepository,
+    versionChecker: noopVersionChecker,
     ...overrides,
   }) as unknown as AppDeps;
 
-const project = makeProject({ displayName: 'Mainline' });
-const sprint = { ...makeActiveSprint(), projectId: project.id, name: 'Sprint One' } as unknown as Sprint;
-
-const blockedTask = (): Task => {
-  const todo = makeTodoTask({ name: 'Add a --name CLI test', order: 1 });
-  const r = markTaskBlocked({ ...todo, id: 'task-blocked-1' as TaskId }, 'pytest exited 1 after 3 attempts', 'own');
-  if (!r.ok) throw new Error('fixture');
-  return r.value;
-};
-
-const workDeps = (tasks: readonly Task[] = [blockedTask(), makeTodoTask({ name: 'Wire formatter', order: 2 })]) =>
-  baseDeps({
-    projectRepo: {
-      async list() {
-        return Result.ok([project]);
-      },
-      async findById() {
-        return Result.ok(project);
-      },
-    } as unknown as ProjectRepository,
-    sprintRepo: {
-      async list() {
-        return Result.ok([sprint]);
-      },
-      async findById() {
-        return Result.ok(sprint);
-      },
-    } as unknown as SprintRepository,
-    taskRepo: {
-      async findBySprintId() {
-        return Result.ok([...tasks]);
-      },
-    } as unknown as TaskRepository,
-  });
-
-const selected = {
-  projectId: project.id,
-  projectLabel: project.displayName,
-  sprintId: sprint.id,
-  sprintLabel: sprint.name,
-};
-
-/** Pin the root to the terminal height, as the real App does, so ScrollRegion actually clips. */
-const Framed = ({ rows, children }: { readonly rows: number; readonly children: React.ReactNode }) => (
-  <Box flexDirection="column" height={rows}>
-    {children}
-  </Box>
-);
-
-const renderWork = (columns: number, rows: number, extra?: React.ReactNode, deps: AppDeps = workDeps()) => {
-  const entries: Array<{ readonly id: string; readonly props?: Record<string, unknown> }> = [];
-  const api = renderView(
-    <Framed rows={rows}>
-      {extra}
-      <HomeView />
-    </Framed>,
-    {
-      deps,
-      initial: { id: 'home' },
-      selection: selected,
-      size: { columns, rows },
-      onRoute: (entry) => {
-        entries.push(entry);
-      },
-    }
-  );
-  return { ...api, entries };
-};
-
-const lineOf = (frame: string, needle: string): string => frame.split('\n').find((l) => l.includes(needle)) ?? '';
-
-describe('HomeView — heroes', () => {
+describe('HomeView', () => {
   it('shows the create-project CTA when no projects exist', async () => {
     const { result } = renderView(<HomeView />, { deps: baseDeps({}), initial: { id: 'home' } });
+    // Doctor probes shell out; waitForViewReady + waitFor handles variable durations.
     await waitForViewReady(result, (f) => f.includes('Start by creating a project'));
     const frame = result.lastFrame() ?? '';
+    expect(frame).toMatch(/Start by creating a project/);
     expect(frame).toMatch(/create your first project/);
     result.unmount();
   });
 
-  it('shows the sprint-creation CTA and the project flows when a project is selected but no sprint', async () => {
+  it('shows the sprint-creation CTA when a project is selected but no sprint', async () => {
+    const project = makeProject({ displayName: 'Mainline' });
     const projectRepo = {
       async list() {
-        return Result.ok([project]);
+        return Result.ok({ items: [project], hasMore: false });
       },
       async findById() {
         return Result.ok(project);
@@ -186,173 +92,9 @@ describe('HomeView — heroes', () => {
     });
     await waitForViewReady(result, (f) => f.includes('Mainline'));
     const frame = result.lastFrame() ?? '';
+    expect(frame).toContain('Mainline');
+    expect(frame).toMatch(/sprint/i);
     expect(frame).toMatch(/open Sprints/);
-    // `r` is reload on Work now — the cue must name the real chord (section 2).
-    expect(frame).not.toMatch(/press r to open Sprints/);
-    expect(frame).toMatch(/press 2 to open Sprints/);
-    expect(frame).toContain('FLOWS');
     result.unmount();
-  });
-});
-
-describe('Work — resuming interrupted tasks', () => {
-  const resumeDeps = (dismiss: (ids: readonly string[]) => Promise<unknown>): AppDeps => {
-    const base = workDeps([makeInProgressTaskWithRunningAttempt()]);
-    return {
-      ...base,
-      findLiveSprintOwner: { execute: () => Promise.resolve(Result.ok(undefined)) },
-      detectInterruptedRuns: {
-        execute: () =>
-          Promise.resolve(
-            Result.ok([{ record: { runId: 'run-old', sprintId: sprint.id, updatedAt: new Date().toISOString() } }])
-          ),
-      },
-      dismissInterruptedRuns: { execute: dismiss },
-      gitRunner: { run: () => Promise.resolve(Result.ok({ exitCode: 0, stdout: '', stderr: '' })) },
-      storage: { dataRoot: absolutePath('/nonexistent-data-root') },
-    } as unknown as AppDeps;
-  };
-
-  const resume = async (started: boolean, dismiss: (ids: readonly string[]) => Promise<unknown>): Promise<void> => {
-    mocks.launch.mockClear();
-    mocks.launch.mockResolvedValueOnce(started);
-    const { result } = renderWork(100, 30, undefined, resumeDeps(dismiss));
-    await waitForPredicate(() => (result.lastFrame() ?? '').includes('was interrupted'));
-    await tick(100); // stale run ids arrive with the disk facts, after the row
-    result.stdin.write(ENTER);
-    await waitForPredicate(() => mocks.launch.mock.calls.length > 0);
-    await tick(60);
-  };
-
-  it('dismisses the stale run records once the resume started', async () => {
-    const dismiss = vi.fn(() => Promise.resolve(Result.ok(undefined)));
-    await resume(true, dismiss);
-    expect(mocks.launch).toHaveBeenCalledWith('implement');
-    expect(dismiss).toHaveBeenCalledWith(['run-old']);
-  });
-
-  it('keeps them when the launch was cancelled or refused', async () => {
-    const dismiss = vi.fn(() => Promise.resolve(Result.ok(undefined)));
-    await resume(false, dismiss);
-    expect(mocks.launch).toHaveBeenCalledWith('implement');
-    expect(dismiss).not.toHaveBeenCalled();
-  });
-});
-
-describe('Work at 80x24 with one blocked task', () => {
-  it('seeds the cursor on the blocked row and leads the footer with ↵ open task', async () => {
-    const { result } = renderWork(80, 24);
-    await waitForPredicate(() => (result.lastFrame() ?? '').includes('is blocked'));
-    const frame = result.lastFrame() ?? '';
-    expect(frame).toMatch(/▸ △ "Add a --name CLI test" is blocked/);
-    expect(frame).toContain('NEEDS YOU  1');
-    expect(frame).toContain('pytest exited 1 after 3 attempts');
-    expect(frame).toMatch(/↵ open task · u unblock/);
-  });
-
-  it('shows every flow row and none of the old menu, without scrolling', async () => {
-    const { result } = renderWork(80, 24);
-    await waitForPredicate(() => (result.lastFrame() ?? '').includes('FLOWS'));
-    const frame = result.lastFrame() ?? '';
-    expect(frame).toContain('Export requirements');
-    expect(frame).toContain('NEXT');
-    expect(frame).not.toMatch(/▴ \d+ more/);
-    for (const old of ['WORK', 'OBSERVE', 'SYSTEM', 'SWITCH SPRINT']) expect(frame).not.toContain(old);
-  });
-
-  it('↵ on the blocked row opens sprint detail focused on that task', async () => {
-    const { result, entries } = renderWork(80, 24);
-    await waitForPredicate(() => (result.lastFrame() ?? '').includes('is blocked'));
-    result.stdin.write(ENTER);
-    await waitForPredicate(() => entries.at(-1)?.id === 'sprint-detail');
-    expect(entries.at(-1)?.props).toMatchObject({ sprintId: sprint.id, focusTaskId: 'task-blocked-1' });
-  });
-
-  it('u unblocks the focused blocked task', async () => {
-    mocks.unblock.mockClear();
-    const { result } = renderWork(80, 24);
-    await waitForPredicate(() => (result.lastFrame() ?? '').includes('is blocked'));
-    result.stdin.write('u');
-    await waitForPredicate(() => mocks.unblock.mock.calls.length > 0);
-    expect(mocks.unblock).toHaveBeenCalledTimes(1);
-  });
-
-  it('u is not offered once the cursor leaves a blocked row', async () => {
-    const { result } = renderWork(80, 24);
-    await waitForPredicate(() => (result.lastFrame() ?? '').includes('is blocked'));
-    result.stdin.write(DOWN);
-    await waitForPredicate(() => /↵ run Implement/.test(result.lastFrame() ?? ''));
-    expect(result.lastFrame() ?? '').not.toMatch(/u unblock/);
-  });
-
-  it('↵ on the NEXT row launches the flow through the shared launcher', async () => {
-    mocks.launch.mockClear();
-    const { result } = renderWork(80, 24);
-    await waitForPredicate(() => (result.lastFrame() ?? '').includes('is blocked'));
-    result.stdin.write(DOWN);
-    await waitForPredicate(() => /▸ ◆ Implement/.test(result.lastFrame() ?? ''));
-    result.stdin.write(ENTER);
-    await waitForPredicate(() => mocks.launch.mock.calls.length > 0);
-    expect(mocks.launch).toHaveBeenCalledWith('implement');
-  });
-
-  it('draws no cursor while a prompt is queued', async () => {
-    const ClaimPrompt = (): React.JSX.Element => {
-      const { claimPrompt } = useUiState();
-      React.useEffect(() => claimPrompt(), [claimPrompt]);
-      return <Text> </Text>;
-    };
-    const { result } = renderWork(80, 24, <ClaimPrompt />);
-    await waitForPredicate(() => (result.lastFrame() ?? '').includes('is blocked'));
-    await tick(50);
-    expect(result.lastFrame() ?? '').not.toContain('▸');
-  });
-});
-
-describe('Work at larger sizes', () => {
-  it('160x45 adds the glance column and keeps the wordmark', async () => {
-    const { result } = renderWork(160, 45);
-    await waitForPredicate(() => (result.lastFrame() ?? '').includes('RECENT SPRINTS'));
-    const frame = stripAnsi(result.lastFrame() ?? '');
-    expect(frame).toContain('██████╗');
-    const tasks = lineOf(frame, 'TASKS');
-    expect(tasks.indexOf('TASKS')).toBeGreaterThan(100);
-    expect(tasks).toContain('TASKS  2');
-    expect(frame).toContain('S switch');
-    expect(frame).toContain('NEEDS YOU');
-  });
-
-  it('120x45 is a single column with no TASKS panel', async () => {
-    const { result } = renderWork(120, 45);
-    await waitForPredicate(() => (result.lastFrame() ?? '').includes('FLOWS'));
-    const frame = result.lastFrame() ?? '';
-    expect(frame).not.toContain('TASKS');
-    expect(frame).not.toContain('RECENT SPRINTS');
-  });
-});
-
-describe.each([
-  { columns: 80, rows: 24, wordmark: false, boxed: false },
-  { columns: 100, rows: 30, wordmark: true, boxed: false },
-  { columns: 120, rows: 36, wordmark: true, boxed: false },
-  { columns: 160, rows: 45, wordmark: true, boxed: true },
-])('Work banner tier at $columns x $rows inside the chrome', ({ columns, rows, wordmark, boxed }) => {
-  it('budgets the agenda against the tier: first row and footer stay visible', async () => {
-    const frame = mountFrame({
-      columns,
-      rows,
-      deps: workDeps(),
-      initial: { id: 'home' },
-      selection: selected,
-      renderRoute: () => <HomeView />,
-    });
-    await waitForPredicate(() => (frame.result.lastFrame() ?? '').includes('Add a --name CLI test'));
-    const text = stripAnsi(frame.result.lastFrame() ?? '');
-    expect(text.includes('██████╗')).toBe(wordmark);
-    expect(text.includes('╭')).toBe(boxed);
-    expect(text).toContain('NEEDS YOU');
-    expect(text).toContain('open task');
-    expect(frame.lines().length).toBeLessThanOrEqual(rows);
-    frame.result.unmount();
   });
 });

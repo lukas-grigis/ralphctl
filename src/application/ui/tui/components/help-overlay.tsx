@@ -1,26 +1,39 @@
-/** Modal help reference. Renders a card listing the bindings that apply to where the operator is. */
+/**
+ * Modal help reference. Renders a card listing every binding by area. The global key handler
+ * intercepts `?` to open / close it; while open, every other global key is suspended (only
+ * `esc` and `?` close).
+ *
+ * Per-view local hints (registered via {@link useViewHints}) are surfaced as the top section
+ * so the overlay matches what the user can actually press right now. Static sections (global,
+ * lists, execute) follow.
+ *
+ * Scroll model (active when content overflows the viewport):
+ *   ↑ / ↓         → one line
+ *   PgUp / PgDn   → one viewport
+ *   lines X–Y of N footer cue when scrollable
+ *
+ * Windowing invariant: **one {@link HelpRow} renders exactly one terminal row**. The blank line
+ * before each non-first section title is therefore a real `blank` row in the array rather than a
+ * `marginTop` on the title — otherwise a window holding N titles renders N rows taller than the
+ * budget, overflowing the card and making the `lines X–Y of N` counter name rows nobody can see.
+ */
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { keySections } from '@src/application/ui/tui/runtime/keyboard-map.ts';
-import { signalLabelColor } from '@src/application/ui/tui/components/tasks-panel-internals/signal-rows.tsx';
+import { SIGNAL_LABEL_COLOR } from '@src/application/ui/tui/components/tasks-panel.tsx';
 import { useActiveHints } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
 import { useTerminalSize } from '@src/application/ui/tui/runtime/use-terminal-size.ts';
-import { useDocumentScroll } from '@src/application/ui/tui/components/overlay-internals/use-document-scroll.ts';
-import { DocumentScrollFooter } from '@src/application/ui/tui/components/overlay-internals/document-scroll-footer.tsx';
 
 /**
- * Rows the overlay spends on its own chrome, so the card never outgrows the terminal: outer paddingY (top + bottom) +
- * card border (top + bottom) + header + body marginTop + footer marginTop + footer row.
+ * Rows the overlay spends on its own chrome, so the card never outgrows the terminal:
+ * outer paddingY (top + bottom) + card border (top + bottom) + header + body marginTop +
+ * footer marginTop + footer row.
  */
 const CHROME_ROWS = spacing.section * 2 + 2 + 1 + spacing.section + spacing.section + 1;
 /** Floor on the scrollable body so a tiny terminal still shows something. */
 const MIN_BODY_ROWS = 4;
-
-/** Key-column bounds: wide enough for the longest chord of the current list, never more than a third of the card. */
-const MIN_KEY_COL = 12;
-const MAX_KEY_COL = 34;
 
 /** `HelpRow.kind` discriminant for a section header row. */
 const SECTION_TITLE = 'section-title';
@@ -36,11 +49,10 @@ interface HelpRow {
   readonly color?: string | undefined;
 }
 
-/**
- * Renders one row of the flattened help list — a section spacer, a section title, a key-chord binding, or a plain
- * reference row (signal vocabulary etc. with no key chord).
- */
-const HelpRowView = ({ row, keyCol }: { readonly row: HelpRow; readonly keyCol: number }): React.JSX.Element => {
+/** Renders one row of the flattened help list — a section spacer, a section title, a key-chord
+ * binding, or a plain reference row (signal vocabulary etc. with no key chord). Every branch
+ * occupies exactly one terminal row. */
+const HelpRowView = ({ row }: { readonly row: HelpRow }): React.JSX.Element => {
   if (row.kind === BLANK) {
     return <Text> </Text>;
   }
@@ -55,44 +67,29 @@ const HelpRowView = ({ row, keyCol }: { readonly row: HelpRow; readonly keyCol: 
   if (rowKeys.length > 0) {
     return (
       <Box>
-        <Box width={keyCol} flexShrink={0}>
-          <Text color={inkColors.highlight} wrap="truncate-end">
-            {rowKeys.join(' · ')}
-          </Text>
+        <Box width={20}>
+          <Text color={inkColors.highlight}>{rowKeys.join(' · ')}</Text>
         </Box>
-        <Box flexShrink={1} minWidth={0}>
-          <Text dimColor wrap="truncate-end">
-            {row.label}
-          </Text>
-        </Box>
+        <Text dimColor>{row.label}</Text>
       </Box>
     );
   }
   return (
     <Box>
-      <Box width={keyCol} flexShrink={0}>
-        <Text
-          wrap="truncate-end"
-          color={row.color ?? (row.label !== undefined ? signalLabelColor(row.label) : undefined) ?? inkColors.info}
-          bold
-        >
+      <Box width={20}>
+        <Text color={row.color ?? SIGNAL_LABEL_COLOR[row.label ?? ''] ?? inkColors.info} bold>
           {row.label}
         </Text>
       </Box>
-      <Box flexShrink={1} minWidth={0}>
-        <Text dimColor wrap="truncate-end">
-          {row.description ?? ''}
-        </Text>
-      </Box>
+      <Text dimColor>{row.description ?? ''}</Text>
     </Box>
   );
 };
 
-/** Width of a row's key cell: its chords joined, or the bare label of a vocabulary row. */
-const keyCellText = (row: HelpRow): string =>
-  row.kind !== 'binding' ? '' : (row.keys ?? []).length > 0 ? (row.keys ?? []).join(' · ') : (row.label ?? '');
-
-/** Pushes a section title, preceded by `spacing.section` blank rows unless it opens the list. */
+/**
+ * Pushes a section title, preceded by `spacing.section` blank rows unless it opens the list.
+ * The spacer is a row (not a margin) so the windowing math stays one-row-per-`HelpRow`.
+ */
 const pushSectionTitle = (rows: HelpRow[], title: string): void => {
   if (rows.length > 0) {
     for (let i = 0; i < spacing.section; i++) rows.push({ kind: BLANK });
@@ -101,11 +98,7 @@ const pushSectionTitle = (rows: HelpRow[], title: string): void => {
 };
 
 /** Flattens the local view hints + every static keymap section into one renderable row list. */
-const buildHelpRows = (
-  localHints: ReturnType<typeof useActiveHints>,
-  routeId: string | undefined,
-  showAll: boolean
-): readonly HelpRow[] => {
+const buildHelpRows = (localHints: ReturnType<typeof useActiveHints>): readonly HelpRow[] => {
   const rows: HelpRow[] = [];
 
   if (localHints.length > 0) {
@@ -116,9 +109,6 @@ const buildHelpRows = (
   }
 
   for (const section of keySections) {
-    if (!showAll && section.onlyOn !== undefined && (routeId === undefined || !section.onlyOn.includes(routeId))) {
-      continue;
-    }
     pushSectionTitle(rows, section.title);
     for (const b of section.bindings) {
       rows.push({
@@ -134,36 +124,46 @@ const buildHelpRows = (
   return rows;
 };
 
-export interface HelpOverlayProps {
-  /** Route the help is opened on — scopes the route-bound sections. Omitted → general sections only. */
-  readonly routeId?: string;
-}
-
-export const HelpOverlay = ({ routeId }: HelpOverlayProps = {}): React.JSX.Element => {
+export const HelpOverlay = (): React.JSX.Element => {
   const localHints = useActiveHints();
   const term = useTerminalSize();
-  const [showAll, setShowAll] = useState(false);
+  const [offset, setOffset] = useState(0);
 
   // Build a flat array of renderable rows from all sections so we can window them.
-  const allRows = useMemo(
-    (): readonly HelpRow[] => buildHelpRows(localHints, routeId, showAll),
-    [localHints, routeId, showAll]
-  );
+  const allRows = useMemo((): readonly HelpRow[] => buildHelpRows(localHints), [localHints]);
 
   const bodyRows = Math.max(MIN_BODY_ROWS, term.rows - CHROME_ROWS);
   const lineCount = allRows.length;
-  // Resets to the top when content changes (e.g. view switches while the overlay is open).
-  const { offset } = useDocumentScroll(lineCount, bodyRows);
+  const maxOffset = Math.max(0, lineCount - bodyRows);
+  const clamp = (n: number): number => Math.max(0, Math.min(n, maxOffset));
 
-  // esc and `?` are handled by the global key handler before reaching here.
-  useInput((_input, key) => {
-    if (key.tab) setShowAll((v) => !v);
+  // Reset scroll when content changes (e.g. view switches while overlay is open).
+  useEffect(() => {
+    setOffset(0);
+  }, [lineCount]);
+
+  useInput((input, key) => {
+    // Only scroll when content overflows.
+    if (maxOffset === 0) return;
+    if (key.upArrow) {
+      setOffset((o) => clamp(o - 1));
+      return;
+    }
+    if (key.downArrow) {
+      setOffset((o) => clamp(o + 1));
+      return;
+    }
+    if (key.pageUp) {
+      setOffset((o) => clamp(o - bodyRows));
+      return;
+    }
+    if (key.pageDown) {
+      setOffset((o) => clamp(o + bodyRows));
+    }
+    // esc and `?` are handled by the global key handler before reaching here.
+    void input;
   });
 
-  const keyCol = Math.min(
-    MAX_KEY_COL,
-    Math.max(MIN_KEY_COL, ...allRows.map((r) => keyCellText(r).length)) + spacing.indent
-  );
   const visibleRows = allRows.slice(offset, offset + bodyRows);
 
   return (
@@ -179,14 +179,23 @@ export const HelpOverlay = ({ routeId }: HelpOverlayProps = {}): React.JSX.Eleme
           <Text color={inkColors.primary} bold>
             {glyphs.badge} Keyboard reference
           </Text>
-          <Text dimColor>esc · ? close · Tab {showAll ? 'this view' : 'all keys'}</Text>
+          <Text dimColor>esc · ? to close</Text>
         </Box>
         <Box flexDirection="column" marginTop={spacing.section}>
           {visibleRows.map((row, idx) => (
-            <HelpRowView key={`${row.kind}-${String(offset + idx)}`} row={row} keyCol={keyCol} />
+            <HelpRowView key={`${row.kind}-${String(offset + idx)}`} row={row} />
           ))}
         </Box>
-        <DocumentScrollFooter offset={offset} bodyRows={bodyRows} lineCount={lineCount} />
+        {maxOffset > 0 && (
+          <Box marginTop={spacing.section} justifyContent="space-between">
+            <Text dimColor>
+              lines {String(offset + 1)}–{String(Math.min(lineCount, offset + bodyRows))} of {String(lineCount)}
+            </Text>
+            <Text dimColor>
+              {glyphs.bullet} ↑/↓ scroll {glyphs.bullet} PgUp/PgDn page
+            </Text>
+          </Box>
+        )}
       </Box>
     </Box>
   );

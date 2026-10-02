@@ -1,4 +1,11 @@
-/** Sprint detail — shortcut action closures. */
+/**
+ * Sprint detail — shortcut action closures.
+ *
+ * `buildShortcutsActions` assembles the `a`/`m`/↵/`d`/`p`/`u`/`r` closures `useSprintDetailShortcuts`
+ * needs, spread into its config alongside the plain gate fields `detail-body.tsx` computes
+ * directly. Split out purely to keep `detail-body.tsx` under the file line budget — same
+ * behaviour, just relocated.
+ */
 
 import type { Dispatch, SetStateAction } from 'react';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
@@ -18,7 +25,7 @@ export interface BuildShortcutsActionsArgs {
   readonly setConfirmRemove: (ticket: Ticket | undefined) => void;
   readonly setFeedback: (message: string) => void;
   readonly onUnblock: (task: Task) => Promise<void>;
-  readonly onPublish: (ticket: Ticket) => void;
+  readonly onPublish: (ticket: Ticket) => Promise<void>;
   readonly sprintId: SprintId | undefined;
   readonly openEvaluationOverlay: (target: EvaluationTarget) => void;
   /** Re-reads the sprint bundle — threaded through to the `r` chord's `reloadSprint` action. */
@@ -26,8 +33,8 @@ export interface BuildShortcutsActionsArgs {
 }
 
 /**
- * Build the `useSprintDetailShortcuts` action closures (`a`/`m`/↵/`d`/`p`/`u`/`r`) — spread into the hook's config
- * alongside the plain gate fields so the call site stays a flat list.
+ * Build the `useSprintDetailShortcuts` action closures (`a`/`m`/↵/`d`/`p`/`u`/`r`) — spread into the
+ * hook's config alongside the plain gate fields so the call site stays a flat list.
  */
 export const buildShortcutsActions = (args: BuildShortcutsActionsArgs) => {
   const {
@@ -53,7 +60,6 @@ export const buildShortcutsActions = (args: BuildShortcutsActionsArgs) => {
         return next;
       }),
     beginRemove: (ticket: Ticket) => setConfirmRemove(ticket),
-    openFlows: () => router.reset({ id: 'home', props: { focus: 'flows' } }),
     markCurrent: (s: Sprint) => {
       selection.setSprint(s.id, s.name, s.status);
       setFeedback(`${glyphs.check} now on ${s.name}`);
@@ -62,7 +68,7 @@ export const buildShortcutsActions = (args: BuildShortcutsActionsArgs) => {
       void onUnblock(task);
     },
     handlePublish: (ticket: Ticket) => {
-      onPublish(ticket);
+      void onPublish(ticket);
     },
     // The full target is assembled here (not inside the overlay) so its degrade arms never need a
     // second repository read — see `runtime/evaluation-target.ts`.

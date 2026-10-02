@@ -9,7 +9,6 @@ import React from 'react';
 import { render } from 'ink-testing-library';
 import { Text } from 'ink';
 import { describe, expect, it } from 'vitest';
-import { waitFor } from '@tests/integration/application/ui/tui/_wait.ts';
 import { UiStateProvider, useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 
 /**
@@ -111,73 +110,5 @@ describe('UiStateProvider.claimEscape', () => {
     expect(r.lastFrame()).toContain('prompt=false');
 
     r.unmount();
-  });
-});
-
-describe('UiStateProvider — single overlay slot', () => {
-  const run = async (
-    action: (api: ReturnType<typeof useUiState>) => void,
-    settled: (frame: string) => boolean
-  ): Promise<string> => {
-    const everOpen = { current: false };
-    const Trigger = makeTrigger({ current: false }, action);
-    const Probe = (): React.JSX.Element => {
-      const api = useUiState();
-      if (api.modalOpen) everOpen.current = true;
-      return (
-        <Text>
-          seen={String(everOpen.current)} help={String(api.helpOpen)} progress={String(api.progressOpen)} eval=
-          {String(api.evaluationTarget !== undefined)} modal={String(api.modalOpen)}
-        </Text>
-      );
-    };
-    const r = render(
-      <UiStateProvider>
-        <Trigger />
-        <Probe />
-      </UiStateProvider>
-    );
-    await waitFor(() => {
-      if (!settled(r.lastFrame() ?? '')) throw new Error('overlay state not settled');
-    });
-    const frame = r.lastFrame() ?? '';
-    r.unmount();
-    return frame;
-  };
-
-  it('openOverlay replaces the open overlay — help then progress leaves only progress open', async () => {
-    const frame = await run(
-      (api) => {
-        api.toggleHelp();
-        setTimeout(() => api.openOverlay({ kind: 'progress' }), 5);
-      },
-      (f) => f.includes('progress=true')
-    );
-    expect(frame).toContain('help=false');
-    expect(frame).toContain('progress=true');
-    expect(frame).toContain('modal=true');
-  });
-
-  it('closeOverlay clears whichever overlay is open', async () => {
-    const frame = await run(
-      (api) => {
-        api.openOverlay({ kind: 'help' });
-        setTimeout(() => api.closeOverlay(), 5);
-      },
-      (f) => f.includes('seen=true') && f.includes('modal=false')
-    );
-    expect(frame).toContain('help=false');
-    expect(frame).toContain('modal=false');
-  });
-
-  it('closeEvaluation leaves a different open overlay alone', async () => {
-    const frame = await run(
-      (api) => {
-        api.openOverlay({ kind: 'progress' });
-        setTimeout(() => api.closeEvaluation(), 5);
-      },
-      (f) => f.includes('progress=true')
-    );
-    expect(frame).toContain('progress=true');
   });
 });

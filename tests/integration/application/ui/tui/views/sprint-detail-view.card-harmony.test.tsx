@@ -46,8 +46,8 @@ const makeSprint = (tickets: readonly unknown[]): Sprint =>
     slug: 'demo-sprint',
     name: 'Demo Sprint',
     projectId: 'proj-fixture' as never,
-    // `done` keeps the header strip as plain text rather than a card so the only bordered frames
-    // in the rendered tree are the tickets and the tasks.
+    // `done` keeps the "Next phase" affordance as plain text rather than a card so the only
+    // bordered frames in the rendered tree are the sprint header, the tickets, and the tasks.
     status: 'done',
     tickets,
   }) as unknown as Sprint;

@@ -1,6 +1,7 @@
 /**
- * Banner ASCII art + Ralph quote pool. The {@link Banner} component (in `components/banner.tsx`) renders this through
- * the inline gradient.
+ * Banner ASCII art + Ralph quote pool. The {@link Banner} component (in `components/banner.tsx`)
+ * renders this through the inline gradient. Quote selection is stable per process so the banner
+ * doesn't jitter on every navigation.
  */
 
 const BANNER = `

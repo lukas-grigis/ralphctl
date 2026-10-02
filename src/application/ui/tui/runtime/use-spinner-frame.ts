@@ -1,4 +1,8 @@
-/** Animation frame counter for the braille spinner. */
+/**
+ * Animation frame counter for the braille spinner. One shared timer per process — every panel
+ * that wants a spinner reads the same frame so they tick in lock-step (visually calmer than
+ * each spinner running its own timer).
+ */
 
 import { useEffect, useState } from 'react';
 import { glyphs } from '@src/application/ui/tui/theme/tokens.ts';

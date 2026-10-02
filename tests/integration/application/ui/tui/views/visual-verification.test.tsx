@@ -123,7 +123,6 @@ const renderSidebar = (cols: number, rows: number): SidebarRender => {
       sidebarTaskNavRows: layout.sidebarTaskNavRows,
       sidebarFlowStepsRows: layout.sidebarFlowStepsRows,
       sidebarContextSideBySide: layout.sidebarContextSideBySide,
-      showBaseline: true,
       descriptor,
       bucketed,
       isRunning: true,

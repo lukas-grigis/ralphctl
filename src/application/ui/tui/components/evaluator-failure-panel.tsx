@@ -1,11 +1,49 @@
-/** EvaluatorFailurePanel — per-dimension verdict view for one attempt's evaluation. */
+/**
+ * EvaluatorFailurePanel — per-dimension verdict view for one attempt's evaluation.
+ *
+ * Source of truth is the on-disk `evaluation.md` artifact, parsed by `parseEvaluationMarkdown`.
+ * It used to read the timestamp-windowed `TaskBucket.evaluations` signal stream, which
+ * mis-attributes evaluator signals across lanes under parallel sprints — which is why the panel
+ * spent its whole life behind a developer flag instead of on screen. Reading the artifact the
+ * evaluator actually wrote for the attempt removes that ambiguity, and with it the flag.
+ *
+ * The panel is the body of {@link EvaluationOverlay}. Because an `evaluation.md` can be arbitrarily
+ * long, the panel does NOT own its own scroll: it projects to a flat list of styled lines
+ * ({@link projectEvaluationLines}) so the overlay can window that list by row count. Windowing a
+ * React subtree is not possible; windowing a line array is trivial.
+ *
+ * Layout:
+ *
+ *   eval  failed
+ *   2026-08-17T09:15:00.000Z
+ *
+ *   critique
+ *     The legacy migration path is untested.
+ *
+ *   ✓ correctness: passed
+ *       Logic matches the acceptance criteria.
+ *   ✗ tests: failed
+ *       No regression test for the legacy row.
+ *       ↳ FAIL tests/unit/foo.test.ts
+ *   · docs: n/a
+ *       No documentation surface in scope.
+ *
+ * No keyboard affordance of its own. The earlier `d`-to-expand chord double-fired with
+ * `StatusBanner`'s ungated global `d` (dismiss top banner), and in a scrollable overlay a critique
+ * excerpt is pointless — the full body is one PgDn away.
+ */
 
 import React from 'react';
 import { Box, Text } from 'ink';
 import type { ParsedEvaluation, ParsedDimensionVerdict } from '@src/business/task/parse-evaluation-md.ts';
 import { glyphs, inkColors } from '@src/application/ui/tui/theme/tokens.ts';
 
-/** Hard cap on a single projected row. */
+/**
+ * Hard cap on a single projected row. Ink wraps a `<Text>` across as many terminal rows as it
+ * needs, so one pathological 200 kB line inside a fenced evidence block would defeat the overlay's
+ * row-count windowing and paint the whole screen. Generous enough that no real critique or command
+ * output is clipped in practice.
+ */
 const MAX_LINE_CHARS = 2000;
 
 /** One projected row: plain text plus the styling the overlay / panel applies verbatim. */
@@ -24,7 +62,12 @@ const STATUS_COLOR: Record<ParsedEvaluation['status'], string> = {
   unknown: inkColors.muted,
 };
 
-/** Glyph + color per dimension verdict. */
+/**
+ * Glyph + color per dimension verdict. `n/a` and `unknown` are deliberately NEITHER red nor green:
+ * the renderer emits `n/a` for a dimension the evaluator marked not-applicable (which carries
+ * `passed: false` in the source signal), so keying off a boolean painted every N/A dimension as a
+ * red failure — a real misreport this panel used to produce.
+ */
 const VERDICT_PRESENTATION: Record<ParsedDimensionVerdict, { readonly glyph: string; readonly color?: string }> = {
   passed: { glyph: glyphs.check, color: inkColors.success },
   failed: { glyph: glyphs.cross, color: inkColors.error },
@@ -53,8 +96,10 @@ const dimensionRows = (dimension: ParsedEvaluation['dimensions'][number]): Evalu
 };
 
 /**
- * Flatten a parsed evaluation into styled rows, in reading order: verdict, timestamp, critique, then one block per
- * dimension.
+ * Flatten a parsed evaluation into styled rows, in reading order: verdict, timestamp, critique,
+ * then one block per dimension. The overlay slices this array to its viewport; the panel renders
+ * all of it. Returns an empty array for a model with nothing in it, which is the signal the
+ * overlay uses to fall back to the raw file.
  */
 export const projectEvaluationLines = (parsed: ParsedEvaluation): readonly EvaluationLineSpec[] => {
   const hasContent = parsed.status !== 'unknown' || parsed.critique !== undefined || parsed.dimensions.length > 0;
@@ -75,8 +120,15 @@ export const projectEvaluationLines = (parsed: ParsedEvaluation): readonly Evalu
 };
 
 /**
- * Render a run of projected rows. Shared by the panel and the overlay's windowed body so the two cannot style the
- * same model differently.
+ * Render a run of projected rows. Shared by the panel and the overlay's windowed body so the two
+ * cannot style the same model differently. `keyPrefix` disambiguates when the caller renders a
+ * SLICE — row indices restart at 0 on every scroll otherwise.
+ *
+ * `oneRowPerLine` is for the WINDOWING caller: it clips each row with `truncate-end` so a spec
+ * can never paint across two terminal rows and desync a row-count viewport. The overlay pairs it
+ * with a pre-wrap (`wrap-document-rows.ts`) so nothing is actually lost; a caller that renders
+ * the whole projection (the panel below) leaves it off and lets Ink reflow the prose.
+ *
  * @public
  */
 export const EvaluationLines = ({

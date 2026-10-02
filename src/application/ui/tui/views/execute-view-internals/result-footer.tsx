@@ -1,6 +1,15 @@
 /**
- * While the run is still running the footer renders nothing — the header card already shows `[RUNNING]` with its own
- * live spinner.
+ * Footer of the execute view — renders a settled-run `ResultCard` (completed / aborted /
+ * failed) once the session is no longer live. While the run is still running the footer
+ * renders nothing — the header card already shows `[RUNNING]` with its own live spinner.
+ * Pure presentational; the orchestrator decides which descriptor / counts / elapsed string
+ * to feed in.
+ *
+ * Row budget: the Execute page yields the page-scroll keys to the Tasks cursor
+ * (`ViewShell suppressScrollArrows`), so a section that outgrows the viewport is unreachable by
+ * keyboard. Every other section on the page is already capped against terminal rows
+ * (`use-responsive-layout.ts`); this one caps here, at the display boundary only — the full
+ * error text stays in the chain log and the post-mortem artifacts the card points at.
  */
 
 import React from 'react';
@@ -16,19 +25,31 @@ interface ResultFooterProps {
   readonly tasksDone: number;
   readonly tasksTotal: number;
   readonly elapsed: string;
-  /** What the operator should do next, plus the post-mortem paths a failure left behind. */
+  /**
+   * What the operator should do next, plus the post-mortem paths a failure left behind. Built
+   * once by the orchestrator (memoized there — see the `React.memo` note below) so this stays a
+   * pure render.
+   */
   readonly nextSteps: NextSteps;
 }
 
-/** Caps for the three variable-length blocks of the settled card. */
+/**
+ * Caps for the three variable-length blocks of the settled card. `buildNextSteps` and
+ * `useRunForensics` are bounded by construction today (≤3 steps, ≤5 paths) — these slices are the
+ * standing guarantee, so a new row in either table can't silently push the card past the viewport.
+ * The summary is the genuinely unbounded one: it is `descriptor.error.message`, which on a
+ * provider failure carries a multi-line stderr tail.
+ */
 const MAX_SUMMARY_LINES = 3;
 const MAX_SUMMARY_CHARS = 240;
 const MAX_NEXT_STEPS = 4;
 const MAX_FORENSICS = 5;
 
 /**
- * Clip the error summary to at most {@link MAX_SUMMARY_LINES} lines and {@link MAX_SUMMARY_CHARS} characters (the
- * char cap bounds Ink's soft wrap). A clip appends `clipEllipsis` so a shortened message is recognisable.
+ * Clip the error summary to a bounded row footprint: at most {@link MAX_SUMMARY_LINES} lines and
+ * {@link MAX_SUMMARY_CHARS} characters (the char cap bounds Ink's soft wrap, which the line cap
+ * alone cannot). A clip appends the audit-[03] `clipEllipsis` marker so the operator can tell a
+ * short message from a shortened one.
  */
 const clipSummary = (summary: string | undefined): string | undefined => {
   if (summary === undefined) return undefined;
@@ -52,7 +73,7 @@ const ResultFooterImpl = ({
     return null;
   }
   return (
-    <Box flexDirection="column" marginTop={spacing.section}>
+    <Box marginTop={spacing.section}>
       <ResultCard
         kind={descriptor.status === 'completed' ? 'success' : descriptor.status === 'aborted' ? 'aborted' : 'failed'}
         title={descriptor.title}
@@ -70,6 +91,8 @@ const ResultFooterImpl = ({
   );
 };
 
-// Memoized: renders null while running (the common, tick-driven case) and `elapsed` stops changing the instant
-// `descriptor.finishedAt` is set.
+// Memoized: renders null while running (the common, tick-driven case) and `elapsed` stops
+// changing the instant `descriptor.finishedAt` is set, so this component's props are stable
+// both before and after settle — memo just skips the redundant re-render on every tick. That
+// only holds while `nextSteps` keeps a stable identity, hence the `useMemo` on the caller side.
 export const ResultFooter = React.memo(ResultFooterImpl);

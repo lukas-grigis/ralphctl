@@ -1,19 +1,37 @@
 /**
- * `useViewKeys` — one declaration of "what local keys mean on this screen", feeding BOTH the `useInput` dispatcher
- * and the status-bar hint strip from the same array.
+ * `useViewKeys` — one declaration of "what local keys mean on this screen", feeding BOTH the
+ * `useInput` dispatcher and the status-bar hint strip from the same array.
+ *
+ * Views used to declare their keys twice: once as a `useViewHints([...])` array and once as a
+ * chain of `if (input === 'x')` branches. The two drifted — a key could be advertised as live
+ * while its handler rejected it (or vice versa), and any gate that mattered to both had to be
+ * written out twice. Here a binding carries its own gate, so the hint and the handler cannot
+ * disagree by construction.
+ *
+ * Binding fields:
+ *
+ *   - `keys` — the literal `input` strings this binding claims, and (joined by `/`) its
+ *     status-bar spelling. An entry with no `run` is documentation only: it advertises a key the
+ *     windowed-list primitive already owns (`↑/↓`, `↵`) without claiming it.
+ *   - `enabled` — `false` mutes the handler AND drops the hint. Use it when the key genuinely
+ *     does nothing in the current state, so the strip never advertises a dead key.
+ *   - `hidden` — drops the hint while leaving the handler live. Use it when the key IS inert but
+ *     the handler exists to say why (someone who found it in the `?` overlay still presses it,
+ *     and a silent swallow reads as a bug).
+ *
+ * The optional `active` flag mutes the whole dispatcher — the view-wide equivalent of Ink's own
+ * `isActive`, for when a modal / confirm overlay owns the keyboard. Hints are untouched by it:
+ * the strip keeps describing the screen underneath the overlay, exactly as it did before.
  */
 
-import { useEffect, useRef } from 'react';
 import { useInput, type Key } from 'ink';
-import { useViewHints, type ViewHint } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
-import { useClaimKeys } from '@src/application/ui/tui/runtime/claimed-keys-context.tsx';
 import { useOptionalOverlayState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
-import { isChord } from '@src/application/ui/tui/runtime/key-chord.ts';
+import { useViewHints, type ViewHint } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
 
 export interface ViewKeyBinding {
   /**
-   * Literal `input` strings this binding claims. Doubles as the status-bar spelling once joined by `/` — `['↑', '↓',
-   * 'j', 'k']` renders as `↑/↓/j/k`.
+   * Literal `input` strings this binding claims. Doubles as the status-bar spelling once joined
+   * by `/` — `['↑', '↓', 'j', 'k']` renders as `↑/↓/j/k`.
    */
   readonly keys: readonly string[];
   /** Status-bar action label — reuse the DESIGN-SYSTEM §6.3 vocabulary (`move`, `open`, …). */
@@ -24,114 +42,44 @@ export interface ViewKeyBinding {
   readonly hidden?: boolean;
   /** Omit for a documentation-only entry describing a key another primitive owns. */
   readonly run?: (input: string, key: Key) => void;
-  /** Omitted means the bare key only — Ink reports ctrl+c as input `c`. */
-  readonly chord?: 'ctrl' | 'meta';
 }
 
 export interface UseViewKeysOptions {
   /**
-   * Mutes the dispatcher while `false` — the view-wide keyboard yield for a mounted modal / confirm overlay. Defaults
-   * to `true`.
+   * Mutes the dispatcher while `false` — the view-wide keyboard yield for a mounted modal /
+   * confirm overlay. Defaults to `true`. Hints are published regardless.
    */
   readonly active?: boolean;
 }
 
-const SPECIAL_KEYS: Readonly<Record<string, (key: Key) => boolean>> = {
-  '↵': (key) => key.return,
-  esc: (key) => key.escape,
-  Tab: (key) => key.tab,
-  '↑': (key) => key.upArrow,
-  '↓': (key) => key.downArrow,
-  '←': (key) => key.leftArrow,
-  '→': (key) => key.rightArrow,
-  Home: (key) => key.home,
-  End: (key) => key.end,
-  PgUp: (key) => key.pageUp,
-  PgDn: (key) => key.pageDown,
-};
-
-const chordMatches = (chord: ViewKeyBinding['chord'], key: Key): boolean => {
-  if (chord === undefined) return !isChord(key);
-  return chord === 'ctrl' ? key.ctrl : key.meta && !key.ctrl;
-};
-
-const matches = (binding: ViewKeyBinding, token: string, input: string, key: Key): boolean => {
-  const special = SPECIAL_KEYS[token];
-  if (special !== undefined) return special(key);
-  return (token === 'space' ? ' ' : token) === input && chordMatches(binding.chord, key);
-};
-
-/** Printable single characters are claimable; arrows, `↵`, `esc` and named keys are not. */
-const PRINTABLE = /^[ -~]$/u;
-
 const toHint = (binding: ViewKeyBinding): ViewHint => ({
-  keys: binding.keys.map((k) => (binding.chord === undefined ? k : `${binding.chord}+${k}`)).join('/'),
+  keys: binding.keys.join('/'),
   label: binding.hint,
   ...(binding.enabled !== undefined ? { enabledWhen: binding.enabled } : {}),
 });
 
-/**
- * How long after mount a key may wait for its binding to become enabled — covers a view whose data is still loading
- * when the operator types ahead after a section switch.
- */
-const TYPE_AHEAD_MS = 1500;
-const TYPE_AHEAD_MAX = 4;
-
-interface PendingKey {
-  readonly input: string;
-  readonly key: Key;
-}
-
-const findEnabled = (bindings: readonly ViewKeyBinding[], input: string, key: Key): ViewKeyBinding | undefined =>
-  bindings.find(
-    (b) => b.run !== undefined && b.enabled !== false && b.keys.some((token) => matches(b, token, input, key))
-  );
+/** A binding token matches a printable key verbatim, plus `↵` (return) and `space` by name. */
+const matchesKey = (token: string, input: string, key: Key): boolean =>
+  token === '↵' ? key.return : token === 'space' ? input === ' ' : token === input;
 
 export const useViewKeys = (bindings: readonly ViewKeyBinding[], options: UseViewKeysOptions = {}): void => {
-  const modalOpen = useOptionalOverlayState()?.modalOpen === true;
-  const active = (options.active ?? true) && !modalOpen;
-
-  const mountedAt = useRef(Date.now());
-  const pending = useRef<PendingKey[]>([]);
+  // An open overlay (help included) owns the keyboard; the hidden view must stay inert beneath it.
+  const overlayOpen = useOptionalOverlayState()?.overlayOpen === true;
+  const active = (options.active ?? true) && !overlayOpen;
 
   useInput(
     (input, key) => {
-      const binding = findEnabled(bindings, input, key);
-      if (binding?.run !== undefined) {
+      // ctrl+c is the quit chord and ctrl+x is never `x`: a chord must not land on a bare-letter binding.
+      if (key.ctrl || key.meta) return;
+      for (const binding of bindings) {
+        if (binding.run === undefined || binding.enabled === false) continue;
+        if (!binding.keys.some((token) => matchesKey(token, input, key))) continue;
         binding.run(input, key);
         return;
-      }
-      // Gated off right after mount (data still loading): hold the key until its binding enables.
-      const gated = bindings.some(
-        (b) => b.run !== undefined && b.enabled === false && b.keys.some((token) => matches(b, token, input, key))
-      );
-      if (gated && Date.now() - mountedAt.current < TYPE_AHEAD_MS && pending.current.length < TYPE_AHEAD_MAX) {
-        pending.current.push({ input, key });
       }
     },
     { isActive: active }
   );
-
-  // Every render: a loaded view re-renders, which is when a held key's gate may have opened.
-  useEffect(() => {
-    if (pending.current.length === 0) return;
-    const held = pending.current;
-    if (!active || Date.now() - mountedAt.current >= TYPE_AHEAD_MS) {
-      pending.current = [];
-      return;
-    }
-    pending.current = held.filter((p) => {
-      const binding = findEnabled(bindings, p.input, p.key);
-      if (binding?.run === undefined) return true;
-      binding.run(p.input, p.key);
-      return false;
-    });
-  });
-
-  const claimed = bindings
-    .filter((b) => b.run !== undefined && b.enabled !== false && b.chord === undefined)
-    .flatMap((b) => b.keys.filter((k) => PRINTABLE.test(k)));
-  useClaimKeys(claimed, active);
 
   // A fresh array every render is fine — `useViewHints` bails out on equal content, so this only
   // reaches the registry when a label or a gate actually changed.

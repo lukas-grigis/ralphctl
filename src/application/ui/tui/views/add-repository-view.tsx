@@ -1,11 +1,16 @@
 /**
- * Add-repository view — short wizard for attaching another repository to an existing project. Walks: path → name →
- * confirm.
+ * Add-repository view — short wizard for attaching another repository to an existing project.
+ * Walks: path → name → confirm. Persists via `addRepository(project, repo)` + `projectRepo.save`
+ * so the aggregate's slug/id uniqueness invariants are enforced before disk write.
+ *
+ * Edit / remove live on the project-detail view; this is the dedicated `add` path so that the
+ * wizard owns input focus for the duration of the prompts.
  */
 
 import React, { useEffect, useState } from 'react';
 import { Box, Text } from 'ink';
-import { basename } from 'node:path';
+import { homedir as osHomedir } from 'node:os';
+import { basename, join } from 'node:path';
 import { ViewShell } from '@src/application/ui/tui/components/view-shell.tsx';
 import { Card } from '@src/application/ui/tui/components/card.tsx';
 import { FieldList } from '@src/application/ui/tui/components/field-list.tsx';
@@ -33,6 +38,12 @@ type Step =
   | { readonly kind: 'saving' }
   | { readonly kind: 'error'; readonly message: string };
 
+const expandHome = (input: string): string => {
+  if (input === '~') return osHomedir();
+  if (input.startsWith('~/')) return join(osHomedir(), input.slice(2));
+  return input;
+};
+
 const backStep = (step: Step): Step | undefined => {
   switch (step.kind) {
     case 'path':
@@ -54,7 +65,9 @@ export const AddRepositoryView = (): React.JSX.Element => {
   const { projectId } = useViewProps<AddRepoProps>();
   const [step, setStep] = useState<Step>({ kind: 'path' });
 
-  // Claim prompt focus only while a real prompt is rendered.
+  // Claim prompt focus only while a real prompt is rendered. In 'saving' / 'error' states no
+  // component is listening for Esc, so we must release the claim so the parent router's global
+  // Esc handler fires and the "Press esc to go back" hint becomes truthful.
   const claimPrompt = ui.claimPrompt;
   useEffect(() => {
     if (step.kind === 'path' || step.kind === 'name' || step.kind === 'confirm') {
@@ -68,7 +81,8 @@ export const AddRepositoryView = (): React.JSX.Element => {
   const submit = async (s: Extract<Step, { kind: 'confirm' }>): Promise<void> => {
     setStep({ kind: 'saving' });
 
-    const pathResult = AbsolutePath.parse(s.path.trim());
+    const expanded = expandHome(s.path.trim());
+    const pathResult = AbsolutePath.parse(expanded);
     if (!pathResult.ok) {
       setStep({ kind: 'error', message: `path: ${pathResult.error.message}` });
       return;
@@ -133,8 +147,9 @@ interface StepViewProps {
 }
 
 const StepView = ({ step, onChange, onCancel, onSubmit }: StepViewProps): React.JSX.Element => {
-  // Per-step `key` so each prompt is a fresh instance — otherwise React's reconciliation preserves the previous
-  // step's buffer at the same tree position.
+  // Per-step `key` so each prompt is a fresh instance — otherwise React's reconciliation
+  // preserves the previous step's buffer at the same tree position. Esc on a non-first step
+  // steps back instead of exiting the wizard.
   const prev = backStep(step);
   const cancelOrBack = prev !== undefined ? (): void => onChange(prev) : onCancel;
   switch (step.kind) {
@@ -148,7 +163,7 @@ const StepView = ({ step, onChange, onCancel, onSubmit }: StepViewProps): React.
         />
       );
     case 'name': {
-      const fallback = basename(step.path);
+      const fallback = basename(expandHome(step.path));
       return (
         <TextPrompt
           key="name"
@@ -164,10 +179,10 @@ const StepView = ({ step, onChange, onCancel, onSubmit }: StepViewProps): React.
         <Box flexDirection="column">
           <FieldList
             fields={[
-              { label: 'Path', value: <Text dimColor>{step.path}</Text> },
+              { label: 'Path', value: <Text dimColor>{expandHome(step.path)}</Text> },
               {
                 label: 'Name',
-                value: step.name.trim().length > 0 ? step.name : basename(step.path),
+                value: step.name.trim().length > 0 ? step.name : basename(expandHome(step.path)),
               },
             ]}
           />
@@ -188,9 +203,7 @@ const StepView = ({ step, onChange, onCancel, onSubmit }: StepViewProps): React.
     case 'error':
       return (
         <Box flexDirection="column" paddingX={spacing.indent}>
-          <Text color={inkColors.error}>
-            {glyphs.cross} {step.message}
-          </Text>
+          <Text color={inkColors.error}>✗ {step.message}</Text>
           <Text dimColor>Press esc to go back.</Text>
         </Box>
       );

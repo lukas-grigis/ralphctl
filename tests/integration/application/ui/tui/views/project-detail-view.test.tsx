@@ -5,7 +5,6 @@
  * `e` / ↵ open the field editor directly without a choice prompt.
  */
 
-import { Box } from 'ink';
 import { describe, expect, it } from 'vitest';
 import { Result } from '@src/domain/result.ts';
 import { ProjectDetailView } from '@src/application/ui/tui/views/project-detail-view.tsx';
@@ -80,9 +79,8 @@ describe('ProjectDetailView', () => {
     const frame = result.lastFrame() ?? '';
     // Previously-omitted keys the view handles must be advertised (audit L17).
     expect(frame).toContain('move');
-    // ↵ edits the focused field (labelled honestly — it never "confirms" anything here).
-    expect(frame).toMatch(/↵ edit\b/);
-    expect(frame).not.toContain('confirm/select');
+    expect(frame).toContain('confirm/select');
+    expect(frame).toContain('edit field');
     // DESIGN-SYSTEM §6.4 — the j/k alias stays bound but is never advertised per-view.
     expect(frame).not.toContain('j/k');
     result.unmount();
@@ -93,7 +91,7 @@ describe('ProjectDetailView', () => {
     const { result } = renderView(<ProjectDetailView />, {
       deps: stubDeps(project),
       initial: { id: 'project-detail', props: { projectId: project.id } },
-      // The full repo-row hint set is wider than the 100-column harness pin.
+      // The footer is one clipped line, and these hints alone are wider than 100 columns.
       size: { columns: 140, rows: 40 },
     });
     await waitForViewReady(result);
@@ -110,38 +108,6 @@ describe('ProjectDetailView', () => {
     expect(onRepoRow).toContain('remove repo');
     expect(onRepoRow).toContain('detect scripts');
     expect(onRepoRow).toContain('detect skills');
-    result.unmount();
-  });
-
-  it('keeps the focused repo on screen while ↓ walks a tall roster (arrows belong to the cursor, not the page)', async () => {
-    const repos = Array.from({ length: 6 }, (_, i) =>
-      makeRepository({
-        id: repositoryId(`01900000-0000-7000-8000-0000000001${String(i).padStart(2, '0')}`),
-        slug: `repo-${String(i)}`,
-        name: `repo-name-${String(i)}`,
-        path: `/tmp/repo-${String(i)}`,
-      })
-    );
-    const project = makeProject({ repositories: repos });
-    const { result } = renderView(
-      // Height-pinned like the real App root — without it the scroll region never clips.
-      <Box height={24} flexDirection="column">
-        <ProjectDetailView />
-      </Box>,
-      {
-        deps: stubDeps(project),
-        initial: { id: 'project-detail', props: { projectId: project.id } },
-      }
-    );
-    await waitForViewReady(result);
-    // displayName, then 3 fields per repo: land on the last repo's name row.
-    for (let i = 0; i < 16; i++) {
-      result.stdin.write(DOWN);
-      await tick(15);
-    }
-    const line = repoNameLine(result.lastFrame() ?? '', 'repo-name-5', 'repo-5');
-    expect(line).toBeDefined();
-    expect(line).toContain(glyphs.actionCursor);
     result.unmount();
   });
 
@@ -212,47 +178,6 @@ describe('ProjectDetailView', () => {
     expect(queue.head?.kind).not.toBe('choice');
     expect(queue.head?.kind).toBe('textarea');
     expect(queue.head?.message ?? '').toContain('setupScript');
-    result.unmount();
-  });
-
-  it('keeps focus on the edited row after the save reloads the project', async () => {
-    let current = makeTwoRepoProject();
-    let loads = 0;
-    const projectRepo = {
-      async findById() {
-        loads++;
-        return Result.ok(current);
-      },
-      async save(next: Project) {
-        current = next;
-        return Result.ok(undefined);
-      },
-    } as unknown as ProjectRepository;
-    const queue = createPromptQueue();
-    const { result } = renderView(<ProjectDetailView />, {
-      deps: { projectRepo } as unknown as AppDeps,
-      initial: { id: 'project-detail', props: { projectId: current.id } },
-      queue,
-    });
-    await waitForViewReady(result);
-    // displayName → repo1.name → repo1.setupScript.
-    result.stdin.write(DOWN);
-    await tick();
-    result.stdin.write(DOWN);
-    await tick();
-    result.stdin.write('e');
-    await waitForPredicate(() => queue.head?.kind === 'textarea');
-    const loadsBeforeSave = loads;
-    queue.resolveHead('make setup');
-    await waitForPredicate(() => loads > loadsBeforeSave && (result.lastFrame() ?? '').includes('make setup'));
-    await tick();
-
-    const frame = result.lastFrame() ?? '';
-    const setupRow = frame.split('\n').find((l) => l.includes('Setup:') && l.includes('make setup'));
-    expect(setupRow).toBeDefined();
-    expect(setupRow).toContain(glyphs.actionCursor);
-    const nameRow = lineWithLabelAndValue(frame, 'Name', current.displayName);
-    expect(nameRow).not.toContain(glyphs.actionCursor);
     result.unmount();
   });
 

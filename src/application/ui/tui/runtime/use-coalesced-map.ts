@@ -1,6 +1,18 @@
 /**
- * Keyed-Map sibling of {@link useCoalescedBuffer} — folds a hot AppEvent subscription into a `Map<key, V>` instead of
- * a trailing array, at most once per flush window.
+ * Keyed-Map sibling of {@link useCoalescedBuffer} — folds a hot AppEvent subscription into a
+ * `Map<key, V>` instead of a trailing array, at most once per flush window.
+ *
+ * Owns only the mechanical plumbing shared by every per-key AppEvent tracker: buffer
+ * construction, the lazy-clone fold-then-trim reducer, and unsub->flushNow->stop cleanup. The
+ * accept predicate, keying, per-event fold, and cap are all caller-supplied — retention rationale
+ * and audit docs stay in each caller's own hook file (`use-token-usage.ts`,
+ * `use-task-round-tracker.ts`, …).
+ *
+ * Within-batch threading: `existing` is looked up via `(next ?? prev).get(key)` BEFORE `fold`
+ * runs, so a later same-key event in the batch sees the value an earlier one in the same batch
+ * just folded — not the pre-batch state. Lazy-clone: `next` is only allocated once some event's
+ * `fold` returns non-`undefined`; if every event in a batch is skipped (fold returns `undefined`
+ * for all of them), `prev` is returned unchanged and no re-render happens.
  */
 
 import { useEffect, useState } from 'react';
@@ -18,11 +30,21 @@ export interface UseCoalescedMapOptions<E extends AppEvent, V> {
   readonly accept: (e: AppEvent) => e is E;
   /** Derives the Map key for an accepted event. */
   readonly keyOf: (e: E) => string;
-  /** Folds an accepted event into the Map value for its key. */
+  /**
+   * Folds an accepted event into the Map value for its key. Return `undefined` to skip the event
+   * (e.g. a stale/out-of-order update) — the existing entry, if any, is left untouched.
+   */
   readonly fold: (existing: V | undefined, e: E) => V | undefined;
 }
 
-/** Subscribe to `accept`-matching events on `bus` and fold them into a `Map<key, V>` via `fold`. */
+/**
+ * Subscribe to `accept`-matching events on `bus` and fold them into a `Map<key, V>` via `fold`.
+ * Returns a fresh Map on every update so React's referential equality check triggers re-renders.
+ *
+ * Events feed a `createCoalescedBuffer` (delta semantics via `clearOnFlush`), so a burst of
+ * publishes folds into the Map in a single `setState` per flush window — decoupling the publish
+ * rate from React's commit rate.
+ */
 export const useCoalescedMap = <E extends AppEvent, V>(
   bus: EventBus,
   opts: UseCoalescedMapOptions<E, V>

@@ -1,46 +1,39 @@
-/** Pure formatting helpers + display constants for the Tasks panel. */
+/**
+ * Pure formatting helpers + display constants for the Tasks panel. No React, no Ink — every
+ * function here is testable in isolation and re-used across {@link signal-rows.tsx},
+ * {@link evaluation-row.tsx}, {@link task-row.tsx}, and the panel orchestrator.
+ */
 
 import type { AbortCause } from '@src/domain/entity/attempt.ts';
 import type { ContextCompactedSignal, HarnessSignal } from '@src/domain/signal.ts';
 import { sanitizeDisplayText } from '@src/domain/value/display-text.ts';
 import type { TaskProjection } from '@src/application/ui/tui/components/tasks-projection.ts';
 import { fmtTokens } from '@src/application/ui/tui/components/format.ts';
-import { glyphs, type SignalKind } from '@src/application/ui/tui/theme/tokens.ts';
+import { glyphs } from '@src/application/ui/tui/theme/tokens.ts';
 
 /**
- * Collapse runs of whitespace to a single space so multi-line content (e.g. a `task-verified` signal's `output`)
- * renders as one row before Ink ellides on width.
+ * Collapse runs of whitespace to a single space so multi-line content (e.g. a `task-verified`
+ * signal's `output`) renders as one row before Ink ellides on width. We deliberately do not
+ * char-clip here — Ink's `wrap="truncate-end"` handles width-based ellision based on actual
+ * terminal columns.
+ *
+ * Every caller feeds this MODEL-authored text, and it is the panel's one choke point for it, so
+ * the control-character strip rides along: JS `\s` does not match ESC / BEL / the rest of C0, so
+ * the collapse alone would hand an intact OSC or CSI sequence straight to Ink's `<Text>`. See
+ * {@link sanitizeDisplayText} — no length clamp here, that stays Ink's job.
  */
 export const collapseWhitespace = (s: string): string => sanitizeDisplayText(s).replace(/\s+/g, ' ');
 
-const SIGNAL_KIND_LABELS = [
-  'change',
-  'learning',
-  'decision',
-  'commit',
-  'note',
-  'done',
-  'verified',
-  'blocked',
-  'script',
-  'proposal',
-  'skills',
-  'reproduce',
-  'judge',
-] as const satisfies readonly SignalKind[];
-
-/** The longest `SignalKind` label — the kind column is exactly this wide so only the message truncates. */
-export const SIGNAL_LABEL_WIDTH = Math.max(...SIGNAL_KIND_LABELS.map((l) => l.length));
-
-/** `HH:MM:SS` — never wraps. */
-export const TIME_COL_WIDTH = 8;
-
-/** Kind column: 2-cell gap, NO_COLOR shape glyph + space, padded label. */
-export const KIND_COL_WIDTH = 2 + 2 + SIGNAL_LABEL_WIDTH;
+/** Fixed label column so timestamps and bodies line up across signals. */
+export const SIGNAL_LABEL_WIDTH = 16;
 
 export const padLabel = (label: string): string => label.padEnd(SIGNAL_LABEL_WIDTH, ' ');
 
-/** Render the parenthetical detail block of a `context-compacted` marker. */
+/**
+ * Render the parenthetical detail block of a `context-compacted` marker. Returns `undefined`
+ * when neither token counts nor preserved topics were reported by the provider — the marker
+ * then degrades gracefully to the bare "context compacted" boundary.
+ */
 export const formatCompactionDetail = (sig: ContextCompactedSignal): string | undefined => {
   const parts: string[] = [];
   if (sig.beforeTokens !== undefined && sig.afterTokens !== undefined) {
@@ -57,8 +50,9 @@ export const formatCompactionDetail = (sig: ContextCompactedSignal): string | un
 };
 
 /**
- * Format an ETA (milliseconds remaining) as `~Xm Ys`. For sub-minute durations the minutes field is omitted; the
- * result is `~Ys`.
+ * Format an ETA (milliseconds remaining) as `~Xm Ys`. For sub-minute durations the minutes
+ * field is omitted; the result is `~Ys`. Negative / NaN values degrade to `undefined` so the
+ * header renders no ETA chip at all rather than misleading "negative time remaining" text.
  */
 export const fmtEta = (ms: number): string | undefined => {
   if (!Number.isFinite(ms) || ms <= 0) return undefined;
@@ -70,8 +64,12 @@ export const fmtEta = (ms: number): string | undefined => {
 };
 
 /**
- * Derive ETA text for the active-task header from the projected task. The estimate uses the median settled round
- * duration over the remaining rounds in the gen-eval loop.
+ * Derive ETA text for the active-task header from the projected task. The estimate uses the
+ * median settled round duration over the remaining rounds in the gen-eval loop. Returns the
+ * pre-formatted string `· ~Xm Ys remaining` ready to splice into the header, or
+ * `· no ETA yet` when the projection has no median yet (first round of first task, or any
+ * task whose attempts haven't settled). When the cap is already reached, returns `undefined`
+ * so the chip is dropped instead of stale.
  */
 export const formatEtaChip = (
   projection: TaskProjection | undefined,
@@ -92,13 +90,15 @@ export const formatEtaChip = (
 };
 
 /**
- * User-facing label for an {@link AbortCause}. `undefined` means "omit the parenthetical" — we don't show `(unknown)`
- * because it adds noise without adding information.
+ * User-facing label for an {@link AbortCause}. `undefined` means "omit the parenthetical" —
+ * we don't show `(unknown)` because it adds noise without adding information. Keeping this in
+ * the TUI rather than under domain/ because it's purely a TUI concern (the same cause surfaces
+ * in chain.log with its raw discriminator).
  */
 export const abortCauseLabel = (cause: AbortCause): string | undefined => {
   switch (cause) {
     case 'user-cancel':
-      return 'stopped by you';
+      return 'Ctrl-C';
     case 'sigterm':
       return 'SIGTERM';
     case 'watchdog-killed':
@@ -107,23 +107,28 @@ export const abortCauseLabel = (cause: AbortCause): string | undefined => {
       return 'rate limit';
     case 'process-crash':
       return 'process crash';
-    case 'harness-interrupted':
-      return 'interrupted';
     case 'self-blocked':
       return 'self-blocked';
+    case 'harness-interrupted':
+      return 'interrupted';
     case 'unknown':
       return undefined;
   }
 };
 
 /**
- * Idle-ticker threshold: render the muted ticker line when the active task is `running` AND the latest stream signal
- * is older than this many milliseconds.
+ * Idle-ticker threshold: render the muted ticker line when the active task is `running` AND
+ * the latest stream signal is older than this many milliseconds. Calibrated for the user's
+ * perceptual "is anything happening" window — a 5 s gap is normal between tool calls; 10 s
+ * starts to feel quiet.
  */
 export const IDLE_TICKER_THRESHOLD_MS = 10_000;
 
 /**
- * Walk a task's signal list right-to-left and collect the last 1–2 `note` / `learning` signals' bodies.
+ * Walk a task's signal list right-to-left and collect the last 1–2 `note` / `learning`
+ * signals' bodies. Returns the texts in newest-first order so the renderer can show a
+ * compact "last + previous" pair. Empty when the task has no such signal — the ticker then
+ * suppresses itself entirely rather than fabricating placeholder text.
  */
 export const latestIdleSnippets = (signals: readonly HarnessSignal[]): readonly string[] => {
   const out: string[] = [];
@@ -136,10 +141,34 @@ export const latestIdleSnippets = (signals: readonly HarnessSignal[]): readonly 
   return out;
 };
 
-/** Number of criterion bullets to render in the collapsed-summary form. */
+/**
+ * Number of criterion bullets to render in the collapsed-summary form. Three lines reads as a
+ * glance preview without becoming a wall of text on tasks with many criteria; expanding via
+ * `e` reveals the rest.
+ */
 export const CRITERIA_COLLAPSED_LINES = 3;
 
-/** Which gen-eval role is currently busy, derived from the task's sub-step trace. */
+/**
+ * Which gen-eval role is currently busy, derived from the task's sub-step trace.
+ *
+ * The chain trace is TERMINAL-only: an entry is recorded when a leaf COMPLETES, not when it
+ * starts — a leaf that is still running is absent from `subSteps`. So the tail entry names the
+ * last leaf to *finish*, not the one in flight. Reading it still resolves the live role during
+ * the gen-eval loop because each AI role leaf is immediately preceded by a `stamp-role-meta-*`
+ * sidecar leaf that lands first: while the generator runs, the tail reads
+ * `stamp-role-meta-generator`; while the evaluator runs, `stamp-role-meta-evaluator` (hence the
+ * `.includes` match — it is intentional and load-bearing, not a loose substring test).
+ *
+ * Known limitation (epilogue lag): after `evaluator` completes, the per-attempt epilogue
+ * (finalize-gen-eval → post-task-verify → commit → settle) runs while the task is still active,
+ * but no role leaf is in flight. The tail stays on the last role leaf (`evaluator`) until the
+ * next non-role leaf (`finalize-gen-eval`) completes, so the indicator can briefly show
+ * "evaluator ●" with no AI role actually running. Fixing this needs a live harness signal for
+ * "leaf started" rather than the terminal trace; out of scope here — the heuristic is kept.
+ *
+ * Returns `undefined` when the tail names neither role (e.g. a `commit-task` / `setup` leaf, or
+ * an empty trace before the first attempt) so the busy indicator can fall back to a neutral state.
+ */
 export const resolveActiveRole = (
   subSteps: ReadonlyArray<{ readonly leafName: string }>
 ): 'generator' | 'evaluator' | undefined => {

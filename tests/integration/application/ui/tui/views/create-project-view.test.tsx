@@ -6,8 +6,6 @@
  * buffer-bleed between steps).
  */
 
-import React, { useEffect, useState } from 'react';
-import { Text } from 'ink';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { promises as fs } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -18,9 +16,7 @@ import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import type { Project } from '@src/domain/entity/project.ts';
 import type { ProjectRepository } from '@src/domain/repository/project/project-repository.ts';
 import { CTRL_U, ENTER, tick } from '@tests/integration/application/ui/tui/_keys.ts';
-import { useRouter } from '@src/application/ui/tui/runtime/router.tsx';
 import { renderView, waitForViewReady } from '@tests/integration/application/ui/tui/_harness.tsx';
-import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 
 describe('CreateProjectView — wizard e2e', () => {
   let root: string;
@@ -37,8 +33,8 @@ describe('CreateProjectView — wizard e2e', () => {
       void project;
       return Result.ok(undefined);
     });
-    const projectRepo = { save, list: async () => Result.ok([]) } as unknown as ProjectRepository;
-    const deps: AppDeps = { projectRepo, logger: noopLogger } as unknown as AppDeps;
+    const projectRepo = { save } as unknown as ProjectRepository;
+    const deps: AppDeps = { projectRepo } as unknown as AppDeps;
 
     const { result } = renderView(<CreateProjectView />, { deps, initial: { id: 'create-project' } });
     // Match the prompt's literal copy — the view renders "Project display name" (create-project-view.tsx:207).
@@ -91,30 +87,5 @@ describe('CreateProjectView — wizard e2e', () => {
     expect(String(saved?.repositories[0]?.path)).toContain('main-repo');
 
     result.unmount();
-  });
-});
-
-/** Starts on the route given to `renderView`, then pushes the wizard on top — the stack a Projects / Work list builds with `n`. */
-const PushedWizard = (): React.JSX.Element => {
-  const router = useRouter();
-  const [pushed, setPushed] = useState(false);
-  useEffect(() => {
-    router.push({ id: 'create-project' });
-    setPushed(true);
-    // Push exactly once on mount.
-  }, []);
-  return pushed ? <CreateProjectView /> : <Text>mounting</Text>;
-};
-
-describe('CreateProjectView — esc label', () => {
-  const deps = { projectRepo: { list: async () => Result.ok([]) } } as unknown as AppDeps;
-
-  it.each([
-    ['projects', 'esc Projects'],
-    ['home', 'esc Work'],
-  ] as const)('opened from %s, the name prompt says "%s"', async (from, label) => {
-    const { result } = renderView(<PushedWizard />, { deps, initial: { id: from } });
-    await waitForViewReady(result, (f) => f.includes('Project display name'));
-    expect(result.lastFrame() ?? '').toContain(label);
   });
 });

@@ -6,6 +6,8 @@ import { ViewShell } from '@src/application/ui/tui/components/view-shell.tsx';
 import { StatusChip } from '@src/application/ui/tui/components/status-chip.tsx';
 import { Spinner } from '@src/application/ui/tui/components/spinner.tsx';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
+import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
+import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx';
 import { useSystemStatus } from '@src/application/ui/tui/runtime/system-status-context.tsx';
 import { fitLineWithPath } from '@src/application/ui/tui/components/format.ts';
 import { useTerminalSize } from '@src/application/ui/tui/runtime/use-terminal-size.ts';
@@ -57,6 +59,7 @@ const bucketProbes = (results: readonly ProbeResult[]): readonly GroupBucket[] =
   }).sort((a, b) => a.worst - b.worst);
 
 export const DoctorView = (): React.JSX.Element => {
+  const ui = useUiState();
   const system = useSystemStatus();
   const results = system.doctor?.probes;
   const [showPassed, setShowPassed] = useState(false);
@@ -89,7 +92,9 @@ export const DoctorView = (): React.JSX.Element => {
 
   return (
     <ViewShell title="Doctor" subtitle="sanity probes">
-      {showSpinner ? (
+      {ui.helpOpen ? (
+        <HelpOverlay />
+      ) : showSpinner ? (
         <Box paddingX={spacing.indent}>
           <Spinner label="Running probes…" />
         </Box>

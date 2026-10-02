@@ -96,7 +96,7 @@ describe('ExecuteView — settled-run `u unblock` hint wiring', () => {
     });
 
     const strip = hintStrip(result.lastFrame() ?? '');
-    expect(strip).toContain('↵ work');
+    expect(strip).toContain('home');
     expect(strip).toContain('re-run');
     expect(strip).toContain('unblock');
     result.unmount();
@@ -113,7 +113,7 @@ describe('ExecuteView — settled-run `u unblock` hint wiring', () => {
       label: 'the polled task list has reached the settled card',
     });
 
-    expect(hintStrip(result.lastFrame() ?? '')).toContain('↵ work');
+    expect(hintStrip(result.lastFrame() ?? '')).toContain('home');
     expect(hintStrip(result.lastFrame() ?? '')).not.toContain('unblock');
     result.unmount();
   });
@@ -133,7 +133,7 @@ describe('ExecuteView — settled-run `u unblock` hint wiring', () => {
     });
 
     expect(result.lastFrame() ?? '').toContain('Sprint no longer available');
-    expect(hintStrip(result.lastFrame() ?? '')).toContain('↵ work');
+    expect(hintStrip(result.lastFrame() ?? '')).toContain('home');
     expect(hintStrip(result.lastFrame() ?? '')).not.toContain('unblock');
     result.unmount();
   });

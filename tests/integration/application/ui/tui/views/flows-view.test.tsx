@@ -1,12 +1,12 @@
 /**
- * The `flows` route alias renders Work with the flow list focused. Covers the flow rows' visibility,
- * their trigger reasons, the cost hint, and the first-FLOWS-row cursor seed.
+ * Smoke tests for FlowsView. Verifies the orientation card reflects the correct regime for
+ * each context state (no project / no sprint / sprint loaded), flows appear in the menu,
+ * and the view renders with no redundant footer hint strip.
  */
 
 import { describe, expect, it } from 'vitest';
 import { Result } from '@src/domain/result.ts';
-import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
-import { FlowsAliasView } from '@src/application/ui/tui/views/flows-view.tsx';
+import { FlowsView } from '@src/application/ui/tui/views/flows-view.tsx';
 import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import type { Project } from '@src/domain/entity/project.ts';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
@@ -23,7 +23,6 @@ const FIXED_PROJECT_ID = 'project-fixture-id' as unknown as ProjectId;
 const FIXED_SPRINT_ID = 'sprint-fixture-id' as unknown as SprintId;
 
 const emptyDeps: AppDeps = {
-  eventBus: createInMemoryEventBus(),
   projectRepo: {
     async list() {
       return Result.ok([]);
@@ -66,7 +65,6 @@ const makeProjectSprintDeps = (
     ...sprint,
   } as unknown as Sprint;
   return {
-    eventBus: createInMemoryEventBus(),
     projectRepo: {
       async list() {
         return Result.ok([fullProject]);
@@ -91,109 +89,166 @@ const makeProjectSprintDeps = (
   } as unknown as AppDeps;
 };
 
-const selected = { projectId: FIXED_PROJECT_ID, sprintId: FIXED_SPRINT_ID };
-const draftDeps = (): AppDeps =>
-  makeProjectSprintDeps({ id: FIXED_PROJECT_ID }, { id: FIXED_SPRINT_ID, projectId: FIXED_PROJECT_ID });
+describe('FlowsView', () => {
+  it('renders the no-project orientation regime on a fresh install', async () => {
+    const { result } = renderView(<FlowsView />, { deps: emptyDeps, initial: { id: 'flows' } });
+    // Wait for the async deps load + Ink render to settle; orientation card is always present.
+    await waitForPredicate(() => /no project|pick one/i.test(result.lastFrame() ?? ''));
+    const frame = result.lastFrame() ?? '';
+    // The card should direct the user toward picking or creating a project.
+    expect(frame).toMatch(/no project|pick one/i);
+    // No system-y eligibility label in the new design.
+    expect(frame).not.toContain('Eligibility');
+    result.unmount();
+  });
 
-describe('flows alias (Work, flow list focused)', () => {
-  it('shows the create-project hero and no flows on a fresh install', async () => {
-    const { result } = renderView(<FlowsAliasView />, { deps: emptyDeps, initial: { id: 'flows' } });
-    await waitForPredicate(() => /Start by creating a project/.test(result.lastFrame() ?? ''));
+  it('hides every flow on a fresh install (no project, no sprint) — visibility helper short-circuits', async () => {
+    // Sprint-state-machine visibility: with no project loaded, the project-scoped section is
+    // hidden too; the user is meant to land here only after picking or creating a project.
+    const { result } = renderView(<FlowsView />, { deps: emptyDeps, initial: { id: 'flows' } });
+    // Anchor on the orientation card so absence assertions run on a fully-settled frame.
+    await waitForPredicate(() => /no project|pick one/i.test(result.lastFrame() ?? ''));
     const frame = result.lastFrame() ?? '';
     expect(frame).not.toContain('Create sprint');
-    expect(frame.split('\n').some((l) => l.includes('Refine') && !l.includes('→'))).toBe(false);
+    expect(frame).not.toContain('Refine');
+    expect(frame).not.toContain('Plan');
     expect(frame).not.toContain('Implement');
     result.unmount();
   });
 
-  it('shows the no-sprint hero plus the project-scoped flows when no sprint is selected', async () => {
-    const { result } = renderView(<FlowsAliasView />, {
-      deps: draftDeps(),
+  it('renders the no-sprint orientation regime when a project is loaded but no sprint is selected', async () => {
+    // Project exists but no sprint is selected — second regime.
+    const deps = makeProjectSprintDeps({ id: FIXED_PROJECT_ID }, { id: FIXED_SPRINT_ID, projectId: FIXED_PROJECT_ID });
+    // Override: no sprint selected in the selection context.
+    const { result } = renderView(<FlowsView />, {
+      deps,
       initial: { id: 'flows' },
-      selection: { projectId: FIXED_PROJECT_ID },
+      selection: { projectId: FIXED_PROJECT_ID }, // sprintId intentionally omitted
     });
-    await waitForPredicate(() => /ready for the first sprint|pick or create a sprint/.test(result.lastFrame() ?? ''));
-    expect(result.lastFrame() ?? '').toContain('Create sprint');
+    await waitForPredicate(() => /no sprint|create one|pick one/i.test(result.lastFrame() ?? ''));
+    const frame = result.lastFrame() ?? '';
+    expect(frame).toMatch(/no sprint|create one|pick one/i);
     result.unmount();
   });
 
-  it('publishes the r reload hint', async () => {
-    const { result } = renderView(<FlowsAliasView />, {
-      deps: draftDeps(),
+  it('renders the sprint-loaded orientation regime with sprint name and next-action hint', async () => {
+    // Project + draft sprint with ZERO tickets. The old stage-derived wording said "plan tasks
+    // (0 approved tickets)" here — a flow that cannot run yet. The shared table says what the
+    // sprint actually needs first.
+    const deps = makeProjectSprintDeps({ id: FIXED_PROJECT_ID }, { id: FIXED_SPRINT_ID, projectId: FIXED_PROJECT_ID });
+    const { result } = renderView(<FlowsView />, {
+      deps,
       initial: { id: 'flows' },
-      selection: selected,
+      selection: { projectId: FIXED_PROJECT_ID, sprintId: FIXED_SPRINT_ID },
     });
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('Fixture Sprint'));
+    const frame = result.lastFrame() ?? '';
+    // Sprint name must appear in the orientation card.
+    expect(frame).toContain('Fixture Sprint');
+    // Status chip for the draft status should appear.
+    expect(frame).toMatch(/DRAFT/);
+    // Next action from the shared next-steps table should appear.
+    expect(frame).toMatch(/next:/i);
+    expect(frame).toContain('add a ticket');
+    expect(frame).not.toContain('0 approved');
+    result.unmount();
+  });
+
+  it('publishes the r reload-state hint', async () => {
+    const { result } = renderView(<FlowsView />, { deps: emptyDeps, initial: { id: 'flows' } });
     await waitForPredicate(() => /reload/.test(result.lastFrame() ?? ''));
+    const frame = result.lastFrame() ?? '';
+    expect(frame).toMatch(/reload/);
     result.unmount();
   });
 
-  it('lists only the flows that can run, and puts the cursor on the first FLOWS row', async () => {
-    // Draft sprint, zero tickets: Refine and Plan are gated, Remove ticket is eligible.
-    const { result } = renderView(<FlowsAliasView />, {
-      deps: draftDeps(),
+  it('renders the trigger reason inline for a dimmed flow (not just when focused)', async () => {
+    // Draft sprint with zero tickets → Refine and Plan are visible but gated. Their trigger
+    // reasons should appear in the rendered frame regardless of which row has the cursor. Both
+    // reasons must be present because ActionMenu now annotates every disabled row, not just the
+    // focused one. The cursor will land on the first eligible row (Remove ticket), so Refine and
+    // Plan are non-focused — this asserts that the "not focused" path renders the reason too.
+    const deps = makeProjectSprintDeps({ id: FIXED_PROJECT_ID }, { id: FIXED_SPRINT_ID, projectId: FIXED_PROJECT_ID });
+    const { result } = renderView(<FlowsView />, {
+      deps,
       initial: { id: 'flows' },
-      selection: selected,
+      selection: { projectId: FIXED_PROJECT_ID, sprintId: FIXED_SPRINT_ID },
     });
+    // Wait for the async project + sprint load to settle so the dimmed sprint-scoped rows are
+    // rendered before asserting — a fixed tick can capture a pre-load frame under coverage.
+    // New copy: Refine reason mentions "ticket" (add at least one), Plan reason mentions
+    // "Refine and approve" — both contain "ticket".
+    await waitForPredicate(() => /ticket/i.test(result.lastFrame() ?? ''));
+    const frame = result.lastFrame() ?? '';
+    // At least one trigger reason should be visible — both Refine and Plan are dimmed.
+    // Use a forgiving check: the reason text may be truncated on narrow test terminals.
+    expect(frame).toMatch(/ticket/i);
+    result.unmount();
+  });
+
+  it('does not render a trigger reason next to an eligible flow', async () => {
+    // "Remove ticket" has only `currentSprintStatus: ['draft']` as a trigger — fully satisfied.
+    // With a draft sprint selected it must appear without any reason annotation. (The old
+    // `add-tickets` flow used here was removed; tickets are now added via the `a` shortcut wizard.)
+    const deps = makeProjectSprintDeps({ id: FIXED_PROJECT_ID }, { id: FIXED_SPRINT_ID, projectId: FIXED_PROJECT_ID });
+    const { result } = renderView(<FlowsView />, {
+      deps,
+      initial: { id: 'flows' },
+      selection: { projectId: FIXED_PROJECT_ID, sprintId: FIXED_SPRINT_ID },
+    });
+    // Wait for the async project + sprint load to settle so the sprint-scoped "Remove ticket" row
+    // is rendered. This was the flake source: a fixed tick(40) under coverage instrumentation
+    // could capture the frame before the load resolved, so the row was absent.
     await waitForPredicate(() => (result.lastFrame() ?? '').includes('Remove ticket'));
     const frame = result.lastFrame() ?? '';
-    expect(frame).toContain('Add ticket');
-    expect(frame.split('\n').some((l) => l.includes('Refine') && !l.includes('→'))).toBe(false);
+    // The "Remove ticket" row should appear.
+    expect(frame).toContain('Remove ticket');
+    // An eligible row must not carry any project-missing reason (new copy: "Select a project
+    // first"). Verify the orientation card wording is distinct from flow disabled reasons.
     expect(frame).not.toContain('No project is loaded.');
-    const flowsHeader = frame.split('\n').findIndex((l) => l.includes('FLOWS'));
-    expect(frame.split('\n')[flowsHeader + 1]).toContain('▸');
+    expect(frame).not.toContain('Select a project first');
+    // Confirm the sprint name and status are on-screen (sprint-loaded regime).
+    expect(frame).toContain('Fixture Sprint');
     result.unmount();
   });
 
-  it('v adds the gated flows dim, each with its trigger reason inline', async () => {
-    const { result } = renderView(<FlowsAliasView />, {
-      deps: draftDeps(),
+  it('shows the registered Add ticket row on a draft sprint', async () => {
+    // Regression fence for #298: `add-ticket` is a registered manifest that the visibility
+    // helper used to filter out of every mode, so the row could never be seen or selected.
+    const deps = makeProjectSprintDeps({ id: FIXED_PROJECT_ID }, { id: FIXED_SPRINT_ID, projectId: FIXED_PROJECT_ID });
+    const { result } = renderView(<FlowsView />, {
+      deps,
       initial: { id: 'flows' },
-      selection: selected,
+      selection: { projectId: FIXED_PROJECT_ID, sprintId: FIXED_SPRINT_ID },
     });
-    await waitForPredicate(() => (result.lastFrame() ?? '').includes('Remove ticket'));
-    result.stdin.write('v');
-    await waitForPredicate(() =>
-      (result.lastFrame() ?? '').split('\n').some((l) => l.includes('Refine') && !l.includes('→'))
-    );
-    const refine = (result.lastFrame() ?? '').split('\n').find((l) => l.includes('Refine') && !l.includes('→')) ?? '';
-    expect(refine).toMatch(/ticket/i);
-    expect(refine).not.toContain('▸');
-    result.unmount();
-  });
-
-  it('never lands the cursor on a gated row while moving', async () => {
-    const { result } = renderView(<FlowsAliasView />, {
-      deps: draftDeps(),
-      initial: { id: 'flows' },
-      selection: selected,
-    });
-    await waitForPredicate(() => (result.lastFrame() ?? '').includes('Remove ticket'));
-    result.stdin.write('v');
-    await waitForPredicate(() =>
-      (result.lastFrame() ?? '').split('\n').some((l) => l.includes('Refine') && !l.includes('→'))
-    );
-    for (let i = 0; i < 12; i++) {
-      result.stdin.write(DOWN);
-      await tick(20);
-      const focused = (result.lastFrame() ?? '').split('\n').find((l) => l.includes('▸')) ?? '';
-      expect(focused).not.toMatch(/Refine|Plan|Implement|Review|Close sprint/);
-    }
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('Add ticket'));
+    expect(result.lastFrame() ?? '').toContain('Add ticket');
     result.unmount();
   });
 });
 
-describe('flows alias — cost hints (manifest → menu threading)', () => {
-  /** Ideate is hidden by default; `v` reveals it, and focusing the row shows the manifest's costHint. */
-  it('threads the ideate costHint from the manifest into the rendered menu', async () => {
-    const { result } = renderView(<FlowsAliasView />, {
-      deps: draftDeps(),
+describe('FlowsView — cost hints (manifest → menu threading)', () => {
+  /**
+   * Verify that `costHint` from the flow manifest reaches the rendered ActionMenu. Ideate is
+   * hidden by default (HIDDEN_BY_DEFAULT_FLOW_IDS); pressing `v` (show-all) makes it visible.
+   * We then navigate until the Ideate row is focused (cursor on it) and confirm the hint appears.
+   * The isolated ActionMenu focus-vs-unfocused behaviour is tested in action-menu.test.tsx.
+   */
+  it('threads the ideate costHint from the manifest into the rendered flows menu', async () => {
+    const deps = makeProjectSprintDeps({ id: FIXED_PROJECT_ID }, { id: FIXED_SPRINT_ID, projectId: FIXED_PROJECT_ID });
+    const { result } = renderView(<FlowsView />, {
+      deps,
       initial: { id: 'flows' },
-      selection: selected,
+      selection: { projectId: FIXED_PROJECT_ID, sprintId: FIXED_SPRINT_ID },
     });
-    await waitForPredicate(() => (result.lastFrame() ?? '').includes('Remove ticket'));
+    // Wait for the orientation card to settle so the view is interactive.
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('Fixture Sprint'));
+
+    // Press `v` to show all flows — this makes Ideate visible in the menu.
     result.stdin.write('v');
     await waitForPredicate(() => (result.lastFrame() ?? '').includes('Ideate'));
 
+    // Navigate down until the Ideate cost hint becomes visible (cursor lands on Ideate).
     const IDEATE_HINT = 'single AI session';
     let found = false;
     for (let i = 0; i < 25; i++) {

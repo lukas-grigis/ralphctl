@@ -1,4 +1,14 @@
-/** Sprint detail — view-model. */
+/**
+ * Sprint detail — view-model.
+ *
+ * `useSprintDetailBody` owns every hook call and side-effect handler the detail view needs
+ * (loading the sprint bundle, the flat focus cursor, inline-expand state, edit / unblock /
+ * remove-ticket handlers, footer hints, the local shortcut map) and hands back exactly the
+ * props `SprintDetailView` renders. The async action handlers live in `detail-handlers.ts`
+ * (`buildSprintDetailHandlers` and the `runUnblock` / `runRemoveTicket` helpers it wraps); the
+ * presentational render branch — help overlay > load/error states > remove confirm > the
+ * loaded card list — lives in `detail-content.tsx` (`SprintDetailContent`).
+ */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useEditField } from '@src/application/ui/tui/runtime/use-edit-field.ts';
@@ -14,13 +24,13 @@ import { latestRecordedEvaluation } from '@src/business/task/evaluation-artifact
 import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { useRouter, useViewProps } from '@src/application/ui/tui/runtime/router.tsx';
 import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
+import { useViewHints, type ViewHint } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
 import { useUnblockTask } from '@src/application/ui/tui/runtime/use-unblock-task.ts';
 import { useSprintDetailShortcuts } from '@src/application/ui/tui/views/sprint-detail-internals/shortcuts.ts';
 import {
   buildFocusList,
   clampFocusIndex,
-  indexOfTask,
   nextBlockedIndex,
   sectionWindowCards,
   type FocusItem,
@@ -42,15 +52,11 @@ import type { SprintDetailContentProps } from '@src/application/ui/tui/views/spr
 
 export interface SprintDetailProps extends Readonly<Record<string, unknown>> {
   readonly sprintId: SprintId;
-  /** Work's blocked-task row: seed the cursor on this task and open its card. */
-  readonly focusTaskId?: string;
 }
 
 interface FocusedSelection {
   readonly focusedTicket: Ticket | undefined;
-  /** Clamped item under the cursor — the ↵ toggle target. */
-  readonly focusedItem: FocusItem | undefined;
-  /** Ticket under the cursor regardless of sprint status — gates the `p` publish and `d` remove chords. */
+  /** Ticket under the cursor regardless of sprint status — gates the `p` publish chord. */
   readonly focusedTicketRow: Ticket | undefined;
   readonly focusedTodoTask: Task | undefined;
   readonly focusedStuckTask: Task | undefined;
@@ -59,11 +65,23 @@ interface FocusedSelection {
   readonly canEdit: boolean;
 }
 
-/** True for a task status `u` can act on. */
+/**
+ * True for a task status `u` can act on. Covers `blocked` (maxAttempts exhausted / verify
+ * failed), `in_progress` with a settled last attempt (crash recovery after Ctrl-C / watchdog
+ * kill), AND a `todo` task stranded on a still-`review` sprint — the state left behind when
+ * `unblockTaskUseCase`'s `review` → `active` hop revives the task but fails to persist the
+ * sprint's second hop (see `finishInterruptedReopen` in `business/task/unblock-task.ts`). All
+ * three map to the same operator action: press `u`.
+ */
 const isStuckTaskStatus = (status: TaskStatus, sprintStatus: Sprint['status'] | undefined): boolean =>
   status === 'blocked' || status === 'in_progress' || (status === 'todo' && sprintStatus === 'review');
 
-/** Derive the "what's under the cursor" selection from the flat focus list. */
+/**
+ * Derive the "what's under the cursor" selection from the flat focus list. Feeds the `e` edit
+ * gate, the `u` unblock gate, and the hint row — all three read off this one pass. Pure: same
+ * `focusList` + `cursorIdx` + `ticketsEditable` + `sprintStatus` always yields the same selection,
+ * so it lives outside the component body as a plain helper rather than a hook.
+ */
 const deriveFocusedSelection = (
   focusList: readonly FocusItem[],
   cursorIdx: number,
@@ -85,15 +103,7 @@ const deriveFocusedSelection = (
       ? focusedNow.task
       : undefined;
   const canEdit = focusedTicket !== undefined || focusedTodoTask !== undefined;
-  return {
-    focusedItem: focusedNow,
-    focusedTicket,
-    focusedTicketRow,
-    focusedTodoTask,
-    focusedStuckTask,
-    focusedEvaluatedTask,
-    canEdit,
-  };
+  return { focusedTicket, focusedTicketRow, focusedTodoTask, focusedStuckTask, focusedEvaluatedTask, canEdit };
 };
 
 /** Stable identity for the flat focus list — see the `useMemo` call site for why it matters. */
@@ -107,13 +117,9 @@ interface UseFocusModelArgs {
   readonly loaded: boolean;
   /** Feeds the third `focusedStuckTask` case — a `todo` task stranded on a `review` sprint. */
   readonly sprintStatus: Sprint['status'] | undefined;
-  /** First load only: jump the cursor here, through the same takeover `B` uses. */
-  readonly seedTaskId: string | undefined;
 }
 
 export interface FocusModel extends FocusedSelection {
-  /** Route-requested task to land on (Work's blocked row); consumed on the first load. */
-  readonly seedTaskId: string | undefined;
   readonly cursorIdx: number;
   /** Count of `kind === 'task' && status === 'blocked'` entries anywhere in `focusList`. */
   readonly blockedCount: number;
@@ -121,14 +127,24 @@ export interface FocusModel extends FocusedSelection {
 }
 
 /**
- * Own the flat focus cursor (windowed across both the tickets + tasks panes) and the derived "what's under the
- * cursor" selection.
+ * Own the flat focus cursor (windowed across both the tickets + tasks panes) and the derived
+ * "what's under the cursor" selection. `visibleRows` reuses the same per-pane budget the child
+ * panes use individually, doubled to cover both sections since the cursor walks them as one
+ * flat list even though they render as two panes.
+ *
+ * **Jump-to-blocked (`B`).** See `focus-list.ts`'s `JumpControls` doc comment for why this needs
+ * a takeover rather than reaching into `useListWindow`'s cursor. `jumpOverrideIdx` is `undefined`
+ * until the first `B` press; from then on it — not `useListWindow`'s own id-tracked index — drives
+ * `cursorIdx` for the rest of this mount, and `useListWindow` is paused (`active` goes `false`,
+ * not unmounted) so it never double-handles a keypress once the override engages.
  */
 const useFocusModel = (args: UseFocusModelArgs): FocusModel => {
-  const { focusList, ticketsEditable, modalOpen, loaded, sprintStatus, seedTaskId } = args;
+  const { focusList, ticketsEditable, modalOpen, loaded, sprintStatus } = args;
   const { rows } = useBreakpoint();
   const focusVisibleRows = Math.max(8, sectionWindowCards(rows) * 2);
-  // Id-stable cursor over the flat focus list.
+  // Id-stable cursor over the flat focus list. Items are keyed as `ticket:<id>` / `task:<id>`
+  // matching the entity's stable domain id, so a task-list refresh or reorder keeps focus on
+  // the same logical item instead of teleporting to whatever sits at the old index.
   const getFocusItemId = useMemo(() => focusItemId, []);
 
   const [jumpOverrideIdx, setJumpOverrideIdx] = useState<number | undefined>(undefined);
@@ -137,18 +153,11 @@ const useFocusModel = (args: UseFocusModelArgs): FocusModel => {
     items: focusList,
     getId: getFocusItemId,
     visibleRows: focusVisibleRows,
-    // Navigation keys (↑↓ j/k PgUp/PgDn Home/End) are owned by the hook — except once a jump override is active, when
-    // `shortcuts.ts`'s `jump.moveBy` / `moveToEdge` take over instead.
+    // Navigation keys (↑↓ j/k PgUp/PgDn Home/End) are owned by the hook — except once a jump
+    // override is active, when `shortcuts.ts`'s `jump.moveBy` / `moveToEdge` take over instead.
+    // The shortcuts hook also provides the other view-local keys (a/e/m/d/p/u/B/↵/q).
     active: modalOpen === false && loaded && jumpOverrideIdx === undefined,
   });
-
-  const seededRef = useRef(false);
-  useEffect(() => {
-    if (seededRef.current || seedTaskId === undefined || !loaded) return;
-    seededRef.current = true;
-    const idx = indexOfTask(focusList, seedTaskId);
-    if (idx !== undefined) setJumpOverrideIdx(idx);
-  }, [seedTaskId, loaded, focusList]);
 
   const cursorIdx = jumpOverrideIdx !== undefined ? clampFocusIndex(jumpOverrideIdx, focusList.length) : listCursorIdx;
   const blockedCount = useMemo(
@@ -169,7 +178,6 @@ const useFocusModel = (args: UseFocusModelArgs): FocusModel => {
   };
 
   return {
-    seedTaskId,
     cursorIdx,
     blockedCount,
     jump,
@@ -177,10 +185,70 @@ const useFocusModel = (args: UseFocusModelArgs): FocusModel => {
   };
 };
 
+interface BuildDetailHintsArgs {
+  readonly inDetail: boolean;
+  readonly ticketsEditable: boolean;
+  readonly sprint: Sprint | undefined;
+  readonly currentSprintId: SprintId | undefined;
+  readonly focus: FocusModel;
+}
+
+/**
+ * Build the local footer-hint list. Labels stay terse on purpose: the rendered strip must fit
+ * a 100-column terminal on ONE line — an overflowing strip makes Yoga distribute the deficit
+ * across every footer cell, mangling the whole status bar. Every hint shares one source of truth with its handler via
+ * `enabledWhen`: the `a`/`d` ticket-CRUD chords are gated on `ticketsEditable` (draft only), so
+ * the hints must hide on a non-draft sprint or the footer would advertise keys that do nothing.
+ * `m` (mark-current) and `u` (unblock) follow the same declarative gate rather than conditional
+ * spreads; `B` (jump to next blocked) does too, gated on `blockedCount > 0` regardless of where
+ * the cursor currently sits — unlike `u`, which needs the cursor already parked on the stuck row.
+ * Pure — lives outside the component so `useViewHints` keeps a plain call site.
+ */
+const buildDetailHints = (args: BuildDetailHintsArgs): readonly ViewHint[] => {
+  const { inDetail, ticketsEditable, sprint, currentSprintId, focus } = args;
+  const { canEdit, focusedTicketRow, focusedStuckTask, focusedEvaluatedTask, blockedCount } = focus;
+  // Mirrors the `p` row's guard in `shortcuts.ts` — done sprints are immutable.
+  const canPublish = focusedTicketRow !== undefined && sprint?.status !== 'done';
+  return [
+    { keys: '↑/↓', label: 'move' },
+    { keys: 'n', label: 'flows' },
+    { keys: '↵/o', label: inDetail ? 'toggle' : 'expand' },
+    // `esc/q` collapses all expanded cards; only shown while in detail mode so the hint
+    // doesn't compete with the global `esc → back` behavior when nothing is expanded.
+    { keys: 'esc/q', label: 'collapse', enabledWhen: inDetail },
+    { keys: 'a', label: 'add', enabledWhen: ticketsEditable },
+    { keys: 'e', label: 'edit', enabledWhen: canEdit },
+    { keys: 'd', label: 'remove', enabledWhen: ticketsEditable },
+    { keys: 'p', label: 'publish', enabledWhen: canPublish },
+    // Surface the `m` chord only when this sprint is not already the current one — once
+    // they match, the action is a no-op and the hint adds noise. Suppressed while a
+    // stuck task or ticket is focused so `u unblock` / `p publish` stay on one 100-column
+    // line without competing for horizontal space.
+    {
+      keys: 'm',
+      label: 'current',
+      enabledWhen:
+        sprint !== undefined && currentSprintId !== sprint.id && focusedStuckTask === undefined && !canPublish,
+    },
+    { keys: 'u', label: 'unblock', enabledWhen: focusedStuckTask !== undefined },
+    { keys: 'B', label: 'next blocked', enabledWhen: blockedCount > 0 },
+    { keys: 'v', label: 'evaluation', enabledWhen: focusedEvaluatedTask !== undefined },
+    // No `r reload` hint although the chord is always live: this non-shrinking strip already
+    // reaches 89 columns with `u` + `B` showing, and another hint would push it past 100. The
+    // help overlay lists `r`, and the reopen-conflict toast (the one moment it matters) names it.
+  ];
+};
+
 export interface UseSprintDetailBodyResult {
   readonly subtitle: string;
   readonly suppressScrollArrows: boolean;
-  /** Last action result (`u` unblock, `m` mark-current, an inline field edit). */
+  /**
+   * Last action result (`u` unblock, `m` mark-current, an inline field edit). Handed to
+   * `ViewShell`'s PINNED status row rather than rendered inside the page body — this view
+   * routinely overflows the viewport, and an inline line would land below the fold exactly when
+   * it matters most (the reopen-refused note that explains why a revived task's sprint stayed
+   * closed).
+   */
   readonly feedback: string | undefined;
   readonly contentProps: SprintDetailContentProps;
 }
@@ -199,18 +267,24 @@ interface SprintDetailData {
   readonly focus: FocusModel;
 }
 
-/** Load the sprint bundle and derive the flat focus model from it. */
+/**
+ * Load the sprint bundle and derive the flat focus model from it. Split out of
+ * `useSprintDetailBody` purely to keep that hook under the line budget — same hooks, same
+ * order, just grouped by "data" vs. "local UI state + handlers + shortcuts".
+ */
 const useSprintDetailData = (): SprintDetailData => {
   const deps = useDeps();
   const router = useRouter();
   const ui = useUiState();
-  const { sprintId, focusTaskId } = useViewProps<SprintDetailProps>();
+  const { sprintId } = useViewProps<SprintDetailProps>();
   const selection = useSelection();
 
   const { state, project, reload } = useSprintBundle({ sprintId, deps });
 
-  // No silent auto-sync of the selection on detail open — opening a sprint to look at it does NOT make it the current
-  // one.
+  // No silent auto-sync of the selection on detail open — opening a sprint to look at it does
+  // NOT make it the current one. The user explicitly presses `m` to mark it current (handler
+  // below). This avoids the surprise of a passive browse swapping the active context on every
+  // navigation.
   const sprint = state.kind === 'ok' ? state.value.sprint : undefined;
   // Stable identity for the empty-tasks fallback so the downstream `useMemo` doesn't re-fire
   // on every render while loading.
@@ -225,7 +299,6 @@ const useSprintDetailData = (): SprintDetailData => {
     modalOpen: ui.modalOpen,
     loaded: state.kind === 'ok',
     sprintStatus: sprint?.status,
-    seedTaskId: focusTaskId,
   });
 
   return {
@@ -245,10 +318,9 @@ const useSprintDetailData = (): SprintDetailData => {
 
 interface BuildSprintDetailResultArgs {
   readonly state: AsyncLoadState<SprintBundle, unknown>;
+  readonly ui: ReturnType<typeof useUiState>;
   readonly confirmRemove: Ticket | undefined;
   readonly setConfirmRemove: (ticket: Ticket | undefined) => void;
-  readonly confirmPublish: Ticket | undefined;
-  readonly setConfirmPublish: (ticket: Ticket | undefined) => void;
   readonly project: Project | undefined;
   readonly focusList: readonly FocusItem[];
   readonly focus: FocusModel;
@@ -256,6 +328,7 @@ interface BuildSprintDetailResultArgs {
   readonly ticketsEditable: boolean;
   readonly feedback: string | undefined;
   readonly edit: ReturnType<typeof useEditField>;
+  readonly selection: ReturnType<typeof useSelection>;
   readonly handlers: SprintDetailHandlers;
 }
 
@@ -263,10 +336,9 @@ interface BuildSprintDetailResultArgs {
 const buildSprintDetailResult = (args: BuildSprintDetailResultArgs): UseSprintDetailBodyResult => {
   const {
     state,
+    ui,
     confirmRemove,
     setConfirmRemove,
-    confirmPublish,
-    setConfirmPublish,
     project,
     focusList,
     focus,
@@ -274,37 +346,43 @@ const buildSprintDetailResult = (args: BuildSprintDetailResultArgs): UseSprintDe
     ticketsEditable,
     feedback,
     edit,
+    selection,
     handlers,
   } = args;
   return {
     subtitle: state.kind === 'ok' ? state.value.sprint.name : 'loading',
     feedback: feedback ?? edit.feedback,
-    // The ticket + task panes own the focus cursor (↑/↓ / j/k drive the windowed lists), so the page ScrollRegion
-    // must NOT also consume arrows once the list is visible.
+    // The ticket + task panes own the focus cursor (↑/↓ / j/k drive the windowed lists), so the
+    // page ScrollRegion must NOT also consume arrows once the list is visible — otherwise both
+    // would move on a single keypress. During loading / error the list isn't mounted, so the
+    // page scroll keeps its arrows there.
     suppressScrollArrows: state.kind === 'ok',
     contentProps: {
+      helpOpen: ui.helpOpen,
       state,
       confirmRemove,
       onCancelRemove: () => setConfirmRemove(undefined),
       onRemoveConfirmed: (target, confirmed) => void handlers.handleRemoveConfirmed(target, confirmed),
-      confirmPublish,
-      onCancelPublish: () => setConfirmPublish(undefined),
-      onPublishConfirmed: (target, confirmed) => {
-        setConfirmPublish(undefined);
-        if (confirmed) void handlers.handlePublish(target);
-      },
       project,
       focusList,
       cursorIdx: focus.cursorIdx,
       openIds,
       ticketsEditable,
+      currentSprintId: selection.sprintId,
     },
   };
 };
 
 /**
- * Refresh the cached breadcrumb status chip from every bundle this view loads — the same call Home and Flows already
- * make on their own loads, for the same reason.
+ * Refresh the cached breadcrumb status chip from every bundle this view loads — the same call
+ * Home and Flows already make on their own loads, for the same reason.
+ *
+ * This view needs it MORE than they do: it is the one screen that can transition the sprint
+ * under the operator's feet, because `u` on a `review` sprint reopens it to `active`. Without
+ * the sync the header card reads ACTIVE while the breadcrumb still claims REVIEW.
+ *
+ * `syncSprintStatus` no-ops unless the loaded sprint is still the selected one, so firing on
+ * every load is safe even while browsing a sprint that is not the current pick.
  */
 const useSprintStatusChipSync = (sprint: Sprint | undefined, selection: ReturnType<typeof useSelection>): void => {
   const syncSprintStatus = selection.syncSprintStatus;
@@ -313,42 +391,25 @@ const useSprintStatusChipSync = (sprint: Sprint | undefined, selection: ReturnTy
   }, [sprint, syncSprintStatus]);
 };
 
-/** First load only: open the card of the task Work asked to land on. */
-const useSeedOpenCard = (args: {
-  readonly focusTaskId: string | undefined;
-  readonly loaded: boolean;
-  readonly focusList: readonly FocusItem[];
-  readonly setOpenIds: (ids: ReadonlySet<string>) => void;
-}): void => {
-  const { focusTaskId, loaded, focusList, setOpenIds } = args;
-  const seededRef = useRef(false);
-  useEffect(() => {
-    if (seededRef.current || focusTaskId === undefined || !loaded) return;
-    seededRef.current = true;
-    if (indexOfTask(focusList, focusTaskId) !== undefined) setOpenIds(new Set([focusTaskId]));
-  }, [focusTaskId, loaded, focusList, setOpenIds]);
-};
-
 /**
- * Own every hook call, side-effect handler, and derived value the detail view needs, and hand back exactly the props
- * `SprintDetailView` renders.
+ * Own every hook call, side-effect handler, and derived value the detail view needs, and hand
+ * back exactly the props `SprintDetailView` renders. Splitting this out of the view component
+ * keeps the component itself a thin "call the hook, render the shell" wrapper; the state /
+ * handler wiring that used to live inline is unchanged, just relocated.
  */
 export const useSprintDetailBody = (): UseSprintDetailBodyResult => {
   const { deps, router, ui, selection, state, project, reload, sprint, focusList, ticketsEditable, focus } =
     useSprintDetailData();
 
   const [openIds, setOpenIds] = useState<ReadonlySet<string>>(() => new Set());
-  useSeedOpenCard({ focusTaskId: focus.seedTaskId, loaded: state.kind === 'ok', focusList, setOpenIds });
   const [confirmRemove, setConfirmRemove] = useState<Ticket | undefined>(undefined);
-  const [confirmPublish, setConfirmPublish] = useState<Ticket | undefined>(undefined);
   const [feedback, setFeedback] = useState<string | undefined>(undefined);
-  // A removed ticket can leave a stale id behind; only cards that still exist count as expanded.
-  const inDetail = focusList.some((item) =>
-    openIds.has(item.kind === 'ticket' ? String(item.ticket.id) : String(item.task.id))
-  );
+  const inDetail = openIds.size > 0;
 
-  // Mounted-ref guard for the async unblock / remove-ticket handlers: the operator can navigate away before they
-  // resolve, so the post-await writes must skip an unmounted view.
+  // Mounted-ref guard for the async unblock / remove-ticket handlers: dismissing the confirm
+  // overlay (or firing `u`) unblocks the router, so the operator can navigate away (unmounting
+  // this view) before the awaited use-case / flow resolves. The guard skips the post-await
+  // view-local writes (setFeedback / reload) so they never fire into an unmounted tree.
   const mountedRef = useIsMounted();
   // Latch for the `p` publish chord — see `BuildSprintDetailHandlersArgs.publishInFlightRef`.
   const publishInFlightRef = useRef(false);
@@ -357,6 +418,16 @@ export const useSprintDetailBody = (): UseSprintDetailBodyResult => {
   const queue = usePromptQueue();
 
   useSprintStatusChipSync(sprint, selection);
+
+  useViewHints(
+    buildDetailHints({
+      inDetail,
+      ticketsEditable,
+      sprint,
+      currentSprintId: selection.sprintId,
+      focus,
+    })
+  );
 
   const unblockTask = useUnblockTask();
   const handlers = buildSprintDetailHandlers({
@@ -375,15 +446,14 @@ export const useSprintDetailBody = (): UseSprintDetailBodyResult => {
 
   useSprintDetailShortcuts({
     modalOpen: ui.modalOpen,
-    confirmRemoveActive: confirmRemove !== undefined || confirmPublish !== undefined,
+    confirmRemoveActive: confirmRemove !== undefined,
     sprint,
     inDetail,
     ticketsEditable,
     canEdit: focus.canEdit,
     isCurrent: sprint !== undefined && selection.sprintId === sprint.id,
-    blockedCount: focus.blockedCount,
-    focusedItem: focus.focusedItem,
-    focusedTicketRow: focus.focusedTicketRow,
+    focusList,
+    cursorIdx: focus.cursorIdx,
     focusedStuckTask: focus.focusedStuckTask,
     focusedEvaluatedTask: focus.focusedEvaluatedTask,
     jump: focus.jump,
@@ -394,7 +464,7 @@ export const useSprintDetailBody = (): UseSprintDetailBodyResult => {
       setConfirmRemove,
       setFeedback,
       onUnblock: handlers.handleUnblock,
-      onPublish: setConfirmPublish,
+      onPublish: handlers.handlePublish,
       sprintId: sprint?.id,
       openEvaluationOverlay: ui.openEvaluation,
       reload,
@@ -402,17 +472,17 @@ export const useSprintDetailBody = (): UseSprintDetailBodyResult => {
     handleEdit: handlers.handleEdit,
   });
 
-  // Claim `esc` while the detail card is open so the local handler can close the card without the global
-  // `router.pop()` racing it and dumping the user back to the Sprints list.
+  // Claim `esc` while the detail card is open so the local handler can close the card without
+  // the global `router.pop()` racing it and dumping the user back to the Sprints list. (The
+  // confirm-remove prompt mute is owned by `ConfirmCard`, which claims on mount.)
   const claimEscape = ui.claimEscape;
   useEffect(() => (inDetail ? claimEscape() : undefined), [inDetail, claimEscape]);
 
   return buildSprintDetailResult({
     state,
+    ui,
     confirmRemove,
     setConfirmRemove,
-    confirmPublish,
-    setConfirmPublish,
     project,
     focusList,
     focus,
@@ -420,6 +490,7 @@ export const useSprintDetailBody = (): UseSprintDetailBodyResult => {
     ticketsEditable,
     feedback,
     edit,
+    selection,
     handlers,
   });
 };

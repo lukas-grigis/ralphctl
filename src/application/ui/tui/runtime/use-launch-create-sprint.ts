@@ -1,6 +1,19 @@
 /**
- * `useLaunchCreateSprint` — the create-sprint launch sequence shared by the three views that offer a "create sprint"
- * affordance (home `+` hotkey, context-switcher `+ New sprint` row, sprints `c` chord).
+ * `useLaunchCreateSprint` — the create-sprint launch sequence shared by the three views that
+ * offer a "create sprint" affordance (home `+` hotkey, pick-sprint synthetic row,
+ * sprints `c` chord). Each had a near-verbatim copy of:
+ *
+ *   load snapshot → createInkInteractivePrompt → launchSprintBoundFlow('create-sprint', …,
+ *     { onReseat: selection.setSprint, onSprintResolved: sessions.setPinnedSprint }) →
+ *     register + start + push execute
+ *
+ * The reseat / pinned-sprint wiring is identical across all three; only the feedback channel and
+ * the no-project gating wording differ, so both are injected. The register + start + route tail
+ * is composed via {@link openFlowSession} (mode defaults to `push`, matching every call site).
+ *
+ * The returned function is `useCallback`-stable so home-view can list it in a `useMemo`
+ * dependency array (the menu builder closes over it) without re-running the memo every render.
+ *
  * @public
  */
 
@@ -19,9 +32,17 @@ import { loadAppStateSnapshot } from '@src/application/ui/shared/state-snapshot.
 import { glyphs } from '@src/application/ui/tui/theme/tokens.ts';
 
 export interface UseLaunchCreateSprintOpts {
-  /** Sink for both gating and launch-failure messages. */
+  /**
+   * Sink for both gating and launch-failure messages. Each view feeds its own feedback / flash
+   * mechanism (home's `flashErr`, the picker / sprints `setFeedback`), so the strings are passed
+   * through verbatim — the hook never renders.
+   */
   readonly onError: (text: string) => void;
-  /** Message shown when there is no current project to create the sprint against. */
+  /**
+   * Message shown when there is no current project to create the sprint against. Differs per
+   * call site (home / sprints say "pick a project first …"; the picker says "select a project
+   * first"), so it is supplied by the caller to keep wording byte-identical.
+   */
   readonly noProjectMessage: string;
 }
 

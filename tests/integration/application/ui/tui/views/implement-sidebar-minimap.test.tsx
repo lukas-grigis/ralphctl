@@ -85,7 +85,6 @@ describe('ImplementSidebar — navigation only', () => {
         sidebarTaskNavRows={8}
         sidebarFlowStepsRows={8}
         sidebarContextSideBySide={false}
-        showBaseline
         descriptor={descriptor}
         bucketed={THREE_TASKS}
         isRunning={true}
@@ -128,7 +127,6 @@ describe('ImplementSidebar — navigation only', () => {
         sidebarTaskNavRows={8}
         sidebarFlowStepsRows={8}
         sidebarContextSideBySide={false}
-        showBaseline
         descriptor={descriptor}
         bucketed={THREE_TASKS}
         isRunning={true}
@@ -157,7 +155,6 @@ describe('ImplementSidebar — navigation only', () => {
         sidebarTaskNavRows={8}
         sidebarFlowStepsRows={8}
         sidebarContextSideBySide={false}
-        showBaseline
         descriptor={descriptor}
         bucketed={THREE_TASKS}
         isRunning={true}
@@ -187,7 +184,6 @@ describe('ImplementSidebar — navigation only', () => {
         sidebarTaskNavRows={8}
         sidebarFlowStepsRows={8}
         sidebarContextSideBySide={false}
-        showBaseline
         descriptor={descriptor}
         bucketed={THREE_TASKS}
         isRunning={true}
@@ -230,7 +226,6 @@ describe('ImplementSidebar — navigation only', () => {
         sidebarTaskNavRows={8}
         sidebarFlowStepsRows={8}
         sidebarContextSideBySide={false}
-        showBaseline
         descriptor={descriptor}
         bucketed={THREE_TASKS}
         isRunning={true}
@@ -266,7 +261,6 @@ describe('ImplementSidebar — TokenBudgetCard at bottom', () => {
         sidebarTaskNavRows={8}
         sidebarFlowStepsRows={4}
         sidebarContextSideBySide={false}
-        showBaseline
         descriptor={descriptor}
         bucketed={THREE_TASKS}
         isRunning={true}
@@ -297,7 +291,6 @@ describe('ImplementSidebar — TokenBudgetCard at bottom', () => {
         sidebarTaskNavRows={8}
         sidebarFlowStepsRows={4}
         sidebarContextSideBySide={false}
-        showBaseline
         descriptor={descriptor}
         bucketed={THREE_TASKS}
         isRunning={true}
@@ -332,7 +325,6 @@ describe('ImplementSidebar — TokenBudgetCard at bottom', () => {
         sidebarTaskNavRows={8}
         sidebarFlowStepsRows={4}
         sidebarContextSideBySide={false}
-        showBaseline
         descriptor={descriptor}
         bucketed={THREE_TASKS}
         isRunning={true}

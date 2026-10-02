@@ -1,6 +1,15 @@
 /**
- * Field editor — mounts the right prompt component for an `EditableField` (text or select), with the provider-picker
- * availability gate layered on top of the bare `SelectPrompt`.
+ * Field editor — mounts the right prompt component for an `EditableField` (text or select),
+ * with the provider-picker availability gate layered on top of the bare `SelectPrompt`.
+ * Provider rows surface dimmed `(not installed)` options + an install-command footer; every
+ * other select stays plain.
+ *
+ * Escalation-map fields get dedicated treatment:
+ *  - `map-entry` mounts a target picker scoped to catalogs containing the rung's from-model,
+ *    plus a `(remove this override)` choice that submits the empty string (the apply-key
+ *    grammar's delete semantic).
+ *  - `map-add` walks a two-step picker — FROM model, then TO model — and submits the pair as
+ *    `from=to`. Esc on the second step returns to the first instead of abandoning the add.
  */
 
 import React, { useState } from 'react';
@@ -10,13 +19,34 @@ import { primaryInstallCommand, PROVIDER_BINARY } from '@src/integration/system/
 import { glyphs } from '@src/application/ui/tui/theme/tokens.ts';
 import type { AiProvider } from '@src/domain/entity/settings.ts';
 import {
-  annotateModelLabel,
   type EditableField,
   escalationModelOptions,
   escalationTargetsFor,
   isModelField,
   isProviderField,
 } from '@src/application/ui/tui/views/settings-view-model.ts';
+import { isSuspendedModel, SUSPENSION_NOTE } from '@src/domain/value/settings-models/suspended-models.ts';
+import { contextWindowLabel } from '@src/domain/value/settings-models/context-window.ts';
+
+/**
+ * Build the display label for a model picker option. Appends the context-window size and (when
+ * applicable) the suspension note — both are additive so the bare model id is always visible.
+ *
+ *   'claude-sonnet-4-6'    →  'claude-sonnet-4-6  ·  200K'
+ *   'claude-opus-4-8[1m]' →  'claude-opus-4-8[1m]  ·  1M'
+ *   'claude-opus-5'        →  'claude-opus-5  ·  1M'
+ *   'gpt-5.5'             →  'gpt-5.5'   (no window known — no annotation)
+ *
+ * The `(suspended)` suffix only appears while `SUSPENDED_MODELS` is non-empty — the kill-switch
+ * is currently unused (see suspended-models.ts) so no catalog id renders it today.
+ */
+const annotateModelLabel = (model: string): string => {
+  const windowPart = contextWindowLabel(model);
+  const suspendedPart = isSuspendedModel(model) ? `(${SUSPENSION_NOTE})` : undefined;
+  const annotations = [windowPart, suspendedPart].filter((s): s is string => s !== undefined);
+  if (annotations.length === 0) return model;
+  return `${model}  ${glyphs.bullet}  ${annotations.join('  ')}`;
+};
 
 interface ProviderChoice {
   readonly label: string;
@@ -29,7 +59,12 @@ interface ProviderOptions {
   readonly footer?: string;
 }
 
-/** Build the option list for a provider picker. */
+/**
+ * Build the option list for a provider picker. Unavailable providers render `'(not installed)'`
+ * suffixed and are marked `disabled` so SelectPrompt skips them on keyboard navigation and
+ * refuses submission. When the availability probe has not completed yet, every option stays
+ * enabled — the gate still fires server-side via the settings-set-provider flow.
+ */
 const buildProviderOptions = (
   options: readonly string[],
   installed: ReadonlySet<AiProvider> | undefined
@@ -59,7 +94,11 @@ export interface SettingsEditorProps {
   readonly onCancel: () => void;
 }
 
-/** Two-step from/to picker for a new escalation rung. */
+/**
+ * Two-step from/to picker for a new escalation rung. Local state holds the chosen FROM model
+ * while the TO picker is mounted; the component is remounted per edit (the orchestrator keys
+ * the editor on the active field) so the state never leaks across edits.
+ */
 const EscalationAddEditor = ({
   onSubmit,
   onCancel,
@@ -124,8 +163,10 @@ export const SettingsEditor = ({
         />
       );
     }
-    // Model selects annotate each option with its context-window size and (when applicable) the suspension note —
-    // labels only.
+    // Model selects annotate each option with its context-window size and (when applicable) the
+    // suspension note — labels only; the value stays the bare id so a pre-pinned choice
+    // round-trips and the adapter guard remains the single rejection point.
+    // Every other select (log level, booleans, …) renders plain.
     const annotate = isModelField(field);
     return (
       <SelectPrompt

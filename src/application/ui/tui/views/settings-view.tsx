@@ -1,18 +1,47 @@
-/** Settings view orchestrator — owns hooks, state, key handling, and prompt mounting. */
+/**
+ * Settings view orchestrator — owns hooks, state, key handling, and prompt mounting. The
+ * render-side render is factored into sibling files; this file's only responsibility is to
+ * wire those pieces together with the EventBus + dependency-injected flow factories.
+ *
+ * `←/→` switch sections; `↑/↓` move between fields inside the active section; `↵/e` mounts the
+ * prompt appropriate to the field's type (SelectPrompt for enums + model catalogs, TextPrompt
+ * for numbers / free-text strings). Most routes funnel through `applySettingsKey` (validation)
+ * → `settingsSet` use-case (persistence) so the TUI and `ralphctl settings set` share a
+ * single mutation grammar.
+ *
+ * Siblings:
+ *   - `settings-view-model.ts`   — pure types + section builder
+ *   - `settings-sections.tsx`    — section strip + active-section body switch
+ *   - `preset-bar.tsx`           — preset section body
+ *   - `ai-row.tsx`               — per-flow + Implement section bodies
+ *   - `harness-row.tsx`          — harness budgets section body
+ *   - `settings-editor.tsx`      — field-aware prompt mounting + provider-availability gate
+ *   - `settings-mutations.ts`    — apply-key / set-provider / apply-preset routing
+ *
+ * AI configuration is per-flow. Each flow renders as a dedicated section with three editable
+ * rows. Switching a row's provider routes through `settings-set-provider` (which rebuilds that
+ * row's `{ provider, model }` from the new provider's defaults so the persistence schema stays
+ * satisfied). Off-catalog persisted model values stay visible on read; the catalog gate only
+ * constrains the editor surface.
+ *
+ * `SettingsView` itself is a short composition of local hooks (`useSettingsData`,
+ * `useInstalledProviders`, `useAvailableModelsMap`, `useSectionNavigation`,
+ * `useSettingsKeyHandler`) plus the `SettingsViewBody` display-state subcomponent — each owns one
+ * cohesive slice of the view's state/effects so the orchestrator itself stays a thin wire-up.
+ */
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { Box, Text } from 'ink';
+import { Box, Text, useInput, type Key } from 'ink';
 import { ViewShell } from '@src/application/ui/tui/components/view-shell.tsx';
 import { Spinner } from '@src/application/ui/tui/components/spinner.tsx';
-import { PresetConfirm } from '@src/application/ui/tui/views/preset-confirm.tsx';
+import { ConfirmPrompt } from '@src/application/ui/tui/prompts/confirm-prompt.tsx';
 import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { useStorage } from '@src/application/ui/tui/runtime/storage-context.tsx';
 import { useLogLevel } from '@src/application/ui/tui/runtime/log-level-context.tsx';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
-import { useViewKeys } from '@src/application/ui/tui/runtime/use-view-keys.ts';
-import { listMoveBinding } from '@src/application/ui/tui/runtime/keyboard-map.ts';
-import { useScrollAnchor } from '@src/application/ui/tui/components/scroll-region.tsx';
+import { useViewHints } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
+import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx';
 import { createSettingsShowFlow } from '@src/application/flows/settings-show/flow.ts';
 import type { PresetName } from '@src/business/settings/presets.ts';
 import type { PresetWarning } from '@src/application/flows/settings-apply-preset/ctx.ts';
@@ -33,24 +62,41 @@ import {
 /** Feedback banner rendered under the active section — `undefined` clears it. */
 type SettingsFeedback = { readonly tone: 'ok' | 'error'; readonly text: string } | undefined;
 
-/** A field's current value with the active-cursor glyph. */
-const FieldValue = ({ focused, value }: { readonly focused: boolean; readonly value: string }): React.JSX.Element => {
-  const anchorRef = useScrollAnchor(focused);
-  return (
-    <Box ref={anchorRef}>
-      <Text {...(focused ? { color: inkColors.primary } : {})} bold={focused}>
-        {focused ? `${glyphs.actionCursor} ` : '  '}
-        {value}
-      </Text>
-    </Box>
-  );
+/** `-1` (previous) / `1` (next) section-switch delta for `←`/`[` and `→`/`]`; `undefined` otherwise. */
+const sectionKeyDelta = (input: string, key: Pick<Key, 'leftArrow' | 'rightArrow'>): -1 | 1 | undefined => {
+  if (key.leftArrow || input === '[') return -1;
+  if (key.rightArrow || input === ']') return 1;
+  return undefined;
+};
+
+/**
+ * Next cursor index for `↑/↓`/j/k (clamped ±1) and PageUp/PageDown/Home/End (snap to an end);
+ * `undefined` when `input`/`key` isn't a cursor-movement key.
+ */
+const cursorKeyIndex = (
+  input: string,
+  key: Pick<Key, 'upArrow' | 'downArrow' | 'pageUp' | 'pageDown' | 'home' | 'end'>,
+  cursor: number,
+  length: number
+): number | undefined => {
+  if (key.upArrow || input === 'k') return Math.max(0, cursor - 1);
+  if (key.downArrow || input === 'j') return Math.min(length - 1, cursor + 1);
+  if (key.pageUp || key.home) return 0;
+  if (key.pageDown || key.end) return length - 1;
+  return undefined;
 };
 
 /** Renders the current value + active-cursor glyph for `key` inside the active section's field list. */
 const renderFieldValue = (activeFields: readonly EditableField[], cursor: number, key: string): React.ReactNode => {
   const focused = activeFields[cursor]?.key === key;
   const field = activeFields.find((f) => f.key === key);
-  return <FieldValue focused={focused} value={field?.current ?? ''} />;
+  const value = field?.current ?? '';
+  return (
+    <Text {...(focused ? { color: inkColors.primary } : {})} bold={focused}>
+      {focused ? `${glyphs.actionCursor} ` : '  '}
+      {value}
+    </Text>
+  );
 };
 
 interface SettingsDataParams {
@@ -69,7 +115,9 @@ interface SettingsDataResult {
 }
 
 /**
- * Owns the loaded `Settings` record and its load/mutate lifecycle: initial load, preset apply, and per-field submit.
+ * Owns the loaded `Settings` record and its load/mutate lifecycle: initial load, preset apply,
+ * and per-field submit. Every mutation re-runs `refresh` on success so the view always reflects
+ * the persisted record rather than an optimistic local patch.
  */
 const useSettingsData = (params: SettingsDataParams): SettingsDataResult => {
   const { settingsRepo, setLogLevel, setFeedback, setPresetWarnings, closeEditor } = params;
@@ -121,7 +169,13 @@ const useSettingsData = (params: SettingsDataParams): SettingsDataResult => {
   return { settings, loadError, handlePreset, handleSubmit };
 };
 
-/** Set of providers whose CLI binary resolved on PATH at mount time. */
+/**
+ * Set of providers whose CLI binary resolved on PATH at mount time. Probed once per Settings
+ * session — the per-row Settings editor never re-probes; the user has to leave and re-enter
+ * Settings to refresh the gate (matches the apply-preset / launch-time probe sites). Resolves to
+ * `undefined` while the probe is in flight; the provider picker treats `undefined` as "all
+ * enabled" so the picker is usable in the rare frame between mount and probe-completion.
+ */
 const useInstalledProviders = (): ReadonlySet<AiProvider> | undefined => {
   const [installedProviders, setInstalledProviders] = useState<ReadonlySet<AiProvider> | undefined>(undefined);
   useEffect(() => {
@@ -137,8 +191,11 @@ const useInstalledProviders = (): ReadonlySet<AiProvider> | undefined => {
 };
 
 /**
- * Per-provider account-available model subset, resolved lazily after settings load — one probe per distinct provider
- * in the loaded config.
+ * Per-provider account-available model subset, resolved lazily after settings load — one probe
+ * per distinct provider in the loaded config. Keyed by provider; absent entries fall back to the
+ * full catalog inside {@link buildSections}. Empty while the availability probes are in flight —
+ * the full catalog renders, then re-renders filtered once each provider resolves. The probe never
+ * throws (fail open); never blocks the view.
  */
 const useAvailableModelsMap = (
   settings: Settings | undefined,
@@ -146,7 +203,10 @@ const useAvailableModelsMap = (
 ): ReadonlyMap<AiProvider, readonly string[]> => {
   const [availableModels, setAvailableModels] = useState<ReadonlyMap<AiProvider, readonly string[]>>(new Map());
   useEffect(() => {
-    // `availableModelsFor` is always wired in production, but tests cast `{}` to `AppDeps`, so it can be undefined.
+    // `availableModelsFor` is a required `AppDeps` field in production (`wire()` always assigns
+    // it), but several tests build an `AppDeps` by hand via `{} as unknown as AppDeps` and the
+    // cast suppresses the missing-field typecheck — the runtime value can still be `undefined`
+    // there, so this guard stays even though the parameter type says otherwise.
     if (settings === undefined || typeof availableModelsFor !== 'function') return;
     let cancelled = false;
     for (const provider of uniqueProvidersFromAi(settings.ai)) {
@@ -173,8 +233,10 @@ interface SectionNavigationResult {
 }
 
 /**
- * Builds the section list from the loaded settings + resolved model catalog, and owns the section/cursor pointers
- * into it.
+ * Builds the section list from the loaded settings + resolved model catalog, and owns the
+ * section/cursor pointers into it — including the two clamp effects that keep both pointers in
+ * bounds when the underlying field set shrinks (e.g. a provider switch resets a section's model
+ * options, or the section list itself changes shape).
  */
 const useSectionNavigation = (
   settings: Settings | undefined,
@@ -187,7 +249,11 @@ const useSectionNavigation = (
   const [sectionIdx, setSectionIdx] = useState(0);
   const [cursor, setCursor] = useState(0);
   const activeSection = sections[sectionIdx];
-  /** `useMemo` keeps the same array reference across renders while the section's field set is unchanged. */
+  /**
+   * `useMemo` keeps the same array reference across renders while the section's field set is
+   * unchanged, which keeps the cursor-clamp effect below stable (running it on every render
+   * would either no-op uselessly or fight the user's ↑/↓ presses).
+   */
   const activeFields = useMemo<readonly EditableField[]>(() => activeSection?.fields ?? [], [activeSection]);
 
   // Clamp cursor when the active section's field set changes (e.g. a provider switch resets
@@ -206,7 +272,6 @@ const useSectionNavigation = (
 
 interface SettingsKeyHandlerParams {
   readonly modalOpen: boolean;
-  readonly activeSectionId: SettingsSection['id'] | undefined;
   readonly editingField: EditableField | undefined;
   readonly pendingPreset: PresetName | undefined;
   readonly sections: readonly SettingsSection[];
@@ -219,13 +284,14 @@ interface SettingsKeyHandlerParams {
 }
 
 /**
- * Owns the Settings view's keyboard routing: `←/→` switch sections, `↑/↓`/j/k (plus PageUp/PageDown/Home/End) move
- * the cursor within the active section's fields, `↵`/`e` activates the focused field.
+ * Owns the Settings view's global keyboard routing: `←/→`/`[`/`]` switch sections, `↑/↓`/j/k
+ * (plus PageUp/PageDown/Home/End) move the cursor within the active section's fields, `↵`/`e`
+ * activates the focused field. Muted while a modal overlay, editor, or preset confirmation is
+ * active — those own their own `useInput` handlers.
  */
 const useSettingsKeyHandler = (params: SettingsKeyHandlerParams): void => {
   const {
     modalOpen,
-    activeSectionId,
     editingField,
     pendingPreset,
     sections,
@@ -237,45 +303,31 @@ const useSettingsKeyHandler = (params: SettingsKeyHandlerParams): void => {
     onActivate,
   } = params;
 
-  const hasFields = activeFields.length > 0;
-  const switchSection = (delta: 1 | -1): void => {
-    setSectionIdx((i) => (i + delta + sections.length) % sections.length);
-    setCursor(0);
-    setFeedback(undefined);
-  };
-  const activate = (): void => {
-    const field = activeFields[cursor];
-    if (field !== undefined) onActivate(field);
-  };
-  const last = activeFields.length - 1;
-
-  useViewKeys(
-    [
-      {
-        keys: ['←', '→'],
-        hint: 'section',
-        enabled: sections.length > 0,
-        run: (_i, key) => switchSection(key.rightArrow ? 1 : -1),
-      },
-      listMoveBinding,
-      {
-        keys: ['↑', '↓', 'j', 'k'],
-        hint: 'move',
-        hidden: true,
-        enabled: hasFields,
-        run: (input, key) =>
-          setCursor((c) => (key.downArrow || input === 'j' ? Math.min(last, c + 1) : Math.max(0, c - 1))),
-      },
-      { keys: ['PgUp', 'Home'], hint: 'first', hidden: true, enabled: hasFields, run: () => setCursor(0) },
-      { keys: ['PgDn', 'End'], hint: 'last', hidden: true, enabled: hasFields, run: () => setCursor(last) },
-      { keys: ['↵'], hint: activeSectionId === 'presets' ? 'apply' : 'edit', enabled: hasFields, run: activate },
-      { keys: ['e'], hint: 'edit', hidden: true, enabled: hasFields, run: activate },
-    ],
-    { active: !modalOpen && editingField === undefined && pendingPreset === undefined }
-  );
+  useInput((input, key) => {
+    if (modalOpen || editingField !== undefined || pendingPreset !== undefined) return;
+    if (sections.length === 0) return;
+    const sectionDelta = sectionKeyDelta(input, key);
+    if (sectionDelta !== undefined) {
+      setSectionIdx((i) => (i + sectionDelta + sections.length) % sections.length);
+      setCursor(0);
+      setFeedback(undefined);
+      return;
+    }
+    if (activeFields.length === 0) return;
+    const nextCursor = cursorKeyIndex(input, key, cursor, activeFields.length);
+    if (nextCursor !== undefined) {
+      setCursor(nextCursor);
+      return;
+    }
+    if (key.return || input === 'e') {
+      const field = activeFields[cursor];
+      if (field !== undefined) onActivate(field);
+    }
+  });
 };
 
 interface SettingsViewBodyProps {
+  readonly helpOpen: boolean;
   readonly pendingPreset: PresetName | undefined;
   readonly onApplyPreset: (preset: PresetName) => Promise<void>;
   readonly onCancelPreset: () => void;
@@ -289,17 +341,18 @@ interface SettingsViewBodyProps {
   readonly sections: readonly SettingsSection[];
   readonly sectionIdx: number;
   readonly valueFor: (key: string) => React.ReactNode;
-  readonly focusedKey: string | undefined;
   readonly storage: ReturnType<typeof useStorage>;
   readonly presetWarnings: readonly PresetWarning[];
   readonly feedback: SettingsFeedback;
 }
 
 /**
- * The Settings view's mutually-exclusive display states, in priority order: preset confirmation, field editor, load
- * error, loading spinner, then the section strip + active-section body.
+ * The Settings view's mutually-exclusive display states, in priority order: help overlay, preset
+ * confirmation, field editor, load error, loading spinner, then the section strip + active-section
+ * body. Isolated from `SettingsView` so the hook-heavy orchestrator stays a short composition.
  */
 const SettingsViewBody = ({
+  helpOpen,
   pendingPreset,
   onApplyPreset,
   onCancelPreset,
@@ -313,18 +366,22 @@ const SettingsViewBody = ({
   sections,
   sectionIdx,
   valueFor,
-  focusedKey,
   storage,
   presetWarnings,
   feedback,
 }: SettingsViewBodyProps): React.JSX.Element => {
-  if (pendingPreset !== undefined && settings !== undefined) {
+  if (helpOpen) return <HelpOverlay />;
+
+  if (pendingPreset !== undefined) {
     return (
-      <PresetConfirm
-        preset={pendingPreset}
-        settings={settings}
-        onApply={() => void onApplyPreset(pendingPreset)}
-        onClose={onCancelPreset}
+      <ConfirmPrompt
+        message={`Apply preset ${pendingPreset}? This overwrites all AI rows.`}
+        defaultYes={false}
+        onSubmit={(yes) => {
+          onCancelPreset();
+          if (yes) void onApplyPreset(pendingPreset);
+        }}
+        onCancel={onCancelPreset}
       />
     );
   }
@@ -359,16 +416,8 @@ const SettingsViewBody = ({
   return (
     <Box flexDirection="column">
       <SectionStrip sections={sections} activeIdx={sectionIdx} />
-      {/* Column, not row: a row-direction box shrink-wraps its child so the body card hugs its
-          content instead of spanning the view width. */}
-      <Box flexDirection="column" paddingX={spacing.indent} marginTop={spacing.section}>
-        <SectionBody
-          section={activeSection}
-          valueFor={valueFor}
-          focusedKey={focusedKey}
-          storage={storage}
-          presetWarnings={presetWarnings}
-        />
+      <Box marginTop={spacing.section}>
+        <SectionBody section={activeSection} valueFor={valueFor} storage={storage} presetWarnings={presetWarnings} />
       </Box>
       {feedback !== undefined && (
         <Box paddingX={spacing.indent} marginTop={spacing.section}>
@@ -391,8 +440,17 @@ export const SettingsView = (): React.JSX.Element => {
   /** Pending preset confirmation — populated when the user activates a preset button. */
   const [pendingPreset, setPendingPreset] = useState<PresetName | undefined>(undefined);
   const [feedback, setFeedback] = useState<SettingsFeedback>(undefined);
-  /** Warnings from the most recent apply-preset. */
+  /**
+   * Warnings from the most recent apply-preset. Rendered as a dimmed multi-line note below the
+   * preset action group; cleared when the user activates a new preset or edits any other row.
+   */
   const [presetWarnings, setPresetWarnings] = useState<readonly PresetWarning[]>([]);
+
+  useViewHints([
+    { keys: '←/→', label: 'section' },
+    { keys: '↑/↓', label: 'move' },
+    { keys: '↵/e', label: 'edit' },
+  ]);
 
   const closeEditor = (): void => setEditingField(undefined);
 
@@ -412,7 +470,6 @@ export const SettingsView = (): React.JSX.Element => {
 
   useSettingsKeyHandler({
     modalOpen: ui.modalOpen,
-    activeSectionId: activeSection?.id,
     editingField,
     pendingPreset,
     sections,
@@ -424,7 +481,9 @@ export const SettingsView = (): React.JSX.Element => {
     onActivate: (field) => activateField(field, { setFeedback, setPresetWarnings, setPendingPreset, setEditingField }),
   });
 
-  // Tie the prompt-active claim to the editing-field state so React's effect cleanup matches the claim 1:1.
+  // Tie the prompt-active claim to the editing-field state so React's effect cleanup matches
+  // the claim 1:1. Earlier we toggled imperatively from inside event handlers and the boolean
+  // got clobbered by the PromptHost when its queue was empty.
   const claimPrompt = ui.claimPrompt;
   useEffect(
     () => (editingField !== undefined || pendingPreset !== undefined ? claimPrompt() : undefined),
@@ -435,8 +494,9 @@ export const SettingsView = (): React.JSX.Element => {
     settings === undefined ? null : renderFieldValue(activeFields, cursor, key);
 
   return (
-    <ViewShell title="Settings" subtitle={activeSection?.title ?? 'loading'} suppressScrollArrows>
+    <ViewShell title="Settings" subtitle="←/→ section · ↑/↓ move · ↵ edit · esc cancel">
       <SettingsViewBody
+        helpOpen={ui.helpOpen}
         pendingPreset={pendingPreset}
         onApplyPreset={handlePreset}
         onCancelPreset={() => setPendingPreset(undefined)}
@@ -450,7 +510,6 @@ export const SettingsView = (): React.JSX.Element => {
         sections={sections}
         sectionIdx={sectionIdx}
         valueFor={valueFor}
-        focusedKey={activeFields[cursor]?.key}
         storage={storage}
         presetWarnings={presetWarnings}
         feedback={feedback}

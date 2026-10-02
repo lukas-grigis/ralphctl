@@ -17,14 +17,14 @@ import {
 } from '@src/application/ui/tui/components/windowed-list.tsx';
 import { plural } from '@src/application/ui/shared/plural.ts';
 import { formatBytes } from '@src/application/ui/shared/format-bytes.ts';
-import { glyphs, inkColors, listCapacity, spacing } from '@src/application/ui/tui/theme/tokens.ts';
+import { glyphs, inkColors, LIST_CHROME_ROWS, listCapacity, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { useAsyncLoad } from '@src/application/ui/tui/runtime/use-async-load.ts';
 import { useIsMounted } from '@src/application/ui/tui/runtime/use-is-mounted.ts';
 import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
+import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx';
 import { useViewKeys } from '@src/application/ui/tui/runtime/use-view-keys.ts';
 import { useBreakpoint } from '@src/application/ui/tui/runtime/use-breakpoint.ts';
-import { listMoveBinding } from '@src/application/ui/tui/runtime/keyboard-map.ts';
 import {
   buildHousekeepingRows,
   GROUP_LABELS,
@@ -35,8 +35,8 @@ import {
 import type { HousekeepingScan } from '@src/business/housekeeping/scan-housekeeping.ts';
 import type { HousekeepingPurgeReport } from '@src/business/housekeeping/purge-housekeeping.ts';
 
-/** Rows outside the list: chrome (3), footer (2), summary (2), selection line (2), feedback. */
-const CHROME_ROWS = 11;
+/** Rows outside the list: the shared page chrome, summary (2), selection line (2), feedback. */
+const CHROME_ROWS = LIST_CHROME_ROWS + 5;
 const GROUP_WIDTH = 17;
 const SIZE_WIDTH = 9;
 
@@ -98,7 +98,7 @@ const useHousekeepingKeys = (args: {
 }): void => {
   useViewKeys(
     [
-      { ...listMoveBinding, enabled: args.hasRows },
+      { keys: ['↑', '↓'], hint: 'move', enabled: args.hasRows },
       { keys: ['space'], hint: 'select', enabled: args.hasRows, run: args.toggle },
       { keys: ['a'], hint: 'all', enabled: args.hasRows, run: args.selectAll },
       { keys: ['c'], hint: 'clear', hidden: true, run: args.clear },
@@ -184,7 +184,7 @@ const useHousekeepingModel = () => {
     visibleRows: listCapacity(termRows, { chromeRows: CHROME_ROWS, min: 4 }),
     active: listActive,
     onSubmit: () => {
-      if (picked.size === 0) setNote(feedback('warning', 'nothing selected — press space to mark rows'));
+      if (picked.size === 0) setNote(feedback('info', 'nothing selected — press space to mark rows'));
       else {
         setNote(undefined);
         setConfirming(true);
@@ -242,12 +242,17 @@ const useHousekeepingModel = () => {
 export const HousekeepingView = (): React.JSX.Element => {
   const { state, rows, list, picked, totals, selected, confirming, setConfirming, note, purge } =
     useHousekeepingModel();
+  const ui = useUiState();
 
   const overlay = confirming ? (
     <ConfirmCard
-      verb="Delete"
-      target={`${plural(selected.length, 'item')} (${formatBytes(totals.bytes)})`}
+      title={
+        <Text>
+          Delete <Text bold>{`${plural(selected.length, 'item')} (${formatBytes(totals.bytes)})`}</Text>?
+        </Text>
+      }
       body={<Text dimColor>{groupCounts(selected).join(` ${glyphs.bullet} `)}. This cannot be undone.</Text>}
+      message="Delete?"
       onSubmit={(yes) => (yes ? void purge() : setConfirming(false))}
       onCancel={() => setConfirming(false)}
     />
@@ -256,7 +261,7 @@ export const HousekeepingView = (): React.JSX.Element => {
   return (
     <ViewShell title="Housekeeping" subtitle="reclaimable data" suppressScrollArrows>
       <AsyncListFrame
-        {...(overlay !== undefined ? { overlay } : {})}
+        {...(ui.helpOpen ? { overlay: <HelpOverlay /> } : overlay !== undefined ? { overlay } : {})}
         state={state}
         loadingLabel="Scanning data…"
         errorMessage="Could not scan the data directory. Press r to retry."

@@ -1,6 +1,10 @@
 /**
- * Per-view local hint registry. A view declares "what local keys are meaningful here" once, and the status bar reads
- * the active set via context.
+ * Per-view local hint registry. A view declares "what local keys are meaningful here" once, and
+ * the status bar reads the active set via context.
+ *
+ * Why a context instead of prop drilling: ViewShell renders the StatusBar; intermediate
+ * components don't know which keys their leaf children care about. A small registry let us keep
+ * StatusBar dumb (it just renders the current set) and views explicit (one `useViewHints` call).
  */
 
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
@@ -9,17 +13,22 @@ export interface ViewHint {
   readonly keys: string;
   readonly label: string;
   /**
-   * Declarative visibility gate. `undefined` or `true` → the hint shows; `false` → the merged hint list omits it.
+   * Declarative visibility gate. `undefined` or `true` → the hint shows; `false` → the merged
+   * hint list omits it. Lets a view publish a static hint array and toggle individual entries by
+   * flipping this flag rather than rebuilding the array conditionally. Omitting it is
+   * backward-compatible — existing callers behave exactly as before.
    */
   readonly enabledWhen?: boolean;
-  /** Published by a mounted prompt: the footer shows only these (plus quit) while a prompt holds the keyboard. */
-  readonly prompt?: boolean;
 }
 
 interface HintsRegistryApi {
   readonly hints: readonly ViewHint[];
   /**
-   * Set of global hint `keys` strings that should be hidden from the status bar while at least one view requests it.
+   * Set of global hint `keys` strings that should be hidden from the status bar while at least
+   * one view requests it. The status bar filters `GLOBAL_HINTS` against this set, leaving the
+   * local hint list untouched. Used by views whose locally-active surface contradicts a global
+   * hint (e.g. the Review-step scroll widget hides the global `↑/↓ scroll` hint when the
+   * description fits and arrows are inert).
    */
   readonly suppressedGlobalKeys: ReadonlySet<string>;
   set(id: number, hints: readonly ViewHint[]): void;
@@ -30,7 +39,9 @@ interface HintsRegistryApi {
 
 const HintsContext = createContext<HintsRegistryApi | undefined>(undefined);
 
-// Views call `useViewHints([...])` with a freshly-allocated array each render.
+// Views call `useViewHints([...])` with a freshly-allocated array each render. Without a
+// content-based bail-out the effect would loop: fresh array → registry update → new context
+// value → caller re-renders → fresh array → ... (Maximum update depth exceeded.)
 export const hintsEqual = (a: readonly ViewHint[], b: readonly ViewHint[]): boolean => {
   if (a === b) return true;
   if (a.length !== b.length) return false;
@@ -38,8 +49,7 @@ export const hintsEqual = (a: readonly ViewHint[], b: readonly ViewHint[]): bool
     const x = a[i];
     const y = b[i];
     if (x === undefined || y === undefined) return false;
-    if (x.keys !== y.keys || x.label !== y.label || x.enabledWhen !== y.enabledWhen || x.prompt !== y.prompt)
-      return false;
+    if (x.keys !== y.keys || x.label !== y.label || x.enabledWhen !== y.enabledWhen) return false;
   }
   return true;
 };
@@ -129,8 +139,14 @@ export const HintsProvider = ({ children }: { readonly children: React.ReactNode
 let nextHintId = 1;
 
 /**
- * Register the calling view's local hints. The hints render in the status bar until the view unmounts or supplies a
- * new array.
+ * Register the calling view's local hints. The hints render in the status bar until the view
+ * unmounts or supplies a new array. Pass an empty array to advertise no local hints (the global
+ * row is still rendered).
+ *
+ * Implementation note: callers pass a freshly-allocated array on every render. We split the
+ * registration into two effects so the cleanup only runs on unmount — running it on every
+ * render would mutate the registry → re-render → effect re-runs → infinite loop. The
+ * content-sync effect short-circuits at the registry level when the array contents are equal.
  */
 export const useViewHints = (hints: readonly ViewHint[]): void => {
   const ctx = useContext(HintsContext);
@@ -157,27 +173,6 @@ export const useViewHints = (hints: readonly ViewHint[]): void => {
   }, [id, hints]);
 };
 
-export interface PromptHint {
-  readonly keys: string;
-  readonly label: string;
-}
-
-/**
- * Footer keys of the calling prompt. Only shown while the prompt holds the keyboard; the view's own hints are muted
- * then, so these are the keys that actually work.
- */
-export const usePromptHints = (hints: readonly PromptHint[], escLabel?: string): void => {
-  const tagged = useMemo(
-    () =>
-      [...hints, ...(escLabel !== undefined ? [{ keys: 'esc', label: escLabel }] : [])].map((h) => ({
-        ...h,
-        prompt: true as const,
-      })),
-    [hints, escLabel]
-  );
-  useViewHints(tagged);
-};
-
 /** Read the current merged hint set. Used by StatusBar. */
 export const useActiveHints = (): readonly ViewHint[] => {
   const ctx = useContext(HintsContext);
@@ -185,8 +180,13 @@ export const useActiveHints = (): readonly ViewHint[] => {
 };
 
 /**
- * Suppress one or more global hints by their `keys` string while this component is mounted (or while `keys` is
- * non-empty). Passing an empty array clears the suppression.
+ * Suppress one or more global hints by their `keys` string while this component is mounted (or
+ * while `keys` is non-empty). Passing an empty array clears the suppression. Used when a view
+ * temporarily owns a key combo whose default meaning the global hint advertises — the global
+ * hint disappears so the footer never lies about what `↑/↓` does on this screen.
+ *
+ * Other views are unaffected; suppressions are scoped per component instance, removed on
+ * unmount, and merged into a single set the StatusBar filters GLOBAL_HINTS against.
  */
 export const useSuppressGlobalHints = (keys: readonly string[]): void => {
   const ctx = useContext(HintsContext);

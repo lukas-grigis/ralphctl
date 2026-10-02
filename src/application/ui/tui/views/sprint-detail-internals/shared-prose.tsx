@@ -1,4 +1,11 @@
-/** Prose primitives shared by the sprint-detail ticket and task panes. */
+/**
+ * Prose primitives shared by the sprint-detail ticket and task panes.
+ *
+ * `Section` is a sub-heading + indented block; `Description` is the markdown-light renderer that
+ * both ticket and task cards use to clip a free-text field down to a screen-friendly excerpt.
+ * Kept in their own file so neither `ticket-list.tsx` nor `task-summary.tsx` has to take a
+ * dependency on the other just to share a couple of rendering helpers.
+ */
 
 import React from 'react';
 import { Box, Text } from 'ink';
@@ -23,8 +30,9 @@ export const Section = ({
 );
 
 /**
- * Description block — markdown-light: strips `**bold**` markers and bullet prefixes so the source string renders
- * cleanly inside a TUI.
+ * Description block — markdown-light: strips `**bold**` markers and bullet prefixes so the
+ * source string renders cleanly inside a TUI. Caps visible lines unless the caller passes
+ * `Number.POSITIVE_INFINITY` (detail view wants the whole text).
  */
 export const Description = ({
   text,

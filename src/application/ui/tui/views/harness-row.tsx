@@ -1,6 +1,13 @@
 /**
- * Harness section body — renders iteration budget knobs (maxTurns / maxAttempts / rateLimitRetries / idleWatchdogMs /
- * plateauThreshold).
+ * Harness section body — renders iteration budget knobs (maxTurns / maxAttempts /
+ * rateLimitRetries / idleWatchdogMs / plateauThreshold), boolean toggles (escalateOnPlateau /
+ * skipPreVerifyOnFreshSetup), and the editable escalation-map group (an add-rung action row
+ * plus one row per user override), with per-field one-line hints sourced from `HARNESS_HINTS`.
+ * Edits route through the orchestrator's prompt-mounting machinery.
+ *
+ * Below the field list the EFFECTIVE escalation ladders (user overrides merged over each
+ * provider's built-in ladder) render as dim chains, each prefixed with its provider, so "defaults
+ * apply" is never a mystery — customised chains carry a marker.
  */
 
 import React from 'react';

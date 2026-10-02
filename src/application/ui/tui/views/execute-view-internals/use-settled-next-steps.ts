@@ -1,6 +1,15 @@
 /**
- * Bridges the Execute view's session-shaped data onto {@link buildNextSteps}' flat input bag, and folds in the
- * post-mortem paths from {@link useRunForensics}.
+ * Bridges the Execute view's session-shaped data onto {@link buildNextSteps}' flat input bag, and
+ * folds in the post-mortem paths from {@link useRunForensics}.
+ *
+ * The sprint side comes from the run's OWN pinned sprint (resolved by `usePinnedSprintContext`'s
+ * existing `findById`, then re-read on the settle edge — see {@link useSprintAtSettle}) plus the
+ * task list `useBaselineHealthData` polls — never from the global selection, which may point
+ * elsewhere while several runs are open.
+ *
+ * `projectCount` / `sprintCount` are genuinely unknown on this surface (no snapshot loader here),
+ * so they are pinned at 0. That only ever surfaces on a run with no sprint at all — where "create
+ * the first sprint" is the right advice anyway — and is unreachable once a sprint is pinned.
  */
 
 import React from 'react';
@@ -44,7 +53,21 @@ interface UseSprintAtSettleInput {
   readonly fallback: Sprint | undefined;
 }
 
-/** Re-reads the pinned sprint once, on the settle edge. */
+/**
+ * Re-reads the pinned sprint once, on the settle edge.
+ *
+ * The advice a finished run gives must describe the sprint the flow LEFT BEHIND: `plan` moves
+ * draft → planned mid-run, `refine` flips tickets pending → approved, `implement` drives
+ * planned → active → review. The availability probe in `use-pinned-sprint-context.ts` reads at
+ * mount and never again, so without this the card recommends re-running the flow that just
+ * succeeded.
+ *
+ * Why not just re-probe there: `pinnedSprintStale` is derived from the same read, and a
+ * `close-sprint` run ends with the sprint `done` — which the probe scores `unavailable`. Flipping
+ * that flag on settle would replace the tasks panel with "Sprint no longer available" on a run
+ * that did exactly what it was asked to. The two reads want different lifetimes, so they stay
+ * separate; the extra `findById` costs one call per settled run.
+ */
 const useSprintAtSettle = ({
   settled,
   pinnedSprintId,
@@ -131,6 +154,8 @@ export const useSettledNextSteps = ({
         ...(runStatus !== undefined ? { runStatus } : {}),
         ...(failedLeafLabel !== undefined ? { failedLeafLabel } : {}),
         hasProject,
+        projectCount: 0,
+        sprintCount: 0,
         ...(sprintStatus !== undefined ? { sprintStatus } : {}),
         ticketCount,
         pendingTicketCount,

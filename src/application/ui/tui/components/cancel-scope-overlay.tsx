@@ -1,12 +1,29 @@
-/** Inline confirm overlay shown when the operator presses `c` on the Implement view. */
+/**
+ * Inline confirm overlay shown when the operator presses `c` on the Implement view. Replaces the
+ * historic "press c, run aborts immediately" UX where the scope of the cancel was ambiguous —
+ * was it just this attempt, or the whole flow?
+ *
+ * Two scoped options — both stop the run now; the only difference is what state the current task
+ * is left in. There is no live retry: cancelling does not re-spawn the generator in the same run.
+ *  1. Stop run now: the task stays unsettled and resumes from `todo` on the next launch. Surfaces
+ *     an estimated waste time (`~Xm of generator output`) computed from the active attempt's wall
+ *     clock so the operator can weigh the cost.
+ *  2. Stop run and mark blocked: marks the current task `blocked` (reason: `'user cancel'`) and
+ *     aborts the chain, so it won't resume automatically on the next launch. Shows the count of
+ *     tasks remaining in the queue so the operator sees what they are giving up.
+ *
+ *  Esc dismisses without action.
+ *
+ * The overlay is rendered inline inside the execute view (NOT mounted at the App layout level
+ * like the help / progress overlays) because it carries flow-specific state — wasted-time
+ * estimate and queue depth — that no other view can produce. Same modal contract though: while
+ * mounted it claims keyboard input and the underlying view's `c` handler stays dormant.
+ */
 
 import React, { useEffect } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
-import { useOptionalOverlayState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
-import { useClaimKeys } from '@src/application/ui/tui/runtime/claimed-keys-context.tsx';
 import { fmtDuration } from '@src/application/ui/tui/theme/duration.ts';
-import { isChord } from '@src/application/ui/tui/runtime/key-chord.ts';
 
 /** @public */
 export interface CancelScopeOverlayProps {
@@ -29,17 +46,10 @@ export const CancelScopeOverlay = ({
   onCancelFlow,
   onDismiss,
 }: CancelScopeOverlayProps): React.JSX.Element => {
-  // `1` / `2` are this overlay's while it is mounted — ambient digit handlers (section jumps)
-  // must not also fire on them.
-  useClaimKeys(['1', '2']);
-  const claimEscape = useOptionalOverlayState()?.claimEscape;
-  // Esc closes this overlay only; without the claim the global back handler also pops the view.
-  useEffect(() => claimEscape?.(), [claimEscape]);
-
-  // Stable input claim while mounted; the parent view sets `inputActive` props on its own panels to dim them out so
-  // they don't compete for the same keystrokes.
+  // Stable input claim while mounted; the parent view sets `inputActive` props on its own
+  // panels to dim them out so they don't compete for the same keystrokes. Unmount happens via
+  // any of the three callbacks (the parent unconditionally hides the overlay after the action).
   useInput((input, key) => {
-    if (isChord(key)) return;
     if (input === '1') {
       onCancelAttempt();
       return;
@@ -52,6 +62,11 @@ export const CancelScopeOverlay = ({
       onDismiss();
     }
   });
+
+  // Belt-and-braces: clear the overlay if the keypress that opened it never fires its
+  // companion (e.g. a TUI bug or a forced unmount mid-render). React's effect cleanup handles
+  // the normal path; this is no-op when the parent already unmounted us.
+  useEffect(() => undefined, []);
 
   const wasted = attemptElapsedMs !== undefined ? fmtDuration(attemptElapsedMs) : undefined;
   const remainingHint =

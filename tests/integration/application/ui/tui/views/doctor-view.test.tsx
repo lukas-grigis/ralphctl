@@ -10,7 +10,6 @@ import { Result } from '@src/domain/result.ts';
 import { DoctorView } from '@src/application/ui/tui/views/doctor-view.tsx';
 import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import type { DoctorReport, ProbeResult } from '@src/application/flows/doctor/ctx.ts';
-import { ENTER } from '@tests/integration/application/ui/tui/_keys.ts';
 import { waitForPredicate } from '@tests/integration/application/ui/tui/_wait.ts';
 import { renderView } from '@tests/integration/application/ui/tui/_harness.tsx';
 
@@ -30,7 +29,7 @@ const probe = (p: Pick<ProbeResult, 'id' | 'label' | 'status'> & Partial<ProbeRe
 const deps = {} as unknown as AppDeps;
 
 describe('DoctorView', () => {
-  it('renders the grouped probe report with a summary header', async () => {
+  it('collapses passing probes behind a count and expands them on ↵', async () => {
     reportRef.current = {
       probes: [
         probe({ id: 'data-root', label: 'Data root readable', status: 'pass', group: 'storage' }),
@@ -40,45 +39,35 @@ describe('DoctorView', () => {
       hasFailures: false,
     };
     const { result } = renderView(<DoctorView />, { deps, initial: { id: 'doctor' } });
-    await waitForPredicate(() => /passed/.test(result.lastFrame() ?? ''));
-    let frame = result.lastFrame() ?? '';
-    expect(frame).toMatch(/2 passed/);
-    // All-pass groups start collapsed behind one line; ↵ expands them.
-    expect(frame).not.toContain('Storage');
-    result.stdin.write(ENTER);
+    await waitForPredicate(() => /2 passed/.test(result.lastFrame() ?? ''));
+    expect(result.lastFrame()).not.toContain('Storage');
+    expect(result.lastFrame()).toContain('show passed');
+    result.stdin.write('\r');
     await waitForPredicate(() => (result.lastFrame() ?? '').includes('Storage'));
-    frame = result.lastFrame() ?? '';
-    expect(frame).toContain('Storage');
+    const frame = result.lastFrame() ?? '';
     expect(frame).toContain('AI providers');
+    expect(frame).toContain('hide passed');
     expect(frame).toContain('r reload');
   });
 
-  it('middle-truncates the path in a long remediation hint instead of wrapping mid-path', async () => {
-    const path = '/Users/someone/Workzone/github/organisation/a-very-long-repository-directory-name';
+  it('leads with the group that fails and keeps its hint on one line', async () => {
+    const hint =
+      'run `git -C /Users/me/Workzone/github/someone/some-long-repository-name-here remote set-head origin --auto` to discover it';
     reportRef.current = {
       probes: [
-        probe({
-          id: 'repo-head',
-          label: 'Default branch known',
-          status: 'warn',
-          group: 'repositories',
-          hint: `run \`git -C ${path} remote set-head origin --auto\` to discover it`,
-        }),
+        probe({ id: 'data-root', label: 'Data root readable', status: 'pass', group: 'storage' }),
+        probe({ id: 'ai-claude-code', label: 'Claude Code', status: 'fail', hint }),
       ],
       allPassed: false,
-      hasFailures: false,
+      hasFailures: true,
     };
-    const { result } = renderView(<DoctorView />, {
-      deps,
-      initial: { id: 'doctor' },
-      size: { columns: 80, rows: 24 },
-    });
-    await waitForPredicate(() => (result.lastFrame() ?? '').includes('hint:'));
-    const hintLines = (result.lastFrame() ?? '').split('\n').filter((l) => /hint:|set-head|discover it/.test(l));
-    expect(hintLines).toHaveLength(1);
-    expect(hintLines[0]).toContain('remote set-head origin --auto');
-    expect(hintLines[0]).toContain('…');
-    expect(hintLines[0]).not.toContain(path);
+    const { result } = renderView(<DoctorView />, { deps, initial: { id: 'doctor' } });
+    await waitForPredicate(() => /Claude Code/.test(result.lastFrame() ?? ''));
+    const frame = result.lastFrame() ?? '';
+    expect(frame.indexOf('AI providers')).toBeLessThan(frame.indexOf('1 passed'));
+    const hintLine = frame.split('\n').find((l) => l.includes('hint:')) ?? '';
+    expect(hintLine).toContain('remote set-head origin --auto` to discover it');
+    expect(hintLine).toContain('…');
   });
 
   it('publishes the r reload hint', async () => {

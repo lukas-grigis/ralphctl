@@ -1,4 +1,11 @@
-/** Tickets pane for the sprint-detail view. One bordered Jira-style card per ticket. */
+/**
+ * Tickets pane for the sprint-detail view.
+ *
+ * One bordered Jira-style card per ticket. Each card collapses to a description excerpt and
+ * expands inline (full description + requirements + referenced tasks) when the orchestrator
+ * passes `expanded=true` via the `openIds` set. Empty state and the local footer hints stay
+ * here so the orchestrator only has to position the section.
+ */
 
 import React from 'react';
 import { Box, Text } from 'ink';
@@ -35,7 +42,10 @@ export const TicketsSection = ({
   openIds,
 }: TicketsSectionProps): React.JSX.Element => {
   const { rows } = useBreakpoint();
-  // Tickets sit at the head of the shared focus list, so the shared cursor doubles as the local ticket index.
+  // Tickets sit at the head of the shared focus list, so the shared cursor doubles as the local
+  // ticket index. When it has moved past the tickets into the tasks pane, the index exceeds the
+  // ticket count and `computeListWindow` clamps it to the last ticket — the window stays anchored
+  // at the tail rather than scrolling away while focus lives below.
   const window = computeListWindow(sprint.tickets.length, cursorIdx, sectionWindowCards(rows));
   const visibleTickets = sprint.tickets.slice(window.start, window.end);
   return (
@@ -46,9 +56,7 @@ export const TicketsSection = ({
           <EmptyState
             title="No tickets yet"
             hint={
-              ticketsEditable
-                ? 'Press a to add the first one.'
-                : `Sprint is in ${sprint.status} — tickets can only be added while it's a draft`
+              ticketsEditable ? 'Press a to add the first one.' : 'Sprint is no longer in draft — tickets are frozen.'
             }
           />
         </Box>
@@ -75,11 +83,13 @@ export const TicketsSection = ({
           <OverflowRow direction="below" count={sprint.tickets.length - window.end} />
         </Box>
       )}
-      {!ticketsEditable && (
-        <Box paddingX={spacing.indent}>
-          <Text dimColor>{glyphs.bullet} tickets frozen (sprint not in draft)</Text>
-        </Box>
-      )}
+      <Box paddingX={spacing.indent} marginTop={spacing.section}>
+        <Text dimColor>
+          {ticketsEditable
+            ? `${glyphs.bullet} a add ${glyphs.bullet} ↵/o expand/collapse ${glyphs.bullet} d remove`
+            : `${glyphs.bullet} tickets frozen (sprint not in draft) ${glyphs.bullet} ↵/o expand/collapse`}
+        </Text>
+      </Box>
     </Box>
   );
 };
@@ -115,12 +125,7 @@ const TicketCard = ({
           {glyphs.bullet} {String(ticket.link)}
         </Text>
       )}
-      {ticket.status === 'approved' && (
-        <Text dimColor>
-          {' '}
-          {glyphs.bullet} requirements {glyphs.check}
-        </Text>
-      )}
+      {ticket.status === 'approved' && <Text dimColor> {glyphs.bullet} requirements ✓</Text>}
     </Box>
     {!expanded && ticket.description !== undefined && <Description text={ticket.description} maxLines={2} />}
     {expanded && <TicketDetailBody ticket={ticket} tasks={tasks} />}

@@ -172,7 +172,11 @@ const PRESETS: Readonly<
   'grok-frontier': { ai: GROK_FRONTIER, escalateOnPlateau: true },
 };
 
-/** The AI section a preset stamps — read-only, for surfaces that describe a preset before it is applied. */
+/**
+ * The AI section a preset stamps — read-only, for surfaces that describe a preset before it is applied.
+ *
+ * @public
+ */
 export const presetAiSettings = (name: PresetName): Settings['ai'] => PRESETS[name].ai;
 
 /**

@@ -5,19 +5,19 @@
 
 import React from 'react';
 import { describe, expect, it, vi } from 'vitest';
+import { Text } from 'ink';
 import { render } from 'ink-testing-library';
 import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import { Layout } from '@src/application/ui/tui/App.tsx';
 import { ViewShell } from '@src/application/ui/tui/components/view-shell.tsx';
 import { DepsProvider } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { RouterProvider } from '@src/application/ui/tui/runtime/router.tsx';
-import { UiStateProvider } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
+import { UiStateProvider, useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { HintsProvider } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
 import { SelectionProvider } from '@src/application/ui/tui/runtime/selection-context.tsx';
 import { SessionsProvider } from '@src/application/ui/tui/runtime/sessions-context.tsx';
 import { StorageProvider } from '@src/application/ui/tui/runtime/storage-context.tsx';
 import { SystemStatusProvider } from '@src/application/ui/tui/runtime/system-status-context.tsx';
-import { ClaimedKeysProvider } from '@src/application/ui/tui/runtime/claimed-keys-context.tsx';
 import { createSessionManager } from '@src/application/ui/tui/runtime/session-manager.ts';
 import { PromptQueueProvider } from '@src/application/ui/tui/prompts/prompt-context.tsx';
 import { createPromptQueue } from '@src/application/ui/tui/prompts/prompt-queue.ts';
@@ -42,6 +42,11 @@ const storage = (): React.ComponentProps<typeof StorageProvider>['value'] => {
   };
 };
 
+const Page = (): React.JSX.Element => {
+  const ui = useUiState();
+  return <ViewShell title="Home">{ui.helpOpen ? <Text>HELP OVERLAY</Text> : <Text>PAGE</Text>}</ViewShell>;
+};
+
 const mount = (queue = createPromptQueue()): ReturnType<typeof render> => {
   const deps = { eventBus: createInMemoryEventBus() } as unknown as AppDeps;
   return render(
@@ -51,19 +56,17 @@ const mount = (queue = createPromptQueue()): ReturnType<typeof render> => {
           <SessionsProvider value={createSessionManager()}>
             <UiStateProvider>
               <HintsProvider>
-                <ClaimedKeysProvider>
-                  <SelectionProvider>
-                    <SystemStatusProvider>
-                      <RouterProvider initial={{ id: 'home' }}>
-                        {(): React.JSX.Element => (
-                          <Layout>
-                            <ViewShell title="Home">{null}</ViewShell>
-                          </Layout>
-                        )}
-                      </RouterProvider>
-                    </SystemStatusProvider>
-                  </SelectionProvider>
-                </ClaimedKeysProvider>
+                <SelectionProvider>
+                  <SystemStatusProvider>
+                    <RouterProvider initial={{ id: 'home' }}>
+                      {(): React.JSX.Element => (
+                        <Layout>
+                          <Page />
+                        </Layout>
+                      )}
+                    </RouterProvider>
+                  </SystemStatusProvider>
+                </SelectionProvider>
               </HintsProvider>
             </UiStateProvider>
           </SessionsProvider>
@@ -82,12 +85,12 @@ describe('prompt arriving behind an open overlay', () => {
     await tick();
     stdin.write('?');
     await tick();
-    const helpFrame = lastFrame() ?? '';
+    expect(lastFrame()).toContain('HELP OVERLAY');
     queue.enqueue({ kind: 'confirm', message: 'Proceed behind help?', resolve, reject });
     await tick();
     stdin.write(ESC);
     await tick(60);
-    expect(lastFrame()).not.toBe(helpFrame);
+    expect(lastFrame()).not.toContain('HELP OVERLAY');
     expect(reject).not.toHaveBeenCalled();
     expect(queue.size).toBe(1);
     stdin.write(ENTER);

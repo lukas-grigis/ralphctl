@@ -79,30 +79,4 @@ describe('ConfirmPrompt', () => {
     expect(onCancel).toHaveBeenCalled();
     unmount();
   });
-
-  it('destructive ignores h and l — No stays selected', async () => {
-    const onSubmit = vi.fn();
-    const { stdin, unmount } = render(
-      <ConfirmPrompt message="Delete?" defaultYes={false} destructive onSubmit={onSubmit} onCancel={() => undefined} />
-    );
-    stdin.write('h');
-    await tick();
-    stdin.write(ENTER);
-    await tick();
-    expect(onSubmit).toHaveBeenCalledWith(false);
-    unmount();
-  });
-
-  it('destructive still moves with the arrow keys', async () => {
-    const onSubmit = vi.fn();
-    const { stdin, unmount } = render(
-      <ConfirmPrompt message="Delete?" defaultYes={false} destructive onSubmit={onSubmit} onCancel={() => undefined} />
-    );
-    stdin.write(LEFT);
-    await tick();
-    stdin.write(ENTER);
-    await tick();
-    expect(onSubmit).toHaveBeenCalledWith(true);
-    unmount();
-  });
 });

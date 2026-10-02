@@ -1,6 +1,39 @@
 /**
- * Token / attention-budget card — surfaces the latest `TokenUsageEvent` for a given session in the right-hand context
- * column of the Implement dashboard.
+ * Token / attention-budget card — surfaces the latest `TokenUsageEvent` for a given session in
+ * the right-hand context column of the Implement dashboard. Sits below the baseline-health card.
+ *
+ * Splits the figures into TWO clearly labelled groups, because they answer different questions:
+ *
+ *   Usage  (cumulative — what hit the API: throughput / billing)
+ *     input/output: 41.2k / 18.5k
+ *     cache hit: 12.4k (24%)
+ *
+ *   Context  (effective window occupancy right now)
+ *     53.6k / 200k  ███░░░░░░░ 27%
+ *
+ * - **Usage** is the cumulative spawn total: for claude `-p` these counts sum across every
+ *   internal turn, so they are a throughput / billing view, NOT context occupancy. No `/window`
+ *   denominator and no % bar is ever drawn from these numbers.
+ * - **Context** is the effective context-window occupancy. When the provider reports per-turn
+ *   "live" counters (`liveInputTokens + liveCacheReadTokens + liveCacheCreationTokens`, claude
+ *   `-p` only) we use them directly — that sum is the true window fill regardless of how the
+ *   cumulative figures aggregate. The bar + % render from this.
+ * - Fallback when live counters are absent (copilot / codex, or no assistant usage captured):
+ *   the cumulative-derived `inputTokens + cacheReadTokens` figure is shown ONLY when it is
+ *   plausibly a single call (`totalUsed <= contextWindow`) — then it gets a bar. When it exceeds
+ *   the window it is almost certainly cumulative; we render `session: N (cumulative)` WITHOUT a
+ *   misleading % bar. A bar is NEVER drawn from cumulative data.
+ * - Numbers are compacted (`41.2k`) so the card stays scannable inside the narrow context column.
+ *   The cache hit row is omitted when the provider reported neither cache counter.
+ * - The bar width is fixed at 10 cells so it fits {@link CONTEXT_WIDTH} with the percentage
+ *   appended; `contextPct` is clamped at 100 so an over-budget record cannot overflow the bar.
+ * - Cache-hit ratio uses `cacheRead / (cacheRead + input)` — the fraction of the prompt served
+ *   from cache, always 0–100%.
+ * - When no `TokenUsageEvent` has fired yet for the session the card renders an empty-state
+ *   "no usage data" line so the operator sees a placeholder, not an absent widget.
+ *
+ * The card is a pure renderer over {@link TokenUsage}; the {@link useTokenUsage} hook does the
+ * bus subscription + per-session bookkeeping.
  */
 
 import React from 'react';
@@ -27,8 +60,8 @@ const renderBar = (filled: number): string => {
 };
 
 /**
- * Short session id — the live execute view shows the runner's full id in its title; the budget card uses an 8-char
- * prefix so multiple stacked cards stay legible in the narrow column.
+ * Short session id — the live execute view shows the runner's full id in its title; the budget
+ * card uses an 8-char prefix so multiple stacked cards stay legible in the narrow column.
  */
 const shortSession = (id: string): string => `sess-${id.slice(0, 8)}`;
 
@@ -39,7 +72,13 @@ const pctColor = (pct: number): string => {
   return inkColors.error;
 };
 
-/** Effective context-window occupancy, resolved from a {@link TokenUsage} record. */
+/**
+ * Effective context-window occupancy, resolved from a {@link TokenUsage} record. Prefers the
+ * per-turn LIVE counters (claude `-p`) whose sum is the true window fill; falls back to the
+ * cumulative-derived `input + cacheRead` figure, drawing a bar only when that figure plausibly
+ * fits a single call (`<= contextWindow`). Cumulative-but-over-window data gets no bar — a
+ * "2.2M / 200k 100%" bar would mislead.
+ */
 interface ContextView {
   /** Tokens occupying the window right now (live sum, or cumulative-derived fallback). */
   readonly used: number;

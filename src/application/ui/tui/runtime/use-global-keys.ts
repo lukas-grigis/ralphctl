@@ -1,22 +1,40 @@
-/** Global keyboard handler. */
+/**
+ * Global keyboard handler. Mounted once at the app root; suspended whenever a prompt is in
+ * flight or the help overlay is open so the underlying view's local handler doesn't fight the
+ * modal. Ctrl-C always asks to quit (confirming first when runs are live); an open overlay stays
+ * closable even while a prompt is queued beneath it.
+ */
 
+import type { MutableRefObject } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { useApp, useInput, type Key } from 'ink';
 import { countRunning } from '@src/application/ui/tui/runtime/quit-runs.ts';
 import { useRouter, type RouterApi, type ViewEntry } from '@src/application/ui/tui/runtime/router.tsx';
-import { SECTIONS } from '@src/application/ui/tui/runtime/nav-tree.ts';
+import type { ViewId } from '@src/application/ui/tui/views/view-registry.tsx';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
-import { useUiState, type Overlay } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
-import { useClaimedKeys } from '@src/application/ui/tui/runtime/claimed-keys-context.tsx';
+import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
+import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { useSessionManager } from '@src/application/ui/tui/runtime/sessions-context.tsx';
 import type { SessionRecord } from '@src/application/ui/tui/runtime/session-manager.ts';
-import { isChord } from '@src/application/ui/tui/runtime/key-chord.ts';
+import { type CopyToClipboard, createCopyToClipboard } from '@src/integration/io/clipboard.ts';
+import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
+import type { EventBus } from '@src/business/observability/event-bus.ts';
 
 type UiStateApi = ReturnType<typeof useUiState>;
 type SelectionApi = ReturnType<typeof useSelection>;
 
+/** Duration of the "Copied to clipboard" toast before the global handler auto-clears it. */
+const CLIPBOARD_TOAST_DURATION_MS = 2000;
+const CLIPBOARD_BANNER_ID = 'clipboard-copy';
+
 export interface UseGlobalKeysOptions {
   /** Disable everything except the quit chord. Useful while a prompt is mounted. */
   readonly disabled?: boolean;
+  /**
+   * Override the clipboard adapter for tests. Production callers leave this undefined — the
+   * platform-detecting default reads `process.platform` + `process.env` at module load.
+   */
+  readonly copyToClipboard?: CopyToClipboard;
 }
 
 export const useGlobalKeys = (opts: UseGlobalKeysOptions = {}): void => {
@@ -24,25 +42,38 @@ export const useGlobalKeys = (opts: UseGlobalKeysOptions = {}): void => {
   const router = useRouter();
   const ui = useUiState();
   const selection = useSelection();
+  const deps = useDeps();
   const sessions = useSessionManager();
-  const { isClaimed } = useClaimedKeys();
+  const copyToClipboard = useMemo<CopyToClipboard>(
+    () => opts.copyToClipboard ?? createCopyToClipboard(),
+    [opts.copyToClipboard]
+  );
+  // Track the pending toast-clear timeout so an in-flight copy doesn't double-emit a clear once
+  // a second copy resets the banner. The latest copy wins — the prior timeout is cancelled.
+  const clearTimerRef = useRef<NodeJS.Timeout | undefined>(undefined);
+  useEffect(
+    () => () => {
+      if (clearTimerRef.current !== undefined) clearTimeout(clearTimerRef.current);
+    },
+    []
+  );
 
   // Live runs get a confirm; with none, quitting is immediate.
   const quit = (): void => {
     const runs = countRunning(sessions.list());
     if (runs === 0) exit();
-    else ui.openOverlay({ kind: 'quit', runs });
+    else ui.openQuit(runs);
   };
 
   useInput((input, key) => {
-    if (handleQuitChord(input, key, router, opts.disabled, quit, ui.overlay)) return;
-    // The quit confirm owns every other key; its own handler answers it.
-    if (ui.overlay?.kind === 'quit') return;
-    // A prompt only mutes the ambient keys: an open overlay is still closable (the prompt is hidden beneath it).
-    if (opts.disabled && ui.overlay === undefined) return;
-    // Letter keys below answer to the bare key only; ctrl+x must not land on Runs.
-    const letter = isChord(key) ? '' : input;
-    if (handleOverlays(ui, selection, letter, key, isClaimed)) return;
+    // The quit confirm owns every key, ctrl+c included; its own handler answers.
+    if (ui.quitRuns !== undefined) return;
+    if (handleQuitChord(input, key, router, opts.disabled, quit, ui.overlayOpen)) return;
+    // A prompt mutes the ambient keys, but an open overlay (hiding that prompt) must stay closable.
+    if (opts.disabled && !ui.overlayOpen) return;
+    if (handleHelpOverlay(ui, input, key)) return;
+    if (handleProgressOverlay(ui, selection, input, key)) return;
+    if (handleEvaluationOverlay(ui, input, key)) return;
     if (opts.disabled) return;
     if (handleSessionNav(sessions, router, input, key)) return;
 
@@ -51,44 +82,21 @@ export const useGlobalKeys = (opts: UseGlobalKeysOptions = {}): void => {
       return;
     }
 
-    // Ambient single-character chords: a key the active view (or an open overlay) claims is theirs.
-    if (letter === '' || isClaimed(letter)) return;
-    if (handleSectionDigit(letter, key, router)) return;
-    handleAccelerator(letter, router, ui);
+    if (handleYankCopy(ui, deps, copyToClipboard, clearTimerRef, input)) return;
+    handleViewShortcut(input, router, ui);
   });
 };
 
-const handleOverlays = (
-  ui: UiStateApi,
-  selection: SelectionApi,
-  letter: string,
-  key: Key,
-  isClaimed: (key: string) => boolean
-): boolean =>
-  handleHelpOverlay(ui, letter, key) ||
-  handleSwitcherOverlay(ui) ||
-  handleProgressOverlay(ui, selection, letter, key, isClaimed) ||
-  handleEvaluationOverlay(ui, letter, key);
-
-/** The Work section's root — Home. The only place `q` quits. */
-const isWorkRoot = (router: Pick<RouterApi, 'current' | 'activeSection' | 'stack'>): boolean =>
-  router.activeSection === 'work' && router.stack.length <= 1 && router.current.id === 'home';
-
-/**
- * Quitting (`Ctrl-C` anywhere, or `q` on the Work root) is the operator's escape hatch — it always wins. While the quit
- * confirm is open it handles both keys itself, so they are not re-read as a second request.
- */
+/** `Ctrl-C` anywhere quits; `q` is a plain letter, so only a bare Home — never through a prompt or an open overlay. */
 const handleQuitChord = (
   input: string,
   key: Key,
-  router: Pick<RouterApi, 'current' | 'activeSection' | 'stack'>,
+  router: { current: ViewEntry },
   disabled: boolean | undefined,
   quit: () => void,
-  overlay: Overlay | undefined
+  overlayOpen: boolean
 ): boolean => {
-  if (overlay?.kind === 'quit') return false;
-  // `q` is a plain letter: it quits only from a bare Work root, never through a prompt or an open overlay.
-  if ((key.ctrl && input === 'c') || (input === 'q' && isWorkRoot(router) && !disabled && overlay === undefined)) {
+  if ((key.ctrl && input === 'c') || (input === 'q' && router.current.id === 'home' && !disabled && !overlayOpen)) {
     quit();
     return true;
   }
@@ -96,8 +104,8 @@ const handleQuitChord = (
 };
 
 /**
- * Help toggle is recognised even when the overlay is open — pressing `?` dismisses it. Once open, help mode swallows
- * the rest of the keystrokes; only Esc dismisses.
+ * Help toggle is recognised even when the overlay is open — pressing `?` dismisses it. Once open,
+ * help mode swallows the rest of the keystrokes; only Esc dismisses.
  */
 const handleHelpOverlay = (ui: UiStateApi, input: string, key: Key): boolean => {
   if (input === '?') {
@@ -112,27 +120,19 @@ const handleHelpOverlay = (ui: UiStateApi, input: string, key: Key): boolean => 
 };
 
 /**
- * Context switcher — while it is open it owns the keyboard: its own `useInput` handles ↑/↓, ↵, `c`, `t`, `f` and
- * `esc` (closing the overlay).
+ * Progress overlay — same modal contract as help. `g` opens (only when a sprint is loaded);
+ * `g` also dismisses while open so the operator can mash the same key to toggle. `esc`
+ * dismisses. The open-gate mirrors the overlay's own sprint resolution
+ * (`focusedRunSprintId ?? selection.sprintId`): when an Execute view pins a run whose sprint
+ * is not the global selection, `g` must still open onto the pinned run instead of silently
+ * no-op'ing. Home — neither pinned nor selected — stays a no-op as the spec demands.
  */
-const handleSwitcherOverlay = (ui: UiStateApi): boolean => ui.switcherFocus !== undefined;
-
-/**
- * Progress overlay — same modal contract as help. `g` opens (only when a sprint is loaded); `g` also dismisses while
- * open so the operator can mash the same key to toggle.
- */
-const handleProgressOverlay = (
-  ui: UiStateApi,
-  selection: SelectionApi,
-  input: string,
-  key: Key,
-  isClaimed: (key: string) => boolean
-): boolean => {
+const handleProgressOverlay = (ui: UiStateApi, selection: SelectionApi, input: string, key: Key): boolean => {
   if (ui.progressOpen) {
     if (key.escape || input === 'g') ui.toggleProgress();
     return true;
   }
-  if (input === 'g' && !isClaimed(input) && (ui.focusedRunSprintId ?? selection.sprintId) !== undefined) {
+  if (input === 'g' && (ui.focusedRunSprintId ?? selection.sprintId) !== undefined) {
     ui.toggleProgress();
     return true;
   }
@@ -140,8 +140,14 @@ const handleProgressOverlay = (
 };
 
 /**
- * Evaluation overlay — CLOSE-ONLY here. `esc` or `v` dismisses while open, and the swallow keeps the keystroke off
- * the hidden view underneath.
+ * Evaluation overlay — CLOSE-ONLY here. `esc` or `v` dismisses while open, and the swallow keeps
+ * the keystroke off the hidden view underneath.
+ *
+ * Opening is deliberately NOT global: the overlay needs the focused task's recorded verdict, and
+ * only the Execute Tasks panel / sprint-detail know which card the cursor is on. Home, Flows and
+ * Settings have no such notion, so a global `v` would need an open-gate they cannot satisfy — and
+ * `flows-view` already binds a view-local `v` of its own. Handling the CLOSE centrally (rather
+ * than in each view) is what lets it win over those now-inert view handlers.
  */
 const handleEvaluationOverlay = (ui: UiStateApi, input: string, key: Key): boolean => {
   if (ui.evaluationTarget === undefined) return false;
@@ -150,12 +156,15 @@ const handleEvaluationOverlay = (ui: UiStateApi, input: string, key: Key): boole
 };
 
 /**
- * Multi-flow navigation. Tab / Shift+Tab cycle through the RUNNING sessions; Ctrl+1..9 jump to the Nth running
- * session (1-indexed).
+ * Multi-flow navigation. Tab / Shift+Tab cycle through the RUNNING sessions; Ctrl+1..9 jump
+ * to the Nth running session (1-indexed). Reaches this point only when no prompt is mounted
+ * (opts.disabled gate above) and no overlay is open (help / progress early-returned). Focusing
+ * a session reuses the Sessions view's mechanism — push / replace the `execute` route keyed on
+ * the session id. With zero running sessions every chord is a silent no-op.
  */
 const handleSessionNav = (
   sessions: { list(): readonly SessionRecord[] },
-  router: Pick<RouterApi, 'current' | 'reset' | 'replace'>,
+  router: { current: ViewEntry; push(e: ViewEntry): void; replace(e: ViewEntry): void },
   input: string,
   key: Key
 ): boolean => {
@@ -171,46 +180,94 @@ const handleSessionNav = (
 };
 
 /**
- * Section digits `1`–`5`. Pressing the active section's digit resets it to its root (handled by `goSection`).
+ * `y` (yank) copies the currently-focused task's markdown summary. The execute view
+ * registers an `ActiveTaskSummaryProvider` on UiState while it is mounted with bucketed
+ * data; everywhere else the provider is undefined and the hotkey surfaces a "no active
+ * task" toast instead of silently dropping the keystroke (silent fail = mystery for the
+ * operator).
  */
-const handleSectionDigit = (input: string, key: Key, router: RouterApi): boolean => {
-  if (key.ctrl || key.meta || router.activeSection === 'none') return false;
-  const section = SECTIONS.find((s) => s.digit === input);
-  if (section === undefined) return false;
-  router.goSection(section.id);
+const handleYankCopy = (
+  ui: UiStateApi,
+  deps: { eventBus: EventBus },
+  copyToClipboard: CopyToClipboard,
+  clearTimerRef: MutableRefObject<NodeJS.Timeout | undefined>,
+  input: string
+): boolean => {
+  if (input !== 'y') return false;
+
+  const summary = ui.getActiveTaskSummary();
+  if (summary === undefined) {
+    emitClipboardBanner(deps.eventBus, {
+      tier: 'info',
+      message: 'No active task to copy',
+    });
+    scheduleClear(deps.eventBus, clearTimerRef);
+    return true;
+  }
+  void (async (): Promise<void> => {
+    const result = await copyToClipboard(summary);
+    if (result.ok) {
+      emitClipboardBanner(deps.eventBus, {
+        tier: 'info',
+        message: 'Copied to clipboard',
+      });
+    } else {
+      emitClipboardBanner(deps.eventBus, {
+        tier: 'warn',
+        message: 'Clipboard copy failed',
+        cause: result.error.message,
+      });
+    }
+    scheduleClear(deps.eventBus, clearTimerRef);
+  })();
   return true;
 };
 
-/** Hidden single-letter accelerators — `h n p x s ! S P`. */
-const handleAccelerator = (input: string, router: RouterApi, ui: UiStateApi): boolean => {
-  const land = (entry: ViewEntry): boolean => {
-    const atRoot = router.stack.length <= 1;
-    if (router.current.id === entry.id && (entry.id !== 'home' || atRoot)) return true;
-    router.reset(entry);
-    return true;
+/**
+ * The trailing single-letter view shortcuts. Pressing the shortcut for the view you're already
+ * on is a no-op — otherwise the breadcrumb stack would balloon as the user mashes the same key.
+ */
+const handleViewShortcut = (input: string, router: RouterApi, ui: UiStateApi): boolean => {
+  const navigate = (id: ViewId): void => {
+    if (router.current.id === id) return;
+    router.push({ id });
   };
 
   switch (input) {
     case 'h':
-      // Explicit destination — `reset` never infers one.
-      return land({ id: 'home' });
-    case 'n':
-      // Always re-enter: Work at its root still has to move its cursor onto the flow list.
-      router.reset({ id: 'home', props: { focus: 'flows' } });
+      // Explicit destination — `reset` never infers one. On a first-run session the launch
+      // entry is the welcome wizard, and inferring it here sent `h` backwards into first-run
+      // setup instead of Home.
+      if (router.current.id !== 'home') router.reset({ id: 'home' });
       return true;
-    case 'p':
-      return land({ id: 'projects' });
+    case 'n':
+      navigate('flows');
+      return true;
     case 'x':
-      return land({ id: 'sessions' });
+      navigate('sessions');
+      return true;
     case 's':
-      return land({ id: 'settings' });
+      navigate('settings');
+      return true;
     case '!':
-      return land({ id: 'doctor' });
-    case 'S':
-      ui.openSwitcher('sprint');
+      navigate('doctor');
+      return true;
+    case 'b':
+      // Banner full ↔ compact toggle. Overrides the view's `compactBanner` prop for the rest
+      // of the session — pressing `h` back to Home does not reset the toggle.
+      ui.toggleBanner();
       return true;
     case 'P':
-      ui.openSwitcher('project');
+      // Capital P opens the project picker from anywhere — lowercase `p` still routes to
+      // the read-only Projects view. The picker remembers the current selection as its
+      // default cursor so Enter is a one-keystroke confirm.
+      navigate('pick-project');
+      return true;
+    case 'S':
+      // Mirror of `P` for sprints: capital S opens the sprint picker from anywhere;
+      // lowercase `s` still routes to Settings. Picker is project-scoped, so it relies
+      // on a project being loaded; otherwise it shows a "no project loaded" card.
+      navigate('pick-sprint');
       return true;
     default:
       return false;
@@ -218,12 +275,21 @@ const handleAccelerator = (input: string, router: RouterApi, ui: UiStateApi): bo
 };
 
 /**
- * Navigate to a running session's Execute view, reusing the exact route the Sessions view's open action pushes (`{
- * id: 'execute', props: { sessionId } }`).
+ * Navigate to a running session's Execute view, reusing the exact route the Sessions view's
+ * open action pushes (`{ id: 'execute', props: { sessionId } }`).
+ *
+ * `target` is either an absolute 0-based index (Ctrl+1..9 jump) or a relative direction
+ * (`'next'` / `'prev'` for Tab / Shift+Tab). Relative cycling wraps modularly off the currently
+ * focused session's index; entering from a non-execute view starts at the first (`'next'`) or
+ * last (`'prev'`) running session. An out-of-range jump index and an empty running list are both
+ * silent no-ops.
+ *
+ * On the Execute view we `replace` (don't stack breadcrumb history while hopping between live
+ * runs); from any other view we `push` so `esc` returns to where the operator came from.
  */
 const focusRunningSession = (
   sessions: { list(): readonly SessionRecord[] },
-  router: Pick<RouterApi, 'current' | 'reset' | 'replace'>,
+  router: { current: ViewEntry; push(e: ViewEntry): void; replace(e: ViewEntry): void },
   target: number | 'next' | 'prev'
 ): void => {
   const running = sessions.list().filter((s) => s.descriptor.status === 'running');
@@ -238,6 +304,8 @@ const focusRunningSession = (
     if (target < 0 || target >= running.length) return;
     next = target;
   } else if (focusedIndex === -1) {
+    // Entering from a non-execute view (or focused session no longer running): Tab → first,
+    // Shift+Tab → last.
     next = target === 'next' ? 0 : running.length - 1;
   } else {
     const delta = target === 'next' ? 1 : -1;
@@ -246,9 +314,50 @@ const focusRunningSession = (
 
   const targetSession = running[next];
   if (targetSession === undefined) return;
-  // Guard: if the target is already the focused session, skip the router call.
+  // Guard: if the target is already the focused session, skip the router call — a replace with
+  // an identical entry is a wasteful re-render when Tab cycles a single running session back to
+  // itself (e.g. only one running session and Tab wraps modularly to the same id).
   if (targetSession.descriptor.id === focusedId) return;
   const entry: ViewEntry = { id: 'execute', props: { sessionId: targetSession.descriptor.id } };
   if (onExecute) router.replace(entry);
-  else router.reset(entry);
+  else router.push(entry);
+};
+
+interface ClipboardBannerSpec {
+  readonly tier: 'info' | 'warn';
+  readonly message: string;
+  readonly cause?: string;
+}
+
+/**
+ * Publish a clipboard toast onto the event bus. Pinned to a stable `id` so re-presses replace
+ * (rather than stack) the banner — pressing `y` four times shows four "Copied to clipboard"
+ * toasts on top of one another otherwise.
+ */
+const emitClipboardBanner = (eventBus: EventBus, spec: ClipboardBannerSpec): void => {
+  eventBus.publish({
+    type: 'banner-show',
+    id: CLIPBOARD_BANNER_ID,
+    tier: spec.tier,
+    message: spec.message,
+    ...(spec.cause !== undefined ? { cause: spec.cause } : {}),
+    at: IsoTimestamp.now(),
+  });
+};
+
+/**
+ * Schedule a `banner-clear` for the clipboard toast after {@link CLIPBOARD_TOAST_DURATION_MS}.
+ * The ref tracks the pending timeout so consecutive copies overwrite the timer in place — the
+ * latest copy always wins.
+ */
+const scheduleClear = (eventBus: EventBus, ref: MutableRefObject<NodeJS.Timeout | undefined>): void => {
+  if (ref.current !== undefined) clearTimeout(ref.current);
+  ref.current = setTimeout(() => {
+    eventBus.publish({
+      type: 'banner-clear',
+      id: CLIPBOARD_BANNER_ID,
+      at: IsoTimestamp.now(),
+    });
+    ref.current = undefined;
+  }, CLIPBOARD_TOAST_DURATION_MS);
 };

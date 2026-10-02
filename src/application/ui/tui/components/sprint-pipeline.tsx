@@ -1,14 +1,24 @@
 /**
- * Single-line stage tracker — `Refine → Plan → Implement → Review → Done` — the one pipeline widget every surface
- * renders (Home, Flows, `SprintHeaderStrip`).
+ * Single-line stage tracker — `Refine ▶ Plan ▶ Implement ▶ Review ▶ Done`. The current stage
+ * renders in the primary accent; everything else is dimmed. Designed to live above the flow
+ * menu so the user has a constant "where am I in the sprint lifecycle?" anchor.
+ *
+ * Stage resolution from {@link AppStateSnapshot}:
+ *
+ *   - No sprint                                → no pipeline (render `null`).
+ *   - sprint.status === 'draft' + pending tix  → Refine
+ *   - sprint.status === 'draft', no pending    → Plan (refinement complete; ready to plan)
+ *   - sprint.status === 'planned'              → Implement (plan complete; ready to run)
+ *   - sprint.status === 'active'               → Implement (running)
+ *   - sprint.status === 'review'               → Review
+ *   - sprint.status === 'done'                 → Done
  */
 
 import React from 'react';
 import { Box, Text } from 'ink';
-import { glyphs, inkColors } from '@src/application/ui/tui/theme/tokens.ts';
+import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import type { AppStateSnapshot } from '@src/application/ui/shared/state-snapshot.ts';
 
-/** Stage ids in lifecycle order — the pipeline's only vocabulary. */
 const STAGES = ['Refine', 'Plan', 'Implement', 'Review', 'Done'] as const;
 type Stage = (typeof STAGES)[number];
 
@@ -28,28 +38,6 @@ export const resolveSprintStage = (snapshot: AppStateSnapshot): Stage | undefine
   }
 };
 
-const STAGE_BLURB: Readonly<Record<Stage, string>> = {
-  Refine: 'sharpen tickets',
-  Plan: 'break into tasks',
-  Implement: 'generator + evaluator loop',
-  Review: 'evaluator pass',
-  Done: 'PR / close',
-};
-
-/** The pipeline spelled out, one line per stage — for orientation surfaces with no sprint. */
-export const StageLegend = (): React.JSX.Element => (
-  <Box flexDirection="column">
-    {STAGES.map((s) => (
-      <Text key={s}>
-        <Text color={inkColors.primary}>{s.padEnd(10)}</Text>
-        <Text dimColor>
-          {glyphs.emDash} {STAGE_BLURB[s]}
-        </Text>
-      </Text>
-    ))}
-  </Box>
-);
-
 export interface SprintPipelineProps {
   readonly snapshot: AppStateSnapshot;
 }
@@ -58,7 +46,7 @@ export const SprintPipeline = ({ snapshot }: SprintPipelineProps): React.JSX.Ele
   const stage = resolveSprintStage(snapshot);
   if (stage === undefined) return null;
   return (
-    <Box>
+    <Box paddingX={spacing.indent}>
       <Text>
         {STAGES.map((s, i) => {
           const isCurrent = s === stage;
