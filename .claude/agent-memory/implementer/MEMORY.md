@@ -28,4 +28,4 @@
 - [project_skill_selection_resolution_seam.md](project_skill_selection_resolution_seam.md) — Skill selection → `createResolvedSkillSource` resolution path
 - [project_flows_view_soft_repo_default.md](project_flows_view_soft_repo_default.md) — Flows-view repo selection and its soft default
 - [project_doctor_probes_and_escape_keys.md](project_doctor_probes_and_escape_keys.md) — Doctor probes return unknown not fail, useViewKeys can't match Escape, demo seeder marker rule
-- [feedback_concurrent_agent_writes.md](feedback_concurrent_agent_writes.md) — Recovery procedure when parallel agents collide on the same files
+- [feedback_concurrent_agent_writes.md](feedback_concurrent_agent_writes.md) — Parallel-agent collisions; zsh no-word-split trap in swap-to-HEAD loops

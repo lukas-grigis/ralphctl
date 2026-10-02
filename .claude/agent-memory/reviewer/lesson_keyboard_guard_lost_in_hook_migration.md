@@ -11,6 +11,8 @@ background run renders inside every `ViewShell` via `PromptHost`). Views must pa
 themselves. The old raw-`useInput` handlers carried `if (ui.modalOpen) return;` inline, so a mechanical migration that
 forgets `active` turns a typed answer (or the `↵` that submits it) into a view action.
 
+**Update:** `useViewKeys` now also reads `useOptionalOverlayState().modalOpen` itself, so a missing `active` option is no longer a leak for it. The remaining blind spot is any sibling `useInput` in the same view that is NOT `useViewKeys`: `ActionMenu` (needs `active={!ui.modalOpen}`), bare `useInput` for esc/↵ (welcome-view). Grep every `useInput(` and `<ActionMenu` for a modalOpen gate; help-open + esc then double-fires (closes help AND navigates).
+
 **Why:** a review of a TUI keyboard-ownership refactor found `create-pr-view` (↵ = open an upstream PR) and
 `doctor-view` converted with no `active` option; ten other `useViewKeys` callers had it. Neither the linter nor the new
 key-ownership tests catch it — the tests mount one view with no queued prompt.

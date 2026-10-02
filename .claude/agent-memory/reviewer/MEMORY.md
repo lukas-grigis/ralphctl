@@ -25,3 +25,4 @@
 - [lesson_keyboard_guard_lost_in_hook_migration.md](lesson_keyboard_guard_lost_in_hook_migration.md) — useViewKeys mutes only for overlays, not prompts; diff `modalOpen` counts vs main after a migration
 - [lesson_group_kill_gate_must_exclude_injected_fakes.md](lesson_group_kill_gate_must_exclude_injected_fakes.md) — Group-leader marking at a spawn site also marks injected fakes; hostname as same-host test is unstable
 - [lesson_unscoped_bus_event_to_os_notification.md](lesson_unscoped_bus_event_to_os_notification.md) — Shared enqueue point publishes for foreground prompts too; require a negative test; run full suite for timer tests
+- [lesson_memoized_clock_and_unmount_cleanup.md](lesson_memoized_clock_and_unmount_cleanup.md) — Tick state not in useMemo deps freezes elapsed text; unmount cleanup that drops a pending banner-clear leaves it sticky

@@ -30,7 +30,11 @@ A file inside the lock dir breaks the library twice: its bare `rmdir` (release, 
 exit cleanup) fails ENOTEMPTY, and writing the file bumps the dir mtime so the heartbeat's
 "mtime is ours" check reports the lock compromised. Fix = pass a custom `fs`: `mkdir` writes
 `owner.json` BEFORE calling back (so it predates the mtime probe), `rmdir`/`rmdirSync` unlink it
-first. Do not move to a sibling file or write the owner after `lock()` resolves.
+first. Do not move to a sibling file or write the owner after `lock()` resolves. Same reason the
+owner's `ps` identity is awaited (memoised self-probe) BEFORE `lock()`: it can't be patched in later.
+Lock readers (sprint-lock reader, `anyLockHeld`) must gate on the dir mtime being inside the stale
+window — a crash leftover otherwise reads as held forever (recycled pid) or for the full window.
+`ps -o lstart` is localised; every `ps` probe needs `LC_ALL=C` or identity checks silently turn off.
 
 ## Reaper sidecar
 
