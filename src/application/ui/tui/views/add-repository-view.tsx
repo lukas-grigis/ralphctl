@@ -203,7 +203,9 @@ const StepView = ({ step, onChange, onCancel, onSubmit }: StepViewProps): React.
     case 'error':
       return (
         <Box flexDirection="column" paddingX={spacing.indent}>
-          <Text color={inkColors.error}>✗ {step.message}</Text>
+          <Text color={inkColors.error}>
+            {glyphs.cross} {step.message}
+          </Text>
           <Text dimColor>Press esc to go back.</Text>
         </Box>
       );

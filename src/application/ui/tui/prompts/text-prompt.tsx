@@ -10,7 +10,7 @@
  *   ↵ submit · ←/→ cursor · home/end edge · ctrl+a/ctrl+e edge · esc {escLabel} · ctrl+w word · ctrl+u clear
  */
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Box, Text, type Key } from 'ink';
 import { usePromptInput } from '@src/application/ui/tui/prompts/use-prompt-input.ts';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
@@ -48,26 +48,21 @@ const useLineBuffer = (initial: string): LineBuffer => {
   const bufRef = useRef<string>(initial);
   const cursorRef = useRef<number>(initial.length);
 
+  // Refs are advanced synchronously, not inside a state updater: React may defer or replay an updater, and an Enter
+  // typed right behind the text would then submit a stale or double-applied buffer.
   const updateCursor: UpdateCursor = (next) => {
-    setCursor((prev) => {
-      const value = next(prev);
-      cursorRef.current = value;
-      return value;
-    });
+    const value = next(cursorRef.current);
+    cursorRef.current = value;
+    setCursor(value);
   };
 
   // Atomically update both buf and cursor to avoid stale-closure races on rapid keystrokes.
-  // The transform receives (prevBuf, prevCursor) and returns [newBuf, newCursor] so both values
-  // are computed from a consistent snapshot without needing to read refs between calls.
   const updateBufAndCursor: UpdateBufAndCursor = (transform) => {
-    setBuf((prevBuf) => {
-      const prevCursor = cursorRef.current;
-      const [newBuf, newCursor] = transform(prevBuf, prevCursor);
-      bufRef.current = newBuf;
-      cursorRef.current = newCursor;
-      setCursor(newCursor);
-      return newBuf;
-    });
+    const [newBuf, newCursor] = transform(bufRef.current, cursorRef.current);
+    bufRef.current = newBuf;
+    cursorRef.current = newCursor;
+    setBuf(newBuf);
+    setCursor(newCursor);
   };
 
   // Insert text at the cursor. Routed through updateBufAndCursor so refs stay authoritative.
@@ -192,6 +187,9 @@ export const TextPrompt = ({
     };
   }, []);
 
+  // Memoised so the caret blink doesn't re-run validate (path-picker's stats the disk).
+  const validation = useMemo(() => validate?.(buf), [buf, validate]);
+
   usePromptInput((input, key) => {
     // Bracketed paste first — consumed before any key dispatch so marker bytes and embedded
     // newlines never submit or land verbatim in the buffer.
@@ -219,7 +217,7 @@ export const TextPrompt = ({
   const beforeCursor = buf.slice(0, cursor);
   const charAtCursor = buf.slice(cursor, cursor + 1); // '' when cursor is past end
   const afterCursor = buf.slice(cursor + 1);
-  const error = attempted || buf.length > 0 ? validate?.(buf) : undefined;
+  const error = attempted || buf.length > 0 ? validation : undefined;
 
   return (
     <Box flexDirection="column" paddingX={spacing.indent}>

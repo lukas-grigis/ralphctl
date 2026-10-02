@@ -158,6 +158,9 @@ interface HomeMenuItemsArgs {
   readonly waitingRuns: readonly WaitingRun[];
 }
 
+/** Minute-level age labels need only a slow refresh. */
+const HOME_CLOCK_TICK_MS = 30_000;
+
 /** Builds the action-menu rows via {@link buildMenuItems}, wiring each callback to the router /
  *  selection / create-sprint launcher. Isolated so the orchestrator's dependency array doesn't
  *  double as inline callback wiring. */
@@ -176,8 +179,16 @@ const useHomeMenuItems = ({
   interrupted,
   resumeImplement,
   waitingRuns,
-}: HomeMenuItemsArgs): ReturnType<typeof buildMenuItems> =>
-  useMemo(
+}: HomeMenuItemsArgs): ReturnType<typeof buildMenuItems> => {
+  // The `[WAITING] … 12m` / `interrupted … ago` labels read the clock: a slow tick keeps the memo from freezing them.
+  const [clockTick, tick] = useReducer((n: number) => n + 1, 0);
+  const hasAgedRows = waitingRuns.length > 0 || interrupted.tasks.length > 0;
+  useEffect(() => {
+    if (!hasAgedRows) return undefined;
+    const id = setInterval(tick, HOME_CLOCK_TICK_MS);
+    return (): void => clearInterval(id);
+  }, [hasAgedRows]);
+  return useMemo(
     () =>
       buildMenuItems({
         hasProject,
@@ -202,6 +213,7 @@ const useHomeMenuItems = ({
           void launchCreateSprint();
         },
       }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `clockTick` re-reads `Date.now()` for the age labels
     [
       router,
       hasProject,
@@ -217,8 +229,10 @@ const useHomeMenuItems = ({
       interrupted,
       resumeImplement,
       waitingRuns,
+      clockTick,
     ]
   );
+};
 
 /** The two transient feedback lines shown above the action menu — switch confirmation and
  *  local errors are mutually rare, but both may in principle be visible in the same render. */

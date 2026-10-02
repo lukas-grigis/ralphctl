@@ -181,6 +181,47 @@ describe('ProjectDetailView', () => {
     result.unmount();
   });
 
+  it('keeps focus on the edited row after the save reloads the project', async () => {
+    let current = makeTwoRepoProject();
+    let loads = 0;
+    const projectRepo = {
+      async findById() {
+        loads++;
+        return Result.ok(current);
+      },
+      async save(next: Project) {
+        current = next;
+        return Result.ok(undefined);
+      },
+    } as unknown as ProjectRepository;
+    const queue = createPromptQueue();
+    const { result } = renderView(<ProjectDetailView />, {
+      deps: { projectRepo } as unknown as AppDeps,
+      initial: { id: 'project-detail', props: { projectId: current.id } },
+      queue,
+    });
+    await waitForViewReady(result);
+    // displayName → repo1.name → repo1.setupScript.
+    result.stdin.write(DOWN);
+    await tick();
+    result.stdin.write(DOWN);
+    await tick();
+    result.stdin.write('e');
+    await waitForPredicate(() => queue.head?.kind === 'textarea');
+    const loadsBeforeSave = loads;
+    queue.resolveHead('make setup');
+    await waitForPredicate(() => loads > loadsBeforeSave && (result.lastFrame() ?? '').includes('make setup'));
+    await tick();
+
+    const frame = result.lastFrame() ?? '';
+    const setupRow = frame.split('\n').find((l) => l.includes('Setup:') && l.includes('make setup'));
+    expect(setupRow).toBeDefined();
+    expect(setupRow).toContain(glyphs.actionCursor);
+    const nameRow = lineWithLabelAndValue(frame, 'Name', current.displayName);
+    expect(nameRow).not.toContain(glyphs.actionCursor);
+    result.unmount();
+  });
+
   it('c / S / d are silent no-ops on the project displayName row; a still opens the wizard', async () => {
     const project = makeProject({});
     const queue = createPromptQueue();

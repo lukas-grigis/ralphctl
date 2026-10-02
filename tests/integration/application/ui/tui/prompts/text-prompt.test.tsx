@@ -5,6 +5,7 @@
  * The blinking caret is not asserted (timer-driven; would require fake timers).
  */
 
+import React from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { render } from 'ink-testing-library';
 import { TextPrompt } from '@src/application/ui/tui/prompts/text-prompt.tsx';
@@ -293,6 +294,42 @@ describe('TextPrompt', () => {
     stdin.write(ENTER);
     await tick();
     expect(onSubmit).toHaveBeenCalledWith('typed');
+    unmount();
+  });
+
+  it('does not re-run validate on a caret-blink render', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    try {
+      const validate = vi.fn((): string | undefined => undefined);
+      const { stdin, unmount } = render(
+        <TextPrompt message="Name" onSubmit={() => undefined} onCancel={() => undefined} validate={validate} />
+      );
+      stdin.write('abc');
+      await vi.advanceTimersByTimeAsync(0);
+      const afterTyping = validate.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(validate.mock.calls.length).toBe(afterTyping);
+      unmount();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('keeps the submit buffer exact when state updaters are replayed (StrictMode)', async () => {
+    const onSubmit = vi.fn();
+    const { stdin, unmount } = render(
+      <React.StrictMode>
+        <TextPrompt message="Name" initial="ab" onSubmit={onSubmit} onCancel={() => undefined} />
+      </React.StrictMode>
+    );
+    await tick();
+    stdin.write(LEFT);
+    await tick();
+    stdin.write('x');
+    await tick();
+    stdin.write(ENTER);
+    await tick();
+    expect(onSubmit).toHaveBeenCalledWith('axb');
     unmount();
   });
 });

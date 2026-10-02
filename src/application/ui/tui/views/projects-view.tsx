@@ -17,6 +17,7 @@ import { FeedbackLine } from '@src/application/ui/tui/components/feedback-line.t
 import { ConfirmCard } from '@src/application/ui/tui/components/confirm-card.tsx';
 import { type Project, setProjectDisplayName } from '@src/domain/entity/project.ts';
 import { useEditField } from '@src/application/ui/tui/runtime/use-edit-field.ts';
+import { editFresh } from '@src/application/ui/tui/runtime/edit-fresh.ts';
 import { useIsMounted } from '@src/application/ui/tui/runtime/use-is-mounted.ts';
 import { Result } from '@src/domain/result.ts';
 import { plural } from '@src/application/ui/shared/plural.ts';
@@ -54,11 +55,13 @@ const useRenameProjectAction = (
         kind: 'short',
         currentValue: target.displayName,
         onSave: async (value) => {
-          const renamed = setProjectDisplayName(target, value);
-          if (!renamed.ok) return Result.error(renamed.error);
-          const saved = await deps.projectRepo.save(renamed.value);
+          const saved = await editFresh(
+            () => deps.projectRepo.findById(target.id),
+            (fresh) => setProjectDisplayName(fresh, value),
+            (next) => deps.projectRepo.save(next)
+          );
           if (!saved.ok) return Result.error(saved.error);
-          if (selection.projectId === target.id) selection.setProject(target.id, renamed.value.displayName);
+          if (selection.projectId === target.id) selection.setProject(target.id, saved.value.displayName);
           reload();
           return Result.ok(undefined);
         },

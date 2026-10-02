@@ -25,6 +25,7 @@ import { FeedbackLine } from '@src/application/ui/tui/components/feedback-line.t
 import { ConfirmCard } from '@src/application/ui/tui/components/confirm-card.tsx';
 import { renameSprint, type Sprint } from '@src/domain/entity/sprint.ts';
 import { loadTaskHealthBySprintId, type TaskHealthCounts } from '@src/application/ui/shared/state-snapshot.ts';
+import { editFresh } from '@src/application/ui/tui/runtime/edit-fresh.ts';
 import { useEditField } from '@src/application/ui/tui/runtime/use-edit-field.ts';
 import type { UseEditFieldState } from '@src/application/ui/tui/runtime/use-edit-field.ts';
 import { useIsMounted } from '@src/application/ui/tui/runtime/use-is-mounted.ts';
@@ -66,13 +67,11 @@ interface UseStuckSprintTasksResult {
  * in here would call it N times over and report "unblocked N tasks" for a run that revived none of
  * them. `unblockAll` mirrors the original inline handler's mounted-ref-gated ordering: the unblock
  * loop runs unconditionally, a mount check gates the feedback write, and a second mount check
- * (after the further awaited refresh) gates the task-list write — mount state can change between
- * the two awaits.
+ * (after the further awaited refresh) gates the task-list write.
  *
- * `reload` is the outer list loader's own reload (same one `e` / `d` already call on success) —
- * this hook's `tasks` state only feeds the footer hint's stuck count; the card's `· N blocked`
- * sub-count and status chip come from the separate `SprintListEntry` snapshot that loader owns,
- * so without this call a successful bulk unblock left that badge stale until `r` or a remount.
+ * `reload` is the outer list loader's own reload (same one `e` / `d` already call on success): the
+ * card's `· N blocked` sub-count and status chip come from the separate `SprintListEntry` snapshot
+ * that loader owns, so without it a successful bulk unblock left that badge stale until `r`.
  */
 const useStuckSprintTasks = (
   sprintId: Sprint['id'] | undefined,
@@ -81,18 +80,17 @@ const useStuckSprintTasks = (
   const deps = useDeps();
   const unblockTask = useUnblockTask();
   const mountedRef = useIsMounted();
-  const [tasks, setTasks] = useState<readonly Task[]>([]);
+  const [loaded, setLoaded] = useState<{ readonly sprintId: Sprint['id']; readonly tasks: readonly Task[] }>();
+  const tasks: readonly Task[] = loaded !== undefined && loaded.sprintId === sprintId ? loaded.tasks : [];
 
   useEffect(() => {
-    if (sprintId === undefined) {
-      setTasks([]);
-      return undefined;
-    }
+    // No sprint → `tasks` derives to [] from the sprintId tag, so there is nothing to clear.
+    if (sprintId === undefined) return undefined;
     let cancelled = false;
     const load = async (): Promise<void> => {
       const r = await deps.taskRepo.findBySprintId(sprintId);
       if (cancelled) return;
-      if (r.ok) setTasks(r.value);
+      if (r.ok) setLoaded({ sprintId, tasks: r.value });
     };
     load().catch(() => undefined);
     return () => {
@@ -156,7 +154,7 @@ const useStuckSprintTasks = (
     if (succeeded > 0) reload();
     // Refresh this hook's own task list so the hint and count update immediately.
     const refreshed = await deps.taskRepo.findBySprintId(sprint.id);
-    if (mountedRef.current && refreshed.ok) setTasks(refreshed.value);
+    if (mountedRef.current && refreshed.ok) setLoaded({ sprintId: sprint.id, tasks: refreshed.value });
   };
 
   return { stuckCount: stuckTasks.length, unblockAll };
@@ -206,11 +204,13 @@ const useSprintRowActions = (edit: UseEditFieldState, reload: () => void): UseSp
       kind: 'short',
       currentValue: target.name,
       onSave: async (value) => {
-        const renamed = renameSprint(target, value);
-        if (!renamed.ok) return Result.error(renamed.error);
-        const saved = await deps.sprintRepo.save(renamed.value);
+        const saved = await editFresh(
+          () => deps.sprintRepo.findById(target.id),
+          (fresh) => renameSprint(fresh, value),
+          (next) => deps.sprintRepo.save(next)
+        );
         if (!saved.ok) return Result.error(saved.error);
-        if (selection.sprintId === target.id) selection.setSprint(target.id, value.trim(), target.status);
+        if (selection.sprintId === target.id) selection.setSprint(target.id, saved.value.name, saved.value.status);
         reload();
         return Result.ok(undefined);
       },

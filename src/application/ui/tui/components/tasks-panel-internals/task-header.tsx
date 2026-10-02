@@ -164,7 +164,9 @@ export const EtaChip = ({
 }): React.JSX.Element | null => {
   const round = task.genEvalRound;
   if (!cardExpanded || !isActive || round === undefined || round <= 0) return null;
-  const eta = formatEtaChip(taskProjection, round, task.genEvalMaxRounds);
+  // genEvalRound is task-wide; the cap is per attempt, so measure remaining rounds within the current attempt.
+  const currentRound = resolveAttemptCoords(task)?.roundInAttempt ?? round;
+  const eta = formatEtaChip(taskProjection, currentRound, task.genEvalMaxRounds);
   if (eta === undefined) return null;
   return <Text dimColor> {eta}</Text>;
 };

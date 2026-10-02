@@ -22,3 +22,4 @@
 - [project_esc_typeahead_and_updater_traps.md](project_esc_typeahead_and_updater_traps.md) — View esc + global pop double-fires, updater-ref lag
 - [project_quit_and_interrupted.md](project_quit_and_interrupted.md) — Ink exitOnCtrlC kills ctrl+c handlers, hidden prompts read keys under overlays, interrupted-row limits
 - [project_revamp_rollback.md](project_revamp_rollback.md) — Sections/tab-bar revamp rejected; original TUI + keep-list is the base
+- [project_strictmode_updater_purity_probe.md](project_strictmode_updater_purity_probe.md) — StrictMode test exposes impure setState updaters; fake-timer vs polling-helper stall

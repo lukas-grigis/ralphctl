@@ -3,7 +3,7 @@
  * parked on a prompt reads [WAITING], and a sprint another live process owns shows neither.
  */
 
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Result } from '@src/domain/result.ts';
 import { HomeView } from '@src/application/ui/tui/views/home-view.tsx';
 import type { AppDeps } from '@src/application/bootstrap/wire.ts';
@@ -78,6 +78,8 @@ const mount = (owner: LiveSprintOwner | undefined, extra: Partial<Parameters<typ
     ...extra,
   }).result;
 
+afterEach(() => vi.useRealTimers());
+
 describe('Home — needs attention', () => {
   it('leads the menu with the interrupted task, its attempt and age', async () => {
     const result = mount(undefined);
@@ -122,6 +124,39 @@ describe('Home — needs attention', () => {
     const frame = result.lastFrame() ?? '';
     expect(frame).toContain('[WAITING] Refine — Mainline');
     expect(frame).toContain('NEEDS ATTENTION');
+    result.unmount();
+  });
+
+  it("keeps counting a [WAITING] run's age while Home stays open", async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'Date'] });
+    const sessions = createSessionManager();
+    sessions.register({
+      runner: {
+        id: 'r-age',
+        status: 'running',
+        ctx: {},
+        trace: [],
+        subscribe: () => () => undefined,
+        start: vi.fn(),
+        abort: vi.fn(),
+      } as unknown as Runner<unknown>,
+      flowId: 'refine',
+      title: 'Refine — Mainline',
+    });
+    const queue = createPromptQueue();
+    queue.enqueue({ kind: 'confirm', message: 'Proceed?', sessionId: 'r-age', resolve: vi.fn(), reject: vi.fn() });
+    const result = mount({ pid: 1, via: 'run-record' }, { sessions, queue });
+    // Fake timers stall the harness's polling helpers; spin on setImmediate instead.
+    const until = async (needle: string): Promise<void> => {
+      for (let i = 0; i < 200 && !(result.lastFrame() ?? '').includes(needle); i++) {
+        await new Promise((r) => setImmediate(r));
+      }
+    };
+    await until('[WAITING]');
+    expect(result.lastFrame() ?? '').toContain('<1m');
+    await vi.advanceTimersByTimeAsync(90_000);
+    await until('Refine — Mainline · 1m');
+    expect(result.lastFrame() ?? '').toContain('Refine — Mainline · 1m');
     result.unmount();
   });
 });

@@ -61,6 +61,8 @@ export interface ExecuteBodyProps {
   readonly onOpenEvaluation: (taskId: string) => void;
   readonly logEntries: readonly LogEvent[];
   readonly cancelScopeOpen: boolean;
+  /** False while an overlay, prompt or cancel picker is open — gates the wide Tasks panel's keys. */
+  readonly tasksInputActive: boolean;
   readonly attemptElapsedMs: number | undefined;
   readonly remainingTaskCount: number;
   readonly onCancelAttempt: () => void;
@@ -88,7 +90,7 @@ const MainRegion = ({
   termColumns,
   termRows,
   bucketed,
-  cancelScopeOpen,
+  tasksInputActive,
   tasksPanel,
   onOpenEvaluation,
   executionState,
@@ -105,7 +107,7 @@ const MainRegion = ({
   | 'termColumns'
   | 'termRows'
   | 'bucketed'
-  | 'cancelScopeOpen'
+  | 'tasksInputActive'
   | 'tasksPanel'
   | 'onOpenEvaluation'
   | 'executionState'
@@ -119,7 +121,7 @@ const MainRegion = ({
       layout={layout}
       bucketed={bucketed}
       termRows={termRows}
-      inputActive={!cancelScopeOpen}
+      inputActive={tasksInputActive}
       descriptor={descriptor}
       isRunning={isRunning}
       sessionId={sessionId}

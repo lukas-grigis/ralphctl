@@ -27,16 +27,25 @@ describe('fmtDuration', () => {
     expect(fmtDuration(999)).toBe('999ms');
   });
 
-  it('renders 1–60 seconds with one decimal', () => {
+  it('renders sub-minute durations with one decimal', () => {
     expect(fmtDuration(1000)).toBe('1.0s');
     expect(fmtDuration(1500)).toBe('1.5s');
-    expect(fmtDuration(59_999)).toBe('60.0s');
+    expect(fmtDuration(59_949)).toBe('59.9s');
+    expect(fmtDuration(59_999)).toBe('1m0s');
   });
 
   it('renders ≥ 60 s as MmSs', () => {
     expect(fmtDuration(60_000)).toBe('1m0s');
     expect(fmtDuration(90_000)).toBe('1m30s');
     expect(fmtDuration(3_661_000)).toBe('61m1s');
+  });
+
+  it('carries a rounded-up 60th second into the minutes', () => {
+    expect(fmtDuration(119_600)).toBe('2m0s');
+    expect(fmtDuration(3_599_999)).toBe('60m0s');
+    expect(fmtDuration(60_499)).toBe('1m0s');
+    expect(fmtDuration(60_500)).toBe('1m1s');
+    expect(fmtDuration(59_960)).toBe('1m0s');
   });
 });
 

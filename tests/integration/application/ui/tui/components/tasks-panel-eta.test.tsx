@@ -102,6 +102,18 @@ describe('TasksPanel ETA chip', () => {
     r.unmount();
   });
 
+  it('measures remaining rounds within the current attempt, not the task-wide round', () => {
+    // Task-wide round 7 with a 5-round cap is attempt 2, round 2 — 30 s × (5 - 2) = 1m 30s.
+    const bucketed = baseBucket({ genEvalRound: 7, genEvalMaxRounds: 5 });
+    const state = sprintStateWithMedian('task-1', 30_000);
+    const r = render(<TasksPanel bucketed={bucketed} running={true} sprintState={state} />);
+    const frame = r.lastFrame() ?? '';
+
+    expect(frame).toContain('round 2/5');
+    expect(frame).toMatch(/~1m\s+30s remaining/);
+    r.unmount();
+  });
+
   it('omits ETA when the gen-eval cap has already been reached', () => {
     const bucketed = baseBucket({ genEvalRound: 5, genEvalMaxRounds: 5 });
     const state = sprintStateWithMedian('task-1', 30_000);

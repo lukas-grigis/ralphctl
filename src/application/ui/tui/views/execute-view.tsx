@@ -208,6 +208,8 @@ interface DeriveTasksPanelResult {
    * both regimes are wired from this single derivation.
    */
   readonly onOpenEvaluation: (taskId: string) => void;
+  /** Handed back for the same reason — the wide panel must honour the same modal gate. */
+  readonly tasksInputActive: boolean;
 }
 
 /**
@@ -249,6 +251,7 @@ const deriveTasksPanel = ({
     executionState: pinnedSprintStale ? undefined : executionState,
     taskState: pinnedSprintStale ? undefined : taskState,
     onOpenEvaluation,
+    tasksInputActive,
   };
 };
 

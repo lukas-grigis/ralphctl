@@ -17,7 +17,7 @@
  */
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Box, Text, useInput } from 'ink';
+import { Box, Text, useInput, type Key } from 'ink';
 import { glyphs, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 
 /**
@@ -70,6 +70,8 @@ export interface UseListWindowOptions<T> {
   readonly active?: boolean | undefined;
   readonly onSubmit?: ((item: T) => void) | undefined;
   readonly initialCursorId?: string | undefined;
+  /** Space submits like ↵ — off by default because other lists give Space their own meaning. */
+  readonly submitOnSpace?: boolean | undefined;
 }
 
 export interface UseListWindowResult<T> {
@@ -102,8 +104,11 @@ export function useListWindow<T>({
   active = true,
   onSubmit,
   initialCursorId,
+  submitOnSpace = false,
 }: UseListWindowOptions<T>): UseListWindowResult<T> {
   const [cursorId, setCursorId] = useState<string>(initialCursorId ?? '');
+  // Several keys in one stdin chunk run before any re-render, so each key must start from the last move, not the render.
+  const liveCursorRef = useRef<string>(initialCursorId ?? '');
 
   // The prior resolved index — the snap anchor for an eviction. Kept in a ref (not state) so
   // updating it never schedules a render; it's read only inside the render-pure resolution below
@@ -131,6 +136,7 @@ export function useListWindow<T>({
   // this hook returns already reflect `focusedIndex`, so this only matters for subsequent input.
   useEffect(() => {
     if (focusedIndex >= 0) lastIndexRef.current = focusedIndex;
+    liveCursorRef.current = effectiveCursorId;
     if (effectiveCursorId !== cursorId) setCursorId(effectiveCursorId);
   }, [focusedIndex, effectiveCursorId, cursorId]);
 
@@ -139,24 +145,35 @@ export function useListWindow<T>({
     const item = items[target];
     if (item !== undefined) {
       lastIndexRef.current = target;
+      liveCursorRef.current = getId(item);
       setCursorId(getId(item));
+    }
+  };
+
+  const liveIndex = (): number => {
+    const found = items.findIndex((item) => getId(item) === liveCursorRef.current);
+    if (found >= 0) return found;
+    return focusedIndex < 0 ? 0 : focusedIndex;
+  };
+
+  const applyKey = (input: string, key: Key): void => {
+    const at = liveIndex();
+    if (key.upArrow || input === 'k') moveTo(at - 1);
+    else if (key.downArrow || input === 'j') moveTo(at + 1);
+    else if (key.pageUp) moveTo(at - visibleRows);
+    else if (key.pageDown) moveTo(at + visibleRows);
+    else if (key.home) moveTo(0);
+    else if (key.end) moveTo(items.length - 1);
+    else if (key.return || (submitOnSpace && input === ' ')) {
+      const item = items[at];
+      if (item !== undefined) onSubmit?.(item);
     }
   };
 
   useInput(
     (input, key) => {
       if (!active || items.length === 0) return;
-      const at = focusedIndex < 0 ? 0 : focusedIndex;
-      if (key.upArrow || input === 'k') moveTo(at - 1);
-      else if (key.downArrow || input === 'j') moveTo(at + 1);
-      else if (key.pageUp) moveTo(at - visibleRows);
-      else if (key.pageDown) moveTo(at + visibleRows);
-      else if (key.home) moveTo(0);
-      else if (key.end) moveTo(items.length - 1);
-      else if (key.return) {
-        const item = items[at];
-        if (item !== undefined) onSubmit?.(item);
-      }
+      applyKey(input, key);
     },
     { isActive: active }
   );

@@ -20,6 +20,7 @@ import type { Trace, TraceEntry } from '@src/application/chain/trace.ts';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { fmtDuration } from '@src/application/ui/tui/theme/duration.ts';
 import { Spinner } from '@src/application/ui/tui/components/spinner.tsx';
+import { computeListWindow } from '@src/application/ui/tui/components/windowed-list.tsx';
 
 export interface StepTraceProps {
   readonly trace: Trace;
@@ -281,10 +282,9 @@ export const StepTrace = ({
   // Anchor on the first running row when we have one; otherwise keep the tail so a long
   // post-mortem trace still ends at the failing step rather than the head.
   const runningIdx = filtered.findIndex((r) => r.status === 'running');
-  const rows =
-    runningIdx >= 0
-      ? filtered.slice(Math.max(0, runningIdx - Math.floor(maxRows / 2))).slice(0, maxRows)
-      : filtered.slice(-maxRows);
+  // computeListWindow back-fills from above near the end of the plan, so the window never underfills.
+  const win = runningIdx >= 0 ? computeListWindow(filtered.length, runningIdx, maxRows) : undefined;
+  const rows = win !== undefined ? filtered.slice(win.start, win.end) : filtered.slice(-maxRows);
 
   // Text-budget calculation: subtract 4 from the rail width to reserve room for the leading
   // glyph (1), its trailing space (1), the column's `paddingX={spacing.indent}` left edge (2).
