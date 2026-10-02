@@ -8,7 +8,6 @@ import {
   recordRunningAttemptWarning,
 } from '@src/domain/entity/task-attempts.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
-import { ErrorCode } from '@src/domain/value/error/error-code.ts';
 import type { EvaluationSignal, HarnessSignal } from '@src/domain/signal.ts';
 import {
   computePlateauVerdict,
@@ -16,8 +15,7 @@ import {
   type PlateauTurnRecord,
   type PlateauVerdict,
 } from '@src/business/task/plateau-detection.ts';
-import { isRecoverableTurnError } from '@src/business/task/turn-error-policy.ts';
-import { abortCauseFromError } from '@src/business/task/abort-cause-from-error.ts';
+import { classifyTurnFailure } from '@src/business/task/turn-error-policy.ts';
 
 /**
  * Run one evaluator turn of the gen-eval loop. Drives a single AI evaluate call, inspects the
@@ -32,7 +30,7 @@ import { abortCauseFromError } from '@src/business/task/abort-cause-from-error.t
  *     an ungraded change `done`). A `ProcessCrash` (watchdog kill / spawn crash / non-zero exit
  *     with no signals.json) is instead a `crashed` exit — a transient process death retried within
  *     `maxAttempts`. Fatal errors (`Aborted`/`RateLimit`) propagate as `Result.error` to abort the
- *     whole run — see {@link isRecoverableTurnError}.
+ *     whole run — see {@link classifyTurnFailure}.
  *  - No evaluation signal at all → `malformed` exit.
  *  - `evaluation.status === 'passed'` → `passed` exit.
  *  - `evaluation.status === 'malformed'` → `malformed` exit.
@@ -164,54 +162,6 @@ const resolveCritique = (evaluation: EvaluationSignal): string | undefined => {
   return synthesized.length > 0 ? synthesized : undefined;
 };
 
-/**
- * Handle a `callEvaluate` failure. Fatal errors (user abort, rate-limit-after-retries) must
- * abort the whole run — propagate. Everything else is recoverable but splits two ways by error
- * TYPE, exactly as the generator's half does:
- *
- *  - a `ProcessCrash` (watchdog kill / spawn crash / non-zero exit with no signals.json) is a
- *    TRANSIENT process death → a `crashed` exit, which finalize retries within `maxAttempts`
- *    (then blocks at the cap) instead of terminally blocking after ONE attempt. The evaluator
- *    spawns through the same headless provider, watchdog and spawn-exit ladder as the generator,
- *    so it dies the same ways and deserves the same remedy.
- *  - anything else is a genuine signals-contract failure (the reviewer never produced a usable
- *    `signals.json` — wrong shape, wrong place) → self-block THIS task so it settles as `blocked`
- *    (the generator's work is NOT committed/marked-done ungraded — commit is gated on no block
- *    reason). Routing to `malformed` instead would mark the change done.
- */
-const handleEvaluateFailure = (
-  err: DomainError,
-  task: InProgressTask,
-  log: Logger
-): Result<RunEvaluatorTurnOutput, DomainError> => {
-  if (!isRecoverableTurnError(err)) {
-    log.error('evaluate call failed (fatal — propagating)', { taskId: task.id, error: err.message });
-    return Result.error(err);
-  }
-  if (err.code === ErrorCode.ProcessCrash) {
-    log.warn('evaluator process was killed before producing signals.json — retrying attempt', {
-      taskId: task.id,
-      error: err.message,
-    });
-    return Result.ok({
-      task,
-      exit: {
-        kind: 'crashed',
-        reason: `AI process was killed before producing signals.json: ${err.message}`,
-        ...abortCauseFromError(err),
-      },
-    });
-  }
-  log.warn('evaluator did not produce a valid signals.json — blocking task', {
-    taskId: task.id,
-    error: err.message,
-  });
-  return Result.ok({
-    task,
-    exit: { kind: 'self-blocked', reason: `evaluator did not produce a valid signals.json: ${err.message}` },
-  });
-};
-
 /** `passed`/`malformed` are terminal exits recorded as-is; `undefined` means the loop continues. */
 const handleTerminalStatus = (
   evaluation: EvaluationSignal,
@@ -330,7 +280,10 @@ export const runEvaluatorTurnUseCase = async (
   log.debug('running evaluator turn', { taskId: props.task.id });
 
   const signalsResult = await props.callEvaluate(props.task);
-  if (!signalsResult.ok) return handleEvaluateFailure(signalsResult.error, props.task, log);
+  if (!signalsResult.ok) {
+    const exit = classifyTurnFailure(signalsResult.error, 'evaluator', log, props.task.id);
+    return exit.ok ? Result.ok({ task: props.task, exit: exit.value }) : Result.error(exit.error);
+  }
   const signals = signalsResult.value;
 
   const evaluation = findEvaluation(signals);

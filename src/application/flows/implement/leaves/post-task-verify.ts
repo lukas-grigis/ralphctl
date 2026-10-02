@@ -1,15 +1,13 @@
-import { join } from 'node:path';
 import { Result } from '@src/domain/result.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
-import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
+import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { Attribution, VerifyRun, VerifyRunOutcome } from '@src/domain/entity/attempt.ts';
 import { attributeVerify, normalizeVerifyGates, runVerifyGatesUseCase } from '@src/business/task/run-verify-script.ts';
 import type { RunVerifyScriptOutput } from '@src/business/task/run-verify-script.ts';
 import type { VerifyGate } from '@src/domain/entity/repository.ts';
 import { gitDiffFootprint } from '@src/integration/io/git-operations.ts';
 import type { GitRunner } from '@src/integration/io/git-runner.ts';
-import { writeTextAtomic } from '@src/integration/io/fs.ts';
 import type { WriteFile } from '@src/business/io/write-file.ts';
 import {
   appendAttemptVerifyRun,
@@ -29,6 +27,7 @@ import { leaf } from '@src/application/chain/build/leaf.ts';
 import type { ShellScriptRunner } from '@src/integration/io/shell-script-runner.ts';
 import { runVerifyShell } from '@src/application/flows/implement/leaves/pre-task-verify.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
+import { persistVerifyLog } from '@src/application/flows/implement/leaves/verify-log.ts';
 
 /** `VerifyRunOutcome` member tag for a shell that could not start the command. */
 const SPAWN_ERROR_OUTCOME = 'spawn-error';
@@ -98,11 +97,7 @@ export interface PostTaskVerifyLeafDeps {
   readonly clock: () => IsoTimestamp;
   readonly eventBus: EventBus;
   readonly logger: Logger;
-  /**
-   * Atomic whole-file writer for the persisted verify log — see `persistPostVerifyLog`. Optional:
-   * callers that don't wire the port fall back to the direct `writeTextAtomic` adapter via
-   * {@link defaultWriteFile}, so behaviour is unchanged either way.
-   */
+  /** Atomic writer for the persisted verify log; unwired callers fall back to verify-log.ts's atomic default. */
   readonly writeFile?: WriteFile;
 }
 
@@ -324,50 +319,6 @@ const runPostVerifyGates = async (
   return { ...out, coveredAllGates: scope === undefined };
 };
 
-/** Fallback `WriteFile` for callers that don't (yet) wire the port — same atomic adapter either way. */
-const defaultWriteFile: WriteFile = (path, content) => writeTextAtomic(String(path), content);
-
-/**
- * Audit [01] / [03]: persist the full untruncated output to
- * `<sprintDir>/logs/verify/<task-id>/post-attempt-<N>.log`. Caller only invokes this when
- * `opts.sprintDir` is set AND `rawOutput` is non-empty.
- */
-const persistPostVerifyLog = async (
-  deps: PostTaskVerifyLeafDeps,
-  opts: PostTaskVerifyLeafOpts,
-  task: InProgressTask,
-  rawOutput: string
-): Promise<void> => {
-  const attemptN = task.attempts.length;
-  const logPath = join(
-    String(opts.sprintDir),
-    'logs',
-    'verify',
-    String(task.id),
-    `post-attempt-${String(attemptN)}.log`
-  );
-  const parsedPath = AbsolutePath.parse(logPath);
-  if (!parsedPath.ok) {
-    deps.eventBus.publish({
-      type: 'log',
-      level: 'warn',
-      message: `post-task-verify ${String(opts.cwd)}: could not resolve log path ${logPath} — ${parsedPath.error.message}`,
-      at: deps.clock(),
-    });
-    return;
-  }
-  const writeFile = deps.writeFile ?? defaultWriteFile;
-  const wrote = await writeFile(parsedPath.value, rawOutput);
-  if (!wrote.ok) {
-    deps.eventBus.publish({
-      type: 'log',
-      level: 'warn',
-      message: `post-task-verify ${String(opts.cwd)}: failed to persist full log to ${logPath} — ${wrote.error.message}`,
-      at: deps.clock(),
-    });
-  }
-};
-
 /**
  * Append the {@link VerifyRun} row to the attempt, stamp {@link Attribution} when both pre and
  * post outcomes are known (`attributeVerify` returns undefined for a spawn-error/skipped pre —
@@ -461,7 +412,7 @@ const createPostTaskVerifyExecute =
 
     const { run, rawOutput, spawnErrorMessage, coveredAllGates } = await runPostVerifyGates(deps, opts, signal);
 
-    // Cancellation propagates verbatim. `runVerifyScriptUseCase` folds a runner
+    // Cancellation propagates verbatim. `runVerifyGatesUseCase` folds a runner
     // `Result.error` into a `spawn-error` row, so the abort would otherwise be swallowed as an
     // unknown-attribution outcome. Detect the cancel at the leaf boundary and surface the
     // codebase's transparently-propagated `AbortError` — the chain tears down rather than
@@ -475,9 +426,7 @@ const createPostTaskVerifyExecute =
       );
     }
 
-    if (opts.sprintDir !== undefined && rawOutput.length > 0) {
-      await persistPostVerifyLog(deps, opts, input.task, rawOutput);
-    }
+    await persistVerifyLog(deps, 'post', opts.cwd, opts.sprintDir, input.task, rawOutput);
 
     const recorded = await recordVerifyRun(deps, input, run, taskId);
     if (!recorded.ok) return Result.error(recorded.error);

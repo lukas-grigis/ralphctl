@@ -29,6 +29,7 @@ import type { ImplementDeps } from '@src/application/flows/implement/deps.ts';
 import {
   type CreateImplementFlowOpts,
   effectiveDirtyTreePolicy,
+  perTaskSubchainOpts,
   type RepoExecConfig,
 } from '@src/application/flows/implement/flow.ts';
 import { forkCtx, implementBranchId } from '@src/application/flows/implement/merge-wave.ts';
@@ -37,6 +38,7 @@ import {
   createPerTaskSubchain,
   type PerTaskSubchainOpts,
 } from '@src/application/flows/implement/leaves/per-task-subchain.ts';
+import type { AttemptReadConfig } from '@src/application/flows/implement/leaves/attempt-body.ts';
 import { abortedStep, foldStep } from '@src/application/flows/implement/worktree-fold.ts';
 import {
   foldQuarantinePointer,
@@ -521,22 +523,15 @@ export const buildWaveBranches = (
   deps: BuildWaveBranchesDeps,
   opts: CreateImplementFlowOpts,
   waves: ReadonlyArray<readonly Task[]>,
-  readConfig: PerTaskReadConfig
+  readConfig: AttemptReadConfig
 ): ReadonlyArray<ReadonlyArray<WaveBranch<ImplementCtx>>> =>
   waves.map((wave) => wave.map((task) => buildOneBranch(deps, opts, task, readConfig)));
-
-type PerTaskReadConfig = () => Promise<{
-  readonly maxTurns: number;
-  readonly escalateOnPlateau: boolean;
-  readonly escalationMap: Readonly<Record<string, string>>;
-  readonly maxAttempts: number;
-}>;
 
 const buildOneBranch = (
   deps: BuildWaveBranchesDeps,
   opts: CreateImplementFlowOpts,
   task: Task,
-  readConfig: PerTaskReadConfig
+  readConfig: AttemptReadConfig
 ): WaveBranch<ImplementCtx> => {
   const repo = resolveRepoOrThrow(opts.repositories, task);
   const worktreePath = worktreePathFor(opts.sprintDir, task.id);
@@ -550,33 +545,7 @@ const buildOneBranch = (
     publishSignal: perBranchSignalPublisher(deps.eventBus, task.id),
   };
 
-  const subchainOpts: PerTaskSubchainOpts = {
-    sprintDir: opts.sprintDir,
-    progressFile: opts.progressFile,
-    terminalLeafName: 'uninstall-skills',
-    generator: {
-      providerId: opts.generatorProviderId,
-      model: opts.generatorModel,
-      ...(opts.generatorEffort !== undefined ? { effort: opts.generatorEffort } : {}),
-      ...(opts.generatorAgentDefinitionSection !== undefined
-        ? { agentDefinitionSection: opts.generatorAgentDefinitionSection }
-        : {}),
-    },
-    evaluator: {
-      providerId: opts.evaluatorProviderId,
-      model: opts.evaluatorModel,
-      ...(opts.evaluatorEffort !== undefined ? { effort: opts.evaluatorEffort } : {}),
-      ...(opts.evaluatorAgentDefinitionSection !== undefined
-        ? { agentDefinitionSection: opts.evaluatorAgentDefinitionSection }
-        : {}),
-    },
-    memoryRoot: opts.memoryRoot,
-    projectId: opts.projectId,
-    projectSlug: opts.projectSlug,
-    includeBranchPreflight: false,
-    ...(opts.generatorAgentDefinition !== undefined ? { generatorAgentDefinition: opts.generatorAgentDefinition } : {}),
-    ...(opts.evaluatorAgentDefinition !== undefined ? { evaluatorAgentDefinition: opts.evaluatorAgentDefinition } : {}),
-  };
+  const subchainOpts: PerTaskSubchainOpts = { ...perTaskSubchainOpts(opts), includeBranchPreflight: false };
 
   // The per-task subchain is built fresh on the FORKED ctx + worktree repo each time the branch
   // executes (so a re-merged wave ctx flows in). `buildSubchain` captures everything needed.

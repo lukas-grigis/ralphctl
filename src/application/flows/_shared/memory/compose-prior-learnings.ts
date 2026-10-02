@@ -1,4 +1,5 @@
 import { type LearningRecord, isDecision, isLearning } from '@src/application/flows/_shared/memory/learning-record.ts';
+import { jaccard } from '@src/application/flows/_shared/memory/similarity.ts';
 import type { TaskKind } from '@src/business/task/derive-task-kind.ts';
 
 /**
@@ -112,15 +113,6 @@ const tokenize = (text: string): ReadonlySet<string> =>
       .split(/[^\p{L}\p{N}]+/u)
       .filter((token) => token.length >= MIN_TOKEN_CHARS)
   );
-
-/** Jaccard similarity of two token sets — 0 when either is empty, 1 when they're identical. */
-const jaccard = (a: ReadonlySet<string>, b: ReadonlySet<string>): number => {
-  if (a.size === 0 || b.size === 0) return 0;
-  let intersection = 0;
-  for (const token of a) if (b.has(token)) intersection += 1;
-  const union = a.size + b.size - intersection;
-  return union === 0 ? 0 : intersection / union;
-};
 
 /** Age band past which a record starts losing rank — engineering budget, not a derived constant. */
 const AGE_DECAY_STALE_DAYS = 90;

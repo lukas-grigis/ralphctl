@@ -6,6 +6,7 @@ import { sprintStatusKind, StatusChip } from '@src/application/ui/tui/components
 import { computeListWindow, OverflowRow, useListWindow } from '@src/application/ui/tui/components/windowed-list.tsx';
 import { plural } from '@src/application/ui/shared/plural.ts';
 import { glyphs, inkColors, tones } from '@src/application/ui/tui/theme/tokens.ts';
+import { clipWithEllipsis } from '@src/application/ui/tui/components/format.ts';
 import type { TaskHealthCounts } from '@src/application/ui/shared/state-snapshot.ts';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
@@ -192,7 +193,7 @@ const HeaderRowView = ({ row, focused }: { readonly row: HeaderRow; readonly foc
 
 const pad = (text: string, width: number): string => {
   const cps = [...text];
-  if (cps.length > width) return `${cps.slice(0, Math.max(0, width - 1)).join('')}${glyphs.clipEllipsis}`;
+  if (cps.length > width) return clipWithEllipsis(text, width);
   return text + ' '.repeat(width - cps.length);
 };
 

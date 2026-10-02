@@ -5,7 +5,8 @@
 
 import React from 'react';
 import { Box, Text } from 'ink';
-import { FIELD_LABEL_WIDTH, glyphs } from '@src/application/ui/tui/theme/tokens.ts';
+import { FIELD_LABEL_WIDTH } from '@src/application/ui/tui/theme/tokens.ts';
+import { clipWithEllipsis } from '@src/application/ui/tui/components/format.ts';
 
 export interface Field {
   readonly label: string;
@@ -27,9 +28,8 @@ export interface FieldListProps {
 const padLabel = (label: string, width: number): string => {
   // Width-based clip on an over-wide label — appends `clipEllipsis` (audit-[03] display-clip marker) so the operator
   // sees the label was abbreviated rather than silently misspelled.
-  const trimmed = label.length > width - 1 ? `${label.slice(0, width - 2)}${glyphs.clipEllipsis}` : label;
-  const withColon = `${trimmed}:`;
-  return withColon.padEnd(width, ' ');
+  const withColon = `${clipWithEllipsis(label, width - 1)}:`;
+  return withColon + ' '.repeat(Math.max(0, width - [...withColon].length));
 };
 
 /** Compute the label column width from the field set when no explicit width was given. */

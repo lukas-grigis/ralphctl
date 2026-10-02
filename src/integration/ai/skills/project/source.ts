@@ -26,6 +26,7 @@ import type { Project } from '@src/domain/entity/project.ts';
 import type { Skill } from '@src/integration/ai/skills/_engine/skill.ts';
 import type { SkillSource } from '@src/integration/ai/skills/_engine/skill-source.ts';
 import type { FlowId } from '@src/integration/ai/skills/_engine/registry.ts';
+import { RALPHCTL_SKILL_PREFIX } from '@src/integration/ai/skills/_engine/skill-folder-loader.ts';
 
 export interface ProjectSkillSourceDeps {
   /**
@@ -41,14 +42,14 @@ const projectSkillsFor = (project: Project): readonly Skill[] => {
   for (const repo of project.repositories) {
     if (repo.setupSkill !== undefined && repo.setupSkill.trim().length > 0) {
       skills.push({
-        name: `ralphctl-${String(repo.slug)}-setup`,
+        name: `${RALPHCTL_SKILL_PREFIX}${String(repo.slug)}-setup`,
         description: `Setup guidance for ${repo.name}: how to prepare the working tree at sprint start.`,
         content: `# Setup — ${repo.name}\n\n${repo.setupSkill}`,
       });
     }
     if (repo.verifySkill !== undefined && repo.verifySkill.trim().length > 0) {
       skills.push({
-        name: `ralphctl-${String(repo.slug)}-verify`,
+        name: `${RALPHCTL_SKILL_PREFIX}${String(repo.slug)}-verify`,
         description: `Verify guidance for ${repo.name}: how to interpret the post-task verification gate.`,
         content: `# Verify — ${repo.name}\n\n${repo.verifySkill}`,
       });

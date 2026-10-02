@@ -1,4 +1,4 @@
-import { failedDimensions, type PlateauTurnRecord } from '@src/business/task/plateau-detection.ts';
+import { failedDimensions, type PlateauTurnRecord, plateauWindowSize } from '@src/business/task/plateau-detection.ts';
 
 /**
  * Compose the dimension-trajectory feed-forward block the generator reads on round 2+ of the
@@ -100,7 +100,7 @@ export const composeDimensionTrajectory = (input: DimensionTrajectoryInput): str
   // `plateauThreshold - 1`) so the generator can change approach before the harness gives up. Uses
   // `stillFailingAll` (untruncated) — a dimension sorted out of the rendered bullets by the display
   // cap can still hold the true longest stall and must not be silently dropped from this check.
-  const threshold = Math.max(2, Math.trunc(input.plateauThreshold));
+  const threshold = plateauWindowSize(input.plateauThreshold);
   const longestStall = stillFailingAll.reduce((max, d) => Math.max(max, consecutiveFailing(history, d)), 0);
   const pressure =
     longestStall >= threshold - 1

@@ -1,5 +1,5 @@
 import type { AiProvider } from '@src/domain/entity/settings.ts';
-import { AI_PROVIDERS, AI_PROVIDERS_HINT } from '@src/domain/entity/settings.ts';
+import { AI_PROVIDERS_HINT, isAiProvider } from '@src/domain/entity/settings.ts';
 import type { LaunchExtras } from '@src/application/ui/shared/launcher.ts';
 
 /**
@@ -17,10 +17,6 @@ export interface ImplementRoleFlagsInput {
   readonly evaluatorProvider?: string;
   readonly evaluatorModel?: string;
 }
-
-const ALLOWED_PROVIDERS: ReadonlySet<AiProvider> = new Set(AI_PROVIDERS);
-
-const isAiProvider = (v: string): v is AiProvider => ALLOWED_PROVIDERS.has(v as AiProvider);
 
 const parseRole = (
   role: 'generator' | 'evaluator',

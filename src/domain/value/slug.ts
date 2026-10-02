@@ -1,5 +1,6 @@
 import { Result } from '@src/domain/result.ts';
 import { ValidationError } from '@src/domain/value/error/validation-error.ts';
+import { toKebabCase } from '@src/domain/value/kebab-case.ts';
 
 declare const __slug: unique symbol;
 export type Slug = string & { readonly [__slug]: 'Slug' };
@@ -42,5 +43,22 @@ export const Slug = {
       );
     }
     return Result.ok(input as Slug);
+  },
+
+  /** An explicit `candidate` wins; otherwise kebab-case `source` and parse it. */
+  derive(field: string, candidate: Slug | undefined, source: string): Result<Slug, ValidationError> {
+    if (candidate !== undefined) return Result.ok(candidate);
+    const derived = toKebabCase(source);
+    if (derived.length === 0) {
+      return Result.error(
+        new ValidationError({
+          field,
+          value: source,
+          message: `could not derive slug from '${source}'`,
+          hint: 'pass an explicit slug',
+        })
+      );
+    }
+    return Slug.parse(derived);
   },
 };

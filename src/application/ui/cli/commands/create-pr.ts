@@ -10,7 +10,7 @@ import { buildComposedSkillSource } from '@src/application/ui/shared/launcher.ts
 import { checkCli } from '@src/application/ui/shared/launch/check-cli.ts';
 import { bootstrapCli } from '@src/application/ui/cli/bootstrap.ts';
 import { fail } from '@src/application/ui/cli/report-cli-error.ts';
-import { pinFallbackNotice, resolveSprintId } from '@src/application/ui/cli/resolve-sprint-selection.ts';
+import { resolveSprintForCli } from '@src/application/ui/cli/resolve-sprint-selection.ts';
 import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import type { StoragePaths } from '@src/application/bootstrap/storage-paths.ts';
 import type { Element } from '@src/application/chain/element.ts';
@@ -93,14 +93,9 @@ const createPrAction = async (opts: Opts): Promise<void> => {
   }
 
   const { deps, storage } = await bootstrapCli();
-  const resolved = await resolveSprintId(opts.sprint, storage.stateRoot);
-  if (!resolved.ok) {
-    fail(resolved.error.message);
-    return;
-  }
-  // Opening a PR is a write to the upstream — always disambiguate a pin-derived target.
-  if (resolved.value.fromPin) process.stderr.write(pinFallbackNotice(resolved.value.sprintId));
-  const sprintId = resolved.value.sprintId;
+  // Opening a PR is a write to the upstream — the resolver always disambiguates a pin-derived target.
+  const sprintId = await resolveSprintForCli(opts.sprint, storage.stateRoot);
+  if (sprintId === undefined) return;
   // PATH-gate the AI step FIRST: when `--ai` is on (the default), the create-pr AI session spawns the `createPr`
   // row's provider CLI.
   if (opts.ai) {

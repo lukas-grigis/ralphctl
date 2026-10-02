@@ -12,6 +12,13 @@ export const sequential = <TCtx>(name: string, children: ReadonlyArray<Element<T
 
     const trace: TraceEntry[] = [];
     let currentCtx = ctx;
+    const skipRest = (from: number): void => {
+      for (const c of children.slice(from)) {
+        const s = skippedEntry(c.name);
+        trace.push(s);
+        onTrace?.(s);
+      }
+    };
 
     for (let i = 0; i < children.length; i++) {
       const child = children[i]!;
@@ -20,22 +27,14 @@ export const sequential = <TCtx>(name: string, children: ReadonlyArray<Element<T
         const entry = abortedEntry(child.name);
         trace.push(entry);
         onTrace?.(entry);
-        for (let j = i + 1; j < children.length; j++) {
-          const skipped = skippedEntry(children[j]!.name);
-          trace.push(skipped);
-          onTrace?.(skipped);
-        }
-        return Result.error({ error: entry.error!, trace });
+        skipRest(i + 1);
+        return Result.error({ error: entry.error, trace });
       }
 
       const result = await child.execute(currentCtx, signal, onTrace);
       if (!result.ok) {
         trace.push(...result.error.trace);
-        for (let j = i + 1; j < children.length; j++) {
-          const skipped = skippedEntry(children[j]!.name);
-          trace.push(skipped);
-          onTrace?.(skipped);
-        }
+        skipRest(i + 1);
         return Result.error({ error: result.error.error, trace });
       }
 

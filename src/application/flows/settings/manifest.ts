@@ -10,6 +10,5 @@ export const settingsManifest: FlowManifest = {
   id: 'settings',
   title: 'Settings',
   description: 'Inspect and mutate ralphctl settings (provider, models, harness budgets, logging, concurrency).',
-  canBackground: false,
   triggers: {},
 };

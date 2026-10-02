@@ -24,11 +24,12 @@ import { createResolvedSkillSource } from '@src/integration/ai/skills/_engine/re
 import type { SkillSource } from '@src/integration/ai/skills/_engine/skill-source.ts';
 import type { Skill } from '@src/integration/ai/skills/_engine/skill.ts';
 import { warnIfContractViolated as checkContract } from '@src/integration/ai/skills/_engine/skill-contract-checker.ts';
-import { type AiFlowSettings, type AiProvider, primaryFlowRow, type Settings } from '@src/domain/entity/settings.ts';
+import { type AiProvider, primaryFlowRow, type Settings } from '@src/domain/entity/settings.ts';
 import { FLOW_IDS, type FlowId } from '@src/domain/value/flow-id.ts';
 import { resolveEffort } from '@src/business/settings/resolve-effort.ts';
 import type { RunInTerminal } from '@src/application/ui/shared/run-in-terminal.ts';
 import type { LaunchContext } from '@src/application/ui/shared/launch/context.ts';
+import { aiFlowIdFor, mergeFlowRow } from '@src/application/ui/shared/launch/ai-flow-id.ts';
 import { launchCreateSprint } from '@src/application/ui/shared/launch/create-sprint.ts';
 import { launchRefine } from '@src/application/ui/shared/launch/refine.ts';
 import { launchPlan } from '@src/application/ui/shared/launch/plan.ts';
@@ -90,8 +91,8 @@ export type LaunchResult =
 export interface LaunchExtras {
   readonly repositoryId?: RepositoryId;
   /**
-   * Per-launch single-row override (refine / plan / readiness / ideate plus the implement- generator-driven flows
-   * review / detect-scripts / detect-skills).
+   * Per-launch single-row override (refine / plan / readiness / ideate / create-pr, detect-scripts / detect-skills via
+   * the readiness row, and review via implement.generator).
    */
   readonly override?: {
     readonly provider?: AiProvider;
@@ -181,31 +182,6 @@ export const sessionHintsFromLaunchResult = (result: LaunchOk): Pick<LaunchOk, (
   pickDefined(result, HINT_KEYS);
 
 /**
- * Map a launcher flow id to the {@link FlowId} that owns the AI session, or `undefined` for flows that don't open
- * one.
- */
-const aiFlowIdFor = (flowId: string): FlowId | undefined => {
-  switch (flowId) {
-    case 'refine':
-    case 'plan':
-    case 'implement':
-    case 'readiness':
-    case 'ideate':
-      return flowId;
-    case 'detect-scripts':
-    case 'detect-skills':
-      return 'readiness';
-    case 'review':
-      return 'implement';
-    case 'create-pr':
-      // The kebab-case orchestration id maps to its camelCase settings row.
-      return 'createPr';
-    default:
-      return undefined;
-  }
-};
-
-/**
  * Flows whose AI session actually gets a composed skill source installed — the only flows where a per-run skills
  * customization has any effect.
  * @public
@@ -227,14 +203,6 @@ export const SKILL_MOUNTING_FLOW_IDS: readonly FlowId[] = FLOW_IDS.filter((flowI
   flowMountsSkills(PHASE_FLOW_DIR[flowId])
 );
 
-/** Per-field merge of `override` onto an `AiFlowSettings` row. */
-const mergeRow = (base: AiFlowSettings, override: NonNullable<LaunchExtras['override']>): AiFlowSettings => {
-  const provider = override.provider ?? base.provider;
-  const model = override.model ?? base.model;
-  const effort = override.effort ?? base.effort;
-  return { provider, model, ...(effort !== undefined ? { effort } : {}) } as AiFlowSettings;
-};
-
 /**
  * Apply `extras.override` to the {@link Settings} record so the adapter rebuild and the per-flow launcher see the same
  * values. Implement is excluded — its roles go through `extras.implementRoleOverrides`.
@@ -251,8 +219,8 @@ export const applyOverrideToSettings = (
   // emits per-role overrides, not the single-row shape.
   if (flowId === 'implement') return settings;
   if (aiFlow === 'implement') {
-    // review / detect-scripts / detect-skills aliases that read implement.generator.
-    const merged = mergeRow(settings.ai.implement.generator, override);
+    // Review is the only alias that reads implement.generator (detect-scripts / detect-skills map to readiness).
+    const merged = mergeFlowRow(settings.ai.implement.generator, override);
     return {
       ...settings,
       ai: { ...settings.ai, implement: { ...settings.ai.implement, generator: merged } },
@@ -260,7 +228,7 @@ export const applyOverrideToSettings = (
   }
   return {
     ...settings,
-    ai: { ...settings.ai, [aiFlow]: mergeRow(settings.ai[aiFlow], override) },
+    ai: { ...settings.ai, [aiFlow]: mergeFlowRow(settings.ai[aiFlow], override) },
   };
 };
 

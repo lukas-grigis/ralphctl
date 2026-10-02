@@ -121,7 +121,7 @@ const renderWarningDetail = (w: NonNullable<Attempt['warning']>): string => {
     case 'malformed':
       return `  ${glyphs.bullet} ${firstLine(w.detail)}`;
     case 'verify-failed':
-      return `  ${glyphs.bullet} exit ${String(w.exitCode ?? '?')}${w.stderr.length > 0 ? ` · ${firstLine(w.stderr)}` : ''}`;
+      return `  ${glyphs.bullet} exit ${String(w.exitCode ?? '?')}${w.stderr.length > 0 ? ` ${glyphs.bullet} ${firstLine(w.stderr)}` : ''}`;
     case 'crashed':
       return `  ${glyphs.bullet} ${firstLine(w.detail)}`;
   }

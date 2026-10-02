@@ -11,6 +11,7 @@ import type { Project } from '@src/domain/entity/project.ts';
 import type { Task } from '@src/domain/entity/task.ts';
 import { type AsyncLoadState, useAsyncLoad } from '@src/application/ui/tui/runtime/use-async-load.ts';
 import { useSessionTransitionReload } from '@src/application/ui/tui/runtime/use-session-transition-reload.ts';
+import { messageOf } from '@src/domain/value/error/error-message.ts';
 
 export interface SprintBundle {
   readonly sprint: Sprint;
@@ -68,7 +69,7 @@ export const useSprintBundle = (args: UseSprintBundleArgs): UseSprintBundleRetur
     lookup().catch((err: unknown) => {
       deps.logger?.warn?.('sprint-detail: project lookup threw', {
         projectId: String(state.value.sprint.projectId),
-        error: err instanceof Error ? err.message : String(err),
+        error: messageOf(err),
       });
     });
     return () => {

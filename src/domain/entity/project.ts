@@ -4,7 +4,6 @@ import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { ProjectId } from '@src/domain/value/id/project-id.ts';
 import type { RepositoryId } from '@src/domain/value/id/repository-id.ts';
 import { Slug } from '@src/domain/value/slug.ts';
-import { toKebabCase } from '@src/domain/value/kebab-case.ts';
 import { parseOptionalString } from '@src/domain/value/parsers/parse-optional-string.ts';
 import { parseRequiredString } from '@src/domain/value/parsers/parse-required-string.ts';
 import { ConflictError } from '@src/domain/value/error/conflict-error.ts';
@@ -95,7 +94,7 @@ export const createProject = (input: ProjectCreateInput): Result<Project, Valida
   const description = parseOptionalString('project.description', input.description);
   if (!description.ok) return Result.error(description.error);
 
-  const slug = resolveSlug('project.slug', input.slug, displayName.value);
+  const slug = Slug.derive('project.slug', input.slug, displayName.value);
   if (!slug.ok) return Result.error(slug.error);
 
   if (input.repositories.length === 0) {
@@ -323,24 +322,4 @@ const applyValidatedRepositoryFields = (
     updated = r.value;
   }
   return Result.ok(updated);
-};
-
-const resolveSlug = (
-  field: string,
-  candidate: Slug | undefined,
-  fallbackSource: string
-): Result<Slug, ValidationError> => {
-  if (candidate !== undefined) return Result.ok(candidate);
-  const derived = toKebabCase(fallbackSource);
-  if (derived.length === 0) {
-    return Result.error(
-      new ValidationError({
-        field,
-        value: fallbackSource,
-        message: `could not derive slug from '${fallbackSource}'`,
-        hint: 'pass an explicit slug',
-      })
-    );
-  }
-  return Slug.parse(derived);
 };

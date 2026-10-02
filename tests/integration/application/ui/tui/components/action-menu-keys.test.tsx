@@ -1,4 +1,4 @@
-/** ActionMenu keys: `j` aliases ↓, space selects the focused row, and no letter selects a row on its own. */
+/** ActionMenu keys: `j` aliases ↓, space selects the focused row (live cursor), and no letter selects a row on its own. */
 
 import { render } from 'ink-testing-library';
 import { describe, expect, it, vi } from 'vitest';
@@ -46,6 +46,22 @@ describe('ActionMenu keys', () => {
     r.stdin.write(' ');
     await tick(30);
     expect(beta).toHaveBeenCalledTimes(1);
+    r.unmount();
+  });
+
+  it('space after ↓ in the same stdin chunk selects the moved-to row', async () => {
+    const alpha = vi.fn();
+    const beta = vi.fn();
+    const items: readonly MenuItem[] = [
+      { id: 'alpha', label: 'Alpha', onSelect: alpha },
+      { id: 'beta', label: 'Beta', onSelect: beta },
+    ];
+    const r = render(<ActionMenu items={items} active />);
+    await tick(30);
+    r.stdin.write(`${DOWN} `);
+    await tick(30);
+    expect(beta).toHaveBeenCalledTimes(1);
+    expect(alpha).not.toHaveBeenCalled();
     r.unmount();
   });
 });

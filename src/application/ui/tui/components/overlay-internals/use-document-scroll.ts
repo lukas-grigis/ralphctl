@@ -1,4 +1,4 @@
-/** Scroll model shared by the read-only document overlays (`ProgressOverlay`, `EvaluationOverlay`). */
+/** Scroll model shared by the read-only overlays (`HelpOverlay`, `ProgressOverlay`, `EvaluationOverlay`). */
 
 import { useEffect, useState } from 'react';
 import { useInput } from 'ink';
@@ -6,7 +6,6 @@ import { useInput } from 'ink';
 export interface DocumentScroll {
   readonly offset: number;
   readonly maxOffset: number;
-  readonly visibleLines: number;
 }
 
 export const useDocumentScroll = (lineCount: number, bodyRows: number): DocumentScroll => {
@@ -47,7 +46,7 @@ export const useDocumentScroll = (lineCount: number, bodyRows: number): Document
     }
   });
 
-  return { offset, maxOffset, visibleLines: Math.min(bodyRows, Math.max(0, lineCount - offset)) };
+  return { offset, maxOffset };
 };
 
 /** Reserve rows for banners + header + footer chrome around a scrollable overlay body. */

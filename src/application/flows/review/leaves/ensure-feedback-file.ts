@@ -37,19 +37,13 @@ ${renderEmptyRound(1)}---
 export const ensureFeedbackFileLeaf = (feedbackFile: AbsolutePath): Element<ReviewCtx> =>
   leaf<ReviewCtx, AbsolutePath, void>('ensure-feedback-file', {
     useCase: {
-      execute: async (path) => {
-        try {
-          await fs.access(String(path));
-          return Result.ok(undefined) as Result<void, StorageError>;
-        } catch {
-          // File missing — create it with the template.
-        }
+      execute: async (path): Promise<Result<void, StorageError>> => {
         try {
           await fs.writeFile(String(path), TEMPLATE, { flag: 'wx' });
-          return Result.ok(undefined) as Result<void, StorageError>;
+          return Result.ok(undefined);
         } catch (cause) {
           if (typeof cause === 'object' && cause !== null && (cause as { code?: unknown }).code === 'EEXIST') {
-            return Result.ok(undefined) as Result<void, StorageError>;
+            return Result.ok(undefined);
           }
           return Result.error(
             new StorageError({

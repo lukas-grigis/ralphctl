@@ -15,6 +15,7 @@ import { changeSignalSchema } from '@src/integration/ai/contract/_engine/signals
 import { decisionSignalSchema } from '@src/integration/ai/contract/_engine/signals/decision/schema.ts';
 import type { AiOutputContract } from '@src/integration/ai/contract/_engine/types.ts';
 import { validateSignalsFileWithCorrectiveRetry } from '@src/integration/ai/contract/_engine/corrective-retry.ts';
+import { SIGNALS_FILE_MAX_BYTES } from '@src/integration/ai/contract/_engine/validate-signals-file.ts';
 import type { ChangeSignal, DecisionSignal } from '@src/domain/signal.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 
@@ -196,6 +197,56 @@ describe('validateSignalsFileWithCorrectiveRetry', () => {
     );
     expect(result.ok).toBe(true);
     expect(correctiveSeen).toContain('You did not write');
+  });
+
+  it('builds a rejected-content corrective (not "did not write") when the root is literal null', async () => {
+    // Mirrors the generator v0 migration: arrays get wrapped, anything else passes through untouched.
+    const nullRootContract: AiOutputContract<ChangeSignal | DecisionSignal> = {
+      ...contract,
+      migrations: { 0: (raw) => (Array.isArray(raw) ? { schemaVersion: 1, signals: raw } : raw) },
+    };
+    writeFileSync(signalsPath, 'null');
+    let correctiveSeen: string | undefined;
+    const result = await validateSignalsFileWithCorrectiveRetry(
+      {
+        outputDir: unwrapPath(tmp),
+        logger: noopLogger,
+        correctiveRetries: 2,
+        selfContainedContext: 'OUTPUT CONTRACT SECTION (self-contained)',
+        reinvoke: async (corrective: Prompt) => {
+          correctiveSeen = corrective;
+          writeFileSync(signalsPath, VALID);
+          return Result.ok(undefined);
+        },
+      },
+      nullRootContract
+    );
+    expect(result.ok).toBe(true);
+    expect(correctiveSeen).not.toContain('You did not write');
+    expect(correctiveSeen).toContain('was read but rejected');
+  });
+
+  it('builds a rejected-content corrective (not "did not write") when the file is over the size cap', async () => {
+    const body = JSON.stringify({ schemaVersion: 1, signals: 'x' });
+    writeFileSync(signalsPath, body + ' '.repeat(SIGNALS_FILE_MAX_BYTES + 1 - body.length));
+    let correctiveSeen: string | undefined;
+    const result = await validateSignalsFileWithCorrectiveRetry(
+      {
+        outputDir: unwrapPath(tmp),
+        logger: noopLogger,
+        correctiveRetries: 2,
+        selfContainedContext: 'OUTPUT CONTRACT SECTION (self-contained)',
+        reinvoke: async (corrective: Prompt) => {
+          correctiveSeen = corrective;
+          writeFileSync(signalsPath, VALID);
+          return Result.ok(undefined);
+        },
+      },
+      contract
+    );
+    expect(result.ok).toBe(true);
+    expect(correctiveSeen).not.toContain('You did not write');
+    expect(correctiveSeen).toContain('was read but rejected');
   });
 
   it('builds an invalid-json corrective when the body was not valid JSON', async () => {

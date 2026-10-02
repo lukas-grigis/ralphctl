@@ -16,6 +16,8 @@ import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
 import { renderSidecars } from '@src/integration/ai/contract/_engine/render-sidecars.ts';
 import { validateSignalsFile } from '@src/integration/ai/contract/_engine/validate-signals-file.ts';
+import { assertCtxField } from '@src/application/flows/_shared/_engine/assert-ctx-field.ts';
+import type { PublishSignal } from '@src/application/flows/_shared/publish-signal.ts';
 import type { RefineCtx } from '@src/application/flows/refine/ctx.ts';
 import { partitionRefineSignals, refineOutputContract } from '@src/application/flows/refine/leaves/refine.contract.ts';
 import type { IssuePusher } from '@src/business/scm/issue-pusher.ts';
@@ -53,10 +55,9 @@ export interface RefineTicketInteractiveDeps {
    * evaluator / readiness.
    */
   readonly writeFile: WriteFile;
-  /**
-   * Application bus — every validated `refined-ticket` / `learning` / `note` / `decision`
-   * signal fans out as a typed `ai-signal` event the TUI subscribes to.
-   */
+  /** Fans every validated `refined-ticket` / `learning` / `note` / `decision` signal out to the TUI. */
+  readonly publishSignal: PublishSignal;
+  /** Application bus — carries the issue-comment banners. */
   readonly eventBus: EventBus;
   readonly model: string;
   /**
@@ -91,7 +92,7 @@ export interface RefineTicketInteractiveDeps {
  * the AI finish. Every other error (invalid-json / schema-mismatch / migration-gap / I/O, and
  * `AbortError` if it ever reached here) passes through verbatim.
  */
-const remapRefineSignalsError = <E extends { readonly message?: string }>(error: E): E => {
+const remapRefineSignalsError = (error: DomainError): DomainError => {
   if (error instanceof InvalidStateError && error.message.includes('signals-missing')) {
     return new InvalidStateError({
       entity: 'refine-ticket-interactive',
@@ -100,7 +101,7 @@ const remapRefineSignalsError = <E extends { readonly message?: string }>(error:
       message:
         'Refinement not saved — the AI session ended before writing signals.json. The ticket is unchanged; re-run refine and let the AI finish writing before you exit.',
       hint: 'The interactive AI must write signals.json (carrying the refined-ticket) before it exits. Closing the session early leaves nothing for the harness to read.',
-    }) as unknown as E;
+    });
   }
   return error;
 };
@@ -281,7 +282,7 @@ const validateAndParseOutput = async (
   // subscribers render live updates. Source tag identifies the leaf for multi-leaf
   // traces.
   for (const sig of signals) {
-    deps.eventBus.publish({ type: 'ai-signal', signal: sig, source: 'refine' });
+    deps.publishSignal(sig);
   }
 
   // Render harness-owned sidecars — refine has no sidecars (the contract's `sidecars`
@@ -358,37 +359,12 @@ export const refineTicketInteractiveLeaf = (
     },
     input: (ctx) => {
       const PRE_REFINE_STATE = 'pre-refine';
-      if (ctx.sprint === undefined) {
-        throw new InvalidStateError({
-          entity: 'chain',
-          currentState: PRE_REFINE_STATE,
-          attemptedAction: `refine-ticket-${String(ticket.id)}`,
-          message: `refine-ticket-${String(ticket.id)}: ctx.sprint is undefined — load-sprint must run first`,
-        });
-      }
-      if (ctx.currentPromptFile === undefined || ctx.currentOutputFile === undefined) {
-        throw new InvalidStateError({
-          entity: 'chain',
-          currentState: PRE_REFINE_STATE,
-          attemptedAction: `refine-ticket-${String(ticket.id)}`,
-          message: `refine-ticket-${String(ticket.id)}: prompt/output paths missing — render-prompt-to-file must run first`,
-        });
-      }
-      if (ctx.currentUnitRoot === undefined) {
-        throw new InvalidStateError({
-          entity: 'chain',
-          currentState: PRE_REFINE_STATE,
-          attemptedAction: `refine-ticket-${String(ticket.id)}`,
-          message: `refine-ticket-${String(ticket.id)}: unit root missing — build-refine-unit must run first`,
-        });
-      }
-      return {
-        sprint: ctx.sprint,
-        ticket,
-        cwd: ctx.currentUnitRoot,
-        promptFile: ctx.currentPromptFile,
-        outputFile: ctx.currentOutputFile,
-      };
+      const leafName = `refine-ticket-${String(ticket.id)}`;
+      const sprint = assertCtxField(ctx, 'sprint', leafName, PRE_REFINE_STATE);
+      const promptFile = assertCtxField(ctx, 'currentPromptFile', leafName, PRE_REFINE_STATE);
+      const outputFile = assertCtxField(ctx, 'currentOutputFile', leafName, PRE_REFINE_STATE);
+      const cwd = assertCtxField(ctx, 'currentUnitRoot', leafName, PRE_REFINE_STATE);
+      return { sprint, ticket, cwd, promptFile, outputFile };
     },
     output: (ctx, out) => {
       // On reject, leave ctx unchanged — sprint is the same instance the leaf received and

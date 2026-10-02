@@ -9,7 +9,6 @@ export const ideateManifest: FlowManifest = {
   id: 'ideate',
   title: 'Ideate',
   description: 'Combine refine + plan in one interactive AI session — turn an idea into ticket + tasks.',
-  canBackground: false,
   triggers: { currentSprintStatus: ['draft'], requiresProject: true },
   costHint: 'single AI session — fast, low token spend',
 };

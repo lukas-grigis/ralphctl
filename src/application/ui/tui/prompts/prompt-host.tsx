@@ -79,7 +79,14 @@ export const PromptHost = ({ queue }: PromptHostProps): React.JSX.Element | null
 };
 
 const renderPrompt = (prompt: PendingPrompt, queue: PromptQueue): React.JSX.Element => {
-  const cancel = (): void => queue.rejectHead(new Error('cancelled by user'));
+  // A stale prompt's handler can fire once more before unmount; never let it answer the next head.
+  const isLive = (): boolean => queue.head?.id === prompt.id;
+  const submit = (value: unknown): void => {
+    if (isLive()) queue.resolveHead(value);
+  };
+  const cancel = (): void => {
+    if (isLive()) queue.rejectHead(new Error('cancelled by user'));
+  };
 
   switch (prompt.kind) {
     case 'text':
@@ -88,7 +95,7 @@ const renderPrompt = (prompt: PendingPrompt, queue: PromptQueue): React.JSX.Elem
           message={prompt.message}
           {...(prompt.initial !== undefined ? { initial: prompt.initial } : {})}
           {...(prompt.validate !== undefined ? { validate: prompt.validate } : {})}
-          onSubmit={(value): void => queue.resolveHead(value)}
+          onSubmit={submit}
           onCancel={cancel}
         />
       );
@@ -97,7 +104,7 @@ const renderPrompt = (prompt: PendingPrompt, queue: PromptQueue): React.JSX.Elem
         <TextAreaPrompt
           message={prompt.message}
           {...(prompt.initial !== undefined ? { initial: prompt.initial } : {})}
-          onSubmit={(value): void => queue.resolveHead(value)}
+          onSubmit={submit}
           onCancel={cancel}
         />
       );
@@ -106,26 +113,19 @@ const renderPrompt = (prompt: PendingPrompt, queue: PromptQueue): React.JSX.Elem
         <ConfirmPrompt
           message={prompt.message}
           {...(prompt.defaultValue !== undefined ? { defaultYes: prompt.defaultValue } : {})}
-          onSubmit={(value): void => queue.resolveHead(value)}
+          onSubmit={submit}
           onCancel={cancel}
         />
       );
     case 'choice':
-      return (
-        <SelectPrompt
-          message={prompt.message}
-          options={prompt.options}
-          onSubmit={(value): void => queue.resolveHead(value)}
-          onCancel={cancel}
-        />
-      );
+      return <SelectPrompt message={prompt.message} options={prompt.options} onSubmit={submit} onCancel={cancel} />;
     case 'multi-choice':
       return (
         <MultiSelectPrompt
           message={prompt.message}
           options={prompt.options}
           {...(prompt.initial !== undefined ? { initialSelectedValues: prompt.initial } : {})}
-          onSubmit={(values): void => queue.resolveHead(values)}
+          onSubmit={submit}
           onCancel={cancel}
         />
       );

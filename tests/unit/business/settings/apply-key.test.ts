@@ -133,27 +133,10 @@ describe('applySettingsKey', () => {
     if (!r.ok) expect(r.error.message).toContain('not a boolean');
   });
 
-  it('defaults scm.postRefinementComment to false', () => {
-    expect(DEFAULT_SETTINGS.scm.postRefinementComment).toBe(false);
-  });
-
-  it('toggles scm.postRefinementComment from common truthy/falsy synonyms', () => {
-    for (const raw of ['true', '1', 'yes', 'on'] as const) {
-      const r = applySettingsKey(DEFAULT_SETTINGS, 'scm.postRefinementComment', raw);
-      expect(r.ok).toBe(true);
-      if (r.ok) expect(r.value.scm.postRefinementComment).toBe(true);
-    }
-    for (const raw of ['false', '0', 'no', 'off'] as const) {
-      const r = applySettingsKey(DEFAULT_SETTINGS, 'scm.postRefinementComment', raw);
-      expect(r.ok).toBe(true);
-      if (r.ok) expect(r.value.scm.postRefinementComment).toBe(false);
-    }
-  });
-
-  it('rejects a non-boolean value for scm.postRefinementComment', () => {
-    const r = applySettingsKey(DEFAULT_SETTINGS, 'scm.postRefinementComment', 'maybe');
+  it('rejects the removed scm.postRefinementComment key as unknown', () => {
+    const r = applySettingsKey(DEFAULT_SETTINGS, 'scm.postRefinementComment', 'true');
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.error.message).toContain('not a boolean');
+    if (!r.ok) expect(r.error.message).toContain('unknown settings key');
   });
 
   it('binds an agent-definition name to the evaluator role under ai.implement.agents.evaluator', () => {

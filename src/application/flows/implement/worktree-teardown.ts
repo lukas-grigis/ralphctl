@@ -26,6 +26,7 @@ import {
   runQuarantineBlockedDiff,
 } from '@src/application/flows/implement/leaves/quarantine-blocked-diff.ts';
 import type { BuildWaveBranchesDeps } from '@src/application/flows/implement/wave-branch.ts';
+import { messageOf } from '@src/domain/value/error/error-message.ts';
 
 /**
  * The worktree teardown, split out of `wave-branch.ts` as its own module (the same way
@@ -139,7 +140,7 @@ const findPersistedTask = async (args: WorktreeTeardownArgs): Promise<Result<Tas
     return await args.deps.implement.taskRepo.findById(args.sprintId, args.taskId);
   } catch (error) {
     if (error instanceof AbortError) throw error;
-    const detail = error instanceof Error ? error.message : String(error);
+    const detail = messageOf(error);
     return Result.error(new StorageError({ subCode: 'io', message: `task lookup threw: ${detail}`, cause: error }));
   }
 };

@@ -2,6 +2,9 @@
 
 import { Result } from '@src/domain/result.ts';
 import { AbortError } from '@src/domain/value/error/abort-error.ts';
+import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
+import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
+import type { ValidationError } from '@src/domain/value/error/validation-error.ts';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
 import { replaceTicket } from '@src/domain/entity/sprint.ts';
 import type { Ticket } from '@src/domain/entity/ticket.ts';
@@ -12,7 +15,9 @@ import {
   setTicketTitle,
 } from '@src/domain/entity/ticket.ts';
 import { updateTask } from '@src/domain/entity/task-factory.ts';
+import { glyphs } from '@src/application/ui/tui/theme/tokens.ts';
 import type { OpenEditPromptInput } from '@src/application/ui/tui/runtime/use-edit-field.ts';
+import { editFresh } from '@src/application/ui/tui/runtime/edit-fresh.ts';
 import type { PromptQueue } from '@src/application/ui/tui/prompts/prompt-queue.ts';
 import type { Task } from '@src/domain/entity/task.ts';
 import type { SprintRepository } from '@src/domain/repository/sprint/sprint-repository.ts';
@@ -25,9 +30,29 @@ interface BuildTicketEditArgs {
   readonly sprint: Sprint;
   readonly ticket: Ticket;
   readonly field: TicketFieldKey;
-  readonly sprintRepo: Pick<SprintRepository, 'save'>;
+  readonly sprintRepo: Pick<SprintRepository, 'findById' | 'save'>;
   readonly reload: () => void;
 }
+
+// Requirements are only editable while the ticket is still approved — re-checked on the fresh copy.
+const applyTicketField = (
+  ticket: Ticket,
+  field: TicketFieldKey,
+  value: string
+): Result<Ticket, ValidationError | InvalidStateError> => {
+  if (field === 'title') return setTicketTitle(ticket, value);
+  if (field === 'description') return setTicketDescription(ticket, value.length === 0 ? undefined : value);
+  if (ticket.status !== 'approved') {
+    return Result.error(
+      new InvalidStateError({
+        entity: `ticket '${ticket.title}'`,
+        currentState: ticket.status,
+        attemptedAction: 'edit requirements',
+      })
+    );
+  }
+  return setTicketRequirements(ticket, value);
+};
 
 export const buildTicketEdit = (args: BuildTicketEditArgs): OpenEditPromptInput | undefined => {
   const { sprint, ticket, field, sprintRepo, reload } = args;
@@ -45,23 +70,24 @@ export const buildTicketEdit = (args: BuildTicketEditArgs): OpenEditPromptInput 
     kind: field === 'title' ? 'short' : 'long',
     currentValue: current,
     onSave: async (value) => {
-      const updated =
-        field === 'title'
-          ? setTicketTitle(ticket, value)
-          : field === 'description'
-            ? setTicketDescription(ticket, value.length === 0 ? undefined : value)
-            : ticket.status === 'approved'
-              ? setTicketRequirements(ticket, value)
-              : Result.ok(ticket);
-      if (!updated.ok) return Result.error(updated.error);
-      const replaced = replaceTicket(sprint, ticket.id, updated.value);
-      if (!replaced.ok) return Result.error(replaced.error);
-      const saved = await sprintRepo.save(replaced.value);
+      const saved = await editFresh(
+        () => sprintRepo.findById(sprint.id),
+        (fresh) => {
+          const freshTicket = fresh.tickets.find((t) => t.id === ticket.id);
+          if (freshTicket === undefined) {
+            return Result.error(new NotFoundError({ entity: 'ticket', id: String(ticket.id) }));
+          }
+          const updated = applyTicketField(freshTicket, field, value);
+          if (!updated.ok) return Result.error(updated.error);
+          return replaceTicket(fresh, ticket.id, updated.value);
+        },
+        (next) => sprintRepo.save(next)
+      );
       if (!saved.ok) return Result.error(saved.error);
       reload();
       return Result.ok(undefined);
     },
-    successLabel: `✓ updated ticket ${field}`,
+    successLabel: `${glyphs.check} updated ticket ${field}`,
   };
 };
 
@@ -69,7 +95,7 @@ interface BuildTaskEditArgs {
   readonly sprint: Sprint;
   readonly task: Task;
   readonly field: TaskFieldKey;
-  readonly taskRepo: Pick<TaskRepository, 'update'>;
+  readonly taskRepo: Pick<TaskRepository, 'findById' | 'update'>;
   readonly reload: () => void;
 }
 
@@ -83,14 +109,26 @@ export const buildTaskEdit = (args: BuildTaskEditArgs): OpenEditPromptInput | un
     currentValue: current,
     onSave: async (value) => {
       const update = field === 'name' ? { name: value } : { description: value.length === 0 ? null : value };
-      const next = updateTask(task, update);
-      if (!next.ok) return Result.error(next.error);
-      const saved = await taskRepo.update(sprint.id, next.value);
+      const saved = await editFresh(
+        () => taskRepo.findById(sprint.id, task.id),
+        (fresh) =>
+          // Implement may have started the task while the prompt was open; saving would wipe its attempt.
+          fresh.status !== 'todo'
+            ? Result.error(
+                new InvalidStateError({
+                  entity: `task '${fresh.name}'`,
+                  currentState: fresh.status,
+                  attemptedAction: 'edit',
+                })
+              )
+            : updateTask(fresh, update),
+        (next) => taskRepo.update(sprint.id, next)
+      );
       if (!saved.ok) return Result.error(saved.error);
       reload();
       return Result.ok(undefined);
     },
-    successLabel: `✓ updated task ${field}`,
+    successLabel: `${glyphs.check} updated task ${field}`,
   };
 };
 
@@ -99,11 +137,32 @@ interface RunEditArgs {
   readonly focusedTicket: Ticket | undefined;
   readonly focusedTodoTask: Task | undefined;
   readonly queue: PromptQueue;
-  readonly sprintRepo: Pick<SprintRepository, 'save'>;
-  readonly taskRepo: Pick<TaskRepository, 'update'>;
+  readonly sprintRepo: Pick<SprintRepository, 'findById' | 'save'>;
+  readonly taskRepo: Pick<TaskRepository, 'findById' | 'update'>;
   readonly reload: () => void;
   readonly openEditPrompt: (cfg: OpenEditPromptInput) => Promise<unknown>;
 }
+
+/** Ask which field to edit, then open that field's edit prompt; a dismissed choice is a silent no-op. */
+const pickFieldThenEdit = <K extends string>(
+  queue: PromptQueue,
+  message: string,
+  options: ReadonlyArray<{ readonly label: string; readonly value: K }>,
+  build: (field: K) => OpenEditPromptInput | undefined,
+  openEditPrompt: RunEditArgs['openEditPrompt']
+): void => {
+  new Promise<K>((resolve, reject) => {
+    queue.enqueue({ kind: 'choice', message, options, resolve, reject });
+  })
+    .then((field) => {
+      const cfg = build(field);
+      if (cfg !== undefined) void openEditPrompt(cfg);
+    })
+    .catch((cause: unknown) => {
+      if (cause instanceof AbortError) throw cause;
+      return undefined;
+    });
+};
 
 /**
  * Drive the edit flow end-to-end: if the user has a ticket focused, prompt them to pick a field and open the
@@ -119,22 +178,13 @@ export const runEdit = (args: RunEditArgs): void => {
         ? ([{ label: 'requirements', value: 'requirements' as const }] as const)
         : []),
     ];
-    if (options.length === 1) {
-      const cfg = buildTicketEdit({ sprint, ticket: focusedTicket, field: 'title', sprintRepo, reload });
-      if (cfg !== undefined) void openEditPrompt(cfg);
-      return;
-    }
-    new Promise<TicketFieldKey>((resolve, reject) => {
-      queue.enqueue({ kind: 'choice', message: 'Edit which ticket field?', options, resolve, reject });
-    })
-      .then((field) => {
-        const cfg = buildTicketEdit({ sprint, ticket: focusedTicket, field, sprintRepo, reload });
-        if (cfg !== undefined) void openEditPrompt(cfg);
-      })
-      .catch((cause: unknown) => {
-        if (cause instanceof AbortError) throw cause;
-        return undefined;
-      });
+    pickFieldThenEdit(
+      queue,
+      'Edit which ticket field?',
+      options,
+      (field) => buildTicketEdit({ sprint, ticket: focusedTicket, field, sprintRepo, reload }),
+      openEditPrompt
+    );
     return;
   }
   if (focusedTodoTask !== undefined) {
@@ -142,16 +192,12 @@ export const runEdit = (args: RunEditArgs): void => {
       { label: 'name', value: 'name' },
       { label: 'description', value: 'description' },
     ];
-    new Promise<TaskFieldKey>((resolve, reject) => {
-      queue.enqueue({ kind: 'choice', message: 'Edit which task field?', options, resolve, reject });
-    })
-      .then((field) => {
-        const cfg = buildTaskEdit({ sprint, task: focusedTodoTask, field, taskRepo, reload });
-        if (cfg !== undefined) void openEditPrompt(cfg);
-      })
-      .catch((cause: unknown) => {
-        if (cause instanceof AbortError) throw cause;
-        return undefined;
-      });
+    pickFieldThenEdit(
+      queue,
+      'Edit which task field?',
+      options,
+      (field) => buildTaskEdit({ sprint, task: focusedTodoTask, field, taskRepo, reload }),
+      openEditPrompt
+    );
   }
 };

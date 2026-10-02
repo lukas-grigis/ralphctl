@@ -7,6 +7,7 @@ import { learningSignalSchema } from '@src/integration/ai/contract/_engine/signa
 import { noteSignalSchema } from '@src/integration/ai/contract/_engine/signals/note/schema.ts';
 import { brandSignalArray } from '@src/integration/ai/contract/_engine/brand-signal-array.ts';
 import type { AiOutputContract } from '@src/integration/ai/contract/_engine/types.ts';
+import { wrapLegacySignalArray } from '@src/integration/ai/contract/_engine/legacy-array-migration.ts';
 
 /**
  * Per-leaf I/O contract for the ideate flow's interactive AI session — audit-[09]. The session
@@ -43,16 +44,6 @@ const signalsArraySchemaRaw = z
  * leaf consumes downstream. The runtime check is the source of truth.
  */
 const signalsArraySchema = brandSignalArray<IdeateSignal>(signalsArraySchemaRaw);
-
-/**
- * Legacy → v1 wrapping. Today's ideate leaf synthesises a bare top-level array of signals
- * from the AI's `ideate.json` body. Wave 6 swaps the prompt so the AI writes the
- * `{ schemaVersion, signals }` wrapper directly. Until then, this step shims the legacy shape.
- */
-const wrapLegacyArray = (raw: unknown): unknown => {
-  if (Array.isArray(raw)) return { schemaVersion: 1, signals: raw };
-  return raw;
-};
 
 /** Static ISO timestamp embedded in the rendered example. Real spawns stamp `IsoTimestamp.now()`. */
 const EXAMPLE_TS = '2026-05-22T10:00:00.000Z' as IsoTimestamp;
@@ -99,19 +90,10 @@ export const ideateOutputContract: AiOutputContract<IdeateSignal> = {
   signalsSchema: signalsArraySchema,
   sidecars: [],
   migrations: {
-    0: wrapLegacyArray,
+    0: wrapLegacySignalArray,
   },
   exampleSignals: ideateExampleSignals,
 };
-
-/**
- * Exported solely so the test grid can assert against the exact signal sub-union the
- * contract accepts. The leaf consumes the contract via `ideateOutputContract`; this alias
- * must not appear outside `__tests__/`.
- *
- * @public
- */
-export type IdeateContractSignal = IdeateSignal;
 
 const _signalCheck: IdeateSignal extends AiSignal ? true : false = true;
 void _signalCheck;

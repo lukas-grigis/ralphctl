@@ -64,8 +64,12 @@ const isStale = (task: SprintStateTask): boolean => task.status === 'in_progress
 
 const orEmDash = (value: string | null): string => (value !== null && value.length > 0 ? value : EM_DASH);
 
-/** Sprint identity block (`# Sprint:` / id / created). */
-const renderIdentity = (input: SprintStateHeaderInput): string[] => [
+/** Sprint identity block (`# Sprint:` / id / created), shared with the creation-time journal header. */
+export const renderSprintIdentity = (input: {
+  readonly sprintName: string;
+  readonly sprintId: string;
+  readonly createdAt: IsoTimestamp;
+}): string[] => [
   `# Sprint: ${cell(input.sprintName)}`,
   '',
   `- id: ${input.sprintId}`,
@@ -120,7 +124,7 @@ const renderTaskTable = (tasks: readonly SprintStateTask[]): string[] => {
 
 export const renderSprintStateHeader = (input: SprintStateHeaderInput): string =>
   [
-    ...renderIdentity(input),
+    ...renderSprintIdentity(input),
     ...renderStatus(input),
     ...renderBlockers(input.tasks),
     ...renderStale(input.tasks),

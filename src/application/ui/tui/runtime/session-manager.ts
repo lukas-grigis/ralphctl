@@ -131,16 +131,14 @@ type RegisterOptionalFields = Pick<
   | 'pinnedSprintLabel'
 >;
 
-/**
- * Mirrors {@link RegisterOptionalFields} but with every key REQUIRED (its value may still be `undefined`) — the shape
- * of a destructured `{ taskNames, maxTurns, ... }` literal under `exactOptionalPropertyTypes`.
- */
-type RegisterOptionalFieldsInput = {
-  readonly [K in keyof RegisterOptionalFields]-?: RegisterOptionalFields[K] | undefined;
-};
+type RegisterSessionInput = {
+  readonly runner: Runner<unknown>;
+  readonly flowId: string;
+  readonly title: string;
+} & RegisterOptionalFields;
 
 /** Copy only the DEFINED keys from `fields` onto a fresh object. */
-const withDefinedFields = (fields: RegisterOptionalFieldsInput): RegisterOptionalFields => {
+const withDefinedFields = (fields: RegisterOptionalFields): RegisterOptionalFields => {
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(fields)) {
     if (value !== undefined) out[key] = value;
@@ -303,30 +301,9 @@ const registerSession = (
   records: Map<string, SessionRecord>,
   listeners: ReadonlySet<SessionListener>,
   clock: () => number,
-  input: Parameters<SessionManager['register']>[0]
+  input: RegisterSessionInput
 ): SessionRecord => {
-  const {
-    runner,
-    flowId,
-    title,
-    taskNames,
-    maxTurns,
-    maxAttempts,
-    plannedLeaves,
-    planLabelByName,
-    terminalSubstepName,
-    taskRecovering,
-    generatorModel,
-    evaluatorModel,
-    generatorProvider,
-    evaluatorProvider,
-    generatorEffort,
-    evaluatorEffort,
-    pinnedProjectId,
-    pinnedProjectLabel,
-    pinnedSprintId,
-    pinnedSprintLabel,
-  } = input;
+  const { runner, flowId, title, ...optional } = input;
 
   evict(records, clock());
   const descriptor: SessionDescriptor = {
@@ -336,25 +313,7 @@ const registerSession = (
     status: runner.status,
     startedAt: clock(),
     trace: runner.trace,
-    ...withDefinedFields({
-      taskNames,
-      maxTurns,
-      maxAttempts,
-      plannedLeaves,
-      planLabelByName,
-      terminalSubstepName,
-      taskRecovering,
-      generatorModel,
-      evaluatorModel,
-      generatorProvider,
-      evaluatorProvider,
-      generatorEffort,
-      evaluatorEffort,
-      pinnedProjectId,
-      pinnedProjectLabel,
-      pinnedSprintId,
-      pinnedSprintLabel,
-    }),
+    ...withDefinedFields(optional),
   };
   const record: SessionRecord = { descriptor, runner: runner as Runner<unknown> };
   records.set(runner.id, record);
@@ -387,28 +346,7 @@ export interface SessionManager {
   list(): readonly SessionRecord[];
   get(id: string): SessionRecord | undefined;
   /** Register a runner with the manager. */
-  register(input: {
-    readonly runner: Runner<unknown>;
-    readonly flowId: string;
-    readonly title: string;
-    readonly taskNames?: ReadonlyMap<string, string>;
-    readonly maxTurns?: number;
-    readonly maxAttempts?: number;
-    readonly plannedLeaves?: readonly string[];
-    readonly planLabelByName?: ReadonlyMap<string, string>;
-    readonly terminalSubstepName?: string;
-    readonly taskRecovering?: ReadonlyMap<string, RecoveryContext>;
-    readonly generatorModel?: string;
-    readonly evaluatorModel?: string;
-    readonly generatorProvider?: AiProvider;
-    readonly evaluatorProvider?: AiProvider;
-    readonly generatorEffort?: string;
-    readonly evaluatorEffort?: string;
-    readonly pinnedProjectId?: ProjectId;
-    readonly pinnedProjectLabel?: string;
-    readonly pinnedSprintId?: SprintId;
-    readonly pinnedSprintLabel?: string;
-  }): SessionRecord;
+  register(input: RegisterSessionInput): SessionRecord;
   /** Request the runner to abort. No-op if the session is already terminal. */
   abort(id: string): void;
   /** Drop a session from the registry. Used after the user dismisses a finished run. */

@@ -279,3 +279,31 @@ describe('AddTicketView — failure steps always have an exit', () => {
     await waitForPredicate(() => routeIds().at(-1) === 'sprints');
   });
 });
+
+describe('AddTicketView — session count', () => {
+  it('counts consecutive added tickets (1, then 2) on the added step', async () => {
+    let stored: Sprint = makeDraftSprint();
+    const deps = {
+      sprintRepo: {
+        findById: async () => Result.ok(stored),
+        save: async (next: Sprint) => {
+          stored = next;
+          return Result.ok(undefined);
+        },
+      } as unknown as SprintRepository,
+    } as unknown as AppDeps;
+    const { result } = renderView(<AddTicketView />, {
+      deps,
+      initial: { id: 'add-ticket', props: { sprintId: stored.id } },
+    });
+
+    await fillTicket(result, 'First ticket');
+    await waitFor(() => expect(result.lastFrame()).toContain('1 ticket added this session'));
+    expect(result.lastFrame()).toContain('Add another ticket?');
+    result.stdin.write('y');
+
+    await fillTicket(result, 'Second ticket');
+    await waitFor(() => expect(result.lastFrame()).toContain('2 tickets added this session'));
+    expect(stored.tickets).toHaveLength(2);
+  });
+});

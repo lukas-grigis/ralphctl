@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { AI_PROVIDERS, AI_PROVIDERS_HINT, type AiProvider } from '@src/domain/entity/settings.ts';
+import { AI_PROVIDERS, AI_PROVIDERS_HINT, type AiProvider, SettingsSchema } from '@src/domain/entity/settings.ts';
+import { FLOW_IDS } from '@src/domain/value/flow-id.ts';
 import { applySettingsKey } from '@src/business/settings/apply-key.ts';
 import { parseImplementRoleOverrides } from '@src/application/ui/cli/parse-implement-role-overrides.ts';
 import { AI_PROVIDERS as SETTINGS_VIEW_PROVIDERS } from '@src/application/ui/tui/views/settings-view-model.ts';
@@ -57,4 +58,20 @@ describe('every provider is settable and offered', () => {
   it('the TUI settings view offers every provider', () => {
     expect([...SETTINGS_VIEW_PROVIDERS].sort()).toEqual([...AI_PROVIDERS].sort());
   });
+});
+
+describe('stale-row migration covers every flat flow row', () => {
+  it.each(FLOW_IDS.filter((flow) => flow !== 'implement'))(
+    "rewrites a codex %s row's retired effort 'minimal' to 'low'",
+    (flow) => {
+      const stale = {
+        ...DEFAULT_SETTINGS,
+        ai: { ...DEFAULT_SETTINGS.ai, [flow]: { provider: 'openai-codex', model: 'gpt-6-luna', effort: 'minimal' } },
+      };
+      const parsed = SettingsSchema.safeParse(stale);
+      expect(parsed.success).toBe(true);
+      if (!parsed.success) return;
+      expect(parsed.data.ai[flow]).toMatchObject({ provider: 'openai-codex', effort: 'low' });
+    }
+  );
 });

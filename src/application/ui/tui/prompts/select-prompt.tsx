@@ -4,12 +4,16 @@ import React, { useState } from 'react';
 import { Box, Text } from 'ink';
 import { usePromptInput } from '@src/application/ui/tui/prompts/use-prompt-input.ts';
 import type { Choice } from '@src/business/interactive/prompt.ts';
-import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
+import { glyphs, inkColors, PROMPT_VISIBLE_ROWS, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { ScrollableMessage } from '@src/application/ui/tui/prompts/scrollable-message.tsx';
 import { usePromptHints } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
 import { isChord } from '@src/application/ui/tui/runtime/key-chord.ts';
-
-const VISIBLE_ROWS = 8;
+import { computeListWindow } from '@src/application/ui/tui/components/windowed-list.tsx';
+import {
+  firstEnabledIndex,
+  lastEnabledIndex,
+  nextEnabledIndex,
+} from '@src/application/ui/tui/prompts/choice-cursor.ts';
 
 const clamp = (n: number, min: number, max: number): number => Math.max(min, Math.min(max, n));
 
@@ -21,30 +25,6 @@ export interface SelectPromptProps {
   /** Optional dim line rendered between the option list and the navigation legend. */
   readonly footer?: string;
 }
-
-const isEnabled = (opt: Choice<unknown> | undefined): boolean => opt !== undefined && opt.disabled !== true;
-
-/** Walk from `from` (exclusive) in `direction` (-1 or +1) and return the first enabled index. */
-const nextEnabledIndex = (options: ReadonlyArray<Choice<unknown>>, from: number, direction: -1 | 1): number => {
-  for (let i = from + direction; i >= 0 && i < options.length; i += direction) {
-    if (isEnabled(options[i])) return i;
-  }
-  return from;
-};
-
-const firstEnabledIndex = (options: ReadonlyArray<Choice<unknown>>): number => {
-  for (let i = 0; i < options.length; i += 1) {
-    if (isEnabled(options[i])) return i;
-  }
-  return 0;
-};
-
-const lastEnabledIndex = (options: ReadonlyArray<Choice<unknown>>): number => {
-  for (let i = options.length - 1; i >= 0; i -= 1) {
-    if (isEnabled(options[i])) return i;
-  }
-  return Math.max(0, options.length - 1);
-};
 
 const SELECT_HINTS = [
   { keys: '↑/↓', label: 'move' },
@@ -88,16 +68,14 @@ export const SelectPrompt = ({
     else if (input === 'G') setCursor(lastEnabledIndex(options));
   });
 
-  const half = Math.floor(VISIBLE_ROWS / 2);
-  const start = clamp(cursor - half, 0, Math.max(0, options.length - VISIBLE_ROWS));
-  const end = Math.min(options.length, start + VISIBLE_ROWS);
+  const { start, end } = computeListWindow(options.length, cursor, PROMPT_VISIBLE_ROWS);
 
   return (
     <Box flexDirection="column" paddingX={spacing.indent}>
       <ScrollableMessage
         message={message}
         ownsArrows={false}
-        reservedRows={Math.min(options.length, VISIBLE_ROWS) + (footer !== undefined ? 1 : 0)}
+        reservedRows={Math.min(options.length, PROMPT_VISIBLE_ROWS) + (footer !== undefined ? 1 : 0)}
       />
       <Box flexDirection="column" marginTop={spacing.section}>
         {options.slice(start, end).map((opt, localIdx) => {
@@ -128,7 +106,7 @@ export const SelectPrompt = ({
           );
         })}
       </Box>
-      {options.length > VISIBLE_ROWS && (
+      {options.length > PROMPT_VISIBLE_ROWS && (
         <Text dimColor>
           {String(cursor + 1)} of {String(options.length)}
         </Text>

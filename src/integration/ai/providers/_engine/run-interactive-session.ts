@@ -18,7 +18,7 @@ import {
   isArgvOverflow,
 } from '@src/integration/ai/providers/_engine/argv-budget.ts';
 import { buildPromptPointer } from '@src/integration/ai/providers/_engine/prompt-pointer.ts';
-import { persistSessionIdFile } from '@src/integration/ai/providers/_engine/persist-session-id.ts';
+import { persistSessionIdBestEffort } from '@src/integration/ai/providers/_engine/persist-session-id.ts';
 import { attachAbortKill } from '@src/integration/ai/providers/_engine/abort-kill.ts';
 import { recordSpawnContext } from '@src/integration/ai/providers/_engine/spawn-context-probe.ts';
 import { validateModel } from '@src/integration/ai/providers/_engine/validate-model.ts';
@@ -277,28 +277,6 @@ const classifyExit = (
   });
 };
 
-/**
- * Mirror the session id next to `outputFile` (the interactive counterpart of the headless
- * contract, which lands the file next to `signalsFile`). Best-effort: a write failure is logged
- * and ignored — the id still comes back in the Result so subscribers can correlate.
- */
-const mirrorSessionId = async (
-  deps: InteractiveProviderDeps,
-  providerName: string,
-  input: InteractiveAiProviderInput,
-  sessionId: string
-): Promise<void> => {
-  const wrote = await persistSessionIdFile(input.outputFile, sessionId);
-  if (wrote === undefined || wrote.ok) return;
-  deps.eventBus.publish({
-    type: 'log',
-    level: 'warn',
-    message: `${providerName}: failed to write sessionId file — resume re-attach may need log parsing`,
-    meta: { error: wrote.error.message },
-    at: IsoTimestamp.now(),
-  });
-};
-
 export const createInteractiveProvider = (
   spec: InteractiveProviderSpec,
   deps: InteractiveProviderDeps
@@ -379,7 +357,8 @@ export const createInteractiveProvider = (
       if (failure !== undefined) return Result.error(failure);
 
       if (sessionId === undefined) return Result.ok({});
-      await mirrorSessionId(deps, spec.providerName, input, sessionId);
+      // Interactive counterpart of the headless contract: the id lands next to `outputFile`, not `signalsFile`.
+      await persistSessionIdBestEffort(deps.eventBus, spec.providerName, input.outputFile, sessionId);
       return Result.ok({ sessionId });
     },
   };

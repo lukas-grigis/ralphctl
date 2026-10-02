@@ -13,6 +13,8 @@ import { TextPrompt } from '@src/application/ui/tui/prompts/text-prompt.tsx';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { useTerminalSize } from '@src/application/ui/tui/runtime/use-terminal-size.ts';
 import { usePromptHints, type PromptHint } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
+import { computeListWindow } from '@src/application/ui/tui/components/windowed-list.tsx';
+import { messageOf } from '@src/domain/value/error/error-message.ts';
 
 export interface PathPickerPromptProps {
   readonly message: string;
@@ -69,7 +71,7 @@ const useDirectoryEntries = (cwd: string, showHidden: boolean): DirectoryEntries
       } catch (err) {
         if (cancelled) return;
         setEntries([]);
-        setError(err instanceof Error ? err.message : String(err));
+        setError(messageOf(err));
       }
     };
     void load();
@@ -279,9 +281,7 @@ export const PathPickerPrompt = ({
 
   // Windowed slice around the cursor so deep directories stay scrollable.
   const visibleRows = clamp(termRows - AROUND_LIST_ROWS, MIN_VISIBLE_ROWS, MAX_VISIBLE_ROWS);
-  const half = Math.floor(visibleRows / 2);
-  const start = clamp(cursor - half, 0, Math.max(0, rows.length - visibleRows));
-  const end = Math.min(rows.length, start + visibleRows);
+  const { start, end } = computeListWindow(rows.length, cursor, visibleRows);
 
   return (
     <Box flexDirection="column">

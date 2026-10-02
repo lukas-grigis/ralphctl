@@ -603,6 +603,17 @@ describe('ContextSwitcher — + New sprint row', () => {
     f.result.unmount();
   });
 
+  it('surfaces a launch failure in the banner of the view underneath once the overlay has closed', async () => {
+    launchSprintBoundFlow.mockResolvedValue({ ok: false, reason: 'sprint lock held' });
+    const f = await open(oneSprint, { selection: SEL_A });
+    f.result.stdin.write('c');
+    await waitFor(() => expect(launchSprintBoundFlow).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(frameOf(f)).toContain('sprint lock held'));
+    expect(frameOf(f)).not.toContain('switch sprint or project');
+    expect(frameOf(f)).toContain('count:0');
+    f.result.unmount();
+  });
+
   it('↵ on the create row launches create-sprint too', async () => {
     const f = await open(oneSprint, { selection: SEL_A });
     f.result.stdin.write(HOME);

@@ -1,8 +1,7 @@
-import { promises as fs } from 'node:fs';
 import { Result } from '@src/domain/result.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
 import type { WriteFile } from '@src/business/io/write-file.ts';
-import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
+import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
@@ -10,6 +9,7 @@ import type { AssistantTool } from '@src/integration/ai/readiness/_engine/tool.t
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
 import type { DistillLearningsCtx } from '@src/application/flows/_shared/memory/distill-ctx.ts';
+import { writeWithBackup } from '@src/application/flows/_shared/write-with-backup.ts';
 
 export interface DistillWriteLeafDeps {
   readonly writeFile: WriteFile;
@@ -52,18 +52,12 @@ const distillWriteUseCase = async (
   }
 
   const targetPath = input.targetPath;
-  if (await fileExists(String(targetPath))) {
-    const existing = await safeReadText(String(targetPath));
-    if (existing !== undefined) {
-      const parsedBackup = AbsolutePath.parse(makeBackupPath(targetPath, deps.clock()));
-      if (!parsedBackup.ok) return Result.error(parsedBackup.error);
-      const backup = await deps.writeFile(parsedBackup.value, existing);
-      if (!backup.ok) return Result.error(backup.error);
-      log.info(`backup written at ${String(parsedBackup.value)}`, { backupPath: String(parsedBackup.value) });
-    }
-  }
-
-  const written = await deps.writeFile(targetPath, input.proposedContent);
+  const written = await writeWithBackup(
+    { writeFile: deps.writeFile, clock: deps.clock, logger: log },
+    targetPath,
+    input.proposedContent,
+    `distill-write-${tool}`
+  );
   if (!written.ok) return Result.error(written.error);
 
   log.info(`wrote distilled learnings to ${String(targetPath)}`, {
@@ -71,25 +65,6 @@ const distillWriteUseCase = async (
     bytes: input.proposedContent.length,
   });
   return Result.ok(true);
-};
-
-const makeBackupPath = (targetPath: AbsolutePath, now: IsoTimestamp): string =>
-  `${String(targetPath)}.bak.${String(now).replace(/:/g, '-')}`;
-
-const fileExists = async (path: string): Promise<boolean> => {
-  try {
-    return (await fs.stat(path)).isFile();
-  } catch {
-    return false;
-  }
-};
-
-const safeReadText = async (path: string): Promise<string | undefined> => {
-  try {
-    return await fs.readFile(path, 'utf8');
-  } catch {
-    return undefined;
-  }
 };
 
 /**

@@ -6,6 +6,8 @@ import type { AbortCause, AbortMetadata, AttemptUsage, AttemptWarning } from '@s
 import type { UpdateTask } from '@src/domain/repository/task/update-task.ts';
 import type { BlockedTask, DoneTask, FaultSide, InProgressTask } from '@src/domain/entity/task.ts';
 import { publishTaskBlocked } from '@src/business/task/publish-task-blocked.ts';
+import type { RunTaskVerdict } from '@src/business/task/gen-eval-exit.ts';
+import { blockedTriageCarry } from '@src/business/task/run-generator-turn.ts';
 import {
   recordRunningAttemptSessionId,
   recordRunningAttemptUsage,
@@ -44,12 +46,10 @@ import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
  * exhausted or the attempt budget runs out the work is preserved (`markTaskDone` + warning) — the
  * operator inspects the warning and decides whether to redo the task.
  */
-export type SettleVerdict = 'passed' | 'failed' | 'malformed';
-
 export interface SettleAttemptProps {
   readonly task: InProgressTask;
   readonly sprintId: SprintId;
-  readonly verdict: SettleVerdict;
+  readonly verdict: RunTaskVerdict;
   readonly blockedReason?: string;
   readonly warning?: AttemptWarning;
   /**
@@ -57,8 +57,8 @@ export interface SettleAttemptProps {
    * policy when a plateau triggered a once-per-task generator-model upgrade — the attempt's
    * critique stays useful but the task must stay `in_progress` so the next chain invocation
    * picks it up with the escalated model. When the running attempt count then reaches
-   * `task.maxAttempts`, `failCurrentAttempt` itself transitions the task to `blocked`. Ignored
-   * when `blockedReason` is set (the block path already settles the attempt as aborted).
+   * `task.maxAttempts`, `failCurrentAttempt` itself transitions the task to `blocked`. Takes
+   * precedence over `blockedReason` — see the PRECEDENCE note in `settleTask`.
    */
   readonly shouldFailAttempt?: boolean;
   /**
@@ -188,19 +188,6 @@ const classifyIfBlocked = (
 };
 
 /**
- * The generator's structured triage fields (see {@link SettleAttemptProps.blockerClass}), ready to
- * spread onto a `BlockedTask` literal — each present only when the caller supplied it. Split out
- * so both branches of {@link settleAsBlocked} stamp them identically rather than drifting.
- */
-const triageCarry = (
-  hints: Pick<SettleAttemptProps, 'blockerClass' | 'question' | 'whatUnblocksMe'>
-): Pick<BlockedTask, 'blockerClass' | 'question' | 'whatUnblocksMe'> => ({
-  ...(hints.blockerClass !== undefined ? { blockerClass: hints.blockerClass } : {}),
-  ...(hints.question !== undefined ? { question: hints.question } : {}),
-  ...(hints.whatUnblocksMe !== undefined ? { whatUnblocksMe: hints.whatUnblocksMe } : {}),
-});
-
-/**
  * Settle the running attempt into the terminal `blocked` state for the block path — the one
  * in-process settle that closes an attempt as `aborted`, then classifies WHY from the real block
  * reason text. Extracted out of {@link settleTask}: this path's own abort/classify/status-shape
@@ -230,11 +217,17 @@ const settleAsBlocked = (
   // A self-block (the generator emitted `<task-blocked>`) is an own-failure block — the operator
   // must address the blocker; it never cascade-clears via the upstream-unblock path.
   if (aborted.value.status === 'blocked') {
-    return Result.ok({ ...aborted.value, blockedReason, blockKind: 'own', ...classification, ...triageCarry(hints) });
+    return Result.ok({
+      ...aborted.value,
+      blockedReason,
+      blockKind: 'own',
+      ...classification,
+      ...blockedTriageCarry(hints),
+    });
   }
   const marked = markTaskBlocked(aborted.value, blockedReason, 'own', classification);
   if (!marked.ok) return marked;
-  return Result.ok({ ...marked.value, ...triageCarry(hints) });
+  return Result.ok({ ...marked.value, ...blockedTriageCarry(hints) });
 };
 
 const settleTask = (

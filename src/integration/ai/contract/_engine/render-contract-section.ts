@@ -78,12 +78,7 @@ export const renderContractSection = (params: RenderContractSectionParams): stri
     lines.push('Files the harness will render from your signals (you must NOT write these):');
     lines.push('');
     for (const rule of params.sidecars) {
-      const mult =
-        rule.multiplicity === 'one'
-          ? 'required'
-          : rule.multiplicity === 'optional'
-            ? 'optional'
-            : 'one per matching signal';
+      const mult = rule.multiplicity === 'one' ? 'required' : 'optional';
       lines.push(`- \`${rule.filename}\` — derived from a \`${rule.signalKind}\` signal (${mult}).`);
     }
     lines.push('');

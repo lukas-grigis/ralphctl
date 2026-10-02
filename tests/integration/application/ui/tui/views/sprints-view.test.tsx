@@ -20,7 +20,7 @@ import { DOWN, END, tick } from '@tests/integration/application/ui/tui/_keys.ts'
 import { waitForPredicate } from '@tests/integration/application/ui/tui/_wait.ts';
 import { renderView, waitForViewReady } from '@tests/integration/application/ui/tui/_harness.tsx';
 import { createPromptQueue } from '@src/application/ui/tui/prompts/prompt-queue.ts';
-import { makeDraftSprint, makeTodoTask } from '@tests/fixtures/domain.ts';
+import { makeActiveSprint, makeDraftSprint, makeReviewSprint, makeTodoTask } from '@tests/fixtures/domain.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import { startNextAttempt } from '@src/domain/entity/task-attempts.ts';
 import { failCurrentAttempt } from '@src/domain/entity/task-settle.ts';
@@ -179,6 +179,38 @@ describe('SprintsView', () => {
     expect(save).toHaveBeenCalledTimes(1);
     const renamed = save.mock.calls[0]?.[0];
     expect(renamed?.name).toBe('Misspelled Sprint');
+    result.unmount();
+  });
+
+  it('rename re-reads the sprint before saving, so a status change made meanwhile survives', async () => {
+    const listed: Sprint = { ...makeActiveSprint(), name: 'Mispeld Sprint' };
+    // A background implement moved the sprint to review while the rename prompt was open.
+    const onDisk: Sprint = { ...makeReviewSprint(), id: listed.id, name: 'Mispeld Sprint' };
+    const save = vi.fn(async (s: Sprint) => Result.ok<Sprint>(s));
+    const repo = {
+      async list() {
+        return Result.ok([listed] as readonly Sprint[]);
+      },
+      async findById() {
+        return Result.ok(onDisk);
+      },
+      save,
+      async remove() {
+        return Result.ok(undefined);
+      },
+    } as unknown as SprintRepository;
+    const queue = createPromptQueue();
+    const deps = stubDeps([listed]);
+    (deps as unknown as { sprintRepo: SprintRepository }).sprintRepo = repo;
+    const { result } = renderView(<SprintsView />, { deps, initial: { id: 'sprints' }, queue });
+    await waitForViewReady(result, (f) => f.includes('Mispeld Sprint'));
+    result.stdin.write('e');
+    await waitForPredicate(() => queue.head !== undefined);
+    queue.resolveHead('Misspelled Sprint');
+    await waitForPredicate(() => save.mock.calls.length > 0);
+    const saved = save.mock.calls[0]?.[0];
+    expect(saved?.name).toBe('Misspelled Sprint');
+    expect(saved?.status).toBe('review');
     result.unmount();
   });
 

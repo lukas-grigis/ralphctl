@@ -5,6 +5,7 @@ import { Result } from '@src/domain/result.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import { ValidationError } from '@src/domain/value/error/validation-error.ts';
 import { SprintId } from '@src/domain/value/id/sprint-id.ts';
+import { fail } from '@src/application/ui/cli/report-cli-error.ts';
 import { createLastSelectionStore } from '@src/integration/persistence/selection/last-selection-store.ts';
 
 export interface ResolvedSprintId {
@@ -60,3 +61,48 @@ export const resolveSprintId = async (
  */
 export const pinFallbackNotice = (id: SprintId): string =>
   `using current sprint ${String(id)} (from sprint set-current; pass --sprint to override)\n`;
+
+export interface SprintOpt {
+  readonly sprint?: string;
+}
+
+export const SPRINT_OPTION_FLAGS = '-s, --sprint <id>';
+export const SPRINT_OPTION_DESC = 'sprint id (defaults to the current sprint)';
+
+/** CLI preamble: resolve the sprint, `fail()` on error, announce a pin fallback; `undefined` means "already reported". */
+export const resolveSprintForCli = async (
+  raw: string | undefined,
+  stateRoot: AbsolutePath
+): Promise<SprintId | undefined> => {
+  const resolved = await resolveSprintId(raw, stateRoot);
+  if (!resolved.ok) {
+    fail(resolved.error.message);
+    return undefined;
+  }
+  if (resolved.value.fromPin) process.stderr.write(pinFallbackNotice(resolved.value.sprintId));
+  return resolved.value.sprintId;
+};
+
+/** Like `resolveSprintForCli` plus an entity id; the pin notice prints only once both ids are valid. */
+export const resolveSprintAndIdForCli = async <T>(
+  rawSprint: string | undefined,
+  stateRoot: AbsolutePath,
+  rawId: string,
+  parse: (
+    raw: string
+  ) => { readonly ok: true; readonly value: T } | { readonly ok: false; readonly error: { readonly message: string } },
+  label: 'task' | 'ticket'
+): Promise<{ readonly sprintId: SprintId; readonly id: T } | undefined> => {
+  const resolved = await resolveSprintId(rawSprint, stateRoot);
+  if (!resolved.ok) {
+    fail(resolved.error.message);
+    return undefined;
+  }
+  const id = parse(rawId);
+  if (!id.ok) {
+    fail(`invalid ${label} id: ${id.error.message}`);
+    return undefined;
+  }
+  if (resolved.value.fromPin) process.stderr.write(pinFallbackNotice(resolved.value.sprintId));
+  return { sprintId: resolved.value.sprintId, id: id.value };
+};

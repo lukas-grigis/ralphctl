@@ -4,6 +4,7 @@
  */
 
 import { glyphs } from '@src/application/ui/tui/theme/tokens.ts';
+import { clipWithEllipsis } from '@src/application/ui/tui/components/format.ts';
 
 export type LocationTone = 'badge' | 'section' | 'trail' | 'subtitle' | 'dim' | 'name' | 'key' | 'chip';
 
@@ -50,14 +51,6 @@ const MIN_NAME = 4;
 const w = (s: string): number => [...s].length;
 const total = (segs: readonly LocationSegment[]): number => segs.reduce((n, s) => n + w(s.text), 0);
 const join = (segs: readonly LocationSegment[]): string => segs.map((s) => s.text).join('');
-
-/** Shorten to `max` cells with a trailing `…` (whole-glyph). */
-export const clipWithEllipsis = (text: string, max: number): string => {
-  const cps = [...text];
-  if (cps.length <= max) return text;
-  if (max <= 0) return '';
-  return `${cps.slice(0, max - 1).join('')}${glyphs.clipEllipsis}`;
-};
 
 const chipText = (status: string): string => `[${status.toUpperCase().replace(/_/g, ' ')}]`;
 

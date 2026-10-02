@@ -8,6 +8,8 @@ import type { AiFlowSettings, AiProvider, Settings } from '@src/domain/entity/se
 import { AI_PROVIDERS as DOMAIN_AI_PROVIDERS } from '@src/domain/entity/settings.ts';
 import type { FlowId } from '@src/domain/value/flow-id.ts';
 import { PROVIDER_EFFORT_LEVELS } from '@src/domain/value/settings-models/effort.ts';
+import { isSuspendedModel, SUSPENSION_NOTE } from '@src/domain/value/settings-models/suspended-models.ts';
+import { contextWindowLabel } from '@src/domain/value/settings-models/context-window.ts';
 import { PROVIDER_TRAITS } from '@src/integration/ai/providers/_engine/provider-traits.ts';
 
 /**
@@ -269,6 +271,15 @@ export const effectiveEscalationChains = (user: Readonly<Record<string, string>>
  * provider-to-catalog switch.
  */
 export const modelOptionsFor = (provider: AiProvider): readonly string[] => PROVIDER_TRAITS[provider].modelCatalog;
+
+/** Build the display label for a model picker option. */
+export const annotateModelLabel = (model: string): string => {
+  const windowPart = contextWindowLabel(model);
+  const suspendedPart = isSuspendedModel(model) ? `(${SUSPENSION_NOTE})` : undefined;
+  const annotations = [windowPart, suspendedPart].filter((s): s is string => s !== undefined);
+  if (annotations.length === 0) return model;
+  return `${model}  ${glyphs.bullet}  ${annotations.join('  ')}`;
+};
 
 export const capitalize = (s: string): string => (s.length === 0 ? s : s[0]!.toUpperCase() + s.slice(1));
 

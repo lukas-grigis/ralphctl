@@ -416,8 +416,29 @@ export interface AbortMetadata {
 }
 
 /**
- * Settle a running attempt. Transition into `verified` requires verification to be present —
- * the structural guarantee that a verified attempt carries the artifact that proved it.
+ * Settle a running attempt as `verified`. Requires verification to be present — the structural
+ * guarantee that a verified attempt carries the artifact that proved it.
+ */
+export const verifyAttempt = (
+  att: RunningAttempt,
+  finishedAt: IsoTimestamp
+): Result<VerifiedAttempt, InvalidStateError> => {
+  if (att.verification === undefined) {
+    return Result.error(
+      new InvalidStateError({
+        entity: 'attempt',
+        currentState: 'running',
+        attemptedAction: 'complete-as-verified',
+        message: `cannot mark attempt n=${att.n} verified: no verification recorded`,
+        hint: 'Call recordAttemptVerification before completing as verified.',
+      })
+    );
+  }
+  return Result.ok({ ...att, status: 'verified', finishedAt, verification: att.verification });
+};
+
+/**
+ * Settle a running attempt as `failed` / `malformed` / `aborted` — infallible.
  *
  * The optional `abortMeta` is consumed only on the `'aborted'` transition; passing it on any
  * other status is a no-op (silently dropped). Callers thread it through `failCurrentAttempt`
@@ -426,34 +447,20 @@ export interface AbortMetadata {
  */
 export const completeAttempt = (
   att: RunningAttempt,
-  status: TerminalAttempt['status'],
+  status: FailedAttempt['status'],
   finishedAt: IsoTimestamp,
   abortMeta?: AbortMetadata
-): Result<TerminalAttempt, InvalidStateError> => {
-  if (status === 'verified') {
-    if (att.verification === undefined) {
-      return Result.error(
-        new InvalidStateError({
-          entity: 'attempt',
-          currentState: 'running',
-          attemptedAction: 'complete-as-verified',
-          message: `cannot mark attempt n=${att.n} verified: no verification recorded`,
-          hint: 'Call recordAttemptVerification before completing as verified.',
-        })
-      );
-    }
-    return Result.ok({ ...att, status: 'verified', finishedAt, verification: att.verification });
-  }
+): FailedAttempt => {
   if (status === 'aborted' && abortMeta !== undefined) {
-    return Result.ok({
+    return {
       ...att,
       status,
       finishedAt,
       abortCause: abortMeta.abortCause,
       ...(abortMeta.signalOrExitCode !== undefined ? { signalOrExitCode: abortMeta.signalOrExitCode } : {}),
-    });
+    };
   }
-  return Result.ok({ ...att, status, finishedAt });
+  return { ...att, status, finishedAt };
 };
 
 /** Cut short by the harness or the operator, not the model: free against `maxAttempts` (streak-capped). */

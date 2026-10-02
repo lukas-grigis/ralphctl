@@ -14,6 +14,7 @@ import {
   preflightTaskLeaf,
 } from '@src/application/flows/implement/leaves/preflight-task.ts';
 import { type RepoExecConfig, resolveRepoOrThrow } from '@src/application/flows/implement/leaves/resolve-repo.ts';
+import type { SetupRepoEntry } from '@src/application/flows/implement/leaves/setup-script-runner.ts';
 
 /**
  * Pure helpers that project the implement chain's input bag into the per-repo derived shapes
@@ -48,12 +49,6 @@ export const uniqueRepoCwdsForTasks = (
   }
   return out;
 };
-
-export interface SetupRepoEntry {
-  readonly repositoryId: RepositoryId;
-  readonly path: AbsolutePath;
-  readonly setupScript?: string;
-}
 
 export const setupRepoEntriesForTasks = (
   repositories: ReadonlyMap<RepositoryId, RepoExecConfig>,

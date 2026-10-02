@@ -3,6 +3,7 @@ import type { Task } from '@src/domain/entity/task.ts';
 import type { InteractivePrompt } from '@src/business/interactive/prompt.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import { AbortError } from '@src/domain/value/error/abort-error.ts';
+import { nameBlockedTasks } from '@src/business/sprint/name-blocked-tasks.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
 
@@ -18,15 +19,6 @@ export interface ConfirmBlockedTasksLeafDeps {
 interface ConfirmBlockedTasksInput {
   readonly blockedTasks: readonly Task[];
 }
-
-/** Longest task-name list spelled out before the tail collapses to "and N more". */
-const MAX_NAMED_TASKS = 5;
-
-const nameBlockedTasks = (blocked: readonly Task[]): string => {
-  const named = blocked.slice(0, MAX_NAMED_TASKS).map((t) => t.name);
-  const remainder = blocked.length - named.length;
-  return remainder > 0 ? `${named.join(', ')}, and ${String(remainder)} more` : named.join(', ');
-};
 
 /**
  * Ask the operator to confirm transitioning a sprint to `done` despite blocked tasks, naming

@@ -46,7 +46,7 @@ describe('createProcessLiveness().identify', () => {
 
     expect(identity).toEqual({ startedAt: 'Fri Oct 2 07:40:35 2026', command: '/usr/local/bin/claude --print' });
     expect(calls).toEqual([
-      { name: 'ps', args: ['-o', 'lstart=', '-o', 'comm=', '-p', '4242'], opts: { env: { LC_ALL: 'C' } } },
+      { name: 'ps', args: ['-o', 'lstart=', '-o', 'comm=', '-p', '4242'], opts: { env: { LC_ALL: 'C', TZ: 'UTC' } } },
     ]);
   });
 

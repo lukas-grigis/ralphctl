@@ -1,7 +1,7 @@
 import { Result } from '@src/domain/result.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
-import { StorageError } from '@src/domain/value/error/storage-error.ts';
-import type { GitRunner, GitRunResult } from '@src/integration/io/git-runner.ts';
+import type { StorageError } from '@src/domain/value/error/storage-error.ts';
+import { runGitChecked, type GitRunner } from '@src/integration/io/git-runner.ts';
 
 /**
  * Entry-level working-tree snapshots and a path-scoped discard — what the implement flow needs to
@@ -39,9 +39,6 @@ const RECORD_PATH_OFFSET = 3;
 /** Pathspecs per `restore` / `clean` call — keeps argv far below any platform's limit. */
 const PATHSPECS_PER_CALL = 100;
 
-const gitFailure = (verb: string, run: GitRunResult): StorageError =>
-  new StorageError({ subCode: 'io', message: `git ${verb} failed: ${(run.stderr || run.stdout).trim()}` });
-
 /** A rename or copy record is followed by one extra record holding the source path. */
 const hasSourceRecord = (xy: string): boolean => /[RC]/.test(xy);
 
@@ -73,9 +70,13 @@ export const gitStatusSnapshot = async (
   runner: GitRunner,
   cwd: AbsolutePath
 ): Promise<Result<readonly PorcelainEntry[], StorageError>> => {
-  const ran = await runner.run(cwd, ['status', '--porcelain=v1', '-z', '--untracked-files=normal']);
+  const ran = await runGitChecked(
+    runner,
+    cwd,
+    ['status', '--porcelain=v1', '-z', '--untracked-files=normal'],
+    'status'
+  );
   if (!ran.ok) return Result.error(ran.error);
-  if (ran.value.exitCode !== 0) return Result.error(gitFailure('status', ran.value));
   return Result.ok(parseRecords(ran.value.stdout));
 };
 
@@ -87,9 +88,8 @@ const runChunked = async (
 ): Promise<Result<void, StorageError>> => {
   for (let start = 0; start < paths.length; start += PATHSPECS_PER_CALL) {
     const pathspecs = paths.slice(start, start + PATHSPECS_PER_CALL).map((p) => `:(literal)${p}`);
-    const ran = await runner.run(cwd, [...verb, '--', ...pathspecs]);
+    const ran = await runGitChecked(runner, cwd, [...verb, '--', ...pathspecs], verb.join(' '));
     if (!ran.ok) return Result.error(ran.error);
-    if (ran.value.exitCode !== 0) return Result.error(gitFailure(verb.join(' '), ran.value));
   }
   return Result.ok(undefined);
 };

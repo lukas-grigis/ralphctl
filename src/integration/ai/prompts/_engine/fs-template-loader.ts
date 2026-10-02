@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { Result } from '@src/domain/result.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
+import { isNodeErrnoCode } from '@src/integration/io/fs.ts';
 import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/template-loader.ts';
 
 /**
@@ -100,6 +101,3 @@ const TEMPLATES_DIR: AbsolutePath = (() => {
  * path to {@link createFsTemplateLoader}.
  */
 export const defaultTemplatesDir = (): AbsolutePath => TEMPLATES_DIR;
-
-const isNodeErrnoCode = (cause: unknown, code: string): boolean =>
-  typeof cause === 'object' && cause !== null && (cause as { code?: unknown }).code === code;

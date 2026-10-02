@@ -13,11 +13,7 @@ import {
   supportsProcessGroups,
 } from '@src/integration/io/kill-process-tree.ts';
 import { DEFAULT_KILL_GRACE_MS } from '@src/integration/io/kill-with-escalation.ts';
-
-const errnoCode = (cause: unknown): string | undefined =>
-  typeof cause === 'object' && cause !== null && typeof (cause as { code?: unknown }).code === 'string'
-    ? (cause as { code: string }).code
-    : undefined;
+import { errnoCode } from '@src/integration/io/fs.ts';
 
 /**
  * Signal-0 liveness probe. `ESRCH` means the process is gone. `EPERM` means it exists but belongs
@@ -72,8 +68,10 @@ const identifyWith =
   (run: RunCommand) =>
   async (pid: number): Promise<ProcessIdentity | undefined> => {
     if (!supportsProcessGroups() || !Number.isInteger(pid) || pid <= 0) return undefined;
-    // lstart follows LC_TIME (de_DE prints "Fr.  2 Okt. …"), so pin the C locale or the match fails.
-    const result = await run('ps', ['-o', 'lstart=', '-o', 'comm=', '-p', String(pid)], { env: { LC_ALL: 'C' } });
+    // lstart follows LC_TIME and TZ, so pin both or identities from differently-configured shells never match.
+    const result = await run('ps', ['-o', 'lstart=', '-o', 'comm=', '-p', String(pid)], {
+      env: { LC_ALL: 'C', TZ: 'UTC' },
+    });
     if (!result.ok) return undefined;
     const line = result.stdout.trim();
     // lstart is a fixed five-field date ("Thu Oct  1 21:11:32 2026"); comm is the rest.

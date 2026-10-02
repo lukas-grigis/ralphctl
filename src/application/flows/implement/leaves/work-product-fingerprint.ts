@@ -47,12 +47,10 @@ export const computeWorkProductFingerprint = async (
   // Untracked content: list real file paths (never porcelain's collapsed `?? dir/` form), then
   // let git hash their contents in one batch. An empty list is the common case and skips the
   // second spawn entirely.
-  const untracked = await gitRunner.run(cwd, ['ls-files', '--others', '--exclude-standard']);
+  // `-z` keeps paths verbatim — without it git C-quotes non-ASCII names and hash-object can't open them.
+  const untracked = await gitRunner.run(cwd, ['ls-files', '--others', '--exclude-standard', '-z']);
   if (!untracked.ok || untracked.value.exitCode !== 0) return undefined;
-  const paths = untracked.value.stdout
-    .split('\n')
-    .map((l) => l.trim())
-    .filter((l) => l.length > 0);
+  const paths = untracked.value.stdout.split('\0').filter((p) => p.length > 0);
   if (paths.length > 0) {
     const blobs = await gitRunner.run(cwd, ['hash-object', '--', ...paths]);
     if (!blobs.ok || blobs.value.exitCode !== 0) return undefined;

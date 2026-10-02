@@ -6,6 +6,8 @@ import type { Trace, TraceEntry } from '@src/application/chain/trace.ts';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { fmtDuration } from '@src/application/ui/tui/theme/duration.ts';
 import { Spinner } from '@src/application/ui/tui/components/spinner.tsx';
+import { computeListWindow } from '@src/application/ui/tui/components/windowed-list.tsx';
+import { clipWithEllipsis } from '@src/application/ui/tui/components/format.ts';
 
 export interface StepTraceProps {
   readonly trace: Trace;
@@ -127,17 +129,6 @@ const traceToRows = (trace: Trace): readonly MergedRow[] =>
     ...(entry.error !== undefined ? { errorMessage: entry.error.message } : {}),
   }));
 
-/**
- * Mid-truncate a display string so it fits inside `budget` characters, suffixed with the `clipEllipsis` token
- * (audit-[03] display-clip marker).
- */
-const truncateLabel = (text: string, budget: number): string => {
-  if (budget <= 1) return text;
-  if (text.length <= budget) return text;
-  // Reserve one char for the ellipsis itself; the visible run is `budget - 1`.
-  return `${text.slice(0, budget - 1)}${glyphs.clipEllipsis}`;
-};
-
 interface StepTraceRowProps {
   readonly row: MergedRow;
   readonly running: boolean;
@@ -154,7 +145,7 @@ const StepTraceRow = ({ row, running, compact, suppressMeta, textBudget }: StepT
   const trailing = trailingLabelFor(row.status);
   const dimRow = row.status === 'pending';
   const displayName = row.label ?? row.name;
-  const shownName = textBudget !== undefined ? truncateLabel(displayName, textBudget) : displayName;
+  const shownName = textBudget !== undefined ? clipWithEllipsis(displayName, textBudget) : displayName;
   return (
     <Box paddingX={spacing.indent}>
       {instruction.kind === 'spinner' ? (
@@ -218,10 +209,8 @@ export const StepTrace = ({
   // Anchor on the first running row when we have one; otherwise keep the tail so a long
   // post-mortem trace still ends at the failing step rather than the head.
   const runningIdx = filtered.findIndex((r) => r.status === 'running');
-  const rows =
-    runningIdx >= 0
-      ? filtered.slice(Math.max(0, runningIdx - Math.floor(maxRows / 2))).slice(0, maxRows)
-      : filtered.slice(-maxRows);
+  const win = runningIdx >= 0 ? computeListWindow(filtered.length, runningIdx, maxRows) : undefined;
+  const rows = win !== undefined ? filtered.slice(win.start, win.end) : filtered.slice(-maxRows);
 
   // Text-budget calculation: subtract 4 from the rail width to reserve room for the leading glyph (1), its trailing
   // space (1), the column's `paddingX={spacing.indent}` left edge (2).

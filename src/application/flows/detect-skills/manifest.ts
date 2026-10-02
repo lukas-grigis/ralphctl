@@ -5,6 +5,5 @@ export const detectSkillsManifest: FlowManifest = {
   title: 'Detect setup & verify skills',
   description:
     'Read-only AI inventory of one repository. Authors multi-paragraph setup + verify skills (markdown) that are installed into future AI sessions; the user reviews before either lands on the repo.',
-  canBackground: false,
   triggers: { requiresProject: true },
 };

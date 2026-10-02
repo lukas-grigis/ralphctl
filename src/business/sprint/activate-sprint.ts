@@ -40,7 +40,7 @@ export const activateSprintUseCase = async (
 
   if (props.sprint.status === 'active') {
     log.debug('already active, skipping', { sprintId: props.sprint.id });
-    return Result.ok(props.sprint as ActiveSprint);
+    return Result.ok(props.sprint);
   }
 
   const conflictCheck = await assertNoActivePeer(props.sprint, props.sprintRepo, log, 'activate');

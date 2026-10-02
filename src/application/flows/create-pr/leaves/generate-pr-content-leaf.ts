@@ -2,14 +2,11 @@ import { Result } from '@src/domain/result.ts';
 import { AbortError } from '@src/domain/value/error/abort-error.ts';
 import { ErrorCode } from '@src/domain/value/error/error-code.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
-import type { EventBus } from '@src/business/observability/event-bus.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
 import type { WriteFile } from '@src/business/io/write-file.ts';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { Task } from '@src/domain/entity/task.ts';
-import { normalizeRefs } from '@src/domain/value/external-ref.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
-import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import type { PrContentSignal } from '@src/domain/signal.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
@@ -17,17 +14,15 @@ import { currentSessionId } from '@src/application/session/session.ts';
 import type { HeadlessAiProvider } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
 import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session.ts';
 import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/template-loader.ts';
-import {
-  buildCreatePrPrompt,
-  renderIssueRefs,
-  renderTicketSummary,
-} from '@src/integration/ai/prompts/create-pr/definition.ts';
-import { renderContractSectionFor } from '@src/integration/ai/contract/_engine/render-contract-section.ts';
 import { renderSidecars } from '@src/integration/ai/contract/_engine/render-sidecars.ts';
 import { validateSignalsFile } from '@src/integration/ai/contract/_engine/validate-signals-file.ts';
 
+import { assertCtxField } from '@src/application/flows/_shared/_engine/assert-ctx-field.ts';
+import type { PublishSignal } from '@src/application/flows/_shared/publish-signal.ts';
 import type { CreatePrCtx } from '@src/application/flows/create-pr/ctx.ts';
+import { buildCreatePrPromptFromCtx } from '@src/application/flows/create-pr/build-prompt.ts';
 import { generatePrContentOutputContract } from '@src/application/flows/create-pr/leaves/generate-pr-content.contract.ts';
+import { messageOf } from '@src/domain/value/error/error-message.ts';
 
 /**
  * Permission profile for the create-pr authoring spawn. The AI needs `git log` / `git diff`
@@ -59,11 +54,8 @@ export interface GeneratePrContentLeafDeps {
    * sidecars from the validated signals.
    */
   readonly writeFile: WriteFile;
-  /**
-   * Application bus — the validated `pr-content` signal fans out as a typed `ai-signal`
-   * event the TUI can subscribe to.
-   */
-  readonly eventBus: EventBus;
+  /** Fans the validated `pr-content` signal out as a typed `ai-signal` event the TUI subscribes to. */
+  readonly publishSignal: PublishSignal;
   readonly logger: Logger;
   /** Per-spawn model — picked by the flow factory from settings. */
   readonly model: string;
@@ -77,7 +69,6 @@ interface GeneratePrContentInput {
   readonly baseBranch: string;
   readonly headBranch: string;
   readonly unitRoot: AbsolutePath;
-  readonly promptFile: AbsolutePath;
   /**
    * Repo path — mounted via `additionalRoots` so the headless session can run `git log` /
    * `git diff` against it. Sourced from `ctx.input.cwd`. The cwd stays the unit dir so the
@@ -116,30 +107,17 @@ interface GeneratePrContentOutput {
  * factory arrow to keep it within the per-function length budget.
  */
 const projectInput = (ctx: CreatePrCtx): GeneratePrContentInput => {
-  if (ctx.currentUnitRoot === undefined || ctx.currentPromptFile === undefined) {
-    throw new InvalidStateError({
-      entity: 'chain',
-      currentState: 'pre-generate-pr-content',
-      attemptedAction: LEAF_NAME,
-      message:
-        'generate-pr-content: unit root / prompt file missing — build-create-pr-unit + render-prompt-to-file must run first',
-    });
-  }
-  if (ctx.sprint === undefined) {
-    throw new InvalidStateError({
-      entity: 'chain',
-      currentState: 'pre-generate-pr-content',
-      attemptedAction: LEAF_NAME,
-      message: 'generate-pr-content: ctx.sprint is undefined — load-sprint must run first',
-    });
-  }
+  const state = 'pre-generate-pr-content';
+  const unitRoot = assertCtxField(ctx, 'currentUnitRoot', LEAF_NAME, state);
+  // render-prompt-to-file owns prompt.md; its absence means the prelude was mis-wired.
+  assertCtxField(ctx, 'currentPromptFile', LEAF_NAME, state);
+  const sprint = assertCtxField(ctx, 'sprint', LEAF_NAME, state);
   return {
-    sprint: ctx.sprint,
+    sprint,
     tasks: ctx.tasks ?? [],
     baseBranch: ctx.input.base,
     headBranch: ctx.headBranch ?? '',
-    unitRoot: ctx.currentUnitRoot,
-    promptFile: ctx.currentPromptFile,
+    unitRoot,
     repoPath: ctx.input.cwd,
   };
 };
@@ -186,7 +164,7 @@ const runAuthoringSpawn = async (
     // live. The contract guarantees exactly one pr-content signal — narrative kinds are not part
     // of the contract for this leaf.
     for (const sig of signals) {
-      deps.eventBus.publish({ type: 'ai-signal', signal: sig, source: 'create-pr' });
+      deps.publishSignal(sig);
     }
 
     // Render harness-owned sidecar `pr-content.md`. Write failures inside renderSidecars log warn
@@ -205,9 +183,7 @@ const runAuthoringSpawn = async (
     // AbortError MUST propagate per CLAUDE.md — user-initiated cancellation flows through every
     // wrapper without being absorbed by guards or fallbacks.
     if (err instanceof AbortError) throw err;
-    log.warn(
-      `create-pr: AI authoring failed, falling back to template (${err instanceof Error ? err.message : String(err)})`
-    );
+    log.warn(`create-pr: AI authoring failed, falling back to template (${messageOf(err)})`);
     return Result.ok({});
   }
 };
@@ -218,41 +194,16 @@ export const generatePrContentLeaf = (deps: GeneratePrContentLeafDeps): Element<
       execute: async (input, signal) => {
         const log = deps.logger.named(AI_LOGGER_NAME);
 
-        // Derive verbatim `Closes <ref>` lines from ticket + task externalRefs — the prompt
-        // embeds the rendered string and instructs the AI to mirror it at the bottom of the
-        // body. Pre-computing here keeps the trailing refs deterministic instead of relying
-        // on the AI to discover and order them.
-        const refs = normalizeRefs([
-          ...input.sprint.tickets.map((t) => t.externalRef ?? ''),
-          ...input.tasks.flatMap((t) => t.externalRefs ?? []),
-        ]);
-
-        const ticketSummary = renderTicketSummary(
-          input.sprint.tickets.map((t) => ({
-            title: t.title,
-            ...(t.link !== undefined ? { link: String(t.link) } : {}),
-          }))
-        );
-        const issueRefs = renderIssueRefs(refs);
-
-        const promptResult = await buildCreatePrPrompt(deps.templateLoader, {
+        const promptResult = await buildCreatePrPromptFromCtx(deps.templateLoader, {
+          sprint: input.sprint,
+          tasks: input.tasks,
           baseBranch: input.baseBranch,
           headBranch: input.headBranch,
-          ticketSummary,
-          issueRefs,
-          outputContractSection: renderContractSectionFor(generatePrContentOutputContract, input.unitRoot),
+          unitRoot: input.unitRoot,
         });
         if (!promptResult.ok) {
           log.warn(
             `create-pr: AI authoring skipped — prompt build failed: ${promptResult.error.message}; falling back to template`
-          );
-          return Result.ok({});
-        }
-
-        const writePrompt = await deps.writeFile(input.promptFile, String(promptResult.value));
-        if (!writePrompt.ok) {
-          log.warn(
-            `create-pr: AI authoring skipped — prompt file write failed: ${writePrompt.error.message}; falling back to template`
           );
           return Result.ok({});
         }

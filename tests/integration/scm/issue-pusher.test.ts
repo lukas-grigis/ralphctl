@@ -47,6 +47,7 @@ const makeChild = (
     stdout: stdoutStream,
     stderr: stderrStream,
     stdin: {
+      on: () => undefined,
       end(payload?: string): void {
         if (payload !== undefined) stdinWrites.push(payload);
       },

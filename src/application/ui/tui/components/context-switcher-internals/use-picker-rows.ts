@@ -14,7 +14,6 @@ import { buildGroups, flatten } from '@src/application/ui/tui/components/context
 
 export interface UsePickerRowsResult {
   readonly state: AsyncLoadState<PickerData, unknown>;
-  readonly reload: () => void;
   readonly data: PickerData;
   readonly rows: readonly FlatRow[];
   readonly sprintCount: number;
@@ -32,7 +31,7 @@ export const usePickerRows = (deps: AppDeps, currentProjectId: ProjectId | undef
   // is the documented way back to a done sprint).
   const [hideDone, setHideDone] = useState<boolean>(false);
 
-  const { state, reload } = useAsyncLoad<PickerData>(
+  const { state } = useAsyncLoad<PickerData>(
     async (signal) => {
       const [sprintsR, projectsR] = await Promise.all([deps.sprintRepo.list(), deps.projectRepo.list()]);
       // Short-circuit on unmount / re-fetch: the repo calls can't be cancelled yet, but bailing skips parsing a stale
@@ -89,7 +88,6 @@ export const usePickerRows = (deps: AppDeps, currentProjectId: ProjectId | undef
 
   return {
     state,
-    reload,
     data,
     rows,
     sprintCount,

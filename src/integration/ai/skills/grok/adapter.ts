@@ -9,7 +9,7 @@
 
 import { createFilesystemSkillsAdapter } from '@src/integration/ai/skills/_engine/filesystem-skills-adapter.ts';
 import type { SkillsAdapter } from '@src/integration/ai/skills/_engine/skills-port.ts';
-import type { CreateGrokSkillsAdapterDeps } from '@src/integration/ai/skills/_engine/grok-skills-adapter-deps.ts';
+import type { SkillsAdapterDeps } from '@src/integration/ai/skills/_engine/skills-adapter-deps.ts';
 import { PROVIDER_TRAITS } from '@src/integration/ai/providers/_engine/provider-traits.ts';
 
 const CONVENTION = [
@@ -20,7 +20,7 @@ const CONVENTION = [
   'post-task verification.',
 ].join(' ');
 
-export const createGrokSkillsAdapter = (deps: CreateGrokSkillsAdapterDeps = {}): SkillsAdapter =>
+export const createGrokSkillsAdapter = (deps: SkillsAdapterDeps = {}): SkillsAdapter =>
   createFilesystemSkillsAdapter({
     providerId: 'xai-grok',
     parentDir: PROVIDER_TRAITS['xai-grok'].skillsParentDir,

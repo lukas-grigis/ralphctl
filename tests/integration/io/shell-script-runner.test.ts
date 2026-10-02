@@ -7,6 +7,7 @@ import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { createShellScriptRunner, DEFAULT_SHELL_TIMEOUT_MS } from '@src/integration/io/shell-script-runner.ts';
 import type { Spawn, SpawnOptions } from '@src/integration/io/spawn.ts';
+import { markProcessGroupLeader } from '@src/integration/io/kill-process-tree.ts';
 
 const cwd = ((): AbsolutePath => {
   const r = AbsolutePath.parse('/tmp');
@@ -31,7 +32,11 @@ const makeStream = (): EventEmitter & { setEncoding: (e: string) => void } => {
   return ee;
 };
 
-type FakeChild = ChildProcessWithoutNullStreams & { _killed: boolean; _signals: NodeJS.Signals[] };
+type FakeChild = ChildProcessWithoutNullStreams & {
+  _killed: boolean;
+  _signals: NodeJS.Signals[];
+  _stdinEndCalls: number;
+};
 
 const makeFakeChild = (script: FakeChildScript): FakeChild => {
   const child = new EventEmitter() as FakeChild;
@@ -40,7 +45,12 @@ const makeFakeChild = (script: FakeChildScript): FakeChild => {
   Object.assign(child, {
     stdout,
     stderr,
-    stdin: { end(): void {} },
+    stdin: {
+      on: () => undefined,
+      end(): void {
+        child._stdinEndCalls += 1;
+      },
+    },
     pid: 12345,
     kill(sig?: NodeJS.Signals): boolean {
       child._killed = true;
@@ -53,6 +63,7 @@ const makeFakeChild = (script: FakeChildScript): FakeChild => {
     },
     _killed: false,
     _signals: [],
+    _stdinEndCalls: 0,
   });
   setTimeout(() => {
     for (const c of script.stdout ?? []) stdout.emit('data', Buffer.from(c, 'utf8'));
@@ -153,6 +164,57 @@ describe('createShellScriptRunner', () => {
     if (result.ok) {
       expect(result.value.passed).toBe(false);
       expect(result.value.output).toContain('[timeout exceeded after 5ms]');
+    }
+  });
+
+  it('escalates a timeout kill to SIGKILL when the script traps SIGTERM', async () => {
+    // The runner only settles on `close`; without escalation a SIGTERM-trapping script outlives the timeout.
+    const { spawn, children } = fakeSpawn({ hang: true, trapSigterm: true });
+    const runner = createShellScriptRunner({ spawn, abortKillGraceMs: 5 });
+    const result = await runner.run(cwd, 'trap "" TERM; sleep 999', { timeoutMs: 10 });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value.passed).toBe(false);
+      expect(result.value.output).toContain('[timeout exceeded after 10ms]');
+    }
+    expect(children[0]?._signals).toEqual(['SIGTERM', 'SIGKILL']);
+  });
+
+  it('sends exactly one SIGTERM and no SIGKILL when a timed-out child exits on SIGTERM', async () => {
+    const { spawn, children } = fakeSpawn({ hang: true });
+    const runner = createShellScriptRunner({ spawn, abortKillGraceMs: 30 });
+    const result = await runner.run(cwd, 'sleep 999', { timeoutMs: 5 });
+
+    expect(result.ok).toBe(true);
+    // Outlast the grace window so a leaked SIGKILL timer would have fired.
+    await new Promise((r) => setTimeout(r, 60));
+    expect(children[0]?._signals).toEqual(['SIGTERM']);
+  });
+
+  it('closes the child stdin once after spawning', async () => {
+    const { spawn, children } = fakeSpawn({ exitCode: 0 });
+    const runner = createShellScriptRunner({ spawn });
+    await runner.run(cwd, 'true');
+
+    expect(children[0]?._stdinEndCalls).toBe(1);
+  });
+
+  it.skipIf(process.platform === 'win32')('gives a stdin-reading script EOF instead of blocking', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ralphctl-shell-stdin-'));
+    try {
+      const parsed = AbsolutePath.parse(dir);
+      if (!parsed.ok) throw new Error('test setup');
+      const runner = createShellScriptRunner();
+      const result = await runner.run(parsed.value, 'read x || echo eof', { timeoutMs: 5000 });
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.output).toContain('eof');
+        expect(result.value.durationMs).toBeLessThan(5000);
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
     }
   });
 
@@ -464,5 +526,73 @@ describe('createShellScriptRunner', () => {
         }
       }
     );
+  });
+
+  describe.skipIf(process.platform === 'win32')('orphan reaper', () => {
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    const fakeReaper = () => ({ watch: vi.fn<(pgid: number) => void>(), unwatch: vi.fn<(pgid: number) => void>() });
+
+    // Marked like the real spawn's child so processGroupOf sees a group leader.
+    const markedSpawn = (script: FakeChildScript): Spawn => {
+      const { spawn } = fakeSpawn(script);
+      return (command, args, options) => {
+        const child = spawn(command, args, options);
+        markProcessGroupLeader(child);
+        return child;
+      };
+    };
+
+    it('watches the group on spawn and unwatches it once on close', async () => {
+      const reaper = fakeReaper();
+      const runner = createShellScriptRunner({ spawn: markedSpawn({ exitCode: 0 }), reaper });
+
+      const result = await runner.run(cwd, 'true');
+
+      expect(result.ok).toBe(true);
+      expect(reaper.watch.mock.calls).toEqual([[12345]]);
+      expect(reaper.unwatch.mock.calls).toEqual([[12345]]);
+    });
+
+    it('unwatches once when the child errors', async () => {
+      const reaper = fakeReaper();
+      const runner = createShellScriptRunner({ spawn: markedSpawn({ emitErrorMessage: 'gone' }), reaper });
+
+      await runner.run(cwd, 'true');
+
+      expect(reaper.watch).toHaveBeenCalledTimes(1);
+      expect(reaper.unwatch.mock.calls).toEqual([[12345]]);
+    });
+
+    it('unwatches once when the run is aborted', async () => {
+      // The group signal reports ESRCH so the kill falls back to the fake's own kill(), which closes it.
+      vi.spyOn(process, 'kill').mockImplementation(() => {
+        throw Object.assign(new Error('no such process'), { code: 'ESRCH' });
+      });
+      const reaper = fakeReaper();
+      const runner = createShellScriptRunner({ spawn: markedSpawn({ hang: true }), reaper });
+      const controller = new AbortController();
+
+      const pending = runner.run(cwd, 'sleep 999', { signal: controller.signal });
+      setTimeout(() => controller.abort(), 0);
+      const result = await pending;
+
+      expect(result.ok).toBe(false);
+      expect(reaper.watch).toHaveBeenCalledTimes(1);
+      expect(reaper.unwatch.mock.calls).toEqual([[12345]]);
+    });
+
+    it('never watches an unmarked fake child', async () => {
+      const reaper = fakeReaper();
+      const { spawn } = fakeSpawn({ exitCode: 0 });
+      const runner = createShellScriptRunner({ spawn, reaper });
+
+      await runner.run(cwd, 'true');
+
+      expect(reaper.watch).not.toHaveBeenCalled();
+      expect(reaper.unwatch).not.toHaveBeenCalled();
+    });
   });
 });

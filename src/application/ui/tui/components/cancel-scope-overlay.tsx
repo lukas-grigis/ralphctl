@@ -53,10 +53,6 @@ export const CancelScopeOverlay = ({
     }
   });
 
-  // Belt-and-braces: clear the overlay if the keypress that opened it never fires its companion (e.g. a TUI bug or a
-  // forced unmount mid-render).
-  useEffect(() => undefined, []);
-
   const wasted = attemptElapsedMs !== undefined ? fmtDuration(attemptElapsedMs) : undefined;
   const remainingHint =
     remainingTaskCount > 1

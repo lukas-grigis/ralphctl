@@ -5,8 +5,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { Box, Text } from 'ink';
-import { homedir as osHomedir } from 'node:os';
-import { basename, join } from 'node:path';
+import { basename } from 'node:path';
 import { ViewShell } from '@src/application/ui/tui/components/view-shell.tsx';
 import { Card } from '@src/application/ui/tui/components/card.tsx';
 import { FieldList } from '@src/application/ui/tui/components/field-list.tsx';
@@ -33,12 +32,6 @@ type Step =
   | { readonly kind: 'confirm'; readonly path: string; readonly name: string }
   | { readonly kind: 'saving' }
   | { readonly kind: 'error'; readonly message: string };
-
-const expandHome = (input: string): string => {
-  if (input === '~') return osHomedir();
-  if (input.startsWith('~/')) return join(osHomedir(), input.slice(2));
-  return input;
-};
 
 const backStep = (step: Step): Step | undefined => {
   switch (step.kind) {
@@ -75,8 +68,7 @@ export const AddRepositoryView = (): React.JSX.Element => {
   const submit = async (s: Extract<Step, { kind: 'confirm' }>): Promise<void> => {
     setStep({ kind: 'saving' });
 
-    const expanded = expandHome(s.path.trim());
-    const pathResult = AbsolutePath.parse(expanded);
+    const pathResult = AbsolutePath.parse(s.path.trim());
     if (!pathResult.ok) {
       setStep({ kind: 'error', message: `path: ${pathResult.error.message}` });
       return;
@@ -156,7 +148,7 @@ const StepView = ({ step, onChange, onCancel, onSubmit }: StepViewProps): React.
         />
       );
     case 'name': {
-      const fallback = basename(expandHome(step.path));
+      const fallback = basename(step.path);
       return (
         <TextPrompt
           key="name"
@@ -172,10 +164,10 @@ const StepView = ({ step, onChange, onCancel, onSubmit }: StepViewProps): React.
         <Box flexDirection="column">
           <FieldList
             fields={[
-              { label: 'Path', value: <Text dimColor>{expandHome(step.path)}</Text> },
+              { label: 'Path', value: <Text dimColor>{step.path}</Text> },
               {
                 label: 'Name',
-                value: step.name.trim().length > 0 ? step.name : basename(expandHome(step.path)),
+                value: step.name.trim().length > 0 ? step.name : basename(step.path),
               },
             ]}
           />
@@ -196,7 +188,9 @@ const StepView = ({ step, onChange, onCancel, onSubmit }: StepViewProps): React.
     case 'error':
       return (
         <Box flexDirection="column" paddingX={spacing.indent}>
-          <Text color={inkColors.error}>✗ {step.message}</Text>
+          <Text color={inkColors.error}>
+            {glyphs.cross} {step.message}
+          </Text>
           <Text dimColor>Press esc to go back.</Text>
         </Box>
       );

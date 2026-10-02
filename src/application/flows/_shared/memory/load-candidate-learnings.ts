@@ -1,8 +1,10 @@
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
-import { type LearningRecord, isRetired } from '@src/application/flows/_shared/memory/learning-record.ts';
+import type { LearningRecord } from '@src/application/flows/_shared/memory/learning-record.ts';
+import { selectPendingCandidates } from '@src/application/flows/_shared/memory/load-learnings.ts';
 import { readLedgerLines } from '@src/application/flows/_shared/memory/read-ledger.ts';
 import { resolveLearningsLedgerPath } from '@src/application/flows/_shared/memory/ledger-path.ts';
+import { messageOf } from '@src/domain/value/error/error-message.ts';
 
 /**
  * READ-side, NON-leaf variant of {@link loadLearningsLeaf}'s candidate load. Resolves the project's
@@ -36,23 +38,13 @@ export const loadCandidateLearnings = async (
 
   try {
     const lines = await readLedgerLines(resolved.value, log);
-    const candidates: LearningRecord[] = [];
-    const seen = new Set<string>();
-    for (const { record } of lines) {
-      if (record === undefined) continue; // blank / malformed line
-      if (seen.has(record.id)) continue; // dedup by stable id, keep first
-      seen.add(record.id);
-      if (record.promotedAt !== null) continue; // already folded into a native context file
-      if (isRetired(record)) continue; // operator declined it at a prior distill gate
-      candidates.push(record);
-    }
-    return candidates;
+    return selectPendingCandidates(lines);
   } catch (cause) {
     // A missing ledger is the common case (the project simply hasn't produced a learning); it —
     // and any other read failure — must never block interactive planning.
     log.info('no learnings ledger — injecting nothing', {
       path: String(resolved.value),
-      error: cause instanceof Error ? cause.message : String(cause),
+      error: messageOf(cause),
     });
     return [];
   }

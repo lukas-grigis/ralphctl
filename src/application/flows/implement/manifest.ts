@@ -8,7 +8,6 @@ export const implementManifest: FlowManifest = {
   id: 'implement',
   title: 'Implement',
   description: 'Run the generator–evaluator loop on every todo task in a planned/active sprint.',
-  canBackground: true,
   triggers: {
     currentSprintStatus: ['planned', 'active'],
     currentSprintStatusHint: 'Plan this sprint first — it must be planned (or active) before you can implement.',

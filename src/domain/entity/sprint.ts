@@ -5,13 +5,12 @@ import type { ProjectId } from '@src/domain/value/id/project-id.ts';
 import { Slug } from '@src/domain/value/slug.ts';
 import { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { TicketId } from '@src/domain/value/id/ticket-id.ts';
-import { toKebabCase } from '@src/domain/value/kebab-case.ts';
 import { parseRequiredString } from '@src/domain/value/parsers/parse-required-string.ts';
 import { requireStatus } from '@src/domain/value/require-status.ts';
 import { ConflictError } from '@src/domain/value/error/conflict-error.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
-import { ValidationError } from '@src/domain/value/error/validation-error.ts';
+import type { ValidationError } from '@src/domain/value/error/validation-error.ts';
 import { createSprintExecution, type SprintExecution } from '@src/domain/entity/sprint-execution.ts';
 import { setTicketLink, type Ticket } from '@src/domain/entity/ticket.ts';
 
@@ -116,7 +115,7 @@ export const createSprint = (input: SprintCreateInput): Result<DraftSprint, Vali
   const name = parseRequiredString('sprint.name', input.name);
   if (!name.ok) return Result.error(name.error);
 
-  const slug = resolveSlug(input.slug, name.value);
+  const slug = Slug.derive('sprint.slug', input.slug, name.value);
   if (!slug.ok) return Result.error(slug.error);
 
   return Result.ok({
@@ -131,22 +130,6 @@ export const createSprint = (input: SprintCreateInput): Result<DraftSprint, Vali
     tickets: [],
     projectId: input.projectId,
   });
-};
-
-const resolveSlug = (candidate: Slug | undefined, name: string): Result<Slug, ValidationError> => {
-  if (candidate !== undefined) return Result.ok(candidate);
-  const derived = toKebabCase(name);
-  if (derived.length === 0) {
-    return Result.error(
-      new ValidationError({
-        field: 'sprint.slug',
-        value: name,
-        message: `could not derive slug from name '${name}'`,
-        hint: 'pass an explicit slug',
-      })
-    );
-  }
-  return Slug.parse(derived);
 };
 
 /**
@@ -467,7 +450,7 @@ export const attachTicketLink = (
   if (ticket === undefined) {
     return Result.error(new NotFoundError({ entity: 'ticket', id: String(ticketId) }));
   }
-  const updated = ticket.status === 'approved' ? setTicketLink(ticket, url) : setTicketLink(ticket, url);
+  const updated = setTicketLink(ticket, url);
   if (!updated.ok) return Result.error(updated.error);
   return Result.ok({ ...open, tickets: open.tickets.map((t) => (t.id === ticketId ? updated.value : t)) });
 };

@@ -21,7 +21,7 @@ import {
   startAttempt,
   type VerifyRun,
 } from '@src/domain/entity/attempt.ts';
-import type { InProgressTask, Task } from '@src/domain/entity/task.ts';
+import type { InProgressTask, Task, TodoTask } from '@src/domain/entity/task.ts';
 import type { CommitSha } from '@src/domain/value/commit-sha.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import { parseRequiredString } from '@src/domain/value/parsers/parse-required-string.ts';
@@ -50,32 +50,35 @@ export const resumesFreeAttempt = (task: Pick<Task, 'attempts'>): boolean => {
   return previous !== undefined && isFreeAttempt(previous);
 };
 
-const requireRunningAttempt = (
-  task: InProgressTask
-): Result<
-  { readonly task: InProgressTask; readonly running: RunningAttempt; readonly idx: number },
-  InvalidStateError
-> => {
-  const idx = task.attempts.length - 1;
-  const last = task.attempts[idx];
+export const requireRunningAttempt = (task: TodoTask | InProgressTask): Result<RunningAttempt, InvalidStateError> => {
+  const last = lastAttempt(task);
   if (last === undefined || last.status !== 'running') {
     return Result.error(
       new InvalidStateError({
         entity: 'task',
-        currentState: 'in_progress',
+        currentState: task.status,
         attemptedAction: 'record-attempt',
         message: `task '${task.id}' has no running attempt to record into`,
         hint: 'Call startNextAttempt before recording.',
       })
     );
   }
-  return Result.ok({ task, running: last, idx });
+  return Result.ok(last);
 };
 
-const replaceLastAttempt = (task: InProgressTask, attempt: Attempt): InProgressTask => {
+export const replaceLastAttempt = <T extends TodoTask | InProgressTask>(task: T, attempt: Attempt): T => {
   const next = [...task.attempts];
   next[task.attempts.length - 1] = attempt;
   return { ...task, attempts: next };
+};
+
+const updateRunningAttempt = (
+  task: InProgressTask,
+  fn: (a: RunningAttempt) => RunningAttempt
+): Result<InProgressTask, InvalidStateError> => {
+  const running = requireRunningAttempt(task);
+  if (!running.ok) return Result.error(running.error);
+  return Result.ok(replaceLastAttempt(task, fn(running.value)));
 };
 
 /**
@@ -115,18 +118,12 @@ export const startNextAttempt = (
     );
   }
 
-  const attemptInput: {
-    n: number;
-    startedAt: IsoTimestamp;
-    sessionId?: string;
-    recovering?: RecoveryContext;
-  } = {
+  const attemptResult = startAttempt({
     n: guard.value.attempts.length + 1,
     startedAt: now,
-  };
-  if (sessionId !== undefined) attemptInput.sessionId = sessionId;
-  if (recovering !== undefined) attemptInput.recovering = recovering;
-  const attemptResult = startAttempt(attemptInput);
+    ...(sessionId !== undefined ? { sessionId } : {}),
+    ...(recovering !== undefined ? { recovering } : {}),
+  });
   if (!attemptResult.ok) return Result.error(attemptResult.error);
 
   return Result.ok({
@@ -136,40 +133,30 @@ export const startNextAttempt = (
   });
 };
 
-export const recordRunningAttemptVerification = (task: InProgressTask): Result<InProgressTask, InvalidStateError> => {
-  const guard = requireRunningAttempt(task);
-  if (!guard.ok) return Result.error(guard.error);
-  return Result.ok(replaceLastAttempt(task, recordAttemptVerification(guard.value.running)));
-};
+export const recordRunningAttemptVerification = (task: InProgressTask): Result<InProgressTask, InvalidStateError> =>
+  updateRunningAttempt(task, recordAttemptVerification);
 
 export const recordRunningAttemptEvaluation = (
   task: InProgressTask,
   evaluation: Evaluation
-): Result<InProgressTask, InvalidStateError> => {
-  const guard = requireRunningAttempt(task);
-  if (!guard.ok) return Result.error(guard.error);
-  return Result.ok(replaceLastAttempt(task, recordAttemptEvaluation(guard.value.running, evaluation)));
-};
+): Result<InProgressTask, InvalidStateError> =>
+  updateRunningAttempt(task, (a) => recordAttemptEvaluation(a, evaluation));
 
 export const recordRunningAttemptCritique = (
   task: InProgressTask,
   text: string
 ): Result<InProgressTask, InvalidStateError | ValidationError> => {
-  const guard = requireRunningAttempt(task);
-  if (!guard.ok) return Result.error(guard.error);
+  const running = requireRunningAttempt(task);
+  if (!running.ok) return Result.error(running.error);
   const parsed = parseRequiredString('attempt.critique', text);
   if (!parsed.ok) return Result.error(parsed.error);
-  return Result.ok(replaceLastAttempt(task, recordAttemptCritique(guard.value.running, parsed.value)));
+  return Result.ok(replaceLastAttempt(task, recordAttemptCritique(running.value, parsed.value)));
 };
 
 export const recordRunningAttemptCommit = (
   task: InProgressTask,
   sha: CommitSha
-): Result<InProgressTask, InvalidStateError> => {
-  const guard = requireRunningAttempt(task);
-  if (!guard.ok) return Result.error(guard.error);
-  return Result.ok(replaceLastAttempt(task, recordAttemptCommit(guard.value.running, sha)));
-};
+): Result<InProgressTask, InvalidStateError> => updateRunningAttempt(task, (a) => recordAttemptCommit(a, sha));
 
 /**
  * Stamp a structured `AttemptWarning` onto the running attempt. Used by:
@@ -183,34 +170,23 @@ export const recordRunningAttemptCommit = (
 export const recordRunningAttemptWarning = (
   task: InProgressTask,
   warning: AttemptWarning
-): Result<InProgressTask, InvalidStateError> => {
-  const guard = requireRunningAttempt(task);
-  if (!guard.ok) return Result.error(guard.error);
-  return Result.ok(replaceLastAttempt(task, recordAttemptWarning(guard.value.running, warning)));
-};
+): Result<InProgressTask, InvalidStateError> => updateRunningAttempt(task, (a) => recordAttemptWarning(a, warning));
+
+/** Stamp the generator session id onto the running attempt. */
+export const recordRunningAttemptSessionId = (
+  task: InProgressTask,
+  sessionId: string
+): Result<InProgressTask, InvalidStateError> => updateRunningAttempt(task, (a) => recordAttemptSessionId(a, sessionId));
 
 /**
  * Stamp raw cost telemetry (token counts + AI wall-clock) onto the running attempt. Called by the
  * settle use case just before the terminal transition, so the figures ride into the persisted
  * terminal attempt. Counts the caller does not have stay absent — see {@link recordAttemptUsage}.
  */
-export const recordRunningAttemptSessionId = (
-  task: InProgressTask,
-  sessionId: string
-): Result<InProgressTask, InvalidStateError> => {
-  const guard = requireRunningAttempt(task);
-  if (!guard.ok) return Result.error(guard.error);
-  return Result.ok(replaceLastAttempt(task, recordAttemptSessionId(guard.value.running, sessionId)));
-};
-
 export const recordRunningAttemptUsage = (
   task: InProgressTask,
   usage: AttemptUsage
-): Result<InProgressTask, InvalidStateError> => {
-  const guard = requireRunningAttempt(task);
-  if (!guard.ok) return Result.error(guard.error);
-  return Result.ok(replaceLastAttempt(task, recordAttemptUsage(guard.value.running, usage)));
-};
+): Result<InProgressTask, InvalidStateError> => updateRunningAttempt(task, (a) => recordAttemptUsage(a, usage));
 
 /**
  * Remove a SOFTENED-PLATEAU warning from the running attempt when the terminal exit is a clean
@@ -225,7 +201,7 @@ export const recordRunningAttemptUsage = (
 export const clearRunningAttemptPlateauWarning = (task: InProgressTask): InProgressTask => {
   const guard = requireRunningAttempt(task);
   if (!guard.ok) return task; // no running attempt — nothing to clear (defensive; callers hold one)
-  const running = guard.value.running;
+  const running = guard.value;
   if (running.warning?.kind !== 'plateau') return task;
   const { warning: _cleared, ...rest } = running;
   void _cleared;
@@ -240,11 +216,7 @@ export const clearRunningAttemptPlateauWarning = (task: InProgressTask): InProgr
 export const appendAttemptVerifyRun = (
   task: InProgressTask,
   run: VerifyRun
-): Result<InProgressTask, InvalidStateError> => {
-  const guard = requireRunningAttempt(task);
-  if (!guard.ok) return Result.error(guard.error);
-  return Result.ok(replaceLastAttempt(task, appendVerifyRun(guard.value.running, run)));
-};
+): Result<InProgressTask, InvalidStateError> => updateRunningAttempt(task, (a) => appendVerifyRun(a, run));
 
 /**
  * Stamp the {@link Attribution} verdict on the running attempt. Set by post-task-verify after
@@ -253,18 +225,11 @@ export const appendAttemptVerifyRun = (
 export const setAttemptAttribution = (
   task: InProgressTask,
   attribution: Attribution
-): Result<InProgressTask, InvalidStateError> => {
-  const guard = requireRunningAttempt(task);
-  if (!guard.ok) return Result.error(guard.error);
-  return Result.ok(replaceLastAttempt(task, setAttribution(guard.value.running, attribution)));
-};
+): Result<InProgressTask, InvalidStateError> => updateRunningAttempt(task, (a) => setAttribution(a, attribution));
 
 /**
  * Set the running attempt's `baselineBroken` flag — pre-task-verify ran red before the AI got
  * a chance to run, so a downstream red verdict may not be the AI's fault.
  */
-export const markAttemptBaselineBroken = (task: InProgressTask): Result<InProgressTask, InvalidStateError> => {
-  const guard = requireRunningAttempt(task);
-  if (!guard.ok) return Result.error(guard.error);
-  return Result.ok(replaceLastAttempt(task, markBaselineBroken(guard.value.running)));
-};
+export const markAttemptBaselineBroken = (task: InProgressTask): Result<InProgressTask, InvalidStateError> =>
+  updateRunningAttempt(task, markBaselineBroken);

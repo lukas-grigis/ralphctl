@@ -1,11 +1,12 @@
 import { z } from 'zod';
-import type { AiSignal, NoteSignal, SetupSkillProposalSignal, VerifySkillProposalSignal } from '@src/domain/signal.ts';
+import type { NoteSignal, SetupSkillProposalSignal, VerifySkillProposalSignal } from '@src/domain/signal.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import { noteSignalSchema } from '@src/integration/ai/contract/_engine/signals/note/schema.ts';
 import { setupSkillProposalSignalSchema } from '@src/integration/ai/contract/_engine/signals/setup-skill-proposal/schema.ts';
 import { verifySkillProposalSignalSchema } from '@src/integration/ai/contract/_engine/signals/verify-skill-proposal/schema.ts';
 import { brandSignalArray } from '@src/integration/ai/contract/_engine/brand-signal-array.ts';
 import type { AiOutputContract, SidecarRule } from '@src/integration/ai/contract/_engine/types.ts';
+import { wrapLegacySignalArray } from '@src/integration/ai/contract/_engine/legacy-array-migration.ts';
 
 /**
  * Per-leaf I/O contract for the detect-skills one-shot session — audit-[09]. The session may
@@ -51,15 +52,6 @@ const signalsArraySchemaRaw = z
  */
 const signalsArraySchema = brandSignalArray<DetectSkillsSignal>(signalsArraySchemaRaw);
 
-/**
- * Legacy → v1 wrapping. Pre-contract sessions wrote bare arrays via the headless adapter's
- * stdout parser; today's prompts instruct the AI to write the wrapper directly.
- */
-const wrapLegacyArray = (raw: unknown): unknown => {
-  if (Array.isArray(raw)) return { schemaVersion: 1, signals: raw };
-  return raw;
-};
-
 /** Static ISO timestamp embedded in the rendered example. Real spawns stamp `IsoTimestamp.now()`. */
 const EXAMPLE_TS = '2026-05-22T10:00:00.000Z' as IsoTimestamp;
 
@@ -101,9 +93,6 @@ export const detectSkillsOutputContract: AiOutputContract<DetectSkillsSignal> = 
   schemaVersion: 1,
   signalsSchema: signalsArraySchema,
   sidecars: [setupSkillSidecar, verifySkillSidecar] as ReadonlyArray<SidecarRule<DetectSkillsSignal['type']>>,
-  migrations: { 0: wrapLegacyArray },
+  migrations: { 0: wrapLegacySignalArray },
   exampleSignals: EXAMPLE_SIGNALS,
 };
-
-/** @public */
-export type DetectSkillsContractSignal = Extract<AiSignal, DetectSkillsSignal>;

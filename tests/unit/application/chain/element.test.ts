@@ -10,13 +10,7 @@ describe('abortedEntry', () => {
     expect(entry.status).toBe('aborted');
     expect(entry.durationMs).toBe(0);
     expect(entry.error).toBeInstanceOf(AbortError);
-    expect((entry.error as AbortError).elementName).toBe('step-x');
-  });
-
-  it('uses the supplied reason on the AbortError', () => {
-    const entry = abortedEntry('step-x', 'user pressed kill');
-    expect((entry.error as AbortError).reason).toBe('user pressed kill');
-    expect(entry.error?.message).toBe('user pressed kill');
+    expect(entry.error.elementName).toBe('step-x');
   });
 });
 

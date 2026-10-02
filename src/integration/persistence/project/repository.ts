@@ -8,7 +8,7 @@ import { type StorageError } from '@src/domain/value/error/storage-error.ts';
 import { fromJsonProject, toJsonProject } from '@src/integration/persistence/project/project.schema.ts';
 import { listDir, readJson, removeFile, writeJsonAtomic } from '@src/integration/io/fs.ts';
 import { parseIdFromName, projectFile, projectsDir, resolveProjectPath } from '@src/integration/persistence/storage.ts';
-import { decode } from '@src/integration/persistence/shared/decode.ts';
+import { decodeDeduped, readEntity } from '@src/integration/persistence/shared/read-entities.ts';
 
 export interface FsProjectRepositoryDeps {
   /** Root of the on-disk layout. Per the path resolver, projects land under `<root>/projects/`. */
@@ -57,34 +57,14 @@ const listProjects = async (root: AbsolutePath): Promise<Result<readonly Project
   // Promise.all preserves the input array's order regardless of settle order, so the sorted
   // order established above survives untouched.
   const reads = await Promise.all(
-    jsonFiles.map(async (file) => {
-      const path = `${dir}/${file}`;
-      return { file, path, json: await readJson(path) };
+    jsonFiles.map(async (name) => {
+      const path = join(dir, name);
+      return { name, path, json: await readJson(path) };
     })
   );
 
-  const items: Project[] = [];
-  // Dedupe by project id: if a legacy bare `<id>.json` and a slugged `<id>--<slug>.json` transiently
-  // coexist (a crash between save's write + stale-sibling cleanup), the list must not show the project
-  // twice. The slugged (canonical) name wins EXPLICITLY — sort order cannot arbitrate here: `-` < `.`
-  // in ASCII puts `<id>--<slug>.json` before `<id>.json`, so the bare (stale) file is read last.
-  const byId = new Map<string, Project>();
-  const canonicalIds = new Set<string>();
-  for (const { file, path, json } of reads) {
-    if (!json.ok) {
-      if (json.error instanceof NotFoundError) continue; // race: file deleted between list and read
-      return Result.error(json.error);
-    }
-    const decoded = decode(fromJsonProject, json.value, { entity: 'project', path });
-    if (!decoded.ok) return Result.error(decoded.error);
-    const id = String(decoded.value.id);
-    const isCanonical = file.includes('--');
-    if (!isCanonical && canonicalIds.has(id)) continue; // slugged sibling already read — it wins
-    byId.set(id, decoded.value);
-    if (isCanonical) canonicalIds.add(id);
-  }
-  items.push(...byId.values());
-  return Result.ok(items);
+  // Sort order can't pick the canonical sibling: `-` < `.` in ASCII reads `<id>--<slug>.json` before the stale `<id>.json`.
+  return decodeDeduped(reads, fromJsonProject, 'project', (p) => String(p.id));
 };
 
 export const createFsProjectRepository = (deps: FsProjectRepositoryDeps): ProjectRepository => {
@@ -92,18 +72,7 @@ export const createFsProjectRepository = (deps: FsProjectRepositoryDeps): Projec
 
   return {
     async findById(id) {
-      const path = await resolveProjectPath(deps.root, id);
-      if (path === undefined) {
-        return Result.error(new NotFoundError({ entity: 'project', id: String(id) }));
-      }
-      const json = await readJson(path);
-      if (!json.ok) {
-        if (json.error instanceof NotFoundError) {
-          return Result.error(new NotFoundError({ entity: 'project', id: String(id) }));
-        }
-        return Result.error(json.error);
-      }
-      return decode(fromJsonProject, json.value, { entity: 'project', path });
+      return readEntity(await resolveProjectPath(deps.root, id), fromJsonProject, 'project', String(id));
     },
 
     async findBySlug(slug) {

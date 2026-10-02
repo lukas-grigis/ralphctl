@@ -208,5 +208,13 @@ export const dirSizeBytes = async (dir: string): Promise<number> => {
   return total;
 };
 
-export const isNodeErrnoCode = (cause: unknown, code: string): boolean =>
-  typeof cause === 'object' && cause !== null && (cause as { code?: unknown }).code === code;
+/** The string `code` of a Node errno-style error (`ENOENT`, `ESRCH`, `ELOCKED`, …), if any. */
+export const errnoCode = (cause: unknown): string | undefined => {
+  if (typeof cause === 'object' && cause !== null) {
+    const code = (cause as { code?: unknown }).code;
+    if (typeof code === 'string') return code;
+  }
+  return undefined;
+};
+
+export const isNodeErrnoCode = (cause: unknown, code: string): boolean => errnoCode(cause) === code;

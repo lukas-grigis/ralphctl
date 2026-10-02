@@ -2,6 +2,7 @@
 
 import type { BucketedExecution } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
 import type { HarnessSignal } from '@src/domain/signal.ts';
+import { rowForSignal } from '@src/application/ui/tui/components/tasks-panel-internals/signal-rows.tsx';
 
 /**
  * Build a stable focusable-row key. Composed of `scope:absoluteIndex` where `scope` is either the literal string
@@ -9,9 +10,19 @@ import type { HarnessSignal } from '@src/domain/signal.ts';
  */
 export const focusKey = (scope: string, absoluteIndex: number): string => `${scope}:${String(absoluteIndex)}`;
 
+// Derived from the renderer so the cursor never lands on a row that renders nothing (or only a compaction marker).
 /** Predicate: is this signal type focusable in the cursor model? */
-export const isFocusable = (sig: HarnessSignal): boolean =>
-  sig.type !== 'evaluation' && sig.type !== 'context-compacted';
+export const isFocusable = (sig: HarnessSignal): boolean => rowForSignal(sig) !== undefined;
+
+/** Last `max` entries + absolute start; renderers and focus keys share it to agree (`slice(-0)` would return all). */
+export const tailSlice = <T>(
+  list: readonly T[],
+  max: number
+): { readonly rows: readonly T[]; readonly start: number } => {
+  if (max <= 0) return { rows: [], start: list.length };
+  const start = Math.max(0, list.length - max);
+  return { rows: list.slice(start), start };
+};
 
 /** Build the visible row keys for one scope's signal slice. */
 export const focusKeysForSlice = (
@@ -38,15 +49,11 @@ export const buildFlatFocusKeys = (
   maxOrphanSignals: number
 ): readonly string[] => {
   const keys: string[] = [];
-  const orphanSliceLen = Math.min(bucketed.orphanSignals.length, maxOrphanSignals);
-  const orphanSliceStart = bucketed.orphanSignals.length - orphanSliceLen;
-  const orphanSlice = bucketed.orphanSignals.slice(-orphanSliceLen);
-  for (const k of focusKeysForSlice('orphan', orphanSlice, orphanSliceStart)) keys.push(k);
+  const orphans = tailSlice(bucketed.orphanSignals, maxOrphanSignals);
+  for (const k of focusKeysForSlice('orphan', orphans.rows, orphans.start)) keys.push(k);
   for (const task of bucketed.tasks) {
-    const sliceLen = Math.min(task.signals.length, maxSignalsPerTask);
-    const sliceStart = task.signals.length - sliceLen;
-    const slice = task.signals.slice(-sliceLen);
-    for (const k of focusKeysForSlice(task.id, slice, sliceStart)) keys.push(k);
+    const { rows, start } = tailSlice(task.signals, maxSignalsPerTask);
+    for (const k of focusKeysForSlice(task.id, rows, start)) keys.push(k);
   }
   return keys;
 };

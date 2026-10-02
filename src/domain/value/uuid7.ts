@@ -1,4 +1,6 @@
 import { randomBytes } from 'node:crypto';
+import { Result } from '@src/domain/result.ts';
+import { ValidationError } from '@src/domain/value/error/validation-error.ts';
 
 /**
  * UUIDv7 — 48-bit Unix-millis timestamp + 4-bit version (`7`) + 12-bit random + 2-bit variant
@@ -69,3 +71,33 @@ export const uuidv7 = (): string => {
 
   return `${tsHex.slice(0, 8)}-${tsHex.slice(8, 12)}-${part3}-${part4}-${part5}`;
 };
+
+/** Parser + generator pair behind every branded UUIDv7 id (`TaskId`, `SprintId`, …). */
+// `Result.Ok | Result.Error` rather than `Result<T, E>`: the latter's `[T] extends [never]` guard defers on a generic T.
+type ParseResult<T> = Result.Ok<T> | Result.Error<ValidationError>;
+
+export const uuidv7Id = <T extends string>(
+  label: string
+): { parse(input: unknown): ParseResult<T>; generate(): T } => ({
+  parse(input: unknown): ParseResult<T> {
+    if (typeof input !== 'string') {
+      return Result.error(
+        new ValidationError({ field: `${label}-id`, value: input, message: `${label} id must be a string` })
+      );
+    }
+    if (!isUuidv7(input)) {
+      return Result.error(
+        new ValidationError({
+          field: `${label}-id`,
+          value: input,
+          message: `${label} id must be a UUIDv7`,
+          hint: `matches /${UUIDV7_REGEX.source}/`,
+        })
+      );
+    }
+    return Result.ok(input as T);
+  },
+  generate(): T {
+    return uuidv7() as T;
+  },
+});

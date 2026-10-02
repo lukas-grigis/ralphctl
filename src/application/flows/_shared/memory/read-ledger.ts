@@ -3,6 +3,7 @@ import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
 import { type LearningRecord, parseLearningLine } from '@src/application/flows/_shared/memory/learning-record.ts';
 import type { ParseError } from '@src/domain/value/error/parse-error.ts';
+import { messageOf } from '@src/domain/value/error/error-message.ts';
 
 /**
  * One ledger line: the ORIGINAL raw text (no trailing newline — `split('\n')` strips it), the
@@ -132,7 +133,7 @@ const rotateIfOverCeiling = async (path: AbsolutePath, log: Logger, signal?: Abo
     // Best-effort: a failed rotation must not block the flow. We still treat the ledger as empty.
     log.warn('could not rotate oversized learnings ledger aside', {
       path: String(path),
-      error: cause instanceof Error ? cause.message : String(cause),
+      error: messageOf(cause),
     });
   }
   return true;

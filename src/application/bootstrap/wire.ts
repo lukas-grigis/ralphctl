@@ -85,7 +85,7 @@ import { createFindLiveSprintOwner, type FindLiveSprintOwner } from '@src/busine
 import { createSprintLockReader } from '@src/integration/io/sprint-lock-reader.ts';
 import { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import { rootSessionId } from '@src/application/session/session.ts';
-import { createOrphanReaper } from '@src/integration/io/orphan-reaper.ts';
+import { createOrphanReaper, type OrphanReaper } from '@src/integration/io/orphan-reaper.ts';
 import { createProcessGroupTerminator, createProcessLiveness } from '@src/integration/io/process-liveness.ts';
 import { createFsLiveRunStore } from '@src/integration/persistence/live-run/fs-live-run-store.ts';
 import { createDetectInterruptedRuns, type DetectInterruptedRuns } from '@src/business/runs/detect-interrupted-runs.ts';
@@ -358,12 +358,14 @@ const buildLiveRunServices = (
   | 'reapInterruptedRuns'
   | 'dismissInterruptedRuns'
   | 'findLiveSprintOwner'
-> & { readonly liveRunActivity: RunActivityProbe } => {
+> & { readonly liveRunActivity: RunActivityProbe; readonly reaper: OrphanReaper } => {
   const store = createFsLiveRunStore({ stateRoot: storage.stateRoot });
   const liveness = createProcessLiveness();
   const now = (): string => String(IsoTimestamp.now());
   const recorder = createLiveRunRecorder({ store, liveness, now, logger });
-  const childRegistry = createRunChildRegistry({ reaper: createOrphanReaper(), recorder, runIdOf: rootSessionId });
+  // One sidecar for both AI CLI groups and setup/verify script groups (the shell runner gets it too).
+  const reaper = createOrphanReaper();
+  const childRegistry = createRunChildRegistry({ reaper, recorder, runIdOf: rootSessionId });
   const detectInterruptedRuns = createDetectInterruptedRuns({ store, liveness });
   const settleAbandonedAttempts = createSettleAbandonedAttempts({ taskRepo, clock: IsoTimestamp.now, logger });
   return {
@@ -378,6 +380,7 @@ const buildLiveRunServices = (
     childRegistry,
     detectInterruptedRuns,
     liveRunActivity: createLiveRunActivityProbe({ store, liveness }),
+    reaper,
     findLiveSprintOwner: createFindLiveSprintOwner({
       store,
       liveness,
@@ -473,11 +476,10 @@ export const wire = (opts: WireOptions): AppDeps => {
   // Hoisted so the skill catalog's provenance-stamp writes share the exact same atomic-write
   // seam as `AppDeps.writeFile` (one factory call, two consumers).
   const atomicWriteFile = createAtomicWriteFile();
-  // Shared with IssuePusher so origin reads (`git remote get-url origin`) go through the same
-  // GitRunner instance AppDeps already exposes.
+  // One GitRunner shared by AppDeps, IssuePusher and PullRequestCreator.
   const gitRunner = createGitRunner();
   const taskRepo = createFsTaskRepository({ root: opts.storage.dataRoot, fileLocker });
-  const { liveRunActivity, ...liveRuns } = buildLiveRunServices(opts.storage, logger, taskRepo);
+  const { liveRunActivity, reaper, ...liveRuns } = buildLiveRunServices(opts.storage, logger, taskRepo);
   return {
     storage: opts.storage,
     ...liveRuns,
@@ -489,7 +491,7 @@ export const wire = (opts: WireOptions): AppDeps => {
     provider: buildWireProvider(opts, eventBus, providerSpawn, liveRuns.childRegistry),
     ...(providerSpawn !== undefined ? { providerSpawn } : {}),
     gitRunner,
-    shellScriptRunner: createShellScriptRunner(),
+    shellScriptRunner: createShellScriptRunner({ reaper }),
     fileLocker,
     writeFile: atomicWriteFile,
     appendFile,
@@ -501,7 +503,7 @@ export const wire = (opts: WireOptions): AppDeps => {
     availableModelsFor,
     eventBus,
     logger,
-    pullRequestCreator: createPullRequestCreator({ gitRunner: createGitRunner(), spawn }),
+    pullRequestCreator: createPullRequestCreator({ gitRunner, spawn }),
     issueFetcher: createIssueFetcher({ spawn, logger }),
     issuePusher: createIssuePusher({ spawn, gitRunner }),
     versionChecker: createNpmVersionChecker({

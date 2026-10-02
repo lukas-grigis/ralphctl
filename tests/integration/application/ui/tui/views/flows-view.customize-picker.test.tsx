@@ -34,9 +34,9 @@ import { isSuspendedModel, SUSPENSION_NOTE } from '@src/domain/value/settings-mo
 import { contextWindowLabel } from '@src/domain/value/settings-models/context-window.ts';
 import {
   type CustomizePickerResult,
-  modelCatalogFor,
   runCustomizePicker,
 } from '@src/application/ui/tui/views/flows-customize-picker.ts';
+import { modelOptionsFor } from '@src/application/ui/tui/views/settings-view-model.ts';
 import { applyOverrideToSettings, type SkillCandidatesResult } from '@src/application/ui/shared/launcher.ts';
 import { AbortError } from '@src/domain/value/error/abort-error.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
@@ -141,7 +141,7 @@ const buildScriptedPrompt = (
 };
 
 /**
- * Mirrors the `modelChoice` label logic in `flows-customize-picker.ts` so the expected labels in
+ * Mirrors the `annotateModelLabel` logic in `settings-view-model.ts` so the expected labels in
  * these tests update automatically when the annotation format changes.
  */
 const buildExpectedModelLabel = (model: string): string => {
@@ -216,7 +216,7 @@ describe('runCustomizePicker — single-row flows (refine / plan / readiness / i
         // `override.provider` survives because the user explicitly picked the catalog's
         // first entry — equivalent to the picker's auto-default.
         const newProvider: AiProvider = 'openai-codex';
-        const newFirstModel = modelCatalogFor(newProvider)[0]!;
+        const newFirstModel = modelOptionsFor(newProvider)[0]!;
         const { interactive } = buildScriptedPrompt([
           { action: 'pick', choice: 'Customize for this run…' },
           { action: 'pick', choice: newProvider },
@@ -888,7 +888,7 @@ describe('runCustomizePicker — availableModelsFor gates the model step', () =>
 
   it('absent availableModelsFor → model step shows the full catalog', async () => {
     const defaultRow = DEFAULT_SETTINGS.ai.refine;
-    const fullCatalog = modelCatalogFor(defaultRow.provider);
+    const fullCatalog = modelOptionsFor(defaultRow.provider);
     const { interactive, captured } = buildScriptedPrompt([
       { action: 'pick', choice: 'Customize for this run…' },
       { action: 'pick', choice: `Keep default (${defaultRow.provider})` },
@@ -906,13 +906,13 @@ describe('runCustomizePicker — availableModelsFor gates the model step', () =>
 
   it('availableModelsFor returning a subset → model step shows only the subset', async () => {
     const defaultRow = DEFAULT_SETTINGS.ai.refine;
-    const fullCatalog = modelCatalogFor(defaultRow.provider);
+    const fullCatalog = modelOptionsFor(defaultRow.provider);
     const subset = fullCatalog.slice(0, 1);
     const excluded = fullCatalog.slice(1);
     expect(excluded.length).toBeGreaterThan(0);
 
     const availableModelsFor = async (provider: AiProvider): Promise<readonly string[]> =>
-      provider === defaultRow.provider ? subset : modelCatalogFor(provider);
+      provider === defaultRow.provider ? subset : modelOptionsFor(provider);
 
     const { interactive, captured } = buildScriptedPrompt([
       { action: 'pick', choice: 'Customize for this run…' },

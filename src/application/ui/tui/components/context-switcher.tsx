@@ -2,7 +2,7 @@
  * Context switcher — the one overlay for "which project and sprint am I working on?". It never navigates.
  */
 
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { AsyncListFrame } from '@src/application/ui/tui/components/async-list-frame.tsx';
 import { EmptyState } from '@src/application/ui/tui/components/empty-state.tsx';
@@ -22,6 +22,7 @@ import { useTerminalSize } from '@src/application/ui/tui/runtime/use-terminal-si
 import { useRouter } from '@src/application/ui/tui/runtime/router.tsx';
 import { useUiState, type SwitcherFocus } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { useLaunchCreateSprint } from '@src/application/ui/tui/runtime/use-launch-create-sprint.ts';
+import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import type { CursorRow, PickerData } from '@src/application/ui/tui/components/context-switcher-internals/types.ts';
 import {
   cursorableRows,
@@ -36,6 +37,8 @@ const MAX_BOX_WIDTH = 96;
 const CHROME_ROWS = 9;
 /** Border (2) + horizontal padding (2). */
 const BOX_FRAME_WIDTH = 4;
+
+const CREATE_SPRINT_BANNER_ID = 'switcher-create-sprint';
 
 const TITLES: Readonly<Record<SwitcherFocus, { readonly key: string; readonly title: string }>> = {
   sprint: { key: 'S', title: 'switch sprint or project' },
@@ -96,8 +99,24 @@ const useSwitcherActions = (
 } => {
   const closeOverlay = useUiState().closeOverlay;
   const router = useRouter();
+  const deps = useDeps();
+  // The overlay closes before the launch settles, so a launch failure goes to the view's banner, not local feedback.
+  const onLaunchError = useCallback(
+    (text: string): void => {
+      const bus = deps.eventBus;
+      if (bus === undefined) return;
+      bus.publish({
+        type: 'banner-show',
+        id: CREATE_SPRINT_BANNER_ID,
+        tier: 'error',
+        message: text,
+        at: IsoTimestamp.now(),
+      });
+    },
+    [deps.eventBus]
+  );
   const launchCreateSprint = useLaunchCreateSprint({
-    onError: setFeedback,
+    onError: onLaunchError,
     noProjectMessage: NO_PROJECT_MESSAGE,
   });
   const createSprint = (): void => {

@@ -1,7 +1,6 @@
 import { promises as fs } from 'node:fs';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { LogTailReader } from '@src/business/io/log-tail-reader.ts';
-import { isNodeErrnoCode } from '@src/integration/io/fs.ts';
 
 /**
  * Default cap on the number of bytes the adapter reads from the tail of a log file. 4 KiB
@@ -36,8 +35,7 @@ export const createFsLogTailReader = (): LogTailReader => {
       const buf = Buffer.alloc(readLen);
       await handle.read(buf, 0, readLen, size - readLen);
       return buf.toString('utf8');
-    } catch (cause) {
-      if (isNodeErrnoCode(cause, 'ENOENT') || isNodeErrnoCode(cause, 'ENOTDIR')) return undefined;
+    } catch {
       return undefined;
     } finally {
       if (handle !== undefined) {

@@ -20,7 +20,7 @@ import {
  * legend.
  * @public
  */
-export const SIGNAL_LABEL_COLOR: Readonly<Record<string, string>> = {
+export const SIGNAL_LABEL_COLOR: Readonly<Record<SignalKind, string>> = {
   change: inkColors.info,
   learning: inkColors.highlight,
   decision: inkColors.highlight,
@@ -36,8 +36,12 @@ export const SIGNAL_LABEL_COLOR: Readonly<Record<string, string>> = {
   judge: inkColors.highlight,
 };
 
+/** Colour for a free-form label (help-overlay reference rows); `undefined` when it isn't a signal kind. */
+export const signalLabelColor = (label: string): string | undefined =>
+  Object.hasOwn(SIGNAL_LABEL_COLOR, label) ? SIGNAL_LABEL_COLOR[label as SignalKind] : undefined;
+
 interface SignalRow {
-  readonly label: string;
+  readonly label: SignalKind;
   readonly text: string;
   readonly bold?: boolean;
 }
@@ -114,10 +118,10 @@ const SignalLine = ({
   const noColor = useNoColor();
   const row = rowForSignal(signal);
   if (row === undefined) return null;
-  const color = SIGNAL_LABEL_COLOR[row.label] ?? inkColors.info;
+  const color = SIGNAL_LABEL_COLOR[row.label];
   // Shape backup — when NO_COLOR is in effect the colour swatch on the label disappears, so prefix the label with a
   // per-kind glyph (`+` change, `~` learning, `■` commit, …).
-  const shapeGlyph = noColor ? glyphFor(row.label as SignalKind) : '';
+  const shapeGlyph = noColor ? glyphFor(row.label) : '';
   // Layout: fixed timestamp + fixed label column + flex-grow body that ellides on the terminal's actual width via
   // Ink's `wrap="truncate-end"`.
   return (
@@ -161,7 +165,7 @@ const CommitSignalLine = ({
   readonly expanded: boolean;
 }): React.JSX.Element => {
   const headline = signal.subject;
-  const color = SIGNAL_LABEL_COLOR['commit'] ?? inkColors.info;
+  const color = SIGNAL_LABEL_COLOR.commit;
   // Lines below the subject — body paragraphs — derived from `signal.body`.
   const tailLines = useMemo<readonly string[]>(() => {
     const body = signal.body;
@@ -266,13 +270,13 @@ export const StreamSignalRow = React.memo(StreamSignalRowImpl);
  * One-row inline kinds bar — colored signal-kind labels for kinds that have actually appeared in the bucketed signals
  * so far.
  */
-export const InlineKindsBar = ({ kinds }: { readonly kinds: readonly string[] }): React.JSX.Element | null => {
+export const InlineKindsBar = ({ kinds }: { readonly kinds: readonly SignalKind[] }): React.JSX.Element | null => {
   if (kinds.length === 0) return null;
   return (
     <Box marginBottom={spacing.section}>
       <Text dimColor>{glyphs.bullet} kinds:</Text>
       {kinds.map((kind) => (
-        <Text key={kind} color={SIGNAL_LABEL_COLOR[kind] ?? inkColors.info} bold>
+        <Text key={kind} color={SIGNAL_LABEL_COLOR[kind]} bold>
           {'  '}
           {kind}
         </Text>
@@ -281,9 +285,9 @@ export const InlineKindsBar = ({ kinds }: { readonly kinds: readonly string[] })
   );
 };
 
-export const collectKinds = (bucketed: BucketedExecution): readonly string[] => {
-  const seen = new Set<string>();
-  const order: string[] = [];
+export const collectKinds = (bucketed: BucketedExecution): readonly SignalKind[] => {
+  const seen = new Set<SignalKind>();
+  const order: SignalKind[] = [];
   const visit = (sig: HarnessSignal): void => {
     const row = rowForSignal(sig);
     if (row === undefined) return;

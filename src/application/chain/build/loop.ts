@@ -40,7 +40,7 @@ export const loop = <TCtx>(name: string, body: Element<TCtx>, opts: LoopOptions<
           const entry = abortedEntry(name);
           trace.push(entry);
           onTrace?.(entry);
-          return Result.error({ error: entry.error!, trace });
+          return Result.error({ error: entry.error, trace });
         }
 
         if (!(await shouldContinue(currentCtx, i))) return Result.ok({ ctx: currentCtx, trace });

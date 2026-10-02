@@ -7,13 +7,11 @@ import { createSettingsSetProviderFlow } from '@src/application/flows/settings-s
 import { createSettingsApplyPresetFlow } from '@src/application/flows/settings-apply-preset/flow.ts';
 import { bootstrapCli } from '@src/application/ui/cli/bootstrap.ts';
 import { fail } from '@src/application/ui/cli/report-cli-error.ts';
-import type { AiImplementRole, AiProvider } from '@src/domain/entity/settings.ts';
-import { AI_PROVIDERS } from '@src/domain/entity/settings.ts';
+import type { AiImplementRole } from '@src/domain/entity/settings.ts';
+import { AI_PROVIDERS, isAiProvider } from '@src/domain/entity/settings.ts';
 import { PROVIDER_BINARY } from '@src/integration/system/detect-cli.ts';
 import type { FlowId } from '@src/domain/value/flow-id.ts';
 import type { SettingsRepository } from '@src/domain/repository/settings/settings-repository.ts';
-
-const isAiProvider = (raw: string): raw is AiProvider => (AI_PROVIDERS as readonly string[]).includes(raw);
 
 /**
  * Detect a provider-setting key and return the parsed flow+role tuple. Returns `undefined` for any other key;

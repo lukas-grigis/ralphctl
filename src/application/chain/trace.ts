@@ -38,11 +38,11 @@ export type Trace = readonly TraceEntry[];
 export type OnTrace = (entry: TraceEntry) => void;
 
 /** Build a synthetic `aborted` trace entry. */
-export const abortedEntry = (elementName: string, reason?: string): TraceEntry => ({
+export const abortedEntry = (elementName: string): TraceEntry & { readonly error: AbortError } => ({
   elementName,
   status: 'aborted',
   durationMs: 0,
-  error: reason !== undefined ? new AbortError({ elementName, reason }) : new AbortError({ elementName }),
+  error: new AbortError({ elementName }),
 });
 
 /** Build a `skipped` trace entry. */

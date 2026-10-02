@@ -12,6 +12,9 @@ import type { ProjectId } from '@src/domain/value/id/project-id.ts';
 import type { RepositoryId } from '@src/domain/value/id/repository-id.ts';
 import { Result } from '@src/domain/result.ts';
 import { type OpenEditPromptInput, useEditField } from '@src/application/ui/tui/runtime/use-edit-field.ts';
+import { editFresh } from '@src/application/ui/tui/runtime/edit-fresh.ts';
+import type { DomainError } from '@src/domain/value/error/domain-error.ts';
+import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
 import { useIsMounted } from '@src/application/ui/tui/runtime/use-is-mounted.ts';
 import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { useAsyncLoad } from '@src/application/ui/tui/runtime/use-async-load.ts';
@@ -30,6 +33,7 @@ import { openFlowSession } from '@src/application/ui/tui/runtime/open-flow-sessi
 import { launchFlow } from '@src/application/ui/shared/launcher.ts';
 import { loadAppStateSnapshot } from '@src/application/ui/shared/state-snapshot.ts';
 import { Body } from '@src/application/ui/tui/views/project-detail-internals/field-groups.tsx';
+import { glyphs } from '@src/application/ui/tui/theme/tokens.ts';
 
 interface ProjectDetailProps extends Readonly<Record<string, unknown>> {
   readonly projectId: ProjectId;
@@ -79,14 +83,16 @@ const buildFieldEdit = (args: BuildFieldEditArgs): OpenEditPromptInput => {
       kind: 'short',
       currentValue: project.displayName,
       onSave: async (value) => {
-        const renamed = setProjectDisplayName(project, value);
-        if (!renamed.ok) return Result.error(renamed.error);
-        const saved = await projectRepo.save(renamed.value);
+        const saved = await editFresh(
+          () => projectRepo.findById(project.id),
+          (fresh) => setProjectDisplayName(fresh, value),
+          (next) => projectRepo.save(next)
+        );
         if (!saved.ok) return Result.error(saved.error);
         reload();
         return Result.ok(undefined);
       },
-      successLabel: `✓ renamed project`,
+      successLabel: `${glyphs.check} renamed project`,
     };
   }
   const { repo, field } = target;
@@ -100,26 +106,29 @@ const buildFieldEdit = (args: BuildFieldEditArgs): OpenEditPromptInput => {
     onSave: async (value) => {
       // For optional script fields, route through the setter directly so `value === ''` explicitly *clears* the field
       // (the entity setter accepts `undefined` for clear).
-      if (field === 'name') {
-        const next = updateRepository(project, repo.id, { name: value });
-        if (!next.ok) return Result.error(next.error);
-        const saved = await projectRepo.save(next.value);
-        if (!saved.ok) return Result.error(saved.error);
-        reload();
-        return Result.ok(undefined);
-      }
-      const updatedRepo =
-        field === 'setupScript'
-          ? setRepositorySetupScript(repo, value.length === 0 ? undefined : value)
-          : setRepositoryVerifyScript(repo, value.length === 0 ? undefined : value);
-      if (!updatedRepo.ok) return Result.error(updatedRepo.error);
-      const nextRepos = project.repositories.map((r) => (r.id === repo.id ? updatedRepo.value : r));
-      const saved = await projectRepo.save({ ...project, repositories: nextRepos });
+      const saved = await editFresh(
+        () => projectRepo.findById(project.id),
+        (fresh): Result<Project, DomainError> => {
+          if (field === 'name') return updateRepository(fresh, repo.id, { name: value });
+          const freshRepo = fresh.repositories.find((r) => r.id === repo.id);
+          if (freshRepo === undefined) {
+            return Result.error(new NotFoundError({ entity: 'repository', id: String(repo.id) }));
+          }
+          const updatedRepo =
+            field === 'setupScript'
+              ? setRepositorySetupScript(freshRepo, value.length === 0 ? undefined : value)
+              : setRepositoryVerifyScript(freshRepo, value.length === 0 ? undefined : value);
+          if (!updatedRepo.ok) return Result.error(updatedRepo.error);
+          const nextRepos = fresh.repositories.map((r) => (r.id === repo.id ? updatedRepo.value : r));
+          return Result.ok({ ...fresh, repositories: nextRepos });
+        },
+        (next) => projectRepo.save(next)
+      );
       if (!saved.ok) return Result.error(saved.error);
       reload();
       return Result.ok(undefined);
     },
-    successLabel: `✓ updated ${field}`,
+    successLabel: `${glyphs.check} updated ${field}`,
   };
 };
 
@@ -153,7 +162,7 @@ const launchPerRepoFlow = async (
   );
   if (!mountedRef.current) return;
   if (!result.ok) {
-    setFeedback(`✗ ${result.reason}`);
+    setFeedback(`${glyphs.cross} ${result.reason}`);
     return;
   }
   openFlowSession({ sessions, router }, result, flowId);
@@ -193,7 +202,7 @@ const useProjectDetailShortcuts = (args: ProjectDetailShortcutArgs): void => {
   const markCurrent = (target: Project): void => {
     if (selection.projectId === target.id) return;
     selection.setProject(target.id, target.displayName);
-    args.setFeedback(`✓ now on ${target.displayName}`);
+    args.setFeedback(`${glyphs.check} now on ${target.displayName}`);
   };
 
   const focusedRepo = focused?.kind === 'repo' ? focused.repo : undefined;
@@ -293,11 +302,11 @@ const handleRemoveConfirmed = async (
   if (!confirmed || args.project === undefined) return;
   const removeResult = await removeRepoFromProject(args.project, target.id, args.projectRepo);
   if (!removeResult.ok) {
-    if (args.mountedRef.current) args.setFeedback(`✗ ${removeResult.error}`);
+    if (args.mountedRef.current) args.setFeedback(`${glyphs.cross} ${removeResult.error}`);
     return;
   }
   if (!args.mountedRef.current) return;
-  args.setFeedback(`✓ removed ${target.name}`);
+  args.setFeedback(`${glyphs.check} removed ${target.name}`);
   args.reload();
 };
 
@@ -374,11 +383,10 @@ export const ProjectDetailView = (): React.JSX.Element => {
   const fields = useProjectFields(project);
   const focused = fields[Math.min(cursorIdx, Math.max(0, fields.length - 1))];
 
-  // Reset the cursor when the underlying project changes — both the first successful load (loading → ok) and a
-  // re-route to a different projectId.
+  // Reset only on a projectId change — reload() after a save or remove must keep the operator's row.
   useEffect(() => {
-    if (state.kind === 'ok') setCursorIdx(0);
-  }, [state.kind, projectId]);
+    setCursorIdx(0);
+  }, [projectId]);
 
   useProjectDetailShortcuts({
     deps,
@@ -432,9 +440,10 @@ const removeRepoFromProject = async (
   repoId: RepositoryId,
   projectRepo: ReturnType<typeof useDeps>['projectRepo']
 ): Promise<{ ok: true } | { ok: false; error: string }> => {
-  const updated = removeRepository(project, repoId);
-  if (!updated.ok) return { ok: false, error: updated.error.message };
-  const saved = await projectRepo.save(updated.value);
-  if (!saved.ok) return { ok: false, error: saved.error.message };
-  return { ok: true };
+  const saved = await editFresh(
+    () => projectRepo.findById(project.id),
+    (fresh) => removeRepository(fresh, repoId),
+    (next) => projectRepo.save(next)
+  );
+  return saved.ok ? { ok: true } : { ok: false, error: saved.error.message };
 };

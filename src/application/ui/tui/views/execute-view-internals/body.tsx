@@ -32,8 +32,6 @@ export interface ExecuteBodyProps {
   readonly elapsed: string;
   readonly layout: ResponsiveLayout;
   readonly termColumns: number;
-  /** Raw terminal row count — needed by the wide sidebar (ImplementLayout) path. */
-  readonly termRows: number;
   /** Bucketed task execution state — feeds the sidebar task-nav list + main area. */
   readonly bucketed: BucketedExecution | undefined;
   readonly executionState: SprintExecution | undefined;
@@ -50,6 +48,8 @@ export interface ExecuteBodyProps {
   readonly onOpenEvaluation: (taskId: string) => void;
   readonly logEntries: readonly LogEvent[];
   readonly cancelScopeOpen: boolean;
+  /** False while an overlay, prompt or cancel picker is open — gates the wide Tasks panel's keys. */
+  readonly tasksInputActive: boolean;
   readonly attemptElapsedMs: number | undefined;
   readonly remainingTaskCount: number;
   readonly onCancelAttempt: () => void;
@@ -70,9 +70,8 @@ const MainRegion = ({
   isRunning,
   sessionId,
   termColumns,
-  termRows,
   bucketed,
-  cancelScopeOpen,
+  tasksInputActive,
   tasksPanel,
   onOpenEvaluation,
   executionState,
@@ -87,9 +86,8 @@ const MainRegion = ({
   | 'isRunning'
   | 'sessionId'
   | 'termColumns'
-  | 'termRows'
   | 'bucketed'
-  | 'cancelScopeOpen'
+  | 'tasksInputActive'
   | 'tasksPanel'
   | 'onOpenEvaluation'
   | 'executionState'
@@ -102,11 +100,9 @@ const MainRegion = ({
     <ImplementLayout
       layout={layout}
       bucketed={bucketed}
-      termRows={termRows}
-      inputActive={!cancelScopeOpen}
+      inputActive={tasksInputActive}
       descriptor={descriptor}
       isRunning={isRunning}
-      sessionId={sessionId}
       termColumns={termColumns}
       tasksPanel={tasksPanel}
       onOpenEvaluation={onOpenEvaluation}

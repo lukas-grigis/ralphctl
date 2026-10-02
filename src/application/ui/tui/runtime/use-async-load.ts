@@ -14,6 +14,11 @@ export interface UseAsyncLoadResult<T, E> {
   reload(): void;
 }
 
+const LOADING: { readonly kind: 'loading' } = { kind: 'loading' };
+
+const sameDeps = (a: readonly unknown[] | undefined, b: readonly unknown[]): boolean =>
+  a !== undefined && a.length === b.length && a.every((v, i) => Object.is(v, b[i]));
+
 export const useAsyncLoad = <T, E = unknown>(
   loader: (signal: AbortSignal) => Promise<T>,
   // Caller-supplied dependency list: the hook re-fetches whenever any of these change.
@@ -29,8 +34,11 @@ export const useAsyncLoad = <T, E = unknown>(
   loaderRef.current = loader;
   const errorMapRef = useRef(errorMap);
   errorMapRef.current = errorMap;
+  // Deps the settled state was loaded for; the effect only moves to `loading` after the first render with new deps.
+  const settledDepsRef = useRef<readonly unknown[] | undefined>(undefined);
 
   useEffect(() => {
+    const depsAtStart = deps;
     const controller = new AbortController();
     let cancelled = false;
     setState({ kind: 'loading' });
@@ -38,6 +46,7 @@ export const useAsyncLoad = <T, E = unknown>(
       .current(controller.signal)
       .then((value) => {
         if (cancelled) return;
+        settledDepsRef.current = depsAtStart;
         setState({ kind: 'ok', value });
       })
       .catch((err: unknown) => {
@@ -45,6 +54,7 @@ export const useAsyncLoad = <T, E = unknown>(
         // Treat AbortError as a silent cancel rather than an error state — the view is about
         // to unmount or re-fetch; surfacing "aborted" to the user would be confusing.
         if (err instanceof Error && err.name === 'AbortError') return;
+        settledDepsRef.current = depsAtStart;
         setState({ kind: 'error', error: errorMapRef.current(err) });
       });
     return () => {
@@ -54,8 +64,9 @@ export const useAsyncLoad = <T, E = unknown>(
     // eslint-disable-next-line react-hooks/exhaustive-deps -- spread of caller-supplied deps is the entire API; loader + errorMap captured via refs above
   }, [version, ...deps]);
 
+  const settledIsStale = (state.kind === 'ok' || state.kind === 'error') && !sameDeps(settledDepsRef.current, deps);
   return {
-    state,
+    state: settledIsStale ? LOADING : state,
     reload(): void {
       setVersion((v) => v + 1);
     },

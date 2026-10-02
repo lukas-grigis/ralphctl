@@ -4,7 +4,7 @@ import { ProjectId } from '@src/domain/value/id/project-id.ts';
 import { createExportContextFlow } from '@src/application/flows/export-context/flow.ts';
 import { bootstrapCli } from '@src/application/ui/cli/bootstrap.ts';
 import { fail } from '@src/application/ui/cli/report-cli-error.ts';
-import { pinFallbackNotice, resolveSprintId } from '@src/application/ui/cli/resolve-sprint-selection.ts';
+import { resolveSprintForCli } from '@src/application/ui/cli/resolve-sprint-selection.ts';
 
 interface Opts {
   readonly sprint?: string;
@@ -32,12 +32,8 @@ const exportContextAction = async (opts: Opts): Promise<void> => {
   }
 
   const { deps, storage } = await bootstrapCli();
-  const sprintId = await resolveSprintId(opts.sprint, storage.stateRoot);
-  if (!sprintId.ok) {
-    fail(sprintId.error.message);
-    return;
-  }
-  if (sprintId.value.fromPin) process.stderr.write(pinFallbackNotice(sprintId.value.sprintId));
+  const sprintId = await resolveSprintForCli(opts.sprint, storage.stateRoot);
+  if (sprintId === undefined) return;
   const flow = createExportContextFlow({
     sprintRepo: deps.sprintRepo,
     projectRepo: deps.projectRepo,
@@ -46,7 +42,7 @@ const exportContextAction = async (opts: Opts): Promise<void> => {
   });
   const result = await flow.execute({
     input: {
-      sprintId: sprintId.value.sprintId,
+      sprintId,
       ...(projectId !== undefined ? { projectId } : {}),
       outputPath: outputPath.value,
     },

@@ -1,5 +1,4 @@
 import { Result } from '@src/domain/result.ts';
-import { type AbortError } from '@src/domain/value/error/abort-error.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 
 import { abortedEntry, type OnTrace, type Trace } from '@src/application/chain/trace.ts';
@@ -69,5 +68,5 @@ export const checkAborted = <TCtx>(
   if (!signal?.aborted) return undefined;
   const entry = abortedEntry(name);
   onTrace?.(entry);
-  return Result.error({ error: entry.error as AbortError, trace: [entry] });
+  return Result.error({ error: entry.error, trace: [entry] });
 };

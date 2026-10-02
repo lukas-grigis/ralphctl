@@ -5,6 +5,5 @@ export const readinessManifest: FlowManifest = {
   title: 'AI readiness',
   description:
     'Inventory a repository with the AI and write a tool-native context file (CLAUDE.md / AGENTS.md / Copilot instructions).',
-  canBackground: false,
   triggers: { requiresProject: true },
 };

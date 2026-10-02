@@ -109,6 +109,21 @@ describe('installIdleWatchdog', () => {
     expect(kills).toEqual(['SIGTERM', 'SIGKILL']);
   });
 
+  it('an already-aborted signal SIGTERMs immediately — it will never dispatch abort again', () => {
+    const { child, kills } = makeFakeChild();
+    const onIdle = vi.fn();
+    const controller = new AbortController();
+    controller.abort();
+    installIdleWatchdog(child, { idleMs: 1000, graceMs: 100, abortSignal: controller.signal, onIdle });
+    expect(kills).toEqual(['SIGTERM']);
+    vi.advanceTimersByTime(100);
+    expect(kills).toEqual(['SIGTERM', 'SIGKILL']);
+    // The idle timer still arms, but the ladder already ran — no second SIGTERM, no onIdle.
+    vi.advanceTimersByTime(1000);
+    expect(kills).toEqual(['SIGTERM', 'SIGKILL']);
+    expect(onIdle).not.toHaveBeenCalled();
+  });
+
   it('abort does NOT fire onIdle (onIdle is reserved for the idle path only)', () => {
     const { child } = makeFakeChild();
     const onIdle = vi.fn();

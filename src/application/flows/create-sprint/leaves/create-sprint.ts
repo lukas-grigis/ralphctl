@@ -1,10 +1,10 @@
 import type { ProjectId } from '@src/domain/value/id/project-id.ts';
-import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
 import { type CreateSprintOutput, createSprintUseCase } from '@src/business/sprint/create-sprint.ts';
 import type { CreateSprintCtx } from '@src/application/flows/create-sprint/ctx.ts';
+import { assertCtxField } from '@src/application/flows/_shared/_engine/assert-ctx-field.ts';
 
 export interface CreateSprintLeafDeps {
   readonly logger: Logger;
@@ -36,17 +36,10 @@ export const createSprintLeaf = (deps: CreateSprintLeafDeps): Element<CreateSpri
         ),
     },
     input: (ctx) => {
-      if (ctx.sprintName === undefined) {
-        throw new InvalidStateError({
-          entity: 'chain',
-          currentState: 'pre-create',
-          attemptedAction: 'create-sprint',
-          message: 'create-sprint: ctx.sprintName is undefined — interactive-sprint-name must run first',
-        });
-      }
+      const sprintName = assertCtxField(ctx, 'sprintName', 'create-sprint', 'pre-create');
       return {
         projectId: ctx.projectId,
-        name: ctx.sprintName,
+        name: sprintName,
       };
     },
     output: (ctx, out) => ({ ...ctx, sprint: out.sprint, execution: out.execution }),

@@ -60,7 +60,7 @@ export {
 } from '@src/application/flows/implement/leaves/best-of-n-record.ts';
 
 /** Shared logger namespace for every candidate-loop log line. */
-const BEST_OF_N_CANDIDATE_LOGGER = 'implement.best-of-n.candidate';
+export const BEST_OF_N_CANDIDATE_LOGGER = 'implement.best-of-n.candidate';
 
 interface CandidateLeafInput {
   readonly task: InProgressTask;

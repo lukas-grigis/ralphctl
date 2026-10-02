@@ -2,8 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
-import { homedir as osHomedir } from 'node:os';
-import { basename, join } from 'node:path';
+import { basename } from 'node:path';
 import { ViewShell } from '@src/application/ui/tui/components/view-shell.tsx';
 import { Card } from '@src/application/ui/tui/components/card.tsx';
 import { FieldList } from '@src/application/ui/tui/components/field-list.tsx';
@@ -42,13 +41,6 @@ interface Draft {
 }
 
 const EMPTY_DRAFT: Draft = { name: '', slug: undefined, description: '', repoPath: '', repoName: undefined };
-
-/** Lightweight `~` expansion; an embedded `~` is left for the AbsolutePath validator. */
-const expandHome = (input: string): string => {
-  if (input === '~') return osHomedir();
-  if (input.startsWith('~/')) return join(osHomedir(), input.slice(2));
-  return input;
-};
 
 const BACK: Readonly<Record<StepKind, StepKind | undefined>> = {
   name: undefined,
@@ -106,7 +98,7 @@ type SaveOutcome =
 const saveDraft = async (draft: Draft, deps: Pick<AppDeps, 'projectRepo' | 'logger'>): Promise<SaveOutcome> => {
   const failAt = (message: string, returnTo: StepKind): SaveOutcome => ({ ok: false, message, returnTo });
 
-  const pathResult = AbsolutePath.parse(expandHome(draft.repoPath.trim()));
+  const pathResult = AbsolutePath.parse(draft.repoPath.trim());
   if (!pathResult.ok) return failAt(`repo path: ${pathResult.error.message}`, 'repo-path');
 
   const repoNameTrim = (draft.repoName ?? '').trim();
@@ -245,8 +237,8 @@ const ConfirmStep = ({
           { label: 'Name', value: <Text bold>{draft.name}</Text> },
           { label: 'Slug', value: slug.length > 0 ? slug : toKebabCase(draft.name) },
           ...(draft.description.trim().length > 0 ? [{ label: 'Description', value: draft.description }] : []),
-          { label: 'Repo path', value: <Text dimColor>{expandHome(draft.repoPath)}</Text> },
-          { label: 'Repo name', value: repoName.length > 0 ? repoName : basename(expandHome(draft.repoPath)) },
+          { label: 'Repo path', value: <Text dimColor>{draft.repoPath}</Text> },
+          { label: 'Repo name', value: repoName.length > 0 ? repoName : basename(draft.repoPath) },
         ]}
       />
       <Box marginTop={spacing.section}>
@@ -349,7 +341,7 @@ const StepView = ({
         <TextPrompt
           key="repo-name"
           message="Repository name (blank for default)"
-          initial={draft.repoName ?? basename(expandHome(draft.repoPath))}
+          initial={draft.repoName ?? basename(draft.repoPath)}
           escLabel="back"
           onSubmit={(value) => onAdvance({ patch: { repoName: value }, next: 'confirm' })}
           onCancel={() => onBack('repo-name')}

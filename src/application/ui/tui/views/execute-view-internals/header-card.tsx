@@ -95,29 +95,7 @@ const ModelLines = ({
   // Non-implement flows: single model line (whichever is set), with its provider + window when available.
   const model = generatorModel ?? evaluatorModel;
   const provider = generatorProvider ?? evaluatorProvider;
-  if (model !== undefined) {
-    const ctxWindow = contextWindowLabel(model);
-    return (
-      <Box>
-        <Text dimColor>{glyphs.activityArrow} model </Text>
-        {provider !== undefined && (
-          <>
-            <Text dimColor>{provider}</Text>
-            <Text dimColor> {glyphs.bullet} </Text>
-          </>
-        )}
-        <Text color={inkColors.highlight}>{model}</Text>
-        {ctxWindow !== undefined && (
-          <>
-            <Text dimColor> {glyphs.bullet} </Text>
-            <Text dimColor>{ctxWindow}</Text>
-          </>
-        )}
-      </Box>
-    );
-  }
-
-  return null;
+  return model !== undefined ? <RoleLine role="model" provider={provider} model={model} effort={undefined} /> : null;
 };
 
 /** Flow id, elapsed, task counter and the live spinner — the card's always-present first row. */

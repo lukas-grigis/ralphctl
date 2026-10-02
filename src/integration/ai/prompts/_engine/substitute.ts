@@ -25,7 +25,7 @@ import { compressSection, PRECAPPED_SECTION_CHAR_CAP } from '@src/integration/ai
  *    `{{API_KEY}}`, …) passes through as inert literal text.
  *
  * `assertTemplateKeysFilled` is the TEMPLATE-side fence. It checks that every placeholder the
- * template (and its loaded partials) declares has a value in the substitution map — a typo or
+ * template declares has a value in the substitution map — a typo or
  * missing slot surfaces as a typed error. It deliberately does NOT scan the rendered output:
  * a post-render scan punished placeholder-shaped literals inside SUBSTITUTED VALUES, so one
  * AI-journaled `{{TOKEN}}` quote poisoned every later prompt built from that journal — and the
@@ -88,25 +88,18 @@ export const substitute = (
   });
 
 /**
- * Assert every placeholder declared by `template` — and by each supplied partial body, since a
- * partial's own placeholders survive the single-pass substitution as literals — has a value in
- * `values`. On success the RENDERED string is branded as `Prompt`; on any unfilled key, returns
- * a `ParseError` (subCode `'schema-mismatch'`) listing the missing placeholders in first-seen
- * order. Values containing placeholder-shaped text are intentionally NOT flagged — see the
+ * Assert every placeholder declared by `template` has a value in `values`. On success the
+ * RENDERED string is branded as `Prompt`; on any unfilled key, returns a `ParseError` (subCode
+ * `'schema-mismatch'`) listing the missing placeholders in first-seen order. Values containing placeholder-shaped text are intentionally NOT flagged — see the
  * module docstring.
  */
 export const assertTemplateKeysFilled = (
   rendered: string,
   template: string,
-  partialBodies: readonly string[],
   values: Readonly<Record<string, string>>,
   where: string
 ): Result<Prompt, ParseError> => {
-  const required = new Set<string>(extractPlaceholders(template));
-  for (const body of partialBodies) {
-    for (const key of extractPlaceholders(body)) required.add(key);
-  }
-  const missing = Array.from(required).filter((key) => values[key] === undefined);
+  const missing = extractPlaceholders(template).filter((key) => values[key] === undefined);
   if (missing.length === 0) return Result.ok(rendered as Prompt) as Result<Prompt, ParseError>;
   return Result.error(
     new ParseError({

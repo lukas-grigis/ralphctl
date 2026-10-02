@@ -1,12 +1,22 @@
 /** Multi-line free-text input. Buffer holds raw text incl. newlines and renders one Ink row per line. */
 
-import React, { useEffect, useRef, useState, type MutableRefObject } from 'react';
+import React, { useEffect, useRef, useState, type RefObject } from 'react';
 import { Box, Text, type Key } from 'ink';
 import { usePromptInput } from '@src/application/ui/tui/prompts/use-prompt-input.ts';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { useTerminalSize } from '@src/application/ui/tui/runtime/use-terminal-size.ts';
 import { normalizePasteNewlines, stripPasteMarkers, usePaste } from '@src/application/ui/tui/prompts/use-paste.ts';
 import { usePromptHints } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
+import {
+  clearAll,
+  deleteBack,
+  deleteWordBack,
+  useCaretBlink,
+  useEditBuffer,
+  type InsertAtCursor,
+  type UpdateBufAndCursor,
+  type UpdateCursor,
+} from '@src/application/ui/tui/prompts/edit-buffer.ts';
 
 export interface TextAreaPromptProps {
   readonly message: string;
@@ -118,13 +128,13 @@ const computeViewportState = (
 
 /** Bundle of refs/callbacks the `useInput` key-dispatch groups below need to read or mutate. */
 interface TextAreaKeyCtx {
-  readonly bufRef: MutableRefObject<string>;
-  readonly cursorRef: MutableRefObject<number>;
-  readonly desiredColRef: MutableRefObject<number | null>;
+  readonly bufRef: RefObject<string>;
+  readonly cursorRef: RefObject<number>;
+  readonly desiredColRef: RefObject<number | null>;
   readonly viewport: number;
-  readonly updateCursor: (next: (prev: number) => number) => void;
-  readonly updateBufAndCursor: (transform: (b: string, c: number) => [string, number]) => void;
-  readonly insertAtCursor: (text: string) => void;
+  readonly updateCursor: UpdateCursor;
+  readonly updateBufAndCursor: UpdateBufAndCursor;
+  readonly insertAtCursor: InsertAtCursor;
   readonly onSubmit: (value: string) => void;
   readonly onCancel: () => void;
 }
@@ -219,28 +229,17 @@ const handleCursorMovement = (input: string, key: Key, ctx: TextAreaKeyCtx): boo
  */
 const handleTextEditing = (input: string, key: Key, ctx: TextAreaKeyCtx): void => {
   if (key.backspace || key.delete) {
-    ctx.updateBufAndCursor((b, c) => {
-      if (c === 0) return [b, c];
-      return [b.slice(0, c - 1) + b.slice(c), c - 1];
-    });
+    ctx.updateBufAndCursor(deleteBack);
     ctx.desiredColRef.current = null;
     return;
   }
   if (key.ctrl && input === 'u') {
-    ctx.updateBufAndCursor(() => ['', 0]);
+    ctx.updateBufAndCursor(clearAll);
     ctx.desiredColRef.current = null;
     return;
   }
   if (key.ctrl && input === 'w') {
-    // Drop trailing whitespace (incl. newlines before cursor), then the preceding word.
-    ctx.updateBufAndCursor((b, c) => {
-      const before = b.slice(0, c);
-      const after = b.slice(c);
-      const trimmed = before.replace(/[\s\n]+$/u, '');
-      const lastBoundary = trimmed.search(/\S+$/u);
-      const newBefore = lastBoundary === -1 ? '' : trimmed.slice(0, lastBoundary);
-      return [newBefore + after, newBefore.length];
-    });
+    ctx.updateBufAndCursor(deleteWordBack);
     ctx.desiredColRef.current = null;
     return;
   }
@@ -260,16 +259,6 @@ const handleTextEditing = (input: string, key: Key, ctx: TextAreaKeyCtx): void =
     const ins = normalizePasteNewlines(stripPasteMarkers(input));
     ctx.insertAtCursor(ins);
   }
-};
-
-/** Blink the caret every 500ms for as long as the field is mounted. */
-const useCaretBlink = (setCaretOn: (next: (prev: boolean) => boolean) => void): void => {
-  useEffect(() => {
-    const id = setInterval(() => setCaretOn((v) => !v), 500);
-    return () => {
-      clearInterval(id);
-    };
-  }, [setCaretOn]);
 };
 
 /**
@@ -414,48 +403,27 @@ export const TextAreaPrompt = ({
 }: TextAreaPromptProps): React.JSX.Element => {
   usePromptHints(TEXT_AREA_HINTS, escLabel);
   const term = useTerminalSize();
-  const [buf, setBuf] = useState(initial);
-  const [cursor, setCursor] = useState(initial.length);
-  const [caretOn, setCaretOn] = useState(true);
+  const buffer = useEditBuffer(initial);
+  const { buf, cursor, bufRef, cursorRef, updateCursor, updateBufAndCursor } = buffer;
+  const caretOn = useCaretBlink();
   // First buffer line shown in the window. Persisted so the window keeps its position
   // (hysteresis) as the cursor moves within it; the render derives the effective offset from it.
   const [firstVisible, setFirstVisible] = useState(0);
-
-  // Mirror buffer and cursor in refs so handlers read the latest values when keystrokes arrive
-  // between renders (paste + Enter, ctrl+u + Enter, fast typing). Matches TextPrompt's pattern.
-  const bufRef = useRef<string>(initial);
-  const cursorRef = useRef<number>(initial.length);
 
   // desiredColumn: remembered column for ↑/↓ navigation through shorter lines.
   // Set to current column on any horizontal move or edit; preserved across up/down moves only.
   const desiredColRef = useRef<number | null>(null);
 
-  // Atomically update both buf and cursor to avoid stale-closure races on rapid keystrokes.
-  const updateBufAndCursor = (transform: (b: string, c: number) => [string, number]): void => {
-    const [newBuf, newCursor] = transform(bufRef.current, cursorRef.current);
-    bufRef.current = newBuf;
-    cursorRef.current = newCursor;
-    setBuf(newBuf);
-    setCursor(newCursor);
-  };
-
-  const updateCursor = (next: (prev: number) => number): void => {
-    cursorRef.current = next(cursorRef.current);
-    setCursor(cursorRef.current);
-  };
-
   // Insert literal pasted text at the cursor, newlines preserved. A pasted newline is never a submit — that ambiguity
   // is exactly why bracketed paste exists.
   const insertAtCursor = (text: string): void => {
     if (text.length === 0) return;
-    updateBufAndCursor((b, c) => [b.slice(0, c) + text + b.slice(c), c + text.length]);
+    buffer.insertAtCursor(text);
     desiredColRef.current = null;
   };
 
   // Bracketed-paste channel: the whole payload arrives here once the closing marker does (markers stripped).
   const paste = usePaste(insertAtCursor);
-
-  useCaretBlink(setCaretOn);
 
   const { cursorLine, cursorCol, viewport, windowStart, visible, hasAbove, hasBelow } = useTextAreaViewport(
     buf,

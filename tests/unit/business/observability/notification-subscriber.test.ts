@@ -141,6 +141,19 @@ describe('classifyEventForNotification', () => {
     expect(decision?.body).toContain('/repos/app');
   });
 
+  it.each([
+    ['a Windows drive path', 'C:\\repo\\app'],
+    ['a POSIX path with a space', '/Users/me/My Repo'],
+  ])('keeps the whole cwd in the baseline-red body for %s', (_label, cwd) => {
+    const decision = classifyEventForNotification({
+      type: 'log',
+      level: 'warn',
+      message: `pre-task-verify ${cwd}: baseline already red (exit=1) — task will start on broken baseline`,
+      at: NOW,
+    });
+    expect(decision?.body).toBe(cwd);
+  });
+
   it("ignores info-level log events that mention 'baseline already red'", () => {
     // Defensive — only warn-level entries surface as attention; info noise stays muted.
     expect(

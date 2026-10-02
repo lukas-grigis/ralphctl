@@ -28,7 +28,6 @@
  *    a violation is logged and the skill is STILL returned for install.
  */
 
-import { type Dirent, promises as fs } from 'node:fs';
 import { join } from 'node:path';
 import { Result } from '@src/domain/result.ts';
 import type { StorageError } from '@src/domain/value/error/storage-error.ts';
@@ -38,7 +37,7 @@ import type { Logger } from '@src/business/observability/logger.ts';
 import type { Skill } from '@src/integration/ai/skills/_engine/skill.ts';
 import type { SkillSource } from '@src/integration/ai/skills/_engine/skill-source.ts';
 import type { FlowId } from '@src/integration/ai/skills/_engine/registry.ts';
-import { errorCode, parseSkill } from '@src/integration/ai/skills/_engine/parse-skill.ts';
+import { loadSkillFolders, type SkillContractWarner } from '@src/integration/ai/skills/_engine/skill-folder-loader.ts';
 
 /**
  * Map each provider id to its short, ergonomic operator subdirectory name. The operator types
@@ -58,19 +57,6 @@ export const OPERATOR_PROVIDER_DIR: Record<AiProvider, string> = {
   'xai-grok': 'grok',
 };
 
-/**
- * Optional per-skill compatibility guard. Wired by the launcher to the shared skill-contract
- * check (CS-SA); runs as a WARNING only — a violation never blocks install. Left optional so
- * this source has no hard dependency on the guard landing: when unset, every skill is returned
- * without a contract check.
- */
-export type SkillContractWarner = (skill: Skill) => void;
-
-/** Folder-name → install-name. Idempotent so an already-prefixed folder is not doubled. @public */
-export const RALPHCTL_SKILL_PREFIX = 'ralphctl-';
-const namespaced = (folderName: string): string =>
-  folderName.startsWith(RALPHCTL_SKILL_PREFIX) ? folderName : `${RALPHCTL_SKILL_PREFIX}${folderName}`;
-
 export interface OperatorSkillSourceDeps {
   /** `<appRoot>/skills` — the global operator skills root (from `StoragePaths`). */
   readonly operatorSkillsRoot: AbsolutePath;
@@ -87,52 +73,14 @@ export interface OperatorSkillSourceDeps {
  * root yields `[]`; an unreadable / malformed individual skill is logged and skipped. The
  * contract guard (when supplied) runs per surviving skill as a warning and never drops it.
  */
-const loadOperatorSkills = async (deps: OperatorSkillSourceDeps): Promise<readonly Skill[]> => {
-  const log = deps.logger.named('skills.operator');
-  const providerDir = OPERATOR_PROVIDER_DIR[deps.provider];
-  const providerRoot = join(String(deps.operatorSkillsRoot), providerDir);
-
-  let entries: Dirent[];
-  try {
-    entries = await fs.readdir(providerRoot, { withFileTypes: true });
-  } catch (cause) {
-    // A missing root is the common, non-error case — no operator skills configured.
-    if (errorCode(cause) === 'ENOENT') return [];
-    log.warn('operator skills dir not readable', { provider: deps.provider, path: providerRoot, cause });
-    return [];
-  }
-
-  const skills: Skill[] = [];
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
-    const name = entry.name;
-    const path = join(providerRoot, name, 'SKILL.md');
-    let raw: string;
-    try {
-      raw = await fs.readFile(path, 'utf-8');
-    } catch (cause) {
-      log.warn('operator skill not readable, skipping', { provider: deps.provider, name, path, cause });
-      continue;
-    }
-    const parsed = parseSkill('operator skill', path, name, raw);
-    if (!parsed.ok) {
-      log.warn('operator skill invalid, skipping', {
-        provider: deps.provider,
-        name,
-        path,
-        error: parsed.error.message,
-      });
-      continue;
-    }
-    // Namespace the install name so the adapter's `ralphctl-*` exclude wildcard hides it from
-    // `git status` and the tracked uninstall reclaims it — exactly the bundled lifecycle.
-    const skill: Skill = { ...parsed.value, name: namespaced(parsed.value.name) };
-    // Compatibility guard is advisory: log a warning but still install — the operator owns it.
-    deps.warnIfContractViolated?.(skill);
-    skills.push(skill);
-  }
-  return skills;
-};
+const loadOperatorSkills = (deps: OperatorSkillSourceDeps): Promise<readonly Skill[]> =>
+  loadSkillFolders({
+    root: join(String(deps.operatorSkillsRoot), OPERATOR_PROVIDER_DIR[deps.provider]),
+    label: 'operator skill',
+    log: deps.logger.named('skills.operator'),
+    logFields: { provider: deps.provider },
+    warnIfContractViolated: deps.warnIfContractViolated,
+  });
 
 export const createOperatorSkillSource = (deps: OperatorSkillSourceDeps): SkillSource => ({
   async getForFlow(_flowId: FlowId): Promise<Result<readonly Skill[], StorageError>> {

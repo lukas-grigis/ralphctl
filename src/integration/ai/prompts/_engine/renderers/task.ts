@@ -213,6 +213,13 @@ export const renderPriorCritiqueSection = (critique: string | undefined, traject
   return blocks.join('\n\n');
 };
 
+// Blank / absent body renders nothing, so the slot collapses with no orphan wrapper tag.
+export const renderTaggedBlock = (tag: string, body: string | undefined, preface: readonly string[] = []): string => {
+  const trimmed = body?.trim() ?? '';
+  if (trimmed.length === 0) return '';
+  return [`<${tag}>`, ...(preface.length > 0 ? [...preface, ''] : []), trimmed, `</${tag}>`].join('\n');
+};
+
 /**
  * Render the optional generator-hints section passed to the evaluator. The hints carry same-round
  * generator observations — proposed commit subject, environment notes (dev-server ports, quirks),
@@ -223,12 +230,26 @@ export const renderPriorCritiqueSection = (critique: string | undefined, traject
  * Empty / absent → empty string so the `{{GENERATOR_HINTS_SECTION}}` placeholder collapses without
  * leaving an orphan heading or XML-like tag in the rendered prompt.
  */
-export const renderGeneratorHintsSection = (hints: string | undefined): string => {
-  if (hints === undefined) return '';
-  const trimmed = hints.trim();
-  if (trimmed.length === 0) return '';
-  return ['<generator_hints>', trimmed, '</generator_hints>'].join('\n');
-};
+export const renderGeneratorHintsSection = (hints: string | undefined): string =>
+  renderTaggedBlock('generator_hints', hints);
+
+/**
+ * Render the optional `<prior_attempts>` block — the most instructive prior attempts on this task
+ * (select-K slice) with their verification outcomes. Empty / absent → `{{PRIOR_ATTEMPTS_SECTION}}`
+ * collapses cleanly with no orphan wrapper.
+ */
+export const renderPriorAttemptsSection = (summary: string | undefined): string =>
+  renderTaggedBlock('prior_attempts', summary);
+
+/**
+ * Render the generator-facing `<reproduction>` block — a failing test a prior `reproduce` session
+ * wrote for this defect-shaped task. Empty / absent → `{{REPRODUCTION_SECTION}}` collapses cleanly.
+ */
+export const renderReproductionSection = (reproduction: string | undefined): string =>
+  renderTaggedBlock('reproduction', reproduction, [
+    'A failing reproduction test already exists for this task, written in an earlier session. Make it',
+    'pass without weakening it — do not delete, skip, or loosen its assertions to reach a pass.',
+  ]);
 
 /**
  * Render the optional pre-verify results block injected into the generator prompt. When the

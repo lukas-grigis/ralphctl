@@ -20,6 +20,8 @@ describe('createCreatePrFlow — chain-shape fence', () => {
     expect(names(createCreatePrFlow(stubDeps()))).toStrictEqual([
       'create-pr',
       'push-branch',
+      'continue-on-error(create-pr-ai)',
+      'create-pr-ai',
       'load-create-pr-context',
       'build-create-pr-unit',
       'render-prompt-to-file',

@@ -142,11 +142,11 @@ const readNumber = (meta: LogEvent['meta'], key: string): number | undefined => 
  * path-shaped prefix.
  */
 const extractTaskHint = (message: string): string => {
-  const colon = message.indexOf(':');
-  if (colon <= 0) return message;
+  // Anchor on the marker, not the first colon — a Windows drive (`C:`) or a POSIX path may contain one.
+  const at = message.indexOf(`: ${BASELINE_RED_MARKER}`);
+  if (at <= 0) return message;
   // Strip the leaf name prefix so the body reads as "<cwd>".
-  const prefix = message.slice(0, colon);
+  const prefix = message.slice(0, at);
   const space = prefix.indexOf(' ');
-  if (space < 0) return prefix;
-  return prefix.slice(space + 1);
+  return space < 0 ? prefix : prefix.slice(space + 1);
 };

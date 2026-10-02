@@ -313,7 +313,7 @@ const completeThenAbort = (task: Task, log: string[], ac: AbortController): Wave
 });
 
 describe('createParallelImplementElement — prologue failure', () => {
-  it('still runs the epilogue under the lock, then propagates the prologue error', async () => {
+  it('propagates the prologue error without running waves or the epilogue, and still releases the lock', async () => {
     const t1 = makeTodoTask({ name: 't1' });
     const log: string[] = [];
     const persisted: Persisted = { tasks: undefined };
@@ -343,9 +343,10 @@ describe('createParallelImplementElement — prologue failure', () => {
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.error.error).toBeInstanceOf(StorageError);
-    // Waves never built (no prologue success); epilogue still ran under the lock.
+    // No waves, no epilogue — a stray save-tasks would fail on the launcher's tasks-less ctx.
     expect(buildWaves).not.toHaveBeenCalled();
-    expect(log).toEqual(['implement-prologue', 'epilogue']);
+    expect(log).toEqual(['implement-prologue']);
+    expect(persisted.tasks).toBeUndefined();
     expect(lockLog).toEqual(['lock-acquire', 'lock-release']);
   });
 });

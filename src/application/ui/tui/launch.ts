@@ -13,7 +13,6 @@ import type { SignalBusEntry } from '@src/application/ui/tui/runtime/sinks-conte
 import { type CoalescedBuffer, createCoalescedBuffer } from '@src/application/ui/tui/runtime/coalesced-buffer.ts';
 import { createSessionManager, type SessionManager } from '@src/application/ui/tui/runtime/session-manager.ts';
 import { createPromptQueue } from '@src/application/ui/tui/prompts/prompt-queue.ts';
-import { createInkInteractivePrompt } from '@src/application/ui/tui/prompts/ink-interactive-prompt.ts';
 import { createInkHost } from '@src/application/ui/shared/ink-host.ts';
 import { setRunInTerminal } from '@src/application/ui/tui/runtime/run-in-terminal.ts';
 import { setImplementRoleOverrides } from '@src/application/ui/tui/runtime/implement-role-overrides.ts';
@@ -38,6 +37,7 @@ import { writeHeapSnapshotToDir } from '@src/integration/observability/heap-snap
 import { createOsNotificationDispatcher } from '@src/integration/observability/os-notification-dispatcher.ts';
 import { startNotificationSubscriber } from '@src/business/observability/notification-subscriber.ts';
 import { runBundleIntegrityCheck } from '@src/application/bootstrap/run-bundle-integrity-check.ts';
+import { messageOf } from '@src/domain/value/error/error-message.ts';
 
 interface Bootstrapped {
   readonly app: Parameters<typeof App>[0];
@@ -291,11 +291,6 @@ const bootstrap = async (options: LaunchTuiOptions = {}): Promise<Bootstrapped> 
 
   const queue = createPromptQueue();
 
-  // The Ink prompt adapter is plumbed through deps that the launcher reads; chain factories
-  // that need an `InteractivePrompt` (create-sprint, readiness) get this
-  // adapter via the launcher.
-  void createInkInteractivePrompt(queue);
-
   const { initialView, initialSelection, lastSelectionStore } = await resolveLaunchViewState(
     deps,
     paths.value.stateRoot
@@ -341,7 +336,7 @@ const bootstrap = async (options: LaunchTuiOptions = {}): Promise<Bootstrapped> 
       engine: migrationEngine,
       dataRoot: paths.value.dataRoot,
       stateRoot: paths.value.stateRoot,
-      now: () => String(deps.clock()),
+      now: deps.clock,
       writeFile: deps.writeFile,
     },
   };
@@ -381,7 +376,7 @@ export const launchTui = async (options: LaunchTuiOptions = {}): Promise<void> =
   try {
     booted = await bootstrap(options);
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
+    const msg = messageOf(err);
     process.stderr.write(`ralphctl: failed to start TUI — ${msg}\n`);
     process.exitCode = 1;
     return;

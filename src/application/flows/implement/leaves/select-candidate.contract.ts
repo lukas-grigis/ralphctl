@@ -80,14 +80,5 @@ export const selectCandidateOutputContract: AiOutputContract<SelectCandidateSign
   exampleSignals: selectCandidateExampleSignals,
 };
 
-/**
- * Exported solely so the test grid can assert against the exact signal type the contract
- * accepts. The leaf consumes the contract via `selectCandidateOutputContract`; this alias must
- * not appear outside `__tests__/`.
- *
- * @public
- */
-export type SelectCandidateContractSignal = SelectCandidateSignal;
-
 const _signalCheck: SelectCandidateSignal extends AiSignal ? true : false = true;
 void _signalCheck;

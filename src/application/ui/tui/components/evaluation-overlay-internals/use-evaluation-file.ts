@@ -3,14 +3,15 @@
  * dep-change behind a `cancelled` flag.
  */
 
-import { promises as fs } from 'node:fs';
-import { join } from 'node:path';
 import { useEffect, useState } from 'react';
-import { resolveSprintDir } from '@src/integration/persistence/storage.ts';
 import { evaluationArtifactSprintPath } from '@src/business/task/evaluation-artifact.ts';
 import { parseEvaluationMarkdown, type ParsedEvaluation } from '@src/business/task/parse-evaluation-md.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { EvaluationTarget } from '@src/application/ui/tui/runtime/evaluation-target.ts';
+import {
+  readSprintDocument,
+  splitDocumentLines,
+} from '@src/application/ui/tui/components/overlay-internals/read-sprint-document.ts';
 
 export type EvaluationFileState =
   | { readonly kind: 'loading' }
@@ -50,39 +51,26 @@ export const useEvaluationFile = (
       return undefined;
     }
     const load = async (): Promise<void> => {
-      try {
-        // Tolerant id-prefix resolver so both `<id>--<slug>/` and the legacy bare `<id>/` are
-        // found — a hand-built `sprints/<id>` would split-brain against a slug-renamed dir.
-        const dir = await resolveSprintDir(dataRoot, sprintId);
-        if (cancelled) return;
-        if (dir === undefined) {
+      const doc = await readSprintDocument(dataRoot, sprintId, relativePath);
+      if (cancelled) return;
+      switch (doc.kind) {
+        case 'ok':
+          setState({
+            kind: 'ok',
+            relativePath,
+            parsed: parseEvaluationMarkdown(doc.content),
+            rawLines: splitDocumentLines(doc.content),
+            modifiedAtMs: doc.modifiedAtMs,
+          });
+          return;
+        case 'missing':
           setState({ kind: 'missing', relativePath });
           return;
-        }
-        const absolute = join(dir, relativePath);
-        const [stat, content] = await Promise.all([fs.stat(absolute), fs.readFile(absolute, 'utf8')]);
-        if (cancelled) return;
-        const modifiedAtMs = stat.mtimeMs;
-        if (content.trim().length === 0) {
-          setState({ kind: 'empty', relativePath, modifiedAtMs });
+        case 'empty':
+          setState({ kind: 'empty', relativePath, modifiedAtMs: doc.modifiedAtMs });
           return;
-        }
-        setState({
-          kind: 'ok',
-          relativePath,
-          parsed: parseEvaluationMarkdown(content),
-          // Strip a trailing newline so the last visible row isn't blank; keep interior empties.
-          rawLines: content.replace(/\n+$/, '').split('\n'),
-          modifiedAtMs,
-        });
-      } catch (cause) {
-        if (cancelled) return;
-        const code = (cause as { code?: string } | undefined)?.code;
-        if (code === 'ENOENT') {
-          setState({ kind: 'missing', relativePath });
-          return;
-        }
-        setState({ kind: 'failed', message: cause instanceof Error ? cause.message : String(cause) });
+        case 'failed':
+          setState(doc);
       }
     };
     void load();

@@ -23,6 +23,7 @@ import type { Project } from '@src/domain/entity/project.ts';
 import type { CallPlannerInteractiveDeps } from '@src/application/flows/plan/leaves/call-planner-interactive.ts';
 import { callPlannerInteractiveLeaf } from '@src/application/flows/plan/leaves/call-planner-interactive.ts';
 import type { PlanCtx } from '@src/application/flows/plan/ctx.ts';
+import { createPublishSignal } from '@src/application/flows/_shared/publish-signal.ts';
 
 /**
  * Audit-[10] nine-branch grid against the audit-[09] plan contract.
@@ -100,7 +101,7 @@ describe('callPlannerInteractiveLeaf — audit-[09] contract', () => {
       runInTerminal: async (fn) => fn(),
       logger: noopLogger,
       writeFile,
-      eventBus,
+      publishSignal: createPublishSignal(eventBus, 'plan'),
       model: 'claude-sonnet-4-6',
       maxAttempts: 3,
     };

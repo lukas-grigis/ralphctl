@@ -1,67 +1,27 @@
 /** Free-text input prompt (optional inline `validate` / `preview`). */
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Box, Text, type Key } from 'ink';
 import { usePromptInput } from '@src/application/ui/tui/prompts/use-prompt-input.ts';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { stripPasteMarkers, usePaste } from '@src/application/ui/tui/prompts/use-paste.ts';
 import { usePromptHints } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
+import {
+  clearAll,
+  deleteBack,
+  deleteWordBack,
+  useCaretBlink,
+  useEditBuffer,
+  type InsertAtCursor,
+  type UpdateBufAndCursor,
+  type UpdateCursor,
+} from '@src/application/ui/tui/prompts/edit-buffer.ts';
 
 /**
  * Flatten a pasted payload for a single-line field: collapse every run of whitespace (including the newlines a
  * multi-line paste carries) to one space, then trim the edges.
  */
 const flattenToSingleLine = (text: string): string => text.replace(/\s+/gu, ' ').trim();
-
-type UpdateCursor = (next: (prev: number) => number) => void;
-type UpdateBufAndCursor = (transform: (b: string, c: number) => [string, number]) => void;
-type InsertAtCursor = (text: string) => void;
-
-interface LineBuffer {
-  readonly buf: string;
-  readonly cursor: number;
-  readonly bufRef: React.RefObject<string>;
-  readonly updateCursor: UpdateCursor;
-  readonly updateBufAndCursor: UpdateBufAndCursor;
-  readonly insertAtCursor: InsertAtCursor;
-}
-
-/**
- * Buffer + cursor state for a single-line editable field, backed by refs so handlers always read the latest values
- * even when multiple keystrokes arrive between renders (paste + Enter, ctrl+u + Enter, fast typing).
- */
-const useLineBuffer = (initial: string): LineBuffer => {
-  const [buf, setBuf] = useState(initial);
-  const [cursor, setCursor] = useState(initial.length);
-
-  const bufRef = useRef<string>(initial);
-  const cursorRef = useRef<number>(initial.length);
-
-  // Refs are advanced synchronously, not inside a state updater: React may defer an updater to render time when other
-  // work is pending, and an Enter typed right behind the text would then submit a stale buffer.
-  const updateCursor: UpdateCursor = (next) => {
-    const value = next(cursorRef.current);
-    cursorRef.current = value;
-    setCursor(value);
-  };
-
-  // Atomically update both buf and cursor to avoid stale-closure races on rapid keystrokes.
-  const updateBufAndCursor: UpdateBufAndCursor = (transform) => {
-    const [newBuf, newCursor] = transform(bufRef.current, cursorRef.current);
-    bufRef.current = newBuf;
-    cursorRef.current = newCursor;
-    setBuf(newBuf);
-    setCursor(newCursor);
-  };
-
-  // Insert text at the cursor. Routed through updateBufAndCursor so refs stay authoritative.
-  const insertAtCursor: InsertAtCursor = (text) => {
-    if (text.length === 0) return;
-    updateBufAndCursor((b, c) => [b.slice(0, c) + text + b.slice(c), c + text.length]);
-  };
-
-  return { buf, cursor, bufRef, updateCursor, updateBufAndCursor, insertAtCursor };
-};
 
 /** ←/→ and Home/End (+ ctrl+a/ctrl+e) cursor movement. Returns true when the key was handled. */
 const handleNavigationKey = (
@@ -94,26 +54,15 @@ const handleNavigationKey = (
 /** Backspace/delete, ctrl+u (clear), ctrl+w (delete word). Returns true when the key was handled. */
 const handleEditingKey = (key: Key, input: string, updateBufAndCursor: UpdateBufAndCursor): boolean => {
   if (key.backspace || key.delete) {
-    updateBufAndCursor((b, c) => {
-      if (c === 0) return [b, c];
-      return [b.slice(0, c - 1) + b.slice(c), c - 1];
-    });
+    updateBufAndCursor(deleteBack);
     return true;
   }
   if (key.ctrl && input === 'u') {
-    updateBufAndCursor(() => ['', 0]);
+    updateBufAndCursor(clearAll);
     return true;
   }
   if (key.ctrl && input === 'w') {
-    // Delete from cursor back to the start of the previous word.
-    updateBufAndCursor((b, c) => {
-      const before = b.slice(0, c);
-      const after = b.slice(c);
-      const trimmed = before.replace(/\s+$/u, '');
-      const lastBoundary = trimmed.search(/\S+$/u);
-      const newBefore = lastBoundary === -1 ? '' : trimmed.slice(0, lastBoundary);
-      return [newBefore + after, newBefore.length];
-    });
+    updateBufAndCursor(deleteWordBack);
     return true;
   }
   return false;
@@ -161,22 +110,16 @@ export const TextPrompt = ({
   validate,
   preview,
 }: TextPromptProps): React.JSX.Element => {
-  const { buf, cursor, bufRef, updateCursor, updateBufAndCursor, insertAtCursor } = useLineBuffer(initial);
-  const [caretOn, setCaretOn] = useState(true);
+  const { buf, cursor, bufRef, updateCursor, updateBufAndCursor, insertAtCursor } = useEditBuffer(initial);
+  const caretOn = useCaretBlink();
   const [attempted, setAttempted] = useState(false);
 
   // Bracketed-paste channel. A single-line field flattens the payload: runs of whitespace and the
   // newlines of a multi-line paste collapse to one space so the field stays single-line.
   const paste = usePaste((payload) => insertAtCursor(flattenToSingleLine(payload)));
 
-  // Half-second blink. The cleanup keeps the timer from leaking across remounts of the
-  // wizards that key TextPrompts per step.
-  useEffect(() => {
-    const id = setInterval(() => setCaretOn((v) => !v), 500);
-    return () => {
-      clearInterval(id);
-    };
-  }, []);
+  // Memoised so the caret blink doesn't re-run validate (path-picker's stats the disk).
+  const validation = useMemo(() => validate?.(buf), [buf, validate]);
 
   usePromptHints(TEXT_HINTS, escLabel);
 
@@ -207,7 +150,7 @@ export const TextPrompt = ({
   const charAtCursor = buf.slice(cursor, cursor + 1); // '' when cursor is past end
   const afterCursor = buf.slice(cursor + 1);
 
-  const error = attempted || buf.length > 0 ? validate?.(buf) : undefined;
+  const error = attempted || buf.length > 0 ? validation : undefined;
   const previewText = error === undefined ? preview?.(buf) : undefined;
 
   return (

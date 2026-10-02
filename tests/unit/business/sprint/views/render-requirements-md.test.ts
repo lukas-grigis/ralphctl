@@ -19,7 +19,7 @@ describe('renderSprintRequirementsMarkdown', () => {
     const sprint = makeDraftSprint();
     const out = renderSprintRequirementsMarkdown(sprint);
     expect(out).toContain('Approved tickets: 0 of 0');
-    expect(out).toContain('run `ralphctl sprint refine` first');
+    expect(out).toContain("refine the sprint's tickets first");
   });
 
   it('includes ticket id and link when present', () => {

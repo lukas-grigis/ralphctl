@@ -30,9 +30,6 @@ type TaskBlockProps = {
   readonly maxSubSteps: number;
   readonly focusedKey: string | undefined;
   readonly expandedKeys: ReadonlySet<string>;
-  readonly scopeId: string;
-  /** Absolute signal index where the rendered slice starts (`task.signals.length - sliceLen`). */
-  readonly sliceStart: number;
   /** When true the criteria block renders all bullets; otherwise the 3-line summary. */
   readonly criteriaExpanded: boolean;
   /** True for the active (running) task; gates ETA rendering to the operator's focus. */
@@ -83,8 +80,6 @@ const TaskBlockImpl = ({
   maxSubSteps,
   focusedKey,
   expandedKeys,
-  scopeId,
-  sliceStart,
   criteriaExpanded,
   isActive,
   firstRun,
@@ -130,13 +125,10 @@ const TaskBlockImpl = ({
       maxSubSteps={maxSubSteps}
       maxSignals={maxSignals}
       pendingSubSteps={overlay.pendingSubSteps}
-      running={running}
       isActive={isActive}
       taskEvaluation={overlay.taskEvaluation}
       focusedKey={focusedKey}
       expandedKeys={expandedKeys}
-      scopeId={scopeId}
-      sliceStart={sliceStart}
     />
   </Box>
 );

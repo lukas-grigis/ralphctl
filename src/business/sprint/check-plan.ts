@@ -129,8 +129,8 @@ export interface CheckPlanProps {
 const ANGLE_PLACEHOLDER = /<[^>\n]{1,80}>/;
 /** Whole-word placeholder tokens a planner leaves behind when it does not know the command. */
 const TOKEN_PLACEHOLDER = /\b(?:TODO|TBD|FIXME|XXX)\b/;
-/** Literal or typographic ellipsis — an elided command is not runnable. */
-const ELLIPSIS = /\.\.\.|…/;
+/** An elided command (`...` / `…`) is not runnable; a trailing `/...` is Go's package wildcard, not an elision. */
+const ELLIPSIS = /(?<!\/)\.\.\.|\/\.\.\.(?=\S)|…/;
 /** Characters a real argv[0] can be built from. Anything else means the "command" is prose. */
 const SHELL_HEAD = /^[A-Za-z0-9_@./+-]+$/;
 /**
@@ -143,7 +143,8 @@ const isPlaceholderCommand = (command: string): boolean =>
   ANGLE_PLACEHOLDER.test(command) || TOKEN_PLACEHOLDER.test(command) || ELLIPSIS.test(command);
 
 const isProseCommand = (command: string): boolean => {
-  const head = command.split(/\s+/)[0] ?? '';
+  // Leading env assignments (`CI=1 pnpm test`) are not argv[0].
+  const head = command.replace(/^(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)+/, '').split(/\s+/)[0] ?? '';
   return !SHELL_HEAD.test(head) || SENTENCE_TAIL.test(command);
 };
 

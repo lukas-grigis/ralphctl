@@ -1,7 +1,7 @@
 import { Result } from '@src/domain/result.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
-import type { GitRunner } from '@src/integration/io/git-runner.ts';
+import { runGitChecked, type GitRunner } from '@src/integration/io/git-runner.ts';
 
 /**
  * High-level git operations used by the implement and review chains.
@@ -60,16 +60,8 @@ export const gitStatusPorcelain = async (
   runner: GitRunner,
   cwd: AbsolutePath
 ): Promise<Result<readonly GitStatusEntry[], StorageError>> => {
-  const result = await runner.run(cwd, ['status', '--porcelain', '--untracked-files=normal']);
+  const result = await runGitChecked(runner, cwd, ['status', '--porcelain', '--untracked-files=normal'], 'status');
   if (!result.ok) return Result.error(result.error);
-  if (result.value.exitCode !== 0) {
-    return Result.error(
-      new StorageError({
-        subCode: 'io',
-        message: `git status failed: ${(result.value.stderr || result.value.stdout).trim()}`,
-      })
-    );
-  }
   const entries: GitStatusEntry[] = [];
   for (const line of result.value.stdout.split('\n')) {
     if (line.length === 0) continue;
@@ -110,26 +102,15 @@ export const gitDiffFootprint = async (
   runner: GitRunner,
   cwd: AbsolutePath
 ): Promise<Result<readonly string[], StorageError>> => {
-  const diff = await runner.run(cwd, ['diff', '--name-only', 'HEAD']);
+  const diff = await runGitChecked(runner, cwd, ['diff', '--name-only', 'HEAD'], 'diff --name-only HEAD');
   if (!diff.ok) return Result.error(diff.error);
-  if (diff.value.exitCode !== 0) {
-    return Result.error(
-      new StorageError({
-        subCode: 'io',
-        message: `git diff --name-only HEAD failed: ${(diff.value.stderr || diff.value.stdout).trim()}`,
-      })
-    );
-  }
-  const untracked = await runner.run(cwd, ['ls-files', '--others', '--exclude-standard']);
+  const untracked = await runGitChecked(
+    runner,
+    cwd,
+    ['ls-files', '--others', '--exclude-standard'],
+    'ls-files --others'
+  );
   if (!untracked.ok) return Result.error(untracked.error);
-  if (untracked.value.exitCode !== 0) {
-    return Result.error(
-      new StorageError({
-        subCode: 'io',
-        message: `git ls-files --others failed: ${(untracked.value.stderr || untracked.value.stdout).trim()}`,
-      })
-    );
-  }
   const paths = new Set<string>();
   for (const line of `${diff.value.stdout}\n${untracked.value.stdout}`.split('\n')) {
     const path = line.trim();
@@ -140,16 +121,8 @@ export const gitDiffFootprint = async (
 
 /** Resolve `HEAD` to a commit SHA. */
 export const gitRevParseHead = async (runner: GitRunner, cwd: AbsolutePath): Promise<Result<string, StorageError>> => {
-  const result = await runner.run(cwd, ['rev-parse', 'HEAD']);
+  const result = await runGitChecked(runner, cwd, ['rev-parse', 'HEAD'], 'rev-parse HEAD');
   if (!result.ok) return Result.error(result.error);
-  if (result.value.exitCode !== 0) {
-    return Result.error(
-      new StorageError({
-        subCode: 'io',
-        message: `git rev-parse HEAD failed: ${(result.value.stderr || result.value.stdout).trim()}`,
-      })
-    );
-  }
   const sha = result.value.stdout.trim();
   if (!HEX_SHA_RE.test(sha)) {
     return Result.error(
@@ -164,16 +137,8 @@ export const gitRevParseHead = async (runner: GitRunner, cwd: AbsolutePath): Pro
 
 /** Stage every change in the working tree (including untracked files). */
 export const gitAddAll = async (runner: GitRunner, cwd: AbsolutePath): Promise<Result<void, StorageError>> => {
-  const result = await runner.run(cwd, ['add', '-A']);
+  const result = await runGitChecked(runner, cwd, ['add', '-A'], 'add -A');
   if (!result.ok) return Result.error(result.error);
-  if (result.value.exitCode !== 0) {
-    return Result.error(
-      new StorageError({
-        subCode: 'io',
-        message: `git add -A failed: ${(result.value.stderr || result.value.stdout).trim()}`,
-      })
-    );
-  }
   return Result.ok(undefined);
 };
 
@@ -184,16 +149,16 @@ export const gitAddAll = async (runner: GitRunner, cwd: AbsolutePath): Promise<R
  *   - `Result.error(StorageError)` for anything else
  *
  * The message is passed via argv (no shell) so quotes / `$` / backticks / newlines are
- * preserved verbatim. Length is enforced at <=500 UTF-8 bytes — git itself accepts more,
- * but per-task commits are signal, not prose.
+ * preserved verbatim.
  */
 export const gitCommitWithMessage = async (
   runner: GitRunner,
   cwd: AbsolutePath,
   message: string
 ): Promise<Result<CommitOutcome, StorageError>> => {
-  const validated = validateCommitMessage(message);
-  if (!validated.ok) return Result.error(validated.error);
+  if (message.length === 0) {
+    return Result.error(new StorageError({ subCode: 'io', message: 'commit message must not be empty' }));
+  }
 
   const beforeStage = await gitHasUncommittedChanges(runner, cwd);
   if (!beforeStage.ok) return Result.error(beforeStage.error);
@@ -209,16 +174,8 @@ export const gitCommitWithMessage = async (
   if (!afterStage.ok) return Result.error(afterStage.error);
   if (!afterStage.value) return Result.ok({ committed: false });
 
-  const commit = await runner.run(cwd, ['commit', '-m', message]);
+  const commit = await runGitChecked(runner, cwd, ['commit', '-m', message], 'commit');
   if (!commit.ok) return Result.error(commit.error);
-  if (commit.value.exitCode !== 0) {
-    return Result.error(
-      new StorageError({
-        subCode: 'io',
-        message: `git commit failed: ${(commit.value.stderr || commit.value.stdout).trim()}`,
-      })
-    );
-  }
   const head = await gitRevParseHead(runner, cwd);
   if (!head.ok) return Result.error(head.error);
   return Result.ok({ committed: true, headSha: head.value });
@@ -263,16 +220,8 @@ export const stashEntryMatchesMessage = (entry: string, message: string): boolea
  * list-then-pop sequence runs as ONE critical section instead of two separately-queued calls
  * (which would re-open the exact race the mutex exists to close). */
 const listStashSubjects = async (runner: GitRunner, cwd: AbsolutePath): Promise<Result<string[], StorageError>> => {
-  const result = await runner.run(cwd, ['stash', 'list', '--format=%s']);
+  const result = await runGitChecked(runner, cwd, ['stash', 'list', '--format=%s'], 'stash list');
   if (!result.ok) return Result.error(result.error);
-  if (result.value.exitCode !== 0) {
-    return Result.error(
-      new StorageError({
-        subCode: 'io',
-        message: `git stash list failed: ${(result.value.stderr || result.value.stdout).trim()}`,
-      })
-    );
-  }
   return Result.ok(result.value.stdout.split('\n').filter((line) => line.length > 0));
 };
 
@@ -290,16 +239,8 @@ export const gitStashPush = (
     if (!dirty.ok) return Result.error(dirty.error);
     if (!dirty.value) return Result.ok({ stashed: false });
 
-    const stash = await runner.run(cwd, ['stash', 'push', '-u', '-m', message]);
+    const stash = await runGitChecked(runner, cwd, ['stash', 'push', '-u', '-m', message], 'stash push');
     if (!stash.ok) return Result.error(stash.error);
-    if (stash.value.exitCode !== 0) {
-      return Result.error(
-        new StorageError({
-          subCode: 'io',
-          message: `git stash push failed: ${(stash.value.stderr || stash.value.stdout).trim()}`,
-        })
-      );
-    }
     return Result.ok({ stashed: true });
   });
 
@@ -336,41 +277,17 @@ export const gitStashPop = (
     const index = list.value.findIndex((entry) => stashEntryMatchesMessage(entry, message));
     if (index === -1) return Result.ok({ popped: false });
 
-    const pop = await runner.run(cwd, ['stash', 'pop', `stash@{${String(index)}}`]);
+    const pop = await runGitChecked(runner, cwd, ['stash', 'pop', `stash@{${String(index)}}`], 'stash pop');
     if (!pop.ok) return Result.error(pop.error);
-    if (pop.value.exitCode !== 0) {
-      return Result.error(
-        new StorageError({
-          subCode: 'io',
-          message: `git stash pop failed: ${(pop.value.stderr || pop.value.stdout).trim()}`,
-        })
-      );
-    }
     return Result.ok({ popped: true });
   });
 
 /** `git reset --hard HEAD` followed by `git clean -fd`. Wipes uncommitted + untracked. */
 export const gitResetHard = async (runner: GitRunner, cwd: AbsolutePath): Promise<Result<void, StorageError>> => {
-  const reset = await runner.run(cwd, ['reset', '--hard', 'HEAD']);
+  const reset = await runGitChecked(runner, cwd, ['reset', '--hard', 'HEAD'], 'reset --hard');
   if (!reset.ok) return Result.error(reset.error);
-  if (reset.value.exitCode !== 0) {
-    return Result.error(
-      new StorageError({
-        subCode: 'io',
-        message: `git reset --hard failed: ${(reset.value.stderr || reset.value.stdout).trim()}`,
-      })
-    );
-  }
-  const clean = await runner.run(cwd, ['clean', '-fd']);
+  const clean = await runGitChecked(runner, cwd, ['clean', '-fd'], 'clean -fd');
   if (!clean.ok) return Result.error(clean.error);
-  if (clean.value.exitCode !== 0) {
-    return Result.error(
-      new StorageError({
-        subCode: 'io',
-        message: `git clean -fd failed: ${(clean.value.stderr || clean.value.stdout).trim()}`,
-      })
-    );
-  }
   return Result.ok(undefined);
 };
 
@@ -382,16 +299,8 @@ export const gitGetCurrentBranch = async (
   runner: GitRunner,
   cwd: AbsolutePath
 ): Promise<Result<string, StorageError>> => {
-  const result = await runner.run(cwd, ['rev-parse', '--abbrev-ref', 'HEAD']);
+  const result = await runGitChecked(runner, cwd, ['rev-parse', '--abbrev-ref', 'HEAD'], 'rev-parse --abbrev-ref HEAD');
   if (!result.ok) return Result.error(result.error);
-  if (result.value.exitCode !== 0) {
-    return Result.error(
-      new StorageError({
-        subCode: 'io',
-        message: `git rev-parse --abbrev-ref HEAD failed: ${(result.value.stderr || result.value.stdout).trim()}`,
-      })
-    );
-  }
   const name = result.value.stdout.trim();
   if (name.length === 0) {
     return Result.error(new StorageError({ subCode: 'io', message: 'git rev-parse returned empty branch name' }));
@@ -428,16 +337,8 @@ export const gitCreateAndCheckoutBranch = async (
   if (!exists.ok) return Result.error(exists.error);
 
   const argv = exists.value ? ['checkout', name] : ['checkout', '-b', name];
-  const checkout = await runner.run(cwd, argv);
+  const checkout = await runGitChecked(runner, cwd, argv, 'checkout');
   if (!checkout.ok) return Result.error(checkout.error);
-  if (checkout.value.exitCode !== 0) {
-    return Result.error(
-      new StorageError({
-        subCode: 'io',
-        message: `git checkout failed: ${(checkout.value.stderr || checkout.value.stdout).trim()}`,
-      })
-    );
-  }
   return Result.ok(undefined);
 };
 
@@ -472,18 +373,14 @@ export const gitWorktreeAdd = async (
   worktreePath: AbsolutePath,
   branchName: string
 ): Promise<Result<void, StorageError>> => {
-  const result = await runner.run(repoRoot, ['worktree', 'add', '-b', branchName, String(worktreePath)], {
-    timeoutMs: WORKTREE_ADD_TIMEOUT_MS,
-  });
+  const result = await runGitChecked(
+    runner,
+    repoRoot,
+    ['worktree', 'add', '-b', branchName, String(worktreePath)],
+    'worktree add',
+    { timeoutMs: WORKTREE_ADD_TIMEOUT_MS }
+  );
   if (!result.ok) return Result.error(result.error);
-  if (result.value.exitCode !== 0) {
-    return Result.error(
-      new StorageError({
-        subCode: 'io',
-        message: `git worktree add failed: ${(result.value.stderr || result.value.stdout).trim()}`,
-      })
-    );
-  }
   return Result.ok(undefined);
 };
 
@@ -499,16 +396,13 @@ export const gitWorktreeRemove = async (
   repoRoot: AbsolutePath,
   worktreePath: AbsolutePath
 ): Promise<Result<void, StorageError>> => {
-  const result = await runner.run(repoRoot, ['worktree', 'remove', '--force', String(worktreePath)]);
+  const result = await runGitChecked(
+    runner,
+    repoRoot,
+    ['worktree', 'remove', '--force', String(worktreePath)],
+    'worktree remove'
+  );
   if (!result.ok) return Result.error(result.error);
-  if (result.value.exitCode !== 0) {
-    return Result.error(
-      new StorageError({
-        subCode: 'io',
-        message: `git worktree remove failed: ${(result.value.stderr || result.value.stdout).trim()}`,
-      })
-    );
-  }
   return Result.ok(undefined);
 };
 
@@ -525,16 +419,8 @@ export const gitDeleteBranch = async (
   cwd: AbsolutePath,
   branchName: string
 ): Promise<Result<void, StorageError>> => {
-  const result = await runner.run(cwd, ['branch', '-D', branchName]);
+  const result = await runGitChecked(runner, cwd, ['branch', '-D', branchName], 'branch -D');
   if (!result.ok) return Result.error(result.error);
-  if (result.value.exitCode !== 0) {
-    return Result.error(
-      new StorageError({
-        subCode: 'io',
-        message: `git branch -D failed: ${(result.value.stderr || result.value.stdout).trim()}`,
-      })
-    );
-  }
   return Result.ok(undefined);
 };
 
@@ -548,16 +434,8 @@ export const gitWorktreePrune = async (
   runner: GitRunner,
   repoRoot: AbsolutePath
 ): Promise<Result<void, StorageError>> => {
-  const result = await runner.run(repoRoot, ['worktree', 'prune']);
+  const result = await runGitChecked(runner, repoRoot, ['worktree', 'prune'], 'worktree prune');
   if (!result.ok) return Result.error(result.error);
-  if (result.value.exitCode !== 0) {
-    return Result.error(
-      new StorageError({
-        subCode: 'io',
-        message: `git worktree prune failed: ${(result.value.stderr || result.value.stdout).trim()}`,
-      })
-    );
-  }
   return Result.ok(undefined);
 };
 
@@ -590,16 +468,8 @@ export const gitFoldBranch = async (
 
   // Not fast-forwardable — the sprint branch advanced under us. Replay the branch's unique
   // commits via cherry-pick of `<merge-base>..<branch>`.
-  const base = await runner.run(repoRoot, ['merge-base', 'HEAD', branchName]);
+  const base = await runGitChecked(runner, repoRoot, ['merge-base', 'HEAD', branchName], 'merge-base');
   if (!base.ok) return Result.error(base.error);
-  if (base.value.exitCode !== 0) {
-    return Result.error(
-      new StorageError({
-        subCode: 'io',
-        message: `git merge-base failed: ${(base.value.stderr || base.value.stdout).trim()}`,
-      })
-    );
-  }
   const mergeBase = base.value.stdout.trim();
   if (!HEX_SHA_RE.test(mergeBase)) {
     return Result.error(
@@ -622,11 +492,4 @@ export const gitFoldBranch = async (
     );
   }
   return Result.ok(undefined);
-};
-
-const validateCommitMessage = (message: string): Result<string, StorageError> => {
-  if (message.length === 0) {
-    return Result.error(new StorageError({ subCode: 'io', message: 'commit message must not be empty' }));
-  }
-  return Result.ok(message);
 };

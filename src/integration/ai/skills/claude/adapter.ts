@@ -10,7 +10,7 @@
 
 import { createFilesystemSkillsAdapter } from '@src/integration/ai/skills/_engine/filesystem-skills-adapter.ts';
 import type { SkillsAdapter } from '@src/integration/ai/skills/_engine/skills-port.ts';
-import type { CreateClaudeSkillsAdapterDeps } from '@src/integration/ai/skills/_engine/claude-skills-adapter-deps.ts';
+import type { SkillsAdapterDeps } from '@src/integration/ai/skills/_engine/skills-adapter-deps.ts';
 import { PROVIDER_TRAITS } from '@src/integration/ai/providers/_engine/provider-traits.ts';
 
 const CONVENTION = [
@@ -20,7 +20,7 @@ const CONVENTION = [
   'whose `name` or `description` hints at sprint setup or post-task verification.',
 ].join(' ');
 
-export const createClaudeSkillsAdapter = (deps: CreateClaudeSkillsAdapterDeps = {}): SkillsAdapter =>
+export const createClaudeSkillsAdapter = (deps: SkillsAdapterDeps = {}): SkillsAdapter =>
   createFilesystemSkillsAdapter({
     providerId: 'claude-code',
     parentDir: PROVIDER_TRAITS['claude-code'].skillsParentDir,

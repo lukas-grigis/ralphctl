@@ -121,7 +121,9 @@ describe('renderRoundOutcome', () => {
     });
 
     expect(out).toContain('- verdict: plateau');
-    expect(out).toMatch(/Round 3 of attempt 2 plateaued on correctness, completeness; harness gave up/);
+    expect(out).toMatch(
+      /Round 3 of attempt 2 plateaued on correctness, completeness; the harness exited the loop after no net progress/
+    );
   });
 
   // PR #244 N/A dimensions: an `applicable: false` dimension is neither pass nor fail. It must
@@ -170,7 +172,9 @@ describe('renderRoundOutcome', () => {
       },
     });
     expect(out).toContain('| robustness | N/A |');
-    expect(out).toMatch(/Round 3 of attempt 2 plateaued on correctness; harness gave up/);
+    expect(out).toMatch(
+      /Round 3 of attempt 2 plateaued on correctness; the harness exited the loop after no net progress/
+    );
     expect(out).not.toContain('correctness, robustness');
   });
 

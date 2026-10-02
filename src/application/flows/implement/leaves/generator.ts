@@ -11,7 +11,7 @@ import type { GenEvalExit } from '@src/business/task/gen-eval-exit.ts';
 import type { InProgressTask } from '@src/domain/entity/task.ts';
 import { latestCritique } from '@src/domain/entity/task-graph.ts';
 import type { TaskId } from '@src/domain/value/id/task-id.ts';
-import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
+import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import type { AiSignal, HarnessSignal, LearningEntry } from '@src/domain/signal.ts';
 import type { Element } from '@src/application/chain/element.ts';
@@ -51,6 +51,7 @@ import {
 import type { LogTailReader } from '@src/business/io/log-tail-reader.ts';
 import { createFsLogTailReader } from '@src/integration/io/read-log-tail.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
+import { verifyLogPath } from '@src/application/flows/implement/leaves/verify-log.ts';
 import { budgetedAttemptCount, resumesFreeAttempt } from '@src/domain/entity/task-attempts.ts';
 
 /**
@@ -234,7 +235,7 @@ const arrayCarry = <K extends string, T>(
   items.length > 0 ? ({ [field]: [...(prior ?? []), ...items] } as unknown as Partial<Record<K, readonly T[]>>) : {};
 
 export const isPlateauBreakAttempt = (task: InProgressTask): boolean => {
-  const lastSettled = [...task.attempts].reverse().find((a) => a.status !== 'running');
+  const lastSettled = lastSettledAttempt(task);
   const stallDriven = lastSettled?.warning?.kind === 'plateau' || lastSettled?.warning?.kind === 'budget-exhausted';
   return task.escalatedFromModel !== undefined && task.escalatedFromModel === task.escalatedToModel && stallDriven;
 };
@@ -348,9 +349,7 @@ const readVerifyLogTail = async (
   phase: 'pre' | 'post',
   attemptN: number
 ): Promise<string | undefined> => {
-  const logPath = AbsolutePath.parse(
-    join(String(sprintDir), 'logs', 'verify', String(taskId), `${phase}-attempt-${String(attemptN)}.log`)
-  );
+  const logPath = verifyLogPath(sprintDir, taskId, phase, attemptN);
   if (!logPath.ok) return undefined;
   return reader(logPath.value, VERIFY_TAIL_MAX_CHARS);
 };
@@ -540,7 +539,7 @@ const makeGeneratorCallImplement =
     args.accumulators.correctiveNudgeCount = turn.value.nudgeCount;
     args.accumulators.usage = turn.value.usage;
 
-    // `runGeneratorTurnUseCase` expects `readonly HarnessSignal[]`. `GeneratorContractSignal`
+    // `runGeneratorTurnUseCase` expects `readonly HarnessSignal[]`. `GeneratorSignal`
     // is a strict subset of `HarnessSignal`, but TS's array variance doesn't infer
     // that automatically — cast through `AiSignal[]` (the canonical union alias) to
     // keep the call site honest about the underlying domain shape.

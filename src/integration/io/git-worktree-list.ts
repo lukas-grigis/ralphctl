@@ -1,7 +1,7 @@
 import { Result } from '@src/domain/result.ts';
-import { StorageError } from '@src/domain/value/error/storage-error.ts';
+import type { StorageError } from '@src/domain/value/error/storage-error.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
-import type { GitRunner } from '@src/integration/io/git-runner.ts';
+import { runGitChecked, type GitRunner } from '@src/integration/io/git-runner.ts';
 
 /** One registered worktree, as `git worktree list --porcelain` reports it. */
 export interface GitWorktreeEntry {
@@ -15,16 +15,8 @@ export const gitWorktreeList = async (
   runner: GitRunner,
   repoRoot: AbsolutePath
 ): Promise<Result<readonly GitWorktreeEntry[], StorageError>> => {
-  const result = await runner.run(repoRoot, ['worktree', 'list', '--porcelain']);
+  const result = await runGitChecked(runner, repoRoot, ['worktree', 'list', '--porcelain'], 'worktree list');
   if (!result.ok) return Result.error(result.error);
-  if (result.value.exitCode !== 0) {
-    return Result.error(
-      new StorageError({
-        subCode: 'io',
-        message: `git worktree list failed: ${(result.value.stderr || result.value.stdout).trim()}`,
-      })
-    );
-  }
   const entries: GitWorktreeEntry[] = [];
   for (const block of result.value.stdout.split(/\n\s*\n/)) {
     const lines = block.split('\n');

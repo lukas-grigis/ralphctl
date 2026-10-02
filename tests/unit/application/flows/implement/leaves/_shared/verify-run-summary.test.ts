@@ -52,7 +52,7 @@ const withRun = (task: InProgressTask, run: VerifyRun): InProgressTask => unwrap
 const settleAndRetry = (task: InProgressTask): InProgressTask => {
   const last = task.attempts[task.attempts.length - 1];
   if (last === undefined || last.status !== 'running') throw new Error('expected a running attempt');
-  const settled = unwrap(completeAttempt(last, 'failed', FIXED_LATER));
+  const settled = completeAttempt(last, 'failed', FIXED_LATER);
   const attempts = [...task.attempts];
   attempts[attempts.length - 1] = settled;
   // Open attempt n+1 (running) so the task stays in_progress with a prior settled attempt.

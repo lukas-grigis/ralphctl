@@ -18,8 +18,6 @@ import { OrphanSignals } from '@src/application/ui/tui/components/tasks-panel-in
 import { buildFlatFocusKeys } from '@src/application/ui/tui/components/tasks-panel-internals/focus-keys.ts';
 import { useTasksPanelInput } from '@src/application/ui/tui/components/tasks-panel-internals/keymap.ts';
 
-export { SIGNAL_LABEL_COLOR } from '@src/application/ui/tui/components/tasks-panel-internals/signal-rows.tsx';
-
 /** The per-task extras the host view supplies as parallel id-keyed maps. */
 interface TaskOverlaySources {
   /**
@@ -269,15 +267,12 @@ interface TaskRowDerived {
 }
 
 /**
- * Pure per-task derivation for one `TaskBlock` row — absolute index, display name, the signal slice bounds, and this
- * task's overlay.
+ * Pure per-task derivation for one `TaskBlock` row — absolute index, display name, and this task's overlay.
  */
 const buildTaskRowProps = (task: TaskBucket, idx: number, derived: TaskRowDerived): TaskBlockProps => {
   // Deliberate stylistic 8-char short-uuid fallback (NOT a width-driven clip) — keeps the header readable when the
   // launcher hasn't supplied a friendly name.
   const display = derived.nameById?.get(task.id) ?? `${task.id.slice(0, 8)}${glyphs.clipEllipsis}`;
-  const sliceLen = Math.min(task.signals.length, derived.maxSignalsPerTask);
-  const sliceStart = task.signals.length - sliceLen;
   return {
     task,
     running: derived.running,
@@ -286,8 +281,6 @@ const buildTaskRowProps = (task: TaskBucket, idx: number, derived: TaskRowDerive
     maxSubSteps: derived.maxSubSteps,
     focusedKey: derived.effectiveFocusedKey,
     expandedKeys: derived.expandedKeys,
-    scopeId: task.id,
-    sliceStart,
     criteriaExpanded: derived.criteriaExpandedIds.has(task.id),
     isActive: idx === derived.activeTaskIdx,
     firstRun: derived.noSignalsYet,
@@ -352,21 +345,18 @@ const useTaskOverlays = (sources: TaskOverlaySources): ReadonlyMap<string, TaskO
 const NO_BLOCKED_TASK_IDS: ReadonlySet<string> = new Set();
 
 /**
- * Bundles the "is anything settled yet" flag, the orphan-signal windowing offset, and the `TaskRowDerived` record
- * every task card reads from.
+ * Bundles the "is anything settled yet" flag and the `TaskRowDerived` record every task card reads from.
  */
 const buildRenderDerived = (
   bucketed: BucketedExecution,
-  maxOrphanSignals: number,
   cardState: TaskCardState,
   rowSettings: Omit<TaskRowDerived, keyof TaskCardState | 'noSignalsYet'>
-): { readonly orphanSliceStart: number; readonly derived: TaskRowDerived } => {
+): TaskRowDerived => {
   // First-run state — tasks exist but no harness signal has fired yet across the whole run.
   const noSignalsYet =
     bucketed.orphanSignals.length === 0 &&
     bucketed.tasks.every((t) => t.signals.length === 0 && t.evaluations.length === 0);
-  const orphanSliceStart = bucketed.orphanSignals.length - Math.min(bucketed.orphanSignals.length, maxOrphanSignals);
-  return { orphanSliceStart, derived: { ...cardState, ...rowSettings, noSignalsYet } };
+  return { ...cardState, ...rowSettings, noSignalsYet };
 };
 
 export const TasksPanel = ({
@@ -437,7 +427,7 @@ export const TasksPanel = ({
   if (bucketed.tasks.length === 0 && bucketed.orphanSignals.length === 0) {
     return <EmptyTasksPanel />;
   }
-  const { orphanSliceStart, derived } = buildRenderDerived(bucketed, maxOrphanSignals, cardState, {
+  const derived = buildRenderDerived(bucketed, cardState, {
     running,
     nameById,
     maxSubSteps: maxSubStepsPerTask,
@@ -456,7 +446,6 @@ export const TasksPanel = ({
         max={maxOrphanSignals}
         focusedKey={effectiveFocusedKey}
         expandedKeys={expandedKeys}
-        sliceStart={orphanSliceStart}
       />
       <TaskCards tasks={bucketed.tasks} maxTasks={maxTasks} derived={derived} />
     </Box>

@@ -14,7 +14,7 @@ import {
   latestIdleSnippets,
   resolveActiveRole,
 } from '@src/application/ui/tui/components/tasks-panel-internals/format.ts';
-import { focusKey } from '@src/application/ui/tui/components/tasks-panel-internals/focus-keys.ts';
+import { focusKey, tailSlice } from '@src/application/ui/tui/components/tasks-panel-internals/focus-keys.ts';
 import {
   EvaluationLine,
   type TaskEvaluation,
@@ -50,18 +50,16 @@ const SubStepsSection = ({
   subStepRows,
   subStepElided,
   pendingSubSteps,
-  running,
 }: {
   readonly taskId: string;
   readonly subStepRows: TaskBucket['subSteps'];
   readonly subStepElided: number;
   readonly pendingSubSteps: readonly string[] | undefined;
-  readonly running: boolean;
 }): React.JSX.Element => (
   <Box flexDirection="column" paddingLeft={spacing.indent}>
     {subStepElided > 0 && <Text dimColor>{`${glyphs.clipEllipsis} ${String(subStepElided)} earlier sub-steps`}</Text>}
     {subStepRows.map((s, i) => (
-      <SubStepLine key={`${taskId}-sub-${String(i)}`} sub={s} running={running} />
+      <SubStepLine key={`${taskId}-sub-${String(i)}`} sub={s} />
     ))}
     {/* Pending sub-steps from the plan — not yet executed. Grey ◇ rows, matching the Steps rail. */}
     {pendingSubSteps !== undefined &&
@@ -87,33 +85,28 @@ const EvalVerdictSection = ({ taskEvaluation }: { readonly taskEvaluation: TaskE
 const SignalsSection = ({
   taskId,
   signalRows,
-  signalsElided,
+  start,
   focusedKey,
   expandedKeys,
-  scopeId,
-  sliceStart,
 }: {
   readonly taskId: string;
   readonly signalRows: TaskBucket['signals'];
-  readonly signalsElided: number;
+  /** Absolute index of the first rendered signal — also the count of elided earlier ones. */
+  readonly start: number;
   readonly focusedKey: string | undefined;
   readonly expandedKeys: ReadonlySet<string>;
-  readonly scopeId: string;
-  readonly sliceStart: number;
 }): React.JSX.Element => (
   <Box flexDirection="column" paddingLeft={spacing.indent} marginTop={spacing.section}>
     <Text dimColor>signals</Text>
     <Box flexDirection="column" paddingLeft={spacing.indent}>
-      {signalsElided > 0 && (
-        <Text
-          dimColor
-        >{`${glyphs.clipEllipsis} ${String(signalsElided)} earlier signal${signalsElided === 1 ? '' : 's'}`}</Text>
+      {start > 0 && (
+        <Text dimColor>{`${glyphs.clipEllipsis} ${String(start)} earlier signal${start === 1 ? '' : 's'}`}</Text>
       )}
       {signalRows.map((s, i) => {
-        const key = focusKey(scopeId, sliceStart + i);
+        const key = focusKey(taskId, start + i);
         return (
           <StreamSignalRow
-            key={`${taskId}-sig-${String(sliceStart + i)}`}
+            key={`${taskId}-sig-${String(start + i)}`}
             signal={s}
             focused={focusedKey === key}
             expanded={expandedKeys.has(key)}
@@ -209,32 +202,25 @@ export const ExpandedProgressBlock = ({
   maxSubSteps,
   maxSignals,
   pendingSubSteps,
-  running,
   isActive,
   taskEvaluation,
   focusedKey,
   expandedKeys,
-  scopeId,
-  sliceStart,
 }: {
   readonly cardExpanded: boolean;
   readonly task: TaskBucket;
   readonly maxSubSteps: number;
   readonly maxSignals: number;
   readonly pendingSubSteps: readonly string[] | undefined;
-  readonly running: boolean;
   readonly isActive: boolean;
   readonly taskEvaluation: TaskEvaluation | undefined;
   readonly focusedKey: string | undefined;
   readonly expandedKeys: ReadonlySet<string>;
-  readonly scopeId: string;
-  readonly sliceStart: number;
 }): React.JSX.Element | null => {
   if (!cardExpanded) return null;
   const subStepRows = task.subSteps.slice(-maxSubSteps);
   const subStepElided = task.subSteps.length - subStepRows.length;
-  const signalRows = task.signals.slice(-maxSignals);
-  const signalsElided = task.signals.length - signalRows.length;
+  const { rows: signalRows, start: signalsStart } = tailSlice(task.signals, maxSignals);
   return (
     <>
       {(subStepRows.length > 0 || (pendingSubSteps !== undefined && pendingSubSteps.length > 0)) && (
@@ -243,7 +229,6 @@ export const ExpandedProgressBlock = ({
           subStepRows={subStepRows}
           subStepElided={subStepElided}
           pendingSubSteps={pendingSubSteps}
-          running={running}
         />
       )}
       {isActive && taskEvaluation === undefined && (
@@ -258,11 +243,9 @@ export const ExpandedProgressBlock = ({
         <SignalsSection
           taskId={task.id}
           signalRows={signalRows}
-          signalsElided={signalsElided}
+          start={signalsStart}
           focusedKey={focusedKey}
           expandedKeys={expandedKeys}
-          scopeId={scopeId}
-          sliceStart={sliceStart}
         />
       )}
     </>

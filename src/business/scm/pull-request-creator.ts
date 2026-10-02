@@ -73,9 +73,8 @@ export const detectPullRequestPlatform = (remoteUrl: string): PullRequestPlatfor
 };
 
 /**
- * Pure helper — pick the URL line from CLI stdout. Both `gh pr create` and `glab mr create`
- * print the URL on the last non-empty line. Prefers https:// lines explicitly so noisy
- * progress output doesn't fool the parser. Exposed for unit tests.
+ * Pure helper — the last http(s) line of CLI stdout, or null when there is none, so a warning
+ * or progress line is never mistaken for the URL. Exposed for unit tests.
  */
 export const parseUrlFromCliStdout = (stdout: string): string | null => {
   const lines = stdout
@@ -86,5 +85,5 @@ export const parseUrlFromCliStdout = (stdout: string): string | null => {
     const line = lines[i];
     if (line !== undefined && /^https?:\/\//.test(line)) return line;
   }
-  return lines.at(-1) ?? null;
+  return null;
 };

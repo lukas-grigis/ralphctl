@@ -90,9 +90,9 @@ export const installIdleWatchdog = (child: ChildProcessWithoutNullStreams, opts:
   child.stderr.on('data', resetIdleTimer);
 
   const abortSignal = opts.abortSignal;
-  if (abortSignal !== undefined) {
-    abortSignal.addEventListener('abort', killAbort, { once: true });
-  }
+  // An already-aborted signal never re-dispatches 'abort', so kill now rather than wait on it.
+  if (abortSignal?.aborted === true) killAbort();
+  else abortSignal?.addEventListener('abort', killAbort, { once: true });
 
   // Arm the clock NOW — a child that never emits anything still has to die after `idleMs`.
   resetIdleTimer();

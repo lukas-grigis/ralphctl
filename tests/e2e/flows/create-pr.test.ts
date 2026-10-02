@@ -13,6 +13,7 @@ import type { GitRunner } from '@src/integration/io/git-runner.ts';
 import {
   absolutePath,
   FIXED_LATER,
+  makeActiveSprint,
   makeApprovedTicket,
   makeDoneTask,
   makeReviewSprint,
@@ -355,6 +356,51 @@ describe('create-pr flow — failures', () => {
     expect(execRepo.saves).toHaveLength(0);
   });
 
+  it('rejects an ineligible (active) sprint before pushing or spawning the AI', async () => {
+    const sprint = makeActiveSprint();
+    const exec = setExecutionBranch(createSprintExecution({ sprintId: sprint.id }), 'feature/x');
+    const git = recordingGitRunner('feature/x');
+    const pr = recordingPullRequestCreator('https://github.com/o/r/pull/unused');
+    let providerCalls = 0;
+    const countingProvider: HeadlessAiProvider = {
+      async generate() {
+        providerCalls += 1;
+        return Result.error(new StorageError({ subCode: 'io', message: 'test: provider should not be called' }));
+      },
+    };
+
+    const flow = createCreatePrFlow(
+      {
+        sprintRepo: fakeSprintRepo(sprint),
+        sprintExecutionRepo: inMemoryExecutionRepo(exec).repo,
+        taskRepo: emptyTaskRepo(),
+        pullRequestCreator: pr.creator,
+        gitRunner: git.runner,
+        eventBus: createInMemoryEventBus(),
+        clock: fixedClock,
+        ...stubAiDeps,
+        provider: countingProvider,
+      },
+      { useAi: true }
+    );
+    const result = await flow.execute({
+      input: {
+        sprintId: sprint.id,
+        cwd: absolutePath('/tmp/repo'),
+        sprintDir: absolutePath('/tmp/sprint-dir'),
+        base: 'main',
+        draft: false,
+      },
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.error.message).toContain("cannot create-pr on sprint in 'active' status");
+    expect(git.pushes).toHaveLength(0);
+    expect(providerCalls).toBe(0);
+    expect(pr.calls).toHaveLength(0);
+  });
+
   it('rejects an execution without a branch (no run flow yet) — useAi=false', async () => {
     const sprint = makeReviewSprint();
     const exec = createSprintExecution({ sprintId: sprint.id });
@@ -529,6 +575,58 @@ describe('create-pr flow — useAi=true happy path', () => {
       expect(result.ok).toBe(true);
       // Template-derived title is the sprint name; no AI was successful.
       expect(pr.calls[0]?.title).toBe(sprint.name);
+    } finally {
+      await tmp.cleanup();
+    }
+  });
+  it('opens the PR with template content when the AI prelude fails (template load error)', async () => {
+    const tmp = await makeTmpRoot();
+    try {
+      const sprint = makeReviewSprint();
+      const exec = setExecutionBranch(createSprintExecution({ sprintId: sprint.id }), 'feature/no-template');
+      const pr = recordingPullRequestCreator('https://github.com/o/r/pull/102');
+      let providerCalls = 0;
+      const countingProvider: HeadlessAiProvider = {
+        async generate() {
+          providerCalls += 1;
+          return Result.error(new StorageError({ subCode: 'io', message: 'test: provider should not be called' }));
+        },
+      };
+      const okWriteFile: CreatePrDeps['writeFile'] = async () => Result.ok(undefined);
+      const eventBus = createInMemoryEventBus();
+      const bannerIds: string[] = [];
+      eventBus.subscribe((e) => {
+        if (e.type === 'banner-show') bannerIds.push(e.id);
+      });
+
+      const flow = createCreatePrFlow(
+        {
+          sprintRepo: fakeSprintRepo(sprint),
+          sprintExecutionRepo: inMemoryExecutionRepo(exec).repo,
+          taskRepo: emptyTaskRepo(),
+          pullRequestCreator: pr.creator,
+          gitRunner: recordingGitRunner('feature/no-template').runner,
+          eventBus,
+          clock: fixedClock,
+          provider: countingProvider,
+          templateLoader: refusingTemplateLoader,
+          writeFile: okWriteFile,
+          logger: noopLogger,
+          model: 'test-model',
+          skillSource: emptySkillSource,
+          skillsAdapter: noopSkillsAdapter,
+        },
+        { useAi: true }
+      );
+      const result = await flow.execute({
+        input: { sprintId: sprint.id, cwd: tmp.root, sprintDir: tmp.root, base: 'main', draft: false },
+      });
+
+      expect(result.ok).toBe(true);
+      expect(pr.calls).toHaveLength(1);
+      expect(pr.calls[0]?.title).toBe(sprint.name);
+      expect(providerCalls).toBe(0);
+      expect(bannerIds).toContain('create-pr-ai-fallback');
     } finally {
       await tmp.cleanup();
     }

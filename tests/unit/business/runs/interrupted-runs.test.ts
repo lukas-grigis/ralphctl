@@ -127,6 +127,17 @@ describe('detectInterruptedRuns', () => {
 
     expect(result.ok && ids(result.value)).toEqual(['renamed-host']);
   });
+
+  it('keeps listing a reaped record whose recycled pid is alive, so it stays dismissable', async () => {
+    const detect = createDetectInterruptedRuns({
+      store: storeOf([record('reaped', 12, { sprintId: 'sprint-1', reapedAt: '2026-10-01T20:00:00.000Z' })]),
+      liveness: livenessOf({ alive: new Set([12]) }),
+    });
+
+    const result = await detect.execute();
+
+    expect(result.ok && ids(result.value)).toEqual(['reaped']);
+  });
 });
 
 describe('liveRunActivityProbe', () => {
@@ -198,6 +209,14 @@ describe('findLiveSprintOwner', () => {
       { alive: new Set([SELF_PID, 12]) },
       { pid: 14, host: HOST }
     );
+    const result = await find.execute(SPRINT);
+    expect(result.ok && result.value).toBeUndefined();
+  });
+
+  it('does not resurrect a reaped record whose unidentified pid was recycled by a live process', async () => {
+    const find = ownerFor([record('reaped', 12, { sprintId: 'sprint-1', reapedAt: '2026-10-01T20:00:00.000Z' })], {
+      alive: new Set([12]),
+    });
     const result = await find.execute(SPRINT);
     expect(result.ok && result.value).toBeUndefined();
   });

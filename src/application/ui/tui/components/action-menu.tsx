@@ -4,11 +4,10 @@
  */
 
 import React, { useEffect, useMemo } from 'react';
-import { Box, Text, useInput } from 'ink';
+import { Box, Text } from 'ink';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { useListWindow, OverflowRow } from '@src/application/ui/tui/components/windowed-list.tsx';
 import { useScrollAnchor } from '@src/application/ui/tui/components/scroll-region.tsx';
-import { isChord } from '@src/application/ui/tui/runtime/key-chord.ts';
 
 export interface MenuItem {
   readonly id: string;
@@ -307,17 +306,6 @@ const ActionMenuRow = ({
   );
 };
 
-/** Space selects the focused row. Navigation is `useListWindow`'s. */
-const useMenuSpaceSelect = (focusedItem: MenuItem | undefined, active: boolean): void => {
-  useInput(
-    (input, key) => {
-      if (!active || isChord(key)) return;
-      if (input === ' ') focusedItem?.onSelect();
-    },
-    { isActive: active }
-  );
-};
-
 /** Column decisions shared by every row: the leading-glyph slot and the label column before notes. */
 const menuLayout = (items: readonly MenuItem[]): { readonly reserveLeading: boolean; readonly labelWidth: number } => ({
   reserveLeading: items.some((it) => it.leading !== undefined),
@@ -359,6 +347,8 @@ export const ActionMenu = ({
     visibleRows: effectiveVisibleRows,
     active,
     initialCursorId,
+    // Space submits through the live cursor too, so `j ` in one stdin chunk selects the moved-to row.
+    submitOnSpace: true,
     onSubmit: (it) => {
       it.onSelect();
     },
@@ -368,8 +358,6 @@ export const ActionMenu = ({
     onFocusChange?.(focusedItem?.id);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- fire on cursor movement only
   }, [focusedItem?.id]);
-
-  useMenuSpaceSelect(focusedItem, active);
 
   if (items.length === 0) {
     return (

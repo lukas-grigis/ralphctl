@@ -55,9 +55,8 @@ const PARALLEL_ELEMENT_NAME = 'implement-parallel';
  * Sequence inside the lock:
  *
  *   1. prologue runner — `plan.prologue` over the incoming ctx (load → preflight → setup). On
- *      failure the prologue's error propagates; the epilogue still runs (below) so any pre-existing
- *      `tasks.json` survives, but no waves ran.
- *   2. `runWaves(branches, prologueCtx, { merge: mergeImplementWave, onFatal: 'drain', … }, signal)`
+ *      failure the prologue's error propagates straight away — no waves, no epilogue.
+ *   2. `runWaves(branches, prologueCtx, { merge: mergeImplementWave, … }, signal)`
  *      — fans one branch per task per wave; each branch folds onto the shared sprint branch through
  *      the single fold queue.
  *   3. epilogue runner — ALWAYS runs, on the partially-merged ctx, even when `runWaves` returned an
@@ -115,9 +114,9 @@ export const createParallelImplementElement = (
 });
 
 /**
- * The body that runs INSIDE the held lock: prologue → waves → epilogue (always). Split out so the
- * lock-acquisition branching stays small. The held lock is released by `withLock`'s `finally` only
- * after this resolves — so the epilogue persist completes under the lock.
+ * The body that runs INSIDE the held lock: prologue → waves → epilogue (always, once the prologue
+ * succeeded). Split out so the lock-acquisition branching stays small. The held lock is released by
+ * `withLock`'s `finally` only after this resolves — so the epilogue persist completes under the lock.
  */
 const runUnderLock = async (
   plan: ImplementWavePlan,
@@ -128,12 +127,8 @@ const runUnderLock = async (
 ): Promise<ElementResult<ImplementCtx>> => {
   // ── Prologue ────────────────────────────────────────────────────────────────────────────────
   const prologue = await runSubElement(plan.prologue, ctx, config, signal, onTrace);
-  if (!prologue.ok) {
-    // Prologue failed (e.g. dirty tree, setup script non-zero, abort). No waves ran. Still run the
-    // epilogue so any pre-existing `tasks.json` is re-saved verbatim under the lock, then propagate.
-    await runSubElement(plan.epilogue, ctx, config, undefined, onTrace);
-    return prologue;
-  }
+  // Prologue failed (dirty tree, setup script, abort): nothing ran or changed, so nothing to persist.
+  if (!prologue.ok) return prologue;
   const prologueCtx = prologue.value.ctx;
 
   // ── Waves ───────────────────────────────────────────────────────────────────────────────────
@@ -164,7 +159,6 @@ const runUnderLock = async (
       {
         maxConcurrency: config.maxConcurrency,
         merge: mergeImplementWave,
-        onFatal: 'drain',
         onBranchRunner: (runner, branch) => {
           branchUnsubs.add(
             bridgeRunnerToEventBus(runner as Runner<unknown>, config.eventBus, { flowId: config.flowId })

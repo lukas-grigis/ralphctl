@@ -134,6 +134,8 @@ interface DeriveTasksPanelResult {
   readonly taskState: readonly Task[] | undefined;
   /** Handed back verbatim because the ≥140-col sidebar layout builds its own panel and needs the handler itself. */
   readonly onOpenEvaluation: (taskId: string) => void;
+  /** Handed back for the same reason — the wide panel must honour the same modal gate. */
+  readonly tasksInputActive: boolean;
 }
 
 const deriveTasksPanel = ({
@@ -171,6 +173,7 @@ const deriveTasksPanel = ({
     executionState: pinnedSprintStale ? undefined : executionState,
     taskState: pinnedSprintStale ? undefined : taskState,
     onOpenEvaluation,
+    tasksInputActive,
   };
 };
 
@@ -314,7 +317,6 @@ const ExecuteViewFrame = ({
         elapsed={elapsed}
         layout={layout}
         termColumns={term.columns}
-        termRows={term.rows}
         tokenUsage={tokenUsage}
         logEntries={logEntries}
         cancelScopeOpen={runControls.cancelScopeOpen}

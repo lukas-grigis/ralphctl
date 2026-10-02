@@ -35,6 +35,7 @@ import { useLaunchCreateSprint } from '@src/application/ui/tui/runtime/use-launc
 import { useBreakpoint } from '@src/application/ui/tui/runtime/use-breakpoint.ts';
 import type { Task } from '@src/domain/entity/task.ts';
 import { ROW_HEIGHT, SprintRow } from '@src/application/ui/tui/views/sprints-view-internals/row-views.tsx';
+import { editFresh } from '@src/application/ui/tui/runtime/edit-fresh.ts';
 import {
   formatUnblockFeedback,
   type UnblockFeedbackInput,
@@ -176,11 +177,13 @@ const useSprintRowActions = (edit: UseEditFieldState, reload: () => void): UseSp
       kind: 'short',
       currentValue: target.name,
       onSave: async (value) => {
-        const renamed = renameSprint(target, value);
-        if (!renamed.ok) return Result.error(renamed.error);
-        const saved = await deps.sprintRepo.save(renamed.value);
+        const saved = await editFresh(
+          () => deps.sprintRepo.findById(target.id),
+          (fresh) => renameSprint(fresh, value),
+          (next) => deps.sprintRepo.save(next)
+        );
         if (!saved.ok) return Result.error(saved.error);
-        if (selection.sprintId === target.id) selection.setSprint(target.id, value.trim(), target.status);
+        if (selection.sprintId === target.id) selection.setSprint(target.id, saved.value.name, saved.value.status);
         reload();
         return Result.ok(undefined);
       },

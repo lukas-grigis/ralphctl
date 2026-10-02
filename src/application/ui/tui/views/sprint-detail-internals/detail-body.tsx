@@ -48,7 +48,9 @@ export interface SprintDetailProps extends Readonly<Record<string, unknown>> {
 
 interface FocusedSelection {
   readonly focusedTicket: Ticket | undefined;
-  /** Ticket under the cursor regardless of sprint status — gates the `p` publish chord. */
+  /** Clamped item under the cursor — the ↵ toggle target. */
+  readonly focusedItem: FocusItem | undefined;
+  /** Ticket under the cursor regardless of sprint status — gates the `p` publish and `d` remove chords. */
   readonly focusedTicketRow: Ticket | undefined;
   readonly focusedTodoTask: Task | undefined;
   readonly focusedStuckTask: Task | undefined;
@@ -83,7 +85,15 @@ const deriveFocusedSelection = (
       ? focusedNow.task
       : undefined;
   const canEdit = focusedTicket !== undefined || focusedTodoTask !== undefined;
-  return { focusedTicket, focusedTicketRow, focusedTodoTask, focusedStuckTask, focusedEvaluatedTask, canEdit };
+  return {
+    focusedItem: focusedNow,
+    focusedTicket,
+    focusedTicketRow,
+    focusedTodoTask,
+    focusedStuckTask,
+    focusedEvaluatedTask,
+    canEdit,
+  };
 };
 
 /** Stable identity for the flat focus list — see the `useMemo` call site for why it matters. */
@@ -372,8 +382,8 @@ export const useSprintDetailBody = (): UseSprintDetailBodyResult => {
     canEdit: focus.canEdit,
     isCurrent: sprint !== undefined && selection.sprintId === sprint.id,
     blockedCount: focus.blockedCount,
-    focusList,
-    cursorIdx: focus.cursorIdx,
+    focusedItem: focus.focusedItem,
+    focusedTicketRow: focus.focusedTicketRow,
     focusedStuckTask: focus.focusedStuckTask,
     focusedEvaluatedTask: focus.focusedEvaluatedTask,
     jump: focus.jump,

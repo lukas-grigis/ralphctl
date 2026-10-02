@@ -43,62 +43,64 @@ export interface WithRepoLockOpts {
   readonly purpose?: string;
 }
 
-export const withRepoLock = <TCtx>(opts: WithRepoLockOpts, inner: Element<TCtx>): Element<TCtx> => ({
-  name: `with-repo-lock(${inner.name})`,
-  // Expose the wrapped chain through the composite-pattern `children` slot so `flattenLeaves`
-  // walks into it when the TUI builds its planned-leaf list. Without this the wrapper looked
-  // like an opaque single leaf and the Flow-steps panel rendered only "with-repo-lock(…)" —
-  // never the real setup / per-task / teardown sequence inside the lock.
-  children: [inner],
-  async execute(ctx, signal, onTrace): Promise<ElementResult<TCtx>> {
-    const lockPath = repoLockFile(opts.locksRoot, opts.worktreePath);
-    if (!lockPath.ok) {
-      const entry: TraceEntry = {
-        elementName: this.name,
-        status: 'failed',
-        durationMs: 0,
-        error: lockPath.error,
-      };
-      onTrace?.(entry);
-      return Result.error({ error: lockPath.error, trace: [entry] });
-    }
-    const start = performance.now();
-    const bannerId = `lock-${String(lockPath.value)}`;
-    // Thread the lock-compromised signal into the inner chain (merged with the host abort signal)
-    // so a lock lost mid-run tears the chain down as an AbortError instead of mutating the repo
-    // a competitor may now own.
-    const acquired = await opts.fileLocker.withLock(
-      lockPath.value,
-      async (lockSignal) => inner.execute(ctx, combineAbortSignals(signal, lockSignal), onTrace),
-      opts.purpose !== undefined ? { purpose: opts.purpose } : {}
-    );
-    const durationMs = performance.now() - start;
+export const withRepoLock = <TCtx>(opts: WithRepoLockOpts, inner: Element<TCtx>): Element<TCtx> => {
+  const name = `with-repo-lock(${inner.name})`;
+  return {
+    name,
+    // Expose the wrapped chain through the composite-pattern `children` slot so `flattenLeaves`
+    // walks into it when the TUI builds its planned-leaf list. Without this the wrapper looked
+    // like an opaque single leaf and the Flow-steps panel rendered only "with-repo-lock(…)" —
+    // never the real setup / per-task / teardown sequence inside the lock.
+    children: [inner],
+    async execute(ctx, signal, onTrace): Promise<ElementResult<TCtx>> {
+      const lockPath = repoLockFile(opts.locksRoot, opts.worktreePath);
+      if (!lockPath.ok) {
+        const entry: TraceEntry = {
+          elementName: name,
+          status: 'failed',
+          durationMs: 0,
+          error: lockPath.error,
+        };
+        onTrace?.(entry);
+        return Result.error({ error: lockPath.error, trace: [entry] });
+      }
+      const start = performance.now();
+      const bannerId = `lock-${String(lockPath.value)}`;
+      // Thread the lock-compromised signal into the inner chain (merged with the host abort signal)
+      // so a lock lost mid-run tears the chain down as an AbortError instead of mutating the repo
+      // a competitor may now own.
+      const acquired = await opts.fileLocker.withLock(
+        lockPath.value,
+        async (lockSignal) => inner.execute(ctx, combineAbortSignals(signal, lockSignal), onTrace),
+        opts.purpose !== undefined ? { purpose: opts.purpose } : {}
+      );
+      const durationMs = performance.now() - start;
 
-    if (!acquired.ok) {
-      // Surface the lock-contention failure as a warn banner. The chain has already failed
-      // (StorageError) and the inner trace records it; the banner is for the operator that
-      // missed the error scrollback. `id` is keyed by lock path so concurrent flows on the
-      // same repo dedupe rather than stack.
-      opts.eventBus.publish({
-        type: 'banner-show',
-        id: bannerId,
-        tier: 'warn',
-        message: acquired.error.message,
-        cause: String(lockPath.value),
-        at: IsoTimestamp.now(),
-      });
-      const entry: TraceEntry = {
-        elementName: this.name,
-        status: 'failed',
-        durationMs,
-        error: acquired.error,
-      };
-      onTrace?.(entry);
-      return Result.error({ error: acquired.error, trace: [entry] });
-    }
-    // The locker returns the inner's Result-shaped result directly; bubble it up unchanged so
-    // the inner trace surfaces in the parent.
-    if (!acquired.value.ok) return acquired.value;
-    return Result.ok(acquired.value.value);
-  },
-});
+      if (!acquired.ok) {
+        // Surface the lock-contention failure as a warn banner. The chain has already failed
+        // (StorageError) and the inner trace records it; the banner is for the operator that
+        // missed the error scrollback. `id` is keyed by lock path so concurrent flows on the
+        // same repo dedupe rather than stack.
+        opts.eventBus.publish({
+          type: 'banner-show',
+          id: bannerId,
+          tier: 'warn',
+          message: acquired.error.message,
+          cause: String(lockPath.value),
+          at: IsoTimestamp.now(),
+        });
+        const entry: TraceEntry = {
+          elementName: name,
+          status: 'failed',
+          durationMs,
+          error: acquired.error,
+        };
+        onTrace?.(entry);
+        return Result.error({ error: acquired.error, trace: [entry] });
+      }
+      // The locker returns the inner's Result-shaped result directly; bubble it up unchanged so
+      // the inner trace surfaces in the parent.
+      return acquired.value;
+    },
+  };
+};

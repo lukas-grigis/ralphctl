@@ -99,18 +99,7 @@ interface SettleInput {
    * no spawn reported anything (a zero-turn self-block, or providers that report no usage).
    */
   readonly usage?: AttemptUsage;
-  /**
-   * The generator's own structured `task-blocked` triage — see `SettleAttemptProps.blockerClass`
-   * in `business/task/settle-attempt.ts` for the persisted shape. NOT YET PROJECTED from ctx:
-   * `GeneratorTurnExit` (`business/task/run-generator-turn.ts`) already carries these three fields
-   * off the raw signal, but `generatorLeaf` (`leaves/generator.ts`) only lifts `out.exit.reason`
-   * onto `ctx.lastBlockReason` today, and `ImplementCtx` (`implement/ctx.ts`) has no field for the
-   * rest. Once a future change adds `ctx.lastBlockerClass` / `ctx.lastBlockQuestion` /
-   * `ctx.lastBlockWhatUnblocksMe` (mirroring `lastBlockReason`) and threads them through
-   * `generatorLeaf`'s `blockReasonCarry`, this `input()` projection should read them the same way
-   * `blockedReason` does a few lines below. Declared here now so the use case is ready to receive
-   * them the moment that wiring lands.
-   */
+  /** Generator's structured task-blocked triage, projected from ctx.lastBlockTriage. */
   readonly blockerClass?: TaskBlockerClass;
   readonly question?: string;
   readonly whatUnblocksMe?: string;
@@ -367,6 +356,7 @@ const writeRoundOutcome = async (params: {
   }
   // Prefer the per-round ctx generator id; fall back to the attempt-level id.
   const generatorSessionId = params.generatorSessionId ?? attempt.sessionId;
+  const durationMs = attemptDurationMs(attempt);
   const content = renderRoundOutcome({
     roundN: params.roundNum,
     attemptN: attempt.n,
@@ -376,7 +366,7 @@ const writeRoundOutcome = async (params: {
     ...(params.evaluation !== undefined ? { evaluation: params.evaluation } : {}),
     ...(generatorSessionId !== undefined ? { generatorSessionId } : {}),
     ...(params.evaluatorSessionId !== undefined ? { evaluatorSessionId: params.evaluatorSessionId } : {}),
-    ...(attemptDurationMs(attempt) !== undefined ? { durationMs: attemptDurationMs(attempt)! } : {}),
+    ...(durationMs !== undefined ? { durationMs } : {}),
   });
   const path = join(String(params.workspaceRoot), 'rounds', String(params.roundNum), 'outcome.md');
   const parsedPath = AbsolutePath.parse(path);

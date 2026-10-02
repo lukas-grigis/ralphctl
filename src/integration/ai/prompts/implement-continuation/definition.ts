@@ -7,7 +7,9 @@ import type { PromptDefinition } from '@src/integration/ai/prompts/_engine/defin
 import {
   renderPlateauDirectiveSection,
   renderPreVerifyResultsSection,
+  renderPriorAttemptsSection,
   renderPriorCritiqueSection,
+  renderReproductionSection,
   renderRetryFeedbackSection,
   renderVerificationCriteriaSection,
 } from '@src/integration/ai/prompts/_engine/renderers/task.ts';
@@ -254,40 +256,6 @@ export interface BuildImplementContinuationPromptInput {
    */
   readonly retryFeedback?: string;
 }
-
-/**
- * Render the optional `<prior_attempts>` block — the most instructive prior attempts on this
- * task (select-K slice) with their verification outcomes. Same collapse contract as the sibling
- * renderers in this module: full tagged block when non-empty, empty string otherwise so
- * `{{PRIOR_ATTEMPTS_SECTION}}` disappears cleanly with no orphan wrapper.
- */
-const renderPriorAttemptsSection = (summary: string | undefined): string => {
-  if (summary === undefined) return '';
-  const trimmed = summary.trim();
-  if (trimmed.length === 0) return '';
-  return ['<prior_attempts>', trimmed, '</prior_attempts>'].join('\n');
-};
-
-/**
- * Render the optional `<reproduction>` block — a failing test a prior `reproduce` session wrote
- * for this defect-shaped task. Same collapse contract as the sibling renderers above: full
- * tagged block (with an embedded framing header, since the block disappears entirely when
- * empty) when non-empty, empty string otherwise so `{{REPRODUCTION_SECTION}}` disappears
- * cleanly with no orphan wrapper.
- */
-const renderReproductionSection = (reproduction: string | undefined): string => {
-  if (reproduction === undefined) return '';
-  const trimmed = reproduction.trim();
-  if (trimmed.length === 0) return '';
-  return [
-    '<reproduction>',
-    'A failing reproduction test already exists for this task, written in an earlier session. Make it',
-    'pass without weakening it — do not delete, skip, or loosen its assertions to reach a pass.',
-    '',
-    trimmed,
-    '</reproduction>',
-  ].join('\n');
-};
 
 /**
  * Top-level builder — renders the param strings, calls `buildPrompt`. The chain leaf consumes

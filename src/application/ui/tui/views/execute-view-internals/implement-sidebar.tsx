@@ -116,6 +116,8 @@ export interface ImplementSidebarProps {
    * them.
    */
   readonly sidebarContextSideBySide: boolean;
+  /** False when the pinned sprint is stale — the baseline card is dropped, mirroring the narrow layout. */
+  readonly showBaseline: boolean;
   /** Session / sprint / model info from the session manager. */
   readonly descriptor: SessionDescriptor;
   /** Bucketed task execution state — undefined while the harness hasn't emitted any events. */
@@ -157,6 +159,7 @@ const SidebarTokenCard = ({
 /** Baseline-health (+ token, at ≥xl) cards at the top of the sidebar. */
 const SidebarContextCards = ({
   sideBySide,
+  showBaseline,
   sidebarWidth,
   sessionId,
   executionState,
@@ -165,13 +168,22 @@ const SidebarContextCards = ({
   now,
 }: {
   readonly sideBySide: boolean;
+  readonly showBaseline: boolean;
   readonly sidebarWidth: number;
   readonly sessionId: string;
   readonly executionState: SprintExecution | undefined;
   readonly taskState: readonly Task[] | undefined;
   readonly tokenUsage: TokenUsage | undefined;
   readonly now: number;
-}): React.JSX.Element => {
+}): React.JSX.Element | null => {
+  if (!showBaseline) {
+    if (!sideBySide) return null;
+    return (
+      <Box marginTop={spacing.gutter}>
+        <SidebarTokenCard sessionId={sessionId} tokenUsage={tokenUsage} />
+      </Box>
+    );
+  }
   const baselineCard = (
     <BaselineHealthCard
       {...(executionState !== undefined ? { execution: executionState } : {})}
@@ -226,6 +238,7 @@ export const ImplementSidebar = ({
   sidebarTaskNavRows,
   sidebarFlowStepsRows,
   sidebarContextSideBySide,
+  showBaseline,
   descriptor,
   bucketed,
   isRunning,
@@ -246,6 +259,7 @@ export const ImplementSidebar = ({
     <Box flexDirection="column" width={sidebarWidth} flexShrink={0}>
       <SidebarContextCards
         sideBySide={sidebarContextSideBySide}
+        showBaseline={showBaseline}
         sidebarWidth={sidebarWidth}
         sessionId={descriptor.id}
         executionState={executionState}

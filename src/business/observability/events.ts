@@ -187,13 +187,6 @@ export interface BannerClearEvent {
 }
 
 /**
- * Discriminated union of the two banner events — exported as a type alias so emitters can type-narrow a single
- * subscription handler over both variants without restating the union.
- * @public
- */
-export type BannerEvent = BannerShowEvent | BannerClearEvent;
-
-/**
  * Validated `AiSignal` published by an AI-spawning leaf AFTER the spawn's `signals.json` was parsed by
  * `validateSignalsFile` under the audit-[09] contract.
  */

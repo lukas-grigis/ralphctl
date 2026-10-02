@@ -5,9 +5,9 @@
 export const fmtDuration = (ms: number): string => {
   if (ms < 1000) return `${String(Math.round(ms))}ms`;
   if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
-  const m = Math.floor(ms / 60_000);
-  const s = Math.round((ms % 60_000) / 1000);
-  return `${String(m)}m${String(s)}s`;
+  // Round once before splitting, or 119.6 s renders as `1m60s`.
+  const totalS = Math.round(ms / 1000);
+  return `${String(Math.floor(totalS / 60))}m${String(totalS % 60)}s`;
 };
 
 /**

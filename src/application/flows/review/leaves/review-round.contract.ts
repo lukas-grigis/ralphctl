@@ -1,10 +1,11 @@
 import { z } from 'zod';
-import type { AiSignal, TaskBlockedSignal, TaskCompleteSignal } from '@src/domain/signal.ts';
+import type { TaskBlockedSignal, TaskCompleteSignal } from '@src/domain/signal.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import { taskBlockedSignalSchema } from '@src/integration/ai/contract/_engine/signals/task-blocked/schema.ts';
 import { taskCompleteSignalSchema } from '@src/integration/ai/contract/_engine/signals/task-complete/schema.ts';
 import { brandSignalArray } from '@src/integration/ai/contract/_engine/brand-signal-array.ts';
 import type { AiOutputContract } from '@src/integration/ai/contract/_engine/types.ts';
+import { wrapLegacySignalArray } from '@src/integration/ai/contract/_engine/legacy-array-migration.ts';
 
 /**
  * Per-leaf I/O contract for one round of the review (apply-feedback) chain — audit-[09].
@@ -46,16 +47,6 @@ const signalsArraySchemaRaw = z
  */
 const signalsArraySchema = brandSignalArray<ReviewRoundSignal>(signalsArraySchemaRaw);
 
-/**
- * Legacy → v1 wrapping. Older sprint review rounds (pre-contract) produced bare arrays via
- * the headless adapter's stdout parser. Today's prompts instruct the AI to write the wrapper
- * directly via its `Write` tool. The step is a passthrough for already-wrapped payloads.
- */
-const wrapLegacyArray = (raw: unknown): unknown => {
-  if (Array.isArray(raw)) return { schemaVersion: 1, signals: raw };
-  return raw;
-};
-
 /** Static ISO timestamp embedded in the rendered example. Real spawns stamp `IsoTimestamp.now()`. */
 const EXAMPLE_TS = '2026-05-22T10:00:00.000Z' as IsoTimestamp;
 
@@ -70,11 +61,6 @@ export const reviewRoundOutputContract: AiOutputContract<ReviewRoundSignal> = {
   schemaVersion: 1,
   signalsSchema: signalsArraySchema,
   sidecars: [],
-  migrations: { 0: wrapLegacyArray },
+  migrations: { 0: wrapLegacySignalArray },
   exampleSignals: EXAMPLE_SIGNALS,
 };
-
-// Type-narrowing helper for the contract's signal sub-union. Exported so tests can build
-// fixtures without re-deriving the union locally.
-/** @public */
-export type ReviewRoundContractSignal = Extract<AiSignal, ReviewRoundSignal>;

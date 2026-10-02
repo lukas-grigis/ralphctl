@@ -1,9 +1,13 @@
-import { type FinalizeGenEvalOutput, finalizeGenEvalUseCase } from '@src/business/task/finalize-gen-eval.ts';
+import {
+  type FinalizeGenEvalOutput,
+  type FinalizeGenEvalProps,
+  finalizeGenEvalUseCase,
+} from '@src/business/task/finalize-gen-eval.ts';
 import type { GenEvalExit } from '@src/business/task/gen-eval-exit.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
 import type { AiProvider } from '@src/domain/entity/settings.ts';
-import type { InProgressTask, Task } from '@src/domain/entity/task.ts';
+import type { InProgressTask } from '@src/domain/entity/task.ts';
 import type { TaskId } from '@src/domain/value/id/task-id.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { UpdateTask } from '@src/domain/repository/task/update-task.ts';
@@ -13,6 +17,7 @@ import { effectiveGeneratorModel } from '@src/business/task/escalation-policy.ts
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
+import { replaceTask } from '@src/application/flows/implement/leaves/_shared/replace-task.ts';
 
 /**
  * Chain leaf — runs after the gen-eval loop. Calls {@link finalizeGenEvalUseCase} which maps
@@ -40,15 +45,7 @@ import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
  */
 export interface FinalizeGenEvalLeafDeps {
   readonly taskRepo: UpdateTask;
-  readonly readConfig: () => Promise<{
-    readonly maxTurns: number;
-    readonly escalateOnPlateau: boolean;
-    readonly escalationMap: Readonly<Record<string, string>>;
-    readonly maxAttempts: number;
-    /** Opt-in best-of-N candidate count — see `business/task/finalize-gen-eval.ts`'s
-     * `FinalizeGenEvalProps.readConfig` JSDoc. OPTIONAL, absent/0 disables the remedy. */
-    readonly bestOfNCandidates?: number | undefined;
-  }>;
+  readonly readConfig: FinalizeGenEvalProps['readConfig'];
   readonly logger: Logger;
   readonly eventBus: EventBus;
   readonly clock: () => IsoTimestamp;
@@ -66,10 +63,7 @@ interface FinalizeInput {
   readonly exit?: GenEvalExit;
   readonly turnsUsed: number;
   readonly generatorModel: string;
-  readonly generatorProvider?: AiProvider;
   readonly generatorEffort?: string;
-  readonly evaluatorProvider?: AiProvider;
-  readonly evaluatorModel?: string;
   readonly evaluatorEffort?: string;
 }
 
@@ -88,10 +82,14 @@ export const finalizeGenEvalLeaf = (deps: FinalizeGenEvalLeafDeps, taskId: TaskI
           eventBus: deps.eventBus,
           clock: deps.clock,
           generatorModel: input.generatorModel,
-          ...(input.generatorProvider !== undefined ? { generatorProvider: input.generatorProvider } : {}),
+          ...(deps.configuredGeneratorProvider !== undefined
+            ? { generatorProvider: deps.configuredGeneratorProvider }
+            : {}),
           ...(input.generatorEffort !== undefined ? { generatorEffort: input.generatorEffort } : {}),
-          ...(input.evaluatorProvider !== undefined ? { evaluatorProvider: input.evaluatorProvider } : {}),
-          ...(input.evaluatorModel !== undefined ? { evaluatorModel: input.evaluatorModel } : {}),
+          ...(deps.configuredEvaluatorProvider !== undefined
+            ? { evaluatorProvider: deps.configuredEvaluatorProvider }
+            : {}),
+          ...(deps.configuredEvaluatorModel !== undefined ? { evaluatorModel: deps.configuredEvaluatorModel } : {}),
           ...(input.evaluatorEffort !== undefined ? { evaluatorEffort: input.evaluatorEffort } : {}),
         }),
     },
@@ -134,19 +132,12 @@ export const finalizeGenEvalLeaf = (deps: FinalizeGenEvalLeafDeps, taskId: TaskI
         ...(ctx.lastExit !== undefined ? { exit: ctx.lastExit } : {}),
         turnsUsed: ctx.genEvalTurn ?? 0,
         generatorModel,
-        ...(deps.configuredGeneratorProvider !== undefined
-          ? { generatorProvider: deps.configuredGeneratorProvider }
-          : {}),
         ...(generatorEffort !== undefined ? { generatorEffort } : {}),
-        ...(deps.configuredEvaluatorProvider !== undefined
-          ? { evaluatorProvider: deps.configuredEvaluatorProvider }
-          : {}),
-        ...(deps.configuredEvaluatorModel !== undefined ? { evaluatorModel: deps.configuredEvaluatorModel } : {}),
         ...(evaluatorEffort !== undefined ? { evaluatorEffort } : {}),
       };
     },
     output: (ctx, out) => {
-      const tasks = (ctx.tasks ?? []).map((t) => (t.id === out.task.id ? (out.task as Task) : t));
+      const tasks = replaceTask(ctx.tasks, out.task);
       return {
         ...ctx,
         currentTask: out.task,

@@ -43,9 +43,9 @@ export interface RunReviewRoundProps {
   readonly readFeedbackFile: () => Promise<string>;
   /** Read a snippet of the progress file (or a placeholder when absent). */
   readonly readProgressSnippet: () => Promise<string>;
-  /** Build the apply-feedback AI prompt + call the provider; returns the parsed harness signals. */
+  /** Call the provider with the built prompt; returns the parsed harness signals. */
   readonly callApplyFeedback: ApplyFeedbackProps['callApply'];
-  /** Render the per-round commit message body. */
+  /** Build the apply-feedback AI prompt from the round context. */
   readonly buildPrompt: (params: {
     readonly sprintContext: string;
     readonly feedbackLog: string;
@@ -148,7 +148,6 @@ export const runReviewRoundUseCase = async (
   // Only a real commit counts as "applied" — a swallowed commit error or a clean tree must not
   // inflate the caller's `roundsApplied`. The loop still continues either way.
   const committed = commit.ok && commit.value.committed;
-  void renderCommitMessage; // exposed via deps closure; keep helper colocated for caller reuse.
 
   if (props.verifyRound !== undefined) {
     const verify = await props.verifyRound();

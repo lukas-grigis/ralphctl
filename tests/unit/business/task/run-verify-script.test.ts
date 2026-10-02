@@ -6,7 +6,7 @@ import {
   attributeVerify,
   normalizeVerifyGates,
   runVerifyGatesUseCase,
-  runVerifyScriptUseCase,
+  type RunShellScript,
 } from '@src/business/task/run-verify-script.ts';
 import type { VerifyGate } from '@src/domain/entity/repository.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
@@ -17,17 +17,19 @@ const HUGE_OUTPUT_BYTES = 4096;
 
 const CWD = absolutePath('/tmp/repo');
 
-const passingShell: Parameters<typeof runVerifyScriptUseCase>[0]['runShellScript'] = async () =>
+const passingShell: RunShellScript = async () =>
   Result.ok({ passed: true, exitCode: 0, output: 'OK', durationMs: 100 });
 
-const spawnErrorShell: Parameters<typeof runVerifyScriptUseCase>[0]['runShellScript'] = async () =>
+const spawnErrorShell: RunShellScript = async () =>
   Result.error(new StorageError({ subCode: 'io', message: 'spawn ENOENT: command not found' }));
 
-describe('runVerifyScriptUseCase', () => {
+describe('runVerifyGatesUseCase — single legacy verify script', () => {
   it('returns outcome="skipped" when no script configured', async () => {
-    const { run, rawOutput } = await runVerifyScriptUseCase({
+    const { run, rawOutput } = await runVerifyGatesUseCase({
       cwd: CWD,
       phase: 'pre',
+      gates: normalizeVerifyGates(undefined, undefined),
+      mode: 'fail-fast',
       clock: () => FIXED_NOW,
       runShellScript: passingShell,
       logger: noopLogger,
@@ -40,10 +42,11 @@ describe('runVerifyScriptUseCase', () => {
   });
 
   it('returns outcome="skipped" when script is whitespace-only', async () => {
-    const { run } = await runVerifyScriptUseCase({
+    const { run } = await runVerifyGatesUseCase({
       cwd: CWD,
       phase: 'pre',
-      verifyScript: '   \n\t ',
+      gates: normalizeVerifyGates('   \n\t ', undefined),
+      mode: 'fail-fast',
       clock: () => FIXED_NOW,
       runShellScript: passingShell,
       logger: noopLogger,
@@ -52,10 +55,11 @@ describe('runVerifyScriptUseCase', () => {
   });
 
   it('returns outcome="success" with rawOutput when script exits 0 (audit row carries no body)', async () => {
-    const { run, rawOutput } = await runVerifyScriptUseCase({
+    const { run, rawOutput } = await runVerifyGatesUseCase({
       cwd: CWD,
       phase: 'post',
-      verifyScript: 'pnpm test',
+      gates: normalizeVerifyGates('pnpm test', undefined),
+      mode: 'fail-fast',
       clock: () => FIXED_NOW,
       runShellScript: passingShell,
       logger: noopLogger,
@@ -72,10 +76,11 @@ describe('runVerifyScriptUseCase', () => {
 
   it('returns outcome="failed" with full rawOutput when script exits non-zero', async () => {
     const huge = 'A'.repeat(HUGE_OUTPUT_BYTES * 2) + 'FINAL_LINE';
-    const { run, rawOutput } = await runVerifyScriptUseCase({
+    const { run, rawOutput } = await runVerifyGatesUseCase({
       cwd: CWD,
       phase: 'post',
-      verifyScript: 'pnpm test',
+      gates: normalizeVerifyGates('pnpm test', undefined),
+      mode: 'fail-fast',
       clock: () => FIXED_NOW,
       runShellScript: async () => Result.ok({ passed: false, exitCode: 1, output: huge, durationMs: 50 }),
       logger: noopLogger,
@@ -88,10 +93,11 @@ describe('runVerifyScriptUseCase', () => {
   });
 
   it('returns outcome="spawn-error" with exit=-1 and spawnErrorMessage when the shell could not start', async () => {
-    const { run, rawOutput, spawnErrorMessage } = await runVerifyScriptUseCase({
+    const { run, rawOutput, spawnErrorMessage } = await runVerifyGatesUseCase({
       cwd: CWD,
       phase: 'pre',
-      verifyScript: 'missing-binary',
+      gates: normalizeVerifyGates('missing-binary', undefined),
+      mode: 'fail-fast',
       clock: () => FIXED_NOW,
       runShellScript: spawnErrorShell,
       logger: noopLogger,
@@ -104,9 +110,11 @@ describe('runVerifyScriptUseCase', () => {
 
   it('does NOT call the shell when the script is skipped (no side effects on no-op)', async () => {
     let called = false;
-    await runVerifyScriptUseCase({
+    await runVerifyGatesUseCase({
       cwd: CWD,
       phase: 'pre',
+      gates: normalizeVerifyGates(undefined, undefined),
+      mode: 'fail-fast',
       clock: () => FIXED_NOW,
       runShellScript: async () => {
         called = true;

@@ -1,8 +1,8 @@
 import { Result } from '@src/domain/result.ts';
 import { assertSprintStatus, type Sprint, type SprintStatus } from '@src/domain/entity/sprint.ts';
-import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
+import { assertCtxField } from '@src/application/flows/_shared/_engine/assert-ctx-field.ts';
 
 /** Minimum context shape the leaf reads. The sprint must already be loaded. */
 export interface AssertSprintStatusCtx {
@@ -39,16 +39,6 @@ export const assertSprintStatusLeaf = <TCtx extends AssertSprintStatusCtx>(
         return Result.ok(undefined);
       },
     },
-    input: (ctx) => {
-      if (ctx.sprint === undefined) {
-        throw new InvalidStateError({
-          entity: 'chain',
-          currentState: `pre-${name}`,
-          attemptedAction: name,
-          message: `${name}: ctx.sprint is undefined — a load-sprint leaf must run before ${name}`,
-        });
-      }
-      return ctx.sprint;
-    },
+    input: (ctx) => assertCtxField(ctx, 'sprint', name, `pre-${name}`),
     output: (ctx) => ctx,
   });

@@ -9,7 +9,7 @@
 
 import { createFilesystemSkillsAdapter } from '@src/integration/ai/skills/_engine/filesystem-skills-adapter.ts';
 import type { SkillsAdapter } from '@src/integration/ai/skills/_engine/skills-port.ts';
-import type { CreateOpencodeSkillsAdapterDeps } from '@src/integration/ai/skills/_engine/opencode-skills-adapter-deps.ts';
+import type { SkillsAdapterDeps } from '@src/integration/ai/skills/_engine/skills-adapter-deps.ts';
 import { PROVIDER_TRAITS } from '@src/integration/ai/providers/_engine/provider-traits.ts';
 
 const CONVENTION = [
@@ -20,7 +20,7 @@ const CONVENTION = [
   'post-task verification.',
 ].join(' ');
 
-export const createOpencodeSkillsAdapter = (deps: CreateOpencodeSkillsAdapterDeps = {}): SkillsAdapter =>
+export const createOpencodeSkillsAdapter = (deps: SkillsAdapterDeps = {}): SkillsAdapter =>
   createFilesystemSkillsAdapter({
     providerId: 'opencode',
     parentDir: PROVIDER_TRAITS.opencode.skillsParentDir,

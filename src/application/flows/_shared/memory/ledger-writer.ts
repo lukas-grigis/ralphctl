@@ -15,6 +15,7 @@ import {
   statLedgerExceedsThreshold,
 } from '@src/application/flows/_shared/memory/read-ledger.ts';
 import { type LedgerRow, compactLedger } from '@src/application/flows/_shared/memory/compact-ledger.ts';
+import { messageOf } from '@src/domain/value/error/error-message.ts';
 
 /** Sibling `learnings.md` mirror name for a `learnings.ndjson` ledger path. */
 const LEARNINGS_MD = 'learnings.md';
@@ -90,7 +91,7 @@ export const boundLedgerIfNeeded = async (
   } catch (cause) {
     deps.log.warn('ledger bounding skipped — could not read the ledger', {
       path: String(ledgerPath),
-      error: cause instanceof Error ? cause.message : String(cause),
+      error: messageOf(cause),
     });
     return Result.ok(undefined);
   }
@@ -155,5 +156,5 @@ export const appendMemoryRecords = async (
     if (!appended.ok) return Result.error(appended.error);
   }
   await boundLedgerIfNeeded(ledgerPath, { writeFile: deps.writeFile, log: deps.log });
-  return Result.ok(undefined) as Result<void, StorageError>;
+  return Result.ok(undefined);
 };

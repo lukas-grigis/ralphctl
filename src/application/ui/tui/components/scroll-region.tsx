@@ -258,9 +258,6 @@ const useWheelScroll = (args: {
     const disableSeq = '\x1b[?1006l\x1b[?1000l';
     stdout.write(enable);
     const onData = (chunk: Buffer): void => {
-      // Belt-and-suspenders: a wheel chunk can still arrive after `disabled` flipped on but
-      // before the OS has stopped delivering bytes from the previous enable sequence.
-      if (disabled) return;
       const str = chunk.toString('utf8');
       // xterm SGR mouse sequences start with ESC[< — `\x1b` is the literal escape byte the
       // terminal emits, not a stylistic choice, so the no-control-regex lint disable stays.

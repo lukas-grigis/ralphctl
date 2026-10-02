@@ -6,10 +6,10 @@ import type { Repository } from '@src/domain/entity/repository.ts';
 import type { ProjectRepository } from '@src/domain/repository/project/project-repository.ts';
 import type { VerifyGateProposal } from '@src/domain/signal.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
-import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
 import type { DetectScriptsCtx } from '@src/application/flows/detect-scripts/ctx.ts';
+import { assertCtxField } from '@src/application/flows/_shared/_engine/assert-ctx-field.ts';
 
 export interface WriteDetectScriptsLeafDeps {
   readonly projectRepo: ProjectRepository;
@@ -82,44 +82,19 @@ export const writeDetectScriptsLeaf = (deps: WriteDetectScriptsLeafDeps): Elemen
       execute: async (input) => writeUseCase(deps, input),
     },
     input: (ctx) => {
-      if (ctx.project === undefined) {
-        throw new InvalidStateError({
-          entity: 'chain',
-          currentState: 'pre-write',
-          attemptedAction: 'write',
-          message: 'write: ctx.project is undefined — load-project must run first',
-        });
-      }
-      if (ctx.repository === undefined) {
-        throw new InvalidStateError({
-          entity: 'chain',
-          currentState: 'pre-write',
-          attemptedAction: 'write',
-          message: 'write: ctx.repository is undefined — pick-repository must run first',
-        });
-      }
-      if (ctx.proposal === undefined) {
-        throw new InvalidStateError({
-          entity: 'chain',
-          currentState: 'pre-write',
-          attemptedAction: 'write',
-          message: 'write: ctx.proposal is undefined — propose must run first',
-        });
-      }
+      const project = assertCtxField(ctx, 'project', 'write', 'pre-write');
+      const repository = assertCtxField(ctx, 'repository', 'write', 'pre-write');
+      const proposal = assertCtxField(ctx, 'proposal', 'write', 'pre-write');
       return {
         accepted: ctx.accepted ?? false,
-        project: ctx.project,
-        repository: ctx.repository,
+        project,
+        repository,
         proposal: {
-          ...(ctx.proposal.proposedSetupScript !== undefined
-            ? { proposedSetupScript: ctx.proposal.proposedSetupScript }
+          ...(proposal.proposedSetupScript !== undefined ? { proposedSetupScript: proposal.proposedSetupScript } : {}),
+          ...(proposal.proposedVerifyScript !== undefined
+            ? { proposedVerifyScript: proposal.proposedVerifyScript }
             : {}),
-          ...(ctx.proposal.proposedVerifyScript !== undefined
-            ? { proposedVerifyScript: ctx.proposal.proposedVerifyScript }
-            : {}),
-          ...(ctx.proposal.proposedVerifyGates !== undefined
-            ? { proposedVerifyGates: ctx.proposal.proposedVerifyGates }
-            : {}),
+          ...(proposal.proposedVerifyGates !== undefined ? { proposedVerifyGates: proposal.proposedVerifyGates } : {}),
         },
       };
     },

@@ -4,7 +4,7 @@ import { messageOf } from '@src/domain/value/error/error-message.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { Spawn } from '@src/integration/io/spawn.ts';
-import { crossPlatformSpawn } from '@src/integration/io/cross-platform-spawn.ts';
+import { pipeSpawn } from '@src/integration/io/cross-platform-spawn.ts';
 import { killWithEscalation } from '@src/integration/io/kill-with-escalation.ts';
 
 /**
@@ -59,7 +59,7 @@ export interface GitRunnerDeps {
 }
 
 export const createGitRunner = (deps: GitRunnerDeps = {}): GitRunner => {
-  const spawn = deps.spawn ?? defaultSpawn;
+  const spawn = deps.spawn ?? pipeSpawn;
   const defaultTimeoutMs = deps.defaultTimeoutMs ?? DEFAULT_GIT_TIMEOUT_MS;
   const maxOutputBytes = deps.maxOutputBytes ?? GIT_MAX_OUTPUT_BYTES;
 
@@ -190,6 +190,30 @@ const buildCloseResult = (
   }
 };
 
+/**
+ * Run git and treat any non-zero exit as a `git <label> failed: <stderr||stdout>` StorageError —
+ * for the many operations where a non-zero exit carries no meaning beyond failure.
+ */
+export const runGitChecked = async (
+  runner: GitRunner,
+  cwd: AbsolutePath,
+  args: readonly string[],
+  label: string,
+  opts?: GitRunOptions
+): Promise<Result<GitRunResult, StorageError>> => {
+  const result = opts === undefined ? await runner.run(cwd, args) : await runner.run(cwd, args, opts);
+  if (!result.ok) return result;
+  if (result.value.exitCode !== 0) {
+    return Result.error(
+      new StorageError({
+        subCode: 'io',
+        message: `git ${label} failed: ${(result.value.stderr || result.value.stdout).trim()}`,
+      })
+    );
+  }
+  return result;
+};
+
 const runGitOnce = (
   spawn: Spawn,
   cwd: AbsolutePath,
@@ -252,6 +276,3 @@ const runGitOnce = (
       finish(buildCloseResult(collector, timedOut, code, timeoutMs, args, maxOutputBytes));
     });
   });
-
-const defaultSpawn: Spawn = (command, args, options) =>
-  crossPlatformSpawn(command, args, { ...options, stdio: [...options.stdio] }) as ReturnType<Spawn>;

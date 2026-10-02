@@ -6,8 +6,10 @@ import type { FindTasksBySprintId } from '@src/domain/repository/task/find-tasks
 import { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { DISPLAY_TEXT_MAX_CHARS, sanitizeDisplayText } from '@src/domain/value/display-text.ts';
+import { nameBlockedTasks } from '@src/business/sprint/name-blocked-tasks.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import { bootstrapCli } from '@src/application/ui/cli/bootstrap.ts';
+import { plural } from '@src/application/ui/shared/plural.ts';
 import { confirmDestructive } from '@src/application/ui/cli/confirm-destructive.ts';
 import { fail } from '@src/application/ui/cli/report-cli-error.ts';
 import { resolveSprintId } from '@src/application/ui/cli/resolve-sprint-selection.ts';
@@ -29,22 +31,10 @@ interface CloseOpts {
 }
 
 /**
- * Longest task-name list spelled out before the tail collapses to "and N more" — mirrors close-sprint's own in-chain
- * `confirm-blocked-tasks` leaf so the CLI and TUI read the same.
- */
-const MAX_NAMED_BLOCKED_TASKS = 5;
-
-/**
  * Task names are planner-authored prose on their way to the terminal — see `formatTaskLine` in commands/task.ts for
  * why every one of them is neutered first.
  */
 const showName = (name: string): string => sanitizeDisplayText(name, DISPLAY_TEXT_MAX_CHARS);
-
-const nameBlockedTasks = (blocked: readonly Task[]): string => {
-  const named = blocked.slice(0, MAX_NAMED_BLOCKED_TASKS).map((t) => showName(t.name));
-  const remainder = blocked.length - named.length;
-  return remainder > 0 ? `${named.join(', ')}, and ${String(remainder)} more` : named.join(', ');
-};
 
 const listSprintsAction = async (): Promise<void> => {
   const { deps } = await bootstrapCli();
@@ -503,5 +493,5 @@ const formatProgress = (sprint: Sprint, tasks: readonly Task[], branchLine: stri
 
 const formatSprintLine = (s: Sprint): string => {
   const tickets = s.tickets.length;
-  return `${String(s.id)}  ${String(s.slug).padEnd(24)}  [${s.status.padEnd(8)}]  ${s.name}  (${String(tickets)} ticket${tickets === 1 ? '' : 's'})`;
+  return `${String(s.id)}  ${String(s.slug).padEnd(24)}  [${s.status.padEnd(8)}]  ${s.name}  (${plural(tickets, 'ticket')})`;
 };

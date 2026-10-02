@@ -185,6 +185,20 @@ describe('buildPrompt — error paths', () => {
     }
   });
 
+  it('returns ParseError when a partial body contains a placeholder (single pass never fills it)', async () => {
+    const def: PromptDefinition<SimpleParams> = { ...simpleDef, partials: { EXTRA: 'nested-partial' } };
+    const loader = {
+      load: async (name: string) =>
+        Result.ok(name === 'nested-partial' ? 'partial needs {{FOO}}\n' : '{{NAME}} {{NOTE}} {{EXTRA}}\n'),
+    };
+    const result = await buildPrompt(loader, def, { name: 'Ada' });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toBeInstanceOf(ParseError);
+      expect(result.error.message).toContain('{{FOO}}');
+    }
+  });
+
   it('returns ParseError when the template carries a placeholder the manifest does not declare', async () => {
     // Template references {{UNKNOWN}} but the def has no spec for it — drift detected at the
     // template-side assertTemplateKeysFilled fence.

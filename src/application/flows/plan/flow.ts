@@ -22,6 +22,7 @@ import { checkPlanLeaf } from '@src/application/flows/_shared/plan/check-plan.ts
 import { applyPlanLeaf } from '@src/application/flows/plan/leaves/apply-plan.ts';
 import { aiUnitEpilogue, aiUnitPrelude } from '@src/application/flows/_shared/ai-unit-segment.ts';
 import { assertCtxField } from '@src/application/flows/_shared/_engine/assert-ctx-field.ts';
+import { createPublishSignal } from '@src/application/flows/_shared/publish-signal.ts';
 
 export interface CreatePlanFlowOpts {
   readonly sprintId: SprintId;
@@ -47,8 +48,6 @@ export interface CreatePlanFlowOpts {
   readonly maxAttempts: number;
   /** Per-sprint root: `<sprintDir>/plan/`. Per-run subfolder created at execute time. */
   readonly planRoot: AbsolutePath;
-  /** Optional run slug. Defaults to `'session-<timestamp>'`. */
-  readonly runSlug?: string;
   /**
    * Root of the per-project procedural-memory tree (`<dataRoot>/memory/`). When supplied, the
    * planner prompt is seeded with this project's not-yet-promoted learnings + decisions so the
@@ -90,7 +89,7 @@ export interface CreatePlanFlowOpts {
  * `draft` even if the tasks already landed; the next plan run is idempotent.
  */
 export const createPlanFlow = (deps: PlanDeps, opts: CreatePlanFlowOpts): Element<PlanCtx> => {
-  const slug = opts.runSlug ?? `session-${String(Date.now())}`;
+  const slug = `session-${String(Date.now())}`;
 
   const unitOpts = {
     unitName: 'plan',
@@ -145,7 +144,7 @@ export const createPlanFlow = (deps: PlanDeps, opts: CreatePlanFlowOpts): Elemen
       runInTerminal: deps.runInTerminal,
       logger: deps.logger,
       writeFile: deps.writeFile,
-      eventBus: deps.eventBus,
+      publishSignal: createPublishSignal(deps.eventBus, 'plan'),
       model: opts.model,
       maxAttempts: opts.maxAttempts,
       ...(opts.effort !== undefined ? { effort: opts.effort } : {}),

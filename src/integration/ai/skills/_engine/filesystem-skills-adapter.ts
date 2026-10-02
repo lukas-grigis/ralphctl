@@ -26,13 +26,12 @@
  */
 
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, rm, rmdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Result } from '@src/domain/result.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
-import { ensureGitExcludeWildcard } from '@src/integration/io/git-exclude.ts';
 import { SkillNameSchema, type Skill } from '@src/integration/ai/skills/_engine/skill.ts';
 import {
   classifySkillFolder,
@@ -40,6 +39,12 @@ import {
   writeInstallMarker,
 } from '@src/integration/ai/skills/_engine/skill-install-marker.ts';
 import type { SkillsAdapter } from '@src/integration/ai/skills/_engine/skills-port.ts';
+import {
+  createGitExcludeOnce,
+  pruneMissingSessionDirs,
+  tryRmdirIfEmpty,
+} from '@src/integration/ai/skills/_engine/session-install-support.ts';
+import { messageOf } from '@src/domain/value/error/error-message.ts';
 
 export interface FilesystemSkillsAdapterDeps {
   /** Provider id — used only for error messages. */
@@ -101,14 +106,6 @@ const rejectUnsafeSkillName = (providerId: string, skillsDir: string, name: stri
     path: skillsDir,
     hint: 'The name came from a skill source or AI output. Nothing was written; fix the skill name at its source.',
   });
-};
-
-const tryRmdirIfEmpty = async (path: string): Promise<void> => {
-  try {
-    await rmdir(path);
-  } catch {
-    // Non-empty or missing — both are fine, the cleanup is best-effort.
-  }
 };
 
 /** What `writeAllSkills` does with one skill, given what's already at its destination. */
@@ -222,7 +219,7 @@ const writeAllSkills = async (
       return Result.error(
         new StorageError({
           subCode: 'io',
-          message: `${shadow.providerId}: failed to install skill ${skill.name}: ${cause instanceof Error ? cause.message : String(cause)}`,
+          message: `${shadow.providerId}: failed to install skill ${skill.name}: ${messageOf(cause)}`,
           path: dst,
           cause,
         })
@@ -232,60 +229,24 @@ const writeAllSkills = async (
   return Result.ok(undefined);
 };
 
-/**
- * Best-effort, once-per-`sessionDir` attempt to append the wildcard exclude line to the
- * `info/exclude` of `<sessionDir>`'s common git dir (a linked worktree resolves to the main
- * repo's `.git`). A non-git tree, an uninspectable `.git`, or a write-protected exclude file
- * all collapse to "warn and proceed" — the caller's install already succeeded regardless.
- */
-const ensureGitExcludeOnce = async (
-  sessionDir: AbsolutePath,
-  excludeAttempted: Set<string>,
-  excludePattern: string,
-  providerId: string,
-  logger: Logger | undefined
-): Promise<void> => {
-  const key = String(sessionDir);
-  if (excludeAttempted.has(key)) return;
-  excludeAttempted.add(key);
-
-  const excluded = await ensureGitExcludeWildcard(sessionDir, excludePattern);
-  if (!excluded.ok) {
-    logger
-      ?.named('skills.exclude')
-      .warn(`${providerId}: failed to update .git/info/exclude: ${excluded.error.message}`);
-  }
-};
-
 export const createFilesystemSkillsAdapter = (deps: FilesystemSkillsAdapterDeps): SkillsAdapter => {
   // Per-sessionDir manifest of skill names this adapter created at install time. Cleared on
   // a successful uninstall. Not promised across crashed runs — the cleanup is best-effort.
   const installed = new Map<string, Set<string>>();
-  // Per-sessionDir flag tracking whether we've already attempted to append the wildcard
-  // exclude. Idempotent against the file regardless, but the in-memory check avoids re-
-  // reading the file on every install call across a long-running session.
-  const excludeAttempted = new Set<string>();
   // Unmarked folders already warned about (see `warnIfShadowing`). Never cleared: one warning per
   // folder per adapter, i.e. per launch, is enough.
   const shadow: ShadowWarnings = { providerId: deps.providerId, logger: deps.logger, warned: new Set<string>() };
   const skillsSubdir = join(deps.parentDir, 'skills');
-  const excludePattern = `${skillsSubdir}/ralphctl-*`;
-
-  // Self-healing prune: drop manifest entries whose sessionDir no longer exists on disk. The
-  // typical leak path is the per-task subchain failing BETWEEN `linkSkills` and `unlinkSkills`
-  // — `sequential` then marks unlink as skipped, no cleanup runs, and the map entry sticks
-  // for the harness lifetime. We can't reliably force unlink to run (the chain framework has
-  // no try/finally semantics), so prune lazily on every install: stale sessionDirs are
-  // workspaces ralphctl deleted or moved, so their entries can't ever be unwound anyway.
-  const pruneStale = (): void => {
-    for (const key of [...installed.keys()]) {
-      if (!existsSync(key)) installed.delete(key);
-    }
-  };
+  const ensureExcludeOnce = createGitExcludeOnce({
+    excludePattern: `${skillsSubdir}/ralphctl-*`,
+    providerId: deps.providerId,
+    logger: deps.logger,
+    logName: 'skills.exclude',
+  });
 
   return {
     async install(sessionDir: AbsolutePath, skills: readonly Skill[]): Promise<Result<void, StorageError>> {
-      pruneStale();
+      pruneMissingSessionDirs(installed);
       const skillsDir = join(String(sessionDir), skillsSubdir);
       const tracked = installed.get(String(sessionDir)) ?? new Set<string>();
 
@@ -297,7 +258,7 @@ export const createFilesystemSkillsAdapter = (deps: FilesystemSkillsAdapterDeps)
       // (linked worktrees included) so every `ralphctl-*` skill we manage stays out of
       // `git status`. A non-git tree, an uninspectable `.git`, or a write-protected
       // `info/exclude` all collapse to "warn and proceed" — the skill install already succeeded.
-      await ensureGitExcludeOnce(sessionDir, excludeAttempted, excludePattern, deps.providerId, deps.logger);
+      await ensureExcludeOnce(sessionDir);
 
       return Result.ok(undefined);
     },
@@ -322,7 +283,7 @@ export const createFilesystemSkillsAdapter = (deps: FilesystemSkillsAdapterDeps)
         return Result.error(
           new StorageError({
             subCode: 'io',
-            message: `${deps.providerId}: failed to install bare skill ${skill.name}: ${cause instanceof Error ? cause.message : String(cause)}`,
+            message: `${deps.providerId}: failed to install bare skill ${skill.name}: ${messageOf(cause)}`,
             path: dst,
             cause,
           })
@@ -350,7 +311,7 @@ export const createFilesystemSkillsAdapter = (deps: FilesystemSkillsAdapterDeps)
         return Result.error(
           new StorageError({
             subCode: 'io',
-            message: `${deps.providerId}: failed to uninstall skills under ${skillsDir}: ${cause instanceof Error ? cause.message : String(cause)}`,
+            message: `${deps.providerId}: failed to uninstall skills under ${skillsDir}: ${messageOf(cause)}`,
             path: skillsDir,
             cause,
           })

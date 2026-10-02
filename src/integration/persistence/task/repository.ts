@@ -8,7 +8,7 @@ import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
 import type { StorageError } from '@src/domain/value/error/storage-error.ts';
 import { fromJsonTasksFile, toJsonTasksFile } from '@src/integration/persistence/task/task.schema.ts';
 import { readJson, writeJsonAtomic } from '@src/integration/io/fs.ts';
-import { resolveSprintDir, sprintsDir } from '@src/integration/persistence/storage.ts';
+import { sprintDirOrBare } from '@src/integration/persistence/storage.ts';
 import { decode } from '@src/integration/persistence/shared/decode.ts';
 import type { FileLocker } from '@src/integration/io/file-locker.ts';
 
@@ -43,11 +43,8 @@ export interface FsTaskRepositoryDeps {
  * and `findById` returns `NotFoundError`. The first `saveAll` materialises the file.
  */
 export const createFsTaskRepository = (deps: FsTaskRepositoryDeps): TaskRepository => {
-  /** Resolve the existing sprint dir, falling back to the bare `<id>/` path for first writes. */
-  const dirFor = async (sprintId: SprintId): Promise<string> =>
-    (await resolveSprintDir(deps.root, sprintId)) ?? join(sprintsDir(deps.root), String(sprintId));
-
-  const tasksPathFor = async (sprintId: SprintId): Promise<string> => join(await dirFor(sprintId), 'tasks.json');
+  const tasksPathFor = async (sprintId: SprintId): Promise<string> =>
+    join(await sprintDirOrBare(deps.root, sprintId), 'tasks.json');
 
   const readAll = async (sprintId: SprintId): Promise<Result<readonly Task[], StorageError>> => {
     const path = await tasksPathFor(sprintId);

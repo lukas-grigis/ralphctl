@@ -48,9 +48,8 @@ const describe = (c: HousekeepingCandidate): { readonly name: string; readonly d
 
 /** Sort key for `<id>--<slug>` dir names: the slug, so `ghost-2` precedes `ghost-10` (numeric collation). */
 const naturalCompare = (a: { readonly name: string }, b: { readonly name: string }): number => {
-  const slug = (n: string): string => (n.includes('--') ? n.slice(n.indexOf('--') + 2) : n);
   return (
-    slug(a.name).localeCompare(slug(b.name), undefined, { numeric: true }) ||
+    readableDirName(a.name).localeCompare(readableDirName(b.name), undefined, { numeric: true }) ||
     a.name.localeCompare(b.name, undefined, { numeric: true })
   );
 };

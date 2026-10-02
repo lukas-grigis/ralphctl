@@ -10,23 +10,13 @@ import { primaryInstallCommand, PROVIDER_BINARY } from '@src/integration/system/
 import { glyphs } from '@src/application/ui/tui/theme/tokens.ts';
 import type { AiProvider } from '@src/domain/entity/settings.ts';
 import {
+  annotateModelLabel,
   type EditableField,
   escalationModelOptions,
   escalationTargetsFor,
   isModelField,
   isProviderField,
 } from '@src/application/ui/tui/views/settings-view-model.ts';
-import { isSuspendedModel, SUSPENSION_NOTE } from '@src/domain/value/settings-models/suspended-models.ts';
-import { contextWindowLabel } from '@src/domain/value/settings-models/context-window.ts';
-
-/** Build the display label for a model picker option. */
-const annotateModelLabel = (model: string): string => {
-  const windowPart = contextWindowLabel(model);
-  const suspendedPart = isSuspendedModel(model) ? `(${SUSPENSION_NOTE})` : undefined;
-  const annotations = [windowPart, suspendedPart].filter((s): s is string => s !== undefined);
-  if (annotations.length === 0) return model;
-  return `${model}  ${glyphs.bullet}  ${annotations.join('  ')}`;
-};
 
 interface ProviderChoice {
   readonly label: string;

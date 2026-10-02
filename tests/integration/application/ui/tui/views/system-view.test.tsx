@@ -161,7 +161,7 @@ describe('SystemView', () => {
     expect(rows).toContain('3 bundled · 2 enabled · 2 updates available');
     expect(rows).toContain('implement');
     expect(rows).toContain('effort');
-    expect(rows).toContain('6.4 MB reclaimable · 2 orphan sprints · 1 memory dir');
+    expect(rows).toContain('6.4 MiB reclaimable · 2 orphan sprints · 1 memory dir');
     f.result.unmount();
   });
 

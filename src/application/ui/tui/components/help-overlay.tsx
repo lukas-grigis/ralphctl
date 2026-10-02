@@ -1,12 +1,14 @@
 /** Modal help reference. Renders a card listing the bindings that apply to where the operator is. */
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { keySections } from '@src/application/ui/tui/runtime/keyboard-map.ts';
-import { SIGNAL_LABEL_COLOR } from '@src/application/ui/tui/components/tasks-panel.tsx';
+import { signalLabelColor } from '@src/application/ui/tui/components/tasks-panel-internals/signal-rows.tsx';
 import { useActiveHints } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
 import { useTerminalSize } from '@src/application/ui/tui/runtime/use-terminal-size.ts';
+import { useDocumentScroll } from '@src/application/ui/tui/components/overlay-internals/use-document-scroll.ts';
+import { DocumentScrollFooter } from '@src/application/ui/tui/components/overlay-internals/document-scroll-footer.tsx';
 
 /**
  * Rows the overlay spends on its own chrome, so the card never outgrows the terminal: outer paddingY (top + bottom) +
@@ -69,7 +71,11 @@ const HelpRowView = ({ row, keyCol }: { readonly row: HelpRow; readonly keyCol: 
   return (
     <Box>
       <Box width={keyCol} flexShrink={0}>
-        <Text wrap="truncate-end" color={row.color ?? SIGNAL_LABEL_COLOR[row.label ?? ''] ?? inkColors.info} bold>
+        <Text
+          wrap="truncate-end"
+          color={row.color ?? (row.label !== undefined ? signalLabelColor(row.label) : undefined) ?? inkColors.info}
+          bold
+        >
           {row.label}
         </Text>
       </Box>
@@ -136,7 +142,6 @@ export interface HelpOverlayProps {
 export const HelpOverlay = ({ routeId }: HelpOverlayProps = {}): React.JSX.Element => {
   const localHints = useActiveHints();
   const term = useTerminalSize();
-  const [offset, setOffset] = useState(0);
   const [showAll, setShowAll] = useState(false);
 
   // Build a flat array of renderable rows from all sections so we can window them.
@@ -147,38 +152,12 @@ export const HelpOverlay = ({ routeId }: HelpOverlayProps = {}): React.JSX.Eleme
 
   const bodyRows = Math.max(MIN_BODY_ROWS, term.rows - CHROME_ROWS);
   const lineCount = allRows.length;
-  const maxOffset = Math.max(0, lineCount - bodyRows);
-  const clamp = (n: number): number => Math.max(0, Math.min(n, maxOffset));
+  // Resets to the top when content changes (e.g. view switches while the overlay is open).
+  const { offset } = useDocumentScroll(lineCount, bodyRows);
 
-  // Reset scroll when content changes (e.g. view switches while overlay is open).
-  useEffect(() => {
-    setOffset(0);
-  }, [lineCount]);
-
-  useInput((input, key) => {
-    if (key.tab) {
-      setShowAll((v) => !v);
-      return;
-    }
-    // Only scroll when content overflows.
-    if (maxOffset === 0) return;
-    if (key.upArrow) {
-      setOffset((o) => clamp(o - 1));
-      return;
-    }
-    if (key.downArrow) {
-      setOffset((o) => clamp(o + 1));
-      return;
-    }
-    if (key.pageUp) {
-      setOffset((o) => clamp(o - bodyRows));
-      return;
-    }
-    if (key.pageDown) {
-      setOffset((o) => clamp(o + bodyRows));
-    }
-    // esc and `?` are handled by the global key handler before reaching here.
-    void input;
+  // esc and `?` are handled by the global key handler before reaching here.
+  useInput((_input, key) => {
+    if (key.tab) setShowAll((v) => !v);
   });
 
   const keyCol = Math.min(
@@ -207,16 +186,7 @@ export const HelpOverlay = ({ routeId }: HelpOverlayProps = {}): React.JSX.Eleme
             <HelpRowView key={`${row.kind}-${String(offset + idx)}`} row={row} keyCol={keyCol} />
           ))}
         </Box>
-        {maxOffset > 0 && (
-          <Box marginTop={spacing.section} justifyContent="space-between">
-            <Text dimColor>
-              lines {String(offset + 1)}–{String(Math.min(lineCount, offset + bodyRows))} of {String(lineCount)}
-            </Text>
-            <Text dimColor>
-              {glyphs.bullet} ↑/↓ scroll {glyphs.bullet} PgUp/PgDn page
-            </Text>
-          </Box>
-        )}
+        <DocumentScrollFooter offset={offset} bodyRows={bodyRows} lineCount={lineCount} />
       </Box>
     </Box>
   );

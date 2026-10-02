@@ -36,6 +36,7 @@ import { promisify } from 'node:util';
 import { platform as osPlatform } from 'node:os';
 import type { Logger } from '@src/business/observability/logger.ts';
 import type { NotificationDispatcher } from '@src/business/observability/notification-dispatcher.ts';
+import { messageOf } from '@src/domain/value/error/error-message.ts';
 
 const execFile = promisify(execFileCb);
 
@@ -122,7 +123,7 @@ export const createOsNotificationDispatcher = (deps: OsNotificationDispatcherDep
         log.debug('OS notification failed', {
           platform: plat,
           level,
-          error: err instanceof Error ? err.message : String(err),
+          error: messageOf(err),
         });
       }
     },

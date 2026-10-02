@@ -58,13 +58,6 @@ const learningLine = (entry: LearningEntry): string => {
   return clampLine(`${insight}${where}`);
 };
 
-const recentLearningBullets = (entries: readonly LearningEntry[] | undefined, max: number): string[] =>
-  (entries ?? [])
-    .map(learningLine)
-    .filter((s) => s.length > 0)
-    .slice(-max)
-    .map((s) => `- ${s}`);
-
 export const composeGeneratorHints = (input: GeneratorHintsInput): string => {
   const blocks: string[] = [];
 
@@ -74,7 +67,7 @@ export const composeGeneratorHints = (input: GeneratorHintsInput): string => {
   const changes = recentBullets(input.changes, HINTS_MAX_ITEMS_PER_KIND);
   if (changes.length > 0) blocks.push(['Changes the generator says it made:', ...changes].join('\n'));
 
-  const learnings = recentLearningBullets(input.learnings, HINTS_MAX_ITEMS_PER_KIND);
+  const learnings = recentBullets(input.learnings?.map(learningLine), HINTS_MAX_ITEMS_PER_KIND);
   if (learnings.length > 0) blocks.push(['Environment notes / learnings:', ...learnings].join('\n'));
 
   const notes = recentBullets(input.notes, HINTS_MAX_ITEMS_PER_KIND);

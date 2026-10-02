@@ -4,11 +4,10 @@ import type {
   AiAgentBindings,
   AiFlowSettings,
   AiImplementRole,
-  AiProvider,
   AiSettings,
   Settings,
 } from '@src/domain/entity/settings.ts';
-import { AI_PROVIDERS } from '@src/domain/entity/settings.ts';
+import { AI_PROVIDERS, isAiProvider } from '@src/domain/entity/settings.ts';
 import { FLOW_IDS, type FlowId } from '@src/domain/value/flow-id.ts';
 
 /**
@@ -30,7 +29,7 @@ import { FLOW_IDS, type FlowId } from '@src/domain/value/flow-id.ts';
  * explicitly via `ai.implement.generator.<field>` or `ai.implement.evaluator.<field>`.
  */
 const SETTINGS_KEY_HINT =
-  'supported keys: ai.effort, ai.{flow}.{provider,model,effort} (flow in {refine,plan,readiness,ideate,createPr}), ai.implement.{generator,evaluator}.{provider,model,effort}, ai.implement.agents.{generator,evaluator}, harness.{maxTurns,maxAttempts,rateLimitRetries,idleWatchdogMs,plateauThreshold,correctiveRetries,bestOfNCandidates,escalateOnPlateau,skipPreVerifyOnFreshSetup}, harness.escalationMap.<fromModel>, logging.level, concurrency.maxParallelTasks, scm.postRefinementComment, ui.notifications.enabled';
+  'supported keys: ai.effort, ai.{flow}.{provider,model,effort} (flow in {refine,plan,readiness,ideate,createPr}), ai.implement.{generator,evaluator}.{provider,model,effort}, ai.implement.agents.{generator,evaluator}, harness.{maxTurns,maxAttempts,rateLimitRetries,idleWatchdogMs,plateauThreshold,correctiveRetries,bestOfNCandidates,escalateOnPlateau,skipPreVerifyOnFreshSetup}, harness.escalationMap.<fromModel>, logging.level, concurrency.maxParallelTasks, ui.notifications.enabled';
 
 /** Hint attached to a rejected `ai.<flow>.agents.<role>` key targeting an unsupported binding. */
 const AGENT_BINDING_UNSUPPORTED_HINT =
@@ -40,8 +39,6 @@ const BOOLEAN_VALUE_HINT = "use 'true' or 'false'";
 
 const IMPLEMENT_ROLES: readonly AiImplementRole[] = ['generator', 'evaluator'];
 const isImplementRole = (raw: string): raw is AiImplementRole => (IMPLEMENT_ROLES as readonly string[]).includes(raw);
-
-const isAiProvider = (raw: string): raw is AiProvider => (AI_PROVIDERS as readonly string[]).includes(raw);
 
 const isFlowId = (raw: string): raw is FlowId => (FLOW_IDS as readonly string[]).includes(raw);
 
@@ -319,13 +316,6 @@ const applyFixedSettingsKey = (current: Settings, key: string, raw: string): Res
       return Result.ok({ ...current, logging: { level: raw as Settings['logging']['level'] } });
     case 'concurrency.maxParallelTasks':
       return applyNumberField(current, key, raw, (c, n) => ({ ...c, concurrency: { maxParallelTasks: n } }));
-    // Key is still addressable so existing settings files and `settings set` keep parsing;
-    // the flag does not post a comment.
-    case 'scm.postRefinementComment':
-      return applyBooleanField(current, key, raw, (c, b) => ({
-        ...c,
-        scm: { ...c.scm, postRefinementComment: b },
-      }));
     case 'ui.notifications.enabled':
       return applyBooleanField(current, key, raw, (c, b) => ({
         ...c,

@@ -7,7 +7,7 @@ import React from 'react';
 import { Box, Text } from 'ink';
 import type { HarnessSignal } from '@src/domain/signal.ts';
 import { glyphs, spacing } from '@src/application/ui/tui/theme/tokens.ts';
-import { focusKey } from '@src/application/ui/tui/components/tasks-panel-internals/focus-keys.ts';
+import { focusKey, tailSlice } from '@src/application/ui/tui/components/tasks-panel-internals/focus-keys.ts';
 import { StreamSignalRow } from '@src/application/ui/tui/components/tasks-panel-internals/signal-rows.tsx';
 
 const OrphanSignalsImpl = ({
@@ -15,20 +15,17 @@ const OrphanSignalsImpl = ({
   max,
   focusedKey,
   expandedKeys,
-  sliceStart,
 }: {
   readonly signals: readonly HarnessSignal[];
   readonly max: number;
   readonly focusedKey: string | undefined;
   readonly expandedKeys: ReadonlySet<string>;
-  /** Absolute signal index where the rendered slice starts. */
-  readonly sliceStart: number;
 }): React.JSX.Element | null => {
   if (signals.length === 0) return null;
-  const rows = signals.slice(-max);
+  const { rows, start } = tailSlice(signals, max);
   // Display-clip marker: when the orphan-signals list is longer than the render budget, surface
   // the count of elided rows so the operator knows earlier notes exist beyond the window.
-  const orphansElided = signals.length - rows.length;
+  const orphansElided = start;
   return (
     <Box flexDirection="column" marginBottom={spacing.section}>
       <Text dimColor bold>
@@ -41,10 +38,10 @@ const OrphanSignalsImpl = ({
           >{`${glyphs.clipEllipsis} ${String(orphansElided)} earlier note${orphansElided === 1 ? '' : 's'}`}</Text>
         )}
         {rows.map((s, i) => {
-          const key = focusKey('orphan', sliceStart + i);
+          const key = focusKey('orphan', start + i);
           return (
             <StreamSignalRow
-              key={`orphan-${String(sliceStart + i)}`}
+              key={`orphan-${String(start + i)}`}
               signal={s}
               focused={focusedKey === key}
               expanded={expandedKeys.has(key)}

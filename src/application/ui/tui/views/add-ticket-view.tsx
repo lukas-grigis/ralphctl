@@ -128,11 +128,9 @@ export const AddTicketView = (): React.JSX.Element => {
     if (outcome.kind === 'added') {
       // Stay in the flow: increment the session count and land on the `added` step, which offers "Add another
       // ticket?".
-      setAddedCount((prev) => {
-        const count = prev + 1;
-        setStep({ kind: 'added', title: draft.title.trim(), count });
-        return count;
-      });
+      const count = addedCount + 1;
+      setAddedCount(count);
+      setStep({ kind: 'added', title: draft.title.trim(), count });
       return;
     }
     setStep(outcome);

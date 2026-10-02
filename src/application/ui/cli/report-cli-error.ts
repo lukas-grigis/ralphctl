@@ -1,5 +1,6 @@
 import { RALPHCTL_DEBUG_TRACE_ENV } from '@src/application/bootstrap/wire.ts';
 import { AbortError } from '@src/domain/value/error/abort-error.ts';
+import { messageOf } from '@src/domain/value/error/error-message.ts';
 
 /** Shared CLI failure reporter — a failed command branch calls `fail(message); return;` instead of writing stderr itself. */
 export const fail = (message: string): void => {
@@ -21,7 +22,7 @@ export const reportFatal = (err: unknown): void => {
     return;
   }
 
-  const message = err instanceof Error ? err.message : String(err);
+  const message = messageOf(err);
   process.stderr.write(`ralphctl: ${message.trim()}\n`);
 
   const debug = process.env[RALPHCTL_DEBUG_TRACE_ENV];

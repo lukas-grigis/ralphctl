@@ -17,8 +17,8 @@ interface SprintDetailShortcutArgs {
   readonly isCurrent: boolean;
   /** Blocked tasks in the sprint — gates the `B` hint (the chord itself gates on `jump.available`). */
   readonly blockedCount: number;
-  readonly focusList: readonly FocusItem[];
-  readonly cursorIdx: number;
+  readonly focusedItem: FocusItem | undefined;
+  readonly focusedTicketRow: Ticket | undefined;
   readonly focusedStuckTask: Task | undefined;
   /** Focused task that recorded an evaluation verdict — the gate for `v`. */
   readonly focusedEvaluatedTask: Task | undefined;
@@ -41,13 +41,6 @@ interface SprintDetailShortcutArgs {
   /** Re-read the sprint bundle from disk. */
   readonly reloadSprint: () => void;
 }
-
-/**
- * Item under the cursor in the flat focus list, clamped to the last entry when the cursor has drifted past the end
- * (e.g. the list just shrank).
- */
-const focusedItem = (args: SprintDetailShortcutArgs): FocusItem | undefined =>
-  args.focusList[Math.min(args.cursorIdx, args.focusList.length - 1)];
 
 /**
  * The rows below only ever fire once a `B` jump has engaged `jump.active` — until then ↑/↓/j/k/PgUp/PgDn/Home/End
@@ -123,8 +116,8 @@ const buildStateBindings = (args: SprintDetailShortcutArgs, canPublish: boolean)
 const buildBindings = (args: SprintDetailShortcutArgs): readonly ViewKeyBinding[] => {
   const sprint = args.sprint;
   const loaded = sprint !== undefined;
-  const focused = focusedItem(args);
-  const focusedTicket = focused?.kind === 'ticket' ? focused.ticket : undefined;
+  const focused = args.focusedItem;
+  const focusedTicket = args.focusedTicketRow;
   // Done sprints are immutable, so publishing is inert there.
   const canPublish = loaded && sprint.status !== 'done' && focusedTicket !== undefined;
   const { jump } = args;
@@ -143,7 +136,7 @@ const buildBindings = (args: SprintDetailShortcutArgs): readonly ViewKeyBinding[
     {
       keys: ['↵', 'o'],
       hint: args.inDetail ? 'toggle' : 'expand',
-      enabled: args.focusList.length > 0,
+      enabled: focused !== undefined,
       run: () => {
         if (focused === undefined) return;
         args.toggleExpand(focused.kind === 'ticket' ? String(focused.ticket.id) : String(focused.task.id));

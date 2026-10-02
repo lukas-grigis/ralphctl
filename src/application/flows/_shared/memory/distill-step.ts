@@ -92,6 +92,9 @@ export const createDistillStep = <TCtx extends DistillRequestedCtx>(
       distillRoot: opts.distillRoot,
       ai: opts.ai,
     });
+    // The build awaits a readdir; an abort landing there must win over a best-effort build failure.
+    const lateAbort = checkAborted<TCtx>(name, signal, onTrace);
+    if (lateAbort) return lateAbort;
     if (!subChain.ok) {
       // Build-time failure (e.g. an invalid ledger path) is a non-abort error — best-effort:
       // log + continue so the sprint still closes. Unpromoted learnings stay in the ledger.
@@ -109,9 +112,7 @@ export const createDistillStep = <TCtx extends DistillRequestedCtx>(
 
     const runner = createRunner<DistillLearningsCtx>({ id: name, element: subChain.value, initialCtx });
 
-    // Forward the outer signal into the nested runner so a Ctrl+C during distill aborts the
-    // inner chain too. `runner.abort()` is idempotent; if the signal already fired we handled it
-    // above, so this only bridges a mid-run abort.
+    // Bridge a mid-run abort into the nested runner; pre-run aborts were caught by the checks above.
     const onAbort = (): void => runner.abort();
     signal?.addEventListener('abort', onAbort, { once: true });
 

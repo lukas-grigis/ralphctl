@@ -8,7 +8,6 @@ import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { StorageError } from '@src/domain/value/error/storage-error.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
-import type { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import { renderJournalSeparator } from '@src/business/sprint/render-journal-entry.ts';
 import { withSprintStateStatus } from '@src/business/sprint/render-sprint-state-header.ts';
 import type { SprintStatus } from '@src/domain/entity/sprint.ts';
@@ -79,7 +78,7 @@ export const appendJournalSeparatorLeaf = <TCtx>(
             .named('progress-journal.separator')
             .warn(`${opts.name} append failed`, { path: String(input.progressFile), error: result.error.message });
         }
-        return Result.ok(undefined) as Result<void, StorageError | InvalidStateError>;
+        return Result.ok(undefined);
       },
     },
     input: () => opts,

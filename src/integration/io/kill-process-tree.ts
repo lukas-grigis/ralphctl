@@ -1,4 +1,5 @@
 import type { ChildProcess } from 'node:child_process';
+import { errnoCode } from '@src/integration/io/fs.ts';
 
 /**
  * Process-group kill for children spawned with `detached: true` (POSIX: leader of a new session
@@ -50,7 +51,7 @@ export const isProcessGroupAlive = (pgid: number): boolean => {
     process.kill(-pgid, 0);
     return true;
   } catch (cause) {
-    return (cause as { code?: unknown } | null)?.code !== 'ESRCH';
+    return errnoCode(cause) !== 'ESRCH';
   }
 };
 

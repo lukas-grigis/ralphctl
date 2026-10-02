@@ -26,13 +26,6 @@ import {
 import { persistBestOfNGrantConsumedLeaf } from '@src/application/flows/implement/leaves/best-of-n-grant-consumed.ts';
 import { bestOfNSelectionLeaf } from '@src/application/flows/implement/leaves/best-of-n-selection.ts';
 
-// `BestOfNGenEvalOpts` re-exported so a consumer typing a call to `buildBestOfNGenEvalLoop` below
-// doesn't need to know it's structurally defined in the sibling candidate module.
-// `toBestOfNGenEvalOpts` / `BestOfNCandidateRecord` are NOT re-exported here — every current
-// consumer (`attempt-body.ts`, `ctx.ts`, `best-of-n-selection.ts`) imports them directly from
-// `best-of-n-candidate.ts` / `best-of-n-record.ts`.
-export type { BestOfNGenEvalOpts } from '@src/application/flows/implement/leaves/best-of-n-candidate.ts';
-
 /**
  * Best-of-N execution — the escalation policy's opt-in top-of-ladder remedy (see
  * `business/task/escalation-policy.ts`'s `'best-of-n'` decision). When a task's granted attempt

@@ -9,7 +9,6 @@ import { Spinner } from '@src/application/ui/tui/components/spinner.tsx';
 import { useStorage } from '@src/application/ui/tui/runtime/storage-context.tsx';
 import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { useTerminalSize } from '@src/application/ui/tui/runtime/use-terminal-size.ts';
-import { fmtDuration } from '@src/application/ui/tui/theme/duration.ts';
 import { EvaluationLine } from '@src/application/ui/tui/components/tasks-panel-internals/evaluation-row.tsx';
 import {
   EvaluationLines,
@@ -24,6 +23,8 @@ import {
   overlayBodyColumns,
   wrapRow,
 } from '@src/application/ui/tui/components/overlay-internals/wrap-document-rows.ts';
+import { DocumentScrollFooter } from '@src/application/ui/tui/components/overlay-internals/document-scroll-footer.tsx';
+import { formatAgo } from '@src/application/ui/tui/components/overlay-internals/read-sprint-document.ts';
 import {
   useEvaluationFile,
   type EvaluationFileState,
@@ -80,8 +81,6 @@ const withText =
   (line: EvaluationLineSpec) =>
   (text: string): EvaluationLineSpec => ({ ...line, text });
 
-const formatAgo = (modifiedAtMs: number, now: number): string => `${fmtDuration(Math.max(0, now - modifiedAtMs))} ago`;
-
 const modifiedAtOf = (state: EvaluationFileState): number | undefined =>
   state.kind === 'ok' || state.kind === 'empty' ? state.modifiedAtMs : undefined;
 
@@ -109,8 +108,6 @@ const EvaluationBody = ({
   readonly offset: number;
   readonly bodyRows: number;
 }): React.JSX.Element => {
-  const lineCount = model.lines.length;
-  const maxOffset = Math.max(0, lineCount - bodyRows);
   return (
     <>
       <Box flexDirection="column" marginTop={spacing.section}>
@@ -131,16 +128,7 @@ const EvaluationBody = ({
           </>
         )}
       </Box>
-      {maxOffset > 0 && (
-        <Box marginTop={spacing.section} justifyContent="space-between">
-          <Text dimColor>
-            lines {String(offset + 1)}–{String(Math.min(lineCount, offset + bodyRows))} of {String(lineCount)}
-          </Text>
-          <Text dimColor>
-            {glyphs.bullet} ↑/↓ scroll {glyphs.bullet} PgUp/PgDn page
-          </Text>
-        </Box>
-      )}
+      <DocumentScrollFooter offset={offset} bodyRows={bodyRows} lineCount={model.lines.length} />
     </>
   );
 };

@@ -1,7 +1,7 @@
 import { Result } from '@src/domain/result.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
 import type { PlanCheckFinding } from '@src/business/sprint/check-plan.ts';
-import { type DraftSprint, type PlannedSprint, planSprint, type Sprint } from '@src/domain/entity/sprint.ts';
+import { type DraftSprint, planSprint, type Sprint } from '@src/domain/entity/sprint.ts';
 import type { Task, TodoTask } from '@src/domain/entity/task.ts';
 import type { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
@@ -94,7 +94,7 @@ export const planSprintUseCase = async (
     taskCount: props.tasks.length,
   });
   return Result.ok({
-    sprint: transitioned.value as PlannedSprint,
+    sprint: transitioned.value,
     tasks: props.tasks,
     accepted: true,
   });

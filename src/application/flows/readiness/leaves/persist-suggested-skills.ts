@@ -4,10 +4,10 @@ import { type Project, updateRepository } from '@src/domain/entity/project.ts';
 import type { RepositoryId } from '@src/domain/value/id/repository-id.ts';
 import type { Save } from '@src/domain/repository/_base/save.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
-import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
 import type { ReadinessCtx } from '@src/application/flows/readiness/ctx.ts';
+import { assertCtxField } from '@src/application/flows/_shared/_engine/assert-ctx-field.ts';
 
 /**
  * Terminal leaf — runs ONCE after the per-provider fan-out completes. Unions every tool's
@@ -67,22 +67,8 @@ export const persistSuggestedSkillsLeaf = (deps: PersistSuggestedSkillsLeafDeps)
       execute: async (input) => persistSuggestedSkillsUseCase(deps, input),
     },
     input: (ctx) => {
-      if (ctx.project === undefined) {
-        throw new InvalidStateError({
-          entity: 'chain',
-          currentState: 'pre-persist-suggested-skills',
-          attemptedAction: LEAF_NAME,
-          message: `${LEAF_NAME}: ctx.project is undefined — load-project must run first`,
-        });
-      }
-      if (ctx.repository === undefined) {
-        throw new InvalidStateError({
-          entity: 'chain',
-          currentState: 'pre-persist-suggested-skills',
-          attemptedAction: LEAF_NAME,
-          message: `${LEAF_NAME}: ctx.repository is undefined — pick-repository must run first`,
-        });
-      }
+      const project = assertCtxField(ctx, 'project', LEAF_NAME, 'pre-persist-suggested-skills');
+      const repository = assertCtxField(ctx, 'repository', LEAF_NAME, 'pre-persist-suggested-skills');
       // Union every per-tool entry's proposed suggestions. We iterate `ctx.entries` (what the
       // fan-out actually populated) rather than `ctx.tools` so the union reflects the providers
       // that genuinely ran. `updateRepository` trims / dedupes, so overlaps across providers
@@ -90,7 +76,7 @@ export const persistSuggestedSkillsLeaf = (deps: PersistSuggestedSkillsLeafDeps)
       const suggestions = Object.values(ctx.entries).flatMap(
         (entry) => entry?.proposal?.proposedSkillSuggestions ?? []
       );
-      return { project: ctx.project, repositoryId: ctx.repository.id, suggestions };
+      return { project, repositoryId: repository.id, suggestions };
     },
     output: (ctx) => ctx,
   });

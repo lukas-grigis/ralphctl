@@ -3,64 +3,16 @@ import {
   type AbortMetadata,
   type Attempt,
   completeAttempt,
-  type RunningAttempt,
   type VerifiedAttempt,
+  verifyAttempt,
 } from '@src/domain/entity/attempt.ts';
-import type { BlockedTask, DoneTask, InProgressTask, Task, TodoTask } from '@src/domain/entity/task.ts';
-import { budgetedAttemptCount } from '@src/domain/entity/task-attempts.ts';
+import type { BlockedTask, DoneTask, InProgressTask, Task } from '@src/domain/entity/task.ts';
+import { budgetedAttemptCount, replaceLastAttempt, requireRunningAttempt } from '@src/domain/entity/task-attempts.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import { parseRequiredString } from '@src/domain/value/parsers/parse-required-string.ts';
 import { requireStatus } from '@src/domain/value/require-status.ts';
-import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
+import type { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import { ValidationError } from '@src/domain/value/error/validation-error.ts';
-
-const requireRunningAttempt = (
-  task: TodoTask | InProgressTask
-): Result<
-  { readonly task: TodoTask | InProgressTask; readonly running: RunningAttempt; readonly idx: number },
-  InvalidStateError
-> => {
-  const idx = task.attempts.length - 1;
-  const last = task.attempts[idx];
-  if (last === undefined || last.status !== 'running') {
-    return Result.error(
-      new InvalidStateError({
-        entity: 'task',
-        currentState: task.status,
-        attemptedAction: 'record-attempt',
-        message: `task '${task.id}' has no running attempt to record into`,
-        hint: 'Call startNextAttempt before recording.',
-      })
-    );
-  }
-  return Result.ok({ task, running: last, idx });
-};
-
-const replaceLastAttempt = (task: TodoTask | InProgressTask, attempt: Attempt): InProgressTask => {
-  const next = [...task.attempts];
-  next[task.attempts.length - 1] = attempt;
-  // Force `in_progress`: a running attempt means the task IS in progress, so settling it always
-  // yields an `in_progress` task — even when a crash persisted a status-corrupt `todo` task whose
-  // last attempt was still `running`. This is the self-heal half of `failCurrentAttempt` below.
-  return { ...task, status: 'in_progress', attempts: next };
-};
-
-/**
- * The harness-owned history a task carries into `done`: the escalation and best-of-N grant stamps,
- * plus the runs an operator unblock archived. Dropping `retiredAttempts` here would erase exactly
- * the history `foldOutcomeStats` counts for a task that needed intervention.
- */
-const runHistoryOf = (task: TodoTask | InProgressTask): Partial<DoneTask> => ({
-  ...(task.escalatedFromModel !== undefined ? { escalatedFromModel: task.escalatedFromModel } : {}),
-  ...(task.escalatedToModel !== undefined ? { escalatedToModel: task.escalatedToModel } : {}),
-  ...(task.escalatedToEffort !== undefined ? { escalatedToEffort: task.escalatedToEffort } : {}),
-  ...(task.escalatedToEvaluatorEffort !== undefined
-    ? { escalatedToEvaluatorEffort: task.escalatedToEvaluatorEffort }
-    : {}),
-  ...(task.bestOfNGranted !== undefined ? { bestOfNGranted: task.bestOfNGranted } : {}),
-  ...(task.bestOfNGrantedCandidates !== undefined ? { bestOfNGrantedCandidates: task.bestOfNGrantedCandidates } : {}),
-  ...(task.retiredAttempts !== undefined ? { retiredAttempts: task.retiredAttempts } : {}),
-});
 
 /**
  * Settle the current attempt as `verified` and transition the task to `done`. Requires the
@@ -76,37 +28,14 @@ export const markTaskDone = (task: Task, now: IsoTimestamp): Result<DoneTask, In
     'Only `in_progress` tasks can be marked done.'
   );
   if (!guard.ok) return Result.error(guard.error);
-  const inner = requireRunningAttempt(guard.value);
-  if (!inner.ok) return Result.error(inner.error);
-  const verifiedResult = completeAttempt(inner.value.running, 'verified', now);
-  if (!verifiedResult.ok) return Result.error(verifiedResult.error);
-  const verified = verifiedResult.value as VerifiedAttempt;
+  const running = requireRunningAttempt(guard.value);
+  if (!running.ok) return Result.error(running.error);
+  const verified = verifyAttempt(running.value, now);
+  if (!verified.ok) return Result.error(verified.error);
 
-  const head = guard.value.attempts.slice(0, inner.value.idx);
-  const attempts = [...head, verified] as readonly [...Attempt[], VerifiedAttempt];
-
-  return Result.ok({
-    id: guard.value.id,
-    name: guard.value.name,
-    ...(guard.value.description !== undefined ? { description: guard.value.description } : {}),
-    steps: guard.value.steps,
-    verificationCriteria: guard.value.verificationCriteria,
-    // Carry the harness-owned per-criterion verdicts so a prior round's fold survives the
-    // todo/in_progress → done reconstruction; the settle use case overlays THIS round's verdicts
-    // on top of the done task afterwards.
-    ...(guard.value.criteriaVerdicts !== undefined ? { criteriaVerdicts: guard.value.criteriaVerdicts } : {}),
-    order: guard.value.order,
-    ticketId: guard.value.ticketId,
-    dependsOn: guard.value.dependsOn,
-    repositoryId: guard.value.repositoryId,
-    ...(guard.value.maxAttempts !== undefined ? { maxAttempts: guard.value.maxAttempts } : {}),
-    ...(guard.value.extraDimensions !== undefined ? { extraDimensions: guard.value.extraDimensions } : {}),
-    ...(guard.value.externalRefs !== undefined ? { externalRefs: guard.value.externalRefs } : {}),
-    ...runHistoryOf(guard.value),
-    status: 'done',
-    attempts,
-    finalAttemptN: verified.n,
-  });
+  const attempts: readonly [...Attempt[], VerifiedAttempt] = [...guard.value.attempts.slice(0, -1), verified.value];
+  // Spread, not enumerate: harness-owned history (criteriaVerdicts, escalation stamps, retiredAttempts) must survive into done.
+  return Result.ok({ ...guard.value, status: 'done', attempts, finalAttemptN: verified.value.n });
 };
 
 /**
@@ -138,12 +67,14 @@ export const failCurrentAttempt = (
     'Only a task carrying a running attempt can have its current attempt failed.'
   );
   if (!guard.ok) return Result.error(guard.error);
-  const inner = requireRunningAttempt(guard.value);
-  if (!inner.ok) return Result.error(inner.error);
-  const settledResult = completeAttempt(inner.value.running, reason, now, abortMeta);
-  if (!settledResult.ok) return Result.error(settledResult.error);
+  const running = requireRunningAttempt(guard.value);
+  if (!running.ok) return Result.error(running.error);
+  const settled = completeAttempt(running.value, reason, now, abortMeta);
 
-  const inProgressNext: InProgressTask = replaceLastAttempt(guard.value, settledResult.value);
+  // Force `in_progress`: a running attempt means the task IS in progress, so settling it always
+  // yields an `in_progress` task — even when a crash persisted a status-corrupt `todo` task whose
+  // last attempt was still `running`. This is the self-heal described above.
+  const inProgressNext: InProgressTask = { ...replaceLastAttempt(guard.value, settled), status: 'in_progress' };
   if (guard.value.maxAttempts !== undefined && budgetedAttemptCount(inProgressNext) >= guard.value.maxAttempts) {
     const blocked: BlockedTask = {
       ...inProgressNext,

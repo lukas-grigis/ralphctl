@@ -277,7 +277,6 @@ describe('evaluateTriggers', () => {
 
 describe('refineManifest', () => {
   it('declares the new manifest fields per spec', () => {
-    expect(refineManifest.canBackground).toBe(false);
     expect(refineManifest.triggers).toEqual({
       currentSprintStatus: ['draft'],
       minPendingTickets: 1,

@@ -8,6 +8,7 @@ import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session
 import type { AttemptOutcome } from '@src/integration/ai/providers/_engine/attempt-outcome.ts';
 import type { ProviderOutput } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
 import type { SessionId } from '@src/integration/ai/providers/_engine/session-id.ts';
+import type { ProviderSlug } from '@src/integration/ai/providers/_engine/classify-spawn-exit.ts';
 import {
   applyJitter,
   DEFAULT_BACKOFF_SCHEDULE,
@@ -66,7 +67,7 @@ export interface RunWithRateLimitRetryOptions {
    * `'opencode'` / `'grok'`). Keeps
    * the banner id keyspace per-provider so concurrent adapters don't collide.
    */
-  readonly providerSlug: 'claude' | 'codex' | 'copilot' | 'opencode' | 'grok';
+  readonly providerSlug: ProviderSlug;
   /**
    * Element name stamped onto the {@link AbortError} surfaced when a user cancel lands during a
    * backoff sleep — mirrors `classifySpawnExit`'s abort shape so the chain runner propagates it.
@@ -112,7 +113,7 @@ const withoutResume = (session: AiSession): AiSession => {
 
 interface HandleRateLimitOutcomeParams {
   readonly eventBus: EventBus;
-  readonly providerSlug: RunWithRateLimitRetryOptions['providerSlug'];
+  readonly providerSlug: ProviderSlug;
   readonly providerName: string;
   readonly session: AiSession;
   readonly attemptIdx: number;

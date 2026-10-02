@@ -7,13 +7,20 @@
  * proves both downstream consumers see the override.
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { AiImplementSettings, Settings } from '@src/domain/entity/settings.ts';
 import type { AgentDefinition } from '@src/integration/ai/agents/_engine/agent-definition.ts';
 import { buildImplementOptsBag, buildImplementProviders } from '@src/application/ui/shared/launch/implement-bags.ts';
 import type { LauncherDeps } from '@src/application/ui/shared/launcher.ts';
 import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
 import { absolutePath, slug } from '@tests/fixtures/domain.ts';
+import { createAiProvider } from '@src/application/bootstrap/provider-factory.ts';
+
+// Pass-through spy so the spawn-seam case can inspect what each role's adapter was built with.
+vi.mock('@src/application/bootstrap/provider-factory.ts', async (importActual) => {
+  const actual = await importActual<{ readonly createAiProvider: typeof createAiProvider }>();
+  return { ...actual, createAiProvider: vi.fn(actual.createAiProvider) };
+});
 
 const implementPair = (): AiImplementSettings =>
   ({
@@ -52,6 +59,16 @@ describe('buildImplementProviders', () => {
     expect(result.generatorEffort).toBe('max');
     // The evaluator role is untouched by the generator-only binding (AC3's precedence guarantee).
     expect(result.evaluatorModel).toBe('gpt-5.5');
+  });
+
+  it('threads AppDeps.providerSpawn into both role adapters', () => {
+    const spawn = vi.fn();
+    const deps = { app: { eventBus: createInMemoryEventBus(), providerSpawn: spawn } } as unknown as LauncherDeps;
+    vi.mocked(createAiProvider).mockClear();
+    buildImplementProviders(implementPair(), effectiveSettings(), deps);
+    const calls = vi.mocked(createAiProvider).mock.calls;
+    expect(calls).toHaveLength(2);
+    for (const [args] of calls) expect(args).toMatchObject({ spawn });
   });
 });
 

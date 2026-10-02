@@ -28,7 +28,8 @@
 import { existsSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { errorCode } from '@src/integration/ai/skills/_engine/frontmatter.ts';
+import { isNodeErrnoCode } from '@src/integration/io/fs.ts';
+import { isProcessAlive } from '@src/integration/io/process-liveness.ts';
 
 /** Sidecar written next to every `SKILL.md` the filesystem skills adapter installs. */
 export const INSTALL_MARKER_FILENAME = '.ralphctl-install.json';
@@ -48,19 +49,6 @@ export interface SkillFolderClassification {
   readonly ownership: SkillFolderOwnership;
   readonly deadPid?: number;
 }
-
-/**
- * Signal-0 liveness probe. `ESRCH` means the process is gone. `EPERM` means it exists but belongs
- * to another user, and any other failure proves nothing, so both count as alive.
- */
-export const isProcessAlive = (pid: number): boolean => {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (cause) {
-    return errorCode(cause) !== 'ESRCH';
-  }
-};
 
 const holderPid = (raw: string): number | undefined => {
   let data: unknown;
@@ -83,7 +71,7 @@ export const classifySkillFolder = async (dst: string): Promise<SkillFolderClass
   } catch (cause) {
     // A missing marker means a project copy. Any other read failure (a file sitting at `dst`,
     // permissions) proves nothing about ownership, so leave the folder alone like a live install.
-    return { ownership: errorCode(cause) === 'ENOENT' ? 'project-owned' : 'live-install' };
+    return { ownership: isNodeErrnoCode(cause, 'ENOENT') ? 'project-owned' : 'live-install' };
   }
   const pid = holderPid(raw);
   if (pid !== undefined && isProcessAlive(pid)) return { ownership: 'live-install' };

@@ -33,8 +33,6 @@ const renderChip = (t: TaskBucket) =>
       maxSubSteps={10}
       focusedKey={undefined}
       expandedKeys={new Set()}
-      scopeId="scope-1"
-      sliceStart={0}
       criteriaExpanded={false}
       isActive={true}
       firstRun={false}

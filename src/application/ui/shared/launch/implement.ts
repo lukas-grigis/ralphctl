@@ -40,23 +40,9 @@ import {
 import type { LaunchContext } from '@src/application/ui/shared/launch/context.ts';
 import type { LaunchResult } from '@src/application/ui/shared/launcher.ts';
 import { checkCli } from '@src/application/ui/shared/launch/check-cli.ts';
-import { createAiProvider } from '@src/application/bootstrap/provider-factory.ts';
-import type { HeadlessAiProvider } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
+import { mergeFlowRow } from '@src/application/ui/shared/launch/ai-flow-id.ts';
 
-/**
- * Apply role-level overrides from {@link LaunchExtras.implementRoleOverrides} on top of the persisted
- * `settings.ai.implement` pair.
- */
-const mergeImplementRole = (
-  base: AiFlowSettings,
-  override: NonNullable<NonNullable<LaunchContext['extras']['implementRoleOverrides']>['generator']>
-): AiFlowSettings => {
-  const provider = override.provider ?? base.provider;
-  const model = override.model ?? base.model;
-  const effort = override.effort ?? base.effort;
-  return { provider, model, ...(effort !== undefined ? { effort } : {}) } as AiFlowSettings;
-};
-
+/** Apply role-level `implementRoleOverrides` on top of the persisted `settings.ai.implement` pair. */
 const applyImplementRoleOverrides = (
   base: AiImplementSettings,
   overrides: NonNullable<LaunchContext['extras']['implementRoleOverrides']> | undefined
@@ -67,10 +53,10 @@ const applyImplementRoleOverrides = (
     evaluator: base.evaluator,
   };
   if (overrides.generator !== undefined) {
-    next.generator = mergeImplementRole(base.generator, overrides.generator);
+    next.generator = mergeFlowRow(base.generator, overrides.generator);
   }
   if (overrides.evaluator !== undefined) {
-    next.evaluator = mergeImplementRole(base.evaluator, overrides.evaluator);
+    next.evaluator = mergeFlowRow(base.evaluator, overrides.evaluator);
   }
   return next;
 };
@@ -217,14 +203,17 @@ const resolveImplementSprintPaths = (
  * Stop the file-log + bus subscriptions when the runner reaches a terminal state. Pending writes still drain in the
  * background — events.ndjson remains consistent post-exit.
  */
-const wireChainLogStop = (
-  runner: Runner<ImplementCtx>,
-  chainLog: { readonly stop: () => void; readonly flush: () => Promise<void> }
-): void => {
+type ChainLogHandle = { readonly stop: () => void; readonly flush: () => Promise<void> };
+
+const stopChainLog = (chainLog: ChainLogHandle): void => {
+  chainLog.stop();
+  void chainLog.flush();
+};
+
+const wireChainLogStop = (runner: Runner<ImplementCtx>, chainLog: ChainLogHandle): void => {
   const unsubRunner: () => void = runner.subscribe((evt) => {
     if (evt.type === 'completed' || evt.type === 'failed' || evt.type === 'aborted') {
-      chainLog.stop();
-      void chainLog.flush();
+      stopChainLog(chainLog);
       unsubRunner();
     }
   });
@@ -329,30 +318,6 @@ const resolveQueueForLaunch = async (
   return resolveImplementQueue(tasks, { project, sprint, execution: execution.value });
 };
 
-/** Re-key both role adapters onto `AppDeps.providerSpawn` when one is wired. */
-const withProviderSpawnOverride = (
-  providers: ReturnType<typeof buildImplementProviders>,
-  ctx: LaunchContext,
-  implementPair: AiImplementSettings,
-  effectiveSettings: Settings
-): ReturnType<typeof buildImplementProviders> => {
-  const spawn = ctx.deps.app.providerSpawn;
-  if (spawn === undefined) return providers;
-  const rebuild = (row: AiFlowSettings): HeadlessAiProvider =>
-    createAiProvider({
-      row,
-      harnessConfig: effectiveSettings.harness,
-      eventBus: ctx.deps.app.eventBus,
-      childRegistry: ctx.deps.app.childRegistry,
-      spawn,
-    });
-  return {
-    ...providers,
-    generatorProvider: rebuild(implementPair.generator),
-    evaluatorProvider: rebuild(implementPair.evaluator),
-  };
-};
-
 /**
  * PATH pre-flight for both roles — skipped when a provider spawn override is wired, because "is the CLI installed?"
  * is not a question that applies when nothing will be spawned.
@@ -377,7 +342,6 @@ const buildImplementElementOrFailure = (
  * Resolve each role's opt-in agent-definition binding, then build the two per-role providers on top of it.
  */
 const resolveImplementAgentBindingsAndProviders = async (
-  ctx: LaunchContext,
   deps: LaunchContext['deps'],
   implementPair: AiImplementSettings,
   effectiveSettings: Settings
@@ -386,16 +350,40 @@ const resolveImplementAgentBindingsAndProviders = async (
   readonly providers: ReturnType<typeof buildImplementProviders>;
 }> => {
   const agentBindings = await resolveImplementAgentBindings(deps, implementPair);
-  const providers = withProviderSpawnOverride(
-    buildImplementProviders(implementPair, effectiveSettings, deps, {
-      ...(agentBindings.generator.definition !== undefined ? { generator: agentBindings.generator.definition } : {}),
-      ...(agentBindings.evaluator.definition !== undefined ? { evaluator: agentBindings.evaluator.definition } : {}),
-    }),
-    ctx,
-    implementPair,
-    effectiveSettings
-  );
+  const providers = buildImplementProviders(implementPair, effectiveSettings, deps, {
+    ...(agentBindings.generator.definition !== undefined ? { generator: agentBindings.generator.definition } : {}),
+    ...(agentBindings.evaluator.definition !== undefined ? { evaluator: agentBindings.evaluator.definition } : {}),
+  });
   return { agentBindings, providers };
+};
+
+/** The sink is bus-subscribed from construction, so every exit before the runner owns it must stop it. */
+const buildProvidersAndElementOrStopLog = async (
+  ctx: LaunchContext,
+  chainLog: ChainLogHandle,
+  args: Omit<Parameters<typeof buildImplementElement>[1], 'providers' | 'agentBindings'>
+): Promise<
+  Result<
+    { readonly providers: ReturnType<typeof buildImplementProviders>; readonly element: Element<ImplementCtx> },
+    LaunchResult
+  >
+> => {
+  try {
+    const { agentBindings, providers } = await resolveImplementAgentBindingsAndProviders(
+      ctx.deps,
+      args.implementPair,
+      args.effectiveSettings
+    );
+    const elementResult = buildImplementElementOrFailure(ctx, { ...args, providers, agentBindings });
+    if (!elementResult.ok) {
+      stopChainLog(chainLog);
+      return Result.error(elementResult.error);
+    }
+    return Result.ok({ providers, element: elementResult.value });
+  } catch (cause) {
+    stopChainLog(chainLog);
+    throw cause;
+  }
 };
 
 export const launchImplement = async (ctx: LaunchContext): Promise<LaunchResult> => {
@@ -429,19 +417,10 @@ export const launchImplement = async (ctx: LaunchContext): Promise<LaunchResult>
   // Flow-wide publisher for the serial path — every gen-eval turn's signal publishes onto the application bus as a
   // typed `ai-signal` event with `source: 'implement'`.
   const publishSignal = createPublishSignal(deps.app.eventBus, 'implement');
-  const { agentBindings, providers } = await resolveImplementAgentBindingsAndProviders(
-    ctx,
-    deps,
-    implementPair,
-    effectiveSettings
-  );
-  const { generatorModel, evaluatorModel, generatorEffort, evaluatorEffort } = providers;
-  const elementResult = buildImplementElementOrFailure(ctx, {
+  const built = await buildProvidersAndElementOrStopLog(ctx, chainLog, {
     effectiveSettings,
     implementPair,
     publishSignal,
-    providers,
-    agentBindings,
     sprint: snapshot.sprint,
     project: snapshot.project,
     todoTasks,
@@ -449,8 +428,9 @@ export const launchImplement = async (ctx: LaunchContext): Promise<LaunchResult>
     progressPath,
     sprintDirPath,
   });
-  if (!elementResult.ok) return elementResult.error;
-  const element = elementResult.value;
+  if (!built.ok) return built.error;
+  const { providers, element } = built.value;
+  const { generatorModel, evaluatorModel, generatorEffort, evaluatorEffort } = providers;
 
   const runner = createRunner<ImplementCtx>({
     id: sessionId(),

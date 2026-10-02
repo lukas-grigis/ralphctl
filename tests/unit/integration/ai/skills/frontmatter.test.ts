@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { errorCode, parseSimpleYaml, splitFrontmatter } from '@src/integration/ai/skills/_engine/frontmatter.ts';
+import { parseSimpleYaml, splitFrontmatter } from '@src/integration/ai/skills/_engine/frontmatter.ts';
 
 // Canonical frontmatter-parsing suite — the single implementation both SKILL.md sources
 // (skills/_engine/parse-skill.ts) and agent-definition sources (agents/_engine/parse-agent-
@@ -85,18 +85,5 @@ describe('parseSimpleYaml', () => {
 
   it('treats a lone quote character as a plain value, not an empty quoted string', () => {
     expect(parseSimpleYaml('a: "\nb: \'')).toEqual({ a: '"', b: "'" });
-  });
-});
-
-describe('errorCode', () => {
-  it('reads the code off a Node-style fs error', () => {
-    expect(errorCode({ code: 'ENOENT' })).toBe('ENOENT');
-  });
-
-  it('returns undefined for a value with no string code property', () => {
-    expect(errorCode(new Error('boom'))).toBeUndefined();
-    expect(errorCode('not an object')).toBeUndefined();
-    expect(errorCode(null)).toBeUndefined();
-    expect(errorCode({ code: 42 })).toBeUndefined();
   });
 });

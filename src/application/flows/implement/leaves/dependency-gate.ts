@@ -10,6 +10,7 @@ import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
+import { replaceTask } from '@src/application/flows/implement/leaves/_shared/replace-task.ts';
 
 /**
  * Dependency gate — the per-task precondition that prevents the blocked-dependency dead-end.
@@ -99,7 +100,7 @@ export const dependencyGateLeaf = (deps: DependencyGateLeafDeps, taskId: TaskId)
         ? ctx
         : {
             ...ctx,
-            tasks: (ctx.tasks ?? []).map((t) => (t.id === out.blocked?.id ? out.blocked : t)),
+            tasks: replaceTask(ctx.tasks, out.blocked),
           },
   });
 

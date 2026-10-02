@@ -3,7 +3,7 @@ import { Result } from '@src/domain/result.ts';
 import { sprintDir } from '@src/integration/persistence/storage.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { StorageError } from '@src/domain/value/error/storage-error.ts';
-import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
+import type { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import type { AppendFile } from '@src/business/io/append-file.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
@@ -11,6 +11,7 @@ import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
 import { renderJournalSprintHeader } from '@src/business/sprint/render-journal-entry.ts';
 import type { CreateSprintCtx } from '@src/application/flows/create-sprint/ctx.ts';
+import { assertCtxField } from '@src/application/flows/_shared/_engine/assert-ctx-field.ts';
 
 /**
  * Write the one-time sprint header into `<sprintDir>/progress.md` immediately after the
@@ -64,23 +65,14 @@ export const initProgressJournalLeaf = (
       },
     },
     input: (ctx) => {
-      if (ctx.sprint === undefined) {
-        throw new InvalidStateError({
-          entity: 'chain',
-          currentState: 'pre-init-progress-journal',
-          attemptedAction: 'init-progress-journal',
-          message: 'init-progress-journal: ctx.sprint is undefined — create-sprint must run first',
-        });
-      }
-      // Direct-build the canonical `<id>--<slug>/` sprint dir — `ctx.sprint` is the freshly-saved
+      const sprint = assertCtxField(ctx, 'sprint', 'init-progress-journal', 'pre-init-progress-journal');
+      // Direct-build the canonical `<id>--<slug>/` sprint dir — `sprint` is the freshly-saved
       // entity here, so its slug is in hand and no async resolver scan is needed.
-      const progressFile = AbsolutePath.parse(
-        join(sprintDir(opts.dataRoot, ctx.sprint.id, ctx.sprint.slug), 'progress.md')
-      );
+      const progressFile = AbsolutePath.parse(join(sprintDir(opts.dataRoot, sprint.id, sprint.slug), 'progress.md'));
       if (!progressFile.ok) throw progressFile.error;
       return {
-        sprintName: ctx.sprint.name,
-        sprintId: String(ctx.sprint.id),
+        sprintName: sprint.name,
+        sprintId: String(sprint.id),
         progressFile: progressFile.value,
       };
     },

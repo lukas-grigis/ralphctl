@@ -38,8 +38,9 @@ export const processGone = async (
   return current !== undefined && !sameIdentity(current, owner.identity);
 };
 
-export const ownerGone = (record: LiveRunRecord, liveness: ProcessLiveness): Promise<boolean> =>
-  processGone(record.owner, liveness);
+// A reap stamp is only written for an owner already proven gone; a recycled pid must not resurrect it.
+export const ownerGone = async (record: LiveRunRecord, liveness: ProcessLiveness): Promise<boolean> =>
+  record.reapedAt !== undefined || processGone(record.owner, liveness);
 
 export interface DetectInterruptedRuns {
   execute(): Promise<Result<readonly InterruptedRun[], StorageError>>;

@@ -2,7 +2,6 @@ import { promises as fs } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
-  formatBytes,
   formatRelativeAge,
   groupByFlow,
   listRuns,
@@ -60,19 +59,6 @@ describe('parseRunTimestamp', () => {
   it('returns null for a non-conforming name', () => {
     expect(parseRunTimestamp('legacy-folder')).toBeNull();
     expect(parseRunTimestamp('2026-05-19_run')).toBeNull();
-  });
-});
-
-describe('formatBytes', () => {
-  it('renders sub-KiB values in bytes', () => {
-    expect(formatBytes(0)).toBe('0 B');
-    expect(formatBytes(512)).toBe('512 B');
-  });
-
-  it('rolls over to KiB / MiB / GiB', () => {
-    expect(formatBytes(2048)).toMatch(/KiB$/);
-    expect(formatBytes(5 * 1024 * 1024)).toMatch(/MiB$/);
-    expect(formatBytes(3 * 1024 * 1024 * 1024)).toMatch(/GiB$/);
   });
 });
 

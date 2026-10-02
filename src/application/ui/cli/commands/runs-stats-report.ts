@@ -19,6 +19,7 @@ import type {
   WarningStats,
 } from '@src/business/runs/outcome-stats.ts';
 import type { TaskStatus } from '@src/domain/entity/task.ts';
+import { plural } from '@src/application/ui/shared/plural.ts';
 
 /** Terminal states first — the post-mortem question is "how did tasks END". */
 const STATUS_ORDER: readonly TaskStatus[] = ['done', 'blocked', 'in_progress', 'todo'];
@@ -94,15 +95,13 @@ const taxonomyRows = (counts: Readonly<Record<string, number>>, order: readonly 
     .map((taxon) => `${taxonomyKey(taxon)}${String(counts[taxon] ?? 0)}`);
 };
 
-const count = (n: number, singular: string): string => `${String(n)} ${singular}${n === 1 ? '' : 's'}`;
-
 const num = (n: number, width: number): string => String(n).padStart(width);
 
 /** `(of N tasks)` / `(of N attempts)` — the denominator label every section header carries. */
-const denominator = (n: number, unit: string): string => `(of ${count(n, unit)})`;
+const denominator = (n: number, unit: string): string => `(of ${plural(n, unit)})`;
 
 const headline = (stats: OutcomeStats): string =>
-  `Harness outcomes — ${count(stats.sprintCount, 'sprint')} · ${count(stats.totals.taskCount, 'task')} · ${count(stats.totals.attemptCount, 'attempt')}`;
+  `Harness outcomes — ${plural(stats.sprintCount, 'sprint')} · ${plural(stats.totals.taskCount, 'task')} · ${plural(stats.totals.attemptCount, 'attempt')}`;
 
 const renderOutcomes = (rollup: OutcomeRollup): readonly string[] => {
   const { byStatus, doneClean, doneWithWarning } = rollup.outcomes;
@@ -117,8 +116,8 @@ const renderOutcomes = (rollup: OutcomeRollup): readonly string[] => {
 /** The severity headline. */
 const regressionLine = (attribution: AttributionStats): string => {
   if (attribution.attributed === 0) return `${key('regressions')}— (no attempt carries an attribution verdict)`;
-  const broke = `${count(attribution.byVerdict.regressed, 'attempt')} broke a green baseline`;
-  return `${key('regressions')}${broke} (${pct(attribution.regressionRate)} of ${count(attribution.attributed, 'attributed attempt')})`;
+  const broke = `${plural(attribution.byVerdict.regressed, 'attempt')} broke a green baseline`;
+  return `${key('regressions')}${broke} (${pct(attribution.regressionRate)} of ${plural(attribution.attributed, 'attributed attempt')})`;
 };
 
 /** The headline rates, stacked — the numbers a settings change is judged on. */
@@ -127,9 +126,9 @@ const renderSummary = (rollup: OutcomeRollup): readonly string[] => {
   const criteria = rollup.criteria;
   return [
     'Summary',
-    `${key('first pass')}${String(doneOnFirstAttempt)}/${String(doneTotal)} done on attempt 1 (${pct(rate)}) — of ${count(doneTotal, 'done task')}`,
+    `${key('first pass')}${String(doneOnFirstAttempt)}/${String(doneTotal)} done on attempt 1 (${pct(rate)}) — of ${plural(doneTotal, 'done task')}`,
     regressionLine(rollup.attribution),
-    `${key('criteria')}${String(criteria.passed)}/${String(criteria.declared)} passed (${pct(criteria.passRate)}) · ${String(criteria.failed)} failed · ${String(criteria.unknown)} unknown · ${count(criteria.tasksWithVerdicts, 'task')} graded`,
+    `${key('criteria')}${String(criteria.passed)}/${String(criteria.declared)} passed (${pct(criteria.passRate)}) · ${String(criteria.failed)} failed · ${String(criteria.unknown)} unknown · ${plural(criteria.tasksWithVerdicts, 'task')} graded`,
   ];
 };
 
@@ -141,7 +140,7 @@ const renderAttempts = (rollup: OutcomeRollup): readonly string[] => {
     return lines;
   }
   for (const bucket of buckets) {
-    lines.push(`${key(count(bucket.attempts, 'attempt'))}${count(bucket.tasks, 'task')}`);
+    lines.push(`${key(plural(bucket.attempts, 'attempt'))}${plural(bucket.tasks, 'task')}`);
   }
   return lines;
 };
@@ -149,8 +148,8 @@ const renderAttempts = (rollup: OutcomeRollup): readonly string[] => {
 const renderPlateau = (plateau: PlateauStats, taskCount: number, attemptCount: number): readonly string[] => {
   const lines = [
     'Plateau',
-    `${key('tasks')}${count(plateau.tasksWithPlateau, 'task')} (${pct(plateau.taskRate)}) — of ${count(taskCount, 'task')}`,
-    `${key('attempts')}${String(plateau.attemptsWithPlateau)} — of ${count(attemptCount, 'attempt')}`,
+    `${key('tasks')}${plural(plateau.tasksWithPlateau, 'task')} (${pct(plateau.taskRate)}) — of ${plural(taskCount, 'task')}`,
+    `${key('attempts')}${String(plateau.attemptsWithPlateau)} — of ${plural(attemptCount, 'attempt')}`,
   ];
   // Detector attribution only — a source with no hits is noise, and `unspecified` only appears
   // for warnings persisted before the detector was stamped.
@@ -224,7 +223,7 @@ const renderDimensions = (dimensions: readonly DimensionFailureCount[]): readonl
     lines.push(`${key(entry.dimension)}${String(entry.count)}`);
   }
   const hidden = dimensions.length - TOP_DIMENSIONS;
-  if (hidden > 0) lines.push(`  … ${count(hidden, 'more dimension')} (use --json for the full histogram)`);
+  if (hidden > 0) lines.push(`  … ${plural(hidden, 'more dimension')} (use --json for the full histogram)`);
   return lines;
 };
 
@@ -234,7 +233,7 @@ const sprintLine = (entry: SprintOutcomeRollup): string => {
   // count sitting between `1 blocked` and `plateau 50.0%` would read as a task count anyway.
   const regressed = rollup.attribution.tasksWithRegression;
   const parts = [
-    count(rollup.taskCount, 'task'),
+    plural(rollup.taskCount, 'task'),
     `${String(rollup.outcomes.byStatus.done)} done`,
     `${String(rollup.outcomes.byStatus.blocked)} blocked`,
     `first-pass ${pct(rollup.firstPass.rate)}`,

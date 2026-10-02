@@ -45,6 +45,8 @@ export interface UseListWindowOptions<T> {
   readonly active?: boolean | undefined;
   readonly onSubmit?: ((item: T) => void) | undefined;
   readonly initialCursorId?: string | undefined;
+  /** Space submits like ↵ — off by default because other lists give Space their own meaning. */
+  readonly submitOnSpace?: boolean | undefined;
 }
 
 export interface UseListWindowResult<T> {
@@ -92,6 +94,7 @@ export function useListWindow<T>({
   active = true,
   onSubmit,
   initialCursorId,
+  submitOnSpace = false,
 }: UseListWindowOptions<T>): UseListWindowResult<T> {
   const [cursorId, setCursorId] = useState<string>(initialCursorId ?? '');
 
@@ -146,7 +149,7 @@ export function useListWindow<T>({
     else if (key.pageDown) moveTo(at + visibleRows);
     else if (key.home) moveTo(0);
     else if (key.end) moveTo(items.length - 1);
-    else if (key.return) {
+    else if (key.return || (submitOnSpace && letter === ' ')) {
       const item = items[at];
       if (item !== undefined) onSubmit?.(item);
     }

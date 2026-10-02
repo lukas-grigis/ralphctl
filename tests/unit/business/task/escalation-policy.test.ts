@@ -680,7 +680,6 @@ describe('applyEscalation', () => {
     if (!applied.ok) return;
     expect(applied.value.task.escalatedFromModel).toBe('claude-sonnet-4-6');
     expect(applied.value.task.escalatedToModel).toBe('claude-opus-4-8');
-    expect(applied.value.blockedReason).toBeUndefined();
 
     const escalated = events.find(
       (e): e is Extract<AppEvent, { type: 'model-escalated' }> => e.type === 'model-escalated'
@@ -745,7 +744,7 @@ describe('applyEscalation', () => {
     expect('plateauSource' in (escalated ?? {})).toBe(false);
   });
 
-  it('on escalate-effort: info banner naming the effort bump, NO stamping, no model-escalated event', () => {
+  it('on escalate-effort: stamps the effort (not the model), info banner naming the bump, no model-escalated event', () => {
     const task = makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 });
     const { bus, events } = captureBus();
     const applied = applyEscalation({
@@ -762,7 +761,8 @@ describe('applyEscalation', () => {
     // change-of-approach marker is reserved for the LATER nudge).
     expect(applied.value.task.escalatedFromModel).toBeUndefined();
     expect(applied.value.task.escalatedToModel).toBeUndefined();
-    expect(applied.value.blockedReason).toBeUndefined();
+    expect(applied.value.task.escalatedToEffort).toBe(EFFORT_ESCALATION_TARGET);
+    expect(applied.value.task.escalatedToEvaluatorEffort).toBeUndefined();
     expect(events.some((e) => e.type === 'model-escalated')).toBe(false);
     const banner = events.find((e): e is Extract<AppEvent, { type: 'banner-show' }> => e.type === 'banner-show');
     expect(banner?.tier).toBe('info');
@@ -770,7 +770,7 @@ describe('applyEscalation', () => {
     expect(banner?.message).toMatch(new RegExp(EFFORT_ESCALATION_TARGET));
   });
 
-  it('on nudge: stamps the same model (once-per-task marker), info banner, no blockedReason, no model-escalated event', () => {
+  it('on nudge: stamps the same model (once-per-task marker), info banner, no model-escalated event', () => {
     const task = makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 });
     const { bus, events } = captureBus();
     const applied = applyEscalation({
@@ -787,14 +787,13 @@ describe('applyEscalation', () => {
     // generator reads escalatedFromModel === escalatedToModel to arm the change-of-approach directive.
     expect(applied.value.task.escalatedFromModel).toBe('claude-opus-4-8');
     expect(applied.value.task.escalatedToModel).toBe('claude-opus-4-8');
-    expect(applied.value.blockedReason).toBeUndefined();
     expect(events.some((e) => e.type === 'model-escalated')).toBe(false);
     const banner = events.find((e): e is Extract<AppEvent, { type: 'banner-show' }> => e.type === 'banner-show');
     expect(banner?.tier).toBe('info');
     expect(banner?.message).toMatch(/change-of-approach directive/);
   });
 
-  it('on topped-out: warn banner, NO blockedReason (preserves work), no model-escalated event', () => {
+  it('on topped-out: warn banner, no model-escalated event', () => {
     const task = withEscalation(
       makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 }),
       'claude-opus-4-8',
@@ -811,8 +810,6 @@ describe('applyEscalation', () => {
     });
     expect(applied.ok).toBe(true);
     if (!applied.ok) return;
-    // A plateau never blocks — once the ladder is exhausted the work is preserved (done-with-warning).
-    expect(applied.value.blockedReason).toBeUndefined();
     expect(events.some((e) => e.type === 'model-escalated')).toBe(false);
     const banner = events.find((e): e is Extract<AppEvent, { type: 'banner-show' }> => e.type === 'banner-show');
     expect(banner?.tier).toBe('warn');
@@ -863,7 +860,7 @@ describe('applyEscalation', () => {
     expect(banner?.cause).toBe('turn budget exhausted');
   });
 
-  it('on budget-exhausted: warn banner names budget exhaustion, NO blockedReason (preserves work)', () => {
+  it('on budget-exhausted: warn banner names budget exhaustion', () => {
     const task = makeInProgressTaskWithRunningAttempt({ maxAttempts: 1 });
     const { bus, events } = captureBus();
     const applied = applyEscalation({
@@ -876,7 +873,6 @@ describe('applyEscalation', () => {
     });
     expect(applied.ok).toBe(true);
     if (!applied.ok) return;
-    expect(applied.value.blockedReason).toBeUndefined();
     expect(applied.value.task.escalatedToModel).toBeUndefined();
     const banner = events.find((e): e is Extract<AppEvent, { type: 'banner-show' }> => e.type === 'banner-show');
     expect(banner?.tier).toBe('warn');
@@ -884,7 +880,7 @@ describe('applyEscalation', () => {
     expect(banner?.message).not.toMatch(/mapping/i);
   });
 
-  it('on flag-off: no events, no blockedReason, no stamping', () => {
+  it('on flag-off: no events, no stamping', () => {
     const task = makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 });
     const { bus, events } = captureBus();
     const applied = applyEscalation({
@@ -897,14 +893,11 @@ describe('applyEscalation', () => {
     });
     expect(applied.ok).toBe(true);
     if (!applied.ok) return;
-    expect(applied.value.blockedReason).toBeUndefined();
     expect(applied.value.task.escalatedToModel).toBeUndefined();
     expect(events.length).toBe(0);
   });
 
-  it('on best-of-n: info banner naming N + verification-then-judging, NO stamping, no model-escalated event', () => {
-    // Mirrors escalate-effort's announce-only posture: applyEscalation narrates the remedy but the
-    // once-per-task grant stamp is applied by the CALLER (finalize-gen-eval), not here.
+  it('on best-of-n: stamps the grant, info banner naming N + verification-then-judging, no model-escalated event', () => {
     const task = makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 });
     const { bus, events } = captureBus();
     const applied = applyEscalation({
@@ -917,13 +910,74 @@ describe('applyEscalation', () => {
     });
     expect(applied.ok).toBe(true);
     if (!applied.ok) return;
-    expect(applied.value.task).toBe(task); // unchanged — no bestOfNGranted stamp here
-    expect(applied.value.blockedReason).toBeUndefined();
+    expect(applied.value.task.bestOfNGranted).toBe(true);
+    expect(applied.value.task.bestOfNGrantedCandidates).toBe(3);
+    expect(applied.value.task.escalatedToModel).toBeUndefined();
     expect(events.some((e) => e.type === 'model-escalated')).toBe(false);
     const banner = events.find((e): e is Extract<AppEvent, { type: 'banner-show' }> => e.type === 'banner-show');
     expect(banner?.tier).toBe('info');
     expect(banner?.message).toMatch(/3 candidates/);
     expect(banner?.message).toMatch(/verification then judging/);
+  });
+});
+
+describe('applyEscalation — evaluator lockstep effort', () => {
+  it('on escalate with an evaluator bump: stamps the model AND the evaluator effort', () => {
+    const { bus } = captureBus();
+    const applied = applyEscalation({
+      task: makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 }),
+      decision: {
+        kind: 'escalate',
+        from: 'claude-sonnet-4-6',
+        to: 'claude-opus-4-8',
+        evaluator: { from: 'default', to: EFFORT_ESCALATION_TARGET },
+      },
+      trigger: 'plateau',
+      eventBus: bus,
+      logger: noopLogger,
+      clock: fixedClock,
+    });
+    expect(applied.ok).toBe(true);
+    if (!applied.ok) return;
+    expect(applied.value.task.escalatedToModel).toBe('claude-opus-4-8');
+    expect(applied.value.task.escalatedToEvaluatorEffort).toBe(EFFORT_ESCALATION_TARGET);
+    expect(applied.value.task.escalatedToEffort).toBeUndefined();
+  });
+
+  it('on escalate-effort with an evaluator bump: stamps both efforts', () => {
+    const { bus } = captureBus();
+    const applied = applyEscalation({
+      task: makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 }),
+      decision: {
+        kind: 'escalate-effort',
+        model: 'claude-opus-4-8',
+        from: 'default',
+        to: EFFORT_ESCALATION_TARGET,
+        evaluator: { from: 'default', to: EFFORT_ESCALATION_TARGET },
+      },
+      trigger: 'plateau',
+      eventBus: bus,
+      logger: noopLogger,
+      clock: fixedClock,
+    });
+    expect(applied.ok).toBe(true);
+    if (!applied.ok) return;
+    expect(applied.value.task.escalatedToEffort).toBe(EFFORT_ESCALATION_TARGET);
+    expect(applied.value.task.escalatedToEvaluatorEffort).toBe(EFFORT_ESCALATION_TARGET);
+  });
+
+  it('a failed stamp emits nothing', () => {
+    const { bus, events } = captureBus();
+    const applied = applyEscalation({
+      task: makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 }),
+      decision: { kind: 'escalate-effort', model: 'claude-opus-4-8', from: 'default', to: '' },
+      trigger: 'plateau',
+      eventBus: bus,
+      logger: noopLogger,
+      clock: fixedClock,
+    });
+    expect(applied.ok).toBe(false);
+    expect(events).toHaveLength(0);
   });
 });
 

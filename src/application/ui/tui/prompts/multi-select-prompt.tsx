@@ -10,25 +10,10 @@ import type { Choice } from '@src/business/interactive/prompt.ts';
 import { glyphs, inkColors, PROMPT_VISIBLE_ROWS, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { usePromptHints } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
 import { isChord } from '@src/application/ui/tui/runtime/key-chord.ts';
+import { computeListWindow } from '@src/application/ui/tui/components/windowed-list.tsx';
+import { firstEnabledIndex, isEnabled, nextEnabledIndex } from '@src/application/ui/tui/prompts/choice-cursor.ts';
 
 const clamp = (n: number, min: number, max: number): number => Math.max(min, Math.min(max, n));
-
-const isEnabled = (opt: Choice<unknown> | undefined): boolean => opt !== undefined && opt.disabled !== true;
-
-/** Walk from `from` (exclusive) in `direction`, returning the first enabled index (or `from`). */
-const nextEnabledIndex = (options: ReadonlyArray<Choice<unknown>>, from: number, direction: -1 | 1): number => {
-  for (let i = from + direction; i >= 0 && i < options.length; i += direction) {
-    if (isEnabled(options[i])) return i;
-  }
-  return from;
-};
-
-const firstEnabledIndex = (options: ReadonlyArray<Choice<unknown>>): number => {
-  for (let i = 0; i < options.length; i += 1) {
-    if (isEnabled(options[i])) return i;
-  }
-  return 0;
-};
 
 /** Pure: the initial `picked` index set from `initialSelectedValues` (disabled rows excluded). */
 const computeInitialPicked = (
@@ -167,9 +152,7 @@ export const MultiSelectPrompt = ({
   usePromptHints(MULTI_HINTS);
   useMultiSelectKeys({ options, cursor, setCursor, picked, setPicked, onSubmit, onCancel });
 
-  const half = Math.floor(PROMPT_VISIBLE_ROWS / 2);
-  const start = clamp(cursor - half, 0, Math.max(0, options.length - PROMPT_VISIBLE_ROWS));
-  const end = Math.min(options.length, start + PROMPT_VISIBLE_ROWS);
+  const { start, end } = computeListWindow(options.length, cursor, PROMPT_VISIBLE_ROWS);
 
   return (
     <Box flexDirection="column" paddingX={spacing.indent}>

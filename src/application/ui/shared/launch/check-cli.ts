@@ -9,31 +9,7 @@ import {
 import { type AiProvider, primaryFlowRow, type Settings } from '@src/domain/entity/settings.ts';
 import type { FlowId } from '@src/domain/value/flow-id.ts';
 import type { LaunchExtras, LaunchResult } from '@src/application/ui/shared/launcher.ts';
-
-/**
- * Map a launcher flow id to the AI {@link FlowId} that owns its session — same mapping as `aiFlowIdFor` in
- * `../launcher.ts`.
- */
-const aiFlowIdForCheck = (flowId: string): FlowId | undefined => {
-  switch (flowId) {
-    case 'refine':
-    case 'plan':
-    case 'implement':
-    case 'readiness':
-    case 'ideate':
-      return flowId;
-    case 'detect-scripts':
-    case 'detect-skills':
-      return 'readiness';
-    case 'review':
-      return 'implement';
-    case 'create-pr':
-      // kebab orchestration id → camelCase settings row (mirrors `aiFlowIdFor`).
-      return 'createPr';
-    default:
-      return undefined;
-  }
-};
+import { aiFlowIdFor } from '@src/application/ui/shared/launch/ai-flow-id.ts';
 
 export interface CheckCliOptions {
   /** Test seam — defaults to the production `detectInstalledProviders`. */
@@ -106,7 +82,6 @@ const renderMissing = (missing: readonly RowExpectation[], aiFlow: FlowId): stri
     const source = m.fromOverride ? `per-run override (${m.settingsKey} unchanged)` : m.settingsKey;
     return `CLI ${binary} not on PATH for flow ${aiFlow}${roleSuffix}. Change ${source} or install with: ${installHint} (alternatives: ${docsUrl}).`;
   };
-  if (missing.length === 1) return formatOne(missing[0]!);
   return missing.map(formatOne).join(' ');
 };
 
@@ -115,7 +90,7 @@ export const checkCli = async (
   settings: Settings,
   options: CheckCliOptions = {}
 ): Promise<LaunchResult | undefined> => {
-  const aiFlow = aiFlowIdForCheck(flowId);
+  const aiFlow = aiFlowIdFor(flowId);
   if (aiFlow === undefined) return undefined;
   const expectations = rowExpectationsFor(flowId, aiFlow, settings, options);
   const detect = options.detect ?? (() => detectInstalledProviders());

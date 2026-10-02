@@ -6,6 +6,7 @@ import type {
 } from '@src/integration/ai/providers/_engine/model-availability-probe.ts';
 import { crossPlatformSpawn } from '@src/integration/io/cross-platform-spawn.ts';
 import { killWithEscalation } from '@src/integration/io/kill-with-escalation.ts';
+import { messageOf } from '@src/domain/value/error/error-message.ts';
 
 /**
  * Wall-clock cap for the `opencode models` probe. Beyond this the probe fails open.
@@ -91,7 +92,6 @@ export interface OpencodeModelAvailabilityProbeOptions {
 }
 
 /** Best-effort message extraction — the detail is log copy, never control flow. */
-const describeCause = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
 /**
  * Real OpenCode model-availability probe.
@@ -140,7 +140,7 @@ export const createOpencodeModelAvailabilityProbe = (
       // `signal.aborted` is the only reliable discriminator here — the listing rejects with a
       // plain Error for aborts, timeouts and non-zero exits alike, and the message carries the
       // rest of the story into `detail`.
-      return degraded(signal?.aborted === true ? 'probe-aborted' : 'probe-failed', describeCause(error));
+      return degraded(signal?.aborted === true ? 'probe-aborted' : 'probe-failed', messageOf(error));
     }
 
     // Keep only namespaced, whitespace-free lines so a header or trailing hint printed alongside

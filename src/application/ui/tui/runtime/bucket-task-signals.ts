@@ -19,8 +19,8 @@ export const isPerTaskLeaf = (name: string): boolean => TOP_LEVEL_TASK_REGEX.tes
  */
 const DEFAULT_TERMINAL_SUBSTEP = 'uninstall-skills';
 
-/** Default name of the per-task subchain's GUARDED BODY composite. */
-const DEFAULT_BODY_SUBSTEP = 'task-body';
+/** The per-task subchain's GUARDED BODY composite; a `skipped` body means the whole task is `blocked`. */
+const BODY_SUBSTEP = 'task-body';
 
 /**
  * `blocked` is a WHOLE-TASK bucket status, distinct from the per-substep `skipped` carried by {@link TraceStatus}: it
@@ -111,7 +111,7 @@ export interface BucketedExecution {
 
 interface TaskWindow {
   readonly startedAt: string;
-  endedAt?: string;
+  endedAt: string;
 }
 
 const taskIdFromInner = (name: string): string | undefined => {
@@ -167,7 +167,7 @@ const collectSubSteps = (trace: Trace): Map<string, TaskSubStep[]> => {
 interface WindowEntry {
   readonly taskId: string;
   readonly startedAt: string;
-  readonly endedAt?: string;
+  readonly endedAt: string;
 }
 
 /**
@@ -191,9 +191,7 @@ const findOwningWindow = (sortedWindows: readonly WindowEntry[], ts: string): nu
 const attributeByWindow = (ts: string, sortedWindows: readonly WindowEntry[]): string | undefined => {
   const idx = findOwningWindow(sortedWindows, ts);
   const candidate = idx >= 0 ? sortedWindows[idx] : undefined;
-  return candidate !== undefined && (candidate.endedAt === undefined || ts <= candidate.endedAt)
-    ? candidate.taskId
-    : undefined;
+  return candidate !== undefined && ts <= candidate.endedAt ? candidate.taskId : undefined;
 };
 
 /**
@@ -212,14 +210,11 @@ const bucketSignals = (
   const evaluationsByTask = new Map<string, EvaluationSignal[]>();
   const orphans: HarnessSignal[] = [];
 
-  const sortedWindows: WindowEntry[] = [];
-  for (const [taskId, w] of windows) {
-    sortedWindows.push(
-      w.endedAt !== undefined
-        ? { taskId, startedAt: w.startedAt, endedAt: w.endedAt }
-        : { taskId, startedAt: w.startedAt }
-    );
-  }
+  const sortedWindows: WindowEntry[] = [...windows].map(([taskId, w]) => ({
+    taskId,
+    startedAt: w.startedAt,
+    endedAt: w.endedAt,
+  }));
   sortedWindows.sort((a, b) => (a.startedAt < b.startedAt ? -1 : a.startedAt > b.startedAt ? 1 : 0));
 
   for (const entry of entries) {
@@ -244,17 +239,13 @@ const bucketSignals = (
 };
 
 /** Derive the task-level status from its substep trace. See module docstring for the algorithm. */
-const resolveStatusFromSubSteps = (
-  subSteps: readonly TaskSubStep[],
-  terminalSubstepName: string,
-  bodySubstepName: string
-): TaskBucketStatus => {
+const resolveStatusFromSubSteps = (subSteps: readonly TaskSubStep[], terminalSubstepName: string): TaskBucketStatus => {
   if (subSteps.length === 0) return 'pending';
   for (const sub of subSteps) {
     if (sub.status === 'aborted') return 'aborted';
     if (sub.status === 'failed') return 'failed';
   }
-  if (subSteps.some((s) => s.leafName === bodySubstepName && s.status === 'skipped')) return 'blocked';
+  if (subSteps.some((s) => s.leafName === BODY_SUBSTEP && s.status === 'skipped')) return 'blocked';
   const lastSeen = subSteps.some((s) => s.leafName === terminalSubstepName && s.status === 'completed');
   return lastSeen ? 'completed' : 'running';
 };
@@ -359,11 +350,6 @@ export interface BucketOptions {
    * Name of the per-task subchain's final leaf — when it appears in the trace the task flips to `completed`.
    */
   readonly terminalSubstepName?: string;
-  /**
-   * Name of the per-task subchain's guarded BODY composite — when it appears in the trace with status `skipped` the
-   * task never ran and flips to `skipped`.
-   */
-  readonly bodySubstepName?: string;
   /** Ids to show as `pending` before they have trace entries, so an early chain failure doesn't empty the panel. */
   readonly knownTaskIds?: readonly string[];
 }
@@ -375,38 +361,17 @@ export const bucketTaskSignals = (
   opts: BucketOptions = {}
 ): BucketedExecution => {
   const terminalSubstepName = opts.terminalSubstepName ?? DEFAULT_TERMINAL_SUBSTEP;
-  const bodySubstepName = opts.bodySubstepName ?? DEFAULT_BODY_SUBSTEP;
   const { order, byId: windows } = buildTaskWindows(chainEvents);
   const subStepsByTask = collectSubSteps(trace);
   const { signalsByTask, evaluationsByTask, orphans } = bucketSignals(signals, windows);
 
-  const seen = new Set<string>();
-  const ids: string[] = [];
-  for (const id of order) {
-    if (seen.has(id)) continue;
-    seen.add(id);
-    ids.push(id);
-  }
-  for (const id of subStepsByTask.keys()) {
-    if (!seen.has(id)) {
-      seen.add(id);
-      ids.push(id);
-    }
-  }
   // Append any known task ids that haven't traced yet so the panel shows pending rows instead of collapsing to the
-  // "panel empty" state when a chain fails before per-task work starts.
-  if (opts.knownTaskIds !== undefined) {
-    for (const id of opts.knownTaskIds) {
-      if (!seen.has(id)) {
-        seen.add(id);
-        ids.push(id);
-      }
-    }
-  }
+  // "panel empty" state when a chain fails before per-task work starts. A Set keeps first-insertion order.
+  const ids = [...new Set([...order, ...subStepsByTask.keys(), ...(opts.knownTaskIds ?? [])])];
 
   const tasks: TaskBucket[] = ids.map((id) => {
     const subSteps = subStepsByTask.get(id) ?? [];
-    const status = resolveStatusFromSubSteps(subSteps, terminalSubstepName, bodySubstepName);
+    const status = resolveStatusFromSubSteps(subSteps, terminalSubstepName);
     const errorMessage = firstFailureMessage(subSteps);
     const duration =
       status === 'completed' || status === 'failed' || status === 'aborted' ? totalDurationMs(subSteps) : undefined;

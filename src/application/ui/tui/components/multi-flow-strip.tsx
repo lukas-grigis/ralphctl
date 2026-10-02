@@ -9,6 +9,7 @@ import type { SessionRecord } from '@src/application/ui/tui/runtime/session-mana
 import { globalKeys } from '@src/application/ui/tui/runtime/keyboard-map.ts';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { fmtElapsed } from '@src/application/ui/tui/theme/duration.ts';
+import { clipWithEllipsis } from '@src/application/ui/tui/components/format.ts';
 
 /** Navigation cue sourced from the keyboard map so it tracks the bindings the router honours. */
 const NAV_HINT = `${globalKeys.cycleSession.keys.join('/')} cycle ${glyphs.bullet} ${globalKeys.jumpSession.keys.join('/')} jump`;
@@ -21,7 +22,7 @@ export interface MultiFlowStripProps {
   readonly activeId: string;
   /** Wall-clock for elapsed-time labels. Falls back to `Date.now()` if absent. */
   readonly now?: number;
-  /** Max title chars per chip — clipped via slice (no Ink truncate; chips share one row). */
+  /** Max title chars per chip — plain-clipped (no Ink truncate; chips share one row). */
   readonly maxTitleChars?: number;
   /** Runs blocked on a prompt — their chip reads `WAITING` instead of the elapsed time. */
   readonly awaiting?: ReadonlyMap<string, number>;
@@ -47,10 +48,7 @@ const Chip = ({
   const elapsed = fmtElapsed(descriptor.startedAt, descriptor.finishedAt ?? now);
   // Title is plain-clipped (not Ink-truncated) because chips sit on one row separated by `|`
   // and per-chip truncate-end boxes would each claim flexGrow, fighting each other for width.
-  const title =
-    descriptor.title.length > maxTitleChars
-      ? `${descriptor.title.slice(0, maxTitleChars - 1)}${glyphs.clipEllipsis}`
-      : descriptor.title;
+  const title = clipWithEllipsis(descriptor.title, maxTitleChars);
   const color = waiting ? inkColors.warning : active ? inkColors.highlight : inkColors.muted;
   return (
     <Text color={color} bold={active || waiting}>

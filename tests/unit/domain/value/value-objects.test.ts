@@ -20,6 +20,18 @@ describe('Slug', () => {
       expect(Slug.parse(s).ok).toBe(false);
     }
   });
+  it('derive passes an explicit candidate through, kebab-cases the source, and rejects an underivable one', () => {
+    const explicit = Slug.parse('given');
+    if (!explicit.ok) throw new Error('seed');
+    const passed = Slug.derive('x.slug', explicit.value, 'Ignored Name');
+    expect(passed.ok && passed.value).toBe('given');
+    const derived = Slug.derive('x.slug', undefined, 'My Sprint 1');
+    expect(derived.ok && derived.value).toBe('my-sprint-1');
+    const failed = Slug.derive('x.slug', undefined, '!!!');
+    expect(failed.ok).toBe(false);
+    if (failed.ok) return;
+    expect(failed.error).toMatchObject({ field: 'x.slug' });
+  });
 });
 
 describe.each([

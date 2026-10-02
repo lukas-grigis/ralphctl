@@ -10,37 +10,19 @@ import {
   AI_PROVIDERS,
 } from '@src/domain/entity/settings.ts';
 import { PROVIDER_EFFORT_LEVELS } from '@src/domain/value/settings-models/effort.ts';
-import { PROVIDER_TRAITS } from '@src/integration/ai/providers/_engine/provider-traits.ts';
-import { isSuspendedModel, SUSPENSION_NOTE } from '@src/domain/value/settings-models/suspended-models.ts';
-import { contextWindowLabel } from '@src/domain/value/settings-models/context-window.ts';
-import { glyphs } from '@src/application/ui/tui/theme/tokens.ts';
+import { annotateModelLabel, modelOptionsFor } from '@src/application/ui/tui/views/settings-view-model.ts';
 import { resolveEffortForRow } from '@src/business/settings/resolve-effort.ts';
 import type { FlowId } from '@src/domain/value/flow-id.ts';
 import type { LaunchExtras, SkillCandidate, SkillCandidatesResult } from '@src/application/ui/shared/launcher.ts';
-
-/**
- * Catalog lookup for the customize picker — delegates to {@link PROVIDER_TRAITS} so the TUI carries zero copies of
- * the provider-to-catalog switch (`settings-view-model.ts`'s `modelOptionsFor` does the same).
- */
-export const modelCatalogFor = (provider: AiProvider): readonly string[] => PROVIDER_TRAITS[provider].modelCatalog;
 
 /** Resolve the model catalog the picker offers for a provider. */
 const resolveModelCatalog = async (
   provider: AiProvider,
   availableModelsFor: ((provider: AiProvider) => Promise<readonly string[]>) | undefined
-): Promise<readonly string[]> => (availableModelsFor ? availableModelsFor(provider) : modelCatalogFor(provider));
+): Promise<readonly string[]> => (availableModelsFor ? availableModelsFor(provider) : modelOptionsFor(provider));
 
 /** Sentinel value returned for the `Keep default` option — never collides with a real id. */
 const KEEP = '__keep__';
-
-/** Map a model id to a picker choice. */
-const modelChoice = (m: string): Choice<string> => {
-  const windowPart = contextWindowLabel(m);
-  const suspendedPart = isSuspendedModel(m) ? `(${SUSPENSION_NOTE})` : undefined;
-  const annotations = [windowPart, suspendedPart].filter((s): s is string => s !== undefined);
-  const label = annotations.length > 0 ? `${m}  ${glyphs.bullet}  ${annotations.join('  ')}` : m;
-  return { label, value: m };
-};
 
 /**
  * Outcome of the skills step (see {@link runSkillsStep}) — carried on every non-cancel {@link CustomizePickerResult}
@@ -135,9 +117,10 @@ const pickModelStep = async (
   availableModelsFor: ((provider: AiProvider) => Promise<readonly string[]>) | undefined
 ): Promise<string | undefined> => {
   const modelCatalog = await resolveModelCatalog(effectiveProvider, availableModelsFor);
+  const modelChoices = modelCatalog.map((m) => ({ label: annotateModelLabel(m), value: m }));
   const modelOptions: ReadonlyArray<Choice<string>> = providerChanged
-    ? modelCatalog.map(modelChoice)
-    : [{ label: labelKeepDefault(defaultRow.model), value: KEEP }, ...modelCatalog.map(modelChoice)];
+    ? modelChoices
+    : [{ label: labelKeepDefault(defaultRow.model), value: KEEP }, ...modelChoices];
   const modelAns = await interactive.askChoice<string>(`${header}\nModel:`, modelOptions);
   if (!modelAns.ok) return undefined;
   return modelAns.value;

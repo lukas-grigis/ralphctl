@@ -1,18 +1,20 @@
 import { promises as fs } from 'node:fs';
-import { createInterface } from 'node:readline';
+import { createInterface, type Interface } from 'node:readline';
 import type { Command } from 'commander';
 import { bootstrapCli } from '@src/application/ui/cli/bootstrap.ts';
-import { confirmDestructive } from '@src/application/ui/cli/confirm-destructive.ts';
+import { askLine, confirmDestructive, isYes } from '@src/application/ui/cli/confirm-destructive.ts';
+import { plural } from '@src/application/ui/shared/plural.ts';
 import { fail } from '@src/application/ui/cli/report-cli-error.ts';
 import { registerRunsStatsCommand } from '@src/application/ui/cli/commands/runs-stats.ts';
+import { formatBytes } from '@src/application/ui/shared/format-bytes.ts';
 import {
-  formatBytes,
   formatRelativeAge,
   groupByFlow,
   listRuns,
   parseDuration,
   type RunEntry,
 } from '@src/integration/ai/runs/_engine/run-enumeration.ts';
+import { messageOf } from '@src/domain/value/error/error-message.ts';
 
 interface ListOpts {
   readonly flow?: string;
@@ -90,16 +92,12 @@ const runListCommand = async (opts: ListOpts): Promise<void> => {
     const flowBytes = runs.reduce((acc, r) => acc + r.sizeBytes, 0);
     grandTotalBytes += flowBytes;
     grandTotalRuns += runs.length;
-    process.stdout.write(
-      `${flow}  (${String(runs.length)} run${runs.length === 1 ? '' : 's'}, ${formatBytes(flowBytes)})\n`
-    );
+    process.stdout.write(`${flow}  (${plural(runs.length, 'run')}, ${formatBytes(flowBytes)})\n`);
     for (const run of runs) {
       process.stdout.write(`  ${run.runId}  ${formatRelativeAge(run.timestamp, now)}  ${formatBytes(run.sizeBytes)}\n`);
     }
   }
-  process.stdout.write(
-    `total: ${String(grandTotalRuns)} run${grandTotalRuns === 1 ? '' : 's'}, ${formatBytes(grandTotalBytes)}\n`
-  );
+  process.stdout.write(`total: ${plural(grandTotalRuns, 'run')}, ${formatBytes(grandTotalBytes)}\n`);
 };
 
 const runPruneCommand = async (opts: PruneOpts): Promise<void> => {
@@ -221,7 +219,7 @@ const confirmNonInteractivePrune = async (count: number): Promise<boolean> =>
   confirmDestructive({
     yes: false,
     action: 'delete',
-    confirmPrompt: `delete ${String(count)} run${count === 1 ? '' : 's'}? [y/N] `,
+    confirmPrompt: `delete ${plural(count, 'run')}? [y/N] `,
     nonTtyHint: ', or --dry-run to list candidates only',
   });
 
@@ -263,10 +261,12 @@ const runInteractivePrune = async (): Promise<void> => {
     });
     if (candidates === undefined) return;
 
-    const ok = (
-      await question(rl, `delete ${String(candidates.length)} run${candidates.length === 1 ? '' : 's'}? [y/N] `)
-    ).trim();
-    if (!isYes(ok)) {
+    const ok = await askLine(rl, `delete ${plural(candidates.length, 'run')}? [y/N] `);
+    if (ok === undefined) {
+      reportPromptAborted();
+      return;
+    }
+    if (!isYes(ok.trim())) {
       process.stdout.write('aborted\n');
       return;
     }
@@ -280,18 +280,25 @@ const printRunsOverview = (groups: ReadonlyMap<string, readonly RunEntry[]>): vo
   process.stdout.write('current runs:\n');
   for (const [flow, runs] of groups) {
     const flowBytes = runs.reduce((acc, r) => acc + r.sizeBytes, 0);
-    process.stdout.write(
-      `  ${flow}  (${String(runs.length)} run${runs.length === 1 ? '' : 's'}, ${formatBytes(flowBytes)})\n`
-    );
+    process.stdout.write(`  ${flow}  (${plural(runs.length, 'run')}, ${formatBytes(flowBytes)})\n`);
   }
   process.stdout.write('\n');
 };
 
+/** Ctrl-C / Ctrl-D at an interactive prune prompt: stop asking and exit like an interrupted shell. */
+const reportPromptAborted = (): { readonly ok: false } => {
+  process.stdout.write('aborted\n');
+  process.exitCode = 130;
+  return { ok: false };
+};
+
 /** Prompt for age-vs-keep-last, then the matching follow-up value, validating as it goes. */
-const promptPruneFilterChoice = async (rl: ReturnType<typeof createInterface>): Promise<PruneFiltersResult> => {
-  const criterion = (await question(rl, 'prune by [1] age threshold or [2] keep-last N? ')).trim();
+const promptPruneFilterChoice = async (rl: Interface): Promise<PruneFiltersResult> => {
+  const criterion = (await askLine(rl, 'prune by [1] age threshold or [2] keep-last N? '))?.trim();
+  if (criterion === undefined) return reportPromptAborted();
   if (criterion === '1') {
-    const duration = (await question(rl, 'duration (e.g. 7d, 24h, 2w): ')).trim();
+    const duration = (await askLine(rl, 'duration (e.g. 7d, 24h, 2w): '))?.trim();
+    if (duration === undefined) return reportPromptAborted();
     const parsed = parseDuration(duration);
     if (!parsed.ok) {
       fail(parsed.error.message);
@@ -300,7 +307,8 @@ const promptPruneFilterChoice = async (rl: ReturnType<typeof createInterface>): 
     return { ok: true, olderThanMs: parsed.value, keepLast: undefined };
   }
   if (criterion === '2') {
-    const n = (await question(rl, 'keep last N runs per flow: ')).trim();
+    const n = (await askLine(rl, 'keep last N runs per flow: '))?.trim();
+    if (n === undefined) return reportPromptAborted();
     const parsed = Number(n);
     if (!Number.isInteger(parsed) || parsed < 0) {
       fail('keep-last must be a non-negative integer');
@@ -313,13 +321,11 @@ const promptPruneFilterChoice = async (rl: ReturnType<typeof createInterface>): 
 };
 
 /** Prompt for an optional flow restriction, validating it against the known flow list. */
-const promptFlowFilterChoice = async (
-  rl: ReturnType<typeof createInterface>,
-  flows: readonly string[]
-): Promise<FlowFilterResult> => {
+const promptFlowFilterChoice = async (rl: Interface, flows: readonly string[]): Promise<FlowFilterResult> => {
   const flowAnswer = (
-    await question(rl, `restrict to a flow? [enter for all, or one of: ${flows.join(', ')}] `)
-  ).trim();
+    await askLine(rl, `restrict to a flow? [enter for all, or one of: ${flows.join(', ')}] `)
+  )?.trim();
+  if (flowAnswer === undefined) return reportPromptAborted();
   const flowFilter = flowAnswer.length === 0 ? undefined : flowAnswer;
   if (flowFilter !== undefined && !flows.includes(flowFilter)) {
     fail(`no such flow '${flowFilter}'`);
@@ -387,13 +393,9 @@ const printCandidateSummary = (candidates: readonly RunEntry[]): void => {
   for (const [flow, runs] of grouped) {
     const flowBytes = runs.reduce((acc, r) => acc + r.sizeBytes, 0);
     totalBytes += flowBytes;
-    process.stdout.write(
-      `  ${flow}: ${String(runs.length)} run${runs.length === 1 ? '' : 's'}, ${formatBytes(flowBytes)}\n`
-    );
+    process.stdout.write(`  ${flow}: ${plural(runs.length, 'run')}, ${formatBytes(flowBytes)}\n`);
   }
-  process.stdout.write(
-    `  total: ${String(candidates.length)} run${candidates.length === 1 ? '' : 's'}, ${formatBytes(totalBytes)}\n`
-  );
+  process.stdout.write(`  total: ${plural(candidates.length, 'run')}, ${formatBytes(totalBytes)}\n`);
 };
 
 const performPrune = async (candidates: readonly RunEntry[]): Promise<void> => {
@@ -406,27 +408,15 @@ const performPrune = async (candidates: readonly RunEntry[]): Promise<void> => {
       freedBytes += candidate.sizeBytes;
       freedCount += 1;
     } catch (cause) {
-      const reason = cause instanceof Error ? cause.message : String(cause);
+      const reason = messageOf(cause);
       failures.push({ path: String(candidate.path), reason });
     }
   }
-  process.stdout.write(
-    `pruned ${String(freedCount)} run${freedCount === 1 ? '' : 's'}, freed ${formatBytes(freedBytes)}\n`
-  );
+  process.stdout.write(`pruned ${plural(freedCount, 'run')}, freed ${formatBytes(freedBytes)}\n`);
   if (failures.length > 0) {
     for (const failure of failures) {
       process.stderr.write(`  failed: ${failure.path} — ${failure.reason}\n`);
     }
-    fail(`${String(failures.length)} run${failures.length === 1 ? '' : 's'} could not be deleted`);
+    fail(`${plural(failures.length, 'run')} could not be deleted`);
   }
-};
-
-const question = (rl: ReturnType<typeof createInterface>, prompt: string): Promise<string> =>
-  new Promise((resolve) => {
-    rl.question(prompt, (answer) => resolve(answer));
-  });
-
-const isYes = (answer: string): boolean => {
-  const lower = answer.toLowerCase();
-  return lower === 'y' || lower === 'yes';
 };

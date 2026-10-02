@@ -36,12 +36,10 @@ const sigkill = (child: RegisteredChild): boolean => {
 };
 
 export const createRunChildRegistry = (deps: RunChildRegistryDeps): RunChildRegistry => {
-  let live = 0;
   let waiters: Array<() => void> = [];
   const running = new Set<RegisteredChild>();
 
   const register = (child: RegisteredChild): RegisteredChildHandle => {
-    live += 1;
     running.add(child);
     if (child.pgid !== undefined) deps.reaper.watch(child.pgid);
     const runId = deps.runIdOf();
@@ -52,11 +50,10 @@ export const createRunChildRegistry = (deps: RunChildRegistryDeps): RunChildRegi
       release: () => {
         if (released) return;
         released = true;
-        live -= 1;
         running.delete(child);
         if (child.pgid !== undefined) deps.reaper.unwatch(child.pgid);
         recorded?.exited();
-        if (live > 0) return;
+        if (running.size > 0) return;
         const done = waiters;
         waiters = [];
         for (const resolve of done) resolve();
@@ -66,8 +63,8 @@ export const createRunChildRegistry = (deps: RunChildRegistryDeps): RunChildRegi
 
   return {
     register,
-    liveChildren: () => live,
-    whenNoChildren: () => (live === 0 ? Promise.resolve() : new Promise((resolve) => waiters.push(resolve))),
+    liveChildren: () => running.size,
+    whenNoChildren: () => (running.size === 0 ? Promise.resolve() : new Promise((resolve) => waiters.push(resolve))),
     killAll: () => [...running].filter((child) => (deps.kill ?? sigkill)(child)).length,
   };
 };

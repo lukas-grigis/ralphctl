@@ -1,59 +1,30 @@
 import type { Result } from '@src/domain/result.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
-import type { VerifyRun, VerifyRunOutcome, VerifyRunPhase } from '@src/domain/entity/attempt.ts';
+import type { VerifyRun, VerifyRunPhase } from '@src/domain/entity/attempt.ts';
 import type { VerifyGate } from '@src/domain/entity/repository.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import type { StorageError } from '@src/domain/value/error/storage-error.ts';
 
-/** {@link VerifyRunOutcome} value for a verify command the shell could not start. */
+/** {@link VerifyRun} outcome for a verify command the shell could not start. */
 const SPAWN_ERROR_OUTCOME = 'spawn-error';
 
-/**
- * Generic helper that runs the project's `verifyScript` once and projects the spawn result
- * into a structured {@link VerifyRun} row. Phase-agnostic — callers stamp `phase: 'pre'` or
- * `phase: 'post'` per call site.
- *
- * Belt-and-braces independent verification: this is the harness's authoritative read on
- * tree health, used both BEFORE the AI runs (baseline snapshot) and AFTER it commits
- * (independent of the AI's `task-verified` self-report). No policy here — the leaves layer
- * decides what to do with the outcome (attribution, blocking, warnings).
- *
- * Outcomes mirror {@link SetupRun} semantics:
- *
- *  - `'skipped'`     — no script configured (or whitespace-only). `exitCode = 0`, `durationMs = 0`.
- *  - `'success'`     — script exited 0.
- *  - `'failed'`      — script exited non-zero.
- *  - `'spawn-error'` — shell could not start the command. `exitCode = -1`; the spawn error
- *                      message lands in `spawnErrorMessage` (rather than inside the audit row).
- *
- * The audit row carries structured metadata only; the full untruncated output is returned
- * separately so the caller can persist it to `<sprintDir>/logs/verify/<task-id>/...` per
- * audit-[01].
- */
-export interface RunVerifyScriptProps {
-  readonly cwd: AbsolutePath;
-  readonly phase: VerifyRunPhase;
-  readonly verifyScript?: string;
-  readonly timeoutMs?: number;
-  readonly clock: () => IsoTimestamp;
-  readonly runShellScript: (
-    cwd: AbsolutePath,
-    script: string,
-    opts: { readonly timeoutMs?: number; readonly env?: Readonly<Record<string, string>> }
-  ) => Promise<
-    Result<
-      {
-        readonly passed: boolean;
-        readonly exitCode: number | null;
-        readonly output: string;
-        readonly durationMs: number;
-      },
-      StorageError
-    >
-  >;
-  readonly logger: Logger;
-}
+/** Spawn port the verify executor runs each gate command through. */
+export type RunShellScript = (
+  cwd: AbsolutePath,
+  script: string,
+  opts: { readonly timeoutMs?: number; readonly env?: Readonly<Record<string, string>> }
+) => Promise<
+  Result<
+    {
+      readonly passed: boolean;
+      readonly exitCode: number | null;
+      readonly output: string;
+      readonly durationMs: number;
+    },
+    StorageError
+  >
+>;
 
 /**
  * Use-case output.
@@ -72,78 +43,6 @@ export interface RunVerifyScriptOutput {
   readonly spawnErrorMessage?: string;
 }
 
-/**
- * Total over its inputs — never returns `Result.error`. Even spawn-level failures are folded
- * into the structured row (`outcome: 'spawn-error'`) so the audit trail captures every attempt,
- * including the ones the harness couldn't start. Caller decides whether the outcome blocks the
- * chain (it doesn't, by policy — see the leaves).
- */
-export const runVerifyScriptUseCase = async (props: RunVerifyScriptProps): Promise<RunVerifyScriptOutput> => {
-  const log = props.logger.named('task.verify-script');
-  const command = props.verifyScript?.trim() ?? '';
-
-  if (command.length === 0) {
-    log.debug('no verify script configured, recording skipped row', { cwd: props.cwd, phase: props.phase });
-    return {
-      run: {
-        phase: props.phase,
-        ranAt: props.clock(),
-        command: '',
-        exitCode: 0,
-        durationMs: 0,
-        outcome: 'skipped',
-      },
-      rawOutput: '',
-    };
-  }
-
-  log.debug(`running ${props.phase}-task verify`, { cwd: props.cwd, timeoutMs: props.timeoutMs });
-
-  const startedAt = props.clock();
-  const result = await props.runShellScript(props.cwd, command, {
-    ...(props.timeoutMs !== undefined ? { timeoutMs: props.timeoutMs } : {}),
-    env: { RALPHCTL_LIFECYCLE_EVENT: props.phase === 'pre' ? 'pre-task' : 'post-task' },
-  });
-
-  if (!result.ok) {
-    // Spawn-level failure (binary missing, permission denied, …). Folded into the structured
-    // row as `'spawn-error'` rather than propagated as a Result.error — the leaf treats it as
-    // an unknown-state signal and skips attribution.
-    log.warn('verify script could not be executed', {
-      cwd: props.cwd,
-      phase: props.phase,
-      error: result.error.message,
-    });
-    return {
-      run: {
-        phase: props.phase,
-        ranAt: startedAt,
-        command,
-        exitCode: -1,
-        durationMs: 0,
-        outcome: SPAWN_ERROR_OUTCOME,
-      },
-      rawOutput: '',
-      spawnErrorMessage: result.error.message,
-    };
-  }
-
-  const { passed, exitCode, output, durationMs } = result.value;
-  const outcome: VerifyRunOutcome = passed ? 'success' : 'failed';
-  log.info(`${props.phase}-task verify ${outcome}`, { cwd: props.cwd, exitCode, durationMs });
-  return {
-    run: {
-      phase: props.phase,
-      ranAt: startedAt,
-      command,
-      exitCode: exitCode ?? -1,
-      durationMs,
-      outcome,
-    },
-    rawOutput: output,
-  };
-};
-
 // ───────────────────────────── multi-gate verify (WS3 / T10) ─────────────────────────────
 
 /**
@@ -160,9 +59,9 @@ export const runVerifyScriptUseCase = async (props: RunVerifyScriptProps): Promi
 export type VerifyGateMode = 'fail-fast' | 'all-run';
 
 /**
- * Input to the multi-gate executor. Mirrors {@link RunVerifyScriptProps} for the shared fields
- * and adds the gate list, the optional touched-path scope, and the run mode.
+ * Input to the multi-gate executor.
  *
+ *  - `cwd` / `phase` — where the gates run and which audit phase (`'pre'` / `'post'`) the row records.
  *  - `gates`     — already-normalised gate list (see {@link normalizeVerifyGates}). When empty,
  *    the run is a no-op recorded as a single `'skipped'` row.
  *  - `scope`     — touched paths (POSIX, repo-root-relative) that filter which gates run. A gate
@@ -180,7 +79,7 @@ export interface RunVerifyGatesProps {
   readonly mode: VerifyGateMode;
   readonly defaultTimeoutMs?: number;
   readonly clock: () => IsoTimestamp;
-  readonly runShellScript: RunVerifyScriptProps['runShellScript'];
+  readonly runShellScript: RunShellScript;
   readonly logger: Logger;
 }
 
@@ -224,25 +123,6 @@ const pathUnderPrefix = (path: string, prefix: string): boolean => {
   return path.startsWith(boundary);
 };
 
-/**
- * Multi-gate verify executor — the WS3 generalisation of {@link runVerifyScriptUseCase}. Runs the
- * scoped subset of `gates` in declaration order and aggregates the per-gate outcomes into ONE
- * {@link VerifyRun} so the existing attempt/attribution shape is untouched:
- *
- *  - `outcome` is `'success'` only when EVERY executed gate succeeded. The first non-success
- *    decides the aggregate outcome (`'failed'` / `'spawn-error'`), and in `fail-fast` mode the
- *    run stops there; in `all-run` mode the remaining gates still execute (their output is still
- *    captured) but the aggregate outcome stays the first failure's.
- *  - `command` reports what actually ran: the failing gate's command on a failure (so the audit
- *    row points at the culprit), else the `'; '`-joined commands of every executed gate.
- *  - `exitCode` is the failing gate's exit code (or `0` when all passed; `-1` for spawn-error).
- *  - `durationMs` sums the executed gates.
- *  - `rawOutput` concatenates each executed gate's output behind a clear `── <command> ──`
- *    separator so the single per-phase log file stays readable.
- *
- * An empty (post-filter) gate set records a `'skipped'` row — same contract as the no-script
- * path. Total over its inputs (never `Result.error`); spawn-level failures fold into the row.
- */
 /** The first non-success gate, captured so it decides the aggregate row's command/exit/outcome. */
 interface GateFailure {
   readonly outcome: 'failed' | 'spawn-error';
@@ -258,6 +138,24 @@ interface GateRunState {
   failure?: GateFailure;
 }
 
+/**
+ * Verify executor — the harness's authoritative read on tree health, run BEFORE the AI (baseline
+ * snapshot) and AFTER it commits (independent of the AI's `task-verified` self-report). No policy
+ * here; the leaves decide what the outcome means. Runs the scoped subset of `gates` in declaration
+ * order and aggregates the per-gate outcomes into ONE {@link VerifyRun}:
+ *
+ *  - `'skipped'`     — no gate in scope (no script configured). `exitCode = 0`, `durationMs = 0`, no spawn.
+ *  - `'success'`     — every executed gate exited 0; `command` joins them with `'; '`.
+ *  - `'failed'`      — the first non-zero gate decides the row (`command` / `exitCode` point at it).
+ *    `fail-fast` stops there; `all-run` still executes (and captures) the remaining gates.
+ *  - `'spawn-error'` — the shell could not start a gate. `exitCode = -1`; the error message lands
+ *    in `spawnErrorMessage` rather than inside the audit row.
+ *
+ * `durationMs` sums the executed gates. The audit row carries structured metadata only; the full
+ * untruncated output comes back separately as `rawOutput` (behind a `── <command> ──` separator per
+ * gate when more than one ran) for the leaf to persist. Total over its inputs — never
+ * `Result.error`; spawn-level failures fold into the row so the audit trail captures every run.
+ */
 export const runVerifyGatesUseCase = async (props: RunVerifyGatesProps): Promise<RunVerifyScriptOutput> => {
   const log = props.logger.named('task.verify-gates');
   const scoped = props.gates.filter((gate) => gateInScope(gate, props.scope));

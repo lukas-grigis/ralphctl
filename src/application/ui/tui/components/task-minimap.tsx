@@ -7,6 +7,7 @@ import React from 'react';
 import { Box, Text } from 'ink';
 import { glyphFor, glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { computeListWindow, OverflowRow } from '@src/application/ui/tui/components/windowed-list.tsx';
+import { clipWithEllipsis } from '@src/application/ui/tui/components/format.ts';
 import type { TaskBucketStatus } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
 import type { Task } from '@src/domain/entity/task.ts';
 
@@ -32,8 +33,7 @@ export const TASK_STATUS_COLOR: Readonly<Record<TaskBucketStatus, string>> = {
   blocked: inkColors.error,
 };
 
-export const truncateName = (name: string, maxChars: number): string =>
-  name.length > maxChars ? `${name.slice(0, Math.max(0, maxChars - 1))}${glyphs.clipEllipsis}` : name;
+export const truncateName = (name: string, maxChars: number): string => clipWithEllipsis(name, maxChars);
 
 const BUCKET_OF: Readonly<Record<Task['status'], TaskBucketStatus>> = {
   todo: 'pending',

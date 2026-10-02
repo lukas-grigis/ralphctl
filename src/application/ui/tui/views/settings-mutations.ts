@@ -30,29 +30,14 @@ export type PresetOutcome =
 const IMPLEMENT_ROLE_PROVIDER_KEY = /^ai\.implement\.(generator|evaluator)\.provider$/;
 const FLAT_PROVIDER_KEY = /^ai\.(refine|plan|readiness|ideate|createPr)\.provider$/;
 
-/** One `submitField` routing rule — same declarative shape as `evaluateTriggers`'s gate array. */
-interface SubmitRoute {
-  readonly match: (field: EditableField) => boolean;
-  readonly handle: (
-    settings: Settings,
-    field: EditableField,
-    raw: string,
-    settingsRepo: SettingsRepository
-  ) => Promise<MutationOutcome>;
-}
-
 /** Route: any per-flow / per-role provider picker. */
-const handleProviderRoute = async (
-  _settings: Settings,
-  field: EditableField,
+const setProvider = async (
+  flow: FlowId,
+  role: 'generator' | 'evaluator' | undefined,
   raw: string,
   settingsRepo: SettingsRepository
 ): Promise<MutationOutcome> => {
-  const implementRoleProviderMatch = IMPLEMENT_ROLE_PROVIDER_KEY.exec(field.key);
-  const flatProviderMatch = FLAT_PROVIDER_KEY.exec(field.key);
   const providerFlow = createSettingsSetProviderFlow({ settingsRepo });
-  const flow: FlowId = implementRoleProviderMatch !== null ? 'implement' : (flatProviderMatch![1] as FlowId);
-  const role = implementRoleProviderMatch?.[1] as 'generator' | 'evaluator' | undefined;
   const saved = await providerFlow.execute({
     input: { flow, provider: raw as AiProvider, ...(role !== undefined ? { role } : {}) },
   });
@@ -67,7 +52,6 @@ const handleProviderRoute = async (
  */
 const handleMapAddRoute = async (
   settings: Settings,
-  _field: EditableField,
   raw: string,
   settingsRepo: SettingsRepository
 ): Promise<MutationOutcome> => {
@@ -86,11 +70,10 @@ const handleMapAddRoute = async (
  */
 const handleMapEntryRoute = async (
   settings: Settings,
-  field: EditableField,
+  field: Extract<EditableField, { kind: 'map-entry' }>,
   raw: string,
   settingsRepo: SettingsRepository
 ): Promise<MutationOutcome> => {
-  if (field.kind !== 'map-entry') throw new Error('handleMapEntryRoute requires a map-entry field');
   const okText =
     raw.trim().length === 0
       ? `removed escalation override for ${field.from}`
@@ -112,29 +95,20 @@ const handleDefaultRoute = async (
   return persistKey(settings, field.key, normalised, settingsRepo, { okText: `${field.label} = ${raw}` });
 };
 
-/**
- * Ordered submit routes — first match wins, mirroring `evaluateTriggers`'s gate array. The fallback route always
- * matches, so it must stay last.
- */
-const SUBMIT_ROUTES: readonly SubmitRoute[] = [
-  {
-    match: (field) => IMPLEMENT_ROLE_PROVIDER_KEY.test(field.key) || FLAT_PROVIDER_KEY.test(field.key),
-    handle: handleProviderRoute,
-  },
-  { match: (field) => field.kind === 'map-add', handle: handleMapAddRoute },
-  { match: (field) => field.kind === 'map-entry', handle: handleMapEntryRoute },
-  { match: () => true, handle: handleDefaultRoute },
-];
-
-/** Persist a single field edit. */
+/** Persist a single field edit — provider keys first, then the escalation-map rows, then the generic fallback. */
 export const submitField = async (
   settings: Settings,
   field: EditableField,
   raw: string,
   settingsRepo: SettingsRepository
 ): Promise<MutationOutcome> => {
-  const route = SUBMIT_ROUTES.find((r) => r.match(field));
-  return route!.handle(settings, field, raw, settingsRepo);
+  const role = IMPLEMENT_ROLE_PROVIDER_KEY.exec(field.key);
+  if (role !== null) return setProvider('implement', role[1] as 'generator' | 'evaluator', raw, settingsRepo);
+  const flat = FLAT_PROVIDER_KEY.exec(field.key);
+  if (flat !== null) return setProvider(flat[1] as FlowId, undefined, raw, settingsRepo);
+  if (field.kind === 'map-add') return handleMapAddRoute(settings, raw, settingsRepo);
+  if (field.kind === 'map-entry') return handleMapEntryRoute(settings, field, raw, settingsRepo);
+  return handleDefaultRoute(settings, field, raw, settingsRepo);
 };
 
 /** Shared applySettingsKey → settings-set tail used by every non-provider route above. */

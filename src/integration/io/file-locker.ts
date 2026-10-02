@@ -8,6 +8,7 @@ import { Result } from '@src/domain/result.ts';
 import { messageOf } from '@src/domain/value/error/error-message.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
+import { errnoCode } from '@src/integration/io/fs.ts';
 
 /**
  * Advisory cooperative file lock, backed by `proper-lockfile`. The holder creates a lock
@@ -289,11 +290,3 @@ const acquireErrorMessage = (cause: unknown, maxRetries: number): string =>
 
 const BENIGN_RELEASE_CODES = new Set(['ERELEASED', 'ENOTACQUIRED']);
 const isBenignReleaseError = (cause: unknown): boolean => BENIGN_RELEASE_CODES.has(errnoCode(cause) ?? '');
-
-const errnoCode = (cause: unknown): string | undefined => {
-  if (typeof cause === 'object' && cause !== null) {
-    const code = (cause as { code?: unknown }).code;
-    if (typeof code === 'string') return code;
-  }
-  return undefined;
-};

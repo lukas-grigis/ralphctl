@@ -95,6 +95,7 @@ const buildAdapterCaches = (
         harnessConfig: settings.harness,
         eventBus: deps.app.eventBus,
         childRegistry: deps.app.childRegistry,
+        ...(deps.app.providerSpawn !== undefined ? { spawn: deps.app.providerSpawn } : {}),
       })
     );
     skillsCache.set(provider, createSkillsAdapter({ provider, logger: deps.app.logger }));

@@ -4,18 +4,21 @@ import type { HeadlessAiProvider, ProviderUsage } from '@src/integration/ai/prov
 import { STDERR_TAIL_CAP, createBoundedTail } from '@src/integration/ai/providers/_engine/bounded-tail.ts';
 import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
+import { AbortError } from '@src/domain/value/error/abort-error.ts';
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
-import type { ProviderSpawn } from '@src/integration/ai/providers/_engine/spawn.ts';
+import { type ProviderSpawn, defaultProviderSpawn } from '@src/integration/ai/providers/_engine/spawn.ts';
+import type { HeadlessProviderDeps } from '@src/integration/ai/providers/_engine/headless-provider-deps.ts';
 import { runHeadlessSpawn } from '@src/integration/ai/providers/_engine/run-headless-spawn.ts';
 import { runWithRateLimitRetry } from '@src/integration/ai/providers/_engine/run-with-rate-limit-retry.ts';
 import { writeTextAtomic } from '@src/integration/io/fs.ts';
-import { persistSessionIdFile } from '@src/integration/ai/providers/_engine/persist-session-id.ts';
+import { persistSessionIdBestEffort } from '@src/integration/ai/providers/_engine/persist-session-id.ts';
 import { contextWindowFor } from '@src/integration/ai/providers/_engine/context-window.ts';
 import type { AttemptOutcome } from '@src/integration/ai/providers/_engine/attempt-outcome.ts';
 import {
   classifySpawnExit,
   classifySpawnFailure,
   type ProviderName,
+  type ProviderSlug,
 } from '@src/integration/ai/providers/_engine/classify-spawn-exit.ts';
 import { argvByteLength } from '@src/integration/ai/providers/_engine/argv-budget.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
@@ -27,7 +30,7 @@ import {
 } from '@src/integration/ai/providers/_engine/child-registry.ts';
 import { processGroupOf } from '@src/integration/io/kill-process-tree.ts';
 
-export type { ProviderName };
+export type { ProviderName, ProviderSlug };
 
 /**
  * Token-usage payload supplied by each provider adapter. Fields map directly to the
@@ -150,14 +153,14 @@ export interface ProviderAttemptInput {
    */
   readonly emitProviderTokenUsage: (sessionId: string) => TokenUsagePayload;
   readonly providerName: ProviderName;
-  readonly providerSlug: 'claude' | 'codex' | 'copilot' | 'opencode' | 'grok';
+  readonly providerSlug: ProviderSlug;
   readonly eventBus: EventBus;
   readonly idleMs?: number;
   /** Where the spawned child is announced for orphan reaping and the live-run record. */
   readonly childRegistry?: ChildRegistry;
 }
 
-const PROVIDER_BY_SLUG: Readonly<Record<ProviderAttemptInput['providerSlug'], AiProvider>> = {
+const PROVIDER_BY_SLUG: Readonly<Record<ProviderSlug, AiProvider>> = {
   claude: 'claude-code',
   codex: 'openai-codex',
   copilot: 'github-copilot',
@@ -191,7 +194,7 @@ const registerChild = (
  * - `runHeadlessSpawn` wiring — onStdout / onStderr / stdin / resolveOn / idleMs /
  *   abortSignal / onIdle (idle-watchdog warn + banner-show).
  * - `onSuccess` plumbing — `emitSessionIdCaptured`, `emitProviderTokenUsage`,
- *   `persistSessionIdFile`, bodyFile mirror.
+ *   `persistSessionIdBestEffort`, bodyFile mirror.
  * - `classifySpawnExit` call with provider-specific rateLimitRe and stdoutTail.
  *
  * Each provider supplies only what genuinely differs: argv, stdout chunk consumer, flush
@@ -243,19 +246,6 @@ const createIdleTelemetry = (
   };
 };
 
-/** Best-effort `session-id.txt` write; a failure only degrades resume re-attach, never the run. */
-const persistSessionId = async (input: ProviderAttemptInput, sessionId: string | undefined): Promise<void> => {
-  const wrote = await persistSessionIdFile(input.session.signalsFile, sessionId);
-  if (wrote === undefined || wrote.ok) return;
-  input.eventBus.publish({
-    type: 'log',
-    level: 'warn',
-    message: `${input.providerName}: failed to write sessionId file — resume re-attach may need log parsing`,
-    meta: { error: wrote.error.message },
-    at: IsoTimestamp.now(),
-  });
-};
-
 /**
  * Persist the provider's session id the moment the stream yields it — `session-id.txt` plus the
  * live-run record — so a harness killed mid-spawn still leaves a resumable thread on disk. Checked
@@ -270,7 +260,9 @@ const createSessionIdCapture = (
   const onSessionId = (sessionId: string): void => {
     captured = sessionId;
     registered?.noteSessionId(sessionId);
-    writes = writes.then(() => persistSessionId(input, sessionId));
+    writes = writes.then(() =>
+      persistSessionIdBestEffort(input.eventBus, input.providerName, input.session.signalsFile, sessionId)
+    );
   };
   return {
     onChunk: () => {
@@ -339,7 +331,9 @@ const createSuccessHandler =
           : {}),
       };
     }
-    if (!alreadyPersisted) await persistSessionId(input, sessionId);
+    if (!alreadyPersisted) {
+      await persistSessionIdBestEffort(input.eventBus, input.providerName, input.session.signalsFile, sessionId);
+    }
     const bodyError = await mirrorBodyFile(input);
     if (bodyError !== undefined) return { kind: 'error', error: bodyError };
     return {
@@ -355,6 +349,13 @@ const createSuccessHandler =
 
 export const runProviderAttempt = async (input: ProviderAttemptInput): Promise<AttemptOutcome> => {
   const { spawnFn, command, args, session, providerName } = input;
+  // Nothing to kill yet: spawning under an already-aborted signal would leave a child no cancel can reach.
+  if (session.abortSignal?.aborted === true) {
+    return {
+      kind: 'error',
+      error: new AbortError({ elementName: providerName, reason: `${providerName}: aborted by caller` }),
+    };
+  }
 
   const argvBytes = argvByteLength(command, args);
   // Read BEFORE the spawn so the recorded duration covers the child's whole life, including the
@@ -450,43 +451,66 @@ export interface GenerateContext {
   readonly cleanup?: () => Promise<void>;
 }
 
+/** The per-provider identity and operational wiring every attempt shares, resolved once from deps. */
+export type AttemptBase = Pick<
+  ProviderAttemptInput,
+  'spawnFn' | 'command' | 'providerName' | 'providerSlug' | 'eventBus' | 'idleMs' | 'childRegistry'
+>;
+
 export interface CreateHeadlessProviderInput {
-  readonly providerSlug: 'claude' | 'codex' | 'copilot' | 'opencode' | 'grok';
-  readonly providerName: ProviderName;
+  readonly providerSlug: ProviderSlug;
+  readonly deps: HeadlessProviderDeps;
+  /** Executable used when `deps.command` is absent. */
+  readonly defaultCommand: string;
   readonly resumeStaleRe: RegExp;
-  readonly rateLimitRetries: number;
-  readonly eventBus: EventBus;
-  readonly backoffSchedule?: readonly number[];
   /**
-   * Called once at the start of each `generate()` call. Creates per-generate state (e.g.
-   * codex's output tempfile path) and returns the per-attempt function and optional cleanup.
-   * The attempt function is called once per retry; cleanup runs once after all attempts.
+   * Called once at the start of each `generate()` call with the resolved {@link AttemptBase}.
+   * Creates per-generate state (e.g. codex's output tempfile path) and returns the per-attempt
+   * function and optional cleanup. The attempt function is called once per retry; cleanup runs
+   * once after all attempts.
    */
-  readonly createGenerateContext: () => GenerateContext;
+  readonly createGenerateContext: (base: AttemptBase) => GenerateContext;
 }
 
 /**
- * Factory for the identical generate()->runWithRateLimitRetry boilerplate shared by all five
- * headless provider adapters. Each adapter passes a `createGenerateContext` thunk that closes
- * over its own resolved deps (spawnFn, command, etc.) so the factory stays dependency-free
- * on provider-specific types.
+ * Factory for the identical deps-resolution and generate()->runWithRateLimitRetry boilerplate
+ * shared by all five headless provider adapters. Owning the {@link AttemptBase} here means no
+ * adapter can forget a seam (e.g. `childRegistry`, which would silently disable orphan reaping).
  */
-export const createHeadlessProvider = (config: CreateHeadlessProviderInput): HeadlessAiProvider => ({
-  async generate(session) {
-    const ctx = config.createGenerateContext();
-    try {
-      return await runWithRateLimitRetry({
-        session,
-        rateLimitRetries: config.rateLimitRetries,
-        ...(config.backoffSchedule !== undefined ? { backoffSchedule: config.backoffSchedule } : {}),
-        eventBus: config.eventBus,
-        providerSlug: config.providerSlug,
-        providerName: config.providerName,
-        resumeStaleRe: config.resumeStaleRe,
-        attempt: ctx.attempt,
-      });
-    } finally {
-      await ctx.cleanup?.();
-    }
-  },
-});
+export const createHeadlessProvider = ({
+  providerSlug,
+  deps,
+  defaultCommand,
+  resumeStaleRe,
+  createGenerateContext,
+}: CreateHeadlessProviderInput): HeadlessAiProvider => {
+  const providerName: ProviderName = `${providerSlug}-provider`;
+  const base: AttemptBase = {
+    spawnFn: deps.spawn ?? defaultProviderSpawn,
+    command: deps.command ?? defaultCommand,
+    providerName,
+    providerSlug,
+    eventBus: deps.eventBus,
+    ...(deps.idleMs !== undefined ? { idleMs: deps.idleMs } : {}),
+    ...(deps.childRegistry !== undefined ? { childRegistry: deps.childRegistry } : {}),
+  };
+  return {
+    async generate(session) {
+      const ctx = createGenerateContext(base);
+      try {
+        return await runWithRateLimitRetry({
+          session,
+          rateLimitRetries: deps.rateLimitRetries,
+          ...(deps.backoffSchedule !== undefined ? { backoffSchedule: deps.backoffSchedule } : {}),
+          eventBus: deps.eventBus,
+          providerSlug,
+          providerName,
+          resumeStaleRe,
+          attempt: ctx.attempt,
+        });
+      } finally {
+        await ctx.cleanup?.();
+      }
+    },
+  };
+};

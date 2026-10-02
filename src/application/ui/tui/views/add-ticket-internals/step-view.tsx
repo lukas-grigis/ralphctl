@@ -59,7 +59,9 @@ const renderFetchFailedStep = (
   ctx: StepRenderCtx
 ): React.JSX.Element => (
   <Box flexDirection="column" paddingX={spacing.indent}>
-    <Text color={inkColors.warning}>! fetch failed: {step.reason}</Text>
+    <Text color={inkColors.warning}>
+      {glyphs.warningGlyph} fetch failed: {step.reason}
+    </Text>
     <Text dimColor>Falling back to manual entry — the URL is preserved on the link field.</Text>
     <Box marginTop={spacing.section}>
       <ConfirmPrompt

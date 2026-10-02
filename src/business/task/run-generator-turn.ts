@@ -4,10 +4,8 @@ import type { AbortCause } from '@src/domain/entity/attempt.ts';
 import type { InProgressTask } from '@src/domain/entity/task.ts';
 import { recordRunningAttemptVerification } from '@src/domain/entity/task-attempts.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
-import { ErrorCode } from '@src/domain/value/error/error-code.ts';
 import type { HarnessSignal, TaskBlockedSignal, TaskBlockerClass } from '@src/domain/signal.ts';
-import { isRecoverableTurnError } from '@src/business/task/turn-error-policy.ts';
-import { abortCauseFromError } from '@src/business/task/abort-cause-from-error.ts';
+import { classifyTurnFailure } from '@src/business/task/turn-error-policy.ts';
 
 /**
  * Run one generator turn of the gen-eval loop. Drives a single AI implement call, inspects the
@@ -97,14 +95,14 @@ const findTaskBlocked = (signals: readonly HarnessSignal[]): TaskBlockedSignal |
 export type BlockTriageCarry = Pick<GeneratorTurnExit, 'blockerClass' | 'question' | 'whatUnblocksMe'>;
 
 /**
- * Project the triage off a signal, ready to spread onto a `self-blocked` {@link GeneratorTurnExit}
- * (or a log line) — each field present only when the signal supplied it. Split out so the caller's
- * own branching doesn't grow with every field.
+ * Project the triage off a signal (or any triage-carrying input), ready to spread onto a
+ * `self-blocked` exit, a `BlockedTask`, or a log line — each field present only when the source
+ * supplied it. One projection so no hop drifts from the others.
  */
-const blockedTriageCarry = (signal: TaskBlockedSignal): BlockTriageCarry => ({
-  ...(signal.blockerClass !== undefined ? { blockerClass: signal.blockerClass } : {}),
-  ...(signal.question !== undefined ? { question: signal.question } : {}),
-  ...(signal.whatUnblocksMe !== undefined ? { whatUnblocksMe: signal.whatUnblocksMe } : {}),
+export const blockedTriageCarry = (source: BlockTriageCarry): BlockTriageCarry => ({
+  ...(source.blockerClass !== undefined ? { blockerClass: source.blockerClass } : {}),
+  ...(source.question !== undefined ? { question: source.question } : {}),
+  ...(source.whatUnblocksMe !== undefined ? { whatUnblocksMe: source.whatUnblocksMe } : {}),
 });
 
 const findLatestCommitMessage = (signals: readonly HarnessSignal[]): ProposedCommitMessage | undefined => {
@@ -122,42 +120,8 @@ export const runGeneratorTurnUseCase = async (
 
   const signalsResult = await props.callImplement(props.task);
   if (!signalsResult.ok) {
-    const err = signalsResult.error;
-    // Fatal errors (user abort, rate-limit-after-retries) must abort the whole run — propagate.
-    // Everything else is recoverable, but splits two ways by error TYPE:
-    //  - a `ProcessCrash` (watchdog kill / spawn crash / non-zero exit with no signals.json) is a
-    //    TRANSIENT process death → a `crashed` exit, which finalize retries within maxAttempts
-    //    (then blocks at the cap) instead of terminally blocking after one attempt.
-    //  - anything else is a genuine signals-contract failure (codex/copilot wrote the wrong shape,
-    //    wrong place, or nothing) → a `self-blocked` exit that blocks THIS task so it surfaces and
-    //    re-runs next launch, without taking down every remaining task.
-    // The error message rides the exit reason so the operator / progress.md shows WHY the turn failed.
-    if (!isRecoverableTurnError(err)) {
-      log.error('implement call failed (fatal — propagating)', { taskId: props.task.id, error: err.message });
-      return Result.error(err);
-    }
-    if (err.code === ErrorCode.ProcessCrash) {
-      log.warn('AI process was killed before producing signals.json — retrying attempt', {
-        taskId: props.task.id,
-        error: err.message,
-      });
-      return Result.ok({
-        task: props.task,
-        exit: {
-          kind: 'crashed',
-          reason: `AI process was killed before producing signals.json: ${err.message}`,
-          ...abortCauseFromError(err),
-        },
-      });
-    }
-    log.warn('generator did not produce a valid signals.json — blocking task', {
-      taskId: props.task.id,
-      error: err.message,
-    });
-    return Result.ok({
-      task: props.task,
-      exit: { kind: 'self-blocked', reason: `generator did not produce a valid signals.json: ${err.message}` },
-    });
+    const exit = classifyTurnFailure(signalsResult.error, 'generator', log, props.task.id);
+    return exit.ok ? Result.ok({ task: props.task, exit: exit.value }) : Result.error(exit.error);
   }
   const signals = signalsResult.value;
 

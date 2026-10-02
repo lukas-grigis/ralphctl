@@ -37,7 +37,7 @@ const listPromptsAction = async (): Promise<void> => {
       fail(`prompt template '${entry.name}' resolved to an empty file — the install is incomplete`);
       return;
     }
-    loaded.push({ ...entry, bytes: body.value.length });
+    loaded.push({ ...entry, bytes: Buffer.byteLength(body.value, 'utf8') });
   }
 
   for (const entry of loaded.sort((a, b) => a.name.localeCompare(b.name))) {

@@ -596,7 +596,7 @@ describe('createReadinessFlow', () => {
     await runner.start();
 
     expect(runner.status).toBe('completed');
-    expect(runner.ctx.entries['claude-code']?.proposal?.proposedSetupScript).toBeUndefined();
-    expect(runner.ctx.entries['claude-code']?.proposal?.proposedVerifyScript).toBeUndefined();
+    expect(runner.ctx.entries['claude-code']?.proposal?.proposedSetupSkillBody).toBeUndefined();
+    expect(runner.ctx.entries['claude-code']?.proposal?.proposedVerifySkillBody).toBeUndefined();
   });
 });

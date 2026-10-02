@@ -17,6 +17,7 @@ import { skillSuggestionsSignalSchema } from '@src/integration/ai/contract/_engi
 import { verifySkillProposalSignalSchema } from '@src/integration/ai/contract/_engine/signals/verify-skill-proposal/schema.ts';
 import { brandSignalArray } from '@src/integration/ai/contract/_engine/brand-signal-array.ts';
 import type { AiOutputContract, SidecarRule } from '@src/integration/ai/contract/_engine/types.ts';
+import { wrapLegacySignalArray } from '@src/integration/ai/contract/_engine/legacy-array-migration.ts';
 
 /**
  * Per-leaf I/O contract for the readiness one-shot AI session — audit-[09]. The session may emit:
@@ -78,19 +79,6 @@ const signalsArraySchemaRaw = z.array(
  * `validateSignalsFile` and `renderSidecars`.
  */
 const signalsArraySchema = brandSignalArray<ReadinessSignal>(signalsArraySchemaRaw);
-
-/**
- * Legacy → v1 wrapping. The readiness leaf synthesises a bare top-level array of contract-
- * accepted signals from the existing headless-adapter `HarnessSignal[]` pipeline. Wave 6
- * swaps the prompt so the AI writes the `{ schemaVersion, signals }` wrapper directly. Until
- * then, this step shims the legacy shape into the wrapper the validator expects.
- */
-const wrapLegacyArray = (raw: unknown): unknown => {
-  if (Array.isArray(raw)) return { schemaVersion: 1, signals: raw };
-  // Already-wrapped payloads (writer migrated, fixture, …) pass through. Anything else
-  // also passes through; Zod will catch shape errors with a precise issue path.
-  return raw;
-};
 
 /**
  * Sidecar rules. Each `multiplicity: 'optional'` — the helper renders only when the matching
@@ -175,19 +163,10 @@ export const readinessOutputContract: AiOutputContract<ReadinessSignal> = {
     verifySkillSidecar as SidecarRule<ReadinessSignal['type']>,
   ],
   migrations: {
-    0: wrapLegacyArray,
+    0: wrapLegacySignalArray,
   },
   exampleSignals: readinessExampleSignals,
 };
-
-/**
- * Exported solely so the test grid can assert against the exact signal sub-union the
- * contract accepts. The leaf consumes the contract via `readinessOutputContract`; this
- * alias must not appear outside `__tests__/`.
- *
- * @public
- */
-export type ReadinessContractSignal = ReadinessSignal;
 
 const _signalCheck: ReadinessSignal extends AiSignal ? true : false = true;
 void _signalCheck;

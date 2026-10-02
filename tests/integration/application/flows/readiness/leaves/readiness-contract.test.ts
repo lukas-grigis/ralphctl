@@ -33,6 +33,7 @@ import {
   type ProposeReadinessLeafDeps,
 } from '@src/application/flows/readiness/leaves/propose.ts';
 import type { ReadinessCtx } from '@src/application/flows/readiness/ctx.ts';
+import { createPublishSignal } from '@src/application/flows/_shared/publish-signal.ts';
 
 /**
  * Audit-[10] nine-branch grid against the audit-[09] readiness contract.
@@ -163,7 +164,7 @@ describe('proposeReadinessLeaf — audit-[09] contract', () => {
       provider: fakeProvider(payload),
       templateLoader: createFsTemplateLoader(defaultTemplatesDir()),
       writeFile: writer.write,
-      eventBus,
+      publishSignal: createPublishSignal(eventBus, 'readiness'),
       logger: noopLogger,
       cwd: absolutePath('/tmp/ralph/fake-readiness-cwd'),
       model: 'claude-sonnet-4-6',

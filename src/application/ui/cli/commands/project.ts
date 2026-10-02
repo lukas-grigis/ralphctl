@@ -2,6 +2,7 @@ import type { Command } from 'commander';
 import type { Project } from '@src/domain/entity/project.ts';
 import { ProjectId } from '@src/domain/value/id/project-id.ts';
 import { bootstrapCli } from '@src/application/ui/cli/bootstrap.ts';
+import { plural } from '@src/application/ui/shared/plural.ts';
 import { confirmDestructive } from '@src/application/ui/cli/confirm-destructive.ts';
 import { fail } from '@src/application/ui/cli/report-cli-error.ts';
 import { createLastSelectionStore } from '@src/integration/persistence/selection/last-selection-store.ts';
@@ -104,5 +105,5 @@ export const registerProjectCommand = (program: Command): void => {
 
 const formatProjectLine = (p: Project): string => {
   const repos = p.repositories.length;
-  return `${String(p.id)}  ${String(p.slug).padEnd(24)}  ${p.displayName}  (${String(repos)} repo${repos === 1 ? '' : 's'})`;
+  return `${String(p.id)}  ${String(p.slug).padEnd(24)}  ${p.displayName}  (${plural(repos, 'repo')})`;
 };

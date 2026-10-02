@@ -110,15 +110,11 @@ export interface CorrectiveRetryDeps {
 const isCorrectableContractError = (err: DomainError): boolean =>
   err instanceof InvalidStateError || err instanceof ParseError;
 
-/**
- * Build the corrective message body, gated by error class. Zod issue lists exist ONLY for
- * `schema-mismatch` (the parse error carries the `ZodError` in `cause`); `invalid-json` and
- * `signals-missing` need their own short text since there is nothing to enumerate.
- */
 /** Zod issues enumerated in the corrective body are capped — a pathological mismatch can carry
  * hundreds of element-level issues, and past the first few the model gains nothing from more. */
 const MAX_ENUMERATED_ISSUES = 10;
 
+// Corrective body branches: missing file, invalid JSON, Zod issue list, other rejected content.
 const correctiveBody = (err: DomainError, signalsPath: string, selfContainedContext: string): string => {
   const lines: string[] = [];
   lines.push('Your previous `signals.json` did not satisfy the output contract, so the harness could');
@@ -126,7 +122,14 @@ const correctiveBody = (err: DomainError, signalsPath: string, selfContainedCont
   lines.push('below and re-write the file. Do not change anything else.');
   lines.push('');
 
-  if (err instanceof ParseError && err.subCode === 'schema-mismatch' && err.cause instanceof ZodError) {
+  if (err instanceof InvalidStateError) {
+    lines.push(`You did not write \`${signalsPath}\`. Write that exact absolute path now with your`);
+    lines.push('`Write` tool, matching the `{ schemaVersion, signals }` shape from the contract above.');
+  } else if (err instanceof ParseError && err.subCode === 'invalid-json') {
+    lines.push(`The file at \`${signalsPath}\` existed but was not valid JSON. Re-write it as a single`);
+    lines.push('valid JSON object matching the `{ schemaVersion, signals }` shape. Check for trailing');
+    lines.push('commas, unescaped quotes inside string fields, and truncated output.');
+  } else if (err instanceof ParseError && err.cause instanceof ZodError) {
     lines.push('The shape failed schema validation. Each line below is one problem — fix every one:');
     lines.push('');
     const issues = err.cause.issues;
@@ -139,17 +142,9 @@ const correctiveBody = (err: DomainError, signalsPath: string, selfContainedCont
         `- …plus ${String(issues.length - MAX_ENUMERATED_ISSUES)} more of the same kinds — fix the pattern, not just the listed lines.`
       );
     }
-    lines.push('');
-    lines.push('Common cause: a terminal `evaluation` verdict (`passed` / `failed`) MUST grade all five');
-    lines.push('floor dimensions — correctness, completeness, safety, consistency, robustness — each with a finding.');
-  } else if (err instanceof ParseError && err.subCode === 'invalid-json') {
-    lines.push(`The file at \`${signalsPath}\` existed but was not valid JSON. Re-write it as a single`);
-    lines.push('valid JSON object matching the `{ schemaVersion, signals }` shape. Check for trailing');
-    lines.push('commas, unescaped quotes inside string fields, and truncated output.');
   } else {
-    // signals-missing (InvalidStateError) or any other correctable shape.
-    lines.push(`You did not write \`${signalsPath}\`. Write that exact absolute path now with your`);
-    lines.push('`Write` tool, matching the `{ schemaVersion, signals }` shape from the contract above.');
+    lines.push(`The file at \`${signalsPath}\` was read but rejected: ${err.message}`);
+    lines.push('Re-write it as a single JSON object matching the `{ schemaVersion, signals }` shape.');
   }
 
   lines.push('');

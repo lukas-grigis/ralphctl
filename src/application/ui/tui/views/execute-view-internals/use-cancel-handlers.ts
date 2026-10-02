@@ -9,6 +9,9 @@ import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { TaskId } from '@src/domain/value/id/task-id.ts';
 import type { TaskBucket } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
 import { cancelActiveTaskUseCase } from '@src/business/task/cancel-active-task.ts';
+import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
+import { AbortError } from '@src/domain/value/error/abort-error.ts';
+import { messageOf } from '@src/domain/value/error/error-message.ts';
 
 interface UseCancelHandlersInput {
   readonly sessions: SessionManager;
@@ -43,21 +46,31 @@ export const useCancelHandlers = ({
   const onCancelFlow = React.useCallback(() => {
     setCancelScopeOpen(false);
     void (async (): Promise<void> => {
-      const taskIdRaw = currentTask?.id;
-      if (sprintId !== undefined && taskIdRaw !== undefined && taskRepo !== undefined) {
-        const taskId = taskIdRaw as TaskId;
-        const found = await taskRepo.findById(sprintId, taskId);
-        if (found.ok) {
-          await cancelActiveTaskUseCase({
-            task: found.value,
-            sprintId,
-            reason: 'user cancel',
-            taskRepo,
-            logger,
-          });
+      try {
+        const taskIdRaw = currentTask?.id;
+        if (sprintId !== undefined && taskIdRaw !== undefined && taskRepo !== undefined) {
+          const taskId = taskIdRaw as TaskId;
+          const found = await taskRepo.findById(sprintId, taskId);
+          if (found.ok) {
+            await cancelActiveTaskUseCase({
+              task: found.value,
+              sprintId,
+              reason: 'user cancel',
+              taskRepo,
+              logger,
+              clock: IsoTimestamp.now,
+            });
+          }
         }
+      } catch (cause) {
+        if (cause instanceof AbortError) throw cause;
+        logger.warn('cancel-flow: could not block the active task', {
+          error: messageOf(cause),
+        });
+      } finally {
+        // Unwind even when the block write failed — the operator asked for the flow to stop.
+        sessions.abort(sessionId);
       }
-      sessions.abort(sessionId);
     })();
   }, [sessions, sessionId, sprintId, currentTask, taskRepo, logger, setCancelScopeOpen]);
 

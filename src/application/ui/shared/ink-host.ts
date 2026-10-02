@@ -7,6 +7,7 @@ import { type Instance as InkInstance, render } from 'ink';
 import { AbortError } from '@src/domain/value/error/abort-error.ts';
 import { releaseStdinForChild } from '@src/application/ui/shared/stdin-handoff.ts';
 import type { RunInTerminal } from '@src/integration/io/run-in-terminal.ts';
+import { messageOf } from '@src/domain/value/error/error-message.ts';
 
 /** DEC private mode 2004 — bracketed paste. */
 const BRACKETED_PASTE_ON = '\x1b[?2004h';
@@ -99,7 +100,7 @@ export const createInkHost = (deps: InkHostDeps): InkHost => {
         // `waitUntilExit()` rejects only when Ink tears down on a fatal error — either a deliberate `exit(err)` or an
         // uncaught render error.
         if (error instanceof AbortError) throw error;
-        const msg = error instanceof Error ? error.message : String(error);
+        const msg = messageOf(error);
         process.stderr.write(`ralphctl: the TUI exited with an error — ${msg}\n`);
         process.exitCode = 1;
         return;

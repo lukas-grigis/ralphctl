@@ -186,7 +186,6 @@ const dismissFeedback = (ok: boolean, flowId: string): StructuredFeedback =>
 
 interface RunsKeysArgs {
   readonly itemCount: number;
-  readonly sessions: readonly SessionRecord[];
   readonly focusedItem: RunItem | undefined;
   readonly active: boolean;
   readonly stopRun: (target: SessionRecord) => void;
@@ -195,7 +194,7 @@ interface RunsKeysArgs {
 
 /** Runs' keys: ↵ open / resume, `c` stop a live session, `d` dismiss an interrupted record — each only on its own row. */
 const useRunsKeys = (args: RunsKeysArgs): void => {
-  const { itemCount, sessions, focusedItem, active, stopRun, dismiss } = args;
+  const { itemCount, focusedItem, active, stopRun, dismiss } = args;
   const kind = focusedItem?.kind;
   useViewKeys(
     [
@@ -204,10 +203,9 @@ const useRunsKeys = (args: RunsKeysArgs): void => {
       {
         keys: ['c'],
         hint: 'stop run',
-        enabled: sessions.length > 0 && kind === 'session',
+        enabled: kind === 'session',
         run: () => {
-          const target = focusedItem?.kind === 'session' ? focusedItem.record : sessions[0];
-          if (target !== undefined) stopRun(target);
+          if (focusedItem?.kind === 'session') stopRun(focusedItem.record);
         },
       },
       {
@@ -259,7 +257,6 @@ export const SessionsView = (): React.JSX.Element => {
   });
   useRunsKeys({
     itemCount: items.length,
-    sessions,
     focusedItem: focusedItem ?? items[0],
     active: listActive,
     stopRun: (target) => {

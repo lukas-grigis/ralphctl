@@ -1,11 +1,7 @@
 /**
- * Shared `feed`/`flush` NDJSON line-splitting loop for the stdout stream parsers
- * (`claude/parse-stream.ts`, `copilot/parse-stream.ts`). Both parsers accumulate a local
- * `buffer`, cap it via {@link createCappedAppend} to guard against an OOM-class unterminated-line
- * accumulation (see `bounded-tail.ts`), split on `\n` in a loop, and hand each complete line to a
- * parser-specific `emitLine` callback that closes over that parser's own state. That loop was
- * byte-identical in both siblings — unified here so they can't drift; only the per-line emit
- * function (and its output line type) stays parser-local.
+ * Shared NDJSON plumbing for the five stdout stream parsers: the capped `feed`/`flush`
+ * line-splitting loop ({@link createCappedLineFeed}) plus the JSON-object line parser the
+ * codex / grok / opencode emitters share ({@link parseJsonObjectLine}, {@link emitJsonObjectLine}).
  *
  * @public
  */
@@ -57,4 +53,25 @@ export const createCappedLineFeed = <L>(
       }
     },
   };
+};
+
+/**
+ * Trim + JSON.parse one stdout line. `undefined` for blank, non-object-looking, and unparseable
+ * lines — CLIs print banner text alongside JSON records, so a parse failure is expected noise.
+ */
+export const parseJsonObjectLine = (line: string): Record<string, unknown> | undefined => {
+  const trimmed = line.trim();
+  if (trimmed.length === 0 || !trimmed.startsWith('{')) return undefined;
+  try {
+    // Callers narrow every field they read through `json-field.ts` helpers; unknown shapes are skipped.
+    return JSON.parse(trimmed) as Record<string, unknown>;
+  } catch {
+    return undefined;
+  }
+};
+
+/** {@link createCappedLineFeed} emitter for JSONL streams: one parsed object per line, none for noise. */
+export const emitJsonObjectLine = (raw: string, onLine: (obj: Record<string, unknown>) => void): void => {
+  const obj = parseJsonObjectLine(raw);
+  if (obj !== undefined) onLine(obj);
 };

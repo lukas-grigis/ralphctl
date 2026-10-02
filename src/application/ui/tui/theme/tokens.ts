@@ -180,23 +180,6 @@ export const listCapacity = (
 };
 
 /**
- * Pick a value per breakpoint. Falls through to smaller breakpoints when the active one isn't specified — `sm` is
- * required as the floor.
- * @public — canonical breakpoint helper (see CLAUDE.md § TUI), retained for downstream consumers
- */
-export const responsive = <T>(
-  columns: number,
-  values: { readonly sm: T; readonly md?: T; readonly lg?: T; readonly xl?: T; readonly xxl?: T }
-): T => {
-  const bp = breakpointFor(columns);
-  if (bp === 'xxl' && values.xxl !== undefined) return values.xxl;
-  if ((bp === 'xxl' || bp === 'xl') && values.xl !== undefined) return values.xl;
-  if ((bp === 'xxl' || bp === 'xl' || bp === 'lg') && values.lg !== undefined) return values.lg;
-  if (bp !== 'sm' && values.md !== undefined) return values.md;
-  return values.sm;
-};
-
-/**
  * Visible-row budget for windowed list prompts (multi-select today; single-select / pickers in future).
  */
 export const PROMPT_VISIBLE_ROWS = 8;

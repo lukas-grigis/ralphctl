@@ -12,8 +12,6 @@ import {
   CRITERIA_COLLAPSED_LINES,
 } from '@src/application/ui/tui/components/tasks-panel-internals/format.ts';
 
-type TraceLikeStatus = 'completed' | 'failed' | 'aborted' | 'skipped';
-
 export const STATUS_PRESENTATION: Readonly<
   Record<TaskBucketStatus, { readonly color: string; readonly glyph: string }>
 > = {
@@ -26,13 +24,6 @@ export const STATUS_PRESENTATION: Readonly<
   // Error-level, NOT muted: a dependency-blocked task needs the operator's attention — it must never read as the same
   // grey as a merely-`pending` task.
   blocked: { color: inkColors.error, glyph: glyphFor('blocked') },
-};
-
-const SUB_STEP_PRESENTATION: Readonly<Record<TraceLikeStatus, { readonly color: string; readonly glyph: string }>> = {
-  completed: { color: inkColors.success, glyph: glyphs.phaseDone },
-  failed: { color: inkColors.error, glyph: glyphs.cross },
-  aborted: { color: inkColors.warning, glyph: glyphs.warningGlyph },
-  skipped: { color: inkColors.muted, glyph: glyphs.phaseDisabled },
 };
 
 export const RecoveryLine = ({
@@ -100,20 +91,13 @@ export const BusyIndicator = ({
   </Box>
 );
 
-export const SubStepLine = ({
-  sub,
-  running,
-}: {
-  readonly sub: TaskSubStep;
-  readonly running: boolean;
-}): React.JSX.Element => {
-  const presentation = SUB_STEP_PRESENTATION[sub.status];
-  const glyph = running && sub.status === 'completed' ? presentation.glyph : presentation.glyph;
+export const SubStepLine = ({ sub }: { readonly sub: TaskSubStep }): React.JSX.Element => {
+  const presentation = STATUS_PRESENTATION[sub.status];
   // One truncating <Text>: sibling flex items shrink and shed the rail glyph / separating spaces.
   return (
     <Text wrap="truncate-end">
       <Text color={presentation.color} bold>
-        {glyphs.activityArrow} {glyph}
+        {glyphs.activityArrow} {presentation.glyph}
       </Text>
       <Text> {sub.leafName}</Text>
       <Text dimColor>

@@ -24,8 +24,8 @@ export interface RoundOutcomeInput {
   readonly attempt: Attempt;
   /**
    * Verdict the harness decided for the attempt — typically derived from the evaluator
-   * signal but may be the synthesised `plateau` when the inner loop detected the same failed
-   * dimensions across two consecutive evaluations.
+   * signal but may be the synthesised `plateau` when the inner loop exited on no net progress
+   * across the plateau window.
    */
   readonly verdict: RoundVerdict;
   /**
@@ -51,8 +51,8 @@ export interface RoundOutcomeInput {
 
 /**
  * Round-level verdict. `passed` / `failed` mirror the evaluator's two terminal verdicts; the
- * synthesised `plateau` covers "two consecutive failed evals with identical failed-dimension
- * sets" which the harness handles distinctly.
+ * synthesised `plateau` covers the inner loop exiting on no net progress (the failed-dimension
+ * count never decreased) across the plateau window, which the harness handles distinctly.
  */
 export type RoundVerdict = 'passed' | 'failed' | 'plateau';
 
@@ -140,8 +140,8 @@ const renderCritique = (
  * One-sentence deterministic summary. Examples:
  *  - "Round 2 of attempt 1 passed all evaluator dimensions and committed abc1234."
  *  - "Round 1 of attempt 1 failed completeness 3/5; critique persisted, round 2 will retry."
- *  - "Round 3 of attempt 2 plateaued on correctness, completeness; harness gave up after 2
- *     identical failed evaluations."
+ *  - "Round 3 of attempt 2 plateaued on correctness, completeness; the harness exited the loop
+ *     after no net progress across the plateau window."
  */
 const synthesise = (input: RoundOutcomeInput): string => {
   const base = `Round ${String(input.roundN)} of attempt ${String(input.attemptN)}`;
@@ -153,7 +153,7 @@ const synthesise = (input: RoundOutcomeInput): string => {
   if (input.verdict === 'plateau') {
     const failedDims = collectFailedDimensions(input.evaluation);
     const dims = failedDims.length > 0 ? ` on ${failedDims.join(', ')}` : '';
-    return `${base} plateaued${dims}; harness gave up after 2 identical failed evaluations.`;
+    return `${base} plateaued${dims}; the harness exited the loop after no net progress across the plateau window.`;
   }
   // failed — the trailing clause depends on whether another round actually follows. A granted
   // retry keeps today's "round N+1 will retry" wording; a terminal round (self-blocked, or
@@ -165,18 +165,12 @@ const synthesise = (input: RoundOutcomeInput): string => {
   if (failedDims.length === 0) {
     return `${base} failed without dimension verdicts; ${tail}`;
   }
-  const detail = formatFailedDimensions(input.evaluation);
-  return `${base} failed on ${detail}; ${tail}`;
+  return `${base} failed on ${failedDims.join(', ')}; ${tail}`;
 };
 
 const collectFailedDimensions = (evaluation: EvaluationSignal | undefined): readonly string[] => {
   if (evaluation === undefined) return [];
   return evaluation.dimensions.filter(isFailedDimension).map((d) => dimensionLabel(d));
-};
-
-const formatFailedDimensions = (evaluation: EvaluationSignal | undefined): string => {
-  const failed = collectFailedDimensions(evaluation);
-  return failed.length === 0 ? 'evaluator dimensions' : failed.join(', ');
 };
 
 const SHA_DISPLAY_LENGTH = 7;

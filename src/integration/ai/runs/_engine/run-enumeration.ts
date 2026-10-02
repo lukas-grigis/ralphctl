@@ -5,7 +5,7 @@ import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { ValidationError } from '@src/domain/value/error/validation-error.ts';
 import type { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
-import { dirSizeBytes, removeDir } from '@src/integration/io/fs.ts';
+import { dirSizeBytes, errnoCode, isNodeErrnoCode, removeDir } from '@src/integration/io/fs.ts';
 
 /**
  * Enumeration + parsing helpers for per-run forensic artifact directories under `<dataRoot>/runs/<flow>/<run-id>/`.
@@ -99,21 +99,6 @@ export const parseDuration = (input: string): Result<number, ValidationError> =>
   return Result.ok(num * unitMs);
 };
 
-/** Format a byte count using binary units. Used in list rows and prune summaries. */
-export const formatBytes = (bytes: number): string => {
-  if (!Number.isFinite(bytes) || bytes < 0) return '0 B';
-  if (bytes < 1024) return `${bytes} B`;
-  const units = ['KiB', 'MiB', 'GiB', 'TiB'];
-  let value = bytes / 1024;
-  let unitIndex = 0;
-  while (value >= 1024 && unitIndex < units.length - 1) {
-    value /= 1024;
-    unitIndex += 1;
-  }
-  const formatted = value >= 100 ? value.toFixed(0) : value >= 10 ? value.toFixed(1) : value.toFixed(2);
-  return `${formatted} ${units[unitIndex]}`;
-};
-
 /**
  * Format an age relative to now in coarse buckets — seconds / minutes / hours / days / weeks. `now` is injectable so
  * tests get deterministic output.
@@ -142,12 +127,12 @@ const readDirTolerant = async (
   try {
     return Result.ok(await fs.readdir(path, { withFileTypes: true }));
   } catch (cause) {
-    if (isErrnoException(cause) && cause.code === 'ENOENT') return Result.ok(undefined);
+    if (isNodeErrnoCode(cause, 'ENOENT')) return Result.ok(undefined);
     return Result.error(
       new ValidationError({
         field,
         value: path,
-        message: `unable to read ${field}: ${isErrnoException(cause) ? (cause.code ?? 'unknown') : 'unknown'}`,
+        message: `unable to read ${field}: ${errnoCode(cause) ?? 'unknown'}`,
       })
     );
   }
@@ -243,6 +228,3 @@ const compareNewestFirst = (a: RunEntry, b: RunEntry): number => {
   if (b.timestamp === null) return -1;
   return b.timestamp.getTime() - a.timestamp.getTime();
 };
-
-const isErrnoException = (cause: unknown): cause is NodeJS.ErrnoException =>
-  typeof cause === 'object' && cause !== null && 'code' in cause;

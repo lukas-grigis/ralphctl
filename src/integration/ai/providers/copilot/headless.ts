@@ -19,11 +19,11 @@ import { isCopilotModel } from '@src/domain/value/settings-models/copilot.ts';
 import { validateModel } from '@src/integration/ai/providers/_engine/validate-model.ts';
 import { createCopilotStreamParser } from '@src/integration/ai/providers/copilot/parse-stream.ts';
 import type { CopilotStreamLine, CopilotUsage } from '@src/integration/ai/providers/_engine/copilot-stream.ts';
-import { type ProviderSpawn, defaultProviderSpawn } from '@src/integration/ai/providers/_engine/spawn.ts';
 import { DEFAULT_RATE_LIMIT_RE } from '@src/integration/ai/providers/_engine/classify-spawn-exit.ts';
 import { publishAssistantEvent } from '@src/integration/ai/providers/_engine/stream-debug-events.ts';
 import { truncateField } from '@src/integration/ai/providers/_engine/truncate-debug-field.ts';
 import {
+  type AttemptBase,
   createHeadlessProvider,
   emitTokenUsage,
   runProviderAttempt,
@@ -136,6 +136,14 @@ const materializeCopilotPrompt = async (
   return undefined;
 };
 
+/** Model gate shared by {@link buildCopilotArgs} and the check that precedes the prompt write. */
+const validateCopilotModel = (model: string): Result<void, InvalidStateError> =>
+  validateModel(model, isCopilotModel, {
+    entity: PROVIDER_NAME,
+    attemptedAction: 'build argv',
+    notKnownMessage: `copilot-provider: '${model}' is not a known Copilot model`,
+  });
+
 /**
  * Build the argv for one Copilot invocation. Validates `session.model` is a known
  * {@link CopilotModel}; surfaces `InvalidStateError` for unknowns.
@@ -149,11 +157,7 @@ export const buildCopilotArgs = (
 ): Result<readonly string[], InvalidStateError> => {
   // Catalog-valid but temporarily suspended server-side (see suspended-models.ts) — the list is
   // currently empty; the guard stays wired for the next incident.
-  const validated = validateModel(session.model, isCopilotModel, {
-    entity: PROVIDER_NAME,
-    attemptedAction: 'build argv',
-    notKnownMessage: `copilot-provider: '${session.model}' is not a known Copilot model`,
-  });
+  const validated = validateCopilotModel(session.model);
   if (!validated.ok) return Result.error(validated.error);
   // `--autopilot` is required for autonomous continuation; without it Copilot may pause
   // between actions in non-interactive mode and never finish the turn. v1's working headless
@@ -305,15 +309,15 @@ const createOnLine =
  * `onLine` callback, then delegates the actual spawn/exit/retry-classification handling to
  * the shared `runProviderAttempt` scaffold.
  */
-const createCopilotAttempt = (deps: HeadlessProviderDeps, spawnFn: ProviderSpawn, command: string) => {
+const createCopilotAttempt = (deps: HeadlessProviderDeps, base: AttemptBase) => {
   return async (attemptSession: AiSession) => {
     // Validate before writing: an unknown / suspended model fails argv construction, and paying
     // for an mkdir + atomic write for a spawn that never happens would leave a stray artifact.
-    const dryRun = buildCopilotArgs(attemptSession);
-    if (!dryRun.ok) return { kind: 'error' as const, error: dryRun.error };
+    const validated = validateCopilotModel(attemptSession.model);
+    if (!validated.ok) return { kind: 'error' as const, error: validated.error };
 
     const promptFile = await materializeCopilotPrompt(deps, attemptSession);
-    const built = promptFile === undefined ? dryRun : buildCopilotArgs(attemptSession, promptFile);
+    const built = buildCopilotArgs(attemptSession, promptFile);
     if (!built.ok) return { kind: 'error' as const, error: built.error };
 
     const parser = createCopilotStreamParser();
@@ -327,8 +331,7 @@ const createCopilotAttempt = (deps: HeadlessProviderDeps, spawnFn: ProviderSpawn
     const onLine = createOnLine(deps, state, recordLine);
 
     return runProviderAttempt({
-      spawnFn,
-      command,
+      ...base,
       args: built.value,
       session: attemptSession,
       resolveOn: 'exit',
@@ -361,26 +364,15 @@ const createCopilotAttempt = (deps: HeadlessProviderDeps, spawnFn: ProviderSpawn
           ...(state.usage.inputTokens !== undefined ? { inputTokens: state.usage.inputTokens } : {}),
           ...(state.usage.outputTokens !== undefined ? { outputTokens: state.usage.outputTokens } : {}),
         }),
-      providerName: PROVIDER_NAME,
-      providerSlug: 'copilot',
-      eventBus: deps.eventBus,
-      ...(deps.idleMs !== undefined ? { idleMs: deps.idleMs } : {}),
-      ...(deps.childRegistry !== undefined ? { childRegistry: deps.childRegistry } : {}),
     });
   };
 };
 
-export const createCopilotProvider = (deps: HeadlessProviderDeps): HeadlessAiProvider => {
-  const spawnFn: ProviderSpawn = deps.spawn ?? defaultProviderSpawn;
-  const command = deps.command ?? 'copilot';
-
-  return createHeadlessProvider({
+export const createCopilotProvider = (deps: HeadlessProviderDeps): HeadlessAiProvider =>
+  createHeadlessProvider({
     providerSlug: 'copilot',
-    providerName: PROVIDER_NAME,
+    deps,
+    defaultCommand: 'copilot',
     resumeStaleRe: RESUME_STALE_RE,
-    rateLimitRetries: deps.rateLimitRetries,
-    eventBus: deps.eventBus,
-    ...(deps.backoffSchedule !== undefined ? { backoffSchedule: deps.backoffSchedule } : {}),
-    createGenerateContext: () => ({ attempt: createCopilotAttempt(deps, spawnFn, command) }),
+    createGenerateContext: (base) => ({ attempt: createCopilotAttempt(deps, base) }),
   });
-};

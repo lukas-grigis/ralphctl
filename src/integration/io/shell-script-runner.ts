@@ -9,8 +9,10 @@ import type { Spawn } from '@src/integration/io/spawn.ts';
 import {
   killProcessTree,
   markProcessGroupLeader,
+  processGroupOf,
   supportsProcessGroups,
 } from '@src/integration/io/kill-process-tree.ts';
+import type { OrphanReaper } from '@src/integration/io/orphan-reaper.ts';
 
 /**
  * Run a project-configured shell script. Used by the implement chain leaves:
@@ -56,10 +58,10 @@ export const DEFAULT_SHELL_TIMEOUT_MS = 5 * 60_000;
 export const MAX_OUTPUT_BYTES = 50 * 1024 * 1024;
 
 /**
- * SIGTERM → SIGKILL grace on the abort path. A setup/verify script that traps SIGTERM (e.g. a
- * shell wrapper with a `trap` handler) would otherwise outlive the abort and strand the run on a
- * resource a competitor may now own. After the abort's SIGTERM we schedule a hard SIGKILL once
- * this window elapses; the timer is cleared on a clean exit so it never fires a stray kill.
+ * SIGTERM → SIGKILL grace for every kill (abort, timeout, output cap). A setup/verify script that
+ * traps SIGTERM (e.g. a shell wrapper with a `trap` handler) would otherwise outlive the kill and
+ * strand the run — the runner only settles on `close`. After the SIGTERM we schedule a hard SIGKILL
+ * once this window elapses; the timer is cleared on a clean exit so it never fires a stray kill.
  * Mirrors the idle-watchdog's escalation ladder; kept local rather than imported to avoid an
  * integration-layer cross-sibling dependency (`io` → `ai/providers/_engine`).
  */
@@ -90,10 +92,12 @@ export interface ShellScriptRunnerDeps {
   readonly defaultTimeoutMs?: number;
   readonly now?: () => number;
   /**
-   * SIGTERM → SIGKILL grace on the abort path. Defaults to {@link ABORT_KILL_GRACE_MS}. Injectable
+   * SIGTERM → SIGKILL grace for abort / timeout / cap kills. Defaults to {@link ABORT_KILL_GRACE_MS}. Injectable
    * so tests can shorten the window instead of waiting out the real 5s ladder.
    */
   readonly abortKillGraceMs?: number;
+  /** Kills the script's detached group if the harness dies before the script does. */
+  readonly reaper?: Pick<OrphanReaper, 'watch' | 'unwatch'>;
 }
 
 const abortResult = (): Result<ShellScriptResult, StorageError | AbortError> =>
@@ -207,7 +211,37 @@ interface RunChildProcessDeps {
   readonly defaultTimeoutMs: number;
   readonly now: () => number;
   readonly abortKillGraceMs: number;
+  readonly reaper: Pick<OrphanReaper, 'watch' | 'unwatch'> | undefined;
 }
+
+interface EscalatingKill {
+  kill(): void;
+  cancel(): void;
+}
+
+/**
+ * SIGTERM now, SIGKILL after `graceMs` — shared by the abort, timeout and output-cap triggers so a
+ * SIGTERM-trapping script can't hold the run open. Repeat `kill()` calls never schedule a second
+ * timer; `cancel()` clears it so a child that exits inside the window never gets a stray SIGKILL.
+ */
+const createEscalatingKill = (child: ChildProcessWithoutNullStreams, graceMs: number): EscalatingKill => {
+  let graceTimer: NodeJS.Timeout | null = null;
+  return {
+    kill: () => {
+      killProcessTree(child, 'SIGTERM');
+      if (graceTimer !== null) return;
+      graceTimer = setTimeout(() => {
+        killProcessTree(child, 'SIGKILL');
+      }, graceMs);
+    },
+    cancel: () => {
+      if (graceTimer !== null) {
+        clearTimeout(graceTimer);
+        graceTimer = null;
+      }
+    },
+  };
+};
 
 interface AbortLadder {
   isAborted(): boolean;
@@ -215,40 +249,26 @@ interface AbortLadder {
 }
 
 /**
- * Cancellation: when the chain's signal fires mid-run, kill the child tree (SIGTERM, same
- * ladder as the timeout / cap kills) and remember we aborted so `finish()` resolves an
- * `AbortError` rather than a `passed: false` gate failure. `{ once: true }` so a settle that
- * races the abort doesn't leak the listener; `teardown()` also removes it explicitly on settle.
- *
- * SIGTERM → SIGKILL escalation: a setup/verify script that traps SIGTERM would otherwise
- * outlive the abort and strand the run. After `abortKillGraceMs` we send a hard SIGKILL;
- * `teardown()` clears this timer so a child that exits cleanly within the window never gets a
- * stray kill. Mirrors the idle-watchdog's grace ladder.
+ * Cancellation: when the chain's signal fires mid-run, kill the child tree through the shared
+ * escalating kill and remember we aborted so `finish()` resolves an `AbortError` rather than a
+ * `passed: false` gate failure. `{ once: true }` so a settle that races the abort doesn't leak the
+ * listener; `teardown()` also removes it explicitly on settle.
  */
 const wireAbortLadder = (
-  child: ChildProcessWithoutNullStreams,
   signal: AbortSignal | undefined,
-  abortKillGraceMs: number,
+  escalator: EscalatingKill,
   isSettled: () => boolean
 ): AbortLadder => {
   let aborted = false;
-  let killGraceTimer: NodeJS.Timeout | null = null;
   const onAbort = (): void => {
     if (isSettled()) return;
     aborted = true;
-    killProcessTree(child, 'SIGTERM');
-    killGraceTimer = setTimeout(() => {
-      killProcessTree(child, 'SIGKILL');
-    }, abortKillGraceMs);
+    escalator.kill();
   };
   signal?.addEventListener('abort', onAbort, { once: true });
   return {
     isAborted: () => aborted,
     teardown: () => {
-      if (killGraceTimer !== null) {
-        clearTimeout(killGraceTimer);
-        killGraceTimer = null;
-      }
       signal?.removeEventListener('abort', onAbort);
     },
   };
@@ -283,12 +303,20 @@ const runChildProcess = (
     return;
   }
   const { child } = spawnAttempt;
+  const pgid = processGroupOf(child);
+  if (pgid !== undefined) deps.reaper?.watch(pgid);
+  // Headless run: readers get EOF at once instead of blocking until the timeout; a late EPIPE is swallowed.
+  child.stdin.on('error', () => {});
+  child.stdin.end();
 
   let timedOut = false;
   let settled = false;
-  const abortLadder = wireAbortLadder(child, opts.signal, abortKillGraceMs, () => settled);
+  const escalator = createEscalatingKill(child, abortKillGraceMs);
+  const abortLadder = wireAbortLadder(opts.signal, escalator, () => settled);
 
-  const sink = createOutputSink(() => killProcessTree(child, 'SIGTERM'));
+  const sink = createOutputSink(() => {
+    escalator.kill();
+  });
   child.stdout.on('data', (c: Buffer) => {
     sink.append(c);
   });
@@ -298,13 +326,15 @@ const runChildProcess = (
 
   const timer = setTimeout(() => {
     timedOut = true;
-    killProcessTree(child, 'SIGTERM');
+    escalator.kill();
   }, timeoutMs);
 
   const finish = (exitCode: number | null, marker?: string): void => {
     if (settled) return;
     settled = true;
+    if (pgid !== undefined) deps.reaper?.unwatch(pgid);
     clearTimeout(timer);
+    escalator.cancel();
     abortLadder.teardown();
     // Abort wins over every other settle reason: a cancelled run is a user-initiated abort,
     // not a clean gate failure. Surface the codebase's transparently-propagated AbortError so
@@ -350,6 +380,7 @@ export const createShellScriptRunner = (deps: ShellScriptRunnerDeps = {}): Shell
     defaultTimeoutMs: deps.defaultTimeoutMs ?? DEFAULT_SHELL_TIMEOUT_MS,
     now: deps.now ?? Date.now,
     abortKillGraceMs: deps.abortKillGraceMs ?? ABORT_KILL_GRACE_MS,
+    reaper: deps.reaper,
   };
 
   const run = (

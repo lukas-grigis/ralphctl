@@ -38,6 +38,13 @@ describe('fmtDuration', () => {
     expect(fmtDuration(90_000)).toBe('1m30s');
     expect(fmtDuration(3_661_000)).toBe('61m1s');
   });
+
+  it('carries a rounded-up 60th second into the minutes', () => {
+    expect(fmtDuration(119_600)).toBe('2m0s');
+    expect(fmtDuration(3_599_999)).toBe('60m0s');
+    expect(fmtDuration(60_499)).toBe('1m0s');
+    expect(fmtDuration(60_500)).toBe('1m1s');
+  });
 });
 
 // ---------------------------------------------------------------------------

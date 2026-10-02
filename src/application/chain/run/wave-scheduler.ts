@@ -77,15 +77,6 @@ export interface WaveScheduleConfig<TCtx> {
    */
   readonly merge: (base: TCtx, outcomes: ReadonlyArray<BranchOutcome<TCtx>>) => TCtx;
   /**
-   * Blast radius of an exhausted-retry `rate-limit` in one branch.
-   *  - `'drain'` (default): let the already-in-flight siblings finish, then stop launching the
-   *    rest of the wave (their commits still fold).
-   *  - `'kill'`: abort the in-flight siblings immediately, same as `aborted`.
-   *
-   * `aborted` ALWAYS kills immediately regardless of this knob.
-   */
-  readonly onFatal?: 'kill' | 'drain';
-  /**
    * Hook invoked once per branch, with that branch's freshly-created {@link Runner}, BEFORE it
    * starts. The caller bridges it to the EventBus (`bridgeRunnerToEventBus(runner, bus, …)` with
    * `chainId = task-<id>`). The scheduler owns the runner lifecycle; the hook only observes.
@@ -93,12 +84,10 @@ export interface WaveScheduleConfig<TCtx> {
   readonly onBranchRunner?: (runner: Runner<TCtx>, branch: WaveBranch<TCtx>) => void;
 }
 
-/** Internal per-branch bookkeeping: the runner, a never-rejecting settle promise, captured error. */
+/** Internal per-branch bookkeeping: the runner and its captured terminal error. */
 interface BranchRun<TCtx> {
   readonly branch: WaveBranch<TCtx>;
   readonly runner: Runner<TCtx>;
-  /** Resolves to this same run when the runner reaches a terminal state. Never rejects. */
-  readonly settled: Promise<BranchRun<TCtx>>;
   /**
    * The terminal error captured off the runner's stream: the `failed` event's error, or the
    * `aborted` event's error when the abort originated INSIDE the branch chain. `null` for a clean
@@ -118,7 +107,7 @@ interface BranchRun<TCtx> {
  *
  * Scheduling contract:
  *  - **Bounded fan-out.** Within a wave, at most `maxConcurrency` branches are in flight. A
- *    hand-rolled `Set<Promise>` + `Promise.race` drains the pool: launch up to the cap, race for
+ *    hand-rolled Map of in-flight settle promises keyed by run + `Promise.race` drains the pool: launch up to the cap, race for
  *    the next settle, refill, repeat.
  *  - **Strictly sequential waves.** Wave `k+1` does not begin until EVERY branch of wave `k` has
  *    settled AND `config.merge` has folded them into the carried ctx.
@@ -136,10 +125,9 @@ interface BranchRun<TCtx> {
  *    cleanup (e.g. worktree teardown), then return `Result.error({ error: AbortError, trace })`
  *    VERBATIM — the AbortError is never folded into a per-branch "blocked" outcome, and no later
  *    wave is launched.
- *  - **Rate-limit:** an exhausted-retry `rate-limit` in one branch is fatal. With
- *    `onFatal: 'drain'` (default) the in-flight siblings finish and then the rest of the wave is
- *    not launched; with `onFatal: 'kill'` the siblings are aborted immediately. Either way the
- *    `rate-limit` error is returned verbatim once everything has settled.
+ *  - **Rate-limit:** an exhausted-retry `rate-limit` in one branch is fatal. The in-flight
+ *    siblings drain (finish, so their commits still fold) and the rest of the wave is not
+ *    launched; the `rate-limit` error is returned verbatim once everything has settled.
  *
  * @public
  */
@@ -150,7 +138,6 @@ export const runWaves = async <TCtx>(
   signal?: AbortSignal
 ): Promise<Result<{ readonly ctx: TCtx; readonly trace: Trace }, ElementFailure>> => {
   const cap = clampConcurrency(config.maxConcurrency);
-  const onFatal = config.onFatal ?? 'drain';
 
   const combinedTrace: Trace[] = [];
   let ctx = initialCtx;
@@ -158,7 +145,7 @@ export const runWaves = async <TCtx>(
   for (const wave of waves) {
     // Waves are STRICTLY sequential by design: wave k+1 must not start until every
     // branch of wave k has settled and `merge` has folded them into `ctx`.
-    const waveResult = await runOneWave(wave, ctx, cap, onFatal, config, signal);
+    const waveResult = await runOneWave(wave, ctx, cap, config, signal);
 
     // Append every started branch's trace in DECLARATION order — never completion order.
     combinedTrace.push(...waveResult.traces);
@@ -186,15 +173,14 @@ interface WaveResult<TCtx> {
  * Run one wave with bounded fan-out. Returns the wave's settled outcomes + traces in declaration
  * order plus any fatal error that aborts the whole schedule.
  *
- * Pool drain: maintain a `Set<Promise<BranchRun>>` of in-flight settle promises (each resolves to
- * its owning run). Launch up to `cap`, `Promise.race` for the next settle, remove it, inspect for
+ * Pool drain: maintain a Map of in-flight settle promises keyed by run (each resolves to its
+ * owning run). Launch up to `cap`, `Promise.race` for the next settle, remove it, inspect for
  * a fatal error, then refill from the pending queue — until everything settled or a stop fired.
  */
 const runOneWave = async <TCtx>(
   wave: ReadonlyArray<WaveBranch<TCtx>>,
   base: TCtx,
   cap: number,
-  onFatal: 'kill' | 'drain',
   config: WaveScheduleConfig<TCtx>,
   signal?: AbortSignal
 ): Promise<WaveResult<TCtx>> => {
@@ -203,11 +189,10 @@ const runOneWave = async <TCtx>(
     return { outcomes: [], traces: [], fatal: new AbortError({ elementName: 'wave-scheduler' }) };
   }
 
-  const pool = createWavePool(wave, base, cap, onFatal, config);
+  const pool = createWavePool(wave, base, cap, config);
 
-  // Forward an outer-signal abort into every in-flight branch. Abort always kills immediately
-  // (regardless of `onFatal`); `settled` promises still resolve, so the drain below awaits every
-  // branch's own cleanup before returning.
+  // Forward an outer-signal abort into every in-flight branch. Abort always kills immediately;
+  // `settled` promises still resolve, so the drain below awaits every branch's own cleanup before returning.
   const onAbort = (): void => pool.abortAll(new AbortError({ elementName: 'wave-scheduler' }));
   signal?.addEventListener('abort', onAbort, { once: true });
 
@@ -232,22 +217,21 @@ const createWavePool = <TCtx>(
   wave: ReadonlyArray<WaveBranch<TCtx>>,
   base: TCtx,
   cap: number,
-  onFatal: 'kill' | 'drain',
   config: WaveScheduleConfig<TCtx>
 ) => {
   // Per-index slots → outcomes + traces assembled in declaration order regardless of completion
   // order. `undefined` = branch never started (drained / killed before launch).
   const runs: Array<BranchRun<TCtx> | undefined> = new Array(wave.length).fill(undefined);
-  const inFlight = new Set<Promise<BranchRun<TCtx>>>();
+  const inFlight = new Map<BranchRun<TCtx>, Promise<BranchRun<TCtx>>>();
   let nextIndex = 0;
   let fatal: DomainError | null = null;
   let stopLaunching = false;
 
   const launch = (index: number): void => {
-    const run = createBranchRun(wave[index]!, base);
+    const { run, settled } = startBranchRun(wave[index]!, base);
     runs[index] = run;
     config.onBranchRunner?.(run.runner, run.branch);
-    inFlight.add(run.settled);
+    inFlight.set(run, settled);
   };
 
   return {
@@ -260,8 +244,8 @@ const createWavePool = <TCtx>(
 
     /** Await the next settled branch and drop it from the in-flight set. */
     next: async (): Promise<BranchRun<TCtx>> => {
-      const settledRun = await Promise.race(inFlight);
-      inFlight.delete(settledRun.settled);
+      const settledRun = await Promise.race(inFlight.values());
+      inFlight.delete(settledRun);
       return settledRun;
     },
 
@@ -274,8 +258,8 @@ const createWavePool = <TCtx>(
       if (err === null || !isFatalChainError(err)) return;
       if (fatal === null) fatal = err; // first fatal wins
       stopLaunching = true;
-      // `aborted` always kills immediately; `rate-limit` honours `onFatal` ('drain' lets siblings finish).
-      if (err.code === 'aborted' || onFatal === 'kill') {
+      // aborted kills at once; rate-limit drains so in-flight siblings finish and their commits still fold.
+      if (err.code === 'aborted') {
         for (const run of runs) run?.runner.abort('fatal-sibling');
       }
     },
@@ -315,21 +299,18 @@ const createWavePool = <TCtx>(
 };
 
 /**
- * Create a branch's {@link Runner} and the `settled` promise that resolves (to the run itself)
- * when the runner terminates. The runner already wraps `element.execute` in
+ * Start a branch's {@link Runner}; returns the run plus a never-rejecting settle promise that
+ * resolves to that run when the runner terminates. The runner already wraps `element.execute` in
  * `runWithSession(id, …)` and owns its own `AbortController` + trace ring + listener set — so each
  * branch is fully isolated. `runner.start()` resolves on terminal and never rejects, so `settled`
  * never rejects either.
  */
-const createBranchRun = <TCtx>(branch: WaveBranch<TCtx>, base: TCtx): BranchRun<TCtx> => {
+const startBranchRun = <TCtx>(
+  branch: WaveBranch<TCtx>,
+  base: TCtx
+): { readonly run: BranchRun<TCtx>; readonly settled: Promise<BranchRun<TCtx>> } => {
   const runner = createRunner<TCtx>({ id: branch.id, element: branch.element, initialCtx: base });
-  const run: BranchRun<TCtx> = {
-    branch,
-    runner,
-    capturedError: null,
-    // Placeholder; reassigned immediately below now that `run` exists to resolve to / capture onto.
-    settled: Promise.resolve(undefined as unknown as BranchRun<TCtx>),
-  };
+  const run: BranchRun<TCtx> = { branch, runner, capturedError: null };
 
   const unsub = runner.subscribe((event) => {
     if (event.type === 'failed') run.capturedError = event.error;
@@ -343,12 +324,13 @@ const createBranchRun = <TCtx>(branch: WaveBranch<TCtx>, base: TCtx): BranchRun<
 
   // start() resolves when the run reaches a terminal state; detach the listener then, resolve to
   // the run so the pool drain can identify the race winner and read its captured error.
-  (run as { settled: Promise<BranchRun<TCtx>> }).settled = runner
-    .start()
-    .finally(unsub)
-    .then(() => run);
-
-  return run;
+  return {
+    run,
+    settled: runner
+      .start()
+      .finally(unsub)
+      .then(() => run),
+  };
 };
 
 /** Map a terminal {@link Runner} to a {@link BranchOutcome}. */
@@ -357,7 +339,7 @@ const toOutcome = <TCtx>(run: BranchRun<TCtx>): BranchOutcome<TCtx> => {
     return { id: run.branch.id, status: 'completed', ctx: run.runner.ctx };
   }
   // A NON-fatal failure is absorbed; its error rides along for diagnostics only. A runner that
-  // reports 'aborted' without a captured error was a fatal-sibling kill in 'kill' mode (or an
+  // reports 'aborted' without a captured error was killed by a sibling's abort (or an
   // outer-signal abort) — surfaced as a `failed` outcome with no error rather than as completed.
   // Either way `ctx` is the runner's untouched `initialCtx`, so a failed outcome contributes
   // nothing to the merge. Anything durable the branch wrote before it failed is recovered out of

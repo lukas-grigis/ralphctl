@@ -8,6 +8,7 @@ import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.t
 import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
+import { assertCtxField } from '@src/application/flows/_shared/_engine/assert-ctx-field.ts';
 
 /** Leaf name, reused as the `attemptedAction` on the leaf's error states. */
 const LEAF_NAME = 'pick-repository';
@@ -105,17 +106,10 @@ export const pickRepositoryLeaf = <TCtx extends PickRepositoryCtx>(
       execute: async (input) => pickRepositoryUseCase(deps, input, config.promptMessage, config.emptyVerb),
     },
     input: (ctx) => {
-      if (ctx.project === undefined) {
-        throw new InvalidStateError({
-          entity: 'chain',
-          currentState: 'pre-pick-repository',
-          attemptedAction: LEAF_NAME,
-          message: 'pick-repository: ctx.project is undefined — load-project must run first',
-        });
-      }
+      const project = assertCtxField(ctx, 'project', LEAF_NAME, 'pre-pick-repository');
       const preselected = config.preselectedFromCtx?.(ctx);
       return {
-        project: ctx.project,
+        project,
         ...(preselected !== undefined ? { repositoryId: preselected } : {}),
       };
     },

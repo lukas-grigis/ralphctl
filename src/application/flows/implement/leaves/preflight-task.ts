@@ -108,7 +108,7 @@ export const preflightTaskLeaf = (
   const gitStatusEntryCount: PreflightTaskProps['gitStatusEntryCount'] = async (path) => {
     const status = await gitStatusPorcelain(deps.gitRunner, path);
     if (!status.ok) return status;
-    return { ok: true, value: status.value.length } as Awaited<ReturnType<PreflightTaskProps['gitStatusEntryCount']>>;
+    return Result.ok(status.value.length);
   };
   const menu = dirtyTreeMenu(deps, { elementName: ELEMENT_NAME, ...menuOpts });
 

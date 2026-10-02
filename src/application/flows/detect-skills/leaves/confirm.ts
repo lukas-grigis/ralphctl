@@ -3,11 +3,11 @@ import type { Choice, InteractivePrompt } from '@src/business/interactive/prompt
 import type { Repository } from '@src/domain/entity/repository.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
-import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
 import { readRunBodyPreview } from '@src/integration/ai/runs/_engine/run-artifacts.ts';
 import type { DetectSkillsCtx } from '@src/application/flows/detect-skills/ctx.ts';
+import { assertCtxField } from '@src/application/flows/_shared/_engine/assert-ctx-field.ts';
 
 export interface ConfirmDetectSkillsLeafDeps {
   readonly interactive: InteractivePrompt;
@@ -155,33 +155,15 @@ export const confirmDetectSkillsLeaf = (deps: ConfirmDetectSkillsLeafDeps): Elem
       execute: async (input) => confirmUseCase(deps, input),
     },
     input: (ctx) => {
-      if (ctx.repository === undefined) {
-        throw new InvalidStateError({
-          entity: 'chain',
-          currentState: 'pre-confirm',
-          attemptedAction: 'confirm',
-          message: 'confirm: ctx.repository is undefined — pick-repository must run first',
-        });
-      }
-      if (ctx.proposal === undefined) {
-        throw new InvalidStateError({
-          entity: 'chain',
-          currentState: 'pre-confirm',
-          attemptedAction: 'confirm',
-          message: 'confirm: ctx.proposal is undefined — propose must run first',
-        });
-      }
+      const repository = assertCtxField(ctx, 'repository', 'confirm', 'pre-confirm');
+      const proposal = assertCtxField(ctx, 'proposal', 'confirm', 'pre-confirm');
       return {
-        repository: ctx.repository,
+        repository,
         proposal: {
-          ...(ctx.proposal.proposedSetupSkill !== undefined
-            ? { proposedSetupSkill: ctx.proposal.proposedSetupSkill }
-            : {}),
-          ...(ctx.proposal.proposedVerifySkill !== undefined
-            ? { proposedVerifySkill: ctx.proposal.proposedVerifySkill }
-            : {}),
+          ...(proposal.proposedSetupSkill !== undefined ? { proposedSetupSkill: proposal.proposedSetupSkill } : {}),
+          ...(proposal.proposedVerifySkill !== undefined ? { proposedVerifySkill: proposal.proposedVerifySkill } : {}),
         },
-        ...(ctx.proposal.runDir !== undefined ? { runDir: ctx.proposal.runDir } : {}),
+        ...(proposal.runDir !== undefined ? { runDir: proposal.runDir } : {}),
       };
     },
     // Preserve the runDir produced by propose so the write leaf's logs can reference it.

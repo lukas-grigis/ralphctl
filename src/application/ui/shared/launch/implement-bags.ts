@@ -62,12 +62,14 @@ export const buildImplementProviders = (
     harnessConfig: effectiveSettings.harness,
     eventBus: deps.app.eventBus,
     childRegistry: deps.app.childRegistry,
+    ...(deps.app.providerSpawn !== undefined ? { spawn: deps.app.providerSpawn } : {}),
   });
   const evaluatorProvider = createAiProvider({
     row: implementPair.evaluator,
     harnessConfig: effectiveSettings.harness,
     eventBus: deps.app.eventBus,
     childRegistry: deps.app.childRegistry,
+    ...(deps.app.providerSpawn !== undefined ? { spawn: deps.app.providerSpawn } : {}),
   });
   const generatorResolved = resolveAgentOverride(
     implementPair.generator,

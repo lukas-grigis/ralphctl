@@ -10,11 +10,11 @@ import { isClaudeModel } from '@src/domain/value/settings-models/claude.ts';
 import { validateModel } from '@src/integration/ai/providers/_engine/validate-model.ts';
 import { createClaudeStreamParser } from '@src/integration/ai/providers/claude/parse-stream.ts';
 import type { ClaudeStreamLine } from '@src/integration/ai/providers/_engine/claude-stream.ts';
-import { type ProviderSpawn, defaultProviderSpawn } from '@src/integration/ai/providers/_engine/spawn.ts';
 import {
   publishAssistantEvent,
   publishToolResultEvent,
   publishToolUseEvent,
+  previewJson,
 } from '@src/integration/ai/providers/_engine/stream-debug-events.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
 import {
@@ -81,7 +81,7 @@ import {
  * haystack is stderr PLUS the parsed stdout `result` envelope body (claude's `-p stream-json`
  * mode reports quota in the stdout result, not on stderr) — see classifySpawnExit's `stdoutTail`.
  */
-const RATE_LIMIT_RE = /rate.?limit|usage limit reached|\b5-hour limit\b|overloaded_error|429/i;
+const RATE_LIMIT_RE = /rate.?limit|usage limit reached|\b5-hour limit\b|overloaded_error|\b429\b/i;
 
 /**
  * Cold-start fallback trigger: Claude rejects a `--resume <id>` whose session it no longer has
@@ -100,16 +100,7 @@ const asString = (v: unknown): string | undefined => (typeof v === 'string' ? v 
  * encoding keeps array / nested-object shapes readable; we never feed multi-line previews into
  * the debug stream because the bus → logger pipeline writes one record per call.
  */
-const previewArgs = (input: unknown): string | undefined => {
-  if (input === undefined || input === null) return undefined;
-  if (typeof input === 'string') return input;
-  try {
-    const json = JSON.stringify(input);
-    return json === undefined || json === '{}' || json === '[]' ? undefined : json;
-  } catch {
-    return undefined;
-  }
-};
+const previewArgs = (input: unknown): string | undefined => (typeof input === 'string' ? input : previewJson(input));
 
 /**
  * Coerce a `tool_result` block's `content` (Claude permits either a plain string or an array of
@@ -297,18 +288,13 @@ export const buildClaudeArgs = (session: AiSession): Result<readonly string[], I
   return Result.ok(args);
 };
 
-export const createClaudeProvider = (deps: HeadlessProviderDeps): HeadlessAiProvider => {
-  const spawnFn: ProviderSpawn = deps.spawn ?? defaultProviderSpawn;
-  const command = deps.command ?? 'claude';
-
-  return createHeadlessProvider({
+export const createClaudeProvider = (deps: HeadlessProviderDeps): HeadlessAiProvider =>
+  createHeadlessProvider({
     providerSlug: 'claude',
-    providerName: PROVIDER_NAME,
+    deps,
+    defaultCommand: 'claude',
     resumeStaleRe: RESUME_STALE_RE,
-    rateLimitRetries: deps.rateLimitRetries,
-    eventBus: deps.eventBus,
-    ...(deps.backoffSchedule !== undefined ? { backoffSchedule: deps.backoffSchedule } : {}),
-    createGenerateContext: () => ({
+    createGenerateContext: (base) => ({
       attempt: async (attemptSession) => {
         const built = buildClaudeArgs(attemptSession);
         if (!built.ok) return { kind: 'error', error: built.error };
@@ -324,8 +310,7 @@ export const createClaudeProvider = (deps: HeadlessProviderDeps): HeadlessAiProv
         };
 
         return runProviderAttempt({
-          spawnFn,
-          command,
+          ...base,
           args: built.value,
           session: attemptSession,
           resolveOn: 'close',
@@ -376,13 +361,7 @@ export const createClaudeProvider = (deps: HeadlessProviderDeps): HeadlessAiProv
                 : {}),
             });
           },
-          providerName: PROVIDER_NAME,
-          providerSlug: 'claude',
-          eventBus: deps.eventBus,
-          ...(deps.idleMs !== undefined ? { idleMs: deps.idleMs } : {}),
-          ...(deps.childRegistry !== undefined ? { childRegistry: deps.childRegistry } : {}),
         });
       },
     }),
   });
-};

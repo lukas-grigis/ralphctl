@@ -17,6 +17,7 @@ import {
   createLearningsMerger,
 } from '@src/application/ui/tui/migration/learnings-backfill-adapter.ts';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
+import { messageOf } from '@src/domain/value/error/error-message.ts';
 
 /**
  * How the gate resolved into the main app. `migrated`: the app reads the v2 layout. `skipped` and `failed-continue`:
@@ -132,7 +133,7 @@ const useMigrationScan = (args: {
         if (cancelled) return;
         // A dry-run that threw is treated like a blocking problem: surface it, do NOT apply, proceed
         // on the tolerant readers. The dry-run touches nothing, so a throw here left disk untouched.
-        const msg = err instanceof Error ? err.message : String(err);
+        const msg = messageOf(err);
         setState({ kind: DRY_RUN_BLOCKED, issues: [`could not scan data — ${msg}`] });
       }
     };

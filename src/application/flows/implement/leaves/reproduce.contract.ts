@@ -76,14 +76,5 @@ export const reproduceOutputContract: AiOutputContract<ReproduceSignal> = {
   exampleSignals: reproduceExampleSignals,
 };
 
-/**
- * Exported solely so the test grid can assert against the exact signal sub-union the contract
- * accepts. The leaf consumes the contract via `reproduceOutputContract`; this alias must not
- * appear outside `__tests__/`.
- *
- * @public
- */
-export type ReproduceContractSignal = ReproduceSignal;
-
 const _signalCheck: ReproduceSignal extends AiSignal ? true : false = true;
 void _signalCheck;

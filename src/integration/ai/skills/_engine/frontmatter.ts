@@ -60,9 +60,3 @@ export const parseSimpleYaml = (input: string): Record<string, string> => {
   }
   return result;
 };
-
-/** Narrow an unknown caught value to a Node `fs` error code without leaking `any`. @public */
-export const errorCode = (cause: unknown): string | undefined =>
-  typeof cause === 'object' && cause !== null && 'code' in cause && typeof cause.code === 'string'
-    ? cause.code
-    : undefined;

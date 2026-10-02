@@ -16,7 +16,6 @@ export const reviewManifest: FlowManifest = {
   title: 'Review',
   description:
     'Iterative feedback loop on an implemented sprint; closes the sprint to done. PR creation is separate and optional.',
-  canBackground: true,
   triggers: {
     currentSprintStatus: ['review'],
     currentSprintStatusHint: 'Run Implement to completion first — this flow needs a review-status sprint.',
