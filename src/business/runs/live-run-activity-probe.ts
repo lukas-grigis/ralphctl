@@ -20,6 +20,8 @@ export const createLiveRunActivityProbe = (deps: LiveRunActivityProbeDeps): RunA
     const here = await deps.liveness.machine();
     for (const record of listed.value) {
       if (record.owner.pid === deps.liveness.selfPid || !sameMachine(record.owner, here)) continue;
+      // The boot reap already judged this owner dead; a recycled pid must not resurrect it.
+      if (record.reapedAt !== undefined) continue;
       if (!(await ownerGone(record, deps.liveness))) return true;
     }
     return false;

@@ -74,7 +74,7 @@ export interface CreateReviewFlowOpts {
  * `loadAndAssertSprintSubChain` whitelist enforces that — running review on a `planned`
  * sprint fails fast.
  *
- * Review's auto-done path (empty / repeat feedback round → `lastReviewExit` set) is the OTHER
+ * Review's auto-done path (empty / repeat feedback round → `lastReviewExit === 'terminated'`) is the OTHER
  * door to `done`, alongside the explicit close-sprint flow — a sprint's blocked tasks must not
  * close in silence through either one. `load-tasks` + the `confirm-blocked-tasks-gate` guard are
  * the SAME composition close-sprint uses (`confirmBlockedTasksLeaf` from

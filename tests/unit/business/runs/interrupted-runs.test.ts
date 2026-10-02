@@ -138,15 +138,16 @@ describe('liveRunActivityProbe', () => {
     expect(await probe.anyRunActive()).toBe(true);
   });
 
-  it('ignores dead owners, recycled pids, this process and other machines', async () => {
+  it('ignores dead owners, recycled pids, reaped records, this process and other machines', async () => {
     const probe = probeFor(
       storeOf([
         record('dead', 11),
         record('recycled', 12, { owner: { pid: 12, host: HOST, startedAt: 'x', identity: ID_A } }),
         record('mine', SELF_PID, { owner: { pid: SELF_PID, host: HOST, startedAt: 'x' } }),
+        record('reaped', 14, { reapedAt: '2026-10-01T20:00:00.000Z' }),
         record('remote', 13, { owner: { pid: 13, host: 'elsewhere', machineId: 'other', startedAt: 'x' } }),
       ]),
-      { alive: new Set([12, 13, SELF_PID]), identities: new Map([[12, ID_B]]) }
+      { alive: new Set([12, 13, 14, SELF_PID]), identities: new Map([[12, ID_B]]) }
     );
     expect(await probe.anyRunActive()).toBe(false);
   });

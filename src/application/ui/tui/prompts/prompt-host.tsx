@@ -50,7 +50,8 @@ export const PromptHost = ({ queue }: PromptHostProps): React.JSX.Element | null
     return queue.subscribe(sync);
   }, [queue]);
 
-  // Claim the global-key mute only while a queued prompt is mounted.
+  // Claim the global-key mute only while a queued prompt is mounted. Depend on the stable callback, not `ui`, or the
+  // mute is released and re-claimed on every UI state change.
   const claimPrompt = ui.claimPrompt;
   useEffect(() => (head !== undefined ? claimPrompt() : undefined), [head, claimPrompt]);
 

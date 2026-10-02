@@ -25,6 +25,7 @@ export const bootstrapCli = async (): Promise<CliBootstrap> => {
   const legacy = await detectLegacyLayout(paths.value.appRoot);
   if (legacy.kind === 'legacy-v0.6') {
     process.stderr.write(renderLegacyLayoutMessage(legacy));
+    // process.exit on purpose: every command destructures bootstrapCli() unchecked.
     process.exit(1);
   }
 

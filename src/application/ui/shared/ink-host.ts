@@ -64,7 +64,8 @@ export const createInkHost = (deps: InkHostDeps): InkHost => {
     const current = instance;
     current.unmount();
     await current.waitUntilExit();
-    // Hand `process.stdin` over before the child is spawned.
+    // Awaited, and restored before `renderOnce()`: a parent still reading stdin eats the child's terminal replies
+    // (the black-screen hang — see .claude/docs/INTERACTIVE-HANDOFF-HANG.md).
     const restoreStdin = await releaseStdinForChild();
     // The user owns the terminal while `fn` runs — turn bracketed paste off so a paste into the
     // AI session isn't wrapped in markers. `renderOnce()` re-enables it when the TUI remounts.

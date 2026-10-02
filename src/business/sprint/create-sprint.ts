@@ -3,7 +3,7 @@ import type { Logger } from '@src/business/observability/logger.ts';
 import type { ProjectId } from '@src/domain/value/id/project-id.ts';
 import { createSprintWithExecution, type DraftSprint } from '@src/domain/entity/sprint.ts';
 import type { SprintExecution } from '@src/domain/entity/sprint-execution.ts';
-import type { Slug } from '@src/domain/value/slug.ts';
+import { Slug } from '@src/domain/value/slug.ts';
 import type { ValidationError } from '@src/domain/value/error/validation-error.ts';
 import { toKebabCase } from '@src/domain/value/kebab-case.ts';
 
@@ -30,8 +30,10 @@ export const sprintNameProblem = (name: string): string | undefined => {
   const trimmed = name.trim();
   if (trimmed.length === 0) return 'Sprint name is required';
   // The slug is derived from the name, so a name of only punctuation cannot be saved.
-  if (toKebabCase(trimmed).length === 0) return 'Sprint name needs at least one letter or digit';
-  return undefined;
+  const derived = toKebabCase(trimmed);
+  if (derived.length === 0) return 'Sprint name needs at least one letter or digit (a–z, 0–9)';
+  const slug = Slug.parse(derived);
+  return slug.ok ? undefined : `Sprint name is too long — ${slug.error.message}`;
 };
 
 export const createSprintUseCase = (props: CreateSprintProps): Result<CreateSprintOutput, ValidationError> => {

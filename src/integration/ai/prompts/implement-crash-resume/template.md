@@ -23,7 +23,7 @@ revert or restart work that is already sound.
 Then continue the task to completion, exactly as you would have without the interruption. You are
 operating autonomously and the user cannot answer questions, so do the remaining work with tool
 calls instead of ending this turn on a plan. Re-run each `auto` criterion's command once the
-work is in place, and emit `task-verified` with the bounded evidence, `commit-message` when any
+work is in place — or, when the task defines no `auto` criteria, run the verify script once — and emit `task-verified` with the bounded evidence, `commit-message` when any
 file was touched, and `task-complete` only once every criterion passes. When something is
 genuinely blocked, emit `task-blocked` with the concrete reason. Emit `change`, `decision`,
 `learning` and `note` as applicable. The no-test-weakening rule still applies — fix the

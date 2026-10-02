@@ -64,7 +64,7 @@ const createLogForwarder = (
 ): { readonly buffer: CoalescedBuffer<LogEvent>; readonly unsubscribe: () => void } => {
   const buffer = createCoalescedBuffer<LogEvent>({
     limit: 2000,
-    // Delta semantics: this forwarder re-emits each window value into `logBus`.
+    // Delta semantics: a rolling window would re-emit earlier flushes into `logBus` (duplicate lines + heap regrowth).
     clearOnFlush: true,
     onFlush: (window) => {
       for (const event of window) logBus.emit(event);
@@ -188,7 +188,10 @@ const createHeapCriticalHandler = (args: {
   };
 };
 
-/** Bound Node's process-global performance timeline. */
+/**
+ * Bound Node's process-global performance timeline. Safe only while nothing reads marks / measures back and React
+ * emits numeric `{start,end}` measures — re-audit on a React upgrade.
+ */
 const startPerfTimelineGuard = (): { readonly stop: () => void } => {
   const handle = setInterval(() => {
     performance.clearMeasures();

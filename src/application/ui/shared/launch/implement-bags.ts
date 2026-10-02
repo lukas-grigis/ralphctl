@@ -123,7 +123,7 @@ export const buildImplementDepsBag = (
   interactive: deps.interactive,
   writeFile: deps.app.writeFile,
   appendFile: deps.app.appendFile,
-  // ONE journal mutex per run.
+  // ONE journal mutex per run: parallel branches share it; per-branch queues would race the shared progress.md.
   journalMutex: createFoldQueue(),
   // ONE ledger mutex per run, for the same reason: every parallel branch's `append-learnings-<taskId>` writes the
   // SAME project `learnings.ndjson`.

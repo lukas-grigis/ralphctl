@@ -96,7 +96,8 @@ export const StatusBanner = (): React.JSX.Element | null => {
   }, []);
 
   // Only claim `d` while there's something to dismiss — otherwise we'd intercept a keystroke any view-level handler
-  // might want for its own use.
+  // might want for its own use. Checked in-handler, not via `isActive`: flipping the subscription races the first
+  // banner render.
   useInput((input, key) => {
     if (overlay.modalOpen || isChord(key)) return;
     if (input === 'd' && sorted.length > 0 && !isClaimed('d')) dismissTop();
