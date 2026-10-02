@@ -1,7 +1,7 @@
 /** Vertical scroll viewport — the middle slot of {@link ViewShell}. */
 
 import React, { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { glyphs, spacing } from '@src/application/ui/tui/theme/tokens.ts';
+import { borderGlyphs, glyphs, spacing, type BorderGlyphSet } from '@src/application/ui/tui/theme/tokens.ts';
 import { Box, Text, type DOMElement, type Key, measureElement, useInput, useStdin, useStdout } from 'ink';
 
 export interface ScrollRegionProps {
@@ -55,20 +55,12 @@ const leftWithin = (node: DOMElement, container: DOMElement): number | undefined
   return current === container ? left : undefined;
 };
 
-/** Corner + rule glyphs for the border styles a clipped box can carry. */
-const BORDER_GLYPHS: Readonly<Record<string, { tl: string; tr: string; bl: string; br: string; h: string }>> = {
-  round: { tl: '╭', tr: '╮', bl: '╰', br: '╯', h: '─' },
-  single: { tl: '┌', tr: '┐', bl: '└', br: '┘', h: '─' },
-  double: { tl: '╔', tr: '╗', bl: '╚', br: '╝', h: '═' },
-  bold: { tl: '┏', tr: '┓', bl: '┗', br: '┛', h: '━' },
-};
-
 /** A bordered box the clip edge cuts through — the cue is drawn inside its (re-drawn) border row. */
 interface ClippedBox {
   readonly left: number;
   readonly width: number;
   readonly color: string | undefined;
-  readonly glyphs: (typeof BORDER_GLYPHS)[string];
+  readonly glyphs: BorderGlyphSet;
 }
 
 interface BoxHit {
@@ -110,7 +102,10 @@ const clippedBoxAt = (content: DOMElement | null, row: number, edge: 'top' | 'bo
   const hit = findClippedBox(content, row, edge);
   if (hit === undefined) return undefined;
   const style = hit.node.style as { borderStyle?: string; borderColor?: string };
-  const glyphSet = style.borderStyle !== undefined ? BORDER_GLYPHS[style.borderStyle] : undefined;
+  const glyphSet =
+    style.borderStyle !== undefined && Object.hasOwn(borderGlyphs, style.borderStyle)
+      ? borderGlyphs[style.borderStyle as keyof typeof borderGlyphs]
+      : undefined;
   const left = leftWithin(hit.node, content);
   if (glyphSet === undefined || left === undefined || hit.node.yogaNode === undefined) return undefined;
   return { left, width: hit.node.yogaNode.getComputedWidth(), color: style.borderColor, glyphs: glyphSet };

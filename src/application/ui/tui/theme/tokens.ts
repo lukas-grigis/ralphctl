@@ -86,6 +86,22 @@ export const glyphs = {
   moreRight: '›',
 } as const;
 
+/** Corner + rule glyphs per Ink `borderStyle`, for the places that draw a border row by hand (titled / clipped boxes). */
+export type BorderGlyphSet = {
+  readonly tl: string;
+  readonly tr: string;
+  readonly bl: string;
+  readonly br: string;
+  readonly h: string;
+};
+
+export const borderGlyphs: Readonly<Record<'round' | 'single' | 'double' | 'bold', BorderGlyphSet>> = {
+  round: { tl: '╭', tr: '╮', bl: '╰', br: '╯', h: '─' },
+  single: { tl: '┌', tr: '┐', bl: '└', br: '┘', h: '─' },
+  double: { tl: '╔', tr: '╗', bl: '╚', br: '╝', h: '═' },
+  bold: { tl: '┏', tr: '┓', bl: '┗', br: '┛', h: '━' },
+};
+
 /** Semantic tones — one colour + one shape per meaning, so outcome survives NO_COLOR. */
 export type Tone = 'success' | 'warning' | 'error' | 'info' | 'muted';
 

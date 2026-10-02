@@ -148,3 +148,11 @@ describe('Scroll section', () => {
     }
   });
 });
+
+describe('keySections', () => {
+  it('lists every key the context switcher binds, including `n` (new project)', () => {
+    const switcher = keySections.find((s) => s.title === 'Context switcher');
+    const keys = switcher?.bindings.flatMap((b) => b.keys) ?? [];
+    for (const k of ['t', 'f', 'c', 'n', 'esc']) expect(keys).toContain(k);
+  });
+});

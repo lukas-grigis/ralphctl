@@ -25,6 +25,22 @@ export interface UseWorkActionsArgs {
 
 const NO_PROJECT = `pick a project first (S switch, or Projects ${glyphs.arrowRight} open one)`;
 
+/**
+ * Stale run records are superseded only once the resume actually started — a cancelled or refused launch keeps them.
+ * Stable across renders while its inputs are, so the actions' `run` / items don't rebuild every frame.
+ */
+export const useResumeAwareLaunch = (
+  launch: (flowId: string) => Promise<boolean>,
+  dismissStale: () => Promise<void>
+): ((flowId: string) => Promise<void>) =>
+  useCallback(
+    async (flowId: string): Promise<void> => {
+      const started = await launch(flowId);
+      if (started && flowId === 'implement') await dismissStale();
+    },
+    [launch, dismissStale]
+  );
+
 /** Returns `run`, the ↵ handler for a row. */
 export const useWorkActions = (args: UseWorkActionsArgs): ((row: AgendaRow) => void) => {
   const { snapshot, agenda, focusedId, showAll, toggleShowAll, launch, reload, show } = args;

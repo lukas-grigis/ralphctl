@@ -63,7 +63,7 @@ const systemBadges = (badges: TabBadges, verbose: boolean): readonly Badge[] => 
   const n = failing ? badges.doctorFail : badges.doctorWarn;
   const text = verbose
     ? `${glyphs.stethoscope} ${String(n)} ${failing ? 'failing' : plural(n, 'warning', 'warnings')}`
-    : `${glyphs.stethoscope}${String(n)}`;
+    : `${failing ? glyphs.cross : glyphs.stethoscope}${String(n)}`; // shape differs: colour alone fails under NO_COLOR
   return [{ text, tone: failing ? 'fail' : 'warn' }];
 };
 

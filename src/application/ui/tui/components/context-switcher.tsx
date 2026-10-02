@@ -8,7 +8,14 @@ import { AsyncListFrame } from '@src/application/ui/tui/components/async-list-fr
 import { EmptyState } from '@src/application/ui/tui/components/empty-state.tsx';
 import { FooterBar } from '@src/application/ui/tui/components/status-bar.tsx';
 import type { FitHint } from '@src/application/ui/tui/components/hint-budget.ts';
-import { breakpoints, glyphs, inkColors, listCapacity, spacing } from '@src/application/ui/tui/theme/tokens.ts';
+import {
+  borderGlyphs,
+  breakpoints,
+  glyphs,
+  inkColors,
+  listCapacity,
+  spacing,
+} from '@src/application/ui/tui/theme/tokens.ts';
 import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
 import { useTerminalSize } from '@src/application/ui/tui/runtime/use-terminal-size.ts';
@@ -38,14 +45,15 @@ const TITLES: Readonly<Record<SwitcherFocus, { readonly key: string; readonly ti
 /** `╭─ S switch sprint or project ───╮` — the title sits in the top border; Ink borders cannot. */
 const TopBorder = ({ width, focus }: { readonly width: number; readonly focus: SwitcherFocus }): React.JSX.Element => {
   const { key, title } = TITLES[focus];
-  const used = [...`╭─ ${key} ${title} `].length + 1;
+  const { tl, tr, h } = borderGlyphs.round;
+  const used = [...`${tl}${h} ${key} ${title} `].length + 1;
   return (
     <Text color={inkColors.primary}>
-      {'╭─ '}
+      {`${tl}${h} `}
       <Text bold>{key}</Text>
       {` ${title} `}
-      {'─'.repeat(Math.max(0, width - used))}
-      {'╮'}
+      {h.repeat(Math.max(0, width - used))}
+      {tr}
     </Text>
   );
 };

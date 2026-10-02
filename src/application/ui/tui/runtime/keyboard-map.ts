@@ -71,6 +71,7 @@ export const switcherKeys = {
   // delete-with-confirm in every sibling list view. Plain `f` is unused TUI-wide.
   hideDone: { keys: ['f'], label: 'hide done sprints' },
   create: { keys: ['c', '+'], label: 'new sprint in the current project' },
+  createProject: { keys: ['n'], label: 'new project' },
   close: { keys: ['esc'], label: 'close — never navigates' },
 } as const satisfies Record<string, KeyBinding>;
 

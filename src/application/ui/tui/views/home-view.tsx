@@ -27,7 +27,7 @@ import {
   useWorkAgenda,
   useWorkSnapshot,
 } from '@src/application/ui/tui/views/home-internals/use-work-state.ts';
-import { useWorkActions } from '@src/application/ui/tui/views/home-internals/use-work-actions.ts';
+import { useResumeAwareLaunch, useWorkActions } from '@src/application/ui/tui/views/home-internals/use-work-actions.ts';
 import type { AppStateSnapshot } from '@src/application/ui/shared/state-snapshot.ts';
 
 const SECTION_LABEL: Readonly<Record<AgendaSectionId, string>> = {
@@ -130,16 +130,14 @@ export const HomeView = ({ focus: focusProp }: HomeViewProps = {}): React.JSX.El
   const { flash, show } = useFlash();
   const switchToast = useSwitchToast(selection);
   const [focusedId, setFocusedId] = useState<string | undefined>(undefined);
+  const launch = useResumeAwareLaunch(launcher.launch, interrupted.dismissStale);
   const run = useWorkActions({
     snapshot,
     agenda,
     focusedId,
     showAll,
     toggleShowAll,
-    launch: async (flowId) => {
-      if (flowId === 'implement') await interrupted.dismissStale();
-      await launcher.launch(flowId);
-    },
+    launch,
     reload,
     show,
   });

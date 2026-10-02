@@ -8,7 +8,6 @@ import { Box, Text, useInput } from 'ink';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { useListWindow, OverflowRow } from '@src/application/ui/tui/components/windowed-list.tsx';
 import { useScrollAnchor } from '@src/application/ui/tui/components/scroll-region.tsx';
-import { listKeys } from '@src/application/ui/tui/runtime/keyboard-map.ts';
 import { isChord } from '@src/application/ui/tui/runtime/key-chord.ts';
 
 export interface MenuItem {
@@ -17,14 +16,8 @@ export interface MenuItem {
   readonly description?: string;
   readonly disabledReason?: string;
   readonly onSelect: () => void;
-  readonly hotkey?: string;
   /** Optional section label — small uppercased eyebrow above the group's first item. */
   readonly section?: string;
-  /**
-   * When true, the menu shows the hotkey hint but does NOT bind it locally — a higher-level handler (typically
-   * `useGlobalKeys`) owns the binding.
-   */
-  readonly globalHotkey?: boolean;
   /**
    * Optional factual cost/session hint rendered dimmed on a third line beneath the focused row's description. Only
    * the focused row shows it — unfocused rows remain compact.
@@ -60,14 +53,6 @@ const NOTE_LABEL_MAX = 30;
 
 const isEnabled = (item: MenuItem): boolean => item.disabledReason === undefined;
 
-/**
- * Single-character nav aliases reserved by the windowed-list contract (DESIGN-SYSTEM §6.4) — derived from `listKeys`
- * so it can never drift from the actual `useListWindow` bindings.
- */
-const RESERVED_NAV_KEYS: ReadonlySet<string> = new Set(
-  [...listKeys.up.keys, ...listKeys.down.keys].filter((k) => /^[a-z]$/.test(k))
-);
-
 /** Seed the cursor from `initialIndex` (index into the full items array). */
 const findInitialCursorId = (
   items: readonly MenuItem[],
@@ -79,15 +64,6 @@ const findInitialCursorId = (
     if (it !== undefined && isEnabled(it)) return it.id;
   }
   return enabledItems[0]?.id ?? '';
-};
-
-/**
- * Hotkey match for the space-as-select / hotkey `useInput` handler (skips global hotkeys and the reserved `j`/`k`
- * list-nav aliases — see {@link RESERVED_NAV_KEYS}).
- */
-const matchHotkey = (items: readonly MenuItem[], input: string): MenuItem | undefined => {
-  if (RESERVED_NAV_KEYS.has(input)) return undefined;
-  return items.find((it) => it.hotkey === input && it.globalHotkey !== true && isEnabled(it));
 };
 
 interface RenderRow {
@@ -165,24 +141,6 @@ const SectionHeader = ({
     </Text>
   </Box>
 );
-
-const RowHotkeyHint = ({
-  hotkey,
-  enabled,
-}: {
-  readonly hotkey: string | undefined;
-  readonly enabled: boolean;
-}): React.JSX.Element | null => {
-  if (hotkey === undefined) return null;
-  return (
-    <Text>
-      {'  '}
-      <Text color={enabled ? inkColors.highlight : inkColors.muted} bold={enabled}>
-        [{hotkey}]
-      </Text>
-    </Text>
-  );
-};
 
 const RowDescription = ({
   focused,
@@ -285,7 +243,7 @@ const LeadingSlot = ({
   return reserve ? <Text>{'  '}</Text> : null;
 };
 
-/** The row's single line: cursor, leading glyph, label, inline note, hotkey, right-aligned fact. */
+/** The row's single line: cursor, leading glyph, label, inline note, right-aligned fact. */
 const RowLine = ({
   item: it,
   focused,
@@ -310,7 +268,6 @@ const RowLine = ({
           {inline !== undefined ? it.label.padEnd(labelWidth) : it.label}
         </Text>
         {inline !== undefined && <Text dimColor>{`  ${inline}`}</Text>}
-        <RowHotkeyHint hotkey={it.hotkey} enabled={enabled} />
       </Text>
       {it.right !== undefined && (
         <Box flexShrink={0} marginLeft={1}>
@@ -350,13 +307,12 @@ const ActionMenuRow = ({
   );
 };
 
-/** Space selects the focused row; a row's `hotkey` selects it directly. Navigation is `useListWindow`'s. */
-const useMenuHotkeys = (items: readonly MenuItem[], focusedItem: MenuItem | undefined, active: boolean): void => {
+/** Space selects the focused row. Navigation is `useListWindow`'s. */
+const useMenuSpaceSelect = (focusedItem: MenuItem | undefined, active: boolean): void => {
   useInput(
     (input, key) => {
       if (!active || isChord(key)) return;
       if (input === ' ') focusedItem?.onSelect();
-      else if (input.length > 0) matchHotkey(items, input)?.onSelect();
     },
     { isActive: active }
   );
@@ -413,7 +369,7 @@ export const ActionMenu = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- fire on cursor movement only
   }, [focusedItem?.id]);
 
-  useMenuHotkeys(items, focusedItem, active);
+  useMenuSpaceSelect(focusedItem, active);
 
   if (items.length === 0) {
     return (

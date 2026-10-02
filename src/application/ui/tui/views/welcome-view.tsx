@@ -1,7 +1,7 @@
 /** First-run welcome. */
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Box, Text, useInput } from 'ink';
+import { Box, Text } from 'ink';
 import { ViewShell } from '@src/application/ui/tui/components/view-shell.tsx';
 import { Card } from '@src/application/ui/tui/components/card.tsx';
 import { ActionMenu, type MenuItem } from '@src/application/ui/tui/components/action-menu.tsx';
@@ -157,7 +157,7 @@ const Orientation = ({ detected, preset, onCreate }: OrientationProps): React.JS
         </Box>
       </Card>
       <Box marginTop={spacing.section} flexDirection="column">
-        <ActionMenu items={items} />
+        <ActionMenu items={items} active={!ui.modalOpen} />
         {showDemo && (
           <Box paddingX={spacing.indent}>
             <Text dimColor>The sandbox runs outside this session: quit, then run `ralphctl demo` in your shell.</Text>
@@ -184,15 +184,9 @@ export const WelcomeView = (): React.JSX.Element => {
       { keys: ['↵'], hint: 'continue', enabled: held && !orientation, run: continueToPendingRoute },
       { keys: ['↑', '↓'], hint: 'move', enabled: orientation },
       { keys: ['↵'], hint: 'select', enabled: orientation },
+      { keys: ['esc'], hint: 'continue', hidden: true, enabled: held, run: continueToPendingRoute },
     ],
     { active: held }
-  );
-
-  useInput(
-    (_input, key) => {
-      if (key.escape) continueToPendingRoute();
-    },
-    { isActive: pendingRoute !== undefined }
   );
 
   if (orientation) {

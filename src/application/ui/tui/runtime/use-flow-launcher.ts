@@ -139,15 +139,15 @@ interface LaunchCtx {
   readonly setLaunchError: (message: string | undefined) => void;
 }
 
-/** route-check → repository selection → customize picker → launch → session registration. */
-const launchEntry = async (entry: FlowEntry, snapshot: AppStateSnapshot, ctx: LaunchCtx): Promise<void> => {
+/** route-check → repository selection → customize picker → launch → session registration. Resolves `true` once a view opened or a run started. */
+const launchEntry = async (entry: FlowEntry, snapshot: AppStateSnapshot, ctx: LaunchCtx): Promise<boolean> => {
   const { deps, queue, storage, ui, selection, sessions, router, reload, setLaunchError } = ctx;
   setLaunchError(undefined);
 
   const route = viewRouteFor(entry.manifest.id, snapshot);
   if (route !== undefined) {
     router.push(route);
-    return;
+    return true;
   }
 
   const interactive = createInkInteractivePrompt(queue, deps.eventBus);
@@ -167,7 +167,7 @@ const launchEntry = async (entry: FlowEntry, snapshot: AppStateSnapshot, ctx: La
     project: snapshot.project,
     pinnedRepositoryId: ui.sessionRepositoryId,
   });
-  if (repoSelection.kind === 'cancel') return;
+  if (repoSelection.kind === 'cancel') return false;
   const chosenRepositoryId = repoSelection.kind === 'selected' ? repoSelection.repositoryId : undefined;
   if (chosenRepositoryId !== undefined) ui.setSessionRepositoryId(chosenRepositoryId);
 
@@ -185,7 +185,7 @@ const launchEntry = async (entry: FlowEntry, snapshot: AppStateSnapshot, ctx: La
     ...(skillCandidates !== undefined && !skillCandidates.degraded ? { skillCandidates } : {}),
     rebuildSkillCandidates: makeRebuildSkillCandidates(launcherDeps, snapshot, entry.manifest.id, settings),
   });
-  if (picker.kind === 'cancel') return;
+  if (picker.kind === 'cancel') return false;
 
   // Non-fatal: the run already carries the full override, so a save failure only loses the preference.
   const rememberError = await applySkillsRememberChoice(deps.settingsRepo, settings, skillCandidates, picker);
@@ -198,12 +198,13 @@ const launchEntry = async (entry: FlowEntry, snapshot: AppStateSnapshot, ctx: La
   const result = await runFlowLaunch(launcherDeps, entry, snapshot, launchExtras, { selection, sessions });
   if (!result.ok) {
     setLaunchError(`${entry.manifest.title}: ${result.reason}`);
-    return;
+    return false;
   }
   attachRepositoryCapture(result.runner, ui);
   // `replace` so the launching view isn't left on the stack behind the run.
   openFlowSession({ sessions, router }, result, entry.manifest.id, { mode: 'replace' });
   reload();
+  return true;
 };
 
 export interface UseFlowLauncherArgs {
@@ -212,7 +213,8 @@ export interface UseFlowLauncherArgs {
 }
 
 export interface FlowLauncher {
-  readonly launch: (flowId: string) => Promise<void>;
+  /** Resolves `true` when a view opened or a run started; `false` when cancelled, refused or failed. */
+  readonly launch: (flowId: string) => Promise<boolean>;
   readonly launchability: (flowId: string) => Launchability;
   readonly launchError: string | undefined;
 }
@@ -228,10 +230,10 @@ export const useFlowLauncher = ({ snapshot, reload }: UseFlowLauncherArgs): Flow
   const [launchError, setLaunchError] = useState<string | undefined>(undefined);
 
   const launch = useCallback(
-    async (flowId: string): Promise<void> => {
+    async (flowId: string): Promise<boolean> => {
       const entry = flowRegistry.find((e) => e.manifest.id === flowId);
-      if (entry === undefined || snapshot === undefined) return;
-      await launchEntry(entry, snapshot, {
+      if (entry === undefined || snapshot === undefined) return false;
+      return launchEntry(entry, snapshot, {
         deps,
         queue,
         storage,

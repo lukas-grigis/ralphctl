@@ -5,7 +5,7 @@ import { countRunning } from '@src/application/ui/tui/runtime/quit-runs.ts';
 import { useRouter, type RouterApi, type ViewEntry } from '@src/application/ui/tui/runtime/router.tsx';
 import { SECTIONS } from '@src/application/ui/tui/runtime/nav-tree.ts';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
-import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
+import { useUiState, type Overlay } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { useClaimedKeys } from '@src/application/ui/tui/runtime/claimed-keys-context.tsx';
 import { useSessionManager } from '@src/application/ui/tui/runtime/sessions-context.tsx';
 import type { SessionRecord } from '@src/application/ui/tui/runtime/session-manager.ts';
@@ -35,13 +35,15 @@ export const useGlobalKeys = (opts: UseGlobalKeysOptions = {}): void => {
   };
 
   useInput((input, key) => {
-    if (handleQuitChord(input, key, router, opts.disabled, quit, ui.overlay?.kind === 'quit')) return;
-    if (opts.disabled) return;
+    if (handleQuitChord(input, key, router, opts.disabled, quit, ui.overlay)) return;
     // The quit confirm owns every other key; its own handler answers it.
     if (ui.overlay?.kind === 'quit') return;
+    // A prompt only mutes the ambient keys: an open overlay is still closable (the prompt is hidden beneath it).
+    if (opts.disabled && ui.overlay === undefined) return;
     // Letter keys below answer to the bare key only; ctrl+x must not land on Runs.
     const letter = isChord(key) ? '' : input;
     if (handleOverlays(ui, selection, letter, key, isClaimed)) return;
+    if (opts.disabled) return;
     if (handleSessionNav(sessions, router, input, key)) return;
 
     if (key.escape && !ui.escapeClaimed) {
@@ -82,10 +84,11 @@ const handleQuitChord = (
   router: Pick<RouterApi, 'current' | 'activeSection' | 'stack'>,
   disabled: boolean | undefined,
   quit: () => void,
-  confirmOpen: boolean
+  overlay: Overlay | undefined
 ): boolean => {
-  if (confirmOpen) return false;
-  if ((key.ctrl && input === 'c') || (input === 'q' && isWorkRoot(router) && !disabled)) {
+  if (overlay?.kind === 'quit') return false;
+  // `q` is a plain letter: it quits only from a bare Work root, never through a prompt or an open overlay.
+  if ((key.ctrl && input === 'c') || (input === 'q' && isWorkRoot(router) && !disabled && overlay === undefined)) {
     quit();
     return true;
   }

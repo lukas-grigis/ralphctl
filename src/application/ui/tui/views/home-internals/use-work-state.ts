@@ -65,6 +65,9 @@ export const useWorkAgenda = (
   const hasProject = snapshot?.project !== undefined;
   const sprint = snapshot?.sprint;
 
+  // Elapsed / WAITING / "interrupted … ago" chips read the clock: the tick keeps the memo from freezing them.
+  const [clockTick, tick] = useReducer((n: number) => n + 1, 0);
+
   const agenda = useMemo<readonly AgendaRow[]>(() => {
     if (snapshot === undefined || !hasProject) return [];
     return buildAgenda({
@@ -84,6 +87,7 @@ export const useWorkAgenda = (
       ...(interruptedFacts !== undefined ? { interruptedFacts } : {}),
       sprintOwnedElsewhere,
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `clockTick` re-reads the clock for the elapsed / ago chips
   }, [
     snapshot,
     hasProject,
@@ -94,16 +98,18 @@ export const useWorkAgenda = (
     launchability,
     interruptedFacts,
     sprintOwnedElsewhere,
+    clockTick,
   ]);
 
-  // Elapsed times tick while something runs.
-  const [, tick] = useReducer((n: number) => n + 1, 0);
+  // Seconds-level chips tick while something runs; minute-level "interrupted … ago" chips need only a slow refresh.
   const hasRunning = agenda.some((r) => r.section === 'running');
+  const hasAgedChips = sessions.length > 0 || (interruptedFacts?.size ?? 0) > 0;
+  const tickMs = hasRunning ? 1000 : hasAgedChips ? 30_000 : undefined;
   useEffect(() => {
-    if (!hasRunning) return undefined;
-    const id = setInterval(tick, 1000);
+    if (tickMs === undefined) return undefined;
+    const id = setInterval(tick, tickMs);
     return (): void => clearInterval(id);
-  }, [hasRunning]);
+  }, [tickMs]);
 
   return { agenda, showAll, toggleShowAll: () => setShowAll((v) => !v) };
 };

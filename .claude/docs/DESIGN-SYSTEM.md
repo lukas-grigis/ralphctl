@@ -72,6 +72,9 @@ Canonical set. If a view needs a symbol not in this list, **add it to `glyphs` f
 | Overflow cues   | `moreAbove ▴`, `moreBelow ▾` (windowed-list `OverflowRow` "N more" rows); `moreLeft ‹`, `moreRight ›` (a horizontal strip with hidden tabs, e.g. the Settings section strip) |
 | Personality     | `quoteRail ┃`                                                                                                                                                                |
 
+Border corners / rules for hand-drawn border rows (a titled box, a clipped box's cue row) live in `borderGlyphs`
+(`round` / `single` / `double` / `bold`), not inline.
+
 Do not mix glyph families (no `✔` from one set and `✓` from another). No emoji in TUI surfaces.
 
 **`tones`** — `Record<Tone, { color, glyph }>` for the five semantic tones: `success ✓`, `warning ⚠`, `error ✗`,
@@ -538,6 +541,10 @@ footer** — the tab bar teaches the five sections. `b` is not global: Work bind
 Switch between running flows via `Tab` / `Shift+Tab` (cycle next / prev) or `Ctrl+1..9` (jump to the Nth
 running session); the Runs section (`4`) lists them all. Both chords cycle / jump over RUNNING sessions
 only and are suspended while a prompt or overlay is mounted.
+
+**Overlays outrank prompts.** While an overlay is open the view (and any prompt in it) is hidden, so prompt
+components go inactive (`usePromptInput`) and the overlay's own close keys (`esc`, its toggle) still run even when
+a prompt has muted the ambient global keys. `q` never quits while an overlay is open; `ctrl+c` always asks.
 
 ### 6.1a Footer hint strip
 

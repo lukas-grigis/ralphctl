@@ -85,16 +85,19 @@ const useDeleteProjectAction = (
       // runs unconditionally — the stale cursor must drop even if the operator navigated away mid-delete.
       if (selection.projectId === target.id) selection.setProject(undefined);
       if (!mountedRef.current) return;
-      const alsoRemoved =
-        cascade && (r.value.removedSprints > 0 || r.value.removedMemoryDirs > 0)
-          ? ` and ${plural(r.value.removedSprints, 'sprint')}`
-          : '';
+      const alsoRemoved = cascade ? ownedSummary(r.value.removedSprints, r.value.removedMemoryDirs, ' and its ') : '';
       setFeedback(`${glyphs.check} removed ${target.displayName}${alsoRemoved}`);
       reload();
     },
     [deps, mountedRef, selection, setFeedback, reload]
   );
   return { handleDeleteConfirmed };
+};
+
+/** "2 sprints and memory" / "memory" / "1 sprint", prefixed — empty when nothing is owned, never "0 sprints". */
+const ownedSummary = (sprints: number, memoryDirs: number, prefix: string): string => {
+  const parts = [...(sprints > 0 ? [plural(sprints, 'sprint')] : []), ...(memoryDirs > 0 ? ['memory'] : [])];
+  return parts.length > 0 ? `${prefix}${parts.join(' and ')}` : '';
 };
 
 /** Private presentational component for a single project row. */
@@ -167,7 +170,7 @@ const ProjectDeleteConfirm = ({
       <ConfirmCard
         key="children"
         verb="Also remove"
-        target={`its ${plural(preview.sprints.length, 'sprint')} and memory`}
+        target={ownedSummary(preview.sprints.length, preview.memoryDirs, 'its ')}
         body={
           <Text dimColor>
             Deletes {formatBytes(preview.bytes)} for good. No keeps them as orphans you can clear from System{' '}

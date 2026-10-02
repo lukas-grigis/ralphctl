@@ -23,14 +23,20 @@ import { markTaskBlocked } from '@src/domain/entity/task-lifecycle.ts';
 import { DEFAULT_SETTINGS } from '@src/business/settings/defaults.ts';
 import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
 import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
-import { makeActiveSprint, makeProject, makeTodoTask } from '@tests/fixtures/domain.ts';
+import {
+  absolutePath,
+  makeActiveSprint,
+  makeInProgressTaskWithRunningAttempt,
+  makeProject,
+  makeTodoTask,
+} from '@tests/fixtures/domain.ts';
 import { DOWN, ENTER, tick } from '@tests/integration/application/ui/tui/_keys.ts';
 import { waitForPredicate } from '@tests/integration/application/ui/tui/_wait.ts';
 import { mountFrame } from '@tests/integration/application/ui/tui/_app-frame.tsx';
 import { renderView, stripAnsi, waitForViewReady } from '@tests/integration/application/ui/tui/_harness.tsx';
 
 const mocks = vi.hoisted(() => ({
-  launch: vi.fn(async (flowId: string) => void flowId),
+  launch: vi.fn(async (flowId: string) => flowId.length > 0),
   unblock: vi.fn(async () => ({ ok: true, value: {} })),
 }));
 
@@ -186,6 +192,50 @@ describe('HomeView — heroes', () => {
     expect(frame).toMatch(/press 2 to open Sprints/);
     expect(frame).toContain('FLOWS');
     result.unmount();
+  });
+});
+
+describe('Work — resuming interrupted tasks', () => {
+  const resumeDeps = (dismiss: (ids: readonly string[]) => Promise<unknown>): AppDeps => {
+    const base = workDeps([makeInProgressTaskWithRunningAttempt()]);
+    return {
+      ...base,
+      findLiveSprintOwner: { execute: () => Promise.resolve(Result.ok(undefined)) },
+      detectInterruptedRuns: {
+        execute: () =>
+          Promise.resolve(
+            Result.ok([{ record: { runId: 'run-old', sprintId: sprint.id, updatedAt: new Date().toISOString() } }])
+          ),
+      },
+      dismissInterruptedRuns: { execute: dismiss },
+      gitRunner: { run: () => Promise.resolve(Result.ok({ exitCode: 0, stdout: '', stderr: '' })) },
+      storage: { dataRoot: absolutePath('/nonexistent-data-root') },
+    } as unknown as AppDeps;
+  };
+
+  const resume = async (started: boolean, dismiss: (ids: readonly string[]) => Promise<unknown>): Promise<void> => {
+    mocks.launch.mockClear();
+    mocks.launch.mockResolvedValueOnce(started);
+    const { result } = renderWork(100, 30, undefined, resumeDeps(dismiss));
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('was interrupted'));
+    await tick(100); // stale run ids arrive with the disk facts, after the row
+    result.stdin.write(ENTER);
+    await waitForPredicate(() => mocks.launch.mock.calls.length > 0);
+    await tick(60);
+  };
+
+  it('dismisses the stale run records once the resume started', async () => {
+    const dismiss = vi.fn(() => Promise.resolve(Result.ok(undefined)));
+    await resume(true, dismiss);
+    expect(mocks.launch).toHaveBeenCalledWith('implement');
+    expect(dismiss).toHaveBeenCalledWith(['run-old']);
+  });
+
+  it('keeps them when the launch was cancelled or refused', async () => {
+    const dismiss = vi.fn(() => Promise.resolve(Result.ok(undefined)));
+    await resume(false, dismiss);
+    expect(mocks.launch).toHaveBeenCalledWith('implement');
+    expect(dismiss).not.toHaveBeenCalled();
   });
 });
 

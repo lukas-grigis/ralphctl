@@ -3,7 +3,7 @@
  * box, quote and version beside or under it), or nothing — where the tab bar's gradient `ralphctl` carries the brand.
  */
 
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Box, Text } from 'ink';
 import { banner, getRandomQuote } from '@src/application/ui/tui/theme/banner.ts';
 import { paintLine, paintMultiline, palettes } from '@src/application/ui/tui/theme/gradient.ts';
@@ -79,8 +79,12 @@ const Signature = (): React.JSX.Element => (
 export const Banner = ({ mode }: BannerProps): React.JSX.Element | null => {
   const { columns } = useTerminalSize();
   const noColor = isColorDisabled();
-  const full = paintMultiline(banner.art, palettes.donut);
-  const rows = COMPACT_ART.map((l) => (noColor ? l : paintLine(l, palettes.donut)));
+  // Paint only what the mode draws, and only when the mode or colour support changes.
+  const full = useMemo(() => (mode === 'full' ? paintMultiline(banner.art, palettes.donut) : ''), [mode]);
+  const rows = useMemo(
+    () => (mode === 'compact' ? COMPACT_ART.map((l) => (noColor ? l : paintLine(l, palettes.donut))) : []),
+    [mode, noColor]
+  );
   if (mode === 'none') return null;
   if (mode === 'compact') {
     const side = columns >= SIDE_MIN_COLS;

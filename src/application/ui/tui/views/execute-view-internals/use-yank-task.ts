@@ -21,12 +21,18 @@ interface UseYankTaskInput {
 export const useYankTask = ({ eventBus, getSummary }: UseYankTaskInput): (() => void) => {
   const copyToClipboard = useMemo(() => createCopyToClipboard(), []);
   const clearTimer = useRef<NodeJS.Timeout | undefined>(undefined);
-  useEffect(
-    () => () => {
-      if (clearTimer.current !== undefined) clearTimeout(clearTimer.current);
-    },
-    []
-  );
+  const unmounted = useRef(false);
+  useEffect(() => {
+    unmounted.current = false;
+    return () => {
+      unmounted.current = true;
+      // Leaving inside the toast window must not strand the banner: the timer that would clear it dies here.
+      if (clearTimer.current === undefined) return;
+      clearTimeout(clearTimer.current);
+      clearTimer.current = undefined;
+      eventBus.publish({ type: 'banner-clear', id: CLIPBOARD_BANNER_ID, at: IsoTimestamp.now() });
+    };
+  }, [eventBus]);
 
   return useCallback((): void => {
     const summary = getSummary();
@@ -48,6 +54,7 @@ export const useYankTask = ({ eventBus, getSummary }: UseYankTaskInput): (() => 
     };
     void (async (): Promise<void> => {
       const result = await copyToClipboard(summary);
+      if (unmounted.current) return;
       if (result.ok) show('info', 'Copied to clipboard');
       else show('warn', 'Clipboard copy failed', result.error.message);
     })();

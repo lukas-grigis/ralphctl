@@ -91,3 +91,28 @@ describe('ProjectsView removal', () => {
     }
   });
 });
+
+describe('ProjectsView removal — memory only', () => {
+  it('names only what was removed: never "0 sprints"', async () => {
+    const app = await createRealFsApp();
+    try {
+      await app.deps.projectRepo.save(makeProject({ displayName: 'Demo Project' }));
+      const memoryDir = join(String(app.paths.memoryRoot), `${FIXED_PROJECT_ID}--demo-project`);
+      await fs.mkdir(memoryDir, { recursive: true });
+      await fs.writeFile(join(memoryDir, 'learnings.ndjson'), 'x');
+      const { result } = renderView(<ProjectsView />, { deps: app.deps, initial: { id: 'projects' } });
+      await waitForViewReady(result, (f) => f.includes('Demo Project'));
+      result.stdin.write('d');
+      await waitForPredicate(() => (result.lastFrame() ?? '').includes('Remove project'));
+      result.stdin.write('y');
+      await waitForPredicate(() => (result.lastFrame() ?? '').includes('Also remove its memory'));
+      expect(result.lastFrame() ?? '').not.toContain('0 sprints');
+      result.stdin.write('y');
+      await waitForPredicate(() => (result.lastFrame() ?? '').includes('removed Demo Project and its memory'));
+      expect(result.lastFrame() ?? '').not.toContain('0 sprints');
+      result.unmount();
+    } finally {
+      await app.cleanup();
+    }
+  });
+});

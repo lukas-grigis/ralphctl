@@ -84,6 +84,14 @@ describe('layoutTabs', () => {
       expect(text).not.toContain('✚');
     });
 
+    it('compact warn and fail badges differ by glyph, not only colour', () => {
+      const compact = (doctorWarn: number, doctorFail: number): string =>
+        layoutTabs(base({ columns: 100, badges: { runsLive: 0, doctorWarn, doctorFail } })).text;
+      expect(compact(2, 0)).toContain('✚2');
+      expect(compact(2, 1)).toContain('✗1');
+      expect(compact(2, 1)).not.toContain('✚');
+    });
+
     it('tones the system badge by severity', () => {
       const segs = (doctorFail: number): string[] =>
         layoutTabs(base({ badges: { runsLive: 0, doctorWarn: 1, doctorFail } })).segments.map((s) => s.tone);

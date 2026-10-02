@@ -16,7 +16,7 @@ import type { TaskRepository } from '@src/domain/repository/task/task-repository
 import type { Task } from '@src/domain/entity/task.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { ProjectId } from '@src/domain/value/id/project-id.ts';
-import { END, tick } from '@tests/integration/application/ui/tui/_keys.ts';
+import { DOWN, END, tick } from '@tests/integration/application/ui/tui/_keys.ts';
 import { waitForPredicate } from '@tests/integration/application/ui/tui/_wait.ts';
 import { renderView, waitForViewReady } from '@tests/integration/application/ui/tui/_harness.tsx';
 import { createPromptQueue } from '@src/application/ui/tui/prompts/prompt-queue.ts';
@@ -223,6 +223,48 @@ describe('SprintsView', () => {
     // appear in the frame (they are part of the same hint even if line-wrapped).
     expect(frame).toContain('unblock');
     expect(frame).toContain('(1)');
+    result.unmount();
+  });
+
+  it("drops the previous sprint's stuck tasks when focus moves to a sprint whose tasks have not loaded", async () => {
+    const first = makeDraftSprint({ name: 'Alpha Sprint' });
+    const second = makeDraftSprint({ name: 'Beta Sprint' });
+    const blocked = {
+      id: 'task-b1' as never,
+      name: 'stuck-one',
+      status: 'blocked',
+      blockedReason: 'verify timed out',
+      dependsOn: [],
+      attempts: [],
+      ticketId: 'tkt-1' as never,
+      repositoryId: 'r1' as never,
+      order: 1,
+      steps: [],
+      verificationCriteria: [],
+    } as never;
+    const calls = new Map<string, number>();
+    const deps = {
+      sprintRepo: fakeSprintRepo([first, second]),
+      taskRepo: {
+        // The list shows the newest sprint first. The list loader's health pass resolves for both; afterwards the older sprint's task load hangs
+        // (stands in for a failed load).
+        async findBySprintId(id: SprintId) {
+          calls.set(id, (calls.get(id) ?? 0) + 1);
+          if (id === second.id) return Result.ok([blocked] as readonly Task[]);
+          if (calls.get(id) === 1) return Result.ok([] as readonly Task[]);
+          return new Promise<never>(() => undefined);
+        },
+      } as unknown as TaskRepository,
+      projectRepo: {} as never,
+      sprintExecutionRepo: {} as never,
+      settingsRepo: {} as never,
+      logger: noopLogger,
+    } as unknown as AppDeps;
+
+    const { result } = renderView(<SprintsView />, { deps, initial: { id: 'sprints' } });
+    await waitForViewReady(result, (f) => f.includes('Alpha Sprint') && f.includes('Beta Sprint') && f.includes('(1)'));
+    result.stdin.write(DOWN);
+    await waitForPredicate(() => !(result.lastFrame() ?? '').includes('(1)'));
     result.unmount();
   });
 

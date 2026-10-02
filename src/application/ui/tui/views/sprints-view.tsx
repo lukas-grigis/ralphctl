@@ -59,18 +59,20 @@ const useStuckSprintTasks = (
   const deps = useDeps();
   const unblockTask = useUnblockTask();
   const mountedRef = useIsMounted();
-  const [tasks, setTasks] = useState<readonly Task[]>([]);
+  // Tagged with its sprint: tasks of a previous sprint never count for the current one, even if its load fails.
+  const [loaded, setLoaded] = useState<{ readonly sprintId: Sprint['id']; readonly tasks: readonly Task[] }>();
+  const tasks: readonly Task[] = loaded !== undefined && loaded.sprintId === sprintId ? loaded.tasks : [];
 
   useEffect(() => {
     if (sprintId === undefined) {
-      setTasks([]);
+      setLoaded(undefined);
       return undefined;
     }
     let cancelled = false;
     const load = async (): Promise<void> => {
       const r = await deps.taskRepo.findBySprintId(sprintId);
       if (cancelled) return;
-      if (r.ok) setTasks(r.value);
+      if (r.ok) setLoaded({ sprintId, tasks: r.value });
     };
     load().catch(() => undefined);
     return () => {
@@ -134,7 +136,7 @@ const useStuckSprintTasks = (
     if (succeeded > 0) reload();
     // Refresh this hook's own task list so the hint and count update immediately.
     const refreshed = await deps.taskRepo.findBySprintId(sprint.id);
-    if (mountedRef.current && refreshed.ok) setTasks(refreshed.value);
+    if (mountedRef.current && refreshed.ok) setLoaded({ sprintId: sprint.id, tasks: refreshed.value });
   };
 
   return { stuckCount: stuckTasks.length, unblockAll };

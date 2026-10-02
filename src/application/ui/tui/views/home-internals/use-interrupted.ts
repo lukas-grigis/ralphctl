@@ -1,6 +1,6 @@
 /** Work's interrupted tasks: the pure list from the snapshot, plus the disk facts and stale run records behind it. */
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { useSessions } from '@src/application/ui/tui/runtime/sessions-context.tsx';
 import {
@@ -32,6 +32,7 @@ export interface InterruptedState {
 
 const NONE: ReadonlyMap<string, InterruptedFacts> = new Map();
 const NO_TASKS: readonly InterruptedTask[] = [];
+const NO_RUN_IDS: readonly string[] = [];
 
 /** Re-check so the tasks surface once the other process dies. */
 const OWNER_RECHECK_MS = 5_000;
@@ -127,15 +128,15 @@ export const useInterrupted = (snapshot: AppStateSnapshot | undefined): Interrup
 
   const tasks = ownedElsewhere ? NO_TASKS : candidates;
   const ids = useMemo(() => new Set(tasks.map((t) => t.taskId)), [tasks]);
-  const staleRunIds = current && !ownedElsewhere ? loaded.staleRunIds : [];
-  const dismissStale = async (): Promise<void> => {
+  const staleRunIds = current && !ownedElsewhere ? loaded.staleRunIds : NO_RUN_IDS;
+  const dismissStale = useCallback(async (): Promise<void> => {
     if (staleRunIds.length === 0) return;
     try {
       await deps.dismissInterruptedRuns.execute(staleRunIds);
     } catch {
       // A record that outlives its resume is only clutter in Runs; never block the launch on it.
     }
-  };
+  }, [deps, staleRunIds]);
 
   return {
     tasks,

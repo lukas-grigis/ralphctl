@@ -146,6 +146,21 @@ describe('quit with live runs', () => {
     unmount();
   });
 
+  it('ignores `q` while another overlay is open, ctrl+c still asks', async () => {
+    const abortAll = vi.fn(() => Promise.resolve(STOPPED));
+    const { stdin, lastFrame, unmount } = mount(runningManager(1), abortAll);
+    await tick();
+    stdin.write('?');
+    await tick();
+    stdin.write('q');
+    await tick();
+    expect(lastFrame() ?? '').not.toContain(PROMPT);
+    stdin.write(CTRL_C);
+    await tick();
+    expect(lastFrame()).toContain(PROMPT);
+    unmount();
+  });
+
   it('quits at once when nothing is running', async () => {
     const abortAll = vi.fn(() => Promise.resolve(STOPPED));
     const { stdin, lastFrame, unmount } = mount(createSessionManager(), abortAll);
