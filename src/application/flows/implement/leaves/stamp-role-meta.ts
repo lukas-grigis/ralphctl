@@ -66,6 +66,8 @@ export interface StampRoleMetaOpts {
    * be ambiguous with "field never written".
    */
   readonly effort?: string;
+  /** The spawn's working directory — a crash resume only continues a session in the same cwd. */
+  readonly cwd?: string;
 }
 
 /**
@@ -82,12 +84,13 @@ interface RoleMeta {
   readonly roundN: number;
   readonly startedAt: string;
   readonly escalatedFromModel: string | null;
+  readonly cwd: string | null;
 }
 
 const renderBody = (
   role: 'generator' | 'evaluator',
   opts: StampRoleMetaOpts,
-  body: Omit<RoleMeta, 'role' | 'provider' | 'model' | 'effort'>
+  body: Omit<RoleMeta, 'role' | 'provider' | 'model' | 'effort' | 'cwd'>
 ): string => {
   const meta: RoleMeta = {
     role,
@@ -95,6 +98,7 @@ const renderBody = (
     model: opts.model,
     effort: opts.effort ?? null,
     ...body,
+    cwd: opts.cwd ?? null,
   };
   // Stable 2-space-indented JSON so a `git diff` between sprint dirs is reviewable, and
   // trailing newline (POSIX text-file convention).

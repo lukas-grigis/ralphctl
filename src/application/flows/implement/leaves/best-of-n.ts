@@ -26,13 +26,6 @@ import {
 import { persistBestOfNGrantConsumedLeaf } from '@src/application/flows/implement/leaves/best-of-n-grant-consumed.ts';
 import { bestOfNSelectionLeaf } from '@src/application/flows/implement/leaves/best-of-n-selection.ts';
 
-// `BestOfNGenEvalOpts` re-exported so a consumer typing a call to `buildBestOfNGenEvalLoop` below
-// doesn't need to know it's structurally defined in the sibling candidate module.
-// `toBestOfNGenEvalOpts` / `BestOfNCandidateRecord` are NOT re-exported here — every current
-// consumer (`attempt-body.ts`, `ctx.ts`, `best-of-n-selection.ts`) imports them directly from
-// `best-of-n-candidate.ts` / `best-of-n-record.ts`.
-export type { BestOfNGenEvalOpts } from '@src/application/flows/implement/leaves/best-of-n-candidate.ts';
-
 /**
  * Best-of-N execution — the escalation policy's opt-in top-of-ladder remedy (see
  * `business/task/escalation-policy.ts`'s `'best-of-n'` decision). When a task's granted attempt
@@ -130,7 +123,12 @@ const buildEvaluatorStep = (
   deps: ImplementDeps,
   taskId: TaskId,
   evaluatorLeafDeps: EvaluatorLeafDeps,
-  evaluatorSpawn: { readonly providerId: string; readonly model: string; readonly effort?: string }
+  evaluatorSpawn: {
+    readonly providerId: string;
+    readonly model: string;
+    readonly effort?: string;
+    readonly cwd: string;
+  }
 ): Element<ImplementCtx> => {
   return sequential<ImplementCtx>(`best-of-n-evaluator-step-${String(taskId)}`, [
     stampImplementEvaluatorSessionMetaLeaf({ writeFile: deps.writeFile, clock: deps.clock }, evaluatorSpawn, taskId),
@@ -151,7 +149,12 @@ const buildNormalGeneratorStep = (
   deps: ImplementDeps,
   taskId: TaskId,
   generatorLeafDeps: GeneratorLeafDeps,
-  generatorSpawn: { readonly providerId: string; readonly model: string; readonly effort?: string }
+  generatorSpawn: {
+    readonly providerId: string;
+    readonly model: string;
+    readonly effort?: string;
+    readonly cwd: string;
+  }
 ): Element<ImplementCtx> =>
   sequential<ImplementCtx>(`best-of-n-generator-turn-${String(taskId)}`, [
     stampImplementGeneratorSessionMetaLeaf({ writeFile: deps.writeFile, clock: deps.clock }, generatorSpawn, taskId),
@@ -217,8 +220,14 @@ export const buildBestOfNGenEvalLoop = (
   const evaluatorSpawn = roleSpawnConfig(opts.evaluator);
 
   const round1Substitute = buildRound1Substitute(deps, opts, taskId);
-  const normalGeneratorStep = buildNormalGeneratorStep(deps, taskId, generatorLeafDeps, generatorSpawn);
-  const evaluatorStep = buildEvaluatorStep(deps, taskId, evaluatorLeafDeps, evaluatorSpawn);
+  const normalGeneratorStep = buildNormalGeneratorStep(deps, taskId, generatorLeafDeps, {
+    ...generatorSpawn,
+    cwd: String(opts.cwd),
+  });
+  const evaluatorStep = buildEvaluatorStep(deps, taskId, evaluatorLeafDeps, {
+    ...evaluatorSpawn,
+    cwd: String(opts.cwd),
+  });
 
   return loop<ImplementCtx>(
     `gen-eval-best-of-n-${String(taskId)}`,

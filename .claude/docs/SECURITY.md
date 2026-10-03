@@ -137,6 +137,51 @@ is held across the whole run by the implement flow (serial path via `withRepoLoc
 key directly) and by the review flow (`withRepoLock`, same sprint-dir key — implement and review of one
 sprint mutually exclude). `withRepoLock` (`flows/_shared/`) is the one ctx-generic wrapper both use.
 
+**Lock owner.** A lock taken with a `purpose` carries `owner.json` (pid, host, machine id, process start, `ps`
+identity, purpose) inside the lock directory. A lock whose owner pid is dead on this machine is reclaimed at once
+rather than after `staleAfterMs`; a live or other-machine owner still waits for the heartbeat to go stale. The same
+dead-owner check keeps `anyLockHeld` (`integration/io/lock-guard.ts`, the purge / removal / migration guard) from
+counting a crash leftover as held for the rest of its stale window. Contention names the holder
+("another ralphctl (pid N) is running implement on this repo"). The `fs` handed to `proper-lockfile` unlinks
+`owner.json` before its bare `rmdir`.
+
+**Same machine, not same hostname.** Lock owners and live-run records are judged — pid alive, reclaim, reap — only
+when they come from this machine, since another machine's pids mean nothing here. `os.hostname()` alone is not a
+stable answer: macOS renames the machine on DHCP / mDNS changes, which would turn a crashed run on this very machine
+into a "foreign" one that is never reclaimed. Both files therefore also record a machine id — `/etc/machine-id`
+(or `/var/lib/dbus/machine-id`) on Linux, the `IOPlatformUUID` from `ioreg` on macOS — read once per process
+(`currentMachine`, `integration/io/process-liveness.ts`). `sameMachine` (`business/runs/live-run.ts`) compares
+machine ids when both sides have one and falls back to the hostname otherwise (Windows, an unreadable id, a file
+written before the id resolved). "Same user + same state root" was rejected as the test: a state root shared
+between machines (NFS home) would then let one machine reclaim another's live lock.
+
+**Another process on the same sprint.** A `running` attempt is shown as interrupted only when no other live
+ralphctl on this machine works the sprint: `findLiveSprintOwner` (`business/runs/`) checks the live-run records
+naming the sprint (owner alive, same process identity) and the sprint lock's `owner.json` — counted only while the
+lock's heartbeat is within the stale window and the owner pid is alive with the stamped `ps` identity (an
+unidentifiable live pid still counts), so a crash leftover with a recycled pid can't hide interrupted tasks. `ps`
+runs with `LC_ALL=C`, since `lstart` is localised otherwise and would silently disable every identity check.
+While that check is pending or fails, Work hides the interrupted rows and re-checks every 5s.
+
+**Process groups and the orphan reaper.** Headless AI CLI children are spawned `detached: true` on non-Windows,
+so each leads its own process group; interactive spawns keep the terminal. Abort and the idle watchdog kill the
+whole group (`killProcessTree`, `integration/io/kill-process-tree.ts`, shared with the shell-script runner), so
+tool subprocesses the CLI started die with it. Only children marked as group leaders are group-killed — a test
+fake with a made-up pid gets a single-pid kill. Spawns announce themselves through the `ChildRegistry` port
+(`providers/_engine/child-registry.ts`, wired in `wire()`): the registry feeds the **orphan reaper**
+(`integration/io/orphan-reaper.ts`), a lazily started detached sidecar that holds a pipe from the harness. When
+the pipe closes — the harness exited, crashed or was SIGKILLed — it SIGTERMs every registered group, waits a
+grace period, then SIGKILLs. POSIX only. Windows and reaper failure fall back to the boot-time reap
+(`reapInterruptedRuns`): it walks dead runs' live-run records and signals recorded groups only after
+`ProcessLiveness` confirms the group is still ours (a live leader must match the recorded `ps` start time and
+command, so a recycled pid is never signalled).
+
+**Live-run records** at `<stateRoot>/runs/<runId>.json` are written atomically when a tracked run starts,
+updated per spawn (pid, pgid, provider, cwd, round, session id once known) and deleted when the run settles. A
+record whose owner is dead is the evidence of an interrupted run (`detectInterruptedRuns`); resuming or
+dismissing it drops the record. Quit with live runs asks first and, on yes, aborts them through
+`inProcessRuns.abortAll` — see [WORKFLOWS.md](./WORKFLOWS.md).
+
 **Atomic file writes** via `business/io/write-file.ts` for all persisted state. Direct `fs.writeFile` is
 fenced from business code by the layer rules.
 
@@ -228,8 +273,7 @@ the error names the created URL so it can be linked by hand — re-publishing wo
 Comment is opt-in from the refine approval menu. The default is Approve. "Post as comment" appears
 only when the ticket has a linked issue; the body is the approved requirements plus a stable
 `<!-- ralphctl:refined-requirements -->` marker. A repeat of the same approved text does not add
-another comment (`listComments` already contains that body). `settings.scm.postRefinementComment`
-does not post — a headless refine never comments. Publish retries the comment when the ticket
+another comment (`listComments` already contains that body). A headless refine never comments. Publish retries the comment when the ticket
 already has a link; comments use the ticket link, not the create origin.
 
 `Project.defaultIssueOrigin` survives as a persisted field but these writes do not consult it.

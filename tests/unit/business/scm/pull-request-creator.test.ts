@@ -57,8 +57,8 @@ describe('parseUrlFromCliStdout', () => {
     expect(parseUrlFromCliStdout(out)).toBe('https://gitlab.com/o/r/-/merge_requests/7');
   });
 
-  it('falls back to the last non-empty line when no https URL is found', () => {
-    expect(parseUrlFromCliStdout('plain text\nlast line')).toBe('last line');
+  it('returns null when no line is an http(s) URL', () => {
+    expect(parseUrlFromCliStdout('plain text\nlast line')).toBeNull();
   });
 
   it('returns null on empty stdout', () => {

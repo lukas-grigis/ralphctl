@@ -20,6 +20,7 @@ import { SessionsView } from '@src/application/ui/tui/views/sessions-view.tsx';
 import { SettingsView } from '@src/application/ui/tui/views/settings-view.tsx';
 import { SkillsView } from '@src/application/ui/tui/views/skills-view.tsx';
 import { DoctorView } from '@src/application/ui/tui/views/doctor-view.tsx';
+import { HousekeepingView } from '@src/application/ui/tui/views/housekeeping-view.tsx';
 import { ExportContextView } from '@src/application/ui/tui/views/export-context-view.tsx';
 import { ExportRequirementsView } from '@src/application/ui/tui/views/export-requirements-view.tsx';
 import { CreatePrView } from '@src/application/ui/tui/views/create-pr-view.tsx';
@@ -47,6 +48,7 @@ const VIEW_REGISTRY = {
   settings: SettingsView,
   skills: SkillsView,
   doctor: DoctorView,
+  housekeeping: HousekeepingView,
   'export-context': ExportContextView,
   'export-requirements': ExportRequirementsView,
   'create-pr': CreatePrView,

@@ -141,6 +141,10 @@ export const resolveSprintDir = async (root: AbsolutePath, id: SprintId): Promis
 export const sprintFile = (root: AbsolutePath, id: SprintId, slug: Slug): string =>
   join(sprintDir(root, id, slug), 'sprint.json');
 
+/** The existing sprint dir, falling back to the bare `<id>/` path for first writes by slug-less aggregates. */
+export const sprintDirOrBare = async (root: AbsolutePath, id: SprintId): Promise<string> =>
+  (await resolveSprintDir(root, id)) ?? join(sprintsDir(root), String(id));
+
 /**
  * READ-side resolver for the per-project memory directory under `<dataRoot>/memory/`, tolerant of
  * both `<projectId>--<projectSlug>/` and the legacy bare `<projectId>/`. `undefined` when neither

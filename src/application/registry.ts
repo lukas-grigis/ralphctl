@@ -80,11 +80,6 @@ export interface FlowManifest {
   readonly title: string;
   /** One-line description of what the flow does. */
   readonly description: string;
-  /**
-   * True iff the flow can run detached from the interactive session (e.g. the implement loop).
-   * False for flows that wait on per-step user input.
-   */
-  readonly canBackground: boolean;
   /** Pre-launch readiness predicates — see {@link FlowTriggers}. */
   readonly triggers: FlowTriggers;
   /**

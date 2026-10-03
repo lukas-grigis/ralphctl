@@ -1,6 +1,5 @@
 /**
- * Provides the `PromptQueue` via context so views (mostly the prompt host) can access it
- * without prop-drilling.
+ * Provides the `PromptQueue` via context so views (mostly the prompt host) can access it without prop-drilling.
  */
 
 import React, { createContext, useContext } from 'react';
@@ -22,3 +21,6 @@ export const usePromptQueue = (): PromptQueue => {
   if (!ctx) throw new Error('usePromptQueue: must be used inside <PromptQueueProvider>');
   return ctx;
 };
+
+/** Like {@link usePromptQueue} but `undefined` outside a provider — for passive indicators. */
+export const useOptionalPromptQueue = (): PromptQueue | undefined => useContext(PromptQueueContext);

@@ -91,8 +91,9 @@ const STDOUT_RATE_LIMIT_RE =
  * model-availability failure is a CONFIG error, so retrying just burns the whole budget on the
  * same misconfiguration — it must keep blocking after one attempt.
  */
-export type ProviderName =
-  'claude-provider' | 'codex-provider' | 'copilot-provider' | 'opencode-provider' | 'grok-provider';
+export type ProviderSlug = 'claude' | 'codex' | 'copilot' | 'opencode' | 'grok';
+
+export type ProviderName = `${ProviderSlug}-provider`;
 
 /**
  * Matches the provider-CLI "the selected model isn't available" failure across the backends that

@@ -21,6 +21,7 @@ import type { DraftSprint } from '@src/domain/entity/sprint.ts';
 import type { IdeateAndPlanLeafDeps } from '@src/application/flows/ideate/leaves/ideate-and-plan.ts';
 import { ideateAndPlanLeaf } from '@src/application/flows/ideate/leaves/ideate-and-plan.ts';
 import type { IdeateCtx } from '@src/application/flows/ideate/ctx.ts';
+import { createPublishSignal } from '@src/application/flows/_shared/publish-signal.ts';
 
 /**
  * Audit-[10] nine-branch grid against the audit-[09] ideate contract.
@@ -80,7 +81,7 @@ describe('ideateAndPlanLeaf — audit-[09] contract', () => {
       runInTerminal: async (fn) => fn(),
       logger: noopLogger,
       writeFile,
-      eventBus,
+      publishSignal: createPublishSignal(eventBus, 'ideate'),
       model: 'claude-sonnet-4-6',
       maxAttempts: 3,
     };

@@ -3,7 +3,9 @@ import type { Logger } from '@src/business/observability/logger.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { UpdateTask } from '@src/domain/repository/task/update-task.ts';
 import type { BlockedTask, Task } from '@src/domain/entity/task.ts';
-import { markTaskBlocked } from '@src/domain/entity/task-lifecycle.ts';
+import { classifyBlock, markTaskBlocked } from '@src/domain/entity/task-lifecycle.ts';
+import { failCurrentAttempt } from '@src/domain/entity/task-settle.ts';
+import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import type { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import type { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
 import type { StorageError } from '@src/domain/value/error/storage-error.ts';
@@ -28,10 +30,28 @@ export interface CancelActiveTaskProps {
   readonly reason: string;
   readonly taskRepo: UpdateTask;
   readonly logger: Logger;
+  readonly clock: () => IsoTimestamp;
 }
 
 /** @public */
 export type CancelActiveTaskOutput = BlockedTask;
+
+const blockCancelledTask = (props: CancelActiveTaskProps): Result<BlockedTask, InvalidStateError> => {
+  // Operator-initiated cancel is an own-failure block — it never cascade-clears via upstream unblock.
+  if (props.task.attempts.at(-1)?.status !== 'running') return markTaskBlocked(props.task, props.reason, 'own');
+  // Settle the running attempt first — a blocked task's attempt can't be settled later.
+  const aborted = failCurrentAttempt(props.task, props.clock(), 'aborted', { abortCause: 'user-cancel' });
+  if (!aborted.ok) return Result.error(aborted.error);
+  if (aborted.value.status === 'blocked') {
+    return Result.ok({
+      ...aborted.value,
+      blockedReason: props.reason,
+      blockKind: 'own',
+      ...classifyBlock(props.reason, 'own'),
+    });
+  }
+  return markTaskBlocked(aborted.value, props.reason, 'own');
+};
 
 export const cancelActiveTaskUseCase = async (
   props: CancelActiveTaskProps
@@ -47,8 +67,7 @@ export const cancelActiveTaskUseCase = async (
     return Result.ok(props.task);
   }
 
-  // Operator-initiated cancel is an own-failure block — it never cascade-clears via upstream unblock.
-  const transitioned = markTaskBlocked(props.task, props.reason, 'own');
+  const transitioned = blockCancelledTask(props);
   if (!transitioned.ok) {
     log.warn('invalid state transition', {
       taskId: props.task.id,

@@ -40,6 +40,7 @@ import { gitCommitWithMessage } from '@src/integration/io/git-operations.ts';
 import type { GitRunner } from '@src/integration/io/git-runner.ts';
 import type { ShellScriptRunner } from '@src/integration/io/shell-script-runner.ts';
 import type { ReviewCtx } from '@src/application/flows/review/ctx.ts';
+import { assertCtxField } from '@src/application/flows/_shared/_engine/assert-ctx-field.ts';
 
 /**
  * Chain leaf — one iteration of the review loop. Wires the interactive prompt, fs, AI, git, and
@@ -363,7 +364,7 @@ const buildRoundCallbacks = (
       // maps to an `aborted` outcome (same behaviour the old vim `:cq` produced).
       const answer = await deps.interactive.askTextArea(
         `Feedback for round ${String(roundIndex)}` +
-          ' — Ctrl+D to submit, Esc to cancel, empty submission ends the review.'
+          ' — an empty submission ends the review and closes the sprint (done); esc cancels and keeps it in review.'
       );
       if (!answer.ok) return Result.error(answer.error) as Result<void, DomainError>;
       const wrote = await writeRoundBody(input.feedbackFile, answer.value);
@@ -455,26 +456,12 @@ export const reviewRoundLeaf = (deps: ReviewRoundLeafDeps, opts: ReviewRoundLeaf
       },
     },
     input: (ctx) => {
-      if (ctx.sprint === undefined) {
-        throw new InvalidStateError({
-          entity: 'chain',
-          currentState: 'pre-review-round',
-          attemptedAction: LEAF_NAME,
-          message: 'review-round: ctx.sprint missing',
-        });
-      }
-      if (ctx.feedbackFile === undefined) {
-        throw new InvalidStateError({
-          entity: 'chain',
-          currentState: 'pre-review-round',
-          attemptedAction: LEAF_NAME,
-          message: 'review-round: ctx.feedbackFile missing — ensure-feedback-file must run first',
-        });
-      }
+      const sprint = assertCtxField(ctx, 'sprint', LEAF_NAME, 'pre-review-round');
+      const feedbackFile = assertCtxField(ctx, 'feedbackFile', LEAF_NAME, 'pre-review-round');
       return {
-        sprint: ctx.sprint,
+        sprint,
         sprintId: ctx.sprintId,
-        feedbackFile: ctx.feedbackFile,
+        feedbackFile,
         ...(ctx.progressFile !== undefined ? { progressFile: ctx.progressFile } : {}),
         ...(ctx.previousRound !== undefined ? { previousRound: ctx.previousRound } : {}),
       };

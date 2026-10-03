@@ -10,6 +10,7 @@ import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import { adoptPersistedBlocks } from '@src/application/flows/implement/merge-wave.ts';
+import { messageOf } from '@src/domain/value/error/error-message.ts';
 
 /**
  * First leaf of the PARALLEL implement epilogue (`buildParallelImplementEpilogue`, `flow.ts`) —
@@ -65,7 +66,7 @@ export const adoptPersistedBlocksLeaf = (deps: AdoptPersistedBlocksLeafDeps): El
             if (cause instanceof AbortError) throw cause;
             named.warn('task read threw — epilogue proceeds with the in-memory task list', {
               sprintId: String(input.sprintId),
-              error: cause instanceof Error ? cause.message : String(cause),
+              error: messageOf(cause),
             });
             return Result.ok({ tasks: input.tasks });
           }

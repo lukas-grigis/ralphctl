@@ -134,7 +134,9 @@ export const useBucketedTasks = ({
         ...t,
         genEvalRound: roundN,
         genEvalMaxRounds: tracked.totalCap,
-        attemptN: tracked.attemptN,
+        // Budgeted count: a free resume must not read as a spent attempt.
+        attemptN: tracked.budgetedAttemptN,
+        ...(tracked.resumed ? { attemptResumed: true } : {}),
         roundInAttempt: tracked.roundInAttempt,
       };
     });

@@ -1,7 +1,6 @@
 import { join } from 'node:path';
 import { Result } from '@src/domain/result.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
-import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import type { WriteFile } from '@src/business/io/write-file.ts';
 import type { Element } from '@src/application/chain/element.ts';
@@ -136,7 +135,7 @@ export const stampSessionMetaLeaf = <TCtx>(
       execute: async (input) => {
         const startedAt = deps.clock();
         const targetPath = AbsolutePath.parse(join(String(input.outputDir), 'meta.json'));
-        if (!targetPath.ok) return Result.error(targetPath.error as DomainError);
+        if (!targetPath.ok) return Result.error(targetPath.error);
         const wrote = await deps.writeFile(targetPath.value, renderMeta(input, startedAt));
         if (!wrote.ok) return Result.error(wrote.error);
         return Result.ok(undefined);

@@ -9,7 +9,7 @@ import {
   type AiSettings,
   uniqueProvidersFromAi,
 } from '@src/domain/entity/settings.ts';
-import type { FlowId } from '@src/domain/value/flow-id.ts';
+import { FLOW_IDS, type FlowId } from '@src/domain/value/flow-id.ts';
 import { resolveEffortForRow } from '@src/business/settings/resolve-effort.ts';
 import type { InteractiveAiProvider } from '@src/integration/ai/providers/_engine/interactive-ai-provider.ts';
 import type { RunInTerminal } from '@src/integration/io/run-in-terminal.ts';
@@ -87,15 +87,16 @@ const pickModelEffortForProvider = (
   ai: AiSettings,
   provider: AiProvider
 ): { readonly model: string; readonly effort?: string } => {
-  const rows: ReadonlyArray<readonly [FlowId, AiFlowSettings]> = [
-    ['refine', ai.refine],
-    ['plan', ai.plan],
-    ['implement', ai.implement.generator],
-    ['implement', ai.implement.evaluator],
-    ['readiness', ai.readiness],
-    ['ideate', ai.ideate],
-    ['createPr', ai.createPr],
-  ];
+  // Derived from FLOW_IDS, the same source uniqueProvidersFromAi walks, so the two can't drift.
+  const rows: ReadonlyArray<readonly [FlowId, AiFlowSettings]> = FLOW_IDS.flatMap(
+    (flow): ReadonlyArray<readonly [FlowId, AiFlowSettings]> =>
+      flow === 'implement'
+        ? [
+            [flow, ai.implement.generator],
+            [flow, ai.implement.evaluator],
+          ]
+        : [[flow, ai[flow]]]
+  );
   for (const [flow, row] of rows) {
     if (row.provider === provider) {
       const effort = resolveEffortForRow(row, ai.effort, flow);

@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { makeTmpRoot } from '@tests/fixtures/tmp-root.ts';
 import {
   nextRoundNum,
+  readLastGeneratorRound,
   readRoundSessionId,
   roundSignalsPath,
   writeRoundPrompt,
@@ -105,6 +106,51 @@ describe('round-artifacts', () => {
       expect(await nextRoundNum(root.root)).toBe(2);
       // Prior content is untouched.
       expect(await fs.readFile(join(round1Gen, 'signals.json'), 'utf8')).toBe('["prior"]');
+    });
+  });
+
+  describe('readLastGeneratorRound', () => {
+    const seed = async (round: number, files: { readonly sid?: string; readonly meta?: object | string }) => {
+      const dir = join(String(root.root), 'rounds', String(round), 'generator');
+      await fs.mkdir(dir, { recursive: true });
+      if (files.sid !== undefined) await fs.writeFile(join(dir, 'session-id.txt'), `${files.sid}\n`);
+      if (files.meta !== undefined) {
+        const body = typeof files.meta === 'string' ? files.meta : JSON.stringify(files.meta);
+        await fs.writeFile(join(dir, 'role-meta.json'), body);
+      }
+    };
+    const META = { role: 'generator', provider: 'claude-code', model: 'm', attemptN: 2, roundN: 0, cwd: '/repo' };
+
+    it('returns the newest round that captured a session id, with its role-meta attribution', async () => {
+      await seed(2, { sid: 'older', meta: META });
+      await seed(10, { sid: 'newest', meta: META });
+      // A round whose spawn died before reporting an id is skipped.
+      await seed(11, { meta: META });
+      expect(await readLastGeneratorRound(root.root)).toEqual({
+        roundN: 10,
+        attemptN: 2,
+        sessionId: 'newest',
+        provider: 'claude-code',
+        model: 'm',
+        cwd: '/repo',
+      });
+    });
+
+    it('returns undefined when the newest id has no readable attribution — an unattributed session is never resumed', async () => {
+      await seed(1, { sid: 'attributed', meta: META });
+      await seed(2, { sid: 'orphan', meta: '{ not json' });
+      expect(await readLastGeneratorRound(root.root)).toBeUndefined();
+    });
+
+    it('omits cwd for a round stamped before cwd was recorded', async () => {
+      const legacy: Record<string, unknown> = { ...META };
+      delete legacy['cwd'];
+      await seed(1, { sid: 'legacy', meta: legacy });
+      expect((await readLastGeneratorRound(root.root))?.cwd).toBeUndefined();
+    });
+
+    it('returns undefined when there are no rounds at all', async () => {
+      expect(await readLastGeneratorRound(root.root)).toBeUndefined();
     });
   });
 });

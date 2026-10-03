@@ -10,8 +10,9 @@
  *   ↵ submit · ←/→ cursor · home/end edge · ctrl+a/ctrl+e edge · esc {escLabel} · ctrl+w word · ctrl+u clear
  */
 
-import React, { useEffect, useRef, useState } from 'react';
-import { Box, Text, useInput, type Key } from 'ink';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Box, Text, type Key } from 'ink';
+import { usePromptInput } from '@src/application/ui/tui/prompts/use-prompt-input.ts';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { stripPasteMarkers, usePaste } from '@src/application/ui/tui/prompts/use-paste.ts';
 
@@ -47,26 +48,21 @@ const useLineBuffer = (initial: string): LineBuffer => {
   const bufRef = useRef<string>(initial);
   const cursorRef = useRef<number>(initial.length);
 
+  // Refs are advanced synchronously, not inside a state updater: React may defer or replay an updater, and an Enter
+  // typed right behind the text would then submit a stale or double-applied buffer.
   const updateCursor: UpdateCursor = (next) => {
-    setCursor((prev) => {
-      const value = next(prev);
-      cursorRef.current = value;
-      return value;
-    });
+    const value = next(cursorRef.current);
+    cursorRef.current = value;
+    setCursor(value);
   };
 
   // Atomically update both buf and cursor to avoid stale-closure races on rapid keystrokes.
-  // The transform receives (prevBuf, prevCursor) and returns [newBuf, newCursor] so both values
-  // are computed from a consistent snapshot without needing to read refs between calls.
   const updateBufAndCursor: UpdateBufAndCursor = (transform) => {
-    setBuf((prevBuf) => {
-      const prevCursor = cursorRef.current;
-      const [newBuf, newCursor] = transform(prevBuf, prevCursor);
-      bufRef.current = newBuf;
-      cursorRef.current = newCursor;
-      setCursor(newCursor);
-      return newBuf;
-    });
+    const [newBuf, newCursor] = transform(bufRef.current, cursorRef.current);
+    bufRef.current = newBuf;
+    cursorRef.current = newCursor;
+    setBuf(newBuf);
+    setCursor(newCursor);
   };
 
   // Insert text at the cursor. Routed through updateBufAndCursor so refs stay authoritative.
@@ -161,6 +157,8 @@ export interface TextPromptProps {
    * as "step back" should pass "back" so the hint matches the actual behaviour.
    */
   readonly escLabel?: string;
+  /** Returns an error message to block submit and show inline, or `undefined` when the value is fine. */
+  readonly validate?: (value: string) => string | undefined;
 }
 
 export const TextPrompt = ({
@@ -169,9 +167,12 @@ export const TextPrompt = ({
   onCancel,
   initial = '',
   escLabel = 'cancel',
+  validate,
 }: TextPromptProps): React.JSX.Element => {
   const { buf, cursor, bufRef, updateCursor, updateBufAndCursor, insertAtCursor } = useLineBuffer(initial);
   const [caretOn, setCaretOn] = useState(true);
+  // The error stays quiet until the operator has typed something or tried to submit.
+  const [attempted, setAttempted] = useState(false);
 
   // Bracketed-paste channel. A single-line field flattens the payload: runs of whitespace and the
   // newlines of a multi-line paste collapse to one space so the field stays single-line.
@@ -186,7 +187,10 @@ export const TextPrompt = ({
     };
   }, []);
 
-  useInput((input, key) => {
+  // Memoised so the caret blink doesn't re-run validate (path-picker's stats the disk).
+  const validation = useMemo(() => validate?.(buf), [buf, validate]);
+
+  usePromptInput((input, key) => {
     // Bracketed paste first — consumed before any key dispatch so marker bytes and embedded
     // newlines never submit or land verbatim in the buffer.
     if (paste.consume(input)) return;
@@ -195,6 +199,10 @@ export const TextPrompt = ({
       return;
     }
     if (key.return) {
+      if (validate?.(bufRef.current) !== undefined) {
+        setAttempted(true);
+        return;
+      }
       onSubmit(bufRef.current);
       return;
     }
@@ -209,6 +217,7 @@ export const TextPrompt = ({
   const beforeCursor = buf.slice(0, cursor);
   const charAtCursor = buf.slice(cursor, cursor + 1); // '' when cursor is past end
   const afterCursor = buf.slice(cursor + 1);
+  const error = attempted || buf.length > 0 ? validation : undefined;
 
   return (
     <Box flexDirection="column" paddingX={spacing.indent}>
@@ -230,7 +239,14 @@ export const TextPrompt = ({
           </>
         )}
       </Box>
-      <Text dimColor>↵ submit · ←/→ cursor · home/end edge · esc {escLabel} · ctrl+w word · ctrl+u clear</Text>
+      {error !== undefined && (
+        <Text color={inkColors.error}>
+          {glyphs.cross} {error}
+        </Text>
+      )}
+      <Text dimColor wrap="truncate-end">
+        ↵ submit · ←/→ cursor · home/end edge · esc {escLabel} · ctrl+w word · ctrl+u clear
+      </Text>
     </Box>
   );
 };

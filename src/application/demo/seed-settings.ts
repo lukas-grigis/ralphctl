@@ -92,5 +92,5 @@ export const seedDemoSettings = async (
   const saved = await createJsonSettingsRepository({ configRoot: paths.value.configRoot }).save(settings);
   if (!saved.ok) return Result.error(saved.error);
 
-  return Result.ok({ preset, settings, noCliDetected: installed.size === 0 });
+  return Result.ok({ preset, noCliDetected: installed.size === 0 });
 };

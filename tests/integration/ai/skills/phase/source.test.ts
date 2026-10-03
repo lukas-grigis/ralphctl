@@ -10,9 +10,9 @@ import type { AppEvent, LogEvent } from '@src/business/observability/events.ts';
 import type { Skill } from '@src/integration/ai/skills/_engine/skill.ts';
 // The operator source lives in a sibling directory; the SOURCE modules may not cross-import (ESLint
 // sibling-isolation), but a TEST may. We import the real `OPERATOR_PROVIDER_DIR` here so the
-// disjointness guard checks the ACTUAL operator constant, not a local copy, and reuse the operator's
-// `RALPHCTL_SKILL_PREFIX` (the same namespace the phase source replicates) for the `ns` helper.
-import { OPERATOR_PROVIDER_DIR, RALPHCTL_SKILL_PREFIX } from '@src/integration/ai/skills/operator/source.ts';
+// disjointness guard checks the ACTUAL operator constant, not a local copy.
+import { OPERATOR_PROVIDER_DIR } from '@src/integration/ai/skills/operator/source.ts';
+import { RALPHCTL_SKILL_PREFIX } from '@src/integration/ai/skills/_engine/skill-folder-loader.ts';
 import { createPhaseSkillSource, PHASE_FLOW_DIR } from '@src/integration/ai/skills/phase/source.ts';
 
 const ns = (name: string): string => `${RALPHCTL_SKILL_PREFIX}${name}`;

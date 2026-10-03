@@ -5,7 +5,6 @@ import type { ReadinessState } from '@src/integration/ai/readiness/_engine/state
 import type { AssistantTool } from '@src/integration/ai/readiness/_engine/tool.ts';
 import type { ArtifactRef } from '@src/integration/ai/readiness/_engine/artifact-ref.ts';
 import { isPresent } from '@src/integration/ai/readiness/_engine/predicates.ts';
-import type { EventBus } from '@src/business/observability/event-bus.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
 import type { WriteFile } from '@src/business/io/write-file.ts';
 import type { Repository } from '@src/domain/entity/repository.ts';
@@ -24,6 +23,8 @@ import { validateSignalsFile } from '@src/integration/ai/contract/_engine/valida
 import type { ReadinessCtx } from '@src/application/flows/readiness/ctx.ts';
 import { readinessOutputContract } from '@src/application/flows/readiness/leaves/readiness.contract.ts';
 import { readOnlySignalsSession } from '@src/application/flows/_shared/signals-session.ts';
+import { assertCtxField } from '@src/application/flows/_shared/_engine/assert-ctx-field.ts';
+import type { PublishSignal } from '@src/application/flows/_shared/publish-signal.ts';
 
 export interface ProposeReadinessLeafDeps {
   readonly provider: HeadlessAiProvider;
@@ -36,11 +37,10 @@ export interface ProposeReadinessLeafDeps {
    */
   readonly writeFile: WriteFile;
   /**
-   * Application bus — every validated `agents-md-proposal` / `setup-skill-proposal` /
-   * `verify-skill-proposal` / `learning` / `note` / `skill-suggestions` signal fans out as a
-   * typed `ai-signal` event the TUI subscribes to.
+   * Fans every validated `agents-md-proposal` / `setup-skill-proposal` / `verify-skill-proposal`
+   * / `learning` / `note` / `skill-suggestions` signal out to the TUI.
    */
-  readonly eventBus: EventBus;
+  readonly publishSignal: PublishSignal;
   readonly logger: Logger;
   readonly cwd: AbsolutePath;
   readonly model: string;
@@ -174,7 +174,7 @@ const proposeReadinessUseCase = async (
   // Fan out every validated signal to the application bus so the TUI's `ai-signal`
   // subscribers render live updates. Source tag identifies the leaf for multi-leaf traces.
   for (const sig of signals) {
-    deps.eventBus.publish({ type: 'ai-signal', signal: sig, source: 'readiness' });
+    deps.publishSignal(sig);
   }
 
   // Render harness-owned sidecars (`agents-md-proposal.md` / `setup-skill.md` /
@@ -246,14 +246,7 @@ export const proposeReadinessLeaf = (deps: ProposeReadinessLeafDeps, tool: Assis
     },
     input: (ctx) => {
       const PRE_PROPOSE_STATE = 'pre-propose';
-      if (ctx.repository === undefined) {
-        throw new InvalidStateError({
-          entity: 'chain',
-          currentState: PRE_PROPOSE_STATE,
-          attemptedAction: 'propose',
-          message: 'propose: ctx.repository is undefined — pick-repository must run first',
-        });
-      }
+      const repository = assertCtxField(ctx, 'repository', 'propose', PRE_PROPOSE_STATE);
       const entry = ctx.entries[tool];
       if (entry?.probedState === undefined) {
         throw new InvalidStateError({
@@ -271,7 +264,7 @@ export const proposeReadinessLeaf = (deps: ProposeReadinessLeafDeps, tool: Assis
           message: `propose: ctx.entries[${tool}].runDir is undefined — allocate-run-dir must run first`,
         });
       }
-      return { repository: ctx.repository, probedState: entry.probedState, runDir: entry.runDir };
+      return { repository, probedState: entry.probedState, runDir: entry.runDir };
     },
     output: (ctx, out) => ({
       ...ctx,

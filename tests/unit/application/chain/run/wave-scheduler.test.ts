@@ -369,7 +369,7 @@ describe('runWaves — abort wins with bounded settle + cleanup', () => {
 });
 
 describe('runWaves — rate-limit fatal', () => {
-  it("'drain' (default) lets in-flight siblings finish, then stops launching the rest of the wave", async () => {
+  it('a rate-limit drains: in-flight siblings finish, then the rest of the wave is not launched', async () => {
     const gauge = { count: 0, max: 0 };
     const siblingGate = deferred();
     const siblingFinished = vi.fn();
@@ -407,7 +407,7 @@ describe('runWaves — rate-limit fatal', () => {
       mk('t3'),
     ];
 
-    const run = runWaves([branches], BASE, cfg({ maxConcurrency: 2, onFatal: 'drain' }));
+    const run = runWaves([branches], BASE, cfg({ maxConcurrency: 2 }));
     await Promise.resolve();
     await Promise.resolve();
     // The in-flight sibling t1 has not finished yet (gated); release it now.
@@ -420,39 +420,6 @@ describe('runWaves — rate-limit fatal', () => {
     // t1 finished cleanly (drained), t2/t3 never launched.
     expect(siblingFinished).toHaveBeenCalledTimes(1);
     expect(launched.sort()).toEqual(['t0', 't1']);
-  });
-
-  it("'kill' aborts in-flight siblings immediately on a rate-limit", async () => {
-    const gauge = { count: 0, max: 0 };
-    const cleanups: string[] = [];
-    const branches: Array<WaveBranch<Ctx>> = [
-      {
-        id: 't0',
-        element: fakeElement({
-          name: 't0',
-          gauge,
-          settle: Promise.resolve(),
-          error: () => new RateLimitError({ subCode: 'spawn-exit' }),
-        }),
-      },
-      {
-        id: 't1',
-        element: fakeElement({
-          name: 't1',
-          gauge,
-          settle: new Promise<void>(() => {}),
-          onCleanup: () => cleanups.push('t1'),
-        }),
-      },
-    ];
-
-    const result = await runWaves([branches], BASE, cfg({ maxConcurrency: 2, onFatal: 'kill' }));
-
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect(result.error.error).toBeInstanceOf(RateLimitError);
-    expect(gauge.count).toBe(0);
-    expect(cleanups).toEqual(['t1']);
   });
 });
 

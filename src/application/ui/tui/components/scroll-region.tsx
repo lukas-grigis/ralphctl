@@ -16,8 +16,7 @@
  *   ↑ / ↓                     → scroll one row (primary on laptops without a PgUp/PgDn key)
  *   PageUp / PageDown / Ctrl+b / Ctrl+f → scroll a full page
  *   Ctrl+u / Ctrl+d           → half-page jumps
- *   g                         → top
- *   G                         → bottom (the clamped max)
+ *   Home / End                → top / bottom (the clamped max); `g` is the global progress overlay, never a scroll key
  *
  * Arrow keys are dual-purpose: windowed-list views that own their own cursor via `useListWindow`
  * also handle arrow keys for row navigation. The early return on `max === 0` (content fits the
@@ -46,7 +45,7 @@ export interface ScrollRegionProps {
   readonly disabled?: boolean;
   /**
    * When true, the keyboard scroll handler ignores the arrow / paging / vim keys (↑ ↓ PageUp
-   * PageDown Ctrl+b/f/u/d g G k j) so they fall through to a view that owns its own list cursor
+   * PageDown Ctrl+b/f/u/d Home End) so they fall through to a view that owns its own list cursor
    * — preventing a single keypress from both moving the cursor AND page-scrolling. Mouse-wheel
    * scroll is UNAFFECTED: the wheel still drives the viewport regardless of this flag. The
    * `disabled` gate still mutes everything (keys and wheel) when set.
@@ -203,8 +202,8 @@ const SCROLL_KEY_ACTIONS: ReadonlyArray<{
   { matches: (input, key) => key.pageUp || (key.ctrl && input === 'b'), nextOffset: (l) => l.offset - l.page },
   { matches: (input, key) => key.ctrl && input === 'd', nextOffset: (l) => l.offset + l.half },
   { matches: (input, key) => key.ctrl && input === 'u', nextOffset: (l) => l.offset - l.half },
-  { matches: (input) => input === 'g', nextOffset: () => 0 },
-  { matches: (input) => input === 'G', nextOffset: (l) => l.max },
+  { matches: (_input, key) => key.home, nextOffset: () => 0 },
+  { matches: (_input, key) => key.end, nextOffset: (l) => l.max },
 ];
 
 /**

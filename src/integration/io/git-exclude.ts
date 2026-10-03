@@ -3,7 +3,8 @@ import { isAbsolute, join, resolve } from 'node:path';
 import { Result } from '@src/domain/result.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
-import { writeTextAtomic } from '@src/integration/io/fs.ts';
+import { isNodeErrnoCode, writeTextAtomic } from '@src/integration/io/fs.ts';
+import { messageOf } from '@src/domain/value/error/error-message.ts';
 
 /**
  * Append a wildcard pattern to `<repoRoot>/.git/info/exclude` if (and only if) the same
@@ -43,7 +44,7 @@ export const ensureGitExcludeWildcard = async (
       return Result.error(
         new StorageError({
           subCode: 'io',
-          message: `failed to read ${resolved}: ${cause instanceof Error ? cause.message : String(cause)}`,
+          message: `failed to read ${resolved}: ${messageOf(cause)}`,
           path: resolved,
           cause,
         })
@@ -78,7 +79,7 @@ const resolveExcludePath = async (repoRoot: string): Promise<Result<string | und
     return Result.error(
       new StorageError({
         subCode: 'io',
-        message: `failed to inspect ${gitMarker}: ${cause instanceof Error ? cause.message : String(cause)}`,
+        message: `failed to inspect ${gitMarker}: ${messageOf(cause)}`,
         path: gitMarker,
         cause,
       })
@@ -121,6 +122,3 @@ const resolveCommonDir = async (gitdir: string): Promise<string> => {
   const trimmed = commondir.trim();
   return trimmed.length === 0 ? gitdir : resolve(gitdir, trimmed);
 };
-
-const isNodeErrnoCode = (cause: unknown, code: string): boolean =>
-  typeof cause === 'object' && cause !== null && (cause as { code?: unknown }).code === code;

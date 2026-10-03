@@ -11,6 +11,7 @@ import {
   renderExtraDimensionsSection,
   renderGeneratorHintsSection,
   renderProjectToolingSection,
+  renderTaggedBlock,
   renderTaskDescriptionSection,
   renderTaskStepsSection,
   renderVerificationCriteriaSection,
@@ -266,28 +267,12 @@ export interface BuildEvaluatePromptInput {
   readonly agentDefinition?: string;
 }
 
-/**
- * Render the optional `<reproduction>` block — a failing test a prior `reproduce` session wrote
- * for this defect-shaped task. Framed for the reviewer role (re-run it yourself; an unexplained
- * edit is tampering), distinct from the generator-facing wording of the same-named helper in
- * `implement/definition.ts` and `implement-continuation/definition.ts` — not shared because
- * `_engine/renderers/task.ts` is outside this task's ownership, mirroring the existing
- * local-only `renderPriorAttemptsSection` precedent. Empty / absent → empty string so
- * `{{REPRODUCTION_SECTION}}` collapses cleanly with no orphan wrapper.
- */
-const renderReproductionSection = (reproduction: string | undefined): string => {
-  if (reproduction === undefined) return '';
-  const trimmed = reproduction.trim();
-  if (trimmed.length === 0) return '';
-  return [
-    '<reproduction>',
+// Reviewer-facing wording (re-run it; an edit is tampering), unlike the generator variant in renderers/task.ts.
+const renderReproductionSection = (reproduction: string | undefined): string =>
+  renderTaggedBlock('reproduction', reproduction, [
     'Re-run this reproduction command yourself as part of Phase 1 — see the verification-tampering',
     'check there for how an edit to this test is treated.',
-    '',
-    trimmed,
-    '</reproduction>',
-  ].join('\n');
-};
+  ]);
 
 /**
  * Top-level builder — accepts domain types, renders the param strings, calls `buildPrompt`.

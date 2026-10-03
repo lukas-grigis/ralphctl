@@ -152,4 +152,39 @@ describe('ProjectsView', () => {
     expect(save.mock.calls[0]?.[0]?.displayName).toBe('New Label');
     result.unmount();
   });
+
+  it('rename re-reads the project before saving, so a concurrent repository edit survives', async () => {
+    const project = makeProject({ displayName: 'Old Label' });
+    // detect-scripts wrote a verify script while the rename prompt was open.
+    const onDisk: Project = {
+      ...project,
+      repositories: project.repositories.map((r) => ({ ...r, verifyScript: 'make check' })),
+    };
+    const save = vi.fn(async (p: Project) => Result.ok<Project>(p));
+    const repo = {
+      async list() {
+        return Result.ok([project] as readonly Project[]);
+      },
+      async findById() {
+        return Result.ok(onDisk);
+      },
+      save,
+      async remove() {
+        return Result.ok(undefined);
+      },
+    } as unknown as ProjectRepository;
+    const queue = createPromptQueue();
+    const deps = stubDeps([project]);
+    (deps as unknown as { projectRepo: ProjectRepository }).projectRepo = repo;
+    const { result } = renderView(<ProjectsView />, { deps, initial: { id: 'projects' }, queue });
+    await waitForViewReady(result, (f) => f.includes('Old Label'));
+    result.stdin.write('e');
+    await waitForPredicate(() => queue.head !== undefined);
+    queue.resolveHead('New Label');
+    await waitForPredicate(() => save.mock.calls.length > 0);
+    const saved = save.mock.calls[0]?.[0];
+    expect(saved?.displayName).toBe('New Label');
+    expect(saved?.repositories[0]?.verifyScript).toBe('make check');
+    result.unmount();
+  });
 });

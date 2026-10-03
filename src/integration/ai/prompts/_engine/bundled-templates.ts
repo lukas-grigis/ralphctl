@@ -28,6 +28,7 @@ export const BUNDLED_PROMPT_TEMPLATES: readonly string[] = [
   'ideate',
   'implement',
   'implement-continuation',
+  'implement-crash-resume',
   'plan',
   'readiness',
   'refine',

@@ -15,6 +15,7 @@ import type { ProjectId } from '@src/domain/value/id/project-id.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { Trace } from '@src/application/chain/trace.ts';
 import type { Runner, RunnerStatus } from '@src/application/chain/run/runner.ts';
+import type { InProcessRuns } from '@src/application/session/in-process-runs.ts';
 
 /**
  * Terminal SessionRecords older than this are eligible for TTL eviction. Bounds the descriptor
@@ -542,7 +543,11 @@ export interface SessionManager {
   subscribe(fn: SessionListener): () => void;
 }
 
-export const createSessionManager = (opts?: { readonly clock?: () => number }): SessionManager => {
+export const createSessionManager = (opts?: {
+  readonly clock?: () => number;
+  /** Told about every registered runner, so data-removal guards count it as active until it settles. */
+  readonly runs?: Pick<InProcessRuns, 'track'>;
+}): SessionManager => {
   const clock = opts?.clock ?? Date.now;
   const records = new Map<string, SessionRecord>();
   const listeners = new Set<SessionListener>();
@@ -550,7 +555,14 @@ export const createSessionManager = (opts?: { readonly clock?: () => number }): 
   return {
     list: () => [...records.values()].sort((a, b) => a.descriptor.startedAt - b.descriptor.startedAt),
     get: (id) => records.get(id),
-    register: (input) => registerSession(records, listeners, clock, input),
+    register: (input) => {
+      opts?.runs?.track(input.runner, {
+        flowId: input.flowId,
+        ...(input.pinnedProjectId !== undefined ? { projectId: String(input.pinnedProjectId) } : {}),
+        ...(input.pinnedSprintId !== undefined ? { sprintId: String(input.pinnedSprintId) } : {}),
+      });
+      return registerSession(records, listeners, clock, input);
+    },
     abort: (id) => records.get(id)?.runner.abort('user requested'),
     remove: (id) => {
       if (records.delete(id)) notify(listeners);

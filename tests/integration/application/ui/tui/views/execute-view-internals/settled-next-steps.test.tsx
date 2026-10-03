@@ -93,7 +93,7 @@ afterEach(async () => {
 });
 
 describe('Execute view — settled-run next steps', () => {
-  it('offers BOTH flows visible at review, not the create-pr the old Home card advised', async () => {
+  it('offers every flow visible at review, review first', async () => {
     const sessions = createSessionManager();
     sessions.register({
       runner: fakeRunner('r-settled-review', 'completed'),
@@ -112,9 +112,9 @@ describe('Execute view — settled-run next steps', () => {
     await waitForViewReady(result, (f) => f.includes('Next steps'));
     const frame = result.lastFrame() ?? '';
     expect(frame).toContain('Next steps');
-    expect(frame).toContain('run review');
-    expect(frame).toContain('run close-sprint');
-    expect(frame).not.toContain('run create-pr');
+    expect(frame).toContain('◆ Review');
+    expect(frame).toContain('◆ Create PR');
+    expect(frame).toContain('◆ Close sprint');
     result.unmount();
   });
 
@@ -292,10 +292,10 @@ describe('Execute view — settled-run next steps', () => {
     emit?.({ type: 'completed' });
 
     await waitForViewReady(result, (f) => f.includes('Next steps'));
-    await waitForPredicate(() => (result.lastFrame() ?? '').includes('run implement'));
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('◆ Implement'));
     const frame = result.lastFrame() ?? '';
-    expect(frame).toContain('run implement');
-    expect(frame).not.toContain('run plan');
+    expect(frame).toContain('◆ Implement');
+    expect(frame).not.toContain('◆ Plan');
     result.unmount();
   });
 

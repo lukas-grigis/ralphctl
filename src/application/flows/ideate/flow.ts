@@ -24,6 +24,7 @@ import { reviewIdeateLeaf } from '@src/application/flows/ideate/leaves/review-id
 import { ideateAndPlanLeaf } from '@src/application/flows/ideate/leaves/ideate-and-plan.ts';
 import { aiUnitEpilogue, aiUnitPrelude } from '@src/application/flows/_shared/ai-unit-segment.ts';
 import { assertCtxField } from '@src/application/flows/_shared/_engine/assert-ctx-field.ts';
+import { createPublishSignal } from '@src/application/flows/_shared/publish-signal.ts';
 
 export interface CreateIdeateFlowOpts {
   readonly sprintId: SprintId;
@@ -45,8 +46,6 @@ export interface CreateIdeateFlowOpts {
   readonly maxAttempts: number;
   /** Per-sprint root: `<sprintDir>/ideate/`. Per-run subfolder created at execute time. */
   readonly ideateRoot: AbsolutePath;
-  /** Per-run slug — the subfolder under ideateRoot. Defaults to `'session-<timestamp>'`. */
-  readonly runSlug?: string;
   /**
    * Root of the per-project procedural-memory tree (`<dataRoot>/memory/`). When supplied, the
    * combined refine + plan prompt is seeded with this project's not-yet-promoted learnings +
@@ -116,7 +115,7 @@ const transitionToPlannedLeaf = (deps: Pick<IdeateDeps, 'clock'>): Element<Ideat
   });
 
 export const createIdeateFlow = (deps: IdeateDeps, opts: CreateIdeateFlowOpts): Element<IdeateCtx> => {
-  const slug = opts.runSlug ?? `session-${String(Date.now())}`;
+  const slug = `session-${String(Date.now())}`;
 
   const unitOpts = {
     unitName: 'ideate',
@@ -171,7 +170,7 @@ export const createIdeateFlow = (deps: IdeateDeps, opts: CreateIdeateFlowOpts): 
       runInTerminal: deps.runInTerminal,
       logger: deps.logger,
       writeFile: deps.writeFile,
-      eventBus: deps.eventBus,
+      publishSignal: createPublishSignal(deps.eventBus, 'ideate'),
       model: opts.model,
       maxAttempts: opts.maxAttempts,
       ...(opts.effort !== undefined ? { effort: opts.effort } : {}),

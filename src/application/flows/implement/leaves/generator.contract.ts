@@ -21,6 +21,7 @@ import { taskCompleteSignalSchema } from '@src/integration/ai/contract/_engine/s
 import { taskVerifiedSignalSchema } from '@src/integration/ai/contract/_engine/signals/task-verified/schema.ts';
 import { brandSignalArray } from '@src/integration/ai/contract/_engine/brand-signal-array.ts';
 import type { AiOutputContract, SidecarRule } from '@src/integration/ai/contract/_engine/types.ts';
+import { wrapLegacySignalArray } from '@src/integration/ai/contract/_engine/legacy-array-migration.ts';
 
 /**
  * Per-leaf I/O contract for the gen-eval generator turn — audit-[09]. The generator may emit:
@@ -89,19 +90,6 @@ const signalsArraySchemaRaw = z
 const signalsArraySchema = brandSignalArray<GeneratorSignal>(signalsArraySchemaRaw);
 
 /**
- * Legacy → v1 wrapping. In-flight sprints on disk may carry a bare top-level array from an
- * earlier writer; fresh sprints write the `{ schemaVersion, signals }` wrapper directly. This
- * step shims the legacy shape into the wrapper the validator expects.
- */
-const wrapLegacyArray = (raw: unknown): unknown => {
-  if (Array.isArray(raw)) return { schemaVersion: 1, signals: raw };
-  // Already-wrapped payloads (writer migrated, in-flight round on disk, …) pass through.
-  // Anything else (object that's neither array nor wrapper, primitive) also passes through;
-  // Zod will catch shape errors with a precise issue path.
-  return raw;
-};
-
-/**
  * One sidecar per supported signal kind. Declaring each rule via the per-kind
  * `SidecarRule<K>` lets `extract` narrow to the matching variant of `AiSignal` at
  * authoring time. Storing the rules in the contract's `sidecars` array requires a cast
@@ -165,7 +153,7 @@ export const generatorOutputContract: AiOutputContract<GeneratorSignal> = {
   // and the helper dispatches by `signalKind`. See the comment block above.
   sidecars: [commitMessageSidecar as SidecarRule<GeneratorSignal['type']>],
   migrations: {
-    0: wrapLegacyArray,
+    0: wrapLegacySignalArray,
   },
   exampleSignals: generatorExampleSignals,
 };
@@ -187,15 +175,6 @@ const renderCommitMessage = (signal: CommitMessageSignal): string => {
   if (body !== undefined && body.length > 0) return `${subject}\n\n${body}\n`;
   return `${subject}\n`;
 };
-
-/**
- * Exported solely so the test grid can assert against the exact signal sub-union the
- * contract accepts. The leaf consumes the contract via `generatorOutputContract`; this
- * alias must not appear outside `__tests__/`.
- *
- * @public
- */
-export type GeneratorContractSignal = GeneratorSignal;
 
 const _signalCheck: GeneratorSignal extends AiSignal ? true : false = true;
 void _signalCheck;

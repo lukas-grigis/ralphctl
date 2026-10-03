@@ -21,8 +21,6 @@ import type { SidecarRule } from '@src/integration/ai/contract/_engine/types.ts'
  *
  *   - `'one'`      — Zod schema enforces exactly one signal of this kind; rendered.
  *   - `'optional'` — At most one; render only if present.
- *   - `'any'`      — Iterate every matching signal; the first writes `<filename>`, subsequent
- *                    matches append `.1`, `.2`, … to disambiguate.
  *
  * Returns the absolute paths of every sidecar successfully written, for the leaf's audit /
  * test surface.
@@ -37,12 +35,13 @@ export const renderSidecars = async <TSig extends AiSignal>(
   const writtenPaths: AbsolutePath[] = [];
 
   for (const rule of rules) {
-    const matching = signals.filter((s) => s.type === rule.signalKind);
-    if (matching.length === 0) {
+    const first = signals.find((s) => s.type === rule.signalKind);
+    if (first === undefined) {
       warnIfRequiredSignalMissing(rule, logger);
       continue;
     }
-    writtenPaths.push(...(await renderMatchesForRule(writeFile, outputDir, matching, rule, logger)));
+    const written = await renderFirstMatch(writeFile, outputDir, first, rule, logger);
+    if (written !== undefined) writtenPaths.push(written);
   }
 
   return Result.ok(writtenPaths);
@@ -51,7 +50,7 @@ export const renderSidecars = async <TSig extends AiSignal>(
 /**
  * `'one'` sidecars are Zod-enforced to have exactly one matching signal upstream; if none
  * slipped through anyway, fail soft with a warning rather than aborting the whole render —
- * the operator can still inspect `signals.json` directly. `'optional'` and `'any'` rules are
+ * the operator can still inspect `signals.json` directly. `'optional'` rules are
  * silently skipped when nothing matches; that's expected, not an anomaly.
  */
 const warnIfRequiredSignalMissing = <TKind extends AiSignal['type']>(
@@ -63,46 +62,26 @@ const warnIfRequiredSignalMissing = <TKind extends AiSignal['type']>(
 };
 
 /**
- * Write every signal matching one rule. `'any'` iterates the full match list, disambiguating
- * filenames via `renderFilename`; `'one'` / `'optional'` write only the first match. A path or
- * write failure logs a warning and is skipped rather than aborting the batch (see the
- * failure-model note on `renderSidecars`).
+ * Write the sidecar for one signal. A path or write failure logs a warning and returns
+ * `undefined` rather than aborting the batch (see the failure-model note on `renderSidecars`).
  */
-const renderMatchesForRule = async <TSig extends AiSignal>(
+const renderFirstMatch = async <TSig extends AiSignal>(
   writeFile: WriteFile,
   outputDir: AbsolutePath,
-  matching: readonly TSig[],
+  signal: TSig,
   rule: SidecarRule<TSig['type']>,
   logger: Logger
-): Promise<readonly AbsolutePath[]> => {
-  const writtenPaths: AbsolutePath[] = [];
-  let index = 0;
-  for (const signal of matching) {
-    const filename = renderFilename(rule.filename, index, rule.multiplicity);
-    const absPathResult = AbsolutePathFactory.parse(join(String(outputDir), filename));
-    if (!absPathResult.ok) {
-      logger.warn(
-        `sidecar render: could not resolve absolute path for ${rule.filename}: ${absPathResult.error.message}`
-      );
-      index++;
-      continue;
-    }
-    const body = (rule.extract as (s: AiSignal) => string)(signal);
-    const writeResult = await writeFile(absPathResult.value, body);
-    if (!writeResult.ok) {
-      logger.warn(`sidecar render: write failed for ${String(absPathResult.value)}: ${writeResult.error.message}`);
-    } else {
-      writtenPaths.push(absPathResult.value);
-    }
-    index++;
-    if (rule.multiplicity !== 'any') break;
+): Promise<AbsolutePath | undefined> => {
+  const absPathResult = AbsolutePathFactory.parse(join(String(outputDir), rule.filename));
+  if (!absPathResult.ok) {
+    logger.warn(`sidecar render: could not resolve absolute path for ${rule.filename}: ${absPathResult.error.message}`);
+    return undefined;
   }
-  return writtenPaths;
-};
-
-const renderFilename = (filename: string, index: number, multiplicity: 'one' | 'optional' | 'any'): string => {
-  if (multiplicity !== 'any' || index === 0) return filename;
-  const dot = filename.lastIndexOf('.');
-  if (dot <= 0) return `${filename}.${String(index)}`;
-  return `${filename.slice(0, dot)}.${String(index)}${filename.slice(dot)}`;
+  const body = (rule.extract as (s: AiSignal) => string)(signal);
+  const writeResult = await writeFile(absPathResult.value, body);
+  if (!writeResult.ok) {
+    logger.warn(`sidecar render: write failed for ${String(absPathResult.value)}: ${writeResult.error.message}`);
+    return undefined;
+  }
+  return absPathResult.value;
 };

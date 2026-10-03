@@ -1,6 +1,7 @@
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import type { TaskStatus } from '@src/domain/entity/task.ts';
 import { neutralizeProseHeadings, sanitizeInline } from '@src/business/sprint/journal-sanitize.ts';
+import { splitJournal } from '@src/business/sprint/journal-structure.ts';
 
 /**
  * Render the DERIVED sprint-state header band for `<sprintDir>/progress.md` — the always-kept block
@@ -63,8 +64,12 @@ const isStale = (task: SprintStateTask): boolean => task.status === 'in_progress
 
 const orEmDash = (value: string | null): string => (value !== null && value.length > 0 ? value : EM_DASH);
 
-/** Sprint identity block (`# Sprint:` / id / created). */
-const renderIdentity = (input: SprintStateHeaderInput): string[] => [
+/** Sprint identity block (`# Sprint:` / id / created), shared with the creation-time journal header. */
+export const renderSprintIdentity = (input: {
+  readonly sprintName: string;
+  readonly sprintId: string;
+  readonly createdAt: IsoTimestamp;
+}): string[] => [
   `# Sprint: ${cell(input.sprintName)}`,
   '',
   `- id: ${input.sprintId}`,
@@ -119,9 +124,19 @@ const renderTaskTable = (tasks: readonly SprintStateTask[]): string[] => {
 
 export const renderSprintStateHeader = (input: SprintStateHeaderInput): string =>
   [
-    ...renderIdentity(input),
+    ...renderSprintIdentity(input),
     ...renderStatus(input),
     ...renderBlockers(input.tasks),
     ...renderStale(input.tasks),
     ...renderTaskTable(input.tasks),
   ].join('\n');
+
+/**
+ * Rewrite the header band's `- State:` line to `status` after a lifecycle transition, so the derived
+ * header does not keep the pre-transition state until the next attempt regenerates it. Attempt
+ * sections and a journal without the line come back unchanged. Pure — no I/O.
+ */
+export const withSprintStateStatus = (journal: string, status: string): string => {
+  const { headerBand, sections } = splitJournal(journal);
+  return headerBand.replace(/^- State: .*$/m, `- State: ${status}`) + sections.join('');
+};

@@ -7,6 +7,7 @@ import { noteSignalSchema } from '@src/integration/ai/contract/_engine/signals/n
 import { refinedTicketSignalSchema } from '@src/integration/ai/contract/_engine/signals/refined-ticket/schema.ts';
 import { brandSignalArray } from '@src/integration/ai/contract/_engine/brand-signal-array.ts';
 import type { AiOutputContract } from '@src/integration/ai/contract/_engine/types.ts';
+import { wrapLegacySignalArray } from '@src/integration/ai/contract/_engine/legacy-array-migration.ts';
 
 /**
  * Per-leaf I/O contract for the refine flow's interactive AI session — audit-[09]. The session
@@ -115,19 +116,6 @@ const signalsArraySchemaRaw = z
  */
 const signalsArraySchema = brandSignalArray<RefineSignal>(signalsArraySchemaRaw);
 
-/**
- * Legacy → v1 wrapping. Today's refine leaf synthesises a bare top-level array of signals
- * from the AI's `requirements.md` body. Wave 6 swaps the prompt so the AI writes the
- * `{ schemaVersion, signals }` wrapper directly. Until then, this step shims the legacy
- * shape into the wrapper the validator expects.
- */
-const wrapLegacyArray = (raw: unknown): unknown => {
-  if (Array.isArray(raw)) return { schemaVersion: 1, signals: raw };
-  // Already-wrapped payloads (writer migrated, fixture, …) pass through. Anything else
-  // also passes through; Zod will catch shape errors with a precise issue path.
-  return raw;
-};
-
 /** Static ISO timestamp embedded in the rendered example. Real spawns stamp `IsoTimestamp.now()`. */
 const EXAMPLE_TS = '2026-05-22T10:00:00.000Z' as IsoTimestamp;
 
@@ -171,19 +159,10 @@ export const refineOutputContract: AiOutputContract<RefineSignal> = {
   signalsSchema: signalsArraySchema,
   sidecars: [],
   migrations: {
-    0: wrapLegacyArray,
+    0: wrapLegacySignalArray,
   },
   exampleSignals: refineExampleSignals,
 };
-
-/**
- * Exported solely so the test grid can assert against the exact signal sub-union the
- * contract accepts. The leaf consumes the contract via `refineOutputContract`; this alias
- * must not appear outside `__tests__/`.
- *
- * @public
- */
-export type RefineContractSignal = RefineSignal;
 
 const _signalCheck: RefineSignal extends AiSignal ? true : false = true;
 void _signalCheck;

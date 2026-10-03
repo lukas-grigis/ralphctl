@@ -26,6 +26,8 @@ interface SessionStore {
   readonly sessionId: string;
   /** Outermost `runWithSession` id of this scope chain — see {@link rootSessionId}. */
   readonly rootSessionId: string;
+  /** The innermost runner's abort signal, so work parked outside the chain (a prompt) can unwind with it. */
+  readonly signal?: AbortSignal;
 }
 
 const storage = new AsyncLocalStorage<SessionStore>();
@@ -37,8 +39,22 @@ const storage = new AsyncLocalStorage<SessionStore>();
  * per-branch logger / signal attribution needs) while INHERITING `rootSessionId` from the scope
  * it was entered from.
  */
-export const runWithSession = <T>(sessionId: string, fn: () => Promise<T> | T): Promise<T> | T =>
-  storage.run({ sessionId, rootSessionId: storage.getStore()?.rootSessionId ?? sessionId }, fn);
+export const runWithSession = <T>(
+  sessionId: string,
+  fn: () => Promise<T> | T,
+  signal?: AbortSignal
+): Promise<T> | T => {
+  const outer = storage.getStore();
+  const inherited = signal ?? outer?.signal;
+  return storage.run(
+    {
+      sessionId,
+      rootSessionId: outer?.rootSessionId ?? sessionId,
+      ...(inherited !== undefined ? { signal: inherited } : {}),
+    },
+    fn
+  );
+};
 
 export const currentSessionId = (): string | undefined => storage.getStore()?.sessionId;
 
@@ -53,3 +69,6 @@ export const currentSessionId = (): string | undefined => storage.getStore()?.se
  * @public
  */
 export const rootSessionId = (): string | undefined => storage.getStore()?.rootSessionId;
+
+/** Abort signal of the innermost runner in scope; `undefined` outside any run. */
+export const currentRunSignal = (): AbortSignal | undefined => storage.getStore()?.signal;

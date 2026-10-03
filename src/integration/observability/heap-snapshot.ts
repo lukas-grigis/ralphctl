@@ -1,6 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as v8 from 'node:v8';
+import { messageOf } from '@src/domain/value/error/error-message.ts';
 
 /**
  * Best-effort heap-snapshot dump for post-mortem OOM diagnosis.
@@ -38,6 +39,6 @@ export const writeHeapSnapshotToDir = (dir: string, clock?: () => string): HeapS
     v8.writeHeapSnapshot(fullPath);
     return { ok: true, path: fullPath };
   } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    return { ok: false, error: messageOf(err) };
   }
 };

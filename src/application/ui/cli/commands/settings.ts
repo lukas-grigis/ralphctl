@@ -7,19 +7,15 @@ import { createSettingsSetProviderFlow } from '@src/application/flows/settings-s
 import { createSettingsApplyPresetFlow } from '@src/application/flows/settings-apply-preset/flow.ts';
 import { bootstrapCli } from '@src/application/ui/cli/bootstrap.ts';
 import { fail } from '@src/application/ui/cli/report-cli-error.ts';
-import type { AiImplementRole, AiProvider } from '@src/domain/entity/settings.ts';
-import { AI_PROVIDERS } from '@src/domain/entity/settings.ts';
+import type { AiImplementRole } from '@src/domain/entity/settings.ts';
+import { AI_PROVIDERS, isAiProvider } from '@src/domain/entity/settings.ts';
 import { PROVIDER_BINARY } from '@src/integration/system/detect-cli.ts';
 import type { FlowId } from '@src/domain/value/flow-id.ts';
 import type { SettingsRepository } from '@src/domain/repository/settings/settings-repository.ts';
 
-const isAiProvider = (raw: string): raw is AiProvider => (AI_PROVIDERS as readonly string[]).includes(raw);
-
 /**
- * Detect a provider-setting key and return the parsed flow+role tuple. Returns `undefined` for
- * any other key; `applySettingsKey` (the legacy path) still handles those. Recognised shapes:
- *   - `ai.<flow>.provider`              (flow ∈ refine | plan | readiness | ideate | createPr)
- *   - `ai.implement.<role>.provider`    (role ∈ generator | evaluator)
+ * Detect a provider-setting key and return the parsed flow+role tuple. Returns `undefined` for any other key;
+ * `applySettingsKey` (the legacy path) still handles those.
  */
 const parseProviderKey = (key: string): { readonly flow: FlowId; readonly role?: AiImplementRole } | undefined => {
   const implementMatch = /^ai\.implement\.(generator|evaluator)\.provider$/.exec(key);
@@ -41,12 +37,7 @@ const showSettingsAction = async (): Promise<void> => {
 };
 
 /**
- * Provider keys route through the dedicated `settings-set-provider` flow rather than the
- * generic apply-key path. That flow rebuilds the row's `{ provider, model }` pair from the new
- * provider's defaults (so the schema stays satisfied) AND runs the same PATH-availability gate
- * as the launch-time fail-fast helper — so an `openai-codex` assignment fails here exactly as it
- * would on the next implement run. Unknown provider ids still surface as a ValidationError so
- * callers can distinguish "wrong shape" from "valid shape but CLI missing".
+ * Provider keys route through the dedicated `settings-set-provider` flow rather than the generic apply-key path.
  */
 const setProviderKeyAction = async (
   key: string,
@@ -116,9 +107,7 @@ const applyPresetAction = async (name: string): Promise<void> => {
     return;
   }
   const output = result.value.ctx.output!;
-  // Warnings are advisory — settings were stamped, so exit code stays 0. The user can
-  // still iterate (install the missing CLI, then re-run their flow) without re-applying
-  // the preset.
+  // Warnings are advisory — settings were stamped, so exit code stays 0.
   for (const w of output.warnings) {
     process.stderr.write(
       `warning: ${PROVIDER_BINARY[w.provider]} CLI not found on PATH; affects flows: ${w.flows.join(', ')}\n`
@@ -128,37 +117,8 @@ const applyPresetAction = async (name: string): Promise<void> => {
 };
 
 /**
- * Register the `settings` command group.
- *
- *   ralphctl settings show
- *   ralphctl settings set <key> <value>
- *
- * `show` prints the current settings as JSON. `set` performs a read-modify-write through the
- * shared `applySettingsKey` mutator (also consumed by the TUI), so the supported key vocabulary
- * is one truth across both surfaces. Schema validation runs at the persistence boundary.
- *
- * Supported keys:
- *   ai.effort                                          low | medium | high | xhigh | max (global default)
- *   ai.{flow}.provider                                 see AI_PROVIDERS_HINT (claude-code | github-copilot | openai-codex | opencode | xai-grok)
- *   ai.{flow}.model                                    provider-native enum, or any non-empty custom string
- *   ai.{flow}.effort                                   provider-native effort level
- *      flow in {refine, plan, readiness, ideate}
- *   ai.implement.{generator|evaluator}.{provider,model,effort}
- *                                                      implement splits into a generator + evaluator pair
- *   ai.implement.agents.{generator|evaluator}          bind an agent-definition name to that role (empty value clears it);
- *                                                      see `ralphctl agents list` for the available names — any other
- *                                                      role/flow target is reported as unsupported, not silently accepted
- *   harness.maxTurns | maxAttempts | rateLimitRetries | idleWatchdogMs | plateauThreshold    integer (range-checked)
- *   harness.escalateOnPlateau                          boolean (escalate generator model on plateau)
- *   harness.skipPreVerifyOnFreshSetup                  boolean (skip first pre-verify when this run's setup verified the tree)
- *   harness.escalationMap.<fromModel>                  upgraded model id; empty input clears the entry
- *   logging.level                                      silent | debug | info | warn | error
- *   concurrency.maxParallelTasks                       1–5 (1 = serial; >1 = parallel, one git worktree per task)
- *   ui.notifications.enabled                           boolean
- *
- * Note: `ai.provider` and `ai.models.<flow>` (v1 grammar) are rejected as unknown keys —
- * the per-flow rows superseded them. `ai.implement.<field>` (the v0.7.0 flat-row grammar) is
- * likewise rejected — use `ai.implement.generator.<field>` or `ai.implement.evaluator.<field>`.
+ * Register the `settings` command group (`ralphctl settings show` / `set <key> <value>`). `show` prints the current
+ * settings as JSON; `set` goes through the shared `applySettingsKey` mutator, so the TUI and CLI accept the same keys.
  */
 export const registerSettingsCommand = (program: Command): void => {
   const settings = program.command('settings').description('inspect and mutate ralphctl settings');

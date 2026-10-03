@@ -7,7 +7,7 @@ import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
 import { type LearningRecord, isRetired } from '@src/application/flows/_shared/memory/learning-record.ts';
 import { isAbortedRead } from '@src/application/flows/_shared/memory/abort-guard.ts';
-import { readLedgerLines } from '@src/application/flows/_shared/memory/read-ledger.ts';
+import { type LedgerLine, readLedgerLines } from '@src/application/flows/_shared/memory/read-ledger.ts';
 
 const LEAF_NAME = 'load-learnings';
 
@@ -68,6 +68,31 @@ export const loadLearningsLeaf = <TCtx>(
     output: (ctx, candidates) => config.output(ctx, candidates),
   });
 
+/**
+ * The one pending-candidate filter shared by the leaf and {@link loadCandidateLearnings}: dedup by id
+ * (first wins), then drop promoted and retired rows. Malformed lines go to `onMalformed` and are skipped.
+ */
+export const selectPendingCandidates = (
+  lines: readonly LedgerLine[],
+  onMalformed?: (error: NonNullable<LedgerLine['parseError']>) => void
+): LearningRecord[] => {
+  const candidates: LearningRecord[] = [];
+  const seen = new Set<string>();
+  for (const { record, parseError } of lines) {
+    if (parseError !== undefined) {
+      onMalformed?.(parseError);
+      continue;
+    }
+    if (record === undefined) continue; // blank line
+    if (seen.has(record.id)) continue; // dedup by stable id, keep first
+    seen.add(record.id);
+    if (record.promotedAt !== null) continue; // already promoted — not a candidate
+    if (isRetired(record)) continue; // durably retired (operator declined) — never re-propose
+    candidates.push(record);
+  }
+  return candidates;
+};
+
 const loadCandidates = async (
   deps: LoadLearningsLeafDeps,
   path: AbsolutePath,
@@ -75,25 +100,15 @@ const loadCandidates = async (
 ): Promise<Result<readonly LearningRecord[], DomainError>> => {
   const log = deps.logger.named('memory.load-learnings');
 
-  const candidates: LearningRecord[] = [];
-  const seen = new Set<string>();
+  let candidates: readonly LearningRecord[];
   try {
     // Read the whole ledger and process it. An absent ledger (ENOENT) reads as an empty list, so
     // the candidate list is simply empty. A pathologically-huge file is rotated aside by the reader
     // and likewise yields an empty list (see readLedgerLines' byte-ceiling guard).
     const lines = await readLedgerLines(path, log, signal);
-    for (const { record, parseError } of lines) {
-      if (parseError !== undefined) {
-        log.warn('skipping malformed learnings.ndjson line', { error: parseError.message });
-        continue;
-      }
-      if (record === undefined) continue; // blank line
-      if (seen.has(record.id)) continue; // dedup by stable id, keep first
-      seen.add(record.id);
-      if (record.promotedAt !== null) continue; // already promoted — not a candidate
-      if (isRetired(record)) continue; // durably retired (operator declined) — never re-propose
-      candidates.push(record);
-    }
+    candidates = selectPendingCandidates(lines, (error) =>
+      log.warn('skipping malformed learnings.ndjson line', { error: error.message })
+    );
   } catch (cause) {
     // CRITICAL: a cancelled read must re-propagate `Aborted`, never collapse into "empty ledger".
     if (isAbortedRead(cause, signal)) {

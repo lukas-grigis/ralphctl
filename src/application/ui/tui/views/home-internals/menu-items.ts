@@ -11,12 +11,29 @@ import type { MenuItem } from '@src/application/ui/tui/components/action-menu.ts
 import { glyphs } from '@src/application/ui/tui/theme/tokens.ts';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
+import { plural } from '@src/application/ui/shared/plural.ts';
+import { fmtSpan } from '@src/application/ui/tui/theme/duration.ts';
+import type { InterruptedFacts, InterruptedTask } from '@src/application/ui/shared/interrupted-tasks.ts';
 import { ticketAddManifest } from '@src/application/flows/add-ticket/manifest.ts';
 import type { ViewId } from '@src/application/ui/tui/views/view-registry.tsx';
 
 /** The "switch sprint" section groups the loading placeholder, the recent-sprint rows, and the
  *  create-new-sprint row — hoisted so the three rows share one literal instead of three copies. */
 const SWITCH_SPRINT_SECTION = 'switch sprint';
+
+/** Rows that need the operator before anything else — currently interrupted tasks. */
+const NEEDS_ATTENTION_SECTION = 'needs attention';
+
+/** More interrupted tasks than this collapse into one "N more" row; resuming Implement picks them all up. */
+const INTERRUPTED_ROW_CAP = 3;
+
+/** A run parked on a prompt: nothing moves until the operator answers. */
+export interface WaitingRun {
+  readonly sessionId: string;
+  readonly title: string;
+  /** Epoch ms the prompt was queued. */
+  readonly since: number;
+}
 
 export interface BuildMenuItemsInput {
   readonly hasProject: boolean;
@@ -43,11 +60,70 @@ export interface BuildMenuItemsInput {
   readonly selectionSprintId: SprintId | undefined;
   readonly switchSprintDisabled: string | undefined;
   readonly addTicketDisabled: string | undefined;
+  readonly waitingRuns: readonly WaitingRun[];
+  /** In-progress tasks whose attempt died with the harness; empty while another process owns the sprint. */
+  readonly interruptedTasks: readonly InterruptedTask[];
+  /** Disk facts per interrupted task id; they arrive after the rows, which render without them. */
+  readonly interruptedFacts: ReadonlyMap<string, InterruptedFacts>;
+  /** Epoch ms for the `12m ago` fact. */
+  readonly now: number;
+  readonly onResumeImplement: () => void;
+  readonly onOpenRun: (sessionId: string) => void;
   readonly onPushHome: (id: ViewId) => void;
   readonly onPushAddTicket: (sprintId: SprintId) => void;
   readonly onSwitchSprint: (sprint: Sprint) => void;
   readonly onLaunchCreateSprint: () => void;
 }
+
+/** What the operator needs to know before resuming; unknown facts are left out rather than guessed. */
+const interruptedDetail = (facts: InterruptedFacts | undefined): string => {
+  const parts = [
+    facts?.uncommitted !== undefined && facts.uncommitted > 0 ? plural(facts.uncommitted, 'uncommitted change') : '',
+    facts?.resumable === true ? 'session resumable' : '',
+    facts?.resumable === false ? 'no session to resume, restarts from the brief' : '',
+  ].filter((p) => p !== '');
+  return [...parts, `↵ resumes Implement`].join(` ${glyphs.bullet} `);
+};
+
+const buildWaitingItems = (input: BuildMenuItemsInput): readonly MenuItem[] =>
+  input.waitingRuns.map((run): MenuItem => ({
+    id: `waiting-${run.sessionId}`,
+    section: NEEDS_ATTENTION_SECTION,
+    label: `${glyphs.warningGlyph} [WAITING] ${run.title} ${glyphs.bullet} ${fmtSpan(input.now - run.since)}`,
+    description: `The run is parked on your answer ${glyphs.bullet} ↵ opens it`,
+    onSelect: (): void => input.onOpenRun(run.sessionId),
+  }));
+
+/** The NEEDS ATTENTION group: runs waiting on an answer, then one row per interrupted task (capped) resuming Implement. */
+const buildAttentionItems = (input: BuildMenuItemsInput): readonly MenuItem[] => [
+  ...buildWaitingItems(input),
+  ...buildInterruptedItems(input),
+];
+
+const buildInterruptedItems = (input: BuildMenuItemsInput): readonly MenuItem[] => {
+  const shown = input.interruptedTasks.slice(0, INTERRUPTED_ROW_CAP);
+  const items = shown.map((task, idx): MenuItem => ({
+    id: `interrupted-${task.taskId}`,
+    section: NEEDS_ATTENTION_SECTION,
+    // Tag first like [WAITING]: the name is free text (may hold quotes), so it is never wrapped.
+    label: `${glyphs.warningGlyph} [INTERRUPTED] ${task.name} ${glyphs.bullet} attempt ${String(task.attemptN)} ${glyphs.bullet} ${fmtSpan(
+      input.now - (input.interruptedFacts.get(task.taskId)?.since ?? task.startedAt)
+    )} ago`,
+    description: interruptedDetail(input.interruptedFacts.get(task.taskId)),
+    ...(idx === 0 ? { hotkey: 'i' } : {}),
+    onSelect: input.onResumeImplement,
+  }));
+  const overflow = input.interruptedTasks.length - shown.length;
+  if (overflow > 0) {
+    items.push({
+      id: 'interrupted-overflow',
+      section: NEEDS_ATTENTION_SECTION,
+      label: `${String(overflow)} more interrupted ${glyphs.emDash} resume picks them all up`,
+      onSelect: input.onResumeImplement,
+    });
+  }
+  return items;
+};
 
 /** "Create your first project" — only shown once the snapshot has loaded and confirmed storage
  *  holds no project at all; before that, showing it would be a false positive on a still-fetching
@@ -202,7 +278,7 @@ const buildObserveItems = (input: BuildMenuItemsInput): readonly MenuItem[] => [
   },
 ];
 
-/** The "system" section — settings, the skills catalog, and the doctor diagnostics. */
+/** The "system" section — settings, the skills catalog, the doctor diagnostics, and housekeeping. */
 const buildSystemItems = (input: BuildMenuItemsInput): readonly MenuItem[] => [
   {
     id: 'settings',
@@ -230,6 +306,14 @@ const buildSystemItems = (input: BuildMenuItemsInput): readonly MenuItem[] => [
     globalHotkey: true,
     onSelect: (): void => input.onPushHome('doctor'),
   },
+  {
+    id: 'housekeeping',
+    section: 'system',
+    label: 'Housekeeping',
+    description: 'Reclaim disk: orphan data and old done sprints, previewed before anything is deleted.',
+    hotkey: 'H',
+    onSelect: (): void => input.onPushHome('housekeeping'),
+  },
 ];
 
 /** The stable navigation rows — work / observe / system — present regardless of loading state. */
@@ -240,6 +324,7 @@ const buildNavItems = (input: BuildMenuItemsInput): readonly MenuItem[] => [
 ];
 
 export const buildMenuItems = (input: BuildMenuItemsInput): readonly MenuItem[] => [
+  ...buildAttentionItems(input),
   ...buildGetStartedItems(input),
   ...buildSwitchSprintItems(input),
   ...buildNavItems(input),

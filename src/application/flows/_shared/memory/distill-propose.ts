@@ -12,7 +12,7 @@ import {
 import type { AssistantTool } from '@src/integration/ai/readiness/_engine/tool.ts';
 import { targetPathFor } from '@src/integration/ai/readiness/_engine/setup.ts';
 import { spliceOwnedSection } from '@src/business/context-file/splice-section.ts';
-import { writeTextAtomic } from '@src/integration/io/fs.ts';
+import { isNodeErrnoCode, writeTextAtomic } from '@src/integration/io/fs.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
 import type { Repository } from '@src/domain/entity/repository.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
@@ -22,6 +22,7 @@ import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import type { LearningRecord } from '@src/application/flows/_shared/memory/learning-record.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
+import { assertCtxField } from '@src/application/flows/_shared/_engine/assert-ctx-field.ts';
 import type { DistillLearningsCtx } from '@src/application/flows/_shared/memory/distill-ctx.ts';
 
 export interface DistillProposeLeafDeps {
@@ -219,7 +220,7 @@ const readExisting = async (path: string): Promise<Result<string, DomainError>> 
   try {
     return Result.ok(await fs.readFile(path, 'utf8'));
   } catch (cause) {
-    if ((cause as NodeJS.ErrnoException).code === 'ENOENT') return Result.ok('');
+    if (isNodeErrnoCode(cause, 'ENOENT')) return Result.ok('');
     return Result.error(
       new StorageError({ subCode: 'io', message: `distill-propose: cannot read existing ${path}`, path, cause })
     );
@@ -245,17 +246,10 @@ export const distillProposeLeaf = (deps: DistillProposeLeafDeps, tool: Assistant
     useCase: {
       execute: async (input, signal) => distillProposeUseCase(deps, tool, input, signal),
     },
-    input: (ctx) => {
-      if (ctx.candidates === undefined) {
-        throw new InvalidStateError({
-          entity: 'chain',
-          currentState: 'pre-distill-propose',
-          attemptedAction: 'distill-propose',
-          message: `distill-propose-${tool}: ctx.candidates is undefined — load-learnings must run first`,
-        });
-      }
-      return { repository: ctx.repository, candidates: ctx.candidates };
-    },
+    input: (ctx) => ({
+      repository: ctx.repository,
+      candidates: assertCtxField(ctx, 'candidates', `distill-propose-${tool}`, 'pre-distill-propose'),
+    }),
     output: (ctx, out) => ({
       ...ctx,
       entries: {

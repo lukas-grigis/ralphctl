@@ -4,7 +4,6 @@ import { leaf } from '@src/application/chain/build/leaf.ts';
 import type { AppendFile } from '@src/business/io/append-file.ts';
 import type { WriteFile } from '@src/business/io/write-file.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
-import type { StorageError } from '@src/domain/value/error/storage-error.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
@@ -170,7 +169,7 @@ export const appendLearningsLeaf = (
     useCase: {
       execute: async (input) => {
         // No learnings AND no decisions this attempt → nothing to append. Skip the I/O entirely.
-        if (input.records.length === 0) return Result.ok(undefined) as Result<void, StorageError>;
+        if (input.records.length === 0) return Result.ok(undefined);
 
         const log = deps.logger.named('implement.append-learnings');
         // Resolve the WRITE path tolerantly: append into the EXISTING memory dir (slugged or legacy
@@ -181,7 +180,7 @@ export const appendLearningsLeaf = (
           log.warn(`append-learnings-${String(taskId)} could not resolve ledger path`, {
             error: resolved.error.message,
           });
-          return Result.ok(undefined) as Result<void, StorageError>;
+          return Result.ok(undefined);
         }
         // Append every record (crash-safe), then bound the ledger if it grew past the size
         // threshold — NO eager learnings.md mirror (that moved off the hot path). Best-effort: an
@@ -206,7 +205,7 @@ export const appendLearningsLeaf = (
             error: result.error.message,
           });
         }
-        return Result.ok(undefined) as Result<void, StorageError>;
+        return Result.ok(undefined);
       },
     },
     input: (ctx) => {

@@ -20,6 +20,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Result } from '@src/domain/result.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { AbortError } from '@src/domain/value/error/abort-error.ts';
+import { ErrorCode } from '@src/domain/value/error/error-code.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import { ValidationError } from '@src/domain/value/error/validation-error.ts';
 import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
@@ -40,7 +41,7 @@ import type { Logger, LogMeta } from '@src/business/observability/logger.ts';
 import { createRunner } from '@src/application/chain/run/runner.ts';
 import { type LearningRecord, serializeLearningRecord } from '@src/application/flows/_shared/memory/learning-record.ts';
 import type { DistillLearningsDeps } from '@src/application/flows/_shared/memory/distill-learnings.ts';
-import type { DistillStepOpts } from '@src/application/flows/_shared/memory/distill-step.ts';
+import { createDistillStep, type DistillStepOpts } from '@src/application/flows/_shared/memory/distill-step.ts';
 import { createCloseSprintFlow } from '@src/application/flows/close-sprint/flow.ts';
 import type { CloseSprintCtx } from '@src/application/flows/close-sprint/ctx.ts';
 import { createReviewFlow } from '@src/application/flows/review/flow.ts';
@@ -235,6 +236,7 @@ describe('createDistillStep composed into the close paths', () => {
       clock: () => FIXED_LATER,
       logger: recordingLogger().logger,
       appendFile: append.fn,
+      writeFile: createAtomicWriteFile(),
       progressFile: absolutePath(join(String(root.root), 'progress.md')),
       distill: buildDistill({ ai: fakeInteractiveAi({ calls }) }),
     });
@@ -261,6 +263,7 @@ describe('createDistillStep composed into the close paths', () => {
       clock: () => FIXED_LATER,
       logger: recordingLogger().logger,
       appendFile: append.fn,
+      writeFile: createAtomicWriteFile(),
       progressFile: absolutePath(join(String(root.root), 'progress.md')),
       distill: buildDistill({ ai: fakeInteractiveAi({ calls }) }),
     });
@@ -293,6 +296,7 @@ describe('createDistillStep composed into the close paths', () => {
       clock: () => FIXED_LATER,
       logger: recordingLogger().logger,
       appendFile: append.fn,
+      writeFile: createAtomicWriteFile(),
       progressFile: absolutePath(join(String(root.root), 'progress.md')),
       distill: buildDistill({ ai: fakeInteractiveAi({ calls, abort: true }) }),
     });
@@ -313,6 +317,23 @@ describe('createDistillStep composed into the close paths', () => {
     );
   });
 
+  it('abort landing during the sub-chain build → Aborted, the nested runner never spawns the AI', async () => {
+    const calls: InteractiveAiProviderInput[] = [];
+    const { deps, opts } = buildDistill({ ai: fakeInteractiveAi({ calls }) });
+    const step = createDistillStep<{ readonly distillRequested: boolean }>(deps, opts);
+    const controller = new AbortController();
+    // execute() runs synchronously up to the build's first await, so this abort lands inside it.
+    const pending = step.execute({ distillRequested: true }, controller.signal);
+    controller.abort();
+    const result = await pending;
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.error.code).toBe(ErrorCode.Aborted);
+    expect(calls).toHaveLength(0);
+    expect(await claudeMdExists()).toBe(false);
+  });
+
   it('non-abort distill failure → warning logged, sprint STILL transitions to done (best-effort)', async () => {
     const sprintRepo = inMemorySprintRepo(makeReviewSprint());
     const calls: InteractiveAiProviderInput[] = [];
@@ -323,6 +344,7 @@ describe('createDistillStep composed into the close paths', () => {
       clock: () => FIXED_LATER,
       logger: recordingLogger().logger,
       appendFile: append.fn,
+      writeFile: createAtomicWriteFile(),
       progressFile: absolutePath(join(String(root.root), 'progress.md')),
       distill: buildDistill({ ai: fakeInteractiveAi({ calls, fail: true }), logger: log.logger }),
     });
@@ -482,6 +504,7 @@ describe('createDistillStep on the review auto-done path', () => {
         fileLocker: createFileLocker(),
         locksRoot: absolutePath(String(root.root)),
         appendFile: createAppendFile(),
+        writeFile: createAtomicWriteFile(),
         model: 'claude-opus-4-8',
         distill,
       },

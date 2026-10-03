@@ -15,7 +15,7 @@ import {
   sprintFile,
   sprintsDir,
 } from '@src/integration/persistence/storage.ts';
-import { decode } from '@src/integration/persistence/shared/decode.ts';
+import { decodeDeduped, readEntity } from '@src/integration/persistence/shared/read-entities.ts';
 
 export interface FsSprintRepositoryDeps {
   /** Root of the on-disk layout. Per the path resolver, sprints land under `<root>/sprints/`. */
@@ -109,34 +109,14 @@ const listSprints = async (root: AbsolutePath): Promise<Result<readonly Sprint[]
   // and Promise.all preserves the input array's order regardless of settle order, so the
   // chronological order established above survives untouched.
   const reads = await Promise.all(
-    sortedEntries.map(async (entry) => {
-      const path = `${dir}/${entry}/sprint.json`;
-      return { entry, path, json: await readJson(path) };
+    sortedEntries.map(async (name) => {
+      const path = join(dir, name, 'sprint.json');
+      return { name, path, json: await readJson(path) };
     })
   );
 
-  const items: Sprint[] = [];
-  // Dedupe by sprint id: if a legacy bare `<id>/` and a slugged `<id>--<slug>/` dir transiently
-  // coexist (a crash between reconcile's rename + cleanup), the list must not show the sprint twice.
-  // The slugged (canonical) entry wins EXPLICITLY — the id-only comparator above returns 0 for the
-  // colliding pair, so sort order (stable sort over unspecified readdir order) cannot arbitrate.
-  const byId = new Map<string, Sprint>();
-  const canonicalIds = new Set<string>();
-  for (const { entry, path, json } of reads) {
-    if (!json.ok) {
-      if (json.error instanceof NotFoundError) continue; // race or stray dir without sprint.json
-      return Result.error(json.error);
-    }
-    const decoded = decode((input) => fromJsonSprint(input, path), json.value, { entity: 'sprint', path });
-    if (!decoded.ok) return Result.error(decoded.error);
-    const id = String(decoded.value.id);
-    const isCanonical = entry.includes('--');
-    if (!isCanonical && canonicalIds.has(id)) continue; // slugged sibling already read — it wins
-    byId.set(id, decoded.value);
-    if (isCanonical) canonicalIds.add(id);
-  }
-  items.push(...byId.values());
-  return Result.ok(items);
+  // Sort order can't pick the canonical sibling: the id-only comparator ties a bare/slugged pair over unspecified readdir order.
+  return decodeDeduped(reads, fromJsonSprint, 'sprint', (s) => String(s.id));
 };
 
 export const createFsSprintRepository = (deps: FsSprintRepositoryDeps): SprintRepository => {
@@ -145,18 +125,7 @@ export const createFsSprintRepository = (deps: FsSprintRepositoryDeps): SprintRe
   return {
     async findById(id) {
       const dir = await resolveSprintDir(deps.root, id);
-      if (dir === undefined) {
-        return Result.error(new NotFoundError({ entity: 'sprint', id: String(id) }));
-      }
-      const path = join(dir, 'sprint.json');
-      const json = await readJson(path);
-      if (!json.ok) {
-        if (json.error instanceof NotFoundError) {
-          return Result.error(new NotFoundError({ entity: 'sprint', id: String(id) }));
-        }
-        return Result.error(json.error);
-      }
-      return decode((input) => fromJsonSprint(input, path), json.value, { entity: 'sprint', path });
+      return readEntity(dir === undefined ? undefined : join(dir, 'sprint.json'), fromJsonSprint, 'sprint', String(id));
     },
 
     async findBySlug(slug, projectId: ProjectId) {

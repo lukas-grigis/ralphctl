@@ -27,7 +27,7 @@ export const resolveSprintStage = (snapshot: AppStateSnapshot): Stage | undefine
   if (sprint === undefined) return undefined;
   switch (sprint.status) {
     case 'draft':
-      return snapshot.triggerInputs.pendingTicketCount > 0 ? 'Refine' : 'Plan';
+      return snapshot.triggerInputs.pendingTicketCount > 0 || sprint.tickets.length === 0 ? 'Refine' : 'Plan';
     case 'planned':
     case 'active':
       return 'Implement';

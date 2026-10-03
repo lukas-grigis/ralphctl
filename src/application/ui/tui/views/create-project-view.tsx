@@ -321,7 +321,9 @@ const renderConfirmStep = (
 
 const renderErrorStep = (step: Extract<Step, { kind: 'error' }>): React.JSX.Element => (
   <Box flexDirection="column" paddingX={spacing.indent}>
-    <Text color={inkColors.error}>✗ {step.message}</Text>
+    <Text color={inkColors.error}>
+      {glyphs.cross} {step.message}
+    </Text>
     <Text dimColor>Press esc to go back.</Text>
   </Box>
 );

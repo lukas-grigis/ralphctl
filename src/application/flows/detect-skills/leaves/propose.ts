@@ -24,6 +24,7 @@ import {
   type ReadOnlySignalsSessionOpts,
 } from '@src/application/flows/_shared/signals-session.ts';
 import { runPathsFor, type RunPaths } from '@src/application/flows/_shared/allocate-run-dir.ts';
+import { assertCtxField } from '@src/application/flows/_shared/_engine/assert-ctx-field.ts';
 
 export interface ProposeDetectSkillsLeafDeps {
   readonly provider: HeadlessAiProvider;
@@ -199,14 +200,7 @@ export const proposeDetectSkillsLeaf = (deps: ProposeDetectSkillsLeafDeps): Elem
       execute: async (input, signal) => proposeUseCase(deps, input, signal),
     },
     input: (ctx) => {
-      if (ctx.repository === undefined) {
-        throw new InvalidStateError({
-          entity: 'chain',
-          currentState: 'pre-propose',
-          attemptedAction: 'propose',
-          message: 'propose: ctx.repository is undefined — pick-repository must run first',
-        });
-      }
+      const repository = assertCtxField(ctx, 'repository', 'propose', 'pre-propose');
       const runDir = ctx.proposal?.runDir;
       if (runDir === undefined) {
         throw new InvalidStateError({
@@ -216,7 +210,7 @@ export const proposeDetectSkillsLeaf = (deps: ProposeDetectSkillsLeafDeps): Elem
           message: 'propose: ctx.proposal.runDir is undefined — allocate-run-dir must run first',
         });
       }
-      return { repository: ctx.repository, runDir };
+      return { repository, runDir };
     },
     output: (ctx, out) => ({
       ...ctx,

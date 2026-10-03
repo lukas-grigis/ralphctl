@@ -5,6 +5,7 @@ import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import type { Trace, TraceEntry } from '@src/application/chain/trace.ts';
 import { runWithSession } from '@src/application/session/session.ts';
+import { messageOf } from '@src/domain/value/error/error-message.ts';
 
 export type RunnerStatus = 'idle' | 'running' | 'completed' | 'failed' | 'aborted';
 
@@ -165,7 +166,11 @@ export const createRunner = <TCtx>(opts: RunnerOptions<TCtx>): Runner<TCtx> => {
     // the "throws are programmer errors" contract inside the chain.
     let error: DomainError;
     try {
-      const result = await runWithSession(opts.id, () => opts.element.execute(ctx, abortController.signal, onTrace));
+      const result = await runWithSession(
+        opts.id,
+        () => opts.element.execute(ctx, abortController.signal, onTrace),
+        abortController.signal
+      );
 
       if (result.ok) {
         ctx = result.value.ctx;
@@ -188,9 +193,7 @@ export const createRunner = <TCtx>(opts: RunnerOptions<TCtx>): Runner<TCtx> => {
         entity: `chain runner '${opts.id}'`,
         currentState: 'running',
         attemptedAction: `execute element '${opts.element.name}'`,
-        message:
-          `chain element '${opts.element.name}' threw a non-DomainError (programmer bug): ` +
-          (cause instanceof Error ? cause.message : String(cause)),
+        message: `chain element '${opts.element.name}' threw a non-DomainError (programmer bug): ` + messageOf(cause),
         ...(stack !== undefined ? { hint: stack } : {}),
       });
     }

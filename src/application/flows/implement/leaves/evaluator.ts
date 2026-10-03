@@ -9,7 +9,7 @@ import type { InProgressTask } from '@src/domain/entity/task.ts';
 import type { TaskId } from '@src/domain/value/id/task-id.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
-import type { AiSignal, EvaluationSignal, HarnessSignal } from '@src/domain/signal.ts';
+import type { EvaluationSignal } from '@src/domain/signal.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
 import { buildEvaluatePrompt } from '@src/integration/ai/prompts/evaluate/definition.ts';
@@ -47,6 +47,7 @@ import {
 } from '@src/application/flows/implement/leaves/_shared/run-role-turn.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import type { PlateauTurnRecord } from '@src/business/task/plateau-detection.ts';
+import { replaceTask } from '@src/application/flows/implement/leaves/_shared/replace-task.ts';
 
 /**
  * Chain leaf — one evaluator turn of the gen-eval loop. Wires the integration ports
@@ -242,17 +243,18 @@ const makeEvaluatorCallEvaluate =
   async (task) => {
     const outputContractSection = renderContractSectionFor(evaluatorOutputContract, args.outputDir);
 
-    const buildTurnPrompt = async (forceFull: boolean): Promise<Result<Prompt, BuildPromptError>> => {
-      // Re-checksum the reproduction test against the hash captured when it was validated —
-      // an unexplained edit (or deletion) during the gen-eval loop appends a bounded tampering
-      // note to the SAME `<reproduction>` section the template's tampering-detection rule
-      // already audits. Only the evaluator re-checks (once per turn); `generator.ts` keeps the
-      // plain, sync `readReproductionSection` — see `EvaluatorInput.reproductionArtifact`.
-      const reproduction =
-        args.input.reproductionArtifact !== undefined
-          ? await buildEvaluatorReproductionSection(deps.cwd, args.input.reproductionArtifact)
-          : undefined;
-      return buildEvaluatorPrompt(deps, {
+    // Re-checksum the reproduction test against the hash captured when it was validated —
+    // an unexplained edit (or deletion) during the gen-eval loop appends a bounded tampering
+    // note to the SAME `<reproduction>` section the template's tampering-detection rule
+    // already audits. Only the evaluator re-checks (once per turn); `generator.ts` keeps the
+    // plain, sync `readReproductionSection` — see `EvaluatorInput.reproductionArtifact`.
+    const reproduction =
+      args.input.reproductionArtifact !== undefined
+        ? await buildEvaluatorReproductionSection(deps.cwd, args.input.reproductionArtifact)
+        : undefined;
+
+    const buildTurnPrompt = (forceFull: boolean): Promise<Result<Prompt, BuildPromptError>> =>
+      buildEvaluatorPrompt(deps, {
         task,
         workspaceRoot: args.input.workspaceRoot,
         roundNum: args.input.roundNum,
@@ -262,7 +264,6 @@ const makeEvaluatorCallEvaluate =
         reproduction,
         forceFull,
       });
-    };
 
     const turn = await runRoleTurn(deps, {
       role: 'evaluator',
@@ -294,17 +295,13 @@ const makeEvaluatorCallEvaluate =
         for (const sig of signals) deps.publishSignal(sig);
       },
     });
-    if (!turn.ok) return Result.error(turn.error) as Result<readonly HarnessSignal[], DomainError>;
+    if (!turn.ok) return Result.error(turn.error);
     // Cost-visibility out-channel — see EvaluatorTurnMeta's docstring for why this rides a
     // mutated field rather than widening `callEvaluate`'s return type.
     args.meta.correctiveNudgeCount = turn.value.nudgeCount;
     args.meta.usage = turn.value.usage;
 
-    // `runEvaluatorTurnUseCase` expects `readonly HarnessSignal[]`. `EvaluatorContractSignal`
-    // is a strict subset of `HarnessSignal`, but TS's array variance doesn't infer that
-    // automatically — cast through `AiSignal[]` (the canonical union alias) to keep the
-    // call site honest about the underlying domain shape.
-    return Result.ok(turn.value.signals as readonly AiSignal[]) as Result<readonly HarnessSignal[], DomainError>;
+    return Result.ok(turn.value.signals);
   };
 
 /**
@@ -398,7 +395,7 @@ const makeEvaluatorInput =
  * session id, and the verdict / terminal-exit fields.
  */
 const evaluatorOutput = (ctx: ImplementCtx, out: EvaluatorOutput): ImplementCtx => {
-  const tasks = (ctx.tasks ?? []).map((t) => (t.id === out.task.id ? out.task : t));
+  const tasks = replaceTask(ctx.tasks, out.task);
   const nextHistory =
     out.turnRecord !== undefined ? [...(ctx.plateauHistory ?? []), out.turnRecord] : ctx.plateauHistory;
   // Latest captured evaluator sessionId wins; only OVERWRITE when this turn produced one

@@ -1,15 +1,16 @@
-import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
 import {
   FORENSIC_BODY_TAIL_CAP,
   RATE_LIMIT_SCAN_TAIL_CAP,
 } from '@src/integration/ai/providers/_engine/bounded-tail.ts';
 import { isRecord, numberField, stringField } from '@src/integration/ai/providers/_engine/json-field.ts';
-import { createCappedLineFeed } from '@src/integration/ai/providers/_engine/line-feed.ts';
+import { createCappedLineFeed, emitJsonObjectLine } from '@src/integration/ai/providers/_engine/line-feed.ts';
 import {
   publishAssistantEvent,
   publishToolResultEvent,
+  publishCliErrorEvent,
   publishToolUseEvent,
+  previewJson,
 } from '@src/integration/ai/providers/_engine/stream-debug-events.ts';
 
 /**
@@ -52,22 +53,6 @@ export interface OpencodeMetaUpdate {
   readonly inputTokens?: number;
   readonly outputTokens?: number;
 }
-
-/**
- * Trim + JSON.parse one stdout line. Returns `undefined` for blank lines, lines that do not
- * look like JSON, and lines that fail to parse — OpenCode interleaves plain-text diagnostics
- * (and ANSI-coloured error banners) with the JSON records, so a parse miss is expected rather
- * than exceptional.
- */
-export const parseOpencodeJsonLine = (line: string): Record<string, unknown> | undefined => {
-  const trimmed = line.trim();
-  if (trimmed.length === 0 || !trimmed.startsWith('{')) return undefined;
-  try {
-    return JSON.parse(trimmed) as Record<string, unknown>;
-  } catch {
-    return undefined;
-  }
-};
 
 /** `part` sub-object of a record, when present and shaped as an object. */
 const partOf = (obj: Record<string, unknown>): Record<string, unknown> | undefined => {
@@ -124,16 +109,6 @@ const streamErrorText = (obj: Record<string, unknown>): string | undefined => {
   return parts.length > 0 ? parts.join(': ') : undefined;
 };
 
-const safeJson = (v: unknown): string | undefined => {
-  if (v === undefined || v === null) return undefined;
-  try {
-    const s = JSON.stringify(v);
-    return s === '{}' || s === '[]' ? undefined : s;
-  } catch {
-    return undefined;
-  }
-};
-
 /**
  * One resolved `tool_use` record → a `tool_use` event plus the matching `tool_result` event.
  * OpenCode resolves calls in place, so emitting only `tool_use` would leave every tool call
@@ -143,7 +118,7 @@ const publishToolEvents = (eventBus: EventBus, part: Record<string, unknown>): v
   const tool = stringField(part, 'tool') ?? stringField(part, 'callID') ?? '';
   const stateObj = part['state'];
   const state = isRecord(stateObj) ? stateObj : undefined;
-  publishToolUseEvent(eventBus, PROVIDER_NAME, tool, safeJson(state?.['input']));
+  publishToolUseEvent(eventBus, PROVIDER_NAME, tool, previewJson(state?.['input']));
   if (state === undefined) return;
   const status = stringField(state, 'status');
   // OpenCode reports `completed` on success; anything else (`error`, or an absent status on a
@@ -169,28 +144,12 @@ export const publishOpencodeStreamLineEvents = (eventBus: EventBus, obj: Record<
     // and the attempt may be re-spawned several times before the budget blocks the task. Under the
     // default log floor a debug event would hide every one of those explanations.
     const text = streamErrorText(obj);
-    if (text !== undefined) {
-      eventBus.publish({
-        type: 'log',
-        level: 'warn',
-        message: `${PROVIDER_NAME}: CLI reported an error — ${text}`,
-        at: IsoTimestamp.now(),
-      });
-    }
+    if (text !== undefined) publishCliErrorEvent(eventBus, PROVIDER_NAME, text);
     return;
   }
   if (type !== 'tool_use') return;
   const part = partOf(obj);
   if (part !== undefined) publishToolEvents(eventBus, part);
-};
-
-/**
- * Per-line emitter handed to {@link createCappedLineFeed}. Module-level (closes over no tracker
- * state) — unparseable lines simply emit nothing, matching the sibling parsers.
- */
-const emitOpencodeLine = (raw: string, onLine: (obj: Record<string, unknown>) => void): void => {
-  const obj = parseOpencodeJsonLine(raw);
-  if (obj !== undefined) onLine(obj);
 };
 
 /**
@@ -226,7 +185,7 @@ export const createOpencodeAttemptTracker = (eventBus: EventBus): OpencodeAttemp
   let body = '';
   let assistantTail = '';
   let streamError: string | undefined;
-  const lineFeed = createCappedLineFeed<Record<string, unknown>>('opencode-stream', emitOpencodeLine);
+  const lineFeed = createCappedLineFeed<Record<string, unknown>>('opencode-stream', emitJsonObjectLine);
 
   const onMeta = (update: OpencodeMetaUpdate): void => {
     if (update.sessionId !== undefined && sessionId === undefined) sessionId = update.sessionId;

@@ -1,14 +1,6 @@
 /**
- * Module-level prompt queue. The TUI bridges sync chain code (use cases call
- * `interactive.askConfirm(...)` and `await` the answer) into the React tree by:
- *  1. Enqueuing a `PendingPrompt` here, returning a Promise that the chain awaits.
- *  2. The `<PromptHost>` component reads the head of this queue and renders the matching
- *     prompt component. When the user resolves / cancels, we resolve / reject the promise.
- *  3. The next prompt — if any — slides into view; chains see a sequential, non-overlapping
- *     stream of questions even when the surrounding code naively kicks off many at once.
- *
- * Mutex semantics are critical. Only the head renders at any given time. Callers that want to
- * batch-collect answers must serialise them themselves; the queue serialises them by default.
+ * Module-level prompt queue that bridges chain code awaiting `interactive.askConfirm(...)` into the React tree: each
+ * ask enqueues and returns a Promise, `<PromptHost>` renders only the head, and resolving it slides the next one in.
  */
 
 import type { Choice } from '@src/business/interactive/prompt.ts';
@@ -19,12 +11,17 @@ export interface BasePrompt {
   readonly id: number;
   readonly kind: PromptKind;
   readonly message: string;
+  /** Run that asked — stamped by the Ink adapter from the session scope; absent for view-local asks. */
+  readonly sessionId?: string;
+  /** Epoch ms the prompt was queued — stamped by `enqueue`. */
+  readonly askedAt?: number;
 }
 
 export interface TextPrompt extends BasePrompt {
   readonly kind: 'text';
   /** Optional pre-filled buffer — surfaced to the renderer as the `initial` value. */
   readonly initial?: string;
+  readonly validate?: (value: string) => string | undefined;
   resolve(value: string): void;
   reject(err: Error): void;
 }
@@ -39,6 +36,8 @@ export interface TextAreaPrompt extends BasePrompt {
 
 export interface ConfirmPrompt extends BasePrompt {
   readonly kind: 'confirm';
+  /** Focused answer on open; the renderer defaults to Yes when absent. */
+  readonly defaultValue?: boolean;
   resolve(value: boolean): void;
   reject(err: Error): void;
 }
@@ -62,9 +61,8 @@ export interface MultiChoicePrompt<T = unknown> extends BasePrompt {
 export type PendingPrompt = TextPrompt | TextAreaPrompt | ConfirmPrompt | ChoicePrompt | MultiChoicePrompt;
 
 /**
- * Distributive `Omit` over the prompt union — preserves the discriminant so each variant's
- * input shape stays narrowable. `Omit<PendingPrompt, 'id'>` would collapse the union to a
- * structural intersection where the per-variant `options` field is invisible to the caller.
+ * Distributive `Omit` over the prompt union — preserves the discriminant so each variant's input shape stays
+ * narrowable.
  */
 export type PendingPromptInput =
   | Omit<TextPrompt, 'id'>
@@ -78,16 +76,37 @@ type Listener = () => void;
 export interface PromptQueue {
   readonly head: PendingPrompt | undefined;
   readonly size: number;
+  /** Every queued prompt, head first. */
+  readonly pending: readonly PendingPrompt[];
   enqueue(prompt: PendingPromptInput): PendingPrompt;
   /** Resolve the head with `value` and slide to the next. No-op if the queue is empty. */
   resolveHead(value: unknown): void;
   /** Reject the head with `err` and slide to the next. No-op if the queue is empty. */
   rejectHead(err: Error): void;
+  /** Reject the queued prompt `id` with `err`, wherever it sits. No-op once it has been answered. */
+  reject(id: number, err: Error): void;
   /** Subscribe to changes (head replaced / queue length changed). */
   subscribe(fn: Listener): () => void;
   /** Reject every queued prompt with `err`. Used on shutdown. */
   drain(err: Error): void;
 }
+
+const settleWith = (prompt: PendingPrompt, value: unknown): void => {
+  switch (prompt.kind) {
+    case 'text':
+    case 'textarea':
+      prompt.resolve(value as string);
+      return;
+    case 'confirm':
+      prompt.resolve(value as boolean);
+      return;
+    case 'choice':
+      prompt.resolve(value);
+      return;
+    case 'multi-choice':
+      prompt.resolve(value as readonly unknown[]);
+  }
+};
 
 export const createPromptQueue = (): PromptQueue => {
   let nextId = 1;
@@ -102,12 +121,15 @@ export const createPromptQueue = (): PromptQueue => {
     get head(): PendingPrompt | undefined {
       return queue[0];
     },
+    get pending(): readonly PendingPrompt[] {
+      return [...queue];
+    },
     get size(): number {
       return queue.length;
     },
     enqueue(prompt): PendingPrompt {
       const id = nextId++;
-      const full = { ...prompt, id } as PendingPrompt;
+      const full = { ...prompt, id, askedAt: Date.now() } as PendingPrompt;
       queue.push(full);
       notify();
       return full;
@@ -116,24 +138,7 @@ export const createPromptQueue = (): PromptQueue => {
       const head = queue.shift();
       if (!head) return;
       try {
-        // Type-narrow before dispatch so each kind sees the right value shape.
-        switch (head.kind) {
-          case 'text':
-            head.resolve(value as string);
-            break;
-          case 'textarea':
-            head.resolve(value as string);
-            break;
-          case 'confirm':
-            head.resolve(value as boolean);
-            break;
-          case 'choice':
-            head.resolve(value);
-            break;
-          case 'multi-choice':
-            head.resolve(value as readonly unknown[]);
-            break;
-        }
+        settleWith(head, value);
       } finally {
         notify();
       }
@@ -143,6 +148,16 @@ export const createPromptQueue = (): PromptQueue => {
       if (!head) return;
       try {
         head.reject(err);
+      } finally {
+        notify();
+      }
+    },
+    reject(id, err): void {
+      const at = queue.findIndex((p) => p.id === id);
+      if (at < 0) return;
+      const [prompt] = queue.splice(at, 1);
+      try {
+        prompt?.reject(err);
       } finally {
         notify();
       }

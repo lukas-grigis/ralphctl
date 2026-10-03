@@ -1,25 +1,17 @@
-/**
- * Doctor view — sanity probes the operator can run when something feels off. Probes execute
- * via the `doctor` use-case so the TUI and `ralphctl doctor` CLI report the same data.
- *
- * Probes are bucketed by their `group` field and rendered under section headers. Probes
- * without a group fall under a "General" section.
- *
- * The view reads the doctor report from {@link useSystemStatus} so the StatusBar footer and
- * the view share a single source of truth — pressing `r` here also refreshes the footer's
- * "X doctor warnings" indicator.
- */
+/** Doctor view — sanity probes the operator can run when something feels off. */
 
-import React, { useEffect } from 'react';
-import { Box, Text, useInput } from 'ink';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Box, Text } from 'ink';
 import { ViewShell } from '@src/application/ui/tui/components/view-shell.tsx';
 import { StatusChip } from '@src/application/ui/tui/components/status-chip.tsx';
 import { Spinner } from '@src/application/ui/tui/components/spinner.tsx';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
-import { useSystemStatus } from '@src/application/ui/tui/runtime/system-status-context.tsx';
-import { useViewHints } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
 import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx';
+import { useSystemStatus } from '@src/application/ui/tui/runtime/system-status-context.tsx';
+import { fitLineWithPath } from '@src/application/ui/tui/components/format.ts';
+import { useTerminalSize } from '@src/application/ui/tui/runtime/use-terminal-size.ts';
+import { useViewKeys } from '@src/application/ui/tui/runtime/use-view-keys.ts';
 import type { ProbeGroup, ProbeResult } from '@src/application/flows/doctor/ctx.ts';
 
 const GROUP_ORDER: ReadonlyArray<ProbeGroup | 'other'> = [
@@ -44,16 +36,49 @@ const GROUP_LABEL: Record<ProbeGroup | 'other', string> = {
   other: 'Other',
 };
 
+const SEVERITY: Readonly<Record<ProbeResult['status'], number>> = { fail: 0, warn: 1, unknown: 2, pass: 3 };
+
+interface GroupBucket {
+  readonly group: ProbeGroup | 'other';
+  /** Probes in severity order, worst first — the thing the operator came here to read. */
+  readonly probes: readonly ProbeResult[];
+  readonly worst: number;
+}
+
+/**
+ * Bucket probes by group and order the buckets worst-first (fail, warn, unknown, pass), keeping {@link GROUP_ORDER}
+ * as the tiebreak.
+ */
+const bucketProbes = (results: readonly ProbeResult[]): readonly GroupBucket[] =>
+  GROUP_ORDER.flatMap((group): GroupBucket[] => {
+    const probes = results
+      .filter((r) => (r.group ?? 'other') === group)
+      .sort((a, b) => SEVERITY[a.status] - SEVERITY[b.status]);
+    const first = probes[0];
+    return first === undefined ? [] : [{ group, probes, worst: SEVERITY[first.status] }];
+  }).sort((a, b) => a.worst - b.worst);
+
 export const DoctorView = (): React.JSX.Element => {
   const ui = useUiState();
   const system = useSystemStatus();
   const results = system.doctor?.probes;
-  useViewHints([{ keys: 'r', label: 'reload' }]);
+  const [showPassed, setShowPassed] = useState(false);
+  const buckets = useMemo(() => bucketProbes(results ?? []), [results]);
+  const healthy = buckets.filter((b) => b.worst === SEVERITY.pass);
+  const attention = buckets.filter((b) => b.worst !== SEVERITY.pass);
+  const healthyCount = healthy.reduce((n, b) => n + b.probes.length, 0);
+  useViewKeys([
+    {
+      keys: ['↵'],
+      hint: showPassed ? 'hide passed' : 'show passed',
+      enabled: healthyCount > 0,
+      run: () => setShowPassed((v) => !v),
+    },
+    { keys: ['r'], hint: 'reload', run: () => void system.refreshDoctor() },
+  ]);
 
-  // Trigger a refresh on first mount when the shared provider hasn't auto-fired yet (e.g. the
-  // test-env gate suppressed the boot-time probe). A ref guards against re-firing if the
-  // refreshDoctor callback identity changes mid-life. Explicit re-runs go through the `r`
-  // keybind below.
+  // Trigger a refresh on first mount when the shared provider hasn't auto-fired yet (e.g. the test-env gate
+  // suppressed the boot-time probe).
   const refreshDoctor = system.refreshDoctor;
   const triggered = React.useRef(false);
   useEffect(() => {
@@ -62,11 +87,6 @@ export const DoctorView = (): React.JSX.Element => {
     triggered.current = true;
     void refreshDoctor();
   }, [refreshDoctor, results, system.doctorLoading]);
-
-  useInput((input) => {
-    if (ui.modalOpen) return;
-    if (input === 'r') void system.refreshDoctor();
-  });
 
   const showSpinner = system.doctorLoading || results === undefined;
 
@@ -81,35 +101,41 @@ export const DoctorView = (): React.JSX.Element => {
       ) : (
         <Box flexDirection="column">
           <SummaryHeader probes={results} />
-          {GROUP_ORDER.map((group) => {
-            const entries = results.filter((r) => (r.group ?? 'other') === group);
-            if (entries.length === 0) return null;
-            return (
-              <Box key={group} flexDirection="column" marginBottom={spacing.section}>
-                <Box paddingX={spacing.indent}>
-                  <Text bold>
-                    {glyphs.badge} {GROUP_LABEL[group]}
-                  </Text>
-                </Box>
-                {entries.map((r) => (
-                  <ProbeRow key={r.id} probe={r} />
-                ))}
-              </Box>
-            );
-          })}
+          {attention.map((bucket) => (
+            <GroupSection key={bucket.group} bucket={bucket} />
+          ))}
+          {healthyCount > 0 && (
+            <Box paddingX={spacing.indent} marginBottom={spacing.section}>
+              <Text color={inkColors.primary}>
+                {glyphs.check} {String(healthyCount)} passed
+              </Text>
+            </Box>
+          )}
+          {showPassed && healthy.map((bucket) => <GroupSection key={bucket.group} bucket={bucket} />)}
         </Box>
       )}
     </ViewShell>
   );
 };
 
+const GroupSection = ({ bucket }: { readonly bucket: GroupBucket }): React.JSX.Element => (
+  <Box flexDirection="column" marginBottom={spacing.section}>
+    <Box paddingX={spacing.indent}>
+      <Text bold>
+        {glyphs.badge} {GROUP_LABEL[bucket.group]}
+      </Text>
+    </Box>
+    {bucket.probes.map((r) => (
+      <ProbeRow key={r.id} probe={r} />
+    ))}
+  </Box>
+);
+
 /**
- * Renders a one-line tally above the grouped probe list so users get the verdict at a glance
- * without scanning every section. Color of the leading icon reflects the worst category
- * present: red if any fail, yellow if any warn, green when everything passes.
+ * Renders a one-line tally above the grouped probe list so users get the verdict at a glance without scanning every
+ * section.
  */
 const SummaryHeader = ({ probes }: { readonly probes: readonly ProbeResult[] }): React.JSX.Element => {
-  const passes = probes.filter((p) => p.status === 'pass').length;
   const warnings = probes.filter((p) => p.status === 'warn').length;
   const failures = probes.filter((p) => p.status === 'fail').length;
   const unknowns = probes.filter((p) => p.status === 'unknown').length;
@@ -118,47 +144,52 @@ const SummaryHeader = ({ probes }: { readonly probes: readonly ProbeResult[] }):
   return (
     <Box paddingX={spacing.indent} marginBottom={spacing.section}>
       <Text color={tone} bold>
-        {icon} {String(passes)} passed
+        {icon}
       </Text>
       <Text dimColor>
         {' '}
-        {glyphs.bullet} {String(warnings)} warning{warnings === 1 ? '' : 's'} {glyphs.bullet} {String(failures)} failure
-        {failures === 1 ? '' : 's'} {glyphs.bullet} {String(unknowns)} unknown {glyphs.bullet} r reload
+        {String(warnings)} warning{warnings === 1 ? '' : 's'} {glyphs.bullet} {String(failures)} failure
+        {failures === 1 ? '' : 's'} {glyphs.bullet} {String(unknowns)} unknown
       </Text>
     </Box>
   );
 };
 
-const ProbeRow = ({ probe }: { readonly probe: ProbeResult }): React.JSX.Element => (
-  <Box flexDirection="column" paddingX={spacing.indent}>
-    <Box>
-      <StatusChip
-        label={probe.status}
-        kind={
-          probe.status === 'pass'
-            ? 'success'
-            : probe.status === 'fail'
-              ? 'error'
-              : probe.status === 'unknown'
-                ? 'muted'
-                : 'warning'
-        }
-      />
-      <Text> {probe.label}</Text>
+const ProbeRow = ({ probe }: { readonly probe: ProbeResult }): React.JSX.Element => {
+  const { columns } = useTerminalSize();
+  // Row padding + hint indent on both sides, minus the `hint: ` lead.
+  const hintWidth = columns - 4 * spacing.indent - 6;
+  return (
+    <Box flexDirection="column" paddingX={spacing.indent}>
+      <Box>
+        <StatusChip
+          label={probe.status}
+          kind={
+            probe.status === 'pass'
+              ? 'success'
+              : probe.status === 'fail'
+                ? 'error'
+                : probe.status === 'unknown'
+                  ? 'muted'
+                  : 'warning'
+          }
+        />
+        <Text> {probe.label}</Text>
+      </Box>
+      {probe.detail !== undefined && (
+        <Box paddingLeft={spacing.indent}>
+          <Text dimColor>
+            {glyphs.activityArrow} {probe.detail}
+          </Text>
+        </Box>
+      )}
+      {probe.hint !== undefined && probe.status !== 'pass' && (
+        <Box paddingLeft={spacing.indent}>
+          <Text dimColor italic>
+            hint: {fitLineWithPath(probe.hint, hintWidth)}
+          </Text>
+        </Box>
+      )}
     </Box>
-    {probe.detail !== undefined && (
-      <Box paddingLeft={spacing.indent}>
-        <Text dimColor>
-          {glyphs.activityArrow} {probe.detail}
-        </Text>
-      </Box>
-    )}
-    {probe.hint !== undefined && probe.status !== 'pass' && (
-      <Box paddingLeft={spacing.indent}>
-        <Text dimColor italic>
-          hint: {probe.hint}
-        </Text>
-      </Box>
-    )}
-  </Box>
-);
+  );
+};

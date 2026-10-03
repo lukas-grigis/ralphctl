@@ -3,7 +3,6 @@ import type { DimensionScore, EvaluationSignal } from '@src/domain/signal.ts';
 import { isoTimestamp } from '@tests/fixtures/domain.ts';
 import {
   computePlateauVerdict,
-  dimensionsEqual,
   failedDimensions,
   type PlateauTurnRecord,
   trigramJaccard,
@@ -54,37 +53,6 @@ describe('failedDimensions', () => {
   it('excludes an applicable:false dimension even when passed is false', () => {
     const sig = evalFrom(dim('correctness', false), dim('robustness', false, false));
     expect(failedDimensions(sig)).toEqual(new Set(['correctness']));
-  });
-});
-
-describe('dimensionsEqual', () => {
-  it("false when both sets empty (no failures couldn't have caused a plateau)", () => {
-    expect(dimensionsEqual(evalFrom(dim('a', true)), evalFrom(dim('a', true)))).toBe(false);
-  });
-
-  it('false when one side empty', () => {
-    const failed = evalFrom(dim('a', false));
-    const passed = evalFrom(dim('a', true));
-    expect(dimensionsEqual(failed, passed)).toBe(false);
-    expect(dimensionsEqual(passed, failed)).toBe(false);
-  });
-
-  it('false when sets are disjoint', () => {
-    expect(dimensionsEqual(evalFrom(dim('a', false)), evalFrom(dim('b', false)))).toBe(false);
-  });
-
-  it('false when sets are not equal in size', () => {
-    expect(dimensionsEqual(evalFrom(dim('a', false)), evalFrom(dim('a', false), dim('b', false)))).toBe(false);
-  });
-
-  it('true when sets match exactly', () => {
-    expect(
-      dimensionsEqual(evalFrom(dim('a', false), dim('b', false)), evalFrom(dim('a', false), dim('b', false)))
-    ).toBe(true);
-  });
-
-  it('case-insensitive and whitespace-insensitive comparison', () => {
-    expect(dimensionsEqual(evalFrom(dim('Correctness', false)), evalFrom(dim(' correctness ', false)))).toBe(true);
   });
 });
 

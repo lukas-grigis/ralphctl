@@ -23,7 +23,8 @@
  */
 
 import { Result } from '@src/domain/result.ts';
-import { crossPlatformSpawn } from '@src/integration/io/cross-platform-spawn.ts';
+import { pipeSpawn } from '@src/integration/io/cross-platform-spawn.ts';
+import { isNodeErrnoCode } from '@src/integration/io/fs.ts';
 import type { Spawn } from '@src/integration/io/spawn.ts';
 
 /** Sentinel error tag so callers can branch on the cause without parsing strings. */
@@ -95,7 +96,7 @@ const runHelper = (spawn: Spawn, helper: HelperCommand, text: string): Promise<R
 
     child.on('error', (cause) => {
       // ENOENT lands here when the binary isn't on PATH.
-      const code = (cause as NodeJS.ErrnoException).code === 'ENOENT' ? 'no-helper' : SPAWN_FAILED;
+      const code = isNodeErrnoCode(cause, 'ENOENT') ? 'no-helper' : SPAWN_FAILED;
       settle(Result.error({ code, message: `clipboard helper '${helper.cmd}' failed: ${cause.message}` }));
     });
     child.on('close', (exitCode) => {
@@ -115,6 +116,8 @@ const runHelper = (spawn: Spawn, helper: HelperCommand, text: string): Promise<R
     // closes; the same closes signal `pbcopy` / `xclip` (with `-selection`) and `clip.exe`. The
     // first write therefore needs to be the last write — encode the whole payload at once.
     try {
+      // EPIPE from a helper that exited early is async; the exit code on `close` already reports it.
+      child.stdin.on('error', () => {});
       child.stdin.end(text, 'utf8');
     } catch (cause) {
       settle(
@@ -128,7 +131,7 @@ const runHelper = (spawn: Spawn, helper: HelperCommand, text: string): Promise<R
 
 /** @public */
 export interface CreateCopyToClipboardOptions {
-  /** Override `crossPlatformSpawn` in tests. */
+  /** Override the default `pipeSpawn` in tests. */
   readonly spawn?: Spawn;
   /** Override `process.platform` in tests. */
   readonly platform?: NodeJS.Platform;
@@ -143,7 +146,7 @@ export interface CreateCopyToClipboardOptions {
  * invocation so the TUI hotkey can surface "clipboard unavailable" without spawning anything.
  */
 export const createCopyToClipboard = (opts: CreateCopyToClipboardOptions = {}): CopyToClipboard => {
-  const spawn = opts.spawn ?? (crossPlatformSpawn as unknown as Spawn);
+  const spawn = opts.spawn ?? pipeSpawn;
   const platform = opts.platform ?? process.platform;
   const env = opts.env ?? process.env;
   const helpers = resolveHelpers({ platform, env });

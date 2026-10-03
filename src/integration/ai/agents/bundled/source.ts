@@ -29,7 +29,8 @@ import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import type { AgentDefinition } from '@src/integration/ai/agents/_engine/agent-definition.ts';
 import type { AgentDefinitionSource } from '@src/integration/ai/agents/_engine/agent-definition-source.ts';
 import { BUNDLED_AGENT_DEFINITIONS } from '@src/integration/ai/agents/_engine/registry.ts';
-import { errorCode, parseAgentDefinition } from '@src/integration/ai/agents/_engine/parse-agent-definition.ts';
+import { parseAgentDefinition } from '@src/integration/ai/agents/_engine/parse-agent-definition.ts';
+import { isNodeErrnoCode } from '@src/integration/io/fs.ts';
 
 /**
  * Resolve the default bundled-agent-definition root from a module URL. `exists` is injectable
@@ -82,7 +83,7 @@ const readDefinitionOptional = async (
   try {
     raw = await readFile(path, 'utf-8');
   } catch (cause) {
-    if (errorCode(cause) === 'ENOENT') return Result.ok(undefined);
+    if (isNodeErrnoCode(cause, 'ENOENT')) return Result.ok(undefined);
     return Result.error(
       new StorageError({ subCode: 'io', message: `bundled agent definition not readable: ${path}`, path, cause })
     );

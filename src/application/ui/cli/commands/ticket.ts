@@ -5,20 +5,20 @@ import { createTicketAddFlow } from '@src/application/flows/add-ticket/flow.ts';
 import { createTicketPublishFlow } from '@src/application/flows/publish-ticket/flow.ts';
 import { createTicketRemoveFlow } from '@src/application/flows/remove-ticket/flow.ts';
 import { bootstrapCli } from '@src/application/ui/cli/bootstrap.ts';
+import { plural } from '@src/application/ui/shared/plural.ts';
 import { confirmDestructive } from '@src/application/ui/cli/confirm-destructive.ts';
 import { fail } from '@src/application/ui/cli/report-cli-error.ts';
-import { pinFallbackNotice, resolveSprintId } from '@src/application/ui/cli/resolve-sprint-selection.ts';
-
-interface SprintOpt {
-  readonly sprint?: string;
-}
+import {
+  resolveSprintAndIdForCli,
+  resolveSprintForCli,
+  SPRINT_OPTION_DESC,
+  SPRINT_OPTION_FLAGS,
+  type SprintOpt,
+} from '@src/application/ui/cli/resolve-sprint-selection.ts';
 
 interface RemoveOpts extends SprintOpt {
   readonly yes?: boolean;
 }
-
-const SPRINT_OPTION_FLAGS = '-s, --sprint <id>';
-const SPRINT_OPTION_DESC = 'sprint id (defaults to the current sprint)';
 
 interface AddOpts extends SprintOpt {
   readonly title: string;
@@ -28,13 +28,9 @@ interface AddOpts extends SprintOpt {
 
 const listTicketsAction = async (opts: SprintOpt): Promise<void> => {
   const { deps, storage } = await bootstrapCli();
-  const sprintId = await resolveSprintId(opts.sprint, storage.stateRoot);
-  if (!sprintId.ok) {
-    fail(sprintId.error.message);
-    return;
-  }
-  if (sprintId.value.fromPin) process.stderr.write(pinFallbackNotice(sprintId.value.sprintId));
-  const sprint = await deps.sprintRepo.findById(sprintId.value.sprintId);
+  const sprintId = await resolveSprintForCli(opts.sprint, storage.stateRoot);
+  if (sprintId === undefined) return;
+  const sprint = await deps.sprintRepo.findById(sprintId);
   if (!sprint.ok) {
     fail(sprint.error.message);
     return;
@@ -50,25 +46,17 @@ const listTicketsAction = async (opts: SprintOpt): Promise<void> => {
 
 const showTicketAction = async (rawTicketId: string, opts: SprintOpt): Promise<void> => {
   const { deps, storage } = await bootstrapCli();
-  const sprintId = await resolveSprintId(opts.sprint, storage.stateRoot);
-  if (!sprintId.ok) {
-    fail(sprintId.error.message);
-    return;
-  }
-  const ticketId = TicketId.parse(rawTicketId);
-  if (!ticketId.ok) {
-    fail(`invalid ticket id: ${ticketId.error.message}`);
-    return;
-  }
-  if (sprintId.value.fromPin) process.stderr.write(pinFallbackNotice(sprintId.value.sprintId));
-  const sprint = await deps.sprintRepo.findById(sprintId.value.sprintId);
+  const ids = await resolveSprintAndIdForCli(opts.sprint, storage.stateRoot, rawTicketId, TicketId.parse, 'ticket');
+  if (ids === undefined) return;
+  const { sprintId, id: ticketId } = ids;
+  const sprint = await deps.sprintRepo.findById(sprintId);
   if (!sprint.ok) {
     fail(sprint.error.message);
     return;
   }
-  const found = sprint.value.tickets.find((t) => t.id === ticketId.value);
+  const found = sprint.value.tickets.find((t) => t.id === ticketId);
   if (!found) {
-    fail(`ticket ${rawTicketId} not found on sprint ${String(sprintId.value.sprintId)}`);
+    fail(`ticket ${rawTicketId} not found on sprint ${String(sprintId)}`);
     return;
   }
   process.stdout.write(`${JSON.stringify(found, null, 2)}\n`);
@@ -76,16 +64,12 @@ const showTicketAction = async (rawTicketId: string, opts: SprintOpt): Promise<v
 
 const addTicketAction = async (opts: AddOpts): Promise<void> => {
   const { deps, storage } = await bootstrapCli();
-  const sprintId = await resolveSprintId(opts.sprint, storage.stateRoot);
-  if (!sprintId.ok) {
-    fail(sprintId.error.message);
-    return;
-  }
-  if (sprintId.value.fromPin) process.stderr.write(pinFallbackNotice(sprintId.value.sprintId));
+  const sprintId = await resolveSprintForCli(opts.sprint, storage.stateRoot);
+  if (sprintId === undefined) return;
   const flow = createTicketAddFlow({ sprintRepo: deps.sprintRepo });
   const result = await flow.execute({
     input: {
-      sprintId: sprintId.value.sprintId,
+      sprintId: sprintId,
       title: opts.title,
       ...(opts.description !== undefined ? { description: opts.description } : {}),
       ...(opts.link !== undefined ? { link: opts.link } : {}),
@@ -96,35 +80,25 @@ const addTicketAction = async (opts: AddOpts): Promise<void> => {
     return;
   }
   const ticket = result.value.ctx.output!;
-  process.stdout.write(
-    `added ticket ${String(ticket.id)} to sprint ${String(sprintId.value.sprintId)} — ${ticket.title}\n`
-  );
+  process.stdout.write(`added ticket ${String(ticket.id)} to sprint ${String(sprintId)} — ${ticket.title}\n`);
 };
 
 const removeTicketAction = async (rawTicketId: string, opts: RemoveOpts): Promise<void> => {
   const { deps, storage } = await bootstrapCli();
-  const sprintId = await resolveSprintId(opts.sprint, storage.stateRoot);
-  if (!sprintId.ok) {
-    fail(sprintId.error.message);
-    return;
-  }
-  const ticketId = TicketId.parse(rawTicketId);
-  if (!ticketId.ok) {
-    fail(`invalid ticket id: ${ticketId.error.message}`);
-    return;
-  }
-  if (sprintId.value.fromPin) process.stderr.write(pinFallbackNotice(sprintId.value.sprintId));
+  const ids = await resolveSprintAndIdForCli(opts.sprint, storage.stateRoot, rawTicketId, TicketId.parse, 'ticket');
+  if (ids === undefined) return;
+  const { sprintId, id: ticketId } = ids;
 
   const confirmed = await confirmDestructive({
     yes: opts.yes === true,
     action: `remove ticket ${rawTicketId}`,
-    confirmPrompt: `remove ticket ${rawTicketId} from sprint ${String(sprintId.value.sprintId)}? [y/N] `,
+    confirmPrompt: `remove ticket ${rawTicketId} from sprint ${String(sprintId)}? [y/N] `,
   });
   if (!confirmed) return;
 
   const flow = createTicketRemoveFlow({ sprintRepo: deps.sprintRepo });
   const result = await flow.execute({
-    input: { sprintId: sprintId.value.sprintId, ticketId: ticketId.value },
+    input: { sprintId: sprintId, ticketId: ticketId },
   });
   if (!result.ok) {
     fail(result.error.error.message);
@@ -132,27 +106,19 @@ const removeTicketAction = async (rawTicketId: string, opts: RemoveOpts): Promis
   }
   const out = result.value.ctx.output!;
   if (!out.removed) {
-    fail(`ticket ${rawTicketId} not found on sprint ${String(sprintId.value.sprintId)}`);
+    fail(`ticket ${rawTicketId} not found on sprint ${String(sprintId)}`);
     return;
   }
   process.stdout.write(
-    `removed ticket ${rawTicketId} from sprint ${String(sprintId.value.sprintId)} (${String(out.remainingTickets)} ticket${out.remainingTickets === 1 ? '' : 's'} remain)\n`
+    `removed ticket ${rawTicketId} from sprint ${String(sprintId)} (${plural(out.remainingTickets, 'ticket')} remain)\n`
   );
 };
 
 const publishTicketAction = async (rawTicketId: string, opts: SprintOpt): Promise<void> => {
   const { deps, storage } = await bootstrapCli();
-  const sprintId = await resolveSprintId(opts.sprint, storage.stateRoot);
-  if (!sprintId.ok) {
-    fail(sprintId.error.message);
-    return;
-  }
-  const ticketId = TicketId.parse(rawTicketId);
-  if (!ticketId.ok) {
-    fail(`invalid ticket id: ${ticketId.error.message}`);
-    return;
-  }
-  if (sprintId.value.fromPin) process.stderr.write(pinFallbackNotice(sprintId.value.sprintId));
+  const ids = await resolveSprintAndIdForCli(opts.sprint, storage.stateRoot, rawTicketId, TicketId.parse, 'ticket');
+  if (ids === undefined) return;
+  const { sprintId, id: ticketId } = ids;
   if (deps.issuePusher === undefined) {
     fail('issue tracker is unavailable');
     return;
@@ -164,36 +130,17 @@ const publishTicketAction = async (rawTicketId: string, opts: SprintOpt): Promis
     issuePusher: deps.issuePusher,
   });
   const result = await flow.execute({
-    input: { sprintId: sprintId.value.sprintId, ticketId: ticketId.value },
+    input: { sprintId: sprintId, ticketId: ticketId },
   });
   if (!result.ok) {
     fail(result.error.error.message);
     return;
   }
   const out = result.value.ctx.output!;
-  process.stdout.write(
-    `published ticket ${rawTicketId} on sprint ${String(sprintId.value.sprintId)} — ${out.outcome}\n`
-  );
+  process.stdout.write(`published ticket ${rawTicketId} on sprint ${String(sprintId)} — ${out.outcome}\n`);
 };
 
-/**
- * Register the `ticket` command group. Tickets are nested in the Sprint aggregate (no separate
- * repo), so list/show route through `sprintRepo.findById` directly; add/remove/publish dispatch to
- * use-cases because they carry domain invariants (only-when-draft, conflict on duplicate id) or
- * tracker I/O (create issue / idempotent comment).
- *
- *   ralphctl ticket list    [--sprint <id>]
- *   ralphctl ticket show    [--sprint <id>] <ticket-id>
- *   ralphctl ticket add     [--sprint <id>] --title <title> [--description <text>] [--link <url>]
- *   ralphctl ticket publish [--sprint <id>] <ticket-id>
- *   ralphctl ticket remove  [--sprint <id>] <ticket-id>
- *
- * `--sprint` defaults to the pinned current sprint (`ralphctl sprint set-current <id>` or any
- * TUI sprint pick); the fallback path prints a one-line stderr notice naming the substituted
- * sprint, and the add/remove/publish success lines always name the resolved sprint so the mutation
- * target is never ambiguous. A stale pin fails naturally downstream (`findById` not-found /
- * the only-when-draft invariant). Publish does not prompt.
- */
+/** Register the `ticket` command group. */
 export const registerTicketCommand = (program: Command): void => {
   const ticketCmd = program.command('ticket').description('inspect and manage tickets within a sprint');
 

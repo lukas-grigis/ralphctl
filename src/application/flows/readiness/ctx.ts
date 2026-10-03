@@ -25,16 +25,6 @@ export interface ReadinessToolEntry {
     readonly proposedContent: string;
     readonly targetPath: AbsolutePath;
     /**
-     * AI-suggested setup script (one shell line, e.g. `pnpm install`). Undefined when the AI
-     * omitted the `<setup-script>` tag because no setup is needed.
-     */
-    readonly proposedSetupScript?: string;
-    /**
-     * AI-suggested verify script (one shell line chaining typecheck / lint / test with `&&`).
-     * Undefined when the project exposes none of those.
-     */
-    readonly proposedVerifyScript?: string;
-    /**
      * AI-authored setup skill body — multi-paragraph markdown the install leaf lands at
      * `<repo>/<parentDir>/skills/setup/SKILL.md` via the skills adapter's bare-name install
      * path.

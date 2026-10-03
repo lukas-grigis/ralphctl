@@ -31,6 +31,7 @@ import { type AssistantTool, toolForProvider } from '@src/integration/ai/readine
 import type { FlowId } from '@src/domain/value/flow-id.ts';
 import { FLOW_IDS } from '@src/domain/value/flow-id.ts';
 import { resolveEffortForRow } from '@src/business/settings/resolve-effort.ts';
+import { createPublishSignal } from '@src/application/flows/_shared/publish-signal.ts';
 
 export interface CreateReadinessFlowOpts {
   readonly projectId: ProjectId;
@@ -184,7 +185,7 @@ const buildPerToolSubchain = (
         provider: provideAi,
         templateLoader: deps.templateLoader,
         writeFile: deps.writeFile,
-        eventBus: deps.eventBus,
+        publishSignal: createPublishSignal(deps.eventBus, 'readiness'),
         logger: deps.logger,
         cwd: opts.cwd,
         model: row.model,

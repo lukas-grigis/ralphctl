@@ -99,6 +99,7 @@ export const MARKERS: Readonly<Record<string, string>> = {
   // unique, so listing them first resolves the overlap deterministically.
   'implement-continuation': '# Continue — Round',
   'evaluate-continuation': '# Re-evaluate — Round',
+  'implement-crash-resume': '# Resume — Interrupted Attempt',
   implement: '# Task Execution Protocol',
   evaluate: 'independent code reviewer',
   readiness: 'project context file proposal',

@@ -10,8 +10,7 @@ import type { AiSignal } from '@src/domain/signal.ts';
  *   the result verbatim — no escape gymnastics, no further transform.
  * - `multiplicity` is the per-spawn occurrence count:
  *     'one'      → exactly one signal of this kind MUST exist (Zod schema enforces upstream);
- *     'optional' → at most one (no file written if absent);
- *     'any'      → render every occurrence; current contracts do not use this.
+ *     'optional' → at most one (no file written if absent).
  *
  * Generic `TKind` narrows `signal` inside `extract` to the matching variant of `AiSignal`.
  */
@@ -19,7 +18,7 @@ export interface SidecarRule<TKind extends AiSignal['type'] = AiSignal['type']> 
   readonly signalKind: TKind;
   readonly filename: string;
   readonly extract: (signal: Extract<AiSignal, { type: TKind }>) => string;
-  readonly multiplicity: 'one' | 'optional' | 'any';
+  readonly multiplicity: 'one' | 'optional';
 }
 
 /**
@@ -59,16 +58,4 @@ export interface AiOutputContract<TSig extends AiSignal = AiSignal> {
    * the moment the schema's accepted shape diverges from what the prompt documents.
    */
   readonly exampleSignals: readonly TSig[];
-}
-
-/**
- * Shape of the on-disk `signals.json` wrapper — the migration walker accepts any value but
- * the final Zod parse expects `signals` to be `unknown` until validated. Exported so test
- * fixtures and rendered prompt examples share one type.
- *
- * @public
- */
-export interface AiSignalsFile {
-  readonly schemaVersion: number;
-  readonly signals: readonly unknown[];
 }

@@ -80,16 +80,17 @@ export const CreatePrView = (): React.JSX.Element => {
 
   const runCreate = useCallback(
     async (cwd: AbsolutePath): Promise<void> => {
+      // Flip to running before any await so a second Enter (or `a`) during the pre-flight guards is disabled.
+      setRun({ kind: 'running' });
       const inputs = await resolveCreatePrInputs(deps, selection.sprintId, useAi);
       if (!inputs.ok) {
         setRun(inputs.error);
         return;
       }
-      setRun({ kind: 'running' });
       setRun(
         await executeCreatePrFlow({
           deps,
-          sprintId: selection.sprintId!,
+          sprintId: inputs.value.sprintId,
           sprintDir: inputs.value.sprintDir,
           cwd,
           useAi,
@@ -165,7 +166,7 @@ const resolveCreatePrInputs = async (
   deps: AppDeps,
   sprintId: SprintId | undefined,
   useAi: boolean
-): Promise<Result<{ readonly sprintDir: AbsolutePath }, RunState>> => {
+): Promise<Result<{ readonly sprintId: SprintId; readonly sprintDir: AbsolutePath }, RunState>> => {
   if (sprintId === undefined) {
     return Result.error({ kind: 'error', message: 'No sprint selected.' });
   }
@@ -183,7 +184,7 @@ const resolveCreatePrInputs = async (
   if (!sprintDir.ok) {
     return Result.error({ kind: 'error', message: `sprint dir: ${sprintDir.error.message}` });
   }
-  return Result.ok({ sprintDir: sprintDir.value });
+  return Result.ok({ sprintId, sprintDir: sprintDir.value });
 };
 
 interface ExecuteCreatePrFlowArgs {

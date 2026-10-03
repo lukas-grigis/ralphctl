@@ -18,6 +18,9 @@ export const SessionsProvider = ({ value, children }: SessionsProviderProps): Re
   <SessionsContext.Provider value={value}>{children}</SessionsContext.Provider>
 );
 
+/** Like {@link useSessionManager} but `undefined` outside a provider — for passive indicators. */
+export const useOptionalSessionManager = (): SessionManager | undefined => useContext(SessionsContext);
+
 export const useSessionManager = (): SessionManager => {
   const ctx = useContext(SessionsContext);
   if (!ctx) throw new Error('useSessionManager: must be used inside <SessionsProvider>');

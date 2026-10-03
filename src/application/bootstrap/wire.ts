@@ -72,34 +72,46 @@ import { createOperatorAgentDefinitionSource } from '@src/integration/ai/agents/
 import { warnIfVague } from '@src/integration/ai/agents/_engine/agent-definition-quality.ts';
 import type { NotificationDispatcher } from '@src/business/observability/notification-dispatcher.ts';
 import { startFileLogSink } from '@src/integration/observability/sinks/file-log-sink.ts';
+import { createFsHousekeepingDisk } from '@src/integration/persistence/housekeeping/fs-housekeeping-disk.ts';
+import { createLockRunActivityProbe } from '@src/integration/io/lock-guard.ts';
+import { createHousekeeping, type Housekeeping } from '@src/application/flows/housekeeping/housekeeping.ts';
+import { createProjectRemoval, type ProjectRemoval } from '@src/application/flows/delete-project/project-removal.ts';
+import { createSprintRemoval, type SprintRemoval } from '@src/application/flows/delete-sprint/sprint-removal.ts';
+import { createInProcessRuns, type InProcessRuns } from '@src/application/session/in-process-runs.ts';
+import { createLiveRunRecorder } from '@src/application/session/live-run-recorder.ts';
+import { createRunChildRegistry, type RunChildRegistry } from '@src/application/session/run-child-registry.ts';
+import { createSettleAbandonedAttempts } from '@src/business/task/settle-abandoned-attempts.ts';
+import { createFindLiveSprintOwner, type FindLiveSprintOwner } from '@src/business/runs/find-live-sprint-owner.ts';
+import { createSprintLockReader } from '@src/integration/io/sprint-lock-reader.ts';
+import { SprintId } from '@src/domain/value/id/sprint-id.ts';
+import { rootSessionId } from '@src/application/session/session.ts';
+import { createOrphanReaper, type OrphanReaper } from '@src/integration/io/orphan-reaper.ts';
+import { createProcessGroupTerminator, createProcessLiveness } from '@src/integration/io/process-liveness.ts';
+import { createFsLiveRunStore } from '@src/integration/persistence/live-run/fs-live-run-store.ts';
+import { createDetectInterruptedRuns, type DetectInterruptedRuns } from '@src/business/runs/detect-interrupted-runs.ts';
+import { createReapInterruptedRuns, type ReapInterruptedRuns } from '@src/business/runs/reap-interrupted-runs.ts';
+import {
+  createDismissInterruptedRuns,
+  type DismissInterruptedRuns,
+} from '@src/business/runs/dismiss-interrupted-runs.ts';
+import { anyRunActivity, type RunActivityProbe } from '@src/business/_shared/run-activity-probe.ts';
+import { createLiveRunActivityProbe } from '@src/business/runs/live-run-activity-probe.ts';
 import type { FileLogSink, FileLogSinkDeps } from '@src/integration/observability/_engine/file-log-sink.ts';
 
 /**
- * Slim, launch-time-supplied subset of {@link FileLogSinkDeps} — `appendFile` is bound at
- * `wire()` time and threaded into the production sink internally so callers don't have to
- * re-thread it on every launch.
+ * Slim, launch-time-supplied subset of {@link FileLogSinkDeps} — `appendFile` is bound at `wire()` time and threaded
+ * into the production sink internally so callers don't have to re-thread it on every launch.
  */
 export type ChainLogSinkLaunchDeps = Omit<FileLogSinkDeps, 'appendFile'>;
 
 /**
- * Wired application dependencies. Composition root assembles these once at startup; everything
- * downstream (chains, CLI, TUI) consumes from this bag.
- *
- * Per-flow dep types (`RefineDeps`, `PlanDeps`, …) narrow this further at the chain factory
- * boundary so each flow's signature documents exactly what it depends on. `AppDeps` is the
- * superset the composition root produces — it's the type the typechecker uses to prove
- * "every port the app needs is actually wired" at the bootstrap boundary.
- *
- * `settings` is threaded through here as a boot-time snapshot so chain factories can read
- * their own slice (the implement chain reads `settings.harness.maxTurns`, future flows will
- * read other slices). Use-cases that *mutate* settings (e.g. `settings-set`) consume
- * `settingsRepo` directly so writes round-trip through validation.
+ * Wired application dependencies. Composition root assembles these once at startup; everything downstream (chains,
+ * CLI, TUI) consumes from this bag.
  */
 export interface AppDeps {
   /**
    * Resolved storage paths — exposed so flows / TUI views can derive per-sprint paths
    * (`<dataRoot>/sprints/<sprintId>/`) without re-resolving from env or `os.homedir()`.
-   * The composition root computes this once; callers down the tree consume the same record.
    */
   readonly storage: StoragePaths;
   readonly projectRepo: ProjectRepository;
@@ -108,31 +120,12 @@ export interface AppDeps {
   readonly taskRepo: TaskRepository;
   /** Validated application settings — boot-time snapshot. Sliced by chain factories that need it. */
   readonly settings: Settings;
-  /**
-   * Persistence port for {@link Settings}. Used by use-cases that read/write at runtime
-   * (`settings-show`, `settings-set`); the boot-time snapshot above is for chain factories
-   * that don't need to react to mid-session mutations.
-   */
+  /** Persistence port for {@link Settings}. */
   readonly settingsRepo: SettingsRepository;
-  /**
-   * Provider built via {@link createAiProvider} from `settings.ai`. Chain factories pluck this
-   * field off `AppDeps` directly — every flow's `Deps` already declares `provider: HeadlessAiProvider`.
-   */
+  /** Provider built via {@link createAiProvider} from `settings.ai`. */
   readonly provider: HeadlessAiProvider;
   /**
-   * The spawn seam the AI adapters were built with, re-exposed so it SURVIVES the per-launch
-   * adapter rebuild. `buildLaunchAdapters` (and the implement launcher's per-role rebuild)
-   * reconstruct providers from the freshly-resolved settings on every launch; without this field
-   * a wire-time `spawn` override reached `AppDeps.provider` and was then silently dropped the
-   * moment a flow actually launched — which made the override useless for anything that goes
-   * through a launcher.
-   *
-   * Two producers today: a test that wants a hermetic launch, and `ralphctl demo --script`,
-   * whose scripted spawn replays a canned transcript instead of running a CLI. Presence of this
-   * field is therefore also the "no real binary will be spawned" signal the implement launcher
-   * reads to skip its PATH pre-flight.
-   *
-   * Undefined in ordinary production runs — the adapters fall back to `node:child_process.spawn`.
+   * The spawn seam the AI adapters were built with, re-exposed so it SURVIVES the per-launch adapter rebuild.
    */
   readonly providerSpawn?: ProviderSpawn;
   /** External shells — used by implement (preflight + commit) and review (commit). */
@@ -142,186 +135,123 @@ export interface AppDeps {
   /** Advisory cooperative file lock — used to serialise per-repository runs. */
   readonly fileLocker: FileLocker;
   /**
-   * Atomic file writer — used by interactive flows (refine, plan-interactive) to materialise
-   * `prompt.md` before handing the terminal to Claude.
+   * Atomic file writer — used by interactive flows (refine, plan-interactive) to materialise `prompt.md` before
+   * handing the terminal to Claude.
    */
   readonly writeFile: WriteFile;
   /**
-   * Append-only writer — used by the progress-journal leaves to grow
-   * `<sprintDir>/progress.md` per task-attempt settlement and status transition (audit-[07]),
-   * and by the opt-in `<sprintDir>/events.ndjson` debug-trace sink. Also threaded into the
-   * review chain so feedback-round appends round through the port instead of `fs.appendFile`.
+   * Append-only writer — used by the progress-journal leaves to grow `<sprintDir>/progress.md` per task-attempt
+   * settlement and status transition (audit-[07]).
    */
   readonly appendFile: AppendFile;
   /**
-   * Interactive AI session — used by refine and plan-interactive. Sibling of `provider`
-   * (which is the headless variant). Each adapter handles its own mode; flows pick the one
-   * matching their UX.
+   * Interactive AI session — used by refine and plan-interactive. Sibling of `provider` (which is the headless
+   * variant).
    */
   readonly interactiveAi: InteractiveAiProvider;
   /**
-   * Per-provider interactive-AI factory — selects the concrete {@link InteractiveAiProvider} for
-   * an explicit {@link AiProvider} (vs. the flow-keyed `interactiveAi` seed above). Threaded so
-   * the distill sub-chain's per-distinct-provider fan-out can spawn one interactive session
-   * per provider it writes a native context file for. Bound to the wire-time `eventBus` so every
-   * distill session logs onto the same observability pipe.
+   * Per-provider interactive-AI factory — selects the concrete {@link InteractiveAiProvider} for an explicit {@link
+   * AiProvider} (vs. the flow-keyed `interactiveAi` seed above).
    */
   readonly interactiveAiFor: (provider: AiProvider) => InteractiveAiProvider;
   /**
-   * Filesystem-backed prompt template loader — every AI-touching flow needs one. Built once
-   * here so flows don't each call `createFsTemplateLoader(defaultTemplatesDir())`.
+   * Filesystem-backed prompt template loader — every AI-touching flow needs one. Built once here so flows don't each
+   * call `createFsTemplateLoader(defaultTemplatesDir())`.
    */
   readonly templateLoader: TemplateLoader;
   /** Wall-clock for entity timestamps. Bound to {@link IsoTimestamp.now}; tests pass a fake. */
   readonly clock: () => IsoTimestamp;
   /**
-   * Readiness probe registry — keyed by tool. Used by `readiness` to dispatch
-   * filesystem probes (`AGENTS.md`, `.github/copilot-instructions.md`, …).
+   * Readiness probe registry — keyed by tool. Used by `readiness` to dispatch filesystem probes (`AGENTS.md`,
+   * `.github/copilot-instructions.md`, …).
    */
   readonly probes: ReadinessProbeRegistry;
-  /**
-   * Per-provider model-availability lookup. Resolves the static model catalog narrowed to the
-   * models the operator's account can actually run (Codex reads `~/.codex/models_cache.json`;
-   * Claude / Copilot are passthrough today). Fail-open: every error path resolves to the full
-   * catalog, so the picker never blocks or hides everything.
-   *
-   * Result is cached per `wire()` session — it won't live-track models installed mid-session; the
-   * user re-enters the surface to refresh. The probe registry itself is a `wire()` internal.
-   *
-   * `wire()` always assigns this; it is not optional. Test stubs that build an `AppDeps` by hand
-   * (`{} as unknown as AppDeps`) suppress the missing-field error via the `unknown` cast, so
-   * dropping the `?` here does not force every stub to populate it.
-   */
+  /** Per-provider model-availability lookup. */
   readonly availableModelsFor: (provider: AiProvider) => Promise<readonly string[]>;
   /**
-   * Application-wide event bus. Producers (chain runner, use cases, adapters)
-   * publish {@link AppEvent}s; UI surfaces and observability adapters subscribe.
-   * One instance per `wire()` call — bus state isolates between concurrent app
-   * instances (production vs. tests).
+   * Application-wide event bus. Producers (chain runner, use cases, adapters) publish {@link AppEvent}s; UI surfaces
+   * and observability adapters subscribe.
    */
   readonly eventBus: EventBus;
-  /**
-   * Logger port that emits structured `AppEvent.log` records onto {@link AppDeps.eventBus}.
-   * Use cases call `props.logger.debug/info/warn/error(...)` (or `.named('feature.action')`
-   * for a scoped child) and the bridge publishes log events that share the same fan-out as
-   * every other observability subscriber.
-   */
+  /** Logger port that emits structured `AppEvent.log` records onto {@link AppDeps.eventBus}. */
   readonly logger: Logger;
   /**
-   * Pull-request creator (`gh` / `glab`) — used by the create-pr flow.
-   * Hard-fails if the CLI is not installed; PRs have no useful fallback.
+   * Pull-request creator (`gh` / `glab`) — used by the create-pr flow. Hard-fails if the CLI is not installed; PRs
+   * have no useful fallback.
    */
   readonly pullRequestCreator: PullRequestCreator;
   /**
-   * External issue fetcher (`gh` / `glab`) — used by refine when a ticket has a `link`.
-   * Optional because environments without the CLIs degrade to a soft-fail no-op.
+   * External issue fetcher (`gh` / `glab`) — used by refine when a ticket has a `link`. Optional because environments
+   * without the CLIs degrade to a soft-fail no-op.
    */
   readonly issueFetcher?: IssueFetcher;
-  /**
-   * External issue pusher (`gh` / `glab`) — used by the refine flow's "Approve & update
-   * origin" path. Same lifetime / availability story as `issueFetcher`: optional, and a
-   * push failure never blocks local refinement (REQ-10 from the requirements doc).
-   */
+  /** External issue pusher (`gh` / `glab`) — used by the refine flow's "Approve & update origin" path. */
   readonly issuePusher?: IssuePusher;
   /**
-   * npm registry-backed version checker — surfaces a dim banner on Welcome / Home when a
-   * newer ralphctl is published. Best-effort: every failure mode (offline, parse error,
-   * timeout) returns `null` so the UI never sees an error from this path.
+   * npm registry-backed version checker — surfaces a dim banner on Welcome / Home when a newer ralphctl is published.
    */
   readonly versionChecker: VersionChecker;
   /**
-   * Provider-specific skills installer — writes the resolved {@link Skill}s into the
-   * location the selected AI CLI auto-discovers (`<sandboxCwd>/.claude/skills/<id>/SKILL.md`
-   * for Claude; no-op for Copilot / Codex today).
+   * Provider-specific skills installer — writes the resolved {@link Skill}s into the location the selected AI CLI
+   * auto-discovers (`<sandboxCwd>/.claude/skills/<id>/SKILL.md` for Claude; no-op for Copilot / Codex today).
    */
   readonly skillsAdapter: SkillsAdapter;
-  /**
-   * Source of canonical {@link Skill}s for a flow. `wire()` binds the static BUNDLED source
-   * only; the launcher composes it per launch with the project-scoped source (setup / verify
-   * skills authored via detect-skills) and the operator drop-in source — see
-   * `composeSkillSources` in `ui/shared/launcher.ts`.
-   */
+  /** Source of canonical {@link Skill}s for a flow. */
   readonly skillSource: SkillSource;
   /**
-   * TUI skill-catalog port — backs the browsable Skills view (enable / disable / update /
-   * update-all the opt-in phase-scoped skills). Built once per `wire()` call over the same
-   * `operatorSkillsRoot` and `writeFile` seam as the rest of the skills stack.
+   * TUI skill-catalog port — backs the browsable Skills view (enable / disable / update / update-all the opt-in
+   * phase-scoped skills).
    */
   readonly skillCatalog: SkillCatalogPort;
-  /**
-   * Wire-time seed — keyed on the generator role's provider. The implement launcher rebuilds a
-   * role-scoped adapter per role (generator / evaluator may target different providers) via
-   * `createAgentDefinitionAdapter`; this field is the sensible default for any path that consults
-   * `app.agentDefinitionAdapter` before a launch. Mirrors {@link skillsAdapter}'s wire-time-seed
-   * posture.
-   */
+  /** Wire-time seed — keyed on the generator role's provider. */
   readonly agentDefinitionAdapter: AgentDefinitionAdapter;
   /**
-   * Composed bundled + operator agent-definition source (operator overrides bundled on a name
-   * collision — see `composeAgentDefinitionSources`'s doc comment). Unlike {@link skillSource},
-   * agent definitions have no per-project / phase tier: a project-authored definition already
-   * lives where the provider's CLI looks for it, so there is nothing further to compose here.
+   * Composed bundled + operator agent-definition source (operator overrides bundled on a name collision — see
+   * `composeAgentDefinitionSources`'s doc comment).
    */
   readonly agentDefinitionSource: AgentDefinitionSource;
-  /**
-   * OS-attention notifier. Hooked onto the EventBus by {@link startNotificationSubscriber} at
-   * `wire()` time; exposed on `AppDeps` so flows / tests that want to surface a one-shot
-   * "ralphctl needs you" cue can call it directly. Production: terminal bell + Darwin
-   * NotificationCenter / Linux libnotify. Tests: a no-op stub unless one is injected.
-   */
+  /** OS-attention notifier. */
   readonly notificationDispatcher: NotificationDispatcher;
-  /**
-   * Per-launch factory for the opt-in `<sprintDir>/events.ndjson` tee subscriber. Returns
-   * an opaque `{ stop, flush }` handle the launcher attaches and tears down at terminal
-   * events.
-   *
-   * Gated by `RALPHCTL_DEBUG_TRACE`: when the env var is set to a truthy value `wire()`
-   * binds the real {@link startFileLogSink}; otherwise a no-op factory returns idempotent
-   * stubs so callers don't need to branch. Keeping the env read here means integration
-   * adapters never reach for `process.env` directly — the bootstrap layer owns the
-   * "is debug tracing on?" question.
-   */
+  /** Per-launch factory for the opt-in `<sprintDir>/events.ndjson` tee subscriber. */
   readonly chainLogSink: (deps: ChainLogSinkLaunchDeps) => FileLogSink;
+  /** Housekeeping view backend — dry-run scan of reclaimable data and a re-verifying purge. */
+  readonly housekeeping: Housekeeping;
+  /** Project removal with the opt-in sprints + memory cascade. */
+  readonly projectRemoval: ProjectRemoval;
+  /** Single-sprint removal, refused while a run is active. */
+  readonly sprintRemoval: SprintRemoval;
+  /**
+   * This process's live runs — the TUI session manager tracks every runner it registers, so the data-removal guards
+   * see lock-free flows (plan, refine, ideate) as well as lock-holding ones.
+   */
+  readonly inProcessRuns: InProcessRuns;
+  /**
+   * Where headless AI CLI spawns are announced: the orphan reaper sidecar kills their process groups if this process
+   * dies, and the owning run's `<stateRoot>/runs/<runId>.json` record lists them.
+   */
+  readonly childRegistry: RunChildRegistry;
+  /** Runs whose live-run record outlived the process that owned them. */
+  readonly detectInterruptedRuns: DetectInterruptedRuns;
+  /** Another live ralphctl process on this machine working a sprint — its in-progress tasks are not interrupted. */
+  readonly findLiveSprintOwner: FindLiveSprintOwner;
+  /** Boot-time fallback reap of the process groups interrupted runs left behind. */
+  readonly reapInterruptedRuns: ReapInterruptedRuns;
+  /** Drops the records of interrupted runs the operator has dealt with (resumed, or dismissed from Runs). */
+  readonly dismissInterruptedRuns: DismissInterruptedRuns;
 }
 
-/**
- * Injection points for `wire()`. Production paths come from `resolveStoragePaths()`; tests
- * build their own from a tmp directory via `storagePathsFromRoot(tmpDir)` so no test ever
- * touches the real `~/.ralphctl/` tree.
- *
- * Future injection points (AI session, clock, logger) land here as they're introduced — the
- * test seam stays the same shape.
- */
+/** Injection points for `wire()`. */
 export interface WireOptions {
   readonly storage: StoragePaths;
   readonly settings: Settings;
-  /**
-   * Test seam threaded through {@link createAiProvider} into the Claude adapter. Production
-   * leaves this `undefined` so the adapter spawns the real `claude` CLI; the wire integration
-   * test passes a fake spawn so the test exercises the full wiring without a real binary.
-   */
+  /** Test seam threaded through {@link createAiProvider} into the Claude adapter. */
   readonly spawn?: ProviderSpawn;
-  /**
-   * AI-only spawn override. Distinct from {@link spawn}, which doubles as the general-purpose
-   * `Spawn` for git / gh / the issue fetcher: a caller that fakes the AI CLI usually still wants
-   * REAL git (this is exactly `ralphctl demo --script`'s situation — a canned session, a real
-   * repository, a real commit).
-   *
-   * Takes precedence over `spawn` for provider construction, and is what `AppDeps.providerSpawn`
-   * carries to launch time.
-   */
+  /** AI-only spawn override. */
   readonly providerSpawn?: ProviderSpawn;
-  /**
-   * Optional override for the OS attention notifier. Production callers (the TUI bootstrap in
-   * `launch.ts`) pass the real Darwin / Linux adapter; the default for unspecified callers is a
-   * silent no-op so tests don't accidentally pop NotificationCenter dings on the dev machine
-   * when they exercise a chain that fires an attention event.
-   */
+  /** Optional override for the OS attention notifier. */
   readonly notificationDispatcher?: NotificationDispatcher;
   /**
-   * Test seam for `process.env` lookups (currently `RALPHCTL_DEBUG_TRACE`). Defaults to the
-   * live `process.env`. Tests pass a frozen record so they can flip the debug trace flag
-   * without touching the ambient process state.
+   * Test seam for `process.env` lookups (currently `RALPHCTL_DEBUG_TRACE`). Defaults to the live `process.env`.
    */
   readonly env?: NodeJS.ProcessEnv;
 }
@@ -329,11 +259,7 @@ export interface WireOptions {
 /** Env var that enables persistent `<sprintDir>/events.ndjson` file-log sink writes. */
 export const RALPHCTL_DEBUG_TRACE_ENV = 'RALPHCTL_DEBUG_TRACE';
 
-/**
- * No-op chain-log sink — returned by the factory when `RALPHCTL_DEBUG_TRACE` is unset. The
- * launcher's `subscribe()` callback still calls `stop()` + `flush()` at terminal events,
- * so the shape has to match {@link FileLogSink} exactly even when nothing is being written.
- */
+/** No-op chain-log sink — returned by the factory when `RALPHCTL_DEBUG_TRACE` is unset. */
 const NOOP_CHAIN_LOG_SINK: FileLogSink = {
   stop(): void {
     // intentionally no-op
@@ -345,22 +271,10 @@ const NOOP_CHAIN_LOG_SINK: FileLogSink = {
 
 const isTruthyEnvFlag = (value: string | undefined): boolean => typeof value === 'string' && value.length > 0;
 
+/** Build the wired dependency graph. Pure — does not touch the filesystem or `os`. */
 /**
- * Build the wired dependency graph. Pure — does not touch the filesystem or `os`. Production
- * `main()` composes:
- *
- *     resolveStoragePaths() → ensureStorageRoots(paths) →
- *     createJsonSettingsRepository({ configRoot }).load() →
- *     wire({ storage: paths, settings })
- *
- * Tests skip the resolver and call `wire({ storage: storagePathsFromRoot(tmpDir).value,
- * settings: DEFAULT_SETTINGS })` directly. Same shape, different paths — the application code
- * under test is identical to production.
- */
-/**
- * Default `Spawn` for general shell use (issue fetcher, interactive Claude binary). Falls
- * through to `node:child_process.spawn`. Tests can pass an alternative via `WireOptions.spawn`
- * — the same fake currently scripted for the headless provider.
+ * Default `Spawn` for general shell use (issue fetcher, interactive Claude binary). Falls through to
+ * `node:child_process.spawn`.
  */
 const defaultPipeSpawn: Spawn = (command, args, options) =>
   crossPlatformSpawn(command, args, {
@@ -368,10 +282,7 @@ const defaultPipeSpawn: Spawn = (command, args, options) =>
     stdio: [...options.stdio],
   }) as ReturnType<Spawn>;
 
-/**
- * Built once per `wire()` call. Probes are static module-level singletons; bundling them here
- * means every flow reads `app.probes` instead of carrying its own registry literal.
- */
+/** Built once per `wire()` call. */
 const PROBES: ReadinessProbeRegistry = {
   'claude-code': claudeProbe,
   copilot: copilotProbe,
@@ -381,14 +292,8 @@ const PROBES: ReadinessProbeRegistry = {
 };
 
 /**
- * Model-availability probe registry, keyed by {@link AiProvider}, so `wire()` can dispatch
- * per-provider without each caller carrying a registry literal. Keyed on the provider union (vs.
- * {@link PROBES}, which is keyed on `AssistantTool`).
- *
- * Built per `wire()` call rather than as a module singleton because the opencode probe takes an
- * observability seam: it is the one backend whose fallback catalog is NOT the vendor's full list
- * (only the zero-auth free tier), so a fail-open there silently shrinks the picker and has to
- * leave a trace. The other four are stateless singletons.
+ * Model-availability probe registry, keyed by {@link AiProvider}, so `wire()` can dispatch per-provider without each
+ * caller carrying a registry literal.
  */
 const buildModelAvailabilityProbes = (logger: Logger): ModelAvailabilityProbeRegistry => ({
   'claude-code': claudeModelAvailabilityProbe,
@@ -424,29 +329,112 @@ const buildWireAgentDefinitionSource = (storage: StoragePaths, logger: Logger): 
     })
   );
 
-/**
- * Wire-time seed provider. The per-launch launcher rebuilds the provider per dispatched flow;
- * the `implement` row is the most common consumer, so it is the sensible default for any path
- * that reads `app.provider` before a launch happens.
- */
-const buildWireProvider = (opts: WireOptions, eventBus: EventBus, spawn: ProviderSpawn | undefined) =>
+/** Wire-time seed provider. */
+const buildWireProvider = (
+  opts: WireOptions,
+  eventBus: EventBus,
+  spawn: ProviderSpawn | undefined,
+  childRegistry: RunChildRegistry
+) =>
   createAiProvider({
     flow: 'implement',
     ai: opts.settings.ai,
     harnessConfig: opts.settings.harness,
     eventBus,
+    childRegistry,
     ...(spawn !== undefined ? { spawn } : {}),
   });
+
+/** Live-run records, the child registry that feeds them and the orphan reaper, and the crash-side readers. */
+const buildLiveRunServices = (
+  storage: StoragePaths,
+  logger: Logger,
+  taskRepo: AppDeps['taskRepo']
+): Pick<
+  AppDeps,
+  | 'inProcessRuns'
+  | 'childRegistry'
+  | 'detectInterruptedRuns'
+  | 'reapInterruptedRuns'
+  | 'dismissInterruptedRuns'
+  | 'findLiveSprintOwner'
+> & { readonly liveRunActivity: RunActivityProbe; readonly reaper: OrphanReaper } => {
+  const store = createFsLiveRunStore({ stateRoot: storage.stateRoot });
+  const liveness = createProcessLiveness();
+  const now = (): string => String(IsoTimestamp.now());
+  const recorder = createLiveRunRecorder({ store, liveness, now, logger });
+  // One sidecar for both AI CLI groups and setup/verify script groups (the shell runner gets it too).
+  const reaper = createOrphanReaper();
+  const childRegistry = createRunChildRegistry({ reaper, recorder, runIdOf: rootSessionId });
+  const detectInterruptedRuns = createDetectInterruptedRuns({ store, liveness });
+  const settleAbandonedAttempts = createSettleAbandonedAttempts({ taskRepo, clock: IsoTimestamp.now, logger });
+  return {
+    inProcessRuns: createInProcessRuns({
+      recorder,
+      children: childRegistry,
+      settleAbandoned: async ({ sprintId, since }) => {
+        const id = SprintId.parse(sprintId);
+        if (id.ok) await settleAbandonedAttempts.execute({ sprintId: id.value, since });
+      },
+    }),
+    childRegistry,
+    detectInterruptedRuns,
+    liveRunActivity: createLiveRunActivityProbe({ store, liveness }),
+    reaper,
+    findLiveSprintOwner: createFindLiveSprintOwner({
+      store,
+      liveness,
+      locks: createSprintLockReader({ dataRoot: storage.dataRoot, locksRoot: storage.locksRoot }),
+    }),
+    dismissInterruptedRuns: createDismissInterruptedRuns({ detect: detectInterruptedRuns, store }),
+    reapInterruptedRuns: createReapInterruptedRuns({
+      detect: detectInterruptedRuns,
+      store,
+      liveness,
+      terminator: createProcessGroupTerminator(),
+      now,
+      logger,
+    }),
+  };
+};
+
+/** Project + sprint repositories and the services that delete across them, sharing one disk adapter. */
+const buildDataServices = (
+  storage: StoragePaths,
+  logger: Logger,
+  inProcessRuns: InProcessRuns,
+  liveRunActivity: RunActivityProbe
+): Pick<AppDeps, 'projectRepo' | 'sprintRepo' | 'housekeeping' | 'projectRemoval' | 'sprintRemoval'> => {
+  const projectRepo = createFsProjectRepository({ root: storage.dataRoot });
+  const sprintRepo = createFsSprintRepository({ root: storage.dataRoot });
+  const housekeepingDisk = createFsHousekeepingDisk({
+    dataRoot: storage.dataRoot,
+    memoryRoot: storage.memoryRoot,
+    runsRoot: storage.runsRoot,
+  });
+  const runActivity = anyRunActivity(inProcessRuns, liveRunActivity, createLockRunActivityProbe(storage.stateRoot));
+  return {
+    projectRepo,
+    sprintRepo,
+    housekeeping: createHousekeeping({
+      projectRepo,
+      sprintRepo,
+      housekeepingDisk,
+      runActivity,
+      clock: IsoTimestamp.now,
+      logger,
+    }),
+    projectRemoval: createProjectRemoval({ projectRepo, sprintRepo, housekeepingDisk, runActivity, logger }),
+    sprintRemoval: createSprintRemoval({ sprintRepo, runActivity, logger }),
+  };
+};
 
 export const wire = (opts: WireOptions): AppDeps => {
   const spawn: Spawn = opts.spawn ?? defaultPipeSpawn;
   // AI adapters prefer the dedicated override, then fall back to the general seam so existing
   // callers that pass only `spawn` keep faking the provider exactly as before.
   const providerSpawn: ProviderSpawn | undefined = opts.providerSpawn ?? opts.spawn;
-  // Env-gated chain.log writes. Reading `process.env` here keeps the integration adapter
-  // (`startFileLogSink`) pure — it never needs to know whether tracing is enabled, only
-  // whether to wire up. The no-op factory matches the live shape so callers can call
-  // `stop()` / `flush()` unconditionally at terminal events.
+  // Env-gated chain.log writes.
   const env = opts.env ?? process.env;
   const debugTrace = isTruthyEnvFlag(env[RALPHCTL_DEBUG_TRACE_ENV]);
   const appendFile = createAppendFile();
@@ -455,39 +443,27 @@ export const wire = (opts: WireOptions): AppDeps => {
   const chainLogSink: (deps: ChainLogSinkLaunchDeps) => FileLogSink = debugTrace
     ? (launchDeps) => startFileLogSink({ ...launchDeps, appendFile })
     : () => NOOP_CHAIN_LOG_SINK;
-  // One bus per `wire()` call — bus state isolates between concurrent app
-  // instances. Adapters publish 'log' AppEvents directly; the bus is the
-  // unified pipe TUI panels, file appenders, and webhooks all subscribe to.
+  // One bus per `wire()` call — bus state isolates between concurrent app instances.
   const eventBus = createInMemoryEventBus();
   const logger = createEventBusLogger({ eventBus, clock: IsoTimestamp.now });
-  // Settings-load-time validation that emits, but does not reject: self-loop escalation-map
-  // entries (`'foo' → 'foo'`) parse cleanly through the schema but have no runtime effect, so
-  // we surface them as warn-level log records the user can spot in the TUI status panel. Same
-  // for a rung left pointing at an ambiguously-retired slug the parse could not safely rewrite.
+  // Settings-load-time validation that emits, but does not reject: self-loop escalation-map entries (`'foo' → 'foo'`)
+  // parse cleanly through the schema but have no runtime effect.
   warnEscalationMapSelfLoops(opts.settings.harness.escalationMap, logger);
   warnEscalationMapRetiredValues(opts.settings.harness.escalationMap, logger);
-  // OS-attention notifier slot. The TUI bootstrap (launch.ts) injects the real Darwin/Linux
-  // adapter and ALSO calls `startNotificationSubscriber` to attach it to the bus; everything
-  // else (tests, CLI one-shots) takes the no-op fallback and no subscriber is started, so an
-  // accidental NotificationCenter ding from a unit test is impossible.
+  // OS-attention notifier slot.
   const notificationDispatcher = opts.notificationDispatcher ?? noopNotificationDispatcher;
   // Hoisted so taskRepo can share the same locker for its per-file read-modify-write guard.
   // One locker instance per app means stale-takeover semantics agree across every caller.
   const fileLocker = createFileLocker({
-    // Surface stale `.lock` files via the application logger. The locker is intentionally
-    // logger-free at the integration layer; this bootstrap hookup keeps the observability
-    // wiring in one place.
+    // Surface stale `.lock` files via the application logger.
     onWarning: ({ kind, path, cause }) => {
       logger.warn(`file-locker: ${kind}`, {
         path,
-        error: cause instanceof Error ? cause.message : String(cause),
+        error: cause instanceof Error ? cause.message : JSON.stringify(cause),
       });
     },
   });
-  // Memoised per-provider model-availability lookup. Cache lives for the AppDeps lifetime and keys
-  // on the in-flight Promise (not the resolved value) so concurrent callers for the same provider
-  // share one probe execution — "runs at most once per provider per session". The probe never
-  // rejects (fail open), so there's no error path to evict on. Won't live-track mid-session installs.
+  // Memoised per-provider model-availability lookup.
   const availableModelsInFlight = new Map<AiProvider, Promise<readonly string[]>>();
   const modelAvailabilityProbes = buildModelAvailabilityProbes(logger);
   const availableModelsFor = (provider: AiProvider): Promise<readonly string[]> => {
@@ -500,21 +476,22 @@ export const wire = (opts: WireOptions): AppDeps => {
   // Hoisted so the skill catalog's provenance-stamp writes share the exact same atomic-write
   // seam as `AppDeps.writeFile` (one factory call, two consumers).
   const atomicWriteFile = createAtomicWriteFile();
-  // Shared with IssuePusher so origin reads (`git remote get-url origin`) go through the same
-  // GitRunner instance AppDeps already exposes.
+  // One GitRunner shared by AppDeps, IssuePusher and PullRequestCreator.
   const gitRunner = createGitRunner();
+  const taskRepo = createFsTaskRepository({ root: opts.storage.dataRoot, fileLocker });
+  const { liveRunActivity, reaper, ...liveRuns } = buildLiveRunServices(opts.storage, logger, taskRepo);
   return {
     storage: opts.storage,
-    projectRepo: createFsProjectRepository({ root: opts.storage.dataRoot }),
-    sprintRepo: createFsSprintRepository({ root: opts.storage.dataRoot }),
+    ...liveRuns,
+    ...buildDataServices(opts.storage, logger, liveRuns.inProcessRuns, liveRunActivity),
     sprintExecutionRepo: createFsSprintExecutionRepository({ root: opts.storage.dataRoot }),
-    taskRepo: createFsTaskRepository({ root: opts.storage.dataRoot, fileLocker }),
+    taskRepo,
     settings: opts.settings,
     settingsRepo: createJsonSettingsRepository({ configRoot: opts.storage.configRoot }),
-    provider: buildWireProvider(opts, eventBus, providerSpawn),
+    provider: buildWireProvider(opts, eventBus, providerSpawn, liveRuns.childRegistry),
     ...(providerSpawn !== undefined ? { providerSpawn } : {}),
     gitRunner,
-    shellScriptRunner: createShellScriptRunner(),
+    shellScriptRunner: createShellScriptRunner({ reaper }),
     fileLocker,
     writeFile: atomicWriteFile,
     appendFile,
@@ -526,7 +503,7 @@ export const wire = (opts: WireOptions): AppDeps => {
     availableModelsFor,
     eventBus,
     logger,
-    pullRequestCreator: createPullRequestCreator({ gitRunner: createGitRunner(), spawn }),
+    pullRequestCreator: createPullRequestCreator({ gitRunner, spawn }),
     issueFetcher: createIssueFetcher({ spawn, logger }),
     issuePusher: createIssuePusher({ spawn, gitRunner }),
     versionChecker: createNpmVersionChecker({
@@ -534,9 +511,7 @@ export const wire = (opts: WireOptions): AppDeps => {
       currentVersion: CLI_METADATA.currentVersion,
       packageName: CLI_METADATA.packageName,
     }),
-    // Wire-time seed — the per-launch launcher rebuilds skillsAdapter from the dispatched
-    // flow's provider. Tests / one-shot CLI paths that read `app.skillsAdapter` before any
-    // flow launches get the implement row's provider as the default.
+    // Wire-time seed — the per-launch launcher rebuilds skillsAdapter from the dispatched flow's provider.
     skillsAdapter: createSkillsAdapter({ provider: opts.settings.ai.implement.generator.provider, logger }),
     skillSource: createBundledSkillSource(),
     agentDefinitionAdapter: buildWireAgentDefinitionAdapter(opts.settings, logger),

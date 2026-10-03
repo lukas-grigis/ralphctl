@@ -139,7 +139,7 @@ export const RoundAttemptChip = ({
       {' '}
       {glyphs.bullet}{' '}
       {showAttempt
-        ? `attempt ${String(attemptN)}${maxAttempts !== undefined ? `/${String(maxAttempts)}` : ''} ${glyphs.bullet} `
+        ? `attempt ${String(attemptN)}${maxAttempts !== undefined ? `/${String(maxAttempts)}` : ''}${coords.resumed === true ? ` ${glyphs.bullet} resumed` : ''} ${glyphs.bullet} `
         : ''}
       round {String(roundInAttempt)}
       {maxTurns !== undefined ? `/${String(maxTurns)}` : ''}
@@ -164,7 +164,9 @@ export const EtaChip = ({
 }): React.JSX.Element | null => {
   const round = task.genEvalRound;
   if (!cardExpanded || !isActive || round === undefined || round <= 0) return null;
-  const eta = formatEtaChip(taskProjection, round, task.genEvalMaxRounds);
+  // genEvalRound is task-wide; the cap is per attempt, so measure remaining rounds within the current attempt.
+  const currentRound = resolveAttemptCoords(task)?.roundInAttempt ?? round;
+  const eta = formatEtaChip(taskProjection, currentRound, task.genEvalMaxRounds);
   if (eta === undefined) return null;
   return <Text dimColor> {eta}</Text>;
 };

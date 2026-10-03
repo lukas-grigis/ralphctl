@@ -1,20 +1,6 @@
 /**
- * Human-readable projection of the harness outcome rollup. Pure: `OutcomeStats` in, text out —
- * no clock, no filesystem, no `process.stdout`. Every number rendered here is READ from the fold
- * (`business/runs/outcome-stats.ts`); nothing is re-derived, so the text report and the `--json`
- * payload can never disagree.
- *
- * Layout follows the sibling CLI commands (`sprint progress`, `runs list`): a headline, then
- * two-space-indented sections, no colour and no box drawing — the CLI output is expected to be
- * piped, grepped and diffed. The TUI owns the rendered-with-theme surface.
- *
- * ## Two denominators
- *
- * Task-based rates (outcome mix, first-pass, plateau incidence, escalation) and attempt-based
- * rates (attribution, warnings, aborts) sit in the same report and are NOT comparable. Every
- * section therefore names its own denominator in its header — `(of N tasks)` vs `(of N attempts)`
- * — and the two summary rates spell theirs out inline. An unlabelled percentage here would be
- * read as comparable with the one above it, which is the failure mode this layout exists to stop.
+ * Human-readable projection of the harness outcome rollup. Pure: `OutcomeStats` in, text out — no clock, no
+ * filesystem, no `process.stdout`.
  */
 
 import type {
@@ -33,6 +19,7 @@ import type {
   WarningStats,
 } from '@src/business/runs/outcome-stats.ts';
 import type { TaskStatus } from '@src/domain/entity/task.ts';
+import { plural } from '@src/application/ui/shared/plural.ts';
 
 /** Terminal states first — the post-mortem question is "how did tasks END". */
 const STATUS_ORDER: readonly TaskStatus[] = ['done', 'blocked', 'in_progress', 'todo'];
@@ -49,14 +36,7 @@ const RUNG_ORDER: readonly EscalationRung[] = ['model', 'effort', 'evaluator-eff
 
 const PLATEAU_SOURCE_ORDER: readonly PlateauSourceKey[] = ['threshold', 'diversity', 'entropy', 'unspecified'];
 
-/**
- * Severity first — the row an operator must not miss leads the block. Declaration order IS render
- * order (see {@link ATTRIBUTION_ORDER}), and the `Record` is exhaustive over the union, so a new
- * verdict cannot reach the fold without also being given a slot here.
- *
- * `unspecified` is the canonical key (and stays that way in `--json`); `unattributed` is the
- * word an operator reads faster. Presentation affordance only.
- */
+/** Severity first — the row an operator must not miss leads the block. */
 const ATTRIBUTION_LABEL: Readonly<Record<AttributionKey, string>> = {
   regressed: 'regressed',
   'baseline-broken': 'baseline-broken',
@@ -81,6 +61,7 @@ const ABORT_ORDER: readonly AbortCauseKey[] = [
   'rate-limit-exhausted',
   'watchdog-killed',
   'process-crash',
+  'harness-interrupted',
   'sigterm',
   'user-cancel',
   'self-blocked',
@@ -104,11 +85,8 @@ const key = (text: string): string => keyAt(text, LABEL_WIDTH);
 const taxonomyKey = (text: string): string => keyAt(text, TAXONOMY_LABEL_WIDTH);
 
 /**
- * The nonzero rows of one taxonomy block, curated order first and then any key the block carries
- * that the order array was never taught about. The fold's zero records are exhaustive over their
- * unions, but a bare `readonly K[]` ordering cannot be — without the tail a warning kind or abort
- * cause added later would be counted by the fold and then silently vanish from the report, which
- * is precisely the blind spot these sections exist to close.
+ * The nonzero rows of one taxonomy block, curated order first and then any key the block carries that the order array
+ * was never taught about.
  */
 const taxonomyRows = (counts: Readonly<Record<string, number>>, order: readonly string[]): readonly string[] => {
   const tail = Object.keys(counts).filter((candidate) => !order.includes(candidate));
@@ -117,15 +95,13 @@ const taxonomyRows = (counts: Readonly<Record<string, number>>, order: readonly 
     .map((taxon) => `${taxonomyKey(taxon)}${String(counts[taxon] ?? 0)}`);
 };
 
-const count = (n: number, singular: string): string => `${String(n)} ${singular}${n === 1 ? '' : 's'}`;
-
 const num = (n: number, width: number): string => String(n).padStart(width);
 
 /** `(of N tasks)` / `(of N attempts)` — the denominator label every section header carries. */
-const denominator = (n: number, unit: string): string => `(of ${count(n, unit)})`;
+const denominator = (n: number, unit: string): string => `(of ${plural(n, unit)})`;
 
 const headline = (stats: OutcomeStats): string =>
-  `Harness outcomes — ${count(stats.sprintCount, 'sprint')} · ${count(stats.totals.taskCount, 'task')} · ${count(stats.totals.attemptCount, 'attempt')}`;
+  `Harness outcomes — ${plural(stats.sprintCount, 'sprint')} · ${plural(stats.totals.taskCount, 'task')} · ${plural(stats.totals.attemptCount, 'attempt')}`;
 
 const renderOutcomes = (rollup: OutcomeRollup): readonly string[] => {
   const { byStatus, doneClean, doneWithWarning } = rollup.outcomes;
@@ -137,16 +113,11 @@ const renderOutcomes = (rollup: OutcomeRollup): readonly string[] => {
   return lines;
 };
 
-/**
- * The severity headline. Spelled out rather than shown as a bare percentage because its
- * denominator is neither the task count nor the attempt count: attempts with no derivable verdict
- * (no verify script, pre-verify spawn-error) are excluded, so quoting them as `attributed` is what
- * keeps the rate honest in a repo that never runs a check.
- */
+/** The severity headline. */
 const regressionLine = (attribution: AttributionStats): string => {
   if (attribution.attributed === 0) return `${key('regressions')}— (no attempt carries an attribution verdict)`;
-  const broke = `${count(attribution.byVerdict.regressed, 'attempt')} broke a green baseline`;
-  return `${key('regressions')}${broke} (${pct(attribution.regressionRate)} of ${count(attribution.attributed, 'attributed attempt')})`;
+  const broke = `${plural(attribution.byVerdict.regressed, 'attempt')} broke a green baseline`;
+  return `${key('regressions')}${broke} (${pct(attribution.regressionRate)} of ${plural(attribution.attributed, 'attributed attempt')})`;
 };
 
 /** The headline rates, stacked — the numbers a settings change is judged on. */
@@ -155,9 +126,9 @@ const renderSummary = (rollup: OutcomeRollup): readonly string[] => {
   const criteria = rollup.criteria;
   return [
     'Summary',
-    `${key('first pass')}${String(doneOnFirstAttempt)}/${String(doneTotal)} done on attempt 1 (${pct(rate)}) — of ${count(doneTotal, 'done task')}`,
+    `${key('first pass')}${String(doneOnFirstAttempt)}/${String(doneTotal)} done on attempt 1 (${pct(rate)}) — of ${plural(doneTotal, 'done task')}`,
     regressionLine(rollup.attribution),
-    `${key('criteria')}${String(criteria.passed)}/${String(criteria.declared)} passed (${pct(criteria.passRate)}) · ${String(criteria.failed)} failed · ${String(criteria.unknown)} unknown · ${count(criteria.tasksWithVerdicts, 'task')} graded`,
+    `${key('criteria')}${String(criteria.passed)}/${String(criteria.declared)} passed (${pct(criteria.passRate)}) · ${String(criteria.failed)} failed · ${String(criteria.unknown)} unknown · ${plural(criteria.tasksWithVerdicts, 'task')} graded`,
   ];
 };
 
@@ -169,7 +140,7 @@ const renderAttempts = (rollup: OutcomeRollup): readonly string[] => {
     return lines;
   }
   for (const bucket of buckets) {
-    lines.push(`${key(count(bucket.attempts, 'attempt'))}${count(bucket.tasks, 'task')}`);
+    lines.push(`${key(plural(bucket.attempts, 'attempt'))}${plural(bucket.tasks, 'task')}`);
   }
   return lines;
 };
@@ -177,8 +148,8 @@ const renderAttempts = (rollup: OutcomeRollup): readonly string[] => {
 const renderPlateau = (plateau: PlateauStats, taskCount: number, attemptCount: number): readonly string[] => {
   const lines = [
     'Plateau',
-    `${key('tasks')}${count(plateau.tasksWithPlateau, 'task')} (${pct(plateau.taskRate)}) — of ${count(taskCount, 'task')}`,
-    `${key('attempts')}${String(plateau.attemptsWithPlateau)} — of ${count(attemptCount, 'attempt')}`,
+    `${key('tasks')}${plural(plateau.tasksWithPlateau, 'task')} (${pct(plateau.taskRate)}) — of ${plural(taskCount, 'task')}`,
+    `${key('attempts')}${String(plateau.attemptsWithPlateau)} — of ${plural(attemptCount, 'attempt')}`,
   ];
   // Detector attribution only — a source with no hits is noise, and `unspecified` only appears
   // for warnings persisted before the detector was stamped.
@@ -189,12 +160,7 @@ const renderPlateau = (plateau: PlateauStats, taskCount: number, attemptCount: n
   return lines;
 };
 
-/**
- * The regression taxonomy. `regressed` renders even at zero — a rollup that silently omits its
- * severity headline is exactly the blind spot this section exists to close — but only once some
- * attempt carries a verdict at all; with nothing attributed, a `0` would read as "no regressions"
- * when the truth is "no evidence either way".
- */
+/** The regression taxonomy. */
 const renderAttribution = (attribution: AttributionStats, attemptCount: number): readonly string[] => {
   const lines = [`Attribution ${denominator(attemptCount, 'attempt')}`];
   if (attribution.attributed === 0) {
@@ -257,7 +223,7 @@ const renderDimensions = (dimensions: readonly DimensionFailureCount[]): readonl
     lines.push(`${key(entry.dimension)}${String(entry.count)}`);
   }
   const hidden = dimensions.length - TOP_DIMENSIONS;
-  if (hidden > 0) lines.push(`  … ${count(hidden, 'more dimension')} (use --json for the full histogram)`);
+  if (hidden > 0) lines.push(`  … ${plural(hidden, 'more dimension')} (use --json for the full histogram)`);
   return lines;
 };
 
@@ -267,7 +233,7 @@ const sprintLine = (entry: SprintOutcomeRollup): string => {
   // count sitting between `1 blocked` and `plateau 50.0%` would read as a task count anyway.
   const regressed = rollup.attribution.tasksWithRegression;
   const parts = [
-    count(rollup.taskCount, 'task'),
+    plural(rollup.taskCount, 'task'),
     `${String(rollup.outcomes.byStatus.done)} done`,
     `${String(rollup.outcomes.byStatus.blocked)} blocked`,
     `first-pass ${pct(rollup.firstPass.rate)}`,
@@ -284,10 +250,8 @@ const renderBySprint = (bySprint: readonly SprintOutcomeRollup[]): readonly stri
 ];
 
 /**
- * The full report. Sections are separated by a blank line; the trailing newline is included so
- * callers can `process.stdout.write(render(...))` directly. The per-sprint breakdown is omitted
- * for a single-sprint scope, where it would just restate the totals.
- *
+ * The full report. Sections are separated by a blank line; the trailing newline is included so callers can
+ * `process.stdout.write(render(...))` directly.
  * @public
  */
 export const renderOutcomeStats = (stats: OutcomeStats): string => {

@@ -4,7 +4,6 @@ import {
   assistantText,
   createGrokAttemptTracker,
   extractGrokMetaUpdate,
-  parseGrokJsonLine,
   publishGrokStreamLineEvents,
 } from '@src/integration/ai/providers/grok/parse-stream.ts';
 
@@ -16,18 +15,9 @@ const drive = (chunks: readonly string[]) => {
   return { tracker, cap };
 };
 
-describe('parseGrokJsonLine', () => {
-  it('parses a live text ping sample', () => {
-    const obj = parseGrokJsonLine('{"type":"text","data":"ping"}');
-    expect(obj).toEqual({ type: 'text', data: 'ping' });
-    expect(assistantText(obj!)).toBe('ping');
-  });
-
-  it('skips blank, non-JSON, and malformed lines without throwing', () => {
-    expect(parseGrokJsonLine('')).toBeUndefined();
-    expect(parseGrokJsonLine('   ')).toBeUndefined();
-    expect(parseGrokJsonLine('Loaded grok config')).toBeUndefined();
-    expect(parseGrokJsonLine('{ not json')).toBeUndefined();
+describe('assistantText', () => {
+  it('reads the body chunk of a live text ping sample', () => {
+    expect(assistantText({ type: 'text', data: 'ping' })).toBe('ping');
   });
 });
 

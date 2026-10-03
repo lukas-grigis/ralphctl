@@ -7,9 +7,8 @@ import { ValidationError } from '@src/domain/value/error/validation-error.ts';
 import { FIXED_REPOSITORY_ID, makeApprovedTicket, makeTodoTask } from '@tests/fixtures/domain.ts';
 import { createFsTemplateLoader, defaultTemplatesDir } from '@src/integration/ai/prompts/_engine/fs-template-loader.ts';
 import { extractPlaceholders } from '@src/integration/ai/prompts/_engine/extract-placeholders.ts';
+import { buildImplementPrompt, implementPromptDef } from '@src/integration/ai/prompts/implement/definition.ts';
 import {
-  buildImplementPrompt,
-  implementPromptDef,
   renderAgentDefinitionSection,
   renderPreVerifyResultsSection,
   renderPriorCritiqueSection,
@@ -19,7 +18,7 @@ import {
   renderTaskStepsSection,
   renderVerificationCriteriaSection,
   renderVerifyScriptSection,
-} from '@src/integration/ai/prompts/implement/definition.ts';
+} from '@src/integration/ai/prompts/_engine/renderers/task.ts';
 
 const deps = createFsTemplateLoader(defaultTemplatesDir());
 

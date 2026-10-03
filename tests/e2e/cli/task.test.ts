@@ -191,7 +191,7 @@ describe('ralphctl task', () => {
   /**
    * `task evaluation` is the CLI half of the evaluation-artifact surface. Absence is NEVER an
    * error here — a task with no attempts, a legacy row with no recorded path, and a pruned
-   * workspace all print one line and exit 0. Only a mistyped id exits 1.
+   * workspace all print one line and exit 0. Only a mistyped id or an unreadable artifact exits 1.
    */
   describe('evaluation <taskId>', () => {
     const taskWithEvaluation = (file: string, name = 'evaluated'): Task => {
@@ -278,6 +278,23 @@ describe('ralphctl task', () => {
       expect(result.exitCode).toBe(0);
       expect(result.stdout).toContain('no evaluation artifact recorded');
       expect(result.stdout).not.toContain('root:');
+    });
+
+    it('fails on stderr with exit 1 when the artifact exists but cannot be read', async () => {
+      const sprint = makeDraftSprint();
+      const relative = 'rounds/1/evaluator/evaluation.md';
+      const task = taskWithEvaluation(relative);
+      await seed(task, String(sprint.id));
+      // A directory at the artifact path makes the read fail with EISDIR, not ENOENT.
+      await fs.mkdir(
+        join(String(cli.paths.dataRoot), 'sprints', String(sprint.id), 'implement', String(task.id), relative),
+        { recursive: true }
+      );
+
+      const result = await runCliCaptured(cli, ['task', 'evaluation', String(task.id), '--sprint', String(sprint.id)]);
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain('error: could not read evaluation artifact');
+      expect(result.stdout).not.toContain('could not read evaluation artifact');
     });
 
     it('exits 1 on malformed task id', async () => {

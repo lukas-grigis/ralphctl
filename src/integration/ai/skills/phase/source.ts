@@ -42,7 +42,6 @@
  *    a violation is logged and the skill is STILL returned for install.
  */
 
-import { type Dirent, promises as fs } from 'node:fs';
 import { join } from 'node:path';
 import { Result } from '@src/domain/result.ts';
 import type { StorageError } from '@src/domain/value/error/storage-error.ts';
@@ -52,7 +51,7 @@ import type { Logger } from '@src/business/observability/logger.ts';
 import type { Skill } from '@src/integration/ai/skills/_engine/skill.ts';
 import type { SkillSource } from '@src/integration/ai/skills/_engine/skill-source.ts';
 import type { FlowId } from '@src/integration/ai/skills/_engine/registry.ts';
-import { errorCode, parseSkill } from '@src/integration/ai/skills/_engine/parse-skill.ts';
+import { loadSkillFolders, type SkillContractWarner } from '@src/integration/ai/skills/_engine/skill-folder-loader.ts';
 
 /**
  * Map each {@link FlowId} to its kebab-case opt-in phase subdirectory. Every id is its own kebab
@@ -76,24 +75,6 @@ export const PHASE_FLOW_DIR: Record<FlowId, string> = {
 };
 
 /**
- * Optional per-skill compatibility guard. Wired by the launcher to the shared skill-contract
- * check; runs as a WARNING only — a violation never blocks install. Left optional so this source
- * has no hard dependency on the guard: when unset, every skill is returned without a contract check.
- *
- * @public
- */
-export type SkillContractWarner = (skill: Skill) => void;
-
-/**
- * Folder-name → install-name. Idempotent so an already-prefixed folder is not doubled. Replicated
- * from the operator source (sibling-isolation forbids a cross-source import); the `ralphctl-`
- * namespace and its behaviour are identical.
- */
-const RALPHCTL_SKILL_PREFIX = 'ralphctl-';
-const namespaced = (folderName: string): string =>
-  folderName.startsWith(RALPHCTL_SKILL_PREFIX) ? folderName : `${RALPHCTL_SKILL_PREFIX}${folderName}`;
-
-/**
  * Factory input for {@link createPhaseSkillSource}. Mirrors the operator source's deps minus the
  * provider dimension — phase skills are flow-scoped, not provider-scoped.
  *
@@ -114,50 +95,14 @@ export interface PhaseSkillSourceDeps {
  * dotfile directory entries and non-directory entries (stray files, sidecars) are ignored. The
  * contract guard (when supplied) runs per surviving skill as a warning and never drops it.
  */
-const loadFlowSkills = async (deps: PhaseSkillSourceDeps, flowId: FlowId): Promise<readonly Skill[]> => {
-  const log = deps.logger.named('skills.phase');
-  const flowDir = PHASE_FLOW_DIR[flowId];
-  const flowRoot = join(String(deps.operatorSkillsRoot), flowDir);
-
-  let entries: Dirent[];
-  try {
-    entries = await fs.readdir(flowRoot, { withFileTypes: true });
-  } catch (cause) {
-    // A missing flow directory is the common, non-error case — nothing opted in for this flow.
-    if (errorCode(cause) === 'ENOENT') return [];
-    log.warn('phase skills dir not readable', { flow: flowId, path: flowRoot, cause });
-    return [];
-  }
-
-  const skills: Skill[] = [];
-  for (const entry of entries) {
-    // Only skill folders count: skip stray files (a `.provenance.json` or `README.md` at the flow
-    // level) and dotfile directories (`.git`, editor cruft) so neither becomes a spurious skill.
-    if (!entry.isDirectory() || entry.name.startsWith('.')) continue;
-    const name = entry.name;
-    // Read ONLY `SKILL.md`. A `.provenance.json` sidecar inside the same folder is never touched.
-    const path = join(flowRoot, name, 'SKILL.md');
-    let raw: string;
-    try {
-      raw = await fs.readFile(path, 'utf-8');
-    } catch (cause) {
-      log.warn('phase skill not readable, skipping', { flow: flowId, name, path, cause });
-      continue;
-    }
-    const parsed = parseSkill('phase skill', path, name, raw);
-    if (!parsed.ok) {
-      log.warn('phase skill invalid, skipping', { flow: flowId, name, path, error: parsed.error.message });
-      continue;
-    }
-    // Namespace the install name so the adapter's `ralphctl-*` exclude wildcard hides it from
-    // `git status` and the tracked uninstall reclaims it — exactly the bundled lifecycle.
-    const skill: Skill = { ...parsed.value, name: namespaced(parsed.value.name) };
-    // Compatibility guard is advisory: log a warning but still install — the operator owns it.
-    deps.warnIfContractViolated?.(skill);
-    skills.push(skill);
-  }
-  return skills;
-};
+const loadFlowSkills = (deps: PhaseSkillSourceDeps, flowId: FlowId): Promise<readonly Skill[]> =>
+  loadSkillFolders({
+    root: join(String(deps.operatorSkillsRoot), PHASE_FLOW_DIR[flowId]),
+    label: 'phase skill',
+    log: deps.logger.named('skills.phase'),
+    logFields: { flow: flowId },
+    warnIfContractViolated: deps.warnIfContractViolated,
+  });
 
 /** @public */
 export const createPhaseSkillSource = (deps: PhaseSkillSourceDeps): SkillSource => ({

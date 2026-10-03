@@ -127,28 +127,7 @@ describe('commitTaskLeaf', () => {
     expect(repo.calls).toBe(0);
   });
 
-  it('honours custom messageFactory (review chain reuse pattern)', async () => {
-    const repo = fakeRepo();
-    const sha = 'b'.repeat(40);
-    const task = makeInProgressTaskWithRunningAttempt();
-    const message = 'feedback(round-1): user-driven';
-    const runner = scriptedRunner([
-      { args: ['status', '--porcelain', '--untracked-files=normal'], result: ok(' M file\n') },
-      { args: ['add', '-A'], result: ok() },
-      { args: ['status', '--porcelain', '--untracked-files=normal'], result: ok('M  file\n') },
-      { args: ['commit', '-m', message], result: ok() },
-      { args: ['rev-parse', 'HEAD'], result: ok(`${sha}\n`) },
-    ]);
-    const leaf = commitTaskLeaf(
-      { gitRunner: runner, taskRepo: repo, logger: noopLogger },
-      { cwd: CWD, messageFactory: () => message },
-      task.id
-    );
-    const out = await leaf.execute(baseCtx(task));
-    expect(out.ok).toBe(true);
-  });
-
-  it('uses proposedCommitMessage from ctx in preference to the default factory', async () => {
+  it('uses proposedCommitMessage from ctx in preference to the task-name fallback', async () => {
     const repo = fakeRepo();
     const task = makeInProgressTaskWithRunningAttempt();
     const sha = 'd'.repeat(40);

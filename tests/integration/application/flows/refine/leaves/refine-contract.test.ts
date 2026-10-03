@@ -20,6 +20,7 @@ import type {
 import type { RefineTicketInteractiveDeps } from '@src/application/flows/refine/leaves/refine-ticket-interactive.ts';
 import { refineTicketInteractiveLeaf } from '@src/application/flows/refine/leaves/refine-ticket-interactive.ts';
 import type { RefineCtx } from '@src/application/flows/refine/ctx.ts';
+import { createPublishSignal } from '@src/application/flows/_shared/publish-signal.ts';
 
 /**
  * Audit-[10] nine-branch grid against the audit-[09] refine contract.
@@ -86,6 +87,7 @@ describe('refineTicketInteractiveLeaf — audit-[09] contract', () => {
       runInTerminal: async (fn) => fn(),
       logger: noopLogger,
       writeFile,
+      publishSignal: createPublishSignal(eventBus, 'refine'),
       eventBus,
       model: 'claude-sonnet-4-6',
     };

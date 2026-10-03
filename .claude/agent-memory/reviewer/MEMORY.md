@@ -22,3 +22,7 @@
 - [lesson_ab_harness_review_checks.md](lesson_ab_harness_review_checks.md) — Eval/A-B tooling: per-flow parity grep, identical-input merge tests, tsx "bundled" dir = working tree
 - [lesson_cross_provider_usage_semantics.md](lesson_cross_provider_usage_semantics.md) — Token labels claim all 5 providers' semantics; legacy 0-defaults print as fact; probe old results file
 - [lesson_eval_fixture_label_audit.md](lesson_eval_fixture_label_audit.md) — `eval check` green ≠ labels right: clean must meet every spec clause; oracle must accept spec-literal impls
+- [lesson_keyboard_guard_lost_in_hook_migration.md](lesson_keyboard_guard_lost_in_hook_migration.md) — useViewKeys mutes only for overlays, not prompts; diff `modalOpen` counts vs main after a migration
+- [lesson_group_kill_gate_must_exclude_injected_fakes.md](lesson_group_kill_gate_must_exclude_injected_fakes.md) — Group-leader marking at a spawn site also marks injected fakes; hostname as same-host test is unstable
+- [lesson_unscoped_bus_event_to_os_notification.md](lesson_unscoped_bus_event_to_os_notification.md) — Shared enqueue point publishes for foreground prompts too; require a negative test; run full suite for timer tests
+- [lesson_memoized_clock_and_unmount_cleanup.md](lesson_memoized_clock_and_unmount_cleanup.md) — Tick state not in useMemo deps freezes elapsed text; unmount cleanup that drops a pending banner-clear leaves it sticky

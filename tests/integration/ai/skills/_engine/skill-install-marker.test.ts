@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isProcessAlive } from '@src/integration/ai/skills/_engine/skill-install-marker.ts';
+import { isProcessAlive } from '@src/integration/io/process-liveness.ts';
 
 describe('isProcessAlive', () => {
   it('reports the current process as alive', () => {

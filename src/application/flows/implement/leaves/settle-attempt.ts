@@ -99,18 +99,7 @@ interface SettleInput {
    * no spawn reported anything (a zero-turn self-block, or providers that report no usage).
    */
   readonly usage?: AttemptUsage;
-  /**
-   * The generator's own structured `task-blocked` triage — see `SettleAttemptProps.blockerClass`
-   * in `business/task/settle-attempt.ts` for the persisted shape. NOT YET PROJECTED from ctx:
-   * `GeneratorTurnExit` (`business/task/run-generator-turn.ts`) already carries these three fields
-   * off the raw signal, but `generatorLeaf` (`leaves/generator.ts`) only lifts `out.exit.reason`
-   * onto `ctx.lastBlockReason` today, and `ImplementCtx` (`implement/ctx.ts`) has no field for the
-   * rest. Once a future change adds `ctx.lastBlockerClass` / `ctx.lastBlockQuestion` /
-   * `ctx.lastBlockWhatUnblocksMe` (mirroring `lastBlockReason`) and threads them through
-   * `generatorLeaf`'s `blockReasonCarry`, this `input()` projection should read them the same way
-   * `blockedReason` does a few lines below. Declared here now so the use case is ready to receive
-   * them the moment that wiring lands.
-   */
+  /** Generator's structured task-blocked triage, projected from ctx.lastBlockTriage. */
   readonly blockerClass?: TaskBlockerClass;
   readonly question?: string;
   readonly whatUnblocksMe?: string;
@@ -341,9 +330,10 @@ const deriveRoundVerdict = (verdict: RunTaskVerdict, warning: AttemptWarning | u
  * the audit artefact is logged and swallowed — the chain must not halt on a derived file.
  *
  * Prefers the per-round generator session id projected from `ctx.priorGeneratorSessionId` over the
- * attempt-level `attempt.sessionId` fallback (the latter is the FIRST round's id; the ctx field is
- * the LATEST round's, which matches THIS outcome.md). The evaluator session id has no attempt-level
- * fallback — it comes solely from `ctx.priorEvaluatorSessionId`. Either missing → renderer shows `—`.
+ * attempt-level `attempt.sessionId` fallback (settle stamps the same id there; the fallback only
+ * matters for a crash-resumed attempt that settled before its first turn reported one). The
+ * evaluator session id has no attempt-level fallback — it comes solely from
+ * `ctx.priorEvaluatorSessionId`. Either missing → renderer shows `—`.
  */
 const writeRoundOutcome = async (params: {
   readonly workspaceRoot: AbsolutePath;
@@ -364,8 +354,9 @@ const writeRoundOutcome = async (params: {
       .warn('no attempt recorded on task; skipping outcome.md', { taskId: String(params.task.id) });
     return;
   }
-  // Prefer the per-round ctx generator id; fall back to the attempt-level id stamped by start-attempt.
+  // Prefer the per-round ctx generator id; fall back to the attempt-level id.
   const generatorSessionId = params.generatorSessionId ?? attempt.sessionId;
+  const durationMs = attemptDurationMs(attempt);
   const content = renderRoundOutcome({
     roundN: params.roundNum,
     attemptN: attempt.n,
@@ -375,7 +366,7 @@ const writeRoundOutcome = async (params: {
     ...(params.evaluation !== undefined ? { evaluation: params.evaluation } : {}),
     ...(generatorSessionId !== undefined ? { generatorSessionId } : {}),
     ...(params.evaluatorSessionId !== undefined ? { evaluatorSessionId: params.evaluatorSessionId } : {}),
-    ...(attemptDurationMs(attempt) !== undefined ? { durationMs: attemptDurationMs(attempt)! } : {}),
+    ...(durationMs !== undefined ? { durationMs } : {}),
   });
   const path = join(String(params.workspaceRoot), 'rounds', String(params.roundNum), 'outcome.md');
   const parsedPath = AbsolutePath.parse(path);

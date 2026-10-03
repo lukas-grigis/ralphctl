@@ -50,7 +50,7 @@ import { readFile } from 'node:fs/promises';
 /**
  * Forge a Node.js filesystem error with a given `code`. The real `fs` errors are plain
  * `Error` instances with a `code` string property, so this reproduces the exact shape
- * `readSkillOptional`'s `errorCode()` helper inspects.
+ * `readSkillOptional`'s ENOENT check inspects.
  */
 const fsError = (code: string, message = `ENOENT: no such file or directory`): Error => {
   const err = new Error(message) as Error & { code: string };

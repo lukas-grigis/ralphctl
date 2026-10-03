@@ -10,33 +10,18 @@ import {
   renderPlateauDirectiveSection,
   renderPreVerifyResultsSection,
   renderPriorCritiqueSection,
+  renderPriorAttemptsSection,
   renderPriorLearningsSection,
   renderProjectToolingSection,
+  renderReproductionSection,
   renderRetryFeedbackSection,
+  renderTaggedBlock,
   renderTaskDescriptionSection,
   renderTaskStepsSection,
   renderVerificationCriteriaSection,
   renderVerifyScriptSection,
 } from '@src/integration/ai/prompts/_engine/renderers/task.ts';
 import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/template-loader.ts';
-
-// Re-export the shared task renderers from this module so consumers (and tests) that already
-// import them from `definitions/implement.ts` keep working after the lift to
-// `renderers/task.ts`. The originals lived here historically; the actual implementations are
-// now in the shared module.
-export {
-  renderAgentDefinitionSection,
-  renderVerifyScriptSection,
-  renderPriorCritiqueSection,
-  renderPriorLearningsSection,
-  renderPlateauDirectiveSection,
-  renderPreVerifyResultsSection,
-  renderProjectToolingSection,
-  renderRetryFeedbackSection,
-  renderTaskDescriptionSection,
-  renderTaskStepsSection,
-  renderVerificationCriteriaSection,
-};
 
 /**
  * Pre-rendered string parameters for the implement template. The renderer helpers below
@@ -431,46 +416,8 @@ export interface BuildImplementPromptInput {
  * summary is non-empty so `{{PRIOR_EPISODES}}` collapses cleanly to nothing when episodes is
  * empty — no XML wrapper is emitted.
  */
-const renderPriorEpisodesSection = (summary: string | undefined): string => {
-  if (summary === undefined) return '';
-  const trimmed = summary.trim();
-  if (trimmed.length === 0) return '';
-  return ['<prior_task_episodes>', trimmed, '</prior_task_episodes>'].join('\n');
-};
-
-/**
- * Render the optional `<prior_attempts>` block — the most instructive prior attempts on this
- * task (select-K slice) with their verification outcomes. Same collapse contract as
- * {@link renderPriorEpisodesSection}: full tagged block when non-empty, empty string otherwise
- * so `{{PRIOR_ATTEMPTS_SECTION}}` disappears cleanly with no orphan wrapper.
- */
-const renderPriorAttemptsSection = (summary: string | undefined): string => {
-  if (summary === undefined) return '';
-  const trimmed = summary.trim();
-  if (trimmed.length === 0) return '';
-  return ['<prior_attempts>', trimmed, '</prior_attempts>'].join('\n');
-};
-
-/**
- * Render the optional `<reproduction>` block — a failing test a prior `reproduce` session wrote
- * for this defect-shaped task. Same collapse contract as the sibling renderers above: full
- * tagged block (with an embedded framing header, since the block disappears entirely when
- * empty) when non-empty, empty string otherwise so `{{REPRODUCTION_SECTION}}` disappears
- * cleanly with no orphan wrapper.
- */
-const renderReproductionSection = (reproduction: string | undefined): string => {
-  if (reproduction === undefined) return '';
-  const trimmed = reproduction.trim();
-  if (trimmed.length === 0) return '';
-  return [
-    '<reproduction>',
-    'A failing reproduction test already exists for this task, written in an earlier session. Make it',
-    'pass without weakening it — do not delete, skip, or loosen its assertions to reach a pass.',
-    '',
-    trimmed,
-    '</reproduction>',
-  ].join('\n');
-};
+const renderPriorEpisodesSection = (summary: string | undefined): string =>
+  renderTaggedBlock('prior_task_episodes', summary);
 
 /**
  * Top-level builder — accepts domain types, renders the param strings, calls `buildPrompt`.

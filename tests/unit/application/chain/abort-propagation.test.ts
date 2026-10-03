@@ -147,7 +147,7 @@ describe('AbortError propagation invariant', () => {
         const names = result.error.trace.map((t) => t.elementName);
         expect(names).toEqual(['a', 'b', 'c']);
         const statuses = result.error.trace.map((t) => t.status);
-        expect(statuses).toEqual(['completed', 'failed', 'skipped']);
+        expect(statuses).toEqual(['completed', 'aborted', 'skipped']);
       }
     });
 

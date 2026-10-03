@@ -29,6 +29,7 @@ import { emptySkillSource } from '@tests/fixtures/skills-fakes.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import type { SkillSource } from '@src/integration/ai/skills/_engine/skill-source.ts';
 import { generatorLeaf } from '@src/application/flows/implement/leaves/generator.ts';
+import type { InProgressTask } from '@src/domain/entity/task.ts';
 
 describe('generatorLeaf', () => {
   let root: Awaited<ReturnType<typeof makeTmpRoot>>;
@@ -273,6 +274,24 @@ describe('generatorLeaf', () => {
       roundN: 1,
       totalCap: 7,
     });
+  });
+
+  it('counts a free resume as the attempt it continues on task-round-started', async () => {
+    const crashed = makeInProgressTaskWithRunningAttempt();
+    const settled = failCurrentAttempt(crashed, FIXED_LATER, 'aborted', { abortCause: 'harness-interrupted' });
+    if (!settled.ok) throw new Error(settled.error.message);
+    const resumed = startNextAttempt(settled.value, FIXED_LATER);
+    if (!resumed.ok) throw new Error(resumed.error.message);
+    const task: InProgressTask = resumed.value;
+    const eventBus = createInMemoryEventBus();
+    const events: AppEvent[] = [];
+    eventBus.subscribe((e) => {
+      events.push(e);
+    });
+    await generatorLeaf(buildDeps(eventBus), task.id).execute(baseCtx(task));
+
+    const rounds = events.filter((e): e is TaskRoundStartedEvent => e.type === 'task-round-started');
+    expect(rounds[0]).toMatchObject({ attemptN: 2, budgetedAttemptN: 1, resumed: true });
   });
 
   it('emits a synthesised log event for the recent-events tail', async () => {
@@ -660,6 +679,37 @@ describe('generatorLeaf', () => {
       expect(round2!.prompt).toContain('# Continue — Round 2');
       expect(round2!.coldPrompt).toContain('# Task Execution Protocol');
       expect(round2!.coldPrompt).not.toContain('# Continue — Round');
+    });
+
+    it('sends the CRASH-RESUME prompt on the seeded session after a harness interruption, then clears the flag', async () => {
+      const provider = createFakeAiProvider({
+        responses: { implement: '', 'implement-crash-resume': '', 'implement-continuation': '' },
+        sessionIds: { 'implement-crash-resume': 'gen-live', 'implement-continuation': 'gen-live' },
+      });
+      const task = makeInProgressTaskWithRunningAttempt();
+      const leaf = generatorLeaf({ ...buildDeps(), provider }, task.id);
+
+      const first = await leaf.execute({
+        ...baseCtx(task),
+        priorGeneratorSessionId: 'gen-live' as ImplementCtx['priorGeneratorSessionId'],
+        crashResumePending: true,
+      });
+      expect(first.ok).toBe(true);
+      if (!first.ok) return;
+      const [resumed] = provider.recordedSessions;
+      expect(resumed!.resume).toBe('gen-live');
+      expect(resumed!.prompt).toContain('# Resume — Interrupted Attempt');
+      expect(resumed!.prompt).toContain('git status');
+      // A vanished session falls back to the full brief, never to the slim resume message.
+      expect(resumed!.coldPrompt).toContain('# Task Execution Protocol');
+      expect(resumed!.coldPrompt).not.toContain('# Resume — Interrupted Attempt');
+      expect(first.value.ctx.crashResumePending).toBeUndefined();
+
+      // The next round of the same thread is an ordinary continuation.
+      await fs.mkdir(join(String(root.root), 'rounds', '2', 'generator'), { recursive: true });
+      const second = await leaf.execute({ ...first.value.ctx, currentRoundNum: 2 });
+      expect(second.ok).toBe(true);
+      expect(provider.recordedSessions[1]!.prompt).toContain('# Continue — Round 2');
     });
 
     // The done-criteria re-injection (`{{VERIFICATION_CRITERIA_SECTION}}`) exists precisely so a

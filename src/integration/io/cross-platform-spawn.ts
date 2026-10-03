@@ -1,5 +1,6 @@
 import spawn from 'cross-spawn';
 import type { ChildProcess, SpawnOptions } from 'node:child_process';
+import type { Spawn } from '@src/integration/io/spawn.ts';
 
 /**
  * The single cross-platform process-spawn primitive. Every adapter that launches an external
@@ -33,3 +34,7 @@ import type { ChildProcess, SpawnOptions } from 'node:child_process';
  */
 export const crossPlatformSpawn = (command: string, args: readonly string[], options: SpawnOptions): ChildProcess =>
   spawn(command, [...args], options);
+
+// Adapts the readonly-stdio `Spawn` port onto crossPlatformSpawn — the default for pipe-only runners.
+export const pipeSpawn: Spawn = (command, args, options) =>
+  crossPlatformSpawn(command, args, { ...options, stdio: [...options.stdio] }) as ReturnType<Spawn>;

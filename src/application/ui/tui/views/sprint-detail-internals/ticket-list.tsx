@@ -125,7 +125,12 @@ const TicketCard = ({
           {glyphs.bullet} {String(ticket.link)}
         </Text>
       )}
-      {ticket.status === 'approved' && <Text dimColor> {glyphs.bullet} requirements ✓</Text>}
+      {ticket.status === 'approved' && (
+        <Text dimColor>
+          {' '}
+          {glyphs.bullet} requirements {glyphs.check}
+        </Text>
+      )}
     </Box>
     {!expanded && ticket.description !== undefined && <Description text={ticket.description} maxLines={2} />}
     {expanded && <TicketDetailBody ticket={ticket} tasks={tasks} />}

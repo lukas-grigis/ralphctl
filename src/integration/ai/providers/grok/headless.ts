@@ -10,10 +10,10 @@ import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session
 import type { HeadlessProviderDeps } from '@src/integration/ai/providers/_engine/headless-provider-deps.ts';
 import type { SessionPermissions } from '@src/integration/ai/providers/_engine/session-permissions.ts';
 import { validateModel } from '@src/integration/ai/providers/_engine/validate-model.ts';
-import { type ProviderSpawn, defaultProviderSpawn } from '@src/integration/ai/providers/_engine/spawn.ts';
 import { DEFAULT_RATE_LIMIT_RE } from '@src/integration/ai/providers/_engine/classify-spawn-exit.ts';
 import type { AttemptOutcome } from '@src/integration/ai/providers/_engine/attempt-outcome.ts';
 import {
+  type AttemptBase,
   createHeadlessProvider,
   emitTokenUsage,
   runProviderAttempt,
@@ -242,8 +242,7 @@ export const buildGrokArgs = (session: AiSession, promptFile: string): Result<re
 };
 
 interface RunGrokAttemptOpts {
-  readonly spawnFn: ProviderSpawn;
-  readonly command: string;
+  readonly base: AttemptBase;
   readonly deps: HeadlessProviderDeps;
 }
 
@@ -265,7 +264,7 @@ const warnSkippedEditDeny = (deps: HeadlessProviderDeps, session: AiSession): vo
 
 const runGrokAttempt = async (
   attemptSession: AiSession,
-  { spawnFn, command, deps }: RunGrokAttemptOpts
+  { base, deps }: RunGrokAttemptOpts
 ): Promise<AttemptOutcome> => {
   // Validate before writing: an unknown / suspended model fails argv construction, and paying for
   // an mkdir + atomic write for a spawn that never happens would leave a stray artifact (mirrors
@@ -282,8 +281,7 @@ const runGrokAttempt = async (
   const tracker = createGrokAttemptTracker(deps.eventBus);
 
   return runProviderAttempt({
-    spawnFn,
-    command,
+    ...base,
     args: built.value,
     session: attemptSession,
     // `end` is last and is the only record that carries `sessionId`. Node can fire `exit`
@@ -310,26 +308,16 @@ const runGrokAttempt = async (
         ...(cacheCreationTokens !== undefined ? { cacheCreationTokens } : {}),
       });
     },
-    providerName: PROVIDER_NAME,
-    providerSlug: 'grok',
-    eventBus: deps.eventBus,
-    ...(deps.idleMs !== undefined ? { idleMs: deps.idleMs } : {}),
   });
 };
 
-export const createGrokProvider = (deps: HeadlessProviderDeps): HeadlessAiProvider => {
-  const spawnFn: ProviderSpawn = deps.spawn ?? defaultProviderSpawn;
-  const command = deps.command ?? 'grok';
-
-  return createHeadlessProvider({
+export const createGrokProvider = (deps: HeadlessProviderDeps): HeadlessAiProvider =>
+  createHeadlessProvider({
     providerSlug: 'grok',
-    providerName: PROVIDER_NAME,
+    deps,
+    defaultCommand: 'grok',
     resumeStaleRe: RESUME_STALE_RE,
-    rateLimitRetries: deps.rateLimitRetries,
-    eventBus: deps.eventBus,
-    ...(deps.backoffSchedule !== undefined ? { backoffSchedule: deps.backoffSchedule } : {}),
-    createGenerateContext: () => ({
-      attempt: (attemptSession) => runGrokAttempt(attemptSession, { spawnFn, command, deps }),
+    createGenerateContext: (base) => ({
+      attempt: (attemptSession) => runGrokAttempt(attemptSession, { base, deps }),
     }),
   });
-};

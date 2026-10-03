@@ -131,22 +131,6 @@ export const failedDimensions = (signal: EvaluationSignal): ReadonlySet<string> 
 };
 
 /**
- * Two evaluation signals plateau when their sets of failed dimensions are identical AND
- * non-empty. Empty sets return `false` — a result with no failures couldn't have driven us
- * into the fix loop, and we shouldn't treat "no failures detected" as a stable plateau.
- */
-export const dimensionsEqual = (prev: EvaluationSignal, curr: EvaluationSignal): boolean => {
-  const a = failedDimensions(prev);
-  const b = failedDimensions(curr);
-  if (a.size === 0 || b.size === 0) return false;
-  if (a.size !== b.size) return false;
-  for (const name of a) {
-    if (!b.has(name)) return false;
-  }
-  return true;
-};
-
-/**
  * Trigram set for Jaccard similarity. Whitespace is collapsed to a single space so
  * formatting tweaks don't drop similarity, then we slide a 3-char window across the
  * normalised string. Strings shorter than 3 chars produce a single-element set containing
@@ -298,8 +282,8 @@ const workProductChanged = (window: readonly PlateauTurnRecord[], current: Plate
  *
  * Defensive clamp: the schema enforces 2–5, but the predicate is the load-bearing path — a bad
  * config value (or a non-finite one from a hand-built config) must not be able to crash or silence
- * the inner loop. THE single source of window size: `computePlateauVerdict` and both in-loop
- * bolt-on detectors size their window from here, so no detector can pre-empt the knob.
+ * the inner loop. THE single source of window size: `computePlateauVerdict` and
+ * `composeDimensionTrajectory` size their window from here, so the two can never disagree.
  *
  * @public
  */

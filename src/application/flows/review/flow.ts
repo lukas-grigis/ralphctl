@@ -61,7 +61,7 @@ export interface CreateReviewFlowOpts {
  *     load-and-assert-sprint(['review']),
  *     ensure-feedback-file,
  *     loop('review-loop', review-round, { shouldStop: ctx.lastReviewExit !== undefined }),
- *     guard('review-settled', ctx.lastReviewExit !== undefined, sequential('review-settle', [
+ *     guard('review-settled', ctx.lastReviewExit === 'terminated', sequential('review-settle', [
  *       load-tasks,                             // feeds the blocked-task gate below
  *       guard('confirm-blocked-tasks-gate', has-blocked-task, confirm-blocked-tasks),
  *       distill-learnings-step,                 // opt-in; runs on the auto-done path
@@ -74,7 +74,7 @@ export interface CreateReviewFlowOpts {
  * `loadAndAssertSprintSubChain` whitelist enforces that — running review on a `planned`
  * sprint fails fast.
  *
- * Review's auto-done path (empty / repeat feedback round → `lastReviewExit` set) is the OTHER
+ * Review's auto-done path (empty / repeat feedback round → `lastReviewExit === 'terminated'`) is the OTHER
  * door to `done`, alongside the explicit close-sprint flow — a sprint's blocked tasks must not
  * close in silence through either one. `load-tasks` + the `confirm-blocked-tasks-gate` guard are
  * the SAME composition close-sprint uses (`confirmBlockedTasksLeaf` from
@@ -90,7 +90,8 @@ export interface CreateReviewFlowOpts {
  * takes. When the user opted out (`distillRequested === false`) the inner `distill-gate` guard
  * skips the body; when `deps.distill` is absent the step is omitted entirely.
  *
- * Every settle step is wrapped in a `review-settled` guard on `ctx.lastReviewExit !== undefined`.
+ * Every settle step is wrapped in a `review-settled` guard on `ctx.lastReviewExit === 'terminated'`;
+ * an esc-cancelled round (`aborted`) skips them all, so nothing is confirmed, distilled or journaled.
  * The loop can also exit via its `shouldContinue` round cap (`i <= maxRounds`) — a fail-safe for a
  * UI bug that would otherwise re-enter the round forever. On THAT exit `lastReviewExit` is still
  * undefined (no human terminal decision was reached), so the guard skips all settle steps and the
@@ -151,13 +152,12 @@ export const createReviewFlow = (deps: ReviewDeps, opts: CreateReviewFlowOpts): 
       },
       shouldStop: (ctx) => ctx.lastReviewExit !== undefined,
     }),
-    // Only settle the sprint to `done` when the review loop reached a human terminal decision
-    // (`lastReviewExit` set). A round-cap exit leaves it undefined → guard skips every settle step
-    // (a visible `skipped` trace entry) so a UI-bug-driven cap exhaustion never silently closes the
-    // sprint. The human end-of-sprint decision stays the only path to `done`.
+    // Only settle the sprint to `done` on the human terminal decision (an empty / repeat round →
+    // `terminated`). A round-cap exit (undefined) or an esc cancel (`aborted`) skips every settle
+    // step (a visible `skipped` trace entry), so neither closes the sprint or journals a close.
     guard<ReviewCtx>(
       'review-settled',
-      (ctx) => ctx.lastReviewExit !== undefined,
+      (ctx) => ctx.lastReviewExit === 'terminated',
       sequential<ReviewCtx>('review-settle', [
         // Same blocked-task gate close-sprint runs before its own transition — review's auto-done
         // path is the other door to `done` and must not close a sprint's blocked work in silence.
@@ -177,7 +177,7 @@ export const createReviewFlow = (deps: ReviewDeps, opts: CreateReviewFlowOpts): 
         ...(opts.progressFile !== undefined
           ? [
               appendJournalSeparatorLeaf<ReviewCtx>(
-                { appendFile: deps.appendFile, clock: deps.clock, logger: deps.logger },
+                { appendFile: deps.appendFile, writeFile: deps.writeFile, clock: deps.clock, logger: deps.logger },
                 { progressFile: opts.progressFile, status: 'closed', name: 'progress-journal-close' }
               ),
             ]
@@ -195,6 +195,7 @@ export const createReviewFlow = (deps: ReviewDeps, opts: CreateReviewFlowOpts): 
       locksRoot: deps.locksRoot,
       worktreePath: opts.sprintDir,
       eventBus: deps.eventBus,
+      purpose: 'review',
     },
     chain
   );

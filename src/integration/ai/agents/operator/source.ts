@@ -29,10 +29,10 @@ import { Result } from '@src/domain/result.ts';
 import type { StorageError } from '@src/domain/value/error/storage-error.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
-import type { AgentDefinition } from '@src/integration/ai/agents/_engine/agent-definition.ts';
-import { RALPHCTL_AGENT_PREFIX } from '@src/integration/ai/agents/_engine/agent-definition.ts';
+import { type AgentDefinition, namespacedAgentFileBase } from '@src/integration/ai/agents/_engine/agent-definition.ts';
 import type { AgentDefinitionSource } from '@src/integration/ai/agents/_engine/agent-definition-source.ts';
-import { errorCode, parseAgentDefinition } from '@src/integration/ai/agents/_engine/parse-agent-definition.ts';
+import { parseAgentDefinition } from '@src/integration/ai/agents/_engine/parse-agent-definition.ts';
+import { isNodeErrnoCode } from '@src/integration/io/fs.ts';
 
 /**
  * Optional quality guard. Runs as a WARNING only — a vague definition never blocks install. Left
@@ -40,10 +40,6 @@ import { errorCode, parseAgentDefinition } from '@src/integration/ai/agents/_eng
  * definition is returned without a quality check.
  */
 export type AgentDefinitionQualityWarner = (definition: AgentDefinition) => void;
-
-/** File-base-name → install-name. Idempotent so an already-prefixed file is not doubled. @public */
-const namespaced = (baseName: string): string =>
-  baseName.startsWith(RALPHCTL_AGENT_PREFIX) ? baseName : `${RALPHCTL_AGENT_PREFIX}${baseName}`;
 
 export interface OperatorAgentDefinitionSourceDeps {
   /** `<appRoot>/agents` — the global operator agent-definitions root (from `StoragePaths`). */
@@ -70,7 +66,7 @@ const loadOperatorAgentDefinitions = async (
     entries = await fs.readdir(root, { withFileTypes: true });
   } catch (cause) {
     // A missing root is the common, non-error case — no operator agent definitions configured.
-    if (errorCode(cause) === 'ENOENT') return [];
+    if (isNodeErrnoCode(cause, 'ENOENT')) return [];
     log.warn('operator agent definitions dir not readable', { path: root, cause });
     return [];
   }
@@ -98,7 +94,7 @@ const loadOperatorAgentDefinitions = async (
     }
     // Namespace the install name so composed sources dedupe consistently and the render step's
     // `ralphctl-*` exclude wildcard hides it from `git status` — exactly the bundled lifecycle.
-    const definition: AgentDefinition = { ...parsed.value, name: namespaced(parsed.value.name) };
+    const definition: AgentDefinition = { ...parsed.value, name: namespacedAgentFileBase(parsed.value.name) };
     // Quality guard is advisory: log a warning but still install — the operator owns it.
     deps.warnIfVague?.(definition);
     definitions.push(definition);

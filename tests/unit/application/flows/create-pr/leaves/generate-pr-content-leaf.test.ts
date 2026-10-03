@@ -19,6 +19,7 @@ import {
   type GeneratePrContentLeafDeps,
 } from '@src/application/flows/create-pr/leaves/generate-pr-content-leaf.ts';
 import type { CreatePrCtx } from '@src/application/flows/create-pr/ctx.ts';
+import { createPublishSignal } from '@src/application/flows/_shared/publish-signal.ts';
 
 /**
  * Tests for the optional AI authoring leaf. The leaf's contract is "never block opening the
@@ -61,7 +62,7 @@ const buildDeps = (provider: HeadlessAiProvider, eventBus = createInMemoryEventB
   provider,
   templateLoader: sharedTemplateLoader,
   writeFile: realWriteFile,
-  eventBus,
+  publishSignal: createPublishSignal(eventBus, 'create-pr'),
   logger: noopLogger,
   model: 'test-model',
 });

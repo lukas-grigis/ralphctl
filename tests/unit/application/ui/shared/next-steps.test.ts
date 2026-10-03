@@ -43,12 +43,6 @@ const withSprint = (status: SprintStatus, over: Partial<NextStepsInput> = {}): N
   ...over,
 });
 
-/** Flow names a step label may embed — `run <flow>` is the only shape that names one. */
-const flowNameOf = (label: string): string | undefined => {
-  const m = /^run ([a-z-]+)$/.exec(label);
-  return m?.[1];
-};
-
 /** A fresh `blocked` task of the given kind, for exercising the real task-status wiring. */
 const blockedTask = (blockKind: 'own' | 'upstream'): BlockedTask => {
   const r = markTaskBlocked(makeTodoTask(), 'stuck', blockKind);
@@ -57,33 +51,32 @@ const blockedTask = (blockKind: 'own' | 'upstream'): BlockedTask => {
 };
 
 describe('buildNextSteps — sprint-state rows', () => {
-  it('draft with no tickets tells the operator to add one, keylessly (the chord is view-local)', () => {
+  it('draft with no tickets names the a chord', () => {
     const { steps } = buildNextSteps(withSprint('draft'));
     expect(steps).toHaveLength(1);
-    expect(steps[0]?.label).toBe('add a ticket');
-    expect(steps[0]?.key).toBeUndefined();
+    expect(steps[0]).toMatchObject({ key: 'a', label: 'add a ticket' });
   });
 
   it('draft with pending tickets recommends refine and counts them', () => {
     const { steps } = buildNextSteps(withSprint('draft', { ticketCount: 3, pendingTicketCount: 2 }));
-    expect(steps[0]).toMatchObject({ key: 'n', label: 'run refine' });
+    expect(steps[0]).toMatchObject({ flow: 'refine', label: 'Refine' });
     expect(steps[0]?.detail).toContain('2');
   });
 
   it('draft with only approved tickets recommends plan', () => {
     const { steps } = buildNextSteps(withSprint('draft', { ticketCount: 2, approvedTicketCount: 2 }));
-    expect(steps[0]).toMatchObject({ key: 'n', label: 'run plan' });
+    expect(steps[0]).toMatchObject({ flow: 'plan', label: 'Plan' });
     expect(steps[0]?.detail).toContain('2');
   });
 
   it('draft with tickets that are neither pending nor approved falls back to refine', () => {
     const { steps } = buildNextSteps(withSprint('draft', { ticketCount: 1 }));
-    expect(steps[0]).toMatchObject({ key: 'n', label: 'run refine' });
+    expect(steps[0]).toMatchObject({ flow: 'refine', label: 'Refine' });
   });
 
   it.each<SprintStatus>(['planned', 'active'])('%s with resumable tasks recommends implement', (status) => {
     const { steps } = buildNextSteps(withSprint(status, { resumableTaskCount: 4 }));
-    expect(steps[0]).toMatchObject({ key: 'n', label: 'run implement' });
+    expect(steps[0]).toMatchObject({ flow: 'implement', label: 'Implement' });
     expect(steps[0]?.detail).toContain('4');
   });
 
@@ -121,7 +114,7 @@ describe('buildNextSteps — sprint-state rows', () => {
       expect(steps).toHaveLength(2);
       expect(steps[0]).toMatchObject({ label: 'unblock 1 blocked task' });
       expect(steps[0]?.key).toBeUndefined();
-      expect(steps[1]).toMatchObject({ key: 'n', label: 'run implement' });
+      expect(steps[1]).toMatchObject({ flow: 'implement', label: 'Implement' });
     }
   );
 
@@ -152,22 +145,26 @@ describe('buildNextSteps — sprint-state rows', () => {
     }
   );
 
-  it('review offers BOTH visible flows — the single-string design could not express this', () => {
+  it('review offers every visible flow, review first, with no key on any row', () => {
     const { steps } = buildNextSteps(withSprint('review'));
-    expect(steps.map((s) => s.label)).toEqual(['run review', 'run close-sprint']);
-    // Regression fence: Home used to advise create-pr here, which is hidden at `review`.
-    expect(steps.map((s) => s.label)).not.toContain('run create-pr');
+    expect(steps.map((s) => s.flow)).toEqual(['review', 'create-pr', 'close-sprint']);
+    expect(steps.every((s) => s.key === undefined)).toBe(true);
   });
 
-  it('review with blocked tasks leads with the unblock callout, then both flow rows', () => {
+  it('review with blocked tasks leads with the unblock callout, then the flow rows', () => {
     const { steps } = buildNextSteps(withSprint('review', { blockedTaskCount: 2, upstreamBlockedTaskCount: 0 }));
-    expect(steps.map((s) => s.label)).toEqual(['unblock 2 blocked tasks', 'run review', 'run close-sprint']);
+    expect(steps.map((s) => s.flow ?? s.label)).toEqual([
+      'unblock 2 blocked tasks',
+      'review',
+      'create-pr',
+      'close-sprint',
+    ]);
     expect(steps[0]?.key).toBeUndefined();
   });
 
   it('done recommends create-pr — Home used to say nothing at all here', () => {
     const { steps } = buildNextSteps(withSprint('done'));
-    expect(steps[0]).toMatchObject({ key: 'n', label: 'run create-pr' });
+    expect(steps[0]).toMatchObject({ flow: 'create-pr', label: 'Create PR' });
   });
 
   it('done with blocked tasks leads with the unblock callout naming the reopen path, then create-pr', () => {
@@ -175,7 +172,7 @@ describe('buildNextSteps — sprint-state rows', () => {
     // to leave this table — the source every orientation surface reads from — silent about them,
     // even though unblocking one reopens the sprint rather than leaving it stuck forever.
     const { steps } = buildNextSteps(withSprint('done', { blockedTaskCount: 3, upstreamBlockedTaskCount: 0 }));
-    expect(steps.map((s) => s.label)).toEqual(['unblock 3 blocked tasks', 'run create-pr']);
+    expect(steps.map((s) => s.flow ?? s.label)).toEqual(['unblock 3 blocked tasks', 'create-pr']);
     expect(steps[0]?.key).toBeUndefined();
     expect(steps[0]?.detail).toBe('open the sprint and press u — u reopens the sprint');
   });
@@ -194,7 +191,7 @@ describe('buildNextSteps — sprint-state rows', () => {
       ];
       for (const input of inputs) {
         for (const step of buildNextSteps(input).steps) {
-          const flow = flowNameOf(step.label);
+          const flow = step.flow;
           if (flow === undefined) continue;
           expect(visible.has(flow), `${status}: "${step.label}" names a flow hidden at that status`).toBe(true);
         }
@@ -204,10 +201,9 @@ describe('buildNextSteps — sprint-state rows', () => {
 });
 
 describe('buildNextSteps — pre-sprint rows', () => {
-  it('no project anywhere in storage → create one, keylessly', () => {
+  it('no project anywhere in storage → c creates one', () => {
     const { steps } = buildNextSteps({ ...base, hasProject: false, projectCount: 0, sprintCount: 0 });
-    expect(steps[0]?.label).toBe('create a project');
-    expect(steps[0]?.key).toBeUndefined();
+    expect(steps[0]).toMatchObject({ key: 'c', label: 'create a project' });
   });
 
   it('projects exist but none picked → the global P chord', () => {
@@ -218,13 +214,24 @@ describe('buildNextSteps — pre-sprint rows', () => {
 
   it('project loaded, no sprints yet → create the first one', () => {
     const { steps } = buildNextSteps({ ...base, sprintCount: 0 });
-    expect(steps[0]).toMatchObject({ key: '+', label: 'create the first sprint' });
+    expect(steps[0]).toMatchObject({ key: 'c', label: 'create the first sprint' });
   });
 
   it('project loaded, sprints exist but none picked → the global S chord', () => {
     const { steps } = buildNextSteps({ ...base, sprintCount: 4 });
-    expect(steps[0]).toMatchObject({ key: 'S', label: 'pick a sprint' });
+    expect(steps[0]).toMatchObject({ key: 'S', label: 'switch sprint' });
     expect(steps[0]?.detail).toContain('4');
+  });
+
+  it('unknown counts (the settled-run surface) → defer to Work, never a guessed c / S chord', () => {
+    const { projectCount: _p, sprintCount: _s, ...unknownCounts } = base;
+    void _p;
+    void _s;
+    const failed = buildNextSteps({ ...unknownCounts, runStatus: 'failed' }).steps;
+    expect(failed.map((s) => s.key)).toEqual(['r', '↵']);
+    expect(failed[1]?.label).toBe('open Work');
+    const noProject = buildNextSteps({ ...unknownCounts, hasProject: false }).steps;
+    expect(noProject.map((s) => s.key)).toEqual(['↵']);
   });
 });
 
@@ -235,22 +242,22 @@ describe('buildNextSteps — settled-run prepend', () => {
       runStatus: 'failed',
       failedLeafLabel: 'generate patch',
     });
-    expect(steps[0]).toMatchObject({ key: 'r', label: 're-run from Flows' });
+    expect(steps[0]).toMatchObject({ key: 'r', label: 're-run from Work' });
     expect(steps[0]?.detail).toContain('generate patch');
     // The state rows still follow — a failed run does not erase where the sprint stands.
-    expect(steps.map((s) => s.label)).toContain('run review');
+    expect(steps.map((s) => s.flow)).toContain('review');
   });
 
   it('an aborted run leads with re-run and says the sprint is unchanged', () => {
     const { steps } = buildNextSteps({ ...withSprint('draft'), runStatus: 'aborted' });
-    expect(steps[0]).toMatchObject({ key: 'r', label: 're-run from Flows' });
+    expect(steps[0]).toMatchObject({ key: 'r', label: 're-run from Work' });
     expect(steps[0]?.detail).toContain('unchanged');
   });
 
   it('a completed run prepends nothing — the state rows ARE the answer', () => {
     const { steps } = buildNextSteps({ ...withSprint('review'), runStatus: 'completed' });
     expect(steps.map((s) => s.key)).not.toContain('r');
-    expect(steps[0]?.label).toBe('run review');
+    expect(steps[0]?.flow).toBe('review');
   });
 });
 
@@ -335,8 +342,8 @@ describe('nextStepsInputFromSnapshot', () => {
     } as unknown as AppStateSnapshot;
 
     expect(buildNextSteps(nextStepsInputFromSnapshot(snapshot)).steps[0]).toMatchObject({
-      key: 'n',
-      label: 'run implement',
+      flow: 'implement',
+      label: 'Implement',
     });
   });
 
@@ -364,6 +371,6 @@ describe('nextStepsInputFromSnapshot', () => {
     // And it reaches the rendered step: resumable AND blocked both show, blocked first.
     const { steps } = buildNextSteps(input);
     expect(steps[0]).toMatchObject({ label: 'unblock 3 blocked tasks' });
-    expect(steps[1]).toMatchObject({ key: 'n', label: 'run implement' });
+    expect(steps[1]).toMatchObject({ flow: 'implement', label: 'Implement' });
   });
 });

@@ -61,6 +61,8 @@ export interface ExecuteBodyProps {
   readonly onOpenEvaluation: (taskId: string) => void;
   readonly logEntries: readonly LogEvent[];
   readonly cancelScopeOpen: boolean;
+  /** False while an overlay, prompt or cancel picker is open — gates the wide Tasks panel's keys. */
+  readonly tasksInputActive: boolean;
   readonly attemptElapsedMs: number | undefined;
   readonly remainingTaskCount: number;
   readonly onCancelAttempt: () => void;
@@ -70,6 +72,8 @@ export interface ExecuteBodyProps {
   readonly pinnedSprintStale: boolean;
   /** Settled-run "what next" + post-mortem paths, forwarded verbatim to the {@link ResultFooter}. */
   readonly nextSteps: NextSteps;
+  /** Runs blocked on a prompt → waiting since (epoch ms). */
+  readonly awaiting?: ReadonlyMap<string, number>;
 }
 
 /**
@@ -86,7 +90,7 @@ const MainRegion = ({
   termColumns,
   termRows,
   bucketed,
-  cancelScopeOpen,
+  tasksInputActive,
   tasksPanel,
   onOpenEvaluation,
   executionState,
@@ -103,7 +107,7 @@ const MainRegion = ({
   | 'termColumns'
   | 'termRows'
   | 'bucketed'
-  | 'cancelScopeOpen'
+  | 'tasksInputActive'
   | 'tasksPanel'
   | 'onOpenEvaluation'
   | 'executionState'
@@ -117,7 +121,7 @@ const MainRegion = ({
       layout={layout}
       bucketed={bucketed}
       termRows={termRows}
-      inputActive={!cancelScopeOpen}
+      inputActive={tasksInputActive}
       descriptor={descriptor}
       isRunning={isRunning}
       sessionId={sessionId}
@@ -199,6 +203,7 @@ export const ExecuteBody = (props: ExecuteBodyProps): React.JSX.Element => {
     isRunning,
     now,
     elapsed,
+    awaiting,
     layout,
     tasksDone,
     tasksTotal,
@@ -230,7 +235,7 @@ export const ExecuteBody = (props: ExecuteBodyProps): React.JSX.Element => {
     <Box flexDirection="column">
       {/* Multi-flow chip strip — renders only when ≥2 sessions are running, so a single-
         flow run pays zero pixels. */}
-      <MultiFlowStrip sessions={sessionList} activeId={sessionId} now={now} />
+      <MultiFlowStrip sessions={sessionList} activeId={sessionId} now={now} {...(awaiting ? { awaiting } : {})} />
       {/* HeaderCard — rendered at all widths. At ≥140 cols the BaselineHealthCard lives in the
         sidebar; at <140 cols it appears in the narrow layout via ExecuteLayout. */}
       <HeaderCard
@@ -242,6 +247,7 @@ export const ExecuteBody = (props: ExecuteBodyProps): React.JSX.Element => {
         currentTaskIdx={currentTaskIdx}
         currentTaskName={currentTaskName}
         currentSubStep={currentSubStep}
+        waitingSince={awaiting?.get(sessionId)}
       />
 
       <MainRegion {...props} />

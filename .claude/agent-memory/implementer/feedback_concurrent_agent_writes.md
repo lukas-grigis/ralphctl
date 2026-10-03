@@ -1,6 +1,6 @@
 ---
 name: concurrent-agent-writes
-description: When multiple implementer agents run in parallel on the same branch, shared files (flow.ts, ctx.ts, settle-attempt.ts, schemas) get overwritten by whichever agent saves last. Treat shared files as conflict surfaces and check `git status` / `git log` mid-task to detect concurrent commits.
+description: Parallel agents overwrite shared files (check git status mid-task); plus the zsh word-split trap that loses fixes in a backup-and-swap loop.
 metadata:
   type: feedback
 ---
@@ -48,3 +48,8 @@ files become hotspots. Symptoms seen:
    conflicts on surfaces you don't own). Confirm with `grep` for your symbols afterward. The stash is the canonical
    in-flight branch state here — peer additions (e.g. an unrelated `SIDEBAR_WIDTH` export riding along in a shared
    tokens file) are NOT yours to revert; leave them and verify the consumers still typecheck.
+
+**zsh does not word-split `$VAR`.** `for f in $FILES` iterates ONCE over the whole string, so a
+backup-then-swap loop (to see a test fail against HEAD sources) silently backs up nothing and the
+restore loop no-ops — the fixes are lost. Use an array (`files=(a b); for f in $files`) and check
+the backup exists before overwriting.

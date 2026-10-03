@@ -1,7 +1,7 @@
 import { Result } from '@src/domain/result.ts';
 import { AbortError } from '@src/domain/value/error/abort-error.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
-import type { BlockedTask, Task } from '@src/domain/entity/task.ts';
+import type { BlockedTask, DoneTask } from '@src/domain/entity/task.ts';
 import type { TaskId } from '@src/domain/value/id/task-id.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { publishTaskBlocked } from '@src/business/task/publish-task-blocked.ts';
@@ -48,22 +48,11 @@ export const abortedStep = (
  * projection (the merge/fork reducers already manipulate ctx task shapes directly): strip the
  * `DoneTask`-only `finalAttemptN`, stamp `status: 'blocked'` + the conflict reason.
  */
-const blockTaskForFoldConflict = (task: Task, reason: string): BlockedTask => {
-  // Drop the `DoneTask`-only `finalAttemptN` (absent on `BlockedTask`) and any existing
-  // `blockedReason`; re-stamp `status` + the conflict reason. The rest of the `TaskBase` fields
-  // (id, name, attempts, dependsOn, …) carry across unchanged.
-  const {
-    status: _status,
-    finalAttemptN: _finalAttemptN,
-    blockedReason: _blockedReason,
-    ...rest
-  } = task as Task & {
-    readonly finalAttemptN?: number;
-    readonly blockedReason?: string;
-  };
+const blockTaskForFoldConflict = (task: DoneTask, reason: string): BlockedTask => {
+  // Drop the `DoneTask`-only `finalAttemptN` and re-stamp `status` + the conflict reason.
+  const { status: _status, finalAttemptN: _finalAttemptN, ...rest } = task;
   void _status;
   void _finalAttemptN;
-  void _blockedReason;
   // A fold conflict is an own-failure block — the worktree's work is sound but can't land without
   // manual resolution, so it never cascade-clears via the upstream-unblock path. Classified
   // explicitly (not inferred): a fold conflict is a harness-side scheduling collision between two
@@ -93,7 +82,7 @@ const blockTaskForFoldConflict = (task: Task, reason: string): BlockedTask => {
 const conflictFold = (
   deps: BuildWaveBranchesDeps,
   ctx: ImplementCtx,
-  task: Task,
+  task: DoneTask,
   branchRef: string,
   taskId: TaskId,
   name: string,

@@ -3,9 +3,9 @@
  * effort / reasoning-depth flag. Shared between the Settings view and the per-launch customize
  * picker so the two surfaces always offer the same option list without diverging copies.
  *
- * Domain-owned: the schema in `domain/entity/settings.ts` validates persisted rows against
- * the same enums (Claude / Copilot / Codex variants); keeping the levels here lets every UI
- * surface read from the same array rather than re-declaring the literal list.
+ * Domain-owned: the per-provider effort schemas in `domain/entity/settings.ts` are built from
+ * these tuples, so the parser and every UI surface read the same list rather than re-declaring
+ * the literals.
  *
  * The Codex list is the provider-level superset — `minimal` was retired by codex ≥ 0.145
  * (persisted rows are migrated to `low`); `max` exists only on the 5.6 and GPT-6 families and
@@ -18,7 +18,7 @@
 
 import type { AiProvider } from '@src/domain/entity/settings.ts';
 
-export const PROVIDER_EFFORT_LEVELS: Readonly<Record<AiProvider, readonly string[]>> = {
+export const PROVIDER_EFFORT_LEVELS = {
   'claude-code': ['low', 'medium', 'high', 'xhigh', 'max'],
   'github-copilot': ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
   'openai-codex': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
@@ -27,4 +27,4 @@ export const PROVIDER_EFFORT_LEVELS: Readonly<Record<AiProvider, readonly string
   // CLI narrows per model at spawn, same posture as the codex row above.
   opencode: ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'],
   'xai-grok': ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'],
-};
+} as const satisfies Record<AiProvider, readonly [string, ...string[]]>;

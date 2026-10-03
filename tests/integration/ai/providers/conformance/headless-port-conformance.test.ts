@@ -291,6 +291,20 @@ describe.each(ROWS)('HeadlessAiProvider conformance — $provider', (row) => {
     expect(result.error.code).toBe('aborted');
     expect(fake.calls[0]!.kills[0]).toBe('SIGTERM');
   });
+
+  it('spawns nothing when the caller aborted before generate()', async () => {
+    // An already-aborted signal never re-dispatches 'abort', so a child spawned now would be
+    // beyond the reach of the cancel that already happened.
+    const controller = new AbortController();
+    controller.abort();
+    const { fake, promise } = await run({ abortSignal: controller.signal }, [{ hang: true }]);
+    const result = await promise;
+
+    expect(fake.calls).toHaveLength(0);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe('aborted');
+  });
 });
 
 describe('HeadlessAiProvider conformance coverage', () => {

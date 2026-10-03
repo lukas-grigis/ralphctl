@@ -94,14 +94,5 @@ export const generatePrContentOutputContract: AiOutputContract<CreatePrSignal> =
   exampleSignals: createPrExampleSignals,
 };
 
-/**
- * Exported solely so the test grid can assert against the exact signal sub-union the
- * contract accepts. The leaf consumes the contract via `generatePrContentOutputContract`;
- * this alias must not appear outside `__tests__/`.
- *
- * @public
- */
-export type GeneratePrContentContractSignal = CreatePrSignal;
-
 const _signalCheck: CreatePrSignal extends AiSignal ? true : false = true;
 void _signalCheck;

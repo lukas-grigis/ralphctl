@@ -173,6 +173,12 @@ export interface ImplementCtx {
    */
   readonly priorEvaluatorSessionId?: SessionId | undefined;
   /**
+   * Set by `start-attempt` when the attempt opened as a crash resume with the interrupted
+   * generator's session seeded into {@link priorGeneratorSessionId}: the next generator turn sends
+   * the crash-resume prompt instead of the round continuation. Cleared by that turn.
+   */
+  readonly crashResumePending?: boolean | undefined;
+  /**
    * Per-attempt decision accumulator — every `decision` signal the generator/evaluator emits
    * during the gen-eval loop is pushed onto this array by the leaves. Read by
    * `progress-journal-<taskId>` to render the `### Decisions` subsection of the journal

@@ -78,7 +78,8 @@ const expectPlan = (planned: ReturnType<typeof planImplementWaves>): ImplementWa
 };
 import type { ImplementDeps } from '@src/application/flows/implement/deps.ts';
 import type { RepoExecConfig } from '@src/application/flows/implement/flow.ts';
-import { buildWaveBranches, createFoldQueue } from '@src/application/flows/implement/wave-branch.ts';
+import { buildWaveBranches, createFoldQueue, worktreePathFor } from '@src/application/flows/implement/wave-branch.ts';
+import { startNextAttempt } from '@src/domain/entity/task-attempts.ts';
 import { quarantineStashMessage } from '@src/application/flows/implement/leaves/quarantine-blocked-diff.ts';
 
 import {
@@ -1937,6 +1938,115 @@ function runTests(): void {
       expect(await countCommitsOnBranch(run.fixture.repo.path, SPRINT_BRANCH)).toBe(1);
       expect(await run.fixture.repo.git('status', '--porcelain')).toBe('');
       expect(await listWorktrees(run.fixture.repo.path)).toStrictEqual([run.fixture.repo.path]);
+    }, 120_000);
+  });
+
+  /**
+   * A harness killed mid-task leaves `wt-<task>` registered on disk. `worktree add` can never succeed
+   * for it again, which used to wedge the task on every launch. A task with an interrupted attempt
+   * now adopts that worktree (its work is in there); any other task is blocked with what to do.
+   */
+  describe('parallel implement — a worktree left behind by an interrupted run (real git)', () => {
+    let cleanupFns: Array<() => Promise<void>>;
+
+    beforeEach(() => {
+      cleanupFns = [];
+    });
+
+    afterEach(async () => {
+      for (const fn of cleanupFns) await fn().catch(() => undefined);
+    });
+
+    const WIP = 'interrupted-wip.txt';
+
+    /** One task plus its `wt-<task>` worktree, left on disk with uncommitted work in it. */
+    const seedStranded = async (interrupted: boolean) => {
+      const fixture = await buildParallelFixture();
+      cleanupFns.push(() => fixture.cleanup());
+      const ticket = makeApprovedTicket({ title: 'stranded-ticket' });
+      const sprint = makePlannedSprint({ tickets: [ticket] });
+      const todo = makeTodoTask({ name: 'stranded', order: 1, ticketId: ticket.id, repositoryId: FIXED_REPOSITORY_ID });
+      let task: Task = todo;
+      if (interrupted) {
+        const running = startNextAttempt(todo, FIXED_NOW);
+        if (!running.ok) throw running.error;
+        task = running.value;
+      }
+      const worktree = String(worktreePathFor(ap(fixture.sprintDir), task.id));
+      await fixture.repo.git('worktree', 'add', '-b', gitWorktreeRef(String(sprint.id), String(task.id)), worktree);
+      await fs.writeFile(join(worktree, WIP), 'half-done work from the interrupted attempt\n', 'utf8');
+      return { fixture, sprint, task, worktree };
+    };
+
+    const runBranch = async (seeded: Awaited<ReturnType<typeof seedStranded>>) => {
+      const { fixture, sprint, task } = seeded;
+      const taskStore = inMemoryTaskRepo([task]);
+      const execution = setExecutionBranch(createSprintExecution({ sprintId: sprint.id }), SPRINT_BRANCH);
+      const locksRoot = join(fixture.ralphctlRoot, 'locks');
+      await fs.mkdir(locksRoot, { recursive: true });
+      const deps = buildRealGitDeps(
+        inMemorySprintRepo(sprint).repo,
+        inMemoryExecutionRepo(execution).repo,
+        taskStore.repo,
+        createRealFileWritingProvider('resumed-output'),
+        locksRoot
+      );
+      const opts = {
+        sprintId: sprint.id,
+        todoTasks: [task],
+        repositories: new Map([
+          [FIXED_REPOSITORY_ID, { path: ap(fixture.repo.path), name: 'test-repo' } as RepoExecConfig],
+        ]),
+        progressFile: ap(fixture.progressFile),
+        sprintDir: ap(fixture.sprintDir),
+        generatorProviderId: 'claude-code',
+        generatorModel: 'claude-opus-4-8',
+        evaluatorProviderId: 'claude-code',
+        evaluatorModel: 'claude-opus-4-8',
+        memoryRoot: ap(fixture.memoryRoot),
+        projectId: FAKE_PROJECT_ID,
+        projectSlug: FAKE_PROJECT_SLUG,
+        dirtyTreePolicy: 'cancel' as const,
+      };
+      const readConfig = () =>
+        Promise.resolve({ maxTurns: 5, escalateOnPlateau: false, escalationMap: {}, maxAttempts: 1 });
+      const branchDeps = { implement: deps, eventBus: createInMemoryEventBus(), foldQueue: createFoldQueue() };
+      const branch = buildWaveBranches(branchDeps, opts, [[task]], readConfig)[0]![0]!;
+      const runner = createRunner<ImplementCtx>({
+        id: `r-${branch.id}`,
+        element: branch.element,
+        initialCtx: { sprintId: sprint.id, sprint, execution, tasks: [task] },
+      });
+      await runner.start();
+      // A block raised before the subchain rides the branch ctx; the wave merge persists it.
+      const settled = runner.ctx.tasks?.find((t) => t.id === task.id) ?? taskStore.tasks()[0];
+      return { status: runner.status, settled };
+    };
+
+    it('adopts the worktree for a task with an interrupted attempt and lands the work it held', async () => {
+      const seeded = await seedStranded(true);
+      const { status, settled } = await runBranch(seeded);
+
+      expect(status).toBe('completed');
+      expect(settled?.status).toBe('done');
+      expect(settled?.attempts.map((a) => a.abortCause ?? a.status)).toEqual(['harness-interrupted', 'verified']);
+      const landed = await getCommitFiles(seeded.fixture.repo.path, SPRINT_BRANCH);
+      expect(landed).toContain(WIP);
+      expect(landed).toContain('resumed-output.txt');
+      expect(await listWorktrees(seeded.fixture.repo.path)).toStrictEqual([seeded.fixture.repo.path]);
+    }, 120_000);
+
+    it('blocks a task with no interrupted attempt and leaves the worktree and its work untouched', async () => {
+      const seeded = await seedStranded(false);
+      const { status, settled } = await runBranch(seeded);
+
+      expect(status).toBe('completed');
+      expect(settled?.status).toBe('blocked');
+      const blocked = settled as BlockedTask;
+      expect(blocked.blockCause).toBe('worktree-setup-failure');
+      expect(blocked.blockedReason).toContain(`git worktree remove --force ${seeded.worktree}`);
+      expect(await fs.readFile(join(seeded.worktree, WIP), 'utf8')).toContain('half-done');
+      expect(await countCommitsOnBranch(seeded.fixture.repo.path, SPRINT_BRANCH)).toBe(1);
     }, 120_000);
   });
 }

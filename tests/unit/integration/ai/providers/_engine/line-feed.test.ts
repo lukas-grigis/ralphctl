@@ -6,7 +6,11 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { createCappedLineFeed } from '@src/integration/ai/providers/_engine/line-feed.ts';
+import {
+  createCappedLineFeed,
+  emitJsonObjectLine,
+  parseJsonObjectLine,
+} from '@src/integration/ai/providers/_engine/line-feed.ts';
 
 /** Identity emitter — surfaces exactly what the splitter handed to the parser-specific callback. */
 const collect = (chunks: readonly string[], { withFlush = true } = {}): readonly string[] => {
@@ -51,5 +55,27 @@ describe('createCappedLineFeed', () => {
 
   it('holds an unterminated line until its newline arrives', () => {
     expect(collect(['par', 'tial\r\n'], { withFlush: false })).toEqual(['partial']);
+  });
+});
+
+describe('parseJsonObjectLine', () => {
+  it('parses a live grok text ping sample', () => {
+    expect(parseJsonObjectLine('{"type":"text","data":"ping"}')).toEqual({ type: 'text', data: 'ping' });
+  });
+
+  it('skips blank, non-JSON, and malformed lines without throwing', () => {
+    expect(parseJsonObjectLine('')).toBeUndefined();
+    expect(parseJsonObjectLine('   ')).toBeUndefined();
+    expect(parseJsonObjectLine('Loaded grok config')).toBeUndefined();
+    expect(parseJsonObjectLine('{ not json')).toBeUndefined();
+  });
+});
+
+describe('emitJsonObjectLine', () => {
+  it('emits one object per JSON line and nothing for noise', () => {
+    const seen: Array<Record<string, unknown>> = [];
+    emitJsonObjectLine('banner text', (obj) => seen.push(obj));
+    emitJsonObjectLine('  {"a":1}  ', (obj) => seen.push(obj));
+    expect(seen).toEqual([{ a: 1 }]);
   });
 });

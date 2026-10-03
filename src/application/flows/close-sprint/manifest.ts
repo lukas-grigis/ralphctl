@@ -15,7 +15,6 @@ export const closeSprintManifest: FlowManifest = {
   id: 'close-sprint',
   title: 'Close sprint',
   description: 'Mark this sprint done (review → done). Use review for iterative feedback before closing.',
-  canBackground: false,
   triggers: {
     currentSprintStatus: ['review'],
     currentSprintStatusHint: 'Run Implement to completion first — this flow needs a review-status sprint.',

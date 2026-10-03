@@ -67,6 +67,14 @@ describe('createInkHost waitForShutdown', () => {
 
   const makeHost = () => createInkHost({ renderElement: () => React.createElement(React.Fragment) });
 
+  it('mounts with Ink own ctrl+c exit off, so the app can confirm a quit with live runs', async () => {
+    const { render } = await import('ink');
+    vi.mocked(render).mockClear();
+    mockInstance.waitUntilExit.mockResolvedValueOnce(undefined);
+    makeHost();
+    expect(vi.mocked(render)).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ exitOnCtrlC: false }));
+  });
+
   it('resolves cleanly on a normal quit and leaves the exit code untouched', async () => {
     mockInstance.waitUntilExit.mockResolvedValueOnce(undefined);
     const host = makeHost();

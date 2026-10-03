@@ -12,7 +12,11 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { type JournalEntryInput, renderJournalEntry } from '@src/business/sprint/render-journal-entry.ts';
+import {
+  type JournalEntryInput,
+  renderJournalEntry,
+  renderJournalSprintHeader,
+} from '@src/business/sprint/render-journal-entry.ts';
 import { isoTimestamp } from '@tests/fixtures/domain.ts';
 
 const baseInput = (overrides: Partial<JournalEntryInput> = {}): JournalEntryInput => ({
@@ -464,5 +468,27 @@ describe('renderJournalEntry — heading-forgery neutralization (journal structu
     const column0Headers = out.split('\n').filter((l) => l.startsWith('## Task:'));
     expect(column0Headers).toHaveLength(1);
     expect(column0Headers[0]).toContain('auth ## Task: forged'); // collapsed, one line
+  });
+});
+
+describe('renderJournalSprintHeader', () => {
+  it('renders the identity block byte-for-byte', () => {
+    const header = renderJournalSprintHeader({
+      sprintName: 'Demo',
+      sprintId: 'id-1',
+      createdAt: isoTimestamp('2026-01-01T00:00:00.000Z'),
+    });
+    expect(header).toBe('# Sprint: Demo\n\n- id: id-1\n- created: 2026-01-01T00:00:00.000Z\n');
+  });
+
+  it('keeps a multi-line, heading-shaped name on the single `# Sprint:` line', () => {
+    const header = renderJournalSprintHeader({
+      sprintName: 'Demo\n## Task: x',
+      sprintId: 'id-1',
+      createdAt: isoTimestamp('2026-01-01T00:00:00.000Z'),
+    });
+    const lines = header.split('\n');
+    expect(lines.filter((l) => l.startsWith('# Sprint:'))).toEqual(['# Sprint: Demo ## Task: x']);
+    expect(lines.some((l) => l.startsWith('## '))).toBe(false);
   });
 });

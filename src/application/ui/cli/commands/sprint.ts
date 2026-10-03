@@ -6,8 +6,10 @@ import type { FindTasksBySprintId } from '@src/domain/repository/task/find-tasks
 import { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { DISPLAY_TEXT_MAX_CHARS, sanitizeDisplayText } from '@src/domain/value/display-text.ts';
+import { nameBlockedTasks } from '@src/business/sprint/name-blocked-tasks.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import { bootstrapCli } from '@src/application/ui/cli/bootstrap.ts';
+import { plural } from '@src/application/ui/shared/plural.ts';
 import { confirmDestructive } from '@src/application/ui/cli/confirm-destructive.ts';
 import { fail } from '@src/application/ui/cli/report-cli-error.ts';
 import { resolveSprintId } from '@src/application/ui/cli/resolve-sprint-selection.ts';
@@ -28,19 +30,11 @@ interface CloseOpts {
   readonly yes?: boolean;
 }
 
-/** Longest task-name list spelled out before the tail collapses to "and N more" — mirrors
- *  close-sprint's own in-chain `confirm-blocked-tasks` leaf so the CLI and TUI read the same. */
-const MAX_NAMED_BLOCKED_TASKS = 5;
-
-/** Task names are planner-authored prose on their way to the terminal — see `formatTaskLine` in
- *  commands/task.ts for why every one of them is neutered first. */
+/**
+ * Task names are planner-authored prose on their way to the terminal — see `formatTaskLine` in commands/task.ts for
+ * why every one of them is neutered first.
+ */
 const showName = (name: string): string => sanitizeDisplayText(name, DISPLAY_TEXT_MAX_CHARS);
-
-const nameBlockedTasks = (blocked: readonly Task[]): string => {
-  const named = blocked.slice(0, MAX_NAMED_BLOCKED_TASKS).map((t) => showName(t.name));
-  const remainder = blocked.length - named.length;
-  return remainder > 0 ? `${named.join(', ')}, and ${String(remainder)} more` : named.join(', ');
-};
 
 const listSprintsAction = async (): Promise<void> => {
   const { deps } = await bootstrapCli();
@@ -81,7 +75,7 @@ const removeSprintAction = async (raw: string, opts: RemoveOpts): Promise<void> 
     fail(`invalid sprint id: ${id.error.message}`);
     return;
   }
-  // Mirrors the TUI's ConfirmCard gate on the same sprintRepo.remove call
+  // Mirrors the TUI's ConfirmCard gate on the same sprintRemoval.remove call
   // (sprints-view.tsx) — the CLI has no interactive overlay, so a TTY-gated y/N prompt
   // (or --yes for scripts) stands in for it.
   const confirmed = await confirmDestructive({
@@ -92,15 +86,13 @@ const removeSprintAction = async (raw: string, opts: RemoveOpts): Promise<void> 
   if (!confirmed) return;
 
   const { deps, storage } = await bootstrapCli();
-  const result = await deps.sprintRepo.remove(id.value);
+  const result = await deps.sprintRemoval.remove(id.value);
   if (!result.ok) {
     fail(result.error.message);
     return;
   }
-  // Clear a dangling pin: leaving the removed sprint in last-selection.json would make
-  // every defaulting command (and the next TUI boot) resolve to a ghost. The project pin
-  // survives — only the sprint slot is dropped (rest-destructure keeps
-  // exactOptionalPropertyTypes happy by omitting the key instead of assigning undefined).
+  // Clear a dangling pin: leaving the removed sprint in last-selection.json would make every defaulting command (and
+  // the next TUI boot) resolve to a ghost.
   const store = createLastSelectionStore(storage.stateRoot);
   const cur = await store.read();
   if (cur?.sprintId === id.value) {
@@ -137,13 +129,8 @@ const activateSprintAction = async (raw: string): Promise<void> => {
 };
 
 /**
- * `sprint reopen` is the deliberate exit from an otherwise-terminal `done` sprint — the operator
- * closed it with work still blocked and now wants that work runnable again. It lands in `review`,
- * not `active`: the only review → active step is the domain `revertSprintToActive`, which has no
- * direct CLI surface — `task unblock` is the sole caller, running it automatically as part of its
- * own done → review hop — so there is only ever one done → review transition to keep in sync.
- * Idempotent — an already-`review` sprint passes through unchanged, and the printed output says
- * so instead of claiming a transition that `reopenDoneSprintUseCase` never persisted.
+ * `sprint reopen` is the deliberate exit from an otherwise-terminal `done` sprint — the operator closed it with work
+ * still blocked and now wants that work runnable again.
  */
 const reopenSprintAction = async (raw: string): Promise<void> => {
   const id = SprintId.parse(raw);
@@ -177,14 +164,8 @@ const reopenSprintAction = async (raw: string): Promise<void> => {
 };
 
 /**
- * The CLI's stand-in for the chain's `confirm-blocked-tasks` gate (which needs an
- * `InteractivePrompt` the CLI has no implementation of). Loads the task list and, when anything is
- * blocked, asks before proceeding. Returns the blocked tasks — possibly an empty list — on
- * proceed, and `undefined` when the close must stop: either the read failed (already reported via
- * {@link fail}, exit 1) or the operator declined (silent, nothing written).
- *
- * The caller asserts the sprint's status BEFORE calling this — a sprint that cannot be closed at
- * all must not be met with a "close anyway?" prompt first.
+ * The CLI's stand-in for the chain's `confirm-blocked-tasks` gate (which needs an `InteractivePrompt` the CLI has no
+ * implementation of).
  */
 const confirmBlockedTasksOrStop = async (
   sprint: Sprint,
@@ -193,9 +174,8 @@ const confirmBlockedTasksOrStop = async (
 ): Promise<readonly Task[] | undefined> => {
   const tasksLoaded = await taskRepo.findBySprintId(sprint.id);
   if (!tasksLoaded.ok) {
-    // A failed read is not evidence the sprint is clean — proceeding as if nothing were blocked
-    // would silently close over a task list we never actually looked at. Refuse loudly instead,
-    // matching every other repo read in this file (e.g. progressSprintAction below).
+    // A failed read is not evidence the sprint is clean — proceeding as if nothing were blocked would silently close
+    // over a task list we never actually looked at.
     fail(tasksLoaded.error.message);
     return undefined;
   }
@@ -243,12 +223,7 @@ const closeSprintAction = async (raw: string, opts: CloseOpts): Promise<void> =>
   }
   const sprint = loaded.value;
 
-  // Status first, confirm second. The chain's own `load-and-assert-sprint(['review'])` step rejects
-  // any other status anyway, but it runs AFTER the gate below — so a `planned` / `active` sprint
-  // with blocked tasks used to be met with a scary "close anyway?" prompt (or, on a non-TTY without
-  // `--yes`, a confirmation-missing exit 1) before being told the close was never valid. Same
-  // assertion, same message as the leaf — it reuses the leaf's own default name rather than a
-  // hand-copied string, so a rename there cannot silently diverge the two error texts.
+  // Status first, confirm second.
   const closable = assertSprintStatus(sprint, ['review'], ASSERT_SPRINT_STATUS);
   if (!closable.ok) {
     fail(closable.error.message);
@@ -277,6 +252,7 @@ const closeSprintAction = async (raw: string, opts: CloseOpts): Promise<void> =>
     clock: deps.clock,
     logger: deps.logger,
     appendFile: deps.appendFile,
+    writeFile: deps.writeFile,
     progressFile: progressPath.value,
     ...(memoryMirror !== undefined ? { memoryMirror } : {}),
   });
@@ -440,27 +416,18 @@ export const registerSprintCommand = (program: Command): void => {
     .action(progressSprintAction);
 };
 
-/** One blocked task and, when it's the root cause of a cascade, every task transitively waiting
- *  on it — see {@link groupBlockedTasks}. */
+/**
+ * One blocked task and, when it's the root cause of a cascade, every task transitively waiting on it — see {@link
+ * groupBlockedTasks}.
+ */
 interface BlockedGroup {
   readonly root: BlockedTask;
   readonly waiting: readonly BlockedTask[];
 }
 
 /**
- * Group blocked tasks by root cause instead of reporting a cascade as N equal-weight rows. An
- * `own`-blocked task (failed on its own merits) is always a root. An `upstream`-blocked task
- * (the dependency gate parked it because a prerequisite wasn't done — `isUpstreamBlocked`'s same
- * `blockKind` discriminant) walks its `dependsOn` chain to the first ancestor that is NOT itself
- * upstream-blocked; every task that resolves to the same ancestor collapses into that ancestor's
- * `waiting` list. Two edge cases fall back to standing alone with an empty `waiting` list rather
- * than group under something misleading: the chain ends at a task that isn't `blocked` at all
- * (merely `todo` / `in_progress` — nothing is actually wrong yet, it just hasn't run), and a
- * dangling `dependsOn` id or a cycle (neither should happen — `validateTaskGraph` rejects both at
- * plan time — but the walk still caps defensively rather than looping).
- *
- * Pure; needs no new data from the dependency gate — `dependsOn` and `blockKind` are already on
- * every task this command loads.
+ * Group blocked tasks by root cause instead of reporting a cascade as N equal-weight rows. An `own`-blocked task
+ * (failed on its own merits) is always a root.
  */
 const groupBlockedTasks = (allTasks: readonly Task[]): readonly BlockedGroup[] => {
   const byId = new Map(allTasks.map((t) => [t.id, t] as const));
@@ -526,5 +493,5 @@ const formatProgress = (sprint: Sprint, tasks: readonly Task[], branchLine: stri
 
 const formatSprintLine = (s: Sprint): string => {
   const tickets = s.tickets.length;
-  return `${String(s.id)}  ${String(s.slug).padEnd(24)}  [${s.status.padEnd(8)}]  ${s.name}  (${String(tickets)} ticket${tickets === 1 ? '' : 's'})`;
+  return `${String(s.id)}  ${String(s.slug).padEnd(24)}  [${s.status.padEnd(8)}]  ${s.name}  (${plural(tickets, 'ticket')})`;
 };

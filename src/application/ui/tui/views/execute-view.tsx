@@ -45,6 +45,7 @@
 import React from 'react';
 import { Box, Text } from 'ink';
 import { ViewShell } from '@src/application/ui/tui/components/view-shell.tsx';
+import { useAwaitingSessions } from '@src/application/ui/tui/runtime/use-awaiting-sessions.ts';
 import { runnerStatusKind, StatusChip } from '@src/application/ui/tui/components/status-chip.tsx';
 import { spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { useTokenUsage } from '@src/application/ui/tui/runtime/use-token-usage.ts';
@@ -78,6 +79,7 @@ import type { ResponsiveLayout } from '@src/application/ui/tui/views/execute-vie
 import type { BucketedDerivation } from '@src/application/ui/tui/views/execute-view-internals/use-bucketed-tasks.ts';
 import type { CancelHandlers } from '@src/application/ui/tui/views/execute-view-internals/use-cancel-handlers.ts';
 import type { NextSteps } from '@src/application/ui/shared/next-steps.ts';
+import { flowIdToTitle, titleSubject } from '@src/application/ui/shared/flow-title.ts';
 import { useRunSprintContext } from '@src/application/ui/tui/views/execute-view-internals/use-run-sprint-context.ts';
 
 import { ExecuteBody } from '@src/application/ui/tui/views/execute-view-internals/body.tsx';
@@ -95,37 +97,6 @@ import { useEvaluationChord } from '@src/application/ui/tui/views/execute-view-i
 interface ExecuteProps extends Readonly<Record<string, unknown>> {
   readonly sessionId: string;
 }
-
-/**
- * Human-readable section title per flow id. Keeps the Execute view header accurate for any
- * flow that reuses this view (refine, plan, review, create-pr, …) instead of always showing
- * "Implement".
- */
-const FLOW_TITLES: Record<string, string> = {
-  implement: 'Implement',
-  refine: 'Refine',
-  plan: 'Plan',
-  ideate: 'Ideate',
-  review: 'Review',
-  'create-pr': 'Create PR',
-  readiness: 'Readiness',
-  'detect-scripts': 'Detect Scripts',
-  'detect-skills': 'Detect Skills',
-  'create-sprint': 'Create Sprint',
-  'close-sprint': 'Close Sprint',
-  'add-ticket': 'Add Ticket',
-  'remove-ticket': 'Remove Ticket',
-  'export-context': 'Export Context',
-  'export-requirements': 'Export Requirements',
-  doctor: 'Doctor',
-  settings: 'Settings',
-};
-
-/**
- * Derive a human-readable section title from a flow id. Falls back to the raw flowId so a
- * future flow never shows a blank header.
- */
-const flowIdToTitle = (flowId: string): string => FLOW_TITLES[flowId] ?? flowId;
 
 /**
  * Buffer sizing for long Implement runs:
@@ -207,6 +178,8 @@ interface DeriveTasksPanelResult {
    * both regimes are wired from this single derivation.
    */
   readonly onOpenEvaluation: (taskId: string) => void;
+  /** Handed back for the same reason — the wide panel must honour the same modal gate. */
+  readonly tasksInputActive: boolean;
 }
 
 /**
@@ -248,6 +221,7 @@ const deriveTasksPanel = ({
     executionState: pinnedSprintStale ? undefined : executionState,
     taskState: pinnedSprintStale ? undefined : taskState,
     onOpenEvaluation,
+    tasksInputActive,
   };
 };
 
@@ -381,11 +355,15 @@ const ExecuteViewFrame = ({
   // Wall-clock elapsed since the run started — a display string for the header / footer.
   const endedAt = descriptor.finishedAt ?? runControls.now;
   const elapsed = fmtElapsed(descriptor.startedAt, endedAt);
+  // A run parked on a prompt reads WAITING: the operator, not the run, is the bottleneck.
+  const awaiting = useAwaitingSessions();
+  const waiting = runControls.isRunning && awaiting.has(sessionId);
+  const statusLabel = waiting ? 'waiting' : descriptor.status;
 
   return (
     <ViewShell
       title={flowIdToTitle(descriptor.flowId)}
-      subtitle={descriptor.title}
+      subtitle={titleSubject(descriptor.flowId, descriptor.title)}
       compactBanner
       // The Tasks panel owns ↑/↓ (and j/k) as its card / row cursor — without this the page
       // ScrollRegion moved the whole viewport on the same keypress that moved the cursor. Every
@@ -394,7 +372,7 @@ const ExecuteViewFrame = ({
       // for the settled card), so yielding the paging keys costs no reachable content; the
       // mouse wheel still scrolls the page regardless of this flag.
       suppressScrollArrows
-      right={<StatusChip label={descriptor.status} kind={runnerStatusKind(descriptor.status)} />}
+      right={<StatusChip label={statusLabel} kind={waiting ? 'warning' : runnerStatusKind(descriptor.status)} />}
     >
       {ui.helpOpen ? (
         <HelpOverlay />
@@ -419,6 +397,7 @@ const ExecuteViewFrame = ({
           onDismissCancelScope={cancelHandlers.onDismiss}
           pinnedSprintStale={pinnedSprintStale}
           nextSteps={nextSteps}
+          awaiting={awaiting}
           {...bucketedTasks}
           {...tasksPanelDerivation}
         />

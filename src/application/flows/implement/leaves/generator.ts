@@ -11,13 +11,14 @@ import type { GenEvalExit } from '@src/business/task/gen-eval-exit.ts';
 import type { InProgressTask } from '@src/domain/entity/task.ts';
 import { latestCritique } from '@src/domain/entity/task-graph.ts';
 import type { TaskId } from '@src/domain/value/id/task-id.ts';
-import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
+import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import type { AiSignal, HarnessSignal, LearningEntry } from '@src/domain/signal.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
 import { buildImplementPrompt } from '@src/integration/ai/prompts/implement/definition.ts';
 import { buildImplementContinuationPrompt } from '@src/integration/ai/prompts/implement-continuation/definition.ts';
+import { buildImplementCrashResumePrompt } from '@src/integration/ai/prompts/implement-crash-resume/definition.ts';
 import type { BuildPromptError } from '@src/integration/ai/prompts/_engine/build-prompt.ts';
 import { renderContractSectionFor } from '@src/integration/ai/contract/_engine/render-contract-section.ts';
 import type { SessionId } from '@src/integration/ai/providers/_engine/session-id.ts';
@@ -50,6 +51,8 @@ import {
 import type { LogTailReader } from '@src/business/io/log-tail-reader.ts';
 import { createFsLogTailReader } from '@src/integration/io/read-log-tail.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
+import { verifyLogPath } from '@src/application/flows/implement/leaves/verify-log.ts';
+import { budgetedAttemptCount, resumesFreeAttempt } from '@src/domain/entity/task-attempts.ts';
 
 /**
  * Chain leaf — one generator turn of the gen-eval loop. Wires the integration ports
@@ -112,6 +115,11 @@ interface GeneratorInput {
    * reporting an id) → fresh session.
    */
   readonly priorGeneratorSessionId?: SessionId;
+  /**
+   * This turn resumes a thread the harness was interrupted in (see `ctx.crashResumePending`): it
+   * sends the crash-resume prompt rather than the round continuation.
+   */
+  readonly crashResume?: boolean;
   /**
    * Pre-composed "## Dimension trajectory" feed-forward block (principles 6 + 15) — built in the
    * input projection from `ctx.plateauHistory` via `composeDimensionTrajectory`. Empty on round 1
@@ -227,9 +235,19 @@ const arrayCarry = <K extends string, T>(
   items.length > 0 ? ({ [field]: [...(prior ?? []), ...items] } as unknown as Partial<Record<K, readonly T[]>>) : {};
 
 export const isPlateauBreakAttempt = (task: InProgressTask): boolean => {
-  const lastSettled = [...task.attempts].reverse().find((a) => a.status !== 'running');
+  const lastSettled = lastSettledAttempt(task);
   const stallDriven = lastSettled?.warning?.kind === 'plateau' || lastSettled?.warning?.kind === 'budget-exhausted';
   return task.escalatedFromModel !== undefined && task.escalatedFromModel === task.escalatedToModel && stallDriven;
+};
+
+/**
+ * Which prompt a turn sends: a resumed thread gets the slim continuation — or, right after a harness
+ * interruption, the crash-resume prompt — and everything else (or the stale-resume cold fallback)
+ * the full brief.
+ */
+const generatorPromptKind = (input: GeneratorInput, forceFull: boolean): 'full' | 'continuation' | 'crash-resume' => {
+  if (input.priorGeneratorSessionId === undefined || forceFull) return 'full';
+  return input.crashResume === true ? 'crash-resume' : 'continuation';
 };
 
 /**
@@ -293,7 +311,11 @@ const buildGeneratorPrompt = async (
     ...(input.reproduction !== undefined ? { reproduction: input.reproduction } : {}),
   };
 
-  if (input.priorGeneratorSessionId !== undefined && args.forceFull !== true) {
+  const kind = generatorPromptKind(input, args.forceFull === true);
+  if (kind === 'crash-resume') {
+    return buildImplementCrashResumePrompt(deps.templateLoader, { outputContractSection: args.outputContractSection });
+  }
+  if (kind === 'continuation') {
     return buildImplementContinuationPrompt(deps.templateLoader, {
       ...sharedValues,
       roundNumber: input.roundNum,
@@ -327,9 +349,7 @@ const readVerifyLogTail = async (
   phase: 'pre' | 'post',
   attemptN: number
 ): Promise<string | undefined> => {
-  const logPath = AbsolutePath.parse(
-    join(String(sprintDir), 'logs', 'verify', String(taskId), `${phase}-attempt-${String(attemptN)}.log`)
-  );
+  const logPath = verifyLogPath(sprintDir, taskId, phase, attemptN);
   if (!logPath.ok) return undefined;
   return reader(logPath.value, VERIFY_TAIL_MAX_CHARS);
 };
@@ -435,6 +455,8 @@ const announceRoundStart = (
     type: 'task-round-started',
     taskId: String(taskId),
     attemptN: task.attempts.length,
+    budgetedAttemptN: budgetedAttemptCount(task),
+    resumed: resumesFreeAttempt(task),
     roundN: roundNum,
     totalCap: deps.maxTurns,
     at: deps.clock(),
@@ -517,7 +539,7 @@ const makeGeneratorCallImplement =
     args.accumulators.correctiveNudgeCount = turn.value.nudgeCount;
     args.accumulators.usage = turn.value.usage;
 
-    // `runGeneratorTurnUseCase` expects `readonly HarnessSignal[]`. `GeneratorContractSignal`
+    // `runGeneratorTurnUseCase` expects `readonly HarnessSignal[]`. `GeneratorSignal`
     // is a strict subset of `HarnessSignal`, but TS's array variance doesn't infer
     // that automatically — cast through `AiSignal[]` (the canonical union alias) to
     // keep the call site honest about the underlying domain shape.
@@ -609,6 +631,7 @@ const makeGeneratorInput =
       workspaceRoot,
       roundNum,
       ...(ctx.priorGeneratorSessionId !== undefined ? { priorGeneratorSessionId: ctx.priorGeneratorSessionId } : {}),
+      ...(ctx.crashResumePending === true ? { crashResume: true } : {}),
       ...feedForward,
       ...(reproduction !== undefined ? { reproduction } : {}),
     };
@@ -652,6 +675,7 @@ const generatorOutput = (ctx: ImplementCtx, out: GeneratorOutput): ImplementCtx 
     tasks,
     genEvalTurn: out.turn,
     currentRoundNum: out.roundNum,
+    crashResumePending: undefined,
     ...carry,
     ...sessionCarry,
     ...decisionsCarry,

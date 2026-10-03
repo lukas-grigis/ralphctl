@@ -1,11 +1,6 @@
-/**
- * Tiny inline gradient renderer — replaces v1's `gradient-string` dependency.
- *
- * Produces ANSI 24-bit truecolor escape sequences (`\x1b[38;2;R;G;Bm`) that Ink's `<Text>`
- * passes through unchanged. Each glyph in a line gets its own colour interpolated across the
- * stops in HSV space (with shortest-path hue rotation), so wide ASCII art reads as a smooth
- * sweep instead of stripes.
- */
+/** Tiny inline gradient renderer — replaces v1's `gradient-string` dependency. */
+
+import { isColorDisabled } from '@src/application/ui/tui/runtime/use-no-color.ts';
 
 const RESET = '\x1b[0m';
 
@@ -70,9 +65,7 @@ const lerpHsv = (a: [number, number, number], b: [number, number, number], t: nu
   return [h, s, v];
 };
 
-/**
- * Build `n` interpolated colours through the given hex stops. `n=1` returns the first stop.
- */
+/** Build `n` interpolated colours through the given hex stops. `n=1` returns the first stop. */
 const buildSwatch = (stops: readonly string[], n: number): readonly string[] => {
   if (stops.length === 0) throw new Error('gradient: at least one stop is required');
   if (n <= 0) return [];
@@ -101,12 +94,8 @@ const buildSwatch = (stops: readonly string[], n: number): readonly string[] => 
 };
 
 /**
- * Paint each visible character of `text` with a gradient sweep across the supplied hex stops.
- * Whitespace is left uncoloured to keep transparent gaps in ASCII art.
- *
- * Iteration is by Unicode code point (`[...text]`) so surrogate-pair glyphs like emoji aren't
- * split by the ANSI escape inserted between characters. UTF-16 indexing would cut 🍩 in half
- * and the terminal would render `��` replacement marks.
+ * Paint each visible character of `text` with a gradient sweep across the supplied hex stops. Whitespace is left
+ * uncoloured to keep transparent gaps in ASCII art.
  */
 export const paintLine = (text: string, stops: readonly string[]): string => {
   if (text.length === 0) return '';
@@ -126,10 +115,12 @@ export const paintLine = (text: string, stops: readonly string[]): string => {
 
 /** Paint each line of a multi-line block independently — same gradient, fresh sweep per row. */
 export const paintMultiline = (text: string, stops: readonly string[]): string =>
-  text
-    .split('\n')
-    .map((line) => paintLine(line, stops))
-    .join('\n');
+  isColorDisabled()
+    ? text
+    : text
+        .split('\n')
+        .map((line) => paintLine(line, stops))
+        .join('\n');
 
 /** Curated palettes used by the TUI. */
 export const palettes = {

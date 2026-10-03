@@ -22,7 +22,7 @@ describe('renderSprintContextMarkdown', () => {
     const sprint = makeDraftSprint();
     const out = renderSprintContextMarkdown({ sprint, project, tasks: [] });
     expect(out).toContain('_(no tickets)_');
-    expect(out).toContain('_(no tasks generated yet — run `ralphctl sprint plan`)_');
+    expect(out).toContain('_(no tasks generated yet — plan the sprint first)_');
   });
 
   it('orders tasks by `order` ascending regardless of input order', () => {

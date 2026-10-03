@@ -6,18 +6,23 @@
  * mirroring the sprint-detail view's explicit opt-in.
  */
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { Box, Text } from 'ink';
 import { ViewShell } from '@src/application/ui/tui/components/view-shell.tsx';
 import { useListWindow, OverflowRow, type ListWindow } from '@src/application/ui/tui/components/windowed-list.tsx';
 import { AsyncListFrame } from '@src/application/ui/tui/components/async-list-frame.tsx';
+import { LoadingRow } from '@src/application/ui/tui/components/async-rows.tsx';
 import { EmptyState } from '@src/application/ui/tui/components/empty-state.tsx';
 import { FeedbackLine } from '@src/application/ui/tui/components/feedback-line.tsx';
 import { ConfirmCard } from '@src/application/ui/tui/components/confirm-card.tsx';
 import { type Project, setProjectDisplayName } from '@src/domain/entity/project.ts';
 import { useEditField } from '@src/application/ui/tui/runtime/use-edit-field.ts';
+import { editFresh } from '@src/application/ui/tui/runtime/edit-fresh.ts';
 import { useIsMounted } from '@src/application/ui/tui/runtime/use-is-mounted.ts';
 import { Result } from '@src/domain/result.ts';
+import { plural } from '@src/application/ui/shared/plural.ts';
+import { formatBytes } from '@src/application/ui/shared/format-bytes.ts';
+import type { ProjectRemovalPreview } from '@src/application/flows/delete-project/project-removal.ts';
 import { glyphs, inkColors, listCapacity, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { useAsyncLoad, type AsyncLoadState } from '@src/application/ui/tui/runtime/use-async-load.ts';
@@ -50,11 +55,13 @@ const useRenameProjectAction = (
         kind: 'short',
         currentValue: target.displayName,
         onSave: async (value) => {
-          const renamed = setProjectDisplayName(target, value);
-          if (!renamed.ok) return Result.error(renamed.error);
-          const saved = await deps.projectRepo.save(renamed.value);
+          const saved = await editFresh(
+            () => deps.projectRepo.findById(target.id),
+            (fresh) => setProjectDisplayName(fresh, value),
+            (next) => deps.projectRepo.save(next)
+          );
           if (!saved.ok) return Result.error(saved.error);
-          if (selection.projectId === target.id) selection.setProject(target.id, renamed.value.displayName);
+          if (selection.projectId === target.id) selection.setProject(target.id, saved.value.displayName);
           reload();
           return Result.ok(undefined);
         },
@@ -72,13 +79,13 @@ const useDeleteProjectAction = (
   setFeedback: (msg: string | undefined) => void,
   reload: () => void
 ): {
-  handleDeleteConfirmed: (target: Project, confirmed: boolean) => Promise<void>;
+  handleDeleteConfirmed: (target: Project, confirmed: boolean, cascade: boolean) => Promise<void>;
 } => {
   const deps = useDeps();
   const handleDeleteConfirmed = useCallback(
-    async (target: Project, confirmed: boolean) => {
+    async (target: Project, confirmed: boolean, cascade: boolean) => {
       if (!confirmed) return;
-      const r = await deps.projectRepo.remove(target.id);
+      const r = await deps.projectRemoval.remove(target.id, { cascade });
       if (!r.ok) {
         if (mountedRef.current) setFeedback(`${glyphs.cross} ${r.error.message}`);
         return;
@@ -87,12 +94,19 @@ const useDeleteProjectAction = (
       // runs unconditionally — the stale cursor must drop even if the operator navigated away mid-delete.
       if (selection.projectId === target.id) selection.setProject(undefined);
       if (!mountedRef.current) return;
-      setFeedback(`${glyphs.check} removed ${target.displayName}`);
+      const alsoRemoved = cascade ? ownedSummary(r.value.removedSprints, r.value.removedMemoryDirs, ' and its ') : '';
+      setFeedback(`${glyphs.check} removed ${target.displayName}${alsoRemoved}`);
       reload();
     },
     [deps, mountedRef, selection, setFeedback, reload]
   );
   return { handleDeleteConfirmed };
+};
+
+/** "2 sprints and memory" / "memory" / "1 sprint", prefixed — empty when nothing is owned, never "0 sprints". */
+const ownedSummary = (sprints: number, memoryDirs: number, prefix: string): string => {
+  const parts = [...(sprints > 0 ? [plural(sprints, 'sprint')] : []), ...(memoryDirs > 0 ? ['memory'] : [])];
+  return parts.length > 0 ? `${prefix}${parts.join(' and ')}` : '';
 };
 
 /** Private presentational component for a single project row. */
@@ -120,8 +134,8 @@ const ProjectRow = ({ project, focused }: { project: Project; focused: boolean }
           : ''}
       </Text>
       {project.repositories.slice(0, 2).map((r) => (
-        <Text key={r.id} dimColor>
-          {glyphs.activityArrow} {r.name} <Text dimColor>{r.path}</Text>
+        <Text key={r.id} dimColor wrap="truncate-middle">
+          {glyphs.activityArrow} {r.name} {r.path}
         </Text>
       ))}
       {project.repositories.length > 2 && (
@@ -134,33 +148,77 @@ const ProjectRow = ({ project, focused }: { project: Project; focused: boolean }
   </Box>
 );
 
-/** Destructive-delete gate for one project, naming what the removal leaves untouched. */
+/**
+ * Two-step removal gate: remove the project, then — only when it owns sprints or memory — ask separately (default No)
+ * whether to take those too.
+ */
 const ProjectDeleteConfirm = ({
   project,
   onSubmit,
   onCancel,
 }: {
   readonly project: Project;
-  readonly onSubmit: (confirmed: boolean) => void;
+  readonly onSubmit: (confirmed: boolean, cascade: boolean) => void;
   readonly onCancel: () => void;
-}): React.JSX.Element => (
-  <ConfirmCard
-    title={
-      <Text>
-        Remove project <Text bold>{project.displayName}</Text>?
-      </Text>
-    }
-    body={<Text dimColor>Sprints and repository contents are not touched.</Text>}
-    message="Delete?"
-    onSubmit={onSubmit}
-    onCancel={onCancel}
-  />
-);
+}): React.JSX.Element => {
+  const deps = useDeps();
+  const [preview, setPreview] = useState<ProjectRemovalPreview | 'unavailable' | undefined>(undefined);
+  const [step, setStep] = useState<'project' | 'children'>('project');
+
+  useEffect(() => {
+    let cancelled = false;
+    void deps.projectRemoval.preview(project.id).then((r) => {
+      if (!cancelled) setPreview(r.ok ? r.value : 'unavailable');
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [deps.projectRemoval, project.id]);
+
+  // Hold the card until the preview lands so a fast `y` can't skip the cascade question.
+  if (preview === undefined) return <LoadingRow label="Checking what this removes…" />;
+  const owned = preview !== 'unavailable' && (preview.sprints.length > 0 || preview.memoryDirs > 0);
+
+  if (step === 'children' && preview !== 'unavailable') {
+    return (
+      <ConfirmCard
+        key="children"
+        title={
+          <Text>
+            Also remove <Text bold>{ownedSummary(preview.sprints.length, preview.memoryDirs, 'its ')}</Text>?
+          </Text>
+        }
+        body={
+          <Text dimColor>
+            Deletes {formatBytes(preview.bytes)} for good. No keeps them as orphans you can clear from Housekeeping.
+          </Text>
+        }
+        message="Also remove?"
+        onSubmit={(cascade) => onSubmit(true, cascade)}
+        onCancel={onCancel}
+      />
+    );
+  }
+  return (
+    <ConfirmCard
+      key="project"
+      title={
+        <Text>
+          Remove project <Text bold>{project.displayName}</Text>?
+        </Text>
+      }
+      body={<Text dimColor>Repository contents on disk are not touched.</Text>}
+      message="Delete?"
+      onSubmit={(yes) => (yes && owned ? setStep('children') : onSubmit(yes, false))}
+      onCancel={onCancel}
+    />
+  );
+};
 
 interface ProjectsBodyProps {
   readonly helpOpen: boolean;
   readonly confirmDelete: Project | undefined;
-  readonly onDeleteSubmit: (confirmed: boolean) => void;
+  readonly onDeleteSubmit: (confirmed: boolean, cascade: boolean) => void;
   readonly onDeleteCancel: () => void;
   readonly state: AsyncLoadState<readonly Project[], unknown>;
   readonly window: ListWindow;
@@ -199,11 +257,15 @@ const ProjectsBody = ({
       errorMessage="Failed to load projects."
       isEmpty={total === 0}
       empty={
-        <EmptyState
-          title="No projects yet"
-          hint="Press c to create the first one."
-          action={`c ${glyphs.arrowRight} create  ${glyphs.bullet}  esc ${glyphs.arrowRight} back`}
-        />
+        <Box flexDirection="column">
+          <EmptyState
+            title="No projects yet"
+            hint="Press c to create the first one."
+            action={`c ${glyphs.arrowRight} create  ${glyphs.bullet}  esc ${glyphs.arrowRight} back`}
+          />
+          {/* Removing the last project lands here: its confirmation must not vanish with the list. */}
+          <FeedbackLine text={feedback} />
+        </Box>
       }
     >
       <Box flexDirection="column">
@@ -343,10 +405,10 @@ export const ProjectsView = (): React.JSX.Element => {
       <ProjectsBody
         helpOpen={ui.helpOpen}
         confirmDelete={confirmDelete}
-        onDeleteSubmit={(value) => {
+        onDeleteSubmit={(value, cascade) => {
           const pending = confirmDelete;
           setConfirmDelete(undefined);
-          if (pending !== undefined) void handleDeleteConfirmed(pending, value);
+          if (pending !== undefined) void handleDeleteConfirmed(pending, value, cascade);
         }}
         onDeleteCancel={() => setConfirmDelete(undefined)}
         state={state}

@@ -1,19 +1,10 @@
 import type { AiProvider } from '@src/domain/entity/settings.ts';
-import { AI_PROVIDERS, AI_PROVIDERS_HINT } from '@src/domain/entity/settings.ts';
+import { AI_PROVIDERS_HINT, isAiProvider } from '@src/domain/entity/settings.ts';
 import type { LaunchExtras } from '@src/application/ui/shared/launcher.ts';
 
 /**
- * Validate and shape the four bare-`ralphctl` flags that override the persisted
- * `settings.ai.implement` pair for one launch:
- *
- *   --implement-generator-provider <AI_PROVIDERS_HINT>
- *   --implement-generator-model    <id>
- *   --implement-evaluator-provider <AI_PROVIDERS_HINT>
- *   --implement-evaluator-model    <id>
- *
- * Each role is `{ provider, model }` together. Supplying only one half of a pair is rejected
- * with a focused message naming the required matching flag — the operator should never end
- * up with a half-baked override silently falling back to the persisted row.
+ * Validate and shape the four bare-`ralphctl` flags that override the persisted `settings.ai.implement` pair for one
+ * launch.
  */
 
 export type ParseImplementRoleOverridesResult =
@@ -27,19 +18,13 @@ export interface ImplementRoleFlagsInput {
   readonly evaluatorModel?: string;
 }
 
-const ALLOWED_PROVIDERS: ReadonlySet<AiProvider> = new Set(AI_PROVIDERS);
-
-const isAiProvider = (v: string): v is AiProvider => ALLOWED_PROVIDERS.has(v as AiProvider);
-
 const parseRole = (
   role: 'generator' | 'evaluator',
   provider: string | undefined,
   model: string | undefined
 ): { ok: true; row?: { provider: AiProvider; model: string } } | { ok: false; error: string } => {
-  // Validate well-formed pair: both flags or neither. The error message names the missing
-  // counterpart so the operator sees exactly which flag to add. We surface this before any
-  // value validation so a typo'd provider on the supplied half doesn't shadow the more
-  // actionable "you forgot the matching flag" message.
+  // Validate well-formed pair: both flags or neither. The error message names the missing counterpart so the operator
+  // sees exactly which flag to add.
   if (provider !== undefined && model === undefined) {
     return {
       ok: false,

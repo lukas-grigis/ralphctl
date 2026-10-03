@@ -227,19 +227,19 @@ const restoreClosedSprint = async (props: UnblockTaskProps, closed: DoneSprint, 
 
 /**
  * `review` → `active`, AFTER the task write. Best-effort: the task is already revived, so a failure
- * is logged and swallowed — the already-`todo` short-circuit retries it. Returns the persisted
- * active sprint, or `undefined` when nothing was reopened.
+ * is logged and swallowed — the already-`todo` short-circuit retries it. Returns the hop to report
+ * (still carrying the `review` sprint when it didn't persist), or `undefined` for a non-`review` sprint.
  */
 const activateReviewSprint = async (
   props: UnblockTaskProps,
   sprint: Sprint,
   log: Logger
-): Promise<ActiveSprint | undefined> => {
+): Promise<SprintReopened | undefined> => {
   if (sprint.status !== 'review') return undefined;
   const toActive = revertSprintToActive(sprint, props.clock());
   if (!toActive.ok) {
     log.warn('could not reopen sprint after unblock', { sprintId: props.sprintId, error: toActive.error.message });
-    return undefined;
+    return { from: 'review', sprint };
   }
   const saved = await props.sprintRepo.save(toActive.value);
   if (!saved.ok) {
@@ -248,12 +248,12 @@ const activateReviewSprint = async (
       hop: 'review → active',
       error: saved.error.message,
     });
-    return undefined;
+    return { from: 'review', sprint };
   }
   log.info(`sprint '${toActive.value.slug}' reopened review → active to resume unblocked work`, {
     sprintId: props.sprintId,
   });
-  return toActive.value;
+  return { from: 'review', sprint: toActive.value };
 };
 
 /**
@@ -275,19 +275,7 @@ const finishInterruptedReopen = async (
     });
     return Result.ok(outputOf(task, undefined, undefined));
   }
-  const active = await activateReviewSprint(props, loaded.value, log);
-  // `activateReviewSprint` no-ops (returns `undefined`) both when the sprint isn't `review` (this
-  // short-circuit only ever reopens a `review` sprint, so that can't happen here) and when the
-  // hop failed to persist. Report the still-`review` sprint in the latter case so the caller never
-  // renders a plain success while the retry hop is still stuck — see `SprintReopened`'s doc
-  // comment.
-  const reopened: SprintReopened | undefined =
-    active !== undefined
-      ? { from: 'review', sprint: active }
-      : loaded.value.status === 'review'
-        ? { from: 'review', sprint: loaded.value }
-        : undefined;
-  return Result.ok(outputOf(task, reopened, undefined));
+  return Result.ok(outputOf(task, await activateReviewSprint(props, loaded.value, log), undefined));
 };
 
 /** Persist only the revived task via the single-task `update` — no whole-list rewrite needed. */
@@ -398,20 +386,10 @@ export const unblockTaskUseCase = async (
     return Result.error(persisted.error);
   }
 
-  const active = await activateReviewSprint(props, before.value.sprint, log);
+  const hop = await activateReviewSprint(props, before.value.sprint, log);
   if (before.value.kind === 'reopened') {
-    return Result.ok(outputOf(primary, { from: 'done', sprint: active ?? before.value.sprint }, undefined));
+    return Result.ok(outputOf(primary, { from: 'done', sprint: hop?.sprint ?? before.value.sprint }, undefined));
   }
-  // The sprint was already `review` (not `done`) when loaded — no first hop was needed. If the
-  // second hop still failed to persist, report the residual `review` sprint (see
-  // `SprintReopened`'s doc comment) so the caller never shows a plain success while the sprint is
-  // still stuck short of `active`. A conflict-refused `done` sprint stays `done`, not `review`, so
-  // this branch never fires for that case — `sprintReopenConflict` alone reports it.
-  const reopened: SprintReopened | undefined =
-    active !== undefined
-      ? { from: 'review', sprint: active }
-      : before.value.sprint.status === 'review'
-        ? { from: 'review', sprint: before.value.sprint }
-        : undefined;
-  return Result.ok(outputOf(primary, reopened, before.value.conflict));
+  // A conflict-refused `done` sprint isn't `review`, so only `sprintReopenConflict` reports it.
+  return Result.ok(outputOf(primary, hop, before.value.conflict));
 };

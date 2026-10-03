@@ -198,8 +198,9 @@ real step list for the TUI plan.
 supplies the policy — which error codes are safe to skip past — and the wrapper owns the mechanics: it
 preserves the inner failure trace, flows the ctx that _entered_ the wrapper onward (so a half-finished
 sub-chain leaks no partial state), and optionally publishes a warn banner. `AbortError` is exempted
-**inside** the wrapper, so no caller can forget it; readiness's per-provider fan-out is the current
-consumer. Adding absorption to a new flow means calling this helper with a new predicate, not writing a
+**inside** the wrapper, so no caller can forget it; readiness's per-provider fan-out and create-pr's
+`create-pr-ai` segment (any non-abort failure falls back to the template PR content) are the current
+consumers. Adding absorption to a new flow means calling this helper with a new predicate, not writing a
 bespoke element and not adding a primitive.
 
 ## Trace contract

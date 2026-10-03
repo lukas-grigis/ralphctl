@@ -5,6 +5,7 @@ import {
   isVerifiedAttempt,
   recordAttemptVerification,
   startAttempt,
+  verifyAttempt,
 } from '@src/domain/entity/attempt.ts';
 import { FIXED_LATER, FIXED_NOW } from '@tests/fixtures/domain.ts';
 
@@ -24,16 +25,16 @@ describe('startAttempt', () => {
   });
 });
 
-describe('completeAttempt', () => {
-  const seed = () => {
-    const r = startAttempt({ n: 1, startedAt: FIXED_NOW });
-    if (!r.ok) throw new Error('seed');
-    return r.value;
-  };
+const seed = () => {
+  const r = startAttempt({ n: 1, startedAt: FIXED_NOW });
+  if (!r.ok) throw new Error('seed');
+  return r.value;
+};
 
+describe('verifyAttempt', () => {
   it('transitions to verified when verification is set', () => {
     const att = recordAttemptVerification(seed());
-    const r = completeAttempt(att, 'verified', FIXED_LATER);
+    const r = verifyAttempt(att, FIXED_LATER);
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.value.status).toBe('verified');
@@ -41,16 +42,16 @@ describe('completeAttempt', () => {
   });
 
   it('rejects verified completion without verification', () => {
-    const r = completeAttempt(seed(), 'verified', FIXED_LATER);
+    const r = verifyAttempt(seed(), FIXED_LATER);
     expect(r.ok).toBe(false);
   });
+});
 
+describe('completeAttempt', () => {
   it.each(['failed', 'malformed', 'aborted'] as const)('transitions to %s without verification', (status) => {
-    const r = completeAttempt(seed(), status, FIXED_LATER);
-    expect(r.ok).toBe(true);
-    if (!r.ok) return;
-    expect(r.value.status).toBe(status);
-    expect(r.value.finishedAt).toBe(FIXED_LATER);
+    const settled = completeAttempt(seed(), status, FIXED_LATER);
+    expect(settled.status).toBe(status);
+    expect(settled.finishedAt).toBe(FIXED_LATER);
   });
 
   it.each([
@@ -62,50 +63,40 @@ describe('completeAttempt', () => {
     'self-blocked',
     'unknown',
   ] as const)('stamps abortCause=%s on aborted attempt', (cause: AbortCause) => {
-    const r = completeAttempt(seed(), 'aborted', FIXED_LATER, { abortCause: cause });
-    expect(r.ok).toBe(true);
-    if (!r.ok) return;
+    const settled = completeAttempt(seed(), 'aborted', FIXED_LATER, { abortCause: cause });
     // Discriminated narrowing — the field is only meaningful on aborted attempts.
-    expect(r.value.status).toBe('aborted');
-    if (r.value.status !== 'aborted') return;
-    expect(r.value.abortCause).toBe(cause);
+    expect(settled.status).toBe('aborted');
+    if (settled.status !== 'aborted') return;
+    expect(settled.abortCause).toBe(cause);
   });
 
   it('stamps signalOrExitCode (string) on aborted attempt when supplied', () => {
-    const r = completeAttempt(seed(), 'aborted', FIXED_LATER, {
+    const settled = completeAttempt(seed(), 'aborted', FIXED_LATER, {
       abortCause: 'sigterm',
       signalOrExitCode: 'SIGTERM',
     });
-    expect(r.ok).toBe(true);
-    if (!r.ok) return;
-    expect(r.value.signalOrExitCode).toBe('SIGTERM');
+    expect(settled.signalOrExitCode).toBe('SIGTERM');
   });
 
   it('stamps signalOrExitCode (number) on aborted attempt when supplied', () => {
-    const r = completeAttempt(seed(), 'aborted', FIXED_LATER, {
+    const settled = completeAttempt(seed(), 'aborted', FIXED_LATER, {
       abortCause: 'user-cancel',
       signalOrExitCode: 130,
     });
-    expect(r.ok).toBe(true);
-    if (!r.ok) return;
-    expect(r.value.signalOrExitCode).toBe(130);
+    expect(settled.signalOrExitCode).toBe(130);
   });
 
   it('omits abortCause / signalOrExitCode when no abortMeta supplied (legacy data path)', () => {
-    const r = completeAttempt(seed(), 'aborted', FIXED_LATER);
-    expect(r.ok).toBe(true);
-    if (!r.ok) return;
-    expect(r.value.abortCause).toBeUndefined();
-    expect(r.value.signalOrExitCode).toBeUndefined();
+    const settled = completeAttempt(seed(), 'aborted', FIXED_LATER);
+    expect(settled.abortCause).toBeUndefined();
+    expect(settled.signalOrExitCode).toBeUndefined();
   });
 
   it('ignores abortMeta on non-aborted terminal statuses', () => {
     // Sanity guard: even if a caller passes abortMeta on `failed` or `malformed`, the
     // domain treats it as a no-op — abort attribution lives on aborted attempts only.
     const failed = completeAttempt(seed(), 'failed', FIXED_LATER, { abortCause: 'unknown' });
-    expect(failed.ok).toBe(true);
-    if (!failed.ok) return;
-    expect(failed.value.abortCause).toBeUndefined();
+    expect(failed.abortCause).toBeUndefined();
   });
 });
 

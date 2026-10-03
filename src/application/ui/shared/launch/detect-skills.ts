@@ -4,9 +4,12 @@ import { createDetectSkillsFlow } from '@src/application/flows/detect-skills/flo
 import type { DetectSkillsCtx } from '@src/application/flows/detect-skills/ctx.ts';
 import type { LaunchContext } from '@src/application/ui/shared/launch/context.ts';
 import type { LaunchResult } from '@src/application/ui/shared/launcher.ts';
+import { checkCli } from '@src/application/ui/shared/launch/check-cli.ts';
 
-export const launchDetectSkills = (ctx: LaunchContext): LaunchResult => {
+export const launchDetectSkills = async (ctx: LaunchContext): Promise<LaunchResult> => {
   const { deps, snapshot, extras, settings, provider, skillsAdapter, bridge, sessionId, effort } = ctx;
+  const missing = await checkCli('detect-skills', settings, { override: extras.override });
+  if (missing !== undefined) return missing;
   if (!snapshot.project) return { ok: false, reason: 'No project loaded.' };
   const element: Element<DetectSkillsCtx> = createDetectSkillsFlow(
     {
@@ -22,9 +25,7 @@ export const launchDetectSkills = (ctx: LaunchContext): LaunchResult => {
     },
     {
       projectId: snapshot.project.id,
-      // Reuse the readiness row — same read-only inventory shape. Override flows in through
-      // ctx.settings (launcher applied it to ai.readiness when the picker emitted a non-empty
-      // override), so per-field fallback is automatic.
+      // Reuse the readiness row — same read-only inventory shape.
       model: settings.ai.readiness.model,
       ...(effort !== undefined ? { effort } : {}),
       ...(extras.repositoryId !== undefined ? { repositoryId: extras.repositoryId } : {}),

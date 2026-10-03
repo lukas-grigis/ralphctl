@@ -185,6 +185,14 @@ describe('updateTask', () => {
     expect(r.value.extraDimensions).toBeUndefined();
     expect(r.value.maxAttempts).toBeUndefined();
   });
+
+  it('rejects a whitespace-only description instead of silently clearing it', () => {
+    const seed = { ...makeTodoTask(), description: 'keep me' };
+    const r = updateTask(seed, { description: '   ' });
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.error).toMatchObject({ field: 'task.description' });
+  });
 });
 
 describe('createTask — field validation', () => {

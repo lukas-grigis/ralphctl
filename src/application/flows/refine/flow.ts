@@ -17,6 +17,7 @@ import { renderContractSectionFor } from '@src/integration/ai/contract/_engine/r
 import { refineOutputContract } from '@src/application/flows/refine/leaves/refine.contract.ts';
 import { aiUnitEpilogue, aiUnitPrelude } from '@src/application/flows/_shared/ai-unit-segment.ts';
 import { assertCtxField } from '@src/application/flows/_shared/_engine/assert-ctx-field.ts';
+import { createPublishSignal } from '@src/application/flows/_shared/publish-signal.ts';
 
 export interface CreateRefineFlowOpts {
   readonly sprintId: SprintId;
@@ -121,6 +122,7 @@ export const createRefineFlow = (deps: RefineDeps, opts: CreateRefineFlowOpts): 
           runInTerminal: deps.runInTerminal,
           logger: deps.logger,
           writeFile: deps.writeFile,
+          publishSignal: createPublishSignal(deps.eventBus, 'refine'),
           eventBus: deps.eventBus,
           model: opts.model,
           ...(opts.effort !== undefined ? { effort: opts.effort } : {}),

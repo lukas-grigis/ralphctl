@@ -27,12 +27,12 @@ import {
   handleNonFailedOutcome,
   handleRedBaseline,
   isCarriedGreenForThisCwd,
+  isFreshSetupEligible,
   runPreVerifyGate,
-  tryCarryBaselineShortCircuit,
-  tryFreshSetupShortCircuit,
+  tryShortCircuitGreenBaseline,
   withReproductionTestExcluded,
 } from '@src/application/flows/implement/leaves/pre-task-verify-internals/verify-execution.ts';
-import { persistPreVerifyLog } from '@src/application/flows/implement/leaves/pre-task-verify-internals/output-capping.ts';
+import { persistVerifyLog } from '@src/application/flows/implement/leaves/verify-log.ts';
 
 // Re-exported so `post-task-verify.ts` (which shares the abort-aware shell adapter) keeps
 // importing it from this leaf's public surface — the definition itself now lives in
@@ -100,12 +100,7 @@ export interface PreTaskVerifyLeafDeps {
    * mutating the global process object.
    */
   readonly environment?: PreTaskVerifyEnvironment;
-  /**
-   * Atomic whole-file writer for the persisted verify log — see `persistPreVerifyLog` in
-   * `pre-task-verify-internals/output-capping.ts`. Optional: callers that don't wire the port
-   * fall back to the direct `writeTextAtomic` adapter via that module's `defaultWriteFile`, so
-   * behaviour is unchanged either way.
-   */
+  /** Atomic writer for the persisted verify log; unwired callers fall back to verify-log.ts's atomic default. */
   readonly writeFile?: WriteFile;
 }
 
@@ -293,11 +288,15 @@ export const preTaskVerifyLeaf = (
       execute: async (input, signal): Promise<Result<LeafOutput, DomainError>> => {
         const carriedGreenForThisCwd = isCarriedGreenForThisCwd(input, opts.cwd);
 
-        const carried = await tryCarryBaselineShortCircuit(deps, opts, input, carriedGreenForThisCwd);
-        if (carried !== undefined) return Result.ok(carried);
-
-        const freshSetup = await tryFreshSetupShortCircuit(deps, opts, input, carriedGreenForThisCwd);
-        if (freshSetup !== undefined) return Result.ok(freshSetup);
+        const reason = carriedGreenForThisCwd
+          ? 'carried green baseline'
+          : isFreshSetupEligible(opts, input, carriedGreenForThisCwd)
+            ? "this run's setup verified the tree green"
+            : undefined;
+        if (reason !== undefined) {
+          const short = await tryShortCircuitGreenBaseline(deps, opts, input, taskId, reason);
+          if (short !== undefined) return short;
+        }
 
         // Exclude the reproduction test's own path from the baseline gate run (confirmed[9]) —
         // see `withReproductionTestExcluded`'s docstring for why this must reapply on every
@@ -325,7 +324,7 @@ export const preTaskVerifyLeaf = (
           );
         }
 
-        await persistPreVerifyLog(deps, opts, input, rawOutput);
+        await persistVerifyLog(deps, 'pre', opts.cwd, opts.sprintDir, input.task, rawOutput);
 
         const appended = await appendAndPersistPreVerifyRun(deps, input, taskId, run);
         if (!appended.ok) return Result.error(appended.error);

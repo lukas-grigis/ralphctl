@@ -25,6 +25,7 @@
  */
 
 import { useInput, type Key } from 'ink';
+import { useOptionalOverlayState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { useViewHints, type ViewHint } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
 
 export interface ViewKeyBinding {
@@ -57,14 +58,22 @@ const toHint = (binding: ViewKeyBinding): ViewHint => ({
   ...(binding.enabled !== undefined ? { enabledWhen: binding.enabled } : {}),
 });
 
+/** A binding token matches a printable key verbatim, plus `↵` (return) and `space` by name. */
+const matchesKey = (token: string, input: string, key: Key): boolean =>
+  token === '↵' ? key.return : token === 'space' ? input === ' ' : token === input;
+
 export const useViewKeys = (bindings: readonly ViewKeyBinding[], options: UseViewKeysOptions = {}): void => {
-  const active = options.active ?? true;
+  // An open overlay (help included) owns the keyboard; the hidden view must stay inert beneath it.
+  const overlayOpen = useOptionalOverlayState()?.overlayOpen === true;
+  const active = (options.active ?? true) && !overlayOpen;
 
   useInput(
     (input, key) => {
+      // ctrl+c is the quit chord and ctrl+x is never `x`: a chord must not land on a bare-letter binding.
+      if (key.ctrl || key.meta) return;
       for (const binding of bindings) {
         if (binding.run === undefined || binding.enabled === false) continue;
-        if (!binding.keys.includes(input)) continue;
+        if (!binding.keys.some((token) => matchesKey(token, input, key))) continue;
         binding.run(input, key);
         return;
       }

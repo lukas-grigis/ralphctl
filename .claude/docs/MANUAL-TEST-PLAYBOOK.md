@@ -166,14 +166,17 @@ optional `events.ndjson` step below, run that implement spawn with `RALPHCTL_DEB
 
 **Setup:** a sprint mid-implement with at least one task `in_progress`.
 
-1. Force-quit ralphctl (Ctrl+C or kill the process)
+1. Force-quit ralphctl (`kill -9` the process; a plain `q` / Ctrl+C with a live run asks first — Scenario 25)
 2. Re-launch `pnpm dev`
 3. Re-enter the **Implement** flow on the same sprint
 4. **Expected:** any task left in `in_progress` from the prior run stays `in_progress` and is queued FIRST.
-   On its first `start-attempt` the prior `running` attempt is settled as `aborted` (cause `process-crash`,
-   visible in the per-task attempts panel) — you WILL see the aborted attempt in history. A fresh attempt
-   opens and the task resumes in place; it does not reset to `todo`.
+   On its first `start-attempt` the prior `running` attempt is settled as `aborted` (cause
+   `harness-interrupted`, visible in the per-task attempts panel) — you WILL see the aborted attempt in history.
+   A fresh attempt opens and the task resumes in place; it does not reset to `todo`, and the aborted attempt
+   does not use up a `maxAttempts` slot.
 5. **Expected:** completed tasks stay `DONE`; planned ones stay `TODO`; no double-execution
+
+For the full crash-and-resume walk-through (interrupted rows, orphaned AI processes), see Scenario 25.
 
 ---
 
@@ -211,7 +214,7 @@ For every prompt context (an editor, a select, an input):
 
 ## Scenario 9 — doctor
 
-1. Press the doctor hotkey from anywhere
+1. Press `!` from anywhere (or pick **Doctor** in Home's SYSTEM group)
 2. **Expected:** doctor view runs all checks: Node version, git, configured AI provider binary + auth
    (per-provider — Claude/Codex show pass/warn, OpenCode shows credential count, Copilot and Grok
    always show `unknown` since neither CLI has an auth-status verb; Grok: sign in with `grok login`),
@@ -226,17 +229,20 @@ For every prompt context (an editor, a select, an input):
 **Setup:** a sprint in `review` status (every task `done`).
 
 1. From Home, select the **Review** flow
-2. **Expected:** routed to Execute view, the multi-line editor prompt appears asking for feedback
-3. Type a short feedback message; Ctrl+D to submit
+2. **Expected:** the "Distill … [y/N]" confirm opens with **No** focused; `↵` keeps it off. Then the Execute view
+   opens and the multi-line editor prompt asks for feedback
+3. Type a short feedback message; `↵` to submit
 4. **Expected:** AI CLI takes over; resumes the relevant tasks via session-id resume to apply the feedback
 5. AI exits; verify scripts re-run; evaluator re-runs
 6. **Expected:** progress.md gets the new round's entries; if `RALPHCTL_DEBUG_TRACE=1` is set, events.ndjson captures
    the trace
-7. From the same flow, submit an EMPTY input (just Ctrl+D)
-8. **Expected:** the loop exits cleanly, sprint stays in `review`
+7. From the same flow, submit an EMPTY input (just `↵`)
+8. **Expected:** the loop exits and the sprint moves to `done` — an empty round is the end-of-review decision
+   (WORKFLOWS.md, sprint lifecycle †). With a `blocked` task, a confirm naming it comes first; declining leaves
+   the sprint in `review`
+9. To leave a sprint in `review` instead, cancel the feedback prompt with `esc`
 
-To close the sprint: `ralphctl sprint close <sprint-id>` from a separate terminal, or pick the Close flow
-from the TUI.
+The explicit close is the other door: `ralphctl sprint close <sprint-id>`, or the Close sprint flow in the TUI.
 
 ---
 
@@ -332,6 +338,9 @@ original project selection must be unchanged on the breadcrumb.
 7. **Expected:** terminal B acquires the lock and resumes normally — the previously `in_progress` task stays
    `in_progress` and is queued FIRST; `start-attempt` settles the crashed `running` attempt as `aborted`
    (kept in history) and opens a fresh attempt automatically
+8. Repeat steps 1–4 but `kill -9` terminal A's ralphctl and re-launch in B immediately — **expected:** a dead
+   owner on the same host is reclaimed at once (no ~30 s wait). While A is still alive, B's contention message
+   names it: "another ralphctl (pid N) is running implement on this repo"
 
 **Negative tests:**
 
@@ -651,6 +660,96 @@ followed by `note: 1 task(s) stayed blocked: Task A` and `recover with: ralphctl
 7. **Expected:** the blocked count is still `1` (not `2`, not `0`) on every surface exercised in 21b (Home
    card, Sprints list, sprint-detail's `Tasks` field) — one task, blocked twice, still reads as one
    blocked task
+
+---
+
+## Scenario 22 — Home groups, accelerators and the SYSTEM entries
+
+1. On Home, check the groups — **expected:** SWITCH SPRINT (recent sprints on `1`–`5`, `+` Create new sprint), WORK
+   (`n` Start a flow, `r` Sprints, `S` Switch sprint, `a` Add ticket, `P` Switch project, `p` Projects), OBSERVE
+   (`x` Active sessions) and SYSTEM (`s` Settings, `K` Skills catalog, `!` Doctor, `H` Housekeeping), each with its
+   `[hotkey]` beside the label
+2. Press `S` — **expected:** the full-screen Switch sprint view; `Esc` returns to Home with the selection unchanged
+3. From any view press `h`, `p`, `x`, `s`, `!`, `n` — **expected:** Home, Projects, Active sessions, Settings,
+   Doctor, Flows
+4. With an interrupted task or a run waiting on you, **expected:** Home's NEEDS ATTENTION group lists it above
+   SWITCH SPRINT (the group is absent when nothing needs you)
+5. Press `!` — **expected:** Doctor lists what needs fixing first; `↵` toggles the passed probes, `r` reloads
+6. Resize to 80x24 — **expected:** header and footer each clip to one line; no row wraps
+
+---
+
+## Scenario 23 — WAITING and notifications
+
+**Setup:** an AI flow that asks the operator a question (e.g. refine's approval prompt), launched then detached
+with `D` or left via `Tab`.
+
+1. While the run waits on you, check Home, the footer and the flow strip — **expected:** a `[WAITING]` row under
+   NEEDS ATTENTION on Home (`↵` opens the run), `[WAITING]` in the footer, a `WAITING` chip on the run's strip
+   entry; Active sessions shows the run as `waiting`
+2. **Expected:** an OS notification `Waiting on you` fires once (unless `settings.ui.notifications.enabled` is off)
+3. Jump to the run — **expected:** the prompt card is titled `Question  from <Flow> · <sprint>` when the run is
+   not the one on screen; answering clears every WAITING mark
+4. Let a run longer than two minutes finish while detached — **expected:** a completion notification
+
+---
+
+## Scenario 24 — Housekeeping
+
+**Setup:** a data dir with an orphan sprint dir (project deleted by hand) and an old `done` sprint.
+
+1. Press `H` on Home (SYSTEM group) — **expected:** candidates grouped (orphan sprints, orphan memory, old done
+   sprints, old runs), each row with its size, nothing marked
+2. `space` marks a row, `a` marks all, `c` clears — **expected:** the selection line shows the total reclaim size
+3. `↵` — **expected:** a confirm card over the marked rows; `Esc` cancels with nothing deleted
+4. Confirm — **expected:** a removed / skipped / failed report, then the list rescans; `r` rescans on demand
+5. Projects (`p`), `d` on a project that owns sprints — **expected:** removal asks separately whether to also
+   remove its sprints and memory; declining removes only the project
+6. Start a flow, then try Housekeeping's delete, a sprint delete and a project removal — **expected:** each is
+   refused while the flow runs
+
+---
+
+## Scenario 25 — crash and resume
+
+**Setup:** a sprint mid-implement on a real AI CLI, with a task whose generator has started (an AI process is
+running). Do this on a throwaway sprint.
+
+1. From another terminal, `kill -9` the ralphctl process (not the AI CLI) — **expected:** within a few seconds the
+   orphaned AI CLI and the tool processes it started are gone (`ps` shows no leftover `claude` / `codex` / …
+   children of that run); `<stateRoot>/runs/<run-id>.json` is still on disk
+2. Re-launch `pnpm dev` — **expected:** Home's NEEDS ATTENTION group shows `"<task>" was interrupted · attempt N ·
+<age> ago` with the uncommitted-change count and `session resumable`; Active sessions lists the dead run with
+   `↵` (resume on Home) and `d` (dismiss)
+3. `↵` on the NEEDS ATTENTION row — **expected:** Implement launches; the dirty-tree preflight says the changes
+   come from the interrupted attempt and `Keep` is the default
+4. **Expected:** the task's attempts panel shows the old attempt as `aborted` (`harness-interrupted`) and a new
+   attempt; the generator continues the session with the short resume prompt (see `rounds/<N>/generator/prompt.md`).
+   If the provider no longer has the session the run falls back to the full brief
+5. Change the provider or model in Settings between steps 1 and 3 — **expected:** the resume starts cold (no
+   session reuse); nothing blocks
+6. Parallel sprint (≥2 independent tasks): repeat step 1 — **expected:** the stranded `wt-<task>` worktree is
+   adopted on relaunch; with no interrupted attempt it blocks the task with a worktree hint instead of
+   wedging every launch
+7. `d` on an interrupted run in Active sessions — **expected:** the record is dismissed and the row disappears
+
+---
+
+## Scenario 26 — quit with live runs
+
+**Setup:** an Implement run in progress.
+
+1. From Home press `q` — **expected:** `1 run live — quit stops them? [y/N]`; `n`, `Esc` or `↵` keeps the run going
+2. Press `q` then `y` — **expected:** the run is aborted cleanly (no AI processes left, the task is not left
+   `running`) and ralphctl exits; `Ctrl+C` during the stop quits at once
+3. With no live runs, `q` exits immediately
+4. On the run view, `q` does nothing (it quits only from Home); `Ctrl+C` — **expected:** only the quit confirm opens;
+   the cancel picker (`c`) does not
+5. Start Create sprint, leave the name prompt open, `Ctrl+C` then `y` — **expected:** ralphctl exits at once
+   rather than staying on `Stopping 1 run`
+6. With the quit confirm or another overlay open, press `q` — **expected:** nothing quits through it
+7. Quit with `y` mid-attempt, relaunch — **expected:** the task is not listed as interrupted; the next Implement
+   shows `attempt 1/3` (the stopped attempt cost nothing)
 
 ---
 

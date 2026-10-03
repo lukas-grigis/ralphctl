@@ -29,7 +29,7 @@ const probe = (p: Pick<ProbeResult, 'id' | 'label' | 'status'> & Partial<ProbeRe
 const deps = {} as unknown as AppDeps;
 
 describe('DoctorView', () => {
-  it('renders the grouped probe report with a summary header', async () => {
+  it('collapses passing probes behind a count and expands them on ↵', async () => {
     reportRef.current = {
       probes: [
         probe({ id: 'data-root', label: 'Data root readable', status: 'pass', group: 'storage' }),
@@ -39,12 +39,35 @@ describe('DoctorView', () => {
       hasFailures: false,
     };
     const { result } = renderView(<DoctorView />, { deps, initial: { id: 'doctor' } });
-    await waitForPredicate(() => /passed/.test(result.lastFrame() ?? ''));
+    await waitForPredicate(() => /2 passed/.test(result.lastFrame() ?? ''));
+    expect(result.lastFrame()).not.toContain('Storage');
+    expect(result.lastFrame()).toContain('show passed');
+    result.stdin.write('\r');
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('Storage'));
     const frame = result.lastFrame() ?? '';
-    expect(frame).toMatch(/passed/);
-    expect(frame).toContain('Storage');
     expect(frame).toContain('AI providers');
+    expect(frame).toContain('hide passed');
     expect(frame).toContain('r reload');
+  });
+
+  it('leads with the group that fails and keeps its hint on one line', async () => {
+    const hint =
+      'run `git -C /Users/me/Workzone/github/someone/some-long-repository-name-here remote set-head origin --auto` to discover it';
+    reportRef.current = {
+      probes: [
+        probe({ id: 'data-root', label: 'Data root readable', status: 'pass', group: 'storage' }),
+        probe({ id: 'ai-claude-code', label: 'Claude Code', status: 'fail', hint }),
+      ],
+      allPassed: false,
+      hasFailures: true,
+    };
+    const { result } = renderView(<DoctorView />, { deps, initial: { id: 'doctor' } });
+    await waitForPredicate(() => /Claude Code/.test(result.lastFrame() ?? ''));
+    const frame = result.lastFrame() ?? '';
+    expect(frame.indexOf('AI providers')).toBeLessThan(frame.indexOf('1 passed'));
+    const hintLine = frame.split('\n').find((l) => l.includes('hint:')) ?? '';
+    expect(hintLine).toContain('remote set-head origin --auto` to discover it');
+    expect(hintLine).toContain('…');
   });
 
   it('publishes the r reload hint', async () => {

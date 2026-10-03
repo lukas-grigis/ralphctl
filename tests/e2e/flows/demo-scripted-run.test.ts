@@ -41,6 +41,8 @@ import { createFsSprintRepository } from '@src/integration/persistence/sprint/re
 import { createFsTaskRepository } from '@src/integration/persistence/task/repository.ts';
 import { createJsonSettingsRepository } from '@src/integration/persistence/settings/json-settings-repository.ts';
 import { resolveSprintDir } from '@src/integration/persistence/storage.ts';
+import type { ProviderSpawn } from '@src/integration/ai/providers/_engine/spawn.ts';
+import type { RegisteredChild } from '@src/integration/ai/providers/_engine/child-registry.ts';
 
 const FIXED_NOW = (): IsoTimestamp => '2026-08-14T10:00:00.000Z' as IsoTimestamp;
 
@@ -100,7 +102,22 @@ describe('ralphctl demo --script', () => {
     expect(settings.value.ai.implement.generator.provider).toBe('claude-code');
     expect(settings.value.ai.implement.evaluator.provider).toBe('claude-code');
 
-    const app = wire({ storage: paths, settings: settings.value, providerSpawn: scripted.value.providerSpawn });
+    // Give the scripted children pids so the run's child registrations are observable.
+    let nextPid = 990_000;
+    const providerSpawn: ProviderSpawn = (command, args, options) =>
+      Object.assign(scripted.value.providerSpawn(command, args, options), { pid: (nextPid += 1) });
+    const wired = wire({ storage: paths, settings: settings.value, providerSpawn });
+    const registered: RegisteredChild[] = [];
+    const app = {
+      ...wired,
+      childRegistry: {
+        ...wired.childRegistry,
+        register: (child: RegisteredChild) => {
+          registered.push(child);
+          return wired.childRegistry.register(child);
+        },
+      },
+    };
     const deps: LauncherDeps = {
       app,
       storage: paths,
@@ -142,6 +159,15 @@ describe('ralphctl demo --script', () => {
     // an earlier iteration of this transcript failed silently while the trace still looked plausible.
     const commitStep = launched.runner.trace.find((entry) => entry.elementName.startsWith('commit-task-'));
     expect(commitStep?.status).toBe('completed');
+
+    // Every AI session the launcher built went through the wired child registry.
+    expect(registered.map((c) => `${c.provider}:${String(c.role)}`)).toEqual([
+      'claude-code:generator',
+      'claude-code:evaluator',
+      'claude-code:generator',
+      'claude-code:evaluator',
+    ]);
+    expect(wired.childRegistry.liveChildren()).toBe(0);
 
     // The task settled done off the PASSing second round.
     const tasks = await createFsTaskRepository({ root: paths.dataRoot }).findBySprintId(target.id);

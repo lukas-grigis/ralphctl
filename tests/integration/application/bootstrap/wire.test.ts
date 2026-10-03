@@ -19,9 +19,13 @@ import { makeDraftSprint, makeDraftSprintBundle, makePendingTicket, makeProject 
 import { createFsTemplateLoader, defaultTemplatesDir } from '@src/integration/ai/prompts/_engine/fs-template-loader.ts';
 import type { ProviderSpawn } from '@src/integration/ai/providers/_engine/spawn.ts';
 import { createRunner } from '@src/application/chain/run/runner.ts';
+import { holdFlowLock } from '@tests/helpers/hold-flow-lock.ts';
+import { createGatedRunner } from '@tests/helpers/gated-runner.ts';
 
 describe('wire', () => {
   let tmpHome: string;
+  // Live-run record writes land asynchronously after a run settles; teardown must not race them.
+  let pendingFlushes: Array<() => Promise<void>> = [];
 
   beforeEach(async () => {
     const raw = await fs.mkdtemp(join(tmpdir(), 'ralphctl-wire-'));
@@ -29,6 +33,8 @@ describe('wire', () => {
   });
 
   afterEach(async () => {
+    await Promise.all(pendingFlushes.map((flush) => flush()));
+    pendingFlushes = [];
     await fs.rm(tmpHome, { recursive: true, force: true });
   });
 
@@ -106,6 +112,37 @@ describe('wire', () => {
     const onContent = await fs.readFile(String(onFile.value), 'utf8');
     expect(onContent).toContain('=== chain-run r-on implement started');
     expect(onContent).toContain('"chainId":"r-on"');
+  });
+
+  it('guards data removal on both run sources: a held flow lock and an unsettled in-process run', async () => {
+    const appRoot = AbsolutePath.parse(`${tmpHome}/.ralphctl-test`);
+    if (!appRoot.ok) throw new Error('appRoot parse failed');
+    const paths = storagePathsFromRoot(appRoot.value);
+    if (!paths.ok) throw new Error('storagePathsFromRoot failed');
+    await ensureStorageRoots(paths.value);
+    const deps = wire({ storage: paths.value, settings: DEFAULT_SETTINGS });
+    pendingFlushes.push(deps.inProcessRuns.flush);
+    const sprint = makeDraftSprint();
+    await deps.sprintRepo.save(sprint);
+    const refusal = 'A flow is running — let it finish (or cancel it) before removing data.';
+
+    const lock = await holdFlowLock(paths.value);
+    const underLock = await deps.sprintRemoval.remove(sprint.id);
+    await lock.release();
+    expect(underLock.ok ? undefined : underLock.error.message).toBe(refusal);
+
+    const { runner, finish } = createGatedRunner();
+    deps.inProcessRuns.track(runner);
+    const started = runner.start();
+    const underRun = await deps.sprintRemoval.remove(sprint.id);
+    const purgeUnderRun = await deps.housekeeping.purge([]);
+    expect(underRun.ok ? undefined : underRun.error.message).toBe(refusal);
+    expect(purgeUnderRun.ok ? undefined : purgeUnderRun.error.message).toBe(refusal);
+    finish();
+    await started;
+
+    expect((await deps.sprintRemoval.remove(sprint.id)).ok).toBe(true);
+    expect((await deps.sprintRepo.findById(sprint.id)).ok).toBe(false);
   });
 
   it('produces independent dependency graphs for each call (no shared state)', async () => {

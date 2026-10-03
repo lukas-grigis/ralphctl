@@ -27,27 +27,14 @@ const PROVIDER_LABEL: Record<AiProvider, string> = {
 /** Sentinel for the picker's "All providers" entry — distinct from any {@link AiProvider}. */
 const ALL_PROVIDERS = '__all__' as const;
 
-/**
- * Outcome of {@link selectReadinessProviders}: a provider scope to run, or an operator cancel.
- * Cancel is surfaced as a discriminated variant rather than an empty list so the launcher can
- * return the same "do not launch" {@link LaunchResult} that the rest of the launchers use for a
- * cancelled prompt, without conflating it with a (never-empty) provider scope.
- */
+/** Outcome of {@link selectReadinessProviders}: a provider scope to run, or an operator cancel. */
 type ProviderSelection =
   { readonly cancelled: true } | { readonly cancelled: false; readonly providers: readonly AiProvider[] };
 
 /**
- * Resolve which provider(s) readiness should set up. Skills / native context files are
- * provider-specific, so the operator usually wants ONE provider per run. When several providers
- * are configured we prompt; a single-provider config skips the prompt entirely (the lone
- * provider is the only possible scope). The final "All providers" entry preserves the historical
- * fan-out-to-everything behavior.
- *
- * Cancel (Esc / Ctrl+C → `AbortError`, `.ok === false`) returns `{ cancelled: true }` so the
- * launcher bails without constructing a runner.
- *
+ * Resolve which provider(s) readiness should set up. Skills / native context files are provider-specific, so the
+ * operator usually wants ONE provider per run.
  * @public — exported for direct unit testing of the launch-time provider scoping (the launcher
- * itself runs a real PATH probe via `checkCli`, which is unfriendly to a deterministic unit test).
  */
 export const selectReadinessProviders = async (
   allProviders: readonly AiProvider[],
@@ -77,10 +64,8 @@ export const selectReadinessProviders = async (
 };
 
 /**
- * Pick the per-flow id whose row references `provider` — readiness wins when its provider
- * matches, otherwise the first member of `FLOW_IDS` whose row matches. Keeps the
- * per-provider adapter rebuild aligned with the model + harness config the launcher hands to
- * `createAiProvider`. Mirrors the resolution rule baked into `createReadinessFlow`.
+ * Pick the per-flow id whose row references `provider` — readiness wins when its provider matches, otherwise the
+ * first member of `FLOW_IDS` whose row matches.
  */
 const flowIdForProvider = (settings: LaunchContext['settings'], provider: AiProvider): FlowId => {
   if (settings.ai.readiness.provider === provider) return 'readiness';
@@ -91,16 +76,52 @@ const flowIdForProvider = (settings: LaunchContext['settings'], provider: AiProv
   throw new Error(`flowIdForProvider: provider ${provider} not referenced in ai settings`);
 };
 
+/** One adapter per provider, even when several per-tool sub-chains reference it. */
+const buildAdapterCaches = (
+  { deps, settings }: LaunchContext,
+  providers: readonly AiProvider[]
+): {
+  readonly providerFor: (provider: AiProvider) => HeadlessAiProvider;
+  readonly skillsAdapterFor: (provider: AiProvider) => SkillsAdapter;
+} => {
+  const providerCache = new Map<AiProvider, HeadlessAiProvider>();
+  const skillsCache = new Map<AiProvider, SkillsAdapter>();
+  for (const provider of providers) {
+    providerCache.set(
+      provider,
+      createAiProvider({
+        flow: flowIdForProvider(settings, provider),
+        ai: settings.ai,
+        harnessConfig: settings.harness,
+        eventBus: deps.app.eventBus,
+        childRegistry: deps.app.childRegistry,
+        ...(deps.app.providerSpawn !== undefined ? { spawn: deps.app.providerSpawn } : {}),
+      })
+    );
+    skillsCache.set(provider, createSkillsAdapter({ provider, logger: deps.app.logger }));
+  }
+  return {
+    providerFor: (provider) => {
+      const adapter = providerCache.get(provider);
+      if (adapter === undefined) throw new Error(`launchReadiness: no provider adapter cached for ${provider}`);
+      return adapter;
+    },
+    skillsAdapterFor: (provider) => {
+      const adapter = skillsCache.get(provider);
+      if (adapter === undefined) throw new Error(`launchReadiness: no skills adapter cached for ${provider}`);
+      return adapter;
+    },
+  };
+};
+
 export const launchReadiness = async (ctx: LaunchContext): Promise<LaunchResult> => {
   const { deps, snapshot, settings, bridge, sessionId } = ctx;
   const missing = await checkCli('readiness', settings, { override: ctx.extras.override });
   if (missing !== undefined) return missing;
   if (!snapshot.project) return { ok: false, reason: 'No project loaded.' };
 
-  // Resolve the repository readiness should set up: the operator's pre-launch pick when present
-  // and still on the project, otherwise the first repository (today's fallback). Deriving `cwd`
-  // from the SAME repo keeps the AI session's working dir aligned with the repo `pickRepositoryLeaf`
-  // resolves to in-chain — the pre-launch `repositoryId` also auto-selects it, avoiding a second prompt.
+  // Resolve the repository readiness should set up: the operator's pre-launch pick when present and still on the
+  // project, otherwise the first repository (today's fallback).
   const targetRepo =
     ctx.extras.repositoryId !== undefined
       ? snapshot.project.repositories.find((r) => r.id === ctx.extras.repositoryId)
@@ -109,42 +130,14 @@ export const launchReadiness = async (ctx: LaunchContext): Promise<LaunchResult>
   const cwd = resolvedRepo?.path;
   if (!cwd) return { ok: false, reason: 'No repository path resolvable from the project.' };
 
-  // Skills / native context files are provider-specific, so let the operator scope readiness to
-  // one provider at launch (or "All providers" to keep the historical fan-out). A single-provider
-  // config skips the prompt. Cancel (Esc / Ctrl+C) bails without launching.
+  // Skills / native context files are provider-specific, so let the operator scope readiness to one provider at
+  // launch (or "All providers" to keep the historical fan-out).
   const allProviders = uniqueProvidersFromAi(settings.ai);
   const selection = await selectReadinessProviders(allProviders, deps.interactive);
   if (selection.cancelled) return { ok: false, reason: 'Cancelled.' };
   const scopedProviders = selection.providers;
 
-  // Build per-provider adapter caches keyed by AiProvider so each provider only constructs one
-  // adapter even when several per-tool sub-chains reference it. Built over the SCOPED provider
-  // list so a single-provider pick never constructs the other providers' adapters. The flow calls
-  // these factories once per scoped tool.
-  const providerCache = new Map<AiProvider, HeadlessAiProvider>();
-  const skillsCache = new Map<AiProvider, SkillsAdapter>();
-  for (const provider of scopedProviders) {
-    providerCache.set(
-      provider,
-      createAiProvider({
-        flow: flowIdForProvider(settings, provider),
-        ai: settings.ai,
-        harnessConfig: settings.harness,
-        eventBus: deps.app.eventBus,
-      })
-    );
-    skillsCache.set(provider, createSkillsAdapter({ provider, logger: deps.app.logger }));
-  }
-  const providerFor = (provider: AiProvider): HeadlessAiProvider => {
-    const adapter = providerCache.get(provider);
-    if (adapter === undefined) throw new Error(`launchReadiness: no provider adapter cached for ${provider}`);
-    return adapter;
-  };
-  const skillsAdapterFor = (provider: AiProvider): SkillsAdapter => {
-    const adapter = skillsCache.get(provider);
-    if (adapter === undefined) throw new Error(`launchReadiness: no skills adapter cached for ${provider}`);
-    return adapter;
-  };
+  const { providerFor, skillsAdapterFor } = buildAdapterCaches(ctx, scopedProviders);
 
   const element: Element<ReadinessCtx> = createReadinessFlow(
     {

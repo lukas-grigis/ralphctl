@@ -91,6 +91,8 @@ describe('ProjectDetailView', () => {
     const { result } = renderView(<ProjectDetailView />, {
       deps: stubDeps(project),
       initial: { id: 'project-detail', props: { projectId: project.id } },
+      // The footer is one clipped line, and these hints alone are wider than 100 columns.
+      size: { columns: 140, rows: 40 },
     });
     await waitForViewReady(result);
     // Initial focus is the project displayName — the repo-scoped chords are no-ops there, so the
@@ -176,6 +178,47 @@ describe('ProjectDetailView', () => {
     expect(queue.head?.kind).not.toBe('choice');
     expect(queue.head?.kind).toBe('textarea');
     expect(queue.head?.message ?? '').toContain('setupScript');
+    result.unmount();
+  });
+
+  it('keeps focus on the edited row after the save reloads the project', async () => {
+    let current = makeTwoRepoProject();
+    let loads = 0;
+    const projectRepo = {
+      async findById() {
+        loads++;
+        return Result.ok(current);
+      },
+      async save(next: Project) {
+        current = next;
+        return Result.ok(undefined);
+      },
+    } as unknown as ProjectRepository;
+    const queue = createPromptQueue();
+    const { result } = renderView(<ProjectDetailView />, {
+      deps: { projectRepo } as unknown as AppDeps,
+      initial: { id: 'project-detail', props: { projectId: current.id } },
+      queue,
+    });
+    await waitForViewReady(result);
+    // displayName → repo1.name → repo1.setupScript.
+    result.stdin.write(DOWN);
+    await tick();
+    result.stdin.write(DOWN);
+    await tick();
+    result.stdin.write('e');
+    await waitForPredicate(() => queue.head?.kind === 'textarea');
+    const loadsBeforeSave = loads;
+    queue.resolveHead('make setup');
+    await waitForPredicate(() => loads > loadsBeforeSave && (result.lastFrame() ?? '').includes('make setup'));
+    await tick();
+
+    const frame = result.lastFrame() ?? '';
+    const setupRow = frame.split('\n').find((l) => l.includes('Setup:') && l.includes('make setup'));
+    expect(setupRow).toBeDefined();
+    expect(setupRow).toContain(glyphs.actionCursor);
+    const nameRow = lineWithLabelAndValue(frame, 'Name', current.displayName);
+    expect(nameRow).not.toContain(glyphs.actionCursor);
     result.unmount();
   });
 

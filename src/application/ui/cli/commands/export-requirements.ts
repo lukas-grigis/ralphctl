@@ -3,7 +3,7 @@ import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { createExportRequirementsFlow } from '@src/application/flows/export-requirements/flow.ts';
 import { bootstrapCli } from '@src/application/ui/cli/bootstrap.ts';
 import { fail } from '@src/application/ui/cli/report-cli-error.ts';
-import { pinFallbackNotice, resolveSprintId } from '@src/application/ui/cli/resolve-sprint-selection.ts';
+import { resolveSprintForCli } from '@src/application/ui/cli/resolve-sprint-selection.ts';
 
 interface Opts {
   readonly sprint?: string;
@@ -18,18 +18,14 @@ const exportRequirementsAction = async (opts: Opts): Promise<void> => {
   }
 
   const { deps, storage } = await bootstrapCli();
-  const sprintId = await resolveSprintId(opts.sprint, storage.stateRoot);
-  if (!sprintId.ok) {
-    fail(sprintId.error.message);
-    return;
-  }
-  if (sprintId.value.fromPin) process.stderr.write(pinFallbackNotice(sprintId.value.sprintId));
+  const sprintId = await resolveSprintForCli(opts.sprint, storage.stateRoot);
+  if (sprintId === undefined) return;
   const flow = createExportRequirementsFlow({
     sprintRepo: deps.sprintRepo,
     writeFile: deps.writeFile,
   });
   const result = await flow.execute({
-    input: { sprintId: sprintId.value.sprintId, outputPath: outputPath.value },
+    input: { sprintId, outputPath: outputPath.value },
   });
 
   if (!result.ok) {
@@ -41,14 +37,8 @@ const exportRequirementsAction = async (opts: Opts): Promise<void> => {
 };
 
 /**
- * Register the `export-requirements` CLI command.
- *
- *   ralphctl export-requirements [--sprint <id>] --output <path>
- *
- * Writes the sprint's approved-ticket requirements to the supplied
- * markdown path. `--sprint` defaults to the pinned current sprint.
- * Exits 0 with a one-line confirmation, or 1 with a stderr message on
- * validation / NotFound / IO error.
+ * Register the `export-requirements` CLI command (`ralphctl export-requirements [--sprint <id>] --output <path>`).
+ * Writes the sprint's approved-ticket requirements to the markdown path; `--sprint` defaults to the current sprint.
  */
 export const registerExportRequirementsCommand = (program: Command): void => {
   program

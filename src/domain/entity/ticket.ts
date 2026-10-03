@@ -94,6 +94,7 @@ export const createTicket = (input: TicketCreateInput): Result<PendingTicket, Va
  */
 export function setTicketLink(ticket: ApprovedTicket, url: string | undefined): Result<ApprovedTicket, ValidationError>;
 export function setTicketLink(ticket: PendingTicket, url: string | undefined): Result<PendingTicket, ValidationError>;
+export function setTicketLink(ticket: Ticket, url: string | undefined): Result<Ticket, ValidationError>;
 export function setTicketLink(ticket: Ticket, url: string | undefined): Result<Ticket, ValidationError> {
   if (url === undefined) {
     const { link: _drop, ...rest } = ticket;

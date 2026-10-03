@@ -86,6 +86,10 @@ interface OverlayApi {
    * hidden-but-mounted views are fully inert while an overlay is shown.
    */
   readonly modalOpen: boolean;
+  /** Live runs the open quit confirm would stop; `undefined` while it is closed. */
+  readonly quitRuns: number | undefined;
+  /** Any overlay is open — it outranks a hidden prompt for the keyboard. */
+  readonly overlayOpen: boolean;
   /** `true` whenever any caller currently holds a {@link claimEscape} release token. */
   readonly escapeClaimed: boolean;
   /**
@@ -106,6 +110,10 @@ interface OverlayApi {
   closeEvaluation(): void;
 
   toggleBanner(): void;
+
+  openQuit(runs: number): void;
+
+  closeQuit(): void;
 
   /**
    * Claim "input is captured by a prompt; suspend global keys." Returns a release function
@@ -189,13 +197,28 @@ interface UiStateApi extends OverlayApi, FocusedRunApi, YankProviderApi, Session
 
 const OverlayContext = createContext<OverlayApi | undefined>(undefined);
 
+const useClaimCounter = (): readonly [number, () => () => void] => {
+  const [count, setCount] = useState(0);
+  const claim = useCallback((): (() => void) => {
+    setCount((c) => c + 1);
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      setCount((c) => Math.max(0, c - 1));
+    };
+  }, []);
+  return [count, claim];
+};
+
 const OverlayProvider = ({ children }: { readonly children: React.ReactNode }): React.JSX.Element => {
   const [helpOpen, setHelpOpen] = useState(false);
   const [progressOpen, setProgressOpen] = useState(false);
   const [evaluationTarget, setEvaluationTarget] = useState<EvaluationTarget | undefined>(undefined);
   const [bannerCompact, setBannerCompact] = useState(false);
-  const [claims, setClaims] = useState(0);
-  const [escapeClaims, setEscapeClaims] = useState(0);
+  const [quitRuns, setQuitRuns] = useState<number | undefined>(undefined);
+  const [claims, claimPrompt] = useClaimCounter();
+  const [escapeClaims, claimEscape] = useClaimCounter();
 
   const toggleHelp = useCallback(() => {
     setHelpOpen((v) => !v);
@@ -217,33 +240,25 @@ const OverlayProvider = ({ children }: { readonly children: React.ReactNode }): 
     setBannerCompact((v) => !v);
   }, []);
 
-  const claimPrompt = useCallback((): (() => void) => {
-    setClaims((c) => c + 1);
-    let released = false;
-    return () => {
-      if (released) return;
-      released = true;
-      setClaims((c) => Math.max(0, c - 1));
-    };
+  const openQuit = useCallback((runs: number) => {
+    setQuitRuns(runs);
   }, []);
 
-  const claimEscape = useCallback((): (() => void) => {
-    setEscapeClaims((c) => c + 1);
-    let released = false;
-    return () => {
-      if (released) return;
-      released = true;
-      setEscapeClaims((c) => Math.max(0, c - 1));
-    };
+  const closeQuit = useCallback(() => {
+    setQuitRuns(undefined);
   }, []);
+
+  const overlayOpen = progressOpen || helpOpen || evaluationTarget !== undefined || quitRuns !== undefined;
 
   const api = useMemo<OverlayApi>(
     () => ({
       helpOpen,
       progressOpen,
       evaluationTarget,
+      quitRuns,
+      overlayOpen,
       promptActive: claims > 0,
-      modalOpen: progressOpen || helpOpen || evaluationTarget !== undefined || claims > 0,
+      modalOpen: overlayOpen || claims > 0,
       escapeClaimed: escapeClaims > 0,
       bannerCompact,
       toggleHelp,
@@ -251,6 +266,8 @@ const OverlayProvider = ({ children }: { readonly children: React.ReactNode }): 
       openEvaluation,
       closeEvaluation,
       toggleBanner,
+      openQuit,
+      closeQuit,
       claimPrompt,
       claimEscape,
     }),
@@ -258,6 +275,8 @@ const OverlayProvider = ({ children }: { readonly children: React.ReactNode }): 
       helpOpen,
       progressOpen,
       evaluationTarget,
+      quitRuns,
+      overlayOpen,
       claims,
       escapeClaims,
       bannerCompact,
@@ -266,6 +285,8 @@ const OverlayProvider = ({ children }: { readonly children: React.ReactNode }): 
       openEvaluation,
       closeEvaluation,
       toggleBanner,
+      openQuit,
+      closeQuit,
       claimPrompt,
       claimEscape,
     ]
@@ -280,6 +301,9 @@ export const useOverlayState = (): OverlayApi => {
   if (!ctx) throw new Error('useOverlayState: must be used inside <UiStateProvider>');
   return ctx;
 };
+
+/** Like {@link useOverlayState} but `undefined` outside a provider — for prompts rendered in isolation. */
+export const useOptionalOverlayState = (): OverlayApi | undefined => useContext(OverlayContext);
 
 const FocusedRunContext = createContext<FocusedRunApi | undefined>(undefined);
 

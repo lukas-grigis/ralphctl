@@ -112,8 +112,9 @@ Wired:
 
 **Deliberately unwired: `rate-limit-exhausted` and `user-cancel`.** `isFatalChainError` (Aborted /
 RateLimit) makes the turn use case return `Result.error`, tearing down the per-task subchain — no settle
-runs, the attempt stays `running`, and the next launch's `start-attempt` resume stamps the conservative
-`process-crash`. Wiring them needs a settle-then-re-raise seam: an in-leaf settle is an `onError`
+runs, the attempt stays `running`, and the next launch's `start-attempt` resume stamps
+`harness-interrupted`, which is FREE against `maxAttempts` — so a rate-limit-exhausted or cancelled
+attempt costs no budget either. Only in-process settles (`failed` + `crashed` warning) count. Wiring them needs a settle-then-re-raise seam: an in-leaf settle is an `onError`
 primitive in disguise (banned) AND would be clobbered on the parallel path by the epilogue's `save-tasks`
 leaf persisting the stale in-memory running attempt. The honest placement is above the chain (the
 launcher's runner-event subscription, after the epilogue), deferred with the process-level

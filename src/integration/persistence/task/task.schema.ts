@@ -344,7 +344,7 @@ export const fromJsonTasksFile = (
     filePath
   );
   if (!parsed.ok) return parsed;
-  return { ok: true, value: parsed.value.tasks } as Result<readonly Task[], MigrationGapError | ParseError>;
+  return Result.ok(parsed.value.tasks);
 };
 
 /**

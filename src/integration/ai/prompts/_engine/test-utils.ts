@@ -4,38 +4,9 @@ import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/templat
 
 export { extractPlaceholders };
 
-/**
- * Recursive partial expansion. `template` is the outer body; `partials` maps placeholder
- * key → partial body. The function performs N substitution passes (capped at
- * `MAX_PARTIAL_DEPTH`) so that a partial referencing another partial is fully inlined.
- *
- * Detects cycles: if a pass produces no change but placeholders for known partials remain,
- * that means a partial transitively references itself; the function throws so the test fails
- * loudly instead of looping forever.
- *
- * Unknown `{{KEY}}` placeholders are left intact — they are template parameters the runtime
- * builder fills, not partials.
- */
-const MAX_PARTIAL_DEPTH = 8;
-
-export const expandPartials = (template: string, partials: Readonly<Record<string, string>>): string => {
-  let body = template;
-  for (let depth = 0; depth < MAX_PARTIAL_DEPTH; depth++) {
-    const before = body;
-    body = body.replace(/\{\{([A-Z][A-Z0-9_]*)\}\}/g, (match, key: string) => {
-      const replacement = partials[key];
-      return replacement !== undefined ? replacement : match;
-    });
-    if (body === before) return body;
-  }
-  const remaining = extractPlaceholders(body).filter((p) => Object.prototype.hasOwnProperty.call(partials, p));
-  if (remaining.length > 0) {
-    throw new Error(
-      `expandPartials: depth limit reached with unresolved partial keys: ${remaining.join(', ')}. Probable cycle.`
-    );
-  }
-  return body;
-};
+// Single-pass partial inlining, matching buildPrompt.
+export const expandPartials = (template: string, partials: Readonly<Record<string, string>>): string =>
+  template.replace(/\{\{([A-Z][A-Z0-9_]*)\}\}/g, (match, key: string) => partials[key] ?? match);
 
 /**
  * Resolve every partial declared on a `PromptDefinition` to its on-disk body via the loader.

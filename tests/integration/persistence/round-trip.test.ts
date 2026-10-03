@@ -5,7 +5,7 @@ import { fromJsonProject } from '@src/integration/persistence/project/project.sc
 import { fromJsonSprint } from '@src/integration/persistence/sprint/sprint.schema.ts';
 import { fromJsonTicket } from '@src/integration/persistence/sprint/ticket.schema.ts';
 import { fromJsonSprintExecution } from '@src/integration/persistence/sprint-execution/sprint-execution.schema.ts';
-import { completeAttempt, recordAttemptVerification, startAttempt } from '@src/domain/entity/attempt.ts';
+import { recordAttemptVerification, startAttempt, verifyAttempt } from '@src/domain/entity/attempt.ts';
 import { markTaskBlocked } from '@src/domain/entity/task-lifecycle.ts';
 import {
   FIXED_NOW,
@@ -197,7 +197,7 @@ describe('codec round-trip', () => {
     const r = startAttempt({ n: 1, startedAt: FIXED_NOW });
     if (!r.ok) throw new Error('seed');
     const withVerification = recordAttemptVerification(r.value);
-    const finished = completeAttempt(withVerification, 'verified', FIXED_NOW);
+    const finished = verifyAttempt(withVerification, FIXED_NOW);
     if (!finished.ok) throw new Error('seed');
     expect(roundTrip(finished.value, fromJsonAttempt)).toEqual(finished.value);
   });

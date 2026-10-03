@@ -61,7 +61,7 @@ const makeChild = (stdout: string, stderr: string, exitCode: number): ChildProce
   Object.assign(child, {
     stdout: stdoutStream,
     stderr: stderrStream,
-    stdin: { end(): void {} },
+    stdin: { on: () => undefined, end(): void {} },
     kill(): boolean {
       return true;
     },

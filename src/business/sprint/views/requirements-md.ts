@@ -23,7 +23,7 @@ export const renderSprintRequirementsMarkdown = (sprint: Sprint): string => {
   lines.push('');
 
   if (approved.length === 0) {
-    lines.push('_(no approved tickets — run `ralphctl sprint refine` first)_');
+    lines.push("_(no approved tickets — refine the sprint's tickets first)_");
     lines.push('');
     return lines.join('\n');
   }

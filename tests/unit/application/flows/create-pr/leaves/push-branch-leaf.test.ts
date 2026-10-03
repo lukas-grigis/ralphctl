@@ -11,7 +11,8 @@ import type { SprintRepository } from '@src/domain/repository/sprint/sprint-repo
 import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
-import { absolutePath, FIXED_LATER, makeReviewSprint } from '@tests/fixtures/domain.ts';
+import { absolutePath, FIXED_LATER, makeActiveSprint, makeReviewSprint } from '@tests/fixtures/domain.ts';
+import type { Sprint } from '@src/domain/entity/sprint.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import { createPushBranchLeaf } from '@src/application/flows/create-pr/leaves/push-branch-leaf.ts';
 import { emptySkillSource, noopSkillsAdapter } from '@tests/fixtures/skills-fakes.ts';
@@ -57,8 +58,15 @@ const scriptedGitRunner = (
   return { runner, calls };
 };
 
+const sprintRepoFor = (target: Sprint): SprintRepository =>
+  ({
+    async findById(id: SprintId) {
+      if (id === target.id) return Result.ok(target);
+      return Result.error(new NotFoundError({ entity: 'sprint', id: String(id) }));
+    },
+  }) as SprintRepository;
+
 // Stub repos / creator we don't exercise in push-branch — they belong to the create-pr leaf.
-const stubSprintRepo = (): SprintRepository => ({}) as SprintRepository;
 const stubTaskRepo = (): FindTasksBySprintId => ({
   async findBySprintId() {
     return Result.ok([]);
@@ -83,8 +91,9 @@ const stubWriteFile: CreatePrDeps['writeFile'] = async () =>
 const stubCreatePrDeps = (overrides: {
   runner: GitRunner;
   eventBus?: ReturnType<typeof createInMemoryEventBus>;
+  sprint?: Sprint;
 }): CreatePrDeps => ({
-  sprintRepo: stubSprintRepo(),
+  sprintRepo: sprintRepoFor(overrides.sprint ?? sprint),
   sprintExecutionRepo: inMemoryExecutionRepo(execution),
   taskRepo: stubTaskRepo(),
   pullRequestCreator: stubPullRequestCreator,
@@ -138,6 +147,19 @@ describe('push-branch-leaf', () => {
     // Logs bracket the push.
     expect(messages.some((m) => m === `create-pr: pushing ${BRANCH} to origin`)).toBe(true);
     expect(messages.some((m) => m.includes(`${BRANCH} pushed`))).toBe(true);
+  });
+
+  it('refuses an ineligible (active) sprint before running any git command', async () => {
+    const { runner, calls } = scriptedGitRunner([]);
+    const active = makeActiveSprint();
+    const leaf = createPushBranchLeaf(stubCreatePrDeps({ runner, sprint: active }));
+
+    const out = await leaf.execute({ input: { ...baseCtx.input, sprintId: active.id } });
+
+    expect(out.ok).toBe(false);
+    if (out.ok) return;
+    expect(out.error.error.message).toContain("cannot create-pr on sprint in 'active' status");
+    expect(calls).toHaveLength(0);
   });
 
   it('refuses to push when the working tree is on a different branch', async () => {

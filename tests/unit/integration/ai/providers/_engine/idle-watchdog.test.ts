@@ -2,6 +2,7 @@ import { EventEmitter } from 'node:events';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_IDLE_MS, installIdleWatchdog } from '@src/integration/ai/providers/_engine/idle-watchdog.ts';
+import { markProcessGroupLeader } from '@src/integration/io/kill-process-tree.ts';
 
 /**
  * Minimal fake child process exposing the surface the watchdog reads: stdout / stderr event
@@ -108,6 +109,21 @@ describe('installIdleWatchdog', () => {
     expect(kills).toEqual(['SIGTERM', 'SIGKILL']);
   });
 
+  it('an already-aborted signal SIGTERMs immediately — it will never dispatch abort again', () => {
+    const { child, kills } = makeFakeChild();
+    const onIdle = vi.fn();
+    const controller = new AbortController();
+    controller.abort();
+    installIdleWatchdog(child, { idleMs: 1000, graceMs: 100, abortSignal: controller.signal, onIdle });
+    expect(kills).toEqual(['SIGTERM']);
+    vi.advanceTimersByTime(100);
+    expect(kills).toEqual(['SIGTERM', 'SIGKILL']);
+    // The idle timer still arms, but the ladder already ran — no second SIGTERM, no onIdle.
+    vi.advanceTimersByTime(1000);
+    expect(kills).toEqual(['SIGTERM', 'SIGKILL']);
+    expect(onIdle).not.toHaveBeenCalled();
+  });
+
   it('abort does NOT fire onIdle (onIdle is reserved for the idle path only)', () => {
     const { child } = makeFakeChild();
     const onIdle = vi.fn();
@@ -192,5 +208,55 @@ describe('installIdleWatchdog', () => {
     w.stop();
     expect(removes).toHaveLength(1);
     expect(removes[0]).toBe(adds[0]);
+  });
+});
+
+describe('installIdleWatchdog — process-group leaders', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it('kills the whole group, and lets the group SIGKILL land after the leader exits', () => {
+    const signalled: string[] = [];
+    vi.spyOn(process, 'kill').mockImplementation((pid: number, sig?: string | number) => {
+      signalled.push(`${String(pid)}:${String(sig)}`);
+      return true;
+    });
+    const { child, kills } = makeFakeChild();
+    Object.assign(child, { pid: 4242 });
+    markProcessGroupLeader(child);
+    const wd = installIdleWatchdog(child, { idleMs: 1000, graceMs: 500 });
+
+    vi.advanceTimersByTime(1000);
+    wd.stop(); // the leader exited on SIGTERM; its tool subprocesses may not have
+    vi.advanceTimersByTime(500);
+
+    expect(signalled).toEqual(['-4242:SIGTERM', '-4242:0', '-4242:SIGKILL']);
+    expect(kills).toEqual([]);
+  });
+
+  it('skips the delayed SIGKILL when the group emptied during the grace (its pgid may be reused)', () => {
+    const signalled: string[] = [];
+    vi.spyOn(process, 'kill').mockImplementation((pid: number, sig?: string | number) => {
+      signalled.push(`${String(pid)}:${String(sig)}`);
+      if (sig === 0) throw Object.assign(new Error('kill ESRCH'), { code: 'ESRCH' });
+      return true;
+    });
+    const { child, kills } = makeFakeChild();
+    Object.assign(child, { pid: 4242 });
+    markProcessGroupLeader(child);
+    const wd = installIdleWatchdog(child, { idleMs: 1000, graceMs: 500 });
+
+    vi.advanceTimersByTime(1000);
+    wd.stop();
+    vi.advanceTimersByTime(500);
+
+    expect(signalled).toEqual(['-4242:SIGTERM', '-4242:0']);
+    expect(kills).toEqual([]);
   });
 });

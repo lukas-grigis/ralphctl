@@ -8,7 +8,7 @@ import { listDir, removeDir, renamePath } from '@src/integration/io/fs.ts';
 import { parseIdFromName, NAME_SEPARATOR } from '@src/integration/persistence/storage.ts';
 import { CURRENT_DATA_VERSION, writeDataVersion } from '@src/integration/persistence/data-migration/version-marker.ts';
 import { backupDataDir } from '@src/integration/persistence/data-migration/backup.ts';
-import { anyLockHeld } from '@src/integration/persistence/data-migration/lock-guard.ts';
+import { anyLockHeld } from '@src/integration/io/lock-guard.ts';
 import type { DryRunReport, MemoryMergePlan, RenamePlan } from '@src/integration/persistence/data-migration/types.ts';
 
 const MEMORY_DIR = 'memory';

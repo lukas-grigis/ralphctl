@@ -39,11 +39,11 @@
  * don't line up one-to-one with `canModifyRepoFiles` / `canRunShell` / `canAccessNetwork`, the
  * adapter maps to the nearest supported mode and documents the resulting over-grant or
  * under-grant inline, at the mapping site — never by adding a tool-specific field here (see the
- * port-not-mechanism rule above). The reference precedent is the codex adapter's `sandboxFor`
+ * port-not-mechanism rule above). The reference precedent is the codex adapter's `CODEX_SANDBOX`
  * (`providers/codex/headless.ts`): Codex `exec` has only `read-only` (blocks the mandatory
  * `signals.json` write, so it's unusable under audit-[09]) and `workspace-write` (allows any
  * write inside the mounted topology). Every codex profile therefore maps to `workspace-write`,
- * which over-grants relative to `canModifyRepoFiles=false` — the comment beside `sandboxFor`
+ * which over-grants relative to `canModifyRepoFiles=false` — the comment beside `CODEX_SANDBOX`
  * names this explicitly and defers to cwd + `additionalRoots` + `outputDir` as the real
  * boundary, exactly as the topology-over-permissions note above describes.
  */

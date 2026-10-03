@@ -32,6 +32,7 @@ import { okGit } from '@tests/fixtures/git-result.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import { makeProviderSpawn, type ProviderSpawnCall } from '@tests/fixtures/provider-spawn-fake.ts';
 import { emptySkillSource, noopSkillsAdapter } from '@tests/fixtures/skills-fakes.ts';
+import { createAtomicWriteFile } from '@src/integration/io/write-file-atomic.ts';
 
 /**
  * Argv-level proof that create-pr and review stamp an explicit effort on the provider CLI —
@@ -225,6 +226,7 @@ describe('review — effort reaches the provider argv', () => {
         fileLocker: createFileLocker(),
         locksRoot: absolutePath(dir),
         appendFile: createAppendFile(),
+        writeFile: createAtomicWriteFile(),
         model: settings.ai.implement.generator.model,
         ...(effort !== undefined ? { effort } : {}),
       },

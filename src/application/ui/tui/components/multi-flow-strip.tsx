@@ -41,6 +41,8 @@ export interface MultiFlowStripProps {
   readonly now?: number;
   /** Max title chars per chip — clipped via slice (no Ink truncate; chips share one row). */
   readonly maxTitleChars?: number;
+  /** Runs blocked on a prompt — their chip reads `WAITING` instead of the elapsed time. */
+  readonly awaiting?: ReadonlyMap<string, number>;
 }
 
 /**
@@ -56,12 +58,14 @@ const Chip = ({
   active,
   now,
   maxTitleChars,
+  waiting,
 }: {
   readonly index: number;
   readonly session: SessionRecord;
   readonly active: boolean;
   readonly now: number;
   readonly maxTitleChars: number;
+  readonly waiting: boolean;
 }): React.JSX.Element => {
   const { descriptor } = session;
   const elapsed = fmtElapsed(descriptor.startedAt, descriptor.finishedAt ?? now);
@@ -71,10 +75,11 @@ const Chip = ({
     descriptor.title.length > maxTitleChars
       ? `${descriptor.title.slice(0, maxTitleChars - 1)}${glyphs.clipEllipsis}`
       : descriptor.title;
-  const color = active ? inkColors.highlight : inkColors.muted;
+  const color = waiting ? inkColors.warning : active ? inkColors.highlight : inkColors.muted;
   return (
-    <Text color={color} bold={active}>
-      [{String(index + 1)}] {glyphs.bullet} {descriptor.flowId}: {title} ⏱{elapsed}
+    <Text color={color} bold={active || waiting}>
+      [{String(index + 1)}] {glyphs.bullet} {descriptor.flowId}: {title}{' '}
+      {waiting ? `${glyphs.warningGlyph} WAITING` : `⏱${elapsed}`}
     </Text>
   );
 };
@@ -84,6 +89,7 @@ export const MultiFlowStrip = ({
   activeId,
   now,
   maxTitleChars = 18,
+  awaiting,
 }: MultiFlowStripProps): React.JSX.Element | null => {
   const tNow = now ?? Date.now();
   // Strip only renders for *running* flows — completed / failed / aborted clutter the
@@ -101,6 +107,7 @@ export const MultiFlowStrip = ({
               active={s.descriptor.id === activeId}
               now={tNow}
               maxTitleChars={maxTitleChars}
+              waiting={awaiting?.has(s.descriptor.id) ?? false}
             />
             {i < running.length - 1 && <Text dimColor> {glyphs.pipe}</Text>}
           </Box>

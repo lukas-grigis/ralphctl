@@ -1,9 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
+  hasAnyAgentsMdArtifact,
   hasAnyClaudeArtifact,
-  hasAnyCodexArtifact,
   hasAnyCopilotArtifact,
-  hasAnyGrokArtifact,
   isAbsent,
   isPresent,
   isUnknown,
@@ -69,15 +68,15 @@ describe('hasAnyCopilotArtifact', () => {
   });
 });
 
-describe('hasAnyCodexArtifact', () => {
+describe('hasAnyAgentsMdArtifact (codex)', () => {
   it('false when agentsMd is missing and skills are empty', () => {
     const a: CodexArtifacts = { tool: 'codex', skills: [] };
-    expect(hasAnyCodexArtifact(a)).toBe(false);
+    expect(hasAnyAgentsMdArtifact(a)).toBe(false);
   });
 
   it('true when AGENTS.md exists', () => {
     const a: CodexArtifacts = { tool: 'codex', agentsMd: { path: absolutePath('/repo/AGENTS.md') }, skills: [] };
-    expect(hasAnyCodexArtifact(a)).toBe(true);
+    expect(hasAnyAgentsMdArtifact(a)).toBe(true);
   });
 
   it('true when at least one skill exists', () => {
@@ -85,19 +84,19 @@ describe('hasAnyCodexArtifact', () => {
       tool: 'codex',
       skills: [{ name: 'my-skill' as never, path: absolutePath('/repo/.agents/skills/my-skill/SKILL.md') }],
     };
-    expect(hasAnyCodexArtifact(a)).toBe(true);
+    expect(hasAnyAgentsMdArtifact(a)).toBe(true);
   });
 });
 
-describe('hasAnyGrokArtifact', () => {
+describe('hasAnyAgentsMdArtifact (grok)', () => {
   it('false when agentsMd is missing and skills are empty', () => {
     const a: GrokArtifacts = { tool: 'grok', skills: [] };
-    expect(hasAnyGrokArtifact(a)).toBe(false);
+    expect(hasAnyAgentsMdArtifact(a)).toBe(false);
   });
 
   it('true when AGENTS.md exists', () => {
     const a: GrokArtifacts = { tool: 'grok', agentsMd: { path: absolutePath('/repo/AGENTS.md') }, skills: [] };
-    expect(hasAnyGrokArtifact(a)).toBe(true);
+    expect(hasAnyAgentsMdArtifact(a)).toBe(true);
   });
 
   it('true when at least one skill exists', () => {
@@ -105,6 +104,6 @@ describe('hasAnyGrokArtifact', () => {
       tool: 'grok',
       skills: [{ name: 'my-skill' as never, path: absolutePath('/repo/.grok/skills/my-skill/SKILL.md') }],
     };
-    expect(hasAnyGrokArtifact(a)).toBe(true);
+    expect(hasAnyAgentsMdArtifact(a)).toBe(true);
   });
 });

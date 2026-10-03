@@ -637,7 +637,7 @@ describe('preTaskVerifyLeaf — carry-baseline short-circuit', () => {
     expect(out.value.ctx.currentTask?.attempts.at(-1)?.verifyRuns ?? []).toHaveLength(0);
     // No taskRepo.update call (nothing to persist).
     expect(repo.updates).toHaveLength(0);
-    // No execution save either — baseline amnesty is untouched on the short-circuit path.
+    // No execution save either — no 'proceed' amnesty is set, so there is nothing to clear.
     expect(execRepo.saves).toHaveLength(0);
     // The synthetic green carries through as `lastPreVerifyOutcome = 'success'` so
     // post-task-verify's attribution sees a green pre.
@@ -1007,6 +1007,73 @@ describe('preTaskVerifyLeaf — carry-baseline short-circuit', () => {
     expect(git.callCount()).toBe(1);
     expect(shell.callCount()).toBe(1);
     expect(out.value.ctx.lastPreVerifyOutcome).toBe('success');
+  });
+});
+
+describe("preTaskVerifyLeaf — synthetic green clears the 'proceed' amnesty", () => {
+  // A short-circuited green is still a green baseline: it must clear a standing amnesty exactly
+  // like a real green, or a later red re-uses the stale 'proceed' instead of re-prompting.
+  it('carry short-circuit with a standing proceed amnesty → clears it once, no script run', async () => {
+    const shell = countingShellRunner({ passed: true, exitCode: 0, output: 'OK' });
+    const task = makeInProgressTaskWithRunningAttempt();
+    const execution: SprintExecution = {
+      ...createSprintExecution({ sprintId: SPRINT_ID }),
+      baselineBrokenPolicy: 'proceed',
+    };
+    const ctx: ImplementCtx = {
+      sprintId: SPRINT_ID,
+      currentTask: task,
+      currentTaskId: task.id,
+      tasks: [task],
+      execution,
+      priorPostVerifyOutcome: { cwd: CWD, outcome: 'success', coveredAllGates: true },
+    };
+    const execRepo = fakeExecRepo();
+    const bus = createCapturingBus();
+    const leaf = preTaskVerifyLeaf(
+      {
+        shellScriptRunner: shell.runner,
+        taskRepo: fakeTaskRepo(),
+        sprintExecutionRepo: execRepo,
+        interactive: neverPrompt,
+        gitRunner: cleanGitRunner().runner,
+        clock: () => FIXED_NOW,
+        eventBus: bus.bus,
+        logger: noopLogger,
+        environment: TTY_ENV,
+      },
+      { cwd: CWD, verifyScript: 'pnpm test' },
+      task.id
+    );
+
+    const out = await leaf.execute(ctx);
+    if (!out.ok) throw new Error(`expected ok: ${out.error.error.message}`);
+
+    expect(shell.callCount()).toBe(0);
+    expect(execRepo.saves).toHaveLength(1);
+    expect(execRepo.saves[0]?.baselineBrokenPolicy).toBeUndefined();
+    expect(out.value.ctx.execution?.baselineBrokenPolicy).toBeUndefined();
+    expect(bus.events.some((e) => e.type === 'banner-clear' && e.id === `baseline-broken-${String(task.id)}`)).toBe(
+      true
+    );
+  });
+
+  it('fresh-setup short-circuit with a standing proceed amnesty → clears it once, no script run', async () => {
+    const shell = countingShellRunner({ passed: true, exitCode: 0, output: 'OK' });
+    const { ctx, leaf, execRepo } = fixture(shell.runner, {
+      verifyScript: 'pnpm test',
+      skipPreVerifyOnFreshSetup: true,
+      setupVerifiedRepoIds: [FIXED_REPOSITORY_ID],
+      execution: { ...createSprintExecution({ sprintId: SPRINT_ID }), baselineBrokenPolicy: 'proceed' },
+    });
+
+    const out = await leaf.execute(ctx);
+    if (!out.ok) throw new Error(`expected ok: ${out.error.error.message}`);
+
+    expect(shell.callCount()).toBe(0);
+    expect(execRepo.saves).toHaveLength(1);
+    expect(execRepo.saves[0]?.baselineBrokenPolicy).toBeUndefined();
+    expect(out.value.ctx.execution?.baselineBrokenPolicy).toBeUndefined();
   });
 });
 

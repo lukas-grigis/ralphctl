@@ -240,6 +240,18 @@ describe('progressJournalLeaf', () => {
     expect(written).not.toContain('# Sprint: seeded');
   });
 
+  it('falls back to ctx.sprintId (never the task id) for the header identity when ctx.sprint is absent', async () => {
+    const task = makeDoneTask({ name: 'no-sprint' });
+    const leaf = progressJournalLeaf(journalDeps(createAtomicWriteFile()), { progressFile, totalRounds: 3 }, task.id);
+    const ctx: ImplementCtx = { sprintId: sprint.id, execution, tasks: [task], currentRoundNum: 1 };
+    const result = await leaf.execute(ctx);
+    expect(result.ok).toBe(true);
+    const written = await read();
+    expect(String(sprint.id)).not.toBe(String(task.id));
+    expect(written).toContain(`- id: ${String(sprint.id)}`);
+    expect(written).not.toContain(`- id: ${String(task.id)}`);
+  });
+
   it('dedupes + trims ctx-accumulated decision signals into one bullet per unique entry', async () => {
     const task = makeDoneTask({ name: 'with-decisions' });
     const leaf = progressJournalLeaf(

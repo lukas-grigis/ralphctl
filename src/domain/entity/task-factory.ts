@@ -143,14 +143,12 @@ const setTaskName = (task: TodoTask, value: string): Result<TodoTask, Validation
   return Result.ok({ ...task, name: parsed.value });
 };
 
-/** `null` clears; a blank string parses to "absent" and clears too. */
+/** `null` clears; whitespace-only is rejected (the editor maps an empty field to null). */
 const setTaskDescription = (task: TodoTask, value: string | null): Result<TodoTask, ValidationError> => {
   if (value === null) return Result.ok(clearTaskField(task, 'description'));
-  const parsed = parseOptionalString('task.description', value);
+  const parsed = parseRequiredString('task.description', value);
   if (!parsed.ok) return Result.error(parsed.error);
-  const next = parsed.value;
-  if (next === undefined) return Result.ok(clearTaskField(task, 'description'));
-  return Result.ok({ ...task, description: next });
+  return Result.ok({ ...task, description: parsed.value });
 };
 
 const setTaskSteps = (task: TodoTask, value: readonly string[]): Result<TodoTask, ValidationError> =>

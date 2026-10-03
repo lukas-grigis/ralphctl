@@ -29,7 +29,8 @@
  */
 
 import React, { useEffect, useRef, useState, type MutableRefObject } from 'react';
-import { Box, Text, useInput, type Key } from 'ink';
+import { Box, Text, type Key } from 'ink';
+import { usePromptInput } from '@src/application/ui/tui/prompts/use-prompt-input.ts';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { useTerminalSize } from '@src/application/ui/tui/runtime/use-terminal-size.ts';
 import { normalizePasteNewlines, stripPasteMarkers, usePaste } from '@src/application/ui/tui/prompts/use-paste.ts';
@@ -348,7 +349,7 @@ const useTextAreaViewport = (
  * its bytes and embedded line breaks never reach the dispatch groups — no premature submit.
  */
 const useTextAreaKeyHandler = (ctx: TextAreaKeyCtx, consumePaste: (input: string) => boolean): void => {
-  useInput((input, key) => {
+  usePromptInput((input, key) => {
     if (consumePaste(input)) return;
     if (handleControlKeys(input, key, ctx)) return;
     if (handleCursorMovement(input, key, ctx)) return;

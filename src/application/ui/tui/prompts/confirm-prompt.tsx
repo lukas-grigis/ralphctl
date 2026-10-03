@@ -6,7 +6,8 @@
  */
 
 import React, { useState } from 'react';
-import { Box, Text, useInput } from 'ink';
+import { Box, Text } from 'ink';
+import { usePromptInput } from '@src/application/ui/tui/prompts/use-prompt-input.ts';
 import { inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { ScrollableMessage } from '@src/application/ui/tui/prompts/scrollable-message.tsx';
 
@@ -30,7 +31,7 @@ export const ConfirmPrompt = ({
 }: ConfirmPromptProps): React.JSX.Element => {
   const [yes, setYes] = useState(defaultYes);
 
-  useInput((input, key) => {
+  usePromptInput((input, key) => {
     if (key.escape) {
       onCancel();
       return;

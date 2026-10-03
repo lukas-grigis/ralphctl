@@ -2,12 +2,11 @@
  * Shared agent-definition parsing helpers — the frontmatter split + naive-YAML reader that
  * every agent-definition source backed by an on-disk Markdown file consumes.
  *
- * Reuses the same flat `key: value` frontmatter shape as SKILL.md, so the generic split/YAML/
- * error-code primitives live in the shared `skills/_engine/frontmatter.ts` module rather than
+ * Reuses the same flat `key: value` frontmatter shape as SKILL.md, so the generic split/YAML
+ * primitives live in the shared `skills/_engine/frontmatter.ts` module rather than
  * being duplicated here — this reaches into skills' `_engine/` via the documented cross-concept
  * `_engine`-to-`_engine` import seam. A real YAML lib lands only when an agent definition needs
- * nested / multiline frontmatter. This module re-exports `errorCode` so existing agent-source
- * callers (`bundled/source.ts`, `operator/source.ts`) are unaffected.
+ * nested / multiline frontmatter.
  *
  * `parseAgentDefinition` validates against {@link AgentDefinitionFrontmatterSchema} and asserts
  * frontmatter `name` matches the source name. The `label` parameter tailors the error message
@@ -18,9 +17,7 @@ import { Result } from '@src/domain/result.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import type { AgentDefinition } from '@src/integration/ai/agents/_engine/agent-definition.ts';
 import { AgentDefinitionFrontmatterSchema } from '@src/integration/ai/agents/_engine/agent-definition.ts';
-import { errorCode, parseSimpleYaml, splitFrontmatter } from '@src/integration/ai/skills/_engine/frontmatter.ts';
-
-export { errorCode };
+import { parseSimpleYaml, splitFrontmatter } from '@src/integration/ai/skills/_engine/frontmatter.ts';
 
 /**
  * Parse an already-read agent-definition file body into the canonical {@link AgentDefinition}

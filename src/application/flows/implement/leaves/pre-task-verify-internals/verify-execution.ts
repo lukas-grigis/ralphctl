@@ -64,9 +64,9 @@ const isInteractive = (env: PreTaskVerifyEnvironment): boolean => env.isStdinTty
 
 /**
  * True iff the previous task's post-task-verify ran green over EVERY configured gate on this same
- * cwd (carried from `input.priorPostVerifyOutcome`). Drives {@link tryCarryBaselineShortCircuit}
- * AND gates {@link tryFreshSetupShortCircuit} — the two short-circuits never overlap; once a task
- * has post-verified green, the carry path owns the subsequent skip.
+ * cwd (carried from `input.priorPostVerifyOutcome`). Selects the carry reason for
+ * {@link tryShortCircuitGreenBaseline} AND gates {@link isFreshSetupEligible} — the two reasons
+ * never overlap; once a task has post-verified green, the carry path owns the subsequent skip.
  *
  * The `coveredAllGates` requirement is what keeps the carry sound under structured `verifyGates`:
  * post-verify runs `fail-fast` SCOPED to the attempt's diff footprint, so its aggregate
@@ -84,65 +84,46 @@ export const isCarriedGreenForThisCwd = (input: LeafInput, cwd: AbsolutePath): b
   String(input.priorPostVerifyOutcome.cwd) === String(cwd);
 
 /**
- * Carry-baseline short-circuit. When the previous task on this same cwd post-verified green and
- * the working tree is still clean, the script's outcome can only be the same — re-running it is
- * wasted compute (~2m30s on a typical repo). Skips the script, the audit-row append (no extra
- * `phase: 'pre'` row), the log file write, and the prompt. The synthetic `VerifyRun` returned is
- * for the leaf's contract only — `lastPreVerifyOutcome` correctly carries `'success'` through the
- * output projection so post-task-verify's attribution computation sees `pre=success`.
- *
- * Git status returning an error (corrupt repo, fs error) demotes to "ineligible" — the real
- * script runs instead, matching today's behavior verbatim. Returns `undefined` when the
- * short-circuit does not fire, so the caller falls through to the real verify path.
+ * True iff the opt-in fresh-setup skip applies: this launch's setup verified this repo green (the
+ * run-scoped marker — NOT a persisted prior-launch success) and no prior-task carry is available,
+ * so the two short-circuit reasons never overlap.
  */
-export const tryCarryBaselineShortCircuit = async (
-  deps: PreTaskVerifyLeafDeps,
+export const isFreshSetupEligible = (
   opts: PreTaskVerifyLeafOpts,
   input: LeafInput,
   carriedGreenForThisCwd: boolean
-): Promise<LeafOutput | undefined> => {
-  if (!carriedGreenForThisCwd) return undefined;
-  const dirty = await gitHasUncommittedChanges(deps.gitRunner, opts.cwd);
-  if (!dirty.ok || dirty.value) return undefined;
-  deps.eventBus.publish({
-    type: 'log',
-    level: 'info',
-    message: `pre-task-verify ${String(opts.cwd)}: short-circuited (carried green baseline, tree clean)`,
-    at: deps.clock(),
-  });
-  return { task: input.task, run: syntheticGreenPreRun(deps.clock), execution: input.execution };
-};
+): boolean =>
+  opts.skipPreVerifyOnFreshSetup === true &&
+  !carriedGreenForThisCwd &&
+  (input.setupVerifiedRepoIds ?? []).some((id) => String(id) === String(input.repositoryId));
 
 /**
- * Fresh-setup short-circuit (T13) — a strict generalisation of {@link tryCarryBaselineShortCircuit}
- * for the FIRST pre-verify of the run on this repo. The carry path only seeds from a PRIOR TASK's
- * green post-verify, so the first task of every launch always re-ran the gate even when this
- * launch's setup script just built+tested the same tree seconds earlier. When the operator has
- * opted in (`skipPreVerifyOnFreshSetup`), this launch's setup verified this repo green (the
- * run-scoped marker — NOT a persisted prior-launch success), and the tree is clean, synthesize
- * the SAME green baseline so downstream attribution + the PRE_VERIFY_RESULTS rendering fold to
- * the identical path. Gated on the carry being absent so the two short-circuits never overlap.
+ * Green-baseline short-circuit, shared by the carry-baseline and fresh-setup reasons: when the
+ * tree is clean the gate's outcome can only match the green evidence already in hand, so skip the
+ * script, the audit row, the log file and the prompt (~2m30s on a typical repo). A git-probe
+ * failure or a dirty tree returns `undefined` so the caller runs the real gate. The synthetic
+ * green clears the 'proceed' amnesty and this task's baseline-broken banner exactly like a real
+ * green, so a fresh red later in the sprint re-prompts.
  */
-export const tryFreshSetupShortCircuit = async (
+export const tryShortCircuitGreenBaseline = async (
   deps: PreTaskVerifyLeafDeps,
   opts: PreTaskVerifyLeafOpts,
   input: LeafInput,
-  carriedGreenForThisCwd: boolean
-): Promise<LeafOutput | undefined> => {
-  const eligible =
-    opts.skipPreVerifyOnFreshSetup === true &&
-    !carriedGreenForThisCwd &&
-    (input.setupVerifiedRepoIds ?? []).some((id) => String(id) === String(input.repositoryId));
-  if (!eligible) return undefined;
+  taskId: TaskId,
+  reason: string
+): Promise<Result<LeafOutput, DomainError> | undefined> => {
   const dirty = await gitHasUncommittedChanges(deps.gitRunner, opts.cwd);
   if (!dirty.ok || dirty.value) return undefined;
   deps.eventBus.publish({
     type: 'log',
     level: 'info',
-    message: `pre-task-verify ${String(opts.cwd)}: short-circuited (this run's setup verified the tree green, tree clean)`,
+    message: `pre-task-verify ${String(opts.cwd)}: short-circuited (${reason}, tree clean)`,
     at: deps.clock(),
   });
-  return { task: input.task, run: syntheticGreenPreRun(deps.clock), execution: input.execution };
+  const run = syntheticGreenPreRun(deps.clock);
+  const cleared = await handleNonFailedOutcome(deps, opts, taskId, run, input.execution, undefined);
+  if (!cleared.ok) return Result.error(cleared.error);
+  return Result.ok({ task: input.task, run, execution: cleared.value });
 };
 
 /**
@@ -166,7 +147,7 @@ export const runPreVerifyGate = (
     clock: deps.clock,
     // Thread the chain abort signal so a Ctrl-C mid-verify kills the child promptly instead of
     // stranding the repo lock for the full verifyTimeout. The runner now widens its error to
-    // `StorageError | AbortError`; `runVerifyScriptUseCase` only knows `StorageError`, so
+    // `StorageError | AbortError`; `runVerifyGatesUseCase` only knows `StorageError`, so
     // collapse an abort to a storage shape here (the runner has already killed the child) — the
     // real abort is surfaced verbatim by the `signal.aborted` check the caller runs immediately
     // after, before the folded spawn-error row is ever acted on.
@@ -452,7 +433,7 @@ const emitBaselineRedBanner = (deps: Pick<PreTaskVerifyLeafDeps, 'eventBus' | 'c
 
 /**
  * Adapter between the abort-aware {@link ShellScriptRunner} (which now widens its error to
- * `StorageError | AbortError`) and `runVerifyScriptUseCase`, whose `runShellScript` port still
+ * `StorageError | AbortError`) and `runVerifyGatesUseCase`, whose `runShellScript` port still
  * declares a `StorageError`-only error. The runner has already killed the child by the time an
  * abort surfaces here, so collapsing the `AbortError` to a `StorageError` shape loses nothing —
  * the leaf re-derives the real cancellation from `signal.aborted` immediately after the call and

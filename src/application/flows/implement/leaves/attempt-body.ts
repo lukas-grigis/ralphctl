@@ -1,3 +1,4 @@
+import type { FinalizeGenEvalProps } from '@src/business/task/finalize-gen-eval.ts';
 import type { AiProvider } from '@src/domain/entity/settings.ts';
 import type { Task } from '@src/domain/entity/task.ts';
 import type { TaskId } from '@src/domain/value/id/task-id.ts';
@@ -37,23 +38,8 @@ import type { RepoExecConfig } from '@src/application/flows/implement/leaves/res
 import { settleAttemptLeaf } from '@src/application/flows/implement/leaves/settle-attempt.ts';
 import { startAttemptLeaf } from '@src/application/flows/implement/leaves/start-attempt.ts';
 
-/**
- * Per-spawn harness config re-read on every attempt / turn so a mid-run settings edit reaches the
- * budgets and the escalation policy without relaunching.
- */
-export type AttemptReadConfig = () => Promise<{
-  readonly maxTurns: number;
-  readonly escalateOnPlateau: boolean;
-  readonly escalationMap: Readonly<Record<string, string>>;
-  readonly maxAttempts: number;
-  /**
-   * Opt-in best-of-N candidate count for the escalation policy's top-of-ladder remedy — mirrors
-   * `settings.harness.bestOfNCandidates`. OPTIONAL: absent/`0` disables the remedy (the default),
-   * and every existing `readConfig` implementation across the codebase (which predates this field)
-   * keeps compiling unchanged.
-   */
-  readonly bestOfNCandidates?: number | undefined;
-}>;
+/** Harness budgets/escalation snapshot taken at launch; a mid-run settings edit applies on the next launch. */
+export type AttemptReadConfig = FinalizeGenEvalProps['readConfig'];
 
 /**
  * Build an {@link AttemptReadConfig} from a live `IterationConfig` slice — the ONE place that
@@ -171,7 +157,7 @@ const buildGenEvalSegment = (
       withAgentDefinitionName(opts.evaluator, opts.evaluatorAgentDefinition)
     ),
     taskId,
-    async () => ({ maxTurns: (await readConfig()).maxTurns })
+    readConfig
   );
   return [
     guard<ImplementCtx>(`best-of-n-branch-${String(taskId)}`, isBestOfNGranted, bestOfNElement),
@@ -205,7 +191,9 @@ const attemptWorkLeaves = (
 ): Array<Element<ImplementCtx>> => [
   startAttemptLeaf(
     { taskRepo: deps.taskRepo, clock: deps.clock, logger: deps.logger, eventBus: deps.eventBus },
-    taskId
+    taskId,
+    // A crash resume only continues the interrupted session under the generator it ran on.
+    { provider: opts.generator.providerId, model: opts.generator.model, cwd: String(repo.path) }
   ),
   // PRE-task verify — captures the baseline state of the working tree BEFORE the AI runs
   // so the post-task-verify can attribute correctly: a red post on a green pre means the
@@ -227,9 +215,7 @@ const attemptWorkLeaves = (
     {
       cwd: repo.path,
       sprintDir: opts.sprintDir,
-      // Opt-in fresh-setup skip — read straight off the harness config (a static
-      // launch-time value, same channel as `effectiveMaxAttempts` below; not a mid-run
-      // re-readable knob, so it rides `deps.config` rather than `readConfig`).
+      // Static launch-time harness value, same channel as effectiveMaxAttempts below.
       skipPreVerifyOnFreshSetup: deps.config.harness.skipPreVerifyOnFreshSetup,
       ...(repo.verifyScript !== undefined ? { verifyScript: repo.verifyScript } : {}),
       ...(repo.verifyGates !== undefined ? { verifyGates: repo.verifyGates } : {}),

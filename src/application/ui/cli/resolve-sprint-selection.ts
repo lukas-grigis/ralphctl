@@ -1,25 +1,11 @@
-/**
- * Sprint-id resolution for CLI commands — explicit argument first, pinned selection second.
- *
- * `ralphctl sprint set-current <id>` (and every TUI sprint pick) persists the user's current
- * sprint in `<stateRoot>/last-selection.json`; commands that take a sprint fall back to that
- * pin when the argument is omitted, so day-to-day invocations don't repeat the UUID the user
- * already pinned. The explicit argument always wins.
- *
- * The pinned id is re-parsed through `SprintId.parse` before use: the store's read is silent
- * on corruption (it's a UX optimisation, not a contract), so a stale or hand-edited file must
- * fail with the same actionable message an invalid explicit argument gets.
- *
- * When the fallback path is taken, the calling action prints {@link pinFallbackNotice} to
- * stderr — write paths (`unblock`, `ticket add`/`remove`) especially must disambiguate a
- * possibly-stale pin from a deliberate target.
- */
+/** Sprint-id resolution for CLI commands — explicit argument first, pinned selection second. */
 
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { Result } from '@src/domain/result.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import { ValidationError } from '@src/domain/value/error/validation-error.ts';
 import { SprintId } from '@src/domain/value/id/sprint-id.ts';
+import { fail } from '@src/application/ui/cli/report-cli-error.ts';
 import { createLastSelectionStore } from '@src/integration/persistence/selection/last-selection-store.ts';
 
 export interface ResolvedSprintId {
@@ -33,8 +19,8 @@ const DEFAULT_MISSING_MESSAGE =
 
 export interface ResolveSprintIdOptions {
   /**
-   * Guidance emitted when neither an explicit id nor a pin exists. Defaults to the
-   * `--sprint <id>` phrasing; commands with a positional `[id]` pass their own wording.
+   * Guidance emitted when neither an explicit id nor a pin exists. Defaults to the `--sprint <id>` phrasing; commands
+   * with a positional `[id]` pass their own wording.
    */
   readonly missingMessage?: string;
 }
@@ -70,8 +56,53 @@ export const resolveSprintId = async (
 };
 
 /**
- * One-line stderr notice for the fallback path — tells the user which sprint was substituted
- * and how to override it, so a stale pin never silently targets the wrong sprint.
+ * One-line stderr notice for the fallback path — tells the user which sprint was substituted and how to override it,
+ * so a stale pin never silently targets the wrong sprint.
  */
 export const pinFallbackNotice = (id: SprintId): string =>
   `using current sprint ${String(id)} (from sprint set-current; pass --sprint to override)\n`;
+
+export interface SprintOpt {
+  readonly sprint?: string;
+}
+
+export const SPRINT_OPTION_FLAGS = '-s, --sprint <id>';
+export const SPRINT_OPTION_DESC = 'sprint id (defaults to the current sprint)';
+
+/** CLI preamble: resolve the sprint, `fail()` on error, announce a pin fallback; `undefined` means "already reported". */
+export const resolveSprintForCli = async (
+  raw: string | undefined,
+  stateRoot: AbsolutePath
+): Promise<SprintId | undefined> => {
+  const resolved = await resolveSprintId(raw, stateRoot);
+  if (!resolved.ok) {
+    fail(resolved.error.message);
+    return undefined;
+  }
+  if (resolved.value.fromPin) process.stderr.write(pinFallbackNotice(resolved.value.sprintId));
+  return resolved.value.sprintId;
+};
+
+/** Like `resolveSprintForCli` plus an entity id; the pin notice prints only once both ids are valid. */
+export const resolveSprintAndIdForCli = async <T>(
+  rawSprint: string | undefined,
+  stateRoot: AbsolutePath,
+  rawId: string,
+  parse: (
+    raw: string
+  ) => { readonly ok: true; readonly value: T } | { readonly ok: false; readonly error: { readonly message: string } },
+  label: 'task' | 'ticket'
+): Promise<{ readonly sprintId: SprintId; readonly id: T } | undefined> => {
+  const resolved = await resolveSprintId(rawSprint, stateRoot);
+  if (!resolved.ok) {
+    fail(resolved.error.message);
+    return undefined;
+  }
+  const id = parse(rawId);
+  if (!id.ok) {
+    fail(`invalid ${label} id: ${id.error.message}`);
+    return undefined;
+  }
+  if (resolved.value.fromPin) process.stderr.write(pinFallbackNotice(resolved.value.sprintId));
+  return { sprintId: resolved.value.sprintId, id: id.value };
+};

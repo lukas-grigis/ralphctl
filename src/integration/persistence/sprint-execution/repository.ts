@@ -1,7 +1,6 @@
 import { join } from 'node:path';
 import { Result } from '@src/domain/result.ts';
 import type { SprintExecution } from '@src/domain/entity/sprint-execution.ts';
-import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { SprintExecutionRepository } from '@src/domain/repository/sprint/sprint-execution-repository.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
@@ -9,9 +8,9 @@ import {
   fromJsonSprintExecution,
   toJsonSprintExecution,
 } from '@src/integration/persistence/sprint-execution/sprint-execution.schema.ts';
-import { readJson, removeFile, writeJsonAtomic } from '@src/integration/io/fs.ts';
-import { resolveSprintDir, sprintsDir } from '@src/integration/persistence/storage.ts';
-import { decode } from '@src/integration/persistence/shared/decode.ts';
+import { removeFile, writeJsonAtomic } from '@src/integration/io/fs.ts';
+import { resolveSprintDir, sprintDirOrBare } from '@src/integration/persistence/storage.ts';
+import { readEntity } from '@src/integration/persistence/shared/read-entities.ts';
 
 const ENTITY = 'sprint-execution';
 const EXECUTION_FILE = 'execution.json';
@@ -32,29 +31,19 @@ export interface FsSprintExecutionRepositoryDeps {
  * back to the bare `<id>/` dir, which the next sprint save reconciles onto the canonical name.
  */
 export const createFsSprintExecutionRepository = (deps: FsSprintExecutionRepositoryDeps): SprintExecutionRepository => {
-  /** Resolve the existing sprint dir, falling back to the bare `<id>/` path for first writes. */
-  const dirFor = async (id: SprintId): Promise<string> =>
-    (await resolveSprintDir(deps.root, id)) ?? join(sprintsDir(deps.root), String(id));
-
   return {
     async findById(id) {
       const dir = await resolveSprintDir(deps.root, id);
-      if (dir === undefined) {
-        return Result.error(new NotFoundError({ entity: ENTITY, id: String(id) }));
-      }
-      const path = join(dir, EXECUTION_FILE);
-      const json = await readJson(path);
-      if (!json.ok) {
-        if (json.error instanceof NotFoundError) {
-          return Result.error(new NotFoundError({ entity: ENTITY, id: String(id) }));
-        }
-        return Result.error(json.error);
-      }
-      return decode((input) => fromJsonSprintExecution(input, path), json.value, { entity: ENTITY, path });
+      return readEntity(
+        dir === undefined ? undefined : join(dir, EXECUTION_FILE),
+        fromJsonSprintExecution,
+        ENTITY,
+        String(id)
+      );
     },
 
     async save(execution: SprintExecution) {
-      const path = join(await dirFor(execution.sprintId), EXECUTION_FILE);
+      const path = join(await sprintDirOrBare(deps.root, execution.sprintId), EXECUTION_FILE);
       return writeJsonAtomic(path, toJsonSprintExecution(execution));
     },
 

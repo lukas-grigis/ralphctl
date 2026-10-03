@@ -1,0 +1,119 @@
+/**
+ * Render an Ink tree at a chosen terminal size. `ink-testing-library` hard-codes 100 columns, so
+ * it cannot prove an 80- or 160-column layout; this helper drives Ink's `render()` with a fake
+ * stdout whose `columns` / `rows` are caller-controlled and whose `resize()` emits the same
+ * `'resize'` event `runtime/use-terminal-size.ts` listens to.
+ */
+
+import type React from 'react';
+import { EventEmitter } from 'node:events';
+import { render as inkRender } from 'ink';
+
+export interface TerminalDims {
+  readonly columns: number;
+  readonly rows: number;
+}
+
+class FakeStdout extends EventEmitter {
+  columns: number;
+  rows: number;
+  readonly isTTY = true;
+  readonly frames: string[] = [];
+  constructor(dims: TerminalDims) {
+    super();
+    this.columns = dims.columns;
+    this.rows = dims.rows;
+  }
+  write = (frame: string): void => {
+    this.frames.push(frame);
+  };
+}
+
+/** Stdin shaped like ink-testing-library's: `write` feeds `readable` + `data` listeners. */
+class FakeStdin extends EventEmitter {
+  readonly isTTY = true;
+  private pending: string | null = null;
+  write = (data: string): void => {
+    this.pending = data;
+    this.emit('readable');
+    this.emit('data', data);
+  };
+  read = (): string | null => {
+    const d = this.pending;
+    this.pending = null;
+    return d;
+  };
+  setEncoding(): void {
+    // no-op
+  }
+  setRawMode(): void {
+    // no-op
+  }
+  resume(): void {
+    // no-op
+  }
+  pause(): void {
+    // no-op
+  }
+  ref(): void {
+    // no-op
+  }
+  unref(): void {
+    // no-op
+  }
+}
+
+export interface RenderAtSizeResult {
+  readonly lastFrame: () => string | undefined;
+  readonly frames: readonly string[];
+  readonly stdin: { readonly write: (data: string) => void };
+  readonly rerender: (node: React.ReactNode) => void;
+  /** Update the fake terminal size and emit `'resize'`, as a SIGWINCH would. */
+  readonly resize: (columns: number, rows: number) => void;
+  readonly unmount: () => void;
+}
+
+// eslint-disable-next-line no-control-regex
+const CONTROL_ONLY = /^(?:\x1b\[[?0-9;]*[A-Za-z])+$/;
+
+/**
+ * The last write that is a rendered frame. Ink also writes bare control sequences to the same
+ * stream (mouse-reporting toggles from `ScrollRegion`, cursor show / hide); one of those landing
+ * after the final repaint must not read as an empty screen.
+ */
+const lastRenderedFrame = (frames: readonly string[]): string | undefined => {
+  for (let i = frames.length - 1; i >= 0; i--) {
+    const f = frames[i];
+    if (f !== undefined && !CONTROL_ONLY.test(f)) return f;
+  }
+  return undefined;
+};
+
+export const renderAtSize = (node: React.ReactNode, dims: TerminalDims): RenderAtSizeResult => {
+  const stdout = new FakeStdout(dims);
+  const stderr = new FakeStdout(dims);
+  const stdin = new FakeStdin();
+  const instance = inkRender(node, {
+    stdout: stdout as unknown as NodeJS.WriteStream,
+    stderr: stderr as unknown as NodeJS.WriteStream,
+    stdin: stdin as unknown as NodeJS.ReadStream,
+    debug: true,
+    exitOnCtrlC: false,
+    patchConsole: false,
+  });
+  return {
+    lastFrame: () => lastRenderedFrame(stdout.frames),
+    frames: stdout.frames,
+    stdin: { write: stdin.write },
+    rerender: instance.rerender,
+    resize: (columns, rows) => {
+      stdout.columns = columns;
+      stdout.rows = rows;
+      stdout.emit('resize');
+    },
+    unmount: () => {
+      instance.unmount();
+      instance.cleanup();
+    },
+  };
+};

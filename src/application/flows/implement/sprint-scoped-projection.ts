@@ -113,6 +113,8 @@ const CTX_FIELD_CLASS = {
   expectedBranch: { merge: PER_TASK, attempt: CARRY },
   priorGeneratorSessionId: { merge: PER_TASK, attempt: RESET },
   priorEvaluatorSessionId: { merge: PER_TASK, attempt: RESET },
+  // Re-seeded by start-attempt AFTER the reset when the attempt is a crash resume.
+  crashResumePending: { merge: PER_TASK, attempt: RESET },
   // Set once per task (before the attempt loop) by the guarded `reproduce-<taskId>` leaf; must
   // survive every attempt/retry of the SAME task, so `CARRY` not `RESET`. Meaningless once the
   // task itself changes — `clearReproductionArtifactLeaf` is the serial-path counterpart of the
@@ -235,6 +237,7 @@ export const resetAttemptScratch = (): Required<Pick<ImplementCtx, AttemptResetK
   proposedCommitMessage: undefined,
   priorGeneratorSessionId: undefined,
   priorEvaluatorSessionId: undefined,
+  crashResumePending: undefined,
   bestOfNCandidates: undefined,
   bestOfNSampledCount: undefined,
   bestOfNLoopTurn: undefined,

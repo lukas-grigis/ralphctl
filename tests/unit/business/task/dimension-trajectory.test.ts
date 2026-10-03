@@ -91,6 +91,17 @@ describe('composeDimensionTrajectory', () => {
     expect(out).toContain('fundamentally different fix');
   });
 
+  it('clamps the threshold like the plateau detector — an out-of-range 9 still warns at a 4-round stall', () => {
+    const out = composeDimensionTrajectory({
+      history: [turn(['correctness']), turn(['correctness']), turn(['correctness']), turn(['correctness'])],
+      plateauThreshold: 9,
+      roundNum: 4,
+      maxTurns: 8,
+    });
+    expect(out).toContain('4 stalled round(s)');
+    expect(out).toContain('exits this loop at 5 consecutive stalled rounds');
+  });
+
   it('does NOT fire the pressure line before the threshold-1 stall point', () => {
     // threshold 5, streak only 2 → no pressure yet.
     const out = composeDimensionTrajectory({

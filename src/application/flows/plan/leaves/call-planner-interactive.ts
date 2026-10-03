@@ -1,7 +1,6 @@
 import { dirname } from 'node:path';
 import { Result } from '@src/domain/result.ts';
 import type { InteractiveAiProvider } from '@src/integration/ai/providers/_engine/interactive-ai-provider.ts';
-import type { EventBus } from '@src/business/observability/event-bus.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
 import type { WriteFile } from '@src/business/io/write-file.ts';
 import type { Project } from '@src/domain/entity/project.ts';
@@ -17,6 +16,8 @@ import { parsePlanOutput } from '@src/integration/ai/prompts/plan/parse-output.t
 import { renderSidecars } from '@src/integration/ai/contract/_engine/render-sidecars.ts';
 import { validateSignalsFile } from '@src/integration/ai/contract/_engine/validate-signals-file.ts';
 import type { RunInTerminal } from '@src/integration/io/run-in-terminal.ts';
+import { assertCtxField } from '@src/application/flows/_shared/_engine/assert-ctx-field.ts';
+import type { PublishSignal } from '@src/application/flows/_shared/publish-signal.ts';
 import { planOutputContract } from '@src/application/flows/plan/leaves/plan.contract.ts';
 import type { PlanCtx } from '@src/application/flows/plan/ctx.ts';
 
@@ -53,11 +54,8 @@ export interface CallPlannerInteractiveDeps {
    * `writeFile` keeps the contract loop uniform with other leaves.
    */
   readonly writeFile: WriteFile;
-  /**
-   * Application bus — every validated `task-plan` / `learning` / `note` / `decision` signal
-   * fans out as a typed `ai-signal` event the TUI subscribes to.
-   */
-  readonly eventBus: EventBus;
+  /** Fans every validated `task-plan` / `learning` / `note` / `decision` signal out to the TUI. */
+  readonly publishSignal: PublishSignal;
   /**
    * Repo roots mounted as equal `--add-dir` sources alongside the per-sprint plan unit root.
    * The plan flow passes every repository on the project so the AI can navigate across a
@@ -144,7 +142,7 @@ const validateAndParseOutput = async (
   const signals = validated.value;
 
   for (const sig of signals) {
-    deps.eventBus.publish({ type: 'ai-signal', signal: sig, source: 'plan' });
+    deps.publishSignal(sig);
   }
 
   await renderSidecars(deps.writeFile, outputDir, signals, planOutputContract.sidecars, deps.logger);
@@ -183,53 +181,20 @@ export const callPlannerInteractiveLeaf = (deps: CallPlannerInteractiveDeps): El
       },
     },
     input: (ctx) => {
-      if (ctx.sprint === undefined) {
-        throw new InvalidStateError({
-          entity: 'chain',
-          currentState: 'pre-plan',
-          attemptedAction: LEAF_NAME,
-          message: 'call-planner-interactive: ctx.sprint is undefined — load-sprint must run first',
-        });
-      }
-      if (!isDraft(ctx.sprint)) {
+      const sprint = assertCtxField(ctx, 'sprint', LEAF_NAME, 'pre-plan');
+      if (!isDraft(sprint)) {
         throw new InvalidStateError({
           entity: 'sprint',
-          currentState: ctx.sprint.status,
+          currentState: sprint.status,
           attemptedAction: LEAF_NAME,
-          message: `call-planner-interactive: sprint must be draft — got '${ctx.sprint.status}'`,
+          message: `call-planner-interactive: sprint must be draft — got '${sprint.status}'`,
         });
       }
-      if (ctx.project === undefined) {
-        throw new InvalidStateError({
-          entity: 'chain',
-          currentState: 'pre-plan',
-          attemptedAction: LEAF_NAME,
-          message: 'call-planner-interactive: ctx.project is undefined — load-project must run first',
-        });
-      }
-      if (ctx.currentPromptFile === undefined || ctx.currentOutputFile === undefined) {
-        throw new InvalidStateError({
-          entity: 'chain',
-          currentState: 'pre-plan',
-          attemptedAction: LEAF_NAME,
-          message: 'call-planner-interactive: prompt/output paths missing — render-prompt-to-file must run first',
-        });
-      }
-      if (ctx.currentUnitRoot === undefined) {
-        throw new InvalidStateError({
-          entity: 'chain',
-          currentState: 'pre-plan',
-          attemptedAction: LEAF_NAME,
-          message: 'call-planner-interactive: unit root missing — build-plan-unit must run first',
-        });
-      }
-      return {
-        sprint: ctx.sprint,
-        project: ctx.project,
-        cwd: ctx.currentUnitRoot,
-        promptFile: ctx.currentPromptFile,
-        outputFile: ctx.currentOutputFile,
-      };
+      const project = assertCtxField(ctx, 'project', LEAF_NAME, 'pre-plan');
+      const promptFile = assertCtxField(ctx, 'currentPromptFile', LEAF_NAME, 'pre-plan');
+      const outputFile = assertCtxField(ctx, 'currentOutputFile', LEAF_NAME, 'pre-plan');
+      const cwd = assertCtxField(ctx, 'currentUnitRoot', LEAF_NAME, 'pre-plan');
+      return { sprint, project, cwd, promptFile, outputFile };
     },
     // Proposal only — `ctx.sprint` / `ctx.tasks` stay untouched until `apply-plan` runs the
     // human gate, so a rejected plan needs no rollback here.

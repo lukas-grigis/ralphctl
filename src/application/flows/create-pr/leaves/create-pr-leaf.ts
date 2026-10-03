@@ -12,21 +12,7 @@ import { leaf } from '@src/application/chain/build/leaf.ts';
 
 import type { CreatePrCtx, CreatePrInput, CreatePrOutput } from '@src/application/flows/create-pr/ctx.ts';
 import type { CreatePrDeps } from '@src/application/flows/create-pr/deps.ts';
-
-const ALLOWED_STATUSES = ['review', 'done'] as const;
-
-/** Status whitelist guard — PRs open after work is implemented (see module doc for rationale). */
-const assertSprintEligible = (sprint: Sprint): Result<void, InvalidStateError> => {
-  if (ALLOWED_STATUSES.includes(sprint.status as (typeof ALLOWED_STATUSES)[number])) return Result.ok(undefined);
-  return Result.error(
-    new InvalidStateError({
-      entity: 'sprint',
-      currentState: sprint.status,
-      attemptedAction: 'create-pr',
-      message: `cannot create-pr on sprint in '${sprint.status}' status — allowed: ${ALLOWED_STATUSES.join(', ')}`,
-    })
-  );
-};
+import { assertSprintEligible } from '@src/application/flows/create-pr/eligibility.ts';
 
 /** Honour the caller-supplied tasks override (ctx-input seam); otherwise load from the repo. */
 const resolveTasks = async (

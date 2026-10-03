@@ -21,7 +21,7 @@ import {
   PROJECT_SCOPED_FLOW_IDS,
   SPRINT_SCOPED_FLOW_IDS,
 } from '@src/application/ui/tui/views/flows-visibility.ts';
-import { VIEW_ROUTED_FLOW_IDS } from '@src/application/ui/tui/views/flows-view.tsx';
+import { VIEW_ROUTED_FLOW_IDS } from '@src/application/ui/tui/runtime/use-flow-launcher.ts';
 import { launchFlow, type LauncherDeps } from '@src/application/ui/shared/launcher.ts';
 import type { AppStateSnapshot } from '@src/application/ui/shared/state-snapshot.ts';
 import type { AppDeps } from '@src/application/bootstrap/wire.ts';
@@ -142,7 +142,7 @@ describe('flow registry reachability', () => {
     const reachable = MENU_VISIBLE_IDS.includes(flowId) || ROUTED.has(flowId);
     expect(
       reachable,
-      `${flowId} is registered but neither listed in flows-visibility.ts nor routed by flows-view.tsx — ` +
+      `${flowId} is registered but neither listed in flows-visibility.ts nor routed by use-flow-launcher.ts — ` +
         'it can never be shown or selected. Add it to a visibility list (and/or VIEW_ROUTES) or drop the entry.'
     ).toBe(true);
   });

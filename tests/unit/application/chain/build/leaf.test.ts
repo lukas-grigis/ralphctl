@@ -98,6 +98,30 @@ describe('leaf', () => {
     }
   });
 
+  it('traces a returned AbortError as aborted, matching the thrown path', async () => {
+    const abortErr = new AbortError({ elementName: 'x' });
+    const emitted: TraceEntry[] = [];
+    const el = leaf<Ctx, unknown, unknown>('x', {
+      useCase: {
+        async execute() {
+          return Result.error(abortErr);
+        },
+      },
+      input: () => undefined,
+      output: (c) => c,
+    });
+
+    const result = await el.execute({ count: 0 }, undefined, (e) => emitted.push(e));
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.error).toBe(abortErr);
+      expect(result.error.trace[0]?.status).toBe('aborted');
+    }
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0]?.status).toBe('aborted');
+    expect(emitted[0]?.error).toBe(abortErr);
+  });
+
   it('emits its trace entry through onTrace exactly once', async () => {
     const emitted: TraceEntry[] = [];
     const el = leaf<Ctx, { current: number }, { next: number }>('inc', {

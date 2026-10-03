@@ -10,7 +10,7 @@ import { buildComposedSkillSource } from '@src/application/ui/shared/launcher.ts
 import { checkCli } from '@src/application/ui/shared/launch/check-cli.ts';
 import { bootstrapCli } from '@src/application/ui/cli/bootstrap.ts';
 import { fail } from '@src/application/ui/cli/report-cli-error.ts';
-import { pinFallbackNotice, resolveSprintId } from '@src/application/ui/cli/resolve-sprint-selection.ts';
+import { resolveSprintForCli } from '@src/application/ui/cli/resolve-sprint-selection.ts';
 import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import type { StoragePaths } from '@src/application/bootstrap/storage-paths.ts';
 import type { Element } from '@src/application/chain/element.ts';
@@ -25,13 +25,7 @@ interface Opts {
   readonly ai: boolean;
 }
 
-/**
- * Build the createPr provider + composed skill source + flow. Extracted from the command action
- * to keep it under the per-function line budget. The skill source is composed directly (not via
- * `launchFlow` — this command never reaches that dispatch, see `flowMountsSkills`'s doc comment)
- * with a project-less snapshot: a one-shot PR-summary spawn over an already-pushed diff has no
- * use for the project-scoped (detect-skills) source.
- */
+/** Build the createPr provider + composed skill source + flow. */
 const buildCreatePrFlow = (deps: AppDeps, storage: StoragePaths, useAi: boolean): Element<CreatePrCtx> => {
   // Rebuild the provider from the `createPr` settings row — `deps.provider` is wired from the
   // `implement` row at boot, which mismatches the createPr model in a mixed-provider config.
@@ -42,6 +36,7 @@ const buildCreatePrFlow = (deps: AppDeps, storage: StoragePaths, useAi: boolean)
     ai: deps.settings.ai,
     harnessConfig: deps.settings.harness,
     eventBus: deps.eventBus,
+    childRegistry: deps.childRegistry,
   });
   const skillSource = buildComposedSkillSource(
     { app: deps, storage },
@@ -98,18 +93,11 @@ const createPrAction = async (opts: Opts): Promise<void> => {
   }
 
   const { deps, storage } = await bootstrapCli();
-  const resolved = await resolveSprintId(opts.sprint, storage.stateRoot);
-  if (!resolved.ok) {
-    fail(resolved.error.message);
-    return;
-  }
-  // Opening a PR is a write to the upstream — always disambiguate a pin-derived target.
-  if (resolved.value.fromPin) process.stderr.write(pinFallbackNotice(resolved.value.sprintId));
-  const sprintId = resolved.value.sprintId;
-  // PATH-gate the AI step FIRST: when `--ai` is on (the default), the create-pr AI session
-  // spawns the `createPr` row's provider CLI. Probe for it before any sprint I/O so a missing
-  // binary fails fast with the actionable "binary not found" guidance, matching every other
-  // AI flow (and so the gate cannot be masked by a not-yet-materialised sprint dir).
+  // Opening a PR is a write to the upstream — the resolver always disambiguates a pin-derived target.
+  const sprintId = await resolveSprintForCli(opts.sprint, storage.stateRoot);
+  if (sprintId === undefined) return;
+  // PATH-gate the AI step FIRST: when `--ai` is on (the default), the create-pr AI session spawns the `createPr`
+  // row's provider CLI.
   if (opts.ai) {
     const gate = await checkCli('create-pr', deps.settings);
     if (gate !== undefined && !gate.ok) {

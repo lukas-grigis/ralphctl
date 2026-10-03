@@ -9,7 +9,8 @@
  */
 
 import React, { useState } from 'react';
-import { Box, Text, useInput } from 'ink';
+import { Box, Text } from 'ink';
+import { usePromptInput } from '@src/application/ui/tui/prompts/use-prompt-input.ts';
 import type { Choice } from '@src/business/interactive/prompt.ts';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { ScrollableMessage } from '@src/application/ui/tui/prompts/scrollable-message.tsx';
@@ -72,7 +73,7 @@ export const SelectPrompt = ({
   // we tolerate an all-disabled list by leaving the cursor at 0 with submission blocked).
   const [cursor, setCursor] = useState(() => firstEnabledIndex(options));
 
-  useInput((input, key) => {
+  usePromptInput((input, key) => {
     if (key.escape) {
       onCancel();
       return;

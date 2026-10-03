@@ -1,9 +1,4 @@
-/**
- * Shared payload threaded into every per-flow `launchXxx` function. The launcher resolves these
- * once per launch — fresh settings (post any Settings-view edit), provider-bound adapters
- * rebuilt from those settings, a composed skill source, and a runner→event-bus bridge factory.
- * Per-flow modules then read only what they need.
- */
+/** Shared payload threaded into every per-flow `launchXxx` function. */
 
 import type { Runner } from '@src/application/chain/run/runner.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
@@ -30,10 +25,7 @@ export interface LaunchContext {
   /** Wires the runner to the event bus so subscribers see chain progress. */
   readonly bridge: <T>(runner: Runner<T>) => Runner<T>;
   /**
-   * Effort resolved via `resolveEffort(flowId, settings)` — undefined when the flow doesn't
-   * open an AI session, or for an opencode row with neither a per-flow nor a global effort
-   * (every other provider falls back to the flow's shipped default). Each launcher threads it
-   * into the `AiSession` it constructs; the adapter translates to its CLI flag.
+   * Effort resolved via `resolveEffort(flowId, settings)` — undefined when the flow doesn't open an AI session.
    */
   readonly effort?: string;
 }

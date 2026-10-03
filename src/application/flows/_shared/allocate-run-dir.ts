@@ -1,11 +1,9 @@
-import { promises as fs } from 'node:fs';
 import { join } from 'node:path';
 import { Result } from '@src/domain/result.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
-import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import type { Element } from '@src/application/chain/element.ts';
-import { leaf } from '@src/application/chain/build/leaf.ts';
+import { buildUnitLeaf } from '@src/application/flows/_shared/build-unit.ts';
 import { buildRunDirName } from '@src/integration/ai/runs/_engine/run-artifacts.ts';
 
 /**
@@ -41,33 +39,13 @@ export interface AllocateRunDirOpts<TCtx> {
   readonly write: (ctx: TCtx, runDir: AbsolutePath) => TCtx;
 }
 
-interface AllocateRunDirInput {
-  readonly path: string;
-}
-
 export const allocateRunDirLeaf = <TCtx>(opts: AllocateRunDirOpts<TCtx>): Element<TCtx> =>
-  leaf<TCtx, AllocateRunDirInput, AbsolutePath>(opts.name, {
-    useCase: {
-      execute: async (input) => {
-        try {
-          await fs.mkdir(input.path, { recursive: true });
-        } catch (cause) {
-          return Result.error(
-            new StorageError({
-              subCode: 'io',
-              message: `failed to create run dir: ${input.path}`,
-              path: input.path,
-              cause,
-            })
-          );
-        }
-        const parsed = AbsolutePath.parse(input.path);
-        if (!parsed.ok) return Result.error(parsed.error as never);
-        return Result.ok(parsed.value);
-      },
-    },
-    input: (ctx) => ({ path: join(String(opts.runsRoot(ctx)), opts.flowSegment, buildRunDirName()) }),
-    output: (ctx, runDir) => opts.write(ctx, runDir),
+  buildUnitLeaf<TCtx>({
+    name: opts.name,
+    parent: opts.runsRoot,
+    // A thunk, so the run id is minted at execute time, not at chain construction.
+    slug: () => join(opts.flowSegment, buildRunDirName()),
+    write: opts.write,
   });
 
 export interface RunPaths {

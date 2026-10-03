@@ -23,7 +23,6 @@ import type { SignalBusEntry } from '@src/application/ui/tui/runtime/sinks-conte
 import { type CoalescedBuffer, createCoalescedBuffer } from '@src/application/ui/tui/runtime/coalesced-buffer.ts';
 import { createSessionManager, type SessionManager } from '@src/application/ui/tui/runtime/session-manager.ts';
 import { createPromptQueue } from '@src/application/ui/tui/prompts/prompt-queue.ts';
-import { createInkInteractivePrompt } from '@src/application/ui/tui/prompts/ink-interactive-prompt.ts';
 import { createInkHost } from '@src/application/ui/shared/ink-host.ts';
 import { setRunInTerminal } from '@src/application/ui/tui/runtime/run-in-terminal.ts';
 import { setImplementRoleOverrides } from '@src/application/ui/tui/runtime/implement-role-overrides.ts';
@@ -358,6 +357,8 @@ const bootstrap = async (options: LaunchTuiOptions = {}): Promise<Bootstrapped> 
   // below, which renders it as a one-line stderr message instead of a raw stack trace. See
   // run-bundle-integrity-check.ts for the full story.
   await runBundleIntegrityCheck(deps.logger);
+  // Fallback for the orphan reaper: kill AI CLI process groups that a crashed earlier run left alive.
+  void deps.reapInterruptedRuns.execute();
 
   const { harnessBus, logBus, logLevelGate, logForwarder, unsubSignalForward, unsubLogForward } = wireObservability(
     deps.eventBus,
@@ -366,7 +367,7 @@ const bootstrap = async (options: LaunchTuiOptions = {}): Promise<Bootstrapped> 
 
   // Session manager is created BEFORE the heap watchdog so the critical handler can reach it to
   // shed finished SessionRecords (the dominant app-root-reachable retainer) under memory pressure.
-  const sessions = createSessionManager();
+  const sessions = createSessionManager({ runs: deps.inProcessRuns });
 
   // Heap watchdog gives the operator a warning before V8 SIGKILLs the harness on a long-running
   // session. Two-tier relief: on 'warning' (0.80) it sheds finished session records EARLY and
@@ -389,11 +390,6 @@ const bootstrap = async (options: LaunchTuiOptions = {}): Promise<Bootstrapped> 
   const unsubNotifications = wireOsNotifications(deps, settings.value);
 
   const queue = createPromptQueue();
-
-  // The Ink prompt adapter is plumbed through deps that the launcher reads; chain factories
-  // that need an `InteractivePrompt` (create-sprint, readiness) get this
-  // adapter via the launcher.
-  void createInkInteractivePrompt(queue);
 
   const { initialView, initialSelection, lastSelectionStore } = await resolveLaunchViewState(
     deps,
@@ -553,6 +549,8 @@ export const launchTui = async (options: LaunchTuiOptions = {}): Promise<void> =
   try {
     await host.waitForShutdown();
   } finally {
+    // Land pending live-run record removals before exit, or the next launch reads a false interruption.
+    await booted.app.deps.inProcessRuns.flush();
     booted.drain();
   }
 };

@@ -13,18 +13,25 @@ import { Box, Text } from 'ink';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { useActiveHints, useSuppressedGlobalKeys } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
 import { useSessions } from '@src/application/ui/tui/runtime/sessions-context.tsx';
+import { useAwaitingSessions } from '@src/application/ui/tui/runtime/use-awaiting-sessions.ts';
+import { useTerminalSize } from '@src/application/ui/tui/runtime/use-terminal-size.ts';
 import { useSystemStatus } from '@src/application/ui/tui/runtime/system-status-context.tsx';
-import { footerGlobalHints } from '@src/application/ui/tui/runtime/keyboard-map.ts';
-import { KeyboardHints } from '@src/application/ui/tui/components/keyboard-hints.tsx';
+import { footerGlobalHints, globalKeys } from '@src/application/ui/tui/runtime/keyboard-map.ts';
+import { fitHints, KeyboardHints } from '@src/application/ui/tui/components/keyboard-hints.tsx';
 import { Divider } from '@src/application/ui/tui/components/divider.tsx';
 import { Spinner } from '@src/application/ui/tui/components/spinner.tsx';
 import type { DoctorReport } from '@src/application/flows/doctor/ctx.ts';
+
+/** Never dropped to make room: the two keys that answer "how do I get help / leave". */
+const PINNED_HINT_KEYS: ReadonlySet<string> = new Set([globalKeys.help.keys.join('/'), globalKeys.quit.keys.join('/')]);
 
 export const StatusBar = (): React.JSX.Element => {
   const sessions = useSessions();
   const localHints = useActiveHints();
   const suppressedKeys = useSuppressedGlobalKeys();
   const system = useSystemStatus();
+  const awaiting = useAwaitingSessions();
+  const { columns } = useTerminalSize();
   // Per-view suppressions hide specific footer hints (matched by their `keys` string) so the
   // footer never advertises a key combo whose default meaning is contradicted by the
   // currently-mounted view. A suppressed key absent from footerGlobalHints is simply a no-op.
@@ -32,6 +39,7 @@ export const StatusBar = (): React.JSX.Element => {
     suppressedKeys.size === 0 ? footerGlobalHints : footerGlobalHints.filter((h) => !suppressedKeys.has(h.keys));
 
   const running = sessions.filter((s) => s.descriptor.status === 'running').length;
+  const waiting = sessions.filter((s) => s.descriptor.status === 'running' && awaiting.has(s.descriptor.id)).length;
   const sessionSummary =
     sessions.length > 0
       ? `${String(running)} running ${glyphs.bullet} ${String(sessions.length)} total`
@@ -53,25 +61,25 @@ export const StatusBar = (): React.JSX.Element => {
             {'  '}
             {glyphs.bullet} {sessionSummary}
           </Text>
+          {waiting > 0 && (
+            <Text color={inkColors.warning} bold>
+              {'  '}
+              {glyphs.warningGlyph} [WAITING]
+              {waiting > 1 ? ` ${String(waiting)}` : ''}
+            </Text>
+          )}
         </Box>
       </Box>
-      {/*
-        Two groups so the merged strip degrades predictably when it overflows a narrow terminal:
-        the view-local action hints (`cancel` / `detach`) sit in a non-shrinking group so Yoga
-        never clips them mid-word, while the curated global tail absorbs the squeeze. Without the
-        split, Yoga distributes the overflow across every cell and can mangle the leading hints.
-      */}
+      {/* One line, local hints first: when it overflows the global tail is what gets clipped. */}
       <Box paddingX={spacing.indent}>
-        {localHints.length > 0 && (
-          <Box flexShrink={0}>
-            <KeyboardHints hints={localHints} />
-            {/* Same bullet the hints use between themselves. Without it the two groups ran
-                together on a single space (`u unblock (3) esc back`), reading as one hint whose
-                key was `(3)`. */}
-            <Text dimColor> {glyphs.bullet} </Text>
-          </Box>
-        )}
-        <KeyboardHints hints={visibleGlobalHints} />
+        <KeyboardHints
+          hints={fitHints(
+            [...localHints, ...visibleGlobalHints],
+            columns - 2 * spacing.indent,
+            localHints.length,
+            PINNED_HINT_KEYS
+          )}
+        />
       </Box>
     </Box>
   );

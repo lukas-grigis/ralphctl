@@ -8,11 +8,8 @@ import { createEventBusLogger } from '@src/business/observability/event-bus-logg
 import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
 import type { AppEvent, LogEvent } from '@src/business/observability/events.ts';
 import type { Skill } from '@src/integration/ai/skills/_engine/skill.ts';
-import {
-  createOperatorSkillSource,
-  OPERATOR_PROVIDER_DIR,
-  RALPHCTL_SKILL_PREFIX,
-} from '@src/integration/ai/skills/operator/source.ts';
+import { createOperatorSkillSource, OPERATOR_PROVIDER_DIR } from '@src/integration/ai/skills/operator/source.ts';
+import { RALPHCTL_SKILL_PREFIX } from '@src/integration/ai/skills/_engine/skill-folder-loader.ts';
 
 const ns = (name: string): string => `${RALPHCTL_SKILL_PREFIX}${name}`;
 
@@ -84,6 +81,24 @@ describe('createOperatorSkillSource', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.value.map((s) => s.name)).toEqual(['ralphctl-prewired']);
+  });
+
+  it('skips dotfile directories without a "not readable" warning', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'operator-source-'));
+    await writeSkill(root, OPERATOR_PROVIDER_DIR['claude-code'], 'house-style');
+    await mkdir(join(root, OPERATOR_PROVIDER_DIR['claude-code'], '.git'), { recursive: true });
+    const { logger, logs } = recordingLogger();
+
+    const source = createOperatorSkillSource({
+      operatorSkillsRoot: abs(root),
+      provider: 'claude-code',
+      logger,
+    });
+    const result = await source.getForFlow('implement');
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.map((s) => s.name)).toEqual([ns('house-style')]);
+    expect(logs.filter((l) => l.level === 'warn')).toEqual([]);
   });
 
   it("ignores other providers' subdirs", async () => {

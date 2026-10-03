@@ -332,7 +332,7 @@ describe('createClaudeProvider', () => {
     await expect(fs.access(sidPath)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
-  it('does not write session-id.txt on non-zero exit (spawn failure path)', async () => {
+  it('keeps session-id.txt on a non-zero exit — the id is written as the stream yields it, so a crashed thread stays resumable', async () => {
     const cap = createCapturingBus();
     const sess = session();
     const init = JSON.stringify({ type: 'system', subtype: 'init', session_id: 'sess-doomed', model: 'sonnet' });
@@ -343,7 +343,7 @@ describe('createClaudeProvider', () => {
     expect(out.ok).toBe(false);
 
     const sidPath = join(dirname(String(sess.signalsFile)), 'session-id.txt');
-    await expect(fs.access(sidPath)).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(await fs.readFile(sidPath, 'utf8')).toBe('sess-doomed\n');
     // signals.json is also never written on the failure path.
     await expect(fs.access(String(sess.signalsFile))).rejects.toMatchObject({ code: 'ENOENT' });
   });
@@ -367,6 +367,46 @@ describe('createClaudeProvider', () => {
     if (out.ok) return;
     expect(out.error.code).toBe('invalid-state');
     expect(calls.n).toBe(1);
+  });
+
+  it('a crash whose stderr merely contains the digits 429 is a process crash, not a rate limit', async () => {
+    const cap = createCapturingBus();
+    const calls = { n: 0 };
+    const spawn: ProviderSpawn = () => {
+      calls.n++;
+      return makeFakeChild({ stderrChunks: ['at cli.js:14290:7\n'], exitCode: 1 });
+    };
+
+    const provider = createClaudeProvider({
+      rateLimitRetries: 2,
+      eventBus: cap.bus,
+      spawn,
+      backoffSchedule: [0, 0, 0],
+    });
+
+    const out = await provider.generate(session());
+    expect(out.ok).toBe(false);
+    if (out.ok) return;
+    expect(out.error.code).toBe('process-crash');
+    expect(calls.n).toBe(1);
+  });
+
+  it('a bare 429 token in stderr still classifies as a rate limit', async () => {
+    const cap = createCapturingBus();
+    const script: FakeChildScript = { stderrChunks: ['API Error: 429 Too Many Requests\n'], exitCode: 1 };
+    const { spawn } = makeSpawn([script, script, script]);
+
+    const provider = createClaudeProvider({
+      rateLimitRetries: 2,
+      eventBus: cap.bus,
+      spawn,
+      backoffSchedule: [0, 0, 0],
+    });
+
+    const out = await provider.generate(session());
+    expect(out.ok).toBe(false);
+    if (out.ok) return;
+    expect(out.error.code).toBe('rate-limit');
   });
 
   it('abort during rate-limit backoff: surfaces AbortError (not InvalidStateError)', async () => {

@@ -3,7 +3,6 @@ import type { TodoTask } from '@src/domain/entity/task.ts';
 import { createTask } from '@src/domain/entity/task-factory.ts';
 import { TaskId } from '@src/domain/value/id/task-id.ts';
 import type { TicketId } from '@src/domain/value/id/ticket-id.ts';
-import { TicketId as TicketIdValue } from '@src/domain/value/id/ticket-id.ts';
 import type { Project } from '@src/domain/entity/project.ts';
 import type { Ticket } from '@src/domain/entity/ticket.ts';
 import type { RepositoryId } from '@src/domain/value/id/repository-id.ts';
@@ -31,12 +30,6 @@ const SCHEMA_MISMATCH = 'schema-mismatch';
  *     supplied ticket id set (plan flow: tasks reference one of the sprint's approved
  *     tickets).
  */
-
-/**
- * Public alias — type-level contract callers depend on. The runtime schema is in `task-import-schema.ts`.
- * @public
- */
-export type TaskListSpec = TaskImportSpec;
 
 export type ParseTaskListMode =
   | {
@@ -355,22 +348,12 @@ const resolveTicketRef = (
       })
     );
   }
-  const parsed = TicketIdValue.parse(ref);
-  if (!parsed.ok) {
-    return Result.error(
-      new ParseError({
-        subCode: SCHEMA_MISMATCH,
-        message: `task-list: tasks[${String(i)}].ticketRef '${ref}' is not a valid ticket id format`,
-        cause: parsed.error,
-      })
-    );
-  }
   const externalRefs = externalRefsOf(match);
-  return Result.ok({ ticketId: parsed.value, ...(externalRefs !== undefined ? { externalRefs } : {}) });
+  return Result.ok({ ticketId: match.id, ...(externalRefs !== undefined ? { externalRefs } : {}) });
 };
 
 /** Pull the first issue out of a zod error and format it `tasks[<n>].<field>: <message>`. */
-const formatZodIssue = (issues: readonly ZodIssueLike[]): string => {
+export const formatZodIssue = (issues: readonly ZodIssueLike[]): string => {
   const first = issues[0];
   if (first === undefined) return 'invalid task-list shape';
   const path = first.path.length === 0 ? '<root>' : first.path.map((p) => String(p)).join('.');

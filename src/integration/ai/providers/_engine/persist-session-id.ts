@@ -3,6 +3,8 @@ import { writeTextAtomic } from '@src/integration/io/fs.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { Result } from '@src/domain/result.ts';
 import type { StorageError } from '@src/domain/value/error/storage-error.ts';
+import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
+import type { EventBus } from '@src/business/observability/event-bus.ts';
 
 /**
  * Persist a captured session id next to `signals.json` so `--resume` / forensic re-attach works
@@ -32,11 +34,29 @@ import type { StorageError } from '@src/domain/value/error/storage-error.ts';
  *   - Delegates to {@link writeTextAtomic} (tmpfile + rename) — readers see either the prior id
  *     or the full new id, never a half-written file.
  */
-export const persistSessionIdFile = async (
+const persistSessionIdFile = async (
   signalsFile: AbsolutePath,
   sessionId: string | undefined
 ): Promise<Result<void, StorageError> | undefined> => {
   if (sessionId === undefined) return undefined;
   const path = join(dirname(String(signalsFile)), 'session-id.txt');
   return writeTextAtomic(path, `${sessionId}\n`);
+};
+
+/** Best-effort {@link persistSessionIdFile}: a failure only degrades resume re-attach, never the run. */
+export const persistSessionIdBestEffort = async (
+  eventBus: EventBus,
+  providerName: string,
+  anchorFile: AbsolutePath,
+  sessionId: string | undefined
+): Promise<void> => {
+  const wrote = await persistSessionIdFile(anchorFile, sessionId);
+  if (wrote === undefined || wrote.ok) return;
+  eventBus.publish({
+    type: 'log',
+    level: 'warn',
+    message: `${providerName}: failed to write sessionId file — resume re-attach may need log parsing`,
+    meta: { error: wrote.error.message },
+    at: IsoTimestamp.now(),
+  });
 };

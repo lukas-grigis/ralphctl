@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { parseAgentDefinition } from '@src/integration/ai/agents/_engine/parse-agent-definition.ts';
 
-// splitFrontmatter / parseSimpleYaml / errorCode moved to the shared
+// splitFrontmatter / parseSimpleYaml are covered by the shared
 // tests/unit/integration/ai/skills/frontmatter.test.ts suite — this file now tests
 // parseAgentDefinition's own validation behavior on top of that shared parsing.
 

@@ -100,6 +100,8 @@ const wireChildOutput = (
 /** Write (or close) stdin. A write failure is treated the same as a spawn error — the `close` handler still resolves. */
 const writeStdinBody = (child: ChildProcessWithoutNullStreams, stdin: string | undefined): void => {
   try {
+    // EPIPE from a child that exited early arrives as an async 'error' event; the exit code on `close` reports it.
+    child.stdin.on('error', () => {});
     if (stdin !== undefined) child.stdin.end(stdin);
     else child.stdin.end();
   } catch {

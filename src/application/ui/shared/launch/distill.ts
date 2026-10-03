@@ -4,24 +4,7 @@ import type { DistillLearningsDeps } from '@src/application/flows/_shared/memory
 import type { DistillStepOpts } from '@src/application/flows/_shared/memory/distill-step.ts';
 import type { LaunchContext } from '@src/application/ui/shared/launch/context.ts';
 
-/**
- * Resolve the pre-transition distill composition for the close-sprint / review launchers —
- * the slim {@link DistillLearningsDeps} plus the static {@link DistillStepOpts} both flows hand to
- * their flow factory's optional `distill` field.
- *
- * Returns `undefined` (so the host flow omits the distill step) when the launch lacks the context
- * the sub-chain needs:
- *  - no project loaded → no learnings ledger to read;
- *  - the project has no repository → no native context file to fold learnings into;
- *  - the per-provider sandbox path under the sprint dir cannot be parsed.
- *
- * `repository` is the project's FIRST repository — the distill prompt folds the curated learnings
- * into one repo's native context files; multi-repo distill (one per affected repo) is deferred.
- *
- * Deps come from the wired `AppDeps` (the per-provider `interactiveAiFor`, `templateLoader`,
- * `writeFile`, `logger`, `clock`) plus the launcher-level `runInTerminal` (Ink-aware, can't live in
- * `wire()`) and `interactive` prompt port.
- */
+/** Resolve the pre-transition distill composition for the close-sprint / review launchers. */
 export const resolveDistillComposition = (
   ctx: LaunchContext,
   sprintDir: string

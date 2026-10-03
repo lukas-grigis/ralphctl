@@ -10,23 +10,7 @@ import type { LaunchContext } from '@src/application/ui/shared/launch/context.ts
 import type { LaunchResult } from '@src/application/ui/shared/launcher.ts';
 import { checkCli } from '@src/application/ui/shared/launch/check-cli.ts';
 
-// HITL approval — runs AFTER the AI proposes refined requirements and BEFORE the ticket
-// transitions. `runInTerminal` resolves before we get here, so Ink has remounted and
-// `<PromptHost>` is subscribed by the time we enqueue the choice. Cancel = reject.
-//
-// The reviewer picks from up to four options. Two terminate the loop, two iterate:
-//   - Approve         → terminal; persist the current body locally. Always listed first
-//                       so the renderer highlights it — commenting is an explicit opt-in.
-//   - Edit            → askTextArea on the current body, then re-show this prompt with the
-//                       edit applied. Cancelling the textarea keeps the previous body and
-//                       returns to the prompt — never loses the reviewer's place.
-//   - Post as comment → terminal; persist locally AND tell the leaf to post the body as a
-//                       comment on the linked issue. Shown only when the ticket has a `link`;
-//                       a ticket with no linked issue has nothing to comment on.
-//   - Reject          → terminal; ticket stays pending.
-//
-// `body` is returned on accept so the use case persists the (possibly edited) text rather
-// than re-using the AI's original proposal.
+// HITL approval — runs AFTER the AI proposes refined requirements and BEFORE the ticket transitions.
 type RefineDecision = 'approve' | 'edit' | 'post_comment' | 'reject';
 type RefineDecisionOutcome = {
   readonly accept: boolean;
@@ -34,10 +18,7 @@ type RefineDecisionOutcome = {
   readonly body?: string;
 };
 
-/**
- * Build the `askChoice` options for one HITL prompt render. Always lead with Approve so the
- * renderer highlights it; "Post as comment" only appears when the ticket has a linked issue.
- */
+/** Build the `askChoice` options for one HITL prompt render. */
 const buildRefineOptions = (
   hasLink: boolean
 ): Array<{ label: string; value: RefineDecision; description?: string }> => {
@@ -59,13 +40,7 @@ const buildRefineOptions = (
   ];
 };
 
-/**
- * Apply the reviewer's choice for one render of the HITL prompt. `approve` / `post_comment` /
- * `reject` are terminal — the loop in {@link buildReviewBeforeApprove} returns immediately.
- * `edit` opens the textarea and reports the (possibly unchanged) body back so the caller
- * re-renders the prompt with it; cancelling the textarea keeps the prior body so the reviewer
- * never loses their place.
- */
+/** Apply the reviewer's choice for one render of the HITL prompt. */
 const applyRefineDecision = async (
   interactive: InteractivePrompt,
   ticket: { readonly title: string },
@@ -91,9 +66,8 @@ const applyRefineDecision = async (
 };
 
 /**
- * Build the `reviewBeforeApprove` callback the refine leaf drives — loops the HITL prompt until
- * the reviewer picks a terminal decision (approve / post comment / reject) or cancels (treated
- * as reject).
+ * Build the `reviewBeforeApprove` callback the refine leaf drives — loops the HITL prompt until the reviewer picks a
+ * terminal decision (approve / post comment / reject) or cancels (treated as reject).
  */
 const buildReviewBeforeApprove =
   (interactive: InteractivePrompt) =>
@@ -119,18 +93,16 @@ export const launchRefine = async (ctx: LaunchContext): Promise<LaunchResult> =>
   const missing = await checkCli('refine', settings, { override: ctx.extras.override });
   if (missing !== undefined) return missing;
   if (!snapshot.sprint) return { ok: false, reason: 'No sprint selected.' };
-  // Refine intentionally does not require a repo path — the AI session is rooted at the
-  // per-ticket unit folder (`<sprintDir>/refinement/<ticket-slug>/`), not the repo, because
-  // refinement is implementation-agnostic.
+  // Refine intentionally does not require a repo path — the AI session is rooted at the per-ticket unit folder
+  // (`<sprintDir>/refinement/<ticket-slug>/`), not the repo.
   const pending = snapshot.sprint.tickets.filter((t) => t.status === 'pending');
   // Subpath of the canonical `<id>--<slug>/` sprint dir, direct-built from the sprint entity.
   const refinementRoot = AbsolutePath.parse(
     join(buildSprintDir(deps.storage.dataRoot, snapshot.sprint.id, snapshot.sprint.slug), 'refinement')
   );
   if (!refinementRoot.ok) return { ok: false, reason: refinementRoot.error.message };
-  // The refine flow only ever posts the refined requirements as a comment on the ticket's
-  // existing linked issue — it never opens a new issue and never overwrites a description.
-  // Commenting is an explicit opt-in from the approval menu; Approve is always the default.
+  // The refine flow only ever posts the refined requirements as a comment on the ticket's existing linked issue — it
+  // never opens a new issue and never overwrites a description.
   const reviewBeforeApprove = buildReviewBeforeApprove(deps.interactive);
   const element: Element<RefineCtx> = createRefineFlow(
     {

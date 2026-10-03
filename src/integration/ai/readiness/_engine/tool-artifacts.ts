@@ -8,4 +8,7 @@ import type { GrokArtifacts } from '@src/integration/ai/readiness/grok/artifacts
  * Discriminated union of every tool's artifact catalog. Adding a new variant flows through
  * every `switch` on `tool` via exhaustiveness checks (`const _exhaustive: never = artifacts`).
  */
+/** The tools that share the `AGENTS.md` + `<parentDir>/skills/` layout (one shared probe). */
+export type AgentsMdArtifacts = CodexArtifacts | OpencodeArtifacts | GrokArtifacts;
+
 export type ToolArtifacts = ClaudeArtifacts | CopilotArtifacts | CodexArtifacts | OpencodeArtifacts | GrokArtifacts;

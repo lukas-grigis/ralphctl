@@ -1,8 +1,6 @@
 /**
- * Pure bag-assembly helpers for the implement launcher — `ImplementDeps` / `CreateImplementFlowOpts`
- * plus the per-role provider + model/effort resolution that feeds both. Split out of
- * `launch/implement.ts` (which composes these bags into the chain element) so that file stays
- * under the line-count ratchet.
+ * Pure bag-assembly helpers for the implement launcher — `ImplementDeps` / `CreateImplementFlowOpts` plus the
+ * per-role provider + model/effort resolution that feeds both.
  */
 
 import type { CreateImplementFlowOpts, RepoExecConfig } from '@src/application/flows/implement/flow.ts';
@@ -43,17 +41,7 @@ export const buildRepoExecConfigs = (repositories: readonly Repository[]): Map<R
 };
 
 /**
- * Build one `HeadlessAiProvider` per role from the effective implement pair. The two roles may
- * target distinct providers — they're constructed independently rather than routed through
- * `primaryFlowRow` so a cross-provider configuration spawns the right CLI per role. `ctx.provider`
- * (the launcher-rebuilt primary adapter) is deliberately left unused by the implement launcher —
- * implement bypasses the single-row seam.
- *
- * `resolveAgentOverride` applies the bound-definition > per-flow-row > global-default precedence
- * per role — `createAiProvider` only dispatches on `row.provider` (never `row.model`), so a
- * definition-supplied model never needs to change WHICH provider adapter is constructed, only the
- * `model`/`effort` this function returns for the spawn + the escalation baseline downstream.
- *
+ * Build one `HeadlessAiProvider` per role from the effective implement pair.
  * @public
  */
 export const buildImplementProviders = (
@@ -73,11 +61,15 @@ export const buildImplementProviders = (
     row: implementPair.generator,
     harnessConfig: effectiveSettings.harness,
     eventBus: deps.app.eventBus,
+    childRegistry: deps.app.childRegistry,
+    ...(deps.app.providerSpawn !== undefined ? { spawn: deps.app.providerSpawn } : {}),
   });
   const evaluatorProvider = createAiProvider({
     row: implementPair.evaluator,
     harnessConfig: effectiveSettings.harness,
     eventBus: deps.app.eventBus,
+    childRegistry: deps.app.childRegistry,
+    ...(deps.app.providerSpawn !== undefined ? { spawn: deps.app.providerSpawn } : {}),
   });
   const generatorResolved = resolveAgentOverride(
     implementPair.generator,
@@ -133,26 +125,15 @@ export const buildImplementDepsBag = (
   interactive: deps.interactive,
   writeFile: deps.app.writeFile,
   appendFile: deps.app.appendFile,
-  // ONE journal mutex per run. Every parallel branch inherits this instance (branches spread this
-  // deps bag), so their `progress-journal-<taskId>` leaves serialise their read-regenerate-write
-  // of the shared `progress.md` through it; the serial path is a single caller, so it is a no-op.
+  // ONE journal mutex per run: parallel branches share it; per-branch queues would race the shared progress.md.
   journalMutex: createFoldQueue(),
-  // ONE ledger mutex per run, for the same reason: every parallel branch's
-  // `append-learnings-<taskId>` writes the SAME project `learnings.ndjson`, and its append +
-  // size-bounding rewrite must run as one critical section or a sibling's appended row is
-  // clobbered by a concurrent compaction.
+  // ONE ledger mutex per run, for the same reason: every parallel branch's `append-learnings-<taskId>` writes the
+  // SAME project `learnings.ndjson`.
   ledgerMutex: createFoldQueue(),
 });
 
 /**
  * Assemble the `CreateImplementFlowOpts` bag — pure object-literal assembly, no branching.
- * `repositories` is derived here (via {@link buildRepoExecConfigs}) rather than passed in, so
- * callers only need to hand over the raw project. `providers.generatorModel`/`evaluatorModel`
- * already carry the bound-definition override (see `buildImplementProviders`), so this bag — and
- * every downstream consumer that reads `CreateImplementFlowOpts.generatorModel`/`generatorEffort`
- * (the gen-eval spawn AND `finalize-gen-eval`'s escalation baseline both read the SAME field) —
- * sees the overridden value without a second resolution.
- *
  * @public
  */
 export const buildImplementOptsBag = (

@@ -65,7 +65,7 @@ describe('computeWorkProductFingerprint', () => {
     // status (not just the diff) is what distinguishes them.
     const clean = await computeWorkProductFingerprint(runner({ status: ok(''), diff: ok('') }).git, CWD);
     const untracked = await computeWorkProductFingerprint(
-      runner({ status: ok('?? src/new.ts\n'), diff: ok(''), lsFiles: ok('src/new.ts\n'), hashObject: ok('aaa111\n') })
+      runner({ status: ok('?? src/new.ts\n'), diff: ok(''), lsFiles: ok('src/new.ts\0'), hashObject: ok('aaa111\n') })
         .git,
       CWD
     );
@@ -77,7 +77,7 @@ describe('computeWorkProductFingerprint', () => {
     // status ('?? src/new.ts') and an empty `diff HEAD` (untracked content never appears there).
     // Only the blob hash of the untracked file differs — without hashing it, both rounds would
     // fingerprint identically and the plateau predicate would false-fire on genuine progress.
-    const base = { status: ok('?? src/new.ts\n'), diff: ok(''), lsFiles: ok('src/new.ts\n') };
+    const base = { status: ok('?? src/new.ts\n'), diff: ok(''), lsFiles: ok('src/new.ts\0') };
     const round1 = await computeWorkProductFingerprint(runner({ ...base, hashObject: ok('aaa111\n') }).git, CWD);
     const round2 = await computeWorkProductFingerprint(runner({ ...base, hashObject: ok('bbb222\n') }).git, CWD);
     expect(round1).toBeDefined();
@@ -88,11 +88,27 @@ describe('computeWorkProductFingerprint', () => {
   it('lists untracked paths via ls-files (never porcelain’s collapsed `?? dir/` form) and skips hash-object when none exist', async () => {
     const { git, calls } = runner({ status: ok(' M src/a.ts\n'), diff: ok('@@\n'), lsFiles: ok('') });
     await computeWorkProductFingerprint(git, CWD);
-    expect(calls.some((c) => c[0] === 'ls-files' && c.includes('--others') && c.includes('--exclude-standard'))).toBe(
-      true
-    );
+    expect(
+      calls.some(
+        (c) => c[0] === 'ls-files' && c.includes('--others') && c.includes('--exclude-standard') && c.includes('-z')
+      )
+    ).toBe(true);
     // No untracked paths → the hash-object spawn is skipped entirely.
     expect(calls.some((c) => c[0] === 'hash-object')).toBe(false);
+  });
+
+  it('passes NUL-separated untracked paths verbatim — non-ASCII and leading-space names reach hash-object unquoted', async () => {
+    const base = { status: ok('?? "caf\\303\\251.ts"\n'), diff: ok(''), lsFiles: ok('café.ts\0 lead space.ts\0') };
+    const first = runner({ ...base, hashObject: ok('aaa111\nbbb222\n') });
+    const round1 = await computeWorkProductFingerprint(first.git, CWD);
+    const round2 = await computeWorkProductFingerprint(
+      runner({ ...base, hashObject: ok('ccc333\nbbb222\n') }).git,
+      CWD
+    );
+    expect(first.calls.find((c) => c[0] === 'hash-object')).toEqual(['hash-object', '--', 'café.ts', ' lead space.ts']);
+    expect(round1).toBeDefined();
+    expect(round2).toBeDefined();
+    expect(round1).not.toBe(round2);
   });
 
   it('returns undefined when git status fails (best-effort — conservative no-exemption downstream)', async () => {
@@ -124,7 +140,7 @@ describe('computeWorkProductFingerprint', () => {
       runner({
         status: ok('?? src/new.ts\n'),
         diff: ok(''),
-        lsFiles: ok('src/new.ts\n'),
+        lsFiles: ok('src/new.ts\0'),
         hashObject: Result.error(new StorageError({ subCode: 'io', message: 'boom' })),
       }).git,
       CWD

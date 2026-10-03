@@ -8,6 +8,7 @@ import { leaf } from '@src/application/chain/build/leaf.ts';
 
 import type { CreatePrCtx } from '@src/application/flows/create-pr/ctx.ts';
 import type { CreatePrDeps } from '@src/application/flows/create-pr/deps.ts';
+import { assertSprintEligible } from '@src/application/flows/create-pr/eligibility.ts';
 
 interface PushBranchInput {
   readonly sprintId: CreatePrCtx['input']['sprintId'];
@@ -37,6 +38,12 @@ export const createPushBranchLeaf = (deps: CreatePrDeps): Element<CreatePrCtx> =
     {
       useCase: {
         async execute(input) {
+          // Gate before any remote side effect or AI spend.
+          const sprint = await deps.sprintRepo.findById(input.sprintId);
+          if (!sprint.ok) return Result.error(sprint.error);
+          const eligible = assertSprintEligible(sprint.value);
+          if (!eligible.ok) return Result.error(eligible.error);
+
           const execLoaded = await deps.sprintExecutionRepo.findById(input.sprintId);
           if (!execLoaded.ok) return Result.error(execLoaded.error);
           const branch = execLoaded.value.branch;

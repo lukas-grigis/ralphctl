@@ -28,7 +28,8 @@ import type { Skill } from '@src/integration/ai/skills/_engine/skill.ts';
 import type { SkillSource } from '@src/integration/ai/skills/_engine/skill-source.ts';
 import type { FlowId } from '@src/integration/ai/skills/_engine/registry.ts';
 import { skillsForFlow } from '@src/integration/ai/skills/_engine/registry.ts';
-import { errorCode, parseSkill } from '@src/integration/ai/skills/_engine/parse-skill.ts';
+import { parseSkill } from '@src/integration/ai/skills/_engine/parse-skill.ts';
+import { isNodeErrnoCode } from '@src/integration/io/fs.ts';
 import type { BundledSkillRawReader } from '@src/integration/ai/skills/_engine/bundled-skill-raw-reader.ts';
 
 /**
@@ -89,7 +90,7 @@ const readSkillOptional = async (root: string, name: string): Promise<Result<Ski
   try {
     raw = await readFile(path, 'utf-8');
   } catch (cause) {
-    if (errorCode(cause) === 'ENOENT') return Result.ok(undefined);
+    if (isNodeErrnoCode(cause, 'ENOENT')) return Result.ok(undefined);
     return Result.error(
       new StorageError({ subCode: 'io', message: `bundled skill not readable: ${path}`, path, cause })
     );

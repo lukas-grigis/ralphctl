@@ -1,7 +1,6 @@
 import { dirname } from 'node:path';
 import { Result } from '@src/domain/result.ts';
 import type { InteractiveAiProvider } from '@src/integration/ai/providers/_engine/interactive-ai-provider.ts';
-import type { EventBus } from '@src/business/observability/event-bus.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
 import type { WriteFile } from '@src/business/io/write-file.ts';
 import { addApprovedTicketUseCase } from '@src/business/ticket/add-approved-ticket.ts';
@@ -20,6 +19,8 @@ import { parseIdeateOutput } from '@src/integration/ai/prompts/ideate/parse-outp
 import { renderSidecars } from '@src/integration/ai/contract/_engine/render-sidecars.ts';
 import { validateSignalsFile } from '@src/integration/ai/contract/_engine/validate-signals-file.ts';
 import type { RunInTerminal } from '@src/integration/io/run-in-terminal.ts';
+import { assertCtxField } from '@src/application/flows/_shared/_engine/assert-ctx-field.ts';
+import type { PublishSignal } from '@src/application/flows/_shared/publish-signal.ts';
 import { ideateOutputContract } from '@src/application/flows/ideate/leaves/ideate.contract.ts';
 import type { IdeateCtx } from '@src/application/flows/ideate/ctx.ts';
 
@@ -51,11 +52,8 @@ export interface IdeateAndPlanLeafDeps {
    * threading `writeFile` keeps the contract loop uniform with other leaves.
    */
   readonly writeFile: WriteFile;
-  /**
-   * Application bus — every validated `ideated-tickets` / `learning` / `note` / `decision`
-   * signal fans out as a typed `ai-signal` event the TUI subscribes to.
-   */
-  readonly eventBus: EventBus;
+  /** Fans every validated `ideated-tickets` / `learning` / `note` / `decision` signal out to the TUI. */
+  readonly publishSignal: PublishSignal;
   readonly model: string;
   /** Optional reasoning / effort level forwarded to the AI CLI. */
   readonly effort?: string;
@@ -137,7 +135,7 @@ const validateAndParseOutput = async (
   const signals = validated.value;
 
   for (const sig of signals) {
-    deps.eventBus.publish({ type: 'ai-signal', signal: sig, source: 'ideate' });
+    deps.publishSignal(sig);
   }
 
   await renderSidecars(deps.writeFile, outputDir, signals, ideateOutputContract.sidecars, deps.logger);
@@ -217,39 +215,19 @@ export const ideateAndPlanLeaf = (deps: IdeateAndPlanLeafDeps): Element<IdeateCt
     },
     input: (ctx) => {
       const PRE_IDEATE_STATE = 'pre-ideate';
-      if (ctx.sprint === undefined) {
-        throw new InvalidStateError({
-          entity: 'chain',
-          currentState: PRE_IDEATE_STATE,
-          attemptedAction: LEAF_NAME,
-          message: 'ideate-and-plan: ctx.sprint is undefined — load-sprint must run first',
-        });
-      }
-      if (ctx.project === undefined) {
-        throw new InvalidStateError({
-          entity: 'chain',
-          currentState: PRE_IDEATE_STATE,
-          attemptedAction: LEAF_NAME,
-          message: 'ideate-and-plan: ctx.project is undefined — load-project must run first',
-        });
-      }
-      if (ctx.currentPromptFile === undefined || ctx.currentOutputFile === undefined) {
-        throw new InvalidStateError({
-          entity: 'chain',
-          currentState: PRE_IDEATE_STATE,
-          attemptedAction: LEAF_NAME,
-          message: 'ideate-and-plan: prompt/output paths missing — render-prompt-to-file must run first',
-        });
-      }
+      const sprint = assertCtxField(ctx, 'sprint', LEAF_NAME, PRE_IDEATE_STATE);
+      const project = assertCtxField(ctx, 'project', LEAF_NAME, PRE_IDEATE_STATE);
+      const promptFile = assertCtxField(ctx, 'currentPromptFile', LEAF_NAME, PRE_IDEATE_STATE);
+      const outputFile = assertCtxField(ctx, 'currentOutputFile', LEAF_NAME, PRE_IDEATE_STATE);
       return {
-        sprint: ctx.sprint,
-        project: ctx.project,
+        sprint,
+        project,
         sprintId: ctx.sprintId,
         ideaTitle: ctx.ideaTitle,
         ideaText: ctx.ideaText,
         cwd: ctx.cwd,
-        promptFile: ctx.currentPromptFile,
-        outputFile: ctx.currentOutputFile,
+        promptFile,
+        outputFile,
         existingTasks: ctx.tasks ?? [],
       };
     },

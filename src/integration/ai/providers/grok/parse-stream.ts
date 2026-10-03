@@ -1,15 +1,16 @@
-import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
 import {
   FORENSIC_BODY_TAIL_CAP,
   RATE_LIMIT_SCAN_TAIL_CAP,
 } from '@src/integration/ai/providers/_engine/bounded-tail.ts';
 import { isRecord, numberField, stringField } from '@src/integration/ai/providers/_engine/json-field.ts';
-import { createCappedLineFeed } from '@src/integration/ai/providers/_engine/line-feed.ts';
+import { createCappedLineFeed, emitJsonObjectLine } from '@src/integration/ai/providers/_engine/line-feed.ts';
 import {
   publishAssistantEvent,
   publishToolResultEvent,
+  publishCliErrorEvent,
   publishToolUseEvent,
+  previewJson,
 } from '@src/integration/ai/providers/_engine/stream-debug-events.ts';
 
 /**
@@ -41,16 +42,6 @@ export interface GrokMetaUpdate {
   readonly cacheReadTokens?: number;
   readonly cacheCreationTokens?: number;
 }
-
-export const parseGrokJsonLine = (line: string): Record<string, unknown> | undefined => {
-  const trimmed = line.trim();
-  if (trimmed.length === 0 || !trimmed.startsWith('{')) return undefined;
-  try {
-    return JSON.parse(trimmed) as Record<string, unknown>;
-  } catch {
-    return undefined;
-  }
-};
 
 const usageOf = (obj: Record<string, unknown>): Record<string, unknown> | undefined => {
   const usage = obj['usage'];
@@ -100,16 +91,6 @@ const streamErrorText = (obj: Record<string, unknown>): string | undefined => {
   return stringField(obj, 'message');
 };
 
-const safeJson = (v: unknown): string | undefined => {
-  if (v === undefined || v === null) return undefined;
-  try {
-    const s = JSON.stringify(v);
-    return s === '{}' || s === '[]' ? undefined : s;
-  } catch {
-    return undefined;
-  }
-};
-
 export const publishGrokStreamLineEvents = (
   eventBus: EventBus,
   obj: Record<string, unknown>,
@@ -122,21 +103,14 @@ export const publishGrokStreamLineEvents = (
   }
   if (type === 'error') {
     const text = streamErrorText(obj);
-    if (text !== undefined) {
-      eventBus.publish({
-        type: 'log',
-        level: 'warn',
-        message: `${PROVIDER_NAME}: CLI reported an error — ${text}`,
-        at: IsoTimestamp.now(),
-      });
-    }
+    if (text !== undefined) publishCliErrorEvent(eventBus, PROVIDER_NAME, text);
     return;
   }
   if (type === 'tool_call') {
     const tool = stringField(obj, 'toolName') ?? 'unknown';
     const id = stringField(obj, 'toolCallId');
     if (id !== undefined) toolNames.set(id, tool);
-    publishToolUseEvent(eventBus, PROVIDER_NAME, tool, safeJson(obj['rawInput']));
+    publishToolUseEvent(eventBus, PROVIDER_NAME, tool, previewJson(obj['rawInput']));
     return;
   }
   if (type !== 'tool_call_update') return;
@@ -156,13 +130,8 @@ export const publishGrokStreamLineEvents = (
     PROVIDER_NAME,
     tool,
     status === 'completed' ? 'ok' : 'error',
-    safeJson(obj['rawOutput'])
+    previewJson(obj['rawOutput'])
   );
-};
-
-const emitGrokLine = (raw: string, onLine: (obj: Record<string, unknown>) => void): void => {
-  const obj = parseGrokJsonLine(raw);
-  if (obj !== undefined) onLine(obj);
 };
 
 export interface GrokAttemptTracker {
@@ -188,7 +157,7 @@ export const createGrokAttemptTracker = (eventBus: EventBus): GrokAttemptTracker
   let assistantTail = '';
   let streamError: string | undefined;
   const toolNames = new Map<string, string>();
-  const lineFeed = createCappedLineFeed<Record<string, unknown>>('grok-stream', emitGrokLine);
+  const lineFeed = createCappedLineFeed<Record<string, unknown>>('grok-stream', emitJsonObjectLine);
 
   /** Per-response `usage` lines sum; a first value wins over nothing. */
   const addTokens = (current: number | undefined, next: number | undefined): number | undefined => {

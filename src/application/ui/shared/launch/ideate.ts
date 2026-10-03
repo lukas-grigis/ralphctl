@@ -13,11 +13,7 @@ import { buildFindingsBlock, renderReviewTask, toPlanReviewTasks } from '@src/ap
 import { checkCli } from '@src/application/ui/shared/launch/check-cli.ts';
 
 /**
- * Ideate's approval prompt. `ScrollableMessage` treats everything before the first blank line as
- * the pinned header, so the critic findings and the approve question lead (always on screen), then
- * the approved requirements and the task list scroll in the body. Pure so the composition is
- * unit-testable.
- *
+ * Ideate's approval prompt.
  * @public
  */
 export const buildIdeateReviewMessage = (

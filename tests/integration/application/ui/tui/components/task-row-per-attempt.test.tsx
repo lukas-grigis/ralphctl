@@ -45,6 +45,21 @@ const renderChip = (t: TaskBucket) =>
   );
 
 describe('TaskBlock — RoundAttemptChip per-attempt round', () => {
+  it('shows a free resume as the budgeted attempt with a resumed note', () => {
+    const r = renderChip(
+      task({
+        genEvalRound: 2,
+        genEvalMaxRounds: 5,
+        genEvalMaxAttempts: 3,
+        attemptN: 1,
+        roundInAttempt: 1,
+        attemptResumed: true,
+      })
+    );
+    expect(r.lastFrame() ?? '').toContain('attempt 1/3 · resumed');
+    r.unmount();
+  });
+
   it('folds the division heuristic on a 2nd attempt (round 4/3 → attempt 2/3 · round 1/3)', () => {
     const r = renderChip(task({ genEvalRound: 4, genEvalMaxRounds: 3, genEvalMaxAttempts: 3 }));
     const frame = r.lastFrame() ?? '';

@@ -43,14 +43,14 @@ describe('assertTemplateKeysFilled — template-side fence', () => {
   it('brands the rendered string as Prompt when every template key has a value', () => {
     const template = 'Hello {{NAME}}';
     const values = { NAME: 'Ada' };
-    const result = assertTemplateKeysFilled(substitute(template, values), template, [], values, 'test-builder');
+    const result = assertTemplateKeysFilled(substitute(template, values), template, values, 'test-builder');
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.value).toBe('Hello Ada');
   });
 
   it('returns ParseError listing each UNFILLED template key, deduped, in first-seen order', () => {
     const template = 'a {{X}} b {{Y}} c {{X}}';
-    const result = assertTemplateKeysFilled(template, template, [], {}, 'test-builder');
+    const result = assertTemplateKeysFilled(template, template, {}, 'test-builder');
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.error).toBeInstanceOf(ParseError);
@@ -72,21 +72,9 @@ describe('assertTemplateKeysFilled — template-side fence', () => {
     const template = 'Journal:\n{{PRIOR_PROGRESS}}';
     const values = { PRIOR_PROGRESS: 'Decision: added {{ROUND_NUMBER}} to the template per CLAUDE.md rules' };
     const rendered = substitute(template, values);
-    const result = assertTemplateKeysFilled(rendered, template, [], values, 'test-builder');
+    const result = assertTemplateKeysFilled(rendered, template, values, 'test-builder');
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.value).toContain('{{ROUND_NUMBER}}'); // delivered verbatim, inert
-  });
-
-  it('counts placeholders declared inside PARTIAL bodies as template-declared (drift fence preserved)', () => {
-    // A partial whose body carries an unfilled key must still fail — in-partial drift is real
-    // drift; only VALUE-side placeholder text is exempt.
-    const template = 'Top: {{HARNESS_CONTEXT}}';
-    const partialBody = 'partial needs {{VERIFY_SCRIPT}}';
-    const values = { HARNESS_CONTEXT: partialBody };
-    const rendered = substitute(template, values);
-    const result = assertTemplateKeysFilled(rendered, template, [partialBody], values, 'test-builder');
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error.message).toContain('{{VERIFY_SCRIPT}}');
   });
 });
 

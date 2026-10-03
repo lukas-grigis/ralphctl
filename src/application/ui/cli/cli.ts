@@ -20,15 +20,7 @@ import { registerSkillsCommand } from '@src/application/ui/cli/commands/skills.t
 import { registerPromptsCommand } from '@src/application/ui/cli/commands/prompts.ts';
 import { CLI_METADATA } from '@src/business/version/cli-metadata.ts';
 
-/**
- * Build and run the CLI. The default action (no subcommand) launches the
- * interactive TUI; named subcommands run a single flow against the wired
- * bootstrap (see `bootstrap.ts`).
- *
- * Long-running chain flows (implement / refine / plan / review / etc.) are
- * not CLI-accessible — their parameters require interactive context that
- * lives in the TUI runtime. See `docs/api.md` for the full surface.
- */
+/** Build and run the CLI. */
 export const runCli = async (argv: readonly string[]): Promise<void> => {
   const program = new Command();
 
@@ -36,15 +28,10 @@ export const runCli = async (argv: readonly string[]): Promise<void> => {
     .name('ralphctl')
     .description('ralphctl — interactive TUI and CLI')
     .version(CLI_METADATA.currentVersion, '-v, --version', 'show version')
-    // The root command accepts zero positional args (bare `ralphctl` launches the TUI). We allow
-    // excess args through commander's arity check so an unknown verb reaches the root action and we
-    // can print a helpful "unknown command" message instead of commander's opaque "too many
-    // arguments. Expected 0 arguments but got 1: <verb>".
+    // The root command accepts zero positional args (bare `ralphctl` launches the TUI).
     .allowExcessArguments(true)
-    // Per-launch implement-role overrides. Each role is a {provider, model} pair — both
-    // flags must be supplied together for a role; supplying only one half errors out below.
-    // Operators reach for these to A/B a single implement run against a different provider
-    // without rewriting `settings.ai.implement`.
+    // Per-launch implement-role overrides. Each role is a {provider, model} pair — both flags must be supplied
+    // together for a role; supplying only one half errors out below.
     .option(
       '--implement-generator-provider <provider>',
       'override settings.ai.implement.generator.provider for this launch (requires --implement-generator-model)'
@@ -62,10 +49,7 @@ export const runCli = async (argv: readonly string[]): Promise<void> => {
       'override settings.ai.implement.evaluator.model for this launch (requires --implement-evaluator-provider)'
     )
     .action(async (opts: Record<string, unknown>, command: Command) => {
-      // An unrecognized first operand lands here (the root action) because there is no matching
-      // subcommand. `command.args` holds the excess positionals — reject with a clear message and a
-      // pointer to --help instead of launching the TUI. When the verb names a known interactive
-      // flow, teach the TUI-primary design rather than just rejecting.
+      // An unrecognized first operand lands here (the root action) because there is no matching subcommand.
       const verb = command.args[0];
       if (verb !== undefined) {
         const isFlow = flowRegistry.some((entry) => entry.manifest.id === verb);
@@ -111,11 +95,8 @@ export const runCli = async (argv: readonly string[]): Promise<void> => {
   registerSkillsCommand(program);
   registerPromptsCommand(program);
 
-  // Terminal frame for the whole CLI: every `bootstrapCli` pre-flight throws a plain `Error`, and
-  // command actions can throw too. Uncaught, those reach Node's crash handler and print a source
-  // excerpt from the bundled `dist/cli-<hash>.mjs` plus a full stack. `reportFatal` turns that into
-  // one actionable stderr line (stack behind `RALPHCTL_DEBUG_TRACE`) — see its doc comment for why
-  // `AbortError` is handled here instead of re-thrown.
+  // Terminal frame for the whole CLI: every `bootstrapCli` pre-flight throws a plain `Error`, and command actions can
+  // throw too.
   try {
     await program.parseAsync([...argv]);
   } catch (err) {

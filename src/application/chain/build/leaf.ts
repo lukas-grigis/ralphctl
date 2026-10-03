@@ -93,7 +93,10 @@ export const leaf = <TCtx, UInput, UOutput>(
       }
 
       const error: DomainError = result.error;
-      return Result.error({ error, trace: [record('failed', durationMs, error)] });
+      return Result.error({
+        error,
+        trace: [record(error.code === ErrorCode.Aborted ? 'aborted' : 'failed', durationMs, error)],
+      });
     },
   };
 };

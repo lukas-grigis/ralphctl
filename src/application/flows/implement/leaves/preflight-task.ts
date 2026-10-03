@@ -43,6 +43,8 @@ export interface DirtyTreeMenuOpts {
   /** Element name stamped on the `AbortError` when the operator dismisses the menu. */
   readonly elementName: string;
   readonly question?: DirtyTreeQuestion;
+  /** Replaces Keep's default description (the resume copy says what Keep means for an interrupted attempt). */
+  readonly keepDescription?: string;
 }
 
 /**
@@ -64,7 +66,7 @@ export const dirtyTreeMenu = (
         {
           label: 'Keep changes — proceed on the dirty tree',
           value: 'keep',
-          description: 'AI may build on / overwrite the pending diff',
+          description: opts.keepDescription ?? 'AI may build on / overwrite the pending diff',
         },
         { label: 'Stash — save changes to a recoverable stash, then proceed', value: 'stash' },
         {
@@ -100,14 +102,15 @@ export const preflightTaskLeaf = (
   deps: PreflightTaskLeafDeps,
   cwd: AbsolutePath,
   name = 'preflight-task',
-  opts?: LeafOpts
+  opts?: LeafOpts,
+  menuOpts: Omit<DirtyTreeMenuOpts, 'elementName'> = {}
 ): Element<ImplementCtx> => {
   const gitStatusEntryCount: PreflightTaskProps['gitStatusEntryCount'] = async (path) => {
     const status = await gitStatusPorcelain(deps.gitRunner, path);
     if (!status.ok) return status;
-    return { ok: true, value: status.value.length } as Awaited<ReturnType<PreflightTaskProps['gitStatusEntryCount']>>;
+    return Result.ok(status.value.length);
   };
-  const menu = dirtyTreeMenu(deps, { elementName: ELEMENT_NAME });
+  const menu = dirtyTreeMenu(deps, { elementName: ELEMENT_NAME, ...menuOpts });
 
   return leaf<ImplementCtx, PreflightTaskInput, PreflightTaskOutput>(
     name,

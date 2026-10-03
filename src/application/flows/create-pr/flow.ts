@@ -11,14 +11,9 @@ import { createLoadCreatePrContextLeaf } from '@src/application/flows/create-pr/
 import { generatePrContentLeaf } from '@src/application/flows/create-pr/leaves/generate-pr-content-leaf.ts';
 import { aiUnitEpilogue, aiUnitPrelude } from '@src/application/flows/_shared/ai-unit-segment.ts';
 import { assertCtxField } from '@src/application/flows/_shared/_engine/assert-ctx-field.ts';
-import {
-  buildCreatePrPrompt,
-  renderIssueRefs,
-  renderTicketSummary,
-} from '@src/integration/ai/prompts/create-pr/definition.ts';
-import { renderContractSectionFor } from '@src/integration/ai/contract/_engine/render-contract-section.ts';
-import { generatePrContentOutputContract } from '@src/application/flows/create-pr/leaves/generate-pr-content.contract.ts';
-import { normalizeRefs } from '@src/domain/value/external-ref.ts';
+import { createPublishSignal } from '@src/application/flows/_shared/publish-signal.ts';
+import { tolerateErrors } from '@src/application/flows/_shared/tolerate-errors.ts';
+import { buildCreatePrPromptFromCtx } from '@src/application/flows/create-pr/build-prompt.ts';
 
 export interface CreateCreatePrFlowOpts {
   /**
@@ -43,15 +38,17 @@ export interface CreateCreatePrFlowOpts {
  * Shape (useAi=true):
  *
  *   sequential('create-pr', [
- *     push-branch,                    // git push -u origin <sprint-branch>
- *     load-create-pr-context,         // hydrate sprint + tasks + headBranch onto ctx
- *     build-create-pr-unit,           // mkdir <sprintDir>/create-pr/<run-slug>/
- *     render-prompt-to-file,          // write prompt.md
- *     install-skills,                 // copy the createPr flow's skills into the unit root
- *     stamp-meta-create-pr,           // <unit-root>/meta.json — provider/model attribution
- *     generate-pr-content,            // headless AI authoring → ctx.aiContent
- *     uninstall-skills,               // remove them again (skipped if an abort short-circuits)
- *     create-pr,                      // gh pr create / glab mr create + persist URL
+ *     push-branch,                      // git push -u origin <sprint-branch>
+ *     continue-on-error(create-pr-ai, [ // any non-abort failure → warn banner + template fallback
+ *       load-create-pr-context,         // hydrate sprint + tasks + headBranch onto ctx
+ *       build-create-pr-unit,           // mkdir <sprintDir>/create-pr/<run-slug>/
+ *       render-prompt-to-file,          // write prompt.md
+ *       install-skills,                 // copy the createPr flow's skills into the unit root
+ *       stamp-meta-create-pr,           // <unit-root>/meta.json — provider/model attribution
+ *       generate-pr-content,            // headless AI authoring → ctx.aiContent
+ *       uninstall-skills,               // remove them again (skipped if an abort short-circuits)
+ *     ]),
+ *     create-pr,                        // gh pr create / glab mr create + persist URL
  *   ])
  *
  * Shape (useAi=false):
@@ -88,21 +85,12 @@ export const createCreatePrFlow = (deps: CreatePrDeps, opts: CreateCreatePrFlowO
       buildPrompt: async (ctx: CreatePrCtx) => {
         const currentUnitRoot = assertCtxField(ctx, 'currentUnitRoot', 'render-prompt-to-file', 'pre-render-prompt');
         const sprint = assertCtxField(ctx, 'sprint', 'render-prompt-to-file', 'pre-render-prompt');
-        const tickets = sprint.tickets.map((t) => ({
-          title: t.title,
-          ...(t.link !== undefined ? { link: String(t.link) } : {}),
-        }));
-        const tasks = ctx.tasks ?? [];
-        const refs = normalizeRefs([
-          ...sprint.tickets.map((t) => t.externalRef ?? ''),
-          ...tasks.flatMap((t) => t.externalRefs ?? []),
-        ]);
-        return buildCreatePrPrompt(deps.templateLoader, {
+        return buildCreatePrPromptFromCtx(deps.templateLoader, {
+          sprint,
+          tasks: ctx.tasks ?? [],
           baseBranch: ctx.input.base,
           headBranch: ctx.headBranch ?? '',
-          ticketSummary: renderTicketSummary(tickets),
-          issueRefs: renderIssueRefs(refs),
-          outputContractSection: renderContractSectionFor(generatePrContentOutputContract, currentUnitRoot),
+          unitRoot: currentUnitRoot,
         });
       },
       // The CLI / TUI surfaces thread `settings.ai.createPr.provider`; a caller that omits it
@@ -112,27 +100,37 @@ export const createCreatePrFlow = (deps: CreatePrDeps, opts: CreateCreatePrFlowO
       ...(deps.effort !== undefined ? { effort: deps.effort } : {}),
     } satisfies Parameters<typeof aiUnitPrelude<CreatePrCtx>>[1];
 
+    // AI authoring is best-effort; a failure anywhere in this segment must not block opening the PR.
     children.push(
-      createLoadCreatePrContextLeaf(deps),
-      ...aiUnitPrelude<CreatePrCtx>(
+      tolerateErrors<CreatePrCtx>(
         {
-          writeFile: deps.writeFile,
-          skillsAdapter: deps.skillsAdapter,
-          skillSource: deps.skillSource,
-          clock: deps.clock,
+          eventBus: deps.eventBus,
+          tolerate: () => true,
+          banner: { id: 'create-pr-ai-fallback', message: 'AI PR authoring failed — opening the PR with the template' },
         },
-        unitOpts
-      ),
-      generatePrContentLeaf({
-        provider: deps.provider,
-        templateLoader: deps.templateLoader,
-        writeFile: deps.writeFile,
-        eventBus: deps.eventBus,
-        logger: deps.logger,
-        model: deps.model,
-        ...(deps.effort !== undefined ? { effort: deps.effort } : {}),
-      }),
-      ...aiUnitEpilogue<CreatePrCtx>({ skillsAdapter: deps.skillsAdapter }, unitOpts)
+        sequential<CreatePrCtx>('create-pr-ai', [
+          createLoadCreatePrContextLeaf(deps),
+          ...aiUnitPrelude<CreatePrCtx>(
+            {
+              writeFile: deps.writeFile,
+              skillsAdapter: deps.skillsAdapter,
+              skillSource: deps.skillSource,
+              clock: deps.clock,
+            },
+            unitOpts
+          ),
+          generatePrContentLeaf({
+            provider: deps.provider,
+            templateLoader: deps.templateLoader,
+            writeFile: deps.writeFile,
+            publishSignal: createPublishSignal(deps.eventBus, 'create-pr'),
+            logger: deps.logger,
+            model: deps.model,
+            ...(deps.effort !== undefined ? { effort: deps.effort } : {}),
+          }),
+          ...aiUnitEpilogue<CreatePrCtx>({ skillsAdapter: deps.skillsAdapter }, unitOpts),
+        ])
+      )
     );
   }
 

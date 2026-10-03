@@ -72,7 +72,7 @@ export const createCloseSprintFlow = (deps: CloseSprintDeps): Element<CloseSprin
     ...(deps.distill !== undefined ? [createDistillStep<CloseSprintCtx>(deps.distill.deps, deps.distill.opts)] : []),
     transitionSprintToDoneLeaf<CloseSprintCtx>({ sprintRepo: deps.sprintRepo, clock: deps.clock, logger: deps.logger }),
     appendJournalSeparatorLeaf<CloseSprintCtx>(
-      { appendFile: deps.appendFile, clock: deps.clock, logger: deps.logger },
+      { appendFile: deps.appendFile, writeFile: deps.writeFile, clock: deps.clock, logger: deps.logger },
       { progressFile: deps.progressFile, status: 'closed', name: 'progress-journal-close' }
     ),
   ]);

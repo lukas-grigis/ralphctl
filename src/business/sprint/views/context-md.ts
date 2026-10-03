@@ -142,7 +142,7 @@ const renderTasksLines = (tasks: readonly Task[]): string[] => {
   lines.push('## Tasks');
   lines.push('');
   if (tasks.length === 0) {
-    lines.push('_(no tasks generated yet — run `ralphctl sprint plan`)_');
+    lines.push('_(no tasks generated yet — plan the sprint first)_');
     lines.push('');
     return lines;
   }

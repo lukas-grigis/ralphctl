@@ -125,6 +125,7 @@ const FAULT_SIDE_BY_ABORT_CAUSE: Readonly<Partial<Record<AbortCause, FaultSide>>
   'user-cancel': 'harness',
   'rate-limit-exhausted': 'environment',
   'process-crash': 'environment',
+  'harness-interrupted': 'harness',
 };
 
 export const faultSideForAbortCause = (cause: AbortCause): FaultSide | undefined => FAULT_SIDE_BY_ABORT_CAUSE[cause];

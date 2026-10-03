@@ -6,10 +6,16 @@ import { markTaskBlocked } from '@src/domain/entity/task-lifecycle.ts';
 import type { UpdateTask } from '@src/domain/repository/task/update-task.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
-import { makeDoneTask, makeInProgressTaskWithRunningAttempt, makeTodoTask } from '@tests/fixtures/domain.ts';
+import {
+  FIXED_LATER,
+  makeDoneTask,
+  makeInProgressTaskWithRunningAttempt,
+  makeTodoTask,
+} from '@tests/fixtures/domain.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 
 const SPRINT_ID = '01900000-0000-7000-8000-0000000000aa' as unknown as SprintId;
+const clock = (): typeof FIXED_LATER => FIXED_LATER;
 
 const makeBlockedTask = (reason = 'prior cancel'): BlockedTask => {
   const r = markTaskBlocked(makeTodoTask(), reason, 'own');
@@ -48,6 +54,7 @@ describe('cancelActiveTaskUseCase', () => {
       reason: 'user cancel',
       taskRepo: repo,
       logger: noopLogger,
+      clock,
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -65,11 +72,31 @@ describe('cancelActiveTaskUseCase', () => {
       reason: 'user cancel',
       taskRepo: repo,
       logger: noopLogger,
+      clock,
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.value.status).toBe('blocked');
     expect(repo.saved).toHaveLength(1);
+  });
+
+  it('settles the running attempt as an operator abort before blocking', async () => {
+    const inProgress = makeInProgressTaskWithRunningAttempt();
+    const repo = repoOk();
+    const result = await cancelActiveTaskUseCase({
+      task: inProgress,
+      sprintId: SPRINT_ID,
+      reason: 'user cancel',
+      taskRepo: repo,
+      logger: noopLogger,
+      clock,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.status).toBe('blocked');
+    expect(result.value.blockedReason).toBe('user cancel');
+    expect(result.value.attempts.at(-1)).toMatchObject({ status: 'aborted', abortCause: 'user-cancel' });
+    expect(repo.saved).toEqual([result.value]);
   });
 
   it('idempotent — already-blocked task passes through without re-saving', async () => {
@@ -81,6 +108,7 @@ describe('cancelActiveTaskUseCase', () => {
       reason: 'user cancel',
       taskRepo: repo,
       logger: noopLogger,
+      clock,
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -97,6 +125,7 @@ describe('cancelActiveTaskUseCase', () => {
       reason: 'user cancel',
       taskRepo: repo,
       logger: noopLogger,
+      clock,
     });
     expect(result.ok).toBe(false);
     if (result.ok) return;
@@ -112,6 +141,7 @@ describe('cancelActiveTaskUseCase', () => {
       reason: 'user cancel',
       taskRepo: repoFailing(),
       logger: noopLogger,
+      clock,
     });
     expect(result.ok).toBe(false);
     if (result.ok) return;

@@ -1,6 +1,7 @@
 import { promises as fs } from 'node:fs';
 import { join } from 'node:path';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
+import { errnoCode, isNodeErrnoCode } from '@src/integration/io/fs.ts';
 
 /**
  * Per-run forensic artifacts under `<dataRoot>/runs/<flow>/<run-id>/`.
@@ -53,9 +54,8 @@ export const readRunBodyPreview = async (
   try {
     raw = await fs.readFile(join(String(runDir), 'body.txt'), 'utf8');
   } catch (cause) {
-    if (isErrnoException(cause) && cause.code === 'ENOENT') return undefined;
-    const code = isErrnoException(cause) ? cause.code : 'unknown';
-    return `(unable to read body.txt: ${code ?? 'unknown'})`;
+    if (isNodeErrnoCode(cause, 'ENOENT')) return undefined;
+    return `(unable to read body.txt: ${errnoCode(cause) ?? 'unknown'})`;
   }
   const trimmed = raw.trim();
   if (trimmed.length === 0) return undefined;
@@ -64,6 +64,3 @@ export const readRunBodyPreview = async (
   const suffix = options?.truncatedSuffix ?? ' […truncated]';
   return `${head}${suffix}`;
 };
-
-const isErrnoException = (cause: unknown): cause is NodeJS.ErrnoException =>
-  typeof cause === 'object' && cause !== null && 'code' in cause;

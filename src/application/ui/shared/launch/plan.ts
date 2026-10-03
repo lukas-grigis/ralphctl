@@ -22,8 +22,8 @@ export interface PlanReviewCriterion {
 }
 
 /**
- * A task as surfaced to the human approval gate — every field the operator is about to import.
- * All but `name` are optional so a partial task still renders.
+ * A task as surfaced to the human approval gate — every field the operator is about to import. All but `name` are
+ * optional so a partial task still renders.
  */
 export interface PlanReviewTask {
   readonly name: string;
@@ -38,10 +38,8 @@ export interface PlanReviewTask {
 }
 
 /**
- * Project the planner's tasks onto the review shape: repository id → repo name, dependency ids →
- * the names of the tasks they point at (falling back to the raw id when the target is not in the
- * proposal), external refs → the ticket ref.
- *
+ * Project the planner's tasks onto the review shape: repository id → repo name, dependency ids → task names (raw id
+ * when the target isn't in the proposal), external refs → the ticket ref.
  * @public
  */
 export const toPlanReviewTasks = (
@@ -67,9 +65,8 @@ export const toPlanReviewTasks = (
 const MAX_RENDERED_FINDINGS = 10;
 
 /**
- * Errors first, then warnings, each in critic order; capped so a pathological plan cannot push
- * the task list off screen. Returns `''` when the critic found nothing, so the message is
- * byte-identical to the pre-critic wording on a clean plan.
+ * Errors first, then warnings, each in critic order; capped so a pathological plan cannot push the task list off
+ * screen.
  */
 export const buildFindingsBlock = (findings: readonly PlanCheckFinding[]): string => {
   if (findings.length === 0) return '';
@@ -109,18 +106,7 @@ export const renderReviewTask = (t: PlanReviewTask, index: number): string => {
 };
 
 /**
- * Render the human-facing plan-approval prompt body (audit §5 human-gate). The parser has
- * already dependency-resolved the task list before it reaches this gate, so the order shown is
- * the execution order — the note makes that visible to the operator rather than letting the
- * reorder happen as a silent topo-sort. Per-task reorder editing is out of scope.
- *
- * `findings` are the deterministic plan critic's output. They are rendered ABOVE the task list so
- * the operator reads them before deciding, and they are purely advisory — nothing here rejects on
- * the operator's behalf.
- *
- * Pure — extracted so the rendered message (including the dependency-order note) is unit-testable
- * without constructing a full launch context.
- *
+ * Render the human-facing plan-approval prompt body (audit §5 human-gate).
  * @public
  */
 export const buildPlanReviewMessage = (
@@ -138,17 +124,13 @@ export const launchPlan = async (ctx: LaunchContext): Promise<LaunchResult> => {
   if (!snapshot.project) return { ok: false, reason: 'No project loaded.' };
   if (!snapshot.sprint) return { ok: false, reason: 'No sprint selected.' };
   // No `cwd` pre-flight: plan's AI session is rooted at the per-sprint plan unit root
-  // (`<sprintDir>/plan/<run-slug>/`), and every project repository is mounted as an equal
-  // `--add-dir` source. If `repositories` is empty the chain surfaces a clearer error from
-  // inside (e.g. the planner producing a `projectPath` mismatch) than an opaque pre-flight reject.
-  // Subpath of the canonical `<id>--<slug>/` sprint dir, direct-built from the sprint entity.
+  // (`<sprintDir>/plan/<run-slug>/`), and every project repository is mounted as an equal `--add-dir` source.
   const planRoot = AbsolutePath.parse(
     join(buildSprintDir(deps.storage.dataRoot, snapshot.sprint.id, snapshot.sprint.slug), 'plan')
   );
   if (!planRoot.ok) return { ok: false, reason: planRoot.error.message };
-  // HITL approval — same shape as refine: the AI's proposed task list is summarised, the user
-  // accepts/rejects via an Ink confirm prompt. Cancel = reject; downstream save-tasks /
-  // save-sprint then no-op against the unchanged draft sprint.
+  // HITL approval — same shape as refine: the AI's proposed task list is summarised, the user accepts/rejects via an
+  // Ink confirm prompt.
   const reviewBeforeApprove = async (
     proposedTasks: readonly TodoTask[],
     _sprint: DraftSprint,
@@ -182,9 +164,8 @@ export const launchPlan = async (ctx: LaunchContext): Promise<LaunchResult> => {
     {
       sprintId: snapshot.sprint.id,
       projectId: snapshot.project.id,
-      // Mount every repo on the project as an equal `--add-dir` source so the planner can
-      // navigate across them without per-file approval prompts. No repo enjoys cwd privilege —
-      // the session's cwd is the per-sprint plan unit root.
+      // Mount every repo on the project as an equal `--add-dir` source so the planner can navigate across them
+      // without per-file approval prompts.
       additionalRoots: snapshot.project.repositories.map((r) => r.path),
       providerId: settings.ai.plan.provider,
       model: settings.ai.plan.model,

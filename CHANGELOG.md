@@ -7,6 +7,62 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **Housekeeping, from Home's SYSTEM group (`H`).** A dry-run scan lists orphaned sprints and memory, old done
+  sprints and old runs with their sizes (KiB / MiB / GiB); select what to delete and confirm. Removing a project asks
+  separately whether to remove its sprints and memory too.
+- **Doctor shows what to fix first.** `!` groups failing probes ahead of the passing ones, which `↵` reveals.
+- **Crash recovery.** If ralphctl dies mid-run (crash, `kill -9`, power loss), an interrupted task shows in
+  Home's NEEDS ATTENTION group with its attempt, age and uncommitted changes; `↵` resumes Implement. Active sessions
+  lists the dead run (`d` dismisses it). On a best-effort basis the generator continues its previous provider
+  session when provider, model and working directory are unchanged, and starts from the full brief otherwise. An
+  interruption does not use up a task attempt (up to three in a row).
+- **Quit asks first.** `q` on Home / `ctrl+c` with runs live asks `[y/N]` (default No) and stops them cleanly on yes,
+  even when a run is waiting on your answer. A run that does not stop within 5s is force-stopped. Stopping a run
+  yourself does not use up a task attempt either, and the attempt counter shows `· resumed` after a free restart.
+- **Waiting runs say so.** A run blocked on your answer shows `[WAITING]` in NEEDS ATTENTION, the footer and the run
+  view, and fires an OS notification (honouring `ui.notifications`). Runs that finish after two minutes notify too.
+
+### Changed
+
+- **No more orphaned AI processes.** AI CLIs run in their own process group; abort and the idle watchdog stop the
+  whole group, and a helper cleans up what a dead ralphctl left behind (on POSIX; on Windows the next launch
+  does it). Session ids are saved as soon as the CLI reports them.
+- **Stale locks recover faster.** A repository lock records its owner; a dead owner on the same machine is reclaimed
+  at once, and a held lock names the process that holds it.
+- **Overlays outrank prompts.** An open overlay stays closable while a prompt is queued, and `q` never quits through
+  one. The header and footer clip to one line at narrow widths.
+
+### Fixed
+
+- **Create sprint checks the name as you type.** An empty, punctuation-only or too-long name (its slug may not
+  exceed 64 characters) stays at the prompt with an inline error instead of failing the run.
+- **Project slugs are unique.** Creating a project whose slug another project already uses is refused, and the
+  wizard says so at the slug step.
+- **Review's distill question defaults to No**, matching its `[y/N]` label (close sprint's too). `esc` on the
+  feedback prompt now leaves the sprint in review without journaling a close; an empty submission still closes it.
+- **Detect scripts, Detect skills and Review check the AI CLI is on PATH** before starting, like the other AI
+  flows, instead of failing on a spawn error.
+- **progress.md's `State:` line follows the sprint** to active, review and done.
+- **Refine's unavailable reason** no longer says "add at least one ticket" when every ticket is already approved.
+- **Create PR checks the sprint first.** An ineligible sprint is refused before anything is pushed, and if any AI
+  authoring step fails the PR opens with the template text instead of failing.
+- **A PR without a URL is an error.** When `gh` / `glab` exits 0 without printing a URL, create PR now reports it
+  instead of storing the last line of output as the PR URL.
+- **Context-file writes never overwrite blind.** Readiness and distill refuse to replace an existing file they
+  can't read for a backup.
+- **Cancelling a task settles its attempt.** The running attempt is marked `aborted` instead of staying running.
+- **Parallel implement stops after a failed setup.** It no longer runs the closing steps when the prologue failed.
+- **Sprint delete respects running flows.** `ralphctl sprint remove` is refused while a flow runs, including a
+  flow in another process that holds no lock.
+- **A blank task description is rejected** instead of silently clearing the field.
+- **`ralphctl task evaluation`** prints an error to stderr and exits 1 when the artifact can't be read.
+
+### Removed
+
+- **`scm.postRefinementComment` setting.** It had no effect; existing settings files still load and drop it.
+
 ## [0.24.0] - 2026-09-30
 
 ### Added

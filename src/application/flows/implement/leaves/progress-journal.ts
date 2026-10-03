@@ -9,6 +9,7 @@ import type { Logger } from '@src/business/observability/logger.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import type { TaskId } from '@src/domain/value/id/task-id.ts';
+import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { SprintExecution } from '@src/domain/entity/sprint-execution.ts';
 import type { BlockedTask, Task } from '@src/domain/entity/task.ts';
@@ -91,6 +92,8 @@ interface JournalInput {
    * `ImplementCtx.currentAttemptGeneratorNudges` for the full rationale.
    */
   readonly correctiveNudges?: { readonly generator: number; readonly evaluator: number };
+  /** Always-present sprint id — the header's identity fallback when `sprint` is absent. */
+  readonly sprintId: SprintId;
   /** Canonical sprint identity + lifecycle, for the derived state header. Undefined → identity is preserved from the file. */
   readonly sprint?: Sprint | undefined;
   /** Branch / PR url for the derived state header. */
@@ -307,8 +310,8 @@ const parseSprintName = (existing: string): string | undefined => /^# Sprint: (.
  */
 const buildStateHeader = (input: JournalInput, existing: string, clock: () => IsoTimestamp): string =>
   renderSprintStateHeader({
-    sprintName: input.sprint?.name ?? parseSprintName(existing) ?? String(input.task.id),
-    sprintId: input.sprint !== undefined ? String(input.sprint.id) : String(input.task.id),
+    sprintName: input.sprint?.name ?? parseSprintName(existing) ?? String(input.sprintId),
+    sprintId: String(input.sprint?.id ?? input.sprintId),
     createdAt: (parseJournalCreatedAt(existing) ?? String(clock())) as IsoTimestamp,
     status: input.sprint?.status ?? 'active',
     branch: input.execution?.branch ?? null,
@@ -468,6 +471,7 @@ export const progressJournalLeaf = (
         decisions: dedupeTexts(ctx.currentAttemptDecisions),
         learnings: dedupeLearnings(ctx.currentAttemptLearnings ?? []),
         notes: dedupeTexts(ctx.currentAttemptNotes),
+        sprintId: ctx.sprintId,
         sprint: ctx.sprint,
         execution: ctx.execution,
         allTasks,

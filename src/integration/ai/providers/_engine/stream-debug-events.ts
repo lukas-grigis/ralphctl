@@ -90,3 +90,27 @@ export const publishToolResultEvent = (
     at: IsoTimestamp.now(),
   });
 };
+
+/**
+ * One-line JSON preview of a structured tool input / output. `undefined` for absent, empty
+ * (`{}` / `[]`) or unserialisable values so the caller's optional meta key is omitted.
+ */
+export const previewJson = (v: unknown): string | undefined => {
+  if (v === undefined || v === null) return undefined;
+  try {
+    const json = JSON.stringify(v);
+    return json === undefined || json === '{}' || json === '[]' ? undefined : json;
+  } catch {
+    return undefined;
+  }
+};
+
+/** The warn log for a CLI-reported error record on the stream (grok / opencode `error` lines). */
+export const publishCliErrorEvent = (eventBus: EventBus, providerName: string, text: string): void => {
+  eventBus.publish({
+    type: 'log',
+    level: 'warn',
+    message: `${providerName}: CLI reported an error — ${text}`,
+    at: IsoTimestamp.now(),
+  });
+};

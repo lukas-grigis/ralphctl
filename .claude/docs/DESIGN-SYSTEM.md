@@ -175,6 +175,23 @@ Every non-Home view mounts through `<ViewShell>`:
 **Views never render their own header, hint strip, or status bar.** `ViewShell` + router own all three.
 Home is the single exception — it renders the Banner + pipeline map instead of a SectionStamp.
 
+**Height regimes.** The boxed 12-row banner needs both width (≥ 100) and height (≥ 56 rows — what Home's whole menu
+needs beside it); below either, every view gets the compact strip. Under 40 rows (`useShortTerminal`) the chrome also
+drops its blank spacer rows (breadcrumb margins, section-stamp gap, Home card inner gaps) so the WORK group stays
+above the fold at 80x24. Nothing else moves and no key changes.
+
+**Two chrome lines never wrap.** The breadcrumb / header line and the footer hint line are each exactly one terminal
+row at any width. Each side of the header is one truncating `Text`. The path keeps its start; the right side is
+fitted to what is left (`fitBreadcrumbRight`): project / sprint names clip with `…` first, the `[P]` / `[S]` hints
+stay whole, and the status badge goes only when names would drop below six cells; the footer drops whole hints before clipping one mid-word
+(`fitHints` in `keyboard-hints.tsx`: the view's own hints and `? help` / `q quit` are pinned, the global tail goes
+right to left). A row of shrinking `Box`es is the failure mode — Yoga squeezes each child until its text wraps into
+one-letter columns — so never build either line out of sibling Boxes.
+
+**Home menu groups**, top to bottom: `NEEDS ATTENTION` (only while something needs the operator — § 5.0, § 5.1a),
+`SWITCH SPRINT` (digit quick-switch + `+`), `WORK`, `OBSERVE`, `SYSTEM` (Settings, Skills, Doctor, Housekeeping `H`).
+Every row shows its `[hotkey]`; an attention row seeds the cursor so `↵` acts on it.
+
 ## 4. Component inventory
 
 All components live in `src/application/ui/tui/components/`. Use these. Don't write a sibling that does 90% of
@@ -182,17 +199,18 @@ the same job.
 
 ### 4.1 Shell + chrome
 
-| Component                | Purpose                                                                               |
-| ------------------------ | ------------------------------------------------------------------------------------- |
-| `ViewShell`              | Frame for every view. Owns header + body + hints spacing.                             |
-| `SectionStamp`           | `▣ VIEW TITLE ━━━…` header. Brand-mustard accent.                                     |
-| `Breadcrumb`             | Path strip at the top of `StatusBar`.                                                 |
-| `StatusBar`              | Breadcrumb + global hotkey hints. Owned by router. Never from a view.                 |
-| `KeyboardHints`          | View-local hotkey strip. Published via `useViewHints([…])`.                           |
-| `HelpOverlay`            | Modal `?`-key overlay. Driven by the centralised keyboard map.                        |
-| `Banner`                 | Home-only Ralph banner + pipeline map. Do not reuse elsewhere.                        |
-| `MemoryPressureBanner`   | Heap-pressure strip mounted at App root. Subscribes to the EventBus.                  |
-| `ChainLogDegradedBanner` | Latched warning when the on-disk `chain.log` sink can't keep up. Mounted at App root. |
+| Component                | Purpose                                                                                                             |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------- |
+| `ViewShell`              | Frame for every view. Owns header + body + hints spacing.                                                           |
+| `SectionStamp`           | `▣ VIEW TITLE ━━━…` header. Brand-mustard accent.                                                                   |
+| `Breadcrumb`             | Header line under the banner: route path left, `project: … [P] · sprint: … [S]` right. One clipped line.            |
+| `StatusBar`              | Breadcrumb + global hotkey hints. Owned by router. Never from a view.                                               |
+| `KeyboardHints`          | One truncating `Text` of `key label` hints; `fitHints` drops whole hints to fit. Published via `useViewHints([…])`. |
+| `QuitConfirmOverlay`     | Quit with live runs: `[y/N]`, default No (§ 6.5). Mounted in `Layout`.                                              |
+| `HelpOverlay`            | Modal `?`-key overlay. Driven by the centralised keyboard map.                                                      |
+| `Banner`                 | Home-only Ralph banner + pipeline map. Do not reuse elsewhere.                                                      |
+| `MemoryPressureBanner`   | Heap-pressure strip mounted at App root. Subscribes to the EventBus.                                                |
+| `ChainLogDegradedBanner` | Latched warning when the on-disk `chain.log` sink can't keep up. Mounted at App root.                               |
 
 ### 4.2 Content surfaces
 
@@ -283,6 +301,18 @@ Pick the right surface for the state. Don't mix raw `<Text color={inkColors.erro
 | Success / terminal done | `<Card tone="success" />` (or the Execute footer's `<ResultCard kind="success" />`) | fields + next steps.                                  |
 | Idle (waiting on input) | the prompt itself                                                                   | Don't render a spinner while a prompt is up.          |
 
+### 5.0 Waiting on the operator
+
+A run parked on a prompt is not "running". `useAwaitingSessions` (`runtime/use-awaiting-sessions.ts`) derives
+session id → waiting-since from the prompt queue; the Ink prompt adapter stamps `PendingPrompt.sessionId` (the
+root session of the asking scope) and `askedAt`. Every surface that shows a run reads it: the Execute header
+(`⚠ [WAITING] your answer`, `waiting 41s` replacing `elapsed`, warning-tone card, no `Spinner`) and its status
+chip, `MultiFlowStrip` chips (`⚠ WAITING` in place of the elapsed time), Sessions rows (`[WAITING]`), the footer
+(`⚠ [WAITING]` beside the running count) and Home's `NEEDS ATTENTION` group (`⚠ [WAITING] <run> · 3m`, `↵` opens the
+run). `PromptHost` titles a prompt from a run other than the one on screen `▣ Question  from <Flow> · <sprint>`. The
+prompt adapter also publishes an `awaiting-input` bus event; `notification-subscriber` turns it into an `attention` OS
+notification (`Waiting on you`), honouring `settings.ui.notifications`.
+
 ### 5.1 Blocked tasks
 
 A `blocked` task is error-level, never the muted grey a `pending` / `skipped` task gets — a dependency
@@ -345,29 +375,47 @@ revived-root correction has no such gate — it fires live-run or not, since unb
 `u` is never gated on run liveness) can happen while other tasks in the same run are still executing,
 e.g. after `D` (Detach) backgrounds a run whose own-failure block already settled that task's trace.
 
+### 5.1a Interrupted tasks
+
+A task is **interrupted** when it is `in_progress`, its last attempt is still `running`, and no implement run of this
+process owns the sprint — the harness died mid-attempt (crash, `kill -9`, power loss). One predicate
+(`ui/shared/interrupted-tasks.ts`, `interruptedTasksOf`) feeds every surface so they never disagree:
+
+- **Home › NEEDS ATTENTION** — first group, cursor seeded on it: `"<task>" was interrupted · attempt N · 12m ago` (age of
+  the dead run's last write, else of the attempt's start). The focused description says only what was learned from
+  disk: `N uncommitted changes` (the task's worktree, else its repository), `session resumable` or `no session to
+resume, restarts from the brief`, then `↵ resumes Implement`; unknown facts are omitted, never guessed. `↵` launches
+  Implement through the normal launcher (same pickers); the dead run's stale record is dismissed only after that
+  launch actually started, so a cancelled or refused launch keeps it. More than 3 fold into `N more interrupted —
+resume picks them all up`. While another live ralphctl process owns the sprint (rechecked every 5s) nothing is shown:
+  its `running` attempt is in flight there, not crashed.
+- **Sessions** — each record whose owner is gone is a row (`[INTERRUPTED]` chip, flow, elapsed) under the live
+  sessions; `↵` = `resume on Home`, `d` = dismiss the record (only an interrupted one — a live run's is never removed).
+
 ## 6. Navigation contract
 
 ### 6.1 Global hotkeys — owned by the router
 
 These work from **every** view. Don't override them.
 
-| Key                 | Action                                           |
-| ------------------- | ------------------------------------------------ |
-| `Esc`               | Pop one frame (no-op at root)                    |
-| `h`                 | Home                                             |
-| `n`                 | New flow (flows view)                            |
-| `Tab` / `Shift+Tab` | Cycle running flow (next / prev)                 |
-| `Ctrl+1..9`         | Jump to running flow (Nth running session)       |
-| `x`                 | Sessions view                                    |
-| `s`                 | Settings                                         |
-| `!`                 | Doctor                                           |
-| `b`                 | Toggle banner compact ↔ full                     |
-| `g`                 | Progress overlay (reads `progress.md` from disk) |
-| `y`                 | Yank active-task summary to clipboard            |
-| `P`                 | Open project picker (cross-project)              |
-| `S`                 | Open sprint picker (cross-project)               |
-| `?`                 | Help overlay                                     |
-| `q`                 | Quit (Home root only)                            |
+| Key                 | Action                                                           |
+| ------------------- | ---------------------------------------------------------------- |
+| `Esc`               | Pop one frame (no-op at root)                                    |
+| `h`                 | Home                                                             |
+| `n`                 | New flow (flows view)                                            |
+| `Tab` / `Shift+Tab` | Cycle running flow (next / prev)                                 |
+| `Ctrl+1..9`         | Jump to running flow (Nth running session)                       |
+| `x`                 | Sessions view                                                    |
+| `s`                 | Settings                                                         |
+| `!`                 | Doctor                                                           |
+| `b`                 | Toggle banner compact ↔ full                                     |
+| `g`                 | Progress overlay (reads `progress.md` from disk)                 |
+| `y`                 | Yank active-task summary to clipboard                            |
+| `P`                 | Open project picker (cross-project)                              |
+| `S`                 | Open sprint picker (cross-project)                               |
+| `?`                 | Help overlay                                                     |
+| `q`                 | Quit (Home root only; never through a prompt or an open overlay) |
+| `Ctrl+C`            | Quit from anywhere — asks first when runs are live (§ 6.5)       |
 
 Switch between running flows via `Tab` / `Shift+Tab` (cycle next / prev) or `Ctrl+1..9` (jump to the Nth
 running session); the Sessions view (`x`) lists them all. Both chords cycle / jump over RUNNING sessions
@@ -504,6 +552,28 @@ viewport must pass `suppressScrollArrows` to its `ViewShell` so the page-level `
 not double-handle `↑/↓` / `PgUp`/`PgDn`. The list cursor wins; the page scroll yields. Views without
 a list cursor leave `ScrollRegion` to handle arrows normally.
 
+### 6.5 Keyboard ownership — one owner per keystroke
+
+- **An open overlay outranks a hidden prompt.** Help, progress, evaluation and the quit confirm hide the view and any
+  queued prompt beneath them; `useGlobalKeys` keeps handling overlays while a prompt mutes the ambient keys, and
+  prompt components read input through `usePromptInput`, which is inactive while `ui.overlayOpen`. `esc` closes the
+  overlay and the prompt answers afterwards; `Enter` never answers a prompt you cannot see.
+- **View keys are muted under overlays**: `useViewKeys` is inactive while any overlay (help included) is open, and a
+  `ctrl` / `meta` chord never lands on a bare-letter binding (`ctrl+c` is never `c`). Binding tokens `↵` and `space`
+  match by name.
+- **Global letters yield to the view that owns them** — before adding a global letter, grep `use-global-keys.ts`; `g`
+  is the progress overlay and is never a scroll key.
+
+### 6.5a Quit with live runs
+
+`q` (Home root) and `Ctrl+C` (anywhere, even while a run waits on a prompt) quit at once when no session is running.
+With one or more running they open `QuitConfirmOverlay`: `N run(s) live — quit stops them? [y/N]`, default No. `n` /
+`esc` / `↵` / `q` / `Ctrl+C` keep everything running; `y` calls `inProcessRuns.abortAll('quit')` (each run stops
+cleanly, its AI CLI children exit, its record is removed), dismisses any prompt no run owns, and exits when that
+settles — or after 5s, when the AI CLI process groups are killed and the exit leaves a one-line note in the shell.
+While it stops, the card says so and `Ctrl+C` quits immediately. The app, not Ink, owns `Ctrl+C`
+(`render(…, { exitOnCtrlC: false })`).
+
 ## 7. View patterns
 
 Each view type has one shape. Don't invent a new one.
@@ -606,6 +676,22 @@ settings options, fixed phase order) may render in full — comment the bound at
 Spinner state lives in the leaf `<Spinner />` component (`src/application/ui/tui/components/spinner.tsx`). Don't call
 `useSpinnerFrame` from a component that renders a subtree larger than itself — the 90 ms re-render propagates. Use
 `<Spinner active … />` instead.
+
+### 7.7 Housekeeping + Doctor
+
+**Housekeeping** (`H` on Home › SYSTEM) is a dry run first: the scan lists reclaimable data in four groups (orphan
+sprints, orphan memory, old done sprints, old runs) with sizes, nothing deleted. `space` marks a row, `a` marks all,
+`c` clears, `↵` opens a `ConfirmCard` (default No) naming the count, bytes and groups, then purges and rescans. The
+purge refuses while a flow runs, and says so.
+
+**Doctor** (`!`) leads with what is wrong: groups ordered worst-first, probes inside a group worst-first, passing probes
+collapsed behind `✓ N passed` (`↵` shows / hides them). A probe hint that embeds a path is shortened in the middle of the
+path (`fitLineWithPath`), never mid-word.
+
+**Removing data.** Sprint and project removal go through `deps.sprintRemoval` / `deps.projectRemoval`, so a running flow
+refuses honestly (`✗ A flow is running…`). Removing a project that owns sprints or memory asks a second, separate
+`ConfirmCard` (default No) for that cascade; answering No leaves them as orphans Housekeeping can clear. A
+confirmation that follows the last row's removal renders under the empty state, not inside the vanished list.
 
 ## 8. Copy & tone
 

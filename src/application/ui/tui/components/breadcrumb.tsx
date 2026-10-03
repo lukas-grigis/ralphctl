@@ -15,6 +15,9 @@ import { useRouter } from '@src/application/ui/tui/runtime/router.tsx';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
 import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { StatusChip, sprintStatusKind } from '@src/application/ui/tui/components/status-chip.tsx';
+import { useTerminalSize } from '@src/application/ui/tui/runtime/use-terminal-size.ts';
+import { chipCellsFor, fitBreadcrumbRight, type FitResult } from '@src/application/ui/tui/components/breadcrumb-fit.ts';
+import { useShortTerminal } from '@src/application/ui/tui/runtime/use-short-terminal.ts';
 import { useBreakpoint } from '@src/application/ui/tui/runtime/use-breakpoint.ts';
 
 /** Route-id → display label for the breadcrumb path. Anything absent falls back to the raw id. */
@@ -30,6 +33,7 @@ const ROUTE_LABELS: Record<string, string> = {
   sessions: 'Sessions',
   settings: 'Settings',
   doctor: 'Doctor',
+  housekeeping: 'Housekeeping',
   help: 'Help',
   welcome: 'Welcome',
   'create-project': 'New project',
@@ -41,11 +45,52 @@ const ROUTE_LABELS: Record<string, string> = {
 
 const breadcrumbLabel = (id: string): string => ROUTE_LABELS[id] ?? id;
 
+const RightSide = ({
+  fit,
+  status,
+}: {
+  readonly fit: FitResult;
+  readonly status: string | undefined;
+}): React.JSX.Element => (
+  <Box flexShrink={0}>
+    <Text wrap="truncate-end">
+      <Text dimColor>project: </Text>
+      <Text color={inkColors.primary} bold>
+        {fit.project}
+      </Text>
+      <Text dimColor> </Text>
+      <Text color={inkColors.highlight} bold>
+        [P]
+      </Text>
+      {fit.sprint !== undefined && (
+        <>
+          <Text dimColor> {glyphs.bullet} sprint: </Text>
+          <Text color={inkColors.primary} bold>
+            {fit.sprint}
+          </Text>
+          <Text dimColor> </Text>
+          <Text color={inkColors.highlight} bold>
+            [S]
+          </Text>
+          {fit.showChip && status !== undefined && (
+            <>
+              <Text>{' '.repeat(spacing.gutter)}</Text>
+              <StatusChip label={status} kind={sprintStatusKind(status)} />
+            </>
+          )}
+        </>
+      )}
+    </Text>
+  </Box>
+);
+
 export const Breadcrumb = (): React.JSX.Element => {
   const router = useRouter();
   const selection = useSelection();
   const ui = useUiState();
   const { atLeast } = useBreakpoint();
+  const short = useShortTerminal();
+  const { columns } = useTerminalSize();
   // When an Execute view is focused, BOTH right-side labels coalesce from its pinned context
   // as a single unit — never one from the run and the other from the mutable global selection.
   // A run always pins a project label, so its presence is the canonical "run focused" signal.
@@ -77,45 +122,31 @@ export const Breadcrumb = (): React.JSX.Element => {
   if (effectiveProjectLabel !== undefined) right.push(effectiveProjectLabel);
   if (effectiveSprintLabel !== undefined) right.push(effectiveSprintLabel);
 
+  // The path keeps its start; the right side is fitted to what is left, clipping names (not hints or the badge) first.
+  const chipCells = chipCellsFor(right[1] !== undefined && atLeast('md') ? effectiveSprintStatus : undefined);
+  const fit =
+    right[0] === undefined
+      ? undefined
+      : fitBreadcrumbRight({
+          budget: columns - 2 * spacing.indent - [...path].length - 1,
+          project: right[0],
+          sprint: right[1],
+          chipCells,
+        });
+
   return (
     <Box
       paddingX={spacing.indent}
-      marginTop={spacing.section}
-      marginBottom={spacing.section}
+      marginTop={short ? 0 : spacing.section}
+      marginBottom={short ? 0 : spacing.section}
       justifyContent="space-between"
     >
-      <Box>
-        <Text dimColor>{path}</Text>
+      <Box flexShrink={1} minWidth={0} marginRight={1}>
+        <Text dimColor wrap="truncate-end">
+          {path}
+        </Text>
       </Box>
-      {right.length > 0 && (
-        <Box>
-          <Text dimColor>project: </Text>
-          <Text color={inkColors.primary} bold>
-            {right[0]}
-          </Text>
-          <Text dimColor> </Text>
-          <Text color={inkColors.highlight} bold>
-            [P]
-          </Text>
-          {right[1] !== undefined && (
-            <Box>
-              <Text dimColor> {glyphs.bullet} sprint: </Text>
-              <Text color={inkColors.primary} bold>
-                {right[1]}
-              </Text>
-              <Text dimColor> </Text>
-              <Text color={inkColors.highlight} bold>
-                [S]
-              </Text>
-              {atLeast('md') && effectiveSprintStatus !== undefined && (
-                <Box marginLeft={spacing.gutter}>
-                  <StatusChip label={effectiveSprintStatus} kind={sprintStatusKind(effectiveSprintStatus)} />
-                </Box>
-              )}
-            </Box>
-          )}
-        </Box>
-      )}
+      {fit !== undefined && <RightSide fit={fit} status={effectiveSprintStatus} />}
     </Box>
   );
 };

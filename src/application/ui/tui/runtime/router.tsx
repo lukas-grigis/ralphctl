@@ -39,6 +39,9 @@ export interface RouterApi {
 
 const RouterContext = createContext<RouterApi | undefined>(undefined);
 
+/** Like {@link useRouter} but `undefined` outside a provider — for passive indicators. */
+export const useOptionalRouter = (): RouterApi | undefined => useContext(RouterContext);
+
 export const useRouter = (): RouterApi => {
   const ctx = useContext(RouterContext);
   if (!ctx) throw new Error('useRouter: must be used inside <RouterProvider>');

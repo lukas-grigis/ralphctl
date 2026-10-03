@@ -1,15 +1,4 @@
-/**
- * `ralphctl runs stats` — the harness outcome rollup, projected onto the CLI.
- *
- * Deliberately THIN: this file loads sprint aggregates through the repository ports, filters the
- * population down to the requested scope, and hands the slices to `foldOutcomeStats`. Every
- * number the user sees is folded in `business/runs/outcome-stats.ts` — nothing is re-derived
- * here, so `--json` and the text report are two projections of one computation.
- *
- * `--json` is the load-bearing mode: it prints the raw `OutcomeStats` (stable key order, sorted
- * histograms, per-sprint entries in repository order — which is UUIDv7 / chronological), so two
- * runs across a settings change diff cleanly.
- */
+/** `ralphctl runs stats` — the harness outcome rollup, projected onto the CLI. */
 
 import type { Command } from 'commander';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
@@ -38,9 +27,8 @@ const SINCE_DESC =
   'ISO date — keep sprints whose latest lifecycle stamp (done, else review, else activated, else planned) is on or after it; never-planned drafts have no stamp and drop out';
 
 /**
- * Register `runs stats` on the `runs` group.
- *
- *   ralphctl runs stats [--json] [--since <date>] [--sprint <id>] [--project <id>]
+ * Register `runs stats` on the `runs` group: `ralphctl runs stats [--json] [--since <date>] [--sprint <id>]
+ * [--project <id>]`.
  */
 export const registerRunsStatsCommand = (runs: Command): void => {
   runs
@@ -92,14 +80,7 @@ const parseSince = (raw: string | undefined): SinceResult => {
   return { ok: true, sinceMs: parsed };
 };
 
-/**
- * "Active since" = the sprint's LATEST lifecycle stamp is on or after the cutoff. Sprint carries
- * no audit `createdAt` / `updatedAt` — the four transition stamps are the only durable timing on
- * the aggregate, and `doneAt ?? reviewAt ?? activatedAt ?? plannedAt` is the most recent one by
- * construction (each transition stamps a later instant than the one before it). A draft sprint
- * has no stamp at all and therefore no activity to report — it drops out of a `--since` window
- * rather than being silently dated to now.
- */
+/** "Active since" = the sprint's LATEST lifecycle stamp is on or after the cutoff. */
 const lastActivityMs = (sprint: Sprint): number | undefined => {
   const stamp = sprint.doneAt ?? sprint.reviewAt ?? sprint.activatedAt ?? sprint.plannedAt;
   if (stamp === null) return undefined;
@@ -114,11 +95,7 @@ const activeSince =
     return activity !== undefined && activity >= sinceMs;
   };
 
-/**
- * Resolve the sprint population. `--sprint` is a direct lookup (so a typo'd id fails loudly
- * instead of folding to an empty report); `--project` validates the project exists for the same
- * reason, then filters. No flags = every sprint in the data root.
- */
+/** Resolve the sprint population. */
 const resolveScopedSprints = async (deps: StatsDeps, opts: StatsOpts): Promise<ScopeResult> => {
   if (opts.sprint !== undefined) {
     const id = SprintId.parse(opts.sprint);
@@ -154,12 +131,7 @@ const resolveScopedSprints = async (deps: StatsDeps, opts: StatsOpts): Promise<S
   return { ok: true, sprints: all.value.filter((sprint) => sprint.projectId === projectId.value) };
 };
 
-/**
- * Pair every scoped sprint with its persisted task list. Reads run concurrently (each is an
- * independent disk round-trip) and `Promise.all` preserves order, so the fold's `bySprint`
- * breakdown keeps repository order. Returns `undefined` after reporting the first read failure —
- * a partial rollup would quietly understate every metric.
- */
+/** Pair every scoped sprint with its persisted task list. */
 const loadSlices = async (
   deps: StatsDeps,
   sprints: readonly Sprint[]

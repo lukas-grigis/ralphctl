@@ -1,4 +1,5 @@
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
+import { isProcessGroupAlive, killProcessTree, processGroupOf } from '@src/integration/io/kill-process-tree.ts';
 
 /**
  * Stuck-process safeguard for headless AI spawns.
@@ -17,6 +18,9 @@ import type { ChildProcessWithoutNullStreams } from 'node:child_process';
  *
  * The watchdog also re-uses the same kill ladder for `abortSignal` (user Ctrl-C, TUI cancel),
  * so a hung child that traps SIGTERM still dies after `graceMs`.
+ *
+ * A child that leads its own process group (see `ProviderSpawn`'s `detached`) is killed as a
+ * group, so the tool subprocesses it forked die with it.
  *
  * `stop()` is idempotent and MUST be called on the success path so the timer doesn't keep
  * the event loop alive after the spawn completes.
@@ -52,11 +56,11 @@ export const installIdleWatchdog = (child: ChildProcessWithoutNullStreams, opts:
 
   const escalate = (): void => {
     killGraceTimer = setTimeout(() => {
-      try {
-        child.kill('SIGKILL');
-      } catch {
-        // Child may already be dead (ESRCH) — best-effort.
-      }
+      killGraceTimer = null;
+      // The group may have emptied during the grace; its pgid could already lead someone else's group.
+      const pgid = processGroupOf(child);
+      if (pgid !== undefined && !isProcessGroupAlive(pgid)) return;
+      killProcessTree(child, 'SIGKILL');
     }, graceMs);
   };
 
@@ -64,22 +68,14 @@ export const installIdleWatchdog = (child: ChildProcessWithoutNullStreams, opts:
     if (killed) return;
     killed = true;
     opts.onIdle?.();
-    try {
-      child.kill('SIGTERM');
-    } catch {
-      // ignore — already dead
-    }
+    killProcessTree(child, 'SIGTERM');
     escalate();
   };
 
   const killAbort = (): void => {
     if (killed) return;
     killed = true;
-    try {
-      child.kill('SIGTERM');
-    } catch {
-      // ignore
-    }
+    killProcessTree(child, 'SIGTERM');
     escalate();
   };
 
@@ -94,9 +90,9 @@ export const installIdleWatchdog = (child: ChildProcessWithoutNullStreams, opts:
   child.stderr.on('data', resetIdleTimer);
 
   const abortSignal = opts.abortSignal;
-  if (abortSignal !== undefined) {
-    abortSignal.addEventListener('abort', killAbort, { once: true });
-  }
+  // An already-aborted signal never re-dispatches 'abort', so kill now rather than wait on it.
+  if (abortSignal?.aborted === true) killAbort();
+  else abortSignal?.addEventListener('abort', killAbort, { once: true });
 
   // Arm the clock NOW — a child that never emits anything still has to die after `idleMs`.
   resetIdleTimer();
@@ -108,7 +104,10 @@ export const installIdleWatchdog = (child: ChildProcessWithoutNullStreams, opts:
         timer = null;
       }
       if (killGraceTimer !== null) {
-        clearTimeout(killGraceTimer);
+        // The leader exiting says nothing about the tool subprocesses in its group: let the group
+        // SIGKILL land, unref'd. A lone child's escalation is cancelled so a recycled pid is never hit.
+        if (processGroupOf(child) !== undefined) killGraceTimer.unref();
+        else clearTimeout(killGraceTimer);
         killGraceTimer = null;
       }
       // Drop our `data` listeners so the child's stream EventEmitter doesn't keep them — and

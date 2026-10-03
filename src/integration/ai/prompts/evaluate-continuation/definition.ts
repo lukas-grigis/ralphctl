@@ -4,7 +4,7 @@ import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts'
 import { buildPrompt, type BuildPromptError } from '@src/integration/ai/prompts/_engine/build-prompt.ts';
 import type { PromptDefinition } from '@src/integration/ai/prompts/_engine/definition.ts';
 import { renderFloorRubricSection } from '@src/integration/ai/prompts/_engine/renderers/floor-rubric.ts';
-import { renderGeneratorHintsSection } from '@src/integration/ai/prompts/_engine/renderers/task.ts';
+import { renderGeneratorHintsSection, renderTaggedBlock } from '@src/integration/ai/prompts/_engine/renderers/task.ts';
 import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/template-loader.ts';
 
 /**
@@ -164,28 +164,12 @@ export interface BuildEvaluateContinuationPromptInput {
   readonly reproduction?: string;
 }
 
-/**
- * Render the optional `<reproduction>` block — a failing test a prior `reproduce` session wrote
- * for this defect-shaped task. Framed for the reviewer role (re-run it yourself; an unexplained
- * edit is tampering), matching the wording of the same-named helper in `evaluate/definition.ts` —
- * duplicated rather than shared because `_engine/renderers/task.ts` is outside this task's
- * ownership, mirroring the existing local-only `renderPriorAttemptsSection` precedent in the
- * implement / implement-continuation pair. Empty / absent → empty string so
- * `{{REPRODUCTION_SECTION}}` collapses cleanly with no orphan wrapper.
- */
-const renderReproductionSection = (reproduction: string | undefined): string => {
-  if (reproduction === undefined) return '';
-  const trimmed = reproduction.trim();
-  if (trimmed.length === 0) return '';
-  return [
-    '<reproduction>',
+// Reviewer-facing wording (re-run it; an edit is tampering), unlike the generator variant in renderers/task.ts.
+const renderReproductionSection = (reproduction: string | undefined): string =>
+  renderTaggedBlock('reproduction', reproduction, [
     'Re-run this reproduction command yourself as part of this check — see the verification-tampering',
     'step below for how an edit to this test is treated.',
-    '',
-    trimmed,
-    '</reproduction>',
-  ].join('\n');
-};
+  ]);
 
 /**
  * Top-level builder — renders the param strings, calls `buildPrompt`. The chain leaf consumes

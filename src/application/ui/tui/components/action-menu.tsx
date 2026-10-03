@@ -14,7 +14,7 @@
  *   PgUp / Home    — first enabled item (g/G removed: `g` is the global progress-overlay toggle)
  *   PgDn / End     — last enabled item
  *   ↵              — select
- *   space          — select (hotkey handler)
+ *   space          — select (useListWindow, live cursor)
  *
  * Navigation is implemented via `useListWindow` over the *enabled* item subset. Section headers
  * are render-only rows excluded from the cursorable set, mirroring the pick-sprint group approach.
@@ -294,7 +294,7 @@ export const ActionMenu = ({
 
   const {
     cursorId,
-    focusedItem,
+
     window,
     visibleItems: windowedEnabled,
   } = useListWindow<MenuItem>({
@@ -303,19 +303,17 @@ export const ActionMenu = ({
     visibleRows: effectiveVisibleRows,
     active,
     initialCursorId,
+    // Space submits through the live cursor too, so `j ` in one stdin chunk selects the moved-to row.
+    submitOnSpace: true,
     onSubmit: (it) => {
       it.onSelect();
     },
   });
 
-  // Space-as-select and hotkey matching (navigation is owned by useListWindow).
+  // Hotkey matching (navigation and space-as-select are owned by useListWindow).
   useInput(
     (input) => {
       if (!active) return;
-      if (input === ' ') {
-        focusedItem?.onSelect();
-        return;
-      }
       if (input.length > 0) {
         const hit = matchHotkey(items, input);
         hit?.onSelect();

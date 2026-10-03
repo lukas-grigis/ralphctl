@@ -129,6 +129,16 @@ describe('evaluateTriggers', () => {
       // Reason should direct the user to add a ticket.
       if (!result.enabled) expect(result.reason).toMatch(/add.*ticket|ticket.*add/i);
     });
+
+    it('says every ticket is already refined when none is pending but some are approved', () => {
+      const triggers: FlowTriggers = { minPendingTickets: 1 };
+      const result = evaluateTriggers(triggers, { ...baseInputs, pendingTicketCount: 0, approvedTicketCount: 1 });
+      expect(result.enabled).toBe(false);
+      if (!result.enabled) {
+        expect(result.reason).toContain('already refined');
+        expect(result.reason).not.toContain('at least one ticket');
+      }
+    });
   });
 
   describe('minApprovedTickets', () => {
@@ -267,7 +277,6 @@ describe('evaluateTriggers', () => {
 
 describe('refineManifest', () => {
   it('declares the new manifest fields per spec', () => {
-    expect(refineManifest.canBackground).toBe(false);
     expect(refineManifest.triggers).toEqual({
       currentSprintStatus: ['draft'],
       minPendingTickets: 1,

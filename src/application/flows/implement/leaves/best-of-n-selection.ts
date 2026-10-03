@@ -18,6 +18,7 @@ import type {
   BestOfNCandidateRecord,
   BestOfNGenEvalOpts,
 } from '@src/application/flows/implement/leaves/best-of-n-candidate.ts';
+import { replaceTask } from '@src/application/flows/implement/leaves/_shared/replace-task.ts';
 
 /**
  * Selection cascade over the candidates a best-of-N attempt sampled — the escalation-map ablation
@@ -350,7 +351,7 @@ export const bestOfNSelectionLeaf = (
       };
     },
     output: (ctx, out) => {
-      const tasks = (ctx.tasks ?? []).map((t) => (t.id === out.task.id ? (out.task as Task) : t));
+      const tasks = replaceTask(ctx.tasks, out.task);
       const sessionCarry =
         out.capturedSessionId !== undefined ? { priorGeneratorSessionId: out.capturedSessionId } : {};
       return {

@@ -103,6 +103,25 @@ describe('TasksPanel render caps', () => {
     vi.unstubAllEnvs();
   });
 
+  it.each(['user-cancel', 'harness-interrupted'] as const)(
+    'words a free resume (%s) without a raw attempt number that would contradict the chip',
+    (cause) => {
+      const bucketed: BucketedExecution = {
+        tasks: [{ id: 'task-1', status: 'running', subSteps: [], evaluations: [], signals: [], genEvalRound: 0 }],
+        orphanSignals: [],
+      };
+      const recovering = new Map<string, RecoveryContext>([
+        ['task-1', { fromAttemptN: 1, cause, abortedAt: ts(19 * 3600) as IsoTimestamp }],
+      ]);
+      const r = render(<TasksPanel bucketed={bucketed} running={true} recoveringByTaskId={recovering} />);
+      const frame = r.lastFrame() ?? '';
+      expect(frame).toContain('resumed after the stop at');
+      expect(frame).toContain('no attempt used');
+      expect(frame).not.toMatch(/attempt 2/);
+      r.unmount();
+    }
+  );
+
   it('omits the resume-from-aborted banner when recoveringByTaskId is absent', () => {
     const bucketed: BucketedExecution = {
       tasks: [

@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { renderSprintStateHeader, type SprintStateTask } from '@src/business/sprint/render-sprint-state-header.ts';
+import {
+  renderSprintStateHeader,
+  type SprintStateTask,
+  withSprintStateStatus,
+} from '@src/business/sprint/render-sprint-state-header.ts';
 import { isoTimestamp } from '@tests/fixtures/domain.ts';
 
 /**
@@ -102,5 +106,20 @@ describe('renderSprintStateHeader', () => {
     // No line in the derived header starts with the section delimiter — the name is collapsed +
     // heading-neutralized into a single table cell.
     expect(out.split('\n').some((l) => l.startsWith('## Task: '))).toBe(false);
+  });
+});
+
+describe('withSprintStateStatus', () => {
+  const header = '# Sprint: demo\n\n## Status\n\n- State: active\n- Branch: —\n';
+  const section = '## Task: t — Attempt 1 · id:t-1\n\n- State: active is prose here\n';
+
+  it('rewrites only the header band State line and keeps sections byte-for-byte', () => {
+    const out = withSprintStateStatus(`${header}\n${section}`, 'review');
+    expect(out).toBe(`${header.replace('- State: active', '- State: review')}\n${section}`);
+  });
+
+  it('leaves a journal without a State line unchanged', () => {
+    const journal = '# Sprint: demo\n\n- created: x\n';
+    expect(withSprintStateStatus(journal, 'done')).toBe(journal);
   });
 });

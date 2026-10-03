@@ -2,6 +2,7 @@ import type { Command } from 'commander';
 import type { Project } from '@src/domain/entity/project.ts';
 import { ProjectId } from '@src/domain/value/id/project-id.ts';
 import { bootstrapCli } from '@src/application/ui/cli/bootstrap.ts';
+import { plural } from '@src/application/ui/shared/plural.ts';
 import { confirmDestructive } from '@src/application/ui/cli/confirm-destructive.ts';
 import { fail } from '@src/application/ui/cli/report-cli-error.ts';
 import { createLastSelectionStore } from '@src/integration/persistence/selection/last-selection-store.ts';
@@ -28,9 +29,7 @@ const listProjectsAction = async (): Promise<void> => {
 
 const showProjectAction = async (raw?: string): Promise<void> => {
   const { deps, storage } = await bootstrapCli();
-  // Fall back to the pinned selection when no id is given. The pinned id still funnels
-  // through ProjectId.parse — the store's read is silent on corruption, so a stale or
-  // hand-edited file must fail with the same message an invalid explicit argument gets.
+  // Fall back to the pinned selection when no id is given.
   let effectiveRaw = raw;
   if (effectiveRaw === undefined) {
     const pinned = await createLastSelectionStore(storage.stateRoot).read();
@@ -75,9 +74,8 @@ const removeProjectAction = async (raw: string, opts: RemoveOpts): Promise<void>
     fail(result.error.message);
     return;
   }
-  // Clear a dangling pin: a removed project would otherwise keep resolving as the default
-  // for `project show` and re-seed the TUI on next launch. The sprint pin lives under the
-  // project, so the whole file goes (write(undefined) deletes it).
+  // Clear a dangling pin: a removed project would otherwise keep resolving as the default for `project show` and
+  // re-seed the TUI on next launch.
   const store = createLastSelectionStore(storage.stateRoot);
   const cur = await store.read();
   if (cur?.projectId === id.value) await store.write(undefined);
@@ -85,16 +83,8 @@ const removeProjectAction = async (raw: string, opts: RemoveOpts): Promise<void>
 };
 
 /**
- * Register the `project` command group.
- *
- *   ralphctl project list
- *   ralphctl project show [id]
- *   ralphctl project remove <id>
- *
- * `show` defaults its `[id]` to the pinned current project (written by the TUI and
- * `sprint set-current`). Read-side ops dispatch directly to `deps.projectRepo` — there's no
- * surrounding logic to encapsulate, so a use-case wrapper would just be ceremony. Project
- * creation lives in the TUI (interactive multi-input flow).
+ * Register the `project` command group (`list`, `show [id]`, `remove <id>`). `show` defaults its `[id]` to the pinned
+ * current project (written by the TUI and `sprint set-current`).
  */
 export const registerProjectCommand = (program: Command): void => {
   const project = program.command('project').description('inspect and manage projects');
@@ -115,5 +105,5 @@ export const registerProjectCommand = (program: Command): void => {
 
 const formatProjectLine = (p: Project): string => {
   const repos = p.repositories.length;
-  return `${String(p.id)}  ${String(p.slug).padEnd(24)}  ${p.displayName}  (${String(repos)} repo${repos === 1 ? '' : 's'})`;
+  return `${String(p.id)}  ${String(p.slug).padEnd(24)}  ${p.displayName}  (${plural(repos, 'repo')})`;
 };

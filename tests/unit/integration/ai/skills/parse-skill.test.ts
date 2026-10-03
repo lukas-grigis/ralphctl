@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { parseSkill } from '@src/integration/ai/skills/_engine/parse-skill.ts';
 
-// splitFrontmatter / parseSimpleYaml / errorCode moved to the shared
+// splitFrontmatter / parseSimpleYaml are covered by the shared
 // tests/unit/integration/ai/skills/frontmatter.test.ts suite — this file now tests parseSkill's
 // own validation behavior on top of that shared parsing.
 

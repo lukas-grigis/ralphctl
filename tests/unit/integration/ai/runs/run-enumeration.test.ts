@@ -2,12 +2,12 @@ import { promises as fs } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
-  formatBytes,
   formatRelativeAge,
   groupByFlow,
   listRuns,
   parseDuration,
   parseRunTimestamp,
+  removeRun,
   type RunEntry,
 } from '@src/integration/ai/runs/_engine/run-enumeration.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
@@ -59,19 +59,6 @@ describe('parseRunTimestamp', () => {
   it('returns null for a non-conforming name', () => {
     expect(parseRunTimestamp('legacy-folder')).toBeNull();
     expect(parseRunTimestamp('2026-05-19_run')).toBeNull();
-  });
-});
-
-describe('formatBytes', () => {
-  it('renders sub-KiB values in bytes', () => {
-    expect(formatBytes(0)).toBe('0 B');
-    expect(formatBytes(512)).toBe('512 B');
-  });
-
-  it('rolls over to KiB / MiB / GiB', () => {
-    expect(formatBytes(2048)).toMatch(/KiB$/);
-    expect(formatBytes(5 * 1024 * 1024)).toMatch(/MiB$/);
-    expect(formatBytes(3 * 1024 * 1024 * 1024)).toMatch(/GiB$/);
   });
 });
 
@@ -210,5 +197,45 @@ describe('candidate-set selection (intersect of --older-than and --keep-last, pe
     const out = candidates(scoped, nowMs, 3 * HOUR, undefined);
     expect(out).toHaveLength(1);
     expect(out[0]?.flow).toBe('a');
+  });
+});
+
+describe('removeRun', () => {
+  let tmp: Awaited<ReturnType<typeof makeTmpRoot>>;
+  beforeEach(async () => {
+    tmp = await makeTmpRoot();
+  });
+  afterEach(async () => {
+    await tmp.cleanup();
+  });
+
+  it('deletes one run dir and reports a second delete as not found', async () => {
+    const runsRoot = AbsolutePath.parse(join(String(tmp.root), 'runs'));
+    if (!runsRoot.ok) throw runsRoot.error;
+    const dir = join(String(runsRoot.value), 'readiness', 'r1');
+    await fs.mkdir(dir, { recursive: true });
+    await fs.writeFile(join(dir, 'body.txt'), 'x');
+
+    expect((await removeRun(runsRoot.value, { flow: 'readiness', runId: 'r1' })).ok).toBe(true);
+    await expect(fs.stat(dir)).rejects.toThrow();
+    const again = await removeRun(runsRoot.value, { flow: 'readiness', runId: 'r1' });
+    expect(again.ok).toBe(false);
+  });
+
+  it('refuses names that would escape the runs root', async () => {
+    const runsRoot = AbsolutePath.parse(join(String(tmp.root), 'runs'));
+    if (!runsRoot.ok) throw runsRoot.error;
+    const outside = join(String(tmp.root), 'keep');
+    await fs.mkdir(outside, { recursive: true });
+
+    for (const run of [
+      { flow: '..', runId: 'keep' },
+      { flow: 'readiness', runId: '../../keep' },
+      { flow: '', runId: 'x' },
+    ]) {
+      const r = await removeRun(runsRoot.value, run);
+      expect(r.ok).toBe(false);
+    }
+    expect((await fs.stat(outside)).isDirectory()).toBe(true);
   });
 });

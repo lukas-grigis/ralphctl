@@ -140,6 +140,7 @@ describe('checkPlanUseCase — command quality (warning tier)', () => {
     ["<project's test command>", 'the plan template example, copied verbatim'],
     ['pnpm test # TODO pick the real one', 'a leftover TODO token'],
     ['pnpm test ...', 'an elided command'],
+    ['cat src/.../x', 'an elided path'],
   ])('flags %j as a placeholder command', (command) => {
     expect(kindsOf([withCriteria([auto(command)])])).toContain('placeholder-command');
   });
@@ -162,6 +163,9 @@ describe('checkPlanUseCase — command quality (warning tier)', () => {
     'node -e "process.exit(0)"',
     './scripts/verify.sh --strict',
     'make check',
+    'go test ./...',
+    'go vet ./pkg/...',
+    'CI=1 pnpm test',
   ])('leaves %j alone', (command) => {
     expect(kindsOf([withCriteria([auto(command)])])).toEqual([]);
   });

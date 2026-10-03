@@ -56,6 +56,7 @@ const baseProps = (bucketed: BucketedExecution, taskState: ExecuteBodyProps['tas
   onOpenEvaluation: () => undefined,
   logEntries: [],
   cancelScopeOpen: false,
+  tasksInputActive: true,
   attemptElapsedMs: undefined,
   remainingTaskCount: 0,
   onCancelAttempt: () => undefined,

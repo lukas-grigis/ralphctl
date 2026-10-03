@@ -7,9 +7,7 @@ import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import type { ImplementDeps } from '@src/application/flows/implement/deps.ts';
-
-/** Shared with `best-of-n-candidate.ts` — same logger namespace as the rest of the candidate loop. */
-const BEST_OF_N_CANDIDATE_LOGGER = 'implement.best-of-n.candidate';
+import { BEST_OF_N_CANDIDATE_LOGGER } from '@src/application/flows/implement/leaves/best-of-n-candidate.ts';
 
 /**
  * Persist the grant's consumption to disk BEFORE any candidate spawns — the once-per-attempt

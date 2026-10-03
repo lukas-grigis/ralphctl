@@ -5,21 +5,7 @@ import type { PlateauSource } from '@src/domain/entity/attempt.ts';
 import type { AiProvider } from '@src/domain/entity/settings.ts';
 import type { BlockedTask } from '@src/domain/entity/task.ts';
 
-/**
- * Application-wide structured events. Producers (chain runner, use cases,
- * adapters) publish these via {@link EventBus}; subscribers (TUI panels,
- * progress files, future webhooks) read them without knowing who fired them.
- *
- * Each variant is a named interface so subscribers can take the variant
- * directly (`(e: LogEvent) => void`) instead of narrowing the whole union.
- * The discriminated `type` field is the only field guaranteed across variants;
- * each variant carries its own correlation handles (`chainId`, `taskId`,
- * `sprintId`, …) so a subscriber can filter by topic without parsing strings.
- *
- * `LogEvent` is included so the existing log-emit producers fold into the bus —
- * one subscriber taps both progress milestones and free-form messages without
- * two ports.
- */
+/** Application-wide structured events. */
 
 export interface ChainStartedEvent {
   readonly type: 'chain-started';
@@ -87,23 +73,17 @@ export interface TaskAttemptEvaluatedEvent {
 }
 
 /**
- * Fired once at the start of every gen-eval round for the in-flight task — the discrete
- * boundary the chain trace lacks (back-to-back `generator-<id>` / `evaluator-<id>` entries
- * carry no round number). Replaces the TUI's ref-based round-counter high-water mark with an
- * authoritative source: the latest event's `roundN` is the round currently running.
- *
- *  - `roundN` is 1-indexed and matches the on-disk `rounds/<N>/` folder index used by the
- *    generator + evaluator leaves.
- *  - `totalCap` is the configured `settings.harness.maxTurns`, surfaced so subscribers can
- *    render `round N/M` without a second config lookup.
- *  - `attemptN` is the 1-indexed attempt-within-task counter — multiple attempts are gated by
- *    `task.maxAttempts`; emitted here so the recent-log tail can disambiguate "round 2 of
- *    attempt 1" vs. "round 1 of attempt 2".
+ * Fired once at the start of every gen-eval round for the in-flight task — the discrete boundary the chain trace
+ * lacks (back-to-back `generator-<id>` / `evaluator-<id>` entries carry no round number).
  */
 export interface TaskRoundStartedEvent {
   readonly type: 'task-round-started';
   readonly taskId: string;
   readonly attemptN: number;
+  /** {@link attemptN} as the attempt budget counts it — free attempts (interruptions, operator stops) left out. */
+  readonly budgetedAttemptN?: number;
+  /** The attempt picks up where a free attempt left off. */
+  readonly resumed?: boolean;
   readonly roundN: number;
   readonly totalCap: number;
   readonly at: IsoTimestamp;
@@ -116,6 +96,14 @@ export interface FeedbackRoundAppliedEvent {
   readonly at: IsoTimestamp;
 }
 
+/** A flow is blocked on an operator answer (prompt enqueued). `sessionId` is the owning run, when known. */
+export interface AwaitingInputEvent {
+  readonly type: 'awaiting-input';
+  readonly message: string;
+  readonly sessionId?: string;
+  readonly at: IsoTimestamp;
+}
+
 export interface LogEvent {
   readonly type: 'log';
   readonly level: 'debug' | 'info' | 'warn' | 'error';
@@ -124,14 +112,7 @@ export interface LogEvent {
   readonly at: IsoTimestamp;
 }
 
-/**
- * Process-wide heap-pressure signal. Emitted by the heap watchdog on every
- * threshold TRANSITION (not on every poll) so subscribers can render a banner
- * that mirrors the current band without de-duping a stream of identical samples.
- *
- * `'recovered'` is fired once when the ratio drops back below the warning band,
- * giving the banner an explicit clear signal.
- */
+/** Process-wide heap-pressure signal. */
 export interface MemoryPressureEvent {
   readonly type: 'memory-pressure';
   readonly severity: 'warning' | 'critical' | 'recovered';
@@ -144,15 +125,7 @@ export interface MemoryPressureEvent {
   readonly at: IsoTimestamp;
 }
 
-/**
- * Signals that the persistent `<sprintDir>/chain.log` sink can no longer keep up with the
- * event-bus firehose — either because its in-memory queue hit the back-pressure cap
- * (`reason: 'queue-full'`) or because an actual `fs.appendFile` write rejected
- * (`reason: 'write-failed'`). Emitted EXACTLY ONCE per sink lifetime: once the first
- * degradation fires the sink stops re-emitting, because the contract is "tell the operator
- * the log is no longer trustworthy", not "spam the bus every time a write fails". The TUI
- * latches a banner from this event and only clears it when the TUI restarts.
- */
+/** The TUI latches a banner from this event and only clears it when the TUI restarts. */
 export interface ChainLogDegradedEvent {
   readonly type: 'chain-log-degraded';
   readonly reason: 'queue-full' | 'write-failed';
@@ -161,90 +134,40 @@ export interface ChainLogDegradedEvent {
 }
 
 /**
- * Final token-usage figure for one provider spawn, emitted ONCE per spawn after the AI session
- * finishes cleanly (non-zero exit / abort → no event). Lets the TUI show a budget widget,
- * lets future telemetry sinks pipe spend to a backend, etc.
- *
- * Every numeric field is optional because what each provider reports varies — Claude's
- * stream-json `result` event carries full `usage{ input_tokens, output_tokens, cache_* }`;
- * Copilot's JSON meta line may or may not include any counter; Codex's JSONL config record
- * historically carries none. The event is still emitted in the lean case (sessionId + provider
- * + maybe model) so subscribers can correlate per-spawn telemetry without inferring
- * "did the spawn succeed?" from the absence of a token field.
- *
- *  - `contextWindow` is the model's total budget — looked up from a static table in the
- *    `_engine/context-window.ts` adapter when the provider reports a known model; omitted
- *    otherwise. The TUI widget renders `(input + output) / contextWindow` when both are known.
+ * Final token-usage figure for one provider spawn, emitted ONCE per spawn after the AI session finishes cleanly
+ * (non-zero exit / abort → no event).
  */
 export interface TokenUsageEvent {
   readonly type: 'token-usage';
   /**
-   * The AI CLI's own session uuid for this spawn (Claude `system.init` id, Copilot `sessionId`,
-   * Codex `thread_id`). Stable per provider spawn — useful for forensic correlation against the
-   * persisted `session-id.txt` sidecar — but it lives in a DIFFERENT id space from the chain
-   * runner id the TUI keys its views on. Subscribers that need the runner id read
-   * {@link chainSessionId} instead.
+   * The AI CLI's own session uuid for this spawn (Claude `system.init` id, Copilot `sessionId`, Codex `thread_id`).
    */
   readonly sessionId: string;
   /**
-   * The chain runner / session id this spawn ran under, read from `rootSessionId()` (the
-   * runner wraps every `element.execute()` in `runWithSession(id, …)`; the ROOT id is used
-   * because nested branch runners on the parallel implement path shadow the current one).
-   * This is the id the TUI
-   * execute view looks up by, so subscribers that drive per-runner widgets (the TokenBudgetCard)
-   * MUST key on `chainSessionId ?? sessionId` — the provider-uuid `sessionId` never matches a
-   * runner id. Optional because one-shot spawns outside any chain scope (and legacy events) have
-   * no runner id; those still resolve by the provider-uuid `sessionId`.
+   * The chain runner / session id this spawn ran under, read from `rootSessionId()` (the root, because nested branch
+   * runners shadow it). Per-runner widgets must key on `chainSessionId ?? sessionId`.
    */
   readonly chainSessionId?: string;
   readonly provider: AiProvider;
   readonly model?: string;
-  /**
-   * CUMULATIVE token counts for the whole spawn — these are throughput / billing figures. For
-   * Claude `-p` they sum across every internal turn of the spawn, so `cacheReadTokens` can dwarf
-   * the context window after many turns. Do NOT compute context-window occupancy from these.
-   */
+  /** CUMULATIVE token counts for the whole spawn — these are throughput / billing figures. */
   readonly inputTokens?: number;
   readonly outputTokens?: number;
   readonly cacheReadTokens?: number;
   readonly cacheCreationTokens?: number;
-  /**
-   * LIVE per-turn token counts — a single-call snapshot from the LAST assistant turn of the spawn.
-   * `liveInputTokens + liveCacheReadTokens + liveCacheCreationTokens` is the true current
-   * context-window occupancy, correct regardless of how the cumulative figures above aggregate.
-   * Claude `-p` only; absent for copilot/codex (which don't stream per-turn usage) and for spawns
-   * where no assistant event carried usage. Subscribers render the context bar from these.
-   */
+  /** LIVE per-turn token counts — a single-call snapshot from the LAST assistant turn of the spawn. */
   readonly liveInputTokens?: number;
   readonly liveCacheReadTokens?: number;
   readonly liveCacheCreationTokens?: number;
   readonly contextWindow?: number;
-  /**
-   * Implement-flow gen-eval role the spawn ran under. Stamped on the event by the provider
-   * adapter when the {@link AiSession} carries a `role`; absent for single-role flows
-   * (refine / plan / readiness / ideate / review) and for one-shot inventory roundtrips
-   * (detect-scripts / detect-skills). Lets per-session subscribers attribute token spend to
-   * one half of the cross-provider implement pair without inferring from `provider` alone.
-   */
+  /** Implement-flow gen-eval role the spawn ran under. */
   readonly role?: 'generator' | 'evaluator';
   readonly at: IsoTimestamp;
 }
 
 /**
- * Tiered status banner — generic surface for "operator should know this is happening" signals
- * that don't deserve their own bespoke banner component. Emitters publish a `banner-show`
- * keyed by a stable `id` (e.g. `'rate-limit-<sessionId>'`, `'lock-<sprintId>'`); a matching
- * `banner-clear` removes it. Re-publishing the same id replaces (not stacks) the prior banner,
- * so emitters can refresh the visible state without bookkeeping a dedicated clear-then-show.
- *
- * Three tiers, ordered most-urgent-first:
- *
- *  - `error` — user action required (setup script failed, provider crash).
- *  - `warn`  — operator should notice but harness can keep going (watchdog kill, lock
- *               contention, baseline-broken).
- *  - `info`  — transient state worth surfacing (rate-limit backoff, provider reconnect).
- *
- * The TUI's `StatusBanner` subscribes; emitters never reference the component directly.
+ * Tiered status banner — generic surface for "operator should know this is happening" signals that don't deserve
+ * their own bespoke banner component.
  */
 export interface BannerShowEvent {
   readonly type: 'banner-show';
@@ -264,26 +187,8 @@ export interface BannerClearEvent {
 }
 
 /**
- * Discriminated union of the two banner events — exported as a type alias so emitters can
- * type-narrow a single subscription handler over both variants without restating the union.
- * @public
- */
-export type BannerEvent = BannerShowEvent | BannerClearEvent;
-
-/**
- * Validated `AiSignal` published by an AI-spawning leaf AFTER the spawn's `signals.json`
- * was parsed by `validateSignalsFile` under the audit-[09] contract. Subscribers (TUI,
- * persistent `chain.log`, future progress.md miners) receive the typed signal verbatim
- * along with the originating leaf's short name in `source` so a multi-leaf flow's events
- * stay attributable. This is the ONE harness-signal channel — every AI-spawning leaf
- * publishes every validated signal kind here (no separate text-bearing-only mirror).
- *
- *  - `source` — short name of the AI-spawning leaf/flow that produced the signal (e.g.
- *    `'generator'`, `'evaluator'`, `'review-round'`, `'detect-scripts'`).
- *  - `taskId` — stamped only by the implement flow's parallel per-branch publisher, which
- *    knows which task's worktree the signal came from. Absent on the implement serial path
- *    and every other flow (single-task-at-a-time, so attribution isn't ambiguous); the TUI's
- *    task-bucketing falls back to its timestamp-window heuristic when this is absent.
+ * Validated `AiSignal` published by an AI-spawning leaf AFTER the spawn's `signals.json` was parsed by
+ * `validateSignalsFile` under the audit-[09] contract.
  */
 export interface AiSignalEvent {
   readonly type: 'ai-signal';
@@ -292,31 +197,7 @@ export interface AiSignalEvent {
   readonly taskId?: string;
 }
 
-/**
- * Once-per-task generator model escalation fired. Published by the escalation policy in
- * `finalize-gen-eval` immediately after the task entity is stamped with
- * `escalatedFromModel` / `escalatedToModel` — i.e. before the attempt settles — so subscribers
- * (TUI banner, persistent `chain.log`) see the upgrade decision in chronological order with
- * the surrounding settle / round trace.
- *
- *  - `taskId`    — the in-flight task whose generator model just escalated.
- *  - `attemptN`  — 1-indexed `task.attempts.length` at decision time, i.e. the attempt that
- *                  just plateaued. The next attempt (`attemptN + 1`) is the one that spawns
- *                  with the upgraded model.
- *  - `from` / `to` — model ids the policy moved between. Always non-empty.
- *  - `reason`    — the gen-eval exit kind that triggered the escalation. `'plateau'` (two
- *                  consecutive failed evals on the same dimensions) and `'budget-exhausted'`
- *                  (the turn budget ran out without a terminal verdict) both drive the model
- *                  ladder. `'plateau'` is kept as a member so any consumer that matched the
- *                  prior single-literal shape still narrows. `'malformed'` is deliberately
- *                  absent — that exit is the evaluator's failure and never escalates the model.
- *  - `plateauSource` — WHICH plateau detector fired (see {@link PlateauSource}; the loop-diversity / entropy
- *                  sources are retired but may appear on legacy events), only present
- *                  when `reason === 'plateau'`. Pure instrumentation for the periodic
- *                  detector-load-bearing audit (`.claude/docs/HARNESS-PRINCIPLES.md` § 14) —
- *                  OPTIONAL and additive, absent on a `budget-exhausted` reason or a legacy
- *                  event emitted before this field existed.
- */
+/** Once-per-task generator model escalation fired. */
 export interface ModelEscalatedEvent {
   readonly type: 'model-escalated';
   readonly taskId: string;
@@ -329,26 +210,7 @@ export interface ModelEscalatedEvent {
 }
 
 /**
- * Fired once when `settleAttemptUseCase` (`business/task/settle-attempt.ts`) settles a task into
- * `blocked` — whichever of its two internal paths produced the transition: an explicit block
- * (generator self-block / signals-contract failure / red post-verify) or the attempt budget
- * running out. This is the one durable moment a block becomes real (the task was already
- * persisted with this status when the event fires), so it is published exactly once per block —
- * never once per cascade-blocked dependent. A dependent that self-skips via the upstream
- * dependency gate publishes nothing here; without that restraint a single root-cause block could
- * fan out into a banner storm across every downstream task.
- *
- *  - `taskId` / `taskName` — identify the blocked task for the banner / notification body.
- *  - `blockKind` — mirrors {@link BlockedTask.blockKind}. `settleAttemptUseCase` only ever
- *    produces `'own'` (the task failed on its own merits); `'upstream'` is kept in the type for
- *    symmetry with the entity, not because this publisher emits it.
- *  - `reason` — the FIRST LINE only of the persisted `blockedReason`, sized for a banner / OS
- *    notification body. The full text (which can carry a multi-line quarantine-stash pointer)
- *    still lives on the task; this is a summary, not the audit trail.
- *
- * The payload is deliberately flat and additive: a future typed block-cause classification
- * layered on top of `blockedReason` slots in as one more optional field here without reshaping
- * the fields above.
+ * Fired once when `settleAttemptUseCase` (`business/task/settle-attempt.ts`) settles a task into `blocked`.
  */
 export interface TaskBlockedEvent {
   readonly type: 'task-blocked';
@@ -371,6 +233,7 @@ export type AppEvent =
   | TaskAttemptEvaluatedEvent
   | TaskRoundStartedEvent
   | FeedbackRoundAppliedEvent
+  | AwaitingInputEvent
   | LogEvent
   | MemoryPressureEvent
   | ChainLogDegradedEvent

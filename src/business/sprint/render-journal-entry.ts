@@ -3,6 +3,7 @@ import type { LearningEntry } from '@src/domain/signal.ts';
 import { formatDuration } from '@src/business/_shared/format-duration.ts';
 import { neutralizeProseHeadings, sanitizeInline } from '@src/business/sprint/journal-sanitize.ts';
 import { renderSectionHeader } from '@src/business/sprint/journal-structure.ts';
+import { renderSprintIdentity } from '@src/business/sprint/render-sprint-state-header.ts';
 
 /**
  * Verdict the journal records for a settled task-attempt. Widened beyond the original
@@ -112,6 +113,7 @@ export interface JournalContinuationState {
       | 'watchdog-killed'
       | 'rate-limit-exhausted'
       | 'process-crash'
+      | 'harness-interrupted'
       | 'self-blocked'
       | 'unknown';
     readonly fromAttemptN: number;
@@ -476,23 +478,12 @@ export const renderJournalEntry = (input: JournalEntryInput): string => {
   return lines.join('\n');
 };
 
-/**
- * Render the sprint header — the single block written once at sprint creation. Header carries
- * invariant metadata only (no ticket list); the canonical ticket source is `sprint.json`.
- */
+/** Creation-time journal header — the same identity block the derived state header re-emits. */
 export const renderJournalSprintHeader = (input: {
   readonly sprintName: string;
   readonly sprintId: string;
   readonly createdAt: IsoTimestamp;
-}): string => {
-  const lines: string[] = [];
-  lines.push(`# Sprint: ${input.sprintName}`);
-  lines.push('');
-  lines.push(`- id: ${input.sprintId}`);
-  lines.push(`- created: ${String(input.createdAt)}`);
-  lines.push('');
-  return lines.join('\n');
-};
+}): string => renderSprintIdentity(input).join('\n');
 
 /**
  * Render a status-transition separator line. Status transitions (active / review / done)

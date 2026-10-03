@@ -27,63 +27,7 @@ import {
   persistSetupLog,
 } from '@src/application/flows/implement/leaves/setup-script-failure.ts';
 
-/**
- * Harness-side setup-script gate. The leaf runs at the start of every implement chain —
- * once per affected repo — and the chain treats the result as the authoritative readiness
- * signal for the working tree. The AI session may *also* run `pnpm install` (etc.) from
- * inside its own prompt, but the harness is the source of truth: if the harness setup
- * fails, the chain hard-aborts before any task spins up.
- *
- * **New-sprint vs resume gate** (audit [04]): setup runs once per repo per sprint. The
- * gate uses `SprintExecution.setupRanAt` as the audit source. For each repo:
- *
- *   - If the repo's LATEST run is a success of the current `setupScript` AND — when a tree guard
- *     is wired — carries a complete post-setup working-tree answer (`SetupRun.tree`, not
- *     truncated) → skip this repo (resume path) and carry that answer forward. Log "skipped on
- *     resume" at info tier. `'skipped'` no-script rows don't count as runs (see
- *     {@link resumableSuccess}).
- *   - Otherwise → run the script (new path / a later failed or spawn-error run / command-drift
- *     retry / a success whose working-tree answer is missing — written before the answer was
- *     recorded, or its check was cancelled or failed — or incomplete).
- *
- * Rationale: setup is idempotent but slow; running `pnpm install` / `mvn dependency:go-offline`
- * on every implement resume burns 10-60s per repo for no gain. The first successful run
- * proves the tree builds; subsequent resumes trust that state.
- *
- * Command drift is treated as a new run: if the operator changes `project.json#setupScript`
- * between runs, the prior success is stale and the new command must be validated.
- *
- * The recorded answer is what makes resume safe for the parallel path: every task worktree runs
- * setup again on a fresh checkout and needs to know what the operator decided about that same
- * script's output in the main checkout. Re-running main setup on every relaunch would re-ask the
- * question each time; the durable answer asks it once per sprint.
- *
- * Outcomes (recorded one-per-repo on `SprintExecution.setupRanAt` when the script runs):
- *
- *   - `'skipped'`     — repo has no `setupScript` configured. Explicit no-op row.
- *   - `'success'`     — script ran and exited 0.
- *   - `'failed'`      — script spawned but exited non-zero. The chain aborts.
- *   - `'spawn-error'` — the shell could not start the command (missing binary, permission
- *                       denied, etc). `exitCode === -1`. The spawn error message lands on
- *                       the abort log / banner but is no longer persisted on the audit row
- *                       (Wave 8 / audit-[06]). The chain aborts.
- *
- * The resume-path skip does NOT append a new audit row; the prior success entry stays
- * canonical. Each fresh run appends one row.
- *
- * **Post-setup tree check**: the dirty-tree menu runs BEFORE this leaf, so dirt a script creates
- * (a rewritten lockfile, generated files that aren't ignored) would otherwise reach the first task
- * unannounced — swept into its commit by `git add -A`, or misread as a broken baseline. When the
- * flow injects a {@link SetupTreeGuard}, every script that actually spawns is bracketed by it: a
- * snapshot right before the spawn, and — only if the script exits green — a check that resolves
- * whatever the script introduced. The resume-skip and no-script paths spawn nothing, so they probe
- * nothing. The green run's audit row is written once the check settles, carrying its answer; a
- * check that errors or is cancelled leaves the row without one, so the next launch runs setup
- * again.
- *
- * Aborts surface as `Result.error(InvalidStateError)` from the use case; the chain framework
- * turns that into a failed trace entry and short-circuits the remaining elements.
- */
+/** Harness-side setup-script gate. */
 
 export interface SetupScriptRunnerLeafDeps {
   readonly shellScriptRunner: ShellScriptRunner;
@@ -93,11 +37,7 @@ export interface SetupScriptRunnerLeafDeps {
   readonly logger: Logger;
   /** Atomic whole-file writer for the persisted setup log — see `persistSetupLog`. Optional. */
   readonly writeFile?: WriteFile;
-  /**
-   * Post-setup working-tree check — see {@link SetupTreeGuard}. The implement flow always wires
-   * it; absent → scripts run unbracketed, record no working-tree answer, and a prior success
-   * resume-skips without one.
-   */
+  /** Post-setup working-tree check — see {@link SetupTreeGuard}. */
   readonly treeGuard?: SetupTreeGuard;
 }
 
@@ -112,11 +52,8 @@ export interface SetupScriptRunnerLeafOpts {
   readonly repos: readonly SetupRepoEntry[];
   readonly timeoutMs?: number;
   /**
-   * Per-sprint state directory. When set, the leaf writes the full untruncated setup-script
-   * output to `<sprintDir>/logs/setup/<repo-id>.log` per audit [01] / [03]. The audit row
-   * itself carries structured metadata only — operators read the full body from the log
-   * file or via the `LogTailReader` port for lazy display. Absent → no file written (test
-   * paths that don't care about disk logs still work).
+   * Per-sprint state directory. When set, the leaf writes the full untruncated setup-script output to
+   * `<sprintDir>/logs/setup/<repo-id>.log` per audit [01] / [03].
    */
   readonly sprintDir?: AbsolutePath;
 }
@@ -127,32 +64,18 @@ interface LeafInput {
 
 interface LeafOutput {
   readonly execution: SprintExecution;
-  /**
-   * Repository ids whose setup script ran green DURING THIS invocation. Excludes the
-   * resume-skip path (whose success belongs to an earlier launch), the no-script `'skipped'`
-   * path (nothing was validated), and repos whose script changed the working tree (the green
-   * verdict described a tree the operator may since have stashed or reset). Lifted onto
-   * `ctx.setupVerifiedRepoIdsThisRun` so the first pre-task-verify of the run can seed a green
-   * baseline under `skipPreVerifyOnFreshSetup`.
-   */
+  /** Repository ids whose setup script ran green DURING THIS invocation. */
   readonly verifiedThisRun: readonly RepositoryId[];
   /**
-   * Per repo, the post-setup working-tree answer — recorded by this invocation's check or carried
-   * from the resume-skipped row. Lifted onto `ctx.setupTreeRecords`.
+   * Per repo, the post-setup working-tree answer — recorded by this invocation's check or carried from the
+   * resume-skipped row. Lifted onto `ctx.setupTreeRecords`.
    */
   readonly treeRecords: ReadonlyMap<RepositoryId, SetupTreeRecord>;
 }
 
 /**
- * Resume gate: the success row a prior chain on this sprint left for this repo, when it still
- * stands for the current command — and, with a tree guard wired, carries the complete
- * working-tree answer the parallel worktrees need. Returns `undefined` when the script must run;
- * the previous success row stays canonical when it doesn't (no new row is appended).
- *
- * Only the repo's LATEST run counts: a failed or spawn-error run after a success may have left the
- * tree half-prepared (a script that deleted `node_modules` before failing), so the earlier success
- * no longer describes it. A `'skipped'` row is not a run — it records that no script was configured
- * at that launch, so nothing touched the tree, exactly like a resume-skip, which writes no row.
+ * Resume gate: the success row a prior chain on this sprint left for this repo, when it still stands for the current
+ * command (and, with a tree guard wired, carries the full working-tree answer). `undefined` means the script must run.
  */
 const resumableSuccess = (
   execution: SprintExecution,
@@ -194,13 +117,7 @@ const resumableSuccess = (
   return latest;
 };
 
-/**
- * No script configured is NOT a failure — the chain continues. But it is also not a silent
- * pass: the operator deserves to know that *nothing was validated* before the AI starts
- * touching the tree. Surface as a warn-tier banner (dismissible) and a warn-level log row so
- * it lands in both the Recent-log tail and the persistent chain.log. Banner id is repo-keyed
- * so re-runs replace rather than stack.
- */
+/** No script configured is NOT a failure — the chain continues. */
 const runNoScriptSkip = async (
   execution: SprintExecution,
   repo: SetupRepoEntry,
@@ -228,24 +145,14 @@ const runNoScriptSkip = async (
     type: BANNER_SHOW,
     id: `setup-script-skipped-${String(repo.repositoryId)}`,
     tier: 'warn',
-    message: `No setup script configured for ${String(repo.path)} — nothing was validated before implement`,
-    cause: 'configure one via `project` settings to gate the working tree',
+    message: `No setup script for ${basename(String(repo.path))} — nothing validated`,
+    cause: '· set one in project settings',
     at: deps.clock(),
   });
   return next;
 };
 
-/**
- * Spawns the configured setup command. Cancellation propagates verbatim: a
- * `Result.error(AbortError)` from the runner is a user-initiated abort, not a setup failure —
- * returned untouched so the chain tears down per "AbortError is the one error chains
- * propagate transparently" — never folded into a `spawn-error` row or a failed-gate banner.
- *
- * A genuine spawn-time failure (the shell could not start the command at all — ENOENT, etc)
- * is recorded here with `exitCode: -1` so consumers can distinguish "ran and failed" from
- * "could not run" without parsing the message string, and returns the `InvalidStateError` for
- * the caller to propagate.
- */
+/** Spawns the configured setup command. */
 const runSetupSpawn = async (
   repo: SetupRepoEntry,
   command: string,
@@ -257,9 +164,8 @@ const runSetupSpawn = async (
   const spawnResult = await deps.shellScriptRunner.run(repo.path, command, {
     ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
     env: { RALPHCTL_LIFECYCLE_EVENT: 'setup' },
-    // Thread the chain abort signal so a Ctrl-C mid-setup kills the child promptly
-    // instead of waiting out the timeout while the repo lock is held. A cancel surfaces
-    // as `AbortError` below (propagated verbatim — never folded into a spawn-error row).
+    // Thread the chain abort signal so a Ctrl-C mid-setup kills the child promptly instead of waiting out the timeout
+    // while the repo lock is held.
     ...(signal !== undefined ? { signal } : {}),
   });
 
@@ -268,8 +174,6 @@ const runSetupSpawn = async (
   }
 
   if (!spawnResult.ok) {
-    // The spawn error message is surfaced on the abort log + banner cause (no longer
-    // persisted on the row).
     const run: SetupRun = {
       repositoryId: repo.repositoryId,
       ranAt: deps.clock(),
@@ -311,11 +215,7 @@ const runSetupSpawn = async (
 type RepoSetupOutcome =
   /** Nothing ran this invocation: no script configured, or a prior success still stands. */
   | { readonly kind: 'skipped'; readonly execution: SprintExecution; readonly tree?: SetupTreeRecord | undefined }
-  /**
-   * The script ran green. `tree` is the check's answer (absent when no guard is wired). Only a run
-   * whose tree stayed `'unchanged'` (or that had no check) verified the tree the first task sees —
-   * see {@link LeafOutput.verifiedThisRun}.
-   */
+  /** The script ran green. `tree` is the check's answer (absent when no guard is wired). */
   | {
       readonly kind: 'ran';
       readonly execution: SprintExecution;
@@ -325,11 +225,8 @@ type RepoSetupOutcome =
   | { readonly kind: 'failed'; readonly error: DomainError };
 
 /**
- * Runs (or skips) ONE repo's configured setup script per the resume / no-script / spawn gates
- * documented above the leaf, folding the result into a single {@link RepoSetupOutcome}. Split out
- * of `executeSetupScriptRunner` so the per-repo branch count (already-run guard, script-missing
- * guard, spawn + audit + failure classification) doesn't accumulate onto that function's own
- * cognitive-complexity budget — the loop body becomes one call plus a small fold.
+ * Runs (or skips) ONE repo's configured setup script per the resume / no-script / spawn gates documented above the
+ * leaf, folding the result into a single {@link RepoSetupOutcome}.
  */
 const runRepoSetup = async (
   repo: SetupRepoEntry,
@@ -379,11 +276,7 @@ const runRepoSetup = async (
 /** The audit fields of a run that spawned — its outcome (and tree answer) are added on write. */
 type SpawnedRunRow = Omit<SetupRun, 'outcome' | 'tree'>;
 
-/**
- * A green run: settle its working-tree check, then write ONE success row carrying the answer. A
- * check that failed (git error, Cancel, dismissed menu, policy `cancel`) leaves the row without
- * one — so the next launch runs setup again instead of resume-skipping it — and fails the leaf.
- */
+/** A green run: settle its working-tree check, then write ONE success row carrying the answer. */
 const recordGreenRun = async (
   repo: SetupRepoEntry,
   execution: SprintExecution,
@@ -409,8 +302,8 @@ const recordGreenRun = async (
 };
 
 /**
- * Iterates every repo, running (or skipping) its configured setup script via {@link runRepoSetup}.
- * See `setupScriptRunnerLeaf` for the full outcome/audit contract.
+ * Iterates every repo, running (or skipping) its configured setup script via {@link runRepoSetup}. See
+ * `setupScriptRunnerLeaf` for the full outcome/audit contract.
  */
 const executeSetupScriptRunner = async (
   deps: SetupScriptRunnerLeafDeps,
@@ -419,10 +312,8 @@ const executeSetupScriptRunner = async (
   signal?: AbortSignal
 ): Promise<Result<LeafOutput, DomainError>> => {
   let execution = input.execution;
-  // Repos whose setup ran green in THIS invocation. Seeds the
-  // `skipPreVerifyOnFreshSetup` fast path on the first pre-task-verify. The resume-skip
-  // and no-script paths deliberately do NOT contribute — only a fresh green run proves
-  // the tree was verified by this launch — and neither does a run that changed the tree.
+  // Repos whose setup ran green in THIS invocation. Seeds the `skipPreVerifyOnFreshSetup` fast path on the first
+  // pre-task-verify.
   const verifiedThisRun: RepositoryId[] = [];
   const treeRecords = new Map<RepositoryId, SetupTreeRecord>();
   for (const repo of opts.repos) {
@@ -440,9 +331,7 @@ export const setupScriptRunnerLeaf = (
   deps: SetupScriptRunnerLeafDeps,
   opts: SetupScriptRunnerLeafOpts
 ): Element<ImplementCtx> => {
-  // Friendly rail label. Single-repo runs render as `setup-script · <repo>`; multi-repo runs
-  // keep it generic (`setup-script`) so the row doesn't lie about which repo is in flight —
-  // per-row attribution lives in the chain log and the BaselineHealthCard.
+  // Friendly rail label.
   const repoLabel =
     opts.repos.length === 1 && opts.repos[0] !== undefined ? ` · ${basename(String(opts.repos[0].path))}` : '';
   return leaf<ImplementCtx, LeafInput, LeafOutput>(
@@ -462,10 +351,8 @@ export const setupScriptRunnerLeaf = (
         }
         return { execution: ctx.execution };
       },
-      // Re-stamp ctx with the (possibly mutated) execution so downstream leaves like
-      // `resolveBranchLeaf` see the audit-appended value, plus the run-scoped set of repos this
-      // launch's setup verified — read by the first pre-task-verify under `skipPreVerifyOnFreshSetup`
-      // — and the per-repo working-tree answers the parallel task worktrees read.
+      // Re-stamp ctx with the (possibly mutated) execution so downstream leaves like `resolveBranchLeaf` see the
+      // audit-appended value.
       output: (ctx, out) => ({
         ...ctx,
         execution: out.execution,
@@ -477,11 +364,7 @@ export const setupScriptRunnerLeaf = (
   );
 };
 
-/**
- * Append the row and persist. A persistence failure is logged but never aborts the chain —
- * the script outcome (which is what we actually wanted to verify) has already happened, and
- * losing the audit stamp at most causes a duplicate row on the next resume.
- */
+/** Append the row and persist. */
 const persistRun = async (
   execution: SprintExecution,
   run: SetupRun,

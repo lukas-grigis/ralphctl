@@ -12,14 +12,20 @@
  */
 
 import type { AiProvider } from '@src/domain/entity/settings.ts';
+import type { Logger } from '@src/business/observability/logger.ts';
 import type { SkillsAdapter } from '@src/integration/ai/skills/_engine/skills-port.ts';
-import type { SkillsAdapterFactoryDeps } from '@src/integration/ai/skills/_engine/skills-adapter-factory-deps.ts';
 import type { SkillsAdapterDeps } from '@src/integration/ai/skills/_engine/skills-adapter-deps.ts';
 import { createClaudeSkillsAdapter } from '@src/integration/ai/skills/claude/adapter.ts';
 import { createCodexSkillsAdapter } from '@src/integration/ai/skills/codex/adapter.ts';
 import { createCopilotSkillsAdapter } from '@src/integration/ai/skills/copilot/adapter.ts';
 import { createOpencodeSkillsAdapter } from '@src/integration/ai/skills/opencode/adapter.ts';
 import { createGrokSkillsAdapter } from '@src/integration/ai/skills/grok/adapter.ts';
+
+export interface SkillsAdapterFactoryDeps {
+  readonly provider: AiProvider;
+  /** Optional logger — surfaces best-effort `.git/info/exclude` write failures as warnings. */
+  readonly logger?: Logger;
+}
 
 /**
  * One concrete skills-adapter factory per {@link AiProvider}. `Record<AiProvider, …>` is
@@ -34,7 +40,5 @@ const SKILLS_ADAPTERS: Readonly<Record<AiProvider, (deps?: SkillsAdapterDeps) =>
   'xai-grok': createGrokSkillsAdapter,
 };
 
-export const createSkillsAdapter = (deps: SkillsAdapterFactoryDeps): SkillsAdapter => {
-  const logger = deps.logger;
-  return SKILLS_ADAPTERS[deps.provider](logger !== undefined ? { logger } : undefined);
-};
+export const createSkillsAdapter = (deps: SkillsAdapterFactoryDeps): SkillsAdapter =>
+  SKILLS_ADAPTERS[deps.provider](deps);

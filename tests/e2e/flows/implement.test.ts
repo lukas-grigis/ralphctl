@@ -2309,6 +2309,114 @@ describe('createImplementFlow — gen-eval loop', () => {
     expect(sprintRepo.current().status).toBe('review');
   });
 
+  // ─── Crash resume: continue the interrupted generator session ─────────────────────
+  //
+  // The harness died mid-attempt after round 1's generator reported its session id (written
+  // eagerly, while the child still ran). On relaunch start-attempt settles the leftover attempt as
+  // `harness-interrupted` — free against maxAttempts — and, when the recorded provider / model / cwd
+  // still match, the first generator turn resumes that session with the crash-resume prompt.
+  describe('crash resume of an interrupted attempt', () => {
+    const runInterrupted = async (recordedModel: string) => {
+      const ticket = makeApprovedTicket({ title: 'crash-resume-ticket' });
+      const sprint = makePlannedSprint({ tickets: [ticket] });
+      const execution = setExecutionBranch(createSprintExecution({ sprintId: sprint.id }), 'ralphctl/crash-resume');
+      // maxAttempts = 1: the interrupted attempt must not have spent the only slot.
+      const todo = makeTodoTask({
+        name: 'interrupted-task',
+        order: 1,
+        ticketId: ticket.id,
+        repositoryId: FIXED_REPOSITORY_ID,
+        maxAttempts: 1,
+      });
+      const inProgress = startNextAttempt(todo, FIXED_NOW);
+      if (!inProgress.ok) throw new Error(inProgress.error.message);
+      const tasks: readonly Task[] = [inProgress.value];
+
+      const dir = await realpath(await fs.mkdtemp(join(tmpdir(), 'ralphctl-impl-crash-resume-')));
+      cleanupFns.push(async () => {
+        await fs.rm(dir, { recursive: true, force: true });
+      });
+      const round1Gen = join(dir, 'implement', String(inProgress.value.id), 'rounds', '1', 'generator');
+      await fs.mkdir(round1Gen, { recursive: true });
+      await fs.writeFile(join(round1Gen, 'session-id.txt'), 'sess-interrupted\n', 'utf8');
+      await fs.writeFile(
+        join(round1Gen, 'role-meta.json'),
+        JSON.stringify({
+          role: 'generator',
+          provider: 'claude-code',
+          model: recordedModel,
+          effort: null,
+          attemptN: 1,
+          roundN: 1,
+          startedAt: FIXED_NOW,
+          escalatedFromModel: null,
+          cwd: String(FAKE_CWD),
+        }),
+        'utf8'
+      );
+
+      const taskRepo = inMemoryTaskRepo(tasks);
+      const provider = createFakeAiProvider({
+        signals: {
+          implement: [taskVerified('cold run passes')],
+          'implement-crash-resume': [taskVerified('resumed run passes')],
+          evaluate: [evaluationPassed()],
+        },
+        sessionIds: { implement: 'sess-cold', 'implement-crash-resume': 'sess-interrupted' },
+      });
+      const flow = createImplementFlow(
+        buildDeps(inMemorySprintRepo(sprint).repo, inMemoryExecutionRepo(execution).repo, taskRepo.repo, provider, dir),
+        {
+          sprintId: sprint.id,
+          todoTasks: tasks,
+          repositories: new Map([[FIXED_REPOSITORY_ID, { path: FAKE_CWD, name: 'fake-repo' }]]),
+          generatorProviderId: 'claude-code',
+          generatorModel: 'claude-opus-4-8',
+          evaluatorProviderId: 'claude-code',
+          evaluatorModel: 'claude-opus-4-8',
+          progressFile: absolutePath(join(dir, 'progress.md')),
+          sprintDir: absolutePath(dir),
+          memoryRoot: FAKE_MEMORY_ROOT,
+          projectId: FAKE_PROJECT_ID,
+          projectSlug: FAKE_PROJECT_SLUG,
+        }
+      );
+      const runner = createRunner({
+        id: 'r-impl-crash-resume',
+        element: flow,
+        initialCtx: { sprintId: sprint.id } satisfies ImplementCtx,
+      });
+      await runner.start();
+      return { runner, provider, finalTask: taskRepo.tasks()[0] };
+    };
+
+    it('resumes the recorded session with the crash-resume prompt and spends no attempt on the interruption', async () => {
+      const { runner, provider, finalTask } = await runInterrupted('claude-opus-4-8');
+
+      expect(runner.status).toBe('completed');
+      const generatorTurn = provider.recordedSessions[0]!;
+      expect(generatorTurn.resume).toBe('sess-interrupted');
+      expect(generatorTurn.prompt).toContain('# Resume — Interrupted Attempt');
+      expect(generatorTurn.coldPrompt).toContain('# Task Execution Protocol');
+
+      expect(finalTask?.status).toBe('done');
+      expect(finalTask?.attempts.map((a) => a.status)).toEqual(['aborted', 'verified']);
+      expect(finalTask?.attempts[0]?.abortCause).toBe('harness-interrupted');
+      expect(finalTask?.attempts[1]?.sessionId).toBe('sess-interrupted');
+    });
+
+    it('starts the generator cold when the configured model no longer matches the recorded one', async () => {
+      const { runner, provider, finalTask } = await runInterrupted('claude-sonnet-4-6');
+
+      expect(runner.status).toBe('completed');
+      const generatorTurn = provider.recordedSessions[0]!;
+      expect(generatorTurn.resume).toBeUndefined();
+      expect(generatorTurn.prompt).toContain('# Task Execution Protocol');
+      expect(finalTask?.status).toBe('done');
+      expect(finalTask?.attempts[1]?.sessionId).toBe('sess-cold');
+    });
+  });
+
   // ─── outer attempt loop (up to maxAttempts attempts per launch) ─────────────────
   //
   // The per-task sub-chain wraps `start-attempt → … → settle → journal` in an outer

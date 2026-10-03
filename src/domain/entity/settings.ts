@@ -16,6 +16,7 @@ import { CODEX_MODELS } from '@src/domain/value/settings-models/codex.ts';
 import { COPILOT_MODELS } from '@src/domain/value/settings-models/copilot.ts';
 import { OPENCODE_MODELS } from '@src/domain/value/settings-models/opencode.ts';
 import { GROK_MODELS } from '@src/domain/value/settings-models/grok.ts';
+import { PROVIDER_EFFORT_LEVELS } from '@src/domain/value/settings-models/effort.ts';
 import type { FlowId } from '@src/domain/value/flow-id.ts';
 import { FLOW_IDS } from '@src/domain/value/flow-id.ts';
 
@@ -61,9 +62,9 @@ const AiProviderSchema = z.enum([
  * every non-luna tier of those families, CLI-enforced); `minimal` was retired by codex ≥ 0.145 and migrates to `low`
  * at parse time (see {@link migrateStaleRow}).
  */
-const ClaudeEffortSchema = z.enum(['low', 'medium', 'high', 'xhigh', 'max']);
-const CopilotEffortSchema = z.enum(['none', 'low', 'medium', 'high', 'xhigh', 'max']);
-const CodexEffortSchema = z.enum(['low', 'medium', 'high', 'xhigh', 'max', 'ultra']);
+const ClaudeEffortSchema = z.enum(PROVIDER_EFFORT_LEVELS['claude-code']);
+const CopilotEffortSchema = z.enum(PROVIDER_EFFORT_LEVELS['github-copilot']);
+const CodexEffortSchema = z.enum(PROVIDER_EFFORT_LEVELS['openai-codex']);
 /**
  * OpenCode maps effort onto `--variant`, whose accepted values are set by the *upstream*
  * provider behind the chosen `provider/model` id rather than by OpenCode itself. This enum is
@@ -71,8 +72,8 @@ const CodexEffortSchema = z.enum(['low', 'medium', 'high', 'xhigh', 'max', 'ultr
  * OpenCode CLI is the final arbiter for a given model, exactly as codex arbitrates its own
  * per-model effort narrowing.
  */
-const OpencodeEffortSchema = z.enum(['minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
-const GrokEffortSchema = z.enum(['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
+const OpencodeEffortSchema = z.enum(PROVIDER_EFFORT_LEVELS.opencode);
+const GrokEffortSchema = z.enum(PROVIDER_EFFORT_LEVELS['xai-grok']);
 
 /** Superset across providers. The global `ai.effort` accepts any of these; `resolveEffort` floors. */
 const GlobalEffortSchema = z.enum(['low', 'medium', 'high', 'xhigh', 'max']);
@@ -342,7 +343,7 @@ const migrateStaleRow = (row: unknown): unknown => {
  * Rewriting at parse time keeps existing users on a working model/effort across the catalog
  * change.
  *
- * Covers the five flat rows (`refine` / `plan` / `readiness` / `ideate` / `createPr`) and the
+ * Covers every flat FlowId row and the
  * nested `implement.{generator,evaluator}` pair. Runs at parse time without bumping
  * {@link CURRENT_SCHEMA_VERSION}; the next `save()` rewrites the file with the new slug so the
  * migration only fires once per file. Same silence policy as {@link promoteLegacyImplementRow}
@@ -355,8 +356,9 @@ const migrateStaleAiRows = (ai: unknown): unknown => {
   if (typeof ai !== 'object' || ai === null) return ai;
   const aiObj = ai as Record<string, unknown>;
   const next: Record<string, unknown> = { ...aiObj };
-  for (const flow of ['refine', 'plan', 'readiness', 'ideate', 'createPr'] as const) {
-    if (flow in next) next[flow] = migrateStaleRow(next[flow]);
+  for (const flow of FLOW_IDS) {
+    if (flow === 'implement' || !(flow in next)) continue;
+    next[flow] = migrateStaleRow(next[flow]);
   }
   const implement = next['implement'];
   if (typeof implement === 'object' && implement !== null) {
@@ -672,21 +674,6 @@ export const SettingsSchema = z.object({
      */
     maxParallelTasks: z.number().int().min(1).max(5),
   }),
-  /**
-   * Source-control-management preferences. Defaults the whole section so settings files
-   * written before this section existed parse without a schema-version bump or migration —
-   * the load path stamps the section in and the next `save()` writes it inline.
-   */
-  scm: z
-    .object({
-      /**
-       * Retained so existing settings files parse. Does not select the refine approval default
-       * and does not post a comment — Approve always leads, and commenting is an explicit
-       * "Post as comment" choice on a linked ticket.
-       */
-      postRefinementComment: z.boolean().default(false),
-    })
-    .default({ postRefinementComment: false }),
   ui: z
     .object({
       notifications: z
@@ -807,6 +794,8 @@ export const uniqueProvidersFromAi = (ai: AiSettings): readonly AiProvider[] => 
  * @public
  */
 export const AI_PROVIDERS: readonly AiProvider[] = AiProviderSchema.options;
+
+export const isAiProvider = (raw: string): raw is AiProvider => (AI_PROVIDERS as readonly string[]).includes(raw);
 
 /** Human-facing "expected one of: …" fragment, shared by every provider-validation message. */
 export const AI_PROVIDERS_HINT: string = AI_PROVIDERS.join(', ');

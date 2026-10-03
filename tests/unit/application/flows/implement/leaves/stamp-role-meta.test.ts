@@ -42,7 +42,7 @@ describe('stampGeneratorRoleMetaLeaf', () => {
     const task = makeInProgressTaskWithRunningAttempt();
     const leafEl = stampGeneratorRoleMetaLeaf(
       { writeFile: createAtomicWriteFile(), clock: () => FIXED_LATER, logger: noopLogger },
-      { provider: 'claude-code', model: 'claude-opus-4-8', effort: 'high' },
+      { provider: 'claude-code', model: 'claude-opus-4-8', effort: 'high', cwd: '/repo/worktree' },
       task.id
     );
 
@@ -70,6 +70,7 @@ describe('stampGeneratorRoleMetaLeaf', () => {
       roundN: 1,
       startedAt: FIXED_LATER,
       escalatedFromModel: null,
+      cwd: '/repo/worktree',
     });
 
     // Pure write leaf — must not mutate ctx (round numbering is owned upstream by
@@ -265,6 +266,7 @@ describe('stampEvaluatorRoleMetaLeaf', () => {
       roundN: 2,
       startedAt: FIXED_NOW,
       escalatedFromModel: null,
+      cwd: null,
     });
 
     // Pure write leaf — must not mutate ctx.

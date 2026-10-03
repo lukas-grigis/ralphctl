@@ -26,7 +26,7 @@ re-run without backing the sprint out of review.
 
 †`review → done` has two doors — the explicit `close-sprint` flow (`sprint close` CLI, or the TUI's
 `n → close-sprint`) and the review flow's own auto-done path (empty / repeat feedback round settles
-the loop) — and both now confirm before crossing it rather than closing in silence. Each loads the
+the loop; `esc` on the feedback prompt cancels and leaves the sprint `review`) — and both now confirm before crossing it rather than closing in silence. Each loads the
 sprint's tasks and, if any are `blocked`, asks the operator to confirm, naming them
 (`confirmBlockedTasksLeaf` — a shared leaf at `application/flows/_shared/task/confirm-blocked-
 tasks.ts` that `review`'s chain composes, and an equivalent one local to `close-sprint/leaves/` for
@@ -71,7 +71,7 @@ block is never a silent event.
 Blocked work is then visible everywhere an operator orients: the Home active-sprint card and the
 settled-run summary both add a `· N blocked` count beside the pending count (a sprint whose entire
 remainder was blocked used to read as "0 tasks pending" — nothing left to do); the Sprints list
-carries a `N blocked` badge per sprint and the cross-project sprint picker shows the same count on the
+carries a `N blocked` badge per sprint and the Switch sprint view shows the same count on the
 focused row (both batch-loaded via `loadTaskHealthBySprintId`,
 `application/ui/shared/state-snapshot.ts`); sprint-detail's header and
 its `NextPhaseCard` name the blocked tasks and switch to a warning presentation instead of the dim
@@ -330,13 +330,48 @@ nested shape, with `generator` and `evaluator` both set to a copy of the legacy 
 `schemaVersion` bump and no user-facing notice. The next `save()` rewrites the file in the canonical
 nested shape, so the promotion fires at most once per file.
 
-**TUI is the primary surface.** From Home: pipeline-map quick-actions + browse submenu (Sprints / Tickets /
-Tasks / Projects). Multi-flow navigation: Tab / Shift+Tab cycle running flows, `Ctrl+1..9` direct-jump to
-the Nth running flow — both operate over RUNNING sessions only and are suspended while a prompt / overlay is
-mounted; `SessionsView` lists every runner. `Ctrl+1..9` only fires under a kitty-keyboard-protocol terminal
-(iTerm2 / kitty / WezTerm / foot) — Ink surfaces `key.ctrl` for digits only via the CSI-u extension; in other
-terminals it is an inert no-op (the help overlay labels it accordingly), while `Tab` cycling works everywhere.
-`?` opens the centralised help overlay generated from `keyboard-map.ts`.
+**TUI is the primary surface.** Home is a grouped action menu — NEEDS ATTENTION (only when something needs you),
+SWITCH SPRINT (the five most recent sprints on `1`–`5`, plus `+` Create new sprint), WORK (`n` Start a flow, `r`
+Sprints, `S` Switch sprint, `a` Add ticket, `P` Switch project, `p` Projects), OBSERVE (`x` Active sessions) and SYSTEM
+(`s` Settings, `K` Skills catalog, `!` Doctor, `H` Housekeeping) — under a boxed banner and a header / breadcrumb
+line. Switch sprint and Switch project are full-screen pick views that set the current selection. `esc` goes back
+one view; `h` returns to Home.
+
+**Needs attention.** A run parked on a prompt reads `[WAITING]` in the NEEDS ATTENTION group (`↵` opens it), the
+footer, the flow strip and the Execute header, and fires an OS notification when `settings.ui.notifications` allows.
+Housekeeping (`H`) is a dry-run scan of orphan and old data; `space` marks, `a` selects all, `↵` confirms, and
+nothing is deleted before the confirm. Housekeeping purge, sprint delete and the project removal cascade (a separate
+confirm asks whether to remove the project's sprints and memory too) refuse while any flow runs: a run tracked in
+this process, a live run record owned by another live process on this machine (covers lock-less plan / refine /
+ideate started from a second terminal), or a held flow lock. Purge checks once up front, so a flow started
+mid-purge is not seen. Doctor (`!`) groups what needs fixing first; `↵` shows the passed probes, `r` reloads.
+
+**Interrupted runs.** When the harness died mid-attempt (crash, SIGKILL, power loss) an `in_progress` task whose
+last attempt is still `running`, with no live run of this process owning the sprint, is _interrupted_ (one
+predicate in `ui/shared/interrupted-tasks.ts`). Home's NEEDS ATTENTION lists it (`"<task>" was interrupted ·
+attempt N · 12m ago`, with its uncommitted-change count and whether the session is resumable); `↵` resumes
+Implement and drops the dead run's record. Active sessions lists the dead runs' live-run records (`↵` resumes on
+Home, `d` dismisses). The dirty-tree preflight names the interrupted attempt as the source of the changes and keeps
+`Keep` as the default. On the parallel path a stranded `wt-<task>` worktree is adopted when the task has an
+interrupted attempt; otherwise the task blocks with a `worktree-setup-failure` blocker and a removal hint.
+**Quit** (`q` on Home, `ctrl+c` anywhere) with live runs asks `N runs live — quit stops them? [y/N]` (default No);
+yes aborts the sessions cleanly then exits. A run parked on a prompt has that prompt withdrawn with an `AbortError`
+as part of its abort, and a prompt no run owns is dismissed. The stopped runs' attempts settle as `user-cancel`, so
+the next launch shows no interrupted task. If the runs have not stopped after 5s, their AI CLI process groups are
+SIGKILLed and ralphctl exits, leaving a one-line note in the shell. `ctrl+c` again quits at once and leftover AI
+processes are cleaned up by the orphan reaper or the next launch ([SECURITY.md](./SECURITY.md)). No live runs: quit
+exits immediately. An open overlay or prompt is never quit through. Resume mechanics and attempt accounting:
+[PERFORMANCE.md](./PERFORMANCE.md) § Resume of aborted Implement runs.
+
+Global accelerators — `h` Home, `n` flows, `p` Projects, `x` Sessions, `s` Settings, `!` Doctor, `S` / `P` pick
+sprint / project — work from any view; the footer carries view-local keys plus a curated global tail and `? help`.
+Multi-flow navigation: Tab / Shift+Tab
+cycle running flows, `Ctrl+1..9` direct-jump to the Nth running flow — both operate over RUNNING sessions only and
+are suspended while a prompt / overlay is mounted; `SessionsView` lists every runner. `Ctrl+1..9` only fires
+under a kitty-keyboard-protocol terminal (iTerm2 / kitty / WezTerm / foot) — Ink surfaces `key.ctrl` for digits only
+via the CSI-u extension; in other terminals it is an inert no-op (the help overlay labels it accordingly), while
+`Tab` cycling works everywhere. `?` opens the help overlay generated from `keyboard-map.ts`. Key-by-key contract:
+`DESIGN-SYSTEM.md` § 6.
 
 **Customize picker's skills step + Skills catalog view.** The pre-launch customize picker (per AI flow:
 `Start` / `Customize for this run…` / `Cancel`) gained a skills step after the provider/model/effort row
@@ -344,18 +379,18 @@ walk(s) — a checklist pre-checked to what would currently load, then `Apply fo
 and remember for <flow>` (remember persists only the flow's registry-default names into
 `settings.ai.skills[flow].disabled`, merge-preserving hand-added entries — project / operator /
 phase-folder unchecks stay run-scoped; see `AI-SETTINGS.md`). Skipped entirely for a flow with no AI
-row, no skill candidates to offer, or a degraded (partially failed) candidate listing. The Home
-menu's `Skills catalog` view (hotkey `K`) is the enable / disable / update surface across every flow's
+row, no skill candidates to offer, or a degraded (partially failed) candidate listing. The System
+Home menu's `Skills catalog` view (hotkey `K`) is the enable / disable / update surface across every flow's
 opt-in phase folder: `e` enable, `d` disable, `u` update one, `U` update every out-of-date copy, `r`
 reload — the filesystem under `<appRoot>/skills/<flow>/` is the source of truth (see `ARCHITECTURE.md`
 § Skills subsystem).
 
 Execute view: three-column at `xl` (≥180), two-column at `lg` (≥140), compact-rail at `md` (100–139),
 single-column below `md`. Rail grows fluidly 36→56 cols at `xl`+ via `resolveRailWidth`. Named breakpoints
-(`sm 80 / md 100 / lg 140 / xl 180 / xxl 220`) are canonical — use `breakpointFor`, `fluid`, `responsive`
+(`sm 80 / md 100 / lg 140 / xl 180 / xxl 220`) are canonical — use `breakpointFor`, `fluid`
 from `theme/tokens.ts` and `useBreakpoint` from `runtime/use-breakpoint.ts`; no hardcoded column literals.
-Global keys: `b` banner, `g` progress,
-`y` yank, `P` project picker, `S` sprint picker. Execute-view: `j`/`k` nav, `e` verification-criteria, `c` cancel-scope.
+Global keys: `g` progress, `S` / `P` pick sprint / project;
+`b` banner toggle is global, `y` yank is Execute-local. Execute-view: `j`/`k` nav, `e` verification-criteria, `c` cancel-scope.
 
 **`setupScript` vs `verifyScript` / `verifyGates`.** Setup runs unconditionally once per affected repo at
 sprint start; each attempt is recorded as a structured `SetupRun` (outcome: `success` / `failed` /

@@ -30,7 +30,7 @@ import { Result } from '@src/domain/result.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import type { WriteFile } from '@src/business/io/write-file.ts';
-import { errorCode } from '@src/integration/ai/skills/_engine/parse-skill.ts';
+import { isNodeErrnoCode } from '@src/integration/io/fs.ts';
 import type { SkillInstallStatus } from '@src/integration/ai/skills/_engine/skill-catalog-port.ts';
 
 /** Sidecar filename written inside every catalog-managed skill folder. @public */
@@ -156,7 +156,7 @@ export const createProvenanceStore = (deps: ProvenanceStoreDeps): ProvenanceStor
     try {
       raw = await readFile(path, 'utf-8');
     } catch (cause) {
-      if (errorCode(cause) === 'ENOENT') return Result.ok(undefined);
+      if (isNodeErrnoCode(cause, 'ENOENT')) return Result.ok(undefined);
       return Result.error(
         new StorageError({ subCode: 'io', message: `provenance sidecar not readable: ${path}`, path, cause })
       );

@@ -4,7 +4,6 @@ import type { Entity } from '@src/domain/entity/_base/entity.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { RepositoryId } from '@src/domain/value/id/repository-id.ts';
 import { Slug } from '@src/domain/value/slug.ts';
-import { toKebabCase } from '@src/domain/value/kebab-case.ts';
 import { parseOptionalString } from '@src/domain/value/parsers/parse-optional-string.ts';
 import { parsePositiveInt } from '@src/domain/value/parsers/parse-positive-int.ts';
 import { parseRequiredString } from '@src/domain/value/parsers/parse-required-string.ts';
@@ -97,7 +96,7 @@ export const createRepository = (input: RepositoryCreateInput): Result<Repositor
   const nameResult = resolveName(input.name, input.path);
   if (!nameResult.ok) return Result.error(nameResult.error);
 
-  const slugResult = resolveSlug(input.slug, nameResult.value);
+  const slugResult = Slug.derive('repository.slug', input.slug, nameResult.value);
   if (!slugResult.ok) return Result.error(slugResult.error);
 
   const scriptFieldsResult = resolveOptionalScriptFields(input);
@@ -128,19 +127,22 @@ export const createRepository = (input: RepositoryCreateInput): Result<Repositor
   });
 };
 
-export const setRepositoryVerifyScript = (
-  repo: Repository,
-  script: string | undefined
-): Result<Repository, ValidationError> => {
-  const next = parseOptionalString('repository.verifyScript', script);
-  if (!next.ok) return Result.error(next.error);
-  if (next.value === undefined) {
-    const { verifyScript: _drop, ...rest } = repo;
-    void _drop;
-    return Result.ok(rest);
-  }
-  return Result.ok({ ...repo, verifyScript: next.value });
-};
+type OptionalTextField = 'verifyScript' | 'setupScript' | 'setupSkill' | 'verifySkill';
+
+const setOptionalText =
+  (key: OptionalTextField) =>
+  (repo: Repository, value: string | undefined): Result<Repository, ValidationError> => {
+    const next = parseOptionalString(`repository.${key}`, value);
+    if (!next.ok) return Result.error(next.error);
+    if (next.value === undefined) {
+      const { [key]: _drop, ...rest } = repo;
+      void _drop;
+      return Result.ok(rest);
+    }
+    return Result.ok({ ...repo, [key]: next.value });
+  };
+
+export const setRepositoryVerifyScript = setOptionalText('verifyScript');
 
 /**
  * Replace the repository's structured `verifyGates`. Normalised through the same
@@ -177,47 +179,11 @@ export const setRepositoryVerifyTimeout = (
   return Result.ok({ ...repo, verifyTimeout: next.value });
 };
 
-export const setRepositorySetupScript = (
-  repo: Repository,
-  script: string | undefined
-): Result<Repository, ValidationError> => {
-  const next = parseOptionalString('repository.setupScript', script);
-  if (!next.ok) return Result.error(next.error);
-  if (next.value === undefined) {
-    const { setupScript: _drop, ...rest } = repo;
-    void _drop;
-    return Result.ok(rest);
-  }
-  return Result.ok({ ...repo, setupScript: next.value });
-};
+export const setRepositorySetupScript = setOptionalText('setupScript');
 
-export const setRepositorySetupSkill = (
-  repo: Repository,
-  body: string | undefined
-): Result<Repository, ValidationError> => {
-  const next = parseOptionalString('repository.setupSkill', body);
-  if (!next.ok) return Result.error(next.error);
-  if (next.value === undefined) {
-    const { setupSkill: _drop, ...rest } = repo;
-    void _drop;
-    return Result.ok(rest);
-  }
-  return Result.ok({ ...repo, setupSkill: next.value });
-};
+export const setRepositorySetupSkill = setOptionalText('setupSkill');
 
-export const setRepositoryVerifySkill = (
-  repo: Repository,
-  body: string | undefined
-): Result<Repository, ValidationError> => {
-  const next = parseOptionalString('repository.verifySkill', body);
-  if (!next.ok) return Result.error(next.error);
-  if (next.value === undefined) {
-    const { verifySkill: _drop, ...rest } = repo;
-    void _drop;
-    return Result.ok(rest);
-  }
-  return Result.ok({ ...repo, verifySkill: next.value });
-};
+export const setRepositoryVerifySkill = setOptionalText('verifySkill');
 
 /** Local path is a per-machine fact, not identity — change it freely without touching `id`. */
 export const setRepositoryPath = (repo: Repository, path: AbsolutePath): Repository => ({
@@ -394,20 +360,4 @@ const resolveName = (candidate: string | undefined, path: AbsolutePath): Result<
     return Result.ok(fallback);
   }
   return parseRequiredString(FIELD_REPOSITORY_NAME, candidate);
-};
-
-const resolveSlug = (candidate: Slug | undefined, name: string): Result<Slug, ValidationError> => {
-  if (candidate !== undefined) return Result.ok(candidate);
-  const derived = toKebabCase(name);
-  if (derived.length === 0) {
-    return Result.error(
-      new ValidationError({
-        field: 'repository.slug',
-        value: name,
-        message: `could not derive slug from name '${name}'`,
-        hint: 'pass an explicit slug',
-      })
-    );
-  }
-  return Slug.parse(derived);
 };

@@ -1,24 +1,6 @@
 /**
- * `ralphctl demo` — zero-setup entry point: seeds an isolated, marker-guarded sandbox
- * (`<tmpdir>/ralphctl-demo` by default) with the same "hello-python" mock project
- * `scripts/seed-mock.ts` builds (via the shared `seedDemoWorkspace`, #228), writes a
- * `settings.json` so the welcome flow never fires, then launches the TUI pointed at the sandbox.
- *
- * The seeded `settings.json` is provider-aware (`seedDemoSettings`): PATH is probed and a
- * single-provider preset stamped, so the sandbox's "ready to implement" sprint needs exactly the
- * one CLI the machine already has — never the two the shipped cross-provider defaults imply.
- *
- * Wipe policy: the sandbox is reseeded from scratch on every run, but ONLY when the target
- * directory either doesn't exist yet or carries the `.ralphctl-demo` marker this command (or
- * `pnpm mock`) itself wrote — a directory that exists but lacks the marker is refused outright,
- * so pointing `--home` at an unrelated directory can never destroy it.
- *
- * `DemoOptions` is deliberately a small, flat options object (mirroring every other command
- * action in this directory) rather than positional args threaded ad hoc.
- *
- * `--script` layers the recording mode on top: same sandbox, but the AI adapters are pointed at a
- * canned generator → evaluator transcript instead of a real CLI, so the run needs no provider
- * install and no auth. See `src/application/demo/scripted-run.ts` for what it pins and why.
+ * `ralphctl demo` — zero-setup entry point: seeds an isolated, marker-guarded sandbox with the mock project, then
+ * launches the TUI on it. A directory without the `.ralphctl-demo` marker is never wiped.
  */
 
 import type { Command } from 'commander';
@@ -52,11 +34,7 @@ const pathExists = async (p: string): Promise<boolean> =>
     .then(() => true)
     .catch(() => false);
 
-/**
- * Refuses to touch a directory that exists but wasn't created by this command (no marker file).
- * Returns an error string on refusal, `undefined` when it's safe to proceed (and has already
- * wiped an existing marker-bearing sandbox).
- */
+/** Refuses to touch a directory that exists but wasn't created by this command (no marker file). */
 const prepareSandbox = async (homeDirStr: string): Promise<string | undefined> => {
   if (!(await pathExists(homeDirStr))) return undefined;
   const hasMarker = await pathExists(join(homeDirStr, DEMO_MARKER_FILENAME));
@@ -127,9 +105,8 @@ const demoAction = async (opts: DemoOptions): Promise<void> => {
     return;
   }
 
-  // Scripted mode rewrites the settings this just wrote (claude-only rows, escalation rungs off)
-  // and repoints the seeded verify script / acceptance criterion at portable node one-liners.
-  // Last write wins by design — the plain-mode settings above are the fallback shape.
+  // Scripted mode rewrites the settings this just wrote (claude-only rows, escalation rungs off) and repoints the
+  // seeded verify script / acceptance criterion at portable node one-liners.
   let providerSpawn: ProviderSpawn | undefined;
   if (opts.script === true) {
     const scripted = await prepareScriptedDemo({ homeDir: homeDir.value });
@@ -180,12 +157,7 @@ const demoAction = async (opts: DemoOptions): Promise<void> => {
 };
 
 /**
- * Register the `demo` CLI command.
- *
- *   ralphctl demo                    # seed + launch the sandbox
- *   ralphctl demo --no-launch        # seed only, print the launch command
- *   ralphctl demo --home /tmp/foo    # custom sandbox directory
- *   ralphctl demo --script           # replay the canned transcript — no provider CLI, no auth
+ * Register the `demo` CLI command: `ralphctl demo [--no-launch] [--home <dir>] [--script]`.
  */
 export const registerDemoCommand = (program: Command): void => {
   program

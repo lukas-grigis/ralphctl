@@ -3,7 +3,7 @@
  * enabled iff its triggers match the current state; otherwise the row is dimmed and the reason
  * surfaces in the focused-item description.
  *
- * Selecting an enabled row launches the flow via {@link launchFlow}, registers the runner with
+ * Selecting an enabled row launches the flow via {@link useFlowLauncher}, registers the runner with
  * the session manager, and pushes the execute view with the new session id.
  */
 
@@ -18,93 +18,20 @@ import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens
 import { flowRegistry, type FlowEntry } from '@src/application/registry.ts';
 import { evaluateTriggers } from '@src/application/registry-triggers.ts';
 import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
-import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
 import { useAppStateSnapshot } from '@src/application/ui/tui/runtime/use-app-state-snapshot.ts';
 import type { AppStateSnapshot } from '@src/application/ui/shared/state-snapshot.ts';
-import { useRouter, type RouterApi, type ViewEntry } from '@src/application/ui/tui/runtime/router.tsx';
-import { useSessionManager } from '@src/application/ui/tui/runtime/sessions-context.tsx';
-import type { SessionManager } from '@src/application/ui/tui/runtime/session-manager.ts';
-import { usePromptQueue } from '@src/application/ui/tui/prompts/prompt-context.tsx';
-import type { PromptQueue } from '@src/application/ui/tui/prompts/prompt-queue.ts';
-import { createInkInteractivePrompt } from '@src/application/ui/tui/prompts/ink-interactive-prompt.ts';
-import { useStorage } from '@src/application/ui/tui/runtime/storage-context.tsx';
-import type { StoragePaths } from '@src/application/bootstrap/storage-paths.ts';
+import { useFlowLauncher } from '@src/application/ui/tui/runtime/use-flow-launcher.ts';
 import { useViewHints } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
-import { openFlowSession } from '@src/application/ui/tui/runtime/open-flow-session.ts';
-import {
-  launchFlow,
-  type LaunchExtras,
-  type LauncherDeps,
-  type LaunchResult,
-} from '@src/application/ui/shared/launcher.ts';
-import { launchSprintBoundFlow } from '@src/application/ui/shared/launch/sprint-bound.ts';
-import { runCustomizePicker } from '@src/application/ui/tui/views/flows-customize-picker.ts';
-import {
-  applySkillsRememberChoice,
-  buildLaunchExtras,
-  makeRebuildSkillCandidates,
-  prefetchSkillCandidates,
-} from '@src/application/ui/tui/views/flows-launch-extras.ts';
-import { runRepositorySelection } from '@src/application/ui/tui/views/flows-repository-picker.ts';
-import type { RepositoryId } from '@src/domain/value/id/repository-id.ts';
-import { getRunInTerminal } from '@src/application/ui/tui/runtime/run-in-terminal.ts';
 import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx';
 import { SprintPipeline } from '@src/application/ui/tui/components/sprint-pipeline.tsx';
 import { NextStepList } from '@src/application/ui/tui/components/next-steps.tsx';
 import { buildNextSteps, nextStepsInputFromSnapshot } from '@src/application/ui/shared/next-steps.ts';
 import { sectionFor, sectionRank, visibleFlowsFor } from '@src/application/ui/tui/views/flows-visibility.ts';
-import type { AppDeps } from '@src/application/bootstrap/wire.ts';
-import type { Runner } from '@src/application/chain/run/runner.ts';
 
 // Sprint-state-machine visibility lives in `flows-visibility.ts` so it can be unit-tested
 // without a React render. The view delegates section labelling, ordering, and the
 // per-status allow-list to that module.
-
-/** Flow id whose launch needs special sprint-rebinding handling (see the `onSelect` handler). */
-const CREATE_SPRINT_FLOW_ID = 'create-sprint';
-
-/**
- * Some flows in the registry are use-case shaped (one-shot, no chain runner) and the TUI
- * has dedicated views for them. Route those directly instead of falling through to
- * `launchFlow`, which only knows how to construct chain flows.
- *
- * A table rather than a `switch` so the covered ids are readable as data — the registry
- * reachability fence asserts against {@link VIEW_ROUTED_FLOW_IDS}, which is derived from these
- * keys, so a registry entry that is neither dispatchable nor routable fails CI.
- *
- * `add-ticket` and `remove-ticket` both land on the same route their other entry points use
- * (Home's `a` row / sprint-detail's `a` chord push the add-ticket wizard; ticket removal happens
- * inline in sprint-detail), so the Flows menu is a third door onto one screen, not a variant.
- */
-const VIEW_ROUTES: Readonly<Record<string, (snapshot: AppStateSnapshot) => ViewEntry | undefined>> = {
-  doctor: () => ({ id: 'doctor' }),
-  settings: () => ({ id: 'settings' }),
-  'add-ticket': (snapshot) =>
-    snapshot.sprint ? { id: 'add-ticket', props: { sprintId: snapshot.sprint.id } } : undefined,
-  'remove-ticket': (snapshot) =>
-    snapshot.sprint ? { id: 'sprint-detail', props: { sprintId: snapshot.sprint.id } } : undefined,
-  'export-context': () => ({ id: 'export-context' }),
-  'export-requirements': () => ({ id: 'export-requirements' }),
-  'create-pr': () => ({ id: 'create-pr' }),
-};
-
-/**
- * Flow ids the Flows menu routes to a dedicated view instead of dispatching through
- * `launchFlow`. Consumed by the registry reachability fence test.
- *
- * @public
- */
-export const VIEW_ROUTED_FLOW_IDS: readonly string[] = Object.keys(VIEW_ROUTES);
-
-/**
- * Resolve a flow id to the view it opens, or `undefined` when the flow launches a chain instead
- * (or when the route needs a sprint and none is selected).
- *
- * @public — exported for the route-shape tests; the view itself is the only production caller.
- */
-export const viewRouteFor = (flowId: string, snapshot: AppStateSnapshot): ViewEntry | undefined =>
-  VIEW_ROUTES[flowId]?.(snapshot);
 
 interface OrientationCardProps {
   readonly snapshot: AppStateSnapshot;
@@ -169,206 +96,15 @@ const OrientationCard = ({ snapshot, showAll }: OrientationCardProps): React.JSX
   );
 };
 
-interface RunFlowLaunchDeps {
-  readonly selection: ReturnType<typeof useSelection>;
-  readonly sessions: SessionManager;
-}
-
-/**
- * Dispatch the flow launch. create-sprint and close-sprint change which sprint (or status) the
- * user is "on" — route them through the sprint-bound wrapper so the post-completion selection
- * reseat happens in one place instead of leaving the global selection stale. create-sprint
- * additionally strips the launch-time sprint from the snapshot: the new sprint doesn't exist
- * yet, so pinning the PREVIOUS sprint onto the run's descriptor would mislabel every panel;
- * `onSprintResolved` pins the real one once known. Every other flow launches directly.
- */
-const runFlowLaunch = async (
-  launcherDeps: LauncherDeps,
-  entry: FlowEntry,
-  snapshot: AppStateSnapshot,
-  launchExtras: LaunchExtras,
-  { selection, sessions }: RunFlowLaunchDeps
-): Promise<LaunchResult> => {
-  const sprintBound = entry.manifest.id === CREATE_SPRINT_FLOW_ID || entry.manifest.id === 'close-sprint';
-  if (!sprintBound) return launchFlow(launcherDeps, entry.manifest.id, snapshot, launchExtras);
-
-  const { sprint: _staleSprint, ...snapshotWithoutSprint } = snapshot;
-  void _staleSprint;
-  return launchSprintBoundFlow(
-    launcherDeps,
-    entry.manifest.id,
-    entry.manifest.id === CREATE_SPRINT_FLOW_ID ? snapshotWithoutSprint : snapshot,
-    {
-      ...launchExtras,
-      onReseat: ({ id, name, status }) => {
-        if (entry.manifest.id === CREATE_SPRINT_FLOW_ID) {
-          // A brand-new sprint can't collide with a mid-run switch — always reseat (and let
-          // the "✓ now on …" toast fire via lastSwitch).
-          selection.setSprint(id, name, status);
-          return;
-        }
-        // close-sprint: the sprint stays selected but its status flipped to done on disk —
-        // refresh the chip without replaying the switch toast. syncSprintStatus no-ops when
-        // the user moved to a different sprint mid-run, so a late completion never yanks them
-        // back.
-        if (status !== undefined) selection.syncSprintStatus(id, status);
-      },
-      onSprintResolved: (runnerId, { id, name }) => {
-        sessions.setPinnedSprint(runnerId, id, name);
-      },
-    }
-  );
-};
-
-/**
- * Subscribe BEFORE `start()` so we don't miss the synchronous completion of a fast-path flow.
- * Captures the chosen repository id from the final ctx for subsequent launches in this session.
- * Self-unsubscribes on terminal events so every flow launch doesn't pin a dead listener (and its
- * closure scope, incl. the `ui` ref + the event's `ctx` object) to the runner's listener Set
- * across a long TUI session — historically a load-bearing OOM contributor.
- */
-const attachRepositoryCapture = (runner: Runner<unknown>, ui: ReturnType<typeof useUiState>): void => {
-  const unsubRepoCapture: () => void = runner.subscribe((event) => {
-    if (event.type === 'failed' || event.type === 'aborted') {
-      unsubRepoCapture();
-      return;
-    }
-    if (event.type !== 'completed') return;
-    const ctx = event.ctx as { readonly repository?: { readonly id: RepositoryId } };
-    if (ctx.repository !== undefined) ui.setSessionRepositoryId(ctx.repository.id);
-    unsubRepoCapture();
-  });
-};
-
-/** Everything a flow row's click handler needs, threaded once from {@link useFlowMenuItems}. */
-interface FlowMenuItemHandlerCtx {
-  readonly deps: AppDeps;
-  readonly queue: PromptQueue;
-  readonly storage: StoragePaths;
-  readonly ui: ReturnType<typeof useUiState>;
-  readonly selection: ReturnType<typeof useSelection>;
-  readonly sessions: SessionManager;
-  readonly router: RouterApi;
-  readonly reload: () => void;
-  readonly setLaunchError: (message: string | undefined) => void;
-}
-
-/**
- * Build the click handler for one flow row: route-check → interactive prompt → repository
- * selection → customize picker → launch → session registration, in the order the flow menu has
- * always used.
- */
-const createFlowSelectHandler = (
-  entry: FlowEntry,
-  snapshot: AppStateSnapshot,
-  handlerCtx: FlowMenuItemHandlerCtx
-): (() => Promise<void>) => {
-  const { deps, queue, storage, ui, selection, sessions, router, reload, setLaunchError } = handlerCtx;
-  return async (): Promise<void> => {
-    setLaunchError(undefined);
-
-    // Use-case-shaped flows (doctor, settings-*, ticket-*) don't go through the chain
-    // launcher — they have dedicated views. Route there directly.
-    const route = viewRouteFor(entry.manifest.id, snapshot);
-    if (route !== undefined) {
-      router.push(route);
-      return;
-    }
-
-    const interactive = createInkInteractivePrompt(queue);
-    // Built once, up-front, so both the skills-candidate lookup below and the eventual launch
-    // share the same `LauncherDeps` — no reason to reconstruct it after the picker runs.
-    const launcherDeps: LauncherDeps = { app: deps, interactive, storage, runInTerminal: getRunInTerminal() };
-
-    // Re-read settings from disk now so provider/model changes made via the Settings
-    // view propagate. `deps.settings` is the boot-time snapshot and goes stale across
-    // any settings write; the on-disk repo is the source of truth.
-    const freshSettings = await deps.settingsRepo.load();
-    const settings = freshSettings.ok ? freshSettings.value : deps.settings;
-
-    // Pre-launch repository selection — for repo-selecting flows (detect-scripts /
-    // detect-skills / readiness) against a multi-repo project, ask which repository the
-    // run targets BEFORE the provider picker (the sequence reads "pick repo, then
-    // customize provider"). The session-pinned repo (`ui.sessionRepositoryId`) is offered
-    // first as a SOFT default — re-pickable every launch — rather than a HARD lock that
-    // would make `pickRepositoryLeaf` skip its prompt forever. Single-repo projects and
-    // non-repo flows return `kind: 'skip'` (no prompt); the chain's own `pickRepositoryLeaf`
-    // auto-selects the lone repo / handles the empty-project error.
-    const repoSelection = await runRepositorySelection({
-      interactive,
-      flowId: entry.manifest.id,
-      flowTitle: entry.manifest.title,
-      project: snapshot.project,
-      pinnedRepositoryId: ui.sessionRepositoryId,
-    });
-    if (repoSelection.kind === 'cancel') return;
-    const chosenRepositoryId = repoSelection.kind === 'selected' ? repoSelection.repositoryId : undefined;
-    // Re-pin immediately so the new choice is the default on the next launch and the
-    // post-completion capture below just re-affirms it (no conflict / double-prompt).
-    if (chosenRepositoryId !== undefined) ui.setSessionRepositoryId(chosenRepositoryId);
-
-    // Pre-fetch skill candidates BEFORE the picker runs (no-op for a flow that doesn't mount a
-    // skillSource — see `prefetchSkillCandidates`).
-    const skillCandidates = await prefetchSkillCandidates(launcherDeps, snapshot, entry.manifest.id, settings);
-
-    // Pre-launch customize picker — for AI-driven flows the user gets Start /
-    // Customize / Cancel. Customize walks provider → model → effort for each row
-    // (implement walks generator then evaluator), then (when `skillCandidates` is present) a
-    // skills step. Settings are never mutated by the picker itself; per-launch overrides are
-    // passed through {@link LaunchExtras} and a "remember" skills choice is persisted below.
-    // Non-AI flows return `kind: 'defaults'` without prompting.
-    const picker = await runCustomizePicker({
-      interactive,
-      flowId: entry.manifest.id,
-      flowTitle: entry.manifest.title,
-      settings,
-      // `AppDeps.availableModelsFor` is always assigned by `wire()`, so this is a plain pass-through.
-      availableModelsFor: deps.availableModelsFor,
-      // A degraded listing (some source failed) is withheld entirely: a checklist over a partial
-      // candidate set misreads as "disable everything missing" — the failure is already logged.
-      ...(skillCandidates !== undefined && !skillCandidates.degraded ? { skillCandidates } : {}),
-      rebuildSkillCandidates: makeRebuildSkillCandidates(launcherDeps, snapshot, entry.manifest.id, settings),
-    });
-    if (picker.kind === 'cancel') return;
-
-    // "Remember for <flow>" — non-fatal on failure: the run itself already carries the full
-    // override via `buildLaunchExtras`'s `skillsOverride`, so a save failure only means the
-    // preference didn't stick for next time.
-    const rememberError = await applySkillsRememberChoice(deps.settingsRepo, settings, skillCandidates, picker);
-    if (rememberError !== undefined) {
-      // Also log it: on a successful launch this view is replaced immediately, destroying the
-      // local error state before the user can read it — the session log keeps the trace.
-      launcherDeps.app.logger.warn(rememberError);
-      setLaunchError(rememberError);
-    }
-
-    const launchExtras = buildLaunchExtras(picker, entry, chosenRepositoryId, ui, settings);
-    const result = await runFlowLaunch(launcherDeps, entry, snapshot, launchExtras, { selection, sessions });
-    if (!result.ok) {
-      setLaunchError(`${entry.manifest.title}: ${result.reason}`);
-      return;
-    }
-    attachRepositoryCapture(result.runner, ui);
-    // Register + start + route via the shared tail. `replace` (not push) so the flow menu
-    // isn't left on the stack behind the run. The trailing reload refreshes this menu's
-    // enabled/disabled state immediately at launch (e.g. a flow-status trigger flips the
-    // moment the session registers); freshness on COMPLETION comes separately, from
-    // `useAppStateSnapshot`'s session-transition subscription firing once the run reaches
-    // a terminal status — see `use-session-transition-reload.ts`.
-    openFlowSession({ sessions, router }, result, entry.manifest.id, { mode: 'replace' });
-    reload();
-  };
-};
-
 /**
  * Build one flow row's {@link MenuItem} — section, label, description, cost hint, and the
  * disabled state derived from the current snapshot's trigger inputs — wiring `onSelect` to the
- * click handler built by {@link createFlowSelectHandler}.
+ * shared flow launcher.
  */
 const buildFlowMenuItem = (
   entry: FlowEntry,
   snapshot: AppStateSnapshot,
-  handlerCtx: FlowMenuItemHandlerCtx
+  launch: (flowId: string) => Promise<boolean>
 ): MenuItem => {
   const triggerEval = evaluateTriggers(entry.manifest.triggers, snapshot.triggerInputs);
   const item: MenuItem = {
@@ -377,7 +113,9 @@ const buildFlowMenuItem = (
     label: entry.manifest.title,
     description: entry.manifest.description,
     ...(entry.manifest.costHint !== undefined ? { costHint: entry.manifest.costHint } : {}),
-    onSelect: createFlowSelectHandler(entry, snapshot, handlerCtx),
+    onSelect: (): void => {
+      void launch(entry.manifest.id);
+    },
   };
   if (!triggerEval.enabled) return { ...item, disabledReason: triggerEval.reason };
   return item;
@@ -385,16 +123,8 @@ const buildFlowMenuItem = (
 
 interface UseFlowMenuItemsArgs {
   readonly state: ReturnType<typeof useAppStateSnapshot>['state'];
-  readonly deps: AppDeps;
-  readonly queue: PromptQueue;
-  readonly storage: StoragePaths;
-  readonly sessions: SessionManager;
-  readonly router: RouterApi;
-  readonly reload: () => void;
+  readonly launch: (flowId: string) => Promise<boolean>;
   readonly showAll: boolean;
-  readonly ui: ReturnType<typeof useUiState>;
-  readonly selection: ReturnType<typeof useSelection>;
-  readonly setLaunchError: (message: string | undefined) => void;
 }
 
 /**
@@ -403,19 +133,7 @@ interface UseFlowMenuItemsArgs {
  * section headers stay sticky (items in the same category render consecutively even when
  * registry order interleaves them).
  */
-const useFlowMenuItems = ({
-  state,
-  deps,
-  queue,
-  storage,
-  sessions,
-  router,
-  reload,
-  showAll,
-  ui,
-  selection,
-  setLaunchError,
-}: UseFlowMenuItemsArgs): readonly MenuItem[] =>
+const useFlowMenuItems = ({ state, launch, showAll }: UseFlowMenuItemsArgs): readonly MenuItem[] =>
   useMemo<readonly MenuItem[]>(() => {
     if (state.kind !== 'ok') return [];
     const snapshot = state.value;
@@ -429,36 +147,13 @@ const useFlowMenuItems = ({
       showAll,
     });
     const filteredRegistry = flowRegistry.filter((entry) => visible.has(entry.manifest.id));
-    const handlerCtx: FlowMenuItemHandlerCtx = {
-      deps,
-      queue,
-      storage,
-      ui,
-      selection,
-      sessions,
-      router,
-      reload,
-      setLaunchError,
-    };
-    const built = filteredRegistry.map((entry) => buildFlowMenuItem(entry, snapshot, handlerCtx));
-    // Sort by section so the action menu's section headers stay sticky (items in the same
-    // category render consecutively even when registry order interleaves them).
+    const built = filteredRegistry.map((entry) => buildFlowMenuItem(entry, snapshot, launch));
     return [...built].sort((a, b) => sectionRank(a.section ?? 'other') - sectionRank(b.section ?? 'other'));
-    // setLaunchError is a useState setter (stable identity across renders); the linter can't see
-    // that through the hook boundary once it's threaded in as a plain parameter instead of a
-    // same-scope closure reference.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state, deps, queue, storage, sessions, router, reload, showAll, ui, selection]);
+  }, [state, launch, showAll]);
 
 export const FlowsView = (): React.JSX.Element => {
   const ui = useUiState();
-  const deps = useDeps();
   const selection = useSelection();
-  const router = useRouter();
-  const sessions = useSessionManager();
-  const queue = usePromptQueue();
-  const storage = useStorage();
-  const [launchError, setLaunchError] = useState<string | undefined>(undefined);
   const [showAll, setShowAll] = useState<boolean>(false);
   useViewHints([
     { keys: '↑/↓', label: 'move' },
@@ -468,20 +163,9 @@ export const FlowsView = (): React.JSX.Element => {
   ]);
 
   const { state, reload } = useAppStateSnapshot();
+  const { launch, launchError } = useFlowLauncher({ snapshot: state.kind === 'ok' ? state.value : undefined, reload });
 
-  const items = useFlowMenuItems({
-    state,
-    deps,
-    queue,
-    storage,
-    sessions,
-    router,
-    reload,
-    showAll,
-    ui,
-    selection,
-    setLaunchError,
-  });
+  const items = useFlowMenuItems({ state, launch, showAll });
 
   // Refresh the cached breadcrumb status chip from every fresh snapshot load — flow chains
   // transition the sprint's status on disk (plan → planned, implement → review, close-sprint →

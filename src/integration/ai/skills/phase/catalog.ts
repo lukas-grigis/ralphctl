@@ -33,10 +33,10 @@ import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { FLOW_IDS } from '@src/domain/value/flow-id.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
 import type { WriteFile } from '@src/business/io/write-file.ts';
-import { removeDir } from '@src/integration/io/fs.ts';
+import { isNodeErrnoCode, removeDir } from '@src/integration/io/fs.ts';
 import { CLI_METADATA } from '@src/business/version/cli-metadata.ts';
 import { BUNDLED_SKILLS, type FlowId } from '@src/integration/ai/skills/_engine/registry.ts';
-import { errorCode, parseSkill } from '@src/integration/ai/skills/_engine/parse-skill.ts';
+import { parseSkill } from '@src/integration/ai/skills/_engine/parse-skill.ts';
 import type {
   SkillCatalogEntry,
   SkillCatalogInstall,
@@ -109,7 +109,7 @@ const readInstall = async (
   try {
     raw = await fs.readFile(skillMdPath, 'utf-8');
   } catch (cause) {
-    if (errorCode(cause) === 'ENOENT') return Result.ok(undefined);
+    if (isNodeErrnoCode(cause, 'ENOENT')) return Result.ok(undefined);
     return Result.error(
       new StorageError({
         subCode: 'io',
@@ -176,7 +176,7 @@ const listInstalledNames = async (
   try {
     entries = await fs.readdir(flowRoot, { withFileTypes: true });
   } catch (cause) {
-    if (errorCode(cause) === 'ENOENT') return Result.ok([]);
+    if (isNodeErrnoCode(cause, 'ENOENT')) return Result.ok([]);
     return Result.error(
       new StorageError({ subCode: 'io', message: `phase skills dir not readable: ${flowRoot}`, path: flowRoot, cause })
     );

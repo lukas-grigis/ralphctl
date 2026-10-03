@@ -27,10 +27,10 @@ TCtx` (the implement reducer is `mergeImplementWave`) and `config.onBranchRunner
 - **Abort:** an outer-signal abort forwards `runner.abort()` to every branch, awaits all settles (so
   cleanup runs), and returns `Result.error({error: AbortError, trace})` VERBATIM — never folded into a
   branch outcome. `aborted` always kills immediately.
-- **Rate limit:** `config.onFatal: 'kill' | 'drain'` (default `'drain'`). `'drain'` lets in-flight
-  siblings finish then stops launching the rest of the wave; `'kill'` aborts siblings now. Fatal
-  classification reuses `isRecoverableTurnError` — `aborted`/`rate-limit` are fatal, everything else is
-  absorbed into the branch's `BranchOutcome`.
+- **Rate limit:** no option — it always drains. In-flight siblings finish (so their commits still fold), then the
+  rest of the wave is not launched and the `rate-limit` error is returned verbatim. Fatal classification is
+  `isFatalChainError` — `aborted`/`rate-limit` are fatal, everything else is absorbed into the branch's
+  `BranchOutcome`. (`aborted` still kills immediately.)
 
 ## Reusing a sub-chain across hosts: a nested-runner ADAPTER, not a sixth primitive
 

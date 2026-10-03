@@ -9,7 +9,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
-import { buildMenuItems } from '@src/application/ui/tui/views/home-internals/menu-items.ts';
+import { buildMenuItems, type BuildMenuItemsInput } from '@src/application/ui/tui/views/home-internals/menu-items.ts';
 
 const makeSprint = (n: number): Sprint =>
   ({
@@ -18,6 +18,15 @@ const makeSprint = (n: number): Sprint =>
     status: 'draft',
     tickets: [],
   }) as unknown as Sprint;
+
+const NO_ATTENTION = {
+  waitingRuns: [],
+  interruptedTasks: [],
+  interruptedFacts: new Map(),
+  now: 0,
+  onResumeImplement: vi.fn(),
+  onOpenRun: vi.fn(),
+} as const;
 
 const buildWith = (recentSprints: readonly Sprint[]): ReturnType<typeof buildMenuItems> =>
   buildMenuItems({
@@ -30,6 +39,7 @@ const buildWith = (recentSprints: readonly Sprint[]): ReturnType<typeof buildMen
     selectionSprintId: undefined,
     switchSprintDisabled: undefined,
     addTicketDisabled: undefined,
+    ...NO_ATTENTION,
     onPushHome: vi.fn(),
     onPushAddTicket: vi.fn(),
     onSwitchSprint: vi.fn(),
@@ -63,6 +73,7 @@ describe('buildMenuItems — recent-sprint digit hotkeys', () => {
       selectionSprintId: undefined,
       switchSprintDisabled: undefined,
       addTicketDisabled: undefined,
+      ...NO_ATTENTION,
       onPushHome: vi.fn(),
       onPushAddTicket: vi.fn(),
       onSwitchSprint,
@@ -87,6 +98,7 @@ describe('buildMenuItems — loading placeholder', () => {
       selectionSprintId: undefined,
       switchSprintDisabled: 'no project loaded',
       addTicketDisabled: 'pick a sprint first',
+      ...NO_ATTENTION,
       onPushHome: vi.fn(),
       onPushAddTicket: vi.fn(),
       onSwitchSprint: vi.fn(),
@@ -134,6 +146,7 @@ describe('buildMenuItems — get-started row', () => {
       selectionSprintId: undefined,
       switchSprintDisabled: undefined,
       addTicketDisabled: undefined,
+      ...NO_ATTENTION,
       onPushHome: vi.fn(),
       onPushAddTicket: vi.fn(),
       onSwitchSprint: vi.fn(),
@@ -153,5 +166,88 @@ describe('buildMenuItems — get-started row', () => {
 
   it('withholds it when a project is selected', () => {
     expect(hasCreateRow(build(3, true))).toBe(false);
+  });
+});
+
+describe('buildMenuItems — needs attention', () => {
+  const base = (over: Partial<BuildMenuItemsInput>): ReturnType<typeof buildMenuItems> =>
+    buildMenuItems({
+      hasProject: true,
+      projectCount: 1,
+      stateLoaded: true,
+      loading: false,
+      currentSprint: undefined,
+      recentSprints: [],
+      selectionSprintId: undefined,
+      switchSprintDisabled: undefined,
+      addTicketDisabled: undefined,
+      ...NO_ATTENTION,
+      onPushHome: vi.fn(),
+      onPushAddTicket: vi.fn(),
+      onSwitchSprint: vi.fn(),
+      onLaunchCreateSprint: vi.fn(),
+      ...over,
+    });
+
+  const task = (n: number, startedAt = 0) => ({
+    taskId: `t${String(n)}`,
+    name: `Task ${String(n)}`,
+    attemptN: 2,
+    startedAt,
+  });
+
+  it('does not wrap a task name that already contains quotes', () => {
+    const items = base({
+      interruptedTasks: [{ ...task(1), name: 'Make hello.py print "Hello, world!"' }],
+      now: 60_000,
+    });
+    expect(items[0]?.label).toBe('⚠ [INTERRUPTED] Make hello.py print "Hello, world!" · attempt 2 · 1m ago');
+  });
+
+  it('adds no group while nothing is interrupted or waiting', () => {
+    expect(base({}).some((i) => i.section === 'needs attention')).toBe(false);
+  });
+
+  it('leads the menu with the interrupted task, its age and attempt, and resumes Implement', () => {
+    const onResumeImplement = vi.fn();
+    const items = base({
+      interruptedTasks: [task(1, 0)],
+      interruptedFacts: new Map([['t1', { uncommitted: 3, resumable: true }]]),
+      now: 12 * 60_000,
+      onResumeImplement,
+    });
+    const row = items[0];
+    expect(row?.section).toBe('needs attention');
+    expect(row?.label).toBe('⚠ [INTERRUPTED] Task 1 · attempt 2 · 12m ago');
+    expect(row?.description).toContain('3 uncommitted changes');
+    expect(row?.description).toContain('↵ resumes Implement');
+    row?.onSelect();
+    expect(onResumeImplement).toHaveBeenCalledOnce();
+  });
+
+  it('caps the rows and folds the rest into one that still resumes everything', () => {
+    const items = base({ interruptedTasks: [1, 2, 3, 4, 5].map((n) => task(n)) });
+    const rows = items.filter((i) => i.section === 'needs attention');
+    expect(rows).toHaveLength(4);
+    expect(rows.at(-1)?.label).toBe('2 more interrupted — resume picks them all up');
+  });
+
+  it('lists a run waiting on an answer and opens it', () => {
+    const onOpenRun = vi.fn();
+    const items = base({
+      waitingRuns: [{ sessionId: 's1', title: 'Plan sprint', since: 0 }],
+      now: 3 * 60_000,
+      onOpenRun,
+    });
+    const row = items[0];
+    expect(row?.label).toContain('[WAITING] Plan sprint');
+    expect(row?.label).toContain('3m');
+    row?.onSelect();
+    expect(onOpenRun).toHaveBeenCalledWith('s1');
+  });
+
+  it('offers Housekeeping in the system group', () => {
+    const row = base({}).find((i) => i.id === 'housekeeping');
+    expect(row).toMatchObject({ section: 'system', hotkey: 'H' });
   });
 });

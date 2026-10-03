@@ -14,6 +14,7 @@ import { Card } from '@src/application/ui/tui/components/card.tsx';
 import { sprintStatusKind, StatusChip } from '@src/application/ui/tui/components/status-chip.tsx';
 import { PipelineMap } from '@src/application/ui/tui/components/pipeline-map.tsx';
 import { Spinner } from '@src/application/ui/tui/components/spinner.tsx';
+import { useShortTerminal } from '@src/application/ui/tui/runtime/use-short-terminal.ts';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { computeTaskHealthCounts, type AppStateSnapshot } from '@src/application/ui/shared/state-snapshot.ts';
 import { buildNextSteps, nextStepsInputFromSnapshot } from '@src/application/ui/shared/next-steps.ts';
@@ -117,6 +118,8 @@ const PickOrCreateSprintCard = ({
 
 /** Regime: a sprint is loaded — the main overview with counts + pipeline + next action. */
 const ActiveSprintCard = ({ state }: { readonly state: AppStateSnapshot }): React.JSX.Element => {
+  // Short terminals drop the blank rows between the card's lines so the menu stays above the fold.
+  const gap = useShortTerminal() ? 0 : spacing.section;
   const sprint = state.sprint;
   const project = state.project;
   if (sprint === undefined || project === undefined) return <Box />;
@@ -140,7 +143,7 @@ const ActiveSprintCard = ({ state }: { readonly state: AppStateSnapshot }): Reac
             {project.repositories.length === 1 ? '' : 's'}
           </Text>
         </Box>
-        <Box marginTop={spacing.section}>
+        <Box marginTop={gap}>
           <Text>
             <Text bold>{String(sprint.tickets.length)}</Text>
             <Text dimColor> ticket{sprint.tickets.length === 1 ? '' : 's'} </Text>
@@ -165,10 +168,10 @@ const ActiveSprintCard = ({ state }: { readonly state: AppStateSnapshot }): Reac
             )}
           </Text>
         </Box>
-        <Box marginTop={spacing.section}>
+        <Box marginTop={gap}>
           <PipelineMap status={sprint.status} />
         </Box>
-        <Box marginTop={spacing.section}>
+        <Box marginTop={gap}>
           <NextStepList steps={steps} prefix={`${glyphs.bullet} next: `} />
         </Box>
       </Box>

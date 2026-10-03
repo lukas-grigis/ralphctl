@@ -35,6 +35,7 @@ import { MemoryPressureBanner } from '@src/application/ui/tui/components/memory-
 import { ChainLogDegradedBanner } from '@src/application/ui/tui/components/chain-log-degraded-banner.tsx';
 import { ProgressOverlay } from '@src/application/ui/tui/components/progress-overlay.tsx';
 import { EvaluationOverlay } from '@src/application/ui/tui/components/evaluation-overlay.tsx';
+import { QuitConfirmOverlay } from '@src/application/ui/tui/components/quit-confirm-overlay.tsx';
 
 /**
  * Footer `keys` string for the quit hint. Derived the same way `footerGlobalHints` joins a
@@ -158,7 +159,7 @@ export const Layout = ({ children }: { readonly children: React.ReactNode }): Re
   // closes them (esc / g, esc / v); `selection.sprintId` gates the progress open, and the focused
   // task's recorded verdict gates the evaluation open (view-local, since only a view knows which
   // card is focused).
-  const overlayOpen = ui.progressOpen || ui.evaluationTarget !== undefined;
+  const overlayOpen = ui.progressOpen || ui.evaluationTarget !== undefined || ui.quitRuns !== undefined;
   return (
     <Box flexDirection="column" height={rows}>
       <MemoryPressureBanner />
@@ -166,8 +167,9 @@ export const Layout = ({ children }: { readonly children: React.ReactNode }): Re
       <Box display={overlayOpen ? 'none' : 'flex'} flexDirection="column" flexGrow={1}>
         {children}
       </Box>
-      {ui.progressOpen && <ProgressOverlay />}
-      {!ui.progressOpen && ui.evaluationTarget !== undefined && <EvaluationOverlay />}
+      {ui.quitRuns !== undefined && <QuitConfirmOverlay runs={ui.quitRuns} />}
+      {ui.quitRuns === undefined && ui.progressOpen && <ProgressOverlay />}
+      {ui.quitRuns === undefined && !ui.progressOpen && ui.evaluationTarget !== undefined && <EvaluationOverlay />}
     </Box>
   );
 };

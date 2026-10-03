@@ -1,9 +1,10 @@
 import { Result } from '@src/domain/result.ts';
 import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts';
-import type { ParseError } from '@src/domain/value/error/parse-error.ts';
+import { ParseError } from '@src/domain/value/error/parse-error.ts';
 import type { StorageError } from '@src/domain/value/error/storage-error.ts';
 import { ValidationError } from '@src/domain/value/error/validation-error.ts';
 import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/template-loader.ts';
+import { extractPlaceholders } from '@src/integration/ai/prompts/_engine/extract-placeholders.ts';
 import { assertTemplateKeysFilled, substitute } from '@src/integration/ai/prompts/_engine/substitute.ts';
 import type { ParameterSpec, PromptDefinition } from '@src/integration/ai/prompts/_engine/definition.ts';
 
@@ -29,16 +30,11 @@ const findPartialParameterCollision = <TInput extends object>(
 
 /**
  * Validates each declared parameter against `input` and fills the substitution map with its
- * rendered string value. Extracted from `buildPrompt` so the per-parameter validation logic is
- * independently testable. `partialPlaceholders` is a defensive re-check — `buildPrompt` already
- * rejects a field/partial placeholder collision up front via `findPartialParameterCollision`
- * before any partial is loaded, but a caller that reuses this helper directly (without running
- * that up-front check first) still gets a loud error instead of a silently clobbered value.
+ * rendered string value.
  */
 const validateAndFillParameters = <TInput extends object>(
   def: PromptDefinition<TInput>,
-  input: TInput,
-  partialPlaceholders: ReadonlySet<string>
+  input: TInput
 ): Result<Record<string, string>, ValidationError> => {
   const values: Record<string, string> = {};
 
@@ -47,20 +43,6 @@ const validateAndFillParameters = <TInput extends object>(
   // `TInput` at the type level, and `input` is typed as `TInput` at the call site.
   for (const [field, rawSpec] of Object.entries(def.parameters) as Array<[string, ParameterSpec<unknown>]>) {
     const spec = rawSpec;
-
-    if (partialPlaceholders.has(spec.placeholder)) {
-      return Result.error(
-        new ValidationError({
-          field,
-          value: spec.placeholder,
-          message:
-            `buildPrompt(${def.templateName}): parameter '${field}' declares placeholder ` +
-            `{{${spec.placeholder}}}, which collides with an auto-loaded partial slot of the same ` +
-            `name — rename one of them.`,
-        })
-      );
-    }
-
     const rawValue = (input as Record<string, unknown>)[field];
 
     if (rawValue === undefined || rawValue === null) {
@@ -86,11 +68,37 @@ const validateAndFillParameters = <TInput extends object>(
   return Result.ok(values);
 };
 
+// Partials are inserted verbatim (trimmed), so a placeholder inside one could never be filled.
+const loadPartials = async <TInput extends object>(
+  loader: TemplateLoader,
+  def: PromptDefinition<TInput>
+): Promise<Result<Record<string, string>, StorageError | ParseError>> => {
+  const values: Record<string, string> = {};
+  for (const [placeholder, name] of Object.entries(def.partials ?? {})) {
+    const partial = await loader.load(name);
+    if (!partial.ok) return Result.error(partial.error);
+    const nested = extractPlaceholders(partial.value);
+    if (nested.length > 0) {
+      return Result.error(
+        new ParseError({
+          subCode: 'schema-mismatch',
+          message:
+            `buildPrompt(${def.templateName}): partial '${name}' contains placeholder(s) ` +
+            `${nested.map((k) => `{{${k}}}`).join(', ')} — partials are inserted verbatim (single pass), ` +
+            `so placeholders inside them are never filled.`,
+        })
+      );
+    }
+    values[placeholder] = partial.value.trim();
+  }
+  return Result.ok(values);
+};
+
 /**
  * Generic prompt builder. Reads a `PromptDefinition` and a typed input bag, loads the
  * template + any partials, validates each input field via its spec, runs substitution, and
  * brands the result as `Prompt` after `assertTemplateKeysFilled` confirms every placeholder
- * the template (and partials) declares received a value. The fence is TEMPLATE-side on
+ * the template declares received a value. The fence is TEMPLATE-side on
  * purpose: substituted values may legally contain placeholder-shaped literals (AI-authored
  * journal/critique text quoting a `{{TOKEN}}`), which pass through verbatim as inert prose.
  *
@@ -102,6 +110,7 @@ const validateAndFillParameters = <TInput extends object>(
  *  - Missing template or partial → `StorageError(io)`
  *  - Required input missing or `validate` rejected → `ValidationError`
  *  - Placeholder not filled (template/manifest drift) → `ParseError(schema-mismatch)`
+ *  - Partial body contains a placeholder (never filled, single pass) → `ParseError(schema-mismatch)`
  */
 export const buildPrompt = async <TInput extends object>(
   loader: TemplateLoader,
@@ -112,7 +121,6 @@ export const buildPrompt = async <TInput extends object>(
   if (!template.ok) return Result.error(template.error);
 
   const values: Record<string, string> = {};
-  const partialBodies: string[] = [];
   const partialPlaceholders = new Set<string>(def.partials !== undefined ? Object.keys(def.partials) : []);
 
   const collision = findPartialParameterCollision(def, partialPlaceholders);
@@ -130,21 +138,12 @@ export const buildPrompt = async <TInput extends object>(
     );
   }
 
-  // Auto-loaded partials. Bodies are trimmed so trailing whitespace from the partial file
-  // doesn't bleed into the rendered prompt. The bodies are also kept for the template-side
-  // fence: a placeholder INSIDE a partial survives the single-pass substitution, so its keys
-  // count as template-declared.
-  if (def.partials !== undefined) {
-    for (const [placeholder, name] of Object.entries(def.partials)) {
-      const partial = await loader.load(name);
-      if (!partial.ok) return Result.error(partial.error);
-      values[placeholder] = partial.value.trim();
-      partialBodies.push(partial.value);
-    }
-  }
+  const partials = await loadPartials(loader, def);
+  if (!partials.ok) return Result.error(partials.error);
+  Object.assign(values, partials.value);
 
   // Per-parameter validation + substitution.
-  const filled = validateAndFillParameters(def, input, partialPlaceholders);
+  const filled = validateAndFillParameters(def, input);
   if (!filled.ok) return Result.error(filled.error);
   Object.assign(values, filled.value);
 
@@ -153,5 +152,5 @@ export const buildPrompt = async <TInput extends object>(
     if (spec.untrusted !== undefined) untrusted[spec.placeholder] = spec.untrusted.source;
   }
   const rendered = substitute(template.value, values, untrusted);
-  return assertTemplateKeysFilled(rendered, template.value, partialBodies, values, `buildPrompt(${def.templateName})`);
+  return assertTemplateKeysFilled(rendered, template.value, values, `buildPrompt(${def.templateName})`);
 };

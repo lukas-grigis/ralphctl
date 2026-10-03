@@ -13,3 +13,14 @@
 - [project_outcome_report_card.md](project_outcome_report_card.md) — Empty-state predicate counts declared criteria; empty fixtures need `tasks: []`
 - [project_token_decisions.md](project_token_decisions.md) — focusBar codepoint, colourless unknownGlyph, `↑/↓`-only hint strips, joinCounts separator
 - [../implementer/seams_tui_architecture_patterns.md](../implementer/seams_tui_architecture_patterns.md) — (implementer's) global modal overlay, clipboard yank, clip markers, hint single-source, coalescer, prompt cancel-vs-abort
+- [project_scroll_region_anchor_rerender.md](project_scroll_region_anchor_rerender.md) — Anchor registration must re-render ScrollRegion; height-pin the root in scroll tests; cue rows cost a row
+- [project_keyboard_ownership.md](project_keyboard_ownership.md) — Overlay-over-prompt ownership, muted view keys, ctrl chords, one-line header/footer chrome
+- [project_pipeline_and_next_steps.md](project_pipeline_and_next_steps.md) — Pipeline stage must match first flow row of buildNextSteps; flow rows keyless; name not in detail body
+- [project_tones_and_no_color.md](project_tones_and_no_color.md) — tones token, ListCard rows, NO_COLOR launch ordering, chalk-level test trick
+- [project_destructive_confirms.md](project_destructive_confirms.md) — ConfirmCard title/body/message, two-step project removal, multi-step confirm traps
+- [project_ink_row_shrink_and_probe_traps.md](project_ink_row_shrink_and_probe_traps.md) — Row Box shrink eats cursors/adds blank lines; pty probe batching + partial-frame artefacts; drill-in location rule
+- [project_esc_typeahead_and_updater_traps.md](project_esc_typeahead_and_updater_traps.md) — View esc + global pop double-fires, updater-ref lag
+- [project_quit_and_interrupted.md](project_quit_and_interrupted.md) — Ink exitOnCtrlC kills ctrl+c handlers, hidden prompts read keys under overlays, interrupted-row limits
+- [project_revamp_rollback.md](project_revamp_rollback.md) — Sections/tab-bar revamp rejected; original TUI + keep-list is the base
+- [project_strictmode_updater_purity_probe.md](project_strictmode_updater_purity_probe.md) — StrictMode test exposes impure setState updaters; fake-timer vs polling-helper stall
+- [project_fixed_columns_and_fake_clock_tests.md](project_fixed_columns_and_fake_clock_tests.md) — Fixed-width timeline columns; settle-jump-advance recipe for proving a fake-clock tick

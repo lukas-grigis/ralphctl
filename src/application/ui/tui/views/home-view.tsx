@@ -27,7 +27,12 @@ import { useAppStateSnapshot } from '@src/application/ui/tui/runtime/use-app-sta
 import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx';
 import { useLaunchCreateSprint } from '@src/application/ui/tui/runtime/use-launch-create-sprint.ts';
 import { StateCard } from '@src/application/ui/tui/views/home-internals/state-card.tsx';
-import { buildMenuItems } from '@src/application/ui/tui/views/home-internals/menu-items.ts';
+import { buildMenuItems, type WaitingRun } from '@src/application/ui/tui/views/home-internals/menu-items.ts';
+import { useSessions } from '@src/application/ui/tui/runtime/sessions-context.tsx';
+import { useAwaitingSessions } from '@src/application/ui/tui/runtime/use-awaiting-sessions.ts';
+import { useInterrupted } from '@src/application/ui/tui/views/home-internals/use-interrupted.ts';
+import { useResumeLaunch } from '@src/application/ui/tui/views/home-internals/use-resume-launch.ts';
+import type { AppStateSnapshot } from '@src/application/ui/shared/state-snapshot.ts';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
 
 type SelectionApi = ReturnType<typeof useSelection>;
@@ -148,7 +153,13 @@ interface HomeMenuItemsArgs {
   readonly switchSprintDisabled: string | undefined;
   readonly addTicketDisabled: string | undefined;
   readonly launchCreateSprint: () => Promise<void>;
+  readonly interrupted: ReturnType<typeof useInterrupted>;
+  readonly resumeImplement: () => void;
+  readonly waitingRuns: readonly WaitingRun[];
 }
+
+/** Minute-level age labels need only a slow refresh. */
+const HOME_CLOCK_TICK_MS = 30_000;
 
 /** Builds the action-menu rows via {@link buildMenuItems}, wiring each callback to the router /
  *  selection / create-sprint launcher. Isolated so the orchestrator's dependency array doesn't
@@ -165,8 +176,19 @@ const useHomeMenuItems = ({
   switchSprintDisabled,
   addTicketDisabled,
   launchCreateSprint,
-}: HomeMenuItemsArgs): ReturnType<typeof buildMenuItems> =>
-  useMemo(
+  interrupted,
+  resumeImplement,
+  waitingRuns,
+}: HomeMenuItemsArgs): ReturnType<typeof buildMenuItems> => {
+  // The `[WAITING] … 12m` / `interrupted … ago` labels read the clock: a slow tick keeps the memo from freezing them.
+  const [clockTick, tick] = useReducer((n: number) => n + 1, 0);
+  const hasAgedRows = waitingRuns.length > 0 || interrupted.tasks.length > 0;
+  useEffect(() => {
+    if (!hasAgedRows) return undefined;
+    const id = setInterval(tick, HOME_CLOCK_TICK_MS);
+    return (): void => clearInterval(id);
+  }, [hasAgedRows]);
+  return useMemo(
     () =>
       buildMenuItems({
         hasProject,
@@ -178,6 +200,12 @@ const useHomeMenuItems = ({
         selectionSprintId: selection.sprintId,
         switchSprintDisabled,
         addTicketDisabled,
+        waitingRuns,
+        interruptedTasks: interrupted.tasks,
+        interruptedFacts: interrupted.facts,
+        now: Date.now(),
+        onResumeImplement: resumeImplement,
+        onOpenRun: (sessionId) => router.push({ id: 'execute', props: { sessionId } }),
         onPushHome: (id) => router.push({ id }),
         onPushAddTicket: (sprintId) => router.push({ id: 'add-ticket', props: { sprintId } }),
         onSwitchSprint: (s) => selection.setSprint(s.id, s.name, s.status),
@@ -185,6 +213,7 @@ const useHomeMenuItems = ({
           void launchCreateSprint();
         },
       }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `clockTick` re-reads `Date.now()` for the age labels
     [
       router,
       hasProject,
@@ -197,8 +226,13 @@ const useHomeMenuItems = ({
       recentSprints,
       currentSprint,
       launchCreateSprint,
+      interrupted,
+      resumeImplement,
+      waitingRuns,
+      clockTick,
     ]
   );
+};
 
 /** The two transient feedback lines shown above the action menu — switch confirmation and
  *  local errors are mutually rare, but both may in principle be visible in the same render. */
@@ -225,12 +259,74 @@ const HomeFeedbackLines = ({
   </>
 );
 
+/** Running sessions parked on a prompt, oldest first. */
+const useWaitingRuns = (): readonly WaitingRun[] => {
+  const sessions = useSessions();
+  const awaiting = useAwaitingSessions();
+  return useMemo(
+    () =>
+      sessions
+        .filter((s) => s.descriptor.status === 'running' && awaiting.has(s.descriptor.id))
+        .map((s) => ({
+          sessionId: s.descriptor.id,
+          title: s.descriptor.title,
+          since: awaiting.get(s.descriptor.id) ?? s.descriptor.startedAt,
+        }))
+        .sort((a, b) => a.since - b.since),
+    [sessions, awaiting]
+  );
+};
+
+/** What needs the operator before anything else: runs parked on a prompt and tasks a dead harness left behind. */
+const useAttention = (
+  snapshot: AppStateSnapshot | undefined,
+  reload: () => void
+): {
+  readonly waitingRuns: readonly WaitingRun[];
+  readonly interrupted: ReturnType<typeof useInterrupted>;
+  readonly resumeImplement: () => void;
+  readonly launchError: string | undefined;
+} => {
+  const waitingRuns = useWaitingRuns();
+  const interrupted = useInterrupted(snapshot);
+  const { resume, launchError } = useResumeLaunch(snapshot, reload, interrupted.dismissStale);
+  return { waitingRuns, interrupted, resumeImplement: resume, launchError };
+};
+
+/** Why the quick actions are unavailable, straight from the snapshot — `undefined` means available. */
+const gatingReasons = (
+  hasProject: boolean,
+  currentSprint: Sprint | undefined
+): { readonly switchSprintDisabled: string | undefined; readonly addTicketDisabled: string | undefined } => ({
+  switchSprintDisabled: !hasProject ? 'no project loaded' : undefined,
+  addTicketDisabled:
+    currentSprint === undefined
+      ? 'pick a sprint first'
+      : currentSprint.status !== 'draft'
+        ? `sprint is ${currentSprint.status} — tickets can only be added in draft`
+        : undefined,
+});
+
+/**
+ * Initial cursor: an interrupted task first (↵ resumes it), otherwise the row matching the current
+ * selection so the user lands on their working sprint. The menu owns the cursor; this is only the seed.
+ */
+const initialMenuIndexFor = (
+  hasAttention: boolean,
+  currentSprint: Sprint | undefined,
+  recentSprints: readonly Sprint[]
+): number => {
+  if (hasAttention || currentSprint === undefined) return 0;
+  const idx = recentSprints.findIndex((s) => s.id === currentSprint.id);
+  return idx >= 0 ? idx : 0;
+};
+
 export const HomeView = (): React.JSX.Element => {
   const router = useRouter();
   const ui = useUiState();
   const selection = useSelection();
 
-  const { state } = useAppStateSnapshot();
+  const { state, reload } = useAppStateSnapshot();
 
   const snapshot = state.kind === 'ok' ? state.value : undefined;
   const hasProject = snapshot?.project !== undefined;
@@ -252,6 +348,8 @@ export const HomeView = (): React.JSX.Element => {
   // re-run whenever this render's `??` would allocate a fresh `[]`.
   const recentSprints = useMemo(() => snapshot?.recentSprints ?? [], [snapshot?.recentSprints]);
 
+  const { waitingRuns, interrupted, resumeImplement, launchError } = useAttention(snapshot, reload);
+
   const { visible: switchToastVisible, lastSwitch } = useSwitchToast(selection);
   const { localError, flashErr } = useLocalErrorFlash();
 
@@ -271,24 +369,12 @@ export const HomeView = (): React.JSX.Element => {
     launchCreateSprint,
   });
 
-  // Gating reasons for the two new quick actions. Computed inline so the menu's `disabledReason`
-  // pulls directly from the snapshot — no extra effect / state needed.
-  const switchSprintDisabled = !hasProject ? 'no project loaded' : undefined;
-  const addTicketDisabled =
-    currentSprint === undefined
-      ? 'pick a sprint first'
-      : currentSprint.status !== 'draft'
-        ? `sprint is ${currentSprint.status} — tickets can only be added in draft`
-        : undefined;
-
-  // Initial cursor: prefer the row that matches the current selection so the user lands on
-  // their working sprint instead of the top of the list. `useMemo` instead of state because the
-  // menu owns the cursor; this is only the seed.
-  const initialMenuIndex = useMemo<number>(() => {
-    if (currentSprint === undefined) return 0;
-    const idx = recentSprints.findIndex((s) => s.id === currentSprint.id);
-    return idx >= 0 ? idx : 0;
-  }, [currentSprint, recentSprints]);
+  const { switchSprintDisabled, addTicketDisabled } = gatingReasons(hasProject, currentSprint);
+  const hasAttention = interrupted.tasks.length > 0 || waitingRuns.length > 0;
+  const initialMenuIndex = useMemo(
+    () => initialMenuIndexFor(hasAttention, currentSprint, recentSprints),
+    [hasAttention, currentSprint, recentSprints]
+  );
 
   const items = useHomeMenuItems({
     router,
@@ -302,6 +388,9 @@ export const HomeView = (): React.JSX.Element => {
     switchSprintDisabled,
     addTicketDisabled,
     launchCreateSprint,
+    interrupted,
+    resumeImplement,
+    waitingRuns,
   });
 
   return (
@@ -314,10 +403,16 @@ export const HomeView = (): React.JSX.Element => {
           <HomeFeedbackLines
             switchToastVisible={switchToastVisible}
             switchLabel={lastSwitch?.sprintLabel}
-            localError={localError}
+            localError={localError ?? launchError}
           />
           <Box marginY={spacing.section}>
-            <ActionMenu items={items} active={!ui.modalOpen} initialIndex={initialMenuIndex} />
+            {/* Remount when the attention group first appears (the ownership check lands after mount) so the cursor seeds onto it. */}
+            <ActionMenu
+              key={hasAttention ? 'attention' : 'plain'}
+              items={items}
+              active={!ui.modalOpen}
+              initialIndex={initialMenuIndex}
+            />
           </Box>
         </Box>
       )}

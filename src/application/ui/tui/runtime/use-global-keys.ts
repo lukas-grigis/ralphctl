@@ -1,13 +1,14 @@
 /**
  * Global keyboard handler. Mounted once at the app root; suspended whenever a prompt is in
  * flight or the help overlay is open so the underlying view's local handler doesn't fight the
- * modal. Quitting (`q` / Ctrl-C) is allowed to win unconditionally — it's the operator's escape
- * hatch.
+ * modal. Ctrl-C always asks to quit (confirming first when runs are live); an open overlay stays
+ * closable even while a prompt is queued beneath it.
  */
 
 import type { MutableRefObject } from 'react';
 import { useEffect, useMemo, useRef } from 'react';
 import { useApp, useInput, type Key } from 'ink';
+import { countRunning } from '@src/application/ui/tui/runtime/quit-runs.ts';
 import { useRouter, type RouterApi, type ViewEntry } from '@src/application/ui/tui/runtime/router.tsx';
 import type { ViewId } from '@src/application/ui/tui/views/view-registry.tsx';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
@@ -57,12 +58,23 @@ export const useGlobalKeys = (opts: UseGlobalKeysOptions = {}): void => {
     []
   );
 
+  // Live runs get a confirm; with none, quitting is immediate.
+  const quit = (): void => {
+    const runs = countRunning(sessions.list());
+    if (runs === 0) exit();
+    else ui.openQuit(runs);
+  };
+
   useInput((input, key) => {
-    if (handleQuitChord(input, key, router, opts.disabled, exit)) return;
-    if (opts.disabled) return;
+    // The quit confirm owns every key, ctrl+c included; its own handler answers.
+    if (ui.quitRuns !== undefined) return;
+    if (handleQuitChord(input, key, router, opts.disabled, quit, ui.overlayOpen)) return;
+    // A prompt mutes the ambient keys, but an open overlay (hiding that prompt) must stay closable.
+    if (opts.disabled && !ui.overlayOpen) return;
     if (handleHelpOverlay(ui, input, key)) return;
     if (handleProgressOverlay(ui, selection, input, key)) return;
     if (handleEvaluationOverlay(ui, input, key)) return;
+    if (opts.disabled) return;
     if (handleSessionNav(sessions, router, input, key)) return;
 
     if (key.escape && !ui.escapeClaimed) {
@@ -75,16 +87,17 @@ export const useGlobalKeys = (opts: UseGlobalKeysOptions = {}): void => {
   });
 };
 
-/** Quitting (`Ctrl-C` anywhere, or `q` on Home) is the operator's escape hatch — it always wins. */
+/** `Ctrl-C` anywhere quits; `q` is a plain letter, so only a bare Home — never through a prompt or an open overlay. */
 const handleQuitChord = (
   input: string,
   key: Key,
   router: { current: ViewEntry },
   disabled: boolean | undefined,
-  exit: () => void
+  quit: () => void,
+  overlayOpen: boolean
 ): boolean => {
-  if ((key.ctrl && input === 'c') || (input === 'q' && router.current.id === 'home' && !disabled)) {
-    exit();
+  if ((key.ctrl && input === 'c') || (input === 'q' && router.current.id === 'home' && !disabled && !overlayOpen)) {
+    quit();
     return true;
   }
   return false;

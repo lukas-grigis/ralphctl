@@ -1,11 +1,6 @@
 /**
- * Prompt host — the React side of the prompt queue. Subscribes to the queue, renders the head
- * prompt component, and maps user actions back to `resolveHead` / `rejectHead`. While a prompt
- * is mounted, the global key handler is suspended (via `UiState.promptActive`) so view-level
- * keys can't fight the modal.
- *
- * The host renders nothing when the queue is empty — composers can mount it unconditionally
- * and trust it to stay invisible until needed.
+ * Prompt host — the React side of the prompt queue. Subscribes to the queue, renders the head prompt component, and
+ * maps user actions back to `resolveHead` / `rejectHead`.
  */
 
 import React, { useEffect, useState } from 'react';
@@ -17,15 +12,35 @@ import { TextAreaPrompt } from '@src/application/ui/tui/prompts/text-area-prompt
 import { ConfirmPrompt } from '@src/application/ui/tui/prompts/confirm-prompt.tsx';
 import { SelectPrompt } from '@src/application/ui/tui/prompts/select-prompt.tsx';
 import { MultiSelectPrompt } from '@src/application/ui/tui/prompts/multi-select-prompt.tsx';
+import { flowIdToTitle } from '@src/application/ui/shared/flow-title.ts';
+import { useOptionalRouter } from '@src/application/ui/tui/runtime/router.tsx';
+import { useOptionalSessionManager } from '@src/application/ui/tui/runtime/sessions-context.tsx';
 import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 
 export interface PromptHostProps {
   readonly queue: PromptQueue;
 }
 
+/** `<Flow> · <sprint>` for a prompt raised by a run other than the one on screen; otherwise undefined. */
+const usePromptOrigin = (head: PendingPrompt | undefined): string | undefined => {
+  const router = useOptionalRouter();
+  const sessions = useOptionalSessionManager();
+  const sessionId = head?.sessionId;
+  if (sessionId === undefined || sessions === undefined) return undefined;
+  const current = router?.current;
+  if (current?.id === 'execute' && current.props?.sessionId === sessionId) return undefined;
+  const descriptor = sessions.get(sessionId)?.descriptor;
+  if (descriptor === undefined) return undefined;
+  const flow = flowIdToTitle(descriptor.flowId);
+  return descriptor.pinnedSprintLabel !== undefined
+    ? `${flow} ${glyphs.inlineDot} ${descriptor.pinnedSprintLabel}`
+    : flow;
+};
+
 export const PromptHost = ({ queue }: PromptHostProps): React.JSX.Element | null => {
   const [head, setHead] = useState<PendingPrompt | undefined>(() => queue.head);
   const ui = useUiState();
+  const origin = usePromptOrigin(head);
 
   useEffect(() => {
     const sync = (): void => {
@@ -35,13 +50,8 @@ export const PromptHost = ({ queue }: PromptHostProps): React.JSX.Element | null
     return queue.subscribe(sync);
   }, [queue]);
 
-  // Claim the global-key mute only while a queued prompt is mounted. The previous code set
-  // `promptActive=false` whenever the queue was empty, which clobbered view-level claims
-  // (wizards setting it to true) on every commit cycle.
-  //
-  // Stash `claimPrompt` in a local so the effect depends on the stable callback — depending on
-  // `ui` itself would re-fire whenever any unrelated UI state (helpOpen, claims counter, …)
-  // toggled, which would release + re-claim the mute on every keystroke.
+  // Claim the global-key mute only while a queued prompt is mounted. Depend on the stable callback, not `ui`, or the
+  // mute is released and re-claimed on every UI state change.
   const claimPrompt = ui.claimPrompt;
   useEffect(() => (head !== undefined ? claimPrompt() : undefined), [head, claimPrompt]);
 
@@ -60,14 +70,23 @@ export const PromptHost = ({ queue }: PromptHostProps): React.JSX.Element | null
         <Text color={inkColors.primary} bold>
           {glyphs.badge} Question{queue.size > 1 ? ` (${String(queue.size)} pending)` : ''}
         </Text>
+        {origin !== undefined && <Text dimColor>{`  from ${origin}`}</Text>}
       </Box>
-      {renderPrompt(head, queue)}
+      {/* Keyed per prompt so back-to-back prompts of one kind never share a buffer or focus. */}
+      <React.Fragment key={head.id}>{renderPrompt(head, queue)}</React.Fragment>
     </Box>
   );
 };
 
 const renderPrompt = (prompt: PendingPrompt, queue: PromptQueue): React.JSX.Element => {
-  const cancel = (): void => queue.rejectHead(new Error('cancelled by user'));
+  // A stale prompt's handler can fire once more before unmount; never let it answer the next head.
+  const isLive = (): boolean => queue.head?.id === prompt.id;
+  const submit = (value: unknown): void => {
+    if (isLive()) queue.resolveHead(value);
+  };
+  const cancel = (): void => {
+    if (isLive()) queue.rejectHead(new Error('cancelled by user'));
+  };
 
   switch (prompt.kind) {
     case 'text':
@@ -75,7 +94,8 @@ const renderPrompt = (prompt: PendingPrompt, queue: PromptQueue): React.JSX.Elem
         <TextPrompt
           message={prompt.message}
           {...(prompt.initial !== undefined ? { initial: prompt.initial } : {})}
-          onSubmit={(value): void => queue.resolveHead(value)}
+          {...(prompt.validate !== undefined ? { validate: prompt.validate } : {})}
+          onSubmit={submit}
           onCancel={cancel}
         />
       );
@@ -84,7 +104,7 @@ const renderPrompt = (prompt: PendingPrompt, queue: PromptQueue): React.JSX.Elem
         <TextAreaPrompt
           message={prompt.message}
           {...(prompt.initial !== undefined ? { initial: prompt.initial } : {})}
-          onSubmit={(value): void => queue.resolveHead(value)}
+          onSubmit={submit}
           onCancel={cancel}
         />
       );
@@ -92,26 +112,20 @@ const renderPrompt = (prompt: PendingPrompt, queue: PromptQueue): React.JSX.Elem
       return (
         <ConfirmPrompt
           message={prompt.message}
-          onSubmit={(value): void => queue.resolveHead(value)}
+          {...(prompt.defaultValue !== undefined ? { defaultYes: prompt.defaultValue } : {})}
+          onSubmit={submit}
           onCancel={cancel}
         />
       );
     case 'choice':
-      return (
-        <SelectPrompt
-          message={prompt.message}
-          options={prompt.options}
-          onSubmit={(value): void => queue.resolveHead(value)}
-          onCancel={cancel}
-        />
-      );
+      return <SelectPrompt message={prompt.message} options={prompt.options} onSubmit={submit} onCancel={cancel} />;
     case 'multi-choice':
       return (
         <MultiSelectPrompt
           message={prompt.message}
           options={prompt.options}
           {...(prompt.initial !== undefined ? { initialSelectedValues: prompt.initial } : {})}
-          onSubmit={(values): void => queue.resolveHead(values)}
+          onSubmit={submit}
           onCancel={cancel}
         />
       );

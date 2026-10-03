@@ -6,10 +6,10 @@ import type { InvalidStateError } from '@src/domain/value/error/invalid-state-er
 import { isOpencodeModelIdShape } from '@src/domain/value/settings-models/opencode.ts';
 import { resolveWritableRoots } from '@src/integration/ai/providers/_engine/resolve-roots.ts';
 import { validateModel } from '@src/integration/ai/providers/_engine/validate-model.ts';
-import { type ProviderSpawn, defaultProviderSpawn } from '@src/integration/ai/providers/_engine/spawn.ts';
 import { DEFAULT_RATE_LIMIT_RE } from '@src/integration/ai/providers/_engine/classify-spawn-exit.ts';
 import type { AttemptOutcome } from '@src/integration/ai/providers/_engine/attempt-outcome.ts';
 import {
+  type AttemptBase,
   createHeadlessProvider,
   emitTokenUsage,
   runProviderAttempt,
@@ -59,7 +59,7 @@ import { createOpencodeAttemptTracker } from '@src/integration/ai/providers/open
  * prompting (verified — a no-`--auto` run created a file). There is therefore NO argv spelling
  * of `canModifyRepoFiles: false`.
  *
- * This is the same shape as the codex `sandboxFor` situation and takes the same answer: path
+ * This is the same shape as the codex `CODEX_SANDBOX` situation and takes the same answer: path
  * topology (`--dir` plus `outputDir`) is the real safety envelope, not the approval flag. The
  * over-grant is named here rather than hidden. `--auto` is still forwarded for `autoApprove`
  * profiles because it promotes the tool classes an operator's `opencode.json` sets to `ask`,
@@ -151,24 +151,18 @@ export const buildOpencodeArgs = (session: AiSession): Result<readonly string[],
 };
 
 interface RunOpencodeAttemptOpts {
-  readonly spawnFn: ProviderSpawn;
-  readonly command: string;
-  readonly deps: HeadlessProviderDeps;
+  readonly base: AttemptBase;
 }
 
 /** Run one OpenCode spawn attempt with a fresh tracker wired into the stdout hooks. */
-const runOpencodeAttempt = (
-  attemptSession: AiSession,
-  { spawnFn, command, deps }: RunOpencodeAttemptOpts
-): Promise<AttemptOutcome> => {
+const runOpencodeAttempt = (attemptSession: AiSession, { base }: RunOpencodeAttemptOpts): Promise<AttemptOutcome> => {
   const built = buildOpencodeArgs(attemptSession);
   if (!built.ok) return Promise.resolve({ kind: 'error', error: built.error });
 
-  const tracker = createOpencodeAttemptTracker(deps.eventBus);
+  const tracker = createOpencodeAttemptTracker(base.eventBus);
 
   return runProviderAttempt({
-    spawnFn,
-    command,
+    ...base,
     args: built.value,
     session: attemptSession,
     resolveOn: 'exit',
@@ -188,33 +182,23 @@ const runOpencodeAttempt = (
     emitProviderTokenUsage: (sessionId_) => {
       const inputTokens = tracker.getInputTokens();
       const outputTokens = tracker.getOutputTokens();
-      return emitTokenUsage(deps.eventBus, attemptSession, sessionId_, {
+      return emitTokenUsage(base.eventBus, attemptSession, sessionId_, {
         provider: 'opencode',
         model: attemptSession.model,
         ...(inputTokens !== undefined ? { inputTokens } : {}),
         ...(outputTokens !== undefined ? { outputTokens } : {}),
       });
     },
-    providerName: PROVIDER_NAME,
-    providerSlug: 'opencode',
-    eventBus: deps.eventBus,
-    ...(deps.idleMs !== undefined ? { idleMs: deps.idleMs } : {}),
   });
 };
 
-export const createOpencodeProvider = (deps: HeadlessProviderDeps): HeadlessAiProvider => {
-  const spawnFn: ProviderSpawn = deps.spawn ?? defaultProviderSpawn;
-  const command = deps.command ?? 'opencode';
-
-  return createHeadlessProvider({
+export const createOpencodeProvider = (deps: HeadlessProviderDeps): HeadlessAiProvider =>
+  createHeadlessProvider({
     providerSlug: 'opencode',
-    providerName: PROVIDER_NAME,
+    deps,
+    defaultCommand: 'opencode',
     resumeStaleRe: RESUME_STALE_RE,
-    rateLimitRetries: deps.rateLimitRetries,
-    eventBus: deps.eventBus,
-    ...(deps.backoffSchedule !== undefined ? { backoffSchedule: deps.backoffSchedule } : {}),
-    createGenerateContext: () => ({
-      attempt: (attemptSession) => runOpencodeAttempt(attemptSession, { spawnFn, command, deps }),
+    createGenerateContext: (base) => ({
+      attempt: (attemptSession) => runOpencodeAttempt(attemptSession, { base }),
     }),
   });
-};

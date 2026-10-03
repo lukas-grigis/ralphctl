@@ -149,7 +149,7 @@ export const createGenEvalLoop = (
       stampImplementGeneratorSessionMetaLeaf({ writeFile: deps.writeFile, clock: deps.clock }, generatorSpawn, taskId),
       stampGeneratorRoleMetaLeaf(
         { writeFile: deps.writeFile, clock: deps.clock, logger: deps.logger },
-        { ...generatorSpawn, provider: generatorSpawn.providerId },
+        { ...generatorSpawn, provider: generatorSpawn.providerId, cwd: String(opts.cwd) },
         taskId
       ),
       generatorLeaf(generatorLeafDeps, taskId),
@@ -164,7 +164,7 @@ export const createGenEvalLoop = (
           ),
           stampEvaluatorRoleMetaLeaf(
             { writeFile: deps.writeFile, clock: deps.clock, logger: deps.logger },
-            { ...evaluatorSpawn, provider: evaluatorSpawn.providerId },
+            { ...evaluatorSpawn, provider: evaluatorSpawn.providerId, cwd: String(opts.cwd) },
             taskId
           ),
           evaluatorLeaf(evaluatorLeafDeps, taskId),

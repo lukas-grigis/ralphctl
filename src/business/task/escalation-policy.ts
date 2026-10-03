@@ -1,11 +1,17 @@
 import { Result } from '@src/domain/result.ts';
+import { budgetedAttemptCount } from '@src/domain/entity/task-attempts.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
 import { escalationLadderCyclicFrom, mergeEscalationMap, nextEffortRung } from '@src/business/task/escalation-map.ts';
 import { type AiProvider, remapRetiredModel } from '@src/domain/entity/settings.ts';
 import type { PlateauSource } from '@src/domain/entity/attempt.ts';
 import type { InProgressTask, Task } from '@src/domain/entity/task.ts';
-import { recordTaskEscalation } from '@src/domain/entity/task-settle.ts';
+import {
+  recordTaskBestOfNGrant,
+  recordTaskEffortEscalation,
+  recordTaskEscalation,
+  recordTaskEvaluatorEffortEscalation,
+} from '@src/domain/entity/task-settle.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import type { ValidationError } from '@src/domain/value/error/validation-error.ts';
 
@@ -298,10 +304,11 @@ export const decideEscalation = (props: DecideEscalationProps): EscalationDecisi
   // back to the configured `settings.harness.maxAttempts` rather than letting the budget check
   // go silent (which would let a legacy task climb the ladder unbounded). Domain entity untouched.
   const effectiveMaxAttempts = props.task.maxAttempts ?? props.fallbackMaxAttempts;
-  const budgetExhausted = props.task.attempts.length >= effectiveMaxAttempts;
+  const attemptsUsed = budgetedAttemptCount(props.task);
+  const budgetExhausted = attemptsUsed >= effectiveMaxAttempts;
   const budgetExhaustedDecision: EscalationDecision = {
     kind: 'budget-exhausted',
-    attemptsUsed: props.task.attempts.length,
+    attemptsUsed,
     maxAttempts: effectiveMaxAttempts,
   };
 
@@ -400,13 +407,6 @@ export interface ApplyEscalationProps {
 
 export interface ApplyEscalationOutput {
   readonly task: InProgressTask;
-  /**
-   * Reserved for a future decision that needs settle-attempt to block the task. No current
-   * decision sets it — an escalatable exit never blocks, so escalate / escalate-effort / nudge stay
-   * `in_progress` and flag-off / topped-out / budget-exhausted preserve the work
-   * (done-with-warning). The caller still threads it through defensively.
-   */
-  readonly blockedReason?: string;
 }
 
 /**
@@ -431,13 +431,22 @@ const publishBanner = (ctx: AnnounceContext, tier: 'info' | 'warn', message: str
   ctx.eventBus.publish({ type: BANNER_SHOW_EVENT, id: ctx.bannerId, tier, message, cause, at: ctx.now });
 };
 
-/** A stronger model rung exists — stamp the bump on the task and narrate it (plus the evaluator's
- * lockstep effort bump, when present — mirrors `announceEffortEscalation`'s banner style). */
+/** Stamp the evaluator's lockstep effort bump when the decision carries one; a no-op otherwise. */
+const stampEvaluatorEffort = (
+  task: InProgressTask,
+  evaluator: { readonly to: string } | undefined
+): Result<InProgressTask, ValidationError> =>
+  evaluator === undefined ? Result.ok(task) : recordTaskEvaluatorEffortEscalation(task, evaluator.to);
+
+/** A stronger model rung exists — stamp the bump (plus the evaluator's lockstep effort bump, when
+ * present) on the task, then narrate it. */
 const announceModelEscalation = (
   ctx: AnnounceContext,
   decision: Extract<EscalationDecision, { kind: 'escalate' }>
 ): Result<ApplyEscalationOutput, ValidationError> => {
-  const stamped = recordTaskEscalation(ctx.task, decision.from, decision.to);
+  const modelStamped = recordTaskEscalation(ctx.task, decision.from, decision.to);
+  if (!modelStamped.ok) return Result.error(modelStamped.error);
+  const stamped = stampEvaluatorEffort(modelStamped.value, decision.evaluator);
   if (!stamped.ok) return Result.error(stamped.error);
   ctx.eventBus.publish({
     type: 'model-escalated',
@@ -466,19 +475,19 @@ const announceModelEscalation = (
 };
 
 /**
- * Cheapest same-model remedy: raise reasoning effort on the unchanged model. No model bump, so
- * the escalation model fields are NOT stamped (leaving them untouched keeps the same-model
- * change-of-approach marker for the LATER nudge accurate) and no `model-escalated` event fires
- * — the banner names the effort bump so the operator sees the remedy. The generator leaf reads
- * the raised effort on the next attempt; this policy half only announces the decision. Neither
- * the generator nor the evaluator model fields are stamped here — the evaluator effort stamp
- * (when `decision.evaluator` is present) happens in the caller (finalize-gen-eval), alongside
- * the generator's, in the same `taskRepo.update` persist.
+ * Cheapest same-model remedy: raise reasoning effort on the unchanged model. Stamps the effort
+ * (plus the evaluator's lockstep bump, when present) but NOT the escalation model fields — leaving
+ * them untouched keeps the same-model change-of-approach marker for the LATER nudge accurate. No
+ * `model-escalated` event fires; the banner names the effort bump so the operator sees the remedy.
  */
 const announceEffortEscalation = (
   ctx: AnnounceContext,
   decision: Extract<EscalationDecision, { kind: 'escalate-effort' }>
 ): Result<ApplyEscalationOutput, ValidationError> => {
+  const effortStamped = recordTaskEffortEscalation(ctx.task, decision.to);
+  if (!effortStamped.ok) return Result.error(effortStamped.error);
+  const stamped = stampEvaluatorEffort(effortStamped.value, decision.evaluator);
+  if (!stamped.ok) return Result.error(stamped.error);
   const evaluatorClause =
     decision.evaluator !== undefined ? `; evaluator effort: ${decision.evaluator.from} → ${decision.evaluator.to}` : '';
   publishBanner(
@@ -496,7 +505,7 @@ const announceEffortEscalation = (
       ? { evaluatorFrom: decision.evaluator.from, evaluatorTo: decision.evaluator.to }
       : {}),
   });
-  return Result.ok({ task: ctx.task });
+  return Result.ok({ task: stamped.value });
 };
 
 /**
@@ -527,16 +536,15 @@ const announceNudge = (
 
 /**
  * Opt-in remedy ABOVE the nudge: grant one more attempt that samples `decision.n` candidates on
- * the unchanged model and selects among them by verification then judging. No model bump and no
- * `model-escalated` event (the model itself never changes) — mirrors `announceEffortEscalation`'s
- * announce-only posture. The once-per-task grant stamp (`recordTaskBestOfNGrant`) is applied by
- * the CALLER (finalize-gen-eval), alongside the evaluator effort stamp, in the same
- * `taskRepo.update` persist — this half only announces the decision.
+ * the unchanged model and selects among them by verification then judging. Stamps the once-per-task
+ * grant; no model bump and no `model-escalated` event (the model itself never changes).
  */
 const announceBestOfN = (
   ctx: AnnounceContext,
   decision: Extract<EscalationDecision, { kind: 'best-of-n' }>
 ): Result<ApplyEscalationOutput, ValidationError> => {
+  const stamped = recordTaskBestOfNGrant(ctx.task, decision.n);
+  if (!stamped.ok) return Result.error(stamped.error);
   publishBanner(
     ctx,
     'info',
@@ -548,7 +556,7 @@ const announceBestOfN = (
     n: decision.n,
     reason: ctx.trigger,
   });
-  return Result.ok({ task: ctx.task });
+  return Result.ok({ task: stamped.value });
 };
 
 /**
@@ -593,14 +601,11 @@ const announceBudgetExhausted = (
 };
 
 /**
- * Side-effecting half of the policy — given a {@link decideEscalation} verdict, emit the
- * matching banner + log lines and (for the model-bump path) return the task with the escalation
- * fields stamped. The same-model effort rung (escalate-effort) and the best-of-N grant announce
- * the remedy but stamp nothing here (the model is unchanged for both; the caller — finalize-gen-eval
- * — applies the effort/grant stamps alongside `applyEscalation`'s model stamp in one persist); the
- * preserve paths (topped-out / budget-exhausted) and flag-off return the task as-is. None set
- * `blockedReason`, because an escalatable exit never blocks. The `trigger` names the originating
- * exit kind in the emitted event + copy.
+ * Side-effecting half of the policy — given a {@link decideEscalation} verdict, stamp the task
+ * (model / effort / evaluator effort / best-of-N grant, per decision) and narrate the remedy with
+ * the matching banner + log lines. Every stamp lands before any event, so a failed stamp emits
+ * nothing. The preserve paths (topped-out / budget-exhausted) and flag-off return the task as-is;
+ * an escalatable exit never blocks. The `trigger` names the originating exit kind in the copy.
  *
  * The `flag-off` decision short-circuits — the caller leaves the existing behaviour intact
  * (today's done-with-warning settle) so opting out cleanly preserves the v0.7.0 path.

@@ -8,7 +8,7 @@ import type { Logger } from '@src/business/observability/logger.ts';
 import type { WriteFile } from '@src/business/io/write-file.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
-import { type LearningRecord, serializeLearningRecord } from '@src/application/flows/_shared/memory/learning-record.ts';
+import { isRetired, serializeLearningRecord } from '@src/application/flows/_shared/memory/learning-record.ts';
 import { isAbortedRead } from '@src/application/flows/_shared/memory/abort-guard.ts';
 import {
   type LedgerLine,
@@ -222,7 +222,7 @@ const stampPass = (
       stampedCount += 1;
       continue;
     }
-    if (retired.has(record.id) && record.promotedAt === null && isLive(record)) {
+    if (retired.has(record.id) && record.promotedAt === null && !isRetired(record)) {
       // Durable rejection: stamp `retiredAt` so the row leaves the candidate pool for good. Like a
       // promotion it is re-serialized from the parsed record and becomes a compaction tombstone.
       const stamped = { ...record, retiredAt: stampTime };
@@ -240,4 +240,3 @@ const stampPass = (
 };
 
 /** Not already retired (so a second decline never re-serializes / re-dates an existing tombstone). */
-const isLive = (record: LearningRecord): boolean => record.retiredAt === undefined || record.retiredAt === null;

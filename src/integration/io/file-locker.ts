@@ -1,10 +1,14 @@
+import * as nodeFs from 'node:fs';
 import { promises as fs } from 'node:fs';
-import { dirname } from 'node:path';
+import { dirname, join } from 'node:path';
 import properLockfile from 'proper-lockfile';
+import { currentMachine, currentProcessIdentity, isProcessAlive } from '@src/integration/io/process-liveness.ts';
+import { sameMachine, type MachineRef, type ProcessIdentity } from '@src/business/runs/live-run.ts';
 import { Result } from '@src/domain/result.ts';
 import { messageOf } from '@src/domain/value/error/error-message.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
+import { errnoCode } from '@src/integration/io/fs.ts';
 
 /**
  * Advisory cooperative file lock, backed by `proper-lockfile`. The holder creates a lock
@@ -25,10 +29,14 @@ import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
  * All failures map to `StorageError({ subCode: 'lock' })`. The release runs in a `finally` so the
  * lock is always cleared, even when the wrapped function throws.
  *
- * Nothing reads the on-disk lock format — its shape is wholly internal to this module, so the
- * backing library owns it. (Pre-`proper-lockfile` runs wrote a JSON *file* at the lock path;
- * this writes a *directory*. A leftover old-format file from an in-flight upgrade self-heals via
- * the stale-reclaim path once `staleAfterMs` elapses.)
+ * **Owner file.** A lock taken with a `purpose` carries `owner.json` (pid, host, process start, `ps` identity,
+ * purpose) inside the lock directory, written before the library stamps the directory's mtime so
+ * the heartbeat's "mtime is still ours" check is undisturbed. It buys two things: a lock whose
+ * owner pid is dead on this host is reclaimed at once instead of after `staleAfterMs`, and
+ * contention names the holder ("another ralphctl (pid N) is running implement on this repo").
+ * The library removes lock dirs with a bare `rmdir`, so the `fs` it is handed unlinks the owner
+ * file first. (Pre-`proper-lockfile` runs wrote a JSON *file* at the lock path; a leftover
+ * old-format file self-heals via the stale-reclaim path once `staleAfterMs` elapses.)
  */
 
 const DEFAULT_RETRY_DELAY_MS = 50;
@@ -36,7 +44,7 @@ const DEFAULT_MAX_RETRIES = 100;
 /**
  * Default crash-reclaim latency (ms). Exported as the single source of truth for any consumer
  * that needs to reason about "is a `proper-lockfile`-heartbeated lock still fresh" without
- * constructing a `FileLocker` — e.g. `data-migration/lock-guard.ts`'s `anyLockHeld`, which must
+ * constructing a `FileLocker` — e.g. `io/lock-guard.ts`'s `anyLockHeld`, which must
  * treat a lock as HELD using the exact same window the locker itself uses, or the migration's
  * notion of "held" silently diverges from the locker's notion of "live".
  */
@@ -61,11 +69,14 @@ export interface FileLockerOptions {
    *   - `'lock-compromised'` — a HELD lock was lost mid-run (heartbeat could not refresh in time,
    *     or the lock directory was removed/taken over). Mutual exclusion may no longer hold; the
    *     in-flight function is NOT aborted here — surfaced loudly for the operator. Default: no-op.
+   *   - `'dead-owner-reclaimed'` — the lock's owner process was dead on this host, so the lock was
+   *     taken over without waiting out the stale window; `cause` is the dead owner.
    */
   readonly onWarning?: (
     warning:
       | { readonly kind: 'release-unlink-failed'; readonly path: string; readonly cause: unknown }
       | { readonly kind: 'lock-compromised'; readonly path: string; readonly cause: unknown }
+      | { readonly kind: 'dead-owner-reclaimed'; readonly path: string; readonly cause: unknown }
   ) => void;
 }
 
@@ -81,8 +92,98 @@ export interface FileLocker {
    * continuing to mutate a resource another process may now own. Callers that don't need it may
    * ignore the parameter.
    */
-  withLock<T>(lockPath: AbsolutePath, fn: (signal: AbortSignal) => Promise<T>): Promise<Result<T, StorageError>>;
+  withLock<T>(
+    lockPath: AbsolutePath,
+    fn: (signal: AbortSignal) => Promise<T>,
+    opts?: WithLockOptions
+  ): Promise<Result<T, StorageError>>;
 }
+
+export interface WithLockOptions {
+  /** What the holder is doing (`implement`, `review`); writes the owner file and names it on contention. */
+  readonly purpose?: string;
+}
+
+/** Contents of `<lockDir>/owner.json`. */
+interface LockOwner extends MachineRef {
+  readonly pid: number;
+  readonly startedAt: string;
+  readonly acquiredAt: string;
+  readonly purpose?: string;
+  /** `ps` identity of the holder, so a reader can tell a recycled pid from the original holder. */
+  readonly identity?: ProcessIdentity;
+}
+
+const OWNER_FILE = 'owner.json';
+
+const processStartedAt = (): string => new Date(Date.now() - process.uptime() * 1000).toISOString();
+
+export const readLockOwner = async (lockDir: string): Promise<LockOwner | undefined> => {
+  try {
+    const parsed: unknown = JSON.parse(await fs.readFile(join(lockDir, OWNER_FILE), 'utf8'));
+    if (typeof parsed !== 'object' || parsed === null) return undefined;
+    const { pid, host } = parsed as { pid?: unknown; host?: unknown };
+    if (typeof pid !== 'number' || !Number.isInteger(pid) || pid <= 0 || typeof host !== 'string') return undefined;
+    return parsed as LockOwner;
+  } catch {
+    return undefined;
+  }
+};
+
+/** The owner pid is dead on this machine (and is not us), so its lock is a crash leftover. */
+export const ownerDeadHere = async (owner: LockOwner): Promise<boolean> =>
+  sameMachine(owner, await currentMachine()) && owner.pid !== process.pid && !isProcessAlive(owner.pid);
+
+/**
+ * `fs` for `proper-lockfile`: `mkdir` drops the owner file into a freshly created lock dir before
+ * reporting success (so it predates the library's mtime stamp), and the `rmdir` pair removes it
+ * first so the library's bare `rmdir` — release, stale reclaim, exit cleanup — still succeeds.
+ */
+const lockFs = (owner: LockOwner | undefined): typeof nodeFs => ({
+  ...nodeFs,
+  mkdir: ((path: string, cb: (err: NodeJS.ErrnoException | null) => void) => {
+    nodeFs.mkdir(path, (err) => {
+      if (err !== null || owner === undefined) return cb(err);
+      // Best-effort: a lock without an owner file still locks; it just reclaims the slow way.
+      nodeFs.writeFile(join(path, OWNER_FILE), `${JSON.stringify(owner)}\n`, () => cb(null));
+    });
+  }) as typeof nodeFs.mkdir,
+  rmdir: ((path: string, cb: (err: NodeJS.ErrnoException | null) => void) => {
+    nodeFs.unlink(join(path, OWNER_FILE), () => nodeFs.rmdir(path, cb));
+  }) as typeof nodeFs.rmdir,
+  rmdirSync: ((path: string) => {
+    try {
+      nodeFs.unlinkSync(join(path, OWNER_FILE));
+    } catch {
+      // no owner file
+    }
+    nodeFs.rmdirSync(path);
+  }) as typeof nodeFs.rmdirSync,
+});
+
+/**
+ * Remove a lock whose owner died on this host, re-reading the owner right before removal so a lock
+ * re-taken in between by a live process is left alone.
+ */
+const reclaimIfOwnerDead = async (lockDir: string): Promise<LockOwner | undefined> => {
+  const owner = await readLockOwner(lockDir);
+  if (owner === undefined || !(await ownerDeadHere(owner))) return undefined;
+  const again = await readLockOwner(lockDir);
+  if (again?.pid !== owner.pid || again.acquiredAt !== owner.acquiredAt) return undefined;
+  await fs.rm(join(lockDir, OWNER_FILE), { force: true });
+  try {
+    await fs.rmdir(lockDir);
+  } catch {
+    return undefined;
+  }
+  return owner;
+};
+
+const contentionMessage = async (owner: LockOwner | undefined, maxRetries: number): Promise<string | undefined> => {
+  if (owner === undefined) return undefined;
+  const where = sameMachine(owner, await currentMachine()) ? '' : ` on ${owner.host}`;
+  return `another ralphctl (pid ${String(owner.pid)}${where}) is running ${owner.purpose ?? 'a flow'} on this repo — gave up after ${String(maxRetries)} retries`;
+};
 
 export const createFileLocker = (opts: FileLockerOptions = {}): FileLocker => {
   const stale = clampStaleAfter(opts.staleAfterMs);
@@ -94,9 +195,22 @@ export const createFileLocker = (opts: FileLockerOptions = {}): FileLocker => {
 
   const withLock = async <T>(
     lockPath: AbsolutePath,
-    fn: (signal: AbortSignal) => Promise<T>
+    fn: (signal: AbortSignal) => Promise<T>,
+    lockOpts: WithLockOptions = {}
   ): Promise<Result<T, StorageError>> => {
     const path = String(lockPath);
+    const identity = lockOpts.purpose === undefined ? undefined : await currentProcessIdentity();
+    const owner: LockOwner | undefined =
+      lockOpts.purpose === undefined
+        ? undefined
+        : {
+            pid: process.pid,
+            ...(await currentMachine()),
+            startedAt: processStartedAt(),
+            acquiredAt: new Date().toISOString(),
+            purpose: lockOpts.purpose,
+            ...(identity !== undefined ? { identity } : {}),
+          };
     // Aborts if the held lock is compromised — handed to `fn` so a long-running holder can tear
     // its work down instead of mutating a resource a competitor may have taken over.
     const compromised = new AbortController();
@@ -104,7 +218,12 @@ export const createFileLocker = (opts: FileLockerOptions = {}): FileLocker => {
     try {
       // `proper-lockfile` needs the parent directory to exist before it can `mkdir` the lock dir.
       await fs.mkdir(dirname(path), { recursive: true });
+      const reclaimed = await reclaimIfOwnerDead(path);
+      if (reclaimed !== undefined) {
+        opts.onWarning?.({ kind: 'dead-owner-reclaimed', path, cause: reclaimed });
+      }
       release = await properLockfile.lock(path, {
+        fs: lockFs(owner),
         // The lock paths (`repo-<hash>.lock`, `tasks.json.lock`) are not real files — lock them
         // lexically (`realpath: false`) and pin the on-disk lock directory to the path verbatim
         // (`lockfilePath: path`) so it is not suffixed into `<path>.lock`.
@@ -122,13 +241,18 @@ export const createFileLocker = (opts: FileLockerOptions = {}): FileLocker => {
         },
       });
     } catch (cause) {
+      const holder =
+        errnoCode(cause) === 'ELOCKED' ? await contentionMessage(await readLockOwner(path), maxRetries) : undefined;
       return Result.error(
         new StorageError({
           subCode: 'lock',
-          message: acquireErrorMessage(cause, maxRetries),
+          message: holder ?? acquireErrorMessage(cause, maxRetries),
           path,
           cause,
-          hint: 'another ralphctl process is using this resource — wait, or remove the .lock file if stale',
+          hint:
+            holder === undefined
+              ? 'another ralphctl process is using this resource — wait, or remove the .lock file if stale'
+              : 'wait for that run to finish, or stop it first',
         })
       );
     }
@@ -166,11 +290,3 @@ const acquireErrorMessage = (cause: unknown, maxRetries: number): string =>
 
 const BENIGN_RELEASE_CODES = new Set(['ERELEASED', 'ENOTACQUIRED']);
 const isBenignReleaseError = (cause: unknown): boolean => BENIGN_RELEASE_CODES.has(errnoCode(cause) ?? '');
-
-const errnoCode = (cause: unknown): string | undefined => {
-  if (typeof cause === 'object' && cause !== null) {
-    const code = (cause as { code?: unknown }).code;
-    if (typeof code === 'string') return code;
-  }
-  return undefined;
-};

@@ -1,12 +1,7 @@
 import { Result } from '@src/domain/result.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
-import { type DraftSprint, replaceTicket, type Sprint } from '@src/domain/entity/sprint.ts';
-import {
-  type ApprovedTicket,
-  approveTicketRequirements,
-  type PendingTicket,
-  type Ticket,
-} from '@src/domain/entity/ticket.ts';
+import { replaceTicket, type Sprint } from '@src/domain/entity/sprint.ts';
+import { approveTicketRequirements, type PendingTicket, type Ticket } from '@src/domain/entity/ticket.ts';
 import type { ConflictError } from '@src/domain/value/error/conflict-error.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import type { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
@@ -114,8 +109,8 @@ export const refineTicketUseCase = async (
     bodyLength: props.requirementsBody.length,
   });
   return Result.ok({
-    sprint: replaced.value as DraftSprint,
-    ticket: approved.value as ApprovedTicket,
+    sprint: replaced.value,
+    ticket: approved.value,
     accepted: true,
     alsoUpdateOrigin,
   });

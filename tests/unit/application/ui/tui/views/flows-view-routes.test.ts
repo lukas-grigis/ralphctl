@@ -7,7 +7,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { viewRouteFor } from '@src/application/ui/tui/views/flows-view.tsx';
+import { viewRouteFor } from '@src/application/ui/tui/runtime/use-flow-launcher.ts';
 import type { AppStateSnapshot } from '@src/application/ui/shared/state-snapshot.ts';
 import type { Project } from '@src/domain/entity/project.ts';
 import type { Sprint } from '@src/domain/entity/sprint.ts';

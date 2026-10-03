@@ -58,6 +58,21 @@ describe('HeaderCard per-attempt round', () => {
     r.unmount();
   });
 
+  it('shows a free resume as the budgeted attempt with a resumed note, not a spent one', () => {
+    const r = renderHeader(
+      task({
+        genEvalRound: 2,
+        genEvalMaxRounds: 5,
+        genEvalMaxAttempts: 3,
+        attemptN: 1,
+        roundInAttempt: 1,
+        attemptResumed: true,
+      })
+    );
+    expect(r.lastFrame() ?? '').toContain('attempt 1/3 · resumed');
+    r.unmount();
+  });
+
   it('keeps a clean "round 1/1" for a single-attempt single-turn config (no attempt counter)', () => {
     const r = renderHeader(task({ genEvalRound: 1, genEvalMaxRounds: 1, genEvalMaxAttempts: 1 }));
     const frame = r.lastFrame() ?? '';

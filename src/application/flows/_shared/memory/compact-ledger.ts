@@ -5,6 +5,7 @@ import {
   serializeLearningRecord,
 } from '@src/application/flows/_shared/memory/learning-record.ts';
 import { LEDGER_MAX_ROWS } from '@src/application/flows/_shared/memory/read-ledger.ts';
+import { jaccard } from '@src/application/flows/_shared/memory/similarity.ts';
 
 /**
  * A record is SETTLED — a tombstone that is never evicted and always wins a dedup tie — once it has
@@ -150,15 +151,7 @@ export const compactLedger = (rows: readonly LedgerRow[]): CompactionResult => {
  * LATER one wins (a promotion/retirement stamped later is the current disposition); between two
  * unsettled the EARLIER (`existing`) wins.
  */
-const pickWinner = (existing: Candidate, next: Candidate): Candidate => {
-  const existingSettled = isSettled(existing.record);
-  const nextSettled = isSettled(next.record);
-
-  if (existingSettled && nextSettled) return next; // last-settled-wins
-  if (nextSettled) return next; // settled-wins-over-unsettled
-  if (existingSettled) return existing; // keep settled over a later unsettled
-  return existing; // first-occurrence-wins among unsettled
-};
+const pickWinner = (existing: Candidate, next: Candidate): Candidate => (isSettled(next.record) ? next : existing);
 
 /**
  * Jaccard threshold above which two same-group PENDING rows are treated as paraphrase duplicates and
@@ -178,15 +171,6 @@ const wordSet = (text: string): ReadonlySet<string> =>
       .split(/\s+/)
       .filter((word) => word.length > 0)
   );
-
-/** Jaccard similarity of two word sets — 0 when either is empty. */
-const wordJaccard = (a: ReadonlySet<string>, b: ReadonlySet<string>): number => {
-  if (a.size === 0 || b.size === 0) return 0;
-  let intersection = 0;
-  for (const word of a) if (b.has(word)) intersection += 1;
-  const union = a.size + b.size - intersection;
-  return union === 0 ? 0 : intersection / union;
-};
 
 /** Near-duplicate grouping key: same memory kind (learning/decision) + same `appliesTo` (or ''). */
 const nearDuplicateGroupKey = (record: LearningRecord): string => `${recordKind(record)} ${record.appliesTo ?? ''}`;
@@ -237,8 +221,7 @@ const mergeNearDuplicates = (
 
     const match = clusters.find(
       (cluster) =>
-        wordJaccard(wordSet(cluster.tip.record.text), wordSet(candidate.record.text)) >=
-        NEAR_DUPLICATE_JACCARD_THRESHOLD
+        jaccard(wordSet(cluster.tip.record.text), wordSet(candidate.record.text)) >= NEAR_DUPLICATE_JACCARD_THRESHOLD
     );
     if (match === undefined) {
       clusters.push({ tip: candidate, supersedes: new Set(candidate.record.supersedes ?? []), touched: false });

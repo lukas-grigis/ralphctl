@@ -2,7 +2,7 @@ import { type CommitTaskProps, commitTaskUseCase } from '@src/business/task/comm
 import type { Logger } from '@src/business/observability/logger.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { UpdateTask } from '@src/domain/repository/task/update-task.ts';
-import { type InProgressTask, type Task } from '@src/domain/entity/task.ts';
+import { type InProgressTask } from '@src/domain/entity/task.ts';
 import type { TaskId } from '@src/domain/value/id/task-id.ts';
 import { type AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
@@ -12,8 +12,7 @@ import { gitCommitWithMessage } from '@src/integration/io/git-operations.ts';
 import type { GitRunner } from '@src/integration/io/git-runner.ts';
 import { renderTicketRefsSubjectSuffix } from '@src/integration/ai/prompts/_engine/renderers/task.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
-
-export type CommitMessageFactory = (input: { readonly task: Task }) => string;
+import { replaceTask } from '@src/application/flows/implement/leaves/_shared/replace-task.ts';
 
 export interface CommitTaskLeafDeps {
   readonly gitRunner: GitRunner;
@@ -41,9 +40,6 @@ const assembleCommitMessage = (subject: string, body: string | undefined): strin
   return `${subject}\n\n${body}`;
 };
 
-const defaultMessageFactory: CommitMessageFactory = ({ task }): string =>
-  assembleCommitMessage(task.name, firstParagraph(task.description ?? ''));
-
 const appendSubjectSuffix = (message: string, refs: readonly string[] | undefined): string => {
   const suffix = renderTicketRefsSubjectSuffix(refs);
   if (suffix.length === 0) return message;
@@ -58,7 +54,6 @@ const appendSubjectSuffix = (message: string, refs: readonly string[] | undefine
 
 export interface CommitTaskLeafOpts {
   readonly cwd: AbsolutePath;
-  readonly messageFactory?: CommitMessageFactory;
 }
 
 interface CommitInput {
@@ -116,8 +111,7 @@ export const commitTaskLeaf = (
       // Resolution order:
       //   1. Generator-proposed `<commit-message>` signal from this run's gen-eval loop.
       //      Subject + optional body are joined with the conventional blank-line separator.
-      //   2. Caller-supplied `opts.messageFactory` (legacy injection point).
-      //   3. Default `task(<short-id>): <name>` factory.
+      //   2. Otherwise the task name plus the first paragraph of its description.
       // After resolution we append a ` (#123, !456)` suffix to the subject line when the task
       // carries external refs — the AI no longer sees the refs, so this is the only writer.
       // The PR body's `Closes #X` lines (rendered by create-pr's `renderIssueRefs`) handle
@@ -126,14 +120,14 @@ export const commitTaskLeaf = (
       const baseMessage =
         proposed !== undefined
           ? assembleCommitMessage(proposed.subject, proposed.body)
-          : (opts.messageFactory ?? defaultMessageFactory)({ task });
+          : assembleCommitMessage(task.name, firstParagraph(task.description ?? ''));
       const message = appendSubjectSuffix(baseMessage, task.externalRefs);
       return { task, sprintId: ctx.sprintId, message };
     },
     output: (ctx, out) => ({
       ...ctx,
       currentTask: out.task,
-      tasks: (ctx.tasks ?? []).map((t) => (t.id === out.task.id ? (out.task as Task) : t)),
+      tasks: replaceTask(ctx.tasks, out.task),
       ...(out.sha !== undefined ? { lastCommitSha: out.sha } : {}),
     }),
   });

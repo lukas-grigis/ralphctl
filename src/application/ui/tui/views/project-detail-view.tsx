@@ -20,6 +20,10 @@ import type { ProjectId } from '@src/domain/value/id/project-id.ts';
 import type { RepositoryId } from '@src/domain/value/id/repository-id.ts';
 import { Result } from '@src/domain/result.ts';
 import { type OpenEditPromptInput, useEditField } from '@src/application/ui/tui/runtime/use-edit-field.ts';
+import { editFresh } from '@src/application/ui/tui/runtime/edit-fresh.ts';
+import type { DomainError } from '@src/domain/value/error/domain-error.ts';
+import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
+import { glyphs } from '@src/application/ui/tui/theme/tokens.ts';
 import { useIsMounted } from '@src/application/ui/tui/runtime/use-is-mounted.ts';
 import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { useAsyncLoad } from '@src/application/ui/tui/runtime/use-async-load.ts';
@@ -92,14 +96,16 @@ const buildFieldEdit = (args: BuildFieldEditArgs): OpenEditPromptInput => {
       kind: 'short',
       currentValue: project.displayName,
       onSave: async (value) => {
-        const renamed = setProjectDisplayName(project, value);
-        if (!renamed.ok) return Result.error(renamed.error);
-        const saved = await projectRepo.save(renamed.value);
+        const saved = await editFresh(
+          () => projectRepo.findById(project.id),
+          (fresh) => setProjectDisplayName(fresh, value),
+          (next) => projectRepo.save(next)
+        );
         if (!saved.ok) return Result.error(saved.error);
         reload();
         return Result.ok(undefined);
       },
-      successLabel: `✓ renamed project`,
+      successLabel: `${glyphs.check} renamed project`,
     };
   }
   const { repo, field } = target;
@@ -111,30 +117,31 @@ const buildFieldEdit = (args: BuildFieldEditArgs): OpenEditPromptInput => {
     kind: field === 'name' ? 'short' : 'long',
     currentValue: current,
     onSave: async (value) => {
-      // For optional script fields, route through the setter directly so `value === ''`
-      // explicitly *clears* the field (the entity setter accepts `undefined` for clear).
-      // `updateRepository`'s partial type — with exactOptionalPropertyTypes — disallows
-      // direct undefined assignment, so we update the repo and persist the parent project.
-      if (field === 'name') {
-        const next = updateRepository(project, repo.id, { name: value });
-        if (!next.ok) return Result.error(next.error);
-        const saved = await projectRepo.save(next.value);
-        if (!saved.ok) return Result.error(saved.error);
-        reload();
-        return Result.ok(undefined);
-      }
-      const updatedRepo =
-        field === 'setupScript'
-          ? setRepositorySetupScript(repo, value.length === 0 ? undefined : value)
-          : setRepositoryVerifyScript(repo, value.length === 0 ? undefined : value);
-      if (!updatedRepo.ok) return Result.error(updatedRepo.error);
-      const nextRepos = project.repositories.map((r) => (r.id === repo.id ? updatedRepo.value : r));
-      const saved = await projectRepo.save({ ...project, repositories: nextRepos });
+      // For optional script fields, route through the setter directly so `value === ''` explicitly *clears* the field
+      // (the entity setter accepts `undefined` for clear).
+      const saved = await editFresh(
+        () => projectRepo.findById(project.id),
+        (fresh): Result<Project, DomainError> => {
+          if (field === 'name') return updateRepository(fresh, repo.id, { name: value });
+          const freshRepo = fresh.repositories.find((r) => r.id === repo.id);
+          if (freshRepo === undefined) {
+            return Result.error(new NotFoundError({ entity: 'repository', id: String(repo.id) }));
+          }
+          const updatedRepo =
+            field === 'setupScript'
+              ? setRepositorySetupScript(freshRepo, value.length === 0 ? undefined : value)
+              : setRepositoryVerifyScript(freshRepo, value.length === 0 ? undefined : value);
+          if (!updatedRepo.ok) return Result.error(updatedRepo.error);
+          const nextRepos = fresh.repositories.map((r) => (r.id === repo.id ? updatedRepo.value : r));
+          return Result.ok({ ...fresh, repositories: nextRepos });
+        },
+        (next) => projectRepo.save(next)
+      );
       if (!saved.ok) return Result.error(saved.error);
       reload();
       return Result.ok(undefined);
     },
-    successLabel: `✓ updated ${field}`,
+    successLabel: `${glyphs.check} updated ${field}`,
   };
 };
 
@@ -164,7 +171,7 @@ const launchPerRepoFlow = async (
   const { deps, queue, storage, sessions, router, mountedRef, setFeedback } = ctx;
   setFeedback(undefined);
   const snapshot = await loadAppStateSnapshot(deps, { projectId: project.id });
-  const interactive = createInkInteractivePrompt(queue);
+  const interactive = createInkInteractivePrompt(queue, deps.eventBus);
   const result = await launchFlow(
     { app: deps, interactive, storage, runInTerminal: getRunInTerminal() },
     flowId,
@@ -173,7 +180,7 @@ const launchPerRepoFlow = async (
   );
   if (!mountedRef.current) return;
   if (!result.ok) {
-    setFeedback(`✗ ${result.reason}`);
+    setFeedback(`${glyphs.cross} ${result.reason}`);
     return;
   }
   openFlowSession({ sessions, router }, result, flowId);
@@ -216,7 +223,7 @@ const useProjectDetailShortcuts = (args: ProjectDetailShortcutArgs): void => {
   const markCurrent = (target: Project): void => {
     if (selection.projectId === target.id) return;
     selection.setProject(target.id, target.displayName);
-    args.setFeedback(`✓ now on ${target.displayName}`);
+    args.setFeedback(`${glyphs.check} now on ${target.displayName}`);
   };
 
   // One lookup per action group instead of a separate branch per chord. `rootActions` covers the
@@ -304,11 +311,11 @@ const handleRemoveConfirmed = async (
   if (!confirmed || args.project === undefined) return;
   const removeResult = await removeRepoFromProject(args.project, target.id, args.projectRepo);
   if (!removeResult.ok) {
-    if (args.mountedRef.current) args.setFeedback(`✗ ${removeResult.error}`);
+    if (args.mountedRef.current) args.setFeedback(`${glyphs.cross} ${removeResult.error}`);
     return;
   }
   if (!args.mountedRef.current) return;
-  args.setFeedback(`✓ removed ${target.name}`);
+  args.setFeedback(`${glyphs.check} removed ${target.name}`);
   args.reload();
 };
 
@@ -420,14 +427,10 @@ export const ProjectDetailView = (): React.JSX.Element => {
 
   useProjectDetailHints({ project, selectionProjectId: selection.projectId, focused });
 
-  // Reset the cursor when the underlying project changes — both the first successful load
-  // (loading → ok) and a re-route to a different projectId. Without this, switching from a
-  // project with 4 fields to one with 1 would leave the cursor pinned at index 3 (clamped) and
-  // visually parked on the only available row, but a subsequent reload back to the larger
-  // project would resume mid-list — surprising.
+  // Reset only on a projectId change — reload() after a save or remove must keep the operator's row.
   useEffect(() => {
-    if (state.kind === 'ok') setCursorIdx(0);
-  }, [state.kind, projectId]);
+    setCursorIdx(0);
+  }, [projectId]);
 
   useProjectDetailShortcuts({
     deps,
@@ -478,9 +481,10 @@ const removeRepoFromProject = async (
   repoId: RepositoryId,
   projectRepo: ReturnType<typeof useDeps>['projectRepo']
 ): Promise<{ ok: true } | { ok: false; error: string }> => {
-  const updated = removeRepository(project, repoId);
-  if (!updated.ok) return { ok: false, error: updated.error.message };
-  const saved = await projectRepo.save(updated.value);
-  if (!saved.ok) return { ok: false, error: saved.error.message };
-  return { ok: true };
+  const saved = await editFresh(
+    () => projectRepo.findById(project.id),
+    (fresh) => removeRepository(fresh, repoId),
+    (next) => projectRepo.save(next)
+  );
+  return saved.ok ? { ok: true } : { ok: false, error: saved.error.message };
 };

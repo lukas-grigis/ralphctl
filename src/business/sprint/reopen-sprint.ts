@@ -54,7 +54,7 @@ export const reopenDoneSprintUseCase = async (
 
   if (props.sprint.status === 'review') {
     log.debug('already review, skipping', { sprintId: props.sprint.id });
-    return Result.ok(props.sprint as ReviewSprint);
+    return Result.ok(props.sprint);
   }
 
   const conflictCheck = await assertNoActivePeer(props.sprint, props.sprintRepo, log, 'reopen');

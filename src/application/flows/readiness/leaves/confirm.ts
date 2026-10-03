@@ -15,8 +15,8 @@ export interface ConfirmReadinessLeafDeps {
 interface ConfirmReadinessInput {
   readonly proposedContent: string;
   readonly targetPath: AbsolutePath;
-  readonly proposedSetupScript?: string;
-  readonly proposedVerifyScript?: string;
+  readonly proposedSetupSkillBody?: string;
+  readonly proposedVerifySkillBody?: string;
 }
 
 /**
@@ -24,9 +24,9 @@ interface ConfirmReadinessInput {
  * inline via the `askConfirm` message so the user sees the body without a separate preview
  * channel — the `ConsolePrompt` adapter prints the message verbatim before reading the answer.
  *
- * The confirm covers all three artefacts (context file body, setup script, verify script) as
- * a single yes/no — `accept` writes everything proposed, `decline` writes nothing. Per-artefact
- * accept/decline is a UX refinement to add when there's a real use case for it.
+ * The confirm covers every artefact accepting writes (context file body plus the setup / verify
+ * skill bodies) as a single yes/no — `accept` writes everything proposed, `decline` writes nothing.
+ * Per-artefact accept/decline is a UX refinement to add when there's a real use case for it.
  *
  * Decline (`accepted: false`) is the safe default path the next leaf observes —
  * `writeReadinessLeaf` is a no-op when the matching entry's `accepted !== true`.
@@ -36,11 +36,11 @@ const confirmReadinessUseCase = async (
   input: ConfirmReadinessInput
 ): Promise<Result<boolean, DomainError>> => {
   const sections: string[] = [`Proposed content for ${String(input.targetPath)}:`, '', input.proposedContent];
-  if (input.proposedSetupScript !== undefined) {
-    sections.push('', `Setup script (sprint-start prep): ${input.proposedSetupScript}`);
+  if (input.proposedSetupSkillBody !== undefined) {
+    sections.push('', 'Setup skill (installed as skills/setup/SKILL.md):', '', input.proposedSetupSkillBody);
   }
-  if (input.proposedVerifyScript !== undefined) {
-    sections.push('', `Verify script (post-task gate): ${input.proposedVerifyScript}`);
+  if (input.proposedVerifySkillBody !== undefined) {
+    sections.push('', 'Verify skill (installed as skills/verify/SKILL.md):', '', input.proposedVerifySkillBody);
   }
   sections.push('', 'If this file already exists, a .bak.<timestamp> copy is kept. Apply this proposal?');
   return deps.interactive.askConfirm({ message: sections.join('\n') });
@@ -65,8 +65,12 @@ export const confirmReadinessLeaf = (deps: ConfirmReadinessLeafDeps, tool: Assis
       return {
         proposedContent: proposal.proposedContent,
         targetPath: proposal.targetPath,
-        ...(proposal.proposedSetupScript !== undefined ? { proposedSetupScript: proposal.proposedSetupScript } : {}),
-        ...(proposal.proposedVerifyScript !== undefined ? { proposedVerifyScript: proposal.proposedVerifyScript } : {}),
+        ...(proposal.proposedSetupSkillBody !== undefined
+          ? { proposedSetupSkillBody: proposal.proposedSetupSkillBody }
+          : {}),
+        ...(proposal.proposedVerifySkillBody !== undefined
+          ? { proposedVerifySkillBody: proposal.proposedVerifySkillBody }
+          : {}),
       };
     },
     output: (ctx, accepted) => ({

@@ -35,8 +35,11 @@ export const buildUnitLeaf = <TCtx>(opts: BuildUnitOpts<TCtx>): Element<TCtx> =>
   leaf<TCtx, { readonly path: string }, AbsolutePath>(opts.name, {
     useCase: {
       execute: async (input) => {
+        // Validate before mkdir so an invalid path never leaves a stray directory behind.
+        const parsed = AbsolutePath.parse(input.path);
+        if (!parsed.ok) return Result.error(parsed.error);
         try {
-          await fs.mkdir(input.path, { recursive: true });
+          await fs.mkdir(String(parsed.value), { recursive: true });
         } catch (cause) {
           return Result.error(
             new StorageError({
@@ -47,8 +50,6 @@ export const buildUnitLeaf = <TCtx>(opts: BuildUnitOpts<TCtx>): Element<TCtx> =>
             })
           );
         }
-        const parsed = AbsolutePath.parse(input.path);
-        if (!parsed.ok) return Result.error(parsed.error as never);
         return Result.ok(parsed.value);
       },
     },

@@ -122,7 +122,6 @@ describe('JsonSettingsRepository', () => {
       },
       logging: { level: 'info' },
       concurrency: { maxParallelTasks: 1 },
-      scm: { postRefinementComment: false },
       ui: { notifications: { enabled: true } },
     };
     const repo = createJsonSettingsRepository({ configRoot });
@@ -160,7 +159,6 @@ describe('JsonSettingsRepository', () => {
       },
       logging: { level: 'debug' },
       concurrency: { maxParallelTasks: 4 },
-      scm: { postRefinementComment: true },
       ui: { notifications: { enabled: false } },
     };
     const repo = createJsonSettingsRepository({ configRoot });
@@ -170,6 +168,16 @@ describe('JsonSettingsRepository', () => {
     const loaded = await repo.load();
     expect(loaded.ok).toBe(true);
     if (loaded.ok) expect(loaded.value).toEqual(custom);
+  });
+
+  it('loads a legacy settings.json that still carries the removed scm section, dropping it', async () => {
+    const path = join(String(configRoot), SETTINGS_FILE_NAME);
+    await fs.writeFile(path, JSON.stringify({ ...DEFAULT_SETTINGS, scm: { postRefinementComment: true } }));
+
+    const loaded = await createJsonSettingsRepository({ configRoot }).load();
+
+    expect(loaded.ok).toBe(true);
+    if (loaded.ok) expect(loaded.value).not.toHaveProperty('scm');
   });
 
   it('save refuses to write malformed Settings', async () => {

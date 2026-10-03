@@ -39,6 +39,8 @@ interface HeaderCardProps {
   readonly currentTaskIdx: number;
   readonly currentTaskName: string | undefined;
   readonly currentSubStep: string | undefined;
+  /** Epoch ms the run started waiting on a prompt; set while an operator answer blocks it. */
+  readonly waitingSince?: number | undefined;
 }
 
 /**
@@ -153,17 +155,26 @@ const SummaryRow = ({
   isRunning,
   tasksDone,
   tasksTotal,
+  waitingSince,
 }: {
   readonly descriptor: SessionDescriptor;
   readonly isRunning: boolean;
   readonly tasksDone: number;
   readonly tasksTotal: number;
+  readonly waitingSince: number | undefined;
 }): React.JSX.Element => (
   <Box>
     <Text dimColor>flow </Text>
     <Text>{descriptor.flowId}</Text>
-    <Text dimColor> {glyphs.bullet} elapsed </Text>
-    <ElapsedLabel startedAt={descriptor.startedAt} finishedAt={descriptor.finishedAt} isRunning={isRunning} />
+    <Text dimColor>
+      {' '}
+      {glyphs.bullet} {waitingSince !== undefined ? 'waiting' : 'elapsed'}{' '}
+    </Text>
+    <ElapsedLabel
+      startedAt={waitingSince ?? descriptor.startedAt}
+      finishedAt={waitingSince !== undefined ? undefined : descriptor.finishedAt}
+      isRunning={isRunning}
+    />
     {tasksTotal > 0 && (
       <>
         <Text dimColor> {glyphs.bullet} tasks </Text>
@@ -178,7 +189,15 @@ const SummaryRow = ({
         )}
       </>
     )}
-    {isRunning && (
+    {isRunning && waitingSince !== undefined && (
+      <Box marginLeft={spacing.indent}>
+        <Text color={inkColors.warning} bold>
+          {glyphs.warningGlyph} [WAITING]
+        </Text>
+        <Text dimColor> your answer</Text>
+      </Box>
+    )}
+    {isRunning && waitingSince === undefined && (
       <Box marginLeft={spacing.indent}>
         <Spinner active={isRunning} color={inkColors.info} label="live" />
       </Box>
@@ -217,6 +236,7 @@ const RoundCounter = ({ task }: { readonly task: TaskBucket }): React.JSX.Elemen
             {String(attemptN)}
             {maxAttempts !== undefined ? `/${String(maxAttempts)}` : ''}
           </Text>
+          {coords.resumed === true && <Text dimColor> {glyphs.bullet} resumed</Text>}
         </>
       )}
       <Text dimColor> {glyphs.bullet} round </Text>
@@ -271,10 +291,28 @@ const HeaderCardImpl = ({
   currentTaskIdx,
   currentTaskName,
   currentSubStep,
+  waitingSince,
 }: HeaderCardProps): React.JSX.Element => (
-  <Card title={descriptor.title} tone={isRunning ? 'info' : descriptor.status === 'completed' ? 'success' : 'rule'}>
+  <Card
+    title={descriptor.title}
+    tone={
+      isRunning
+        ? waitingSince !== undefined
+          ? 'warning'
+          : 'info'
+        : descriptor.status === 'completed'
+          ? 'success'
+          : 'rule'
+    }
+  >
     <Box flexDirection="column">
-      <SummaryRow descriptor={descriptor} isRunning={isRunning} tasksDone={tasksDone} tasksTotal={tasksTotal} />
+      <SummaryRow
+        descriptor={descriptor}
+        isRunning={isRunning}
+        tasksDone={tasksDone}
+        tasksTotal={tasksTotal}
+        waitingSince={waitingSince}
+      />
       <ModelLines
         generatorModel={descriptor.generatorModel}
         evaluatorModel={descriptor.evaluatorModel}
