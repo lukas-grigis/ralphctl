@@ -79,6 +79,7 @@ import type { ResponsiveLayout } from '@src/application/ui/tui/views/execute-vie
 import type { BucketedDerivation } from '@src/application/ui/tui/views/execute-view-internals/use-bucketed-tasks.ts';
 import type { CancelHandlers } from '@src/application/ui/tui/views/execute-view-internals/use-cancel-handlers.ts';
 import type { NextSteps } from '@src/application/ui/shared/next-steps.ts';
+import { flowIdToTitle, titleSubject } from '@src/application/ui/shared/flow-title.ts';
 import { useRunSprintContext } from '@src/application/ui/tui/views/execute-view-internals/use-run-sprint-context.ts';
 
 import { ExecuteBody } from '@src/application/ui/tui/views/execute-view-internals/body.tsx';
@@ -96,37 +97,6 @@ import { useEvaluationChord } from '@src/application/ui/tui/views/execute-view-i
 interface ExecuteProps extends Readonly<Record<string, unknown>> {
   readonly sessionId: string;
 }
-
-/**
- * Human-readable section title per flow id. Keeps the Execute view header accurate for any
- * flow that reuses this view (refine, plan, review, create-pr, …) instead of always showing
- * "Implement".
- */
-const FLOW_TITLES: Record<string, string> = {
-  implement: 'Implement',
-  refine: 'Refine',
-  plan: 'Plan',
-  ideate: 'Ideate',
-  review: 'Review',
-  'create-pr': 'Create PR',
-  readiness: 'Readiness',
-  'detect-scripts': 'Detect Scripts',
-  'detect-skills': 'Detect Skills',
-  'create-sprint': 'Create Sprint',
-  'close-sprint': 'Close Sprint',
-  'add-ticket': 'Add Ticket',
-  'remove-ticket': 'Remove Ticket',
-  'export-context': 'Export Context',
-  'export-requirements': 'Export Requirements',
-  doctor: 'Doctor',
-  settings: 'Settings',
-};
-
-/**
- * Derive a human-readable section title from a flow id. Falls back to the raw flowId so a
- * future flow never shows a blank header.
- */
-const flowIdToTitle = (flowId: string): string => FLOW_TITLES[flowId] ?? flowId;
 
 /**
  * Buffer sizing for long Implement runs:
@@ -393,7 +363,7 @@ const ExecuteViewFrame = ({
   return (
     <ViewShell
       title={flowIdToTitle(descriptor.flowId)}
-      subtitle={descriptor.title}
+      subtitle={titleSubject(descriptor.flowId, descriptor.title)}
       compactBanner
       // The Tasks panel owns ↑/↓ (and j/k) as its card / row cursor — without this the page
       // ScrollRegion moved the whole viewport on the same keypress that moved the cursor. Every

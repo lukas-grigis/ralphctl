@@ -139,7 +139,7 @@ export const RoundAttemptChip = ({
       {' '}
       {glyphs.bullet}{' '}
       {showAttempt
-        ? `attempt ${String(attemptN)}${maxAttempts !== undefined ? `/${String(maxAttempts)}` : ''} ${glyphs.bullet} `
+        ? `attempt ${String(attemptN)}${maxAttempts !== undefined ? `/${String(maxAttempts)}` : ''}${coords.resumed === true ? ` ${glyphs.bullet} resumed` : ''} ${glyphs.bullet} `
         : ''}
       round {String(roundInAttempt)}
       {maxTurns !== undefined ? `/${String(maxTurns)}` : ''}

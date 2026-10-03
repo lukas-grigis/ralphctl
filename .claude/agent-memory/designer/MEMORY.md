@@ -23,3 +23,4 @@
 - [project_quit_and_interrupted.md](project_quit_and_interrupted.md) — Ink exitOnCtrlC kills ctrl+c handlers, hidden prompts read keys under overlays, interrupted-row limits
 - [project_revamp_rollback.md](project_revamp_rollback.md) — Sections/tab-bar revamp rejected; original TUI + keep-list is the base
 - [project_strictmode_updater_purity_probe.md](project_strictmode_updater_purity_probe.md) — StrictMode test exposes impure setState updaters; fake-timer vs polling-helper stall
+- [project_fixed_columns_and_fake_clock_tests.md](project_fixed_columns_and_fake_clock_tests.md) — Fixed-width timeline columns; settle-jump-advance recipe for proving a fake-clock tick

@@ -27,6 +27,12 @@ export const collapseWhitespace = (s: string): string => sanitizeDisplayText(s).
 /** Fixed label column so timestamps and bodies line up across signals. */
 export const SIGNAL_LABEL_WIDTH = 16;
 
+/** `HH:MM:SS` — the time column is exactly this wide so it never wraps. */
+export const TIME_COL_WIDTH = 8;
+
+/** Kind column: 2-cell gap, NO_COLOR shape glyph + space or disclosure, padded label. */
+export const KIND_COL_WIDTH = 2 + 2 + SIGNAL_LABEL_WIDTH;
+
 export const padLabel = (label: string): string => label.padEnd(SIGNAL_LABEL_WIDTH, ' ');
 
 /**
@@ -98,7 +104,7 @@ export const formatEtaChip = (
 export const abortCauseLabel = (cause: AbortCause): string | undefined => {
   switch (cause) {
     case 'user-cancel':
-      return 'Ctrl-C';
+      return 'stopped by you';
     case 'sigterm':
       return 'SIGTERM';
     case 'watchdog-killed':

@@ -83,10 +83,10 @@ afterEach(() => vi.useRealTimers());
 describe('Home — needs attention', () => {
   it('leads the menu with the interrupted task, its attempt and age', async () => {
     const result = mount(undefined);
-    await waitForViewReady(result, (f) => f.includes('was interrupted'));
+    await waitForViewReady(result, (f) => f.includes('[INTERRUPTED]'));
     const frame = result.lastFrame() ?? '';
     expect(frame).toContain('NEEDS ATTENTION');
-    expect(frame).toMatch(/"do-the-work" was interrupted · attempt 1 · /);
+    expect(frame).toMatch(/\[INTERRUPTED\] do-the-work · attempt 1 · /);
     expect(frame).toContain('[i]');
     expect(frame.indexOf('NEEDS ATTENTION')).toBeLessThan(frame.indexOf('WORK'));
     // The cursor lands on it, so its resume hint is on screen.
@@ -98,7 +98,7 @@ describe('Home — needs attention', () => {
     const result = mount({ pid: 4321, via: 'run-record' });
     await waitForViewReady(result, (f) => f.includes('WORK'));
     await new Promise((r) => setTimeout(r, 80));
-    expect(result.lastFrame() ?? '').not.toContain('was interrupted');
+    expect(result.lastFrame() ?? '').not.toContain('[INTERRUPTED]');
     result.unmount();
   });
 
@@ -146,17 +146,24 @@ describe('Home — needs attention', () => {
     const queue = createPromptQueue();
     queue.enqueue({ kind: 'confirm', message: 'Proceed?', sessionId: 'r-age', resolve: vi.fn(), reject: vi.fn() });
     const result = mount({ pid: 1, via: 'run-record' }, { sessions, queue });
-    // Fake timers stall the harness's polling helpers; spin on setImmediate instead.
+    // Fake timers stall the harness's polling helpers; spin on setImmediate instead, and fail loudly if it never loads.
     const until = async (needle: string): Promise<void> => {
-      for (let i = 0; i < 200 && !(result.lastFrame() ?? '').includes(needle); i++) {
+      for (let i = 0; i < 5000 && !(result.lastFrame() ?? '').includes(needle); i++) {
         await new Promise((r) => setImmediate(r));
       }
+      expect(result.lastFrame() ?? '').toContain(needle);
     };
     await until('[WAITING]');
-    expect(result.lastFrame() ?? '').toContain('<1m');
-    await vi.advanceTimersByTimeAsync(90_000);
+    // Let the remaining async loads land so nothing but the clock tick can re-render the rows.
+    for (let i = 0; i < 200; i++) await new Promise((r) => setImmediate(r));
+    expect(result.lastFrame() ?? '').toContain('Refine — Mainline · <1m');
+    // The clock moves 30s but no tick has fired: the label must still be stale, so the next change proves the tick.
+    // (advancing 30s of fake timers then moves the clock a further 30s — 60s in total, one minute.)
+    vi.setSystemTime(Date.now() + 30_000);
+    for (let i = 0; i < 20; i++) await new Promise((r) => setImmediate(r));
+    expect(result.lastFrame() ?? '').toContain('Refine — Mainline · <1m');
+    await vi.advanceTimersByTimeAsync(30_000);
     await until('Refine — Mainline · 1m');
-    expect(result.lastFrame() ?? '').toContain('Refine — Mainline · 1m');
     result.unmount();
-  });
+  }, 60_000); // 30s of fake timers replays every spinner frame as a render — slow on a loaded runner
 });

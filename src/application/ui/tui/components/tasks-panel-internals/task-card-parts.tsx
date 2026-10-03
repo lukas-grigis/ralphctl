@@ -12,7 +12,7 @@
 import React from 'react';
 import { Box, Text } from 'ink';
 import type { TaskBucketStatus, TaskSubStep } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
-import type { RecoveryContext } from '@src/domain/entity/attempt.ts';
+import { isFreeAbortCause, type RecoveryContext } from '@src/domain/entity/attempt.ts';
 import { glyphFor, glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { fmtDuration, fmtIsoHHMM } from '@src/application/ui/tui/theme/duration.ts';
 import {
@@ -58,6 +58,20 @@ export const RecoveryLine = ({
   // sees on a sprint header (we don't need second precision).
   const hhmm = fmtIsoHHMM(String(context.abortedAt));
   const label = abortCauseLabel(context.cause);
+  // A free resume continues the same budgeted attempt; raw attempt numbers would contradict the `attempt A/X` chip.
+  if (isFreeAbortCause(context.cause)) {
+    return (
+      <Box paddingLeft={spacing.indent}>
+        <Text wrap="truncate-end">
+          <Text dimColor>{glyphs.activityArrow} </Text>
+          <Text color={inkColors.warning}>resumed</Text>
+          <Text> after the stop at {hhmm}</Text>
+          {label !== undefined && <Text dimColor> ({label})</Text>}
+          <Text dimColor> {glyphs.bullet} no attempt used</Text>
+        </Text>
+      </Box>
+    );
+  }
   return (
     <Box paddingLeft={spacing.indent}>
       <Text dimColor>{glyphs.activityArrow} </Text>

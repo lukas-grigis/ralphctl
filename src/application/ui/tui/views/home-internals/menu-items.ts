@@ -105,7 +105,8 @@ const buildInterruptedItems = (input: BuildMenuItemsInput): readonly MenuItem[] 
   const items = shown.map((task, idx): MenuItem => ({
     id: `interrupted-${task.taskId}`,
     section: NEEDS_ATTENTION_SECTION,
-    label: `"${task.name}" was interrupted ${glyphs.bullet} attempt ${String(task.attemptN)} ${glyphs.bullet} ${fmtSpan(
+    // Tag first like [WAITING]: the name is free text (may hold quotes), so it is never wrapped.
+    label: `${glyphs.warningGlyph} [INTERRUPTED] ${task.name} ${glyphs.bullet} attempt ${String(task.attemptN)} ${glyphs.bullet} ${fmtSpan(
       input.now - (input.interruptedFacts.get(task.taskId)?.since ?? task.startedAt)
     )} ago`,
     description: interruptedDetail(input.interruptedFacts.get(task.taskId)),

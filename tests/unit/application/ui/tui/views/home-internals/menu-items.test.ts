@@ -196,6 +196,14 @@ describe('buildMenuItems — needs attention', () => {
     startedAt,
   });
 
+  it('does not wrap a task name that already contains quotes', () => {
+    const items = base({
+      interruptedTasks: [{ ...task(1), name: 'Make hello.py print "Hello, world!"' }],
+      now: 60_000,
+    });
+    expect(items[0]?.label).toBe('⚠ [INTERRUPTED] Make hello.py print "Hello, world!" · attempt 2 · 1m ago');
+  });
+
   it('adds no group while nothing is interrupted or waiting', () => {
     expect(base({}).some((i) => i.section === 'needs attention')).toBe(false);
   });
@@ -210,7 +218,7 @@ describe('buildMenuItems — needs attention', () => {
     });
     const row = items[0];
     expect(row?.section).toBe('needs attention');
-    expect(row?.label).toBe('"Task 1" was interrupted · attempt 2 · 12m ago');
+    expect(row?.label).toBe('⚠ [INTERRUPTED] Task 1 · attempt 2 · 12m ago');
     expect(row?.description).toContain('3 uncommitted changes');
     expect(row?.description).toContain('↵ resumes Implement');
     row?.onSelect();

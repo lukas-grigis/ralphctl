@@ -24,3 +24,11 @@ const FLOW_TITLES: Record<string, string> = {
  * blank header.
  */
 export const flowIdToTitle = (flowId: string): string => FLOW_TITLES[flowId] ?? flowId;
+
+const TITLE_SEPARATOR = ' — ';
+
+/** A run title is `<Flow> — <subject>`; the section stamp already names the flow, so drop that prefix. */
+export const titleSubject = (flowId: string, title: string): string => {
+  const prefix = `${flowIdToTitle(flowId)}${TITLE_SEPARATOR}`;
+  return title.toLowerCase().startsWith(prefix.toLowerCase()) ? title.slice(prefix.length) : title;
+};

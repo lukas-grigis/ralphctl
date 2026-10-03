@@ -75,6 +75,26 @@ describe('ExecuteView', () => {
     result.unmount();
   });
 
+  it.each([
+    ['implement', 'Implement'],
+    ['refine', 'Refine'],
+    ['create-sprint', 'Create sprint'],
+  ])('names the %s flow once in the section stamp', async (flowId, label) => {
+    const sessions = createSessionManager();
+    sessions.register({ runner: fakeRunner('r-t', 'running'), flowId, title: `${label} — ready to go · abc123` });
+
+    const { result } = renderView(<ExecuteView />, {
+      deps: stubDeps(),
+      initial: { id: 'execute', props: { sessionId: 'r-t' } },
+      sessions,
+    });
+    await waitForViewReady(result, (f) => f.includes('ready to go'));
+    const stamp = (result.lastFrame() ?? '').split('\n').find((l) => l.includes('▣')) ?? '';
+    expect(stamp).toContain(`${label} — ready to go · abc123`.replace(/^create sprint/i, 'Create Sprint'));
+    expect(stamp.toLowerCase().split(label.toLowerCase()).length - 1).toBe(1);
+    result.unmount();
+  });
+
   it('renders the ResultCard with the completed verdict once the session settles', async () => {
     const sessions = createSessionManager();
     const runner = fakeRunner('r-2', 'completed');
