@@ -5,6 +5,7 @@
 
 import React from 'react';
 import { Box, Text } from 'ink';
+import { useShortTerminal } from '@src/application/ui/tui/runtime/use-short-terminal.ts';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 
 export interface SectionStampProps {
@@ -14,22 +15,25 @@ export interface SectionStampProps {
   readonly right?: React.ReactNode;
 }
 
-export const SectionStamp = ({ title, subtitle, right }: SectionStampProps): React.JSX.Element => (
-  <Box flexDirection="column" marginBottom={spacing.section}>
-    <Box justifyContent="space-between" paddingX={spacing.indent}>
-      <Box>
-        <Text color={inkColors.primary} bold>
-          {glyphs.badge}{' '}
-        </Text>
-        <Text bold>{title}</Text>
-        {subtitle !== undefined && subtitle.length > 0 && (
-          <Text dimColor>
-            {' '}
-            {glyphs.emDash} {subtitle}
+export const SectionStamp = ({ title, subtitle, right }: SectionStampProps): React.JSX.Element => {
+  const short = useShortTerminal();
+  return (
+    <Box flexDirection="column" marginBottom={short ? 0 : spacing.section}>
+      <Box justifyContent="space-between" paddingX={spacing.indent}>
+        <Box>
+          <Text color={inkColors.primary} bold>
+            {glyphs.badge}{' '}
           </Text>
-        )}
+          <Text bold>{title}</Text>
+          {subtitle !== undefined && subtitle.length > 0 && (
+            <Text dimColor>
+              {' '}
+              {glyphs.emDash} {subtitle}
+            </Text>
+          )}
+        </Box>
+        {right !== undefined && <Box>{right}</Box>}
       </Box>
-      {right !== undefined && <Box>{right}</Box>}
     </Box>
-  </Box>
-);
+  );
+};

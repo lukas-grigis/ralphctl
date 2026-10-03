@@ -46,4 +46,26 @@ describe('narrow chrome', () => {
     for (const line of lines.filter((l) => l.trim() !== '')) expect(line.trim().length).toBeGreaterThan(3);
     expect(lines.some((l) => l.includes('help') || l.includes('esc back'))).toBe(true);
   });
+
+  it('keeps the path start and the [P]/[S] hints whole, clipping the names first', async () => {
+    const { result } = renderView(<Breadcrumb />, {
+      deps,
+      initial: { id: 'home' },
+      queue: createPromptQueue(),
+      selection: {
+        projectId: FIXED_PROJECT_ID,
+        projectLabel: 'Hello Python (demo 36bf2290)',
+        sprintId: makeDraftSprint().id,
+        sprintLabel: 'ready to plan · 36bf2290',
+      },
+      size: { columns: 80, rows: 30 },
+    });
+    await waitForViewReady(result, (f) => f.includes('project:'));
+    const header = (result.lastFrame() ?? '').split('\n').find((l) => l.includes('project:')) ?? '';
+    expect(header.trimStart().startsWith('Home')).toBe(true);
+    expect(header).toContain('[P]');
+    expect(header).toContain('[S]');
+    expect(header).toContain('…');
+    expect([...header.trimEnd()].length).toBeLessThanOrEqual(80);
+  });
 });

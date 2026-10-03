@@ -25,17 +25,20 @@ const STABLE_QUOTE = getRandomQuote();
 /** Banner art is roughly 92 cells wide. Below this we auto-switch to compact. */
 const MIN_FULL_WIDTH = 100;
 
+/** The boxed banner (12 rows) only stays when Home's whole menu still fits under it; measured: all groups need 54 rows. */
+const MIN_FULL_ROWS = 56;
+
 export interface BannerProps {
   /**
    * When true, render the compact single-line strip even on home — useful for narrow shells.
-   * When `undefined` the banner picks based on terminal width.
+   * When `undefined` the banner picks based on terminal width and height.
    */
   readonly compact?: boolean;
 }
 
 export const Banner = ({ compact }: BannerProps): React.JSX.Element => {
-  const { columns } = useTerminalSize();
-  const isCompact = compact ?? columns < MIN_FULL_WIDTH;
+  const { columns, rows } = useTerminalSize();
+  const isCompact = compact ?? (columns < MIN_FULL_WIDTH || rows < MIN_FULL_ROWS);
   if (isCompact) {
     return (
       <Box flexDirection="column">

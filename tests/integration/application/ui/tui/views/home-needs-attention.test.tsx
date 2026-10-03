@@ -166,4 +166,25 @@ describe('Home — needs attention', () => {
     await until('Refine — Mainline · 1m');
     result.unmount();
   }, 60_000); // 30s of fake timers replays every spinner frame as a render — slow on a loaded runner
+
+  it.each([
+    [80, 24],
+    [100, 30],
+  ])('keeps the WORK group above the fold at %i x %i', async (columns, rows) => {
+    const result = mount({ pid: 1, via: 'run-record' }, { size: { columns, rows } });
+    await waitForViewReady(result, (f) => f.includes('WORK'));
+    const frame = result.lastFrame() ?? '';
+    expect(frame).toContain('Start a flow');
+    expect(frame).toContain('ralphctl');
+    result.unmount();
+  });
+
+  it('shows every menu group when the terminal is tall enough', async () => {
+    const result = mount({ pid: 1, via: 'run-record' }, { size: { columns: 140, rows: 50 } });
+    await waitForViewReady(result, (f) => f.includes('WORK'));
+    const frame = result.lastFrame() ?? '';
+    for (const group of ['WORK', 'OBSERVE', 'SYSTEM']) expect(frame).toContain(group);
+    expect(frame).toContain('Housekeeping');
+    result.unmount();
+  });
 });

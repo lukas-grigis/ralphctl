@@ -175,9 +175,15 @@ Every non-Home view mounts through `<ViewShell>`:
 **Views never render their own header, hint strip, or status bar.** `ViewShell` + router own all three.
 Home is the single exception — it renders the Banner + pipeline map instead of a SectionStamp.
 
+**Height regimes.** The boxed 12-row banner needs both width (≥ 100) and height (≥ 56 rows — what Home's whole menu
+needs beside it); below either, every view gets the compact strip. Under 40 rows (`useShortTerminal`) the chrome also
+drops its blank spacer rows (breadcrumb margins, section-stamp gap, Home card inner gaps) so the WORK group stays
+above the fold at 80x24. Nothing else moves and no key changes.
+
 **Two chrome lines never wrap.** The breadcrumb / header line and the footer hint line are each exactly one terminal
-row at any width. Each side of the header is one truncating `Text` (the path clips at its start, the
-`project: … [P] · sprint: … [S]` group at its end); the footer drops whole hints before clipping one mid-word
+row at any width. Each side of the header is one truncating `Text`. The path keeps its start; the right side is
+fitted to what is left (`fitBreadcrumbRight`): project / sprint names clip with `…` first, the `[P]` / `[S]` hints
+stay whole, and the status badge goes only when names would drop below six cells; the footer drops whole hints before clipping one mid-word
 (`fitHints` in `keyboard-hints.tsx`: the view's own hints and `? help` / `q quit` are pinned, the global tail goes
 right to left). A row of shrinking `Box`es is the failure mode — Yoga squeezes each child until its text wraps into
 one-letter columns — so never build either line out of sibling Boxes.
