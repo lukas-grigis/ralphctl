@@ -1,5 +1,17 @@
 import { ErrorCode } from '@src/domain/value/error/error-code.ts';
 
+/**
+ * `currentState` values a provider adapter stamps when the CLI rejected the run's configuration
+ * (not a transient death). Non-retryable: the next attempt would send the same config. The implement
+ * turn policy keys on these to name the settings field to fix instead of blaming signals.json.
+ */
+export const ProviderConfigRejection = {
+  ModelUnavailable: 'model-unavailable',
+  EffortUnsupported: 'effort-unsupported',
+} as const;
+
+export type ProviderConfigRejection = (typeof ProviderConfigRejection)[keyof typeof ProviderConfigRejection];
+
 export interface InvalidStateErrorOptions {
   readonly entity: string;
   readonly currentState: string;

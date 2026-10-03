@@ -3,7 +3,14 @@ import { AI_PROVIDERS, type Settings } from '@src/domain/entity/settings.ts';
 import { DEFAULT_SETTINGS, defaultAiSettingsForProvider } from '@src/business/settings/defaults.ts';
 import { applyPreset } from '@src/business/settings/presets.ts';
 import { FLOW_IDS } from '@src/domain/value/flow-id.ts';
-import { clampEffortToProvider, resolveEffort, resolveEffortForRow } from '@src/business/settings/resolve-effort.ts';
+import {
+  clampEffortToModel,
+  clampEffortToProvider,
+  floorEffort,
+  resolveEffort,
+  resolveEffortForRow,
+} from '@src/business/settings/resolve-effort.ts';
+import type { AiFlowSettings } from '@src/domain/entity/settings.ts';
 
 const withGlobalEffort = (effort: Settings['ai']['effort']): Settings => ({
   ...DEFAULT_SETTINGS,
@@ -205,5 +212,61 @@ describe('clampEffortToProvider', () => {
   it('passes an unknown effort string through unchanged for every provider', () => {
     expect(clampEffortToProvider('ultra-mega', 'openai-codex')).toBe('ultra-mega');
     expect(clampEffortToProvider('ultra-mega', 'claude-code')).toBe('ultra-mega');
+  });
+});
+
+const row = (provider: AiFlowSettings['provider'], model: string, effort?: string): AiFlowSettings =>
+  ({ provider, model, ...(effort !== undefined ? { effort } : {}) }) as AiFlowSettings;
+
+describe('clampEffortToModel', () => {
+  it('drops every level for a Copilot model without an effort dimension (claude-haiku-4.5)', () => {
+    expect(clampEffortToModel('xhigh', 'github-copilot', 'claude-haiku-4.5')).toBeUndefined();
+    expect(clampEffortToModel('low', 'github-copilot', 'claude-haiku-4.5')).toBeUndefined();
+  });
+
+  it('floors to the strongest level the model supports below the request', () => {
+    expect(clampEffortToModel('max', 'github-copilot', 'gpt-5-mini')).toBe('high');
+    expect(clampEffortToModel('max', 'openai-codex', 'gpt-5.5')).toBe('xhigh');
+    expect(clampEffortToModel('ultra', 'openai-codex', 'gpt-6-luna')).toBe('max');
+  });
+
+  it('rises to the weakest supported level when nothing sits below the request', () => {
+    expect(clampEffortToModel('none', 'github-copilot', 'claude-sonnet-5')).toBe('low');
+  });
+
+  it('keeps a supported level and passes unknown models / levels through for the CLI to arbitrate', () => {
+    expect(clampEffortToModel('max', 'github-copilot', 'claude-sonnet-5')).toBe('max');
+    expect(clampEffortToModel('max', 'openai-codex', 'my-custom-model')).toBe('max');
+    expect(clampEffortToModel('xhigh', 'claude-code', 'claude-haiku-4-5')).toBe('xhigh');
+    expect(clampEffortToModel('ultra-mega', 'openai-codex', 'gpt-5.5')).toBe('ultra-mega');
+  });
+});
+
+describe('floorEffort', () => {
+  it('uses the model list when known, else the provider floor', () => {
+    expect(floorEffort('max', 'openai-codex', 'gpt-6-sol')).toBe('max');
+    expect(floorEffort('max', 'openai-codex', 'gpt-5.5')).toBe('xhigh');
+    expect(floorEffort('max', 'openai-codex', 'my-custom-model')).toBe('xhigh');
+    expect(floorEffort('high', 'github-copilot', 'claude-haiku-4.5')).toBeUndefined();
+  });
+});
+
+describe('resolveEffortForRow — per-model effort', () => {
+  it('sends no effort to Copilot claude-haiku-4.5 on any layer (row, global, shipped default)', () => {
+    expect(
+      resolveEffortForRow(row('github-copilot', 'claude-haiku-4.5', 'xhigh'), undefined, 'implement')
+    ).toBeUndefined();
+    expect(resolveEffortForRow(row('github-copilot', 'claude-haiku-4.5'), 'max', 'implement')).toBeUndefined();
+    expect(resolveEffortForRow(row('github-copilot', 'claude-haiku-4.5'), undefined, 'implement')).toBeUndefined();
+  });
+
+  it('narrows an explicit row effort the model rejects, but keeps it verbatim on a custom model', () => {
+    expect(resolveEffortForRow(row('github-copilot', 'gpt-5-mini', 'xhigh'), undefined, 'implement')).toBe('high');
+    expect(resolveEffortForRow(row('openai-codex', 'my-custom-model', 'max'), undefined, 'implement')).toBe('max');
+  });
+
+  it('honours a global max on a codex model that supports it instead of the provider-wide floor', () => {
+    expect(resolveEffortForRow(row('openai-codex', 'gpt-6-sol'), 'max', 'implement')).toBe('max');
+    expect(resolveEffortForRow(row('openai-codex', 'gpt-5.5'), 'max', 'implement')).toBe('xhigh');
   });
 });

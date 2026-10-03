@@ -3,6 +3,7 @@ import { Result } from '@src/domain/result.ts';
 import { ParseError } from '@src/domain/value/error/parse-error.ts';
 import { AbortError } from '@src/domain/value/error/abort-error.ts';
 import { ProcessCrashError } from '@src/domain/value/error/process-crash-error.ts';
+import { InvalidStateError, ProviderConfigRejection } from '@src/domain/value/error/invalid-state-error.ts';
 import { RateLimitError } from '@src/domain/value/error/rate-limit-error.ts';
 import type { HarnessSignal } from '@src/domain/signal.ts';
 import { FIXED_NOW, makeInProgressTaskWithRunningAttempt } from '@tests/fixtures/domain.ts';
@@ -177,6 +178,31 @@ describe('runGeneratorTurnUseCase', () => {
     if (!result.ok) return;
     expect(result.value.exit?.abortCause).toBe('process-crash');
     expect(result.value.exit?.signalOrExitCode).toBe(1);
+  });
+
+  it.each([
+    [ProviderConfigRejection.EffortUnsupported, 'ai.implement.generator.effort'],
+    [ProviderConfigRejection.ModelUnavailable, 'ai.implement.generator.model'],
+  ])('blocks a %s rejection at once, naming %s — never a retried crash', async (currentState, field) => {
+    const task = makeInProgressTaskWithRunningAttempt();
+    const message = 'copilot-provider: model "claude-haiku-4.5" doesn\'t support reasoning effort "xhigh"';
+    const err = new InvalidStateError({
+      entity: 'copilot-provider',
+      currentState,
+      attemptedAction: 'complete generation',
+      message,
+    });
+    const result = await runGeneratorTurnUseCase({
+      task,
+      callImplement: async () => Result.error(err),
+      logger: noopLogger,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.exit?.kind).toBe('self-blocked');
+    expect(result.value.exit?.reason).toContain(field);
+    expect(result.value.exit?.reason).toContain(message);
+    expect(result.value.exit?.reason).not.toContain('signals.json');
   });
 
   it('propagates an AbortError (user cancel) instead of blocking', async () => {

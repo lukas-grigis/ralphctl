@@ -1,5 +1,9 @@
 import { type AiFlowSettings, type AiProvider, primaryFlowRow, type Settings } from '@src/domain/entity/settings.ts';
 import type { FlowId } from '@src/domain/value/flow-id.ts';
+import { modelEffortLevels } from '@src/domain/value/settings-models/effort.ts';
+
+/** Weakest → strongest across every provider vocabulary; ranks levels for the model clamp. */
+const EFFORT_RANK = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'] as const;
 
 type GlobalEffort = NonNullable<Settings['ai']['effort']>;
 
@@ -30,6 +34,10 @@ const FLOW_DEFAULT_EFFORT: Readonly<Record<FlowId, GlobalEffort>> = {
  * Resolution order:
  *   1. Per-flow `settings.ai[flow].effort` if explicitly set.
  *   2. Global `settings.ai.effort`, floored to the flow's provider ceiling.
+ *
+ * Every layer is then narrowed to the row's model ({@link clampEffortToModel} / {@link floorEffort}):
+ * a catalog model with a known effort list never receives a level its CLI rejects, and a model with
+ * no effort dimension gets none.
  *   3. The flow's shipped default effort (see {@link FLOW_DEFAULT_EFFORT}), floored to the
  *      flow's provider ceiling — deliberately BELOW the global default: an operator who set
  *      `ai.effort` has made a deliberate choice, and the shipped default must not override it.
@@ -61,39 +69,53 @@ export const resolveEffortForRow = (
   globalEffort: Settings['ai']['effort'],
   flow: FlowId
 ): string | undefined => {
-  if (row.effort !== undefined) return row.effort;
-  if (globalEffort !== undefined) return clampEffortToProvider(globalEffort, row.provider);
+  if (row.effort !== undefined) return clampEffortToModel(row.effort, row.provider, row.model);
+  if (globalEffort !== undefined) return floorEffort(globalEffort, row.provider, row.model);
   // OpenCode aggregates upstream providers, so no level is known-good for the row's model — the
   // same rationale that excludes it from `EFFORT_CAPABLE_PROVIDERS` in `business/task/escalation-map.ts`.
   // Letting the CLI pick its own default is safer than stamping one the upstream model rejects.
   if (row.provider === 'opencode') return undefined;
-  return clampEffortToProvider(FLOW_DEFAULT_EFFORT[flow], row.provider);
+  return floorEffort(FLOW_DEFAULT_EFFORT[flow], row.provider, row.model);
 };
 
 /**
- * Clamp an arbitrary effort string to a value the provider's adapter accepts.
- *
- * Exported so callers that source effort from somewhere other than the global-default fallback
- * (e.g. an agent-definition binding — see `resolveAgentOverride`) can still apply the same
- * per-provider floor. Codex accepts `low..xhigh` on every catalog model, so `xhigh` passes
- * through unclamped; `max` still clamps because not every codex model accepts it and this clamp
- * has no model context to narrow further. Explicit per-flow `max` / `ultra` bypasses this clamp
- * entirely (row effort returns verbatim, above) with the codex CLI as the final arbiter — same
- * policy as custom model ids.
- *
- * Per provider:
- * - claude-code: identity (its native vocabulary IS the superset).
- * - github-copilot: identity (Copilot accepts everything in the superset; `none` is only
- *   surfaced as a per-flow opt-out and never selected globally).
- * - openai-codex: `max` clamps to `xhigh`; everything else identity.
- * - opencode: identity; the CLI arbitrates, and the shipped flow default is not stamped at all.
- * - xai-grok: identity (native vocabulary includes the global superset plus `none` / `minimal`).
- *
- * Only the known-dangerous codex case is floored — any other string (including values outside
- * the superset) passes through unchanged, letting the provider CLI be the final arbiter of
- * genuinely unknown effort levels.
+ * Provider-level floor — the fallback {@link floorEffort} uses when the catalog has no effort list
+ * for the row's model (a custom id, or a provider without per-model tables). Only the
+ * known-dangerous codex `max` is floored (to `xhigh`, which every codex model accepts); every
+ * other string passes through and the provider CLI arbitrates.
  */
 export const clampEffortToProvider = (effort: string, provider: AiProvider): string => {
   if (provider === 'openai-codex' && effort === 'max') return 'xhigh';
   return effort;
 };
+
+/**
+ * Narrow an effort to what the row's MODEL accepts, using the catalog's per-model effort list
+ * (`modelEffortLevels`). The provider CLIs hard-fail on a level the model doesn't support (Copilot
+ * on any level for `claude-haiku-4.5`; Codex `max` on `gpt-5.5`), so this applies to an explicit
+ * row effort too:
+ *
+ * - model has no effort dimension → `undefined` (no flag is sent);
+ * - level supported → unchanged;
+ * - level unsupported → the strongest supported level below it, else the weakest supported one;
+ * - model or level unknown (custom id; opencode / grok / claude rows) → unchanged, the CLI arbitrates.
+ */
+export const clampEffortToModel = (effort: string, provider: AiProvider, model: string): string | undefined => {
+  const levels = modelEffortLevels(provider, model);
+  if (levels === undefined || levels.includes(effort)) return effort;
+  if (levels.length === 0) return undefined;
+  const rank = (level: string): number => (EFFORT_RANK as readonly string[]).indexOf(level);
+  const requested = rank(effort);
+  if (requested === -1) return effort;
+  const below = levels.filter((level) => rank(level) !== -1 && rank(level) < requested);
+  return below.at(-1) ?? levels[0];
+};
+
+/**
+ * Floor an effort the operator did NOT pin on this row (global, shipped default, agent binding):
+ * the model's own list when the catalog knows it, else the provider-level {@link clampEffortToProvider}.
+ */
+export const floorEffort = (effort: string, provider: AiProvider, model: string): string | undefined =>
+  modelEffortLevels(provider, model) === undefined
+    ? clampEffortToProvider(effort, provider)
+    : clampEffortToModel(effort, provider, model);

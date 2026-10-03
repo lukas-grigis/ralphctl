@@ -1,5 +1,5 @@
 import { AbortError } from '@src/domain/value/error/abort-error.ts';
-import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
+import { InvalidStateError, ProviderConfigRejection } from '@src/domain/value/error/invalid-state-error.ts';
 import { ProcessCrashError } from '@src/domain/value/error/process-crash-error.ts';
 import { RateLimitError } from '@src/domain/value/error/rate-limit-error.ts';
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
@@ -87,9 +87,10 @@ const STDOUT_RATE_LIMIT_RE =
  * `ProcessCrashError` (a TRANSIENT process death worth retrying within the attempt budget):
  * spawn-failed (the child never ran) and non-zero exit with no signals.json (the idle-stdout
  * watchdog SIGTERM shape). Both let the harness re-run the generator and only block once
- * `maxAttempts` is exhausted. Model-unavailable deliberately stays an `InvalidStateError`: a
- * model-availability failure is a CONFIG error, so retrying just burns the whole budget on the
- * same misconfiguration — it must keep blocking after one attempt.
+ * `maxAttempts` is exhausted. Model-unavailable and effort-unsupported deliberately stay an
+ * `InvalidStateError` (stamped with a {@link ProviderConfigRejection} state): both are CONFIG
+ * errors, so retrying just burns the whole budget on the same misconfiguration — they must keep
+ * blocking after one attempt.
  */
 export type ProviderSlug = 'claude' | 'codex' | 'copilot' | 'opencode' | 'grok';
 
@@ -117,6 +118,21 @@ export type ProviderName = `${ProviderSlug}-provider`;
  */
 const MODEL_UNAVAILABLE_RE =
   /\bmodel\b[^\n]*\b(?:is\s+not\s+available|not\s+available|not\s+found)|\b(?:unknown|unsupported|invalid)\s+model\b/i;
+
+/**
+ * Matches a provider CLI rejecting the reasoning-effort level for the selected model. Observed:
+ *  - copilot (stderr): `Error: Model "claude-haiku-4.5" does not support reasoning effort
+ *    configuration (requested: "xhigh").` and `Error: Reasoning effort "max" is not supported for
+ *    model "gpt-5-mini".`
+ *  - codex (stdout error record, unwrapped by the adapter): `Unsupported value: 'max' is not
+ *    supported with the 'gpt-5.5' model. … (param: reasoning.effort)`; the raw JSON envelope
+ *    carries `"param": "reasoning.effort"`.
+ * Scanned on the same CLI-diagnostic haystacks as {@link MODEL_UNAVAILABLE_RE}, never `stdoutTail`.
+ */
+const EFFORT_UNSUPPORTED_RE =
+  /does not support reasoning effort|reasoning effort\b[^\n]*\bnot supported|\bunsupported\b[^\n]*\breasoning\.effort\b|"param"\s*:\s*"reasoning\.effort"/i;
+
+const COMPLETE_GENERATION = 'complete generation';
 
 export interface ClassifySpawnExitInput {
   readonly session: AiSession;
@@ -266,7 +282,7 @@ export const classifySpawnFailure = (
       error: new InvalidStateError({
         entity: providerName,
         currentState: 'spawn-failed',
-        attemptedAction: 'complete generation',
+        attemptedAction: COMPLETE_GENERATION,
         message: `${providerName}: spawn failed: ${errno} — ${hint}`,
         hint,
       }),
@@ -346,7 +362,7 @@ const rateLimitOutcome = (
  * responses and would be misclassified as a config failure.
  */
 const classifyModelUnavailable = (input: ClassifySpawnExitInput): AttemptOutcome | undefined => {
-  const { exit, stderr, processErrorText, providerName } = input;
+  const { stderr, processErrorText, providerName } = input;
   if (!MODEL_UNAVAILABLE_RE.test(stderr) && !MODEL_UNAVAILABLE_RE.test(processErrorText ?? '')) return undefined;
 
   const hint = 'model not available — it may not be on your plan or CLI version; pick another model in settings';
@@ -354,9 +370,38 @@ const classifyModelUnavailable = (input: ClassifySpawnExitInput): AttemptOutcome
     kind: 'error',
     error: new InvalidStateError({
       entity: providerName,
-      currentState: `exit-${String(exit.code ?? 'null')}`,
-      attemptedAction: 'complete generation',
+      currentState: ProviderConfigRejection.ModelUnavailable,
+      attemptedAction: COMPLETE_GENERATION,
       message: `${providerName}: ${exitSummary(input)} — ${hint}`,
+      hint,
+    }),
+  };
+};
+
+/**
+ * **Effort unsupported** — the CLI rejected the reasoning-effort level for this model. Same
+ * non-retryable posture as {@link classifyModelUnavailable}: every retry would send the identical
+ * flag, so it surfaces an `InvalidStateError` naming the model and level instead of a crash. The
+ * catalog clamp (`clampEffortToModel`) keeps known models from getting here; this catches custom
+ * and unverified ids. The message quotes the CLI's own line rather than the full stderr, which can
+ * carry unrelated noise (codex logs MCP auth failures there).
+ */
+const classifyEffortUnsupported = (input: ClassifySpawnExitInput): AttemptOutcome | undefined => {
+  const { session, stderr, processErrorText, providerName } = input;
+  const cliLine = [stderr, processErrorText ?? '']
+    .flatMap((text) => text.split('\n'))
+    .find((line) => EFFORT_UNSUPPORTED_RE.test(line));
+  if (cliLine === undefined) return undefined;
+
+  const level = session.effort !== undefined ? ` "${session.effort}"` : '';
+  const hint = 'set an effort level this model supports, or pick another model';
+  return {
+    kind: 'error',
+    error: new InvalidStateError({
+      entity: providerName,
+      currentState: ProviderConfigRejection.EffortUnsupported,
+      attemptedAction: COMPLETE_GENERATION,
+      message: `${providerName}: model "${session.model}" doesn't support reasoning effort${level} — ${hint} (CLI: ${cliLine.trim()})`,
       hint,
     }),
   };
@@ -435,8 +480,8 @@ const recoverIfSignalsLanded = async ({
  *  2. a clean exit hands straight to the adapter's success block;
  *  3. a rate-limit found on **stderr** or **processErrorText** beats signals-recovery (the CLI
  *     itself said "throttled");
- *  4. model-unavailable beats signals-recovery (a config error must not be masked by a stale
- *     envelope);
+ *  4. a config rejection (effort-unsupported, then model-unavailable) beats signals-recovery (a
+ *     config error must not be masked by a stale envelope);
  *  5. signals-recovery beats a rate-limit found only in **stdoutTail** — a landed envelope is
  *     proof the turn did its work, and that haystack is assistant prose;
  *  6. otherwise a stdout-only rate-limit match still surfaces `rate-limit` (the real claude
@@ -452,8 +497,8 @@ export const classifySpawnExit = async (input: ClassifySpawnExitInput): Promise<
   const rateLimitSource = detectRateLimit(input);
   if (rateLimitSource === 'stderr') return rateLimitOutcome(input, rateLimitSource);
 
-  const modelUnavailable = classifyModelUnavailable(input);
-  if (modelUnavailable !== undefined) return modelUnavailable;
+  const configRejected = classifyEffortUnsupported(input) ?? classifyModelUnavailable(input);
+  if (configRejected !== undefined) return configRejected;
 
   const recovered = await recoverIfSignalsLanded(input);
   if (recovered !== undefined) return recovered;
