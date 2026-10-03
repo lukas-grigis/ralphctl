@@ -37,7 +37,7 @@ global / default / agent-binding layers and passes an explicit row effort throug
 still rejects the effort or model, `classifySpawnExit` returns a non-retryable `InvalidStateError` stamped
 with a `ProviderConfigRejection` state, and the implement turn blocks once, naming
 `ai.implement.<role>.effort|model`. Codex accepts `low..ultra` — `max` only on the GPT-5.6 and GPT-6
-families (not `gpt-5.5`), `ultra` only on `gpt-6-astra`, `gpt-6-sol`, `gpt-5.6-sol`, and `gpt-5.6-terra`
+families (not `gpt-5.5`), `ultra` only on `gpt-6-astra`, `gpt-6.1-sol`, `gpt-6-sol`, `gpt-5.6-sol`, and `gpt-5.6-terra`
 (plan-gated); a custom codex model floors a global `max` to `xhigh`; `minimal` no longer exists — persisted
 rows migrate to `low` at parse time. OpenCode accepts `minimal | low | medium | high | xhigh | max`
 (`src/domain/value/settings-models/effort.ts`) and forwards the resolved value verbatim to `--variant` on
@@ -133,7 +133,7 @@ resolution** above). The families:
   same routing as standard but `implement` starts one tier below the flagship at `high` effort (Sonnet /
   Copilot Sonnet / `grok-4.6`); the escalation ladder climbs to the flagship only when a task plateaus —
   cheaper tokens on easy tasks, same quality gate on hard ones. `codex-economic` is the exception: it stays
-  on `gpt-6-luna` — one tier below `gpt-6-sol` — and buys back quality with `xhigh` effort instead of a
+  on `gpt-6-luna` — one tier below `gpt-6.1-sol` — and buys back quality with `xhigh` effort instead of a
   model bump; `gpt-6-luna` at `xhigh` is reported to match `gpt-5.6-sol` at roughly 1/20 of the sol price.
   `mixed-economic` pairs a Sonnet generator with that same Codex-luna-at-`xhigh` critic — a cross-provider
   second opinion at near-zero cost. `grok-economic` starts implement on `grok-4.6`, which publishes the
@@ -144,7 +144,7 @@ resolution** above). The families:
   family that intentionally splits `implement.generator` and `implement.evaluator` onto different models. The
   generator climbs to the flagship on plateau via the escalation ladder (`escalateOnPlateau` stamped `true`).
   `mixed-strong-gate` keeps both roles on Claude rather than mixing providers — the family already splits by
-  tier. The Codex variant (`gpt-6-luna` gen → `gpt-6-sol` gate) and the Grok variant (`grok-4.6` →
+  tier. The Codex variant (`gpt-6-luna` gen → `gpt-6.1-sol` gate) and the Grok variant (`grok-4.6` →
   `grok-4.7`) are both a single ladder rung; Codex's generator additionally runs at `xhigh` rather than
   `high` — the same effort-compensates-for-tier pattern as `codex-economic`.
 - **fast** (`mixed-fast`, `claude-fast`, `copilot-fast`, `codex-fast`, `grok-fast`) — cheapest viable tier at
@@ -154,7 +154,7 @@ resolution** above). The families:
   successor, so it left every preset default (see the Claude Code catalog note below), and `gpt-6-luna` is
   itself code-capable, so Codex needs no separate implement tier. `copilot-fast` and `mixed-fast` still mix
   models even at this tier: Copilot's light flows (refine/readiness/ideate/createPr) drop to
-  `gpt-5.6-luna` while `plan`/`implement` stay on Claude Sonnet (Copilot's cheapest code-capable model);
+  `gpt-6-luna` while `plan`/`implement` stay on Claude Sonnet 5.5 (Copilot's cheapest code-capable model);
   `mixed-fast` likewise keeps Claude Sonnet on `plan`/`implement` and Codex/Copilot Luna on the light flows.
   This is the only family with `escalateOnPlateau` stamped **`false`** — a plateau settles
   (done-with-warning) rather than climbing the ladder, which is what keeps the family genuinely cheap and
@@ -165,8 +165,8 @@ resolution** above). The families:
   Claude's flagship is Fable 5.1, not Opus: `claude-frontier` and `mixed-frontier` run `plan`/`implement`/
   `ideate` on `claude-fable-5-1` (2.5× the Opus 5.5 price, needs a non-ZDR org). `claude-frontier` keeps
   `refine`/`readiness`/`createPr` on Opus 5.5; `mixed-frontier` keeps only `readiness` there, runs
-  `refine`/`createPr` on `gpt-6-sol`, and gates implement with a `gpt-6-astra` critic. `codex-frontier` steps up to `gpt-6-astra` (5× the `gpt-6-sol` price) on the deep flows,
-  with `gpt-6-sol` on the light ones; `ultra` is deliberately not used (plan-gated to Plus+, would brick
+  `refine`/`createPr` on `gpt-6.1-sol`, and gates implement with a `gpt-6-astra` critic. `codex-frontier` steps up to `gpt-6-astra` (5× the `gpt-6.1-sol` price) on the deep flows,
+  with `gpt-6.1-sol` on the light ones; `ultra` is deliberately not used (plan-gated to Plus+, would brick
   spawns on lower plans). `copilot-frontier` and `grok-frontier` have no equivalent premium tier available
   by default, so they stay on their existing flagship (`claude-opus-4.8` — Opus 5 / 5.5 are plan-gated on
   Copilot — and `grok-4.7`) and differentiate purely by effort. `grok-4.7-build-fast` is the same exclusion
@@ -206,9 +206,9 @@ every `ai` row plus `harness.escalateOnPlateau` in one transaction; subsequent p
   → Opus 5.5): $2/$10 per MTok, natively 1M with no `[1m]` variant, 128K output, all five effort levels,
   and — like Opus 5.5 — a Claude Code CLI default effort of `medium` (the Claude API documents `high`;
   the effort rung follows the CLI). Its effort levels are recalibrated against Sonnet 5, so the same
-  preset level does not buy the same amount of thinking. It is **Claude Code only**: the Copilot CLI
-  (1.0.88) rejects both `claude-sonnet-5.5` and `claude-sonnet-5-5`, so every Copilot row and the Copilot
-  ladder stay on `claude-sonnet-5`. `claude-sonnet-5` is **not retired** — it stays live on Claude Code
+  preset level does not buy the same amount of thinking. Copilot serves it as the dotted
+  `claude-sonnet-5.5` (the dash form `claude-sonnet-5-5` is rejected there), and the Copilot rows and
+  ladder use it (see the Copilot entry below). `claude-sonnet-5` is **not retired** — it stays live on Claude Code
   (and is Claude Code's cybersecurity fallback for Sonnet 5.5), keeps its own ladder rung to Opus 5.5, and
   a row pinned to it loads unchanged (no `RETIRED_MODEL_REMAPS` entry). Nothing was removed.
   `claude-opus-5-5` is the Opus 5 successor and the **default Opus** across presets, the new-install
@@ -230,24 +230,27 @@ every `ai` row plus `harness.escalateOnPlateau` in one transaction; subsequent p
   been lifted — `settings-models/suspended-models.ts` keeps the kill-switch mechanism, now empty) — it
   stays opt-in outside the frontier presets for a different reason: 2.5× the Opus 5.5 price is an operator
   spend decision, not a capability gate.
-- GitHub Copilot — lists 31 models reconciled to GitHub's supported-models doc + changelog and
-  live-probed with the Copilot CLI (1.0.79 / 1.0.88) on a reference account (as of 2026-09-22): OpenAI
+- GitHub Copilot — lists 29 models reconciled to GitHub's supported-models doc + changelog and
+  checked against the Copilot SDK's `listModels()` (Copilot CLI 1.0.91) on a reference account (as of 2026-10-03): OpenAI
   `gpt-5-mini`, `gpt-5.3-codex`, `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.4-nano`, `gpt-5.5`, `gpt-5.6-sol`,
-  `gpt-5.6-terra`, `gpt-5.6-luna`, `gpt-6-astra`, `gpt-6-sol`, `gpt-6-luna`; Anthropic `claude-haiku-4.5`,
-  `claude-opus-4.7`, `claude-opus-4.8`, `claude-opus-4.8-fast`, `claude-opus-5`, `claude-opus-5.5`,
-  `claude-fable-5`, `claude-fable-5.1`, `claude-sonnet-5`; Google `gemini-3.5-flash`, `gemini-3.6-flash`,
-  `gemini-3.7-flash`, `gemini-3.8-flash`; Microsoft `mai-code-1.1-flash`; Moonshot `kimi-k2.7-code`,
-  `kimi-k3`; xAI `grok-4.5`, `grok-4.6`, `grok-4.7`. The 2026-09-01 GitHub deprecation (changelog
+  `gpt-5.6-terra`, `gpt-5.6-luna`, `gpt-6-astra`, `gpt-6-sol`, `gpt-6.1-sol`, `gpt-6-luna`; Anthropic `claude-haiku-4.5`,
+  `claude-opus-4.8`, `claude-opus-4.8-fast`, `claude-opus-5`, `claude-opus-5.5`,
+  `claude-fable-5`, `claude-fable-5.1`, `claude-sonnet-5`, `claude-sonnet-5.5`; Google
+  `gemini-3.7-flash`, `gemini-3.8-flash`; Microsoft `mai-code-1.1-flash`; Moonshot `kimi-k3`; xAI `grok-4.5`, `grok-4.6`, `grok-4.7`. The 2026-09-01 GitHub deprecation (changelog
   2026-08-31) removed `claude-opus-4.5`, `claude-opus-4.6`, `claude-sonnet-4.5` (the former default),
   `claude-sonnet-4.6` (kept upstream only for individual annual-plan subscribers), `gemini-3.1-pro`, and
-  `raptor-mini`; `mai-code-1-flash` was dropped as superseded by `mai-code-1.1-flash`. New in the 2026-09
+  `raptor-mini`; `mai-code-1-flash` was dropped as superseded by `mai-code-1.1-flash`. The 2026-10-02
+  deprecation removed `gemini-3.5-flash`, `gemini-3.6-flash`, `kimi-k2.7-code` and `claude-opus-4.7`
+  (remapped at parse time; `gemini-3-flash` now collapses to `gemini-3.8-flash`). The 2026-10-19
+  deprecations (`gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`, `gpt-5-mini`, `gemini-3.7-flash`, `grok-4.5`) stay
+  catalogued until then, but no preset or ladder rung uses them. New in the 2026-09
   changelog: `claude-opus-5.5` (09-22, Pro+/Max/Business/Enterprise), `claude-fable-5.1` (09-01, Pro+ and
   up, off by default for Business/Enterprise), `gpt-6-astra` (09-04, Pro+ and up), `gpt-6-sol` /
   `gpt-6-luna` (09-22; luna includes Pro), `gemini-3.8-flash` (09-03), and `grok-4.7` (09-21, gradual
   rollout). Of these, only `gemini-3.8-flash` answered on the reference account; the other six
   (`claude-opus-5.5`, `claude-fable-5.1`, `gpt-6-astra`, `gpt-6-sol`, `gpt-6-luna`, `grok-4.7`) did not
   yet, so they are catalog + pin-only.
-  Verified available on the reference account: `claude-sonnet-5`, `claude-opus-4.8`, `claude-opus-4.7`,
+  Verified available on the reference account: `claude-sonnet-5`, `claude-sonnet-5.5`, `claude-opus-4.8`,
   `claude-opus-5`, `claude-haiku-4.5`, `gpt-5-mini`, `gpt-5.4-mini`, `gpt-5.3-codex`, `gpt-5.5`,
   `gpt-5.6-sol` / `-terra` / `-luna`, `gemini-3.8-flash`, `mai-code-1.1-flash`, and `grok-4.6`; the
   remaining entries are convention-derived slugs from the doc's display names — the Copilot CLI still
@@ -260,15 +263,16 @@ every `ai` row plus `harness.escalateOnPlateau` in one transaction; subsequent p
   (Pro+/Max/Business/Enterprise) on Copilot and, per the existing passthrough-probe policy, fail at spawn
   with a clear error on gated accounts, so Copilot's curated presets and default escalation ladder
   deliberately stay on `claude-opus-4.8` (see `escalation-map.ts`).
-- OpenAI Codex — verified against the live CLI model cache (codex CLI v0.155.1,
-  `~/.codex/models_cache.json`, 2026-09-22). `gpt-6-sol` is the flagship and the top rung of the Codex
+- OpenAI Codex — verified against the live CLI model cache (codex CLI v0.160.0,
+  `~/.codex/models_cache.json`, 2026-10-03). `gpt-6.1-sol` is the flagship and the top rung of the Codex
   escalation ladder — $2/$10 per MTok, half the `gpt-5.6-sol` price, and the model `codex-only` runs
-  implement on (`codex-frontier` runs it on `gpt-6-astra`); `gpt-6-luna` is the cheap tier ($0.10/$0.50); `gpt-6-astra` is the
-  premium tier ($10/$50, frontier presets only, never a default or ladder rung). All three run
-  `low..max`; `ultra` exists on astra and sol but NOT luna — per-model narrowing is left to the codex CLI
-  at spawn. `gpt-5.6-sol` / `gpt-5.6-terra` / `gpt-5.6-luna` and `gpt-5.5` remain in the catalog for
-  pinned configs and chain into the GPT-6 family (`gpt-5.6-sol` / `gpt-5.6-terra` → `gpt-6-sol`,
-  `gpt-5.6-luna` → `gpt-6-luna`, `gpt-5.5 → gpt-5.6-sol`); `gpt-5.5` itself retires from Codex on
+  implement on (`codex-frontier` runs it on `gpt-6-astra`); `gpt-6-sol` is the previous generation, kept for
+  pinned configs and climbing to `gpt-6.1-sol`; `gpt-6-luna` is the cheap tier ($0.10/$0.50); `gpt-6-astra` is the
+  premium tier ($10/$50, frontier presets only, never a default or ladder rung). All run
+  `low..max`; `ultra` exists on `gpt-6.1-sol`, `gpt-6-sol` and astra but NOT luna — effort resolution
+  narrows per model from `CODEX_MODEL_EFFORT_LEVELS` (see **Effort resolution**). `gpt-5.6-sol` / `gpt-5.6-terra` / `gpt-5.6-luna` and `gpt-5.5` remain in the catalog for
+  pinned configs and chain up their own tier into the GPT-6 family (`gpt-5.6-sol` → `gpt-6.1-sol`, `gpt-5.6-terra` → `gpt-5.6-sol`,
+  `gpt-5.6-luna` → `gpt-5.6-terra`, `gpt-5.5 → gpt-5.6-sol`); `gpt-5.5` itself retires from Codex on
   2026-10-14 — drop it (with a parse-time remap) once that date passes. `gpt-5.4` / `gpt-5.4-mini`
   retired from Codex on 2026-08-31 and were REMOVED from this catalog; persisted rows remap to
   `gpt-6-sol` / `gpt-6-luna` at parse time (`gpt-5.4` stays in the **Copilot** catalog, so the remap is
