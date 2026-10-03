@@ -25,11 +25,21 @@ leaves an effort-capable provider on its CLI's built-in default, which moves bet
 (Claude Code runs Opus 5.5 and Sonnet 5.5 at `medium` with no `--effort`; earlier Opus and Sonnet
 models ran at `high`). The only
 path that still reaches the CLI default is an opencode row with no row or global effort. Readiness,
-distill, the implement roles, create-pr and review all resolve through the same function. Codex
-accepts `low..ultra` — from the **global** value, `max` floors
-to `xhigh` (only the GPT-5.6 and GPT-6 families accept `max`); `ultra` (only `gpt-6-astra`, `gpt-6-sol`,
-`gpt-5.6-sol`, and `gpt-5.6-terra`, plan-gated) is reachable only via an explicit per-flow effort; `minimal` no longer exists — persisted rows migrate to `low` at parse
-time. OpenCode accepts `minimal | low | medium | high | xhigh | max`
+distill, the implement roles, create-pr and review all resolve through the same function.
+**Per-model narrowing:** every layer is then clamped to the row's MODEL when the catalog knows its effort
+list — `COPILOT_MODEL_EFFORT_LEVELS` (`settings-models/copilot.ts`, from the Copilot SDK's `listModels()`)
+and `CODEX_MODEL_EFFORT_LEVELS` (`settings-models/codex.ts`, from `~/.codex/models_cache.json`), read via
+`modelEffortLevels()` in `effort.ts`. Both CLIs exit 1 on a level the model lacks. `clampEffortToModel`
+drops effort for a model with none (Copilot `claude-haiku-4.5` — the CLI rejects every level) and otherwise
+takes the strongest supported level below the request; it applies to an explicit row effort too. An
+unknown model (custom id, or a claude / grok / opencode row) falls back to the provider floor for the
+global / default / agent-binding layers and passes an explicit row effort through verbatim. When a CLI
+still rejects the effort or model, `classifySpawnExit` returns a non-retryable `InvalidStateError` stamped
+with a `ProviderConfigRejection` state, and the implement turn blocks once, naming
+`ai.implement.<role>.effort|model`. Codex accepts `low..ultra` — `max` only on the GPT-5.6 and GPT-6
+families (not `gpt-5.5`), `ultra` only on `gpt-6-astra`, `gpt-6-sol`, `gpt-5.6-sol`, and `gpt-5.6-terra`
+(plan-gated); a custom codex model floors a global `max` to `xhigh`; `minimal` no longer exists — persisted
+rows migrate to `low` at parse time. OpenCode accepts `minimal | low | medium | high | xhigh | max`
 (`src/domain/value/settings-models/effort.ts`) and forwards the resolved value verbatim to `--variant` on
 `opencode run`; it gets no entry in `clampEffortToProvider`, so the CLI is the final arbiter per upstream
 model — OpenCode aggregates other vendors, and the accepted `--variant` levels belong to whichever vendor

@@ -294,6 +294,33 @@ const agentMessageText = (obj: Record<string, unknown>): string | undefined => {
 };
 
 /**
+ * The CLI's own fatal error from a `{"type":"error"}` / `{"type":"turn.failed"}` record — codex
+ * reports API rejections (e.g. an effort level the model doesn't support) there, not on stderr.
+ * The `message` is often a JSON-encoded API error body; its inner `error.message` (+ `param`) is
+ * unwrapped so the operator reads one line instead of a pretty-printed envelope.
+ */
+const codexStreamErrorText = (obj: Record<string, unknown>): string | undefined => {
+  const type = stringField(obj, 'type');
+  const raw =
+    type === 'error'
+      ? stringField(obj, 'message')
+      : type === 'turn.failed' && isRecord(obj['error'])
+        ? stringField(obj['error'], 'message')
+        : undefined;
+  if (raw === undefined) return undefined;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    const inner = isRecord(parsed) && isRecord(parsed['error']) ? parsed['error'] : undefined;
+    const message = inner !== undefined ? stringField(inner, 'message') : undefined;
+    if (inner === undefined || message === undefined) return raw;
+    const param = stringField(inner, 'param');
+    return param !== undefined ? `${message} (param: ${param})` : message;
+  } catch {
+    return raw;
+  }
+};
+
+/**
  * Mutable per-attempt accumulator for codex's JSONL stdout stream: session id / model / token
  * usage (first-wins for id/model, last-wins for usage) plus the bounded `agent_message` tail used
  * as the rate-limit haystack.
@@ -312,6 +339,8 @@ interface CodexAttemptTracker {
   readonly getOutputTokens: () => number | undefined;
   /** Bounded `agent_message` tail for the rate-limit classifier's haystack. */
   readonly getStdoutTail: () => string | undefined;
+  /** Last fatal `error` / `turn.failed` record — the classifier's `processErrorText`. */
+  readonly getStreamError: () => string | undefined;
 }
 
 const createCodexAttemptTracker = (eventBus: EventBus): CodexAttemptTracker => {
@@ -323,6 +352,7 @@ const createCodexAttemptTracker = (eventBus: EventBus): CodexAttemptTracker => {
   // alongside stderr — codex surfaces a quota throttle in the agent_message body,
   // not always on stderr. Capped to bound memory on a long session.
   let agentMessageTail = '';
+  let streamError: string | undefined;
   // Shared capped NDJSON feed — the in-flight line accumulator is bounded at
   // STDOUT_LINE_PARSE_CAP (drop-oldest, one-shot warn). Codex can stream a single record embedding
   // a huge file-read / bash tool result, and a child that never terminates the line would
@@ -344,6 +374,7 @@ const createCodexAttemptTracker = (eventBus: EventBus): CodexAttemptTracker => {
   };
   const onLine = (obj: Record<string, unknown>): void => {
     publishCodexStreamLineEvents(eventBus, obj);
+    streamError = codexStreamErrorText(obj) ?? streamError;
     const text = agentMessageText(obj);
     if (text !== undefined) {
       agentMessageTail = `${agentMessageTail}${agentMessageTail.length > 0 ? '\n' : ''}${text}`.slice(
@@ -375,6 +406,7 @@ const createCodexAttemptTracker = (eventBus: EventBus): CodexAttemptTracker => {
     getInputTokens: () => inputTokens,
     getOutputTokens: () => outputTokens,
     getStdoutTail: () => (agentMessageTail.length > 0 ? agentMessageTail : undefined),
+    getStreamError: () => streamError,
   };
 };
 
@@ -416,6 +448,7 @@ const runCodexAttempt = (
     // Codex reports a quota throttle in the agent_message body, not always on stderr.
     // Feed the accumulated tail into the rate-limit haystack so it trips the backoff.
     getStdoutTail: () => tracker.getStdoutTail(),
+    getProcessErrorText: () => tracker.getStreamError(),
     // Single-shot read of the codex output tempfile (may be partial/empty on SIGTERM
     // recovery). audit-[09]: a missing/unreadable tempfile must NOT hard-error — `onSuccess`
     // also runs on the recovery branch (non-zero exit + signals.json present), and

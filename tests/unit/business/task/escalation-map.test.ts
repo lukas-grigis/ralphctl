@@ -361,7 +361,7 @@ describe('nextEffortRung', () => {
     expect(nextEffortRung('claude-code', HAIKU, 'low')).toBeUndefined();
   });
 
-  // ── Copilot keeps the original fixed-`high` semantics; model plays no role. ──
+  // ── Copilot keeps the fixed-`high` target; the model only matters when its effort list lacks it. ──
 
   it('copilot escalates a fresh or below-target row to the fixed target `high`', () => {
     expect(nextEffortRung('github-copilot', 'gpt-5.5', undefined)).toBe(EFFORT_ESCALATION_TARGET);
@@ -371,6 +371,11 @@ describe('nextEffortRung', () => {
   it('copilot returns undefined when already at/above the fixed target (no headroom)', () => {
     expect(nextEffortRung('github-copilot', 'gpt-5.5', 'high')).toBeUndefined();
     expect(nextEffortRung('github-copilot', 'gpt-5.5', 'xhigh')).toBeUndefined();
+  });
+
+  it('copilot skips the rung for a model with no effort dimension — the CLI would reject any level', () => {
+    expect(nextEffortRung('github-copilot', 'claude-haiku-4.5', undefined)).toBeUndefined();
+    expect(nextEffortRung('github-copilot', 'claude-haiku-4.5', 'low')).toBeUndefined();
   });
 
   // ── Codex targets the fixed `xhigh` rung — universal across the codex catalog since the

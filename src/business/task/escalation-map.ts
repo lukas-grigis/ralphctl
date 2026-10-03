@@ -15,6 +15,7 @@
 
 import { type AiProvider, RETIRED_MODEL_REMAPS } from '@src/domain/entity/settings.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
+import { modelEffortLevels } from '@src/domain/value/settings-models/effort.ts';
 
 /**
  * Built-in escalation ladders, one per provider. Keys are the model id the generator is
@@ -299,7 +300,8 @@ const claudeEffortRung = (model: string, currentEffort: string | undefined): str
  *
  *   - the provider has no effort dimension the caller could resolve (`undefined` provider, or a
  *     future provider outside {@link EFFORT_CAPABLE_PROVIDERS}); or
- *   - the model has no effort dimension (Claude Haiku); or
+ *   - the model has no effort dimension (Claude Haiku on either catalog) or its catalog effort
+ *     list lacks the target; or
  *   - the generator has no headroom left (already at the ceiling for its provider/model).
  *
  * Provider-aware target:
@@ -329,11 +331,15 @@ export const nextEffortRung = (
 ): string | undefined => {
   if (provider === undefined || !EFFORT_CAPABLE_PROVIDERS.has(provider)) return undefined;
   if (provider === 'claude-code') return claudeEffortRung(model, currentEffort);
+  // A catalog model whose effort list lacks the target (e.g. Copilot `claude-haiku-4.5`, no effort
+  // at all) would hard-fail the CLI — skip the rung rather than escalate into a spawn error.
+  const levels = modelEffortLevels(provider, model);
+  const supports = (target: string): boolean => levels === undefined || levels.includes(target);
   if (provider === 'github-copilot') {
     if (currentEffort !== undefined && EFFORT_AT_OR_ABOVE_TARGET.has(currentEffort)) return undefined;
-    return EFFORT_ESCALATION_TARGET;
+    return supports(EFFORT_ESCALATION_TARGET) ? EFFORT_ESCALATION_TARGET : undefined;
   }
   // openai-codex and xai-grok: xhigh is universal; max/ultra are already above it.
   if (currentEffort !== undefined && CODEX_EFFORT_AT_OR_ABOVE_TARGET.has(currentEffort)) return undefined;
-  return CODEX_EFFORT_ESCALATION_TARGET;
+  return supports(CODEX_EFFORT_ESCALATION_TARGET) ? CODEX_EFFORT_ESCALATION_TARGET : undefined;
 };

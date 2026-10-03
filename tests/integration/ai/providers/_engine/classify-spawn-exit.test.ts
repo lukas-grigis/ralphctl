@@ -16,7 +16,7 @@ import { absolutePath } from '@tests/fixtures/domain.ts';
 import { createCapturingBus } from '@tests/fixtures/capturing-event-bus.ts';
 import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts';
 import { AbortError } from '@src/domain/value/error/abort-error.ts';
-import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
+import { InvalidStateError, ProviderConfigRejection } from '@src/domain/value/error/invalid-state-error.ts';
 import { ProcessCrashError } from '@src/domain/value/error/process-crash-error.ts';
 import { RateLimitError } from '@src/domain/value/error/rate-limit-error.ts';
 
@@ -677,6 +677,87 @@ describe.each(PROVIDERS)('classifySpawnExit [%s]', (providerName) => {
       expect(outcome.error.message).toContain('ModelNotFoundError');
       expect(outcome.error.message).toContain('pick another model in settings');
     }
+  });
+
+  // Verbatim CLI wordings: copilot 1.0.91 on stderr; codex 0.160.0's stdout error record as the
+  // adapter unwraps it into processErrorText.
+  const EFFORT_REJECTIONS: ReadonlyArray<{ readonly stderr: string; readonly processErrorText?: string }> = [
+    {
+      stderr: 'Error: Model "claude-haiku-4.5" does not support reasoning effort configuration (requested: "xhigh").',
+    },
+    { stderr: 'Error: Reasoning effort "max" is not supported for model "gpt-5-mini".' },
+    {
+      stderr: 'ERROR rmcp::transport::worker: worker quit with fatal: Transport channel closed',
+      processErrorText:
+        "Unsupported value: 'max' is not supported with the 'gpt-5.5' model. Supported values are: 'none', 'low', 'medium', 'high', and 'xhigh'. (param: reasoning.effort)",
+    },
+  ];
+
+  it.each(EFFORT_REJECTIONS)(
+    'an effort the model rejects is a NON-retryable config error naming model + level ($stderr)',
+    async ({ stderr, processErrorText }) => {
+      const session = baseSession({ model: 'claude-haiku-4.5', effort: 'xhigh' });
+      // A stale envelope must not mask the config error.
+      await writeSignalsFile(String(session.signalsFile));
+      let invoked = 0;
+      const outcome = await classifySpawnExit({
+        session,
+        exit: { code: 1, signal: null },
+        stderr,
+        ...(processErrorText !== undefined ? { processErrorText } : {}),
+        rateLimitRe: DEFAULT_RATE_LIMIT_RE,
+        providerName,
+        eventBus: createCapturingBus().bus,
+        watchdogBannerId: 'unused',
+        onSuccess: () => {
+          invoked += 1;
+          return okSuccess(session);
+        },
+      });
+      expect(invoked).toBe(0);
+      expect(outcome.kind).toBe('error');
+      if (outcome.kind === 'error') {
+        expect(outcome.error).toBeInstanceOf(InvalidStateError);
+        expect(outcome.error).not.toBeInstanceOf(ProcessCrashError);
+        expect((outcome.error as InvalidStateError).currentState).toBe(ProviderConfigRejection.EffortUnsupported);
+        expect(outcome.error.message).toContain('model "claude-haiku-4.5" doesn\'t support reasoning effort "xhigh"');
+        expect(outcome.error.message).toContain(`(CLI: ${(processErrorText ?? stderr).trim()})`);
+        expect(outcome.error.message).not.toContain('rmcp');
+      }
+    }
+  );
+
+  it('effort-rejection wording ONLY in stdoutTail stays a retryable crash (assistant prose guard)', async () => {
+    const session = baseSession({ effort: 'high' });
+    const outcome = await classifySpawnExit({
+      session,
+      exit: { code: 1, signal: null },
+      stderr: '',
+      stdoutTail: 'Note: this model does not support reasoning effort configuration in the old SDK.',
+      rateLimitRe: DEFAULT_RATE_LIMIT_RE,
+      providerName,
+      eventBus: createCapturingBus().bus,
+      watchdogBannerId: 'unused',
+      onSuccess: () => okSuccess(session),
+    });
+    expect(outcome.kind === 'error' && outcome.error instanceof ProcessCrashError).toBe(true);
+  });
+
+  it('stamps model-unavailable with its config-rejection state', async () => {
+    const session = baseSession();
+    const outcome = await classifySpawnExit({
+      session,
+      exit: { code: 1, signal: null },
+      stderr: 'Error: Model "gpt-5.4-nano" from --model flag is not available.',
+      rateLimitRe: DEFAULT_RATE_LIMIT_RE,
+      providerName,
+      eventBus: createCapturingBus().bus,
+      watchdogBannerId: 'unused',
+      onSuccess: () => okSuccess(session),
+    });
+    expect(outcome.kind === 'error' && (outcome.error as InvalidStateError).currentState).toBe(
+      ProviderConfigRejection.ModelUnavailable
+    );
   });
 
   it('rate-limit in stderr wins over signals-present recovery', async () => {
