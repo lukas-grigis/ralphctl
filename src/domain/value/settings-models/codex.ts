@@ -50,3 +50,22 @@ export const CODEX_MODELS: readonly CodexModel[] = [
 ] as const;
 
 export const isCodexModel = (s: string): s is CodexModel => (CODEX_MODELS as readonly string[]).includes(s);
+
+/**
+ * Reasoning-effort levels each Codex model accepts on `model_reasoning_effort`. An out-of-list
+ * level is a 400 from the API (`Unsupported value: 'max' is not supported with the 'gpt-5.5'
+ * model`), so resolution clamps to this list. Models absent here pass through to the CLI.
+ *
+ * Source: `supported_reasoning_levels` in `~/.codex/models_cache.json` (codex CLI 0.160.0,
+ * fetched 2026-10-03).
+ */
+export const CODEX_MODEL_EFFORT_LEVELS: Readonly<Partial<Record<CodexModel, readonly string[]>>> = {
+  'gpt-6-astra': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
+  'gpt-6-sol': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
+  'gpt-6-luna': ['low', 'medium', 'high', 'xhigh', 'max'],
+  'gpt-5.6-sol': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
+  'gpt-5.6-terra': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
+  'gpt-5.6-luna': ['low', 'medium', 'high', 'xhigh', 'max'],
+  'gpt-5.5': ['low', 'medium', 'high', 'xhigh'],
+  'codex-auto-review': ['low', 'medium', 'high', 'xhigh', 'max'],
+};

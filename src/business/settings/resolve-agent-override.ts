@@ -1,6 +1,6 @@
 import type { AiFlowSettings, Settings } from '@src/domain/entity/settings.ts';
 import type { FlowId } from '@src/domain/value/flow-id.ts';
-import { clampEffortToProvider, resolveEffortForRow } from '@src/business/settings/resolve-effort.ts';
+import { floorEffort, resolveEffortForRow } from '@src/business/settings/resolve-effort.ts';
 
 /**
  * The subset of an `AgentDefinition` this resolver needs. Declared locally rather than
@@ -25,10 +25,8 @@ export interface ResolvedAgentOverride {
  *
  * - `model`: the definition's `model` when set, otherwise the row's own `model` (always
  *   present — every {@link AiFlowSettings} row is fully stamped with a provider-catalog model).
- * - `effort`: the definition's `effort` when set, but floored to the row's provider (e.g. a
- *   binding-supplied `xhigh` passes through unclamped on a codex row, `max` floors to `xhigh`,
- *   and `ultra` passes through with the CLI as arbiter — same as the global-default path, see
- *   {@link clampEffortToProvider}); otherwise {@link resolveEffortForRow}'s result (per-flow row
+ * - `effort`: the definition's `effort` when set, but clamped to the effective model's effort list
+ *   (see {@link floorEffort} — a model without effort gets none); otherwise {@link resolveEffortForRow}'s result (per-flow row
  *   effort, then the global default floored to the row's provider, then `flow`'s shipped
  *   default — so an unconfigured implement role still gets an explicit level rather than the
  *   CLI's own default).
@@ -42,10 +40,12 @@ export const resolveAgentOverride = (
   globalEffort: Settings['ai']['effort'],
   binding: AgentOverrideHints | undefined,
   flow: FlowId
-): ResolvedAgentOverride => ({
-  model: binding?.model ?? row.model,
-  effort:
+): ResolvedAgentOverride => {
+  const model = binding?.model ?? row.model;
+  // Resolve against the EFFECTIVE model — a binding may swap in one with a different effort list.
+  const effort =
     binding?.effort !== undefined
-      ? clampEffortToProvider(binding.effort, row.provider)
-      : resolveEffortForRow(row, globalEffort, flow),
-});
+      ? floorEffort(binding.effort, row.provider, model)
+      : resolveEffortForRow({ ...row, model }, globalEffort, flow);
+  return { model, effort };
+};

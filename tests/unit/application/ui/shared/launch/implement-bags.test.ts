@@ -61,6 +61,17 @@ describe('buildImplementProviders', () => {
     expect(result.evaluatorModel).toBe('gpt-5.5');
   });
 
+  it('resolves no generator effort for Copilot claude-haiku-4.5 — the CLI rejects any level on it', () => {
+    const pair = {
+      generator: { provider: 'github-copilot', model: 'claude-haiku-4.5', effort: 'xhigh' },
+      evaluator: { provider: 'claude-code', model: 'claude-sonnet-5' },
+    } as AiImplementSettings;
+    const result = buildImplementProviders(pair, effectiveSettings('max'), launcherDeps());
+    expect(result.generatorModel).toBe('claude-haiku-4.5');
+    expect(result.generatorEffort).toBeUndefined();
+    expect(result.evaluatorEffort).toBe('max');
+  });
+
   it('threads AppDeps.providerSpawn into both role adapters', () => {
     const spawn = vi.fn();
     const deps = { app: { eventBus: createInMemoryEventBus(), providerSpawn: spawn } } as unknown as LauncherDeps;

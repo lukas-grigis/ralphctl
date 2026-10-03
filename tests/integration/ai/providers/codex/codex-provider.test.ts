@@ -597,6 +597,51 @@ describe('createCodexProvider', () => {
     expect(calls).toHaveLength(1);
   });
 
+  it('an effort the model rejects (stdout error record, noisy stderr) blocks once as a config error — no retry', async () => {
+    // Verbatim shape from codex 0.160.0: the API rejection lands on stdout as a JSON-encoded
+    // message, while stderr only carries unrelated MCP noise.
+    const apiError = JSON.stringify({
+      type: 'error',
+      error: {
+        type: 'invalid_request_error',
+        code: 'unsupported_value',
+        message:
+          "Unsupported value: 'max' is not supported with the 'gpt-5.5' model. Supported values are: 'none', 'low', 'medium', 'high', and 'xhigh'.",
+        param: 'reasoning.effort',
+      },
+      status: 400,
+    });
+    const cap = createCapturingBus();
+    const { spawn, calls } = makeSpawn([
+      {
+        stdoutChunks: [
+          `${JSON.stringify({ type: 'error', message: apiError })}\n`,
+          `${JSON.stringify({ type: 'turn.failed', error: { message: apiError } })}\n`,
+        ],
+        stderrChunks: ['ERROR rmcp::transport::worker: worker quit with fatal: Transport channel closed\n'],
+        exitCode: 1,
+      },
+    ]);
+    const fsStub = stubFs('unused');
+    const provider = createCodexProvider({
+      rateLimitRetries: 2,
+      eventBus: cap.bus,
+      spawn,
+      readFile: fsStub.readFile,
+      unlink: fsStub.unlink,
+      mkTempPath: fsStub.mkTempPath,
+    });
+
+    const out = await provider.generate({ ...session(), model: 'gpt-5.5', effort: 'max' });
+    expect(calls).toHaveLength(1);
+    expect(out.ok).toBe(false);
+    if (out.ok) return;
+    expect(out.error.code).toBe('invalid-state');
+    expect(out.error.message).toContain('model "gpt-5.5" doesn\'t support reasoning effort "max"');
+    expect(out.error.message).toContain("Unsupported value: 'max' is not supported with the 'gpt-5.5' model");
+    expect(out.error.message).not.toContain('rmcp');
+  });
+
   it('cleans up the output tempfile even when the call errors', async () => {
     const cap = createCapturingBus();
     const { spawn } = makeSpawn([{ stderrChunks: ['some failure\n'], exitCode: 7 }]);

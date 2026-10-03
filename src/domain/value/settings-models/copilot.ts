@@ -117,3 +117,37 @@ export const COPILOT_MODELS: readonly CopilotModel[] = [
 ] as const;
 
 export const isCopilotModel = (s: string): s is CopilotModel => (COPILOT_MODELS as readonly string[]).includes(s);
+
+/**
+ * Reasoning-effort levels each Copilot model accepts on `--effort`; `[]` = the model has no
+ * effort dimension and the CLI exits 1 on ANY level (`Model "claude-haiku-4.5" does not support
+ * reasoning effort configuration`). Models absent here are unverified — effort passes through and
+ * the CLI arbitrates. An out-of-list level also exits 1 (`Reasoning effort "max" is not supported
+ * for model "gpt-5-mini"`), so resolution clamps to this list.
+ *
+ * Source: the Copilot SDK's `listModels()` (`capabilities.supports.reasoningEffort` +
+ * `supportedReasoningEfforts`) against Copilot CLI 1.0.91 on the reference account, 2026-10-03.
+ */
+export const COPILOT_MODEL_EFFORT_LEVELS: Readonly<Partial<Record<CopilotModel, readonly string[]>>> = {
+  'gpt-5-mini': ['low', 'medium', 'high'],
+  'gpt-5.3-codex': ['low', 'medium', 'high', 'xhigh'],
+  'gpt-5.4': ['none', 'low', 'medium', 'high', 'xhigh'],
+  'gpt-5.4-mini': ['none', 'low', 'medium', 'high', 'xhigh'],
+  'gpt-5.5': ['none', 'low', 'medium', 'high', 'xhigh'],
+  'gpt-5.6-sol': ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
+  'gpt-5.6-terra': ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
+  'gpt-5.6-luna': ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
+  'gpt-6-astra': ['low', 'medium', 'high', 'xhigh', 'max'],
+  'gpt-6-sol': ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
+  'gpt-6-luna': ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
+  'claude-haiku-4.5': [],
+  'claude-opus-4.8': ['low', 'medium', 'high', 'xhigh', 'max'],
+  'claude-opus-5': ['low', 'medium', 'high', 'xhigh', 'max'],
+  'claude-opus-5.5': ['low', 'medium', 'high', 'xhigh', 'max'],
+  'claude-fable-5': ['low', 'medium', 'high', 'xhigh', 'max'],
+  'claude-fable-5.1': ['low', 'medium', 'high', 'xhigh', 'max'],
+  'claude-sonnet-5': ['low', 'medium', 'high', 'xhigh', 'max'],
+  'mai-code-1.1-flash': ['low', 'medium', 'high'],
+  'grok-4.6': ['low', 'medium', 'high', 'xhigh'],
+  'grok-4.7': ['low', 'medium', 'high', 'xhigh'],
+};

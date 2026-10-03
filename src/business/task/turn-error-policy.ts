@@ -3,6 +3,7 @@ import type { Logger } from '@src/business/observability/logger.ts';
 import { isFatalChainError } from '@src/domain/value/error/is-fatal-chain-error.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import { ErrorCode } from '@src/domain/value/error/error-code.ts';
+import { ProviderConfigRejection } from '@src/domain/value/error/invalid-state-error.ts';
 import type { GenEvalExit } from '@src/business/task/gen-eval-exit.ts';
 import { abortCauseFromError } from '@src/business/task/abort-cause-from-error.ts';
 
@@ -28,6 +29,9 @@ import { abortCauseFromError } from '@src/business/task/abort-cause-from-error.t
  */
 export const isRecoverableTurnError = (err: DomainError): boolean => !isFatalChainError(err);
 
+const isConfigRejection = (state: string): state is ProviderConfigRejection =>
+  (Object.values(ProviderConfigRejection) as readonly string[]).includes(state);
+
 /** The two loop exits a recoverable turn error maps to. */
 type TurnFailureExit = Extract<GenEvalExit, { readonly kind: 'crashed' | 'self-blocked' }>;
 
@@ -38,6 +42,8 @@ type TurnFailureExit = Extract<GenEvalExit, { readonly kind: 'crashed' | 'self-b
  *  - fatal (user abort, rate-limit-after-retries) → `Result.error`, aborting the whole run.
  *  - `ProcessCrash` (watchdog kill / spawn crash / non-zero exit with no signals.json) → a
  *    `crashed` exit — a transient process death that finalize retries within `maxAttempts`.
+ *  - a {@link ProviderConfigRejection} (model unavailable / effort unsupported) → a `self-blocked`
+ *    exit naming the `ai.implement.<role>.*` field to fix; retrying would resend the same config.
  *  - anything else is a signals-contract failure → a `self-blocked` exit that blocks THIS task
  *    without taking down the remaining ones (and never marks ungraded work done).
  *
@@ -66,6 +72,12 @@ export const classifyTurnFailure = (
       reason: `AI process was killed before producing signals.json: ${err.message}`,
       ...abortCauseFromError(err),
     });
+  }
+  if (err.code === ErrorCode.InvalidState && isConfigRejection(err.currentState)) {
+    const field = err.currentState === ProviderConfigRejection.EffortUnsupported ? 'effort' : 'model';
+    const reason = `${role} configuration rejected by the AI CLI — fix ai.implement.${role}.${field}: ${err.message}`;
+    log.warn(`${role} configuration rejected — blocking task without retry`, { taskId, error: err.message });
+    return Result.ok({ kind: 'self-blocked', reason });
   }
   log.warn(`${role} did not produce a valid signals.json — blocking task`, { taskId, error: err.message });
   return Result.ok({ kind: 'self-blocked', reason: `${role} did not produce a valid signals.json: ${err.message}` });

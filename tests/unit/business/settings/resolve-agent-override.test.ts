@@ -105,4 +105,16 @@ describe('resolveAgentOverride', () => {
     const resolved = resolveAgentOverride(row, 'max', undefined, 'implement');
     expect(resolved).toEqual({ model: 'gpt-5.5', effort: 'xhigh' });
   });
+
+  it('resolves effort against the EFFECTIVE model — a binding swapping in an effortless model sends none', () => {
+    const copilotRow = { provider: 'github-copilot', model: 'claude-sonnet-5', effort: 'xhigh' } as AiFlowSettings;
+    expect(resolveAgentOverride(copilotRow, undefined, { model: 'claude-haiku-4.5' }, 'implement')).toEqual({
+      model: 'claude-haiku-4.5',
+      effort: undefined,
+    });
+    expect(resolveAgentOverride(copilotRow, undefined, { model: 'gpt-5-mini', effort: 'max' }, 'implement')).toEqual({
+      model: 'gpt-5-mini',
+      effort: 'high',
+    });
+  });
 });

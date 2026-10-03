@@ -58,6 +58,14 @@ to [Semantic Versioning](https://semver.org/).
   flow in another process that holds no lock.
 - **A blank task description is rejected** instead of silently clearing the field.
 - **`ralphctl task evaluation`** prints an error to stderr and exits 1 when the artifact can't be read.
+- **Effort follows the model, not just the provider.** Copilot `claude-haiku-4.5` gets no effort flag (its CLI
+  rejects any level), and Copilot / Codex models that support fewer levels get the closest one they accept — e.g.
+  `max` becomes `high` on Copilot `gpt-5-mini` and `xhigh` on Codex `gpt-5.5`. A global `max` now reaches the Codex
+  models that accept it instead of always flooring to `xhigh`.
+- **A rejected effort or model blocks the task once, with the reason.** When the AI CLI refuses the configured
+  effort or model, the task blocks after one attempt and names the setting to change (e.g.
+  `ai.implement.generator.effort`), instead of retrying until "AI process repeatedly crashed". Codex errors that it
+  reports only on stdout are now read too.
 
 ### Removed
 
