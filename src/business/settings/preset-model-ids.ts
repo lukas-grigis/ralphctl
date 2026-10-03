@@ -7,13 +7,11 @@
  * form (`claude-opus-5-5`, `claude-sonnet-5-5`) while github-copilot uses the dotted form
  * (`claude-…-4.8`). Do not normalise one into the other.
  *
- * The two Sonnet constants differ on purpose. `SONNET` is Sonnet 5.5 (`claude-sonnet-5-5`,
- * Claude Code >= 2.1.284). The Copilot CLI does not serve Sonnet 5.5 under either spelling (live
- * probe, Copilot CLI 1.0.88, 2026-09-30), so `COPILOT_SONNET` stays `claude-sonnet-5` — Copilot
- * deprecated Sonnet 4.6 on 2026-09-01. Sonnet 5's undotted slug is the same string on both
- * catalogs, and the provider-scoped escalation ladders (escalation-map.ts) climb it differently
- * per backend.
- *
+ * Sonnet 5.5 is the Sonnet on both backends: `SONNET` (`claude-sonnet-5-5`, Claude Code >= 2.1.284)
+ * and `COPILOT_SONNET` (`claude-sonnet-5.5`, Copilot Pro and up since the 2026-09-28 changelog — it
+ * matches Sonnet 5 on coding in fewer steps and tokens at the same token price). Sonnet 5 stays in
+ * both catalogs for pinned rows.
+
  * `COPILOT_OPUS` deliberately stays `claude-opus-4.8` — `claude-opus-5` / `claude-opus-5.5` are
  * plan-gated on Copilot (Pro+/Max/Business/Enterprise), so steering the curated Copilot presets
  * there would brick spawns on lower plans; both are catalog + pin-only on Copilot.
@@ -26,10 +24,10 @@
  * 2026-10-15) with no Haiku 5 successor, so every cheap-flow claude row uses {@link SONNET}
  * pinned at `low` effort. Haiku stays in the catalog as a manually selectable model.
  *
- * Codex rows run the GPT-6 family: `gpt-6-luna` (cheap, $0.10/$0.50), `gpt-6-sol` (flagship,
- * top of the Codex ladder), `gpt-6-astra` (premium, 5x sol — frontier presets only, never a
- * ladder rung). Copilot light rows stay on `gpt-5.6-luna`: `gpt-6-luna` is catalogued on
- * Copilot but was not yet reachable on the reference account (gradual rollout).
+ * Codex rows run the GPT-6 family: `gpt-6-luna` (cheap, $0.10/$0.50), `gpt-6.1-sol` (flagship,
+ * top of the Codex ladder, the `gpt-6-sol` price), `gpt-6-astra` (premium, 5x sol — frontier presets
+ * only, never a ladder rung). Copilot light rows run `gpt-6-luna` too (Pro and up; half the
+ * `gpt-5.6-luna` input price on Copilot and reachable on the reference account, 2026-10-03).
  */
 
 export const CLAUDE = 'claude-code';
@@ -42,10 +40,10 @@ export const OPUS = 'claude-opus-5-5';
 export const SONNET = 'claude-sonnet-5-5';
 export const FABLE = 'claude-fable-5-1';
 export const COPILOT_OPUS = 'claude-opus-4.8';
-export const COPILOT_SONNET = 'claude-sonnet-5';
-export const COPILOT_LUNA = 'gpt-5.6-luna';
+export const COPILOT_SONNET = 'claude-sonnet-5.5';
+export const COPILOT_LUNA = 'gpt-6-luna';
 export const GPT_6_ASTRA = 'gpt-6-astra';
-export const GPT_6_SOL = 'gpt-6-sol';
+export const GPT_6_1_SOL = 'gpt-6.1-sol';
 export const GPT_6_LUNA = 'gpt-6-luna';
 
 /**

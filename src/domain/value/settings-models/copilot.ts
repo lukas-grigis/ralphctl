@@ -1,4 +1,4 @@
-// Reconciled to GitHub's supported-models doc + changelog and live-probed (2026-09-22).
+// Reconciled to GitHub's supported-models doc + changelog and live-probed (2026-10-03).
 // Docs: https://docs.github.com/en/copilot/reference/ai-models/supported-models
 
 /**
@@ -7,31 +7,30 @@
  * adapter validates `AiSession.model` against this set and surfaces `InvalidStateError` for
  * unknowns.
  *
- * Reconciled to GitHub's supported-models doc and changelog (as of 2026-09-22) and live-probed
- * with the Copilot CLI (1.0.79 / 1.0.88) on a reference account the same day:
- * https://docs.github.com/en/copilot/reference/ai-models/supported-models
+ * Reconciled to GitHub's supported-models doc and changelog and to the Copilot SDK's
+ * `listModels()` against Copilot CLI 1.0.91 on a reference account (2026-10-03).
  *
  * "Not available" on one account is often plan gating or a gradual rollout, so only models GitHub
- * itself deprecated are removed. The 2026-09-01 deprecation (changelog 2026-08-31) removed
- * `claude-opus-4.5`, `claude-opus-4.6`, `claude-sonnet-4.5`, `claude-sonnet-4.6` (kept upstream
- * only for individual annual-plan subscribers), `gemini-3.1-pro`, and `raptor-mini`;
- * `mai-code-1-flash` was dropped as superseded by `mai-code-1.1-flash`. Persisted rows on any of
- * them are remapped at parse time (see `RETIRED_MODEL_REMAPS` in `settings.ts`).
+ * itself deprecated are removed. Removed so far (each remapped at parse time — `RETIRED_MODEL_REMAPS`
+ * in `settings.ts`): the 2026-09-01 batch (`claude-opus-4.5` / `-4.6`, `claude-sonnet-4.5` / `-4.6`,
+ * `gemini-3.1-pro`, `raptor-mini`, plus `mai-code-1-flash`) and the 2026-10-02 batch
+ * (`gemini-3.5-flash`, `gemini-3.6-flash`, `kimi-k2.7-code`, `claude-opus-4.7`).
  *
- * New in the 2026-09 changelog and cataloged here: `claude-opus-5.5` (Pro+/Max/Business/
- * Enterprise), `claude-fable-5.1` (Pro+ and up, off by default for Business/Enterprise),
- * `gpt-6-astra` (Pro+ and up), `gpt-6-sol` / `gpt-6-luna` (luna includes Pro), `gemini-3.8-flash`,
- * and `grok-4.7` (gradual rollout). Only `gemini-3.8-flash` answered on the reference account;
- * the other six (`claude-opus-5.5`, `claude-fable-5.1`, `gpt-6-astra`, `gpt-6-sol`, `gpt-6-luna`,
- * `grok-4.7`) did not yet, so they are catalog + pin-only: a gated account fails at spawn with a
- * clear error (the Copilot availability probe is a passthrough in v1).
+ * Scheduled for deprecation on 2026-10-19 (changelog 2026-09-18), still live until then and kept so
+ * pinned rows keep working: `gemini-3.7-flash`, `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`, `gpt-5-mini`,
+ * `grok-4.5`. No preset or default ladder rung points at them; drop them with a remap once the date
+ * passes.
  *
- * Verified available on the reference account: `claude-sonnet-5`, `claude-opus-4.8`,
- * `claude-opus-4.7`, `claude-opus-5`, `claude-haiku-4.5`, `gpt-5-mini`, `gpt-5.4-mini`,
- * `gpt-5.3-codex`, `gpt-5.5`, `gpt-5.6-sol` / `-terra` / `-luna`, `gemini-3.8-flash`,
- * `mai-code-1.1-flash`, and `grok-4.6`. The remaining entries are convention-derived slugs from
- * the doc's display names (the Copilot CLI cannot enumerate its catalog non-interactively —
- * github/copilot-cli issue #700) and are not validated against the live CLI.
+ * Plan gating (changelog): `claude-sonnet-5.5` (2026-09-28) and `gpt-6-luna` reach Pro and up;
+ * `gpt-6.1-sol` (2026-09-29), `gpt-6-sol`, `gpt-6-astra`, `claude-opus-5` / `-5.5` and
+ * `claude-fable-5.1` are Pro+ and up, so they stay catalog + pin-only on Copilot.
+ *
+ * Listed by `listModels()` on the reference account: `claude-sonnet-5`, `claude-sonnet-5.5`,
+ * `claude-fable-5`, `claude-fable-5.1`, `claude-opus-5.5`, `claude-opus-5`, `claude-opus-4.8`,
+ * `claude-haiku-4.5`, `gpt-6.1-sol`, `gpt-6-sol`, `gpt-6-luna`, `gpt-6-astra`, `gpt-5.6-sol` /
+ * `-terra` / `-luna`, `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.3-codex`, `gpt-5-mini`,
+ * `mai-code-1.1-flash`, `grok-4.6`, `grok-4.7`. The remaining entries are convention-derived slugs
+ * from the doc's display names, not validated against the live CLI.
  *
  * Claude slugs with no dot or date — `claude-sonnet-5`, `claude-opus-5`, `claude-fable-5` — are
  * the same string on the Copilot and Claude-Code catalogs. The escalation ladder is scoped per
@@ -50,10 +49,10 @@ export type CopilotModel =
   | 'gpt-5.6-luna'
   | 'gpt-6-astra'
   | 'gpt-6-sol'
+  | 'gpt-6.1-sol'
   | 'gpt-6-luna'
   // Anthropic
   | 'claude-haiku-4.5'
-  | 'claude-opus-4.7'
   | 'claude-opus-4.8'
   | 'claude-opus-4.8-fast'
   | 'claude-opus-5'
@@ -61,15 +60,13 @@ export type CopilotModel =
   | 'claude-fable-5'
   | 'claude-fable-5.1'
   | 'claude-sonnet-5'
+  | 'claude-sonnet-5.5'
   // Google
-  | 'gemini-3.5-flash'
-  | 'gemini-3.6-flash'
   | 'gemini-3.7-flash'
   | 'gemini-3.8-flash'
   // Microsoft
   | 'mai-code-1.1-flash'
   // Moonshot
-  | 'kimi-k2.7-code'
   | 'kimi-k3'
   // xAI
   | 'grok-4.5'
@@ -89,10 +86,10 @@ export const COPILOT_MODELS: readonly CopilotModel[] = [
   'gpt-5.6-luna',
   'gpt-6-astra',
   'gpt-6-sol',
+  'gpt-6.1-sol',
   'gpt-6-luna',
   // Anthropic
   'claude-haiku-4.5',
-  'claude-opus-4.7',
   'claude-opus-4.8',
   'claude-opus-4.8-fast',
   'claude-opus-5',
@@ -100,15 +97,13 @@ export const COPILOT_MODELS: readonly CopilotModel[] = [
   'claude-fable-5',
   'claude-fable-5.1',
   'claude-sonnet-5',
+  'claude-sonnet-5.5',
   // Google
-  'gemini-3.5-flash',
-  'gemini-3.6-flash',
   'gemini-3.7-flash',
   'gemini-3.8-flash',
   // Microsoft
   'mai-code-1.1-flash',
   // Moonshot
-  'kimi-k2.7-code',
   'kimi-k3',
   // xAI
   'grok-4.5',
@@ -140,6 +135,7 @@ export const COPILOT_MODEL_EFFORT_LEVELS: Readonly<Partial<Record<CopilotModel, 
   'gpt-6-astra': ['low', 'medium', 'high', 'xhigh', 'max'],
   'gpt-6-sol': ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
   'gpt-6-luna': ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
+  'gpt-6.1-sol': ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
   'claude-haiku-4.5': [],
   'claude-opus-4.8': ['low', 'medium', 'high', 'xhigh', 'max'],
   'claude-opus-5': ['low', 'medium', 'high', 'xhigh', 'max'],
@@ -147,6 +143,7 @@ export const COPILOT_MODEL_EFFORT_LEVELS: Readonly<Partial<Record<CopilotModel, 
   'claude-fable-5': ['low', 'medium', 'high', 'xhigh', 'max'],
   'claude-fable-5.1': ['low', 'medium', 'high', 'xhigh', 'max'],
   'claude-sonnet-5': ['low', 'medium', 'high', 'xhigh', 'max'],
+  'claude-sonnet-5.5': ['low', 'medium', 'high', 'xhigh', 'max'],
   'mai-code-1.1-flash': ['low', 'medium', 'high'],
   'grok-4.6': ['low', 'medium', 'high', 'xhigh'],
   'grok-4.7': ['low', 'medium', 'high', 'xhigh'],

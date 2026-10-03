@@ -115,11 +115,11 @@ describe('effectiveEscalationChains', () => {
     expect(chain?.customised).toBe(false);
   });
 
-  it('shows the shared claude-sonnet-5 slug climbing differently per provider', () => {
+  it('shows the Copilot and Claude Code ladders topping out differently', () => {
     const chains = effectiveEscalationChains({});
     expect(chainFrom(chains, 'github-copilot', 'claude-haiku-4.5')?.models).toEqual([
       'claude-haiku-4.5',
-      'claude-sonnet-5',
+      'claude-sonnet-5.5',
       'claude-opus-4.8',
     ]);
     expect(chainFrom(chains, 'claude-code', 'claude-haiku-4-5')?.models).toContain('claude-opus-5-5');

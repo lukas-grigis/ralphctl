@@ -27,16 +27,16 @@ import { modelEffortLevels } from '@src/domain/value/settings-models/effort.ts';
  *    Opus 4.8 → Opus 5.5, and Opus 5 → Opus 5.5 (cheaper and stronger). Fable is
  *    never a default rung — it costs 2.5x Opus 5.5 and needs a non-ZDR org; opt in via
  *    `escalationMap` (`'claude-opus-5-5': 'claude-fable-5-1'`).
- *  - **github-copilot** — Haiku → Sonnet 5 → Opus 4.8 (top); Opus 4.7 → Opus 4.8. Sonnet 5.5 is not
- *    served on Copilot, so its Sonnet rung stays on Sonnet 5. Opus 5 / 5.5 are
- *    plan-gated on Copilot (Pro+/Max/Business/Enterprise), so the default ladder never steers a
- *    mid-task spawn into a model many accounts cannot use — opt in via `escalationMap`. GPT: the
- *    minis step to `gpt-5.5`, which climbs to `gpt-5.6-sol`; within 5.6, luna → terra → sol. The
- *    GPT-6 ids are not rungs yet (gradual rollout; not reachable on the reference account).
- *  - **openai-codex** — `gpt-6-luna` → `gpt-6-sol` (top). `gpt-6-astra` is opt-in premium (5x the
- *    sol price), never a default rung. Pinned older tiers converge on `gpt-6-sol`: `gpt-5.5` →
- *    `gpt-5.6-sol`, luna → terra → sol within 5.6, then `gpt-5.6-sol` → `gpt-6-sol` (the codex
- *    cache's upgrade target, at half the price).
+ *  - **github-copilot** — Haiku → Sonnet 5.5 → Opus 4.8 (top); a row pinned to Sonnet 5 also climbs
+ *    to Opus 4.8. Opus 5 / 5.5 are plan-gated on Copilot (Pro+/Max/Business/Enterprise), so the
+ *    default ladder never steers a mid-task spawn into a model many accounts cannot use — opt in via
+ *    `escalationMap`. GPT: the 2026-10-19-deprecated ids step to GitHub's named successors (minis →
+ *    `gpt-5.6-luna`, `gpt-5.4` / `gpt-5.5` → `gpt-5.6-sol`); within 5.6, luna → terra → sol. The
+ *    GPT-6 ids are not rungs — `gpt-6-sol` / `gpt-6.1-sol` are Pro+ only.
+ *  - **openai-codex** — `gpt-6-luna` → `gpt-6.1-sol` (top). `gpt-6-astra` is opt-in premium (5x the
+ *    sol price), never a default rung. Pinned older tiers converge on `gpt-6.1-sol`: `gpt-6-sol` →
+ *    `gpt-6.1-sol` (same price, the cache's current workhorse), `gpt-5.5` → `gpt-5.6-sol`, luna →
+ *    terra → sol within 5.6, then `gpt-5.6-sol` → `gpt-6.1-sol`.
  *  - **xai-grok** — one generation per plateau up to `grok-4.7`. `grok-4.7-build-fast` is the same
  *    model at 2x price, so it is not a rung.
  *  - **opencode** — none. OpenCode aggregates upstream providers, so there is no vendor ladder.
@@ -51,7 +51,10 @@ const CLAUDE_OPUS_5_5 = 'claude-opus-5-5';
 const CLAUDE_SONNET_5_5 = 'claude-sonnet-5-5';
 const GPT_5_5 = 'gpt-5.5';
 const GPT_5_6_SOL = 'gpt-5.6-sol';
-const GPT_6_SOL = 'gpt-6-sol';
+const GPT_6_1_SOL = 'gpt-6.1-sol';
+const GPT_5_6_LUNA = 'gpt-5.6-luna';
+const COPILOT_SONNET_5_5 = 'claude-sonnet-5.5';
+const COPILOT_OPUS_4_8 = 'claude-opus-4.8';
 
 export const DEFAULT_ESCALATION_LADDERS: Readonly<Record<AiProvider, Readonly<Record<string, string>>>> = {
   'claude-code': {
@@ -63,23 +66,24 @@ export const DEFAULT_ESCALATION_LADDERS: Readonly<Record<AiProvider, Readonly<Re
     'claude-opus-5': CLAUDE_OPUS_5_5,
   },
   'github-copilot': {
-    'claude-haiku-4.5': 'claude-sonnet-5',
-    'claude-sonnet-5': 'claude-opus-4.8',
-    'claude-opus-4.7': 'claude-opus-4.8',
-    'gpt-5-mini': GPT_5_5,
-    'gpt-5.4-mini': GPT_5_5,
-    'gpt-5.4': GPT_5_5,
+    'claude-haiku-4.5': COPILOT_SONNET_5_5,
+    [COPILOT_SONNET_5_5]: COPILOT_OPUS_4_8,
+    'claude-sonnet-5': COPILOT_OPUS_4_8,
+    'gpt-5-mini': GPT_5_6_LUNA,
+    'gpt-5.4-mini': GPT_5_6_LUNA,
+    'gpt-5.4': GPT_5_6_SOL,
     [GPT_5_5]: GPT_5_6_SOL,
-    'gpt-5.6-luna': 'gpt-5.6-terra',
+    [GPT_5_6_LUNA]: 'gpt-5.6-terra',
     'gpt-5.6-terra': GPT_5_6_SOL,
     'grok-4.5': 'grok-4.6',
   },
   'openai-codex': {
-    'gpt-6-luna': GPT_6_SOL,
+    'gpt-6-luna': GPT_6_1_SOL,
+    'gpt-6-sol': GPT_6_1_SOL,
     [GPT_5_5]: GPT_5_6_SOL,
-    'gpt-5.6-luna': 'gpt-5.6-terra',
+    [GPT_5_6_LUNA]: 'gpt-5.6-terra',
     'gpt-5.6-terra': GPT_5_6_SOL,
-    [GPT_5_6_SOL]: GPT_6_SOL,
+    [GPT_5_6_SOL]: GPT_6_1_SOL,
   },
   'xai-grok': {
     'grok-4.5': 'grok-4.6',

@@ -26,6 +26,15 @@ to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- **New models, and the presets use them.** Codex and Copilot gain `gpt-6.1-sol`, which replaces `gpt-6-sol` as the
+  Codex flagship in the Codex presets, the Codex defaults, the default implement evaluator and the top of the Codex
+  escalation ladder (same token price). Copilot gains `claude-sonnet-5.5`, which replaces Sonnet 5 in the Copilot
+  presets and its escalation ladder (Haiku → Sonnet 5.5 → Opus 4.8). Copilot's light flows move from `gpt-5.6-luna`
+  to `gpt-6-luna` (half the price). On Copilot, `gpt-6.1-sol` is Pro+ only, so no Copilot preset uses it.
+- **Copilot models GitHub retired on 2026-10-02 are gone.** `gemini-3.5-flash` / `gemini-3.6-flash` →
+  `gemini-3.8-flash`, `kimi-k2.7-code` → `kimi-k3`, `claude-opus-4.7` → `claude-opus-4.8`; a saved setting on one of
+  them is moved over on load. The models Copilot retires on 2026-10-19 (`gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`,
+  `gpt-5-mini`, `gemini-3.7-flash`, `grok-4.5`) still work until then, but no preset or escalation step uses them.
 - **No more orphaned AI processes.** AI CLIs run in their own process group; abort and the idle watchdog stop the
   whole group, and a helper cleans up what a dead ralphctl left behind (on POSIX; on Windows the next launch
   does it). Session ids are saved as soon as the CLI reports them.

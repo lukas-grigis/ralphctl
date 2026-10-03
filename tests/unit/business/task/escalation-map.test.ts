@@ -80,33 +80,35 @@ describe('DEFAULT_ESCALATION_LADDERS', () => {
   });
 
   it('tops the Copilot Claude ladder at Opus 4.8 — Opus 5 / 5.5 are plan-gated there', () => {
-    expect(COPILOT_LADDER['claude-haiku-4.5']).toBe('claude-sonnet-5');
-    expect(COPILOT_LADDER['claude-opus-4.7']).toBe('claude-opus-4.8');
+    expect(COPILOT_LADDER['claude-haiku-4.5']).toBe('claude-sonnet-5.5');
+    expect(COPILOT_LADDER['claude-sonnet-5.5']).toBe('claude-opus-4.8');
     expect(COPILOT_LADDER['claude-opus-4.8']).toBeUndefined();
     expect(Object.values(COPILOT_LADDER)).not.toContain('claude-opus-5');
     expect(Object.values(COPILOT_LADDER)).not.toContain('claude-opus-5.5');
   });
 
-  it('climbs the Copilot GPT ladder through gpt-5.5 into the 5.6 family', () => {
-    expect(COPILOT_LADDER['gpt-5-mini']).toBe('gpt-5.5');
-    expect(COPILOT_LADDER['gpt-5.4-mini']).toBe('gpt-5.5');
+  it("steps the 2026-10-19-deprecated Copilot GPT ids to GitHub's named 5.6 successors", () => {
+    expect(COPILOT_LADDER['gpt-5-mini']).toBe('gpt-5.6-luna');
+    expect(COPILOT_LADDER['gpt-5.4-mini']).toBe('gpt-5.6-luna');
+    expect(COPILOT_LADDER['gpt-5.4']).toBe('gpt-5.6-sol');
     expect(COPILOT_LADDER['gpt-5.5']).toBe('gpt-5.6-sol');
     expect(COPILOT_LADDER['gpt-5.6-luna']).toBe('gpt-5.6-terra');
     expect(COPILOT_LADDER['gpt-5.6-terra']).toBe('gpt-5.6-sol');
     expect(COPILOT_LADDER['gpt-5.6-sol']).toBeUndefined();
   });
 
-  it('tops the Codex ladder at gpt-6-sol — astra stays opt-in', () => {
-    expect(CODEX_LADDER['gpt-6-luna']).toBe('gpt-6-sol');
-    expect(CODEX_LADDER['gpt-6-sol']).toBeUndefined();
+  it('tops the Codex ladder at gpt-6.1-sol — astra stays opt-in', () => {
+    expect(CODEX_LADDER['gpt-6-luna']).toBe('gpt-6.1-sol');
+    expect(CODEX_LADDER['gpt-6.1-sol']).toBeUndefined();
     expect(Object.values(CODEX_LADDER)).not.toContain('gpt-6-astra');
   });
 
-  it('converges pinned older Codex tiers on gpt-6-sol', () => {
+  it('converges pinned older Codex tiers on gpt-6.1-sol', () => {
+    expect(CODEX_LADDER['gpt-6-sol']).toBe('gpt-6.1-sol');
     expect(CODEX_LADDER['gpt-5.5']).toBe('gpt-5.6-sol');
     expect(CODEX_LADDER['gpt-5.6-luna']).toBe('gpt-5.6-terra');
     expect(CODEX_LADDER['gpt-5.6-terra']).toBe('gpt-5.6-sol');
-    expect(CODEX_LADDER['gpt-5.6-sol']).toBe('gpt-6-sol');
+    expect(CODEX_LADDER['gpt-5.6-sol']).toBe('gpt-6.1-sol');
   });
 
   it('climbs grok one generation at a time up to the grok-4.7 flagship', () => {
@@ -305,8 +307,8 @@ describe('DEFAULT_ESCALATION_LADDERS — catalog lockstep (mechanizes the sectio
 
   it('catalog fingerprints are unchanged — a failure means a model bump landed; run the model-bump audit', () => {
     expect(fingerprint(CLAUDE_MODELS)).toBe('aa9bc8d374ad20df');
-    expect(fingerprint(CODEX_MODELS)).toBe('e0c266c09d88d135');
-    expect(fingerprint(COPILOT_MODELS)).toBe('6f10fab67bee9487');
+    expect(fingerprint(CODEX_MODELS)).toBe('5ec7fc3cd9b8f97a');
+    expect(fingerprint(COPILOT_MODELS)).toBe('f5953626fd1c7ee4');
     expect(fingerprint(GROK_MODELS)).toBe('2c56e449169a2ec3');
   });
 });

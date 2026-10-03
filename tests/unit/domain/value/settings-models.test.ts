@@ -33,16 +33,16 @@ describe('settings-models / claude catalog', () => {
     expect(RETIRED_MODEL_REMAPS.some((r) => r.from === 'claude-sonnet-5')).toBe(false);
   });
 
-  it('keeps Sonnet 5.5 off the Copilot catalog — the Copilot CLI rejects both spellings', () => {
-    expect(isCopilotModel('claude-sonnet-5.5')).toBe(false);
+  it('carries Sonnet 5.5 on Copilot only in its dotted spelling (listModels, CLI 1.0.91)', () => {
+    expect(isCopilotModel('claude-sonnet-5.5')).toBe(true);
     expect(isCopilotModel('claude-sonnet-5-5')).toBe(false);
   });
 });
 
 describe('settings-models / codex catalog', () => {
-  // Verified against the live CLI model cache (codex CLI v0.155.1, 2026-09-22).
+  // Verified against the live CLI model cache (codex CLI v0.160.0, 2026-10-03).
   const kept = ['gpt-5.5', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna', 'codex-auto-review'] as const;
-  const added = ['gpt-6-astra', 'gpt-6-sol', 'gpt-6-luna'] as const;
+  const added = ['gpt-6.1-sol', 'gpt-6-astra', 'gpt-6-sol', 'gpt-6-luna'] as const;
   // Gone from the codex CLI entirely — persisted rows are remapped at parse time.
   const removed = ['gpt-5.2', 'gpt-5.3-codex', 'gpt-5.3-codex-spark', 'gpt-5.4', 'gpt-5.4-mini'] as const;
 
@@ -52,7 +52,7 @@ describe('settings-models / codex catalog', () => {
     }
   });
 
-  it('adds the GPT-6 family from the 0.155.1 model cache', () => {
+  it('adds the GPT-6 family from the live model cache', () => {
     for (const m of added) {
       expect(CODEX_MODELS).toContain(m);
       expect(isCodexModel(m)).toBe(true);
@@ -76,7 +76,7 @@ describe('settings-models / codex catalog', () => {
 });
 
 describe('settings-models / copilot catalog', () => {
-  // Reconciled to GitHub's supported-models doc + changelog (as of 2026-09-22).
+  // Reconciled to GitHub's supported-models doc + changelog (as of 2026-10-03).
   const official = [
     // OpenAI
     'gpt-5-mini',
@@ -90,10 +90,10 @@ describe('settings-models / copilot catalog', () => {
     'gpt-5.6-luna',
     'gpt-6-astra',
     'gpt-6-sol',
+    'gpt-6.1-sol',
     'gpt-6-luna',
     // Anthropic
     'claude-haiku-4.5',
-    'claude-opus-4.7',
     'claude-opus-4.8',
     'claude-opus-4.8-fast',
     'claude-opus-5',
@@ -101,15 +101,13 @@ describe('settings-models / copilot catalog', () => {
     'claude-fable-5',
     'claude-fable-5.1',
     'claude-sonnet-5',
+    'claude-sonnet-5.5',
     // Google
-    'gemini-3.5-flash',
-    'gemini-3.6-flash',
     'gemini-3.7-flash',
     'gemini-3.8-flash',
     // Microsoft
     'mai-code-1.1-flash',
     // Moonshot
-    'kimi-k2.7-code',
     'kimi-k3',
     // xAI
     'grok-4.5',
@@ -119,6 +117,8 @@ describe('settings-models / copilot catalog', () => {
 
   // New in the 2026-09 GitHub changelog.
   const added = [
+    'claude-sonnet-5.5',
+    'gpt-6.1-sol',
     'claude-opus-5.5',
     'claude-fable-5.1',
     'gpt-6-astra',
@@ -154,6 +154,11 @@ describe('settings-models / copilot catalog', () => {
     'gemini-3.1-pro',
     'raptor-mini',
     'mai-code-1-flash',
+    // 2026-10-02 deprecation.
+    'gemini-3.5-flash',
+    'gemini-3.6-flash',
+    'kimi-k2.7-code',
+    'claude-opus-4.7',
   ] as const;
 
   it('contains exactly the official supported-models list', () => {
