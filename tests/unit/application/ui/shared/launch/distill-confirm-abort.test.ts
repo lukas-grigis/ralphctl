@@ -28,7 +28,7 @@
  * sufficient here — the chain behaviour is covered by the e2e flow tests.
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { Result } from '@src/domain/result.ts';
 import { AbortError } from '@src/domain/value/error/abort-error.ts';
 import { launchCloseSprint } from '@src/application/ui/shared/launch/close-sprint.ts';
@@ -52,6 +52,18 @@ import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
 import type { SprintRepository } from '@src/domain/repository/sprint/sprint-repository.ts';
+import type { AiProvider } from '@src/domain/entity/settings.ts';
+import type * as DetectCliModule from '@src/integration/system/detect-cli.ts';
+
+// The launchers PATH-check the AI CLI first; pin every provider as installed so CI (no CLIs) reaches the gate.
+vi.mock('@src/integration/system/detect-cli.ts', async () => {
+  const actual = await vi.importActual<typeof DetectCliModule>('@src/integration/system/detect-cli.ts');
+  return {
+    ...actual,
+    detectInstalledProviders: async (): Promise<ReadonlySet<AiProvider>> =>
+      new Set(['claude-code', 'github-copilot', 'openai-codex', 'opencode', 'xai-grok']) as ReadonlySet<AiProvider>,
+  };
+});
 
 // ---------------------------------------------------------------------------
 // Minimal fakes
