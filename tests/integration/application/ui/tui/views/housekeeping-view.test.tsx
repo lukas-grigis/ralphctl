@@ -192,14 +192,23 @@ describe('HousekeepingView', () => {
     expect(result.lastFrame() ?? '').toContain('1 of');
     expect(purge).toHaveBeenCalledTimes(1);
 
+    const total = Number(/1 of (\d+)/.exec(result.lastFrame() ?? '')?.[1]);
+    expect(total).toBeGreaterThan(1);
+
     finish();
-    await waitForPredicate(() => {
-      const frame = result.lastFrame() ?? '';
-      return frame.includes('removed 1 item') && frame.includes('0 of');
-    });
-    await tick(40); // let the re-activated input handlers subscribe
+    // The purge note lands before the rescan: the old list is still on screen, then the view drops to
+    // loading, then the rescanned list (one row fewer) mounts. Only the last one has live input.
+    await waitForPredicate(
+      () => {
+        const frame = result.lastFrame() ?? '';
+        return frame.includes('removed 1 item') && frame.includes(`0 of ${String(total - 1)}`);
+      },
+      { label: 'rescanned list after the purge' }
+    );
     result.stdin.write(ENTER);
-    await waitForPredicate(() => (result.lastFrame() ?? '').includes('nothing selected'));
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('nothing selected'), {
+      label: 'ENTER reaching the re-activated list',
+    });
     expect(purge).toHaveBeenCalledTimes(1);
     result.unmount();
   });
