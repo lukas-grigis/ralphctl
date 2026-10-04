@@ -7,6 +7,8 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.25.0] - 2026-10-04
+
 ### Added
 
 - **Housekeeping, from Home's SYSTEM group (`H`).** A dry-run scan lists orphaned sprints and memory, old done
