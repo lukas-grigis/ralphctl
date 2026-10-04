@@ -344,14 +344,15 @@ describe('JsonSettingsRepository', () => {
     expect(onDisk.ai['createPr']).toBeUndefined();
   });
 
-  // Copilot catalog retirements (2026-08-18 reconciliation, 2026-09-01 deprecation). A settings
+  // Copilot catalog retirements (2026-08-18 reconciliation, 2026-09-01 and 2026-10-02 deprecations). A settings
   // file pinned to any of them predates the change, so `load()` must silently land the user on the
   // live successor rather than on a slug the adapter rejects at spawn.
   it.each([
     ['gemini-3.1-pro-preview', 'gemini-3.8-flash'],
     ['raptor-mini-preview', 'mai-code-1.1-flash'],
     ['gemini-2.5-pro', 'gemini-3.8-flash'],
-    ['gemini-3-flash', 'gemini-3.5-flash'],
+    ['gemini-3-flash', 'gemini-3.8-flash'],
+    ['claude-opus-4.7', 'claude-opus-4.8'],
     ['claude-sonnet-4.6', 'claude-sonnet-5'],
     ['claude-opus-4.6', 'claude-opus-4.8'],
   ])('load remaps a persisted copilot row pinned to the retired %s onto %s', async (retired, successor) => {

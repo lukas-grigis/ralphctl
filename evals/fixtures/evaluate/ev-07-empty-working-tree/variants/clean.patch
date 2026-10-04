@@ -1,24 +1,29 @@
 diff --git a/src/chunk.mjs b/src/chunk.mjs
 new file mode 100644
-index 0000000..75ec97e
+index 0000000..aae21be
 --- /dev/null
 +++ b/src/chunk.mjs
-@@ -0,0 +1,5 @@
+@@ -0,0 +1,6 @@
 +export const chunk = (xs, size) => {
++  if (!Number.isInteger(size) || size < 1) throw new RangeError(`size must be a positive integer, got ${size}`);
 +  const out = [];
 +  for (let i = 0; i < xs.length; i += size) out.push(xs.slice(i, i + size));
 +  return out;
 +};
 diff --git a/test/chunk.test.mjs b/test/chunk.test.mjs
 new file mode 100644
-index 0000000..542ef79
+index 0000000..a8c2f4c
 --- /dev/null
 +++ b/test/chunk.test.mjs
-@@ -0,0 +1,7 @@
+@@ -0,0 +1,11 @@
 +import { test } from 'node:test';
 +import assert from 'node:assert/strict';
 +import { chunk } from '../src/chunk.mjs';
 +
 +test('splits into equal chunks with a shorter tail', () => {
 +  assert.deepEqual(chunk([1, 2, 3, 4, 5], 2), [[1, 2], [3, 4], [5]]);
++});
++
++test('rejects a size that is not a positive integer', () => {
++  for (const size of [0, -1, 1.5, Number.NaN]) assert.throws(() => chunk([1, 2, 3], size), RangeError);
 +});

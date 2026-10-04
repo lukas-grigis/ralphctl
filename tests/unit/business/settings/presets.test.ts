@@ -97,12 +97,13 @@ const G = 'xai-grok';
 const S = 'claude-sonnet-5-5';
 const O = 'claude-opus-5-5';
 const F = 'claude-fable-5-1';
-// Copilot does not serve Sonnet 5.5 (live probe, Copilot CLI 1.0.88) — its Sonnet stays on 5.
-const CS = 'claude-sonnet-5';
+// Copilot spells Sonnet 5.5 with a dot (Pro and up since the 2026-09-28 changelog).
+const CS = 'claude-sonnet-5.5';
 const CO = 'claude-opus-4.8';
-const L = 'gpt-5.6-luna';
+// Copilot's light tier — the same `gpt-6-luna` id Codex uses, on the Copilot provider.
+const L = 'gpt-6-luna';
 const LUNA = 'gpt-6-luna';
-const SOL = 'gpt-6-sol';
+const SOL = 'gpt-6.1-sol';
 const ASTRA = 'gpt-6-astra';
 
 /**
@@ -523,7 +524,7 @@ describe('presets', () => {
 
   it('premium tiers (Fable 5.1, gpt-6-astra) appear only in the frontier family and are never a default-ladder rung', () => {
     // Fable 5.1 is Anthropic's flagship above Opus and astra is Codex's premium tier (2.5x Opus 5.5
-    // and 5x gpt-6-sol respectively). The frontier family is the "no cost ceiling" preset, so it
+    // and 5x gpt-6.1-sol respectively). The frontier family is the "no cost ceiling" preset, so it
     // runs them on its deep flows; every other family, the provider defaults, and the built-in
     // escalation ladders stay off them — an operator reaches them only by a deliberate pick.
     const premium = (model: string): boolean => model.startsWith('claude-fable') || model === ASTRA;
@@ -549,13 +550,21 @@ describe('presets', () => {
 
   it('no preset row references a retiring cheap tier', () => {
     // `gpt-5.4-mini` left Codex on 2026-08-31 and `gpt-5-mini` is the generation below it; the
-    // cheap tier is now luna (`gpt-6-luna` on Codex, `gpt-5.6-luna` on Copilot). `gpt-5.5` leaves
-    // Codex on 2026-10-14. `claude-haiku-4-5` has an Anthropic retirement horizon (not before
+    // cheap tier is now `gpt-6-luna` on both Codex and Copilot. `gpt-5.5` leaves Codex on 2026-10-14,
+    // and Copilot drops `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`, `gpt-5-mini` and `gemini-3.7-flash` on
+    // 2026-10-19. `claude-haiku-4-5` has an Anthropic retirement horizon (not before
     // 2026-10-15) with no Haiku 5 successor, so every cheap-flow claude slot sits on
     // `claude-sonnet-5-5` at `low` effort instead. Ids that remain catalogued stay pinnable until the
     // shutoff — what this fences is the curated matrices shipping a row that stops spawning on a
     // known date.
-    const retiring = new Set(['gpt-5.4-mini', 'gpt-5-mini', 'claude-haiku-4-5', 'gpt-5.5']);
+    const retiring = new Set([
+      'gpt-5.4-mini',
+      'gpt-5-mini',
+      'claude-haiku-4-5',
+      'gpt-5.5',
+      'gpt-5.4',
+      'gemini-3.7-flash',
+    ]);
     for (const preset of PRESET_NAMES) {
       const out = applyPreset(preset, DEFAULT_SETTINGS);
       for (const flow of FLOW_IDS) {
@@ -605,11 +614,9 @@ describe('presets', () => {
     }
   });
 
-  it('routes every claude-code Sonnet row to Sonnet 5.5 and every github-copilot Sonnet row to Sonnet 5', () => {
-    // Sonnet 5.5 is a Claude-Code id only: the Copilot CLI rejects both `claude-sonnet-5.5` and
-    // `claude-sonnet-5-5`, so a Copilot row moved onto it would fail at spawn. The shared undotted
-    // `claude-sonnet-5` slug must therefore never appear on a claude-code preset row, and 5.5 never
-    // on a copilot row.
+  it('routes every Sonnet row to Sonnet 5.5 in its provider spelling (dash on claude-code, dot on copilot)', () => {
+    // The spellings are provider-specific: the Copilot CLI rejects `claude-sonnet-5-5` and Claude Code
+    // uses the dash form, so a row carrying the other provider's spelling would fail at spawn.
     let claudeSonnetRows = 0;
     let copilotSonnetRows = 0;
     for (const preset of PRESET_NAMES) {
@@ -624,7 +631,7 @@ describe('presets', () => {
           } else {
             copilotSonnetRows += 1;
             expect(row.provider, `${preset}/${flow}`).toBe('github-copilot');
-            expect(row.model, `${preset}/${flow}`).toBe('claude-sonnet-5');
+            expect(row.model, `${preset}/${flow}`).toBe('claude-sonnet-5.5');
           }
         }
       }

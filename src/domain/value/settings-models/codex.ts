@@ -1,15 +1,16 @@
-// Verified against the live CLI model cache (codex CLI v0.155.1, `~/.codex/models_cache.json`,
-// 2026-09-22). Docs: https://github.com/openai/codex#model-selection — facts cross-checked
+// Verified against the live CLI model cache (codex CLI v0.160.0, `~/.codex/models_cache.json`,
+// 2026-10-03). Docs: https://github.com/openai/codex#model-selection — facts cross-checked
 // against https://developers.openai.com/codex/models
 
 /**
  * Models supported by the OpenAI Codex CLI adapter.
  *
- * The GPT-6 family is current: `gpt-6-sol` is the flagship and the top rung of the Codex
- * escalation ladder ($2/$10 per MTok — half the `gpt-5.6-sol` price); `gpt-6-luna` is the cheap
- * tier ($0.10/$0.50); `gpt-6-astra` is the premium tier ($10/$50) — never a provider default or
- * a built-in ladder rung, only the frontier presets pick it. Efforts: all three accept `low..max`; `ultra` exists on astra and sol but
- * NOT luna. Per-model narrowing is left to the codex CLI at spawn.
+ * `gpt-6.1-sol` is the flagship — the cache's "latest workhorse model" and top of the Codex
+ * escalation ladder, at the `gpt-6-sol` token price ($2/$10 per MTok); `gpt-6-sol` is now "previous
+ * generation" and stays for pinned configs. `gpt-6-luna` is the cheap tier ($0.10/$0.50);
+ * `gpt-6-astra` is the premium tier ($10/$50) — never a provider default or a built-in ladder rung,
+ * only the frontier presets pick it. Efforts: all accept `low..max`; `ultra` exists on 6.1-sol,
+ * astra and sol but NOT luna (see {@link CODEX_MODEL_EFFORT_LEVELS}).
  *
  * `gpt-5.6-sol` / `gpt-5.6-terra` / `gpt-5.6-luna` and `gpt-5.5` stay for pinned configs (the
  * codex cache lists 5.6-sol/terra → gpt-6-sol and 5.6-luna → gpt-6-luna as their upgrades, and the
@@ -29,6 +30,7 @@
  * subcommand and is kept here so review chains can name it.
  */
 export type CodexModel =
+  | 'gpt-6.1-sol'
   | 'gpt-6-astra'
   | 'gpt-6-sol'
   | 'gpt-6-luna'
@@ -39,6 +41,7 @@ export type CodexModel =
   | 'codex-auto-review';
 
 export const CODEX_MODELS: readonly CodexModel[] = [
+  'gpt-6.1-sol',
   'gpt-6-astra',
   'gpt-6-sol',
   'gpt-6-luna',
@@ -50,3 +53,23 @@ export const CODEX_MODELS: readonly CodexModel[] = [
 ] as const;
 
 export const isCodexModel = (s: string): s is CodexModel => (CODEX_MODELS as readonly string[]).includes(s);
+
+/**
+ * Reasoning-effort levels each Codex model accepts on `model_reasoning_effort`. An out-of-list
+ * level is a 400 from the API (`Unsupported value: 'max' is not supported with the 'gpt-5.5'
+ * model`), so resolution clamps to this list. Models absent here pass through to the CLI.
+ *
+ * Source: `supported_reasoning_levels` in `~/.codex/models_cache.json` (codex CLI 0.160.0,
+ * fetched 2026-10-03).
+ */
+export const CODEX_MODEL_EFFORT_LEVELS: Readonly<Partial<Record<CodexModel, readonly string[]>>> = {
+  'gpt-6.1-sol': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
+  'gpt-6-astra': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
+  'gpt-6-sol': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
+  'gpt-6-luna': ['low', 'medium', 'high', 'xhigh', 'max'],
+  'gpt-5.6-sol': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
+  'gpt-5.6-terra': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
+  'gpt-5.6-luna': ['low', 'medium', 'high', 'xhigh', 'max'],
+  'gpt-5.5': ['low', 'medium', 'high', 'xhigh'],
+  'codex-auto-review': ['low', 'medium', 'high', 'xhigh', 'max'],
+};

@@ -577,6 +577,19 @@ updating the recorded hash:
 
 **Model-bump audit log.**
 
+- **2026-10-03 — GPT-6.1 Sol / Copilot Sonnet 5.5 + Copilot deprecations.** Step 1: `gpt-6.1-sol`
+  joins the Codex and Copilot catalogs and replaces `gpt-6-sol` as the Codex ladder top (`gpt-6-luna`,
+  `gpt-6-sol` and `gpt-5.6-sol` now climb to it). `claude-sonnet-5.5` joins the Copilot catalog and
+  becomes its Sonnet rung (Haiku → Sonnet 5.5 → Opus 4.8; Sonnet 5 keeps its rung to Opus 4.8). The
+  2026-10-02 Copilot deprecation removed `gemini-3.5-flash`, `gemini-3.6-flash`, `kimi-k2.7-code` and
+  `claude-opus-4.7` — the last was a ladder key, dropped with the id, and `RETIRED_MODEL_REMAPS`
+  rewrites persisted rows on any of them, so no key or destination was stranded. Rungs that pointed at
+  the 2026-10-19-deprecated `gpt-5.5` now go to GitHub's named successors. Step 2: the only `partial`
+  rows are §14 and §18, both the audit mechanism itself — a same-family tier bump does not close them;
+  there are no `gap` rows. Step 3: `applied` rows reviewed — same architecture, newer tiers inside the
+  existing families; no component was identified as newly non-load-bearing, no removals. The per-model
+  effort tables (`COPILOT_MODEL_EFFORT_LEVELS` / `CODEX_MODEL_EFFORT_LEVELS`) gained both ids.
+
 - **2026-09-30 — Claude Sonnet 5.5.** Step 1: `claude-sonnet-5-5` joins the claude-code catalog only (the
   Copilot CLI does not serve it) and becomes the Sonnet rung of the claude-code ladder (Haiku → Sonnet 5.5 →
   Opus 5.5). `claude-sonnet-5` stays catalogued and keyed (→ Opus 5.5) so pinned rows still escalate;

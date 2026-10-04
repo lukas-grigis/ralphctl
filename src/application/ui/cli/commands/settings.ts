@@ -5,6 +5,7 @@ import { createSettingsShowFlow } from '@src/application/flows/settings-show/flo
 import { createSettingsSetFlow } from '@src/application/flows/settings-set/flow.ts';
 import { createSettingsSetProviderFlow } from '@src/application/flows/settings-set-provider/flow.ts';
 import { createSettingsApplyPresetFlow } from '@src/application/flows/settings-apply-preset/flow.ts';
+import { presetAdaptationLines } from '@src/application/ui/shared/preset-notices.ts';
 import { bootstrapCli } from '@src/application/ui/cli/bootstrap.ts';
 import { fail } from '@src/application/ui/cli/report-cli-error.ts';
 import type { AiImplementRole } from '@src/domain/entity/settings.ts';
@@ -100,7 +101,10 @@ const applyPresetAction = async (name: string): Promise<void> => {
     return;
   }
   const { deps } = await bootstrapCli();
-  const flow = createSettingsApplyPresetFlow({ settingsRepo: deps.settingsRepo });
+  const flow = createSettingsApplyPresetFlow({
+    settingsRepo: deps.settingsRepo,
+    availableModelsFor: deps.availableModelsFor,
+  });
   const result = await flow.execute({ input: { preset: name } });
   if (!result.ok) {
     fail(result.error.error.message);
@@ -113,6 +117,7 @@ const applyPresetAction = async (name: string): Promise<void> => {
       `warning: ${PROVIDER_BINARY[w.provider]} CLI not found on PATH; affects flows: ${w.flows.join(', ')}\n`
     );
   }
+  for (const line of presetAdaptationLines(output)) process.stderr.write(`note: ${line}\n`);
   process.stdout.write(`applied preset ${name}\n`);
 };
 

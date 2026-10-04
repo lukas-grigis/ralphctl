@@ -221,6 +221,7 @@ const seedLegacyCreatePrRow = (ai: unknown): unknown => {
 };
 
 const COPILOT_GEMINI_SUCCESSOR = 'gemini-3.8-flash';
+const COPILOT_OPUS_SUCCESSOR = 'claude-opus-4.8';
 const COPILOT_SMALL_CODE_SUCCESSOR = 'mai-code-1.1-flash';
 
 /**
@@ -241,7 +242,10 @@ const COPILOT_SMALL_CODE_SUCCESSOR = 'mai-code-1.1-flash';
  *    small code model); `mai-code-1-flash` was superseded by `mai-code-1.1-flash`. Earlier
  *    delistings are collapsed onto the same live targets: `claude-opus-4.6-fast` →
  *    `claude-opus-4.8-fast`, `gemini-3.1-pro-preview` and `gemini-2.5-pro` → `gemini-3.8-flash`,
- *    `raptor-mini-preview` → `mai-code-1.1-flash`, `gemini-3-flash` → `gemini-3.5-flash`.
+ *    `raptor-mini-preview` → `mai-code-1.1-flash`. The 2026-10-02 deprecation removed
+ *    `gemini-3.5-flash` / `gemini-3.6-flash` (and the older `gemini-3-flash`) → `gemini-3.8-flash`,
+ *    `kimi-k2.7-code` → `kimi-k3`, and `claude-opus-4.7` → `claude-opus-4.8` (GitHub suggests
+ *    Opus 5.5, but that is Pro+ only; 4.8 is the Copilot Opus every plan the presets target reaches).
  *  - openai-codex — `gpt-5.4` / `gpt-5.4-mini` retired 2026-08-31 (→ `gpt-6-sol` / `gpt-6-luna`,
  *    the codex cache's upgrade targets); codex ≥ 0.145 dropped `gpt-5.2` / `gpt-5.3-codex` /
  *    `gpt-5.3-codex-spark` (→ `gpt-5.5`, which the default ladder climbs on plateau).
@@ -259,15 +263,19 @@ export const RETIRED_MODEL_REMAPS: ReadonlyArray<{
   readonly to: string;
 }> = [
   { provider: PROVIDER_CLAUDE_CODE, from: 'claude-opus-4-7', to: 'claude-opus-4-8' },
-  { provider: PROVIDER_GITHUB_COPILOT, from: 'claude-opus-4.5', to: 'claude-opus-4.8' },
-  { provider: PROVIDER_GITHUB_COPILOT, from: 'claude-opus-4.6', to: 'claude-opus-4.8' },
+  { provider: PROVIDER_GITHUB_COPILOT, from: 'claude-opus-4.5', to: COPILOT_OPUS_SUCCESSOR },
+  { provider: PROVIDER_GITHUB_COPILOT, from: 'claude-opus-4.6', to: COPILOT_OPUS_SUCCESSOR },
   { provider: PROVIDER_GITHUB_COPILOT, from: 'claude-opus-4.6-fast', to: 'claude-opus-4.8-fast' },
   { provider: PROVIDER_GITHUB_COPILOT, from: 'claude-sonnet-4.5', to: 'claude-sonnet-5' },
   { provider: PROVIDER_GITHUB_COPILOT, from: 'claude-sonnet-4.6', to: 'claude-sonnet-5' },
   { provider: PROVIDER_GITHUB_COPILOT, from: 'gemini-3.1-pro', to: COPILOT_GEMINI_SUCCESSOR },
   { provider: PROVIDER_GITHUB_COPILOT, from: 'gemini-3.1-pro-preview', to: COPILOT_GEMINI_SUCCESSOR },
   { provider: PROVIDER_GITHUB_COPILOT, from: 'gemini-2.5-pro', to: COPILOT_GEMINI_SUCCESSOR },
-  { provider: PROVIDER_GITHUB_COPILOT, from: 'gemini-3-flash', to: 'gemini-3.5-flash' },
+  { provider: PROVIDER_GITHUB_COPILOT, from: 'gemini-3-flash', to: COPILOT_GEMINI_SUCCESSOR },
+  { provider: PROVIDER_GITHUB_COPILOT, from: 'gemini-3.5-flash', to: COPILOT_GEMINI_SUCCESSOR },
+  { provider: PROVIDER_GITHUB_COPILOT, from: 'gemini-3.6-flash', to: COPILOT_GEMINI_SUCCESSOR },
+  { provider: PROVIDER_GITHUB_COPILOT, from: 'kimi-k2.7-code', to: 'kimi-k3' },
+  { provider: PROVIDER_GITHUB_COPILOT, from: 'claude-opus-4.7', to: COPILOT_OPUS_SUCCESSOR },
   { provider: PROVIDER_GITHUB_COPILOT, from: 'raptor-mini', to: COPILOT_SMALL_CODE_SUCCESSOR },
   { provider: PROVIDER_GITHUB_COPILOT, from: 'raptor-mini-preview', to: COPILOT_SMALL_CODE_SUCCESSOR },
   { provider: PROVIDER_GITHUB_COPILOT, from: 'mai-code-1-flash', to: COPILOT_SMALL_CODE_SUCCESSOR },

@@ -147,12 +147,12 @@ spent cheapest-first across successive plateau or budget-exhausted exits:
 `settings.harness.escalationMap` override: **claude-code** climbs Haiku → Sonnet 5.5 → Opus 5.5, with the
 legacy Sonnet 4.6 / Opus 4.8 generation chaining through its own tier and Opus 5 and a pinned Sonnet 5
 stepping straight across,
-all converging at the same flagship; **github-copilot** climbs Haiku → Sonnet 5 → Opus 4.8 (Opus 4.7 also
+all converging at the same flagship; **github-copilot** climbs Haiku → Sonnet 5.5 → Opus 4.8 (Sonnet 5 also
 steps to 4.8; the ladder deliberately tops out below Opus 5 / 5.5, both plan-gated on Copilot), and its
-GPT minis (`gpt-5-mini`, `gpt-5.4-mini`, `gpt-5.4`) step to `gpt-5.5`, which climbs into the GPT-5.6
-family (`gpt-5.5 → gpt-5.6-sol`, `gpt-5.6-luna → gpt-5.6-terra → gpt-5.6-sol`); **openai-codex** climbs
-`gpt-6-luna → gpt-6-sol` directly, with the pinned 5.5/5.6 generation chaining through its own tier and
-then `gpt-5.6-sol → gpt-6-sol`; **xai-grok** climbs `grok-4.5 → grok-4.6 → grok-4.7`; **opencode** has no
+GPT minis (`gpt-5-mini`, `gpt-5.4-mini`) step to `gpt-5.6-luna` and `gpt-5.4` / `gpt-5.5` to `gpt-5.6-sol`
+(`gpt-5.6-luna → gpt-5.6-terra → gpt-5.6-sol`; the GPT-6 ids are not rungs); **openai-codex** climbs
+`gpt-6-luna → gpt-6.1-sol` directly (a pinned `gpt-6-sol` also steps to it), with the pinned 5.5/5.6 generation chaining through its own tier and
+then `gpt-5.6-sol → gpt-6.1-sol`; **xai-grok** climbs `grok-4.5 → grok-4.6 → grok-4.7`; **opencode** has no
 built-in ladder — only user `escalationMap` rungs apply. Kept in lockstep with
 `domain/value/settings-models/` by the catalog-fingerprint verify gate. Each exit re-reads the most-recent
 `Task.escalatedToModel` as the generator model, so the policy returns `escalate` repeatedly and the
@@ -239,7 +239,7 @@ attempt, consuming budget), not by a once-per-task cap on retries — the best-o
 once-per-task (`task.bestOfNGranted`). A non-passing exit with no attempt budget left, or after the
 top-of-ladder nudge with the best-of-N remedy off/spent, preserves the work (done-with-warning) — never
 blocks.
-Cross-provider escalation (e.g. `claude-opus-5-5` → `gpt-6-sol`) is intentionally deferred — switching
+Cross-provider escalation (e.g. `claude-opus-5-5` → `gpt-6.1-sol`) is intentionally deferred — switching
 providers mid-task carries auth / context / tool-availability hazards.
 
 **Verify-gate cost and scoping.** In a measured 23-min single-task sprint, the repo-wide verify script ran four

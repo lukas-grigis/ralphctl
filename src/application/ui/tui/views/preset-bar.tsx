@@ -16,7 +16,8 @@ import { FieldList } from '@src/application/ui/tui/components/field-list.tsx';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { PRESET_NAMES } from '@src/business/settings/presets.ts';
 import { PROVIDER_BINARY } from '@src/integration/system/detect-cli.ts';
-import type { PresetWarning } from '@src/application/flows/settings-apply-preset/ctx.ts';
+import type { PresetNotices } from '@src/application/flows/settings-apply-preset/ctx.ts';
+import { presetAdaptationLines } from '@src/application/ui/shared/preset-notices.ts';
 import {
   PRESET_FAMILY,
   PRESET_FAMILY_LABEL,
@@ -27,43 +28,51 @@ import {
 export interface PresetBarProps {
   readonly title: string;
   readonly valueFor: (key: string) => React.ReactNode;
-  readonly warnings: readonly PresetWarning[];
+  readonly notices: PresetNotices;
 }
 
 /** Ordered families — drives the rendering order of sub-headers. */
 const FAMILY_ORDER: readonly PresetFamily[] = ['standard', 'economic', 'strong-gate', 'fast', 'frontier'];
 
-export const PresetBar = ({ title, valueFor, warnings }: PresetBarProps): React.JSX.Element => (
-  <Card title={title} tone="primary">
-    <Box flexDirection="column">
-      {FAMILY_ORDER.map((family, familyIdx) => {
-        const presets = PRESET_NAMES.filter((p) => PRESET_FAMILY[p] === family);
-        return (
-          <Box key={family} flexDirection="column" marginTop={familyIdx === 0 ? 0 : spacing.section}>
-            <Box paddingX={spacing.indent}>
-              <Text bold color={inkColors.muted}>
-                {PRESET_FAMILY_LABEL[family]}
-              </Text>
+export const PresetBar = ({ title, valueFor, notices }: PresetBarProps): React.JSX.Element => {
+  const adaptations = presetAdaptationLines(notices);
+  return (
+    <Card title={title} tone="primary">
+      <Box flexDirection="column">
+        {FAMILY_ORDER.map((family, familyIdx) => {
+          const presets = PRESET_NAMES.filter((p) => PRESET_FAMILY[p] === family);
+          return (
+            <Box key={family} flexDirection="column" marginTop={familyIdx === 0 ? 0 : spacing.section}>
+              <Box paddingX={spacing.indent}>
+                <Text bold color={inkColors.muted}>
+                  {PRESET_FAMILY_LABEL[family]}
+                </Text>
+              </Box>
+              <FieldList
+                fields={presets.map((preset) => ({
+                  label: PRESET_LABEL[preset],
+                  value: valueFor(`presets.${preset}`),
+                }))}
+              />
             </Box>
-            <FieldList
-              fields={presets.map((preset) => ({
-                label: PRESET_LABEL[preset],
-                value: valueFor(`presets.${preset}`),
-              }))}
-            />
-          </Box>
-        );
-      })}
-    </Box>
-    {warnings.length > 0 && (
-      <Box flexDirection="column" paddingX={spacing.indent} marginTop={spacing.section}>
-        {warnings.map((w) => (
-          <Text key={w.provider} dimColor>
-            {glyphs.warningGlyph} {PROVIDER_BINARY[w.provider]} CLI not found on PATH; affects flows:{' '}
-            {w.flows.join(', ')}
-          </Text>
-        ))}
+          );
+        })}
       </Box>
-    )}
-  </Card>
-);
+      {notices.warnings.length + adaptations.length > 0 && (
+        <Box flexDirection="column" paddingX={spacing.indent} marginTop={spacing.section}>
+          {notices.warnings.map((w) => (
+            <Text key={w.provider} dimColor>
+              {glyphs.warningGlyph} {PROVIDER_BINARY[w.provider]} CLI not found on PATH; affects flows:{' '}
+              {w.flows.join(', ')}
+            </Text>
+          ))}
+          {adaptations.map((line) => (
+            <Text key={line} dimColor>
+              {glyphs.warningGlyph} {line}
+            </Text>
+          ))}
+        </Box>
+      )}
+    </Card>
+  );
+};

@@ -34,7 +34,7 @@ describe('settings.ai.implement — nested generator/evaluator shape', () => {
     });
     expect(DEFAULT_SETTINGS.ai.implement.evaluator).toEqual({
       provider: 'openai-codex',
-      model: 'gpt-6-sol',
+      model: 'gpt-6.1-sol',
     });
   });
 
@@ -209,13 +209,17 @@ describe('settings.ai — retired claude-opus-4-7 migration', () => {
   });
 
   // Copilot retirements: the 2026-08-18 reconciliation (preview graduations + delistings) and the
-  // 2026-09-01 deprecation. Older entries are chain-collapsed onto the live successor, so every
+  // 2026-09-01 and 2026-10-02 deprecations. Older entries are chain-collapsed onto the live successor, so every
   // persisted row loads on a catalog model in one hop.
   it.each([
     ['gemini-3.1-pro-preview', 'gemini-3.8-flash'],
     ['raptor-mini-preview', 'mai-code-1.1-flash'],
     ['gemini-2.5-pro', 'gemini-3.8-flash'],
-    ['gemini-3-flash', 'gemini-3.5-flash'],
+    ['gemini-3-flash', 'gemini-3.8-flash'],
+    ['gemini-3.5-flash', 'gemini-3.8-flash'],
+    ['gemini-3.6-flash', 'gemini-3.8-flash'],
+    ['kimi-k2.7-code', 'kimi-k3'],
+    ['claude-opus-4.7', 'claude-opus-4.8'],
     ['claude-opus-4.5', 'claude-opus-4.8'],
     ['claude-opus-4.6', 'claude-opus-4.8'],
     ['claude-sonnet-4.5', 'claude-sonnet-5'],
@@ -254,7 +258,7 @@ describe('settings.ai — retired claude-opus-4-7 migration', () => {
     expect(parsed.success).toBe(true);
     if (!parsed.success) return;
     expect(parsed.data.ai.implement.generator.model).toBe('gemini-3.8-flash');
-    expect(parsed.data.ai.implement.evaluator.model).toBe('gemini-3.5-flash');
+    expect(parsed.data.ai.implement.evaluator.model).toBe('gemini-3.8-flash');
   });
 
   it('leaves a non-copilot row pinned to gemini-2.5-pro untouched — the remap is provider-guarded', () => {

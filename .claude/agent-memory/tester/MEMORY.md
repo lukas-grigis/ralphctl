@@ -5,4 +5,5 @@
 - [lesson_real_git_vs_fake_git_runner.md](lesson_real_git_vs_fake_git_runner.md) — Residual git state (leaked branch refs) is invisible to fake GitRunners
 - [lesson_loud_waiters_and_frame_dumps.md](lesson_loud_waiters_and_frame_dumps.md) — Waiters throw on timeout; seeded sentinels, control probes, dump lastFrame() to a file
 - [lesson_vacuous_guard_mutation_check.md](lesson_vacuous_guard_mutation_check.md) — Guards that cannot fail, unreachable-in-production fixtures, gen-eval loop assertion traps
+- [lesson_multi_render_transitions.md](lesson_multi_render_transitions.md) — Route push / reload-after-mutate settle over several renders; wait for the settled signature
 - [lesson_catalog_bump_fallout.md](lesson_catalog_bump_fallout.md) — Top-of-ladder fixtures break on bumps; recompute fingerprints by running the gate

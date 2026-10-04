@@ -11,4 +11,9 @@ export interface SettingsApplyPresetDeps {
    * machine's PATH.
    */
   readonly detectInstalledProviders?: (options?: DetectInstalledProvidersOptions) => Promise<ReadonlySet<AiProvider>>;
+  /**
+   * Live per-provider model list (`AppDeps.availableModelsFor`). When present, preset rows the
+   * account can't run move to a stand-in before saving; omit it to stamp the preset verbatim.
+   */
+  readonly availableModelsFor?: (provider: AiProvider) => Promise<readonly string[]>;
 }

@@ -9,7 +9,7 @@ import { Box, Text } from 'ink';
 import { Card } from '@src/application/ui/tui/components/card.tsx';
 import { FieldList } from '@src/application/ui/tui/components/field-list.tsx';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
-import type { PresetWarning } from '@src/application/flows/settings-apply-preset/ctx.ts';
+import type { PresetNotices } from '@src/application/flows/settings-apply-preset/ctx.ts';
 import { PresetBar } from '@src/application/ui/tui/views/preset-bar.tsx';
 import { AiRow, ImplementAiRow } from '@src/application/ui/tui/views/ai-row.tsx';
 import { HarnessRow } from '@src/application/ui/tui/views/harness-row.tsx';
@@ -45,10 +45,10 @@ export interface SectionBodyProps {
   readonly section: SettingsSection;
   readonly valueFor: (key: string) => React.ReactNode;
   readonly storage: StoragePaths;
-  readonly presetWarnings: readonly PresetWarning[];
+  readonly presetNotices: PresetNotices;
 }
 
-export const SectionBody = ({ section, valueFor, storage, presetWarnings }: SectionBodyProps): React.JSX.Element => {
+export const SectionBody = ({ section, valueFor, storage, presetNotices }: SectionBodyProps): React.JSX.Element => {
   switch (section.id) {
     case 'storage':
       return (
@@ -63,7 +63,7 @@ export const SectionBody = ({ section, valueFor, storage, presetWarnings }: Sect
         </Card>
       );
     case 'presets':
-      return <PresetBar title={section.title} valueFor={valueFor} warnings={presetWarnings} />;
+      return <PresetBar title={section.title} valueFor={valueFor} notices={presetNotices} />;
     case 'implement':
       return <ImplementAiRow title={section.title} valueFor={valueFor} />;
     case 'harness':

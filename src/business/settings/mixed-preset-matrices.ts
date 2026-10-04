@@ -8,14 +8,14 @@ import {
   FABLE,
   GPT_6_ASTRA,
   GPT_6_LUNA,
-  GPT_6_SOL,
+  GPT_6_1_SOL,
   OPUS,
   SONNET,
 } from '@src/business/settings/preset-model-ids.ts';
 
 /*
  * Best-of-breed across providers: Codex `gpt-6-luna` on the text-only flows (refine / createPr),
- * Copilot `gpt-5.6-luna` on readiness, Claude on plan / implement / ideate. Every row pins an
+ * Copilot `gpt-6-luna` on readiness, Claude on plan / implement / ideate. Every row pins an
  * explicit effort.
  *
  * `mixed`, `mixed-economic` and `mixed-frontier` grade a Claude generator with a Codex evaluator,
@@ -30,7 +30,7 @@ export const MIXED: AiSettings = {
   plan: { provider: CLAUDE, model: OPUS, effort: 'xhigh' },
   implement: {
     generator: { provider: CLAUDE, model: OPUS, effort: 'xhigh' },
-    evaluator: { provider: CODEX, model: GPT_6_SOL, effort: 'xhigh' },
+    evaluator: { provider: CODEX, model: GPT_6_1_SOL, effort: 'xhigh' },
   },
   readiness: { provider: COPILOT, model: COPILOT_LUNA, effort: 'medium' },
   ideate: { provider: CLAUDE, model: OPUS, effort: 'high' },
@@ -89,7 +89,7 @@ export const MIXED_FAST: AiSettings = {
  */
 export const MIXED_FRONTIER: AiSettings = {
   effort: 'max',
-  refine: { provider: CODEX, model: GPT_6_SOL, effort: 'high' },
+  refine: { provider: CODEX, model: GPT_6_1_SOL, effort: 'high' },
   plan: { provider: CLAUDE, model: FABLE, effort: 'max' },
   implement: {
     generator: { provider: CLAUDE, model: FABLE, effort: 'max' },
@@ -97,5 +97,5 @@ export const MIXED_FRONTIER: AiSettings = {
   },
   readiness: { provider: CLAUDE, model: OPUS, effort: 'high' },
   ideate: { provider: CLAUDE, model: FABLE, effort: 'high' },
-  createPr: { provider: CODEX, model: GPT_6_SOL, effort: 'medium' },
+  createPr: { provider: CODEX, model: GPT_6_1_SOL, effort: 'medium' },
 };

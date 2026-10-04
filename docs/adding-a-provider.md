@@ -66,12 +66,12 @@ grep -rn 'Record<AiProvider' src | grep -v Partial
 Today that grep finds fifteen tables; with the registry in `wire.ts` (typed through
 `ModelAvailabilityProbeRegistry`, so the grep cannot see it) that is sixteen, grouped by layer:
 
-| Layer         | Table                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `domain`      | `PROVIDER_EFFORT_LEVELS` (`value/settings-models/effort.ts`)                                                                                                                                                                                                                                                                                                                                                                                                       |
-| `business`    | `DEFAULT_MODELS_BY_PROVIDER` (`settings/defaults.ts`)                                                                                                                                                                                                                                                                                                                                                                                                              |
-| `integration` | `PROVIDER_BINARY` + `PROVIDER_INSTALL_GUIDANCE` (`system/detect-cli.ts`), `PROVIDER_TRAITS` (`ai/providers/_engine/provider-traits.ts`), `AGENT_ADAPTERS` (`ai/agents/adapter-factory.ts`), `SKILLS_ADAPTERS` (`ai/skills/adapter-factory.ts`), `OPERATOR_PROVIDER_DIR` (`ai/skills/operator/source.ts`)                                                                                                                                                           |
-| `application` | `HEADLESS_FACTORIES` (`bootstrap/provider-factory.ts`), `INTERACTIVE_FACTORIES` (`bootstrap/interactive-provider-factory.ts`), `MODEL_AVAILABILITY_PROBES` (`bootstrap/wire.ts`), `PROVIDER_AUTH_CHECK` (`flows/doctor/provider-auth.ts`), `PROVIDER_LABEL` (`flows/doctor/probe-helpers.ts` and `ui/shared/launch/readiness.ts` — two separate tables), `PRESET_FOR_PROVIDER` (`ui/tui/views/welcome-view.tsx` and `demo/seed-settings.ts` — two separate tables) |
+| Layer         | Table                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `domain`      | `PROVIDER_EFFORT_LEVELS` (`value/settings-models/effort.ts`)                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `business`    | `DEFAULT_MODELS_BY_PROVIDER` (`settings/defaults.ts`)                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `integration` | `PROVIDER_BINARY` + `PROVIDER_INSTALL_GUIDANCE` (`system/detect-cli.ts`), `PROVIDER_TRAITS` (`ai/providers/_engine/provider-traits.ts`), `AGENT_ADAPTERS` (`ai/agents/adapter-factory.ts`), `SKILLS_ADAPTERS` (`ai/skills/adapter-factory.ts`), `OPERATOR_PROVIDER_DIR` (`ai/skills/operator/source.ts`)                                                                                                                                                              |
+| `application` | `HEADLESS_FACTORIES` (`bootstrap/provider-factory.ts`), `INTERACTIVE_FACTORIES` (`bootstrap/interactive-provider-factory.ts`), `buildModelAvailabilityProbes` (`bootstrap/wire.ts`), `PROVIDER_AUTH_CHECK` (`flows/doctor/provider-auth.ts`), `PROVIDER_LABEL` (`flows/doctor/probe-helpers.ts` and `ui/shared/launch/readiness.ts` — two separate tables), `PRESET_FOR_PROVIDER` (`ui/tui/views/welcome-view.tsx` and `demo/seed-settings.ts` — two separate tables) |
 
 One **exhaustive `switch` with no `default`** also breaks: `toolForProvider` in
 `src/integration/ai/readiness/_engine/tool.ts`. If your CLI reads its own context file you will
@@ -309,9 +309,10 @@ exhaustive switch. They are small and mostly boilerplate — work the compiler's
 bottom.
 
 - **Availability probe** — `src/integration/ai/providers/gemini/model-availability-probe.ts`.
-  Start with a passthrough (copy `copilot/model-availability-probe.ts`): it returns the catalog
-  unchanged. The port contract requires it to **fail open and never throw**. Register it in
-  `wire.ts`'s `MODEL_AVAILABILITY_PROBES` (total record — this is the compile error).
+  Start with a passthrough (copy `claude/model-availability-probe.ts`): it returns the catalog
+  unchanged. A real probe also lets presets swap in stand-ins for models the account can't run — add the
+  new provider's preset models to `PRESET_MODEL_FALLBACKS` (`business/settings/adapt-to-available-models.ts`). The port contract requires it to **fail open and never throw**. Register it in
+  `wire.ts`'s `buildModelAvailabilityProbes` (total record — this is the compile error).
 
 - **Readiness** — `toolForProvider` in `_engine/tool.ts` must map `google-gemini` to an
   `AssistantTool`. If your CLI reads its own context file (e.g. `GEMINI.md`), add a new
@@ -423,7 +424,7 @@ availability filtering, and the test suites — lands around **25 files**:
 18. `src/integration/ai/agents/gemini/adapter.ts` + `agents/_engine/render-gemini-agent.ts` — _new_ (what `AGENT_ADAPTERS` points at)
 19. `src/application/bootstrap/provider-factory.ts` — _edit_ (`HEADLESS_FACTORIES`)
 20. `src/application/bootstrap/interactive-provider-factory.ts` — _edit_ (`INTERACTIVE_FACTORIES`)
-21. `src/application/bootstrap/wire.ts` — _edit_ (`MODEL_AVAILABILITY_PROBES` + `PROBES`)
+21. `src/application/bootstrap/wire.ts` — _edit_ (`buildModelAvailabilityProbes` + `PROBES`)
 22. `src/application/flows/doctor/provider-auth.ts` + `probe-helpers.ts` — _edit_ (auth check + label)
 23. `src/application/flows/readiness/leaves/propose.ts` — _edit_ (only when you widen `AssistantTool`)
 24. `src/application/ui/shared/launch/readiness.ts` + `ui/tui/views/welcome-view.tsx` + `demo/seed-settings.ts` — _edit_ (label + first-run preset + demo seed preset)

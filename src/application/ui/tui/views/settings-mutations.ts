@@ -11,7 +11,7 @@
 import { createSettingsApplyPresetFlow } from '@src/application/flows/settings-apply-preset/flow.ts';
 import { createSettingsSetFlow } from '@src/application/flows/settings-set/flow.ts';
 import { createSettingsSetProviderFlow } from '@src/application/flows/settings-set-provider/flow.ts';
-import type { PresetWarning } from '@src/application/flows/settings-apply-preset/ctx.ts';
+import type { PresetNotices } from '@src/application/flows/settings-apply-preset/ctx.ts';
 import { applySettingsKey, parseSettingsKvSyntax } from '@src/business/settings/apply-key.ts';
 import type { PresetName } from '@src/business/settings/presets.ts';
 import type { AiProvider, Settings } from '@src/domain/entity/settings.ts';
@@ -25,7 +25,7 @@ export type MutationOutcome =
   | { readonly kind: 'error'; readonly text: string };
 
 export type PresetOutcome =
-  | { readonly kind: 'ok'; readonly text: string; readonly warnings: readonly PresetWarning[] }
+  | { readonly kind: 'ok'; readonly text: string; readonly notices: PresetNotices }
   | { readonly kind: 'error'; readonly text: string };
 
 /** Provider-switch key shapes: implement carries a generator + evaluator pair addressed via a
@@ -158,16 +158,24 @@ const persistKey = async (
 };
 
 /**
- * Apply a settings preset and return the warnings the apply-preset flow emitted. The view
- * renders those warnings underneath the preset bar until the next preset / row edit clears them.
+ * Apply a settings preset and return the notices the apply-preset flow emitted (missing CLIs,
+ * model swaps). The view renders them underneath the preset bar until the next preset / row edit
+ * clears them.
  */
-export const applyPreset = async (preset: PresetName, settingsRepo: SettingsRepository): Promise<PresetOutcome> => {
-  const flow = createSettingsApplyPresetFlow({ settingsRepo });
+export const applyPreset = async (
+  preset: PresetName,
+  settingsRepo: SettingsRepository,
+  availableModelsFor?: (provider: AiProvider) => Promise<readonly string[]>
+): Promise<PresetOutcome> => {
+  const flow = createSettingsApplyPresetFlow({
+    settingsRepo,
+    ...(availableModelsFor !== undefined ? { availableModelsFor } : {}),
+  });
   const saved = await flow.execute({ input: { preset } });
   if (!saved.ok) return { kind: 'error', text: saved.error.error.message };
   return {
     kind: 'ok',
     text: `applied preset ${preset}`,
-    warnings: saved.value.ctx.output!.warnings,
+    notices: saved.value.ctx.output!,
   };
 };

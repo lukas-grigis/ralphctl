@@ -3,6 +3,7 @@ import { type AiProvider, type AiSettings, primaryFlowRow } from '@src/domain/en
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
 import { applyPreset } from '@src/business/settings/presets.ts';
+import { adaptAiToAvailableModels } from '@src/business/settings/adapt-to-available-models.ts';
 import { detectInstalledProviders as defaultDetect } from '@src/integration/system/detect-cli.ts';
 import { FLOW_IDS, type FlowId } from '@src/domain/value/flow-id.ts';
 
@@ -24,6 +25,10 @@ import type { SettingsApplyPresetDeps } from '@src/application/flows/settings-ap
  * settings. Each provider configured but not detected becomes one entry in `output.warnings`
  * naming the affected flows. Persistence still succeeds — warnings are advisory only.
  *
+ * Before saving, every row whose model the signed-in account can't run (per
+ * `deps.availableModelsFor`) moves to its nearest available stand-in — see
+ * `adaptAiToAvailableModels`. Without the dep, or when a probe can't answer, rows stay as stamped.
+ *
  * The CLI's `settings apply-preset` subcommand and the TUI's preset buttons both route
  * through this flow. Schema validation runs at the persistence boundary, so a malformed
  * preset (out-of-catalog model) would surface as a `ParseError` rather than landing on
@@ -35,18 +40,37 @@ export const createSettingsApplyPresetFlow = (deps: SettingsApplyPresetDeps): El
       async execute(input) {
         const current = await deps.settingsRepo.load();
         if (!current.ok) return Result.error(current.error);
-        const next = applyPreset(input.preset, current.value);
+        const stamped = applyPreset(input.preset, current.value);
+        const adapted = adaptAiToAvailableModels(stamped.ai, await probeAvailability(stamped.ai, deps));
+        const next = { ...stamped, ai: adapted.ai };
         const saved = await deps.settingsRepo.save(next);
         if (!saved.ok) return Result.error(saved.error);
         const detect = deps.detectInstalledProviders ?? defaultDetect;
         const installed = await detect();
         const warnings = buildWarnings(next.ai, installed);
-        return Result.ok({ settings: next, warnings });
+        return Result.ok({
+          settings: next,
+          warnings,
+          substitutions: adapted.substitutions,
+          unavailable: adapted.unavailable,
+        });
       },
     },
     input: (c) => c.input,
     output: (c, o) => ({ ...c, output: o }),
   });
+
+/** Live model lists for every provider the preset stamped; empty without the probe dep. */
+const probeAvailability = async (
+  ai: AiSettings,
+  deps: SettingsApplyPresetDeps
+): Promise<ReadonlyMap<AiProvider, ReadonlySet<string>>> => {
+  const probe = deps.availableModelsFor;
+  if (probe === undefined) return new Map();
+  const providers = [...new Set(FLOW_IDS.flatMap((flow) => providersForFlow(ai, flow)))];
+  const lists = await Promise.all(providers.map(async (p) => [p, new Set(await probe(p))] as const));
+  return new Map(lists);
+};
 
 /**
  * Group missing-CLI flows by provider so the surface can show "codex missing — affects refine"

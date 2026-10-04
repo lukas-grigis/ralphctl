@@ -30,6 +30,7 @@ import { createSessionManager } from '@src/application/ui/tui/runtime/session-ma
 import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { tick } from '@tests/integration/application/ui/tui/_keys.ts';
+import { waitFor } from '@tests/integration/application/ui/tui/_wait.ts';
 
 /** The footer hint string for quit, derived exactly as `footerGlobalHints` joins variants. */
 const QUIT_KEYS = globalKeys.quit.keys.join('/');
@@ -126,11 +127,15 @@ describe('quit hint suppression off Home', () => {
 
   it('drops the quit hint when the route transitions Home -> non-Home', async () => {
     const { lastFrame, unmount } = mountAt({ id: 'home' }, <PushOnMount to={{ id: 'settings' }} />);
-    // Let the mount effect push the new route and the suppression effect flush.
-    await tick(60);
-    const frame = lastFrame() ?? '';
-    expect(frame).not.toContain(QUIT_KEYS);
-    expect(footerLine(frame)).toBe('');
+    // Home renders the hint first, so waiting for it to disappear is a real transition wait: the
+    // push and the suppression effect land in separate renders.
+    await waitFor(() => {
+      const frame = lastFrame() ?? '';
+      // A rendered footer, so an empty pre-render frame can't satisfy the absence check.
+      expect(frame).toContain('home');
+      expect(frame).not.toContain(QUIT_KEYS);
+    });
+    expect(footerLine(lastFrame() ?? '')).toBe('');
     unmount();
   });
 });
