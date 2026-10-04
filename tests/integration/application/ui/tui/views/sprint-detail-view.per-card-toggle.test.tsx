@@ -303,15 +303,23 @@ describe('SprintDetailView — per-card expand/collapse', () => {
     result.stdin.write('y');
     // The remove + reload round-trips the repo stub and remounts the card list — the slowest
     // settle in this file, so it gets headroom beyond the default ceiling for instrumented CI.
+    // The note lands over the OLD list (bravo row still there) before the reload, so wait for the
+    // note with bravo's row gone — 'bravo card' then appears only inside the note.
     await waitForPredicate(
       () => {
         const f = result.lastFrame() ?? '';
-        return f.includes('alpha card') && f.includes('charlie card') && !f.includes('Loading');
+        const settled =
+          f.includes('removed "bravo card"') &&
+          f.split('bravo card').length === 2 &&
+          f.includes('alpha card') &&
+          f.includes('charlie card') &&
+          !f.includes('Loading');
+        if (settled) frame = f;
+        return settled;
       },
       { label: 'cards back after remove-ticket reload', timeout: 10_000 }
     );
 
-    frame = result.lastFrame() ?? '';
     // The two surviving cards (alpha + charlie) keep their expansion; bravo is gone from the
     // list entirely, so its requirements line must no longer appear anywhere.
     expect(frame).toContain('requirements for alpha card');
