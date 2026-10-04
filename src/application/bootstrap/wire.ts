@@ -46,7 +46,7 @@ import type { ModelAvailabilityProbeRegistry } from '@src/integration/ai/provide
 import { claudeModelAvailabilityProbe } from '@src/integration/ai/providers/claude/model-availability-probe.ts';
 import { codexModelAvailabilityProbe } from '@src/integration/ai/providers/codex/model-availability-probe.ts';
 import { createOpencodeModelAvailabilityProbe } from '@src/integration/ai/providers/opencode/model-availability-probe.ts';
-import { copilotModelAvailabilityProbe } from '@src/integration/ai/providers/copilot/model-availability-probe.ts';
+import { createCopilotModelAvailabilityProbe } from '@src/integration/ai/providers/copilot/model-availability-probe.ts';
 import { grokModelAvailabilityProbe } from '@src/integration/ai/providers/grok/model-availability-probe.ts';
 import { PROVIDER_TRAITS } from '@src/integration/ai/providers/_engine/provider-traits.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
@@ -297,7 +297,12 @@ const PROBES: ReadinessProbeRegistry = {
  */
 const buildModelAvailabilityProbes = (logger: Logger): ModelAvailabilityProbeRegistry => ({
   'claude-code': claudeModelAvailabilityProbe,
-  'github-copilot': copilotModelAvailabilityProbe,
+  // Lossless fail-open (the shipped catalog IS Copilot's full list), so debug, not warn.
+  'github-copilot': createCopilotModelAvailabilityProbe({
+    onDegraded: ({ reason, detail }) => {
+      logger.debug('model-probe: copilot fell back to the full catalog', { reason, detail });
+    },
+  }),
   'openai-codex': codexModelAvailabilityProbe,
   opencode: createOpencodeModelAvailabilityProbe({
     onDegraded: ({ reason, detail }) => {

@@ -192,6 +192,17 @@ Apply via `ralphctl settings apply-preset <name>` or from the TUI settings view.
 every `ai` row plus `harness.escalateOnPlateau` in one transaction; subsequent per-key edits via
 `ralphctl settings set ai.<flow>.<field> <value>` stick.
 
+**Presets adapt to the account.** Before saving, the apply-preset flow asks each stamped provider's
+model-availability probe (`AppDeps.availableModelsFor`) which models the signed-in account can run, and
+`adaptAiToAvailableModels` (`business/settings/adapt-to-available-models.ts`) moves any row it can't run
+to the nearest available stand-in from `PRESET_MODEL_FALLBACKS` (same provider, same or cheaper tier —
+e.g. Copilot `gpt-6-luna` → `gpt-5.6-luna`, `claude-sonnet-5.5` → `claude-sonnet-5`). Each swap is
+reported (CLI `note:` lines, TUI preset card, first-run Welcome log); a row with no available stand-in
+keeps its model and is reported too. A probe that can't answer fails open to the full catalog, so it
+never rewrites a row. Live sources: Copilot's headless server, Codex's `~/.codex/models_cache.json`,
+`opencode models`; Claude Code and Grok have no listing and are taken as-is. A lockstep test requires a
+`PRESET_MODEL_FALLBACKS` entry for every model a preset or provider default stamps.
+
 **Model catalog versions used by the presets** (verified against the tool versions noted per row):
 
 - Claude Code — lists 11 models: `claude-haiku-4-5` / `claude-sonnet-4-6` / `claude-sonnet-5` /
@@ -260,9 +271,13 @@ every `ai` row plus `harness.escalateOnPlateau` in one transaction; subsequent p
   `claude-opus-5`, and `claude-fable-5` carry no dot/date, so their Copilot slugs are the SAME string as
   the Claude-Code ids — the escalation ladder is scoped per provider now (`escalation-map.ts`), so the
   collision no longer constrains either climb. `claude-opus-5` / `claude-opus-5.5` are plan-gated
-  (Pro+/Max/Business/Enterprise) on Copilot and, per the existing passthrough-probe policy, fail at spawn
-  with a clear error on gated accounts, so Copilot's curated presets and default escalation ladder
-  deliberately stay on `claude-opus-4.8` (see `escalation-map.ts`).
+  (Pro+/Max/Business/Enterprise) on Copilot and fail at spawn with a clear error on gated accounts, so
+  Copilot's curated presets and default escalation ladder deliberately stay on `claude-opus-4.8` (see
+  `escalation-map.ts`). The Copilot availability probe (`providers/copilot/model-availability-probe.ts`)
+  asks the CLI's own headless JSON-RPC server (`copilot --headless --stdio`: `connect`, `models.list`)
+  for the account's models — the CLI handles auth, so no keychain token is read — and keeps those with an
+  `enabled` policy or no policy. It fails open to the full catalog (the `connect` handshake is marked
+  experimental in the Copilot SDK).
 - OpenAI Codex — verified against the live CLI model cache (codex CLI v0.160.0,
   `~/.codex/models_cache.json`, 2026-10-03). `gpt-6.1-sol` is the flagship and the top rung of the Codex
   escalation ladder — $2/$10 per MTok, half the `gpt-5.6-sol` price, and the model `codex-only` runs

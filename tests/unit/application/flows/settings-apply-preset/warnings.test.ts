@@ -96,3 +96,28 @@ describe('settings-apply-preset — warnings', () => {
     expect(saved.value!.ai.implement.generator.provider).toBe('claude-code');
   });
 });
+
+describe('settings-apply-preset — model availability', () => {
+  it('saves stand-ins for preset models the account cannot run and reports each swap', async () => {
+    const { repo, saved } = repoFor(DEFAULT_SETTINGS);
+    const flow = createSettingsApplyPresetFlow({
+      settingsRepo: repo,
+      detectInstalledProviders: detectFor(['github-copilot']),
+      availableModelsFor: async () => ['claude-opus-4.8', 'claude-sonnet-5.5', 'gpt-5.6-luna'],
+    });
+    const result = await flow.execute({ input: { preset: 'copilot-only' } });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(saved.value?.ai.readiness.model).toBe('gpt-5.6-luna');
+    expect(result.value.ctx.output!.substitutions.map((s) => s.flow)).toEqual(['readiness', 'createPr']);
+    expect(result.value.ctx.output!.unavailable).toEqual([]);
+  });
+
+  it('stamps the preset verbatim without the probe dep', async () => {
+    const { repo, saved } = repoFor(DEFAULT_SETTINGS);
+    const flow = createSettingsApplyPresetFlow({ settingsRepo: repo, detectInstalledProviders: detectFor([]) });
+    const result = await flow.execute({ input: { preset: 'copilot-only' } });
+    expect(result.ok).toBe(true);
+    expect(saved.value?.ai.readiness.model).toBe('gpt-6-luna');
+  });
+});

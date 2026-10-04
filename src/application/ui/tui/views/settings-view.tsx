@@ -44,7 +44,7 @@ import { useViewHints } from '@src/application/ui/tui/runtime/use-view-hints.tsx
 import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx';
 import { createSettingsShowFlow } from '@src/application/flows/settings-show/flow.ts';
 import type { PresetName } from '@src/business/settings/presets.ts';
-import type { PresetWarning } from '@src/application/flows/settings-apply-preset/ctx.ts';
+import { NO_PRESET_NOTICES, type PresetNotices } from '@src/application/flows/settings-apply-preset/ctx.ts';
 import { type AiProvider, type Settings, uniqueProvidersFromAi } from '@src/domain/entity/settings.ts';
 import type { LogLevel } from '@src/domain/value/log-level.ts';
 import type { SettingsRepository } from '@src/domain/repository/settings/settings-repository.ts';
@@ -103,8 +103,10 @@ interface SettingsDataParams {
   readonly settingsRepo: SettingsRepository;
   readonly setLogLevel: (level: LogLevel) => void;
   readonly setFeedback: (feedback: SettingsFeedback) => void;
-  readonly setPresetWarnings: (warnings: readonly PresetWarning[]) => void;
+  readonly setPresetNotices: (notices: PresetNotices) => void;
   readonly closeEditor: () => void;
+  /** Live model lookup — preset rows the account can't run move to a stand-in. */
+  readonly availableModelsFor?: (provider: AiProvider) => Promise<readonly string[]>;
 }
 
 interface SettingsDataResult {
@@ -120,7 +122,7 @@ interface SettingsDataResult {
  * the persisted record rather than an optimistic local patch.
  */
 const useSettingsData = (params: SettingsDataParams): SettingsDataResult => {
-  const { settingsRepo, setLogLevel, setFeedback, setPresetWarnings, closeEditor } = params;
+  const { settingsRepo, setLogLevel, setFeedback, setPresetNotices, closeEditor, availableModelsFor } = params;
   const [settings, setSettings] = useState<Settings | undefined>(undefined);
   const [loadError, setLoadError] = useState<string | undefined>(undefined);
 
@@ -136,13 +138,13 @@ const useSettingsData = (params: SettingsDataParams): SettingsDataResult => {
   }, [refresh]);
 
   const handlePreset = async (preset: PresetName): Promise<void> => {
-    const outcome = await applyPreset(preset, settingsRepo);
+    const outcome = await applyPreset(preset, settingsRepo, availableModelsFor);
     if (outcome.kind === 'error') {
       setFeedback({ tone: 'error', text: outcome.text });
       return;
     }
     setFeedback({ tone: 'ok', text: outcome.text });
-    setPresetWarnings(outcome.warnings);
+    setPresetNotices(outcome.notices);
     await refresh();
   };
 
@@ -342,7 +344,7 @@ interface SettingsViewBodyProps {
   readonly sectionIdx: number;
   readonly valueFor: (key: string) => React.ReactNode;
   readonly storage: ReturnType<typeof useStorage>;
-  readonly presetWarnings: readonly PresetWarning[];
+  readonly presetNotices: PresetNotices;
   readonly feedback: SettingsFeedback;
 }
 
@@ -367,7 +369,7 @@ const SettingsViewBody = ({
   sectionIdx,
   valueFor,
   storage,
-  presetWarnings,
+  presetNotices,
   feedback,
 }: SettingsViewBodyProps): React.JSX.Element => {
   if (helpOpen) return <HelpOverlay />;
@@ -417,7 +419,7 @@ const SettingsViewBody = ({
     <Box flexDirection="column">
       <SectionStrip sections={sections} activeIdx={sectionIdx} />
       <Box marginTop={spacing.section}>
-        <SectionBody section={activeSection} valueFor={valueFor} storage={storage} presetWarnings={presetWarnings} />
+        <SectionBody section={activeSection} valueFor={valueFor} storage={storage} presetNotices={presetNotices} />
       </Box>
       {feedback !== undefined && (
         <Box paddingX={spacing.indent} marginTop={spacing.section}>
@@ -444,7 +446,7 @@ export const SettingsView = (): React.JSX.Element => {
    * Warnings from the most recent apply-preset. Rendered as a dimmed multi-line note below the
    * preset action group; cleared when the user activates a new preset or edits any other row.
    */
-  const [presetWarnings, setPresetWarnings] = useState<readonly PresetWarning[]>([]);
+  const [presetNotices, setPresetNotices] = useState<PresetNotices>(NO_PRESET_NOTICES);
 
   useViewHints([
     { keys: '←/→', label: 'section' },
@@ -458,8 +460,9 @@ export const SettingsView = (): React.JSX.Element => {
     settingsRepo: deps.settingsRepo,
     setLogLevel: logLevel.setLevel,
     setFeedback,
-    setPresetWarnings,
+    setPresetNotices,
     closeEditor,
+    availableModelsFor: deps.availableModelsFor,
   });
   const installedProviders = useInstalledProviders();
   const availableModels = useAvailableModelsMap(settings, deps.availableModelsFor);
@@ -478,7 +481,7 @@ export const SettingsView = (): React.JSX.Element => {
     setSectionIdx,
     setCursor,
     setFeedback,
-    onActivate: (field) => activateField(field, { setFeedback, setPresetWarnings, setPendingPreset, setEditingField }),
+    onActivate: (field) => activateField(field, { setFeedback, setPresetNotices, setPendingPreset, setEditingField }),
   });
 
   // Tie the prompt-active claim to the editing-field state so React's effect cleanup matches
@@ -511,7 +514,7 @@ export const SettingsView = (): React.JSX.Element => {
         sectionIdx={sectionIdx}
         valueFor={valueFor}
         storage={storage}
-        presetWarnings={presetWarnings}
+        presetNotices={presetNotices}
         feedback={feedback}
       />
     </ViewShell>

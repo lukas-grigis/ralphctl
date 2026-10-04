@@ -24,6 +24,11 @@ to [Semantic Versioning](https://semver.org/).
 - **Waiting runs say so.** A run blocked on your answer shows `[WAITING]` in NEEDS ATTENTION, the footer and the run
   view, and fires an OS notification (honouring `ui.notifications`). Runs that finish after two minutes notify too.
 
+- **Presets fit your account.** Applying a preset (Settings, `ralphctl settings apply-preset`, first-run setup)
+  now checks which models your account can actually use and swaps in a close stand-in for any it can't — e.g. a
+  Copilot plan without `gpt-6-luna` gets `gpt-5.6-luna` — and says which rows changed. Copilot now asks the Copilot
+  CLI for your account's models, so the Settings model picker lists only those too.
+
 ### Changed
 
 - **New models, and the presets use them.** Codex and Copilot gain `gpt-6.1-sol`, which replaces `gpt-6-sol` as the

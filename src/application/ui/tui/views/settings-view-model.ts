@@ -8,7 +8,7 @@
 import { PRESET_NAMES, type PresetName } from '@src/business/settings/presets.ts';
 import { mergeEscalationMap } from '@src/business/task/escalation-map.ts';
 import { glyphs } from '@src/application/ui/tui/theme/tokens.ts';
-import type { PresetWarning } from '@src/application/flows/settings-apply-preset/ctx.ts';
+import { NO_PRESET_NOTICES, type PresetNotices } from '@src/application/flows/settings-apply-preset/ctx.ts';
 import type { AiFlowSettings, AiProvider, Settings } from '@src/domain/entity/settings.ts';
 import { AI_PROVIDERS as DOMAIN_AI_PROVIDERS } from '@src/domain/entity/settings.ts';
 import type { FlowId } from '@src/domain/value/flow-id.ts';
@@ -501,7 +501,7 @@ export const isProviderField = (field: EditableField): boolean =>
  */
 export interface FieldActivationSetters {
   readonly setFeedback: (feedback: undefined) => void;
-  readonly setPresetWarnings: (warnings: readonly PresetWarning[]) => void;
+  readonly setPresetNotices: (notices: PresetNotices) => void;
   readonly setPendingPreset: (preset: PresetName) => void;
   readonly setEditingField: (field: EditableField) => void;
 }
@@ -513,11 +513,11 @@ export interface FieldActivationSetters {
 export const activateField = (field: EditableField, setters: FieldActivationSetters): void => {
   setters.setFeedback(undefined);
   if (field.kind === 'preset') {
-    setters.setPresetWarnings([]);
+    setters.setPresetNotices(NO_PRESET_NOTICES);
     setters.setPendingPreset(field.preset);
     return;
   }
-  setters.setPresetWarnings([]);
+  setters.setPresetNotices(NO_PRESET_NOTICES);
   setters.setEditingField(field);
 };
 

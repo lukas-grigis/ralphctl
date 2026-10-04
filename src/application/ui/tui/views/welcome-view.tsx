@@ -38,6 +38,7 @@ import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx
 import { useViewKeys } from '@src/application/ui/tui/runtime/use-view-keys.ts';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { createSettingsApplyPresetFlow } from '@src/application/flows/settings-apply-preset/flow.ts';
+import { presetAdaptationLines } from '@src/application/ui/shared/preset-notices.ts';
 import { detectInstalledProviders } from '@src/integration/system/detect-cli.ts';
 import type { PresetName } from '@src/business/settings/presets.ts';
 import type { AiProvider } from '@src/domain/entity/settings.ts';
@@ -129,7 +130,11 @@ const useWelcomeSeeding = (): UseWelcomeSeedingResult => {
       const zeroCliDetected = installed.size === 0;
       setNoCliDetected(zeroCliDetected);
       const preset = pickPresetForDetected(installed);
-      const flow = createSettingsApplyPresetFlow({ settingsRepo: deps.settingsRepo });
+      // The probe moves rows the account can't run (plan-gated, not rolled out) to stand-ins.
+      const flow = createSettingsApplyPresetFlow({
+        settingsRepo: deps.settingsRepo,
+        availableModelsFor: deps.availableModelsFor,
+      });
       const result = await flow.execute({ input: { preset } });
       if (!result.ok) {
         // Hold `home` as the pending route BEFORE flipping to the error step. The error card
@@ -141,6 +146,7 @@ const useWelcomeSeeding = (): UseWelcomeSeedingResult => {
         setStep('error');
         return;
       }
+      for (const line of presetAdaptationLines(result.value.ctx.output!)) deps.logger.info(`welcome: ${line}`);
       setChosenPreset(preset);
       setStep('seeded');
       const next = await resolveNextRoute(deps.projectRepo);

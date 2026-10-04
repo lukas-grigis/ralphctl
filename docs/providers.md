@@ -89,7 +89,9 @@ list is coarser than Claude Code's: a read-only flow denies `shell` only, so fil
 path scope (cwd + `--add-dir`) is what bounds them. Reads `.github/copilot-instructions.md`.
 
 A model showing as "not available" is usually plan gating on your Copilot subscription, not an invalid model
-id — check what your seat includes before assuming a bug.
+id — check what your seat includes before assuming a bug. ralphctl asks the Copilot CLI which models your
+account has: the model picker in Settings lists only those, and applying a preset swaps in a close
+stand-in for any model you can't use (and tells you which).
 
 ## OpenAI Codex CLI
 
