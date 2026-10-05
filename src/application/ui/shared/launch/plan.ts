@@ -35,6 +35,8 @@ export interface PlanReviewTask {
   readonly dependsOn?: readonly string[];
   readonly steps?: readonly string[];
   readonly verificationCriteria?: readonly PlanReviewCriterion[];
+  /** Planner-chosen evaluator dimensions beyond the floor five. */
+  readonly extraDimensions?: readonly string[];
 }
 
 /**
@@ -57,6 +59,9 @@ export const toPlanReviewTasks = (
       dependsOn: t.dependsOn.map((id) => nameById.get(id as string) ?? (id as string)),
       steps: t.steps,
       verificationCriteria: t.verificationCriteria,
+      ...(t.extraDimensions !== undefined && t.extraDimensions.length > 0
+        ? { extraDimensions: t.extraDimensions }
+        : {}),
     };
   });
 };
@@ -102,6 +107,9 @@ export const renderReviewTask = (t: PlanReviewTask, index: number): string => {
     t.steps.forEach((step, si) => lines.push(`     ${String(si + 1)}. ${step}`));
   }
   lines.push(...renderCriteria(t.verificationCriteria ?? []));
+  if (t.extraDimensions !== undefined && t.extraDimensions.length > 0) {
+    lines.push(`   Extra evaluator dimensions: ${t.extraDimensions.join(', ')}`);
+  }
   return lines.join('\n');
 };
 
