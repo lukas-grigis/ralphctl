@@ -25,7 +25,7 @@
 
 import { priorWorkNotice, type PriorWorkNotice } from '@src/application/ui/shared/prior-work-copy.ts';
 import React, { useCallback, useMemo } from 'react';
-import { TasksPanel } from '@src/application/ui/tui/components/tasks-panel.tsx';
+import { TasksPanel, type TasksPanelProps } from '@src/application/ui/tui/components/tasks-panel.tsx';
 import type { BucketedExecution } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
 import { overlayEntityBlockedStatus } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
 import type { FlowProgress } from '@src/application/ui/tui/runtime/flow-progress.ts';
@@ -161,6 +161,36 @@ const evaluationsByTaskId = (taskState: readonly Task[]): ReadonlyMap<string, Ta
   return byId.size > 0 ? byId : undefined;
 };
 
+/** The panel props read off the polled task entities rather than the trace. */
+type EntityPanelProps = Pick<
+  TasksPanelProps,
+  | 'taskCriteriaById'
+  | 'blockedReasonById'
+  | 'blockedTriageById'
+  | 'warningSummaryById'
+  | 'priorWorkById'
+  | 'taskEvaluationById'
+>;
+
+/** Every entity-sourced map, with absent ones left out so the panel's prop diff stays clean. */
+const entityPanelProps = (taskState: readonly Task[], isRunning: boolean): EntityPanelProps => {
+  const blockedReasonById = blockedReasonsByTaskId(taskState);
+  const blockedTriageById = blockedTriageByTaskId(taskState);
+  const warningSummaryById = warningSummariesByTaskId(taskState);
+  const priorWorkById = priorWorkByTaskId(taskState, isRunning);
+  const taskEvaluationById = evaluationsByTaskId(taskState);
+  return {
+    taskCriteriaById: criteriaBulletsByTaskId(taskState),
+    ...(blockedReasonById !== undefined ? { blockedReasonById } : {}),
+    ...(blockedTriageById !== undefined ? { blockedTriageById } : {}),
+    ...(warningSummaryById !== undefined ? { warningSummaryById } : {}),
+    ...(priorWorkById !== undefined ? { priorWorkById } : {}),
+    ...(taskEvaluationById !== undefined ? { taskEvaluationById } : {}),
+  };
+};
+
+const NO_ENTITY_PROPS: EntityPanelProps = {};
+
 interface UseUnblockAffordanceInput {
   readonly isRunning: boolean;
   readonly blockedReasonById: ReadonlyMap<string, string> | undefined;
@@ -255,35 +285,20 @@ const TasksPanelHostImpl = ({
   onExpandedCardChange,
   onOpenEvaluation,
 }: TasksPanelHostProps): React.JSX.Element | null => {
-  const taskCriteriaById = useMemo(
-    () => (taskState !== undefined ? criteriaBulletsByTaskId(taskState) : undefined),
-    [taskState]
-  );
-  const blockedReasonById = useMemo(
-    () => (taskState !== undefined ? blockedReasonsByTaskId(taskState) : undefined),
-    [taskState]
-  );
-  const blockedTriageById = useMemo(
-    () => (taskState !== undefined ? blockedTriageByTaskId(taskState) : undefined),
-    [taskState]
+  const entityProps = useMemo(
+    () => (taskState !== undefined ? entityPanelProps(taskState, isRunning) : NO_ENTITY_PROPS),
+    [taskState, isRunning]
   );
   // The run's own pinned sprint — same field `execute-view.tsx` reads to scope this session
   // independently of the mutable global selection. Undefined only for a flow launched with no
   // sprint context (e.g. create-sprint), in which case `onUnblock` below is a safe no-op.
   const sprintId = descriptor.pinnedSprintId;
-  const { blockedTaskIds, onUnblock } = useUnblockAffordance({ isRunning, blockedReasonById, taskState, sprintId });
-  const priorWorkById = useMemo(
-    () => (taskState !== undefined ? priorWorkByTaskId(taskState, isRunning) : undefined),
-    [taskState, isRunning]
-  );
-  const warningSummaryById = useMemo(
-    () => (taskState !== undefined ? warningSummariesByTaskId(taskState) : undefined),
-    [taskState]
-  );
-  const taskEvaluationById = useMemo(
-    () => (taskState !== undefined ? evaluationsByTaskId(taskState) : undefined),
-    [taskState]
-  );
+  const { blockedTaskIds, onUnblock } = useUnblockAffordance({
+    isRunning,
+    blockedReasonById: entityProps.blockedReasonById,
+    taskState,
+    sprintId,
+  });
   // Correct the trace-only blind spot BEFORE anything downstream reads a task's status — see
   // `overlayEntityBlockedStatus`'s doc for why the trace alone can't tell an own-failure block
   // from a clean completion. Stable reference when nothing needed correcting (no blocked entity,
@@ -309,12 +324,7 @@ const TasksPanelHostImpl = ({
       {...(onOpenEvaluation !== undefined ? { onOpenEvaluation } : {})}
       {...(descriptor.taskNames !== undefined ? { nameById: descriptor.taskNames } : {})}
       {...(descriptor.taskRecovering !== undefined ? { recoveringByTaskId: descriptor.taskRecovering } : {})}
-      {...(taskCriteriaById !== undefined ? { taskCriteriaById } : {})}
-      {...(blockedReasonById !== undefined ? { blockedReasonById } : {})}
-      {...(blockedTriageById !== undefined ? { blockedTriageById } : {})}
-      {...(warningSummaryById !== undefined ? { warningSummaryById } : {})}
-      {...(priorWorkById !== undefined ? { priorWorkById } : {})}
-      {...(taskEvaluationById !== undefined ? { taskEvaluationById } : {})}
+      {...entityProps}
       {...(progress !== undefined && progress.workItems.size > 0 ? { stepTreeByTaskId: progress.workItems } : {})}
       {...(maxSubStepsPerTask !== undefined ? { maxSubStepsPerTask } : {})}
     />

@@ -727,7 +727,7 @@ function runTests(): void {
       //
       // The recording shell spy intercepts every `shellScriptRunner.run()` call:
       //   - 1 call from the prologue's `setupScriptRunnerLeaf` (main repo, cwd = repoPath)
-      //   - 3 calls from `wave-branch.ts` `runWorktreeSetupScript` (one per task, each in its
+      //   - 3 calls from `worktree-setup.ts` `runWorktreeSetupScript` (one per task, each in its
       //     own worktree directory)
       // Total = 4. The 3 worktree calls prove per-worktree setup ran inside each worktree, NOT
       // in the main repo root. Setup running in the wrong cwd would be a regression: the worktree
