@@ -6,7 +6,7 @@
 - [seams_plateau_and_turn_errors.md](seams_plateau_and_turn_errors.md) — Count-based plateau predicate and exemptions, budget precedence over the in-loop guards, which turn errors block vs propagate
 - [seams_attempt_ctx_and_telemetry.md](seams_attempt_ctx_and_telemetry.md) — Per-attempt ctx lifecycle: reset sites, the ctx-field classification guard, cost telemetry, round numbering, round display
 - [seams_prompt_feedforward.md](seams_prompt_feedforward.md) — Criteria history, dimension trajectory, prior learnings: where each is composed and which prompt it rides
-- [seams_memory_ledger_and_mutex.md](seams_memory_ledger_and_mutex.md) — Raw-line preservation, dedup asymmetry, the three shared-file mutexes, pinning mid-attempt journal lines, RMW-race tests
+- [seams_memory_ledger_and_mutex.md](seams_memory_ledger_and_mutex.md) — Raw-line preservation, dedup asymmetry, shared-file + git stash/worktree mutexes, journal pinning, RMW-race + load-flake repro
 - [seams_implement_prologue_gates.md](seams_implement_prologue_gates.md) — Dirty-tree menu + post-setup check; e2e porcelain counters; restore after pre-verify; bugfix relaunch; worktree discard + resume gate; stale-ref rescue
 - [seams_verify_gates.md](seams_verify_gates.md) — Per-module verify gates: precedence, multi-gate representation, diff-footprint scoping + coverage flag, fresh-setup skip, detect-scripts emission
 - [seams_provider_engine_streaming.md](seams_provider_engine_streaming.md) — One shared rate-limit retry loop, empirical stream field names, stdout OOM caps, kill escalation
