@@ -19,7 +19,7 @@
  * Justification for the chosen scope (per the task brief): a real-git serial test through the whole
  * implement chain is too heavy for the marginal coverage, so we exercise the quarantine leaf with a
  * real GitRunner against a real repo, then run the real `gitCommitWithMessage` the next task would —
- * and assert task B's commit does NOT contain task A's paths and A's blockedReason names the stash.
+ * and assert task B's commit does NOT contain task A's paths and A's quarantinedDiff names the stash.
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -56,7 +56,7 @@ const blockedTaskA = (reason = 'verify failed: a-rejected.ts breaks 2 tests'): B
   return r.value;
 };
 
-// In-memory single-task repo capturing the persisted blockedReason — stands in for tasks.json.
+// In-memory single-task repo capturing the persisted task — stands in for tasks.json.
 const captureRepo = (): UpdateTask & { saved: () => Task | undefined } => {
   let saved: Task | undefined;
   return {
@@ -115,15 +115,18 @@ describe('quarantine-blocked-diff — real git contamination fence', () => {
     const cleanAfter = await gitStatusPorcelain(gitRunner, cwd);
     expect(cleanAfter.ok && cleanAfter.value).toStrictEqual([]);
 
-    // A's blockedReason names the deterministic stash, recoverable via `git stash list`.
+    // A carries the structured pointer to the deterministic stash, measured by real git; the
+    // block's own reason is left as written.
     const message = quarantineStashMessage(sprintId, a.id);
     const savedA = repo.saved() as BlockedTask;
-    expect(savedA.blockedReason).toContain('verify failed');
-    // The recovery pointer is ALSO journaled — blockedReason is stripped by an operator unblock
-    // (clean restart), so progress.md is the durable harness artifact naming the stash.
+    expect(savedA.blockedReason).toBe(a.blockedReason);
+    expect(savedA.quarantinedDiff).toStrictEqual({
+      stashMessage: message,
+      stat: { files: 1, insertions: 1, deletions: 0 },
+      entries: 1,
+    });
+    // The recovery pointer is ALSO journaled — an append-only harness artifact naming the stash.
     expect(journalAppends.join('')).toContain('quarantined to git stash');
-    expect(savedA.blockedReason).toContain(message);
-    expect(savedA.blockedReason).toMatch(/git stash list/);
     const stashList = await project.git('stash', 'list');
     expect(stashList).toContain(message);
     // The rejected (untracked) file was swept into the stash — git tracks untracked-stash content

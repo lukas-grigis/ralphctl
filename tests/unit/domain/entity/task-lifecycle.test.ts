@@ -18,7 +18,7 @@ import {
 import { applyCriteriaVerdicts } from '@src/domain/entity/task-criteria.ts';
 import { startNextAttempt } from '@src/domain/entity/task-attempts.ts';
 import type { BlockedTask } from '@src/domain/entity/task.ts';
-import { FIXED_NOW, makeInProgressTaskWithRunningAttempt, makeTodoTask } from '@tests/fixtures/domain.ts';
+import { FIXED_LATER, FIXED_NOW, makeInProgressTaskWithRunningAttempt, makeTodoTask } from '@tests/fixtures/domain.ts';
 
 const block = (reason: string, kind: BlockedTask['blockKind']): BlockedTask => {
   const r = markTaskBlocked(makeTodoTask(), reason, kind);
@@ -412,5 +412,45 @@ describe('markTaskBlocked — stamps blockCause/faultSide (extends blockKind, ne
     const blocked = block('the generator gave a vague reason', 'own');
     expect(blocked.blockCause).toBe('unknown');
     expect(blocked.faultSide).toBe('unknown');
+  });
+});
+
+describe('unblockTask — quarantined-diff fact', () => {
+  const MSG = 'ralphctl/s1/t1/blocked-diff';
+  const STAT = { files: 2, insertions: 31, deletions: 4 };
+  const blockedWithFact = (): BlockedTask => ({
+    ...block('attempt budget exhausted', 'own'),
+    quarantinedDiff: { stashMessage: MSG, stat: STAT, entries: 1 },
+  });
+
+  it('keeps the fact through the clean restart when no decision is given', () => {
+    const back = unblockTask(blockedWithFact());
+    expect(back.ok).toBe(true);
+    if (!back.ok) return;
+    expect(back.value.quarantinedDiff).toStrictEqual({ stashMessage: MSG, stat: STAT, entries: 1 });
+  });
+
+  it("records the operator's decision on the fact", () => {
+    const back = unblockTask(blockedWithFact(), {
+      decision: { choice: 'fresh', stashMessage: MSG },
+      decidedAt: FIXED_LATER,
+    });
+    expect(back.ok).toBe(true);
+    if (!back.ok) return;
+    expect(back.value.status).toBe('todo');
+    expect(back.value.quarantinedDiff).toStrictEqual({
+      stashMessage: MSG,
+      stat: STAT,
+      entries: 1,
+      nextAttempt: 'fresh',
+      decidedAt: FIXED_LATER,
+    });
+  });
+
+  it('a task with no fact gains none', () => {
+    const back = unblockTask(block('attempt budget exhausted', 'own'));
+    expect(back.ok).toBe(true);
+    if (!back.ok) return;
+    expect('quarantinedDiff' in back.value).toBe(false);
   });
 });

@@ -1,6 +1,7 @@
 import { Result } from '@src/domain/result.ts';
 import type { AbortCause } from '@src/domain/entity/attempt.ts';
 import type { BlockCause, BlockedTask, FaultSide, RetiredRun, Task, TodoTask } from '@src/domain/entity/task.ts';
+import { type DatedPriorWorkDecision, decidePriorWork } from '@src/domain/entity/task-prior-work.ts';
 import { requireStatus } from '@src/domain/value/require-status.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 
@@ -212,10 +213,12 @@ const hasArchivableState = (run: RetiredRun): boolean =>
  * once-per-task gate); its transient `bestOfNGrantedCandidates` handshake is dropped entirely —
  * neither archived nor carried forward — see the destructure below.
  *
+ * The quarantined-diff fact survives the clean restart; the operator's decision is recorded on it.
+ *
  * Distinct from {@link resetTaskToTodo} (crash recovery), which PRESERVES attempts because it
  * resumes mid-work rather than restarting.
  */
-export const unblockTask = (task: Task): Result<TodoTask, InvalidStateError> => {
+export const unblockTask = (task: Task, prior?: DatedPriorWorkDecision): Result<TodoTask, InvalidStateError> => {
   const guard = requireStatus('task', task, ['blocked'] as const, 'unblock');
   if (!guard.ok) return Result.error(guard.error);
   const {
@@ -276,12 +279,13 @@ export const unblockTask = (task: Task): Result<TodoTask, InvalidStateError> => 
     ? [...(retiredAttempts ?? []), retiredRun]
     : (retiredAttempts ?? []);
 
-  return Result.ok({
+  const todo: TodoTask = {
     ...rest,
     status: 'todo',
     attempts: [],
     ...(archive.length > 0 ? { retiredAttempts: archive } : {}),
-  });
+  };
+  return Result.ok(prior === undefined ? todo : decidePriorWork(todo, prior.decision, prior.decidedAt));
 };
 
 /**

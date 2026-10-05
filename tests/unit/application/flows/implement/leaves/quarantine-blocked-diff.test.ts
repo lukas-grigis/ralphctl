@@ -38,31 +38,40 @@ const sprintId = ((): SprintId => {
   return r.value;
 })();
 
+const BLOCKED_TODO = makeTodoTask({ name: 'A' });
+const BLOCKED_ID = BLOCKED_TODO.id;
+
 const blockedTask = (reason = 'verify failed: 2 tests red'): BlockedTask => {
-  const r = markTaskBlocked(makeTodoTask({ name: 'A' }), reason, 'own');
+  const r = markTaskBlocked(BLOCKED_TODO, reason, 'own');
   if (!r.ok) throw r.error;
   return r.value;
 };
 
 /**
  * Records every git argv issued. `gitStashPush` calls `status --porcelain` first, then (when dirty)
- * `stash push -u -m <msg>`. The fake answers status with the supplied dirtiness and reports the
- * stash push as a success, capturing all calls for assertion.
+ * `stash push -u -m <msg>`; the inspect that follows lists the stack and shows the matched entry.
+ * The fake answers status with the supplied dirtiness, lists one entry under the quarantine message,
+ * and shows a two-file numstat — or fails the list when `inspectFails` is set.
  */
-const recordingRunner = (opts: { dirty: boolean }): GitRunner & { calls: readonly string[][] } => {
+const recordingRunner = (opts: {
+  dirty: boolean;
+  inspectFails?: boolean;
+}): GitRunner & { calls: readonly string[][] } => {
   const calls: string[][] = [];
+  const ok = (stdout: string): Result<GitRunResult, StorageError> => Result.ok({ stdout, stderr: '', exitCode: 0 });
   return {
     calls,
     async run(_cwd: AbsolutePath, args: readonly string[]): Promise<Result<GitRunResult, StorageError>> {
       calls.push([...args]);
-      if (args[0] === 'status') {
-        // porcelain: one entry when dirty (a modified file), empty when clean.
-        return Result.ok({ stdout: opts.dirty ? ' M leftover.ts\n' : '', stderr: '', exitCode: 0 });
+      // porcelain: one entry when dirty (a modified file), empty when clean.
+      if (args[0] === 'status') return ok(opts.dirty ? ' M leftover.ts\n' : '');
+      if (args[0] === 'stash' && args[1] === 'list') {
+        if (opts.inspectFails === true) return Result.ok({ stdout: '', stderr: 'fatal: boom', exitCode: 128 });
+        return ok(`stash@{0}\x1fOn main: ${quarantineStashMessage(sprintId, BLOCKED_ID)}\n`);
       }
-      if (args[0] === 'stash') {
-        return Result.ok({ stdout: 'Saved working directory\n', stderr: '', exitCode: 0 });
-      }
-      return Result.ok({ stdout: '', stderr: '', exitCode: 0 });
+      if (args[0] === 'stash' && args[1] === 'show') return ok('10\t2\tsrc/a.ts\n-\t-\tdocs/b.png\n');
+      if (args[0] === 'stash') return ok('Saved working directory\n');
+      return ok('');
     },
   };
 };
@@ -138,8 +147,33 @@ describe('quarantineBlockedDiffLeaf', () => {
     expect(repo.calls).toBe(1);
     const updated = res.value.ctx.tasks?.find((t) => t.id === blocked.id) as BlockedTask;
     expect(updated.status).toBe('blocked');
-    expect(updated.blockedReason).toContain('verify failed: 2 tests red');
-    expect(updated.blockedReason).toContain(quarantineStashMessage(sprintId, blocked.id));
+    expect(updated.blockedReason).toBe('verify failed: 2 tests red');
+    // The stash was measured after the push: the newest entry's stat and the entry count ride along.
+    expect(runner.calls.some((c) => c[0] === 'stash' && c[1] === 'show')).toBe(true);
+    expect(updated.quarantinedDiff).toStrictEqual({
+      stashMessage: quarantineStashMessage(sprintId, blocked.id),
+      stat: { files: 2, insertions: 10, deletions: 2 },
+      entries: 1,
+    });
+    expect(repo.saved[0]).toStrictEqual(updated);
+  });
+
+  it('records the pointer without a size when measuring the stash fails (best-effort)', async () => {
+    const blocked = blockedTask();
+    const runner = recordingRunner({ dirty: true, inspectFails: true });
+    const repo = recordingRepo();
+
+    const res = await quarantineBlockedDiffLeaf(
+      { gitRunner: runner, taskRepo: repo, appendFile: capturingAppend().fn, logger: noopLogger },
+      { cwd: CWD, progressFile: PROGRESS },
+      blocked.id
+    ).execute({ sprintId, tasks: [blocked] });
+
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const updated = res.value.ctx.tasks?.find((t) => t.id === blocked.id) as BlockedTask;
+    expect(updated.quarantinedDiff).toStrictEqual({ stashMessage: quarantineStashMessage(sprintId, blocked.id) });
+    expect(repo.calls).toBe(1);
   });
 
   it('is a no-op when the tree is clean (no stash push, no repo write)', async () => {

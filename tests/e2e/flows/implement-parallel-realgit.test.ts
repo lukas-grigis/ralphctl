@@ -1353,8 +1353,11 @@ function runTests(): void {
       // ── The recovery pointer was persisted on each blocked task ───────
       const blockedA = afterRound1.find((t) => t.id === taskA.id) as BlockedTask;
       const blockedB = afterRound1.find((t) => t.id === taskB.id) as BlockedTask;
-      expect(blockedA.blockedReason).toContain(messageA);
-      expect(blockedB.blockedReason).toContain(messageB);
+      expect(blockedA.quarantinedDiff?.stashMessage).toBe(messageA);
+      expect(blockedB.quarantinedDiff?.stashMessage).toBe(messageB);
+      // Measured from the worktree inside the stash mutex, before the worktree was removed.
+      expect(blockedA.quarantinedDiff?.entries).toBe(1);
+      expect(blockedA.quarantinedDiff?.stat?.files).toBeGreaterThan(0);
 
       // ── Relaunch: unblock both tasks and rebuild the SAME wave through the SAME production
       // `buildWaveBranches` call. The relaunch provider writes NOTHING — it only signals success —
@@ -1363,6 +1366,8 @@ function runTests(): void {
       const unblockedB = unblockTask(blockedB);
       if (!unblockedA.ok) throw unblockedA.error;
       if (!unblockedB.ok) throw unblockedB.error;
+      // The pointer survives the clean restart that strips blockedReason.
+      expect(unblockedA.value.quarantinedDiff?.stashMessage).toBe(messageA);
       await taskStore.repo.update(sprint.id, unblockedA.value);
       await taskStore.repo.update(sprint.id, unblockedB.value);
 

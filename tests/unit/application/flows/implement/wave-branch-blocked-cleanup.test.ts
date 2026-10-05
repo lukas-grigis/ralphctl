@@ -209,7 +209,7 @@ describe('wave-branch worktree teardown — blocked-task quarantine + branch ret
     // The recovery pointer was persisted (record-quarantine) AND folded back into the returned ctx —
     // otherwise the epilogue's later tasks.json write would clobber the persisted pointer.
     expect(taskRepo.calls).toBe(1);
-    expect((settled as { blockedReason: string }).blockedReason).toContain(message);
+    expect(settled?.quarantinedDiff?.stashMessage).toBe(message);
     expect((settled as { blockedReason: string }).blockedReason).toContain('verify failed: 2 tests red');
 
     // Durable journal breadcrumb, same as the serial path's leaf.
@@ -252,7 +252,7 @@ describe('wave-branch worktree teardown — blocked-task quarantine + branch ret
     expect(git.calls.some((c) => c.args[0] === 'stash' && c.args[1] === 'push')).toBe(false);
     expect(taskRepo.calls).toBe(0);
     expect(append.appended).toHaveLength(0);
-    // blockedReason unchanged — no pointer to append.
+    // blockedReason unchanged and no pointer recorded.
     expect((settled as { blockedReason: string }).blockedReason).toBe('baseline broken');
 
     // The branch-retention decision is independent of whether anything was actually stashed.
@@ -611,7 +611,7 @@ describe('wave-branch worktree teardown — abort inside the subchain, after the
     const lastWrite = taskRepo.saved.at(-1);
     expect(lastWrite?.status).toBe('blocked');
     expect((lastWrite as { blockedReason: string }).blockedReason).toContain(BLOCK_REASON);
-    expect((lastWrite as { blockedReason: string }).blockedReason).toContain(message);
+    expect(lastWrite?.quarantinedDiff?.stashMessage).toBe(message);
     expect(append.appended).toHaveLength(1);
     expect(append.appended[0]?.text).toContain(message);
 

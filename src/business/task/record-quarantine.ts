@@ -3,6 +3,8 @@ import type { Logger } from '@src/business/observability/logger.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { UpdateTask } from '@src/domain/repository/task/update-task.ts';
 import type { BlockedTask } from '@src/domain/entity/task.ts';
+import { withQuarantinedDiff } from '@src/domain/entity/task-prior-work.ts';
+import type { DiffStat } from '@src/domain/value/diff-stat.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import type { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
 import type { StorageError } from '@src/domain/value/error/storage-error.ts';
@@ -24,13 +26,16 @@ import type { StorageError } from '@src/domain/value/error/storage-error.ts';
  * The pointer is the deterministic stash MESSAGE (`ralphctl/<sprintId>/<taskId>/blocked-diff`), not
  * a `stash@{0}` ref: the ref is positional and goes stale the instant any other stash is pushed (a
  * sibling task's preflight stash, operator activity), whereas the message is a stable, greppable
- * handle that `git stash list` prints verbatim. We append a recovery line to `blockedReason` rather
- * than adding a Task field — the block reason is already the operator-facing carrier for "why this
- * task is stuck and what to do," and the domain Task entity stays unchanged.
+ * handle that `git stash list` prints verbatim.
  *
- * Idempotent on the reason text: re-recording the same stash message is a no-op (the line already
- * present is not duplicated), so a relaunch that re-quarantines a clean tree never compounds the
- * reason.
+ * It is stored as the structured `Task.quarantinedDiff` fact, not as text appended to
+ * `blockedReason`: the reason is stripped by the unblock clean restart — the moment the operator
+ * acts on the block — while the fact survives it and carries the operator's prior-work decision. A
+ * separate field also keeps the pointer out of the first-line banner and out of truncated reason
+ * rows. `blockedReason` is left exactly as the block wrote it.
+ *
+ * Idempotent: re-recording the same message and stat is a no-op (no write), so a relaunch that
+ * re-quarantines never churns `tasks.json`.
  *
  * Only a `blocked` task can carry a quarantine pointer — a non-blocked task is a programmer error
  * (the leaf guards on status before calling this), surfaced as an `InvalidStateError`.
@@ -40,22 +45,15 @@ export interface RecordQuarantineProps {
   readonly sprintId: SprintId;
   /** Deterministic stash message the quarantine leaf pushed under — the recovery handle. */
   readonly stashMessage: string;
+  /** Size of the entry just pushed, when the leaf could measure it. */
+  readonly stat?: DiffStat;
+  /** Entries now under the message, when the leaf could count them. */
+  readonly entries?: number;
   readonly taskRepo: UpdateTask;
   readonly logger: Logger;
 }
 
 export type RecordQuarantineOutput = BlockedTask;
-
-/** Marker that prefixes the appended recovery line so re-records are idempotent and greppable. */
-const QUARANTINE_LINE_PREFIX = 'Rejected diff quarantined to git stash';
-
-const buildReason = (current: string, stashMessage: string): string => {
-  const line = `${QUARANTINE_LINE_PREFIX} (recover via \`git stash list\`): ${stashMessage}`;
-  // Idempotent: if this exact recovery line is already present (relaunch re-quarantine), keep the
-  // reason byte-for-byte so repeated runs don't stack duplicate lines.
-  if (current.includes(line)) return current;
-  return `${current}\n${line}`;
-};
 
 export const recordQuarantineUseCase = async (
   props: RecordQuarantineProps
@@ -75,8 +73,8 @@ export const recordQuarantineUseCase = async (
     );
   }
 
-  const nextReason = buildReason(props.task.blockedReason, props.stashMessage);
-  if (nextReason === props.task.blockedReason) {
+  const updated = withQuarantinedDiff(props.task, props.stashMessage, props.stat, props.entries);
+  if (updated === props.task) {
     log.debug('quarantine pointer already recorded; skipping re-write', {
       taskId: props.task.id,
       sprintId: props.sprintId,
@@ -84,7 +82,6 @@ export const recordQuarantineUseCase = async (
     return Result.ok(props.task);
   }
 
-  const updated: BlockedTask = { ...props.task, blockedReason: nextReason };
   const persisted = await props.taskRepo.update(props.sprintId, updated);
   if (!persisted.ok) {
     log.error('persist failed', { taskId: updated.id, error: persisted.error.message });
@@ -95,6 +92,7 @@ export const recordQuarantineUseCase = async (
     taskId: updated.id,
     sprintId: props.sprintId,
     stashMessage: props.stashMessage,
+    entries: props.entries,
   });
   return Result.ok(updated);
 };

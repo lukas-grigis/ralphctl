@@ -695,11 +695,10 @@ describe('createParallelImplementElement — durable blocks survive the epilogue
     const persisted = await taskRepo.findBySprintId(sprint.id);
     expect(persisted.ok).toBe(true);
     if (!persisted.ok) return;
-    const persistedTask = persisted.value.find((t) => t.id === task.id) as
-      (Task & { blockedReason?: string }) | undefined;
+    const persistedTask = persisted.value.find((t) => t.id === task.id);
 
     // Today this comes back `todo` — both the block and the stash pointer are lost.
     expect(persistedTask?.status).toBe('blocked');
-    expect(persistedTask?.blockedReason).toContain(quarantineStashMessage(sprint.id, task.id));
+    expect(persistedTask?.quarantinedDiff?.stashMessage).toBe(quarantineStashMessage(sprint.id, task.id));
   });
 });

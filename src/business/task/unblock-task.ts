@@ -4,8 +4,9 @@ import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { UpdateTask } from '@src/domain/repository/task/update-task.ts';
 import type { FindTasksBySprintId } from '@src/domain/repository/task/find-tasks-by-sprint-id.ts';
 import type { SaveAllTasks } from '@src/domain/repository/task/save-all-tasks.ts';
-import type { Task, TodoTask } from '@src/domain/entity/task.ts';
+import type { QuarantinedDiff, Task, TodoTask } from '@src/domain/entity/task.ts';
 import { resetTaskToTodo, unblockTask } from '@src/domain/entity/task-lifecycle.ts';
+import { decidePriorWork, type PriorWorkDecision } from '@src/domain/entity/task-prior-work.ts';
 import { upstreamBlockedDependents } from '@src/domain/entity/task-graph.ts';
 import {
   type ActiveSprint,
@@ -91,6 +92,11 @@ type UnblockTaskError = InvalidStateError | NotFoundError | StorageError;
  * clobber those changes with stale data. Callers serialise via the sprint-dir repo lock; this is an
  * operator-facing recovery hatch invoked between runs, not during one.
  *
+ * **Prior work.** A {@link UnblockTaskProps.priorWork} decision is recorded on the revived task's
+ * quarantined-diff fact; `restore-blocked-diff` reads it on the next attempt. An already-`todo`
+ * task given a decision records the new one (the operator changing their mind). The use case
+ * never touches git — the caller probes the stash and hands the measurement in.
+ *
  * `blocked` → {@link unblockTask} (strips `blockedReason`, resets to `todo`).
  * `in_progress` with a settled last attempt → {@link resetTaskToTodo} (crash-recovery path).
  * `in_progress` with a still-running attempt → rejects with `InvalidStateError` (unsafe to reset).
@@ -107,9 +113,11 @@ export interface UnblockTaskProps {
    * invariant, which can only be answered by scanning the project's other sprints.
    */
   readonly sprintRepo: FindById<Sprint, SprintId> & Save<Sprint> & ListAll<Sprint>;
-  /** Wall-clock for the reopen's lifecycle re-stamps. */
+  /** Wall-clock for the reopen's lifecycle re-stamps and the prior-work decision stamp. */
   readonly clock: () => IsoTimestamp;
   readonly logger: Logger;
+  /** What the next attempt does with the quarantined rejected diff. Absent leaves any fact as it is. */
+  readonly priorWork?: PriorWorkDecision;
 }
 
 /** A reopen this unblock call performed — or attempted and left unfinished. */
@@ -143,6 +151,8 @@ export interface UnblockTaskOutput {
    * never renders (`bootstrapCli` attaches no log subscriber).
    */
   readonly sprintReopenConflict?: ConflictError;
+  /** The revived task's quarantined-diff fact as persisted, decision included — for toasts and the CLI. */
+  readonly quarantinedDiff?: QuarantinedDiff;
 }
 
 /** Assemble the output envelope — each optional key is omitted entirely when it has no value. */
@@ -154,7 +164,17 @@ const outputOf = (
   task,
   ...(sprintReopened !== undefined ? { sprintReopened } : {}),
   ...(sprintReopenConflict !== undefined ? { sprintReopenConflict } : {}),
+  ...(task.quarantinedDiff !== undefined ? { quarantinedDiff: task.quarantinedDiff } : {}),
 });
+
+/** ` — next attempt: …` for a task holding a quarantined diff, '' otherwise. */
+const nextAttemptClause = (task: TodoTask): string => {
+  const fact = task.quarantinedDiff;
+  if (fact === undefined) return '';
+  if (fact.nextAttempt === 'fresh') return ' — next attempt: starts fresh';
+  if (fact.nextAttempt === 'continue') return ' — next attempt: continues from the rejected diff';
+  return ' — next attempt: continues from the rejected diff (no choice recorded)';
+};
 
 /**
  * Where the sprint stands once the pre-write hop has run. `reopened` carries the closed sprint it
@@ -289,7 +309,10 @@ const persistPrimaryOnly = async (
     log.error(PERSIST_FAILED_MSG, { taskId: primary.id, error: persisted.error.message });
     return Result.error(persisted.error);
   }
-  log.info(`unblocked task '${primary.name}'`, { taskId: primary.id, sprintId: props.sprintId });
+  log.info(`unblocked task '${primary.name}'${nextAttemptClause(primary)}`, {
+    taskId: primary.id,
+    sprintId: props.sprintId,
+  });
   return Result.ok(undefined);
 };
 
@@ -321,7 +344,7 @@ const persistCascade = async (
   }
 
   log.info(
-    `unblocked task '${primary.name}' (+${String(cascaded.length)} upstream dependent${cascaded.length === 1 ? '' : 's'} re-armed)`,
+    `unblocked task '${primary.name}' (+${String(cascaded.length)} upstream dependent${cascaded.length === 1 ? '' : 's'} re-armed)${nextAttemptClause(primary)}`,
     {
       taskId: primary.id,
       sprintId: props.sprintId,
@@ -355,18 +378,53 @@ const persistRevived = async (
   return persistCascade(props, primary, all.value, dependentIds, log);
 };
 
+/**
+ * The already-`todo` leg with a decision: the operator changed their mind about the prior work.
+ * Records it, then finishes any interrupted reopen exactly like the plain `todo` leg.
+ */
+const redecideTodo = async (
+  props: UnblockTaskProps,
+  task: TodoTask,
+  decision: PriorWorkDecision,
+  log: Logger
+): Promise<Result<UnblockTaskOutput, UnblockTaskError>> => {
+  const decided = decidePriorWork(task, decision, props.clock());
+  const persisted = await props.taskRepo.update(props.sprintId, decided);
+  if (!persisted.ok) {
+    log.error(PERSIST_FAILED_MSG, { taskId: task.id, error: persisted.error.message });
+    return Result.error(persisted.error);
+  }
+  log.info(`recorded prior-work decision for task '${task.name}'${nextAttemptClause(decided)}`, {
+    taskId: task.id,
+    sprintId: props.sprintId,
+  });
+  return finishInterruptedReopen(props, decided, log);
+};
+
+/** Blocked / stuck → `todo`, with the prior-work decision recorded when the caller supplied one. */
+const transitionToTodo = (props: UnblockTaskProps): Result<TodoTask, InvalidStateError> => {
+  const prior = props.priorWork !== undefined ? { decision: props.priorWork, decidedAt: props.clock() } : undefined;
+  // `in_progress` with a settled last attempt = crash-recovery path (Ctrl-C / watchdog kill).
+  // Route through resetTaskToTodo, which guards against still-running attempts.
+  if (props.task.status !== 'in_progress') return unblockTask(props.task, prior);
+  const reset = resetTaskToTodo(props.task);
+  if (!reset.ok || prior === undefined) return reset;
+  return Result.ok(decidePriorWork(reset.value, prior.decision, prior.decidedAt));
+};
+
 export const unblockTaskUseCase = async (
   props: UnblockTaskProps
 ): Promise<Result<UnblockTaskOutput, UnblockTaskError>> => {
   const log = props.logger.named('task.unblock');
 
-  if (props.task.status === 'todo') return finishInterruptedReopen(props, props.task, log);
+  if (props.task.status === 'todo') {
+    if (props.priorWork !== undefined) return redecideTodo(props, props.task, props.priorWork, log);
+    return finishInterruptedReopen(props, props.task, log);
+  }
 
   log.debug('unblocking task', { taskId: props.task.id, sprintId: props.sprintId, from: props.task.status });
 
-  // `in_progress` with a settled last attempt = crash-recovery path (Ctrl-C / watchdog kill).
-  // Route through resetTaskToTodo, which guards against still-running attempts.
-  const transitioned = props.task.status === 'in_progress' ? resetTaskToTodo(props.task) : unblockTask(props.task);
+  const transitioned = transitionToTodo(props);
   if (!transitioned.ok) {
     log.warn('invalid state transition', {
       taskId: props.task.id,

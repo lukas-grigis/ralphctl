@@ -7,6 +7,7 @@ import type { MigrationGapError } from '@src/domain/value/error/migration-gap-er
 import type { ParseError } from '@src/domain/value/error/parse-error.ts';
 import { RepositoryIdSchema, TaskIdSchema, TicketIdSchema } from '@src/integration/persistence/shared/value-schemas.ts';
 import { AttemptSchema } from '@src/integration/persistence/task/attempt.schema.ts';
+import { QuarantinedDiffSchema } from '@src/integration/persistence/task/prior-work.schema.ts';
 import { TASKS_FILE_SCHEMA_VERSION, tasksFileMigrations } from '@src/integration/persistence/task/migrations.ts';
 import { runMigrations } from '@src/integration/persistence/_engine/run-migrations.ts';
 import { type Compatible, safeParseToResult } from '@src/integration/persistence/shared/codec-internal.ts';
@@ -121,6 +122,9 @@ const TaskBaseShape = {
   // `tasks.json` files written before `unblockTask` archived instead of deleted still load
   // unchanged (a missing value heals to `undefined`); no migration pass required.
   retiredAttempts: z.array(RetiredRunSchema).readonly().optional(),
+  // Quarantined rejected diff + the operator's unblock decision — tolerant: an unreadable value
+  // reads as absent, so no migration and no data-version bump.
+  quarantinedDiff: QuarantinedDiffSchema,
 };
 
 const TodoTaskSchema = z.object({ ...TaskBaseShape, status: z.literal('todo') });
