@@ -82,6 +82,8 @@ Removing a test to avoid a failure counts as task failure.
 
 **Respect prior rounds.** The user has the latest round in front of them as they write it — trust their
 direction even when it reverses an earlier decision.
+
+{{GIT_BOUNDARY}}
 </constraints>
 
 <capabilities>

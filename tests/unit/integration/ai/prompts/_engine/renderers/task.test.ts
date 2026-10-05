@@ -6,6 +6,7 @@ import {
   renderPriorCriteriaVerdictsSection,
   renderPriorLearningsSection,
   renderReproductionSection,
+  renderRestoredWorkSection,
   renderRetryFeedbackSection,
   renderTicketRefsSubjectSuffix,
   renderVerificationCriteriaSection,
@@ -125,6 +126,29 @@ describe('renderReproductionSection', () => {
     const out = renderReproductionSection('Test: tests/a.test.ts').replace(/\s+/g, ' ');
     expect(out).toContain('uncommitted in the working tree on purpose');
     expect(out).toContain('the harness commits it with your work');
+  });
+});
+
+describe('renderRestoredWorkSection', () => {
+  it('is empty when there is no restored work', () => {
+    expect(renderRestoredWorkSection(undefined)).toBe('');
+  });
+
+  it('states the size and carries the rejecting critique verbatim', () => {
+    const out = renderRestoredWorkSection({
+      stat: { files: 5, insertions: 142, deletions: 38 },
+      critique: '  - [correctness] missing null check at src/a.ts:4  ',
+    }).replace(/\s+/g, ' ');
+    expect(out).toContain('5 files, +142 -38 lines');
+    expect(out).toContain('a draft to check against the contract');
+    expect(out).toContain('The critique that rejected them: - [correctness] missing null check at src/a.ts:4');
+  });
+
+  it('says no critique was recorded when there is none', () => {
+    const out = renderRestoredWorkSection({ stat: { files: 1, insertions: 2, deletions: 0 } });
+    expect(out).toContain('1 file, +2 -0 lines');
+    expect(out).toContain('No critique of them was recorded');
+    expect(out).not.toContain('The critique that rejected them');
   });
 });
 

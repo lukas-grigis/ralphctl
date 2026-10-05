@@ -100,7 +100,7 @@ Re-grade this round the same way you graded the first:
 Do not run `git stash`, `git add`, or `git commit` — those are write operations. Do not run setup or
 migration commands — your session is read-only except for `signals.json`. The only file you may write
 is the `signals.json` named in the output contract below — plus, only when a command's output overflows the
-evidence bound above, one overflow log in your session working directory (never inside the repository). You may additionally emit `learning` signals
+evidence bound above, one overflow log in that same output directory (never inside the repository). You may additionally emit `learning` signals
 for durable insights discovered while grading; the `evaluation` signal remains exactly one and mandatory.
 </protocol>
 

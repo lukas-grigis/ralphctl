@@ -3,12 +3,8 @@
 ## Recording architectural decisions
 
 When you make a non-obvious architectural or implementation choice — one a future reviewer might disagree
-with or need to understand — append a `decision` signal to `signals.json` so the harness can record it
-in the sprint's decisions log.
-
-```json
-{ "type": "decision", "text": "Used X over Y because Z.", "timestamp": "2026-05-22T10:00:00.000Z" }
-```
+with or need to understand — include a `decision` signal in the signals file you write at the end (the
+Output contract shows its shape) so the harness can record it in the sprint's decisions log.
 
 - **Emit sparingly** — only for choices a future maintainer could not recover from the diff alone (e.g.
   picking one valid pattern over another, choosing a tradeoff, deliberately deviating from a project
@@ -16,8 +12,7 @@ in the sprint's decisions log.
 - **One sentence per decision** — lead with the choice, then the rationale: "Used X over Y because Z." Use
   two sentences only when the rationale genuinely cannot be compressed without losing the key tradeoff.
 - Keep `text` under roughly 500 characters.
-- The harness appends task id automatically — do not include it yourself, but DO include the `timestamp`
-  field (ISO 8601).
+- The harness attaches the task id automatically — do not include it yourself.
 - Emit one signal per decision rather than packing several choices into one `text` body.
 
 </decisions>

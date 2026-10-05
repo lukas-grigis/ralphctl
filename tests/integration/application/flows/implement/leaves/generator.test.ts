@@ -829,7 +829,7 @@ describe('generatorLeaf', () => {
       expect(result.ok).toBe(true);
 
       const content = await fs.readFile(join(String(root.root), 'rounds', '1', 'generator', 'prompt.md'), 'utf8');
-      expect(content).not.toContain('<prior_attempts>');
+      expect(content).not.toContain('<prior_attempts>\n');
     });
 
     it('renders settled prior attempts into the FULL prompt', async () => {
@@ -886,7 +886,7 @@ describe('generatorLeaf', () => {
       expect(result.ok).toBe(true);
 
       const content = await fs.readFile(join(String(root.root), 'rounds', '1', 'generator', 'prompt.md'), 'utf8');
-      expect(content).not.toContain('<reproduction>');
+      expect(content).not.toContain('<reproduction>\n');
     });
 
     it('renders the validated reproduction into the FULL prompt', async () => {

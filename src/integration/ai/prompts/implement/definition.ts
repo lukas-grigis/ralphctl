@@ -15,7 +15,9 @@ import {
   renderPriorLearningsSection,
   renderProjectToolingSection,
   renderReproductionSection,
+  renderRestoredWorkSection,
   renderRetryFeedbackSection,
+  type RestoredWorkContext,
   renderTaggedBlock,
   renderTaskDescriptionSection,
   renderTaskStepsSection,
@@ -146,6 +148,12 @@ export interface ImplementPromptParams {
    * undefined (empty).
    */
   readonly agentDefinitionSection?: string;
+  /**
+   * `<restored_work>` block — an earlier rejected attempt's uncommitted changes the harness restored into
+   * the working tree, with the critique that rejected them. Absent or empty → `{{RESTORED_WORK_SECTION}}`
+   * collapses cleanly (no orphan wrapper). Default undefined (empty).
+   */
+  readonly restoredWorkSection?: string;
 }
 
 /*
@@ -299,6 +307,13 @@ export const implementPromptDef: PromptDefinition<ImplementPromptParams> = {
         '`<prior_criteria_verdicts>` block: durable per-criterion k-of-N checklist carried across rounds ' +
         '(`Task.criteriaVerdicts`, via `composeCriteriaHistory`). Empty (none graded yet) → collapses.',
     },
+    restoredWorkSection: {
+      placeholder: 'RESTORED_WORK_SECTION',
+      optional: true,
+      description:
+        "`<restored_work>` block: an earlier rejected attempt's uncommitted changes the harness restored into " +
+        'the working tree, plus the critique that rejected them. Empty → collapses (no `<restored_work>` content).',
+    },
     agentDefinitionSection: {
       placeholder: 'AGENT_DEFINITION_SECTION',
       optional: true,
@@ -313,6 +328,8 @@ export const implementPromptDef: PromptDefinition<ImplementPromptParams> = {
     PARALLEL_TOOL_CALLS: 'parallel-tool-calls',
     EVIDENCE_BOUND: 'evidence-bound',
     DECISIONS_GUIDANCE: 'decisions',
+    GIT_BOUNDARY: 'git-boundary',
+    TASK_BLOCKED: 'task-blocked',
   },
   // Documents the harness signals the implement response is expected to carry. Validation is
   // not enforced at parse time — this list drives test authors and future scoped parsers.
@@ -411,6 +428,8 @@ export interface BuildImplementPromptInput {
    * Absent or empty → `{{AGENT_DEFINITION_SECTION}}` collapses cleanly with no orphan heading.
    */
   readonly agentDefinition?: string;
+  /** Restored-work context for a relaunch after an operator unblock; absent → no `<restored_work>` content. */
+  readonly restoredWork?: RestoredWorkContext;
 }
 
 /**
@@ -462,4 +481,5 @@ export const buildImplementPrompt = async (
       })
     ),
     agentDefinitionSection: renderAgentDefinitionSection(input.agentDefinition),
+    restoredWorkSection: renderRestoredWorkSection(input.restoredWork),
   });

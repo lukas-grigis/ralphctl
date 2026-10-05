@@ -53,7 +53,7 @@ export const renderContractSectionFor = <TSig extends AiSignal>(
  *
  *   1. Write exactly one deliverable file — `signals.json` — matching the documented shape;
  *   2. Don't write any other file (the harness derives sidecars from validated signals) — except the
- *      project edits and the oversized-output log in the session directory, named inline;
+ *      project edits and the oversized-output log in the output directory, named inline;
  *   3. The session is over when `signals.json` is on disk and validates.
  *
  * The output is markdown so the prompt's natural structure carries it. The signal example
@@ -68,7 +68,7 @@ export const renderContractSection = (params: RenderContractSectionParams): stri
   lines.push(`Write **exactly one deliverable file** when you are done: \`${signalsPath}\`. Do not write any`);
   lines.push('other file — the harness renders every operator-readable sidecar from the validated signals.');
   lines.push('Exceptions: (1) when your task is to change the project, your edits inside the project tree;');
-  lines.push('(2) when a command produces oversized output, one full log in your session working directory,');
+  lines.push(`(2) when a command produces oversized output, one full log at \`${params.outputDir}/<name>.log\`,`);
   lines.push('never inside the repository.');
   lines.push('');
   lines.push('Always write to the **absolute path** shown above — do not use a relative path, which');

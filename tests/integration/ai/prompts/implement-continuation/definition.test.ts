@@ -174,7 +174,7 @@ describe('buildImplementContinuationPrompt — end-to-end against the real templ
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.value).not.toContain('<prior_attempts>');
+    expect(result.value).not.toContain('<prior_attempts>\n');
     expect(result.value).not.toMatch(/\{\{[A-Z_]+\}\}/);
   });
 
@@ -258,7 +258,7 @@ describe('buildImplementContinuationPrompt — end-to-end against the real templ
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.value).toContain('<pre_verify_results>');
-    expect(result.value).not.toContain('<retry_feedback>');
+    expect(result.value).not.toContain('<retry_feedback>\n');
     expect(result.value).not.toMatch(/\{\{[A-Z_]+\}\}/);
   });
 
@@ -319,7 +319,7 @@ describe('buildImplementContinuationPrompt — end-to-end against the real templ
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.value).not.toContain('plateau_directive');
+    expect(result.value).not.toContain('<plateau_directive>\n');
   });
 
   it('states the bounded-evidence rule exactly once via the shared partial', async () => {

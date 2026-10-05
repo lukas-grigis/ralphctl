@@ -25,15 +25,15 @@ only after every declared step is done and every verification command passes.
 
 - Every declared implementation step has been executed in the stated order.
 - Every `auto` verification criterion's command exits 0 (or, when no `auto` criteria are defined,
-  the project's own check commands pass).
+  the verify script — or, with none configured, the project's own check commands — passes).
 - `task-verified` has been emitted with the bounded command output specified in Phase 3 step 4 and,
   when a run-path was exercised in step 3, the direct end-to-end observation.
 - `commit-message` has been emitted with a subject and a WHY-focused body — except for a pure
   investigation task that wrote no files, where the signal may be omitted (see Phase 3 step 5).
 - `task-complete` has been emitted.
 - No test has been removed or disabled to achieve a passing verify run.
-- No file outside the declared implementation steps has been modified — except for the project's
-  AI context file (when a declared step calls for it).
+- No file has been changed beyond what the steps request or clearly require (plus the project's AI
+  context file when a step calls for it).
 
 </success_criteria>
 
@@ -69,6 +69,8 @@ under its declared check type.
 
 {{RETRY_FEEDBACK_SECTION}}
 
+<restored_work>{{RESTORED_WORK_SECTION}}</restored_work>
+
 `progress.md` (at the sprint root, `{{PROGRESS_FILE}}`) is an append-only chronological journal
 of every prior task-attempt on this sprint — decisions made, changes shipped, learnings recorded,
 notes pinned. Honor prior decisions; do not re-litigate them without a `decision` signal explaining
@@ -103,16 +105,12 @@ sessions and may be stale.
 
 <constraints>
 
-- **Complete exactly the declared steps, then stop** — see the scope rule in Phase 2 step 3 below.
+- **Do the declared steps, then stop** — see the scope rule in Phase 2 step 3 below.
 - **Fix the code, not the test.** A failing test indicates a bug in the implementation. Update or
   remove a test, or disable one, only when a declared step explicitly changes the behaviour it
   asserts — doing so otherwise counts as task failure. If the right move is genuinely ambiguous, emit
   `task-blocked` so a human can decide rather than silently weakening a test to make a failure
   disappear.
-- **Keep every action reversible.** Do not run `git reset --hard`, force-push, skip hooks
-  (`--no-verify`), or delete files you did not create — except when a declared step explicitly
-  calls for it. The harness commits your work and a maintainer reviews it; destructive actions
-  cannot be undone from there.
 - **Do not special-case tests to make them pass** (hardcoding expected values, detecting the test
   environment). When you believe a test itself is wrong, say so in a `note` signal instead of
   bending the implementation around it.
@@ -156,13 +154,14 @@ sessions and may be stale.
     step explicitly calls for adding one of these items to the project context file. Those artefacts
     otherwise have dedicated homes and do not belong there.
 
+{{GIT_BOUNDARY}}
+
 </constraints>
 
 <capabilities>
 You can read any file in the project and in the mounted sprint directory. You can run shell commands
 (subject to the harness's sandbox). You can search the repository for patterns. You can modify and
-create files under the project path. Write `signals.json` to the output directory named in the
-Output contract section at the bottom of this prompt.
+create files under the project path.
 </capabilities>
 
 ## Protocol
@@ -171,8 +170,9 @@ Output contract section at the bottom of this prompt.
 
 Before the checks below, work through the prior critique (if any), the declared steps, the
 verification criteria, and risks you can already see (file conflicts, ambiguous scope, edges the
-steps do not cover). Addressing the prior critique's dimensions comes before any new implementation
-work. Proceed directly for routine file edits and command runs.
+steps do not cover). Work in this order: the `<retry_feedback>` regression first, then the
+`<prior_critique>` dimensions, then the remaining unmet criteria. Proceed directly for routine file
+edits and command runs.
 
 Then perform these checks before writing any code. The goal is to steer the implementation correctly
 on the first attempt, not to discover problems after the fact.
@@ -180,18 +180,18 @@ on the first attempt, not to discover problems after the fact.
 {{PARALLEL_TOOL_CALLS}}
 
 1. **Confirm your working directory** — verify you are in the expected project path (`{{PROJECT_PATH}}`).
-2. **Prior critique first (rounds 2+)** — if `<prior_critique>` above is non-empty, work through
-   each failed dimension and plan how you will address it before starting new work. If this task
-   was escalated to a stronger model, the prior critique identifies exactly what the previous model
-   missed — address those dimensions specifically.
+2. **Prior critique (rounds 2+)** — if `<prior_critique>` above is non-empty, plan how you will
+   address each failed dimension before starting new work. If this task was escalated to a stronger
+   model, the prior critique identifies exactly what the previous model missed — address those
+   dimensions specifically.
 3. **Prior progress** — the `<prior_progress>` block above carries the journal body in-context. Read
    it for cross-task context; re-read `{{PROGRESS_FILE}}` directly only when you need the latest
    on-disk state (e.g. another task settled mid-session).
 4. **Working tree state** — inspect the working tree for uncommitted changes before writing anything.
-   Unexpected pre-existing uncommitted changes are an environment failure — emit `task-blocked` naming
-   the dirty tree rather than building on unknown state. Exception: when `<prior_critique>` or
-   `<retry_feedback>` above is non-empty, an earlier round of this task left its work uncommitted —
-   that dirt is expected; continue from it.
+   Two kinds are expected: the reproduction test named in `<reproduction>`, and earlier work on this
+   task (signalled by a non-empty `<prior_critique>`, `<retry_feedback>`, `<prior_attempts>` or
+   `<restored_work>`). Build on those. Any other uncommitted change is unknown state — emit
+   `task-blocked` naming the files rather than building on it.
 5. **Git log orientation** — run `git log --oneline -20` to see what prior tasks on this branch have
    committed. Cross-reference with `<prior_progress>` to avoid re-implementing or conflicting with
    their work. Changes already committed by a prior task are done — do not redo them.
@@ -207,8 +207,6 @@ on the first attempt, not to discover problems after the fact.
    a broken tree) is not a blocker either — do not stop for it, and leave failures unrelated to
    your steps alone. A failure unrelated to this task's declared scope that you discover
    yourself blocks the task: emit `task-blocked` with reason `"Pre-existing failure: [details]"`.
-   If `<retry_feedback>` is non-empty, a previous attempt's harness post-verify failed — address
-   that regression as the very first priority of this attempt before doing any other work.
 7. **Conventions** — read project config to understand what is enforced: lint and formatter settings,
    compiler config, test framework patterns (e.g. `*.test.ts` vs `*.spec.ts`, `__tests__/` vs
    co-located). Also check the directories your task touches for a nested context file (for example
@@ -240,9 +238,11 @@ Proceed to Phase 2 once Phase 1 passes.
    new patterns only when a declared step explicitly calls for one.
 3. **Execute declared steps in order, precisely.** Each step references specific files and actions.
    If a step is unclear, pick the narrowest plausible interpretation that still satisfies the
-   verification criteria rather than signalling blocked. If steps appear incomplete relative to the
-   ticket, emit `task-blocked` rather than expanding scope — the planner may have scoped them
-   narrowly on purpose.
+   verification criteria rather than signalling blocked. **The done criteria define done; the steps
+   are the planned route.** Do the steps, plus the smallest extra change the criteria clearly
+   require — the planner may have scoped the steps narrowly on purpose. If meeting the criteria needs
+   a materially different change (a new module, API or behaviour the steps don't mention), emit
+   `task-blocked` with `blockerClass: "ambiguous-request"` instead of widening scope.
 4. **After each meaningful change, run the cheapest check relevant to what you just touched** — for
    example, the typecheck command or the test file for the module you edited — not the full suite.
    The authoritative gate is Phase 3 step 2; interim runs are incremental sanity checks.
@@ -259,7 +259,8 @@ In order:
    gate; running it yourself would duplicate that gate and inflate cost. Exception: when the task
    defines no `auto` criteria, run the verify script once yourself to confirm no regressions before
    signalling completion. When no verify script is configured either, run the project's own check
-   commands (as found during Phase 1 reconnaissance) before signalling completion.
+   commands (as found during Phase 1 reconnaissance) before signalling completion. A syntax-only
+   check, or a command that failed to start, is not a pass.
 3. **End-to-end exercise — required when a run-path exists.** Before recording verification
    results, check `<project_tooling>` for a way to start or invoke the product: a dev-server
    start command, application entry point, CLI invocation, or end-to-end / smoke suite. Consult
@@ -280,9 +281,11 @@ In order:
    schema package, or only static analysis tooling listed — skip this step and state the reason in
    one sentence in `task-verified` so the evaluator does not treat the absence as an oversight.
 
-   If starting the product fails due to an environment failure (missing dependency, port
-   unavailable, runtime not found), emit `task-blocked` with the failure details — do not skip
-   silently. A deliberate skip (no run-path declared) does not warrant `task-blocked`.
+   If the product cannot start for an environment reason: when only the project's declared
+   dependencies are missing, install them with its own tooling and lockfile first; otherwise record
+   in `task-verified` which exercise you could not run and why, and continue. Emit `task-blocked`
+   only when no criterion command could run either. A deliberate skip (no run-path declared) does
+   not warrant `task-blocked`.
 
 4. **Record verification results** — emit `task-verified` with the commands from step 2 and their
    combined stdout/stderr, plus the end-to-end observation from step 3 when it ran, all in the
@@ -291,9 +294,10 @@ In order:
    {{EVIDENCE_BOUND}}
 
 5. **Propose the commit message** — emit `commit-message` with a real subject and a body explaining
-   WHY the change exists, what alternatives you weighed, any remaining uncertainty, and — when the
-   change is risky — how to roll it back. Include any follow-ups a reviewer should know. The harness
-   commits after this turn using your wording verbatim. The fallback when you omit the signal is just
+   WHY the change exists, plus any remaining uncertainty and, when the change is risky, how to roll
+   it back. Match the subject style of the recent commits you saw in `git log`; keep the body to a
+   few lines and skip any part with nothing to say. The harness commits after this turn using your
+   wording verbatim. The fallback when you omit the signal is just
    the task name and description paragraph — thin context. Emit it on every task that touched any
    file. Omit only when the task was a pure investigation that wrote nothing.
 6. **Signal completion** — emit `task-complete` only after all the above steps pass. Then, as the
@@ -304,14 +308,7 @@ In order:
 
 ## Failure modes
 
-When you emit `task-blocked`, prefer something an operator can act on in seconds over a paragraph
-of prose. `reason` is always required. When — and only when — the block is an information gap
-rather than a broken environment, also set: `question` (the single concrete question that, answered,
-unblocks you) and `whatUnblocksMe` (what someone needs to supply or decide). When that gap is
-specifically missing information, an ambiguous request, or contradictory instructions, also set
-`blockerClass` to `missing-information`, `ambiguous-request`, or `contradictory-information`
-respectively — leave it unset for an environment or verification failure, where none of the three
-fit.
+{{TASK_BLOCKED}}
 
 **A step fails.** Read the error carefully. Determine whether it is pre-existing or caused by your
 changes. Fix and re-verify. If unfixable after a reasonable attempt, emit `task-blocked` with the

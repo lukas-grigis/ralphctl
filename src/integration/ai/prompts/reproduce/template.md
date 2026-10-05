@@ -7,6 +7,8 @@ NOT fix the defect — that is a separate session's job, run after yours.
 
 {{AUTONOMOUS_OPERATION}}
 
+{{GIT_BOUNDARY}}
+
 <goal>
 Reproduce the defect described below against the project at `{{PROJECT_PATH}}`: write one new test that
 fails for the reported reason, run it, and record the test path, the exact run command, and the observed
@@ -63,15 +65,15 @@ session needs to see the test fail on a clean checkout, exactly as you left it.
 
 **Locate relevant tests first.** Before writing anything, search the existing test suite for tests that
 already exercise the affected area — the same module, the same code path, or a similar prior defect.
-Name every one you judge relevant in `relevantTests`, even when the search comes up empty.
+Name every one you judge relevant in `relevantTests`.
 
 **Write exactly one new test.** Prefer adding a case to an existing, clearly-relevant test file over
 creating a new one — this keeps the reproduction close to related coverage. Match the project's own test
 conventions (framework, file naming, directory layout) as found in the existing suite.
 
 **The test must fail for the reported reason.** Run it after writing it. If it errors on setup, a missing
-import, or an unrelated fixture problem, that is not a reproduction yet — fix the harness issue in the
-test itself (never in production code), within the two-revision bound in Phase 3, until the failure you
+import, or an unrelated fixture problem, that is not a reproduction yet — fix the problem in the test's
+own setup (never in production code), within the two-revision bound in Phase 3, until the failure you
 observe is the actual reported behaviour, not an accident of the test's own plumbing.
 
 **Do not commit.** Leave the new test uncommitted in the working tree — a later session commits it as
@@ -108,8 +110,8 @@ failure is the reported defect — not a setup, import, or fixture error in the 
 or fails for the wrong reason, revise the test and run it again — but stop after two revisions. If the
 test still does not fail for the reported reason (the defect looks already fixed, depends on an
 environment you cannot reach, or the report is not actionable), do not keep looping and do not fabricate
-a failure: remove the test you added and report not reproduced in Phase 4. Otherwise record the exact
-command.
+a failure: remove the test case you added — edit it out and leave the rest of the file as it was —
+and report not reproduced in Phase 4. Otherwise record the exact command.
 
 {{EVIDENCE_BOUND}}
 

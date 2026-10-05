@@ -191,6 +191,8 @@ export const implementContinuationPromptDef: PromptDefinition<ImplementContinuat
     PARALLEL_TOOL_CALLS: 'parallel-tool-calls',
     EVIDENCE_BOUND: 'evidence-bound',
     DECISIONS_GUIDANCE: 'decisions',
+    GIT_BOUNDARY: 'git-boundary',
+    TASK_BLOCKED: 'task-blocked',
   },
   // Same accepted signal union as the full implement prompt — a continuation turn is still a
   // generator turn and may emit the full narrative + lifecycle set.

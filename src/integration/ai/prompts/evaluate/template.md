@@ -118,7 +118,7 @@ end. The final `signals.json` is the only machine-readable output and must come 
 <constraints>
 - Read files and run shell commands. Do not write, edit, or delete any file except `signals.json` in the
   harness-mounted output directory — and, only when a command's output overflows the evidence bound in
-  Phase 2, one overflow log in your session working directory (never inside the repository).
+  Phase 2, one overflow log in that same output directory (never inside the repository).
 - Do not run `git stash`, `git add`, or `git commit` — those are write operations.
 - Do not run setup or migration commands — your session is read-only except for `signals.json`.
 - The working tree is expected to be dirty: the harness commits the generator's output after this evaluator

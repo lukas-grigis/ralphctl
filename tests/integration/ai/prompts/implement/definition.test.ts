@@ -178,7 +178,7 @@ describe('implementPromptDef — completeness', () => {
 
   it('carries the reversibility, scope, and stop-when-green guardrails', async () => {
     const template = (await fs.readFile(TEMPLATE_PATH, 'utf8')).replace(/\s+/g, ' ');
-    expect(template).toContain('Keep every action reversible');
+    expect(template).toContain('{{GIT_BOUNDARY}}');
     expect(template).toContain('Do not special-case tests');
     expect(template).toContain('Stay in scope');
     expect(template).toContain('stop and report');
@@ -549,6 +549,37 @@ describe('buildImplementPrompt — end-to-end against the real template', () => 
     expect(result.value).not.toMatch(/\{\{[A-Z_]+\}\}/);
   });
 
+  it('renders restored work inside its wrapper, and an empty wrapper when absent', async () => {
+    const base = {
+      task: makeTaskWith({ name: 'export CSV' }),
+      projectPath: '/tmp/ralph/main-repo',
+      progressFile: '/tmp/ralph/sprint-1/progress.md',
+      priorProgress: '',
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
+      contractPath: CONTRACT_PATH,
+    };
+    const withRestored = await buildImplementPrompt(deps, {
+      ...base,
+      restoredWork: { stat: { files: 3, insertions: 10, deletions: 2 }, critique: '- [correctness] off by one' },
+    });
+    expect(withRestored.ok).toBe(true);
+    if (!withRestored.ok) return;
+    expect(withRestored.value).toContain('<restored_work>An earlier attempt at this task was rejected');
+    expect(withRestored.value).toContain('3 files, +10 -2 lines');
+    expect(withRestored.value).toContain('off by one');
+
+    const without = await buildImplementPrompt(deps, base);
+    expect(without.ok).toBe(true);
+    if (!without.ok) return;
+    expect(without.value).toContain('<restored_work></restored_work>');
+  });
+
+  it('lists the expected uncommitted work in the working-tree rule', async () => {
+    const template = (await fs.readFile(TEMPLATE_PATH, 'utf8')).replace(/\s+/g, ' ');
+    expect(template).toContain('the reproduction test named in `<reproduction>`');
+    expect(template).toContain('`<prior_critique>`, `<retry_feedback>`, `<prior_attempts>` or `<restored_work>`');
+  });
+
   it('renders prior attempts when priorAttempts is provided', async () => {
     const task = makeTaskWith({ name: 'export CSV' });
     const result = await buildImplementPrompt(deps, {
@@ -578,7 +609,7 @@ describe('buildImplementPrompt — end-to-end against the real template', () => 
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.value).not.toContain('<prior_attempts>');
+    expect(result.value).not.toContain('<prior_attempts>\n');
     expect(result.value).not.toMatch(/\{\{[A-Z_]+\}\}/);
   });
 

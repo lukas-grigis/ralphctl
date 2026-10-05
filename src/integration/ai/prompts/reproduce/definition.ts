@@ -97,6 +97,7 @@ export const reproducePromptDef: PromptDefinition<ReproducePromptParams> = {
   partials: {
     AUTONOMOUS_OPERATION: 'autonomous-operation',
     EVIDENCE_BOUND: 'evidence-bound',
+    GIT_BOUNDARY: 'git-boundary',
   },
   expectedSignals: ['reproduction', 'note'],
 };

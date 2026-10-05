@@ -252,6 +252,36 @@ export const renderReproductionSection = (reproduction: string | undefined): str
     'uncommitted in the working tree on purpose; leave it there — the harness commits it with your work.',
   ]);
 
+/** Structural shape of the restored-work context — typed here so the prompts module stays free of domain imports. */
+export interface RestoredWorkContext {
+  readonly stat?: { readonly files: number; readonly insertions: number; readonly deletions: number };
+  readonly critique?: string;
+}
+
+/**
+ * Render the body of the template's `<restored_work>` wrapper — an earlier, rejected attempt's
+ * uncommitted changes the harness put back into the working tree. Absent → empty string.
+ */
+export const renderRestoredWorkSection = (restored: RestoredWorkContext | undefined): string => {
+  if (restored === undefined) return '';
+  const stat = restored.stat;
+  const size =
+    stat === undefined
+      ? ''
+      : ` — ${String(stat.files)} ${stat.files === 1 ? 'file' : 'files'}, +${String(stat.insertions)} -${String(stat.deletions)} lines`;
+  const critique = restored.critique?.trim() ?? '';
+  const intro = [
+    'An earlier attempt at this task was rejected before it was committed. The harness set its uncommitted',
+    `changes aside and has restored them into the working tree${size} — so those are the uncommitted changes`,
+    'you will find. Treat them as a draft to check against the contract, not as accepted work: keep what',
+    'serves the task, and rewrite or revert what does not.',
+  ];
+  if (critique.length === 0) {
+    return [...intro, 'No critique of them was recorded — judge them against the contract alone.'].join('\n');
+  }
+  return [...intro, 'The critique that rejected them:', '', critique].join('\n');
+};
+
 /**
  * Render the optional pre-verify results block injected into the generator prompt. When the
  * harness ran a pre-task verification before spawning the generator, its output is injected here
