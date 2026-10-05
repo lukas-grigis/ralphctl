@@ -1,0 +1,36 @@
+diff --git a/src/chunk.mjs b/src/chunk.mjs
+new file mode 100644
+index 0000000..0c16ab6
+--- /dev/null
++++ b/src/chunk.mjs
+@@ -0,0 +1,7 @@
++export const chunk = (items, size) => {
++  const groups = [];
++  for (let i = 0; i < items.length; i += size) {
++    groups.push(items.slice(i, i + size));
++  }
++  return groups;
++};
+diff --git a/test/chunk.test.mjs b/test/chunk.test.mjs
+new file mode 100644
+index 0000000..c6c21ee
+--- /dev/null
++++ b/test/chunk.test.mjs
+@@ -0,0 +1,17 @@
++import { test } from 'node:test';
++import assert from 'node:assert/strict';
++import { chunk } from '../src/chunk.mjs';
++
++test('splits into groups, last one shorter', () => {
++  assert.deepEqual(chunk([1, 2, 3, 4, 5], 2), [[1, 2], [3, 4], [5]]);
++});
++
++test('size larger than the input gives one group', () => {
++  assert.deepEqual(chunk([1, 2, 3], 10), [[1, 2, 3]]);
++});
++
++test('does not modify the input', () => {
++  const input = [1, 2, 3];
++  chunk(input, 2);
++  assert.deepEqual(input, [1, 2, 3]);
++});

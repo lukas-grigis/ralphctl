@@ -1,0 +1,67 @@
+{
+  "schemaVersion": 1,
+  "tier": "capability",
+  "cluster": "repo-collections",
+  "origin": "synthetic",
+  "provenance": "Synthetic: false-FAIL probe. The clean chunk() meets every step and criterion but does not validate a size the task never mentions (0 or non-integer); the defect drops the trailing-group rule on exact multiples and empty input. Authored for this harness.",
+  "id": "ev-18-unrequested-hardening",
+  "flow": "evaluate",
+  "task": {
+    "name": "Add a chunk helper",
+    "description": "Add `chunk(items, size)` in `src/chunk.mjs` as a named export. `size` is a positive integer. It returns a new array of consecutive groups of at most `size` items, in input order; only the last group may be shorter. An empty `items` returns `[]`, and the input array is not modified.",
+    "steps": [
+      "Create src/chunk.mjs exporting chunk",
+      "Add tests in test/chunk.test.mjs"
+    ],
+    "verificationCriteria": [
+      {
+        "id": "C1",
+        "assertion": "The repository test suite passes",
+        "check": "auto",
+        "command": "node --test test/*.test.mjs"
+      },
+      {
+        "id": "C2",
+        "assertion": "chunk([1,2,3,4,5], 2) prints [[1,2],[3,4],[5]]",
+        "check": "auto",
+        "command": "node -e \"import('./src/chunk.mjs').then((m) => console.log(JSON.stringify(m.chunk([1, 2, 3, 4, 5], 2))))\""
+      },
+      {
+        "id": "C3",
+        "assertion": "chunk([], 3) prints []",
+        "check": "auto",
+        "command": "node -e \"import('./src/chunk.mjs').then((m) => console.log(JSON.stringify(m.chunk([], 3))))\""
+      }
+    ]
+  },
+  "verifyScript": "node --test test/*.test.mjs",
+  "variants": [
+    {
+      "name": "clean",
+      "patch": "variants/clean.patch",
+      "expect": {
+        "status": "passed"
+      }
+    },
+    {
+      "name": "defect",
+      "patch": "variants/defect.patch",
+      "defectClass": "boundary",
+      "expect": {
+        "status": "failed",
+        "failedDimensions": [
+          "correctness"
+        ],
+        "criteria": {
+          "C3": {
+            "passed": false
+          }
+        }
+      }
+    }
+  ],
+  "oracle": {
+    "command": "node --test oracle/*.test.mjs",
+    "protectedPaths": []
+  }
+}
