@@ -6,7 +6,7 @@ import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
-import { gitStashPush } from '@src/integration/io/git-operations.ts';
+import { gitStashPush } from '@src/integration/io/git-stash.ts';
 import type { GitRunner } from '@src/integration/io/git-runner.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 

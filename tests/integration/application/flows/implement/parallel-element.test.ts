@@ -32,7 +32,7 @@ import { startNextAttempt } from '@src/domain/entity/task-attempts.ts';
 import { startAttemptLeaf } from '@src/application/flows/implement/leaves/start-attempt.ts';
 import { settleAttemptLeaf } from '@src/application/flows/implement/leaves/settle-attempt.ts';
 import { adoptPersistedBlocksLeaf } from '@src/application/flows/implement/leaves/adopt-persisted-blocks.ts';
-import { quarantineStashMessage } from '@src/application/flows/implement/leaves/quarantine-blocked-diff.ts';
+import { quarantineStashMessage } from '@src/domain/value/quarantine-stash-message.ts';
 import { saveTasksLeaf } from '@src/application/flows/_shared/task/save.ts';
 
 import {

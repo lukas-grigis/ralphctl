@@ -11,7 +11,8 @@ import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.t
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
-import { gitStashPush } from '@src/integration/io/git-operations.ts';
+import { gitStashPush } from '@src/integration/io/git-stash.ts';
+import { quarantineStashMessage } from '@src/domain/value/quarantine-stash-message.ts';
 import type { GitRunner } from '@src/integration/io/git-runner.ts';
 import { renderQuarantineBreadcrumb } from '@src/business/sprint/journal-structure.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
@@ -90,16 +91,6 @@ export interface QuarantineInput {
   readonly task: BlockedTask;
   readonly sprintId: SprintId;
 }
-
-/**
- * Deterministic stash message for one quarantined block — the recovery handle the operator greps
- * for in `git stash list`. Stable across runs (no timestamp / positional ref), so a relaunch that
- * re-quarantines produces an identical message and `record-quarantine` stays idempotent.
- *
- * @public
- */
-export const quarantineStashMessage = (sprintId: SprintId, taskId: TaskId): string =>
-  `ralphctl/${String(sprintId)}/${String(taskId)}/blocked-diff`;
 
 /**
  * Core quarantine operation — stash the rejected diff (`git stash push -u` under the deterministic

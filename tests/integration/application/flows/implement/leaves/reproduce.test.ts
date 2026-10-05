@@ -37,7 +37,7 @@ import {
   reproductionArtifactFile,
   saveReproductionArtifact,
 } from '@src/application/flows/implement/leaves/reproduction-artifact.ts';
-import { quarantineStashMessage } from '@src/application/flows/implement/leaves/quarantine-blocked-diff.ts';
+import { quarantineStashMessage } from '@src/domain/value/quarantine-stash-message.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import { absolutePath, makeTodoTask } from '@tests/fixtures/domain.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';

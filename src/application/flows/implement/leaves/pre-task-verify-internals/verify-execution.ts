@@ -14,7 +14,8 @@ import { AbortError } from '@src/domain/value/error/abort-error.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import { ErrorCode } from '@src/domain/value/error/error-code.ts';
 import type { ShellRunOptions, ShellScriptResult, ShellScriptRunner } from '@src/integration/io/shell-script-runner.ts';
-import { gitHasUncommittedChanges, gitStashPop } from '@src/integration/io/git-operations.ts';
+import { gitHasUncommittedChanges } from '@src/integration/io/git-operations.ts';
+import { gitStashPop } from '@src/integration/io/git-stash.ts';
 import type { GitRunner } from '@src/integration/io/git-runner.ts';
 import type { InteractivePrompt } from '@src/business/interactive/prompt.ts';
 import type {

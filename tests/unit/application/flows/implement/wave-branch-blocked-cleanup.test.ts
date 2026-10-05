@@ -20,7 +20,7 @@ import type { TraceEntry } from '@src/application/chain/trace.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import type { ImplementDeps } from '@src/application/flows/implement/deps.ts';
 import type { RepoExecConfig } from '@src/application/flows/implement/leaves/resolve-repo.ts';
-import { quarantineStashMessage } from '@src/application/flows/implement/leaves/quarantine-blocked-diff.ts';
+import { quarantineStashMessage } from '@src/domain/value/quarantine-stash-message.ts';
 import { dependencyGateLeaf } from '@src/application/flows/implement/leaves/dependency-gate.ts';
 import { settleAttemptLeaf } from '@src/application/flows/implement/leaves/settle-attempt.ts';
 import { startAttemptLeaf } from '@src/application/flows/implement/leaves/start-attempt.ts';

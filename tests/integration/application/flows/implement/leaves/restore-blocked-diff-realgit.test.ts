@@ -27,16 +27,15 @@ import { createHash } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { createGitRunner } from '@src/integration/io/git-runner.ts';
-import { gitStashPush, gitStatusPorcelain } from '@src/integration/io/git-operations.ts';
+import { gitStatusPorcelain } from '@src/integration/io/git-operations.ts';
+import { gitStashPush } from '@src/integration/io/git-stash.ts';
 import { markTaskBlocked } from '@src/domain/entity/task-lifecycle.ts';
 import type { BlockedTask, Task } from '@src/domain/entity/task.ts';
 import type { UpdateTask } from '@src/domain/repository/task/update-task.ts';
 import { Result } from '@src/domain/result.ts';
 import { SprintId } from '@src/domain/value/id/sprint-id.ts';
-import {
-  quarantineBlockedDiffLeaf,
-  quarantineStashMessage,
-} from '@src/application/flows/implement/leaves/quarantine-blocked-diff.ts';
+import { quarantineBlockedDiffLeaf } from '@src/application/flows/implement/leaves/quarantine-blocked-diff.ts';
+import { quarantineStashMessage } from '@src/domain/value/quarantine-stash-message.ts';
 import { restoreBlockedDiffLeaf } from '@src/application/flows/implement/leaves/restore-blocked-diff.ts';
 import {
   buildEvaluatorReproductionSection,

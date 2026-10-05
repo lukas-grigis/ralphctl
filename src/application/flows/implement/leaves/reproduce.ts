@@ -20,7 +20,7 @@ import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts'
 import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/template-loader.ts';
 import type { ShellScriptRunner } from '@src/integration/io/shell-script-runner.ts';
 import { writeTextAtomic } from '@src/integration/io/fs.ts';
-import { gitStashList, stashEntryMatchesMessage } from '@src/integration/io/git-operations.ts';
+import { gitStashList, stashEntryMatchesMessage } from '@src/integration/io/git-stash.ts';
 import type { GitRunner } from '@src/integration/io/git-runner.ts';
 import type { WriteFile } from '@src/business/io/write-file.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
@@ -33,7 +33,7 @@ import { reproduceOutputContract } from '@src/application/flows/implement/leaves
 import { runPathsFor } from '@src/application/flows/_shared/allocate-run-dir.ts';
 import { readCappedProgress } from '@src/application/flows/implement/leaves/_shared/run-role-turn.ts';
 import { VERIFY_TAIL_MAX_CHARS } from '@src/application/flows/implement/leaves/_shared/verify-run-summary.ts';
-import { quarantineStashMessage } from '@src/application/flows/implement/leaves/quarantine-blocked-diff.ts';
+import { quarantineStashMessage } from '@src/domain/value/quarantine-stash-message.ts';
 import {
   loadReproductionArtifact,
   removeReproductionArtifact,

@@ -36,7 +36,8 @@ import {
 import { runPathsFor } from '@src/application/flows/_shared/allocate-run-dir.ts';
 import { attributeVerify, normalizeVerifyGates, runVerifyGatesUseCase } from '@src/business/task/run-verify-script.ts';
 import { runVerifyShell } from '@src/application/flows/implement/leaves/pre-task-verify.ts';
-import { gitDiffFootprint, gitStashPush } from '@src/integration/io/git-operations.ts';
+import { gitDiffFootprint } from '@src/integration/io/git-operations.ts';
+import { gitStashPush } from '@src/integration/io/git-stash.ts';
 import { computeWorkProductFingerprint } from '@src/application/flows/implement/leaves/work-product-fingerprint.ts';
 import { writeTextAtomic } from '@src/integration/io/fs.ts';
 import {

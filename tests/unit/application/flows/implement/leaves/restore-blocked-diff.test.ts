@@ -17,7 +17,7 @@ import {
 } from '@src/application/flows/implement/leaves/reproduce.ts';
 import { absolutePath } from '@tests/fixtures/domain.ts';
 import { makeTmpRoot } from '@tests/fixtures/tmp-root.ts';
-import { quarantineStashMessage } from '@src/application/flows/implement/leaves/quarantine-blocked-diff.ts';
+import { quarantineStashMessage } from '@src/domain/value/quarantine-stash-message.ts';
 import {
   restoreBeforeFirstTurn,
   restoreBlockedDiffLeaf,
@@ -86,7 +86,7 @@ describe('restoreBlockedDiffLeaf', () => {
     // `git stash list --format=%s` never renders the bare message it was pushed with — it always
     // prefixes `On <branch>: ` (or `On (no branch): ` detached). A pre-check doing exact equality
     // against the bare message would NEVER match this real shape and always short-circuit —
-    // see `stashEntryMatchesMessage` in `git-operations.ts`.
+    // see `stashEntryMatchesMessage` in `git-stash.ts`.
     const { runner, calls } = fakeGit({ stashed: [`On main: ${message}`] });
     const el = restoreBlockedDiffLeaf(
       { gitRunner: runner, logger: noopLogger },

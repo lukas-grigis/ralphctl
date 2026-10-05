@@ -13,7 +13,8 @@ import type { InteractivePrompt } from '@src/business/interactive/prompt.ts';
 import { AbortError } from '@src/domain/value/error/abort-error.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf, type LeafOpts } from '@src/application/chain/build/leaf.ts';
-import { gitResetHard, gitStashPush, gitStatusPorcelain } from '@src/integration/io/git-operations.ts';
+import { gitResetHard, gitStatusPorcelain } from '@src/integration/io/git-operations.ts';
+import { gitStashPush } from '@src/integration/io/git-stash.ts';
 import type { GitRunner } from '@src/integration/io/git-runner.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 

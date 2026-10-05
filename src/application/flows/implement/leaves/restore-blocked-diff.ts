@@ -9,15 +9,11 @@ import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
-import {
-  gitResetHard,
-  gitStashList,
-  gitStashPop,
-  stashEntryMatchesMessage,
-} from '@src/integration/io/git-operations.ts';
+import { gitResetHard } from '@src/integration/io/git-operations.ts';
+import { gitStashList, gitStashPop, stashEntryMatchesMessage } from '@src/integration/io/git-stash.ts';
 import type { GitRunner } from '@src/integration/io/git-runner.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
-import { quarantineStashMessage } from '@src/application/flows/implement/leaves/quarantine-blocked-diff.ts';
+import { quarantineStashMessage } from '@src/domain/value/quarantine-stash-message.ts';
 import {
   type ReproductionArtifact,
   reproductionTestTampered,
@@ -135,9 +131,8 @@ const KEEP_CTX: RestoreBlockedDiffOutput = { dropReproduction: false };
  * second is the one specific to guarding this undo.
  *
  * A raw `gitRunner.run`, like `work-product-fingerprint.ts`'s own reads, rather than a
- * `git-operations.ts` export: that module sits at its `max-lines` budget, and the submodule override
- * is this probe's concern alone. A non-zero exit surfaces as `Result.error` so "git is broken in this
- * tree" is never read as "clean".
+ * `git-operations.ts` export: the submodule override is this probe's concern alone. A non-zero exit
+ * surfaces as `Result.error` so "git is broken in this tree" is never read as "clean".
  */
 const treeChanges = async (runner: GitRunner, cwd: AbsolutePath): Promise<Result<string[], DomainError>> => {
   const result = await runner.run(cwd, [

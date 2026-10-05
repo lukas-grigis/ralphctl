@@ -11,8 +11,8 @@ import { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import {
   isSettledBlocked,
   quarantineBlockedDiffLeaf,
-  quarantineStashMessage,
 } from '@src/application/flows/implement/leaves/quarantine-blocked-diff.ts';
+import { quarantineStashMessage } from '@src/domain/value/quarantine-stash-message.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import { absolutePath, makeTodoTask } from '@tests/fixtures/domain.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';

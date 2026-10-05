@@ -82,7 +82,7 @@ import type { ImplementDeps } from '@src/application/flows/implement/deps.ts';
 import type { RepoExecConfig } from '@src/application/flows/implement/flow.ts';
 import { buildWaveBranches, createFoldQueue, worktreePathFor } from '@src/application/flows/implement/wave-branch.ts';
 import { startNextAttempt } from '@src/domain/entity/task-attempts.ts';
-import { quarantineStashMessage } from '@src/application/flows/implement/leaves/quarantine-blocked-diff.ts';
+import { quarantineStashMessage } from '@src/domain/value/quarantine-stash-message.ts';
 
 import {
   absolutePath,

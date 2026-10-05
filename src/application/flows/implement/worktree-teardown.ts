@@ -10,21 +10,15 @@ import { StorageError } from '@src/domain/value/error/storage-error.ts';
 
 import type { ElementResult } from '@src/application/chain/element.ts';
 import type { OnTrace } from '@src/application/chain/trace.ts';
-import {
-  gitDeleteBranch,
-  gitHasUncommittedChanges,
-  gitStashList,
-  gitStashPush,
-  gitWorktreeRemove,
-  stashEntryMatchesMessage,
-} from '@src/integration/io/git-operations.ts';
+import { gitDeleteBranch, gitHasUncommittedChanges, gitWorktreeRemove } from '@src/integration/io/git-operations.ts';
+import { gitStashList, gitStashPush, stashEntryMatchesMessage } from '@src/integration/io/git-stash.ts';
 
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import {
   isSettledBlocked,
-  quarantineStashMessage,
   runQuarantineBlockedDiff,
 } from '@src/application/flows/implement/leaves/quarantine-blocked-diff.ts';
+import { quarantineStashMessage } from '@src/domain/value/quarantine-stash-message.ts';
 import type { BuildWaveBranchesDeps } from '@src/application/flows/implement/wave-branch.ts';
 import { messageOf } from '@src/domain/value/error/error-message.ts';
 

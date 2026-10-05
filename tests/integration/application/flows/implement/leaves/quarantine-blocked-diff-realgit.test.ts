@@ -31,10 +31,8 @@ import type { BlockedTask, Task } from '@src/domain/entity/task.ts';
 import type { UpdateTask } from '@src/domain/repository/task/update-task.ts';
 import { Result } from '@src/domain/result.ts';
 import { SprintId } from '@src/domain/value/id/sprint-id.ts';
-import {
-  quarantineBlockedDiffLeaf,
-  quarantineStashMessage,
-} from '@src/application/flows/implement/leaves/quarantine-blocked-diff.ts';
+import { quarantineBlockedDiffLeaf } from '@src/application/flows/implement/leaves/quarantine-blocked-diff.ts';
+import { quarantineStashMessage } from '@src/domain/value/quarantine-stash-message.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import { createFakeProject, type FakeProject } from '@tests/helpers/fake-project.ts';
 import { absolutePath, makeTodoTask } from '@tests/fixtures/domain.ts';

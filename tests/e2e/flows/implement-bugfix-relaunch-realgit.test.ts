@@ -52,7 +52,7 @@ import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import type { ImplementDeps } from '@src/application/flows/implement/deps.ts';
 import { createImplementFlow, type RepoExecConfig } from '@src/application/flows/implement/flow.ts';
 import { buildWaveBranches, createFoldQueue } from '@src/application/flows/implement/wave-branch.ts';
-import { quarantineStashMessage } from '@src/application/flows/implement/leaves/quarantine-blocked-diff.ts';
+import { quarantineStashMessage } from '@src/domain/value/quarantine-stash-message.ts';
 import { REPRODUCTION_TAMPER_NOTE } from '@src/application/flows/implement/leaves/reproduce.ts';
 import {
   absolutePath,

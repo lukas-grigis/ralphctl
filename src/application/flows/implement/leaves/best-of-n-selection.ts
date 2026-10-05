@@ -13,7 +13,7 @@ import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import type { ImplementDeps } from '@src/application/flows/implement/deps.ts';
 import type { SessionId } from '@src/integration/ai/providers/_engine/session-id.ts';
 import { runOneJudgeCall } from '@src/application/flows/implement/leaves/best-of-n-judge.ts';
-import { gitStashPop } from '@src/integration/io/git-operations.ts';
+import { gitStashPop } from '@src/integration/io/git-stash.ts';
 import type {
   BestOfNCandidateRecord,
   BestOfNGenEvalOpts,
