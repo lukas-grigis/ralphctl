@@ -1,10 +1,11 @@
 diff --git a/src/chunk.mjs b/src/chunk.mjs
 new file mode 100644
-index 0000000..a38ca12
+index 0000000..bf4e472
 --- /dev/null
 +++ b/src/chunk.mjs
-@@ -0,0 +1,7 @@
+@@ -0,0 +1,8 @@
 +export const chunk = (items, size) => {
++  if (size < 1) throw new RangeError(`size must be at least 1, got ${size}`);
 +  const groups = [];
 +  for (let i = 0; i <= items.length; i += size) {
 +    groups.push(items.slice(i, i + size));
