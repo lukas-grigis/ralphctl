@@ -35,6 +35,10 @@ interface RailProps {
    * and result footer. When omitted, suppression is derived from `railWidth`.
    */
   readonly suppressMeta?: boolean;
+  /** Trace length — the runner mutates `descriptor.trace` in place, so memo needs a changing prop. */
+  readonly traceLength: number;
+  /** Last trace entry — identity changes once the ring buffer saturates and length stops moving. */
+  readonly traceTail: unknown;
 }
 
 // Threshold below which the meta tail (duration / trailing label / error) is suppressed so
@@ -62,9 +66,16 @@ const FlowStepsRailImpl = ({
   />
 );
 
-// Memoized: none of this component's props are driven by the Execute view's 1 Hz clock — only
-// re-renders (and re-formats the trace list) when the descriptor's trace / plan actually change.
-export const FlowStepsRail = React.memo(FlowStepsRailImpl);
+// Memoized so the 1 Hz clock doesn't re-format the list; the trace-version props keep it live.
+const MemoRail = React.memo(FlowStepsRailImpl);
+
+export const FlowStepsRail = (props: Omit<RailProps, 'traceLength' | 'traceTail'>): React.JSX.Element => (
+  <MemoRail
+    {...props}
+    traceLength={props.descriptor.trace.length}
+    traceTail={props.descriptor.trace[props.descriptor.trace.length - 1]}
+  />
+);
 
 interface CompactRailProps {
   readonly descriptor: SessionDescriptor;
