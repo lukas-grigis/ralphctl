@@ -107,7 +107,15 @@ describe('prompt hygiene', () => {
 
 describe('critique example format', () => {
   const CRITIQUE_LINE = /^- \[([^\]]+)\]/u;
-  const LOCATION = /[\w./-]+\.\w+(:\d+)?|`[^`]+`|\blook at\b/u;
+  // The pointer must name a file (`path.ext` or `path.ext:line`), not just say "look at".
+  const LOCATION = /\blook at `?[\w-]+(?:[./][\w-]+)*\.[A-Za-z]{1,4}\b(?::\d+)?/u;
+
+  it('the location fence rejects a pointer with no file', () => {
+    expect('- [Completeness] nothing changed; look at the declared steps above.').not.toMatch(LOCATION);
+    expect('- [Correctness] `foo()` misbehaves; look at `the handler`.').not.toMatch(LOCATION);
+    expect('- [Correctness] off by one; look at src/foo.ts:23.').toMatch(LOCATION);
+    expect('- [Correctness] env read missing; look at `app/session.py` and its imports.').toMatch(LOCATION);
+  });
 
   it('every critique line in the evaluator contract carries a dimension tag and a location', () => {
     const lines: string[] = [];

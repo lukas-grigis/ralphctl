@@ -67,6 +67,23 @@ describe('buildApplyFeedbackPrompt — end-to-end against the real template', ()
     expect(result.value).toContain('Please simplify the X feature.');
   });
 
+  it("lets the operator's request override the git boundary's no-delete/no-revert rule", async () => {
+    const result = await buildApplyFeedbackPrompt(loader, {
+      repositories: '- `/tmp/proj-a` (proj-a)',
+      sprintContext: 'sprint ABC',
+      feedbackLog: '',
+      latestRound: 'Remove the legacy helper file.',
+      progress: '',
+      outputContractSection: '## Output contract\n\nWrite signals.json to /tmp/out.',
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const boundary = /<git_boundary>([\s\S]*?)<\/git_boundary>/.exec(result.value)?.[1]?.replace(/\s+/g, ' ') ?? '';
+    expect(boundary).toMatch(
+      /do not delete, revert, or `git clean` files you did not create — except when[^.]*operator's request/
+    );
+  });
+
   it('rejects an empty latestRound via the spec validator', async () => {
     const result = await buildApplyFeedbackPrompt(loader, {
       repositories: '- `/tmp/proj` (proj)',

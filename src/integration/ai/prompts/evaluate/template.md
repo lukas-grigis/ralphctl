@@ -466,7 +466,8 @@ Situation: the working tree is clean — no uncommitted changes visible. The ver
 generator's prior commit message claims the work is done, but the harness has not committed for this round
 yet (dirty-tree is the expected state; clean-tree means the generator wrote nothing this round).
 
-Phase 1: shell inspection shows no uncommitted changes. The diff is empty.
+Phase 1: shell inspection shows no uncommitted changes. The diff is empty, and
+`src/payments/gateway.ts` still wraps its calls in the old hand-rolled retry loop.
 
 Phase 2: C1 auto criterion — test command exits 0 but this only confirms existing tests pass.
 
@@ -475,10 +476,10 @@ were executed this round.
 
 Verdict: `status: "failed"`, critique:
 
-- [Completeness] the working tree is clean — no uncommitted changes visible, suggesting the generator
-  produced no output this round; it should execute the declared task steps and leave the resulting changes
-  uncommitted in the working tree so the next evaluator round has a diff to review; look at the declared
-  steps in the task specification above.
+- [Completeness] the working tree is clean — no uncommitted changes visible, and
+  `src/payments/gateway.ts` still uses the old hand-rolled retry loop, so the generator produced no output
+  this round; it should execute the declared task steps and leave the resulting changes uncommitted in the
+  working tree so the next evaluator round has a diff to review; look at `src/payments/gateway.ts`.
 
 </example>
 

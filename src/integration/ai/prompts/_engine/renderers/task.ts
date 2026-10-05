@@ -259,8 +259,8 @@ export interface RestoredWorkContext {
 }
 
 /**
- * Render the body of the template's `<restored_work>` wrapper — an earlier, rejected attempt's
- * uncommitted changes the harness put back into the working tree. Absent → empty string.
+ * Render the `<restored_work>` block — an earlier, rejected attempt's uncommitted changes the harness put
+ * back into the working tree. Absent → empty string, so `{{RESTORED_WORK_SECTION}}` leaves no orphan wrapper.
  */
 export const renderRestoredWorkSection = (restored: RestoredWorkContext | undefined): string => {
   if (restored === undefined) return '';
@@ -277,9 +277,12 @@ export const renderRestoredWorkSection = (restored: RestoredWorkContext | undefi
     'serves the task, and rewrite or revert what does not.',
   ];
   if (critique.length === 0) {
-    return [...intro, 'No critique of them was recorded — judge them against the contract alone.'].join('\n');
+    return renderTaggedBlock(
+      'restored_work',
+      [...intro, 'No critique of them was recorded — judge them against the contract alone.'].join('\n')
+    );
   }
-  return [...intro, 'The critique that rejected them:', '', critique].join('\n');
+  return renderTaggedBlock('restored_work', [...intro, 'The critique that rejected them:', '', critique].join('\n'));
 };
 
 /**

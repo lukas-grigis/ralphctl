@@ -312,7 +312,7 @@ export const implementPromptDef: PromptDefinition<ImplementPromptParams> = {
       optional: true,
       description:
         "`<restored_work>` block: an earlier rejected attempt's uncommitted changes the harness restored into " +
-        'the working tree, plus the critique that rejected them. Empty → collapses (no `<restored_work>` content).',
+        'the working tree, plus the critique that rejected them. Empty → collapses (no orphan wrapper).',
     },
     agentDefinitionSection: {
       placeholder: 'AGENT_DEFINITION_SECTION',
@@ -428,7 +428,7 @@ export interface BuildImplementPromptInput {
    * Absent or empty → `{{AGENT_DEFINITION_SECTION}}` collapses cleanly with no orphan heading.
    */
   readonly agentDefinition?: string;
-  /** Restored-work context for a relaunch after an operator unblock; absent → no `<restored_work>` content. */
+  /** Restored-work context for a relaunch after an operator unblock; absent → no `<restored_work>` block. */
   readonly restoredWork?: RestoredWorkContext;
 }
 

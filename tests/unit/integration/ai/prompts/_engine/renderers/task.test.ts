@@ -144,6 +144,12 @@ describe('renderRestoredWorkSection', () => {
     expect(out).toContain('The critique that rejected them: - [correctness] missing null check at src/a.ts:4');
   });
 
+  it('wraps the body in its own tag so an absent block leaves no orphan wrapper', () => {
+    const out = renderRestoredWorkSection({ critique: 'x' });
+    expect(out.startsWith('<restored_work>\n')).toBe(true);
+    expect(out.endsWith('\n</restored_work>')).toBe(true);
+  });
+
   it('says no critique was recorded when there is none', () => {
     const out = renderRestoredWorkSection({ stat: { files: 1, insertions: 2, deletions: 0 } });
     expect(out).toContain('1 file, +2 -0 lines');

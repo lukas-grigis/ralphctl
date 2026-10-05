@@ -69,7 +69,7 @@ under its declared check type.
 
 {{RETRY_FEEDBACK_SECTION}}
 
-<restored_work>{{RESTORED_WORK_SECTION}}</restored_work>
+{{RESTORED_WORK_SECTION}}
 
 `progress.md` (at the sprint root, `{{PROGRESS_FILE}}`) is an append-only chronological journal
 of every prior task-attempt on this sprint — decisions made, changes shipped, learnings recorded,

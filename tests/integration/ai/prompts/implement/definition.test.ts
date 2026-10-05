@@ -549,7 +549,7 @@ describe('buildImplementPrompt — end-to-end against the real template', () => 
     expect(result.value).not.toMatch(/\{\{[A-Z_]+\}\}/);
   });
 
-  it('renders restored work inside its wrapper, and an empty wrapper when absent', async () => {
+  it('renders restored work inside its wrapper, and no wrapper at all when absent', async () => {
     const base = {
       task: makeTaskWith({ name: 'export CSV' }),
       projectPath: '/tmp/ralph/main-repo',
@@ -564,14 +564,15 @@ describe('buildImplementPrompt — end-to-end against the real template', () => 
     });
     expect(withRestored.ok).toBe(true);
     if (!withRestored.ok) return;
-    expect(withRestored.value).toContain('<restored_work>An earlier attempt at this task was rejected');
+    expect(withRestored.value).toContain('<restored_work>\nAn earlier attempt at this task was rejected');
     expect(withRestored.value).toContain('3 files, +10 -2 lines');
     expect(withRestored.value).toContain('off by one');
 
     const without = await buildImplementPrompt(deps, base);
     expect(without.ok).toBe(true);
     if (!without.ok) return;
-    expect(without.value).toContain('<restored_work></restored_work>');
+    // Only the backticked mention in the working-tree rule may remain — no bare wrapper tag.
+    expect(without.value).not.toMatch(/(?<!`)<\/?restored_work>/);
   });
 
   it('lists the expected uncommitted work in the working-tree rule', async () => {
