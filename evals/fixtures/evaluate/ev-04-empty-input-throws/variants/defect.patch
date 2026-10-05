@@ -7,10 +7,10 @@ index 0000000..292cb64
 +export const firstWord = (text) => text.trim().match(/\S+/)[0];
 diff --git a/test/first-word.test.mjs b/test/first-word.test.mjs
 new file mode 100644
-index 0000000..882d2da
+index 0000000..e2e08af
 --- /dev/null
 +++ b/test/first-word.test.mjs
-@@ -0,0 +1,19 @@
+@@ -0,0 +1,11 @@
 +import { test } from 'node:test';
 +import assert from 'node:assert/strict';
 +import { firstWord } from '../src/first-word.mjs';
@@ -21,12 +21,4 @@ index 0000000..882d2da
 +
 +test('skips leading whitespace', () => {
 +  assert.equal(firstWord('   spaced out'), 'spaced');
-+});
-+
-+test('returns the empty string for empty input', () => {
-+  assert.equal(firstWord(''), '');
-+});
-+
-+test('returns the empty string for whitespace-only input', () => {
-+  assert.equal(firstWord('   '), '');
 +});
