@@ -425,8 +425,9 @@ opt-in phase folder: `e` enable, `d` disable, `u` update one, `U` update every o
 reload — the filesystem under `<appRoot>/skills/<flow>/` is the source of truth (see `ARCHITECTURE.md`
 § Skills subsystem).
 
-Execute view: three-column at `xl` (≥180), two-column at `lg` (≥140), compact-rail at `md` (100–139),
-single-column below `md`. Rail grows fluidly 36→56 cols at `xl`+ via `resolveRailWidth`. Named breakpoints
+Execute view: three-column at `xl` (≥180), two-column at `lg` (≥140), compact (no rail column) at `md` (100–139),
+single-column below `md`. The header carries a main-step strip at every width; a flow without task work items
+(plan, refine, review, …) shows a Steps tree where the Tasks panel would be. Rail grows fluidly 36→56 cols at `xl`+ via `resolveRailWidth`. Named breakpoints
 (`sm 80 / md 100 / lg 140 / xl 180 / xxl 220`) are canonical — use `breakpointFor`, `fluid`
 from `theme/tokens.ts` and `useBreakpoint` from `runtime/use-breakpoint.ts`; no hardcoded column literals.
 Global keys: `g` progress, `S` / `P` pick sprint / project;

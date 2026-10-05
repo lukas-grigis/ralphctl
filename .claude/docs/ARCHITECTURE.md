@@ -808,8 +808,8 @@ contract) and are not restated here:
   (`runtime/system-status-context.tsx`) on mount and on refresh; renders per-check rows + an aggregate card.
 - **Execute view is responsive** — flow-steps rail / tasks-stream / context columns collapse from three to one as
   the terminal narrows. Every width decision goes through the named breakpoints and `resolveRailWidth` in
-  `theme/tokens.ts` — no hardcoded column literals. `StepTrace` renders `Element.label` when present,
-  mid-truncated to the rail budget.
+  `theme/tokens.ts` — no hardcoded column literals. The step tree renders `Element.label` when present,
+  truncated to its column budget.
 - **Overlays snapshot on open** — `ProgressOverlay` reads `progress.md` and `EvaluationOverlay` reads
   `<sprintDir>/implement/<task-id>/<Attempt.evaluation.file>` from disk when opened; there is no live tail or
   file watcher. A stale / absent path or a pruned workspace degrades to the one-line `EvaluationLine`, never an

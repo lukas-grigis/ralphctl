@@ -23,8 +23,10 @@
 import React from 'react';
 import { Box, Text } from 'ink';
 import { Card } from '@src/application/ui/tui/components/card.tsx';
+import { FlowProgressStrip } from '@src/application/ui/tui/components/flow-progress-strip.tsx';
 import { Spinner } from '@src/application/ui/tui/components/spinner.tsx';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
+import type { FlowProgress } from '@src/application/ui/tui/runtime/flow-progress.ts';
 import type { SessionDescriptor } from '@src/application/ui/tui/runtime/session-manager.ts';
 import { resolveAttemptCoords, type TaskBucket } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
 import { contextWindowLabel } from '@src/domain/value/settings-models/context-window.ts';
@@ -39,6 +41,10 @@ interface HeaderCardProps {
   readonly currentTaskIdx: number;
   readonly currentTaskName: string | undefined;
   readonly currentSubStep: string | undefined;
+  /** Flow-progress projection — feeds the main-step strip and the failure locator. */
+  readonly progress?: FlowProgress | undefined;
+  /** Terminal columns; the strip fits itself inside the card's inner width. */
+  readonly width?: number | undefined;
   /** Epoch ms the run started waiting on a prompt; set while an operator answer blocks it. */
   readonly waitingSince?: number | undefined;
 }
@@ -254,12 +260,15 @@ const ActiveTaskRow = ({
   currentTaskIdx,
   currentTaskName,
   currentSubStep,
+  failedAt,
   tasksTotal,
 }: {
   readonly currentTask: TaskBucket | undefined;
   readonly currentTaskIdx: number;
   readonly currentTaskName: string | undefined;
   readonly currentSubStep: string | undefined;
+  /** Label of the step the run failed at; replaces the live step locator once settled. */
+  readonly failedAt: string | undefined;
   readonly tasksTotal: number;
 }): React.JSX.Element | null => {
   if (currentTask === undefined || currentTaskName === undefined) return null;
@@ -271,16 +280,26 @@ const ActiveTaskRow = ({
       </Text>
       <Text dimColor> {glyphs.bullet} </Text>
       <Text bold>{currentTaskName}</Text>
-      {currentSubStep !== undefined && (
+      {failedAt !== undefined ? (
         <>
-          <Text dimColor> {glyphs.bullet} step </Text>
-          <Text color={inkColors.highlight}>{currentSubStep}</Text>
+          <Text dimColor> {glyphs.bullet} failed at </Text>
+          <Text color={inkColors.error}>{failedAt}</Text>
         </>
+      ) : (
+        currentSubStep !== undefined && (
+          <>
+            <Text dimColor> {glyphs.bullet} step </Text>
+            <Text color={inkColors.highlight}>{currentSubStep}</Text>
+          </>
+        )
       )}
       <RoundCounter task={currentTask} />
     </Box>
   );
 };
+
+/** Border + padding the card spends on each side of its content. */
+const STRIP_CHROME_COLS = 4;
 
 const HeaderCardImpl = ({
   descriptor,
@@ -291,6 +310,8 @@ const HeaderCardImpl = ({
   currentTaskIdx,
   currentTaskName,
   currentSubStep,
+  progress,
+  width,
   waitingSince,
 }: HeaderCardProps): React.JSX.Element => (
   <Card
@@ -321,7 +342,9 @@ const HeaderCardImpl = ({
         generatorEffort={descriptor.generatorEffort}
         evaluatorEffort={descriptor.evaluatorEffort}
       />
+      <FlowProgressStrip progress={progress} width={(width ?? 100) - STRIP_CHROME_COLS} />
       <ActiveTaskRow
+        failedAt={!isRunning ? progress?.failure?.label : undefined}
         currentTask={currentTask}
         currentTaskIdx={currentTaskIdx}
         currentTaskName={currentTaskName}

@@ -2,7 +2,7 @@
  * Render-budget fence for TasksPanel. Catches the OOM class — "some descendant component
  * renders an unbounded child array driven by the 90 ms spinner heartbeat" — without naming
  * the offending array. If a future author deletes the `.slice()` from any nested list
- * (sub-steps, evaluations, signals, orphan signals), the worst-case fixture explodes past the
+ * (step tree, evaluations, signals, orphan signals), the worst-case fixture explodes past the
  * line / character ceilings and the test fails loudly with "frame too large".
  *
  * The fixture is intentionally adversarial:
@@ -16,20 +16,28 @@
 import { render } from 'ink-testing-library';
 import { describe, expect, it } from 'vitest';
 import { TasksPanel } from '@src/application/ui/tui/components/tasks-panel.tsx';
-import type {
-  BucketedExecution,
-  TaskBucket,
-  TaskSubStep,
-} from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
+import type { BucketedExecution, TaskBucket } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
+import type { StepView } from '@src/application/ui/tui/runtime/flow-progress.ts';
 import type { ChangeSignal, EvaluationSignal, HarnessSignal } from '@src/domain/signal.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 
 const ts = (n: number): IsoTimestamp => new Date(Date.UTC(2026, 0, 1, 0, 0, 0, n)).toISOString() as IsoTimestamp;
 
-const subStep = (i: number): TaskSubStep => ({
-  leafName: `leaf-${String(i).padStart(4, '0')}`,
-  status: 'completed',
+const stepLeaf = (i: number): StepView => ({
+  key: `leaf-${String(i)}`,
+  label: `leaf-${String(i).padStart(4, '0')}`,
+  status: i === 499 ? 'running' : 'completed',
+  depth: 3,
   durationMs: 1,
+  children: [],
+});
+
+const stepTree = (id: string): StepView => ({
+  key: id,
+  label: id,
+  status: 'running',
+  depth: 2,
+  children: Array.from({ length: 500 }, (_unused, i) => stepLeaf(i)),
 });
 
 const evaluation = (i: number): EvaluationSignal => ({
@@ -49,7 +57,7 @@ const buildWorstCaseFixture = (): BucketedExecution => {
   const tasks: TaskBucket[] = Array.from({ length: 20 }, (_outerUnused, taskIdx) => ({
     id: `01933fbb-0000-7000-8000-${String(taskIdx).padStart(12, '0')}`,
     status: 'running',
-    subSteps: Array.from({ length: 500 }, (_subUnused, i) => subStep(i)),
+    subSteps: [],
     evaluations: Array.from({ length: 30 }, (_evalUnused, i) => evaluation(i)),
     signals: Array.from({ length: 200 }, (_sigUnused, i) => changeSignal(taskIdx, i)),
     genEvalRound: 0,
@@ -61,7 +69,13 @@ const buildWorstCaseFixture = (): BucketedExecution => {
 describe('TasksPanel render budget', () => {
   it('keeps the worst-case frame under hard line / character ceilings', () => {
     const bucketed = buildWorstCaseFixture();
-    const r = render(<TasksPanel bucketed={bucketed} running={true} />);
+    const r = render(
+      <TasksPanel
+        bucketed={bucketed}
+        running={true}
+        stepTreeByTaskId={new Map(bucketed.tasks.map((t) => [t.id, stepTree(t.id)]))}
+      />
+    );
     const frame = r.lastFrame() ?? '';
 
     // Line ceiling — current per-task caps (12 sub-steps + 6 evaluations + 8 signals + chrome)
@@ -74,10 +88,11 @@ describe('TasksPanel render budget', () => {
     // measuring the actual fixture (~37k chars in practice) and rounding generously up.
     expect(frame.length).toBeLessThanOrEqual(80_000);
 
-    // Truncation must actually happen — the elision row proves the descendant `.slice()`
+    // Truncation must actually happen — the windowed tree proves the descendant `.slice()`
     // calls fired. Without this assertion a regression that produced a tiny frame for some
     // unrelated reason (e.g. broken rendering) would silently pass the ceilings.
-    expect(frame).toContain('… 488 earlier sub-steps');
+    expect(frame).toContain('leaf-0499');
+    expect(frame).not.toContain('leaf-0000');
 
     r.unmount();
   });

@@ -53,6 +53,9 @@ Rules:
 
 Canonical set. If a view needs a symbol not in this list, **add it to `glyphs` first** (and document it here).
 
+Step trees draw depth with `spacing.indent` columns per level plus the phase glyphs above — no `├ └` connectors.
+A connector would cost two columns per level at 100 cols and add a glyph family without making the tree easier to read.
+
 | Group           | Tokens                                                                                                                                                      |
 | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Phase / status  | `phaseDone ■`, `phaseActive ◆`, `phasePending ◇`, `phaseDisabled ◌`                                                                                         |
@@ -115,13 +118,13 @@ Field lists use `FIELD_LABEL_WIDTH = 14` from tokens. That fits the longest labe
 All terminal-width decisions use the named breakpoints exported from `src/application/ui/tui/theme/tokens.ts`.
 **Never hardcode a raw column number in a view** — import the token or helper.
 
-| Name  | Threshold (cols) | Typical layout                                 |
-| ----- | ---------------- | ---------------------------------------------- |
-| `sm`  | ≥ 80             | Single-column stack; minimum supported width   |
-| `md`  | ≥ 100            | Narrow multi-column; Execute compact-rail mode |
-| `lg`  | ≥ 140            | Two-column viable (rail + main)                |
-| `xl`  | ≥ 180            | Three-column viable (rail + main + context)    |
-| `xxl` | ≥ 220            | Extra room; rails and context can grow         |
+| Name  | Threshold (cols) | Typical layout                               |
+| ----- | ---------------- | -------------------------------------------- |
+| `sm`  | ≥ 80             | Single-column stack; minimum supported width |
+| `md`  | ≥ 100            | Narrow multi-column; Execute compact mode    |
+| `lg`  | ≥ 140            | Two-column viable (rail + main)              |
+| `xl`  | ≥ 180            | Three-column viable (rail + main + context)  |
+| `xxl` | ≥ 220            | Extra room; rails and context can grow       |
 
 **Helper functions** (all exported from `tokens.ts`):
 
@@ -151,7 +154,7 @@ resolveRailWidth(columns):
   ≥ xl  (≥ 180)  →  fluid(cols, { min: 36, max: 56, ratio: 0.22 })
 ```
 
-`COMPACT_RAIL_WIDTH = 6` applies at `md` (100–139); only status glyphs are shown, no labels.
+At `md` (100–139) the Execute view has no rail column: Tasks takes the full width and the header's main-step strip names the steps.
 `tokens.ts` also exports `CONTEXT_WIDTH` for the right context column — touch those via
 `resolveRailWidth` and the breakpoint helpers, not via new magic numbers.
 
@@ -237,20 +240,22 @@ the same job.
 
 Specialised components owned by `ExecuteView`. Don't import them from other views.
 
-| Component               | Purpose                                                                                                                       |
-| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `StepTrace`             | Outer chain trace list. Filters out per-task entries.                                                                         |
-| `TasksPanel`            | Dependency-aware per-task card list. Status pill + activity. Cards collapsed by default; `j`/`k` nav, `Enter`/`Space` expand. |
-| `RecentEventsTail`      | Rolling log-tail panel. Receives pre-filtered `LogEvent[]` as a prop.                                                         |
-| `TokenBudgetCard`       | Subscribes to `TokenUsageEvent`; renders `(input + output) / contextWindow` progress bar.                                     |
-| `BaselineHealthCard`    | Renders `SprintExecution.setupRanAt` history in the context column.                                                           |
-| `BaselineHealthChip`    | Inline status chip summarising the latest setup-script outcome per repo.                                                      |
-| `StatusBanner`          | Tiered `info` / `warn` / `error` banner driven by `BannerShowEvent` / `BannerClearEvent`. Replaces `RateLimitBanner`.         |
-| `MultiFlowStrip`        | Horizontal strip listing concurrent session statuses above the tasks panel.                                                   |
-| `EvaluatorFailurePanel` | Per-dimension evaluator verdict, parsed from the attempt's `evaluation.md`. Renders inside `EvaluationOverlay`.               |
-| `ProgressOverlay`       | Full-screen overlay (`g`) that reads `progress.md` from disk on open; no live tail.                                           |
-| `EvaluationOverlay`     | Full-screen overlay (`v`) that reads the focused task's `evaluation.md` on open. Degrades to the one-line verdict.            |
-| `CancelScopeOverlay`    | Modal picker (`c`) offering cancel-attempt vs cancel-flow choices.                                                            |
+| Component               | Purpose                                                                                                                                                                                                                                                                                                                       |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `FlowProgressStrip`     | One-line main-step strip in the header (`steps ■ Prepare → ◆ Run tasks 0/1 → ◇ Finish`, position or `failed at …` right-aligned). One truncating `Text`; `fitStepStrip` degrades full labels → glyph-only except the active step → active step alone.                                                                         |
+| `FlowStepsTree`         | Read-only step tree over the flow-progress projection (sidebar Steps, full-width Steps, or the main column of a flow without task work items). Windowed (`computeListWindow` + `OverflowRow`), anchored on the running row, or the failed row once settled failed. A failed step's message sits on its own row, never inline. |
+| `TaskStepTree`          | The same rows inside an expanded task card: Prepare / Attempt n/N / Round n/N / Verify / Commit / Finish. A short round renders inline (`◆ Round 2/5 · ⠼ Generate · ◇ Evaluate`); a finished round ends in a `✓` / `✗ dimensions` / `?` verdict chip.                                                                         |
+| `TasksPanel`            | Dependency-aware per-task card list. Status pill + activity. Cards collapsed by default; `j`/`k` nav, `Enter`/`Space` expand.                                                                                                                                                                                                 |
+| `RecentEventsTail`      | Rolling log-tail panel. Receives pre-filtered `LogEvent[]` as a prop.                                                                                                                                                                                                                                                         |
+| `TokenBudgetCard`       | Subscribes to `TokenUsageEvent`; renders `(input + output) / contextWindow` progress bar.                                                                                                                                                                                                                                     |
+| `BaselineHealthCard`    | Renders `SprintExecution.setupRanAt` history in the context column.                                                                                                                                                                                                                                                           |
+| `BaselineHealthChip`    | Inline status chip summarising the latest setup-script outcome per repo.                                                                                                                                                                                                                                                      |
+| `StatusBanner`          | Tiered `info` / `warn` / `error` banner driven by `BannerShowEvent` / `BannerClearEvent`. Replaces `RateLimitBanner`.                                                                                                                                                                                                         |
+| `MultiFlowStrip`        | Horizontal strip listing concurrent session statuses above the tasks panel.                                                                                                                                                                                                                                                   |
+| `EvaluatorFailurePanel` | Per-dimension evaluator verdict, parsed from the attempt's `evaluation.md`. Renders inside `EvaluationOverlay`.                                                                                                                                                                                                               |
+| `ProgressOverlay`       | Full-screen overlay (`g`) that reads `progress.md` from disk on open; no live tail.                                                                                                                                                                                                                                           |
+| `EvaluationOverlay`     | Full-screen overlay (`v`) that reads the focused task's `evaluation.md` on open. Degrades to the one-line verdict.                                                                                                                                                                                                            |
+| `CancelScopeOverlay`    | Modal picker (`c`) offering cancel-attempt vs cancel-flow choices.                                                                                                                                                                                                                                                            |
 
 ### 4.4 Prompt family (`src/application/ui/tui/prompts/`)
 

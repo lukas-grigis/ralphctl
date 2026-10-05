@@ -13,6 +13,7 @@ import React, { useMemo } from 'react';
 import { Box } from 'ink';
 import { MultiFlowStrip } from '@src/application/ui/tui/components/multi-flow-strip.tsx';
 import { CancelScopeOverlay } from '@src/application/ui/tui/components/cancel-scope-overlay.tsx';
+import type { FlowProgress } from '@src/application/ui/tui/runtime/flow-progress.ts';
 import type { SessionDescriptor, SessionRecord } from '@src/application/ui/tui/runtime/session-manager.ts';
 import type { SprintExecution } from '@src/domain/entity/sprint-execution.ts';
 import type { Task } from '@src/domain/entity/task.ts';
@@ -32,6 +33,8 @@ import type { NextSteps } from '@src/application/ui/shared/next-steps.ts';
 
 export interface ExecuteBodyProps {
   readonly descriptor: SessionDescriptor;
+  /** Flow-progress projection — drives the header strip, the Steps tree and the per-task trees. */
+  readonly progress?: FlowProgress | undefined;
   readonly sessionList: readonly SessionRecord[];
   readonly sessionId: string;
   readonly isRunning: boolean;
@@ -85,6 +88,7 @@ export interface ExecuteBodyProps {
 const MainRegion = ({
   layout,
   descriptor,
+  progress,
   isRunning,
   sessionId,
   termColumns,
@@ -102,6 +106,7 @@ const MainRegion = ({
   ExecuteBodyProps,
   | 'layout'
   | 'descriptor'
+  | 'progress'
   | 'isRunning'
   | 'sessionId'
   | 'termColumns'
@@ -123,6 +128,7 @@ const MainRegion = ({
       termRows={termRows}
       inputActive={tasksInputActive}
       descriptor={descriptor}
+      progress={progress}
       isRunning={isRunning}
       sessionId={sessionId}
       termColumns={termColumns}
@@ -136,7 +142,7 @@ const MainRegion = ({
     />
   ) : (
     <ExecuteLayout
-      descriptor={descriptor}
+      progress={progress}
       isRunning={isRunning}
       sessionId={sessionId}
       termColumns={termColumns}
@@ -198,6 +204,8 @@ const CancelScopePicker = ({
 export const ExecuteBody = (props: ExecuteBodyProps): React.JSX.Element => {
   const {
     descriptor,
+    progress,
+    termColumns,
     sessionList,
     sessionId,
     isRunning,
@@ -247,6 +255,8 @@ export const ExecuteBody = (props: ExecuteBodyProps): React.JSX.Element => {
         currentTaskIdx={currentTaskIdx}
         currentTaskName={currentTaskName}
         currentSubStep={currentSubStep}
+        progress={progress}
+        width={termColumns}
         waitingSince={awaiting?.get(sessionId)}
       />
 

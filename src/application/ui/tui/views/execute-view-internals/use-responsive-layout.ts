@@ -5,7 +5,7 @@
  *
  *   ≥180 cols (xl) :  three-column — fluid-width rail + flex Tasks + fixed context column.
  *   140–179 (lg)   :  two-column — fixed RAIL_WIDTH rail + flex Tasks.
- *   100–139 (md)   :  compact two-column — glyph-only rail.
+ *   100–139 (md)   :  compact — full-width Tasks (or Steps tree); the header strip carries the main steps.
  *   <100 cols      :  single-column stack.
  *
  * Pulling the breakpoint logic out of the view keeps the orchestrator focused on hook
@@ -37,6 +37,14 @@ export interface ResponsiveLayout {
    * variable-height; the rail counts the same way).
    */
   readonly tasksMaxBlocks: number;
+  /**
+   * Row budget for one task's step tree: the rows left in the main column after the card's fixed
+   * chrome (kinds bar, capped cross-task notes, header, criteria, verdict). The tree window stays
+   * anchored on the running row, so a small budget degrades gracefully instead of hiding it.
+   */
+  readonly taskStepTreeRows: number;
+  /** Rows for a full-height Steps tree that replaces the Tasks panel in flows without task work items. */
+  readonly stepsMainRows: number;
   readonly logRows: number;
   readonly threeColRailWidth: number;
   readonly labelledRailWidth: number;
@@ -52,9 +60,9 @@ export interface ResponsiveLayout {
    */
   readonly sidebarTaskNavRows: number;
   /**
-   * Max rows for the flow-steps rail inside the sidebar. Derived from the same shared budget
-   * as {@link sidebarTaskNavRows}. Capped at 10 rows so the task minimap always has breathing
-   * room and the TokenBudgetCard is never pushed off-screen.
+   * Max rows for the steps tree inside the sidebar. Derived from the same shared budget as
+   * {@link sidebarTaskNavRows}; floored at 3 (the minimap gives those rows up) and capped at 10 so
+   * the minimap keeps breathing room and the TokenBudgetCard is never pushed off-screen.
    */
   readonly sidebarFlowStepsRows: number;
   /**
@@ -130,13 +138,20 @@ export const useResponsiveLayout = ({ columns, rows, isRunning }: UseResponsiveL
   // Declared here (before tasksMaxBlocks) so both usages can reference the same value.
   // BaselineHealthChip removed from page (now in sidebar card); column labels removed.
   // Header card ~4 + ViewShell banner ~2 + log section chrome ~2 + ResultFooter ~1 + margins ~1.
-  const PAGE_CHROME_ROWS = 10; // header-card + ViewShell + log chrome + footer
+  const PAGE_CHROME_ROWS = 11; // header-card (incl. its step-strip line) + ViewShell + log chrome + footer
 
   const tasksMaxBlocks = singleColumn
     ? Math.max(2, Math.floor((rows - NARROW_FLOW_STEPS_ROWS - 10) / 4))
     : sidebarLayout
       ? Math.max(3, Math.floor((rows - PAGE_CHROME_ROWS - logRows) / 3))
       : Math.max(3, Math.floor((rows - 14) / 4));
+
+  // Fixed rows of the active task card above its step tree: kinds bar, cross-task notes
+  // (header + 2 capped rows + cue + gap), card header, criteria (header + 3), verdict slot.
+  const TASK_CARD_FIXED_ROWS = 14;
+  const mainRows = singleColumn ? rows - NARROW_FLOW_STEPS_ROWS - PAGE_CHROME_ROWS : rows - PAGE_CHROME_ROWS - logRows;
+  const taskStepTreeRows = Math.min(16, Math.max(5, mainRows - TASK_CARD_FIXED_ROWS));
+  const stepsMainRows = Math.max(NARROW_FLOW_STEPS_ROWS, mainRows - 2);
 
   // The two-column branch uses the fixed `RAIL_WIDTH`; the three-column branch grows the
   // rail fluidly. We compute once and reuse so the truncation budget passed to StepTrace
@@ -157,7 +172,7 @@ export const useResponsiveLayout = ({ columns, rows, isRunning }: UseResponsiveL
   //
   // Sidebar section order (top → bottom):
   //   1. BaselineHealthCard (bordered card: border+title+content ≈ 6–8 rows)
-  //   2. Steps rail (compact, suppressMeta, capped at SIDEBAR_STEPS_CAP)
+  //   2. Steps tree (task flows only; 3-row floor, capped at SIDEBAR_STEPS_CAP)
   //   3. Task-nav minimap (flexible, minimum SIDEBAR_TASK_NAV_MIN rows)
   //   4. TokenBudgetCard (bottom-pinned, ~5 rows)
   //
@@ -181,11 +196,15 @@ export const useResponsiveLayout = ({ columns, rows, isRunning }: UseResponsiveL
 
   const SIDEBAR_CHROME_ROWS = 20; // BaselineCard + Steps/Tasks headers + dividers + gutters + TokenBudgetCard
   const SIDEBAR_STEPS_CAP = 10; // max rows for the flow-steps rail in sidebar
+  const SIDEBAR_STEPS_MIN = 3; // floor for the steps tree; the minimap gives the rows up
   const SIDEBAR_TASK_NAV_MIN = 4; // minimum rows for the task-nav minimap
 
   const sidebarBodyRows = Math.max(0, rows - PAGE_CHROME_ROWS - SIDEBAR_CHROME_ROWS - logRows);
   // Split: steps get up to STEPS_CAP, task-nav gets the remainder (minimum TASK_NAV_MIN each).
-  const sidebarFlowStepsRows = Math.min(SIDEBAR_STEPS_CAP, Math.max(0, Math.floor(sidebarBodyRows * 0.35)));
+  const sidebarFlowStepsRows = Math.min(
+    SIDEBAR_STEPS_CAP,
+    Math.max(SIDEBAR_STEPS_MIN, Math.floor(sidebarBodyRows * 0.35))
+  );
   const sidebarTaskNavRows = Math.max(SIDEBAR_TASK_NAV_MIN, sidebarBodyRows - sidebarFlowStepsRows);
 
   // Side-by-side context cards: true at ≥xl (180 cols) where sidebarWidth ≥ 72, giving each
@@ -201,6 +220,8 @@ export const useResponsiveLayout = ({ columns, rows, isRunning }: UseResponsiveL
     flowStepsRows,
     tasksMaxSignals,
     tasksMaxBlocks,
+    taskStepTreeRows,
+    stepsMainRows,
     logRows,
     threeColRailWidth,
     labelledRailWidth,

@@ -26,9 +26,9 @@
 import { priorWorkNotice, type PriorWorkNotice } from '@src/application/ui/shared/prior-work-copy.ts';
 import React, { useCallback, useMemo } from 'react';
 import { TasksPanel } from '@src/application/ui/tui/components/tasks-panel.tsx';
-import type { BucketedExecution, TaskBucket } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
-import { overlayEntityBlockedStatus, UUID_SUFFIX_REGEX } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
-import { planLeafNames } from '@src/application/ui/tui/runtime/plan-leaves.ts';
+import type { BucketedExecution } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
+import { overlayEntityBlockedStatus } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
+import type { FlowProgress } from '@src/application/ui/tui/runtime/flow-progress.ts';
 import type { SessionDescriptor } from '@src/application/ui/tui/runtime/session-manager.ts';
 import type { TaskEvaluation } from '@src/application/ui/tui/components/tasks-panel-internals/evaluation-row.tsx';
 import type { BlockedTriage } from '@src/application/ui/tui/components/tasks-projection.ts';
@@ -40,12 +40,6 @@ import { latestRecordedEvaluation } from '@src/business/task/evaluation-artifact
 
 /** Stable empty set — never recreated per render while a run is live (see {@link blockedTaskIds}). */
 const NO_BLOCKED_TASK_IDS: ReadonlySet<string> = new Set();
-
-/**
- * Dynamic gen-eval leaf names that repeat an unknown number of rounds. These are excluded from
- * the pending-sub-steps list so we never fabricate a fixed count of future rounds.
- */
-const DYNAMIC_LEAF_NAMES = new Set(['generator', 'evaluator']);
 
 /** One-line summary for a flagged completion shown under the task card. Kind-specific prose. */
 const warningSummaryFor = (w: AttemptWarning): string => {
@@ -167,38 +161,6 @@ const evaluationsByTaskId = (taskState: readonly Task[]): ReadonlyMap<string, Ta
   return byId.size > 0 ? byId : undefined;
 };
 
-/**
- * `taskId → pending (not-yet-executed) sub-step leaf names`, derived from the planned leaves.
- * `plannedLeaves` contains ALL planned leaf names including UUID-suffixed per-task ones (e.g.
- * `generator-<taskId>`, `commit-task-<taskId>`, `uninstall-skills-<taskId>`).
- *
- * For each task: collect the planned leaves carrying that task's UUID suffix, strip the suffix to
- * recover the `leafName` (matching `TaskSubStep.leafName`), subtract the already-executed leaves so
- * only future steps show, and drop the dynamic generator/evaluator leaves — they repeat an unknown
- * number of rounds, so listing them as pending would fabricate a fixed count of future rounds.
- *
- * Undefined when nothing is pending anywhere.
- */
-const pendingLeavesByTaskId = (
-  tasks: readonly TaskBucket[],
-  plannedLeaves: readonly string[]
-): ReadonlyMap<string, readonly string[]> | undefined => {
-  const byId = new Map<string, string[]>();
-  for (const task of tasks) {
-    const tail = `-${task.id}`;
-    const plannedForTask: string[] = [];
-    for (const leaf of plannedLeaves) {
-      if (leaf.endsWith(tail) && UUID_SUFFIX_REGEX.test(leaf)) plannedForTask.push(leaf.slice(0, -tail.length));
-    }
-    if (plannedForTask.length === 0) continue;
-    // Deduped for the gen-eval multi-run case, where one leaf name appears in many sub-steps.
-    const executed = new Set<string>(task.subSteps.map((s) => s.leafName));
-    const pending = plannedForTask.filter((leafName) => !executed.has(leafName) && !DYNAMIC_LEAF_NAMES.has(leafName));
-    if (pending.length > 0) byId.set(task.id, pending);
-  }
-  return byId.size > 0 ? byId : undefined;
-};
-
 interface UseUnblockAffordanceInput {
   readonly isRunning: boolean;
   readonly blockedReasonById: ReadonlyMap<string, string> | undefined;
@@ -263,6 +225,10 @@ export interface TasksPanelHostProps {
   readonly maxSignalsPerTask: number;
   /** Card-count budget for the windowed Tasks column (from `layout.tasksMaxBlocks`). */
   readonly maxTasks: number;
+  /** Row budget for one task's step tree (from `layout.taskStepTreeRows`). */
+  readonly maxSubStepsPerTask?: number;
+  /** Flow-progress projection — supplies each task's step tree. */
+  readonly progress?: FlowProgress | undefined;
   readonly inputActive: boolean;
   readonly now: number;
   readonly taskState: readonly Task[] | undefined;
@@ -280,6 +246,8 @@ const TasksPanelHostImpl = ({
   isRunning,
   maxSignalsPerTask,
   maxTasks,
+  maxSubStepsPerTask,
+  progress,
   inputActive,
   now,
   taskState,
@@ -324,15 +292,6 @@ const TasksPanelHostImpl = ({
     () => (bucketed !== undefined ? overlayEntityBlockedStatus(bucketed, taskState, isRunning) : undefined),
     [bucketed, taskState, isRunning]
   );
-  const planTree = descriptor.planTree;
-  const pendingSubStepsByTaskId = useMemo(
-    () =>
-      correctedBucketed !== undefined
-        ? pendingLeavesByTaskId(correctedBucketed.tasks, planLeafNames(planTree))
-        : undefined,
-    [correctedBucketed, planTree]
-  );
-
   if (correctedBucketed === undefined) return null;
 
   return (
@@ -356,7 +315,8 @@ const TasksPanelHostImpl = ({
       {...(warningSummaryById !== undefined ? { warningSummaryById } : {})}
       {...(priorWorkById !== undefined ? { priorWorkById } : {})}
       {...(taskEvaluationById !== undefined ? { taskEvaluationById } : {})}
-      {...(pendingSubStepsByTaskId !== undefined ? { pendingSubStepsByTaskId } : {})}
+      {...(progress !== undefined && progress.workItems.size > 0 ? { stepTreeByTaskId: progress.workItems } : {})}
+      {...(maxSubStepsPerTask !== undefined ? { maxSubStepsPerTask } : {})}
     />
   );
 };

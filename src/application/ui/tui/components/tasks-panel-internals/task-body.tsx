@@ -1,9 +1,8 @@
 /**
  * Expanded body of a task card — everything below the header cluster:
  *
- *   - {@link ActiveBusyIndicator}   — two-role gen-eval activity dot
  *   - {@link ExpandedNotices}       — idle ticker, resume banner, first-run hint, criteria, error
- *   - {@link ExpandedProgressBlock} — sub-steps, eval verdict, signals
+ *   - {@link ExpandedProgressBlock} — step tree, eval verdict, signals
  *
  * Each component self-gates on `cardExpanded` (and its own data-presence condition), so the
  * composing card never repeats a gate. The eval verdict is sourced from the AUTHORITATIVE
@@ -21,7 +20,6 @@ import {
   collapseWhitespace,
   IDLE_TICKER_THRESHOLD_MS,
   latestIdleSnippets,
-  resolveActiveRole,
 } from '@src/application/ui/tui/components/tasks-panel-internals/format.ts';
 import { focusKey } from '@src/application/ui/tui/components/tasks-panel-internals/focus-keys.ts';
 import {
@@ -30,60 +28,13 @@ import {
 } from '@src/application/ui/tui/components/tasks-panel-internals/evaluation-row.tsx';
 import { StreamSignalRow } from '@src/application/ui/tui/components/tasks-panel-internals/signal-rows.tsx';
 import {
-  BusyIndicator,
   CriteriaBlock,
   RecoveryLine,
-  SubStepLine,
 } from '@src/application/ui/tui/components/tasks-panel-internals/task-card-parts.tsx';
 import { IndentedNotice } from '@src/application/ui/tui/components/tasks-panel-internals/task-header.tsx';
+import { TaskStepTree } from '@src/application/ui/tui/components/tasks-panel-internals/task-step-tree.tsx';
+import type { StepView } from '@src/application/ui/tui/runtime/flow-progress.ts';
 import { useIdleClock } from '@src/application/ui/tui/components/tasks-panel-internals/use-idle-clock.ts';
-
-/** Two-role gen-eval activity indicator, active+expanded task only. Self-gates internally. */
-export const ActiveBusyIndicator = ({
-  cardExpanded,
-  isActive,
-  task,
-}: {
-  readonly cardExpanded: boolean;
-  readonly isActive: boolean;
-  readonly task: TaskBucket;
-}): React.JSX.Element | null => {
-  const isSpinning = task.status === 'running';
-  if (!cardExpanded || !isActive || !isSpinning) return null;
-  return <BusyIndicator role={resolveActiveRole(task.subSteps)} />;
-};
-
-/** Executed + pending sub-step rows under an expanded card. */
-const SubStepsSection = ({
-  taskId,
-  subStepRows,
-  subStepElided,
-  pendingSubSteps,
-  running,
-}: {
-  readonly taskId: string;
-  readonly subStepRows: TaskBucket['subSteps'];
-  readonly subStepElided: number;
-  readonly pendingSubSteps: readonly string[] | undefined;
-  readonly running: boolean;
-}): React.JSX.Element => (
-  <Box flexDirection="column" paddingLeft={spacing.indent}>
-    {subStepElided > 0 && <Text dimColor>{`${glyphs.clipEllipsis} ${String(subStepElided)} earlier sub-steps`}</Text>}
-    {subStepRows.map((s, i) => (
-      <SubStepLine key={`${taskId}-sub-${String(i)}`} sub={s} running={running} />
-    ))}
-    {/* Pending sub-steps from the plan — not yet executed. Grey ◇ rows, matching the Steps rail. */}
-    {pendingSubSteps !== undefined &&
-      pendingSubSteps.map((leafName) => (
-        <Box key={`${taskId}-pending-${leafName}`}>
-          <Text color={inkColors.muted}>
-            {glyphs.activityArrow} {glyphs.phasePending}
-          </Text>
-          <Text dimColor> {leafName}</Text>
-        </Box>
-      ))}
-  </Box>
-);
 
 /**
  * Eval verdict block under an expanded card: the AUTHORITATIVE one-line verdict, and only that.
@@ -229,16 +180,15 @@ export const ExpandedNotices = ({
 };
 
 /**
- * Sub-steps, eval verdict (or its "awaiting eval" placeholder), and signals — the trailing,
- * data-heavy rows of an expanded card. Self-gates on `cardExpanded`; slices `task.subSteps` /
- * `task.signals` to the render window itself so the caller only threads the raw task + limits.
+ * Step tree, eval verdict (or its "awaiting eval" placeholder), and signals — the trailing,
+ * data-heavy rows of an expanded card. Self-gates on `cardExpanded`; slices `task.signals` to the render window itself so the caller only threads the raw task + limits.
  */
 export const ExpandedProgressBlock = ({
   cardExpanded,
   task,
   maxSubSteps,
   maxSignals,
-  pendingSubSteps,
+  stepTree,
   running,
   isActive,
   taskEvaluation,
@@ -251,7 +201,7 @@ export const ExpandedProgressBlock = ({
   readonly task: TaskBucket;
   readonly maxSubSteps: number;
   readonly maxSignals: number;
-  readonly pendingSubSteps: readonly string[] | undefined;
+  readonly stepTree: StepView | undefined;
   readonly running: boolean;
   readonly isActive: boolean;
   readonly taskEvaluation: TaskEvaluation | undefined;
@@ -261,20 +211,14 @@ export const ExpandedProgressBlock = ({
   readonly sliceStart: number;
 }): React.JSX.Element | null => {
   if (!cardExpanded) return null;
-  const subStepRows = task.subSteps.slice(-maxSubSteps);
-  const subStepElided = task.subSteps.length - subStepRows.length;
   const signalRows = task.signals.slice(-maxSignals);
   const signalsElided = task.signals.length - signalRows.length;
   return (
     <>
-      {(subStepRows.length > 0 || (pendingSubSteps !== undefined && pendingSubSteps.length > 0)) && (
-        <SubStepsSection
-          taskId={task.id}
-          subStepRows={subStepRows}
-          subStepElided={subStepElided}
-          pendingSubSteps={pendingSubSteps}
-          running={running}
-        />
+      {stepTree !== undefined && (
+        <Box flexDirection="column" paddingLeft={spacing.indent}>
+          <TaskStepTree view={stepTree} maxRows={maxSubSteps} settled={!running} running={running} />
+        </Box>
       )}
       {isActive && taskEvaluation === undefined && (
         // An active card with no AUTHORITATIVE evaluation yet — surface a single dim placeholder

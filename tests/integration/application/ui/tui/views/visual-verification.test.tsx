@@ -16,6 +16,7 @@
 import React from 'react';
 import { render } from 'ink-testing-library';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { taskFlowProgress } from '@tests/fixtures/flow-progress.ts';
 import { ImplementSidebar } from '@src/application/ui/tui/views/execute-view-internals/implement-sidebar.tsx';
 import { useResponsiveLayout } from '@src/application/ui/tui/views/execute-view-internals/use-responsive-layout.ts';
 import type { SessionDescriptor } from '@src/application/ui/tui/runtime/session-manager.ts';
@@ -124,6 +125,7 @@ const renderSidebar = (cols: number, rows: number): SidebarRender => {
       sidebarFlowStepsRows: layout.sidebarFlowStepsRows,
       sidebarContextSideBySide: layout.sidebarContextSideBySide,
       descriptor,
+      progress: taskFlowProgress(['task-aaa-111-222-333', 'task-bbb-444-555-666']),
       bucketed,
       isRunning: true,
       focusedTaskId: 'task-bbb-444-555-666',

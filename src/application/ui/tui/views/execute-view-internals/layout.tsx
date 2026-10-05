@@ -5,9 +5,9 @@
  *   ≥180 cols (xl+):  three-column — fluid-width rail (resolveRailWidth) + flex Tasks + fixed
  *                     context column (BaselineHealthCard + TokenBudgetCard).
  *   140–179 cols:     two-column — fixed RAIL_WIDTH rail + flex Tasks. No context column.
- *   100–139 cols:     compact two-column — glyph-only rail + flex Tasks. "Flow steps"
- *                     header is dropped because it would overflow the narrow rail.
- *   <100 cols:        single-column stack — labelled rail + Tasks rendered as sections.
+ *   100–139 cols:     compact — full-width Tasks; the header strip carries the main steps. A
+ *                     flow without task work items shows a full-width Steps tree instead.
+ *   <100 cols:        single-column stack — Tasks (or Steps, without task work items) section.
  *
  * `width={term.columns}` on each row is load-bearing: without it the outer row inherits
  * its intrinsic content width and the Tasks column's `flexGrow={1}` resolves against an
@@ -16,18 +16,18 @@
 
 import React from 'react';
 import { Box } from 'ink';
-import { COMPACT_RAIL_WIDTH, RAIL_WIDTH, spacing } from '@src/application/ui/tui/theme/tokens.ts';
+import { RAIL_WIDTH, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { BaselineHealthCard } from '@src/application/ui/tui/components/baseline-health-card.tsx';
 import { TokenBudgetCard } from '@src/application/ui/tui/components/token-budget-card.tsx';
 import { Section, SectionHeader } from '@src/application/ui/tui/views/execute-view-internals/section.tsx';
-import { CompactFlowStepsRail, FlowStepsRail } from '@src/application/ui/tui/views/execute-view-internals/rail.tsx';
-import type { SessionDescriptor } from '@src/application/ui/tui/runtime/session-manager.ts';
+import { FlowStepsRail } from '@src/application/ui/tui/views/execute-view-internals/rail.tsx';
+import type { FlowProgress } from '@src/application/ui/tui/runtime/flow-progress.ts';
 import type { SprintExecution } from '@src/domain/entity/sprint-execution.ts';
 import type { Task } from '@src/domain/entity/task.ts';
 import type { TokenUsage } from '@src/application/ui/tui/runtime/use-token-usage.ts';
 
 interface LayoutProps {
-  readonly descriptor: SessionDescriptor;
+  readonly progress: FlowProgress | undefined;
   readonly isRunning: boolean;
   readonly sessionId: string;
   readonly termColumns: number;
@@ -133,26 +133,27 @@ const TwoColumnLayout = ({
 );
 
 /**
- * 100–139 cols — glyph-only rail + flex Tasks. The rail's SectionHeader is dropped because
- * "Flow steps" overflows the narrow column; the glyph-only column reads as a status spine.
+ * 100–139 cols — one full-width column: Tasks, or the Steps tree when the flow has no task work
+ * items (plan, refine, review, …). The strip in the header already names the main steps.
  */
-const CompactTwoColumnLayout = ({
+const CompactLayout = ({
   termColumns,
-  compactFlowStepsPanel,
-  tasksPanel,
-}: Pick<LayoutProps, 'termColumns' | 'tasksPanel'> & {
-  readonly compactFlowStepsPanel: React.ReactNode;
+  main,
+  title,
+}: Pick<LayoutProps, 'termColumns'> & {
+  readonly main: React.ReactNode;
+  readonly title: string;
 }): React.JSX.Element => (
   <Box flexDirection="row" marginTop={spacing.section} width={termColumns}>
-    <Box flexDirection="column" width={COMPACT_RAIL_WIDTH} marginRight={spacing.section} flexShrink={0}>
-      {compactFlowStepsPanel}
+    <Box flexDirection="column" flexGrow={1} flexBasis={0} minWidth={0}>
+      <SectionHeader title={title} />
+      {main}
     </Box>
-    <TasksColumn tasksPanel={tasksPanel} />
   </Box>
 );
 
 export const ExecuteLayout = ({
-  descriptor,
+  progress,
   isRunning,
   sessionId,
   termColumns,
@@ -171,12 +172,12 @@ export const ExecuteLayout = ({
   pinnedSprintStale,
 }: LayoutProps): React.JSX.Element => {
   const flowStepsPanel = (
-    <FlowStepsRail
-      descriptor={descriptor}
-      isRunning={isRunning}
-      maxRows={flowStepsRows}
-      railWidth={labelledRailWidth}
-    />
+    <FlowStepsRail progress={progress} isRunning={isRunning} maxRows={flowStepsRows} railWidth={labelledRailWidth} />
+  );
+  // Flows without task work items have nothing for a Tasks panel to show: their steps take its place.
+  const stepsInPlaceOfTasks = progress !== undefined && !progress.hasTaskWorkItems;
+  const fullWidthSteps = (
+    <FlowStepsRail progress={progress} isRunning={isRunning} maxRows={flowStepsRows} railWidth={termColumns - 4} />
   );
 
   if (threeColumn) {
@@ -201,20 +202,17 @@ export const ExecuteLayout = ({
   }
   if (compactTwoColumn) {
     return (
-      <CompactTwoColumnLayout
+      <CompactLayout
         termColumns={termColumns}
-        compactFlowStepsPanel={
-          <CompactFlowStepsRail descriptor={descriptor} isRunning={isRunning} maxRows={flowStepsRows} />
-        }
-        tasksPanel={tasksPanel}
+        title={stepsInPlaceOfTasks ? 'Steps' : 'Tasks'}
+        main={stepsInPlaceOfTasks ? fullWidthSteps : tasksPanel}
       />
     );
   }
   // <100 cols — single-column stack.
-  return (
-    <>
-      <Section title="Flow steps">{flowStepsPanel}</Section>
-      <Section title="Tasks">{tasksPanel}</Section>
-    </>
+  return stepsInPlaceOfTasks ? (
+    <Section title="Steps">{fullWidthSteps}</Section>
+  ) : (
+    <Section title="Tasks">{tasksPanel}</Section>
   );
 };

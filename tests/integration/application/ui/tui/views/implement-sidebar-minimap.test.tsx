@@ -25,6 +25,7 @@ import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
 import type { Runner } from '@src/application/chain/run/runner.ts';
 import { createSessionManager } from '@src/application/ui/tui/runtime/session-manager.ts';
+import { planToElement, taskFlowPlan, taskFlowProgress } from '@tests/fixtures/flow-progress.ts';
 import { renderView, waitForViewReady } from '@tests/integration/application/ui/tui/_harness.tsx';
 
 // ---------------------------------------------------------------------------
@@ -86,6 +87,7 @@ describe('ImplementSidebar — navigation only', () => {
         sidebarFlowStepsRows={8}
         sidebarContextSideBySide={false}
         descriptor={descriptor}
+        progress={taskFlowProgress(['task-aaa', 'task-bbb', 'task-ccc'])}
         bucketed={THREE_TASKS}
         isRunning={true}
         focusedTaskId={undefined}
@@ -203,13 +205,14 @@ describe('ImplementSidebar — navigation only', () => {
     unmount();
   });
 
-  it('renders steps compact — never leaks a failed step error/meta into the narrow column', () => {
-    const descriptor: SessionDescriptor = {
-      ...makeDescriptor(),
+  it('keeps a failed step to one truncated row — its message never wraps the narrow column', () => {
+    const ids = ['task-aaa', 'task-bbb', 'task-ccc'];
+    const descriptor = makeDescriptor();
+    const progress = taskFlowProgress(ids, {
+      running: false,
       trace: [
-        { elementName: 'load-tasks', status: 'completed', durationMs: 1 },
         {
-          elementName: 'preflight-task-1',
+          elementName: 'load-tasks',
           status: 'failed',
           durationMs: 4,
           error: {
@@ -217,9 +220,8 @@ describe('ImplementSidebar — navigation only', () => {
               'cannot start a task: 3 uncommitted change(s) in /Users/grigis/Workzone/github/lukas-grigis/mindvaults',
           },
         },
-        { elementName: 'setup-script', status: 'skipped', durationMs: 0 },
       ] as unknown as SessionDescriptor['trace'],
-    };
+    });
     const { lastFrame, unmount } = render(
       <ImplementSidebar
         sidebarWidth={36}
@@ -227,22 +229,23 @@ describe('ImplementSidebar — navigation only', () => {
         sidebarFlowStepsRows={8}
         sidebarContextSideBySide={false}
         descriptor={descriptor}
+        progress={progress}
         bucketed={THREE_TASKS}
-        isRunning={true}
+        isRunning={false}
         focusedTaskId={undefined}
         now={BASE_MS}
       />
     );
     const frame = lastFrame() ?? '';
 
-    // The step name still renders…
-    expect(frame).toContain('preflight-task-1');
-    // …but the failed step's error message is NEVER shown in the compact sidebar steps
-    // (it would wrap across many lines in the narrow column — it lives in the log/footer).
-    expect(frame).not.toContain('uncommitted');
+    // The failed main step is named, and its message sits on one row that truncates with an ellipsis
+    // instead of wrapping across the column.
+    expect(frame).toContain('✗ Load tasks');
+    const messageRow = frame.split('\n').find((l) => l.includes('cannot start'));
+    expect(messageRow).toBeDefined();
+    expect(messageRow).toContain('…');
     expect(frame).not.toContain('mindvaults');
-    // …and the duration / trailing status word are suppressed too.
-    expect(frame).not.toContain('skipped');
+    for (const line of frame.split('\n')) expect(line.length).toBeLessThanOrEqual(100);
 
     unmount();
   });
@@ -407,6 +410,7 @@ const noopEventBus: EventBus = {
 const fakeRunner = (id: string): Runner<unknown> =>
   ({
     id,
+    element: planToElement(taskFlowPlan(['t1'])),
     status: 'running',
     ctx: {},
     trace: [],

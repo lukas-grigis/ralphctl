@@ -5,8 +5,8 @@
  * `execute-view-internals/`:
  *   - `body.tsx`                — composes header / layout / log / footer / overlay
  *   - `header-card.tsx`         — flow / elapsed / tasks / model / active-task header
- *   - `rail.tsx`                — labelled + compact flow-steps StepTrace variants
- *   - `layout.tsx`              — responsive column switcher (3 / 2 / compact-2 / 1)
+ *   - `rail.tsx`                — flow-steps tree over the flow-progress projection
+ *   - `layout.tsx`              — responsive column switcher (3 / 2 / compact / 1)
  *   - `log-panel.tsx`           — bottom Recent-log panel + buffer-cap rationale
  *   - `tasks-panel-host.tsx`    — TasksPanel adapter folding verificationCriteria mapping
  *   - `result-footer.tsx`       — settled ResultCard / running spinner
@@ -27,7 +27,7 @@
  * Layout regimes (driven by terminal width):
  *  - ≥180 cols (xl+): three-column — fluid-width rail, flex Tasks, fixed context column.
  *  - 140–179 cols   : two-column — fixed RAIL_WIDTH rail + flex Tasks. No context column.
- *  - 100–139 cols   : compact two-column — glyph-only rail + flex Tasks.
+ *  - 100–139 cols   : compact — full-width Tasks (or Steps, for flows without task work items).
  *  - <100 cols      : single-column stack.
  *
  * Local keys:
@@ -45,7 +45,6 @@
 import React from 'react';
 import { Box, Text } from 'ink';
 import { ViewShell } from '@src/application/ui/tui/components/view-shell.tsx';
-import { useAwaitingSessions } from '@src/application/ui/tui/runtime/use-awaiting-sessions.ts';
 import { runnerStatusKind, StatusChip } from '@src/application/ui/tui/components/status-chip.tsx';
 import { spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { useTokenUsage } from '@src/application/ui/tui/runtime/use-token-usage.ts';
@@ -63,6 +62,7 @@ import { useSelection } from '@src/application/ui/tui/runtime/selection-context.
 import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx';
 import { fmtElapsed } from '@src/application/ui/tui/theme/duration.ts';
 import type { AppDeps } from '@src/application/bootstrap/wire.ts';
+import type { FlowProgress } from '@src/application/ui/tui/runtime/flow-progress.ts';
 import type { BucketedExecution } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
 import type {
   SessionDescriptor,
@@ -86,12 +86,14 @@ import { ExecuteBody } from '@src/application/ui/tui/views/execute-view-internal
 import { LOG_TAIL_LIMIT } from '@src/application/ui/tui/views/execute-view-internals/log-panel.tsx';
 import { TasksPanelHost } from '@src/application/ui/tui/views/execute-view-internals/tasks-panel-host.tsx';
 import { useActiveTaskSummary } from '@src/application/ui/tui/views/execute-view-internals/use-active-task-summary.ts';
-import { useBucketedTasks } from '@src/application/ui/tui/views/execute-view-internals/use-bucketed-tasks.ts';
-import { useCancelHandlers } from '@src/application/ui/tui/views/execute-view-internals/use-cancel-handlers.ts';
-import { useCancelScopeStats } from '@src/application/ui/tui/views/execute-view-internals/use-cancel-scope-stats.ts';
 import { useResponsiveLayout } from '@src/application/ui/tui/views/execute-view-internals/use-responsive-layout.ts';
 import { useExecuteInput } from '@src/application/ui/tui/views/execute-view-internals/use-execute-input.ts';
 import { useLiveClock } from '@src/application/ui/tui/views/execute-view-internals/use-live-clock.ts';
+import {
+  useExecuteCancel,
+  useExecuteProgress,
+  type FlowState,
+} from '@src/application/ui/tui/views/execute-view-internals/use-execute-flow.ts';
 import { useEvaluationChord } from '@src/application/ui/tui/views/execute-view-internals/use-open-evaluation.ts';
 
 interface ExecuteProps extends Readonly<Record<string, unknown>> {
@@ -159,6 +161,7 @@ interface DeriveTasksPanelInput {
   readonly pinnedSprintStale: boolean;
   readonly bucketed: BucketedExecution | undefined;
   readonly descriptor: SessionDescriptor;
+  readonly progress: FlowProgress | undefined;
   readonly isRunning: boolean;
   readonly layout: ResponsiveLayout;
   readonly tasksInputActive: boolean;
@@ -192,6 +195,7 @@ const deriveTasksPanel = ({
   pinnedSprintStale,
   bucketed,
   descriptor,
+  progress,
   isRunning,
   layout,
   tasksInputActive,
@@ -208,9 +212,11 @@ const deriveTasksPanel = ({
     <TasksPanelHost
       bucketed={bucketed}
       descriptor={descriptor}
+      progress={progress}
       isRunning={isRunning}
       maxSignalsPerTask={layout.tasksMaxSignals}
       maxTasks={layout.tasksMaxBlocks}
+      maxSubStepsPerTask={layout.taskStepTreeRows}
       inputActive={tasksInputActive}
       now={now}
       taskState={taskState}
@@ -317,6 +323,7 @@ interface ExecuteViewFrameProps {
   readonly descriptor: SessionDescriptor;
   readonly sessionList: readonly SessionRecord[];
   readonly sessionId: string;
+  readonly flow: FlowState;
   readonly runControls: ExecuteRunControls;
   readonly layout: ResponsiveLayout;
   readonly term: TerminalSize;
@@ -341,6 +348,7 @@ const ExecuteViewFrame = ({
   descriptor,
   sessionList,
   sessionId,
+  flow,
   runControls,
   layout,
   term,
@@ -358,8 +366,7 @@ const ExecuteViewFrame = ({
   const endedAt = descriptor.finishedAt ?? runControls.now;
   const elapsed = fmtElapsed(descriptor.startedAt, endedAt);
   // A run parked on a prompt reads WAITING: the operator, not the run, is the bottleneck.
-  const awaiting = useAwaitingSessions();
-  const waiting = runControls.isRunning && awaiting.has(sessionId);
+  const waiting = runControls.isRunning && flow.awaiting.has(sessionId);
   const statusLabel = waiting ? 'waiting' : descriptor.status;
 
   return (
@@ -383,6 +390,7 @@ const ExecuteViewFrame = ({
           descriptor={descriptor}
           sessionList={sessionList}
           sessionId={sessionId}
+          progress={flow.progress}
           isRunning={runControls.isRunning}
           now={runControls.now}
           elapsed={elapsed}
@@ -399,7 +407,7 @@ const ExecuteViewFrame = ({
           onDismissCancelScope={cancelHandlers.onDismiss}
           pinnedSprintStale={pinnedSprintStale}
           nextSteps={nextSteps}
-          awaiting={awaiting}
+          awaiting={flow.awaiting}
           {...bucketedTasks}
           {...tasksPanelDerivation}
         />
@@ -439,15 +447,13 @@ export const ExecuteView = (): React.JSX.Element => {
     router,
     hasPinnedSprint: pinnedSprintId !== undefined,
     hasEvaluation: evaluation.hasAny,
-    // `!pinnedSprintStale` mirrors the panel's own gate below — a stale pin unmounts the
-    // `TasksPanelHost` that owns the `u` handler, so the hint must go with it.
+    // A stale pin unmounts the `TasksPanelHost` that owns `u`, so the hint goes with it.
     hasBlockedTask: !pinnedSprintStale && (taskState?.some((t) => t.status === 'blocked') ?? false),
   });
 
-  const bucketedTasks = useBucketedTasks({ descriptor, chainEvents, signals, eventBus });
+  const { flow, bucketedTasks } = useExecuteProgress(descriptor, sessionId, eventBus, chainEvents, signals);
 
-  // Per-session token usage — latest `TokenUsageEvent` per sessionId. The execute view is
-  // sessionId-scoped so we only look up the current runner's entry; absent ⇒ empty state.
+  // Latest `TokenUsageEvent` for this session; absent ⇒ empty state.
   const tokenUsage = useTokenUsage(eventBus).get(sessionId);
 
   useActiveTaskSummary({
@@ -458,19 +464,13 @@ export const ExecuteView = (): React.JSX.Element => {
     setActiveTaskSummaryProvider: ui.setActiveTaskSummaryProvider,
   });
 
-  const cancelStats = useCancelScopeStats({
-    chainEvents,
-    currentTask: bucketedTasks.currentTask,
-    bucketed: bucketedTasks.bucketed,
-  });
-
-  const cancelHandlers = useCancelHandlers({
+  const cancel = useExecuteCancel({
     sessions,
     sessionId,
+    deps,
+    chainEvents,
+    bucketedTasks,
     sprintId: pinnedSprintId,
-    currentTask: bucketedTasks.currentTask,
-    taskRepo: deps.taskRepo,
-    logger: deps.logger,
     setCancelScopeOpen: runControls.setCancelScopeOpen,
   });
 
@@ -481,12 +481,11 @@ export const ExecuteView = (): React.JSX.Element => {
   // the view needs has already run.
   if (!session || descriptor === undefined) return <SessionNotFoundNotice />;
 
-  // `pinnedSprintStale` (closed/removed pin) is computed above, alongside the selection
-  // convergence effect that also needs it.
   const tasksPanelDerivation = deriveTasksPanel({
     pinnedSprintStale,
     bucketed: bucketedTasks.bucketed,
     descriptor,
+    progress: flow.progress,
     isRunning: runControls.isRunning,
     layout,
     // TasksPanel claims input for its cursor chords (j/k, Enter/Space, `e`, `v`). Disabled while
@@ -505,6 +504,7 @@ export const ExecuteView = (): React.JSX.Element => {
       descriptor={descriptor}
       sessionList={sessionList}
       sessionId={sessionId}
+      flow={flow}
       runControls={runControls}
       layout={layout}
       term={term}
@@ -512,9 +512,9 @@ export const ExecuteView = (): React.JSX.Element => {
       tasksPanelDerivation={tasksPanelDerivation}
       tokenUsage={tokenUsage}
       logEntries={logEntries}
-      attemptElapsedMs={computeAttemptElapsedMs(cancelStats.attemptStartedAt, runControls.now)}
-      remainingTaskCount={cancelStats.remainingTaskCount}
-      cancelHandlers={cancelHandlers}
+      attemptElapsedMs={computeAttemptElapsedMs(cancel.stats.attemptStartedAt, runControls.now)}
+      remainingTaskCount={cancel.stats.remainingTaskCount}
+      cancelHandlers={cancel.handlers}
       pinnedSprintStale={pinnedSprintStale}
       nextSteps={nextSteps}
     />

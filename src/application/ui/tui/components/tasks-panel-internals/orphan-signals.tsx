@@ -38,11 +38,7 @@ const OrphanSignalsImpl = ({
         {glyphs.bullet} Cross-task notes
       </Text>
       <Box flexDirection="column" paddingLeft={spacing.indent}>
-        {orphansElided > 0 && (
-          <Text
-            dimColor
-          >{`${glyphs.clipEllipsis} ${String(orphansElided)} earlier note${orphansElided === 1 ? '' : 's'}`}</Text>
-        )}
+        {orphansElided > 0 && <Text dimColor>{`${glyphs.moreAbove} ${String(orphansElided)} more`}</Text>}
         {rows.map((s, i) => {
           const key = focusKey('orphan', sliceStart + i);
           return (

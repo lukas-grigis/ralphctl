@@ -3,15 +3,14 @@
  * contract, its memo comparator, and the composition of the parts:
  *
  *   - `task-header.tsx`      — cursor / status / name row, summary + round + ETA chips, notices
- *   - `task-body.tsx`        — busy indicator, expanded notices, sub-steps / eval / signals
- *   - `task-card-parts.tsx`  — the smallest shared leaves (status maps, recovery / sub-step /
- *                              criteria rows)
+ *   - `task-body.tsx`        — expanded notices, step tree / eval / signals
+ *   - `task-card-parts.tsx`  — the smallest shared leaves (status map, recovery / criteria rows)
  *
  * Every part self-gates — it checks its own `cardExpanded` / data-presence condition and returns
  * `null` when it has nothing to show — so the card below never repeats a gate.
  *
  * The per-task extras (recovery context, criteria, blocked reason, warning, evaluation verdict,
- * pending sub-steps, projection) arrive as ONE {@link TaskOverlay} rather than as separate props:
+ * step tree, projection) arrive as ONE {@link TaskOverlay} rather than as separate props:
  * the panel folds the host's parallel id-keyed maps into it once per change, so a card looks its
  * extras up once and the memo comparator has a single reference to compare.
  */
@@ -29,7 +28,6 @@ import {
   TaskHeaderCore,
 } from '@src/application/ui/tui/components/tasks-panel-internals/task-header.tsx';
 import {
-  ActiveBusyIndicator,
   ExpandedNotices,
   ExpandedProgressBlock,
 } from '@src/application/ui/tui/components/tasks-panel-internals/task-body.tsx';
@@ -54,9 +52,8 @@ type TaskBlockProps = {
   /** True for the active (running) task; gates ETA rendering to the operator's focus. */
   readonly isActive: boolean;
   /**
-   * Run-wide first-run flag — true when no harness signal or evaluation has fired across any
-   * task in the panel. Surfaces a `waiting for first attempt…` line below the active task's
-   * spinner so the operator sees the run is alive but pre-signal.
+   * True while this task has no Attempt iteration yet. Surfaces a `waiting for first attempt…`
+   * line below the active task's spinner so the operator sees the run is alive but pre-attempt.
    */
   readonly firstRun: boolean;
   /**
@@ -133,7 +130,6 @@ const TaskBlockImpl = ({
       <RoundAttemptChip cardExpanded={cardExpanded} task={task} />
       <EtaChip cardExpanded={cardExpanded} isActive={isActive} taskProjection={overlay.taskProjection} task={task} />
     </Box>
-    <ActiveBusyIndicator cardExpanded={cardExpanded} isActive={isActive} task={task} />
     <HeaderNotices
       task={task}
       cardExpanded={cardExpanded}
@@ -157,7 +153,7 @@ const TaskBlockImpl = ({
       task={task}
       maxSubSteps={maxSubSteps}
       maxSignals={maxSignals}
-      pendingSubSteps={overlay.pendingSubSteps}
+      stepTree={overlay.stepTree}
       running={running}
       isActive={isActive}
       taskEvaluation={overlay.taskEvaluation}

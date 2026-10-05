@@ -1,47 +1,71 @@
-/** The runner mutates descriptor.trace in place; the memoised rail must still advance. */
+/** The runner mutates descriptor.trace and live in place; the projection hook must still advance the strip and the tree. */
 
 import React from 'react';
 import { render } from 'ink-testing-library';
+import { Box } from 'ink';
 import { describe, expect, it } from 'vitest';
 import type { TraceEntry } from '@src/application/chain/trace.ts';
 import type { PlanNode } from '@src/application/chain/plan-tree.ts';
-import type { SessionDescriptor } from '@src/application/ui/tui/runtime/session-manager.ts';
+import type { SessionDescriptor, SessionLive } from '@src/application/ui/tui/runtime/session-manager.ts';
+import { useFlowProgress } from '@src/application/ui/tui/runtime/use-flow-progress.ts';
 import { FlowStepsRail } from '@src/application/ui/tui/views/execute-view-internals/rail.tsx';
+import { FlowProgressStrip } from '@src/application/ui/tui/components/flow-progress-strip.tsx';
 
-const planOf = (names: readonly string[]): PlanNode => ({
+const leaf = (name: string): PlanNode => ({ name, label: name, kind: 'leaf', internal: false, children: [] });
+const plan: PlanNode = {
   name: 'root',
   kind: 'sequential',
   internal: false,
-  children: names.map((name) => ({ name, kind: 'leaf', internal: false, children: [] })),
-});
+  children: ['load-sprint', 'second-step', 'third-step'].map(leaf),
+};
 
 const done = (name: string): TraceEntry => ({ elementName: name, status: 'completed', durationMs: 1 });
 
-describe('FlowStepsRail liveness', () => {
-  it('advances the running row when steps are pushed onto the same descriptor', () => {
+const Harness = ({ descriptor }: { readonly descriptor: SessionDescriptor }): React.JSX.Element => {
+  const progress = useFlowProgress({ descriptor, awaiting: false });
+  return (
+    <Box flexDirection="column">
+      <FlowProgressStrip progress={progress} width={96} />
+      <FlowStepsRail progress={progress} isRunning maxRows={10} railWidth={60} />
+    </Box>
+  );
+};
+
+describe('flow steps liveness', () => {
+  it('advances strip and tree when steps start and finish on the same descriptor', () => {
     const trace: TraceEntry[] = [];
+    const live: SessionLive = { inFlight: new Map(), version: 0 };
     const descriptor = {
       id: 's1',
-      flowId: 'implement',
+      flowId: 'plan',
       title: 't',
       status: 'running',
       startedAt: 0,
       trace,
-      planTree: planOf(['load-sprint', 'second-step', 'third-step']),
+      planTree: plan,
+      live,
     } as SessionDescriptor;
-    const el = (): React.JSX.Element => <FlowStepsRail descriptor={descriptor} isRunning maxRows={10} railWidth={40} />;
-    const r = render(el());
-    const spine = (f: string | undefined): string[] => (f ?? '').split('\n');
-    const before = r.lastFrame();
+    const r = render(<Harness descriptor={descriptor} />);
+    const start = (name: string): void => {
+      live.inFlight.clear();
+      live.inFlight.set(name, { elementName: name });
+      live.version += 1;
+    };
+    start('load-sprint');
+    r.rerender(<Harness descriptor={descriptor} />);
+    expect(r.lastFrame()).toContain('step 1/3');
     trace.push(done('load-sprint'));
-    r.rerender(el());
-    const mid = r.lastFrame();
-    expect(mid).not.toBe(before);
+    start('second-step');
+    r.rerender(<Harness descriptor={descriptor} />);
+    const mid = r.lastFrame() ?? '';
+    expect(mid).toContain('step 2/3');
+    expect(mid).toContain('■ load-sprint');
     trace.push(done('second-step'));
-    r.rerender(el());
+    start('third-step');
+    r.rerender(<Harness descriptor={descriptor} />);
     const after = r.lastFrame() ?? '';
-    expect(after).not.toBe(mid);
-    expect(spine(after).find((l) => l.includes('third-step'))).toBeDefined();
+    expect(after).toContain('step 3/3');
+    expect(after).toContain('■ second-step');
     r.unmount();
   });
 });

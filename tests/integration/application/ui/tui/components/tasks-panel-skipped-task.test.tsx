@@ -8,6 +8,7 @@ import { render } from 'ink-testing-library';
 import { describe, expect, it } from 'vitest';
 import { TasksPanel } from '@src/application/ui/tui/components/tasks-panel.tsx';
 import type { BucketedExecution, TaskBucket } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
+import type { StepView } from '@src/application/ui/tui/runtime/flow-progress.ts';
 
 const BLOCKED = '01933fbb-0000-7000-8000-000000000001';
 const RUNNING = '01933fbb-0000-7000-8000-000000000002';
@@ -32,6 +33,19 @@ const bucketed: BucketedExecution = {
   orphanSignals: [],
 };
 
+const treeOf = (id: string, label: string): StepView => ({
+  key: id,
+  label: id,
+  status: 'running',
+  depth: 2,
+  children: [{ key: `${id}-${label}`, label, status: 'running', depth: 3, children: [] }],
+});
+
+const trees = new Map([
+  [BLOCKED, treeOf(BLOCKED, 'Check dependencies')],
+  [RUNNING, treeOf(RUNNING, 'Generate')],
+]);
+
 const names = new Map([
   [BLOCKED, 'Blocked upstream task'],
   [RUNNING, 'Live task'],
@@ -48,13 +62,13 @@ describe('TasksPanel — dependency-blocked task', () => {
   });
 
   it('anchors the auto-expanded active card on the running task, not the blocked one', () => {
-    const r = render(<TasksPanel bucketed={bucketed} running nameById={names} />);
+    const r = render(<TasksPanel bucketed={bucketed} running nameById={names} stepTreeByTaskId={trees} />);
     const frame = r.lastFrame() ?? '';
 
-    // The active card is the only one expanded on first paint, so its sub-steps are visible
+    // The active card is the only one expanded on first paint, so its step tree is visible
     // while the blocked card's stay collapsed.
-    expect(frame).toContain('generator');
-    expect(frame).not.toContain('dependency-gate');
+    expect(frame).toContain('Generate');
+    expect(frame).not.toContain('Check dependencies');
     r.unmount();
   });
 });

@@ -2,6 +2,7 @@ import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import type { PriorWorkNotice } from '@src/application/ui/shared/prior-work-copy.ts';
 import type { Attempt, RecoveryContext } from '@src/domain/entity/attempt.ts';
 import type { Task } from '@src/domain/entity/task.ts';
+import type { StepView } from '@src/application/ui/tui/runtime/flow-progress.ts';
 import type { TaskEvaluation } from '@src/application/ui/tui/components/tasks-panel-internals/evaluation-row.tsx';
 
 /**
@@ -44,7 +45,7 @@ export interface BlockedTriage {
  * Everything the Tasks panel knows about ONE task beyond its live `TaskBucket` — the entity- and
  * projection-sourced extras the bucketed trace cannot carry (a resume banner, verification
  * criteria, a blocked reason, a flagged-completion warning, the authoritative evaluation verdict,
- * the pending sub-steps still ahead, and the round/commit projection).
+ * the step tree, and the round/commit projection).
  *
  * Every field is optional and every absent field means "nothing to show for this task", so a card
  * with no extras is simply an empty overlay rather than a missing entry.
@@ -64,8 +65,8 @@ export interface TaskOverlay {
   readonly warningSummary?: string;
   /** Authoritative verdict — the last attempt's `evaluation.status`, never a bucketed signal. */
   readonly taskEvaluation?: TaskEvaluation;
-  /** Planned-but-not-yet-executed sub-step leaf names. Empty lists are dropped. */
-  readonly pendingSubSteps?: readonly string[];
+  /** The task's step tree (work-item root) from the flow-progress projection. */
+  readonly stepTree?: StepView;
   /** Attempt count / latest commit sha / median round duration for the header chips + ETA. */
   readonly taskProjection?: TaskProjection;
 }

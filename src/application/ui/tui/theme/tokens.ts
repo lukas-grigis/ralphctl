@@ -233,13 +233,10 @@ export const PROMPT_VISIBLE_ROWS = 8;
  * widths (no flex) so the stream column inherits all remaining space via `flexGrow={1}`.
  *
  *   - {@link RAIL_WIDTH} — left rail; carries the Flow Steps list (labels visible).
- *   - {@link COMPACT_RAIL_WIDTH} — narrowed rail used at the intermediate 100–139 col
- *     breakpoint; the Flow Steps list collapses to status icons only, no labels.
  *   - {@link CONTEXT_WIDTH} — right context column; baseline health (P1k), token meter
  *     (P2b), and ETA (P3a) cards stack here at ≥180 cols.
  */
 export const RAIL_WIDTH = 28;
-export const COMPACT_RAIL_WIDTH = 6;
 export const CONTEXT_WIDTH = 28;
 
 /**
