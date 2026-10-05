@@ -6,7 +6,7 @@ import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Result } from '@src/domain/result.ts';
 import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
 import type { EvaluationSignal, HarnessSignal } from '@src/domain/signal.ts';
-import type { TokenUsageEvent } from '@src/business/observability/events.ts';
+import type { TaskRoundEvaluatedEvent, TokenUsageEvent } from '@src/business/observability/events.ts';
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import type { HeadlessAiProvider } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
@@ -719,8 +719,17 @@ describe('createImplementFlow — gen-eval loop', () => {
       },
     });
 
+    const eventBus = createInMemoryEventBus();
+    const verdicts: TaskRoundEvaluatedEvent[] = [];
+    eventBus.subscribe((e) => {
+      if (e.type === 'task-round-evaluated') verdicts.push(e);
+    });
+
     const flow = createImplementFlow(
-      buildDeps(sprintRepo.repo, inMemoryExecutionRepo(f.execution).repo, taskRepo.repo, provider, f.dir),
+      {
+        ...buildDeps(sprintRepo.repo, inMemoryExecutionRepo(f.execution).repo, taskRepo.repo, provider, f.dir),
+        eventBus,
+      },
       {
         sprintId: f.sprint.id,
         todoTasks: f.tasks,
@@ -754,6 +763,11 @@ describe('createImplementFlow — gen-eval loop', () => {
       expect(finalTask.attempts[0]?.status).toBe('verified');
     }
     expect(sprintRepo.current().status).toBe('review');
+    // One verdict per round, published by the evaluator leaf the real flow wires.
+    expect(verdicts.map((v) => [v.taskId, v.attemptN, v.roundN, v.verdict])).toEqual([
+      [String(f.tasks[0]!.id), 1, 1, 'failed'],
+      [String(f.tasks[0]!.id), 1, 2, 'passed'],
+    ]);
   });
 
   it('exhausted budget: every turn fails — task → done with budget-exhausted warning, sprint → review', async () => {

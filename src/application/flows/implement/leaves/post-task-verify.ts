@@ -536,4 +536,5 @@ export const postTaskVerifyLeaf = (
     useCase: { execute: createPostTaskVerifyExecute(deps, opts, taskId) },
     input: (ctx) => resolveLeafInput(ctx, taskId),
     output: (ctx, out) => projectLeafOutput(ctx, out, opts),
+    label: 'Verify',
   });

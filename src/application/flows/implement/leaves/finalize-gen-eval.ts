@@ -149,4 +149,6 @@ export const finalizeGenEvalLeaf = (deps: FinalizeGenEvalLeafDeps, taskId: TaskI
         ...(out.shouldFailAttempt === true ? { lastShouldFailAttempt: true } : {}),
       };
     },
+    label: 'Settle rounds',
+    internal: true,
   });

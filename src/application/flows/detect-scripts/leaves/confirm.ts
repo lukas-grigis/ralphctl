@@ -287,4 +287,5 @@ export const confirmDetectScriptsLeaf = (deps: ConfirmDetectScriptsLeafDeps): El
         ...(ctx.proposal?.runDir !== undefined ? { runDir: ctx.proposal.runDir } : {}),
       },
     }),
+    label: 'Confirm scripts',
   });

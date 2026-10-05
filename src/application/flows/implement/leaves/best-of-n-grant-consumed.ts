@@ -70,5 +70,7 @@ export const persistBestOfNGrantConsumedLeaf = (deps: ImplementDeps, taskId: Tas
       },
       // Disk-only side effect — ctx is returned unchanged, see the docstring above.
       output: (ctx) => ctx,
+      label: 'Record grant',
+      internal: true,
     }
   );

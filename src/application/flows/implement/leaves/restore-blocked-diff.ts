@@ -566,4 +566,6 @@ export const restoreBlockedDiffLeaf = (
       return { sprintId: ctx.sprintId, task, reproductionArtifact: ctx.reproductionArtifact };
     },
     output: projectOutput,
+    label: 'Restore diff',
+    internal: true,
   });

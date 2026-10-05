@@ -310,6 +310,8 @@ export const settleAttemptLeaf = (
         tasks,
       };
     },
+    label: 'Settle attempt',
+    internal: true,
   });
 };
 

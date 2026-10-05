@@ -74,7 +74,7 @@ export interface Element<TCtx> {
   readonly label?: string;
   readonly kind?: ElementKind;
   readonly display?: ElementDisplay;
-  /** Loop only, and only when the caller passed an explicit cap. */
+  /** Loop only: the explicit cap, else the caller's display-only cap; absent when neither was passed. */
   readonly maxIterations?: number;
   readonly children?: ReadonlyArray<Element<TCtx>>;
   execute(ctx: TCtx, signal?: AbortSignal, onTrace?: OnTrace, onStart?: OnStart): Promise<ElementResult<TCtx>>;
@@ -96,6 +96,16 @@ export const displayMeta = (opts: {
   return {
     ...(opts.label !== undefined ? { label: opts.label } : {}),
     ...(Object.keys(display).length > 0 ? { display } : {}),
+  };
+};
+
+/** Attach display metadata to an already-built element; execution is untouched. */
+export const withDisplay = <TCtx>(element: Element<TCtx>, opts: CompositeOpts): Element<TCtx> => {
+  const meta = displayMeta(opts);
+  return {
+    ...element,
+    ...(meta.label !== undefined ? { label: meta.label } : {}),
+    ...(meta.display !== undefined ? { display: { ...element.display, ...meta.display } } : {}),
   };
 };
 

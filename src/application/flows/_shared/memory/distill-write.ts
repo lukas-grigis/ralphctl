@@ -104,4 +104,5 @@ export const distillWriteLeaf = (deps: DistillWriteLeafDeps, tool: AssistantTool
       const merged = new Set([...(ctx.acceptedIds ?? []), ...candidateIds]);
       return { ...ctx, acceptedIds: [...merged] };
     },
+    label: 'Write learnings',
   });

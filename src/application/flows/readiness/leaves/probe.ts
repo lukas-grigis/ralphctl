@@ -59,4 +59,5 @@ export const probeReadinessLeaf = (deps: ProbeReadinessLeafDeps, tool: Assistant
       ...ctx,
       entries: { ...ctx.entries, [tool]: { ...ctx.entries[tool], probedState } },
     }),
+    label: 'Probe setup',
   });

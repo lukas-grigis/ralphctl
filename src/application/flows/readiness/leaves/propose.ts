@@ -301,4 +301,5 @@ export const proposeReadinessLeaf = (deps: ProposeReadinessLeafDeps, tool: Assis
         },
       },
     }),
+    label: 'Propose setup with AI',
   });

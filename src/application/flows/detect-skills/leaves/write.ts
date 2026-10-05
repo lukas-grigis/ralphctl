@@ -78,4 +78,5 @@ export const writeDetectSkillsLeaf = (deps: WriteDetectSkillsLeafDeps): Element<
       };
     },
     output: (ctx) => ctx,
+    label: 'Save skills',
   });

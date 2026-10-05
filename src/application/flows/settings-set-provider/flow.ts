@@ -87,4 +87,5 @@ export const createSettingsSetProviderFlow = (deps: SettingsSetProviderDeps): El
     },
     input: (c) => c.input,
     output: (c, o) => ({ ...c, output: o }),
+    label: 'Set provider',
   });

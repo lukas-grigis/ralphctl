@@ -42,4 +42,5 @@ export const transitionSprintToDoneLeaf = <TCtx extends TransitionSprintToDoneCt
       return { sprint, aborted: ctx.aborted ?? false };
     },
     output: (ctx, sprint) => (sprint !== undefined ? { ...ctx, sprint } : ctx),
+    label: 'Close sprint',
   });

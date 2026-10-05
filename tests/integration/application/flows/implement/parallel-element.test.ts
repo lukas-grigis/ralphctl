@@ -226,6 +226,69 @@ describe('createParallelImplementElement — step starts', () => {
     expect(result.ok).toBe(true);
     expect(events).toEqual(['start:load', 'completed:load', 'start:save', 'completed:save']);
   });
+
+  it('forwards every branch step and start to the host, so the host trace carries each task', async () => {
+    const t1 = makeTodoTask({ name: 't1' });
+    const t2 = makeTodoTask({ name: 't2' });
+    const okLeaf = (name: string): Element<ImplementCtx> =>
+      leaf<ImplementCtx, void, void>(name, {
+        useCase: { execute: async () => Result.ok(undefined) },
+        input: () => undefined,
+        output: (ctx) => ctx,
+      });
+    const leafBranch = (task: Task): WaveBranch<ImplementCtx> => ({
+      id: `task-${String(task.id)}`,
+      element: sequential<ImplementCtx>(`branch-${task.name}`, [okLeaf(`work-${task.name}`)]),
+    });
+    const element = createParallelImplementElement(
+      plan(okLeaf('load'), okLeaf('save'), [[t1, t2]]),
+      baseConfig({ buildWaves: () => [[leafBranch(t1), leafBranch(t2)]] }, recordingLocker([]), stubBus([]))
+    );
+    const events: string[] = [];
+
+    const result = await element.execute(
+      ctxWith([t1, t2]),
+      undefined,
+      (e) => events.push(`${e.status}:${e.elementName}`),
+      (s) => events.push(`start:${s.elementName}`)
+    );
+
+    expect(result.ok).toBe(true);
+    for (const name of ['work-t1', 'work-t2']) {
+      expect(events).toContain(`start:${name}`);
+      expect(events.indexOf(`start:${name}`)).toBeLessThan(events.indexOf(`completed:${name}`));
+    }
+    expect(events.indexOf('completed:load')).toBeLessThan(events.indexOf('start:work-t1'));
+    expect(events.indexOf('completed:work-t2')).toBeLessThan(events.indexOf('start:save'));
+  });
+});
+
+describe('createParallelImplementElement — plan tree', () => {
+  it('exposes prologue, a display-only implement-waves node over every branch, and epilogue', async () => {
+    const t1 = makeTodoTask({ name: 't1' });
+    const t2 = makeTodoTask({ name: 't2' });
+    const log: string[] = [];
+    const branches = [[doneBranch(t1, log)], [doneBranch(t2, log)]];
+    const buildWaves = vi.fn(() => branches);
+    const element = createParallelImplementElement(
+      plan(tagElement('implement-prologue', log), tagElement('implement-epilogue', log), [[t1], [t2]]),
+      baseConfig({ buildWaves }, recordingLocker([]), stubBus([]))
+    );
+
+    expect(element.children?.map((c) => c.name)).toEqual([
+      'implement-prologue',
+      'implement-waves',
+      'implement-epilogue',
+    ]);
+    const waves = element.children?.[1];
+    expect(waves?.label).toBe('Run tasks');
+    expect(waves?.children?.map((c) => c.name)).toEqual([`branch-${String(t1.id)}`, `branch-${String(t2.id)}`]);
+    expect((await waves!.execute(ctxWith([t1, t2]))).ok).toBe(false);
+
+    // The display walk and the run share one build of the branches.
+    expect((await element.execute(ctxWith([t1, t2]))).ok).toBe(true);
+    expect(buildWaves).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('createParallelImplementElement — B4 abort durability gate', () => {

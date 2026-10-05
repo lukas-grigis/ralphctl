@@ -1,5 +1,6 @@
 import { Result } from '@src/domain/result.ts';
 import { AbortError } from '@src/domain/value/error/abort-error.ts';
+import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import type { Task } from '@src/domain/entity/task.ts';
 import type { TaskId } from '@src/domain/value/id/task-id.ts';
@@ -40,6 +41,7 @@ export interface ParallelImplementConfig {
 }
 
 const PARALLEL_ELEMENT_NAME = 'implement-parallel';
+const WAVES_NODE_NAME = 'implement-waves';
 
 /**
  * The `>1` parallel implement orchestrator. A hand-written {@link Element} — NOT a chain
@@ -78,40 +80,81 @@ const PARALLEL_ELEMENT_NAME = 'implement-parallel';
 export const createParallelImplementElement = (
   plan: ImplementWavePlan,
   config: ParallelImplementConfig
-): Element<ImplementCtx> => ({
-  name: PARALLEL_ELEMENT_NAME,
-  async execute(ctx, signal, onTrace, onStart): Promise<ElementResult<ImplementCtx>> {
-    const lockPath = repoLockFile(config.locksRoot, plan.lockKey);
-    if (!lockPath.ok) {
-      const entry: TraceEntry = {
-        elementName: PARALLEL_ELEMENT_NAME,
-        status: 'failed',
-        durationMs: 0,
-        error: lockPath.error,
-      };
-      onTrace?.(entry);
-      return Result.error({ error: lockPath.error, trace: [entry] });
-    }
+): Element<ImplementCtx> => {
+  // Built at most once, and only when first needed: by the run, or by a display walk of `children`.
+  let built: ReadonlyArray<ReadonlyArray<WaveBranch<ImplementCtx>>> | undefined;
+  const waves = (): ReadonlyArray<ReadonlyArray<WaveBranch<ImplementCtx>>> => (built ??= config.buildWaves());
+  return {
+    name: PARALLEL_ELEMENT_NAME,
+    children: [plan.prologue, wavesDisplayNode(waves), plan.epilogue],
+    execute: (ctx, signal, onTrace, onStart) => executeParallel(plan, config, waves, ctx, signal, onTrace, onStart),
+  };
+};
 
-    const acquired = await config.fileLocker.withLock(
-      lockPath.value,
-      async (lockSignal) => runUnderLock(plan, config, ctx, combineAbortSignals(signal, lockSignal), onTrace, onStart),
-      { purpose: 'implement' }
-    );
-    if (!acquired.ok) {
-      // Lock contention — surface verbatim. No waves ran, nothing to persist.
-      const entry: TraceEntry = {
-        elementName: PARALLEL_ELEMENT_NAME,
-        status: 'failed',
-        durationMs: 0,
-        error: acquired.error,
-      };
-      onTrace?.(entry);
-      return Result.error({ error: acquired.error, trace: [entry] });
-    }
-    return acquired.value;
+/**
+ * Display-only stand-in for the waves `runWaves` schedules above the chain: it exposes every branch
+ * element so the plan tree reaches each task's subchain. Never executed.
+ */
+const wavesDisplayNode = (
+  waves: () => ReadonlyArray<ReadonlyArray<WaveBranch<ImplementCtx>>>
+): Element<ImplementCtx> => ({
+  name: WAVES_NODE_NAME,
+  label: 'Run tasks',
+  kind: 'sequential',
+  get children() {
+    return waves().flatMap((wave) => wave.map((branch) => branch.element));
+  },
+  execute: async () => {
+    const error = new InvalidStateError({
+      entity: 'chain',
+      currentState: 'display-only',
+      attemptedAction: WAVES_NODE_NAME,
+      message: `${WAVES_NODE_NAME} is a display node; the parallel element runs the waves itself`,
+    });
+    return Result.error({ error, trace: [{ elementName: WAVES_NODE_NAME, status: 'failed', durationMs: 0, error }] });
   },
 });
+
+const executeParallel = async (
+  plan: ImplementWavePlan,
+  config: ParallelImplementConfig,
+  waves: () => ReadonlyArray<ReadonlyArray<WaveBranch<ImplementCtx>>>,
+  ctx: ImplementCtx,
+  signal: AbortSignal | undefined,
+  onTrace: OnTrace | undefined,
+  onStart: OnStart | undefined
+): Promise<ElementResult<ImplementCtx>> => {
+  const lockPath = repoLockFile(config.locksRoot, plan.lockKey);
+  if (!lockPath.ok) {
+    const entry: TraceEntry = {
+      elementName: PARALLEL_ELEMENT_NAME,
+      status: 'failed',
+      durationMs: 0,
+      error: lockPath.error,
+    };
+    onTrace?.(entry);
+    return Result.error({ error: lockPath.error, trace: [entry] });
+  }
+
+  const acquired = await config.fileLocker.withLock(
+    lockPath.value,
+    async (lockSignal) =>
+      runUnderLock(plan, config, waves, ctx, combineAbortSignals(signal, lockSignal), onTrace, onStart),
+    { purpose: 'implement' }
+  );
+  if (!acquired.ok) {
+    // Lock contention — surface verbatim. No waves ran, nothing to persist.
+    const entry: TraceEntry = {
+      elementName: PARALLEL_ELEMENT_NAME,
+      status: 'failed',
+      durationMs: 0,
+      error: acquired.error,
+    };
+    onTrace?.(entry);
+    return Result.error({ error: acquired.error, trace: [entry] });
+  }
+  return acquired.value;
+};
 
 /**
  * The body that runs INSIDE the held lock: prologue → waves → epilogue (always, once the prologue
@@ -121,6 +164,7 @@ export const createParallelImplementElement = (
 const runUnderLock = async (
   plan: ImplementWavePlan,
   config: ParallelImplementConfig,
+  buildWaves: () => ReadonlyArray<ReadonlyArray<WaveBranch<ImplementCtx>>>,
   ctx: ImplementCtx,
   signal: AbortSignal | undefined,
   onTrace: OnTrace | undefined,
@@ -141,7 +185,7 @@ const runUnderLock = async (
   // own record of "what actually folded", used to build the epilogue ctx on the abort/fatal path —
   // THE B4 durability gate.
   const durablyFolded = new Map<TaskId, Task>();
-  const waves = config.buildWaves();
+  const waves = buildWaves();
 
   // GUARANTEED-teardown registry. Every per-branch EventBus subscription (the bus bridge AND the
   // durable-fold capture) is captured here so a `finally` can force-detach the lot when the wave
@@ -165,6 +209,7 @@ const runUnderLock = async (
             bridgeRunnerToEventBus(runner as Runner<unknown>, config.eventBus, { flowId: config.flowId })
           );
           branchUnsubs.add(captureDurableFold(runner, branch.id, durablyFolded));
+          branchUnsubs.add(forwardBranchSteps(runner, onTrace, onStart));
         },
       },
       signal
@@ -193,6 +238,23 @@ const runUnderLock = async (
   // Epilogue failure on the success path is a real persistence error — surface it.
   if (!epilogue.ok) return epilogue;
   return Result.ok({ ctx: epilogue.value.ctx, trace: [] });
+};
+
+/**
+ * Re-emit a branch runner's steps and starts through the host so the host trace carries every task's
+ * subchain, as it does on the serial path. Self-detaches on the branch's terminal.
+ */
+const forwardBranchSteps = (
+  runner: Runner<ImplementCtx>,
+  onTrace: OnTrace | undefined,
+  onStart: OnStart | undefined
+): (() => void) => {
+  const unsub = runner.subscribe((event) => {
+    if (event.type === 'step') onTrace?.(event.entry);
+    else if (event.type === 'step-started') onStart?.(event.step);
+    else if (event.type === 'completed' || event.type === 'failed' || event.type === 'aborted') unsub();
+  });
+  return unsub;
 };
 
 /**

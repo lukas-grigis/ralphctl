@@ -475,6 +475,7 @@ const bestOfNOneCandidateLeaf = (
       bestOfNSampledCount: (ctx.bestOfNSampledCount ?? 0) + 1,
       ...(record !== undefined ? { bestOfNCandidates: [...(ctx.bestOfNCandidates ?? []), record] } : {}),
     }),
+    label: 'Generate candidates',
   });
 
 /**

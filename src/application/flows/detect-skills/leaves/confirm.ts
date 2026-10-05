@@ -175,4 +175,5 @@ export const confirmDetectSkillsLeaf = (deps: ConfirmDetectSkillsLeafDeps): Elem
         ...(ctx.proposal?.runDir !== undefined ? { runDir: ctx.proposal.runDir } : {}),
       },
     }),
+    label: 'Confirm skills',
   });

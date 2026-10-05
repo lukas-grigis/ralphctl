@@ -102,6 +102,8 @@ export const dependencyGateLeaf = (deps: DependencyGateLeafDeps, taskId: TaskId)
             ...ctx,
             tasks: replaceTask(ctx.tasks, out.blocked),
           },
+    label: 'Check dependencies',
+    internal: true,
   });
 
 /**

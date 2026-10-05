@@ -585,6 +585,7 @@ export const reproduceLeaf = (
       return { task, sprintId: ctx.sprintId, workspaceRoot: ctx.taskWorkspaceRoot };
     },
     output: (ctx, out) => (out.artifact !== undefined ? { ...ctx, reproductionArtifact: out.artifact } : ctx),
+    label: 'Reproduce defect',
   });
 
 /**
@@ -604,4 +605,6 @@ export const clearReproductionArtifactLeaf = (taskId: TaskId): Element<Implement
     },
     input: () => undefined,
     output: (ctx) => ({ ...ctx, reproductionArtifact: undefined }),
+    label: 'Reset reproduction',
+    internal: true,
   });

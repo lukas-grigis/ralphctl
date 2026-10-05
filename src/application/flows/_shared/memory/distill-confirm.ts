@@ -66,4 +66,5 @@ export const distillConfirmLeaf = (deps: DistillConfirmLeafDeps, tool: Assistant
       ...ctx,
       entries: { ...ctx.entries, [tool]: { ...ctx.entries[tool], accepted } },
     }),
+    label: 'Confirm learnings',
   });

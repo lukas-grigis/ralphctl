@@ -78,6 +78,7 @@ export const createDistillStep = <TCtx extends DistillRequestedCtx>(
   name = 'distill-learnings-step'
 ): Element<TCtx> => ({
   name,
+  label: 'Distill learnings',
   async execute(ctx, signal, onTrace, onStart): Promise<ElementResult<TCtx>> {
     // Honour an abort that already tripped before we start — symmetric with every primitive.
     const aborted = checkAborted<TCtx>(name, signal, onTrace);

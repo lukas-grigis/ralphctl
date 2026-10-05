@@ -368,4 +368,5 @@ export const bestOfNSelectionLeaf = (
         ...carryArray('currentAttemptNotes', out.notesEmitted, ctx.currentAttemptNotes),
       };
     },
+    label: 'Pick best candidate',
   });

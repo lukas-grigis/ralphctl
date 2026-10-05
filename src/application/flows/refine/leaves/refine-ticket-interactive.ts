@@ -377,4 +377,5 @@ export const refineTicketInteractiveLeaf = (
         refinedTickets: [...(ctx.refinedTickets ?? []), out.ticket as ApprovedTicket],
       };
     },
+    label: 'Refine with AI',
   });

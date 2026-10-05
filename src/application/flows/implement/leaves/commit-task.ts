@@ -130,5 +130,6 @@ export const commitTaskLeaf = (
       tasks: replaceTask(ctx.tasks, out.task),
       ...(out.sha !== undefined ? { lastCommitSha: out.sha } : {}),
     }),
+    label: 'Commit',
   });
 };

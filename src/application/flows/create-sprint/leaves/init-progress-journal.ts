@@ -77,4 +77,6 @@ export const initProgressJournalLeaf = (
       };
     },
     output: (ctx) => ctx,
+    label: 'Start journal',
+    internal: true,
   });

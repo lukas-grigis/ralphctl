@@ -99,4 +99,5 @@ export const writeDetectScriptsLeaf = (deps: WriteDetectScriptsLeafDeps): Elemen
       };
     },
     output: (ctx) => ctx,
+    label: 'Save scripts',
   });

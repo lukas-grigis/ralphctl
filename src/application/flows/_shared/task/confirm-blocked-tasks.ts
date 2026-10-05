@@ -81,4 +81,5 @@ export const confirmBlockedTasksLeaf = <TCtx extends ConfirmBlockedTasksCtx>(
     },
     input: (ctx) => ({ blockedTasks: (ctx.tasks ?? []).filter((t) => t.status === 'blocked') }),
     output: (ctx) => ctx,
+    label: 'Confirm blocked tasks',
   });

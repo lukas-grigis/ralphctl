@@ -30,4 +30,6 @@ export const saveTasksLeaf = <TCtx extends SaveTasksCtx>(deps: SaveTasksDeps, na
     },
     input: (ctx) => ({ sprintId: ctx.sprintId, tasks: assertCtxField(ctx, 'tasks', name) }),
     output: (ctx) => ctx,
+    label: 'Save tasks',
+    internal: true,
   });

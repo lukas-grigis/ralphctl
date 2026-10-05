@@ -716,4 +716,5 @@ export const generatorLeaf = (deps: GeneratorLeafDeps, taskId: TaskId): Element<
     useCase: { execute: makeGeneratorExecute(deps, taskId) },
     input: makeGeneratorInput(deps, taskId),
     output: generatorOutput,
+    label: 'Generate',
   });

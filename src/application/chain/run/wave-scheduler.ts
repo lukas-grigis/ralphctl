@@ -228,9 +228,8 @@ const createWavePool = <TCtx>(
   let stopLaunching = false;
 
   const launch = (index: number): void => {
-    const { run, settled } = startBranchRun(wave[index]!, base);
+    const { run, settled } = startBranchRun(wave[index]!, base, config.onBranchRunner);
     runs[index] = run;
-    config.onBranchRunner?.(run.runner, run.branch);
     inFlight.set(run, settled);
   };
 
@@ -307,9 +306,12 @@ const createWavePool = <TCtx>(
  */
 const startBranchRun = <TCtx>(
   branch: WaveBranch<TCtx>,
-  base: TCtx
+  base: TCtx,
+  onBranchRunner: WaveScheduleConfig<TCtx>['onBranchRunner']
 ): { readonly run: BranchRun<TCtx>; readonly settled: Promise<BranchRun<TCtx>> } => {
   const runner = createRunner<TCtx>({ id: branch.id, element: branch.element, initialCtx: base });
+  // Before `start()`: a branch emits `started` (and any leading leaf start) synchronously.
+  onBranchRunner?.(runner, branch);
   const run: BranchRun<TCtx> = { branch, runner, capturedError: null };
 
   const unsub = runner.subscribe((event) => {

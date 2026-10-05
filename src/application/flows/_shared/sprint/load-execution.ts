@@ -30,4 +30,6 @@ export const loadSprintExecutionLeaf = <TCtx extends LoadSprintExecutionCtx>(
     },
     input: (ctx) => ({ id: ctx.sprintId }),
     output: (ctx, execution) => ({ ...ctx, execution }),
+    label: 'Load execution',
+    internal: true,
   });

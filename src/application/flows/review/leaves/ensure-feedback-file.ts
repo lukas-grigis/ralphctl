@@ -58,4 +58,6 @@ export const ensureFeedbackFileLeaf = (feedbackFile: AbsolutePath): Element<Revi
     },
     input: () => feedbackFile,
     output: (ctx) => ({ ...ctx, feedbackFile }),
+    label: 'Prepare feedback file',
+    internal: true,
   });

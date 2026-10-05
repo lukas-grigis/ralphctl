@@ -111,6 +111,8 @@ const advanceBestOfNLoopTurnLeaf = (taskId: TaskId): Element<ImplementCtx> =>
     useCase: { execute: (input) => Promise.resolve(Result.ok(input)) },
     input: (ctx) => (ctx.bestOfNLoopTurn ?? 0) + 1,
     output: (ctx, out) => ({ ...ctx, bestOfNLoopTurn: out }),
+    label: 'Advance round',
+    internal: true,
   });
 
 /**
@@ -250,6 +252,9 @@ export const buildBestOfNGenEvalLoop = (
         return ctx.lastExit === undefined && i <= Math.max(1, cfg.maxTurns);
       },
       shouldStop: (ctx) => ctx.lastExit !== undefined,
+      label: 'Round',
+      // Display-only: the real bound is the `readConfig()` check above.
+      displayMaxIterations: Math.max(1, deps.config.harness.maxTurns),
     }
   );
 };

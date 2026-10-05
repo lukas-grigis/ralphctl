@@ -10,7 +10,8 @@ export interface LeafUseCase<UInput, UOutput> {
   execute(input: UInput, signal?: AbortSignal): Promise<Result<UOutput, DomainError>>;
 }
 
-export interface LeafConfig<TCtx, UInput, UOutput> {
+/** Everything a leaf is: its use case, ctx projections, and the display facts it carries. */
+export interface LeafConfig<TCtx, UInput, UOutput> extends LeafOpts {
   readonly useCase: LeafUseCase<UInput, UOutput>;
   /**
    * Project ctx → input. May throw a `DomainError` to surface a precondition violation
@@ -35,19 +36,15 @@ export interface LeafOpts {
   readonly internal?: boolean;
 }
 
-export const leaf = <TCtx, UInput, UOutput>(
-  name: string,
-  config: LeafConfig<TCtx, UInput, UOutput>,
-  opts?: LeafOpts
-): Element<TCtx> => {
+export const leaf = <TCtx, UInput, UOutput>(name: string, config: LeafConfig<TCtx, UInput, UOutput>): Element<TCtx> => {
   // Build the optional label-bearing extension once; spreading it into each TraceEntry keeps the
   // `label` key absent when the caller didn't supply one (preserves exact-equality test snapshots
   // and the existing `label?: string` shape).
-  const labelExt: { readonly label?: string } = opts?.label !== undefined ? { label: opts.label } : {};
+  const labelExt: { readonly label?: string } = config.label !== undefined ? { label: config.label } : {};
   return {
     name,
     kind: 'leaf',
-    ...displayMeta({ label: opts?.label, internal: opts?.internal }),
+    ...displayMeta({ label: config.label, internal: config.internal }),
     async execute(ctx, signal, onTrace, onStart): Promise<ElementResult<TCtx>> {
       const aborted = checkAborted<TCtx>(name, signal, onTrace);
       if (aborted) return aborted;

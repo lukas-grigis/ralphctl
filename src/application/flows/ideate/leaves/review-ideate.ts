@@ -52,4 +52,5 @@ export const reviewIdeateLeaf = (deps: ReviewIdeateLeafDeps): Element<IdeateCtx>
       const pre = assertCtxField(ctx, 'preIdeate', LEAF_NAME, PRE_STATE);
       return { ...ctx, sprint: pre.sprint, tasks: pre.tasks, ideateRejected: true };
     },
+    label: 'Approve ideas',
   });

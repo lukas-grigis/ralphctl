@@ -83,4 +83,6 @@ export const appendJournalSeparatorLeaf = <TCtx>(
     },
     input: () => opts,
     output: (ctx) => ctx,
+    label: 'Update journal',
+    internal: true,
   });

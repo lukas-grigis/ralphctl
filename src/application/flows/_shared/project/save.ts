@@ -31,4 +31,6 @@ export const saveProjectLeaf = <TCtx extends SaveProjectCtx>(
     },
     input: (ctx) => assertCtxField(ctx, 'project', name),
     output: (ctx) => ctx,
+    label: 'Save project',
+    internal: true,
   });

@@ -5,7 +5,7 @@ import { Result } from '@src/domain/result.ts';
 import type { EvaluationSignal } from '@src/domain/signal.ts';
 import { AbortError } from '@src/domain/value/error/abort-error.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
-import type { AiSignalEvent, AppEvent } from '@src/business/observability/events.ts';
+import type { AiSignalEvent, AppEvent, TaskRoundEvaluatedEvent } from '@src/business/observability/events.ts';
 import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
 import { createPublishSignal } from '@src/application/flows/_shared/publish-signal.ts';
 import { createFsTemplateLoader, defaultTemplatesDir } from '@src/integration/ai/prompts/_engine/fs-template-loader.ts';
@@ -86,6 +86,7 @@ describe('evaluatorLeaf — audit-[09] contract', () => {
       gitRunner: stubGitRunner(),
       clock: () => FIXED_NOW,
       logger: noopLogger,
+      eventBus,
     };
   };
 
@@ -196,6 +197,76 @@ describe('evaluatorLeaf — audit-[09] contract', () => {
 
     if (!result.ok) return;
     expect(result.value.ctx.lastEvaluation?.status).toBe('failed');
+  });
+
+  // ── 1c. Per-round verdict event ───────────────────────────────────────────────
+  describe('task-round-evaluated', () => {
+    const task = makeInProgressTaskWithRunningAttempt();
+    const runWith = async (signals: unknown[] | SpawnFixture): Promise<TaskRoundEvaluatedEvent[]> => {
+      const fixture: SpawnFixture = Array.isArray(signals)
+        ? { kind: 'ok', payload: { schemaVersion: 1, signals } }
+        : signals;
+      const { events, eventBus } = captureBus();
+      await evaluatorLeaf(buildDeps(new Map([[signalsFilePath(), fixture]]), eventBus), task.id).execute(baseCtx(task));
+      return events.filter((e): e is TaskRoundEvaluatedEvent => e.type === 'task-round-evaluated');
+    };
+
+    it('publishes one failed verdict with the failed dimensions and the critique headline', async () => {
+      expect(await runWith([failedEvaluation])).toEqual([
+        {
+          type: 'task-round-evaluated',
+          taskId: String(task.id),
+          attemptN: task.attempts.length,
+          roundN: 1,
+          verdict: 'failed',
+          failedDimensions: ['correctness'],
+          headline: 'Fix the return type before merging.',
+          at: FIXED_NOW,
+        },
+      ]);
+    });
+
+    it('publishes a passed verdict with no failed dimensions', async () => {
+      const [event] = await runWith([passedEvaluation]);
+      expect(event).toMatchObject({ verdict: 'passed', failedDimensions: [], headline: 'Solid pass.' });
+    });
+
+    it('skips non-applicable dimensions and clips the headline to its first sentence, 120 chars max', async () => {
+      const longSentence = `${'x'.repeat(200)}. Second sentence.`;
+      const [event] = await runWith([
+        {
+          ...failedEvaluation,
+          dimensions: [
+            ...failedEvaluation.dimensions,
+            { dimension: 'safety', passed: false, finding: 'n/a here', applicable: false },
+          ],
+          critique: 'The output is wrong.\nSecond sentence explains.',
+        },
+      ]);
+      expect(event?.failedDimensions).toEqual(['correctness']);
+      expect(event?.headline).toBe('The output is wrong.');
+
+      const [clipped] = await runWith([{ ...failedEvaluation, critique: longSentence }]);
+      expect(clipped?.headline).toHaveLength(120);
+      expect(clipped?.headline?.endsWith('…')).toBe(true);
+    });
+
+    it('publishes a malformed verdict as-is', async () => {
+      const [event] = await runWith([{ ...passedEvaluation, status: 'malformed', critique: undefined }]);
+      expect(event).toMatchObject({ verdict: 'malformed', failedDimensions: [] });
+      expect(event).not.toHaveProperty('headline');
+    });
+
+    it('stays silent when the turn produced no verdict (spawn failure, missing evaluation)', async () => {
+      const spawnError = new InvalidStateError({
+        entity: 'provider',
+        currentState: 'broken',
+        attemptedAction: 'evaluate',
+        message: 'simulated spawn failure',
+      });
+      expect(await runWith({ kind: 'spawn-error', error: spawnError })).toEqual([]);
+      expect(await runWith([{ type: 'note', text: 'no verdict', timestamp: '2026-05-22T10:00:00.000Z' }])).toEqual([]);
+    });
   });
 
   // A recoverable signals-contract failure (missing / malformed / schema-mismatch / refinement)
@@ -441,6 +512,7 @@ describe('evaluatorLeaf — audit-[09] contract', () => {
       gitRunner: stubGitRunner(),
       clock: () => FIXED_NOW,
       logger: noopLogger,
+      eventBus: createInMemoryEventBus(),
     };
     const leaf = evaluatorLeaf(deps, task.id);
     const result = await leaf.execute(baseCtx(task));
@@ -498,6 +570,7 @@ describe('evaluatorLeaf — audit-[09] contract', () => {
       gitRunner: stubGitRunner(),
       clock: () => FIXED_NOW,
       logger: noopLogger,
+      eventBus: createInMemoryEventBus(),
     };
     const leaf = evaluatorLeaf(deps, task.id);
     const result = await leaf.execute(baseCtx(task));
@@ -543,6 +616,7 @@ describe('evaluatorLeaf — audit-[09] contract', () => {
       gitRunner: stubGitRunner(),
       clock: () => FIXED_NOW,
       logger: noopLogger,
+      eventBus: createInMemoryEventBus(),
     };
   };
 

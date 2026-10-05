@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { Result } from '@src/domain/result.ts';
+import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
 import type { Task } from '@src/domain/entity/task.ts';
 import type { TaskId } from '@src/domain/value/id/task-id.ts';
 import type { RepositoryId } from '@src/domain/value/id/repository-id.ts';
@@ -9,7 +10,7 @@ import type { UpdateTask } from '@src/domain/repository/task/update-task.ts';
 import type { AgentDefinition } from '@src/integration/ai/agents/_engine/agent-definition.ts';
 import type { AppEvent } from '@src/business/observability/events.ts';
 import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
-import type { Element } from '@src/application/chain/element.ts';
+import { type Element, flattenLeaves } from '@src/application/chain/element.ts';
 import { guard } from '@src/application/chain/build/guard.ts';
 import { sequential } from '@src/application/chain/build/sequential.ts';
 import { buildAttemptBody } from '@src/application/flows/implement/leaves/attempt-body.ts';
@@ -266,29 +267,87 @@ const reconstructPreRefactorSerialFlow = (
   ]);
 };
 
-describe('createImplementFlow — serial chain shape (serial-shape byte-for-byte fence)', () => {
-  it('matches the pre-refactor serial tree byte-for-byte (the central safety claim)', () => {
+/** The `implement-locked` body under `implement → with-repo-lock(…)`. */
+const lockedBody = (flow: Element<ImplementCtx>): Element<ImplementCtx> => {
+  const body = flow.children?.[0]?.children?.[0];
+  if (body === undefined) throw new Error('implement-locked missing');
+  return body;
+};
+
+/** Deps whose sprint lookup fails — the first prologue leaf fails, every later sibling is skipped. */
+const failingSprintDeps = (): ImplementDeps =>
+  ({
+    ...stubDeps(),
+    sprintRepo: {
+      findById: async () => Result.error(new NotFoundError({ entity: 'sprint', id: 's1' })),
+    },
+  }) as unknown as ImplementDeps;
+
+const traceNames = async (element: Element<ImplementCtx>): Promise<readonly string[]> => {
+  const entries: string[] = [];
+  await element.execute({ sprintId: 's1' as unknown as SprintId } as ImplementCtx, undefined, (e) =>
+    entries.push(`${e.elementName}:${e.status}`)
+  );
+  return entries;
+};
+
+describe('createImplementFlow — serial chain shape (leaf-order fence)', () => {
+  it('runs exactly the pre-refactor leaves, in order, with the same labels (the central safety claim)', () => {
     const task = makeTodoTask({ name: 'do-work' });
     const opts = makeOpts([task]);
 
-    const live = snapshot(createImplementFlow(stubDeps(), opts));
-    const reference = snapshot(reconstructPreRefactorSerialFlow(stubDeps(), opts));
+    const live = flattenLeaves(createImplementFlow(stubDeps(), opts)).map((l) => snapshot(l));
+    const reference = flattenLeaves(reconstructPreRefactorSerialFlow(stubDeps(), opts)).map((l) => snapshot(l));
 
     expect(live).toStrictEqual(reference);
   });
 
-  it('matches the pre-refactor serial tree byte-for-byte for a multi-task sprint', () => {
+  it('runs exactly the pre-refactor leaves for a multi-task sprint', () => {
     const t1 = makeTodoTask({ name: 't1', order: 1 });
     const t2 = makeTodoTask({ name: 't2', order: 2 });
     const opts = makeOpts([t1, t2]);
 
-    const live = snapshot(createImplementFlow(stubDeps(), opts));
-    const reference = snapshot(reconstructPreRefactorSerialFlow(stubDeps(), opts));
+    const live = flattenLeaves(createImplementFlow(stubDeps(), opts)).map((l) => snapshot(l));
+    const reference = flattenLeaves(reconstructPreRefactorSerialFlow(stubDeps(), opts)).map((l) => snapshot(l));
 
     expect(live).toStrictEqual(reference);
   });
 
-  it('keeps the lock wrapper outside a single flat implement-locked body', () => {
+  it('a prologue failure traces the same names as the pre-refactor flat chain, skips included', async () => {
+    const opts = makeOpts([makeTodoTask({ name: 'do-work' })]);
+
+    const live = await traceNames(lockedBody(createImplementFlow(failingSprintDeps(), opts)));
+    const reference = await traceNames(lockedBody(reconstructPreRefactorSerialFlow(failingSprintDeps(), opts)));
+
+    expect(live).toStrictEqual(reference);
+    expect(live[0]).toBe('load-sprint:failed');
+    expect(live).toContain('implement-tasks:skipped');
+    expect(live).toContain('save-tasks:skipped');
+  });
+
+  it('nesting the segments as executed sequentials WOULD rename the skips — why the grouping is display-only', async () => {
+    const opts = makeOpts([makeTodoTask({ name: 'do-work' })]);
+    const [prologue, tasks, epilogue] = lockedBody(createImplementFlow(failingSprintDeps(), opts)).children ?? [];
+    const nested = sequential<ImplementCtx>('implement-locked', [prologue!, tasks!, epilogue!]);
+
+    const traced = await traceNames(nested);
+    expect(traced).toContain('implement-epilogue:skipped');
+    expect(traced).not.toContain('save-tasks:skipped');
+  });
+
+  it('groups the body under the Prepare / Run tasks / Finish spine', () => {
+    const opts = makeOpts([makeTodoTask({ name: 'do-work' })]);
+    const body = lockedBody(createImplementFlow(stubDeps(), opts));
+
+    expect(body.name).toBe('implement-locked');
+    expect(body.children?.map((c) => [c.name, c.label])).toStrictEqual([
+      ['implement-prologue', 'Prepare'],
+      ['implement-tasks', 'Run tasks'],
+      ['implement-epilogue', 'Finish'],
+    ]);
+  });
+
+  it('keeps the lock wrapper outside a single implement-locked body', () => {
     const opts = makeOpts([makeTodoTask({ name: 'do-work' })]);
     const shape = snapshot(createImplementFlow(stubDeps(), opts));
 
@@ -299,16 +358,6 @@ describe('createImplementFlow — serial chain shape (serial-shape byte-for-byte
     expect(lock?.name).toBe('with-repo-lock(implement-locked)');
     expect(lock?.children?.length).toBe(1);
     expect(lock?.children?.[0]?.name).toBe('implement-locked');
-  });
-
-  it('does NOT leak the implement-prologue / implement-epilogue wrapper names into the serial tree', () => {
-    const opts = makeOpts([makeTodoTask({ name: 'do-work' })]);
-    const allNames = names(snapshot(createImplementFlow(stubDeps(), opts)));
-
-    expect(allNames).not.toContain('implement-prologue');
-    expect(allNames).not.toContain('implement-epilogue');
-    expect(allNames).toContain('implement-locked');
-    expect(allNames).toContain('implement-tasks');
   });
 
   it('is the serial element (never the parallel orchestrator)', () => {
@@ -336,34 +385,24 @@ describe('createImplementFlow — serial chain shape (serial-shape byte-for-byte
 });
 
 describe('buildImplementPrologue / buildImplementEpilogue', () => {
-  it('prologue produces exactly the leaves spliced inline BEFORE implement-tasks in the serial flow', () => {
+  it('the serial spine groups exactly the prologue segment the parallel path runs', () => {
     const opts = makeOpts([makeTodoTask({ name: 'do-work' })]);
 
-    const prologue = buildImplementPrologue(stubDeps(), opts);
+    const prologue = snapshot(buildImplementPrologue(stubDeps(), opts));
+    const grouped = findByName(snapshot(createImplementFlow(stubDeps(), opts)), 'implement-prologue');
+
     expect(prologue.name).toBe('implement-prologue');
-    const prologueChildren = (prologue.children ?? []).map((c) => snapshot(c));
-
-    const locked = findByName(snapshot(createImplementFlow(stubDeps(), opts)), 'implement-locked');
-    const lockedChildren = locked?.children ?? [];
-    const idx = lockedChildren.findIndex((c) => c.name === 'implement-tasks');
-    const inlinePrologue = lockedChildren.slice(0, idx);
-
-    expect(prologueChildren).toStrictEqual(inlinePrologue);
+    expect(grouped).toStrictEqual(prologue);
   });
 
-  it('epilogue produces exactly the leaves spliced inline AFTER implement-tasks in the serial flow', () => {
+  it('the serial spine groups exactly the epilogue segment', () => {
     const opts = makeOpts([makeTodoTask({ name: 'do-work' })]);
 
-    const epilogue = buildImplementEpilogue(stubDeps(), opts);
+    const epilogue = snapshot(buildImplementEpilogue(stubDeps(), opts));
+    const grouped = findByName(snapshot(createImplementFlow(stubDeps(), opts)), 'implement-epilogue');
+
     expect(epilogue.name).toBe('implement-epilogue');
-    const epilogueChildren = (epilogue.children ?? []).map((c) => snapshot(c));
-
-    const locked = findByName(snapshot(createImplementFlow(stubDeps(), opts)), 'implement-locked');
-    const lockedChildren = locked?.children ?? [];
-    const idx = lockedChildren.findIndex((c) => c.name === 'implement-tasks');
-    const inlineEpilogue = lockedChildren.slice(idx + 1);
-
-    expect(epilogueChildren).toStrictEqual(inlineEpilogue);
+    expect(grouped).toStrictEqual(epilogue);
   });
 });
 

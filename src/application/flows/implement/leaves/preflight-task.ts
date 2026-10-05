@@ -115,24 +115,21 @@ export const preflightTaskLeaf = (
   };
   const menu = dirtyTreeMenu(deps, { elementName: ELEMENT_NAME, ...menuOpts });
 
-  return leaf<ImplementCtx, PreflightTaskInput, PreflightTaskOutput>(
-    name,
-    {
-      useCase: {
-        execute: async (input) =>
-          preflightTaskUseCase({
-            cwd,
-            gitStatusEntryCount,
-            ...menu,
-            clock: deps.clock,
-            sprintId: input.sprintId,
-            logger: deps.logger,
-            ...(deps.dirtyTreePolicy !== undefined ? { dirtyTreePolicy: deps.dirtyTreePolicy } : {}),
-          }),
-      },
-      input: (ctx) => ({ sprintId: String(ctx.sprintId) }),
-      output: (ctx) => ctx,
+  return leaf<ImplementCtx, PreflightTaskInput, PreflightTaskOutput>(name, {
+    useCase: {
+      execute: async (input) =>
+        preflightTaskUseCase({
+          cwd,
+          gitStatusEntryCount,
+          ...menu,
+          clock: deps.clock,
+          sprintId: input.sprintId,
+          logger: deps.logger,
+          ...(deps.dirtyTreePolicy !== undefined ? { dirtyTreePolicy: deps.dirtyTreePolicy } : {}),
+        }),
     },
-    opts
-  );
+    input: (ctx) => ({ sprintId: String(ctx.sprintId) }),
+    output: (ctx) => ctx,
+    ...opts,
+  });
 };

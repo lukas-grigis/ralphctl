@@ -191,4 +191,5 @@ export const resolveBranchLeaf = (deps: ResolveBranchLeafDeps, opts: ResolveBran
       if (out.branch === '') return next;
       return { ...next, expectedBranch: out.branch };
     },
+    label: 'Resolve branch',
   });

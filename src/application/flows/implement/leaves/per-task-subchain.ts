@@ -2,7 +2,7 @@ import type { Task } from '@src/domain/entity/task.ts';
 import type { TaskId } from '@src/domain/value/id/task-id.ts';
 import type { Slug } from '@src/domain/value/slug.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
-import type { Element } from '@src/application/chain/element.ts';
+import { type Element, withDisplay } from '@src/application/chain/element.ts';
 import { guard } from '@src/application/chain/build/guard.ts';
 import { loop } from '@src/application/chain/build/loop.ts';
 import { sequential } from '@src/application/chain/build/sequential.ts';
@@ -314,7 +314,7 @@ export const createPerTaskSubchain = (
   // red-post-verify retry budget (T6) read the same value — the leaf and the loop can never
   // disagree about which attempt the budget runs out on.
   const effectiveMaxAttempts = task.maxAttempts ?? deps.config.harness.maxAttempts;
-  return sequential<ImplementCtx>(`task-${String(taskId)}`, [
+  const subchain = sequential<ImplementCtx>(`task-${String(taskId)}`, [
     // Dependency gate (blocked-dependency dead-end fix). Runs FIRST: if any `dependsOn` task is
     // not `done`, it transitions this task straight to `blocked upstream …` and the body guard
     // below skips the whole lifecycle — so a dependent never spawns the generator against a tree
@@ -369,6 +369,7 @@ export const createPerTaskSubchain = (
             // recognises that terminal status and exits.
             maxIterations: effectiveMaxAttempts,
             shouldStop: (ctx) => terminalTaskStatus(ctx, taskId),
+            label: 'Attempt',
           }
         ),
         // SERIAL-PATH ONLY (in-chain form). A task that settled `blocked` (self-block /
@@ -421,4 +422,5 @@ export const createPerTaskSubchain = (
       ])
     ),
   ]);
+  return withDisplay(subchain, { label: task.name, workItem: { kind: 'task', id: String(taskId) } });
 };

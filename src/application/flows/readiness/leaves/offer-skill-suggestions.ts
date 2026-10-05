@@ -154,4 +154,5 @@ export const offerSkillSuggestionsLeaf = (
       };
     },
     output: (ctx) => ctx,
+    label: 'Suggest skills',
   });

@@ -147,7 +147,7 @@ export const buildPreflightLeaves = (
       },
       cwd,
       `preflight-task-${String(i + 1)}-${String(cwd)}`,
-      { label: `preflight · ${basename(String(cwd))}` },
+      { label: `Check working tree · ${basename(String(cwd))}` },
       (() => {
         const hint = interrupted.get(String(cwd));
         return hint !== undefined ? interruptedMenu(hint) : {};

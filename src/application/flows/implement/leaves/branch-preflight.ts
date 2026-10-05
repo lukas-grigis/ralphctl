@@ -65,4 +65,6 @@ export const branchPreflightLeaf = (
     },
     input: (ctx) => ({ expected: ctx.expectedBranch }),
     output: (ctx) => ctx,
+    label: 'Check branch',
+    internal: true,
   });

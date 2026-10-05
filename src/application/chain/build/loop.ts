@@ -19,6 +19,11 @@ export interface LoopOptions<TCtx> {
    * (not a failure); callers detect budget-exhausted vs. natural termination via ctx state.
    */
   readonly maxIterations?: number;
+  /**
+   * Iteration cap shown by the step display when the real bound lives elsewhere (a `shouldContinue`
+   * predicate). Display-only: never bounds execution, and ignored when `maxIterations` is set.
+   */
+  readonly displayMaxIterations?: number;
   /** Display label for the loop's iteration rows. */
   readonly label?: string;
   /** Bookkeeping loop — hidden from the step display unless it fails or runs. */
@@ -35,6 +40,11 @@ const stampWith =
 
 const DEFAULT_MAX_ITERATIONS = 1000;
 
+const displayCap = <TCtx>(opts: LoopOptions<TCtx>): { readonly maxIterations?: number } => {
+  const cap = opts.maxIterations ?? opts.displayMaxIterations;
+  return cap !== undefined ? { maxIterations: cap } : {};
+};
+
 export const loop = <TCtx>(name: string, body: Element<TCtx>, opts: LoopOptions<TCtx> = {}): Element<TCtx> => {
   // Normalise the optional predicates once, at construction. An omitted `shouldContinue` means
   // "never exit early" and an omitted `shouldStop` means "never stop after the body", so the
@@ -47,7 +57,7 @@ export const loop = <TCtx>(name: string, body: Element<TCtx>, opts: LoopOptions<
     name,
     kind: 'loop',
     ...displayMeta({ label: opts.label, internal: opts.internal }),
-    ...(opts.maxIterations !== undefined ? { maxIterations: opts.maxIterations } : {}),
+    ...displayCap(opts),
     children: [body],
     async execute(ctx, signal, onTrace, onStart): Promise<ElementResult<TCtx>> {
       const aborted = checkAborted<TCtx>(name, signal, onTrace);

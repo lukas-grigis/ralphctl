@@ -33,72 +33,69 @@ interface PushBranchInput {
  * failure rather than overwrite remote history.
  */
 export const createPushBranchLeaf = (deps: CreatePrDeps): Element<CreatePrCtx> =>
-  leaf<CreatePrCtx, PushBranchInput, void>(
-    'push-branch',
-    {
-      useCase: {
-        async execute(input) {
-          // Gate before any remote side effect or AI spend.
-          const sprint = await deps.sprintRepo.findById(input.sprintId);
-          if (!sprint.ok) return Result.error(sprint.error);
-          const eligible = assertSprintEligible(sprint.value);
-          if (!eligible.ok) return Result.error(eligible.error);
+  leaf<CreatePrCtx, PushBranchInput, void>('push-branch', {
+    useCase: {
+      async execute(input) {
+        // Gate before any remote side effect or AI spend.
+        const sprint = await deps.sprintRepo.findById(input.sprintId);
+        if (!sprint.ok) return Result.error(sprint.error);
+        const eligible = assertSprintEligible(sprint.value);
+        if (!eligible.ok) return Result.error(eligible.error);
 
-          const execLoaded = await deps.sprintExecutionRepo.findById(input.sprintId);
-          if (!execLoaded.ok) return Result.error(execLoaded.error);
-          const branch = execLoaded.value.branch;
-          if (branch === null) {
-            // The create-pr leaf carries the canonical "no branch" guard and will surface a
-            // more descriptive InvalidStateError. Pre-empting it here would be redundant; the
-            // push leaf simply has nothing to push and short-circuits.
-            return Result.ok(undefined);
-          }
-
-          const current = await gitGetCurrentBranch(deps.gitRunner, input.cwd);
-          if (!current.ok) return Result.error(current.error);
-          if (current.value !== branch) {
-            return Result.error(
-              new InvalidStateError({
-                entity: 'sprint-execution',
-                currentState: 'wrong-branch',
-                attemptedAction: 'create-pr',
-                message: `create-pr: checked out '${current.value}' but sprint branch is '${branch}' — switch first`,
-              })
-            );
-          }
-
-          deps.eventBus.publish({
-            type: 'log',
-            level: 'info',
-            message: `create-pr: pushing ${branch} to origin`,
-            meta: { sprintId: String(input.sprintId), branch },
-            at: deps.clock(),
-          });
-
-          const pushed = await deps.gitRunner.run(input.cwd, ['push', '-u', 'origin', branch]);
-          if (!pushed.ok) return Result.error(pushed.error);
-          if (pushed.value.exitCode !== 0) {
-            return Result.error(
-              new StorageError({
-                subCode: 'io',
-                message: `git push failed: ${(pushed.value.stderr || pushed.value.stdout).trim()}`,
-              })
-            );
-          }
-
-          deps.eventBus.publish({
-            type: 'log',
-            level: 'info',
-            message: `create-pr: ${branch} pushed (or already up to date)`,
-            meta: { sprintId: String(input.sprintId), branch },
-            at: deps.clock(),
-          });
-
+        const execLoaded = await deps.sprintExecutionRepo.findById(input.sprintId);
+        if (!execLoaded.ok) return Result.error(execLoaded.error);
+        const branch = execLoaded.value.branch;
+        if (branch === null) {
+          // The create-pr leaf carries the canonical "no branch" guard and will surface a
+          // more descriptive InvalidStateError. Pre-empting it here would be redundant; the
+          // push leaf simply has nothing to push and short-circuits.
           return Result.ok(undefined);
-        },
+        }
+
+        const current = await gitGetCurrentBranch(deps.gitRunner, input.cwd);
+        if (!current.ok) return Result.error(current.error);
+        if (current.value !== branch) {
+          return Result.error(
+            new InvalidStateError({
+              entity: 'sprint-execution',
+              currentState: 'wrong-branch',
+              attemptedAction: 'create-pr',
+              message: `create-pr: checked out '${current.value}' but sprint branch is '${branch}' — switch first`,
+            })
+          );
+        }
+
+        deps.eventBus.publish({
+          type: 'log',
+          level: 'info',
+          message: `create-pr: pushing ${branch} to origin`,
+          meta: { sprintId: String(input.sprintId), branch },
+          at: deps.clock(),
+        });
+
+        const pushed = await deps.gitRunner.run(input.cwd, ['push', '-u', 'origin', branch]);
+        if (!pushed.ok) return Result.error(pushed.error);
+        if (pushed.value.exitCode !== 0) {
+          return Result.error(
+            new StorageError({
+              subCode: 'io',
+              message: `git push failed: ${(pushed.value.stderr || pushed.value.stdout).trim()}`,
+            })
+          );
+        }
+
+        deps.eventBus.publish({
+          type: 'log',
+          level: 'info',
+          message: `create-pr: ${branch} pushed (or already up to date)`,
+          meta: { sprintId: String(input.sprintId), branch },
+          at: deps.clock(),
+        });
+
+        return Result.ok(undefined);
       },
-      input: (c) => ({ sprintId: c.input.sprintId, cwd: c.input.cwd }),
-      output: (c) => c,
     },
-    { label: 'push branch to origin' }
-  );
+    input: (c) => ({ sprintId: c.input.sprintId, cwd: c.input.cwd }),
+    output: (c) => c,
+    label: 'Push branch',
+  });

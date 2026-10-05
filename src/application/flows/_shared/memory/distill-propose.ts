@@ -273,4 +273,5 @@ export const distillProposeLeaf = (deps: DistillProposeLeafDeps, tool: Assistant
         [tool]: { ...ctx.entries[tool], proposedContent: out.proposedContent, targetPath: out.targetPath },
       },
     }),
+    label: 'Propose learnings',
   });

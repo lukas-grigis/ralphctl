@@ -76,4 +76,5 @@ export const fetchIssueContextLeaf = (deps: FetchIssueContextLeafDeps, ticket: P
         ...(issueContext !== undefined ? { currentIssueContext: issueContext } : {}),
       };
     },
+    label: 'Fetch issue',
   });

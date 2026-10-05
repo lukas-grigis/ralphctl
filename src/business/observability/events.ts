@@ -65,10 +65,21 @@ export interface TaskAttemptStartedEvent {
   readonly at: IsoTimestamp;
 }
 
-export interface TaskAttemptEvaluatedEvent {
-  readonly type: 'task-attempt-evaluated';
+/**
+ * Fired once per gen-eval round that produced a verdict, by the evaluator leaf. Carries `taskId`, so
+ * per-round verdicts attribute exactly — no windowing over the bucketed signal stream.
+ */
+export interface TaskRoundEvaluatedEvent {
+  readonly type: 'task-round-evaluated';
   readonly taskId: string;
+  readonly attemptN: number;
+  /** Same numbering as {@link TaskRoundStartedEvent.roundN} — the on-disk `rounds/<N>/` index. */
+  readonly roundN: number;
   readonly verdict: 'passed' | 'failed' | 'malformed';
+  /** Applicable floor dimensions the evaluator marked failed, in signal order. */
+  readonly failedDimensions: readonly string[];
+  /** First sentence of the critique, at most 120 characters. */
+  readonly headline?: string;
   readonly at: IsoTimestamp;
 }
 
@@ -230,7 +241,7 @@ export type AppEvent =
   | ChainFailedEvent
   | ChainAbortedEvent
   | TaskAttemptStartedEvent
-  | TaskAttemptEvaluatedEvent
+  | TaskRoundEvaluatedEvent
   | TaskRoundStartedEvent
   | FeedbackRoundAppliedEvent
   | AwaitingInputEvent

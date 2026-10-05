@@ -114,4 +114,5 @@ export const pickRepositoryLeaf = <TCtx extends PickRepositoryCtx>(
       };
     },
     output: (ctx, repository) => ({ ...ctx, repository }),
+    label: 'Pick repository',
   });

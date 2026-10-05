@@ -239,4 +239,5 @@ export const ideateAndPlanLeaf = (deps: IdeateAndPlanLeafDeps): Element<IdeateCt
       proposedTasks: out.proposedTasks,
       preIdeate: out.preIdeate,
     }),
+    label: 'Ideate with AI',
   });

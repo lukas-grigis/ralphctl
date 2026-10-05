@@ -334,34 +334,31 @@ export const setupScriptRunnerLeaf = (
   // Friendly rail label.
   const repoLabel =
     opts.repos.length === 1 && opts.repos[0] !== undefined ? ` · ${basename(String(opts.repos[0].path))}` : '';
-  return leaf<ImplementCtx, LeafInput, LeafOutput>(
-    'setup-script-runner',
-    {
-      useCase: {
-        execute: (input, signal) => executeSetupScriptRunner(deps, opts, input, signal),
-      },
-      input: (ctx) => {
-        if (ctx.execution === undefined) {
-          throw new InvalidStateError({
-            entity: 'chain',
-            currentState: 'pre-setup-script',
-            attemptedAction: 'setup-script-runner',
-            message: 'setup-script-runner: ctx.execution is undefined — load-sprint-execution must run first',
-          });
-        }
-        return { execution: ctx.execution };
-      },
-      // Re-stamp ctx with the (possibly mutated) execution so downstream leaves like `resolveBranchLeaf` see the
-      // audit-appended value.
-      output: (ctx, out) => ({
-        ...ctx,
-        execution: out.execution,
-        ...(out.verifiedThisRun.length > 0 ? { setupVerifiedRepoIdsThisRun: out.verifiedThisRun } : {}),
-        ...(out.treeRecords.size > 0 ? { setupTreeRecords: out.treeRecords } : {}),
-      }),
+  return leaf<ImplementCtx, LeafInput, LeafOutput>('setup-script-runner', {
+    useCase: {
+      execute: (input, signal) => executeSetupScriptRunner(deps, opts, input, signal),
     },
-    { label: `setup-script${repoLabel}` }
-  );
+    input: (ctx) => {
+      if (ctx.execution === undefined) {
+        throw new InvalidStateError({
+          entity: 'chain',
+          currentState: 'pre-setup-script',
+          attemptedAction: 'setup-script-runner',
+          message: 'setup-script-runner: ctx.execution is undefined — load-sprint-execution must run first',
+        });
+      }
+      return { execution: ctx.execution };
+    },
+    // Re-stamp ctx with the (possibly mutated) execution so downstream leaves like `resolveBranchLeaf` see the
+    // audit-appended value.
+    output: (ctx, out) => ({
+      ...ctx,
+      execution: out.execution,
+      ...(out.verifiedThisRun.length > 0 ? { setupVerifiedRepoIdsThisRun: out.verifiedThisRun } : {}),
+      ...(out.treeRecords.size > 0 ? { setupTreeRecords: out.treeRecords } : {}),
+    }),
+    label: `Setup script${repoLabel}`,
+  });
 };
 
 /** Append the row and persist. */

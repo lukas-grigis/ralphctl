@@ -136,15 +136,12 @@ describe('leaf', () => {
   });
 
   it('forwards opts.label to the resulting element and to every trace entry it emits', async () => {
-    const el = leaf<Ctx, { current: number }, { next: number }>(
-      'inc-1-/abs/path',
-      {
-        useCase: inc,
-        input: (c) => ({ current: c.count }),
-        output: (c, o) => ({ ...c, count: o.next }),
-      },
-      { label: 'inc · my-repo' }
-    );
+    const el = leaf<Ctx, { current: number }, { next: number }>('inc-1-/abs/path', {
+      useCase: inc,
+      input: (c) => ({ current: c.count }),
+      output: (c, o) => ({ ...c, count: o.next }),
+      label: 'inc · my-repo',
+    });
 
     expect(el.label).toBe('inc · my-repo');
 
@@ -175,30 +172,28 @@ describe('leaf', () => {
   });
 
   it('propagates label onto failed and aborted trace entries', async () => {
-    const failingEl = leaf<Ctx, unknown, unknown>(
-      'fail',
-      { useCase: failing, input: () => undefined, output: (c) => c },
-      { label: 'Fail · case' }
-    );
+    const failingEl = leaf<Ctx, unknown, unknown>('fail', {
+      useCase: failing,
+      input: () => undefined,
+      output: (c) => c,
+      label: 'Fail · case',
+    });
     const failResult = await failingEl.execute({ count: 0 });
     expect(failResult.ok).toBe(false);
     if (!failResult.ok) {
       expect(failResult.error.trace[0]?.label).toBe('Fail · case');
     }
 
-    const slowEl = leaf<Ctx, unknown, unknown>(
-      'slow',
-      {
-        useCase: {
-          async execute() {
-            return Result.ok(undefined);
-          },
+    const slowEl = leaf<Ctx, unknown, unknown>('slow', {
+      useCase: {
+        async execute() {
+          return Result.ok(undefined);
         },
-        input: () => undefined,
-        output: (c) => c,
       },
-      { label: 'Slow · case' }
-    );
+      input: () => undefined,
+      output: (c) => c,
+      label: 'Slow · case',
+    });
     const ac = new AbortController();
     ac.abort();
     const abortedResult = await slowEl.execute({ count: 0 }, ac.signal);
@@ -215,23 +210,20 @@ describe('leaf', () => {
   it('calls onStart after the abort check and before the use case runs, carrying the label', async () => {
     const order: string[] = [];
     const starts: StepStart[] = [];
-    const el = leaf<Ctx, unknown, unknown>(
-      'work',
-      {
-        useCase: {
-          async execute() {
-            order.push('execute');
-            return Result.ok(undefined);
-          },
+    const el = leaf<Ctx, unknown, unknown>('work', {
+      useCase: {
+        async execute() {
+          order.push('execute');
+          return Result.ok(undefined);
         },
-        input: () => {
-          order.push('input');
-          return undefined;
-        },
-        output: (c) => c,
       },
-      { label: 'Do work' }
-    );
+      input: () => {
+        order.push('input');
+        return undefined;
+      },
+      output: (c) => c,
+      label: 'Do work',
+    });
 
     await el.execute({ count: 0 }, undefined, undefined, (s) => {
       order.push('start');
@@ -263,19 +255,22 @@ describe('leaf', () => {
     expect('label' in plain).toBe(false);
     expect('display' in plain).toBe(false);
 
-    const internal = leaf<Ctx, unknown, unknown>(
-      'stamp',
-      { useCase: failing, input: () => undefined, output: (c) => c },
-      { label: 'Record session', internal: true }
-    );
+    const internal = leaf<Ctx, unknown, unknown>('stamp', {
+      useCase: failing,
+      input: () => undefined,
+      output: (c) => c,
+      label: 'Record session',
+      internal: true,
+    });
     expect(internal.label).toBe('Record session');
     expect(internal.display).toEqual({ internal: true });
 
-    const notInternal = leaf<Ctx, unknown, unknown>(
-      'x',
-      { useCase: failing, input: () => undefined, output: (c) => c },
-      { internal: false }
-    );
+    const notInternal = leaf<Ctx, unknown, unknown>('x', {
+      useCase: failing,
+      input: () => undefined,
+      output: (c) => c,
+      internal: false,
+    });
     expect('display' in notInternal).toBe(false);
   });
 });

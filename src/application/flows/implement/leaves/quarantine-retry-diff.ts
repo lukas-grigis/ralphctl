@@ -89,6 +89,8 @@ export const quarantineRetryDiffLeaf = (
       attemptN: ctx.currentTask?.attempts.length ?? 0,
     }),
     output: (ctx) => ctx,
+    label: 'Stash retry diff',
+    internal: true,
   });
 
 /**

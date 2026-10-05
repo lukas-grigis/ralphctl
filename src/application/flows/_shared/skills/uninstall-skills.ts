@@ -35,5 +35,7 @@ export const uninstallSkillsLeaf = <TCtx>(
     },
     input: (ctx) => ({ cwd: opts.cwdPicker(ctx) }),
     output: (ctx) => ctx,
+    label: 'Remove skills',
+    internal: true,
   });
 };

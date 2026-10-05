@@ -121,6 +121,7 @@ export const foldStep = (
   taskId: TaskId
 ): Element<ImplementCtx> => ({
   name: `fold-${String(taskId)}`,
+  label: 'Merge to sprint branch',
   async execute(ctx, signal, onTrace, onStart): Promise<ElementResult<ImplementCtx>> {
     const name = `fold-${String(taskId)}`;
     // An already-aborted signal takes priority over the "nothing to fold" fast path below: this

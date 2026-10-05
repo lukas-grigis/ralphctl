@@ -86,4 +86,5 @@ export const writeReadinessLeaf = (deps: WriteReadinessLeafDeps, tool: Assistant
       return { accepted: entry.accepted, proposal: entry.proposal };
     },
     output: (ctx) => ctx,
+    label: 'Write setup',
   });

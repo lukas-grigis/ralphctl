@@ -242,4 +242,17 @@ describe('loop', () => {
     expect(capped.label).toBe('Round');
     expect(capped.display).toEqual({ internal: true });
   });
+
+  it('shows a display-only cap without bounding execution', async () => {
+    const shown = loop<Ctx>('shown', increment('tick'), {
+      displayMaxIterations: 2,
+      shouldContinue: (_ctx, i) => i <= 4,
+    });
+    expect(shown.maxIterations).toBe(2);
+    const result = await shown.execute({ count: 0, trail: [] });
+    expect(result.ok && result.value.ctx.count).toBe(4);
+
+    const explicit = loop<Ctx>('explicit', increment('tick'), { maxIterations: 3, displayMaxIterations: 9 });
+    expect(explicit.maxIterations).toBe(3);
+  });
 });

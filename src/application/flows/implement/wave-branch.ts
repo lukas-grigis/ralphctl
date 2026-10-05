@@ -669,13 +669,19 @@ export const buildWorktreeBranch = (
   buildSubchain: (worktreeRepo: RepoExecConfig) => Element<ImplementCtx>,
   policy: DirtyTreePolicy = effectiveDirtyTreePolicy({})
 ): Element<ImplementCtx> => {
+  // Display shape only, built on first read: each run builds its own subchain on the forked ctx.
+  let shape: ReadonlyArray<Element<ImplementCtx>> | undefined;
+  const bodyShape = (): ReadonlyArray<Element<ImplementCtx>> =>
+    (shape ??= [buildSubchain({ ...repo, path: worktreePath }), foldStep(deps, repo.path, branchRef, task.id)]);
   // A FACTORY, not a built element: `withWorktree` calls this once per execution so each run gets
   // its own `onSettled` side-channel. `onSettled` fires with the subchain's OWN settled ctx right
   // AFTER the subchain returns but BEFORE the fold step runs — see `withWorktree`'s docstring for
   // why the teardown needs this rather than reading the branch's overall (possibly-errored) result.
   const buildBody = (onSettled: (ctx: ImplementCtx) => void): Element<ImplementCtx> => ({
     name: `task-${String(task.id)}-branch-body`,
-    children: [],
+    get children() {
+      return bodyShape();
+    },
     async execute(ctx, signal, onTrace, onStart): Promise<ElementResult<ImplementCtx>> {
       // Fork the carried base ctx onto the worktree at EXECUTE time, so the branch sees the most
       // recent merged ctx (sprint/tasks). `forkCtx` clears per-task state + drops the

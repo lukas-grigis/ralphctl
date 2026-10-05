@@ -220,4 +220,5 @@ export const proposeDetectSkillsLeaf = (deps: ProposeDetectSkillsLeafDeps): Elem
         runDir: out.runDir,
       },
     }),
+    label: 'Detect skills with AI',
   });

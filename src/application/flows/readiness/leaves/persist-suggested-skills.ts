@@ -79,4 +79,6 @@ export const persistSuggestedSkillsLeaf = (deps: PersistSuggestedSkillsLeafDeps)
       return { project, repositoryId: repository.id, suggestions };
     },
     output: (ctx) => ctx,
+    label: 'Save skill suggestions',
+    internal: true,
   });

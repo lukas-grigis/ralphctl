@@ -38,4 +38,5 @@ export const interactiveSprintNameLeaf = (deps: InteractiveSprintNameDeps): Elem
     },
     input: () => undefined,
     output: (ctx, out) => ({ ...ctx, sprintName: out.name }),
+    label: 'Name sprint',
   });

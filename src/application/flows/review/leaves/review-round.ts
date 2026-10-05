@@ -511,4 +511,5 @@ export const reviewRoundLeaf = (deps: ReviewRoundLeafDeps, opts: ReviewRoundLeaf
         ...(out.exit === 'aborted' ? { aborted: true } : {}),
       };
     },
+    label: 'Apply feedback',
   });

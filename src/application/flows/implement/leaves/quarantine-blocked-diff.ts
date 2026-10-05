@@ -228,6 +228,8 @@ export const quarantineBlockedDiffLeaf = (
         tasks: (ctx.tasks ?? []).map((t) => (t.id === out.id ? out : t)),
       };
     },
+    label: 'Stash blocked diff',
+    internal: true,
   });
 
 /**

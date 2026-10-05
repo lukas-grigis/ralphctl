@@ -242,4 +242,5 @@ export const generatePrContentLeaf = (deps: GeneratePrContentLeafDeps): Element<
     },
     input: projectInput,
     output: (ctx, out) => (out.aiContent !== undefined ? { ...ctx, aiContent: out.aiContent } : ctx),
+    label: 'Write PR with AI',
   });

@@ -28,4 +28,5 @@ export const createExportRequirementsFlow = (deps: ExportRequirementsDeps): Elem
     },
     input: (c) => c.input,
     output: (c, o) => ({ ...c, output: o }),
+    label: 'Export requirements',
   });

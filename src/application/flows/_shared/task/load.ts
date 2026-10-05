@@ -26,4 +26,6 @@ export const loadTasksLeaf = <TCtx extends LoadTasksCtx>(deps: LoadTasksDeps, na
     },
     input: (ctx) => ({ id: ctx.sprintId }),
     output: (ctx, tasks) => ({ ...ctx, tasks }),
+    label: 'Load tasks',
+    internal: true,
   });
