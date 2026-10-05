@@ -2,6 +2,7 @@ import { Result } from '@src/domain/result.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { runGitChecked, type GitRunner } from '@src/integration/io/git-runner.ts';
+import { withWorktreeMutex } from '@src/integration/io/git-worktree-mutex.ts';
 
 /**
  * High-level git operations used by the implement and review chains.
@@ -274,12 +275,10 @@ export const gitWorktreeAdd = async (
   worktreePath: AbsolutePath,
   branchName: string
 ): Promise<Result<void, StorageError>> => {
-  const result = await runGitChecked(
-    runner,
-    repoRoot,
-    ['worktree', 'add', '-b', branchName, String(worktreePath)],
-    'worktree add',
-    { timeoutMs: WORKTREE_ADD_TIMEOUT_MS }
+  const result = await withWorktreeMutex(repoRoot, () =>
+    runGitChecked(runner, repoRoot, ['worktree', 'add', '-b', branchName, String(worktreePath)], 'worktree add', {
+      timeoutMs: WORKTREE_ADD_TIMEOUT_MS,
+    })
   );
   if (!result.ok) return Result.error(result.error);
   return Result.ok(undefined);
@@ -297,11 +296,8 @@ export const gitWorktreeRemove = async (
   repoRoot: AbsolutePath,
   worktreePath: AbsolutePath
 ): Promise<Result<void, StorageError>> => {
-  const result = await runGitChecked(
-    runner,
-    repoRoot,
-    ['worktree', 'remove', '--force', String(worktreePath)],
-    'worktree remove'
+  const result = await withWorktreeMutex(repoRoot, () =>
+    runGitChecked(runner, repoRoot, ['worktree', 'remove', '--force', String(worktreePath)], 'worktree remove')
   );
   if (!result.ok) return Result.error(result.error);
   return Result.ok(undefined);
@@ -320,7 +316,9 @@ export const gitDeleteBranch = async (
   cwd: AbsolutePath,
   branchName: string
 ): Promise<Result<void, StorageError>> => {
-  const result = await runGitChecked(runner, cwd, ['branch', '-D', branchName], 'branch -D');
+  const result = await withWorktreeMutex(cwd, () =>
+    runGitChecked(runner, cwd, ['branch', '-D', branchName], 'branch -D')
+  );
   if (!result.ok) return Result.error(result.error);
   return Result.ok(undefined);
 };
@@ -335,7 +333,9 @@ export const gitWorktreePrune = async (
   runner: GitRunner,
   repoRoot: AbsolutePath
 ): Promise<Result<void, StorageError>> => {
-  const result = await runGitChecked(runner, repoRoot, ['worktree', 'prune'], 'worktree prune');
+  const result = await withWorktreeMutex(repoRoot, () =>
+    runGitChecked(runner, repoRoot, ['worktree', 'prune'], 'worktree prune')
+  );
   if (!result.ok) return Result.error(result.error);
   return Result.ok(undefined);
 };

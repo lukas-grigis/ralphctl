@@ -2,6 +2,7 @@ import { Result } from '@src/domain/result.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { runGitChecked, type GitRunner } from '@src/integration/io/git-runner.ts';
+import { withWorktreeMutex } from '@src/integration/io/git-worktree-mutex.ts';
 
 /**
  * Where a worktree ref holding commits the sprint branch lacks is moved instead of being deleted:
@@ -47,7 +48,9 @@ export const gitRenameBranch = async (
   from: string,
   to: string
 ): Promise<Result<void, StorageError>> => {
-  const result = await runGitChecked(runner, cwd, ['branch', '-m', from, to], 'branch -m');
+  const result = await withWorktreeMutex(cwd, () =>
+    runGitChecked(runner, cwd, ['branch', '-m', from, to], 'branch -m')
+  );
   if (!result.ok) return Result.error(result.error);
   return Result.ok(undefined);
 };
