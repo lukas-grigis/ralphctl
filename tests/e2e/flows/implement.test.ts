@@ -34,6 +34,8 @@ import {
   slug,
 } from '@tests/fixtures/domain.ts';
 import { startNextAttempt } from '@src/domain/entity/task-attempts.ts';
+import { decidePriorWork } from '@src/domain/entity/task-prior-work.ts';
+import { quarantineStashMessage } from '@src/domain/value/quarantine-stash-message.ts';
 import type { InteractivePrompt } from '@src/business/interactive/prompt.ts';
 import { createRunner } from '@src/application/chain/run/runner.ts';
 import type { GitRunner, GitRunResult } from '@src/integration/io/git-runner.ts';
@@ -2925,6 +2927,119 @@ describe('createImplementFlow — gen-eval loop', () => {
     }
     const startEntries = runner.trace.filter((e) => e.elementName === `start-attempt-${String(finalTask?.id)}`);
     expect(startEntries).toHaveLength(1);
+  });
+});
+
+describe('createImplementFlow — relaunch after an unblock with a quarantined diff', () => {
+  let cleanupFns: Array<() => Promise<void>>;
+  beforeEach(() => {
+    cleanupFns = [];
+  });
+  afterEach(async () => {
+    for (const fn of cleanupFns) await fn();
+  });
+
+  const STAT = { files: 5, insertions: 142, deletions: 38 } as const;
+
+  /** Clean-tree git whose stash holds the task's quarantined diff until a pop consumes it. */
+  const stashHoldingGit = (stashMessage: string): { runner: GitRunner; pops: () => number; listed: () => string } => {
+    const base = makeCleanGit();
+    let entries = [`On ralphctl/test: ${stashMessage}`];
+    let pops = 0;
+    return {
+      runner: {
+        async run(cwd, args) {
+          if (args[0] === 'stash' && args[1] === 'list') return okGit(entries.join('\n'), 0);
+          if (args[0] === 'stash' && args[1] === 'pop') {
+            pops += 1;
+            entries = [];
+            return okGit('', 0);
+          }
+          return base.run(cwd, args);
+        },
+      },
+      pops: () => pops,
+      listed: () => entries.join('\n'),
+    };
+  };
+
+  const relaunch = async (
+    choice: 'continue' | 'fresh'
+  ): Promise<{ finalTask: Task | undefined; journal: string; pops: number; listed: string; message: string }> => {
+    const f = await buildFixture(1);
+    cleanupFns.push(f.cleanup);
+    const [todo] = f.tasks;
+    if (todo === undefined || todo.status !== 'todo') throw new Error('test setup: missing task');
+    const message = quarantineStashMessage(f.sprint.id, todo.id);
+    const task = decidePriorWork(todo, { choice, stashMessage: message, stat: STAT, entries: 1 }, FIXED_NOW);
+    const taskRepo = inMemoryTaskRepo([task]);
+    const git = stashHoldingGit(message);
+    const provider = createFakeAiProvider({
+      signals: { implement: [taskVerified('tests pass')], evaluate: [evaluationPassed()] },
+    });
+    const flow = createImplementFlow(
+      buildDeps(
+        inMemorySprintRepo(f.sprint).repo,
+        inMemoryExecutionRepo(f.execution).repo,
+        taskRepo.repo,
+        provider,
+        f.dir,
+        git.runner
+      ),
+      {
+        sprintId: f.sprint.id,
+        todoTasks: [task],
+        repositories: FAKE_REPOSITORIES,
+        generatorProviderId: 'claude-code',
+        generatorModel: 'claude-opus-4-8',
+        evaluatorProviderId: 'claude-code',
+        evaluatorModel: 'claude-opus-4-8',
+        progressFile: absolutePath(f.progressFile),
+        sprintDir: absolutePath(f.dir),
+        memoryRoot: FAKE_MEMORY_ROOT,
+        projectId: FAKE_PROJECT_ID,
+        projectSlug: FAKE_PROJECT_SLUG,
+      }
+    );
+    const runner = createRunner({
+      id: `r-impl-relaunch-${choice}`,
+      element: flow,
+      initialCtx: { sprintId: f.sprint.id } satisfies ImplementCtx,
+    });
+    await runner.start();
+    expect(runner.status).toBe('completed');
+    return {
+      finalTask: taskRepo.tasks()[0],
+      journal: await fs.readFile(f.progressFile, 'utf8'),
+      pops: git.pops(),
+      listed: git.listed(),
+      message,
+    };
+  };
+
+  it('fresh: the diff stays in the stash, the attempt records the choice, and the journal pins it', async () => {
+    const { finalTask, journal, pops, listed, message } = await relaunch('fresh');
+
+    expect(pops).toBe(0);
+    expect(listed).toContain(message);
+    expect(finalTask?.status).toBe('done');
+    // The epilogue's whole-list save kept the stamp the restore leaf put on ctx.
+    expect(finalTask?.attempts[0]?.priorWork).toStrictEqual({ kind: 'kept-by-choice', stashMessage: message });
+    expect(finalTask?.quarantinedDiff?.nextAttempt).toBe('fresh');
+    expect(journal).toContain(
+      `quarantined diff kept in git stash by operator choice — attempt 1 starts fresh (message: \`${message}\`)`
+    );
+  });
+
+  it('continue: the diff is popped before the first turn, stamped restored, and the consumed fact is gone', async () => {
+    const { finalTask, journal, pops, listed, message } = await relaunch('continue');
+
+    expect(pops).toBe(1);
+    expect(listed).toBe('');
+    expect(finalTask?.status).toBe('done');
+    expect(finalTask?.attempts[0]?.priorWork).toStrictEqual({ kind: 'restored', stashMessage: message, stat: STAT });
+    expect(finalTask?.quarantinedDiff).toBeUndefined();
+    expect(journal).toContain('quarantined diff restored into attempt 1 — the stash entry is consumed');
   });
 });
 

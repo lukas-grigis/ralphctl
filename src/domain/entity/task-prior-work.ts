@@ -1,5 +1,5 @@
 import { Result } from '@src/domain/result.ts';
-import type { Attempt, PriorWorkOutcome } from '@src/domain/entity/attempt.ts';
+import type { Attempt, PriorWorkNotRestoredReason, PriorWorkOutcome } from '@src/domain/entity/attempt.ts';
 import type {
   BlockCause,
   BlockedTask,
@@ -135,6 +135,24 @@ export const stampPriorWorkOutcome = (
   if (o.kind === 'restored') return Result.ok(clearStaleQuarantinedDiff(stamped));
   if (stamped.quarantinedDiff !== undefined) return Result.ok(stamped);
   return Result.ok({ ...stamped, quarantinedDiff: { stashMessage: o.stashMessage } });
+};
+
+/** Why a quarantined diff stayed in the stash, in the words the journal and the task card share. */
+export const describeNotRestored = (reason: PriorWorkNotRestoredReason, uncommittedPaths?: number): string => {
+  switch (reason) {
+    case 'dirty-tree':
+      return uncommittedPaths === undefined
+        ? 'tree had uncommitted changes'
+        : `tree had ${String(uncommittedPaths)} uncommitted change${uncommittedPaths === 1 ? '' : 's'}`;
+    case 'tree-probe-failed':
+      return 'git status failed';
+    case 'pop-failed':
+      return 'stash pop conflicted and the tree was reset';
+    case 'pop-failed-tree-unverified':
+      return "stash pop failed and the tree couldn't be checked";
+    case 'stash-list-failed':
+      return 'git stash list failed';
+  }
 };
 
 const newestCritique = (attempts: readonly Attempt[]): string | undefined =>

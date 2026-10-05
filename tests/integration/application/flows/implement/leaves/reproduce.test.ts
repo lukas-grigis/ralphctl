@@ -38,6 +38,7 @@ import {
   saveReproductionArtifact,
 } from '@src/application/flows/implement/leaves/reproduction-artifact.ts';
 import { quarantineStashMessage } from '@src/domain/value/quarantine-stash-message.ts';
+import { decidePriorWork } from '@src/domain/entity/task-prior-work.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import { absolutePath, makeTodoTask } from '@tests/fixtures/domain.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
@@ -598,6 +599,36 @@ describe('reproduceLeaf — guarded reproduction-first leaf', () => {
     );
     const loaded = await loadReproductionArtifact(artifactFile());
     expect(loaded.ok && loaded.value?.observedFailure).toBe('fresh failure');
+  });
+
+  it('spawns as usual when the operator chose a fresh start — the quarantined work stays in the stash, unread', async () => {
+    const todo = makeTodoTask({ name: 'fix the null pointer' });
+    const task = decidePriorWork(
+      todo,
+      { choice: 'fresh', stashMessage: quarantineStashMessage(SPRINT_ID, todo.id) },
+      TS
+    );
+    await seedSaved();
+    await writeTestFile('tests/unit/foo.test.ts', 'fresh test');
+    const provider = countingProvider(fakeProvider({ kind: 'signals', signals: [reproductionSignal()] }));
+    const gitRunner = fakeStashGit({ subjects: [quarantined(task)] });
+
+    const result = await reproduceLeaf(
+      buildDeps(
+        provider,
+        fakeShellRunner(async () => failResult('fresh failure')),
+        [],
+        { gitRunner }
+      ),
+      buildOpts(),
+      task.id
+    ).execute(buildCtx(task));
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(provider.calls()).toBe(1);
+    expect(gitRunner.calls).toStrictEqual([]);
+    expect(result.value.ctx.reproductionArtifact?.observedFailure).toBe('fresh failure');
   });
 
   it('drops an older saved reproduction when a fresh spawn yields none, so a later relaunch never reuses it', async () => {

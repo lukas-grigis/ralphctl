@@ -83,6 +83,7 @@ import type { RepoExecConfig } from '@src/application/flows/implement/flow.ts';
 import { buildWaveBranches, createFoldQueue, worktreePathFor } from '@src/application/flows/implement/wave-branch.ts';
 import { startNextAttempt } from '@src/domain/entity/task-attempts.ts';
 import { quarantineStashMessage } from '@src/domain/value/quarantine-stash-message.ts';
+import { decidePriorWork } from '@src/domain/entity/task-prior-work.ts';
 
 import {
   absolutePath,
@@ -1670,6 +1671,54 @@ function runTests(): void {
       expect(subjects.filter((l) => l.endsWith(`: ${message}`))).toHaveLength(1);
       expect(await stashedMarker(fixture.repo, marker)).toBe(content);
       expect(await listWorktrees(fixture.repo.path)).toStrictEqual([fixture.repo.path]);
+    }, 120_000);
+
+    it('a fresh start chosen at unblock leaves the quarantined diff untouched in its stash and lands only new work', async () => {
+      const quarantinedSeed = await seedQuarantinedTask('relaunch-fresh');
+      const { fixture, marker, content, message } = quarantinedSeed;
+      if (quarantinedSeed.task.status !== 'todo') throw new Error('test setup: expected a todo task');
+      const task = decidePriorWork(quarantinedSeed.task, { choice: 'fresh', stashMessage: message }, FIXED_NOW);
+      const seeded = { ...quarantinedSeed, task };
+      const stashBefore = await fixture.repo.git('stash', 'list', '--format=%H %s');
+      const markerSeenByGenerator: boolean[] = [];
+      const provider: HeadlessAiProvider = {
+        async generate(session: AiSession): Promise<Result<ProviderOutput, DomainError>> {
+          const isEvaluate = session.prompt.includes(MARKERS.evaluate);
+          if (!isEvaluate) {
+            markerSeenByGenerator.push(
+              await fs
+                .access(join(String(session.cwd), marker))
+                .then(() => true)
+                .catch(() => false)
+            );
+            await fs.writeFile(join(String(session.cwd), 'fresh-work.txt'), 'started over\n', 'utf8');
+          }
+          const signals: HarnessSignal[] = isEvaluate ? [evaluationPassed()] : [taskVerified('rebuilt from scratch')];
+          const wrote = await writeJsonAtomic(String(session.signalsFile), signals);
+          if (!wrote.ok) return Result.error(wrote.error) as Result<ProviderOutput, DomainError>;
+          return Result.ok({ signalsFile: session.signalsFile, exitCode: 0 }) as Result<ProviderOutput, DomainError>;
+        },
+      };
+
+      const { status, taskStore } = await runSingleBranch(
+        seeded,
+        provider,
+        markerAwareShell(marker, () => true),
+        branchExecution(seeded.sprint)
+      );
+
+      expect(status).toBe('completed');
+      const settled = taskStore.tasks().find((t) => t.id === task.id);
+      expect(settled?.status).toBe('done');
+      expect(settled?.attempts.at(-1)?.priorWork).toStrictEqual({ kind: 'kept-by-choice', stashMessage: message });
+      expect(markerSeenByGenerator).toStrictEqual([false]);
+      // The entry is byte-for-byte the one quarantined before the run.
+      expect(await fixture.repo.git('stash', 'list', '--format=%H %s')).toBe(stashBefore);
+      expect(await stashedMarker(fixture.repo, marker)).toBe(content);
+      const committed = await fixture.repo.git('log', '--name-only', '--format=%H', SPRINT_BRANCH);
+      expect(committed).toContain('fresh-work.txt');
+      expect(committed).not.toContain(marker);
+      expect(await fs.readFile(fixture.progressFile, 'utf8')).toContain('kept in git stash by operator choice');
     }, 120_000);
 
     it('with an older entry still under the same key, an abort after the restore puts the newer diff back too', async () => {

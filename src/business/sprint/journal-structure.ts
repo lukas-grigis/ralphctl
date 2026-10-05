@@ -1,4 +1,6 @@
 import { sanitizeInline } from '@src/business/sprint/journal-sanitize.ts';
+import type { PriorWorkOutcome } from '@src/domain/entity/attempt.ts';
+import { describeNotRestored } from '@src/domain/entity/task-prior-work.ts';
 
 /**
  * Structural primitives for `<sprintDir>/progress.md` — the append-only sprint journal. Shared by
@@ -64,9 +66,10 @@ export const splitJournal = (body: string): JournalSplit => {
 
 // Lifecycle separators come from `renderJournalSeparator`: `_Sprint <label> at <iso>_`.
 const SEPARATOR_CAPTION = /^_Sprint .+ at .+_$/;
-// Quarantine pointers come from the quarantine-blocked-diff leaf — always lead with `_Task ` and
-// carry this exact phrase, so a blocked-reason that merely mentions the words can't match.
-const QUARANTINE_POINTER = /^_Task .*rejected diff quarantined to git stash/;
+// Quarantine pointers (quarantine-blocked-diff) and their resolutions (restore-blocked-diff) always
+// lead with `_Task ` and carry one of these exact phrases, so prose merely mentioning the words can't match.
+const QUARANTINE_POINTER =
+  /^_Task .*(rejected diff quarantined to git stash|quarantined diff (restored|left in git stash|kept in git stash))/;
 // Rescue pointers come from the worktree setup — the moved-to ref is always in the rescue namespace.
 const RESCUE_POINTER = /^_Task .* were not on the sprint branch — moved to `ralphctl-rescue\//;
 
@@ -115,6 +118,25 @@ export const renderBreadcrumbBand = (breadcrumbs: readonly string[]): string =>
  */
 export const renderQuarantineBreadcrumb = (taskName: string, stashMessage: string): string =>
   `\n_Task ${sanitizeInline(taskName)}: rejected diff quarantined to git stash — recover via \`git stash list\` (message: \`${stashMessage}\`)._\n`;
+
+/**
+ * Render what `restore-blocked-diff` did with a quarantined diff before attempt `attemptN`'s first
+ * turn. Each shape carries a phrase {@link extractLifecycleBreadcrumbs} pins, so the resolution
+ * survives the inline cap next to the pointer it resolves.
+ */
+export const renderPriorWorkBreadcrumb = (taskName: string, attemptN: number, outcome: PriorWorkOutcome): string => {
+  const head = `_Task ${sanitizeInline(taskName)}: quarantined diff`;
+  const n = String(attemptN);
+  const tail = `(message: \`${outcome.stashMessage}\`)._`;
+  switch (outcome.kind) {
+    case 'restored':
+      return `\n${head} restored into attempt ${n} — the stash entry is consumed ${tail}\n`;
+    case 'kept-by-choice':
+      return `\n${head} kept in git stash by operator choice — attempt ${n} starts fresh ${tail}\n`;
+    case 'not-restored':
+      return `\n${head} left in git stash — ${describeNotRestored(outcome.reason, outcome.uncommittedPaths)}; attempt ${n} starts without it ${tail}\n`;
+  }
+};
 
 /**
  * Render the pointer appended to the journal when a worktree ref holding commits the sprint branch

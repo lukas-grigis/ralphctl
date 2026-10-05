@@ -15,7 +15,11 @@ import {
   REPRODUCTION_TAMPER_NOTE,
   type ReproductionArtifact,
 } from '@src/application/flows/implement/leaves/reproduce.ts';
-import { absolutePath } from '@tests/fixtures/domain.ts';
+import { absolutePath, FIXED_NOW, makeInProgressTaskWithRunningAttempt, makeTodoTask } from '@tests/fixtures/domain.ts';
+import { decidePriorWork } from '@src/domain/entity/task-prior-work.ts';
+import { startNextAttempt } from '@src/domain/entity/task-attempts.ts';
+import type { InProgressTask, Task } from '@src/domain/entity/task.ts';
+import { createFoldQueue } from '@src/application/flows/implement/wave-branch.ts';
 import { makeTmpRoot } from '@tests/fixtures/tmp-root.ts';
 import { quarantineStashMessage } from '@src/domain/value/quarantine-stash-message.ts';
 import {
@@ -24,7 +28,10 @@ import {
 } from '@src/application/flows/implement/leaves/restore-blocked-diff.ts';
 
 const SPRINT_ID = 'sprint-x' as SprintId;
-const TASK_ID = 'task-1' as TaskId;
+// A legacy relaunch: the running task carries no recorded decision, so a listed stash is popped.
+const RUNNING = makeInProgressTaskWithRunningAttempt();
+const TASK_ID: TaskId = RUNNING.id;
+const PROGRESS = absolutePath('/sprints/s/progress.md');
 
 /**
  * Records git argv calls; scripts `stash list --format=%s` to contain `stashed` and lets
@@ -46,15 +53,20 @@ const fakeGit = (opts?: {
   probeFailsBefore?: boolean;
   probeFailsAfter?: boolean;
   onPop?: () => Promise<void>;
+  /** The entry is gone by the pop's own list — someone else popped it in between. */
+  vanishBeforePop?: boolean;
 }): { runner: GitRunner; calls: string[][] } => {
   const calls: string[][] = [];
   let popRan = false;
+  let lists = 0;
   const runner: GitRunner = {
     async run(_cwd, args) {
       calls.push([...args]);
       if (args[0] === 'stash' && args[1] === 'list') {
         if (opts?.listFails === true) return Result.error(new StorageError({ subCode: 'io', message: 'git broke' }));
-        return Result.ok({ stdout: (opts?.stashed ?? []).join('\n'), stderr: '', exitCode: 0 });
+        lists += 1;
+        const stashed = opts?.vanishBeforePop === true && lists > 1 ? [] : (opts?.stashed ?? []);
+        return Result.ok({ stdout: stashed.join('\n'), stderr: '', exitCode: 0 });
       }
       if (args[0] === 'stash' && args[1] === 'pop') {
         popRan = true;
@@ -78,7 +90,52 @@ const didReset = (calls: string[][]): boolean => calls.some((c) => c[0] === 'res
 const didPop = (calls: string[][]): boolean => calls.some((c) => c[0] === 'stash' && c[1] === 'pop');
 const probeCount = (calls: string[][]): number => calls.filter((c) => c[0] === 'status').length;
 
-const ctx: ImplementCtx = { sprintId: SPRINT_ID };
+const runningCtx = (task: InProgressTask = RUNNING): ImplementCtx => ({
+  sprintId: SPRINT_ID,
+  currentTask: task,
+  tasks: [task],
+});
+const ctx = runningCtx();
+
+interface LeafHarness {
+  readonly el: ReturnType<typeof restoreBlockedDiffLeaf>;
+  /** Every task write, in order. */
+  readonly saved: Task[];
+  /** Every journal append, in order. */
+  readonly journal: string[];
+}
+
+const restoreLeaf = (
+  runner: GitRunner,
+  cwd: AbsolutePath = absolutePath('/repos/main'),
+  opts?: { updateFails?: boolean; appendFails?: boolean }
+): LeafHarness => {
+  const saved: Task[] = [];
+  const journal: string[] = [];
+  const el = restoreBlockedDiffLeaf(
+    {
+      gitRunner: runner,
+      logger: noopLogger,
+      taskRepo: {
+        async update(_sprintId, task) {
+          if (opts?.updateFails === true)
+            return Result.error(new StorageError({ subCode: 'io', message: 'disk full' }));
+          saved.push(task);
+          return Result.ok(undefined);
+        },
+      },
+      appendFile: async (_path, text) => {
+        if (opts?.appendFails === true) return Result.error(new StorageError({ subCode: 'io', message: 'disk full' }));
+        journal.push(text);
+        return Result.ok(undefined);
+      },
+      journalMutex: createFoldQueue(),
+    },
+    { cwd, progressFile: PROGRESS },
+    TASK_ID
+  );
+  return { el, saved, journal };
+};
 
 describe('restoreBlockedDiffLeaf', () => {
   it('pops the deterministic stash when a prior blocked diff is present, in REAL git\'s "On <branch>: <message>" subject shape', async () => {
@@ -88,11 +145,7 @@ describe('restoreBlockedDiffLeaf', () => {
     // against the bare message would NEVER match this real shape and always short-circuit —
     // see `stashEntryMatchesMessage` in `git-stash.ts`.
     const { runner, calls } = fakeGit({ stashed: [`On main: ${message}`] });
-    const el = restoreBlockedDiffLeaf(
-      { gitRunner: runner, logger: noopLogger },
-      { cwd: absolutePath('/repos/main') },
-      TASK_ID
-    );
+    const el = restoreLeaf(runner).el;
 
     const out = await el.execute(ctx);
 
@@ -103,11 +156,7 @@ describe('restoreBlockedDiffLeaf', () => {
   it('also pops on a bare-message entry (defensive — some runners could surface it verbatim)', async () => {
     const message = quarantineStashMessage(SPRINT_ID, TASK_ID);
     const { runner, calls } = fakeGit({ stashed: [message] });
-    const el = restoreBlockedDiffLeaf(
-      { gitRunner: runner, logger: noopLogger },
-      { cwd: absolutePath('/repos/main') },
-      TASK_ID
-    );
+    const el = restoreLeaf(runner).el;
 
     const out = await el.execute(ctx);
 
@@ -117,11 +166,7 @@ describe('restoreBlockedDiffLeaf', () => {
 
   it('does not pop when no matching stash exists (clean-tree retry)', async () => {
     const { runner, calls } = fakeGit({ stashed: ['On main: ralphctl/sprint-x/task-other/blocked-diff'] });
-    const el = restoreBlockedDiffLeaf(
-      { gitRunner: runner, logger: noopLogger },
-      { cwd: absolutePath('/repos/main') },
-      TASK_ID
-    );
+    const el = restoreLeaf(runner).el;
 
     const out = await el.execute(ctx);
 
@@ -132,11 +177,7 @@ describe('restoreBlockedDiffLeaf', () => {
   it('is best-effort — a failed pop still returns ok', async () => {
     const message = quarantineStashMessage(SPRINT_ID, TASK_ID);
     const { runner } = fakeGit({ stashed: [`On main: ${message}`], popFails: true });
-    const el = restoreBlockedDiffLeaf(
-      { gitRunner: runner, logger: noopLogger },
-      { cwd: absolutePath('/repos/main') },
-      TASK_ID
-    );
+    const el = restoreLeaf(runner).el;
 
     const out = await el.execute(ctx);
 
@@ -156,11 +197,7 @@ describe('restoreBlockedDiffLeaf', () => {
       popFails: true,
       dirtyAfter: ['UU src/a.ts', 'UU src/b.ts'],
     });
-    const el = restoreBlockedDiffLeaf(
-      { gitRunner: runner, logger: noopLogger },
-      { cwd: absolutePath('/repos/main') },
-      TASK_ID
-    );
+    const el = restoreLeaf(runner).el;
 
     const out = await el.execute(ctx);
 
@@ -183,11 +220,7 @@ describe('restoreBlockedDiffLeaf', () => {
       popFails: true,
       dirtyAfter: [' M src/a.ts'],
     });
-    const el = restoreBlockedDiffLeaf(
-      { gitRunner: runner, logger: noopLogger },
-      { cwd: absolutePath('/repos/main') },
-      TASK_ID
-    );
+    const el = restoreLeaf(runner).el;
 
     const out = await el.execute(ctx);
 
@@ -198,11 +231,7 @@ describe('restoreBlockedDiffLeaf', () => {
   it('a failed pop that left the tree clean needs no undo — no reset', async () => {
     const message = quarantineStashMessage(SPRINT_ID, TASK_ID);
     const { runner, calls } = fakeGit({ stashed: [`On main: ${message}`], popFails: true, dirtyAfter: [] });
-    const el = restoreBlockedDiffLeaf(
-      { gitRunner: runner, logger: noopLogger },
-      { cwd: absolutePath('/repos/main') },
-      TASK_ID
-    );
+    const el = restoreLeaf(runner).el;
 
     const out = await el.execute(ctx);
 
@@ -213,11 +242,7 @@ describe('restoreBlockedDiffLeaf', () => {
   it('a failed probe after the pop does not reset — the tree state is unknown', async () => {
     const message = quarantineStashMessage(SPRINT_ID, TASK_ID);
     const { runner, calls } = fakeGit({ stashed: [`On main: ${message}`], popFails: true, probeFailsAfter: true });
-    const el = restoreBlockedDiffLeaf(
-      { gitRunner: runner, logger: noopLogger },
-      { cwd: absolutePath('/repos/main') },
-      TASK_ID
-    );
+    const el = restoreLeaf(runner).el;
 
     const out = await el.execute(ctx);
 
@@ -236,11 +261,7 @@ describe('restoreBlockedDiffLeaf', () => {
       popFails: true,
       dirtyAfter: ['UU src/a.ts', ' M notes.md', '?? scratch.txt'],
     });
-    const el = restoreBlockedDiffLeaf(
-      { gitRunner: runner, logger: noopLogger },
-      { cwd: absolutePath('/repos/main') },
-      TASK_ID
-    );
+    const el = restoreLeaf(runner).el;
 
     const out = await el.execute(ctx);
 
@@ -252,11 +273,7 @@ describe('restoreBlockedDiffLeaf', () => {
   it('a failed probe before the pop skips the restore — no pop, no reset', async () => {
     const message = quarantineStashMessage(SPRINT_ID, TASK_ID);
     const { runner, calls } = fakeGit({ stashed: [`On main: ${message}`], probeFailsBefore: true });
-    const el = restoreBlockedDiffLeaf(
-      { gitRunner: runner, logger: noopLogger },
-      { cwd: absolutePath('/repos/main') },
-      TASK_ID
-    );
+    const el = restoreLeaf(runner).el;
 
     const out = await el.execute(ctx);
 
@@ -268,11 +285,7 @@ describe('restoreBlockedDiffLeaf', () => {
   it('never probes the tree when there is nothing to restore', async () => {
     // The common case stays at one git call — the e2e scripted runners count `status` calls.
     const { runner, calls } = fakeGit({ stashed: [] });
-    const el = restoreBlockedDiffLeaf(
-      { gitRunner: runner, logger: noopLogger },
-      { cwd: absolutePath('/repos/main') },
-      TASK_ID
-    );
+    const el = restoreLeaf(runner).el;
 
     const out = await el.execute(ctx);
 
@@ -283,11 +296,7 @@ describe('restoreBlockedDiffLeaf', () => {
   it('a CLEAN pop never resets — the restored diff is exactly what the retry is meant to build on', async () => {
     const message = quarantineStashMessage(SPRINT_ID, TASK_ID);
     const { runner, calls } = fakeGit({ stashed: [`On main: ${message}`] });
-    const el = restoreBlockedDiffLeaf(
-      { gitRunner: runner, logger: noopLogger },
-      { cwd: absolutePath('/repos/main') },
-      TASK_ID
-    );
+    const el = restoreLeaf(runner).el;
 
     const out = await el.execute(ctx);
 
@@ -331,7 +340,7 @@ describe('restoreBlockedDiffLeaf — the reproduction reused from an earlier lau
     checksum: createHash('sha256').update(SAVED_CONTENT, 'utf-8').digest('hex'),
   };
 
-  const withArtifact: ImplementCtx = { sprintId: SPRINT_ID, reproductionArtifact: artifact };
+  const withArtifact: ImplementCtx = { ...runningCtx(), reproductionArtifact: artifact };
 
   beforeEach(async () => {
     root = await makeTmpRoot();
@@ -349,9 +358,7 @@ describe('restoreBlockedDiffLeaf — the reproduction reused from an earlier lau
   };
 
   const run = async (git: ReturnType<typeof fakeGit>, before: ImplementCtx = withArtifact): Promise<ImplementCtx> => {
-    const out = await restoreBlockedDiffLeaf({ gitRunner: git.runner, logger: noopLogger }, { cwd }, TASK_ID).execute(
-      before
-    );
+    const out = await restoreLeaf(git.runner, cwd).el.execute(before);
     if (!out.ok) throw new Error(`restore failed: ${out.error.error.message}`);
     return out.value.ctx;
   };
@@ -477,12 +484,229 @@ describe('restoreBlockedDiffLeaf — the reproduction reused from an earlier lau
     expect(after).toStrictEqual(withArtifact);
   });
 
-  it('a restore without a reproduction on ctx writes nothing to ctx', async () => {
+  it('a restore without a reproduction on ctx writes only the stamped task to ctx', async () => {
     const git = fakeGit({ stashed: [`On main: ${message}`] });
 
-    const after = await run(git, { sprintId: SPRINT_ID });
+    const after = await run(git, runningCtx());
 
     expect(didPop(git.calls)).toBe(true);
-    expect(after).toStrictEqual({ sprintId: SPRINT_ID });
+    expect(after.reproductionArtifact).toBeUndefined();
+    expect(after.currentTask?.attempts.at(-1)?.priorWork?.kind).toBe('restored');
+  });
+});
+
+describe('restoreBlockedDiffLeaf — the operator decision and its recorded outcome', () => {
+  const message = quarantineStashMessage(SPRINT_ID, TASK_ID);
+  const STAT = { files: 5, insertions: 142, deletions: 38 } as const;
+  const listed = [`On main: ${message}`];
+
+  /** A relaunch after an unblock that recorded `choice` — the running attempt of the unblocked task. */
+  const decided = (choice: 'continue' | 'fresh'): InProgressTask => {
+    const todo = decidePriorWork(
+      { ...makeTodoTask(), id: TASK_ID },
+      { choice, stashMessage: message, stat: STAT, entries: 1 },
+      FIXED_NOW
+    );
+    const running = startNextAttempt(todo, FIXED_NOW, 'session-1');
+    if (!running.ok) throw running.error;
+    return running.value;
+  };
+
+  const runLeaf = async (
+    git: ReturnType<typeof fakeGit>,
+    task: InProgressTask,
+    opts?: Parameters<typeof restoreLeaf>[2]
+  ): Promise<LeafHarness & { after: ImplementCtx }> => {
+    const harness = restoreLeaf(git.runner, absolutePath('/repos/main'), opts);
+    const out = await harness.el.execute(runningCtx(task));
+    if (!out.ok) throw new Error(`restore failed: ${out.error.error.message}`);
+    return { ...harness, after: out.value.ctx };
+  };
+
+  const priorWorkOf = (task: Task | undefined): unknown => task?.attempts.at(-1)?.priorWork;
+
+  it('fresh: no tree probe, no pop — kept-by-choice is stamped, persisted, journaled and put on ctx', async () => {
+    const git = fakeGit({ stashed: listed });
+
+    const { after, saved, journal } = await runLeaf(git, decided('fresh'));
+
+    expect(git.calls).toStrictEqual([['stash', 'list', '--format=%s']]);
+    const expected = { kind: 'kept-by-choice', stashMessage: message };
+    expect(saved).toHaveLength(1);
+    expect(priorWorkOf(saved[0])).toStrictEqual(expected);
+    expect(saved[0]?.quarantinedDiff?.nextAttempt).toBe('fresh');
+    expect(priorWorkOf(after.currentTask)).toStrictEqual(expected);
+    expect(priorWorkOf(after.tasks?.[0])).toStrictEqual(expected);
+    expect(journal).toStrictEqual([
+      `\n_Task ${RUNNING.name}: quarantined diff kept in git stash by operator choice — attempt 1 starts fresh (message: \`${message}\`)._\n`,
+    ]);
+  });
+
+  it('continue: persists the restored stamp BEFORE the pop, and the consumed fact is gone', async () => {
+    let savedAtPop: readonly Task[] = [];
+    const ref: { harness?: LeafHarness } = {};
+    const git = fakeGit({
+      stashed: listed,
+      onPop: async () => {
+        savedAtPop = [...(ref.harness?.saved ?? [])];
+      },
+    });
+    const harness = restoreLeaf(git.runner);
+    ref.harness = harness;
+
+    const out = await harness.el.execute(runningCtx(decided('continue')));
+    if (!out.ok) throw new Error('restore failed');
+
+    const expected = { kind: 'restored', stashMessage: message, stat: STAT };
+    expect(savedAtPop.map(priorWorkOf)).toStrictEqual([expected]);
+    expect(harness.saved).toHaveLength(1);
+    expect(harness.saved[0]?.quarantinedDiff).toBeUndefined();
+    expect(priorWorkOf(out.value.ctx.currentTask)).toStrictEqual(expected);
+    expect(out.value.ctx.tasks?.[0]?.quarantinedDiff).toBeUndefined();
+    expect(harness.journal[0]).toContain('quarantined diff restored into attempt 1 — the stash entry is consumed');
+  });
+
+  it('a failed pop re-stamps not-restored over the pre-stamp and keeps the fact with its stat and decision', async () => {
+    const git = fakeGit({ stashed: listed, popFails: true, dirtyAfter: ['UU src/a.ts'] });
+
+    const { after, saved, journal } = await runLeaf(git, decided('continue'));
+
+    expect(saved.map(priorWorkOf)).toStrictEqual([
+      { kind: 'restored', stashMessage: message, stat: STAT },
+      { kind: 'not-restored', stashMessage: message, reason: 'pop-failed' },
+    ]);
+    expect(saved[1]?.quarantinedDiff).toMatchObject({ stashMessage: message, stat: STAT, nextAttempt: 'continue' });
+    expect(after.currentTask).toStrictEqual(saved[1]);
+    expect(journal).toHaveLength(1);
+    expect(journal[0]).toContain(
+      'quarantined diff left in git stash — stash pop conflicted and the tree was reset; attempt 1 starts without it'
+    );
+  });
+
+  it('a failed pop whose tree cannot be checked afterwards is recorded as unverified', async () => {
+    const git = fakeGit({ stashed: listed, popFails: true, probeFailsAfter: true });
+
+    const { saved } = await runLeaf(git, decided('continue'));
+
+    expect(priorWorkOf(saved.at(-1))).toMatchObject({ reason: 'pop-failed-tree-unverified' });
+  });
+
+  it('a failed pop whose reset failed is recorded as unverified', async () => {
+    const runner: GitRunner = {
+      async run(cwd, args) {
+        if (args[0] === 'reset') return Result.ok({ stdout: '', stderr: 'index.lock exists', exitCode: 128 });
+        return base.runner.run(cwd, args);
+      },
+    };
+    const base = fakeGit({ stashed: listed, popFails: true, dirtyAfter: ['UU src/a.ts'] });
+
+    const { saved } = await runLeaf({ runner, calls: base.calls }, decided('continue'));
+
+    expect(priorWorkOf(saved.at(-1))).toMatchObject({ reason: 'pop-failed-tree-unverified' });
+  });
+
+  it('a dirty tree records how many uncommitted changes kept the diff out, without a pre-stamp', async () => {
+    const git = fakeGit({ stashed: listed, dirtyBefore: [' M a.ts', '?? b.ts', '?? c.ts'] });
+
+    const { saved, journal } = await runLeaf(git, decided('continue'));
+
+    expect(didPop(git.calls)).toBe(false);
+    expect(saved.map(priorWorkOf)).toStrictEqual([
+      { kind: 'not-restored', stashMessage: message, reason: 'dirty-tree', uncommittedPaths: 3 },
+    ]);
+    expect(journal[0]).toContain('tree had 3 uncommitted changes; attempt 1 starts without it');
+  });
+
+  it('a failed tree probe is recorded as such', async () => {
+    const git = fakeGit({ stashed: listed, probeFailsBefore: true });
+
+    const { saved } = await runLeaf(git, decided('continue'));
+
+    expect(priorWorkOf(saved[0])).toStrictEqual({
+      kind: 'not-restored',
+      stashMessage: message,
+      reason: 'tree-probe-failed',
+    });
+  });
+
+  it('a stash-list failure is recorded when the task has a quarantine fact', async () => {
+    const git = fakeGit({ listFails: true });
+
+    const { saved, journal } = await runLeaf(git, decided('fresh'));
+
+    expect(priorWorkOf(saved[0])).toStrictEqual({
+      kind: 'not-restored',
+      stashMessage: message,
+      reason: 'stash-list-failed',
+    });
+    expect(journal[0]).toContain('git stash list failed');
+  });
+
+  it('a stash-list failure writes nothing when there is no fact — most tasks never blocked', async () => {
+    const git = fakeGit({ listFails: true });
+
+    const { after, saved, journal } = await runLeaf(git, RUNNING);
+
+    expect(saved).toStrictEqual([]);
+    expect(journal).toStrictEqual([]);
+    expect(after).toStrictEqual(runningCtx());
+  });
+
+  it('a legacy listed stash with no fact stamps the outcome and records the pointer it found', async () => {
+    const git = fakeGit({ stashed: listed, dirtyBefore: [' M a.ts'] });
+
+    const { saved } = await runLeaf(git, RUNNING);
+
+    expect(saved[0]?.quarantinedDiff).toStrictEqual({ stashMessage: message });
+    expect(priorWorkOf(saved[0])).toMatchObject({ kind: 'not-restored', reason: 'dirty-tree' });
+  });
+
+  it('clears a stale fact when the stash no longer lists its key — no stamp, no journal line', async () => {
+    const git = fakeGit({ stashed: [] });
+
+    const { after, saved, journal } = await runLeaf(git, decided('continue'));
+
+    expect(saved).toHaveLength(1);
+    expect(saved[0]?.quarantinedDiff).toBeUndefined();
+    expect(priorWorkOf(saved[0])).toBeUndefined();
+    expect(after.currentTask?.quarantinedDiff).toBeUndefined();
+    expect(after.tasks?.[0]?.quarantinedDiff).toBeUndefined();
+    expect(journal).toStrictEqual([]);
+  });
+
+  it('an entry popped by someone else between the list and the pop undoes the pre-stamp and clears the fact', async () => {
+    const git = fakeGit({ stashed: listed, vanishBeforePop: true });
+
+    const { after, saved, journal } = await runLeaf(git, decided('continue'));
+
+    expect(saved).toHaveLength(2);
+    expect(priorWorkOf(saved[1])).toBeUndefined();
+    expect(saved[1]?.quarantinedDiff).toBeUndefined();
+    expect(after.currentTask).toStrictEqual(saved[1]);
+    expect(journal).toStrictEqual([]);
+  });
+
+  it('a failed outcome write is logged, and the outcome still reaches the journal and ctx', async () => {
+    const git = fakeGit({ stashed: listed });
+
+    const { after, saved, journal } = await runLeaf(git, decided('fresh'), { updateFails: true });
+
+    expect(saved).toStrictEqual([]);
+    expect(journal).toHaveLength(1);
+    expect(priorWorkOf(after.currentTask)).toMatchObject({ kind: 'kept-by-choice' });
+  });
+
+  it('a failed journal append does not fail the leaf', async () => {
+    const git = fakeGit({ stashed: listed });
+
+    const { saved } = await runLeaf(git, decided('continue'), { appendFails: true });
+
+    expect(priorWorkOf(saved[0])).toMatchObject({ kind: 'restored' });
+  });
+
+  it('fails the trace entry when ctx.currentTask is not the running task — a ctx-shape bug', async () => {
+    const out = await restoreLeaf(fakeGit({ stashed: listed }).runner).el.execute({ sprintId: SPRINT_ID });
+
+    expect(out.ok).toBe(false);
   });
 });

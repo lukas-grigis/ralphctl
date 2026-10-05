@@ -46,6 +46,8 @@ export interface DirtyTreeMenuOpts {
   readonly question?: DirtyTreeQuestion;
   /** Replaces Keep's default description (the resume copy says what Keep means for an interrupted attempt). */
   readonly keepDescription?: string;
+  /** Replaces Reset's default description (the resume copy warns when Reset destroys the only copy of restored work). */
+  readonly resetDescription?: string;
 }
 
 /**
@@ -73,7 +75,7 @@ export const dirtyTreeMenu = (
         {
           label: 'Reset — discard all uncommitted + untracked changes, then proceed',
           value: 'reset',
-          description: 'git reset --hard && git clean -fd',
+          description: opts.resetDescription ?? 'git reset --hard && git clean -fd',
         },
         { label: 'Cancel — abort the implement run', value: 'cancel' },
       ]);

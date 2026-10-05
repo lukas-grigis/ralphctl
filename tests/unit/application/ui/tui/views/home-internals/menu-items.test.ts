@@ -225,6 +225,26 @@ describe('buildMenuItems — needs attention', () => {
     expect(onResumeImplement).toHaveBeenCalledOnce();
   });
 
+  it('says the tree holds the only copy of restored rejected work, right before the resume hint', () => {
+    const items = base({
+      interruptedTasks: [task(1, 0)],
+      interruptedFacts: new Map([['t1', { uncommitted: 3, resumable: true, restoredPriorWork: true }]]),
+      now: 60_000,
+    });
+    expect(items[0]?.description).toBe(
+      '3 uncommitted changes · session resumable · holds restored rejected work — only copy is in the tree · ↵ resumes Implement'
+    );
+  });
+
+  it('leaves the restored-work fact out when the attempt restored nothing', () => {
+    const items = base({
+      interruptedTasks: [task(1, 0)],
+      interruptedFacts: new Map([['t1', { restoredPriorWork: false }]]),
+      now: 60_000,
+    });
+    expect(items[0]?.description).not.toContain('restored rejected work');
+  });
+
   it('caps the rows and folds the rest into one that still resumes everything', () => {
     const items = base({ interruptedTasks: [1, 2, 3, 4, 5].map((n) => task(n)) });
     const rows = items.filter((i) => i.section === 'needs attention');

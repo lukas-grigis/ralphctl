@@ -81,6 +81,7 @@ const interruptedDetail = (facts: InterruptedFacts | undefined): string => {
     facts?.uncommitted !== undefined && facts.uncommitted > 0 ? plural(facts.uncommitted, 'uncommitted change') : '',
     facts?.resumable === true ? 'session resumable' : '',
     facts?.resumable === false ? 'no session to resume, restarts from the brief' : '',
+    facts?.restoredPriorWork === true ? `holds restored rejected work ${glyphs.emDash} only copy is in the tree` : '',
   ].filter((p) => p !== '');
   return [...parts, `↵ resumes Implement`].join(` ${glyphs.bullet} `);
 };

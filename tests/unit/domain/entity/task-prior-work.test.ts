@@ -11,6 +11,7 @@ import { markTaskBlocked, unblockTask } from '@src/domain/entity/task-lifecycle.
 import {
   clearStaleQuarantinedDiff,
   decidePriorWork,
+  describeNotRestored,
   latestRetiredCritique,
   recommendedPriorWork,
   restoredWorkContext,
@@ -255,5 +256,20 @@ describe('restoredWorkContext', () => {
   it('omits the critique when the archived run recorded none', () => {
     const started = unwrap(startNextAttempt(makeTodoTask(), FIXED_NOW, 'session-1'));
     expect(restoredWorkContext(unwrap(stampPriorWorkOutcome(started, restored)))).toStrictEqual({ stat: STAT });
+  });
+});
+
+describe('describeNotRestored', () => {
+  it('counts the uncommitted changes that kept the diff out, singular and plural', () => {
+    expect(describeNotRestored('dirty-tree', 1)).toBe('tree had 1 uncommitted change');
+    expect(describeNotRestored('dirty-tree', 3)).toBe('tree had 3 uncommitted changes');
+    expect(describeNotRestored('dirty-tree')).toBe('tree had uncommitted changes');
+  });
+
+  it('names every other reason', () => {
+    expect(describeNotRestored('tree-probe-failed')).toBe('git status failed');
+    expect(describeNotRestored('pop-failed')).toBe('stash pop conflicted and the tree was reset');
+    expect(describeNotRestored('pop-failed-tree-unverified')).toBe("stash pop failed and the tree couldn't be checked");
+    expect(describeNotRestored('stash-list-failed')).toBe('git stash list failed');
   });
 });

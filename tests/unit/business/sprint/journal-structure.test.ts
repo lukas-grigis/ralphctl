@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   extractLifecycleBreadcrumbs,
+  renderPriorWorkBreadcrumb,
   renderQuarantineBreadcrumb,
   renderRescueBreadcrumb,
   renderSectionHeader,
@@ -61,6 +62,44 @@ describe('extractLifecycleBreadcrumbs', () => {
     const out = extractLifecycleBreadcrumbs(line);
     expect(out).toHaveLength(1);
     expect(out[0]).toContain('rejected diff quarantined to git stash');
+  });
+
+  it('pins every prior-work outcome line the restore leaf writes', () => {
+    const msg = 'ralphctl/s/t/blocked-diff';
+    const lines = [
+      renderPriorWorkBreadcrumb('auth', 2, {
+        kind: 'restored',
+        stashMessage: msg,
+        stat: { files: 5, insertions: 142, deletions: 38 },
+      }),
+      renderPriorWorkBreadcrumb('auth', 2, { kind: 'kept-by-choice', stashMessage: msg }),
+      renderPriorWorkBreadcrumb('auth', 2, {
+        kind: 'not-restored',
+        stashMessage: msg,
+        reason: 'dirty-tree',
+        uncommittedPaths: 3,
+      }),
+    ];
+    expect(extractLifecycleBreadcrumbs(`body\n${lines.join('')}more\n`)).toEqual(lines.map((l) => l.trim()));
+  });
+
+  it('renders the prior-work outcome lines in the documented shape', () => {
+    const msg = 'ralphctl/s/t/blocked-diff';
+    expect(renderPriorWorkBreadcrumb('a\nb', 2, { kind: 'restored', stashMessage: msg })).toBe(
+      `\n_Task a b: quarantined diff restored into attempt 2 — the stash entry is consumed (message: \`${msg}\`)._\n`
+    );
+    expect(renderPriorWorkBreadcrumb('auth', 1, { kind: 'kept-by-choice', stashMessage: msg })).toBe(
+      `\n_Task auth: quarantined diff kept in git stash by operator choice — attempt 1 starts fresh (message: \`${msg}\`)._\n`
+    );
+    expect(
+      renderPriorWorkBreadcrumb('auth', 3, { kind: 'not-restored', stashMessage: msg, reason: 'pop-failed' })
+    ).toBe(
+      `\n_Task auth: quarantined diff left in git stash — stash pop conflicted and the tree was reset; attempt 3 starts without it (message: \`${msg}\`)._\n`
+    );
+  });
+
+  it('does not pin prose that only mentions a quarantined diff', () => {
+    expect(extractLifecycleBreadcrumbs('the quarantined diff restored nicely\n')).toEqual([]);
   });
 
   it('recognises a rescued-ref pointer, and only one that names a rescue ref', () => {
