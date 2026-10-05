@@ -24,6 +24,24 @@ to [Semantic Versioning](https://semver.org/).
   self-block, a cancel or an interrupted run, start fresh after a failed review. It prints the choice and the flag to
   flip it. Tasks unblocked before this release keep restoring automatically.
 - A blocked task's `blockedReason` no longer ends with the stash line; the stash is shown from its own field.
+- **Review rounds check the tree first.** Before each review round, ralphctl stops (before the editor or the AI
+  session) when the tree has uncommitted changes, lists the changed files and shows the previous round's commit
+  error. The feedback prompt no longer carries its own dirty-tree rule.
+- **Plan review shows task-specific evaluator dimensions** before you approve a plan.
+- **Evaluator prompts follow one set of grading rules.** Verdict, blocked-check and critique format live in a single
+  shared partial; the continuation evaluator also sees a task's extra dimensions. Critique lines carry a dimension
+  tag and a location.
+- **Generator prompts match what the harness does.** Uncommitted work from the reproduction test or an earlier
+  attempt is expected rather than flagged; `git stash` and other destructive git shortcuts are off limits; a check
+  that failed to start no longer counts as verification.
+- **No round counts in the generator's view.** The plateau notice asks for a fundamentally different fix without
+  showing the round number or the stall limit.
+- **More inputs are marked as data, not instructions:** reproduction output, summaries of earlier attempts,
+  candidate summaries, recorded learnings and the ticket summary.
+- **Pull-request prompt:** every `git -C` command carries the repository path, and the concealment rules are gone.
+- **Readiness** reports a note-only result with the note text instead of a generic failure; **distill-learnings**
+  treats an empty result as a no-op; **ideate** rejects a blocked result and an empty task list; **plan**,
+  **ideate** and **refine** validate the draft before presenting it.
 
 ### Fixed
 

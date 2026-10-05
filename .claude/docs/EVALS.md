@@ -20,7 +20,8 @@ trial measures what production sends:
 Not covered: `plan`, `ideate`, `refine` (no headless path ships for them — they run through
 `InteractiveAiProvider`), `check-plan` (deterministic, no model call, already unit-tested), and
 `reproduce`, `review`, `readiness`, `detect-skills`, `create-pr` (next candidates; `reproduce` first, because
-the harness already re-runs its claim). One trial is one cold turn per role; the multi-turn gen-eval loop and
+the harness already re-runs its claim), and `apply-feedback`, `distill-learnings`, `implement-crash-resume`. One trial is one cold turn per
+role; the multi-turn gen-eval loop and
 the `*-continuation` prompts are not measured. There are no model graders and no dollar cost; cache tokens are counted, not priced.
 
 ## Commands
