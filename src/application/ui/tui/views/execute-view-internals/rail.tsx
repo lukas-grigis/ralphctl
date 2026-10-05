@@ -19,6 +19,7 @@
 import React from 'react';
 import { StepTrace } from '@src/application/ui/tui/components/step-trace.tsx';
 import { isPerTaskLeaf } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
+import { planLeafLabels, planLeafNames } from '@src/application/ui/tui/runtime/plan-leaves.ts';
 import type { SessionDescriptor } from '@src/application/ui/tui/runtime/session-manager.ts';
 
 export const outerFlowFilter = (name: string): boolean => !isPerTaskLeaf(name) && !name.startsWith('with-repo-lock(');
@@ -60,9 +61,10 @@ const FlowStepsRailImpl = ({
     maxRows={maxRows}
     railWidth={railWidth}
     suppressMeta={suppressMeta ?? railWidth < NARROW_RAIL_SUPPRESS_META_THRESHOLD}
-    {...(descriptor.plannedLeaves !== undefined ? { plan: descriptor.plannedLeaves } : {})}
-    {...(descriptor.planLabelByName !== undefined ? { labelByName: descriptor.planLabelByName } : {})}
-    {...(isRunning && descriptor.plannedLeaves === undefined ? { inFlightLabel: 'awaiting next step…' } : {})}
+    {...(descriptor.planTree !== undefined
+      ? { plan: planLeafNames(descriptor.planTree), labelByName: planLeafLabels(descriptor.planTree) }
+      : {})}
+    {...(isRunning && descriptor.planTree === undefined ? { inFlightLabel: 'awaiting next step…' } : {})}
   />
 );
 
@@ -93,8 +95,9 @@ const CompactFlowStepsRailImpl = ({ descriptor, isRunning, maxRows }: CompactRai
     filter={outerFlowFilter}
     maxRows={maxRows}
     compact
-    {...(descriptor.plannedLeaves !== undefined ? { plan: descriptor.plannedLeaves } : {})}
-    {...(descriptor.planLabelByName !== undefined ? { labelByName: descriptor.planLabelByName } : {})}
+    {...(descriptor.planTree !== undefined
+      ? { plan: planLeafNames(descriptor.planTree), labelByName: planLeafLabels(descriptor.planTree) }
+      : {})}
   />
 );
 

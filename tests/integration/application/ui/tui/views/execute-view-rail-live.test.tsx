@@ -4,8 +4,16 @@ import React from 'react';
 import { render } from 'ink-testing-library';
 import { describe, expect, it } from 'vitest';
 import type { TraceEntry } from '@src/application/chain/trace.ts';
+import type { PlanNode } from '@src/application/chain/plan-tree.ts';
 import type { SessionDescriptor } from '@src/application/ui/tui/runtime/session-manager.ts';
 import { FlowStepsRail } from '@src/application/ui/tui/views/execute-view-internals/rail.tsx';
+
+const planOf = (names: readonly string[]): PlanNode => ({
+  name: 'root',
+  kind: 'sequential',
+  internal: false,
+  children: names.map((name) => ({ name, kind: 'leaf', internal: false, children: [] })),
+});
 
 const done = (name: string): TraceEntry => ({ elementName: name, status: 'completed', durationMs: 1 });
 
@@ -19,7 +27,7 @@ describe('FlowStepsRail liveness', () => {
       status: 'running',
       startedAt: 0,
       trace,
-      plannedLeaves: ['load-sprint', 'second-step', 'third-step'],
+      planTree: planOf(['load-sprint', 'second-step', 'third-step']),
     } as SessionDescriptor;
     const el = (): React.JSX.Element => <FlowStepsRail descriptor={descriptor} isRunning maxRows={10} railWidth={40} />;
     const r = render(el());

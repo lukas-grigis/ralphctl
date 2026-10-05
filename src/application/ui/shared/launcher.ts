@@ -53,12 +53,6 @@ export type LaunchResult =
       /** Configured `maxAttempts` per task, surfaced as the `/X` in `attempt N/X` in the panel. */
       readonly maxAttempts?: number;
       /**
-       * Static element-tree leaf names in DFS order, computed at chain-construction time via {@link flattenLeaves}.
-       */
-      readonly plannedLeaves?: readonly string[];
-      /** Display label per planned leaf name (keyed by element `name`). */
-      readonly planLabelByName?: ReadonlyMap<string, string>;
-      /**
        * Name of the per-task subchain's final leaf — when this name (with the task uuid suffix stripped) appears in
        * the trace for a task, the UI flips that task to `completed`.
        */
@@ -148,8 +142,6 @@ const HINT_KEYS = [
   'taskNames',
   'maxTurns',
   'maxAttempts',
-  'plannedLeaves',
-  'planLabelByName',
   'terminalSubstepName',
   'taskRecovering',
   'generatorModel',

@@ -1,6 +1,6 @@
 import { join } from 'node:path';
 import { sprintDir } from '@src/integration/persistence/storage.ts';
-import { type Element, flattenLeaves } from '@src/application/chain/element.ts';
+import type { Element } from '@src/application/chain/element.ts';
 import { createRunner, type Runner } from '@src/application/chain/run/runner.ts';
 import {
   createImplementFlow,
@@ -238,18 +238,6 @@ const computeTaskRecovering = (todoTasks: readonly Task[], now: IsoTimestamp): M
 };
 
 /**
- * Plan-time label lookup — keyed by element name so the rail can render friendly labels for rows that haven't traced
- * yet (pending / running).
- */
-const computePlanLabels = (flattened: ReadonlyArray<Element<ImplementCtx>>): Map<string, string> => {
-  const planLabelByName = new Map<string, string>();
-  for (const leaf of flattened) {
-    if (leaf.label !== undefined && leaf.label.length > 0) planLabelByName.set(leaf.name, leaf.label);
-  }
-  return planLabelByName;
-};
-
-/**
  * Build the implement chain element for this launch — the deps/opts bags plus the serial-vs-parallel topology
  * decision.
  */
@@ -441,9 +429,6 @@ export const launchImplement = async (ctx: LaunchContext): Promise<LaunchResult>
 
   const taskNames = new Map<string, string>(todoTasks.map((t) => [String(t.id), t.name]));
   const taskRecovering = computeTaskRecovering(todoTasks, deps.app.clock());
-  const flattened = flattenLeaves(element);
-  const plannedLeaves = flattened.map((e) => e.name);
-  const planLabelByName = computePlanLabels(flattened);
   // Providers are drawn from the post-merge implementPair, and the models from `providers` (which already carry a
   // bound definition's override — see `buildImplementProviders`).
   const generatorProviderId = implementPair.generator.provider;
@@ -455,8 +440,6 @@ export const launchImplement = async (ctx: LaunchContext): Promise<LaunchResult>
     taskNames,
     maxTurns: settings.harness.maxTurns,
     maxAttempts: settings.harness.maxAttempts,
-    plannedLeaves,
-    ...(planLabelByName.size > 0 ? { planLabelByName } : {}),
     terminalSubstepName: IMPLEMENT_TASK_TERMINAL_LEAF,
     ...(taskRecovering.size > 0 ? { taskRecovering } : {}),
     generatorModel,

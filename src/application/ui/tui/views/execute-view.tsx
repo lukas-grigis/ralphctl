@@ -146,7 +146,9 @@ const useExecuteSessionData = (sessionId: string): ExecuteSessionData => {
   const deps = useDeps();
   const eventBus = deps.eventBus;
   const chainEvents = useEventBusBuffer<AppEvent>(eventBus, {
-    filter: (e): e is AppEvent => 'chainId' in e && (e as { chainId: string }).chainId === sessionId,
+    // Started events double the traffic and evict history `buildTaskWindows` needs; `descriptor.live` consumes them.
+    filter: (e): e is AppEvent =>
+      'chainId' in e && e.type !== 'chain-step-started' && (e as { chainId: string }).chainId === sessionId,
     limit: CHAIN_EVENT_LIMIT,
   });
   const term = useTerminalSize();

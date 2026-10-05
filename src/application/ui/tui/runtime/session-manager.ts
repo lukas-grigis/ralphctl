@@ -13,7 +13,8 @@ import type { AiProvider } from '@src/domain/entity/settings.ts';
 import type { RecoveryContext } from '@src/domain/entity/attempt.ts';
 import type { ProjectId } from '@src/domain/value/id/project-id.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
-import type { Trace } from '@src/application/chain/trace.ts';
+import type { StepStart, Trace, TraceEntry } from '@src/application/chain/trace.ts';
+import { buildPlanTree, type PlanNode } from '@src/application/chain/plan-tree.ts';
 import type { Runner, RunnerStatus } from '@src/application/chain/run/runner.ts';
 import type { InProcessRuns } from '@src/application/session/in-process-runs.ts';
 
@@ -83,6 +84,16 @@ const terminalRunnerStub = (
   },
 });
 
+/**
+ * Leaves currently running, keyed by element name (several at once under parallel waves). Mutated
+ * in place; `version` bumps on every change so memoised projections can invalidate. Late
+ * subscribers get no replay of started events — only the live state matters.
+ */
+export interface SessionLive {
+  readonly inFlight: Map<string, StepStart>;
+  version: number;
+}
+
 export interface SessionDescriptor {
   readonly id: string;
   /** Stable flow identifier — drives the title shown in panels. */
@@ -105,19 +116,12 @@ export interface SessionDescriptor {
   /** Configured cap on attempts per task (used as the `attempt A/X` cap). */
   readonly maxAttempts?: number;
   /**
-   * Element-tree leaf names in DFS order, captured at chain construction time. The Flow-steps
-   * panel renders these as pending rows so the operator sees the *whole* plan upfront and
-   * which steps are still ahead — not just the trace of what already ran.
+   * The runner's element tree, derived once at registration. The flow-steps display projects it
+   * against the trace and `live` — it never inspects element names.
    */
-  readonly plannedLeaves?: readonly string[];
-  /**
-   * Display label per planned leaf name, captured at chain construction time so the rail can
-   * render pending / running rows with their friendly label instead of falling back to the
-   * raw element name (which embeds the absolute path for per-repo leaves like
-   * `preflight-task-1-/abs/path/to/repo`). Once a leaf executes, the trace entry's own label
-   * supersedes this lookup.
-   */
-  readonly planLabelByName?: ReadonlyMap<string, string>;
+  readonly planTree?: PlanNode;
+  /** Shared-mutable in-flight state (same pattern as `trace`): mutated in place, never rebuilt. */
+  readonly live?: SessionLive;
   /**
    * Name of the per-task subchain's final leaf (`'uninstall-skills'` for the implement flow). When
    * the bucketing sees this leaf for a task id it flips the task to `completed`. Threaded from
@@ -188,8 +192,6 @@ type RegisterOptionalFields = Pick<
   | 'taskNames'
   | 'maxTurns'
   | 'maxAttempts'
-  | 'plannedLeaves'
-  | 'planLabelByName'
   | 'terminalSubstepName'
   | 'taskRecovering'
   | 'generatorModel'
@@ -245,7 +247,8 @@ const attachRunnerLifecycle = (
   runner: Runner<unknown>,
   handlers: {
     readonly onStarted: () => void;
-    readonly onStep: () => void;
+    readonly onStep: (entry: TraceEntry) => void;
+    readonly onStepStarted: (step: StepStart) => void;
     readonly onCompleted: () => void;
     readonly onFailed: (error: DomainError) => void;
     readonly onAborted: () => void;
@@ -273,7 +276,10 @@ const attachRunnerLifecycle = (
         handlers.onStarted();
         return;
       case 'step':
-        handlers.onStep(); // trace-only wakeup, no descriptor rebuild — see touchTrace
+        handlers.onStep(event.entry); // trace-only wakeup, no descriptor rebuild — see touchTrace
+        return;
+      case 'step-started':
+        handlers.onStepStarted(event.step);
         return;
       case 'completed':
         handlers.onCompleted();
@@ -363,6 +369,11 @@ const update = (
   if (!cur) return;
   const descriptor = { ...cur.descriptor, ...patch };
   const goingTerminal = patch.status !== undefined && isTerminal(patch.status);
+  const curLive = cur.descriptor.live;
+  if (goingTerminal && curLive !== undefined && curLive.inFlight.size > 0) {
+    curLive.inFlight.clear();
+    curLive.version += 1;
+  }
   // On the terminal transition, swap the live runner for a frozen stub that keeps id/status/trace
   // but drops the strong reference to the heavy forked ctx (the implement worktree ctx). The
   // descriptor already snapshots the trace; nothing reads `runner.ctx` after terminal. This frees
@@ -391,8 +402,10 @@ const update = (
 const touchTrace = (
   records: ReadonlyMap<string, SessionRecord>,
   listeners: ReadonlySet<SessionListener>,
-  id: string
+  id: string,
+  live: SessionLive
 ): void => {
+  live.version += 1;
   if (!records.has(id)) return;
   notify(listeners);
 };
@@ -409,6 +422,42 @@ const shedTerminalRecords = (records: Map<string, SessionRecord>, listeners: Rea
   return dropped;
 };
 
+/** Drive the descriptor from the runner's events; step events only touch the shared mutable state. */
+const trackLifecycle = (
+  records: Map<string, SessionRecord>,
+  listeners: ReadonlySet<SessionListener>,
+  clock: () => number,
+  runner: Runner<unknown>,
+  live: SessionLive
+): void => {
+  attachRunnerLifecycle(runner, {
+    onStarted: () => update(records, listeners, clock, runner.id, { status: 'running' }),
+    onStepStarted: (step) => {
+      live.inFlight.set(step.elementName, step);
+      touchTrace(records, listeners, runner.id, live);
+    },
+    onStep: (entry) => {
+      live.inFlight.delete(entry.elementName);
+      touchTrace(records, listeners, runner.id, live);
+    },
+    onCompleted: () =>
+      update(records, listeners, clock, runner.id, {
+        status: 'completed',
+        finishedAt: clock(),
+        trace: runner.trace,
+      }),
+    onFailed: (error) =>
+      update(records, listeners, clock, runner.id, {
+        status: 'failed',
+        finishedAt: clock(),
+        trace: runner.trace,
+        error,
+      }),
+    onAborted: () =>
+      update(records, listeners, clock, runner.id, { status: 'aborted', finishedAt: clock(), trace: runner.trace }),
+  });
+};
+
 const registerSession = (
   records: Map<string, SessionRecord>,
   listeners: ReadonlySet<SessionListener>,
@@ -422,8 +471,6 @@ const registerSession = (
     taskNames,
     maxTurns,
     maxAttempts,
-    plannedLeaves,
-    planLabelByName,
     terminalSubstepName,
     taskRecovering,
     generatorModel,
@@ -450,8 +497,6 @@ const registerSession = (
       taskNames,
       maxTurns,
       maxAttempts,
-      plannedLeaves,
-      planLabelByName,
       terminalSubstepName,
       taskRecovering,
       generatorModel,
@@ -466,29 +511,17 @@ const registerSession = (
       pinnedSprintLabel,
     }),
   };
-  const record: SessionRecord = { descriptor, runner: runner as Runner<unknown> };
+  const live: SessionLive = { inFlight: new Map(), version: 0 };
+  // Test doubles may omit `element`; a real runner always has one.
+  const element: Runner<unknown>['element'] | undefined = runner.element;
+  const record: SessionRecord = {
+    descriptor: { ...descriptor, ...(element !== undefined ? { planTree: buildPlanTree(element) } : {}), live },
+    runner: runner as Runner<unknown>,
+  };
   records.set(runner.id, record);
   notify(listeners);
 
-  attachRunnerLifecycle(runner, {
-    onStarted: () => update(records, listeners, clock, runner.id, { status: 'running' }),
-    onStep: () => touchTrace(records, listeners, runner.id),
-    onCompleted: () =>
-      update(records, listeners, clock, runner.id, {
-        status: 'completed',
-        finishedAt: clock(),
-        trace: runner.trace,
-      }),
-    onFailed: (error) =>
-      update(records, listeners, clock, runner.id, {
-        status: 'failed',
-        finishedAt: clock(),
-        trace: runner.trace,
-        error,
-      }),
-    onAborted: () =>
-      update(records, listeners, clock, runner.id, { status: 'aborted', finishedAt: clock(), trace: runner.trace }),
-  });
+  trackLifecycle(records, listeners, clock, runner, live);
 
   return record;
 };
@@ -508,8 +541,6 @@ export interface SessionManager {
     readonly taskNames?: ReadonlyMap<string, string>;
     readonly maxTurns?: number;
     readonly maxAttempts?: number;
-    readonly plannedLeaves?: readonly string[];
-    readonly planLabelByName?: ReadonlyMap<string, string>;
     readonly terminalSubstepName?: string;
     readonly taskRecovering?: ReadonlyMap<string, RecoveryContext>;
     readonly generatorModel?: string;

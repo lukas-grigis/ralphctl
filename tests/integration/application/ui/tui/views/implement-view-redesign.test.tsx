@@ -23,6 +23,7 @@ import { ExecuteBody } from '@src/application/ui/tui/views/execute-view-internal
 import { UiStateProvider } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { DepsProvider } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { useResponsiveLayout } from '@src/application/ui/tui/views/execute-view-internals/use-responsive-layout.ts';
+import type { PlanNode } from '@src/application/chain/plan-tree.ts';
 import type { SessionDescriptor } from '@src/application/ui/tui/runtime/session-manager.ts';
 import type { BucketedExecution, TaskBucket } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
 import type { TokenUsage } from '@src/application/ui/tui/runtime/use-token-usage.ts';
@@ -86,8 +87,15 @@ const makeBucketed = (): BucketedExecution => ({
   ],
 });
 
+const planOf = (names: readonly string[]): PlanNode => ({
+  name: 'root',
+  kind: 'sequential',
+  internal: false,
+  children: names.map((name) => ({ name, kind: 'leaf', internal: false, children: [] })),
+});
+
 /**
- * Descriptor with plannedLeaves that include per-task UUID-suffixed entries.
+ * Descriptor with a planTree that include per-task UUID-suffixed entries.
  * - commit-task, post-task-verify, uninstall-skills for TASK_ID_A are FIXED leaves — should
  *   show as ◇ pending after the executed sub-steps.
  * - generator + evaluator are DYNAMIC (unknown rounds) — excluded from pending display.
@@ -111,7 +119,7 @@ const makeDescriptor = (): SessionDescriptor => ({
   generatorModel: 'claude-opus-4',
   evaluatorModel: 'claude-sonnet-4-6',
   pinnedSprintLabel: 'sprint-2026-06',
-  plannedLeaves: [
+  planTree: planOf([
     'load-tasks',
     'preflight-task-1',
     // Per-task leaves for TASK_ID_A
@@ -129,7 +137,7 @@ const makeDescriptor = (): SessionDescriptor => ({
     `commit-task-${TASK_ID_B}`,
     `uninstall-skills-${TASK_ID_B}`,
     'finalize',
-  ],
+  ]),
 });
 
 /** Cumulative claude-p style token usage (totalUsed >> contextWindow → "cumul." label). */

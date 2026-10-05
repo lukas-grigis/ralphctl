@@ -28,6 +28,7 @@ import React, { useCallback, useMemo } from 'react';
 import { TasksPanel } from '@src/application/ui/tui/components/tasks-panel.tsx';
 import type { BucketedExecution, TaskBucket } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
 import { overlayEntityBlockedStatus, UUID_SUFFIX_REGEX } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
+import { planLeafNames } from '@src/application/ui/tui/runtime/plan-leaves.ts';
 import type { SessionDescriptor } from '@src/application/ui/tui/runtime/session-manager.ts';
 import type { TaskEvaluation } from '@src/application/ui/tui/components/tasks-panel-internals/evaluation-row.tsx';
 import type { BlockedTriage } from '@src/application/ui/tui/components/tasks-projection.ts';
@@ -323,14 +324,13 @@ const TasksPanelHostImpl = ({
     () => (bucketed !== undefined ? overlayEntityBlockedStatus(bucketed, taskState, isRunning) : undefined),
     [bucketed, taskState, isRunning]
   );
-  // Absent when `plannedLeaves` is not available (legacy sessions / non-implement flows).
-  const plannedLeaves = descriptor.plannedLeaves;
+  const planTree = descriptor.planTree;
   const pendingSubStepsByTaskId = useMemo(
     () =>
-      correctedBucketed !== undefined && plannedLeaves !== undefined
-        ? pendingLeavesByTaskId(correctedBucketed.tasks, plannedLeaves)
+      correctedBucketed !== undefined
+        ? pendingLeavesByTaskId(correctedBucketed.tasks, planLeafNames(planTree))
         : undefined,
-    [correctedBucketed, plannedLeaves]
+    [correctedBucketed, planTree]
   );
 
   if (correctedBucketed === undefined) return null;
