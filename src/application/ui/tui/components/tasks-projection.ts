@@ -1,4 +1,5 @@
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
+import type { PriorWorkNotice } from '@src/application/ui/shared/prior-work-copy.ts';
 import type { Attempt, RecoveryContext } from '@src/domain/entity/attempt.ts';
 import type { Task } from '@src/domain/entity/task.ts';
 import type { TaskEvaluation } from '@src/application/ui/tui/components/tasks-panel-internals/evaluation-row.tsx';
@@ -57,6 +58,8 @@ export interface TaskOverlay {
   readonly blockedReason?: string;
   /** The generator's own structured triage for the block, when its signal supplied it. */
   readonly blockedTriage?: BlockedTriage;
+  /** The rejected-diff notice (own row beside the blocked reason, never folded into it). */
+  readonly priorWork?: PriorWorkNotice;
   /** One-line summary when a task settled done but its FINAL attempt carries a warning. */
   readonly warningSummary?: string;
   /** Authoritative verdict — the last attempt's `evaluation.status`, never a bucketed signal. */

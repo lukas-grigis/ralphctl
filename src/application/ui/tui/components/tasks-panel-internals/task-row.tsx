@@ -140,6 +140,7 @@ const TaskBlockImpl = ({
       blockedReason={overlay.blockedReason}
       blockedTriage={overlay.blockedTriage}
       warningSummary={overlay.warningSummary}
+      priorWork={overlay.priorWork}
     />
     <ExpandedNotices
       cardExpanded={cardExpanded}

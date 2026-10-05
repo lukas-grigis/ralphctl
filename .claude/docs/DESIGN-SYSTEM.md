@@ -360,7 +360,27 @@ asked through `InteractivePrompt` by `useUnblockTask`): a single `askChoice` (re
 self-block / operator cancel / stuck `in_progress`, Start fresh otherwise) or, from the Sprints list, one
 `askMultiChoice` with the recommended-continue rows pre-ticked. Esc writes nothing and toasts `i unblock cancelled`. No
 stash, or a stash probe that failed, never asks; a failed probe warns in the toast. The Execute panel has no toast
-surface, so its answer shows only through the log line and the next poll.
+surface, so its answer shows only through the log line and the next poll (the card notice below).
+
+**Prior-work notices.** One formatter, `priorWorkNotice(task, surface)` (`ui/shared/prior-work-copy.ts`), returns
+`{tone, icon, text}` for the rejected-diff row on a task card; Execute feeds it through the `priorWorkById` overlay (its own
+`IndentedNotice` beside the blocked reason, never folded into it) and Sprint detail renders it on collapsed and expanded
+cards. A stamp on the current (running) attempt beats the task-level `quarantinedDiff` fact. Glyphs and tones are tokens only.
+
+| State                    | Tone        | Text                                                                                                                          |
+| ------------------------ | ----------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| blocked + stash          | dim `i`     | `rejected diff kept in git stash · <stat> · u decides what the next attempt does` (Sprint detail: `u unblocks and decides …`) |
+| todo, chose fresh        | dim `i`     | `next attempt starts fresh · rejected diff stays in git stash (<stat>)`                                                       |
+| todo, chose continue     | dim `↻`     | `next attempt continues from the rejected diff · <stat>`                                                                      |
+| todo, no recorded choice | dim `↻`     | `next attempt restores the rejected diff in git stash (no choice recorded)`                                                   |
+| attempt restored         | dim `↻`     | `continued from earlier rejected work · <stat>`                                                                               |
+| attempt kept-by-choice   | dim `i`     | `started fresh by choice · rejected diff still in git stash`                                                                  |
+| attempt not-restored     | warning `⚠` | `earlier rejected work not restored — <reason>; still in git stash`                                                           |
+
+Toast copy for the unblock outcomes (`✓ unblocked "<name>" — next attempt continues from its rejected diff (<stat>)` /
+`… starts fresh; its rejected diff stays in git stash`, `⚠` when the stash probe failed, `i unblock cancelled — "<name>" is
+still blocked`, and the bulk summary) lives in `prior-work.ts` / `unblock-feedback.ts`; the bulk question's rows read
+`<name> — <stat> · <why it stopped>`.
 
 **Anchoring.** Once a run settles (no task left in flight), the Tasks panel's card cursor — and with
 it the windowed list's visible slice — anchors on the FIRST `blocked` task instead of unconditionally

@@ -25,6 +25,7 @@ import type { Task } from '@src/domain/entity/task.ts';
 import type { Ticket } from '@src/domain/entity/ticket.ts';
 import type { Attempt } from '@src/domain/entity/attempt.ts';
 import type { RepositoryId } from '@src/domain/value/id/repository-id.ts';
+import { priorWorkNotice } from '@src/application/ui/shared/prior-work-copy.ts';
 import { latestRecordedEvaluation } from '@src/business/task/evaluation-artifact.ts';
 import { Description, Section } from '@src/application/ui/tui/views/sprint-detail-internals/shared-prose.tsx';
 import {
@@ -161,6 +162,7 @@ const TaskCard = ({
         </Box>
       )}
       {!expanded && task.description !== undefined && <Description text={task.description} maxLines={2} />}
+      <PriorWorkRow task={task} />
       {!expanded && task.status === 'blocked' && (
         <Box paddingLeft={spacing.indent}>
           <Text color={inkColors.error}>
@@ -170,6 +172,22 @@ const TaskCard = ({
       )}
       {expanded && <TaskDetailBody task={task} sprint={sprint} tasks={tasks} project={project} />}
     </ListCard>
+  );
+};
+
+const PriorWorkRow = ({ task }: { readonly task: Task }): React.JSX.Element | null => {
+  const notice = priorWorkNotice(task, 'sprint-detail');
+  if (notice === undefined) return null;
+  return (
+    <Box paddingLeft={spacing.indent}>
+      <Text
+        {...(notice.tone === 'warning' ? { color: inkColors.warning } : {})}
+        dimColor={notice.tone === 'dim'}
+        wrap="truncate-end"
+      >
+        {notice.icon} {notice.text}
+      </Text>
+    </Box>
   );
 };
 

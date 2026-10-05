@@ -19,6 +19,7 @@
  * live next door so this file can stay a small orchestrator.
  */
 
+import type { PriorWorkNotice } from '@src/application/ui/shared/prior-work-copy.ts';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Box, Text } from 'ink';
 import {
@@ -79,6 +80,8 @@ interface TaskOverlaySources {
    * pass. Absent for runs whose done tasks are all clean.
    */
   readonly warningSummaryById?: ReadonlyMap<string, string>;
+  /** Optional `taskId → rejected-diff notice` map from the polled task entities (see `priorWorkNotice`). */
+  readonly priorWorkById?: ReadonlyMap<string, PriorWorkNotice>;
   /**
    * Optional `taskId → authoritative evaluation verdict` map sourced from the polled task
    * entities (the LAST attempt's `evaluation.status`, keyed by task id). The card renders THIS
@@ -389,6 +392,7 @@ const buildOverlayByTaskId = (sources: TaskOverlaySources): ReadonlyMap<string, 
   mergeOverlaySource(overlays, sources.taskCriteriaById, (b) => (b.length > 0 ? { taskCriteria: b } : undefined));
   mergeOverlaySource(overlays, sources.blockedReasonById, (blockedReason) => ({ blockedReason }));
   mergeOverlaySource(overlays, sources.blockedTriageById, (blockedTriage) => ({ blockedTriage }));
+  mergeOverlaySource(overlays, sources.priorWorkById, (priorWork) => ({ priorWork }));
   mergeOverlaySource(overlays, sources.warningSummaryById, (warningSummary) => ({ warningSummary }));
   mergeOverlaySource(overlays, sources.taskEvaluationById, (taskEvaluation) => ({ taskEvaluation }));
   mergeOverlaySource(overlays, sources.pendingSubStepsByTaskId, (l) =>
@@ -507,6 +511,7 @@ const useTaskOverlays = (sources: TaskOverlaySources): ReadonlyMap<string, TaskO
       sources.blockedReasonById,
       sources.blockedTriageById,
       sources.warningSummaryById,
+      sources.priorWorkById,
       sources.taskEvaluationById,
       sources.pendingSubStepsByTaskId,
       sources.sprintState,

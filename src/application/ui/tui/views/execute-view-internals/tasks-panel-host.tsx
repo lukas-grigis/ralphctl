@@ -23,6 +23,7 @@
  *     keeping the orchestrator's JSX a single expression.
  */
 
+import { priorWorkNotice, type PriorWorkNotice } from '@src/application/ui/shared/prior-work-copy.ts';
 import React, { useCallback, useMemo } from 'react';
 import { TasksPanel } from '@src/application/ui/tui/components/tasks-panel.tsx';
 import type { BucketedExecution, TaskBucket } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
@@ -88,6 +89,16 @@ const blockedReasonsByTaskId = (taskState: readonly Task[]): ReadonlyMap<string,
   const byId = new Map<string, string>();
   for (const t of taskState) {
     if (t.status === 'blocked') byId.set(String(t.id), t.blockedReason);
+  }
+  return byId.size > 0 ? byId : undefined;
+};
+
+/** `taskId → rejected-diff notice` for tasks with something to say about it. */
+const priorWorkByTaskId = (taskState: readonly Task[]): ReadonlyMap<string, PriorWorkNotice> | undefined => {
+  const byId = new Map<string, PriorWorkNotice>();
+  for (const t of taskState) {
+    const notice = priorWorkNotice(t, 'execute');
+    if (notice !== undefined) byId.set(String(t.id), notice);
   }
   return byId.size > 0 ? byId : undefined;
 };
@@ -289,6 +300,10 @@ const TasksPanelHostImpl = ({
   // sprint context (e.g. create-sprint), in which case `onUnblock` below is a safe no-op.
   const sprintId = descriptor.pinnedSprintId;
   const { blockedTaskIds, onUnblock } = useUnblockAffordance({ isRunning, blockedReasonById, taskState, sprintId });
+  const priorWorkById = useMemo(
+    () => (taskState !== undefined ? priorWorkByTaskId(taskState) : undefined),
+    [taskState]
+  );
   const warningSummaryById = useMemo(
     () => (taskState !== undefined ? warningSummariesByTaskId(taskState) : undefined),
     [taskState]
@@ -336,6 +351,7 @@ const TasksPanelHostImpl = ({
       {...(blockedReasonById !== undefined ? { blockedReasonById } : {})}
       {...(blockedTriageById !== undefined ? { blockedTriageById } : {})}
       {...(warningSummaryById !== undefined ? { warningSummaryById } : {})}
+      {...(priorWorkById !== undefined ? { priorWorkById } : {})}
       {...(taskEvaluationById !== undefined ? { taskEvaluationById } : {})}
       {...(pendingSubStepsByTaskId !== undefined ? { pendingSubStepsByTaskId } : {})}
     />

@@ -96,3 +96,31 @@ describe('TasksPanel blocked triage', () => {
     r.unmount();
   });
 });
+
+describe('TasksPanel prior-work notice', () => {
+  it('renders the notice as its own row, untruncated into the reason, at 100 columns', () => {
+    const bucketed: BucketedExecution = { tasks: [bucket(ID, 'blocked')], orphanSignals: [] };
+    const reasonById = new Map([[ID, 'attempt budget exhausted (maxAttempts=3)']]);
+    const priorWorkById = new Map([
+      [
+        ID,
+        {
+          tone: 'dim' as const,
+          icon: 'i',
+          text: 'rejected diff kept in git stash · 5 files +142 -38 · u decides what the next attempt does',
+        },
+      ],
+    ]);
+    const r = render(
+      <TasksPanel bucketed={bucketed} running={false} blockedReasonById={reasonById} priorWorkById={priorWorkById} />
+    );
+    const lines = (r.lastFrame() ?? '').split('\n');
+    r.unmount();
+    const reason = lines.findIndex((l) => l.includes('attempt budget exhausted'));
+    const notice = lines.findIndex((l) => l.includes('rejected diff kept in git stash'));
+    expect(reason).toBeGreaterThanOrEqual(0);
+    expect(notice).toBeGreaterThan(reason);
+    expect(lines[notice]).toContain('u decides what the next attempt does');
+    expect(lines[reason]).not.toContain('rejected diff');
+  });
+});
