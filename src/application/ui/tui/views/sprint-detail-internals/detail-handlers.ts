@@ -19,15 +19,18 @@ import { createTicketPublishFlow } from '@src/application/flows/publish-ticket/f
 import type { TicketPublishDeps } from '@src/application/flows/publish-ticket/deps.ts';
 import { createTicketRemoveFlow } from '@src/application/flows/remove-ticket/flow.ts';
 import type { TicketRemoveDeps } from '@src/application/flows/remove-ticket/deps.ts';
-import type { UnblockTask } from '@src/application/ui/tui/runtime/use-unblock-task.ts';
+import type { UnblockTasks } from '@src/application/ui/tui/runtime/use-unblock-task.ts';
 import type { UnblockTaskOutput } from '@src/business/task/unblock-task.ts';
+import type { Project } from '@src/domain/entity/project.ts';
+import { priorWorkClause, unblockCancelledToast, type QuarantineProbe } from '@src/application/ui/shared/prior-work.ts';
 import { runEdit } from '@src/application/ui/tui/views/sprint-detail-internals/field-editors.ts';
 import type { FocusModel } from '@src/application/ui/tui/views/sprint-detail-internals/detail-body.tsx';
 
 interface RunUnblockArgs {
   readonly target: Task;
-  readonly sprintId: SprintId;
-  readonly unblockTask: UnblockTask;
+  readonly sprint: Sprint;
+  readonly project: Project | undefined;
+  readonly unblockTask: UnblockTasks['unblockOne'];
   readonly mountedRef: RefObject<boolean>;
   readonly setFeedback: (message: string) => void;
   readonly reload: () => void;
@@ -47,8 +50,9 @@ interface RunUnblockArgs {
  * then does the stuck-task gate in `detail-body.tsx` (a `todo` task on a `review` sprint) make `u`
  * reachable again.
  */
-const unblockedToast = (name: string, sprintId: SprintId, out: UnblockTaskOutput): string => {
-  const head = `unblocked "${name}"`;
+const unblockedToast = (name: string, sprintId: SprintId, out: UnblockTaskOutput, probe: QuarantineProbe): string => {
+  const prior = priorWorkClause(probe, out.quarantinedDiff);
+  const head = `unblocked "${name}"${prior !== undefined ? ` ${glyphs.emDash} ${prior.text}` : ''}`;
   const conflict = out.sprintReopenConflict;
   // The task IS revived, but its sprint stayed closed — so this is not a plain success. Lead
   // with the warning glyph rather than `✓`: the operator has to act on this (close the peer,
@@ -59,7 +63,7 @@ const unblockedToast = (name: string, sprintId: SprintId, out: UnblockTaskOutput
     return `${glyphs.warningGlyph} ${head} ${glyphs.emDash} ${conflict.message}${hintClause} ${glyphs.emDash} ${retry}`;
   }
   const reopened = out.sprintReopened;
-  if (reopened === undefined) return `${glyphs.check} ${head}`;
+  if (reopened === undefined) return `${prior?.warn === true ? glyphs.warningGlyph : glyphs.check} ${head}`;
   // `from === sprint.status` means the retried hop failed AGAIN (see `SprintReopened`'s doc
   // comment in `business/task/unblock-task.ts`) — nothing actually moved, so "reopened X → X"
   // would misstate what happened. Say the sprint is still stuck instead.
@@ -68,7 +72,7 @@ const unblockedToast = (name: string, sprintId: SprintId, out: UnblockTaskOutput
       ? `sprint still ${reopened.sprint.status}`
       : `sprint reopened ${reopened.from} ${glyphs.arrowRight} ${reopened.sprint.status}`;
   // Stopped short of `active` (the second hop failed to persist), implement still can't run it.
-  return reopened.sprint.status === 'active'
+  return reopened.sprint.status === 'active' && prior?.warn !== true
     ? `${glyphs.check} ${head} ${glyphs.emDash} ${hop}`
     : `${glyphs.warningGlyph} ${head} ${glyphs.emDash} ${hop}, not active`;
 };
@@ -80,14 +84,18 @@ const unblockedToast = (name: string, sprintId: SprintId, out: UnblockTaskOutput
  * navigate away (unmounting the view) before the awaited use-case resolves.
  */
 const runUnblock = async (args: RunUnblockArgs): Promise<void> => {
-  const { target, sprintId, unblockTask, mountedRef, setFeedback, reload } = args;
-  const r = await unblockTask(target, sprintId);
-  if (!r.ok) {
+  const { target, sprint, project, unblockTask, mountedRef, setFeedback, reload } = args;
+  const r = await unblockTask(target, sprint, project);
+  if (r.kind === 'failed') {
     if (mountedRef.current) setFeedback(`${glyphs.cross} ${r.error.message}`);
     return;
   }
   if (!mountedRef.current) return;
-  setFeedback(unblockedToast(target.name, sprintId, r.value));
+  if (r.kind === 'cancelled') {
+    setFeedback(unblockCancelledToast(target.name));
+    return;
+  }
+  setFeedback(unblockedToast(target.name, sprint.id, r.output, r.probe));
   reload();
 };
 
@@ -161,7 +169,8 @@ export interface BuildSprintDetailHandlersArgs {
   readonly reload: () => void;
   readonly mountedRef: RefObject<boolean>;
   readonly setFeedback: (message: string) => void;
-  readonly unblockTask: UnblockTask;
+  readonly unblockTask: UnblockTasks['unblockOne'];
+  readonly project: Project | undefined;
   readonly setConfirmRemove: (ticket: Ticket | undefined) => void;
   /**
    * In-flight latch for `p`. Set synchronously before the flow's first await and cleared in
@@ -189,6 +198,7 @@ export const buildSprintDetailHandlers = (args: BuildSprintDetailHandlersArgs): 
     mountedRef,
     setFeedback,
     unblockTask,
+    project,
     setConfirmRemove,
     publishInFlightRef,
   } = args;
@@ -209,7 +219,7 @@ export const buildSprintDetailHandlers = (args: BuildSprintDetailHandlersArgs): 
 
   const handleUnblock = async (target: Task): Promise<void> => {
     if (sprint === undefined) return;
-    await runUnblock({ target, sprintId: sprint.id, unblockTask, mountedRef, setFeedback, reload });
+    await runUnblock({ target, sprint, project, unblockTask, mountedRef, setFeedback, reload });
   };
 
   const handlePublish = async (target: Ticket): Promise<void> => {

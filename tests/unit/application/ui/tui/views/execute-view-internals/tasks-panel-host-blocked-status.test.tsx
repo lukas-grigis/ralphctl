@@ -24,7 +24,7 @@ import { waitForPredicate } from '@tests/integration/application/ui/tui/_wait.ts
 // tests (status derivation, not the unblock action), so it's mocked exactly as
 // `tasks-panel-host-unblock.test.tsx` mocks it.
 vi.mock('@src/application/ui/tui/runtime/use-unblock-task.ts', () => ({
-  useUnblockTask: () => vi.fn().mockResolvedValue({ ok: true, value: undefined }),
+  useUnblockTask: () => ({ unblockInSprint: vi.fn().mockResolvedValue({ kind: 'cancelled' }) }),
 }));
 
 const bucket = (id: string, status: TaskBucket['status']): TaskBucket => ({

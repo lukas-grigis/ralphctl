@@ -355,6 +355,13 @@ it) or stalls short of `active`, the `u` toast's retry clause names the fix in o
 `ralphctl sprint reopen <id>`, press `r` to reload, then `u` again — the Sprints list's bulk `u` mirrors
 the same clause (`unblock-feedback.ts`).
 
+**Prior-work question.** When git holds the task's quarantined rejected diff, `u` asks first (`ui/shared/prior-work.ts`,
+asked through `InteractivePrompt` by `useUnblockTask`): a single `askChoice` (recommended option first — Continue for a
+self-block / operator cancel / stuck `in_progress`, Start fresh otherwise) or, from the Sprints list, one
+`askMultiChoice` with the recommended-continue rows pre-ticked. Esc writes nothing and toasts `i unblock cancelled`. No
+stash, or a stash probe that failed, never asks; a failed probe warns in the toast. The Execute panel has no toast
+surface, so its answer shows only through the log line and the next poll.
+
 **Anchoring.** Once a run settles (no task left in flight), the Tasks panel's card cursor — and with
 it the windowed list's visible slice — anchors on the FIRST `blocked` task instead of unconditionally
 the last one. Without this, a task blocked early in a long list would fall behind a dim "N more above"

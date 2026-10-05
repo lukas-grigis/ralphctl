@@ -223,7 +223,7 @@ const useUnblockAffordance = ({
     () => (isRunning ? NO_BLOCKED_TASK_IDS : new Set(blockedReasonById?.keys() ?? [])),
     [isRunning, blockedReasonById]
   );
-  const unblockTask = useUnblockTask();
+  const { unblockInSprint } = useUnblockTask();
   const onUnblock = useCallback(
     (taskId: string): void => {
       // Defense in depth — see the TOCTOU note above. `TasksPanel` already can't reach this
@@ -232,13 +232,11 @@ const useUnblockAffordance = ({
       if (isRunning || sprintId === undefined) return;
       const target = taskState?.find((t) => String(t.id) === taskId);
       if (target === undefined) return;
-      // Fire-and-forget: the use case logs its own outcome through the injected `Logger`, which
-      // publishes onto the same event bus the Execute view's Recent-log panel already reads —
-      // no separate feedback plumbing needed here. The 3s baseline-health poll picks up the
-      // revived entity on its own next tick.
-      void unblockTask(target, sprintId);
+      // Fire-and-forget: a stash prompt (if any) rides the prompt queue; the use case logs its own
+      // outcome onto the bus the Recent-log panel reads. The 3s poll picks up the revived entity.
+      void unblockInSprint(target, sprintId);
     },
-    [isRunning, sprintId, taskState, unblockTask]
+    [isRunning, sprintId, taskState, unblockInSprint]
   );
   return { blockedTaskIds, onUnblock };
 };

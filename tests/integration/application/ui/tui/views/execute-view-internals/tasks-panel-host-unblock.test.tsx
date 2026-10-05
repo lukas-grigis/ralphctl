@@ -30,7 +30,7 @@ import { waitForPredicate } from '@tests/integration/application/ui/tui/_wait.ts
 
 const mockUnblock = vi.hoisted(() => vi.fn().mockResolvedValue({ ok: true, value: undefined }));
 vi.mock('@src/application/ui/tui/runtime/use-unblock-task.ts', () => ({
-  useUnblockTask: () => mockUnblock,
+  useUnblockTask: () => ({ unblockInSprint: mockUnblock }),
 }));
 
 const bucket = (id: string, status: TaskBucket['status']): TaskBucket => ({
