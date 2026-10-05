@@ -141,7 +141,7 @@ describe('buildIdeatePrompt — end-to-end', () => {
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.value).toContain('## Learnings from prior sprints');
+    expect(result.value).toContain('## From prior sprints');
     expect(result.value).toContain('auth module has hidden coupling to the shared session cache');
     expect(result.value).not.toMatch(/\{\{[A-Z_]+\}\}/);
   });
@@ -158,7 +158,7 @@ describe('buildIdeatePrompt — end-to-end', () => {
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.value).not.toContain('## Learnings from prior sprints');
+    expect(result.value).not.toContain('## From prior sprints');
     expect(result.value).not.toMatch(/\{\{[A-Z_]+\}\}/);
   });
 });

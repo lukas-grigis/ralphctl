@@ -36,11 +36,7 @@ When the block above is empty, no criteria were threaded into this round — tre
 `{{CONTRACT_PATH}}` as authoritative instead.
 </task_criteria>
 
-<plateau_directive>{{PLATEAU_DIRECTIVE_SECTION}}</plateau_directive>
-
-When the block above is empty, no plateau escalation applies this round — proceed normally; it
-carries a "change your approach" directive only when the gen-eval loop has stalled and the
-escalation policy granted a same-model retry.
+{{PLATEAU_DIRECTIVE_SECTION}}
 
 <prior_critique>{{PRIOR_CRITIQUE_SECTION}}</prior_critique>
 
@@ -48,19 +44,17 @@ escalation policy granted a same-model retry.
 
 {{REPRODUCTION_SECTION}}
 
-<retry_feedback>{{RETRY_FEEDBACK_SECTION}}</retry_feedback>
+{{RETRY_FEEDBACK_SECTION}}
 
 <pre_verify_results>{{PRE_VERIFY_RESULTS}}</pre_verify_results>
 
-<prior_progress>
 The most recent sprint-journal sections (decisions, changes, learnings, notes from prior
 task-attempts) are below for quick reference. Honor prior decisions; do not re-litigate them
 without a `decision` signal explaining why. When the block is empty there is no recent journal
-context to apply.
+context to apply. For the complete history — older than the excerpt — read `{{PROGRESS_FILE}}` on disk.
 
+<prior_progress>
 {{PRIOR_PROGRESS}}
-
-For the complete history — older than the excerpt above — read `{{PROGRESS_FILE}}` on disk.
 </prior_progress>
 
 {{DECISIONS_GUIDANCE}}

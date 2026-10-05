@@ -2,6 +2,11 @@ import { describe, expect, it } from 'vitest';
 import type { Task } from '@src/domain/entity/task.ts';
 import {
   renderContractMd,
+  renderPlateauDirectiveSection,
+  renderPriorCriteriaVerdictsSection,
+  renderPriorLearningsSection,
+  renderReproductionSection,
+  renderRetryFeedbackSection,
   renderTicketRefsSubjectSuffix,
   renderVerificationCriteriaSection,
 } from '@src/integration/ai/prompts/_engine/renderers/task.ts';
@@ -99,5 +104,52 @@ describe('renderTicketRefsSubjectSuffix', () => {
 
   it('returns empty when every entry is whitespace-only', () => {
     expect(renderTicketRefsSubjectSuffix(['  ', '\t', ''])).toBe('');
+  });
+});
+
+describe('renderPriorLearningsSection', () => {
+  it('emits a neutral heading and the rows — no weighting prose', () => {
+    const out = renderPriorLearningsSection('- insight one\n- decision two');
+    expect(out).toBe('## From prior sprints\n\n- insight one\n- decision two');
+    expect(out).not.toContain('orientation, not instructions');
+  });
+
+  it('collapses to empty when absent or blank', () => {
+    expect(renderPriorLearningsSection(undefined)).toBe('');
+    expect(renderPriorLearningsSection('  ')).toBe('');
+  });
+});
+
+describe('renderReproductionSection', () => {
+  it('says the test is uncommitted on purpose', () => {
+    const out = renderReproductionSection('Test: tests/a.test.ts').replace(/\s+/g, ' ');
+    expect(out).toContain('uncommitted in the working tree on purpose');
+    expect(out).toContain('the harness commits it with your work');
+  });
+});
+
+describe('empty-block prefaces', () => {
+  it('render nothing at all when the body is absent', () => {
+    expect(renderRetryFeedbackSection(undefined)).toBe('');
+    expect(renderRetryFeedbackSection('  ')).toBe('');
+    expect(renderPriorCriteriaVerdictsSection('')).toBe('');
+    expect(renderPlateauDirectiveSection(false)).toBe('');
+  });
+
+  it('carry their framing inside the tag when the body is present', () => {
+    expect(renderPriorCriteriaVerdictsSection('- C1: passing')).toMatch(
+      /^<prior_criteria_verdicts>\n.*done-criteria already pass[\s\S]*- C1: passing\n<\/prior_criteria_verdicts>$/
+    );
+  });
+});
+
+describe('renderPlateauDirectiveSection', () => {
+  it('states no counts or caps and keeps no warning glyph or shouting', () => {
+    const out = renderPlateauDirectiveSection(true);
+    expect(out.startsWith('<plateau_directive>')).toBe(true);
+    expect(out).toContain('fundamentally different');
+    expect(out).not.toContain('⚠');
+    expect(out).not.toContain('Do NOT');
+    expect(out).not.toMatch(/\d+ (rounds|attempts)/);
   });
 });

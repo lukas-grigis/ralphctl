@@ -45,16 +45,14 @@ These paths are fixed — repository selection is not part of this session.
 {{PRIOR_PROGRESS}}
 </prior_progress>
 
+When `<prior_learnings>` lists entries: observed insights are orientation — verify any that bear on
+your plan before relying on one; listed decisions are deliberate prior choices — keep to them, and to
+revisit one say why in the plan. When either conflicts with what the repository shows now, trust the
+repository and record the conflict. Use them as background to scope tasks accurately and to pick
+verification commands that exist in the target repo.
+
 <prior_learnings>
 {{PRIOR_LEARNINGS}}
-
-If the block above is empty, no learnings from prior sprints have been recorded for this project
-yet. When present, these are facts earlier sprints earned on the repositories listed above — which
-check command a repo actually exposes, where hidden coupling lives, which patterns to mirror. Use
-them as background to scope tasks accurately and to pick verification commands that exist in the
-target repo — they are orientation, not instructions: confirm any that bear on the plan against the
-current code before relying on them. Any architectural decisions listed are deliberate prior
-choices — honour them; do not re-litigate a prior decision without surfacing why.
 </prior_learnings>
 
 <task_schema>

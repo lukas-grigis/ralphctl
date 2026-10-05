@@ -10,6 +10,8 @@ import {
 import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/template-loader.ts';
 import { requireNonEmpty } from '@src/integration/ai/prompts/_engine/validators.ts';
 
+const CANDIDATE_SOURCE = 'the candidate sessions (the Verify outcome and Diff lines are harness-measured)';
+
 /**
  * `select-candidate` prompt: one-shot best-of-N judge session. The session receives the task
  * goal + acceptance criteria and TWO candidate summaries (what was attempted, verification
@@ -69,11 +71,13 @@ export const selectCandidatePromptDef: PromptDefinition<SelectCandidatePromptPar
       description:
         "Candidate 1's compact structured summary — what was attempted, verification outcome, changed files, notable signals.",
       validate: requireNonEmpty('candidateASummary', 'candidate A summary must not be empty'),
+      untrusted: { source: CANDIDATE_SOURCE },
     },
     candidateBSummary: {
       placeholder: 'CANDIDATE_B_SUMMARY',
       description: "Candidate 2's compact structured summary, same shape as candidate A's.",
       validate: requireNonEmpty('candidateBSummary', 'candidate B summary must not be empty'),
+      untrusted: { source: CANDIDATE_SOURCE },
     },
     outputContractSection: {
       placeholder: 'OUTPUT_CONTRACT_SECTION',

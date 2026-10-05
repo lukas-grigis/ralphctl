@@ -54,8 +54,8 @@ describe('renderTicketSummary', () => {
     expect(out).toContain('- second');
   });
 
-  it('returns a placeholder note when the list is empty', () => {
-    expect(renderTicketSummary([])).toContain('No specific tickets');
+  it('returns an empty string when the list is empty (the template carries the fallback)', () => {
+    expect(renderTicketSummary([])).toBe('');
   });
 });
 

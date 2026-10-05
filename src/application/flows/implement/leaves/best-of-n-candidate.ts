@@ -448,15 +448,11 @@ const bestOfNOneCandidateLeaf = (
       }
       const reproduction =
         ctx.reproductionArtifact !== undefined ? renderReproductionBody(ctx.reproductionArtifact) : undefined;
-      // Same feed-forward bundle a normal generator turn gets — see `CandidateLeafInput`'s
-      // docstring. `ctx.currentRoundNum` is always 1 for a candidate spawn (they only ever run in
-      // round 1 of the granted attempt), but read it off ctx rather than hardcode 1 so a future
-      // change to when candidates can run doesn't silently go stale here.
-      const feedForward = composeGeneratorFeedForward(ctx, ctx.currentTask, taskId, ctx.currentRoundNum ?? 1, {
+      // Same feed-forward bundle a normal generator turn gets — see `CandidateLeafInput`'s docstring.
+      const feedForward = composeGeneratorFeedForward(ctx, ctx.currentTask, taskId, {
         cwd: opts.cwd,
         clock: deps.clock,
         plateauThreshold: deps.config.harness.plateauThreshold,
-        maxTurns: deps.config.harness.maxTurns,
       });
       const priorCritique = latestCritique(ctx.currentTask);
       return {

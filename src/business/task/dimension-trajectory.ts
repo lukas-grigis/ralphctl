@@ -16,8 +16,9 @@ import { failedDimensions, type PlateauTurnRecord, plateauWindowSize } from '@sr
  *                                      with the count of consecutive recent rounds it has failed.
  *  - `newly failing`                 — a dimension failing now that did NOT fail in the prior turn.
  *
- * Plus a budget-pressure line when the consecutive-stall count reaches `plateauThreshold - 1` — one
+ * Plus a change-approach line when the consecutive-stall count reaches `plateauThreshold - 1` — one
  * round short of the plateau exit — so the generator gets the warning while it can still act on it.
+ * The line carries no round counts or caps: the loop budget is not exposed to the generator.
  *
  * Pure. No I/O. Deterministic for a given history (vital for prompt-regression test stability).
  *
@@ -32,10 +33,6 @@ export interface DimensionTrajectoryInput {
   readonly history: readonly PlateauTurnRecord[];
   /** Configured plateau threshold (`settings.harness.plateauThreshold`); drives the pressure line. */
   readonly plateauThreshold: number;
-  /** Current round number — `ctx.currentRoundNum`. Rendered in the pressure line. */
-  readonly roundNum: number;
-  /** Configured gen-eval turn budget (`settings.harness.maxTurns`). Rendered in the pressure line. */
-  readonly maxTurns: number;
 }
 
 /**
@@ -95,20 +92,15 @@ export const composeDimensionTrajectory = (input: DimensionTrajectoryInput): str
 
   if (lines.length === 0) return '';
 
-  // Budget-pressure line: the loop plateaus after `plateauThreshold` consecutive stalled rounds.
-  // Fire the warning one round early (the longest still-failing streak has reached
-  // `plateauThreshold - 1`) so the generator can change approach before the harness gives up. Uses
-  // `stillFailingAll` (untruncated) — a dimension sorted out of the rendered bullets by the display
-  // cap can still hold the true longest stall and must not be silently dropped from this check.
+  // Nudge one round before the harness would plateau, without exposing round counts or the exit cap.
   const threshold = plateauWindowSize(input.plateauThreshold);
   const longestStall = stillFailingAll.reduce((max, d) => Math.max(max, consecutiveFailing(history, d)), 0);
   const pressure =
     longestStall >= threshold - 1
       ? [
           '',
-          `Round ${String(input.roundNum)} of ${String(input.maxTurns)}; ${String(longestStall)} stalled round(s) — ` +
-            `the harness exits this loop at ${String(threshold)} consecutive stalled rounds and escalates. Do NOT ` +
-            'repeat the previous approach on a still-failing dimension; step back and try a fundamentally different fix.',
+          'A dimension above has failed several rounds in a row — step back and try a fundamentally different fix ' +
+            'rather than another variation.',
         ]
       : [];
 

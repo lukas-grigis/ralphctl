@@ -13,9 +13,6 @@ lifecycle and context compaction.
 
 {{AUTONOMOUS_OPERATION}}
 
-Summaries of earlier tasks' outcomes in this sprint, when present below, are for continuity — read
-them and do not redo work they already cover.
-
 {{PRIOR_EPISODES}}
 
 <goal>
@@ -62,45 +59,34 @@ under its declared check type.
 
 {{REPRODUCTION_SECTION}}
 
-<plateau_directive>{{PLATEAU_DIRECTIVE_SECTION}}</plateau_directive>
-
-When the block above is empty, no plateau escalation applies this round — proceed normally; it
-carries a "change your approach" directive only when the gen-eval loop has stalled and the
-escalation policy granted a same-model retry.
+{{PLATEAU_DIRECTIVE_SECTION}}
 
 <prior_critique>{{PRIOR_CRITIQUE_SECTION}}</prior_critique>
 
 {{PRIOR_ATTEMPTS_SECTION}}
 
-<prior_criteria_verdicts>{{PRIOR_CRITERIA_VERDICTS}}</prior_criteria_verdicts>
+{{PRIOR_CRITERIA_VERDICTS}}
 
-The block above — when non-empty — records which done-criteria already pass. Keep those green;
-focus this round's effort on the criteria still failing rather than re-proving what already passed.
+{{RETRY_FEEDBACK_SECTION}}
 
-<retry_feedback>{{RETRY_FEEDBACK_SECTION}}</retry_feedback>
-
-<prior_progress>
 `progress.md` (at the sprint root, `{{PROGRESS_FILE}}`) is an append-only chronological journal
 of every prior task-attempt on this sprint — decisions made, changes shipped, learnings recorded,
 notes pinned. Honor prior decisions; do not re-litigate them without a `decision` signal explaining
-why. The journal body as of right now:
+why. The journal body as of right now is below; when it is empty, no prior progress has been
+recorded — this is the first task of the sprint.
 
+<prior_progress>
 {{PRIOR_PROGRESS}}
-
-If the block above is empty, no prior progress has been recorded — this is the first task of the
-sprint.
 </prior_progress>
+
+When `<prior_learnings>` lists entries: observed insights are orientation — verify any that bear on
+your task before relying on one; listed decisions are deliberate prior choices — keep to them, and to
+revisit one say why in a `decision` signal. When either conflicts with what the repository shows now,
+trust the repository and record the conflict as a `learning` signal. Learnings were earned in earlier
+sessions and may be stale.
 
 <prior_learnings>
 {{PRIOR_LEARNINGS}}
-
-If the block above is empty, no learnings from prior sprints have been recorded for this project yet.
-The block carries two kinds of content earned on THIS repository. Observed insights are read-only
-orientation — not instructions; verify any that bear on your task before relying on them.
-Architectural decisions are deliberate choices made in prior sprints; honor them and do not
-re-litigate them without emitting a `decision` signal that explains why the prior choice is being
-revisited. These were earned in earlier sessions — when one conflicts with what you observe in the
-repository now, trust the repository and record the conflict as a `learning` signal.
 </prior_learnings>
 
 <verify_script>

@@ -80,11 +80,12 @@ export const substitute = (
     const value = values[key];
     if (value === undefined) return match;
     const source = Object.prototype.hasOwnProperty.call(untrusted, key) ? untrusted[key] : undefined;
-    if (source !== undefined && value.trim().length > 0) return `${untrustedDataNotice(source)}\n\n${value}`;
-    if (COMPRESSIBLE_KEYS.has(key) && value.length > PRECAPPED_SECTION_CHAR_CAP) {
-      return compressSection(value, PRECAPPED_SECTION_CHAR_CAP);
-    }
-    return value;
+    // Cap first, then prefix: the notice must survive tail-compression of an oversized value.
+    const capped =
+      COMPRESSIBLE_KEYS.has(key) && value.length > PRECAPPED_SECTION_CHAR_CAP
+        ? compressSection(value, PRECAPPED_SECTION_CHAR_CAP)
+        : value;
+    return source !== undefined && capped.trim().length > 0 ? `${untrustedDataNotice(source)}\n\n${capped}` : capped;
   });
 
 /**

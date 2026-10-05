@@ -86,6 +86,7 @@ export const distillLearningsPromptDef: PromptDefinition<DistillLearningsPromptP
       placeholder: 'CANDIDATE_LEARNINGS',
       description: 'Markdown list of the curated learnings to fold into the context file.',
       validate: requireNonEmpty('candidateLearnings', 'candidate learnings must not be empty'),
+      untrusted: { source: 'learnings recorded by earlier AI sessions' },
     },
     targetFilename: {
       placeholder: 'TARGET_FILENAME',

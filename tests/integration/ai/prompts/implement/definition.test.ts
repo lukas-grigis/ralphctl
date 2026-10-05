@@ -196,10 +196,11 @@ describe('implementPromptDef — completeness', () => {
     expect(template).toContain('comparable context file already in this ecosystem');
   });
 
-  it('gives the empty plateau_directive block an explicit empty-case sentence', async () => {
+  it('keeps the plateau_directive framing out of the template so an absent block renders nothing', async () => {
     const path = `${String(defaultTemplatesDir())}/implement/template.md`;
-    const template = (await fs.readFile(path, 'utf8')).replace(/\s+/g, ' ');
-    expect(template).toContain('no plateau escalation applies this round');
+    const template = await fs.readFile(path, 'utf8');
+    expect(template).toContain('{{PLATEAU_DIRECTIVE_SECTION}}');
+    expect(template).not.toContain('<plateau_directive>\n');
   });
 
   it('asks for a contrasting learning when an attempt succeeds where an earlier one failed', async () => {
@@ -325,9 +326,11 @@ describe('renderPreVerifyResultsSection', () => {
 });
 
 describe('renderRetryFeedbackSection', () => {
-  it('returns the trimmed feedback verbatim when provided', () => {
+  it('wraps the trimmed feedback in a tag with its framing preface when provided', () => {
     const out = renderRetryFeedbackSection('  Command: pnpm test\nExit 1  ');
-    expect(out).toBe('Command: pnpm test\nExit 1');
+    expect(out.startsWith('<retry_feedback>\n')).toBe(true);
+    expect(out).toContain('post-task verify failed');
+    expect(out).toContain('Command: pnpm test\nExit 1\n</retry_feedback>');
   });
 
   it('returns the empty string when undefined', () => {
@@ -538,7 +541,11 @@ describe('buildImplementPrompt — end-to-end against the real template', () => 
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.value).toContain('<retry_feedback>');
+    expect(result.value).not.toContain('<retry_feedback>\n');
+    expect(result.value).not.toContain('post-task verify failed');
+    expect(result.value).not.toContain('<plateau_directive>\n');
+    expect(result.value).not.toContain('<prior_criteria_verdicts>\n');
+    expect(result.value).not.toContain('<prior_task_episodes>\n');
     expect(result.value).not.toMatch(/\{\{[A-Z_]+\}\}/);
   });
 

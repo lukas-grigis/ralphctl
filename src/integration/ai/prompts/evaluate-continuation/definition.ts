@@ -126,6 +126,7 @@ export const evaluateContinuationPromptDef: PromptDefinition<EvaluateContinuatio
       description:
         'Failing reproduction test a prior `reproduce` session wrote for this defect-shaped task — test ' +
         'path, run command, observed failure. Empty → `{{REPRODUCTION_SECTION}}` collapses (no `<reproduction>` wrapper).',
+      untrusted: { source: "an earlier AI session's test run" },
     },
   },
   partials: {

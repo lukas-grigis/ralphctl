@@ -172,7 +172,7 @@ describe('generatorLeaf', () => {
     expect(result.ok).toBe(true);
 
     const content = await fs.readFile(join(String(root.root), 'rounds', '1', 'generator', 'prompt.md'), 'utf8');
-    expect(content).toContain('## Learnings from prior sprints');
+    expect(content).toContain('## From prior sprints');
     expect(content).toContain('this repo runs tests via a custom harness');
     expect(content).toContain('(applies to test setup)');
   });

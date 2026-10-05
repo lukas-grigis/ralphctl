@@ -623,7 +623,7 @@ const makeGeneratorInput =
   ): ((ctx: ImplementCtx) => GeneratorInput) =>
   (ctx) => {
     const { task, workspaceRoot, roundNum } = requireRoleTurnCtx(ctx, 'generator', taskId);
-    const feedForward = composeGeneratorFeedForward(ctx, task, taskId, roundNum, deps);
+    const feedForward = composeGeneratorFeedForward(ctx, task, taskId, deps);
     const reproduction = readReproductionSection(ctx);
     return {
       task,

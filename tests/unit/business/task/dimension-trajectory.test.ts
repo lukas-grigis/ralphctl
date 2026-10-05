@@ -31,18 +31,14 @@ const turn = (
 
 describe('composeDimensionTrajectory', () => {
   it('returns empty when fewer than two turns are recorded (nothing to diff)', () => {
-    expect(composeDimensionTrajectory({ history: [], plateauThreshold: 3, roundNum: 1, maxTurns: 5 })).toBe('');
-    expect(
-      composeDimensionTrajectory({ history: [turn(['correctness'])], plateauThreshold: 3, roundNum: 2, maxTurns: 5 })
-    ).toBe('');
+    expect(composeDimensionTrajectory({ history: [], plateauThreshold: 3 })).toBe('');
+    expect(composeDimensionTrajectory({ history: [turn(['correctness'])], plateauThreshold: 3 })).toBe('');
   });
 
   it('reports a dimension fixed since the prior round', () => {
     const out = composeDimensionTrajectory({
       history: [turn(['safety', 'correctness']), turn(['correctness'], ['safety'])],
       plateauThreshold: 3,
-      roundNum: 2,
-      maxTurns: 5,
     });
     expect(out).toContain('## Dimension trajectory');
     expect(out).toContain('safety: fixed since last round');
@@ -52,8 +48,6 @@ describe('composeDimensionTrajectory', () => {
     const out = composeDimensionTrajectory({
       history: [turn(['correctness']), turn(['correctness']), turn(['correctness'])],
       plateauThreshold: 5,
-      roundNum: 3,
-      maxTurns: 8,
     });
     expect(out).toContain('correctness: STILL FAILING (3 consecutive rounds)');
   });
@@ -62,8 +56,6 @@ describe('composeDimensionTrajectory', () => {
     const out = composeDimensionTrajectory({
       history: [turn(['correctness']), turn(['correctness', 'completeness'])],
       plateauThreshold: 5,
-      roundNum: 2,
-      maxTurns: 8,
     });
     expect(out).toContain('completeness: newly failing this round');
   });
@@ -72,34 +64,36 @@ describe('composeDimensionTrajectory', () => {
     const out = composeDimensionTrajectory({
       history: [turn(['correctness']), turn(['correctness'], [], ['robustness'])],
       plateauThreshold: 5,
-      roundNum: 2,
-      maxTurns: 8,
     });
     expect(out).not.toContain('robustness');
   });
 
-  it('fires the budget-pressure line one round before the plateau threshold', () => {
+  it('fires the change-approach line one round before the plateau threshold', () => {
     // threshold 3 → pressure when the longest still-failing streak reaches 2.
     const out = composeDimensionTrajectory({
       history: [turn(['correctness']), turn(['correctness'])],
       plateauThreshold: 3,
-      roundNum: 2,
-      maxTurns: 5,
     });
-    expect(out).toContain('stalled round(s)');
-    expect(out).toContain('exits this loop at 3 consecutive stalled rounds');
+    expect(out).toContain('failed several rounds in a row');
     expect(out).toContain('fundamentally different fix');
+  });
+
+  it('never exposes round counts, the plateau threshold or the loop cap', () => {
+    const out = composeDimensionTrajectory({
+      history: [turn(['correctness']), turn(['correctness']), turn(['correctness'])],
+      plateauThreshold: 3,
+    });
+    expect(out).not.toMatch(/Round \d+ of \d+/);
+    expect(out).not.toContain('exits this loop at');
+    expect(out).not.toContain('stalled round');
   });
 
   it('clamps the threshold like the plateau detector — an out-of-range 9 still warns at a 4-round stall', () => {
     const out = composeDimensionTrajectory({
       history: [turn(['correctness']), turn(['correctness']), turn(['correctness']), turn(['correctness'])],
       plateauThreshold: 9,
-      roundNum: 4,
-      maxTurns: 8,
     });
-    expect(out).toContain('4 stalled round(s)');
-    expect(out).toContain('exits this loop at 5 consecutive stalled rounds');
+    expect(out).toContain('failed several rounds in a row');
   });
 
   it('does NOT fire the pressure line before the threshold-1 stall point', () => {
@@ -107,17 +101,15 @@ describe('composeDimensionTrajectory', () => {
     const out = composeDimensionTrajectory({
       history: [turn(['correctness']), turn(['correctness'])],
       plateauThreshold: 5,
-      roundNum: 2,
-      maxTurns: 8,
     });
     expect(out).toContain('STILL FAILING');
-    expect(out).not.toContain('stalled round(s)');
+    expect(out).not.toContain('failed several rounds in a row');
   });
 
   it('is deterministic — identical history renders an identical block', () => {
     const history = [turn(['safety', 'correctness']), turn(['correctness'], ['safety'])];
-    const a = composeDimensionTrajectory({ history, plateauThreshold: 3, roundNum: 2, maxTurns: 5 });
-    const b = composeDimensionTrajectory({ history, plateauThreshold: 3, roundNum: 2, maxTurns: 5 });
+    const a = composeDimensionTrajectory({ history, plateauThreshold: 3 });
+    const b = composeDimensionTrajectory({ history, plateauThreshold: 3 });
     expect(a).toBe(b);
   });
 
@@ -126,16 +118,15 @@ describe('composeDimensionTrajectory', () => {
     // dimensions ('a'..'h') only start failing at round 2, so by the latest turn they only have a
     // streak of 2. Sorted alphabetically, 'a'..'h' sort BEFORE 'longStall' — the display cap
     // (MAX_DIMENSIONS_PER_CLASS = 8) keeps exactly 'a'..'h' and drops 'longStall' from the rendered
-    // "still failing" bullets. The budget-pressure line must still reflect 'longStall''s streak of 3,
+    // "still failing" bullets. The change-approach line must still reflect 'longStall''s streak of 3,
     // not the truncated set's max of 2.
     const eightDims = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
     const history = [turn(['longStall']), turn(['longStall', ...eightDims]), turn(['longStall', ...eightDims])];
 
     // threshold 4 → pressure fires at streak >= 3. The truncated set's max streak (2, from 'a'..'h')
     // would NOT fire it; only 'longStall''s untruncated streak of 3 does.
-    const out = composeDimensionTrajectory({ history, plateauThreshold: 4, roundNum: 3, maxTurns: 8 });
+    const out = composeDimensionTrajectory({ history, plateauThreshold: 4 });
 
-    expect(out).toContain('stalled round(s)');
-    expect(out).toContain('3 stalled round(s)');
+    expect(out).toContain('failed several rounds in a row');
   });
 });

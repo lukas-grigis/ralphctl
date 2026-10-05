@@ -230,7 +230,7 @@ describe('buildPlanPrompt — end-to-end against the real template', () => {
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.value).toContain('## Learnings from prior sprints');
+    expect(result.value).toContain('## From prior sprints');
     expect(result.value).toContain('the repo test runner is invoked via the project task command');
     expect(result.value).not.toMatch(/\{\{[A-Z_]+\}\}/);
   });
@@ -248,7 +248,7 @@ describe('buildPlanPrompt — end-to-end against the real template', () => {
     if (!result.ok) return;
     // The `<prior_learnings>` wrapper + standing "if empty" note stay; the rendered `## Learnings`
     // heading does NOT appear when there is nothing to inject, and no placeholder leaks.
-    expect(result.value).not.toContain('## Learnings from prior sprints');
+    expect(result.value).not.toContain('## From prior sprints');
     expect(result.value).not.toMatch(/\{\{[A-Z_]+\}\}/);
   });
 

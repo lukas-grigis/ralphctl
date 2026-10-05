@@ -41,12 +41,10 @@ export const composeGeneratorFeedForward = (
   ctx: Pick<ImplementCtx, 'plateauHistory' | 'priorLearnings' | 'tasks' | 'sprintId'>,
   task: InProgressTask,
   taskId: TaskId,
-  roundNum: number,
   cfg: {
     readonly cwd: AbsolutePath;
     readonly clock: () => IsoTimestamp;
     readonly plateauThreshold: number;
-    readonly maxTurns: number;
   }
 ): GeneratorFeedForward => {
   // Compose the dimension-trajectory feed-forward (principles 6 + 15) from the per-attempt
@@ -56,8 +54,6 @@ export const composeGeneratorFeedForward = (
   const dimensionTrajectory = composeDimensionTrajectory({
     history: ctx.plateauHistory ?? [],
     plateauThreshold: cfg.plateauThreshold,
-    roundNum,
-    maxTurns: cfg.maxTurns,
   });
   // Cross-sprint procedural memory (principle 3) loaded once by the prologue's `load-learnings`.
   // Pure ctx read; '' when the ledger was absent/empty so the prompt placeholder collapses. The

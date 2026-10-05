@@ -30,6 +30,8 @@ Inspect the commit history and diff of `{{HEAD_BRANCH}}` against `{{BASE_BRANCH}
 {{TICKET_SUMMARY}}
 </ticket_summary>
 
+When `<ticket_summary>` is empty, no specific tickets are recorded for this branch.
+
 <issue_refs>
 {{ISSUE_REFS}}
 </issue_refs>
