@@ -8,7 +8,7 @@
 - [seams_prompt_feedforward.md](seams_prompt_feedforward.md) — Criteria history, dimension trajectory, prior learnings: where each is composed and which prompt it rides
 - [seams_memory_ledger_and_mutex.md](seams_memory_ledger_and_mutex.md) — Raw-line preservation, dedup asymmetry, shared-file + git stash/worktree mutexes, journal pinning, RMW-race + load-flake repro
 - [seams_implement_prologue_gates.md](seams_implement_prologue_gates.md) — Dirty-tree menu + post-setup check; e2e porcelain counters; restore after pre-verify; bugfix relaunch; worktree discard + resume gate; stale-ref rescue
-- [seams_verify_gates.md](seams_verify_gates.md) — Per-module verify gates: precedence, multi-gate representation, diff-footprint scoping + coverage flag, fresh-setup skip, detect-scripts emission
+- [seams_verify_gates.md](seams_verify_gates.md) — Per-module verify gates: precedence, multi-gate representation, diff-footprint scoping + coverage flag, fresh-setup skip, detect-scripts emission, confirm-on-red re-run
 - [seams_provider_engine_streaming.md](seams_provider_engine_streaming.md) — One shared rate-limit retry loop, empirical stream field names, stdout OOM caps, kill escalation
 - [seams_provider_conformance_and_demo.md](seams_provider_conformance_and_demo.md) — The src-side scripted-spawn builder shared by conformance suites and `demo --script`; buildEnv / effortForwarding contracts
 - [seams_chain_runner_core.md](seams_chain_runner_core.md) — createRunner containment, aborted-with-error, listener-leak seams, onStart, display-only grouping vs nesting

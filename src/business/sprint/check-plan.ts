@@ -21,7 +21,10 @@ import type { DomainError } from '@src/domain/value/error/domain-error.ts';
  *    slip a malformed plan past the gate.
  *  - `warning` — quality faults nothing else catches: a copied prompt placeholder as a check
  *    command, prose masquerading as a shell line, a multi-line command, duplicate criterion
- *    ids, or an all-manual task on a repo that demonstrably exposes a runnable check.
+ *    ids, an all-manual task on a repo that demonstrably exposes a runnable check, or an `auto`
+ *    criterion that repeats the repository's post-task verify gate (the harness already runs
+ *    that gate after every task, so the criterion adds no signal — and a gate that is red on the
+ *    baseline makes the task unpassable).
  *
  * A note on "the sprint's repositories": {@link import('@src/domain/entity/sprint.ts').Sprint}
  * carries tickets + `projectId` only, and `SprintExecution` carries no repo set — the sprint's
@@ -84,6 +87,13 @@ export type PlanCheckFinding =
       readonly taskName: string;
       readonly criterionId: string;
       readonly command: string;
+    }
+  | {
+      readonly kind: 'verify-gate-criterion';
+      readonly detail: string;
+      readonly taskOrder: number;
+      readonly taskName: string;
+      readonly criterionId: string;
     };
 
 /** @public */
@@ -108,6 +118,7 @@ export const SEVERITY_BY_KIND: Readonly<Record<PlanCheckFindingKind, PlanCheckSe
   'multi-line-command': 'warning',
   'duplicate-criterion-id': 'warning',
   'no-auto-criterion': 'warning',
+  'verify-gate-criterion': 'warning',
 };
 
 /** @public */
@@ -143,12 +154,43 @@ const isPlaceholderCommand = (command: string): boolean =>
   ANGLE_PLACEHOLDER.test(command) || TOKEN_PLACEHOLDER.test(command) || ELLIPSIS.test(command);
 
 const isProseCommand = (command: string): boolean => {
-  // Leading env assignments (`CI=1 pnpm test`) are not argv[0].
-  const head = command.replace(/^(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)+/, '').split(/\s+/)[0] ?? '';
+  // A leading subshell / group opener (`(cd web && pnpm check)`, `{ make; }`) and leading env
+  // assignments (`CI=1 pnpm test`) are not argv[0].
+  const head =
+    command
+      .replace(/^[({\s]+/, '')
+      .replace(/^(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)+/, '')
+      .split(/\s+/)[0] ?? '';
   return !SHELL_HEAD.test(head) || SENTENCE_TAIL.test(command);
 };
 
 const isMultiLineCommand = (command: string): boolean => command.includes('\n') || command.includes('\r');
+
+/** Whitespace-insensitive comparison key: trim + collapse every run of whitespace to one space. */
+const normalizeCommand = (command: string): string => command.trim().replace(/\s+/g, ' ');
+
+/**
+ * The commands the post-task verify gate actually runs: structured `verifyGates` win when
+ * non-empty, else the legacy `verifyScript`. Mirrors `normalizeVerifyGates` in
+ * `business/task/run-verify-script.ts`, which the sibling-business fence keeps out of reach here;
+ * a parity test in `check-plan.test.ts` pins the two together.
+ */
+const verifyGateCommands = (repo: Repository): readonly string[] => {
+  if (repo.verifyGates !== undefined && repo.verifyGates.length > 0) return repo.verifyGates.map((g) => g.command);
+  const script = repo.verifyScript?.trim() ?? '';
+  return script.length > 0 ? [script] : [];
+};
+
+/**
+ * Does `command` repeat one of the repository's post-task verify gates? EXACT equality after
+ * whitespace normalisation only — a prefix/substring match would flag `pnpm test:unit` against a
+ * `pnpm test` gate, which is precisely the scoped criterion the plan prompt asks for.
+ */
+const repeatsVerifyGate = (command: string, repo: Repository | undefined): boolean => {
+  if (repo === undefined) return false;
+  const key = normalizeCommand(command);
+  return verifyGateCommands(repo).some((gate) => normalizeCommand(gate) === key);
+};
 
 /**
  * Does the repository demonstrably expose a runnable check? Structured `verifyGates` win over the
@@ -228,7 +270,7 @@ const checkAutoCommand = (
 };
 
 /** Per-criterion checks: id uniqueness within the task, then `auto` command quality. */
-const checkCriteria = (task: TodoTask): readonly PlanCheckFinding[] => {
+const checkCriteria = (task: TodoTask, repo: Repository | undefined): readonly PlanCheckFinding[] => {
   const findings: PlanCheckFinding[] = [];
   const seen = new Set<string>();
 
@@ -244,7 +286,7 @@ const checkCriteria = (task: TodoTask): readonly PlanCheckFinding[] => {
     }
     seen.add(criterion.id);
 
-    findings.push(...checkOneCriterion(at, criterion));
+    findings.push(...checkOneCriterion(at, criterion, repo));
   }
 
   return findings;
@@ -252,7 +294,8 @@ const checkCriteria = (task: TodoTask): readonly PlanCheckFinding[] => {
 
 const checkOneCriterion = (
   at: { readonly taskOrder: number; readonly taskName: string; readonly criterionId: string },
-  criterion: VerificationCriterion
+  criterion: VerificationCriterion,
+  repo: Repository | undefined
 ): readonly PlanCheckFinding[] => {
   if (criterion.check !== 'auto') return [];
   const command = (criterion.command ?? '').trim();
@@ -265,7 +308,18 @@ const checkOneCriterion = (
       },
     ];
   }
-  return checkAutoCommand(at, command);
+  const findings = [...checkAutoCommand(at, command)];
+  // Independent of the placeholder/prose checks — a gate command is a real shell line, so those
+  // never fire on it; the fault here is redundancy with the harness, not the command's shape.
+  if (repeatsVerifyGate(command, repo)) {
+    findings.push({
+      ...at,
+      kind: 'verify-gate-criterion',
+      detail:
+        "repeats the repository's post-task verify gate — the harness already runs it after every task; scope this criterion to the task's own tests or drop it",
+    });
+  }
+  return findings;
 };
 
 /**
@@ -287,8 +341,9 @@ export const checkPlanUseCase = (props: CheckPlanProps): Result<PlanCheckReport,
   const reposById = new Map<RepositoryId, Repository>(props.project.repositories.map((r) => [r.id, r]));
   // Sort is stable in V8, so equal `order` values keep their declared sequence.
   for (const task of [...props.tasks].sort((a, b) => a.order - b.order)) {
-    findings.push(...checkTaskShape(task, reposById.get(task.repositoryId)));
-    findings.push(...checkCriteria(task));
+    const repo = reposById.get(task.repositoryId);
+    findings.push(...checkTaskShape(task, repo));
+    findings.push(...checkCriteria(task, repo));
   }
 
   return Result.ok({

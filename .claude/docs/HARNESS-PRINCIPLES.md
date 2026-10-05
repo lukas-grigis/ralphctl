@@ -143,6 +143,8 @@ contracts define testable success up-front."_
 - `maxAttempts` setting: `src/application/chain/run/iteration-config.ts`
 - Settle leaf: `src/application/flows/implement/leaves/settle-attempt.ts` (transitions to `blocked` or `done`)
 - Task status enum includes `blocked` and `done`: `src/domain/entity/task.ts`
+- A flaky verify outcome is never silent either: the journal's verify bullet carries a `flaky:` suffix and the
+  attempt's `VerifyRun.flakyFailure` persists it (`render-journal-entry.ts`).
 - **Outer attempt loop.** `per-task-subchain.ts` wraps the full per-attempt segment in a
   `loop('task-attempts-<id>', …, { maxIterations: task.maxAttempts, shouldStop })` so a single
   launch can run up to the effective `maxAttempts` rounds per task (`task.maxAttempts` stamped at
@@ -328,6 +330,13 @@ on (default off), the FIRST pre-task verify of a run synthesizes a green baselin
 gate) when this launch's own setup script already verified that repo green and the tree is clean — the owner
 asserts "my setup script verifies the tree", trading the strict pre/post symmetry for the redundant first-task
 gate run. Default-off keeps the symmetry intact for everyone who has not made that assertion.
+
+**Deviation — confirm re-run on a red post-verify gate.** This is "don't blame the AI for pre-existing
+failures" extended to flaky ones: a post-task gate that fails once is re-run once on the same tree. A green
+re-run is recorded as a flake (`VerifyRun.flakyFailure`, attribution `clean`) rather than `regressed`; a
+deterministic regression fails both runs and is still `regressed`, so the hard threshold is unchanged —
+nothing is loosened, only a red that does not reproduce is reclassified. Timeouts, spawn errors, a red run
+that changed the tree (fingerprinted before and after) and a red baseline are never re-run. See `WORKFLOWS.md § Confirm re-run on a red post-verify gate`.
 
 ---
 

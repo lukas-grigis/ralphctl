@@ -70,6 +70,8 @@ export interface JournalVerifyRun {
   /** Verbatim shell command the harness invoked. Empty string on a `skipped` outcome. */
   readonly command: string;
   readonly outcome: 'success' | 'failed' | 'spawn-error' | 'skipped';
+  /** The gate that failed then passed the harness's confirm re-run (domain `VerifyRun.flakyFailure`). */
+  readonly flakyFailure?: { readonly command: string; readonly exitCode: number };
 }
 
 /**
@@ -390,9 +392,16 @@ const correctiveNudgesSentence = (nudges: { readonly generator: number; readonly
 const orderedVerifyRuns = (runs: readonly JournalVerifyRun[]): readonly JournalVerifyRun[] =>
   [...runs].sort((a, b) => (a.phase === b.phase ? 0 : a.phase === 'pre' ? -1 : 1));
 
+/**
+ * One verify bullet. A flaky pass carries a suffix naming the gate that failed then passed on the
+ * harness re-run, so a reclassified red is always visible in the journal (HARNESS-PRINCIPLES § 5).
+ */
 const renderVerifyLine = (run: JournalVerifyRun): string => {
   const command = sanitizeInline(run.command);
-  return `- Verify (${run.phase}): ${command.length > 0 ? command : EM_DASH} — ${run.outcome}`;
+  const base = `- Verify (${run.phase}): ${command.length > 0 ? command : EM_DASH} — ${run.outcome}`;
+  if (run.flakyFailure === undefined) return base;
+  const flaky = sanitizeInline(run.flakyFailure.command);
+  return `${base} — flaky: \`${flaky}\` failed (exit ${String(run.flakyFailure.exitCode)}), passed on harness re-run`;
 };
 
 const renderResumedAfter = (resumedAfter: NonNullable<JournalContinuationState['resumedAfter']>): string =>

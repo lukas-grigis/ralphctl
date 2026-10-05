@@ -116,6 +116,80 @@ describe('attempt schema — VerifyRun round-trip', () => {
     expect(parsed.value.baselineBroken).toBeUndefined();
   });
 
+  it('round-trips a success post row carrying flakyFailure (confirm re-run passed)', () => {
+    const raw = {
+      n: 1,
+      startedAt: '2026-05-08T10:00:00.000Z',
+      status: 'running' as const,
+      finishedAt: null,
+      verifyRuns: [
+        {
+          phase: 'post',
+          ranAt: '2026-05-08T10:01:00.000Z',
+          command: 'pnpm test',
+          exitCode: 0,
+          durationMs: 300,
+          outcome: 'success',
+          flakyFailure: { command: 'pnpm test', exitCode: 1 },
+        },
+      ],
+      attribution: 'clean' as const,
+    };
+    const parsed = fromJsonAttempt(raw);
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.value.verifyRuns?.[0]?.flakyFailure).toEqual({ command: 'pnpm test', exitCode: 1 });
+    // Serialised form parses back identically.
+    const again = fromJsonAttempt(JSON.parse(JSON.stringify(parsed.value)));
+    expect(again.ok).toBe(true);
+    if (!again.ok) return;
+    expect(again.value).toEqual(parsed.value);
+  });
+
+  it('parses a legacy VerifyRun row with no flakyFailure (field stays absent)', () => {
+    const raw = {
+      n: 1,
+      startedAt: '2026-05-08T10:00:00.000Z',
+      status: 'running' as const,
+      finishedAt: null,
+      verifyRuns: [
+        {
+          phase: 'post',
+          ranAt: '2026-05-08T10:01:00.000Z',
+          command: 'pnpm test',
+          exitCode: 0,
+          durationMs: 200,
+          outcome: 'success',
+        },
+      ],
+    };
+    const parsed = fromJsonAttempt(raw);
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.value.verifyRuns?.[0]).not.toHaveProperty('flakyFailure');
+  });
+
+  it('rejects a malformed flakyFailure (non-integer exit code)', () => {
+    const raw = {
+      n: 1,
+      startedAt: '2026-05-08T10:00:00.000Z',
+      status: 'running' as const,
+      finishedAt: null,
+      verifyRuns: [
+        {
+          phase: 'post',
+          ranAt: '2026-05-08T10:01:00.000Z',
+          command: 'pnpm test',
+          exitCode: 0,
+          durationMs: 200,
+          outcome: 'success',
+          flakyFailure: { command: 'pnpm test', exitCode: 'one' },
+        },
+      ],
+    };
+    expect(fromJsonAttempt(raw).ok).toBe(false);
+  });
+
   it('rejects an unknown attribution value', () => {
     const raw = {
       n: 1,

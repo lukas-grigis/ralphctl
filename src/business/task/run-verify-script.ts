@@ -21,6 +21,12 @@ export type RunShellScript = (
       readonly exitCode: number | null;
       readonly output: string;
       readonly durationMs: number;
+      /**
+       * True when the runner killed the command (timeout or output cap) rather than letting it
+       * exit on its own. Such a red is never confirm-re-run — a hang is not a flake signal.
+       * Absent on adapters that don't report it (treated as `false`).
+       */
+      readonly timedOut?: boolean;
     },
     StorageError
   >
@@ -78,6 +84,17 @@ export interface RunVerifyGatesProps {
   readonly scope?: readonly string[];
   readonly mode: VerifyGateMode;
   readonly defaultTimeoutMs?: number;
+  /**
+   * Confirm-on-red. When present, a gate that exits with a real non-zero code (not a timeout / cap
+   * kill, not a spawn error) is re-run ONCE with the same options — but only when the tree is
+   * provably unchanged by that red run (see {@link ConfirmFailedGate}). A green re-run reclassifies
+   * the red as flaky — no failure, recorded on the row as `flakyFailure` and logged at warn. A red
+   * re-run keeps the FIRST run's exit code as the failure, so a deterministic regression stays
+   * `'failed'` (→ `'regressed'`). Never loosens a gate: commands, scope and mode are unchanged;
+   * only a red that does not reproduce on the same tree is reclassified. Absent → one run per gate
+   * (pre-verify keeps this off — its baseline is all-run evidence, not a verdict).
+   */
+  readonly confirmFailedGateOnce?: ConfirmFailedGate;
   readonly clock: () => IsoTimestamp;
   readonly runShellScript: RunShellScript;
   readonly logger: Logger;
@@ -131,9 +148,40 @@ interface GateFailure {
   readonly message?: string;
 }
 
+/**
+ * One executed gate's captured output. `confirmOutput` is present only when the gate was
+ * confirm-re-run (see {@link RunVerifyGatesProps.confirmFailedGateOnce}); it renders behind its
+ * own `── <command> (confirm re-run) ──` separator after the first run's output.
+ */
+interface ExecutedGate {
+  readonly command: string;
+  readonly output: string;
+  readonly confirmOutput?: string;
+}
+
+/** A gate that failed its first run and passed its confirm re-run on the same tree. */
+interface FlakyGate {
+  readonly command: string;
+  readonly exitCode: number;
+}
+
+/**
+ * The tree-identity probe the confirm re-run requires. A gate with side effects (an auto-fixing
+ * formatter or linter, codegen, a snapshot update) can fail its first run AFTER rewriting the
+ * tree and then pass a re-run on that rewritten tree — a real fault in the task's change, not a
+ * flake. So the gate is fingerprinted before and after its red run, and the re-run happens only
+ * when both fingerprints exist and match. An unavailable fingerprint (`undefined`) counts as
+ * "changed": the red stands. Required by the type so no caller can enable the confirm without it.
+ */
+export interface ConfirmFailedGate {
+  /** Content fingerprint of the working tree's uncommitted state; `undefined` when it can't be taken. */
+  readonly treeFingerprint: () => Promise<string | undefined>;
+}
+
 /** Mutable accumulator threaded through the gate loop. */
 interface GateRunState {
-  readonly executed: Array<{ readonly command: string; readonly output: string }>;
+  readonly executed: ExecutedGate[];
+  readonly flaky: FlakyGate[];
   totalDurationMs: number;
   failure?: GateFailure;
 }
@@ -145,7 +193,10 @@ interface GateRunState {
  * order and aggregates the per-gate outcomes into ONE {@link VerifyRun}:
  *
  *  - `'skipped'`     — no gate in scope (no script configured). `exitCode = 0`, `durationMs = 0`, no spawn.
- *  - `'success'`     — every executed gate exited 0; `command` joins them with `'; '`.
+ *  - `'success'`     — every executed gate exited 0 (or, with `confirmFailedGateOnce`, failed without
+ *    changing the tree, then passed its one confirm re-run — the first such gate is stamped as
+ *    `flakyFailure`); `command`
+ *    joins the executed gates with `'; '`.
  *  - `'failed'`      — the first non-zero gate decides the row (`command` / `exitCode` point at it).
  *    `fail-fast` stops there; `all-run` still executes (and captures) the remaining gates.
  *  - `'spawn-error'` — the shell could not start a gate. `exitCode = -1`; the error message lands
@@ -179,7 +230,7 @@ export const runVerifyGatesUseCase = async (props: RunVerifyGatesProps): Promise
   });
 
   const startedAt = props.clock();
-  const state: GateRunState = { executed: [], totalDurationMs: 0 };
+  const state: GateRunState = { executed: [], flaky: [], totalDurationMs: 0 };
 
   for (const gate of scoped) {
     await runOneGate(props, log, gate, state);
@@ -197,11 +248,9 @@ const runOneGate = async (
   gate: VerifyGate,
   state: GateRunState
 ): Promise<void> => {
-  const timeoutMs = gate.timeoutMs ?? props.defaultTimeoutMs;
-  const result = await props.runShellScript(props.cwd, gate.command, {
-    ...(timeoutMs !== undefined ? { timeoutMs } : {}),
-    env: { RALPHCTL_LIFECYCLE_EVENT: props.phase === 'pre' ? 'pre-task' : 'post-task' },
-  });
+  const confirm = props.confirmFailedGateOnce;
+  const treeBefore = confirm === undefined ? undefined : await confirm.treeFingerprint();
+  const result = await spawnGate(props, gate);
 
   if (!result.ok) {
     log.warn('verify gate could not be executed', {
@@ -220,10 +269,96 @@ const runOneGate = async (
     return;
   }
 
-  const { passed, exitCode, output, durationMs } = result.value;
+  const { passed, exitCode, output, durationMs, timedOut } = result.value;
   state.totalDurationMs += durationMs;
+  if (passed) {
+    state.executed.push({ command: gate.command, output });
+    return;
+  }
+  // Confirm-on-red only for a gate that exited on its own with a real non-zero code. A timeout /
+  // cap kill (`timedOut`) or a null exit (killed / child error) is not a flake signal, so it stays
+  // a single red run. Neither is a red run that rewrote the tree (see ConfirmFailedGate).
+  if (
+    confirm !== undefined &&
+    exitCode !== null &&
+    exitCode !== 0 &&
+    timedOut !== true &&
+    (await treeUnchangedByRun(props, log, gate, exitCode, treeBefore, confirm))
+  ) {
+    await confirmFailedGate(props, log, gate, { exitCode, output }, state);
+    return;
+  }
   state.executed.push({ command: gate.command, output });
-  if (!passed) state.failure ??= { outcome: 'failed', command: gate.command, exitCode: exitCode ?? -1 };
+  state.failure ??= { outcome: 'failed', command: gate.command, exitCode: exitCode ?? -1 };
+};
+
+/**
+ * True when the tree fingerprint after the red run matches the one taken before it. Any missing
+ * fingerprint counts as changed — the confirm is skipped and the red stands, logged at warn.
+ */
+const treeUnchangedByRun = async (
+  props: RunVerifyGatesProps,
+  log: ReturnType<Logger['named']>,
+  gate: VerifyGate,
+  exitCode: number,
+  treeBefore: string | undefined,
+  confirm: ConfirmFailedGate
+): Promise<boolean> => {
+  const treeAfter = await confirm.treeFingerprint();
+  if (treeBefore !== undefined && treeAfter === treeBefore) return true;
+  const why =
+    treeBefore === undefined || treeAfter === undefined ? 'could not be fingerprinted' : 'changed during the run';
+  log.warn(
+    `verify gate ${gate.command} failed (exit ${String(exitCode)}) and the tree ${why} — no confirm re-run; the red stands`,
+    {
+      cwd: props.cwd,
+      phase: props.phase,
+      command: gate.command,
+      exitCode,
+    }
+  );
+  return false;
+};
+
+/** Spawn one gate with its effective timeout and the lifecycle env. */
+const spawnGate = (props: RunVerifyGatesProps, gate: VerifyGate): ReturnType<RunShellScript> => {
+  const timeoutMs = gate.timeoutMs ?? props.defaultTimeoutMs;
+  return props.runShellScript(props.cwd, gate.command, {
+    ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+    env: { RALPHCTL_LIFECYCLE_EVENT: props.phase === 'pre' ? 'pre-task' : 'post-task' },
+  });
+};
+
+/**
+ * Re-run a gate that just failed with `first.exitCode`, ONCE, on the same (fingerprint-checked)
+ * tree with the same options. A green re-run records the gate as flaky (no failure; fail-fast continues to the next
+ * gate). Anything else — red again, or a re-run that could not execute — keeps the FIRST run's
+ * exit code as the failure, so a deterministic regression is never reclassified. Both outputs are
+ * kept and both durations count.
+ */
+const confirmFailedGate = async (
+  props: RunVerifyGatesProps,
+  log: ReturnType<Logger['named']>,
+  gate: VerifyGate,
+  first: { readonly exitCode: number; readonly output: string },
+  state: GateRunState
+): Promise<void> => {
+  const rerun = await spawnGate(props, gate);
+  const confirmOutput = rerun.ok
+    ? rerun.value.output
+    : `[confirm re-run could not be executed: ${rerun.error.message}]`;
+  if (rerun.ok) state.totalDurationMs += rerun.value.durationMs;
+  state.executed.push({ command: gate.command, output: first.output, confirmOutput });
+
+  if (rerun.ok && rerun.value.passed) {
+    log.warn(
+      `verify gate ${gate.command} failed (exit ${String(first.exitCode)}) then passed on confirm re-run — recording as flaky`,
+      { cwd: props.cwd, phase: props.phase, command: gate.command, exitCode: first.exitCode }
+    );
+    state.flaky.push({ command: gate.command, exitCode: first.exitCode });
+    return;
+  }
+  state.failure ??= { outcome: 'failed', command: gate.command, exitCode: first.exitCode };
 };
 
 /** Project the accumulated gate state into the single aggregated {@link RunVerifyScriptOutput}. */
@@ -234,7 +369,7 @@ const projectGateRun = (
   log: ReturnType<Logger['named']>
 ): RunVerifyScriptOutput => {
   const rawOutput = concatGateOutput(state.executed);
-  const { failure, totalDurationMs, executed } = state;
+  const { failure, totalDurationMs, executed, flaky } = state;
   if (failure !== undefined) {
     log.info(`${props.phase}-task verify ${failure.outcome}`, { cwd: props.cwd, command: failure.command });
     return {
@@ -256,6 +391,9 @@ const projectGateRun = (
     gates: executed.length,
     durationMs: totalDurationMs,
   });
+  // A success that needed a confirm re-run is stamped with the FIRST flaky gate so the flake is
+  // persisted on the audit row and surfaced in the journal — never silent.
+  const firstFlaky = flaky[0];
   return {
     run: {
       phase: props.phase,
@@ -264,6 +402,9 @@ const projectGateRun = (
       exitCode: 0,
       durationMs: totalDurationMs,
       outcome: 'success',
+      ...(firstFlaky !== undefined
+        ? { flakyFailure: { command: firstFlaky.command, exitCode: firstFlaky.exitCode } }
+        : {}),
     },
     rawOutput,
   };
@@ -271,13 +412,22 @@ const projectGateRun = (
 
 /**
  * Concatenate per-gate output behind a `── <command> ──` separator so the single per-phase log
- * file reads cleanly across multiple gates. A single-gate run emits the bare output with no
- * separator — byte-for-byte identical to the legacy single-script log.
+ * file reads cleanly across multiple gates. A single-gate run with no confirm re-run emits the
+ * bare output with no separator — byte-for-byte identical to the legacy single-script log. A
+ * confirm-re-run gate appends its second output behind `── <command> (confirm re-run) ──`.
  */
-const concatGateOutput = (executed: ReadonlyArray<{ readonly command: string; readonly output: string }>): string => {
+const concatGateOutput = (executed: readonly ExecutedGate[]): string => {
   if (executed.length === 0) return '';
-  if (executed.length === 1) return executed[0]?.output ?? '';
-  return executed.map((e) => `── ${e.command} ──\n${e.output}`).join('\n\n');
+  const only = executed.length === 1 ? executed[0] : undefined;
+  if (only !== undefined && only.confirmOutput === undefined) return only.output;
+  return executed
+    .map((e) => {
+      const firstRun = `── ${e.command} ──\n${e.output}`;
+      return e.confirmOutput === undefined
+        ? firstRun
+        : `${firstRun}\n\n── ${e.command} (confirm re-run) ──\n${e.confirmOutput}`;
+    })
+    .join('\n\n');
 };
 
 /**
@@ -287,8 +437,11 @@ const concatGateOutput = (executed: ReadonlyArray<{ readonly command: string; re
  *
  * Truth table:
  *
- *  - pre=success, post=success → `'clean'`
- *  - pre=success, post=failed  → `'regressed'`         (AI broke a green baseline; blame it)
+ *  - pre=success, post=success → `'clean'`             (incl. a post that passed only on its confirm
+ *                                                        re-run — recorded as `flakyFailure`, not blamed)
+ *  - pre=success, post=failed  → `'regressed'`         (AI broke a green baseline; blame it. With the
+ *                                                        post-verify confirm on, `failed` means the gate
+ *                                                        failed on the run AND on the confirm re-run)
  *  - pre=failed,  post=success → `'fixed-baseline'`    (AI repaired a pre-existing failure)
  *  - pre=failed,  post=failed  → `'baseline-broken'`   (pre-existing failure; don't blame AI)
  *  - pre=spawn-error           → undefined             (unknown state; skip attribution)

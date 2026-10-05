@@ -1759,14 +1759,15 @@ describe('createImplementFlow — gen-eval loop', () => {
       },
     });
 
-    // Per attempt the verify script runs twice: pre then post. So call sequence is
-    // [a1-pre, a1-post, a2-pre, a2-post]. Attempt 1's post (call 2) is RED → regressed; every other
-    // call is green. Attempt 2's post (call 4) is green → clean → done.
-    let shellCallCount = 0;
+    // Per attempt the verify script runs pre then post; a red post is confirm-re-run once on the
+    // same tree. So the post-task sequence is [a1-post, a1-post-confirm, a2-post]. Attempt 1's
+    // regression is deterministic — red on the run AND the confirm → regressed; every other call is
+    // green. Attempt 2's post is green → clean → done.
+    let postCallCount = 0;
     const retryThenPassShell: ShellScriptRunner = {
-      async run() {
-        shellCallCount += 1;
-        const isAttempt1Post = shellCallCount === 2;
+      async run(_cwd, _script, opts) {
+        if (opts?.env?.['RALPHCTL_LIFECYCLE_EVENT'] === 'post-task') postCallCount += 1;
+        const isAttempt1Post = opts?.env?.['RALPHCTL_LIFECYCLE_EVENT'] === 'post-task' && postCallCount <= 2;
         if (isAttempt1Post) {
           return Result.ok({ passed: false, exitCode: 1, output: 'attempt 1 broke the build\n', durationMs: 12 });
         }

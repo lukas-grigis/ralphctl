@@ -20,6 +20,7 @@ Before presenting the plan, verify every item — and again if anything changes 
    In chat you present it as the readable plan; only the signal file is read by the harness.
 9. **Unique placeholder ids** — each task's `id` is a unique string within this array (used only for
    `blockedBy` resolution; the harness assigns persistent ids on save).
-10. **Deterministic checks** — the `auto`-criterion rule from the task fields holds for every task.
+10. **Deterministic checks** — the `auto`-criterion and test-scoping rules from the task fields hold for
+    every task.
 
 </validation-checklist>

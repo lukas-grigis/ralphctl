@@ -166,8 +166,9 @@ describe('postTaskVerifyLeaf', () => {
     expect(v?.kind).toBe('verify-failed');
     if (v?.kind === 'verify-failed') {
       expect(v.exitCode).toBe(1);
-      // Full body, no synthetic `truncated` marker — verbatim round-trip.
-      expect(v.stderr).toBe(longOutput);
+      // Full body, no synthetic `truncated` marker — verbatim round-trip. The red reproduced on
+      // the harness's confirm re-run, so both runs' bodies ride behind their separators.
+      expect(v.stderr).toBe(`── pnpm test ──\n${longOutput}\n\n── pnpm test (confirm re-run) ──\n${longOutput}`);
     }
   });
 
@@ -442,8 +443,8 @@ describe('postTaskVerifyLeaf', () => {
     it('post fail-fast: a red module gate stops before the catch-all runs', async () => {
       const { runner, ran } = gateShell(new Set(['test-web']));
       await runGated({ gitRunner: footprintGit(['apps/web-ui/src/App.tsx']), shell: runner, preOutcome: 'success' });
-      // test-web fails → fail-fast; lint-all never runs.
-      expect(ran()).toEqual(['test-web']);
+      // test-web fails (on its run AND its confirm re-run) → fail-fast; lint-all never runs.
+      expect(ran()).toEqual(['test-web', 'test-web']);
     });
   });
 
@@ -617,5 +618,149 @@ describe('postTaskVerifyLeaf', () => {
       expect(ctx.lastBlockReason).toBeUndefined();
       expect(ctx.lastShouldFailAttempt).toBeUndefined();
     });
+  });
+});
+
+describe('postTaskVerifyLeaf — confirm-on-red re-run (flaky post-verify)', () => {
+  // Runner whose N-th call returns the N-th scripted result (the last one repeats), counting calls
+  // so a test can pin whether the confirm re-run happened.
+  const sequencedRunner = (
+    results: ReadonlyArray<{ passed: boolean; exitCode: number | null; output: string }>
+  ): { runner: ShellScriptRunner; calls: () => number } => {
+    let n = 0;
+    const runner: ShellScriptRunner = {
+      async run() {
+        const r = results[Math.min(n, results.length - 1)];
+        n += 1;
+        if (r === undefined) throw new Error('test setup: empty results');
+        return Result.ok({ ...r, durationMs: 10 });
+      },
+    };
+    return { runner, calls: () => n };
+  };
+
+  const run = async (runner: ShellScriptRunner, preOutcome: VerifyRunOutcome, gitRunner = fakeGitRunner()) => {
+    const task = makeTaskOnAttempt(1, 3); // budget wide open — a regressed would grant the retry
+    const ctx: ImplementCtx = {
+      sprintId: SPRINT_ID,
+      currentTask: task,
+      currentTaskId: task.id,
+      tasks: [task],
+      lastPreVerifyOutcome: preOutcome,
+    };
+    const { repo } = fakeTaskRepo();
+    const cap = createCapturingBus();
+    const leaf = postTaskVerifyLeaf(
+      {
+        shellScriptRunner: runner,
+        taskRepo: repo,
+        gitRunner,
+        clock: () => FIXED_NOW,
+        eventBus: cap.bus,
+        logger: noopLogger,
+      },
+      { cwd: CWD, verifyScript: 'pnpm test', maxAttempts: 3 },
+      task.id
+    );
+    const out = await leaf.execute(ctx);
+    if (!out.ok) throw new Error(`expected ok: ${out.error.error.message}`);
+    return { ctx: out.value.ctx, logs: cap.logs, repo };
+  };
+
+  it('pre=success, red then green → clean, no block, no retry, flakyFailure persisted, coverage NOT carried', async () => {
+    const { runner, calls } = sequencedRunner([
+      { passed: false, exitCode: 1, output: 'flaky red' },
+      { passed: true, exitCode: 0, output: 'green' },
+    ]);
+    const { ctx, logs, repo } = await run(runner, 'success');
+    expect(calls()).toBe(2);
+    const attempt = ctx.currentTask?.attempts.at(-1);
+    expect(attempt?.attribution).toBe('clean');
+    const row = attempt?.verifyRuns?.at(-1);
+    expect(row?.outcome).toBe('success');
+    expect(row?.flakyFailure).toEqual({ command: 'pnpm test', exitCode: 1 });
+    expect(repo.updates.at(-1)?.attempts.at(-1)?.verifyRuns?.at(-1)?.flakyFailure).toEqual({
+      command: 'pnpm test',
+      exitCode: 1,
+    });
+    expect(ctx.lastVerifyResult?.kind).toBe('passed');
+    expect(ctx.lastBlockReason).toBeUndefined();
+    expect(ctx.lastShouldFailAttempt).toBeUndefined();
+    // A flaky green is not trustworthy whole-tree evidence → the next task's pre-verify re-measures.
+    expect(ctx.priorPostVerifyOutcome).toEqual({ cwd: CWD, outcome: 'success', coveredAllGates: false });
+    expect(logs.some((l) => l.level === 'warn' && l.message.includes('flaky') && l.message.includes('pnpm test'))).toBe(
+      true
+    );
+  });
+
+  it('pre=failed → no confirm re-run (runner called once; a baseline-broken red never blocks)', async () => {
+    const { runner, calls } = sequencedRunner([
+      { passed: false, exitCode: 1, output: 'still red' },
+      { passed: true, exitCode: 0, output: 'would pass' },
+    ]);
+    const { ctx } = await run(runner, 'failed');
+    expect(calls()).toBe(1);
+    expect(ctx.currentTask?.attempts.at(-1)?.attribution).toBe('baseline-broken');
+    expect(ctx.lastBlockReason).toBeUndefined();
+  });
+
+  it('pre=success, deterministic red (fails the run AND the confirm) → regressed, block + retry grant', async () => {
+    const { runner, calls } = sequencedRunner([
+      { passed: false, exitCode: 5, output: 'broke it' },
+      { passed: false, exitCode: 6, output: 'broke it again' },
+    ]);
+    const { ctx } = await run(runner, 'success');
+    expect(calls()).toBe(2);
+    const attempt = ctx.currentTask?.attempts.at(-1);
+    expect(attempt?.attribution).toBe('regressed');
+    expect(attempt?.verifyRuns?.at(-1)?.exitCode).toBe(5);
+    expect(attempt?.verifyRuns?.at(-1)?.flakyFailure).toBeUndefined();
+    expect(ctx.lastBlockReason).toContain('regressed baseline');
+    expect(ctx.lastBlockReason).toContain('exit=5');
+    expect(ctx.lastShouldFailAttempt).toBe(true);
+    expect(ctx.priorPostVerifyOutcome).toEqual({ cwd: CWD, outcome: 'failed', coveredAllGates: true });
+  });
+
+  it('pre=success, a red run that rewrote the tree (auto-fixer, codegen) → no confirm re-run, still regressed', async () => {
+    // The tree's tracked diff is what the gate's first run leaves behind: a gate that mutates
+    // files and exits red would pass a re-run on a DIFFERENT tree — that is not a flake.
+    let treeDiff = 'diff --git a/src/foo.ts b/src/foo.ts\n+unformatted\n';
+    const git: GitRunner = {
+      async run(_cwd, args) {
+        const stdout = args[0] === 'diff' && args[1] === 'HEAD' ? treeDiff : 'src/foo.ts\n';
+        return Result.ok({ stdout, stderr: '', exitCode: 0 });
+      },
+    };
+    let n = 0;
+    const runner: ShellScriptRunner = {
+      async run() {
+        n += 1;
+        if (n === 1) {
+          treeDiff = 'diff --git a/src/foo.ts b/src/foo.ts\n+formatted\n';
+          return Result.ok({ passed: false, exitCode: 1, output: 'reformatted 1 file', durationMs: 10 });
+        }
+        return Result.ok({ passed: true, exitCode: 0, output: 'clean', durationMs: 10 });
+      },
+    };
+    const { ctx, logs } = await run(runner, 'success', git);
+    expect(n).toBe(1);
+    const attempt = ctx.currentTask?.attempts.at(-1);
+    expect(attempt?.attribution).toBe('regressed');
+    expect(attempt?.verifyRuns?.at(-1)?.flakyFailure).toBeUndefined();
+    expect(ctx.lastShouldFailAttempt).toBe(true);
+    expect(logs.some((l) => l.message.includes('flaky'))).toBe(false);
+  });
+
+  it('pre=success, timed-out red → no confirm re-run, still regressed', async () => {
+    let n = 0;
+    const runner: ShellScriptRunner = {
+      async run() {
+        n += 1;
+        return Result.ok({ passed: false, exitCode: 143, output: '[timeout]', durationMs: 10, timedOut: true });
+      },
+    };
+    const { ctx } = await run(runner, 'success');
+    expect(n).toBe(1);
+    expect(ctx.currentTask?.attempts.at(-1)?.attribution).toBe('regressed');
   });
 });

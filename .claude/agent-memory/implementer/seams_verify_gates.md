@@ -74,6 +74,29 @@ a run (tasks 2..N use the existing carry-baseline short-circuit).
 Settings key `harness.skipPreVerifyOnFreshSetup`, default false; the schema's `.default(false)` self-heals
 legacy files, so no migration is needed.
 
+## Confirm-on-red (flaky gate) re-run
+
+`confirmFailedGateOnce` lives in the use case, not a chain primitive (no `retry` primitive by
+invariant). Re-run only on a real non-zero exit: never on `timedOut` (runner kill on timeout OR
+output cap), a null exit, or a spawn error. Post-verify passes `preOutcome !== 'failed'`; pre-verify
+leaves it off. A red re-run keeps the FIRST exit code — don't "improve" that to the second, the
+row must point at the run that decided. A flaky green forces `coveredAllGates=false` so the next
+task re-measures.
+
+The option is `{ treeFingerprint }`, not a boolean, on purpose: a gate with side effects (an auto-fixer,
+codegen) can rewrite the tree, exit red, and then pass a re-run on the new tree. That's a real fault, not a
+flake. The guard fingerprints the tree before and after the red run and only re-runs on a match. A missing
+fingerprint counts as changed. Don't relax that to "no port means confirm anyway", which is what the old
+`true` meant.
+
+Test trap: shell fakes that count raw calls (`callCount === 2` = post) silently turn a
+deterministic regression into a flake, because the confirm re-run is green. Key post-phase fakes on
+`opts.env.RALPHCTL_LIFECYCLE_EVENT === 'post-task'` and make a regression red on BOTH post calls.
+
+The full-stack e2e fixture must use the slugged sprint dir (`resolveSprintDir`): artifacts written
+under the helper's bare `<id>/` path (progress.md, verify logs) get wiped mid-run, so assertions on
+them there pass vacuously or fail.
+
 ## detect-scripts emission
 
 ONE `VerifyGatesSignal { type:'verify-gates', gates: VerifyGateProposal[] }` carrying an array, modelled

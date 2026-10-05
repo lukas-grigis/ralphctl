@@ -41,6 +41,7 @@ only after the user has approved both phases in sequence.
 <repositories>
 {{REPOSITORIES}}
 These paths are fixed — repository selection is not part of this session.
+A `verify gate:` line under a repository is a command the harness runs after every task to catch regressions — only when the task's diff touches the noted path, when a path is noted. No such line means none is configured.
 </repositories>
 
 <prior_progress>
@@ -153,8 +154,10 @@ you opened:
    already-landed work.
 4. Search for existing implementations similar to what the requirements describe — mirror the existing
    patterns.
-5. Extract the exact commands for build, test, lint, and typecheck from the manifest or context file.
-   These are the `command` values for `auto`-check verification criteria.
+5. Extract the exact commands for build, test, lint, and typecheck from the manifest or context file,
+   plus how to run the test runner against one file, name, or tag, and which subset CI gates on when CI
+   filters (e.g. a tag or grep). These are the `command` values for
+   `auto`-check verification criteria; test commands take the scoped form.
 
 ### Step 2.2 — Draft tasks
 

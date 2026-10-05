@@ -515,6 +515,60 @@ describe('best-of-N candidate loop + selection cascade', () => {
     expect(gitState.stash[0]?.diff).toBe('diff-bad');
   });
 
+  it('confirm-on-red: a candidate whose verify flakes (red, then green on the confirm re-run) survives as clean; a deterministic red is still regressed', async () => {
+    const gitState = freshGitState();
+    const gitRunner = createFakeGitRunner(gitState);
+    const provider = createFakeGeneratorProvider(gitState, { 1: { diff: 'diff-flaky' }, 2: { diff: 'diff-bad' } });
+    const calls: string[] = [];
+    let flakyRuns = 0;
+    const shell: ShellScriptRunner = {
+      async run() {
+        calls.push(gitState.currentDiff);
+        if (gitState.currentDiff === 'diff-flaky') {
+          flakyRuns += 1;
+          const passed = flakyRuns > 1;
+          return Result.ok({ passed, exitCode: passed ? 0 : 1, output: passed ? 'ok' : 'flake', durationMs: 0 });
+        }
+        return Result.ok({ passed: false, exitCode: 1, output: 'test failed', durationMs: 0 });
+      },
+    };
+    const deps = buildDeps(gitRunner, provider, provider, shell);
+    const task = buildTask(2);
+
+    const looped = await bestOfNCandidateLoopLeaf(deps, buildOpts(), task.id).execute(buildCtx(task));
+    expect(looped.ok).toBe(true);
+    if (!looped.ok) return;
+    expect(looped.value.ctx.bestOfNCandidates?.map((c) => c.attribution)).toEqual(['clean', 'regressed']);
+    // Each candidate's red was confirmed once on its own tree.
+    expect(calls).toEqual(['diff-flaky', 'diff-flaky', 'diff-bad', 'diff-bad']);
+  });
+
+  it('confirm-on-red: a candidate whose red verify run rewrote the tree is NOT re-run — it stays regressed', async () => {
+    const gitState = freshGitState();
+    const gitRunner = createFakeGitRunner(gitState);
+    const provider = createFakeGeneratorProvider(gitState, { 1: { diff: 'diff-unformatted' }, 2: { diff: 'diff-ok' } });
+    const calls: string[] = [];
+    const shell: ShellScriptRunner = {
+      async run() {
+        calls.push(gitState.currentDiff);
+        if (gitState.currentDiff === 'diff-unformatted') {
+          // An auto-fixing gate: rewrites the tree, then exits red. A re-run would pass.
+          gitState.currentDiff = 'diff-formatted';
+          return Result.ok({ passed: false, exitCode: 1, output: 'reformatted', durationMs: 0 });
+        }
+        return Result.ok({ passed: true, exitCode: 0, output: 'ok', durationMs: 0 });
+      },
+    };
+    const deps = buildDeps(gitRunner, provider, provider, shell);
+    const task = buildTask(2);
+
+    const looped = await bestOfNCandidateLoopLeaf(deps, buildOpts(), task.id).execute(buildCtx(task));
+    expect(looped.ok).toBe(true);
+    if (!looped.ok) return;
+    expect(looped.value.ctx.bestOfNCandidates?.map((c) => c.attribution)).toEqual(['regressed', 'clean']);
+    expect(calls).toEqual(['diff-unformatted', 'diff-ok']);
+  });
+
   it('dedupe: two candidates that converged on the identical diff collapse to one — the second stays recoverable in the stash', async () => {
     const gitState = freshGitState();
     const gitRunner = createFakeGitRunner(gitState);

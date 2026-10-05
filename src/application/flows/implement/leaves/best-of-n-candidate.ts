@@ -313,6 +313,8 @@ const runCandidateVerify = async (
     mode: 'fail-fast',
     ...(scope !== undefined ? { scope } : {}),
     ...(opts.verifyTimeoutMs !== undefined ? { defaultTimeoutMs: opts.verifyTimeoutMs } : {}),
+    // Same confirm-on-red as the serial post-verify, so a flake doesn't reject a candidate.
+    confirmFailedGateOnce: { treeFingerprint: () => computeWorkProductFingerprint(deps.gitRunner, opts.cwd) },
     clock: deps.clock,
     runShellScript: (cwd, script, scriptOpts) =>
       runVerifyShell(deps.shellScriptRunner, cwd, script, {

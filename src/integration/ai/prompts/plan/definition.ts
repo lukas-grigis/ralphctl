@@ -5,6 +5,7 @@ import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { Task } from '@src/domain/entity/task.ts';
 import { buildPrompt, type BuildPromptError } from '@src/integration/ai/prompts/_engine/build-prompt.ts';
 import type { PromptDefinition } from '@src/integration/ai/prompts/_engine/definition.ts';
+import { renderRepositoriesSection } from '@src/integration/ai/prompts/_engine/renderers/repositories.ts';
 import { renderPriorLearningsSection } from '@src/integration/ai/prompts/_engine/renderers/task.ts';
 import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/template-loader.ts';
 import { TASK_IMPORT_JSON_SCHEMA } from '@src/integration/ai/prompts/_engine/task-import-schema.ts';
@@ -135,11 +136,6 @@ export const renderApprovedTickets = (sprint: Sprint): string => {
   return lines.join('\n').trim();
 };
 
-export const renderRepositories = (project: Project): string => {
-  if (project.repositories.length === 0) return '_no repositories configured_';
-  return project.repositories.map((r) => `- \`${String(r.path)}\` (${r.name})`).join('\n');
-};
-
 export const renderExistingTasks = (tasks: readonly Task[]): string => {
   if (tasks.length === 0) return '';
   const lines: string[] = ['## Existing Tasks (will be replaced)'];
@@ -176,7 +172,7 @@ export const buildPlanPrompt = async (
   return buildPrompt(deps, planPromptDef, {
     sprintContext: renderSprintContext(input.sprint),
     approvedTickets: renderApprovedTickets(input.sprint),
-    repositories: renderRepositories(input.project),
+    repositories: renderRepositoriesSection(input.project),
     schema: TASK_IMPORT_JSON_SCHEMA,
     outputContractSection: input.outputContractSection,
     priorProgress: input.priorProgress,

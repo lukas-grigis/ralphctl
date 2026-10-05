@@ -21,7 +21,14 @@ import type {
   InteractiveAiProviderInput,
 } from '@src/integration/ai/providers/_engine/interactive-ai-provider.ts';
 import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
-import { FIXED_LATER, makeDraftSprint, makeExecution, makePendingTicket, makeProject } from '@tests/fixtures/domain.ts';
+import {
+  FIXED_LATER,
+  makeDraftSprint,
+  makeExecution,
+  makePendingTicket,
+  makeProject,
+  makeRepository,
+} from '@tests/fixtures/domain.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { createRunner } from '@src/application/chain/run/runner.ts';
 import { createFsTemplateLoader, defaultTemplatesDir } from '@src/integration/ai/prompts/_engine/fs-template-loader.ts';
@@ -254,8 +261,9 @@ describe('createPlanFlow — interactive', () => {
   });
 
   it('placeholder check command: critic warns but the run completes and the plan persists', async () => {
-    // The plan template's own example criteria carry `"command": "<project's test command>"`.
-    // A planner that copies the example ships an unrunnable command that passes the schema and
+    // The plan template's own example criteria carry angle-bracket placeholders such as
+    // `"command": "<project's test command scoped to tests/users/pagination.test.ts>"`. A planner
+    // that copies the example ships an unrunnable command that passes the schema and
     // `createTask`. The deterministic critic is the only thing that notices — and it is ADVISORY:
     // with no reviewer wired the plan still auto-accepts and persists.
     const project = makeProject();
@@ -272,7 +280,12 @@ describe('createPlanFlow — interactive', () => {
           projectPath: String(project.repositories[0]?.path),
           steps: ['create util'],
           verificationCriteria: [
-            { id: 'C1', assertion: 'tests pass', check: 'auto', command: "<project's test command>" },
+            {
+              id: 'C1',
+              assertion: 'tests pass',
+              check: 'auto',
+              command: "<project's test command scoped to tests/users/pagination.test.ts>",
+            },
           ],
         },
       ])
@@ -295,8 +308,56 @@ describe('createPlanFlow — interactive', () => {
 
     expect(runner.status).toBe('completed');
     expect(traceNames(runner)).toEqual([...HAPPY_TRACE]);
+    expect(runner.ctx.planCheck?.findings.map((f) => f.kind)).toEqual(['placeholder-command']);
     expect(sprintRepo.current().status).toBe('planned');
     expect(taskRepo.tasks()).toHaveLength(1);
+  });
+
+  it('criterion repeating the verify gate: critic warns but the run completes and the plan persists', async () => {
+    // The incident: an `auto` criterion that re-runs the repository's whole post-task verify gate
+    // adds no signal (the harness runs the gate after every task) and makes the task unpassable
+    // when that gate is red on the baseline. The critic flags it — advisory, so the plan persists.
+    const project = makeProject({ repositories: [{ ...makeRepository(), verifyScript: 'make check' }] });
+    const { sprint, ticketIds } = draftWithApproved(1);
+    const sprintRepo = inMemorySprintRepo(sprint);
+    const taskRepo = inMemoryTaskRepo([]);
+
+    const fake = fakeInteractiveAi(() =>
+      JSON.stringify([
+        {
+          id: 'T1',
+          name: 'Add CSV utility',
+          ticketRef: ticketIds[0],
+          projectPath: String(project.repositories[0]?.path),
+          steps: ['create util'],
+          verificationCriteria: [{ id: 'C1', assertion: 'the suite is green', check: 'auto', command: 'make check' }],
+        },
+      ])
+    );
+
+    const flow = createPlanFlow(buildDeps(sprintRepo.repo, project, sprint, taskRepo.repo, fake.session), {
+      sprintId: sprint.id,
+      projectId: project.id,
+      providerId: 'claude-code',
+      model: 'claude-opus-4-8',
+      maxAttempts: 3,
+      planRoot: planRoot(),
+    });
+    const runner = createRunner({
+      id: 'r-plan-verify-gate',
+      element: flow,
+      initialCtx: { sprintId: sprint.id, projectId: project.id },
+    });
+    await runner.start();
+
+    expect(runner.status).toBe('completed');
+    expect(traceNames(runner)).toEqual([...HAPPY_TRACE]);
+    expect(runner.ctx.planCheck?.findings).toEqual([
+      expect.objectContaining({ kind: 'verify-gate-criterion', taskName: 'Add CSV utility', criterionId: 'C1' }),
+    ]);
+    expect(sprintRepo.current().status).toBe('planned');
+    expect(taskRepo.tasks()).toHaveLength(1);
+    expect(taskRepo.tasks()[0]?.verificationCriteria[0]?.command).toBe('make check');
   });
 
   it('halts when AI emits {"blocked": "..."} — sprint stays draft, no tasks', async () => {

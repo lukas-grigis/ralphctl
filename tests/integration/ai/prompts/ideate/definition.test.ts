@@ -73,6 +73,12 @@ describe('buildIdeatePrompt — end-to-end', () => {
     const normalized = (result.value as unknown as string).replace(/\s+/g, ' ');
     expect(normalized).toContain('Don\'t end steps with "run the verification commands"');
     expect(normalized).toContain('Fold trivial cases into the task that needs them');
+    expect(normalized).toContain('Scope a test command to the tests this task adds or changes');
+    expect(normalized).toContain('that has no path note and whose command runs the test suite');
+    expect(normalized).toContain('never put a whole end-to-end or browser suite');
+    expect(normalized).toContain(
+      "A `verify gate:` line under a repository is a command the harness runs after every task to catch regressions — only when the task's diff touches the noted path"
+    );
     // Regression: the shared partial dropped the worked example for `extraDimensions` — the one
     // field whose rule is "attach ONLY when …, when in doubt omit" lost its only demonstration
     // of the allowed case.

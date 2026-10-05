@@ -446,6 +446,31 @@ describe('progressJournalLeaf — Continuation state (deterministic, harness-der
     expect(written).toContain(`- Commit: ${'a'.repeat(7)}`);
   });
 
+  it("carries a post run's flakyFailure into the journal's verify line", async () => {
+    const inProgress = makeInProgressTaskWithRunningAttempt();
+    const withPost = unwrap(
+      appendAttemptVerifyRun(inProgress, {
+        phase: 'post',
+        ranAt: FIXED_LATER,
+        command: 'pnpm test',
+        exitCode: 0,
+        durationMs: 120,
+        outcome: 'success',
+        flakyFailure: { command: 'pnpm test', exitCode: 2 },
+      })
+    );
+    const attributed = unwrap(setAttemptAttribution(withPost, 'clean'));
+    const verified = unwrap(recordRunningAttemptVerification(attributed));
+    const done = unwrap(markTaskDone(verified, FIXED_LATER));
+    const leaf = progressJournalLeaf(journalDeps(createAtomicWriteFile()), { progressFile, totalRounds: 5 }, done.id);
+    const result = await leaf.execute(ctxFor([done]));
+    expect(result.ok).toBe(true);
+    const written = await read();
+    expect(written).toContain(
+      '- Verify (post): pnpm test — success — flaky: `pnpm test` failed (exit 2), passed on harness re-run'
+    );
+  });
+
   it('omits the commit subject when the generator proposed one but the tree stayed clean (no commit landed)', async () => {
     const task = makeDoneTask({ name: 'clean-tree' }); // no commitSha on the fixture's verified attempt
     const leaf = progressJournalLeaf(journalDeps(createAtomicWriteFile()), { progressFile, totalRounds: 5 }, task.id);

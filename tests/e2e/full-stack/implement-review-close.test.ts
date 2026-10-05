@@ -64,6 +64,7 @@ import { createWorkspaceMutatingFakeProvider } from '@tests/fixtures/workspace-m
 import { createFakeAiProvider } from '@tests/fixtures/fake-ai-provider.ts';
 import { createFakeProject, type FakeProject } from '@tests/helpers/fake-project.ts';
 import { createRealFsApp, type RealFsApp } from '@tests/helpers/real-fs-app.ts';
+import { resolveSprintDir } from '@src/integration/persistence/storage.ts';
 
 import {
   absolutePath,
@@ -304,7 +305,9 @@ function runTests(): void {
     const saveTasks = await app.deps.taskRepo.saveAll(sprint.id, tasks);
     if (!saveTasks.ok) throw new Error(`save tasks failed: ${saveTasks.error.message}`);
 
-    const sprintDir = app.sprintDir(sprint.id);
+    // The repo writes the slugged `<id>--<slug>/` dir; point the flow at THAT dir rather than the
+    // helper's bare `<id>/` path so sprint-dir artifacts land beside sprint.json.
+    const sprintDir = (await resolveSprintDir(app.paths.dataRoot, sprint.id)) ?? app.sprintDir(sprint.id);
     const progressFile = join(sprintDir, 'progress.md');
     const reviewDir = join(sprintDir, 'review');
     const feedbackFile = join(sprintDir, 'feedback.md');
@@ -343,15 +346,31 @@ function runTests(): void {
   /**
    * Run the implement flow using real deps and a scripted provider. Returns the runner.
    */
-  const runImplement = async (fixture: FullStackFixture, provider: ImplementDeps['generatorProvider']) => {
+  const runImplement = async (
+    fixture: FullStackFixture,
+    provider: ImplementDeps['generatorProvider'],
+    overrides: { readonly shellScriptRunner?: ShellScriptRunner; readonly verifyScript?: string } = {}
+  ) => {
     const storedSprint = await loadSprint(fixture.app);
     const tasksResult = await fixture.app.deps.taskRepo.findBySprintId(storedSprint.id);
     if (!tasksResult.ok) throw new Error('find tasks failed');
 
     const repoPath = fixture.fakeProject.path;
-    const repoMap = new Map([[FIXED_REPOSITORY_ID, { path: absolutePath(repoPath), name: 'test-repo' }]]);
+    const repoMap = new Map([
+      [
+        FIXED_REPOSITORY_ID,
+        {
+          path: absolutePath(repoPath),
+          name: 'test-repo',
+          ...(overrides.verifyScript !== undefined ? { verifyScript: overrides.verifyScript } : {}),
+        },
+      ],
+    ]);
 
-    const implementDeps = buildImplementDeps(fixture.app, provider, makeScriptedGit(), fixture.locksDir);
+    const implementDeps: ImplementDeps = {
+      ...buildImplementDeps(fixture.app, provider, makeScriptedGit(), fixture.locksDir),
+      ...(overrides.shellScriptRunner !== undefined ? { shellScriptRunner: overrides.shellScriptRunner } : {}),
+    };
 
     const flow = createImplementFlow(implementDeps, {
       sprintId: storedSprint.id,
@@ -621,6 +640,71 @@ function runTests(): void {
       if (!finalTasks.ok) throw new Error('findBySprintId failed');
       expect(finalTasks.value.every((t) => t.status === 'done')).toBe(true);
       expect(storedSprint.status).toBe('review');
+    }, 90_000);
+
+    // ─── (e) Flaky post-task verify gate: confirm re-run reclassifies it ──
+    it('(e) flaky post-verify: a gate that fails only on its first post-task run passes the harness confirm re-run — task done, attribution clean, flake persisted + journalled', async () => {
+      const fixture = await buildFixture(1);
+      cleanupFns.push(() => fixture.cleanup());
+
+      // A REAL shell gate (the production-wired runner) that fails exactly once: on its first
+      // post-task invocation, recorded by a marker file outside the repo. Pre-verify stays green,
+      // so without the confirm re-run this red would attribute `regressed` and burn the retry.
+      const marker = join(String(fixture.app.home), 'flaky-gate-marker');
+      const verifyScript = [
+        `if [ "$RALPHCTL_LIFECYCLE_EVENT" = "post-task" ] && [ ! -f '${marker}' ];`,
+        `then touch '${marker}'; echo 'flaky failure'; exit 1;`,
+        `fi; echo 'gate ok'`,
+      ].join(' ');
+
+      const implementRunner = await runImplement(fixture, buildPassingProvider(), {
+        shellScriptRunner: fixture.app.deps.shellScriptRunner,
+        verifyScript,
+      });
+      if (implementRunner.status !== 'completed') {
+        const trace = implementRunner.trace.map((e) => `${e.elementName}:${e.status}`).join('\n');
+        throw new Error(`Implement runner '${implementRunner.status}'.\nTrace:\n${trace}`);
+      }
+
+      // The gate really did fail once (the marker exists) and then pass.
+      await expect(fs.access(marker)).resolves.toBeUndefined();
+
+      const storedSprint = await loadSprint(fixture.app);
+      const tasks = await fixture.app.deps.taskRepo.findBySprintId(storedSprint.id);
+      if (!tasks.ok) throw new Error('findBySprintId failed');
+      const task = tasks.value[0];
+      expect(task?.status).toBe('done');
+      // A single attempt — the flake did not spend the retry budget.
+      expect(task?.attempts).toHaveLength(1);
+      const attempt = task?.attempts.at(-1);
+      expect(attempt?.attribution).toBe('clean');
+      expect(attempt?.commitSha).toBeDefined();
+      const post = attempt?.verifyRuns?.find((r) => r.phase === 'post');
+      expect(post?.outcome).toBe('success');
+      expect(post?.flakyFailure).toEqual({ command: verifyScript, exitCode: 1 });
+
+      // Read the raw file back — the field survives the schema round-trip rather than living only
+      // on the in-memory task. The repo writes under the slugged `<id>--<slug>` dir.
+      const sprintsRoot = join(String(fixture.app.paths.dataRoot), 'sprints');
+      const slugged = (await fs.readdir(sprintsRoot)).find((d) => d.startsWith(`${String(storedSprint.id)}--`));
+      if (slugged === undefined) throw new Error('slugged sprint dir not found on disk');
+      const tasksJson = await fs.readFile(join(sprintsRoot, slugged, 'tasks.json'), 'utf8');
+      expect(tasksJson).toContain('"flakyFailure"');
+
+      // The persisted post-verify log carries both runs.
+      const postLog = await fs.readFile(
+        join(fixture.sprintDir, 'logs', 'verify', String(task?.id), 'post-attempt-1.log'),
+        'utf8'
+      );
+      expect(postLog).toContain('flaky failure');
+      expect(postLog).toContain('(confirm re-run) ──');
+      expect(postLog).toContain('gate ok');
+
+      // The journal names the flake — never silent.
+      const progress = await fs.readFile(fixture.progressFile, 'utf8');
+      expect(progress).toContain('- Verify (post):');
+      expect(progress).toContain('failed (exit 1), passed on harness re-run');
+      expect(progress).toContain('- Attribution: clean');
     }, 90_000);
 
     // ─── (d) Blocked-task arc ─────────────────────────────────────────────
