@@ -38,8 +38,11 @@ Design constraints:
 interface Element<TCtx> {
   readonly name: string;
   readonly label?: string;
+  readonly kind?: 'leaf' | 'sequential' | 'loop' | 'guard'; // display-only
+  readonly display?: { internal?: true; workItem?: { kind: 'task' | 'ticket'; id: string } }; // display-only
+  readonly maxIterations?: number; // loops only; display-only
   readonly children?: ReadonlyArray<Element<TCtx>>;
-  execute(ctx: TCtx, signal?: AbortSignal, onTrace?: OnTrace): Promise<ElementResult<TCtx>>;
+  execute(ctx: TCtx, signal?: AbortSignal, onTrace?: OnTrace, onStart?: OnStart): Promise<ElementResult<TCtx>>;
 }
 
 type ElementResult<TCtx> = Result<{ ctx: TCtx; trace: Trace }, { error: DomainError; trace: Trace }>;
@@ -50,16 +53,28 @@ A chain is an Element. A sub-chain is just an Element passed where another Eleme
 is implicit.
 
 `name` is the canonical identifier — used for dedupe, trace correlation, and plan/trace merge. **`label`**
-is an optional human-friendly display string; UI surfaces (e.g. the Execute-view rail) render `label` when
-present and fall back to `name`. Flow authors use `label` to avoid leaking structural data (e.g. absolute
-repo paths) into the rendered rail without losing the stable name underneath.
+is an optional human-friendly display string; UI surfaces (the Execute-view step tree and header strip) render
+`label` when present and fall back to `name`. Flow authors use `label` to avoid leaking structural data (e.g.
+absolute repo paths) into the rendered steps without losing the stable name underneath. `sequential` and
+`guard` take it through `CompositeOpts` (`label`, `internal`, `workItem`); `loop` through its options.
+Labels follow the copy rule in `DESIGN-SYSTEM.md` § 8.4.
+
+`kind`, `display` and `maxIterations` are display metadata, never read by execution. The primitives set `kind`;
+`display.internal` marks a bookkeeping step the step display hides unless it fails or is the in-flight leaf;
+`display.workItem` marks the root of one task's or ticket's subtree. `maxIterations` on a loop is its explicit
+cap, else the display-only `displayMaxIterations` (a loop bounded by a `shouldContinue` predicate, such as
+gen-eval, shows its cap without it ever bounding execution). Hand-written elements omit all three.
 
 `children` exposes composite structure so callers can walk the tree without executing it. Leaves omit
-`children`; composites set it to their immediate children; `loop` returns `[body]` (one element — operators
-never see the iteration count in the plan, just the body shape).
+`children`; composites set it to their immediate children; `loop` returns `[body]` (one element).
+`buildPlanTree(element)` (`plan-tree.ts`) turns that into the upfront `PlanNode` tree — name, label, kind,
+internal, workItem, maxIterations, children — which the TUI step projection merges with the live trace. A
+hand-written element with children reads as `sequential`, without as `leaf`. Because `children` is
+display-only, a flow may group executed children under display composites (the serial implement flow does
+this for its prologue and epilogue, below) without changing what runs.
 
-`flattenLeaves(element)` (also in `element.ts`) DFS-walks the tree and returns the leaves in order. The TUI
-execute view uses it to derive the planned-step list at chain-construction time.
+`flattenLeaves(element)` (also in `element.ts`) DFS-walks the tree and returns the leaves in order; it is the
+leaf-order oracle for the plan-tree and flow-shape tests.
 
 ## leaf — the business seam
 
@@ -214,6 +229,7 @@ interface TraceEntry {
   readonly status: TraceStatus;
   readonly durationMs: number;
   readonly error?: DomainError; // populated when status is 'failed' or 'aborted'
+  readonly iterations?: readonly { loop: string; n: number }[]; // enclosing loops, outer-first; absent outside any loop
 }
 
 type Trace = readonly TraceEntry[];
@@ -225,9 +241,13 @@ This is the architectural fence: every chain definition has an e2e flow test ass
 `label` in a `TraceEntry` is copied verbatim from the source `Element.label` at the moment the entry is
 recorded. Synthetic entries (`skipped`, `aborted`) constructed without an originating element omit it.
 
+`iterations` is stamped by `loop` as entries pass through it, outer-first, so an entry says which round of
+which loop produced it. Step display matches a trace entry to a plan node by `elementName` plus that vector;
+the entry's identity (and the step-order fences) stay on `elementName` alone.
+
 ### Progressive emission
 
-`Element.execute(ctx, signal?, onTrace?)` accepts the optional callback. Each implementation calls it as
+`Element.execute(ctx, signal?, onTrace?, onStart?)` accepts two optional callbacks. `onTrace` is called as
 elements complete:
 
 - `leaf` once per use-case call.
@@ -238,6 +258,13 @@ elements complete:
 The final returned `Trace` is the union of those emissions. Live UIs subscribe via the runner's
 `subscribe(...)` and receive `step` events as they happen.
 
+`onStart(step)` is the start-side counterpart: a leaf calls it once it is past its abort check and about to run
+its use case, with `{ elementName, label?, iterations? }`. It is never called for a pre-aborted, skipped or
+synthesised entry. Composites forward it exactly like `onTrace` (`loop` stamps `iterations` on both). Several
+starts can be open at once under parallel branches. The runner emits it as a `step-started` event; it is
+live-only — late subscribers get no replay, because only in-flight state needs it. A hand-written wrapper
+that forgets to forward it only degrades the live display, never execution.
+
 ## The runner
 
 `createRunner({ id, element, initialCtx })` (`src/application/chain/run/runner.ts`) wraps one
@@ -245,18 +272,19 @@ The final returned `Trace` is the union of those emissions. Live UIs subscribe v
 
 - **Status machine**: `idle → running → completed | failed | aborted`. Idempotent: repeated `start()`
   returns the same promise; `abort()` is idempotent.
-- **Event stream**: `subscribe(listener)` receives `RunnerEvent<TCtx>`:
-  - Success: `started → step* → completed`
-  - Failure: `started → step* → failed`
+- **Event stream**: `subscribe(listener)` receives `RunnerEvent<TCtx>` (`step-started` precedes the `step` of
+  each leaf that ran; it is not replayed to late subscribers):
+  - Success: `started → (step-started | step)* → completed`
+  - Failure: `started → (step-started | step)* → failed`
   - Aborted pre-run: `aborted` only (no `started`)
-  - Aborted mid-run: `started → step* → aborted`
+  - Aborted mid-run: `started → (step-started | step)* → aborted`
   - The `aborted` event carries an `error` **only** when the abort originated inside the chain (the element
     returned or threw an `aborted`-coded error — e.g. the operator answered "abort" at an in-chain prompt).
     A caller-driven `abort()` (Ctrl-C, outer signal, fatal-sibling kill) omits it. `runWaves` keys on that
     distinction to tell "this branch's operator aborted the run" (fatal — stop the schedule, return the
     error verbatim, launch no later wave) from "I killed this branch".
 - **Late-subscriber replay**: a listener added after a terminal state receives every recorded `step` event
-  plus the matching terminal event. UI re-attach is lossless.
+  (not `step-started`) plus the matching terminal event. UI re-attach is lossless.
 - **Trace ring buffer**: `runner.trace` is capped at `MAX_TRACE_ENTRIES = 5_000` (defined and enforced in
   `src/application/chain/run/runner.ts`) to bound the snapshot late subscribers replay from. Live subscribers
   still see every event; the cap only bounds the replay snapshot.
@@ -330,6 +358,7 @@ const perTask = sequential('task-<id>', [
         {
           shouldContinue: (ctx, i) => ctx.lastExit === undefined && i <= settings.harness.maxTurns,
           shouldStop: (ctx) => ctx.lastExit !== undefined,
+          displayMaxIterations: settings.harness.maxTurns, // shown as "Round n/N"; never bounds the loop
         }
       ),
       finalizeGenEvalLeaf,
@@ -361,7 +390,13 @@ const orderedTasks = [...tasks].sort((a, b) => (a.status === b.status ? 0 : a.st
 sequential('implement', [
   withRepoLock(
     {/* sprint-dir lock */},
+    // `implement-locked` EXECUTES the prologue / tasks / epilogue leaves spliced flat, so a failure's
+    // `skipped` entries name each leaf exactly as before. Its `children` (display only) group the same leaf
+    // instances under two labelled segments — `implement-prologue` ("Prepare") and `implement-epilogue`
+    // ("Finish"), the segments the parallel path runs — so the step tree reads Prepare → Run tasks → Finish.
+    // `flow-shape.test.ts` fences both: the flat executed order and the grouped spine.
     sequential('implement-locked', [
+      // ── implement-prologue (display group) ──
       loadAndAssertSprint(['planned', 'active']), // load-sprint + assert-sprint-status
       activateSprintLeaf,
       loadSprintExecutionLeaf,
@@ -374,10 +409,12 @@ sequential('implement', [
       //                        re-offers the dirty-tree menu only for entries a script itself added (setup-tree-guard.ts);
       //                        a green run's row also records the check's durable answer (SetupRun.tree) and lifts it
       //                        onto ctx.setupTreeRecords, which every parallel task worktree's own setup check reads
+      // ── end prologue ──
       sequential(
-        'implement-tasks',
+        'implement-tasks', // label "Run tasks"; each task-<id> child carries display.workItem
         orderedTasks.map(() => perTask)
       ),
+      // ── implement-epilogue (display group) ──
       saveTasksLeaf,
       guard(
         // Every task settled (`done`/`blocked`) AND ≥1 done — see `shouldTransitionToReview`

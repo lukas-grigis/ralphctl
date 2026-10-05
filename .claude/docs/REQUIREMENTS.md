@@ -400,8 +400,8 @@ See [DESIGN-SYSTEM.md](./DESIGN-SYSTEM.md) for tokens, components, view patterns
 - [x] **Multi-flow nav** — Tab / Shift+Tab cycle running flow sessions; `Ctrl+1..9` direct-jump;
       `SessionsView` lists every runner with status + age. Both chords are gated off while a prompt
       or overlay is mounted.
-- [x] **Live execute view** — `ExecuteView` subscribes to the EventBus; renders `StepTrace` + `TasksPanel` +
-      `RecentEventsTail`. Late attach is lossless (synthetic replay).
+- [x] **Live execute view** — `ExecuteView` subscribes to the EventBus; renders the header step strip,
+      `FlowStepsTree`, `TasksPanel` (per-task `TaskStepTree`) and `RecentEventsTail`. Late attach is lossless (synthetic replay).
 - [x] **Form retry loop** — create-project / add-ticket / add-repository views retry on validation
       errors (an `error` step with esc-to-go-back) instead of popping back to home.
 - [x] **Windowed-list primitive** — all long, scrollable, homogeneous lists mount through
@@ -409,10 +409,10 @@ See [DESIGN-SYSTEM.md](./DESIGN-SYSTEM.md) for tokens, components, view patterns
       cursor survives reorder/eviction. `↑/↓` primary, `j`/`k` alias, `PgUp`/`PgDn` page, `Home`/`End` jump.
       `▴/▾` overflow cues. A view that owns its list cursor passes `suppressScrollArrows` to its `ViewShell`
       (translated to `ScrollRegion`'s internal `suppressArrows`) so `↑/↓` / `PgUp`/`PgDn` aren't double-handled.
-- [x] **Responsive Execute view** — three-column at `xl` (≥180), two-column at `lg` (≥140), compact-rail
-      at `md` (100–139), single-column below `md`. Rail grows fluidly 36→56 cols at `xl`+ via
-      `resolveRailWidth`. `StepTrace` renders `Element.label` when present; long labels mid-truncated to
-      fit the rail column budget.
+- [x] **Responsive Execute view** — three-column at `xl` (≥180), two-column at `lg` (≥140), compact (no
+      rail column) at `md` (100–139), single-column below `md`. The sidebar rail grows fluidly 36→56 cols at
+      `xl`+ via `resolveRailWidth`. The step tree and strip render `Element.label` when present; long labels
+      are clipped with `…` to the column budget.
 - [x] **TUI hotkeys** — `b` banner compact ↔ full toggle; `g` progress overlay (reads `progress.md` on
       demand); `y` yank active-task summary to clipboard; `P` cross-project project picker; `S`
       cross-project sprint picker (with `t` toggle-scope and `f` hide-done inside the picker); `j`/`k`

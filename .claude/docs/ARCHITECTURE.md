@@ -91,11 +91,12 @@ The `Element` interface plus four factory functions under `src/application/chain
 
 - `element.ts` — the `Element<TCtx>` interface every primitive implements. Carries `name`, optional `label`
   (human-friendly display string for UI surfaces — see below), optional `children` (for composite walk), and
-  `execute(ctx, signal?, onTrace?): Promise<ElementResult<TCtx>>`.
+  `execute(ctx, signal?, onTrace?, onStart?): Promise<ElementResult<TCtx>>`. Also carries display-only
+  metadata (`kind`, `display`, `maxIterations`) that the step display reads and execution never does.
 - `build/leaf.ts` — `leaf(name, { useCase, input, output }, opts?)`. The only seam to a business use case.
   `input` projects ctx → use-case input; `output` merges use-case output → new ctx. Optional `opts.label`
   sets a human-friendly display label on the element and every `TraceEntry` it emits — `name` stays the
-  canonical identifier; the TUI rail renders `label` when present and falls back to `name`.
+  canonical identifier; the TUI step display renders `label` when present and falls back to `name`.
 - `build/sequential.ts` — `sequential(name, [elements])`. Threads ctx; aborts remaining on first failure.
 - `build/loop.ts` — `loop(name, body, opts)`. Generator-evaluator primitive. `shouldContinue` (pre-iteration)
   and `shouldStop` (post-iteration) predicates exit naturally; `maxIterations` (default 1000) is a hard cap.

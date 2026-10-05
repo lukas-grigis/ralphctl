@@ -27,7 +27,7 @@ sequenceDiagram
     User->>Runner: start()
     Runner->>Bus: ChainStarted
     Runner->>Session: enter scope (sessionId)
-    Session->>Element: execute(ctx, signal, onTrace)
+    Session->>Element: execute(ctx, signal, onTrace, onStart)
 
     loop each step
         Element->>Bus: ChainStepStarted

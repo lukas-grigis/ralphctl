@@ -191,6 +191,10 @@ stay whole, and the status badge goes only when names would drop below six cells
 right to left). A row of shrinking `Box`es is the failure mode — Yoga squeezes each child until its text wraps into
 one-letter columns — so never build either line out of sibling Boxes.
 
+**The Execute header card carries one more row**: the main-step strip (`FlowProgressStrip`), between the model lines
+and the task locator, at every width and for every flow (§ 7.8). The locator reads `step <label>` while running and
+`failed at <label>` once settled failed — never a raw element name.
+
 **Home menu groups**, top to bottom: `NEEDS ATTENTION` (only while something needs the operator — § 5.0, § 5.1a),
 `SWITCH SPRINT` (digit quick-switch + `+`), `WORK`, `OBSERVE`, `SYSTEM` (Settings, Skills, Doctor, Housekeeping `H`).
 Every row shows its `[hotkey]`; an attention row seeds the cursor so `↵` acts on it.
@@ -725,6 +729,48 @@ refuses honestly (`✗ A flow is running…`). Removing a project that owns spri
 `ConfirmCard` (default No) for that cascade; answering No leaves them as orphans Housekeeping can clear. A
 confirmation that follows the last row's removal renders under the empty state, not inside the vanished list.
 
+### 7.8 Flow-step display
+
+Every launchable flow shows its progress as **main steps** (what is left) and **sub-steps** (what is running now),
+built from the chain's plan tree plus the live trace and in-flight starts (`runtime/flow-progress.ts`, pure). Hierarchy
+comes from the element tree, never from parsing name strings.
+
+- **Main steps** are the top-level steps of the flow. A leading run of bookkeeping steps folds into one `Prepare`
+  row and a trailing run into `Finish`. Implement reads `Prepare → Run tasks n/N → Finish`.
+- **Hidden steps.** Bookkeeping steps (`display.internal`) don't show. A failed or aborted one pins itself visible.
+  While one is the running step, its nearest visible parent shows it as a dim tail (`◆ Attempt 1/3 · Settle attempt`)
+  so there is never dead air. A guard-skipped step below the top level is hidden; at the top level it shows
+  `◌ … · skipped`.
+- **Expansion.** Only the active path and the path to a failed step expand; everything else is one row. A finished
+  collapsed row shows `· N steps · dur`. Several steps can run at once under parallel waves.
+- **Loops.** The running iteration reads `<label> n/max`. Each finished iteration is one row with its duration and
+  verdict chip (`✓`, `✗ dimensions`, `?` malformed). After 3 finished iterations the older ones fold into `▴ k earlier`.
+  A body of three or fewer visible steps renders inline: `◆ Round 2/5 · ⠼ Generate · ◇ Evaluate`. A round whose
+  verdict failed keeps its `■` status glyph; the chip carries the `✗`.
+- **Fan-out.** A row over per-task items shows `done/total` and never expands in the Steps tree — the Tasks panel owns
+  the detail, with `TaskStepTree` inside each expanded card. Per-ticket items (refine) expand to one row per ticket,
+  labelled with the ticket title.
+- **Failure.** The first failed step is pinned and the tree anchors on it; its message sits on its own row below,
+  never inline. The strip right-aligns `failed at <label> · <work item>`.
+- **Waiting.** While the flow waits on the operator (§ 5.0) the running step is `⚠ … waiting on you` and nothing spins.
+
+Status glyphs reuse the existing tokens: `phaseDone ■` completed, `phaseActive ◆` running composite (a spinner on
+a running leaf), `warningGlyph ⚠` waiting / aborted, `cross ✗` failed, `phaseDisabled ◌` skipped, `phasePending ◇`
+pending (dim). Depth is `spacing.indent` per level (§ 2.2).
+
+**Where it renders**, by width (the gate for a Tasks panel is structural — whether the flow has task work items):
+
+| Width                         | Task flows (implement)                                                                                                        | Other flows (plan, refine, review, …)                                   |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| ≥ 140 (`lg`+, sidebar layout) | Strip in header. Sidebar Steps = `FlowStepsTree` (3-row floor taken from the task minimap). Main = Tasks with `TaskStepTree`. | Strip in header. Main = `FlowStepsTree`, full height. No sidebar Steps. |
+| 100–139 (`md`, compact)       | Strip in header. No rail column; Tasks takes the full width.                                                                  | Strip in header. Steps section = `FlowStepsTree`, full width.           |
+| < 100                         | Strip in header (degrades). Tasks section.                                                                                    | Strip in header. Steps section.                                         |
+
+**Strip degradation** (`fitStepStrip`): full labels, then glyph-only for every step but the active one, then the
+active step alone (`◆ Run tasks 1/5 · 2/3`). The position (`step k/N`) or the failure locator stays right-aligned.
+The row budget of a step tree is derived from the terminal rows; while a task runs, cross-task notes cap at two rows
+plus `▴ N more`.
+
 ## 8. Copy & tone
 
 ### 8.1 Spinner labels
@@ -750,6 +796,18 @@ user is about to do.
 
 Use one spelling everywhere. `DRAFT`, `PLANNED`, `ACTIVE`, `REVIEW`, `DONE`, `TODO`, `IN PROGRESS`, `BLOCKED`,
 `FAILED`. No mixed case (`In Progress`, `in progress`). No synonyms (`complete` vs `done`).
+
+### 8.4 Step labels
+
+Step labels (`Element.label`, shown in the strip and trees) are copy, not identifiers.
+
+- Sentence case, imperative verb plus object: `Check working tree`, `Settle attempt`. Max 24 characters.
+- A per-repo step takes the suffix ` · <repo basename>`.
+- No ids, no paths, no flow name.
+- Bookkeeping steps get a label too — they surface as a tail when running, or when they fail.
+- A work-item root's label is the task name or ticket title; that is the one place user content appears.
+
+`tests/unit/application/flows/plan-tree-labels.test.ts` fences the length, id and path rules over every flow's plan tree.
 
 ## 9. Anti-patterns (non-negotiables)
 
