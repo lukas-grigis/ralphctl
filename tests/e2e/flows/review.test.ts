@@ -83,16 +83,37 @@ const cleanTreeRunner: GitRunner = {
 };
 
 /**
- * Walks `gitCommitWithMessage` all the way to `{ committed: true }`: a dirty porcelain status
- * before and after staging, plus a valid SHA for `rev-parse HEAD`. Required by the applied-round
- * telemetry assertion — `applied` is gated on a real commit, so a clean tree applies nothing.
+ * A repo the AI edits: clean until the provider runs (so the round's clean-tree preflight passes),
+ * dirty after it (so `gitCommitWithMessage` walks to `{ committed: true }`), clean again once the
+ * commit lands. `commitFails` keeps the tree dirty and makes `git commit` exit non-zero instead.
  */
-const dirtyTreeRunner: GitRunner = {
-  async run(_cwd, args) {
-    if (args[0] === 'status') return okGit(' M src/foo.ts');
-    if (args[0] === 'rev-parse') return okGit('0123456789abcdef0123456789abcdef01234567');
-    return okGit('');
-  },
+const editedWorkspace = (
+  opts: { readonly commitFails?: boolean } = {}
+): { gitRunner: GitRunner; provider: HeadlessAiProvider; spawns: () => number } => {
+  let dirty = false;
+  let spawns = 0;
+  return {
+    gitRunner: {
+      async run(_cwd, args) {
+        if (args[0] === 'status') return okGit(dirty ? ' M src/foo.ts' : '');
+        if (args[0] === 'rev-parse') return okGit('0123456789abcdef0123456789abcdef01234567');
+        if (args[0] === 'commit') {
+          if (opts.commitFails === true)
+            return Result.ok({ stdout: '', stderr: 'pre-commit hook rejected', exitCode: 1 });
+          dirty = false;
+        }
+        return okGit('');
+      },
+    },
+    provider: {
+      async generate(session) {
+        spawns += 1;
+        dirty = true;
+        return fakeProvider.generate(session);
+      },
+    },
+    spawns: () => spawns,
+  };
 };
 
 const noopShell: ShellScriptRunner = {
@@ -207,6 +228,7 @@ describe('createReviewFlow', () => {
     // First editor invocation writes the round-1 body; second leaves the (round-2) body
     // empty → termination round → loop exits cleanly.
     const interactive = scriptedInteractive(['fix the foo bar in baz.ts']);
+    const workspace = editedWorkspace();
 
     // Capture every bus event so we can assert the per-round `feedback-round-applied` telemetry.
     const eventBus = createInMemoryEventBus();
@@ -217,13 +239,13 @@ describe('createReviewFlow', () => {
       {
         sprintRepo: repo.repo,
         taskRepo: noopTaskRepo,
-        provider: fakeProvider,
+        provider: workspace.provider,
         templateLoader: createFsTemplateLoader(defaultTemplatesDir()),
         eventBus,
         logger: noopLogger,
         clock: () => FIXED_LATER,
         interactive,
-        gitRunner: dirtyTreeRunner,
+        gitRunner: workspace.gitRunner,
         shellScriptRunner: noopShell,
         fileLocker: createFileLocker(),
         locksRoot: absolutePath(dir),
@@ -625,5 +647,134 @@ describe('createReviewFlow', () => {
     // The settle steps never ran (round failed before any human terminal decision) — the sprint
     // stayed in review precisely because the transition-to-done leaf was never reached.
     expect(runner.trace.some((t) => t.elementName === 'transition-sprint-to-done')).toBe(false);
+  });
+  const buildPreflightFlow = (
+    dir: string,
+    sprint: ReviewSprint,
+    repo: ReturnType<typeof inMemorySprintRepo>,
+    ports: {
+      gitRunner: GitRunner;
+      provider: HeadlessAiProvider;
+      interactive: InteractivePrompt;
+      eventBus: ReturnType<typeof createInMemoryEventBus>;
+    }
+  ) =>
+    createReviewFlow(
+      {
+        sprintRepo: repo.repo,
+        taskRepo: noopTaskRepo,
+        provider: ports.provider,
+        templateLoader: createFsTemplateLoader(defaultTemplatesDir()),
+        eventBus: ports.eventBus,
+        logger: noopLogger,
+        clock: () => FIXED_LATER,
+        interactive: ports.interactive,
+        gitRunner: ports.gitRunner,
+        shellScriptRunner: noopShell,
+        fileLocker: createFileLocker(),
+        locksRoot: absolutePath(dir),
+        appendFile: createAppendFile(),
+        writeFile: createAtomicWriteFile(),
+        model: 'claude-opus-4-8',
+      },
+      {
+        sprintId: sprint.id,
+        sprintDir: absolutePath(dir),
+        reviewRoot: absolutePath(join(dir, 'review')),
+        commitCwd: FAKE_CWD,
+        additionalRoots: [FAKE_CWD],
+        repositoriesBlock: `- \`${String(FAKE_CWD)}\` (fake-cwd)`,
+        feedbackFile: absolutePath(join(dir, 'feedback.md')),
+      }
+    );
+
+  it('stops the round before the editor and the spawn when the commit tree is already dirty', async () => {
+    const dir = await realpath(await fs.mkdtemp(join(tmpdir(), 'ralphctl-review-')));
+    cleanupFns.push(async () => {
+      await fs.rm(dir, { recursive: true, force: true });
+    });
+    const sprint = buildSprint();
+    const repo = inMemorySprintRepo(sprint);
+    let spawns = 0;
+    let editorOpens = 0;
+    const interactive: InteractivePrompt = {
+      ...scriptedInteractive(['should never be asked']),
+      async askTextArea() {
+        editorOpens += 1;
+        return Result.ok('should never be asked');
+      },
+    };
+    const eventBus = createInMemoryEventBus();
+    const published: AppEvent[] = [];
+    eventBus.subscribe((e) => published.push(e));
+    const flow = buildPreflightFlow(dir, sprint, repo, {
+      gitRunner: {
+        async run(_cwd, args) {
+          return args[0] === 'status' ? okGit(' M src/foo.ts\n?? notes.txt') : okGit('');
+        },
+      },
+      provider: {
+        async generate(session) {
+          spawns += 1;
+          return fakeProvider.generate(session);
+        },
+      },
+      interactive,
+      eventBus,
+    });
+
+    const runner = createRunner({
+      id: 'r-review-dirty',
+      element: flow,
+      initialCtx: { sprintId: sprint.id, distillRequested: false } satisfies ReviewCtx,
+    });
+    await runner.start();
+
+    expect(runner.status).toBe('completed');
+    expect(spawns).toBe(0);
+    expect(editorOpens).toBe(0);
+    expect(repo.current().status).toBe('review');
+    expect(runner.trace.at(-1)).toMatchObject({ elementName: 'review-settle', status: 'skipped' });
+    const banner = published.find((e) => e.type === 'banner-show' && e.id === 'review-dirty-tree');
+    expect(banner).toMatchObject({ tier: 'warn' });
+    if (banner?.type !== 'banner-show') return;
+    expect(banner.cause).toContain('src/foo.ts');
+    expect(banner.cause).toContain('notes.txt');
+    expect(banner.cause).not.toMatch(/commit error/i);
+  });
+
+  it("quotes the previous round's commit error when a failed commit leaves the next round's tree dirty", async () => {
+    const dir = await realpath(await fs.mkdtemp(join(tmpdir(), 'ralphctl-review-')));
+    cleanupFns.push(async () => {
+      await fs.rm(dir, { recursive: true, force: true });
+    });
+    const sprint = buildSprint();
+    const repo = inMemorySprintRepo(sprint);
+    const workspace = editedWorkspace({ commitFails: true });
+    const eventBus = createInMemoryEventBus();
+    const published: AppEvent[] = [];
+    eventBus.subscribe((e) => published.push(e));
+    const flow = buildPreflightFlow(dir, sprint, repo, {
+      gitRunner: workspace.gitRunner,
+      provider: workspace.provider,
+      interactive: scriptedInteractive(['fix the foo bar in baz.ts', 'and the qux too']),
+      eventBus,
+    });
+
+    const runner = createRunner({
+      id: 'r-review-commit-failed',
+      element: flow,
+      initialCtx: { sprintId: sprint.id, distillRequested: false } satisfies ReviewCtx,
+    });
+    await runner.start();
+
+    expect(runner.status).toBe('completed');
+    // Round 1 spawned; round 2 stopped at the preflight.
+    expect(workspace.spawns()).toBe(1);
+    expect(repo.current().status).toBe('review');
+    const banner = published.find((e) => e.type === 'banner-show' && e.id === 'review-dirty-tree');
+    if (banner?.type !== 'banner-show') throw new Error('expected the review-dirty-tree banner');
+    expect(banner.cause).toContain('src/foo.ts');
+    expect(banner.cause).toContain('pre-commit hook rejected');
   });
 });

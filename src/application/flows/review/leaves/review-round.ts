@@ -36,7 +36,7 @@ import { validateSignalsFile } from '@src/integration/ai/contract/_engine/valida
 import { reviewRoundOutputContract } from '@src/application/flows/review/leaves/review-round.contract.ts';
 import { writeTextAtomic } from '@src/integration/io/fs.ts';
 import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/template-loader.ts';
-import { gitCommitWithMessage } from '@src/integration/io/git-operations.ts';
+import { gitCommitWithMessage, gitStatusPorcelain } from '@src/integration/io/git-operations.ts';
 import type { GitRunner } from '@src/integration/io/git-runner.ts';
 import type { ShellScriptRunner } from '@src/integration/io/shell-script-runner.ts';
 import type { ReviewCtx } from '@src/application/flows/review/ctx.ts';
@@ -128,6 +128,7 @@ interface ReviewRoundInput {
   readonly feedbackFile: AbsolutePath;
   readonly progressFile?: AbsolutePath;
   readonly previousRound?: ReviewCtx['previousRound'];
+  readonly lastCommitError?: string;
 }
 
 const readProgressSnippet = async (path: AbsolutePath | undefined): Promise<string> => {
@@ -354,11 +355,17 @@ const buildRoundCallbacks = (
   input: ReviewRoundInput,
   context: RoundContext,
   signal: AbortSignal | undefined
-): Omit<Parameters<typeof runReviewRoundUseCase>[0], 'sprint' | 'previousRound' | 'logger'> => {
+): Omit<Parameters<typeof runReviewRoundUseCase>[0], 'sprint' | 'previousRound' | 'lastCommitError' | 'logger'> => {
   const { roundIndex, paths } = context;
   const promptRef: PromptRef = {};
 
   return {
+    // Only the commit tree is checked — the other mounted repos are never committed by the harness.
+    listUncommittedChanges: async () => {
+      const status = await gitStatusPorcelain(deps.gitRunner, opts.commitCwd);
+      if (!status.ok) return Result.error(status.error);
+      return Result.ok(status.value.map((entry) => entry.path));
+    },
     openEditor: async () => {
       // Ask the user for the round's body in-app. Esc → DomainError, which the use case
       // maps to an `aborted` outcome (same behaviour the old vim `:cq` produced).
@@ -412,6 +419,26 @@ const buildRoundCallbacks = (
   };
 };
 
+/** Banner key for the clean-tree preflight stop — stable so a re-run replaces it. */
+const DIRTY_TREE_BANNER_ID = 'review-dirty-tree';
+
+/** The preflight stop otherwise ends the review with only a log line; the banner says why. */
+const publishDirtyTreeBanner = (
+  deps: ReviewRoundLeafDeps,
+  opts: ReviewRoundLeafOpts,
+  outcome: Result<RunReviewRoundOutput, DomainError>
+): void => {
+  if (!outcome.ok || outcome.value.dirtyTreeReason === undefined) return;
+  deps.eventBus.publish({
+    type: 'banner-show',
+    id: DIRTY_TREE_BANNER_ID,
+    tier: 'warn',
+    message: `Review stopped before the AI ran — ${String(opts.commitCwd)} has uncommitted changes.`,
+    cause: outcome.value.dirtyTreeReason,
+    at: deps.clock(),
+  });
+};
+
 /**
  * Phase 3 — publish the `feedback-round-applied` bus event ONCE per round the use case actually
  * applied (committed) — mirrors the implement leaf's per-round `task-round-started` emit. The
@@ -446,11 +473,13 @@ export const reviewRoundLeaf = (deps: ReviewRoundLeafDeps, opts: ReviewRoundLeaf
         const outcome = await runReviewRoundUseCase({
           sprint: input.sprint,
           ...(input.previousRound !== undefined ? { previousRound: input.previousRound } : {}),
+          ...(input.lastCommitError !== undefined ? { lastCommitError: input.lastCommitError } : {}),
           ...buildRoundCallbacks(deps, opts, input, context.value, signal),
           logger: deps.logger,
         });
 
         publishRoundAppliedEvent(deps, input, outcome, roundIndex);
+        publishDirtyTreeBanner(deps, opts, outcome);
 
         return outcome;
       },
@@ -464,6 +493,7 @@ export const reviewRoundLeaf = (deps: ReviewRoundLeafDeps, opts: ReviewRoundLeaf
         feedbackFile,
         ...(ctx.progressFile !== undefined ? { progressFile: ctx.progressFile } : {}),
         ...(ctx.previousRound !== undefined ? { previousRound: ctx.previousRound } : {}),
+        ...(ctx.lastCommitError !== undefined ? { lastCommitError: ctx.lastCommitError } : {}),
       };
     },
     output: (ctx, out) => {
@@ -471,6 +501,8 @@ export const reviewRoundLeaf = (deps: ReviewRoundLeafDeps, opts: ReviewRoundLeaf
         ...ctx,
         ...(out.currentRound !== undefined ? { previousRound: out.currentRound } : {}),
         ...(out.applied ? { roundsApplied: (ctx.roundsApplied ?? 0) + 1 } : {}),
+        // Overwritten every round so only the immediately preceding commit failure is quoted.
+        lastCommitError: out.commitError,
       };
       if (out.exit === 'continued') return next;
       return {
