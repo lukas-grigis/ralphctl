@@ -12,6 +12,7 @@ import type { GitRunner } from '@src/integration/io/git-runner.ts';
 import type { Element, ElementResult } from '@src/application/chain/element.ts';
 import type { WaveBranch } from '@src/application/chain/run/wave-scheduler.ts';
 import { sequential } from '@src/application/chain/build/sequential.ts';
+import { leaf } from '@src/application/chain/build/leaf.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import type { ImplementDeps } from '@src/application/flows/implement/deps.ts';
 import type { ImplementWavePlan } from '@src/application/flows/implement/flow.ts';
@@ -196,6 +197,34 @@ describe('createParallelImplementElement — happy path under one held lock', ()
     expect(lockLog).toEqual(['lock-acquire', 'lock-release']);
     // Epilogue persisted both tasks done.
     expect(persisted.tasks?.every((t) => t.status === 'done')).toBe(true);
+  });
+});
+
+describe('createParallelImplementElement — step starts', () => {
+  it('forwards prologue and epilogue leaf starts to the host before their steps', async () => {
+    const t1 = makeTodoTask({ name: 't1' });
+    const log: string[] = [];
+    const okLeaf = (name: string): Element<ImplementCtx> =>
+      leaf<ImplementCtx, void, void>(name, {
+        useCase: { execute: async () => Result.ok(undefined) },
+        input: () => undefined,
+        output: (ctx) => ctx,
+      });
+    const element = createParallelImplementElement(
+      plan(okLeaf('load'), okLeaf('save'), [[t1]]),
+      baseConfig({ buildWaves: () => [[doneBranch(t1, log)]] }, recordingLocker([]), stubBus([]))
+    );
+    const events: string[] = [];
+
+    const result = await element.execute(
+      ctxWith([t1]),
+      undefined,
+      (e) => events.push(`${e.status}:${e.elementName}`),
+      (s) => events.push(`start:${s.elementName}`)
+    );
+
+    expect(result.ok).toBe(true);
+    expect(events).toEqual(['start:load', 'completed:load', 'start:save', 'completed:save']);
   });
 });
 

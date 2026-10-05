@@ -3,7 +3,7 @@ import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.t
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 
 import type { Element } from '@src/application/chain/element.ts';
-import type { Trace, TraceEntry } from '@src/application/chain/trace.ts';
+import type { StepStart, Trace, TraceEntry } from '@src/application/chain/trace.ts';
 import { runWithSession } from '@src/application/session/session.ts';
 import { messageOf } from '@src/domain/value/error/error-message.ts';
 
@@ -17,6 +17,10 @@ export type RunnerStatus = 'idle' | 'running' | 'completed' | 'failed' | 'aborte
  *  Aborted pre-run: `aborted` only (no `started`)
  *  Aborted mid-run: `started` → zero or more `step` → `aborted`
  *
+ * `step-started` precedes the `step` of every leaf that actually ran its work (never a skipped,
+ * pre-aborted or synthesised entry). Several can be open at once under parallel branches. It is
+ * live-only: late subscribers get no replay of it, because only in-flight state needs it.
+ *
  * `aborted` carries an `error` ONLY when the abort originated INSIDE the chain — the element
  * returned (or threw) an `aborted`-coded error of its own, e.g. the operator answered "abort" at an
  * in-chain prompt. A caller-driven `abort()` (Ctrl-C, an outer signal, a fatal-sibling kill) omits
@@ -26,6 +30,7 @@ export type RunnerStatus = 'idle' | 'running' | 'completed' | 'failed' | 'aborte
  */
 export type RunnerEvent<TCtx> =
   | { readonly type: 'started' }
+  | { readonly type: 'step-started'; readonly step: StepStart }
   | { readonly type: 'step'; readonly entry: TraceEntry }
   | { readonly type: 'completed'; readonly ctx: TCtx }
   | { readonly type: 'failed'; readonly error: DomainError }
@@ -49,6 +54,8 @@ export interface RunnerOptions<TCtx> {
  */
 export interface Runner<TCtx> {
   readonly id: string;
+  /** The element this runner executes — lets callers walk its plan tree without running it. */
+  readonly element: Element<TCtx>;
   readonly status: RunnerStatus;
   readonly ctx: TCtx;
   readonly trace: Trace;
@@ -155,6 +162,7 @@ export const createRunner = <TCtx>(opts: RunnerOptions<TCtx>): Runner<TCtx> => {
       if (trace.length > MAX_TRACE_ENTRIES) trace.splice(0, trace.length - MAX_TRACE_ENTRIES);
       emit({ type: 'step', entry });
     };
+    const onStart = (step: StepStart): void => emit({ type: 'step-started', step });
 
     // The runner is the chain's containment boundary: `leaf` deliberately re-propagates a
     // non-DomainError throw from a ctx projection as a programmer-error signal, and no composite
@@ -168,7 +176,7 @@ export const createRunner = <TCtx>(opts: RunnerOptions<TCtx>): Runner<TCtx> => {
     try {
       const result = await runWithSession(
         opts.id,
-        () => opts.element.execute(ctx, abortController.signal, onTrace),
+        () => opts.element.execute(ctx, abortController.signal, onTrace, onStart),
         abortController.signal
       );
 
@@ -212,6 +220,7 @@ export const createRunner = <TCtx>(opts: RunnerOptions<TCtx>): Runner<TCtx> => {
 
   return {
     id: opts.id,
+    element: opts.element,
     get status() {
       return status;
     },

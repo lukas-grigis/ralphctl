@@ -52,7 +52,14 @@ describe('bridgeRunnerToEventBus', () => {
     await runner.start();
 
     const types = sink.events.map((e) => e.type);
-    expect(types).toEqual(['chain-started', 'chain-step-completed', 'chain-step-completed', 'chain-completed']);
+    expect(types).toEqual([
+      'chain-started',
+      'chain-step-started',
+      'chain-step-completed',
+      'chain-step-started',
+      'chain-step-completed',
+      'chain-completed',
+    ]);
 
     const started = sink.events[0];
     if (started?.type !== 'chain-started') throw new Error('expected chain-started');
@@ -61,6 +68,12 @@ describe('bridgeRunnerToEventBus', () => {
 
     const completedSteps = sink.events.filter((e) => e.type === 'chain-step-completed');
     expect(completedSteps.map((e) => (e.type === 'chain-step-completed' ? e.elementName : ''))).toEqual(['one', 'two']);
+
+    const startedSteps = sink.events.filter((e) => e.type === 'chain-step-started');
+    expect(startedSteps).toEqual([
+      { type: 'chain-step-started', chainId: 'r-1', elementName: 'one', at: FROZEN },
+      { type: 'chain-step-started', chainId: 'r-1', elementName: 'two', at: FROZEN },
+    ]);
   });
 
   it('publishes chain-step-failed and chain-failed when a leaf fails', async () => {
@@ -75,7 +88,14 @@ describe('bridgeRunnerToEventBus', () => {
     await runner.start();
 
     const types = sink.events.map((e) => e.type);
-    expect(types).toEqual(['chain-started', 'chain-step-completed', 'chain-step-failed', 'chain-failed']);
+    expect(types).toEqual([
+      'chain-started',
+      'chain-step-started',
+      'chain-step-completed',
+      'chain-step-started',
+      'chain-step-failed',
+      'chain-failed',
+    ]);
 
     const failed = sink.events.find((e) => e.type === 'chain-step-failed');
     if (failed?.type !== 'chain-step-failed') throw new Error('expected chain-step-failed');

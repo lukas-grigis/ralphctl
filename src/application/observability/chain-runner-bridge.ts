@@ -53,6 +53,9 @@ export const bridgeRunnerToEventBus = (
       case 'started':
         bus.publish({ type: 'chain-started', chainId: runner.id, flowId: opts.flowId, at });
         return;
+      case 'step-started':
+        bus.publish({ type: 'chain-step-started', chainId: runner.id, elementName: event.step.elementName, at });
+        return;
       case 'step': {
         const { entry } = event;
         if (entry.status === 'completed') {

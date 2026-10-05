@@ -3,7 +3,7 @@ import { AbortError } from '@src/domain/value/error/abort-error.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import { ErrorCode } from '@src/domain/value/error/error-code.ts';
 
-import { checkAborted, type Element, type ElementResult } from '@src/application/chain/element.ts';
+import { checkAborted, displayMeta, type Element, type ElementResult } from '@src/application/chain/element.ts';
 import type { TraceEntry } from '@src/application/chain/trace.ts';
 
 export interface LeafUseCase<UInput, UOutput> {
@@ -31,6 +31,8 @@ export interface LeafOpts {
    * without leaking that data into the rendered label.
    */
   readonly label?: string;
+  /** Bookkeeping step — traced as usual, hidden from the step display unless it fails or runs. */
+  readonly internal?: boolean;
 }
 
 export const leaf = <TCtx, UInput, UOutput>(
@@ -44,10 +46,12 @@ export const leaf = <TCtx, UInput, UOutput>(
   const labelExt: { readonly label?: string } = opts?.label !== undefined ? { label: opts.label } : {};
   return {
     name,
-    ...labelExt,
-    async execute(ctx, signal, onTrace): Promise<ElementResult<TCtx>> {
+    kind: 'leaf',
+    ...displayMeta({ label: opts?.label, internal: opts?.internal }),
+    async execute(ctx, signal, onTrace, onStart): Promise<ElementResult<TCtx>> {
       const aborted = checkAborted<TCtx>(name, signal, onTrace);
       if (aborted) return aborted;
+      onStart?.({ elementName: name, ...labelExt });
 
       const start = performance.now();
 

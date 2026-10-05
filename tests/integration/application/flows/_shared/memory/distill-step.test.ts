@@ -272,7 +272,14 @@ describe('createDistillStep composed into the close paths', () => {
       element: flow,
       initialCtx: { sprintId: sprintRepo.current().id, distillRequested: true },
     });
+    const started: string[] = [];
+    runner.subscribe((e) => {
+      if (e.type === 'step-started') started.push(e.step.elementName);
+    });
     await runner.start();
+
+    // The nested distill runner's leaf starts reach the host runner.
+    expect(started).toContain('distill-write-claude-code');
 
     expect(runner.status).toBe('completed');
     expect(sprintRepo.current().status).toBe('done');

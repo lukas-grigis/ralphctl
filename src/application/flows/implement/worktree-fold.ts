@@ -121,7 +121,7 @@ export const foldStep = (
   taskId: TaskId
 ): Element<ImplementCtx> => ({
   name: `fold-${String(taskId)}`,
-  async execute(ctx, signal, onTrace): Promise<ElementResult<ImplementCtx>> {
+  async execute(ctx, signal, onTrace, onStart): Promise<ElementResult<ImplementCtx>> {
     const name = `fold-${String(taskId)}`;
     // An already-aborted signal takes priority over the "nothing to fold" fast path below: this
     // step's `Result.error(AbortError)` is how the branch's OVERALL result keeps reporting the
@@ -130,6 +130,7 @@ export const foldStep = (
     // on this step's return value to see that settled ctx — its `onSettled` side-channel captures
     // it from the subchain directly, BEFORE this step ever runs — so aborting here costs nothing.
     if (signal?.aborted) return abortedStep(name, 0, onTrace);
+    onStart?.({ elementName: name });
 
     const task = ctx.tasks?.find((t) => t.id === taskId);
     // Only a task the subchain settled `done` has a commit worth folding. Anything else (blocked,

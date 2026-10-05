@@ -52,7 +52,7 @@ export const withRepoLock = <TCtx>(opts: WithRepoLockOpts, inner: Element<TCtx>)
     // like an opaque single leaf and the Flow-steps panel rendered only "with-repo-lock(…)" —
     // never the real setup / per-task / teardown sequence inside the lock.
     children: [inner],
-    async execute(ctx, signal, onTrace): Promise<ElementResult<TCtx>> {
+    async execute(ctx, signal, onTrace, onStart): Promise<ElementResult<TCtx>> {
       const lockPath = repoLockFile(opts.locksRoot, opts.worktreePath);
       if (!lockPath.ok) {
         const entry: TraceEntry = {
@@ -71,7 +71,7 @@ export const withRepoLock = <TCtx>(opts: WithRepoLockOpts, inner: Element<TCtx>)
       // a competitor may now own.
       const acquired = await opts.fileLocker.withLock(
         lockPath.value,
-        async (lockSignal) => inner.execute(ctx, combineAbortSignals(signal, lockSignal), onTrace),
+        async (lockSignal) => inner.execute(ctx, combineAbortSignals(signal, lockSignal), onTrace, onStart),
         opts.purpose !== undefined ? { purpose: opts.purpose } : {}
       );
       const durationMs = performance.now() - start;

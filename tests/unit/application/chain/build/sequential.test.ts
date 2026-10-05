@@ -3,7 +3,7 @@ import { Result } from '@src/domain/result.ts';
 import { AbortError } from '@src/domain/value/error/abort-error.ts';
 import { ValidationError } from '@src/domain/value/error/validation-error.ts';
 import type { Element } from '@src/application/chain/element.ts';
-import type { TraceEntry } from '@src/application/chain/trace.ts';
+import type { StepStart, TraceEntry } from '@src/application/chain/trace.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
 import { sequential } from '@src/application/chain/build/sequential.ts';
 
@@ -107,5 +107,39 @@ describe('sequential', () => {
     await chain.execute({ trail: [] }, undefined, (e) => emitted.push(e));
 
     expect(emitted.map((e) => e.elementName)).toEqual(['a', 'b']);
+  });
+
+  it('forwards onStart to every child that runs, but not to skipped ones', async () => {
+    const starts: StepStart[] = [];
+    await sequential<Ctx>('chain', [tag('a'), fail('b'), tag('c')]).execute({ trail: [] }, undefined, undefined, (s) =>
+      starts.push(s)
+    );
+    expect(starts.map((s) => s.elementName)).toEqual(['a', 'b']);
+  });
+
+  it('carries composite opts on the element and keeps the keys absent when not passed', () => {
+    const plain = sequential<Ctx>('plain', [tag('a')]);
+    expect(plain.kind).toBe('sequential');
+    expect('label' in plain).toBe(false);
+    expect('display' in plain).toBe(false);
+
+    const annotated = sequential<Ctx>('task-1', [tag('a')], {
+      label: 'Fix the bug',
+      internal: true,
+      workItem: { kind: 'task', id: '1' },
+    });
+    expect(annotated.label).toBe('Fix the bug');
+    expect(annotated.display).toEqual({ internal: true, workItem: { kind: 'task', id: '1' } });
+  });
+
+  it('keeps skip semantics unchanged when opts are passed', async () => {
+    const result = await sequential<Ctx>('chain', [fail('a'), tag('b')], { label: 'Chain' }).execute({ trail: [] });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.trace.map((e) => [e.elementName, e.status])).toEqual([
+        ['a', 'failed'],
+        ['b', 'skipped'],
+      ]);
+    }
   });
 });

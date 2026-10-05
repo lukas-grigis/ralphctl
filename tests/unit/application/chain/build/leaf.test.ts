@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { Result } from '@src/domain/result.ts';
 import { AbortError } from '@src/domain/value/error/abort-error.ts';
 import { ValidationError } from '@src/domain/value/error/validation-error.ts';
-import type { TraceEntry } from '@src/application/chain/trace.ts';
+import type { StepStart, TraceEntry } from '@src/application/chain/trace.ts';
 import { leaf, type LeafUseCase } from '@src/application/chain/build/leaf.ts';
 
 interface Ctx {
@@ -210,5 +210,72 @@ describe('leaf', () => {
       // the label.
       expect(abortedResult.error.trace[0]?.elementName).toBe('slow');
     }
+  });
+
+  it('calls onStart after the abort check and before the use case runs, carrying the label', async () => {
+    const order: string[] = [];
+    const starts: StepStart[] = [];
+    const el = leaf<Ctx, unknown, unknown>(
+      'work',
+      {
+        useCase: {
+          async execute() {
+            order.push('execute');
+            return Result.ok(undefined);
+          },
+        },
+        input: () => {
+          order.push('input');
+          return undefined;
+        },
+        output: (c) => c,
+      },
+      { label: 'Do work' }
+    );
+
+    await el.execute({ count: 0 }, undefined, undefined, (s) => {
+      order.push('start');
+      starts.push(s);
+    });
+
+    expect(order).toEqual(['start', 'input', 'execute']);
+    expect(starts).toEqual([{ elementName: 'work', label: 'Do work' }]);
+  });
+
+  it('never calls onStart on a pre-aborted signal', async () => {
+    const starts: StepStart[] = [];
+    const el = leaf<Ctx, { current: number }, { next: number }>('inc', {
+      useCase: inc,
+      input: (c) => ({ current: c.count }),
+      output: (c, o) => ({ ...c, count: o.next }),
+    });
+    const ac = new AbortController();
+    ac.abort();
+
+    await el.execute({ count: 0 }, ac.signal, undefined, (s) => starts.push(s));
+
+    expect(starts).toEqual([]);
+  });
+
+  it('carries kind and display metadata, with the optional keys absent when not passed', () => {
+    const plain = leaf<Ctx, unknown, unknown>('plain', { useCase: failing, input: () => undefined, output: (c) => c });
+    expect(plain.kind).toBe('leaf');
+    expect('label' in plain).toBe(false);
+    expect('display' in plain).toBe(false);
+
+    const internal = leaf<Ctx, unknown, unknown>(
+      'stamp',
+      { useCase: failing, input: () => undefined, output: (c) => c },
+      { label: 'Record session', internal: true }
+    );
+    expect(internal.label).toBe('Record session');
+    expect(internal.display).toEqual({ internal: true });
+
+    const notInternal = leaf<Ctx, unknown, unknown>(
+      'x',
+      { useCase: failing, input: () => undefined, output: (c) => c },
+      { internal: false }
+    );
+    expect('display' in notInternal).toBe(false);
   });
 });

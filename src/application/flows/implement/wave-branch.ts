@@ -8,7 +8,7 @@ import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { join } from 'node:path';
 
 import type { Element, ElementResult } from '@src/application/chain/element.ts';
-import type { OnTrace, TraceEntry } from '@src/application/chain/trace.ts';
+import type { OnStart, OnTrace, TraceEntry } from '@src/application/chain/trace.ts';
 import type { WaveBranch } from '@src/application/chain/run/wave-scheduler.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
 import type { DirtyTreePolicy } from '@src/business/task/preflight-task.ts';
@@ -220,10 +220,10 @@ const withWorktree = (
   return {
     name: `worktree(${String(taskId)})`,
     children: [bodyShape],
-    async execute(ctx, signal, onTrace): Promise<ElementResult<ImplementCtx>> {
+    async execute(ctx, signal, onTrace, onStart): Promise<ElementResult<ImplementCtx>> {
       const quarantinedAtStart = await snapshotQuarantinedDiff(deps, repoRoot, ctx.sprintId, taskId);
       const target = { repoRoot, worktreePath, branchRef, taskId, progressFile };
-      const setupError = await setupWorktree(deps, ctx, target, onTrace);
+      const setupError = await setupWorktree(deps, ctx, target, onTrace, onStart);
       if (setupError !== undefined) {
         // A worktree that never got created has nothing to clean up — return the setup failure as-is
         // (non-fatal → the wave reducer leaves this task untouched so it resets/re-runs).
@@ -263,8 +263,17 @@ const withWorktree = (
         // A git worktree is an empty checkout with no build artefacts, so the per-task verifyScript
         // would fail spuriously without it. `undefined` (block this task) short-circuits the body;
         // the teardown below still runs.
-        const setupBlocked = await runWorktreeSetupScript(deps, worktreePath, setup, taskId, ctx, signal, onTrace);
-        result = setupBlocked ?? (await body.execute(ctx, signal, onTrace));
+        const setupBlocked = await runWorktreeSetupScript(
+          deps,
+          worktreePath,
+          setup,
+          taskId,
+          ctx,
+          signal,
+          onTrace,
+          onStart
+        );
+        result = setupBlocked ?? (await body.execute(ctx, signal, onTrace, onStart));
       } catch (error) {
         // A THROW, not a `Result.error`: `leaf.ts` re-throws every non-DomainError verbatim and
         // `buildSubchain` is constructed inside `body.execute`, so a projection bug — or any raw
@@ -320,13 +329,15 @@ const runWorktreeSetupScript = async (
   taskId: TaskId,
   ctx: ImplementCtx,
   signal: AbortSignal | undefined,
-  onTrace: OnTrace | undefined
+  onTrace: OnTrace | undefined,
+  onStart: OnStart | undefined
 ): Promise<ElementResult<ImplementCtx> | undefined> => {
   if (setup === undefined) return undefined;
   const name = `worktree-setup-script-${String(taskId)}`;
   const aborted = (): boolean => signal?.aborted === true;
   // Don't burn an install while the user is already aborting.
   if (aborted()) return abortedStep(name, 0, onTrace);
+  onStart?.({ elementName: name });
 
   const start = performance.now();
   const elapsed = (): number => performance.now() - start;
@@ -515,11 +526,13 @@ const setupWorktree = async (
   deps: BuildWaveBranchesDeps,
   ctx: ImplementCtx,
   target: WorktreeTarget,
-  onTrace: OnTrace | undefined
+  onTrace: OnTrace | undefined,
+  onStart: OnStart | undefined
 ): Promise<ElementResult<ImplementCtx> | undefined> => {
   const { repoRoot, worktreePath, branchRef, taskId } = target;
   const gitRunner = deps.implement.gitRunner;
   const name = `worktree-setup-${String(taskId)}`;
+  onStart?.({ elementName: name });
   const start = performance.now();
   // Prune defensively first: a crashed prior run can leave a stale `.git/worktrees/<name>` record
   // whose directory has vanished, which would make `worktree add` fail. Prune is idempotent.
@@ -663,17 +676,17 @@ export const buildWorktreeBranch = (
   const buildBody = (onSettled: (ctx: ImplementCtx) => void): Element<ImplementCtx> => ({
     name: `task-${String(task.id)}-branch-body`,
     children: [],
-    async execute(ctx, signal, onTrace): Promise<ElementResult<ImplementCtx>> {
+    async execute(ctx, signal, onTrace, onStart): Promise<ElementResult<ImplementCtx>> {
       // Fork the carried base ctx onto the worktree at EXECUTE time, so the branch sees the most
       // recent merged ctx (sprint/tasks). `forkCtx` clears per-task state + drops the
       // verify-baseline; the returned repo points at the worktree.
       const { ctx: forkedCtx, repo: worktreeRepo } = forkCtx(ctx, repo, worktreePath);
       const subchain = buildSubchain(worktreeRepo);
-      const subchainResult = await subchain.execute(forkedCtx, signal, onTrace);
+      const subchainResult = await subchain.execute(forkedCtx, signal, onTrace, onStart);
       if (!subchainResult.ok) return subchainResult;
       onSettled(subchainResult.value.ctx);
       const fold = foldStep(deps, repo.path, branchRef, task.id);
-      const foldResult = await fold.execute(subchainResult.value.ctx, signal, onTrace);
+      const foldResult = await fold.execute(subchainResult.value.ctx, signal, onTrace, onStart);
       if (!foldResult.ok) return foldResult;
       // Narrow this branch's outcome ctx to carry ONLY its OWN task. `forkCtx` seeds `tasks` with the
       // full base list (so the subchain leaves can look up sibling deps), but the subchain only

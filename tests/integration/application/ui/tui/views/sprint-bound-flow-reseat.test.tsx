@@ -59,6 +59,7 @@ const makeFakeRunner = (): {
   };
   const runner: Runner<unknown> = {
     id: 'fake-runner-1',
+    element: { name: 'fake', execute: () => Promise.reject(new Error('not executed')) },
     status: 'idle',
     ctx: {},
     trace: [],

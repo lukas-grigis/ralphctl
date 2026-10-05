@@ -60,11 +60,13 @@ const ageKey = (rec: SessionRecord): number => rec.descriptor.finishedAt ?? rec.
  */
 const terminalRunnerStub = (
   id: string,
+  element: Runner<unknown>['element'],
   status: RunnerStatus,
   trace: Trace,
   error: DomainError | undefined
 ): Runner<unknown> => ({
   id,
+  element,
   status,
   ctx: undefined,
   trace,
@@ -367,7 +369,7 @@ const update = (
   // the dominant retainer AT terminal instead of waiting for TTL / LRU eviction. The original
   // runner is no longer needed — its `abort()` is a no-op once terminal.
   const runner = goingTerminal
-    ? terminalRunnerStub(cur.runner.id, patch.status!, descriptor.trace, descriptor.error)
+    ? terminalRunnerStub(cur.runner.id, cur.runner.element, patch.status!, descriptor.trace, descriptor.error)
     : cur.runner;
   records.set(id, { descriptor, runner });
   if (goingTerminal) evict(records, clock());

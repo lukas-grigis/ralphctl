@@ -7,6 +7,7 @@ import type { EventBus } from '@src/business/observability/event-bus.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
+import type { StepStart } from '@src/application/chain/trace.ts';
 import type { FileLocker } from '@src/integration/io/file-locker.ts';
 import { withRepoLock } from '@src/application/flows/_shared/with-repo-lock.ts';
 
@@ -211,5 +212,15 @@ describe('withRepoLock', () => {
     });
 
     expect(traced).toStrictEqual(['inner-ok']);
+  });
+
+  it('forwards onStart into the inner chain', async () => {
+    const { bus } = spyEventBus();
+    const wrapped = withRepoLock(opts(okLocker(new AbortController().signal), bus), okInner());
+    const starts: StepStart[] = [];
+
+    await wrapped.execute({ value: 'x' }, undefined, undefined, (s) => starts.push(s));
+
+    expect(starts).toEqual([{ elementName: 'inner-ok' }]);
   });
 });

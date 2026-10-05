@@ -14,6 +14,7 @@ import type { GitRunner, GitRunResult } from '@src/integration/io/git-runner.ts'
 import type { ShellScriptRunner, ShellScriptResult } from '@src/integration/io/shell-script-runner.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import type { Element, ElementResult } from '@src/application/chain/element.ts';
+import { leaf } from '@src/application/chain/build/leaf.ts';
 import { createRunner } from '@src/application/chain/run/runner.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import type { ImplementDeps } from '@src/application/flows/implement/deps.ts';
@@ -239,6 +240,38 @@ describe('buildWorktreeBranch — happy path', () => {
     await runBranch(branch, baseCtx([task]));
     // The branch-start snapshot LISTS the stash; nothing may ever change it from the main repo.
     expect(calls.some((c) => c[0] === 'stash' && c[1] !== 'list')).toBe(false);
+  });
+});
+
+describe('buildWorktreeBranch — step starts', () => {
+  it('emits a start before worktree setup, forwards the subchain starts, and starts the fold', async () => {
+    const task = makeTodoTask();
+    const done: Task = { ...makeDoneTask(), id: task.id };
+    const { runner } = fakeGit();
+    const deps = makeBranchDeps(runner, stubBus([]));
+    const wt = worktreePathFor(absolutePath('/data/sprints/s1'), task.id);
+    const subchain = (): Element<ImplementCtx> =>
+      leaf<ImplementCtx, void, void>(`work-${String(task.id)}`, {
+        useCase: { execute: async () => Result.ok(undefined) },
+        input: () => undefined,
+        output: (ctx) => ({ ...ctx, tasks: (ctx.tasks ?? []).map((t) => (t.id === task.id ? done : t)) }),
+      });
+    const branch = buildWorktreeBranch(deps, repo, task, wt, 'ref', PROGRESS, subchain);
+    const branchRunner = createRunner<ImplementCtx>({ id: 'branch', element: branch, initialCtx: baseCtx([task]) });
+    const events: string[] = [];
+    branchRunner.subscribe((e) => {
+      if (e.type === 'step-started') events.push(`start:${e.step.elementName}`);
+      else if (e.type === 'step') events.push(`${e.entry.status}:${e.entry.elementName}`);
+    });
+
+    await branchRunner.start();
+
+    const id = String(task.id);
+    const ran = [`worktree-setup-${id}`, `work-${id}`, `fold-${id}`];
+    for (const name of ran) {
+      expect(events.indexOf(`start:${name}`)).toBeGreaterThanOrEqual(0);
+      expect(events.indexOf(`start:${name}`)).toBeLessThan(events.indexOf(`completed:${name}`));
+    }
   });
 });
 

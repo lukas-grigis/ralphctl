@@ -6,7 +6,7 @@ import type { TaskId } from '@src/domain/value/id/task-id.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 
 import type { Element, ElementResult } from '@src/application/chain/element.ts';
-import type { OnTrace, TraceEntry } from '@src/application/chain/trace.ts';
+import type { OnStart, OnTrace, TraceEntry } from '@src/application/chain/trace.ts';
 import { createRunner, type Runner } from '@src/application/chain/run/runner.ts';
 import { combineAbortSignals } from '@src/application/chain/run/combine-signals.ts';
 import { runWaves, type WaveBranch } from '@src/application/chain/run/wave-scheduler.ts';
@@ -80,7 +80,7 @@ export const createParallelImplementElement = (
   config: ParallelImplementConfig
 ): Element<ImplementCtx> => ({
   name: PARALLEL_ELEMENT_NAME,
-  async execute(ctx, signal, onTrace): Promise<ElementResult<ImplementCtx>> {
+  async execute(ctx, signal, onTrace, onStart): Promise<ElementResult<ImplementCtx>> {
     const lockPath = repoLockFile(config.locksRoot, plan.lockKey);
     if (!lockPath.ok) {
       const entry: TraceEntry = {
@@ -95,7 +95,7 @@ export const createParallelImplementElement = (
 
     const acquired = await config.fileLocker.withLock(
       lockPath.value,
-      async (lockSignal) => runUnderLock(plan, config, ctx, combineAbortSignals(signal, lockSignal), onTrace),
+      async (lockSignal) => runUnderLock(plan, config, ctx, combineAbortSignals(signal, lockSignal), onTrace, onStart),
       { purpose: 'implement' }
     );
     if (!acquired.ok) {
@@ -123,10 +123,11 @@ const runUnderLock = async (
   config: ParallelImplementConfig,
   ctx: ImplementCtx,
   signal: AbortSignal | undefined,
-  onTrace: OnTrace | undefined
+  onTrace: OnTrace | undefined,
+  onStart: OnStart | undefined
 ): Promise<ElementResult<ImplementCtx>> => {
   // ── Prologue ────────────────────────────────────────────────────────────────────────────────
-  const prologue = await runSubElement(plan.prologue, ctx, config, signal, onTrace);
+  const prologue = await runSubElement(plan.prologue, ctx, config, signal, onTrace, onStart);
   // Prologue failed (dirty tree, setup script, abort): nothing ran or changed, so nothing to persist.
   if (!prologue.ok) return prologue;
   const prologueCtx = prologue.value.ctx;
@@ -182,7 +183,7 @@ const runUnderLock = async (
   // overlaid with whatever branches durably folded BEFORE the failure, so their `done` (or
   // `blocked`) status is recorded and their commits never re-execute as duplicates.
   const epilogueCtx = wavesResult.ok ? wavesResult.value.ctx : overlayDurable(prologueCtx, durablyFolded);
-  const epilogue = await runSubElement(plan.epilogue, epilogueCtx, config, undefined, onTrace);
+  const epilogue = await runSubElement(plan.epilogue, epilogueCtx, config, undefined, onTrace, onStart);
 
   if (!wavesResult.ok) {
     // Propagate the `runWaves` error VERBATIM (AbortError stays an AbortError so the sprint stays
@@ -253,7 +254,8 @@ const runSubElement = async (
   initialCtx: ImplementCtx,
   config: ParallelImplementConfig,
   signal: AbortSignal | undefined,
-  onTrace: OnTrace | undefined
+  onTrace: OnTrace | undefined,
+  onStart: OnStart | undefined
 ): Promise<ElementResult<ImplementCtx>> => {
   const runner = createRunner<ImplementCtx>({ id: config.sessionId(), element, initialCtx });
   // Capture the bridge unsub (previously discarded — the sub-runner leak). The bridge self-detaches
@@ -261,7 +263,7 @@ const runSubElement = async (
   // self-detach never fires; the `finally` below force-detaches both subscriptions so neither the
   // bridge nor the trace listener lingers on the EventBus / runner.
   const unsubBridge = bridgeRunnerToEventBus(runner as Runner<unknown>, config.eventBus, { flowId: config.flowId });
-  // Re-emit every sub-step through the host onTrace so the host trace stays continuous, and capture
+  // Re-emit every sub-step (and its start) through the host so the host trace stays continuous, and capture
   // a `failed` event's error off the stream (the runner does not expose its failure error directly).
   const captured: TraceEntry[] = [];
   let failureError: DomainError | undefined;
@@ -269,6 +271,8 @@ const runSubElement = async (
     if (event.type === 'step') {
       captured.push(event.entry);
       onTrace?.(event.entry);
+    } else if (event.type === 'step-started') {
+      onStart?.(event.step);
     } else if (event.type === 'failed') {
       failureError = event.error;
     }

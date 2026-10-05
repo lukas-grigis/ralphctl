@@ -11,6 +11,12 @@ import type { DomainError } from '@src/domain/value/error/domain-error.ts';
  */
 export type TraceStatus = 'completed' | 'failed' | 'skipped' | 'aborted';
 
+/** One enclosing loop's iteration at the moment an entry or start was recorded. */
+export interface LoopIteration {
+  readonly loop: string;
+  readonly n: number;
+}
+
 export interface TraceEntry {
   readonly elementName: string;
   /**
@@ -23,6 +29,11 @@ export interface TraceEntry {
   readonly status: TraceStatus;
   readonly durationMs: number;
   readonly error?: DomainError;
+  /**
+   * Enclosing loop iterations, outer-first. Stamped by `loop` as entries pass through it; absent
+   * outside any loop.
+   */
+  readonly iterations?: readonly LoopIteration[];
 }
 
 export type Trace = readonly TraceEntry[];
@@ -36,6 +47,21 @@ export type Trace = readonly TraceEntry[];
  * forwarded so the live event stream matches the final trace exactly.
  */
 export type OnTrace = (entry: TraceEntry) => void;
+
+/** A leaf (or leaf-like hand-written element) is about to run its work. */
+export interface StepStart {
+  readonly elementName: string;
+  readonly label?: string;
+  /** Enclosing loop iterations, outer-first — same contract as `TraceEntry.iterations`. */
+  readonly iterations?: readonly LoopIteration[];
+}
+
+/**
+ * Leaf-started callback. A leaf calls it once it is past its abort check and about to run its use
+ * case — never for a pre-aborted, skipped or synthesised entry. Composites forward it exactly like
+ * `OnTrace`; it carries no result, so a missing forward only degrades live display, never execution.
+ */
+export type OnStart = (step: StepStart) => void;
 
 /** Build a synthetic `aborted` trace entry. */
 export const abortedEntry = (elementName: string): TraceEntry & { readonly error: AbortError } => ({

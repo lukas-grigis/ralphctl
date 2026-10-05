@@ -5,6 +5,7 @@ import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
 import { loop } from '@src/application/chain/build/loop.ts';
 import { sequential } from '@src/application/chain/build/sequential.ts';
+import type { StepStart, TraceEntry } from '@src/application/chain/trace.ts';
 
 interface Ctx {
   readonly count: number;
@@ -118,5 +119,127 @@ describe('loop', () => {
     if (!result.ok) {
       expect(result.error.trace.at(-1)?.status).toBe('aborted');
     }
+  });
+
+  it('stamps the iteration on forwarded and returned entries alike', async () => {
+    const forwarded: TraceEntry[] = [];
+    const result = await loop<Ctx>('round', increment('tick'), {
+      shouldStop: (ctx) => ctx.count >= 2,
+    }).execute({ count: 0, trail: [] }, undefined, (e) => forwarded.push(e));
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value.trace.map((e) => e.iterations)).toEqual([
+        [{ loop: 'round', n: 1 }],
+        [{ loop: 'round', n: 2 }],
+      ]);
+      expect(result.value.trace).toEqual(forwarded);
+    }
+  });
+
+  it('stamps a failing iteration on the returned error trace too', async () => {
+    const forwarded: TraceEntry[] = [];
+    const body = sequential<Ctx>('pair', [increment('a'), failOn('b', 2)]);
+    const result = await loop<Ctx>('round', body, { shouldStop: () => false }).execute(
+      { count: 0, trail: [] },
+      undefined,
+      (e) => forwarded.push(e)
+    );
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.trace.map((e) => [e.elementName, e.iterations?.[0]?.n])).toEqual([
+        ['a', 1],
+        ['b', 1],
+        ['a', 2],
+        ['b', 2],
+      ]);
+      expect(result.error.trace).toEqual(forwarded);
+    }
+  });
+
+  it('orders nested loop stamps outer-first', async () => {
+    const forwarded: TraceEntry[] = [];
+    const inner = loop<Ctx>('inner', increment('tick'), { shouldContinue: (_c, i) => i <= 2 });
+    const outer = loop<Ctx>('outer', inner, { shouldContinue: (_c, i) => i <= 2 });
+
+    const result = await outer.execute({ count: 0, trail: [] }, undefined, (e) => forwarded.push(e));
+
+    const expected = [
+      [
+        { loop: 'outer', n: 1 },
+        { loop: 'inner', n: 1 },
+      ],
+      [
+        { loop: 'outer', n: 1 },
+        { loop: 'inner', n: 2 },
+      ],
+      [
+        { loop: 'outer', n: 2 },
+        { loop: 'inner', n: 1 },
+      ],
+      [
+        { loop: 'outer', n: 2 },
+        { loop: 'inner', n: 2 },
+      ],
+    ];
+    expect(forwarded.map((e) => e.iterations)).toEqual(expected);
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.value.trace.map((e) => e.iterations)).toEqual(expected);
+  });
+
+  it("leaves the loop's own aborted entry unstamped", async () => {
+    const controller = new AbortController();
+    const forwarded: TraceEntry[] = [];
+    // Aborting in shouldStop lets the body finish cleanly, so the loop's own pre-iteration check trips next.
+    const el = loop<Ctx>('round', increment('tick'), {
+      shouldStop: () => {
+        controller.abort();
+        return false;
+      },
+    });
+
+    const result = await el.execute({ count: 0, trail: [] }, controller.signal, (e) => forwarded.push(e));
+
+    expect(result.ok).toBe(false);
+    expect(forwarded.map((e) => [e.elementName, e.status])).toEqual([
+      ['tick', 'completed'],
+      ['round', 'aborted'],
+    ]);
+    const last = forwarded.at(-1);
+    expect(last && 'iterations' in last).toBe(false);
+  });
+
+  it('leaves entries outside any loop unstamped', async () => {
+    const result = await sequential<Ctx>('flat', [increment('a')]).execute({ count: 0, trail: [] });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect('iterations' in result.value.trace[0]!).toBe(false);
+  });
+
+  it('stamps step starts with the enclosing iterations', async () => {
+    const starts: StepStart[] = [];
+    await loop<Ctx>('round', increment('tick'), { shouldStop: (ctx) => ctx.count >= 2 }).execute(
+      { count: 0, trail: [] },
+      undefined,
+      undefined,
+      (s) => starts.push(s)
+    );
+    expect(starts).toEqual([
+      { elementName: 'tick', iterations: [{ loop: 'round', n: 1 }] },
+      { elementName: 'tick', iterations: [{ loop: 'round', n: 2 }] },
+    ]);
+  });
+
+  it('exposes maxIterations only when passed explicitly, plus label and internal', () => {
+    const plain = loop<Ctx>('plain', increment('tick'));
+    expect(plain.kind).toBe('loop');
+    expect('maxIterations' in plain).toBe(false);
+    expect('label' in plain).toBe(false);
+    expect('display' in plain).toBe(false);
+
+    const capped = loop<Ctx>('capped', increment('tick'), { maxIterations: 5, label: 'Round', internal: true });
+    expect(capped.maxIterations).toBe(5);
+    expect(capped.label).toBe('Round');
+    expect(capped.display).toEqual({ internal: true });
   });
 });

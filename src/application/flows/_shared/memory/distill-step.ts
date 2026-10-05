@@ -78,7 +78,7 @@ export const createDistillStep = <TCtx extends DistillRequestedCtx>(
   name = 'distill-learnings-step'
 ): Element<TCtx> => ({
   name,
-  async execute(ctx, signal, onTrace): Promise<ElementResult<TCtx>> {
+  async execute(ctx, signal, onTrace, onStart): Promise<ElementResult<TCtx>> {
     // Honour an abort that already tripped before we start — symmetric with every primitive.
     const aborted = checkAborted<TCtx>(name, signal, onTrace);
     if (aborted) return aborted;
@@ -116,10 +116,11 @@ export const createDistillStep = <TCtx extends DistillRequestedCtx>(
     const onAbort = (): void => runner.abort();
     signal?.addEventListener('abort', onAbort, { once: true });
 
-    // Forward every nested trace entry up to the host's `onTrace` so the TUI rail and the durable
+    // Forward every nested trace entry and step start up to the host so the TUI rail and the durable
     // chain.log see the distill sub-chain's steps inline with the close / review flow.
     const unsubscribe = runner.subscribe((event) => {
       if (event.type === 'step') onTrace?.(event.entry);
+      else if (event.type === 'step-started') onStart?.(event.step);
     });
 
     try {

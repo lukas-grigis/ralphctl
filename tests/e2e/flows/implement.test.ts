@@ -3280,3 +3280,98 @@ describe('createImplementFlow — reproduction-first (defect-shaped tasks)', () 
     expect(reproduceEntry?.status).toBe('skipped');
   });
 });
+
+describe('createImplementFlow — step-started liveness', () => {
+  let cleanupFns: Array<() => Promise<void>>;
+  beforeEach(() => {
+    cleanupFns = [];
+  });
+  afterEach(async () => {
+    for (const fn of cleanupFns) await fn();
+  });
+
+  // Fences the wiring, not the primitives: a hand-written element on the serial path that drops
+  // `onStart` leaves its leaves without a start, and this run surfaces it by name.
+  it('every leaf that ran had a matching step-started, with loop iterations stamped on both', async () => {
+    const f = await buildFixture(2);
+    cleanupFns.push(f.cleanup);
+    const sprintRepo = inMemorySprintRepo(f.sprint);
+    const taskRepo = inMemoryTaskRepo(f.tasks);
+
+    let evalCalls = 0;
+    const provider = createFakeAiProvider({
+      signals: {
+        implement: [taskVerified('tests pass')],
+        // Task 1 fails round 1, so its gen-eval loop runs a second iteration.
+        evaluate: () => {
+          evalCalls += 1;
+          return evalCalls === 1 ? [evaluationFailed('missing edge case')] : [evaluationPassed()];
+        },
+      },
+    });
+
+    const flow = createImplementFlow(
+      buildDeps(sprintRepo.repo, inMemoryExecutionRepo(f.execution).repo, taskRepo.repo, provider, f.dir),
+      {
+        sprintId: f.sprint.id,
+        todoTasks: f.tasks,
+        repositories: FAKE_REPOSITORIES,
+        generatorProviderId: 'claude-code',
+        generatorModel: 'claude-opus-4-8',
+        evaluatorProviderId: 'claude-code',
+        evaluatorModel: 'claude-opus-4-8',
+        progressFile: absolutePath(f.progressFile),
+        sprintDir: absolutePath(f.dir),
+        memoryRoot: FAKE_MEMORY_ROOT,
+        projectId: FAKE_PROJECT_ID,
+        projectSlug: FAKE_PROJECT_SLUG,
+      }
+    );
+
+    const runner = createRunner({
+      id: 'r-impl-liveness',
+      element: flow,
+      initialCtx: { sprintId: f.sprint.id } satisfies ImplementCtx,
+    });
+    const key = (name: string, iterations: unknown): string => `${name} ${JSON.stringify(iterations ?? [])}`;
+    const open = new Map<string, number>();
+    const missingStart: string[] = [];
+    let starts = 0;
+    runner.subscribe((event) => {
+      if (event.type === 'step-started') {
+        starts += 1;
+        const k = key(event.step.elementName, event.step.iterations);
+        open.set(k, (open.get(k) ?? 0) + 1);
+        return;
+      }
+      if (event.type !== 'step') return;
+      // Skipped / pre-aborted entries are synthesised by composites and never get a start.
+      if (event.entry.status !== 'completed' && event.entry.status !== 'failed') return;
+      const k = key(event.entry.elementName, event.entry.iterations);
+      const count = open.get(k) ?? 0;
+      if (count === 0) missingStart.push(k);
+      else open.set(k, count - 1);
+    });
+
+    await runner.start();
+
+    expect(runner.status).toBe('completed');
+    expect(missingStart).toEqual([]);
+    expect([...open.values()].every((n) => n === 0)).toBe(true);
+    expect(starts).toBeGreaterThan(0);
+
+    const task1 = String(f.tasks[0]?.id);
+    const generatorRounds = runner.trace.filter((e) => e.elementName === `generator-${task1}`).map((e) => e.iterations);
+    expect(generatorRounds).toEqual([
+      [
+        { loop: `task-attempts-${task1}`, n: 1 },
+        { loop: `gen-eval-${task1}`, n: 1 },
+      ],
+      [
+        { loop: `task-attempts-${task1}`, n: 1 },
+        { loop: `gen-eval-${task1}`, n: 2 },
+      ],
+    ]);
+    expect(runner.trace.find((e) => e.elementName === 'load-sprint')?.iterations).toBeUndefined();
+  });
+});
