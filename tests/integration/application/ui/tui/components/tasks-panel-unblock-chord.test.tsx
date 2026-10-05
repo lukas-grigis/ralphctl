@@ -231,3 +231,64 @@ describe('TasksPanelHost — u from the Execute panel asks about a rejected diff
     expect(updated[0]?.quarantinedDiff?.nextAttempt).toBe('fresh');
   });
 });
+
+describe('TasksPanelHost — the rejected-diff notice names u only while u works', () => {
+  const renderHost = (isRunning: boolean): ReturnType<typeof renderView>['result'] => {
+    const sprint = makeActiveSprint();
+    const marked = markTaskBlocked(makeTodoTask({ name: 'Add retry' }), 'budget gone', 'own', {
+      blockCause: 'budget-exhausted',
+    });
+    if (!marked.ok) throw new Error(marked.error.message);
+    const task: Task = {
+      ...marked.value,
+      quarantinedDiff: { stashMessage: quarantineStashMessage(sprint.id, marked.value.id) },
+    };
+    const deps = {
+      sprintRepo: { findById: async () => Result.ok(sprint), list: async () => Result.ok([sprint]) },
+      taskRepo: { findBySprintId: async () => Result.ok([task]) },
+      projectRepo: { findById: async () => Result.ok(makeProject()) },
+      clock: () => IsoTimestamp.now(),
+      logger: noopLogger,
+    } as unknown as AppDeps;
+    const descriptor: SessionDescriptor = {
+      id: 'sess-1',
+      flowId: 'implement',
+      title: 'Sprint',
+      status: isRunning ? 'running' : 'completed',
+      startedAt: 0,
+      trace: [],
+      pinnedSprintId: sprint.id,
+    };
+    return renderView(
+      <TasksPanelHost
+        bucketed={{
+          tasks: [
+            { id: String(task.id), status: 'blocked', subSteps: [], evaluations: [], signals: [], genEvalRound: 0 },
+          ],
+          orphanSignals: [],
+        }}
+        descriptor={descriptor}
+        isRunning={isRunning}
+        maxSignalsPerTask={8}
+        maxTasks={10}
+        inputActive={true}
+        now={0}
+        taskState={[task]}
+      />,
+      { deps, initial: { id: 'sprints' } }
+    ).result;
+  };
+
+  it('drops the u clause during a live run, when u is disabled', async () => {
+    const result = renderHost(true);
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('rejected diff kept in git stash'));
+    expect(result.lastFrame()).not.toContain('u decides');
+    result.unmount();
+  });
+
+  it('names u once the run has settled', async () => {
+    const result = renderHost(false);
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('u decides what the next attempt does'));
+    result.unmount();
+  });
+});

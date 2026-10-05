@@ -100,12 +100,14 @@ const conflict = (): Result<GitRunResult, StorageError> => ok('CONFLICT (content
 const fakeGit = (over?: {
   foldConflict?: boolean;
   removeFails?: boolean;
+  listFails?: boolean;
 }): { runner: GitRunner; calls: string[][] } => {
   const calls: string[][] = [];
   const runner: GitRunner = {
     async run(_cwd, args) {
       calls.push([...args]);
       const [a, b] = args;
+      if (a === 'worktree' && b === 'list' && over?.listFails === true) return ok('', 128, 'fatal: index.lock');
       if (a === 'worktree' && b === 'remove') return over?.removeFails === true ? conflict() : ok();
       if (a === 'merge' && b === '--ff-only') return over?.foldConflict === true ? ok('not ff', 1) : ok();
       if (a === 'merge-base') return ok('a'.repeat(40));
@@ -760,6 +762,30 @@ describe('setupWorktree — defensive leaked-ref delete before add', () => {
     expect(firstDeleteIdx).toBeGreaterThanOrEqual(0);
     expect(addIdx).toBeGreaterThanOrEqual(0);
     expect(firstDeleteIdx).toBeLessThan(addIdx); // defensive delete precedes the add
+  });
+});
+
+describe('setupWorktree — an unreadable worktree list', () => {
+  it('fails the setup without touching any ref — a checked-out ref could otherwise be renamed away', async () => {
+    const task = makeTodoTask();
+    const done: Task = { ...makeDoneTask(), id: task.id };
+    const { runner, calls } = fakeGit({ listFails: true });
+    const wt = worktreePathFor(absolutePath('/data/sprints/s1'), task.id);
+
+    const branch = buildWorktreeBranch(
+      makeBranchDeps(runner, stubBus([])),
+      repo,
+      task,
+      wt,
+      'ralphctl/s1/wt-x',
+      PROGRESS,
+      settlingSubchain(task.id, done)
+    );
+    const { status } = await runBranch(branch, baseCtx([task]));
+
+    expect(status).toBe('failed');
+    expect(calls.filter((c) => c[0] === 'branch')).toStrictEqual([]);
+    expect(calls.some((c) => c[0] === 'worktree' && c[1] === 'add')).toBe(false);
   });
 });
 

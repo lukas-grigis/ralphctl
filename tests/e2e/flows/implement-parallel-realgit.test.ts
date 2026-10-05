@@ -99,6 +99,11 @@ import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import { noopSkillsAdapter, emptySkillSource } from '@tests/fixtures/skills-fakes.ts';
 import { noopAgentDefinitionAdapter } from '@tests/fixtures/agent-definition-fakes.ts';
 import { createFakeProject, type FakeProject } from '@tests/helpers/fake-project.ts';
+import type { TraceEntry } from '@src/application/chain/trace.ts';
+
+// A failed run names each entry's error, so a one-off load flake shows which git call broke.
+const describeTrace = (trace: readonly TraceEntry[]): string =>
+  trace.map((e) => `${e.elementName}:${e.status}${e.error !== undefined ? ` — ${e.error.message}` : ''}`).join('\n');
 
 // ─── skip on Windows — worktrees are posix-heavy ────────────────────────────
 if (process.platform === 'win32') {
@@ -640,7 +645,7 @@ function runTests(): void {
 
       // ── Assert runner completed ────────────────────────────────────────
       if (runner.status !== 'completed') {
-        const trace = runner.trace.map((e) => `${e.elementName}:${e.status}`).join('\n');
+        const trace = describeTrace(runner.trace);
         throw new Error(`Runner status is '${runner.status}' — expected 'completed'.\nTrace:\n${trace}`);
       }
       expect(runner.status).toBe('completed');
@@ -1079,7 +1084,7 @@ function runTests(): void {
 
       // Runner must complete (never error/abort) — a fold conflict is a domain block, not a chain failure.
       if (runner.status !== 'completed') {
-        const trace = runner.trace.map((e) => `${e.elementName}:${e.status}`).join('\n');
+        const trace = describeTrace(runner.trace);
         throw new Error(`Runner status is '${runner.status}' — expected 'completed'.\nTrace:\n${trace}`);
       }
       expect(runner.status).toBe('completed');
@@ -1320,7 +1325,7 @@ function runTests(): void {
 
       await runner.start();
       if (runner.status !== 'completed') {
-        const trace = runner.trace.map((e) => `${e.elementName}:${e.status}`).join('\n');
+        const trace = describeTrace(runner.trace);
         throw new Error(`Runner status is '${runner.status}' — expected 'completed'.\nTrace:\n${trace}`);
       }
 
@@ -1409,7 +1414,7 @@ function runTests(): void {
       await Promise.all(relaunchRunners.map((r) => r.start()));
       for (const r of relaunchRunners) {
         if (r.status !== 'completed') {
-          const trace = r.trace.map((e) => `${e.elementName}:${e.status}`).join('\n');
+          const trace = describeTrace(r.trace);
           throw new Error(
             `Relaunch runner '${r.id}' status is '${r.status}' — expected 'completed'.\nTrace:\n${trace}`
           );

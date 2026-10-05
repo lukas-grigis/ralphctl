@@ -10,7 +10,11 @@ import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.t
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import type { PriorWorkNotRestoredReason, PriorWorkOutcome } from '@src/domain/entity/attempt.ts';
 import type { InProgressTask } from '@src/domain/entity/task.ts';
-import { clearStaleQuarantinedDiff, stampPriorWorkOutcome } from '@src/domain/entity/task-prior-work.ts';
+import {
+  clearStaleQuarantinedDiff,
+  repeatsPreviousPriorWork,
+  stampPriorWorkOutcome,
+} from '@src/domain/entity/task-prior-work.ts';
 import type { UpdateTask } from '@src/domain/repository/task/update-task.ts';
 import type { AppendFile } from '@src/business/io/append-file.ts';
 import { renderPriorWorkBreadcrumb } from '@src/business/sprint/journal-structure.ts';
@@ -395,7 +399,9 @@ const persistTask = async (env: RestoreEnv, task: InProgressTask): Promise<void>
   }
 };
 
+/** Journaled once per run of identical outcomes: each line is pinned, so per-retry repeats would pile up. */
 const appendBreadcrumb = async (env: RestoreEnv, task: InProgressTask, outcome: PriorWorkOutcome): Promise<void> => {
+  if (repeatsPreviousPriorWork(task, outcome)) return;
   const line = renderPriorWorkBreadcrumb(task.name, task.attempts.length, outcome);
   const appended = await env.deps.journalMutex.run(() => env.deps.appendFile(env.opts.progressFile, line));
   if (!appended.ok) {

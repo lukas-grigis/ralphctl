@@ -94,10 +94,13 @@ const blockedReasonsByTaskId = (taskState: readonly Task[]): ReadonlyMap<string,
 };
 
 /** `taskId → rejected-diff notice` for tasks with something to say about it. */
-const priorWorkByTaskId = (taskState: readonly Task[]): ReadonlyMap<string, PriorWorkNotice> | undefined => {
+const priorWorkByTaskId = (
+  taskState: readonly Task[],
+  isRunning: boolean
+): ReadonlyMap<string, PriorWorkNotice> | undefined => {
   const byId = new Map<string, PriorWorkNotice>();
   for (const t of taskState) {
-    const notice = priorWorkNotice(t, 'execute');
+    const notice = priorWorkNotice(t, 'execute', { unblockKey: !isRunning });
     if (notice !== undefined) byId.set(String(t.id), notice);
   }
   return byId.size > 0 ? byId : undefined;
@@ -301,8 +304,8 @@ const TasksPanelHostImpl = ({
   const sprintId = descriptor.pinnedSprintId;
   const { blockedTaskIds, onUnblock } = useUnblockAffordance({ isRunning, blockedReasonById, taskState, sprintId });
   const priorWorkById = useMemo(
-    () => (taskState !== undefined ? priorWorkByTaskId(taskState) : undefined),
-    [taskState]
+    () => (taskState !== undefined ? priorWorkByTaskId(taskState, isRunning) : undefined),
+    [taskState, isRunning]
   );
   const warningSummaryById = useMemo(
     () => (taskState !== undefined ? warningSummariesByTaskId(taskState) : undefined),

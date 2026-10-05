@@ -137,6 +137,20 @@ export const stampPriorWorkOutcome = (
   return Result.ok({ ...stamped, quarantinedDiff: { stashMessage: o.stashMessage } });
 };
 
+const reasonOf = (o: PriorWorkOutcome): PriorWorkNotRestoredReason | undefined =>
+  o.kind === 'not-restored' ? o.reason : undefined;
+
+/**
+ * Whether the attempt before the running one already recorded this outcome for the same stash key —
+ * the journal then has its line, and every same-run retry would only repeat it. Dirty counts may differ.
+ */
+export const repeatsPreviousPriorWork = (task: Task, o: PriorWorkOutcome): boolean => {
+  const prev = task.attempts.at(-2)?.priorWork;
+  return (
+    prev !== undefined && prev.kind === o.kind && prev.stashMessage === o.stashMessage && reasonOf(prev) === reasonOf(o)
+  );
+};
+
 /** Why a quarantined diff stayed in the stash, in the words the journal and the task card share. */
 export const describeNotRestored = (reason: PriorWorkNotRestoredReason, uncommittedPaths?: number): string => {
   switch (reason) {
@@ -165,14 +179,18 @@ export const latestRetiredCritique = (task: Task): string | undefined => {
 };
 
 /**
- * Context for a restored draft that is still uncommitted: walks the live attempts newest → oldest,
- * stops at the first committed one (the draft is no longer the tree's uncommitted state), and answers
- * on a `restored` stamp — the attempt that just popped, or an interrupted earlier one on a cold restart.
+ * Context for a restored draft that is still uncommitted: walks the live attempts newest → oldest and
+ * answers on a `restored` stamp — the attempt that just popped, or an interrupted earlier one on a cold
+ * restart. Only `running` and `aborted` attempts leave the tree as they found it; any other settled
+ * attempt committed the draft, stashed it for a retry, or quarantined it on a block, so the walk stops.
+ * A blocked task's draft was quarantined whatever its last attempt's status.
  */
 export const restoredWorkContext = (task: Task): RestoredWorkContext | undefined => {
+  if (task.status === 'blocked') return undefined;
   for (let i = task.attempts.length - 1; i >= 0; i--) {
     const att = task.attempts[i];
     if (att === undefined || att.commitSha !== undefined) return undefined;
+    if (att.status !== 'running' && att.status !== 'aborted') return undefined;
     if (att.priorWork?.kind === 'restored') {
       const { stat } = att.priorWork;
       const critique = latestRetiredCritique(task);

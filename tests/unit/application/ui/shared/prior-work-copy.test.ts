@@ -36,6 +36,12 @@ describe('priorWorkNotice', () => {
     expect(priorWorkNotice(t, 'sprint-detail')?.text).toContain('u unblocks and decides what the next attempt does');
   });
 
+  it('blocked: no u clause while u is unavailable (a run is live)', () => {
+    expect(priorWorkNotice(blocked(fact()), 'execute', { unblockKey: false })?.text).toBe(
+      'rejected diff kept in git stash · 5 files +142 -38'
+    );
+  });
+
   it('todo: fresh / continue / legacy', () => {
     expect(priorWorkNotice(todo(fact({ nextAttempt: 'fresh' })))?.text).toBe(
       'next attempt starts fresh · rejected diff stays in git stash (5 files +142 -38)'

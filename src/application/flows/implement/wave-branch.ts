@@ -1,4 +1,5 @@
 import { Result } from '@src/domain/result.ts';
+import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import type { Task } from '@src/domain/entity/task.ts';
 import { markTaskBlocked } from '@src/domain/entity/task-lifecycle.ts';
 import type { TaskId } from '@src/domain/value/id/task-id.ts';
@@ -525,17 +526,23 @@ const setupWorktree = async (
   await gitWorktreePrune(gitRunner, repoRoot);
   // Clear a ref an earlier run left (teardown keeps it on a block or an unfinished fold; a crash can
   // leak it) — else `worktree add -b <same-ref>` fails with 'branch already exists'. A ref still
-  // checked out in a worktree is left for `resolveStrandedWorktree` to adopt or block on.
+  // checked out in a worktree is left for `resolveStrandedWorktree` to adopt or block on. An
+  // unreadable list fails the setup: `branch -m` renames a checked-out ref without complaint.
   const listed = await gitWorktreeList(gitRunner, repoRoot);
-  const checkedOut = new Set(
-    (listed.ok ? listed.value : []).flatMap((e) => (e.branch !== undefined ? [e.branch] : []))
-  );
-  const cleared = await settleStaleWorktreeRefs(
-    deps,
-    staleRefTarget(ctx, target),
-    [branchRef, legacyGitWorktreeRef(String(ctx.sprintId), String(taskId))],
-    checkedOut
-  );
+  const cleared = listed.ok
+    ? await settleStaleWorktreeRefs(
+        deps,
+        staleRefTarget(ctx, target),
+        [branchRef, legacyGitWorktreeRef(String(ctx.sprintId), String(taskId))],
+        new Set(listed.value.flatMap((e) => (e.branch !== undefined ? [e.branch] : [])))
+      )
+    : Result.error(
+        new StorageError({
+          subCode: 'io',
+          message: `could not list worktrees, so leftover refs were left alone — relaunch: ${listed.error.message}`,
+          cause: listed.error,
+        })
+      );
   const added = cleared.ok ? await gitWorktreeAdd(gitRunner, repoRoot, worktreePath, branchRef) : cleared;
   const durationMs = performance.now() - start;
   if (!added.ok) {

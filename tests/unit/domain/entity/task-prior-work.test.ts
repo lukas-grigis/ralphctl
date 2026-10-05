@@ -240,6 +240,29 @@ describe('restoredWorkContext', () => {
     expect(restoredWorkContext(resumed)?.critique).toBe('rejected: retries never back off');
   });
 
+  it('stops at a settled retry — the retry stash took the restored draft out of the tree', () => {
+    const retried = unwrap(failCurrentAttempt(revivedAndRestored(), FIXED_LATER, 'failed'));
+    expect(restoredWorkContext(retried)).toBeUndefined();
+    const next = unwrap(startNextAttempt(retried, FIXED_LATEST, 'session-3'));
+    expect(next.attempts).toHaveLength(2);
+    expect(restoredWorkContext(next)).toBeUndefined();
+  });
+
+  it('is undefined on a blocked task — the block quarantined the draft again', () => {
+    const selfBlocked = unwrap(
+      failCurrentAttempt(revivedAndRestored(), FIXED_LATER, 'aborted', { abortCause: 'self-blocked' })
+    );
+    expect(restoredWorkContext(unwrap(markTaskBlocked(selfBlocked, 'needs an answer', 'own')))).toBeUndefined();
+  });
+
+  it('walks past an attempt a watchdog kill cut short — nothing stashed its tree', () => {
+    const killed = unwrap(
+      failCurrentAttempt(revivedAndRestored(), FIXED_LATER, 'aborted', { abortCause: 'watchdog-killed' })
+    );
+    const next = unwrap(startNextAttempt(killed, FIXED_LATEST, 'session-3'));
+    expect(restoredWorkContext(next)?.stat).toStrictEqual(STAT);
+  });
+
   it('stops at the first committed attempt — the draft is no longer uncommitted', () => {
     const committed = unwrap(recordRunningAttemptCommit(revivedAndRestored(), commitSha('a'.repeat(40))));
     expect(restoredWorkContext(committed)).toBeUndefined();

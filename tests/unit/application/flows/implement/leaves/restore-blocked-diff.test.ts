@@ -16,8 +16,10 @@ import {
   type ReproductionArtifact,
 } from '@src/application/flows/implement/leaves/reproduce.ts';
 import { absolutePath, FIXED_NOW, makeInProgressTaskWithRunningAttempt, makeTodoTask } from '@tests/fixtures/domain.ts';
-import { decidePriorWork } from '@src/domain/entity/task-prior-work.ts';
+import { decidePriorWork, stampPriorWorkOutcome } from '@src/domain/entity/task-prior-work.ts';
 import { startNextAttempt } from '@src/domain/entity/task-attempts.ts';
+import type { PriorWorkOutcome } from '@src/domain/entity/attempt.ts';
+import { failCurrentAttempt } from '@src/domain/entity/task-settle.ts';
 import type { InProgressTask, Task } from '@src/domain/entity/task.ts';
 import { createFoldQueue } from '@src/application/flows/implement/wave-branch.ts';
 import { makeTmpRoot } from '@tests/fixtures/tmp-root.ts';
@@ -26,6 +28,11 @@ import {
   restoreBeforeFirstTurn,
   restoreBlockedDiffLeaf,
 } from '@src/application/flows/implement/leaves/restore-blocked-diff.ts';
+
+const unwrapOk = <T, E>(r: Result<T, E>): T => {
+  if (!r.ok) throw new Error(`unwrap failed: ${String(r.error)}`);
+  return r.value as T;
+};
 
 const SPRINT_ID = 'sprint-x' as SprintId;
 // A legacy relaunch: the running task carries no recorded decision, so a listed stash is popped.
@@ -702,6 +709,51 @@ describe('restoreBlockedDiffLeaf — the operator decision and its recorded outc
     const { saved } = await runLeaf(git, decided('continue'), { appendFails: true });
 
     expect(priorWorkOf(saved[0])).toMatchObject({ kind: 'restored' });
+  });
+
+  /** The decided task on its second attempt, the first settled as a retry carrying `first`. */
+  const secondAttemptAfter = (choice: 'continue' | 'fresh', first: PriorWorkOutcome): InProgressTask => {
+    const one = unwrapOk(stampPriorWorkOutcome(decided(choice), first));
+    const settled = unwrapOk(failCurrentAttempt(one, FIXED_NOW, 'failed')) as InProgressTask;
+    return unwrapOk(startNextAttempt(settled, FIXED_NOW, 'session-2'));
+  };
+
+  it('a repeated fresh start is stamped on every attempt but journaled only once', async () => {
+    const task = secondAttemptAfter('fresh', { kind: 'kept-by-choice', stashMessage: message });
+
+    const { after, saved, journal } = await runLeaf(fakeGit({ stashed: listed }), task);
+
+    expect(priorWorkOf(saved[0])).toStrictEqual({ kind: 'kept-by-choice', stashMessage: message });
+    expect(priorWorkOf(after.currentTask)).toMatchObject({ kind: 'kept-by-choice' });
+    expect(journal).toStrictEqual([]);
+  });
+
+  it('a repeated not-restored reason is not journaled again, even when the dirty count moved', async () => {
+    const task = secondAttemptAfter('continue', {
+      kind: 'not-restored',
+      stashMessage: message,
+      reason: 'dirty-tree',
+      uncommittedPaths: 1,
+    });
+
+    const { saved, journal } = await runLeaf(fakeGit({ stashed: listed, dirtyBefore: [' M a.ts', '?? b.ts'] }), task);
+
+    expect(priorWorkOf(saved.at(-1))).toMatchObject({ reason: 'dirty-tree', uncommittedPaths: 2 });
+    expect(journal).toStrictEqual([]);
+  });
+
+  it('an outcome that differs from the previous attempt is journaled', async () => {
+    const task = secondAttemptAfter('continue', {
+      kind: 'not-restored',
+      stashMessage: message,
+      reason: 'dirty-tree',
+      uncommittedPaths: 1,
+    });
+
+    const { journal } = await runLeaf(fakeGit({ stashed: listed }), task);
+
+    expect(journal).toHaveLength(1);
+    expect(journal[0]).toContain('quarantined diff restored into attempt 2');
   });
 
   it('fails the trace entry when ctx.currentTask is not the running task — a ctx-shape bug', async () => {

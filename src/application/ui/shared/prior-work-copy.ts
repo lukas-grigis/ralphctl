@@ -16,6 +16,11 @@ export interface PriorWorkNotice {
 
 export type PriorWorkSurface = 'execute' | 'sprint-detail';
 
+export interface PriorWorkNoticeOpts {
+  /** Whether `u` unblocks on this surface right now; Execute disables it while a run is live. */
+  readonly unblockKey?: boolean;
+}
+
 const statSuffix = (stat: DiffStat | undefined, sep: string): string =>
   stat === undefined ? '' : `${sep}${formatDiffStat(stat)}`;
 
@@ -59,16 +64,17 @@ const attemptNotice = (outcome: PriorWorkOutcome): PriorWorkNotice => {
   }
 };
 
-const taskNotice = (task: Task, surface: PriorWorkSurface): PriorWorkNotice | undefined => {
+const taskNotice = (task: Task, surface: PriorWorkSurface, unblockKey: boolean): PriorWorkNotice | undefined => {
   const fact = task.quarantinedDiff;
   if (fact === undefined) return undefined;
   const dot = glyphs.bullet;
   if (task.status === 'blocked') {
     const u = surface === 'sprint-detail' ? 'u unblocks and decides' : 'u decides';
+    const hint = unblockKey ? ` ${dot} ${u} what the next attempt does` : '';
     return {
       tone: 'dim',
       icon: glyphs.infoGlyph,
-      text: `rejected diff kept in git stash${statSuffix(fact.stat, ` ${dot} `)} ${dot} ${u} what the next attempt does`,
+      text: `rejected diff kept in git stash${statSuffix(fact.stat, ` ${dot} `)}${hint}`,
     };
   }
   if (task.status !== 'todo') return undefined;
@@ -95,8 +101,12 @@ const taskNotice = (task: Task, surface: PriorWorkSurface): PriorWorkNotice | un
 };
 
 /** The card notice for this task, or `undefined` when there is nothing to say. A current-attempt stamp wins over the task fact. */
-export const priorWorkNotice = (task: Task, surface: PriorWorkSurface = 'execute'): PriorWorkNotice | undefined => {
+export const priorWorkNotice = (
+  task: Task,
+  surface: PriorWorkSurface = 'execute',
+  opts: PriorWorkNoticeOpts = {}
+): PriorWorkNotice | undefined => {
   const current = task.status === 'in_progress' ? task.attempts[task.attempts.length - 1] : undefined;
   if (current?.priorWork !== undefined) return attemptNotice(current.priorWork);
-  return taskNotice(task, surface);
+  return taskNotice(task, surface, opts.unblockKey ?? true);
 };
