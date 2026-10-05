@@ -768,6 +768,11 @@ describe('createImplementFlow — gen-eval loop', () => {
       [String(f.tasks[0]!.id), 1, 1, 'failed'],
       [String(f.tasks[0]!.id), 1, 2, 'passed'],
     ]);
+    // Each names its run and the attempt / round loop iterations the real loops ran it in.
+    expect(verdicts.map((v) => [v.chainSessionId, v.iteration])).toEqual([
+      ['r-impl-retry-pass', { attempt: 1, round: 1 }],
+      ['r-impl-retry-pass', { attempt: 1, round: 2 }],
+    ]);
   });
 
   it('exhausted budget: every turn fails — task → done with budget-exhausted warning, sprint → review', async () => {

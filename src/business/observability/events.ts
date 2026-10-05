@@ -11,6 +11,8 @@ export interface ChainStartedEvent {
   readonly type: 'chain-started';
   readonly chainId: string;
   readonly flowId: string;
+  /** Set for a nested runner (a parallel task branch, a prologue / epilogue segment): the run it belongs to. */
+  readonly parentChainId?: string;
   readonly at: IsoTimestamp;
 }
 
@@ -80,6 +82,13 @@ export interface TaskRoundEvaluatedEvent {
   readonly failedDimensions: readonly string[];
   /** First sentence of the critique, at most 120 characters. */
   readonly headline?: string;
+  /** The run (root chain session) that evaluated the round. */
+  readonly chainSessionId?: string;
+  /**
+   * The attempt-loop and round-loop iterations within that run (1-indexed) — what the step display
+   * numbers its rows by, unlike {@link attemptN} / {@link roundN}, which count across runs.
+   */
+  readonly iteration?: { readonly attempt: number; readonly round: number };
   readonly at: IsoTimestamp;
 }
 

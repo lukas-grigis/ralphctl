@@ -100,7 +100,7 @@ export const buildSetupFailureError = (
     entity: 'sprint',
     currentState: 'pre-implement',
     attemptedAction: 'setup-script',
-    // The rail row already prefixes `setup-script · <repo>`; the message stays
+    // The step row already reads `Setup script · <repo>`; the message stays
     // minimal so the operator's eye is not retracing the same name. The full
     // command + path are in the banner / log / execution.json audit row.
     message:

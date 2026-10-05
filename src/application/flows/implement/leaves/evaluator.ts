@@ -13,6 +13,8 @@ import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import type { EvaluationSignal } from '@src/domain/signal.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
+import { currentLoopIterations } from '@src/application/chain/loop-scope.ts';
+import { rootSessionId } from '@src/application/session/session.ts';
 import { buildEvaluatePrompt } from '@src/integration/ai/prompts/evaluate/definition.ts';
 import { buildEvaluateContinuationPrompt } from '@src/integration/ai/prompts/evaluate-continuation/definition.ts';
 import type { BuildPromptError } from '@src/integration/ai/prompts/_engine/build-prompt.ts';
@@ -389,6 +391,11 @@ const announceRoundVerdict = (
     .filter((d) => !d.passed && d.applicable !== false)
     .map((d) => d.dimension);
   const headline = critiqueHeadline(out.turnRecord?.critique ?? evaluation?.critique);
+  const chainSessionId = rootSessionId();
+  // The round loop is the innermost loop around this leaf, the attempt loop the next one out.
+  const loops = currentLoopIterations();
+  const round = loops[loops.length - 1];
+  const attempt = loops[loops.length - 2];
   deps.eventBus.publish({
     type: 'task-round-evaluated',
     taskId: String(input.task.id),
@@ -397,6 +404,8 @@ const announceRoundVerdict = (
     verdict,
     failedDimensions,
     ...(headline !== undefined ? { headline } : {}),
+    ...(chainSessionId !== undefined ? { chainSessionId } : {}),
+    ...(attempt !== undefined && round !== undefined ? { iteration: { attempt: attempt.n, round: round.n } } : {}),
     at: deps.clock(),
   });
 };

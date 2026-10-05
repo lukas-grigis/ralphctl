@@ -6,6 +6,7 @@ import { leaf } from '@src/application/chain/build/leaf.ts';
 import { loop } from '@src/application/chain/build/loop.ts';
 import { sequential } from '@src/application/chain/build/sequential.ts';
 import type { StepStart, TraceEntry } from '@src/application/chain/trace.ts';
+import { currentLoopIterations } from '@src/application/chain/loop-scope.ts';
 
 interface Ctx {
   readonly count: number;
@@ -254,5 +255,32 @@ describe('loop', () => {
 
     const explicit = loop<Ctx>('explicit', increment('tick'), { maxIterations: 3, displayMaxIterations: 9 });
     expect(explicit.maxIterations).toBe(3);
+  });
+});
+
+describe('loop — current iterations in scope', () => {
+  it('exposes the enclosing iterations, outer-first, to the work a body runs', async () => {
+    const seen: string[] = [];
+    const probe = leaf<Ctx, Ctx, Ctx>('probe', {
+      useCase: {
+        async execute(input) {
+          await Promise.resolve();
+          seen.push(
+            currentLoopIterations()
+              .map((step) => `${step.loop}#${String(step.n)}`)
+              .join(' > ')
+          );
+          return Result.ok(input);
+        },
+      },
+      input: (c) => c,
+      output: (_c, o) => o,
+    });
+    const nested = loop<Ctx>('outer', loop<Ctx>('inner', probe, { maxIterations: 2 }), { maxIterations: 2 });
+
+    await nested.execute({ count: 0, trail: [] });
+
+    expect(seen).toEqual(['outer#1 > inner#1', 'outer#1 > inner#2', 'outer#2 > inner#1', 'outer#2 > inner#2']);
+    expect(currentLoopIterations()).toEqual([]);
   });
 });

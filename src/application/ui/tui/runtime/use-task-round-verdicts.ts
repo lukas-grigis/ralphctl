@@ -1,8 +1,10 @@
 /**
  * Per-round evaluator verdicts — folds `task-round-evaluated` events into
- * `taskId → attemptN → roundN → verdict`. The event carries `taskId`, so attribution is exact and
- * never goes through the bucketed signal stream. Retention mirrors `use-task-round-tracker.ts`:
- * one entry per task, LRU-capped at {@link TASK_VERDICT_CAP}, coalesced into one commit per window.
+ * `(run, taskId) → attempt iteration → round iteration → verdict`. The event names its run and the
+ * loop iterations it was evaluated in, so attribution is exact: no windowing over the bucketed
+ * signal stream, and no guessing which run's attempt a row means. Retention mirrors
+ * `use-task-round-tracker.ts`: LRU-capped at {@link TASK_VERDICT_CAP} entries, coalesced into one
+ * commit per window.
  */
 
 import type { AppEvent, TaskRoundEvaluatedEvent } from '@src/business/observability/events.ts';
@@ -12,40 +14,41 @@ import type { RoundVerdict, RoundVerdictLookup } from '@src/application/ui/tui/r
 
 export const TASK_VERDICT_CAP = 500;
 
-/** attemptN → roundN → verdict, for one task. */
+/** attempt iteration → round iteration → verdict, for one task in one run. */
 export type TaskVerdicts = ReadonlyMap<number, ReadonlyMap<number, RoundVerdict>>;
 
-const isRoundEvaluated = (e: AppEvent): e is TaskRoundEvaluatedEvent => e.type === 'task-round-evaluated';
-const keyOfVerdict = (e: TaskRoundEvaluatedEvent): string => e.taskId;
+type AttributedEvent = TaskRoundEvaluatedEvent & {
+  readonly chainSessionId: string;
+  readonly iteration: NonNullable<TaskRoundEvaluatedEvent['iteration']>;
+};
+
+// An event that names no run or iteration cannot be placed on a row.
+const isAttributedVerdict = (e: AppEvent): e is AttributedEvent =>
+  e.type === 'task-round-evaluated' && e.chainSessionId !== undefined && e.iteration !== undefined;
+
+/** Map key for one task within one run. */
+export const runTaskKey = (sessionId: string, taskId: string): string => `${sessionId}\u0000${taskId}`;
 
 /** @public */
 export const foldRoundVerdict = (existing: TaskVerdicts | undefined, e: TaskRoundEvaluatedEvent): TaskVerdicts => {
+  if (e.iteration === undefined) return existing ?? new Map();
+  const { attempt, round } = e.iteration;
   const attempts = new Map(existing ?? []);
-  const rounds = new Map(attempts.get(e.attemptN) ?? []);
-  rounds.set(e.roundN, {
+  const rounds = new Map(attempts.get(attempt) ?? []);
+  rounds.set(round, {
     status: e.verdict,
     dimensions: e.failedDimensions,
     ...(e.headline !== undefined ? { headline: e.headline } : {}),
   });
-  attempts.set(e.attemptN, rounds);
+  attempts.set(attempt, rounds);
   return attempts;
 };
 
-/**
- * Lookup for `projectFlowProgress`. `roundN` is the round's position within the attempt (the loop
- * iteration) while events carry the on-disk global round index, so the n-th round of an attempt
- * is its n-th smallest recorded `roundN`. The attempt matches by number, else by position.
- */
+/** Lookup for `projectFlowProgress` over one run: the query's numbers are that run's loop iterations. */
 export const roundVerdictLookup =
-  (byTask: ReadonlyMap<string, TaskVerdicts>): RoundVerdictLookup =>
-  ({ taskId, attemptN, roundN }) => {
-    const attempts = byTask.get(taskId);
-    if (attempts === undefined) return undefined;
-    const attempt = attempts.get(attemptN) ?? [...attempts.entries()].sort(([a], [b]) => a - b)[attemptN - 1]?.[1];
-    if (attempt === undefined) return undefined;
-    const key = [...attempt.keys()].sort((a, b) => a - b)[roundN - 1];
-    return key === undefined ? undefined : attempt.get(key);
-  };
+  (byRunTask: ReadonlyMap<string, TaskVerdicts>, sessionId: string): RoundVerdictLookup =>
+  ({ taskId, attemptN, roundN }) =>
+    byRunTask.get(runTaskKey(sessionId, taskId))?.get(attemptN)?.get(roundN);
 
 /** @public */
 export interface UseTaskRoundVerdictsOptions {
@@ -57,10 +60,10 @@ export const useTaskRoundVerdicts = (
   bus: EventBus,
   opts: UseTaskRoundVerdictsOptions = {}
 ): ReadonlyMap<string, TaskVerdicts> =>
-  useCoalescedMap<TaskRoundEvaluatedEvent, TaskVerdicts>(bus, {
+  useCoalescedMap<AttributedEvent, TaskVerdicts>(bus, {
     cap: TASK_VERDICT_CAP,
     ...(opts.flushMs !== undefined ? { flushMs: opts.flushMs } : {}),
-    accept: isRoundEvaluated,
-    keyOf: keyOfVerdict,
+    accept: isAttributedVerdict,
+    keyOf: (e) => runTaskKey(e.chainSessionId, e.taskId),
     fold: foldRoundVerdict,
   });

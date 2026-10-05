@@ -27,7 +27,11 @@ export const useFlowProgress = ({ descriptor, awaiting, verdicts }: UseFlowProgr
   return useMemo(
     () => {
       if (descriptor === undefined || planTree === undefined) return undefined;
-      return flowProgressOf(descriptor, awaiting, verdicts === undefined ? undefined : roundVerdictLookup(verdicts));
+      return flowProgressOf(
+        descriptor,
+        awaiting,
+        verdicts === undefined ? undefined : roundVerdictLookup(verdicts, descriptor.id)
+      );
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps -- descriptor mutates in place; the markers below are its change signal
     [planTree, liveVersion, traceLength, lastEntry, status, awaiting, verdicts]

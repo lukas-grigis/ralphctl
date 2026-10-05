@@ -89,13 +89,14 @@ leaf<TCtx, UInput, UOutput>(name, {
 });
 ```
 
-An optional third argument `opts?: { label?: string }` attaches a display label to the resulting element and
-every `TraceEntry` it emits. `name` stays the canonical identifier; `label` is purely a UI hint. Omitting
-opts or omitting `label` within opts leaves the field absent — callers fall back to `name`:
+The config's optional `label` attaches a display label to the resulting element and every `TraceEntry` it
+emits; its optional `internal` marks a bookkeeping step the step display hides. `name` stays the canonical
+identifier; `label` is purely a UI hint. Omitting `label` leaves the field absent — callers fall back to
+`name`:
 
 ```ts
-leaf('preflight-task-1-/abs/path/my-repo', config, { label: 'preflight · my-repo' });
-// rail shows "preflight · my-repo"; trace correlation still uses the full name
+leaf('preflight-task-1-/abs/path/my-repo', { ...config, label: 'Check working tree · my-repo' });
+// the step display shows "Check working tree · my-repo"; trace correlation still uses the full name
 ```
 
 `input` projects ctx → use-case input. `output` merges use-case output → new ctx. Both projections may throw
@@ -230,6 +231,7 @@ interface TraceEntry {
   readonly durationMs: number;
   readonly error?: DomainError; // populated when status is 'failed' or 'aborted'
   readonly iterations?: readonly { loop: string; n: number }[]; // enclosing loops, outer-first; absent outside any loop
+  readonly forwardedFrom?: string; // id of the nested runner that recorded (and already published) it
 }
 
 type Trace = readonly TraceEntry[];
@@ -243,7 +245,15 @@ recorded. Synthetic entries (`skipped`, `aborted`) constructed without an origin
 
 `iterations` is stamped by `loop` as entries pass through it, outer-first, so an entry says which round of
 which loop produced it. Step display matches a trace entry to a plan node by `elementName` plus that vector;
-the entry's identity (and the step-order fences) stay on `elementName` alone.
+the entry's identity (and the step-order fences) stay on `elementName` alone. The same vector is readable
+from inside the running work through `currentLoopIterations()` (`loop-scope.ts`, an `AsyncLocalStorage` that
+`loop` enters per iteration), so an event a leaf publishes can name its exact iteration — the evaluator's
+`task-round-evaluated` carries its run id and attempt / round iterations this way.
+
+`forwardedFrom` marks an entry a nested runner recorded and a host re-emitted into its own trace (the
+parallel implement element forwards every task branch's steps and starts so the host trace carries each
+task). The nested runner's own bus bridge already published it, so the host's bridge skips it; a nested
+runner's `chain-started` names its host as `parentChainId`, which keeps it from reading as a run of its own.
 
 ### Progressive emission
 

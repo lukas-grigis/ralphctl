@@ -3,58 +3,78 @@ import type { TaskRoundEvaluatedEvent } from '@src/business/observability/events
 import {
   foldRoundVerdict,
   roundVerdictLookup,
+  runTaskKey,
   type TaskVerdicts,
 } from '@src/application/ui/tui/runtime/use-task-round-verdicts.ts';
 import { isoTimestamp } from '@tests/fixtures/domain.ts';
 
-const ev = (over: Partial<TaskRoundEvaluatedEvent>): TaskRoundEvaluatedEvent => ({
+const ev = (
+  over: Partial<TaskRoundEvaluatedEvent> & { iteration: NonNullable<TaskRoundEvaluatedEvent['iteration']> }
+): TaskRoundEvaluatedEvent => ({
   type: 'task-round-evaluated',
   taskId: 't1',
   attemptN: 1,
   roundN: 1,
   verdict: 'passed',
   failedDimensions: [],
+  chainSessionId: 'run-1',
   at: isoTimestamp('2026-05-09T10:00:00.000Z'),
   ...over,
 });
 
+const fold = (events: readonly TaskRoundEvaluatedEvent[]): Map<string, TaskVerdicts> => {
+  const byRunTask = new Map<string, TaskVerdicts>();
+  for (const e of events) {
+    const key = runTaskKey(e.chainSessionId!, e.taskId);
+    byRunTask.set(key, foldRoundVerdict(byRunTask.get(key), e));
+  }
+  return byRunTask;
+};
+
 describe('foldRoundVerdict', () => {
-  it('folds events by attempt and round without mutating the prior value', () => {
+  it('folds events by attempt and round iteration without mutating the prior value', () => {
     const first = foldRoundVerdict(
       undefined,
-      ev({ verdict: 'failed', failedDimensions: ['correctness'], headline: 'nope' })
+      ev({
+        iteration: { attempt: 1, round: 1 },
+        verdict: 'failed',
+        failedDimensions: ['correctness'],
+        headline: 'nope',
+      })
     );
-    const second = foldRoundVerdict(first, ev({ roundN: 2 }));
-    const third = foldRoundVerdict(second, ev({ attemptN: 2, roundN: 3, verdict: 'malformed' }));
+    const second = foldRoundVerdict(first, ev({ iteration: { attempt: 1, round: 2 } }));
+    const third = foldRoundVerdict(second, ev({ iteration: { attempt: 2, round: 1 }, verdict: 'malformed' }));
     expect(first.get(1)?.size).toBe(1);
     expect(second.get(1)?.get(1)).toEqual({ status: 'failed', dimensions: ['correctness'], headline: 'nope' });
     expect(second.get(1)?.get(2)).toEqual({ status: 'passed', dimensions: [] });
-    expect(third.get(2)?.get(3)?.status).toBe('malformed');
+    expect(third.get(2)?.get(1)?.status).toBe('malformed');
   });
 });
 
 describe('roundVerdictLookup', () => {
-  const byTask = new Map<string, TaskVerdicts>([
-    [
-      't1',
-      [
-        ev({ attemptN: 1, roundN: 4, verdict: 'failed' }),
-        ev({ attemptN: 1, roundN: 5 }),
-        ev({ attemptN: 2, roundN: 6, verdict: 'failed' }),
-      ].reduce<TaskVerdicts | undefined>((acc, e) => foldRoundVerdict(acc, e), undefined)!,
-    ],
-  ]);
-
-  it('maps the loop iteration within an attempt onto the nth recorded round, whatever the global index', () => {
-    const lookup = roundVerdictLookup(byTask);
-    expect(lookup({ taskId: 't1', attemptN: 1, roundN: 1 })?.status).toBe('failed');
-    expect(lookup({ taskId: 't1', attemptN: 1, roundN: 2 })?.status).toBe('passed');
-    expect(lookup({ taskId: 't1', attemptN: 2, roundN: 1 })?.status).toBe('failed');
+  it("keeps a run's verdicts off a later run of the same task", () => {
+    const byRunTask = fold([
+      ev({ chainSessionId: 'run-1', attemptN: 1, roundN: 1, iteration: { attempt: 1, round: 1 }, verdict: 'failed' }),
+      ev({ chainSessionId: 'run-1', attemptN: 2, roundN: 2, iteration: { attempt: 2, round: 1 }, verdict: 'failed' }),
+      ev({ chainSessionId: 'run-2', attemptN: 3, roundN: 3, iteration: { attempt: 1, round: 1 }, verdict: 'passed' }),
+    ]);
+    expect(roundVerdictLookup(byRunTask, 'run-2')({ taskId: 't1', attemptN: 1, roundN: 1 })?.status).toBe('passed');
+    expect(roundVerdictLookup(byRunTask, 'run-2')({ taskId: 't1', attemptN: 2, roundN: 1 })).toBeUndefined();
+    expect(roundVerdictLookup(byRunTask, 'run-1')({ taskId: 't1', attemptN: 2, roundN: 1 })?.status).toBe('failed');
   });
 
-  it('returns undefined for unknown tasks and rounds', () => {
-    const lookup = roundVerdictLookup(byTask);
+  it('matches the exact iteration when an earlier attempt or round recorded no verdict', () => {
+    const byRunTask = fold([ev({ attemptN: 5, roundN: 9, iteration: { attempt: 2, round: 2 }, verdict: 'failed' })]);
+    const lookup = roundVerdictLookup(byRunTask, 'run-1');
+    expect(lookup({ taskId: 't1', attemptN: 1, roundN: 1 })).toBeUndefined();
+    expect(lookup({ taskId: 't1', attemptN: 2, roundN: 1 })).toBeUndefined();
+    expect(lookup({ taskId: 't1', attemptN: 2, roundN: 2 })?.status).toBe('failed');
+  });
+
+  it('returns undefined for unknown tasks, runs and rounds', () => {
+    const lookup = roundVerdictLookup(fold([ev({ iteration: { attempt: 1, round: 1 } })]), 'run-1');
     expect(lookup({ taskId: 'zz', attemptN: 1, roundN: 1 })).toBeUndefined();
     expect(lookup({ taskId: 't1', attemptN: 1, roundN: 9 })).toBeUndefined();
+    expect(roundVerdictLookup(new Map(), 'run-1')({ taskId: 't1', attemptN: 1, roundN: 1 })).toBeUndefined();
   });
 });

@@ -13,6 +13,8 @@ import type { Element, ElementResult } from '@src/application/chain/element.ts';
 import type { WaveBranch } from '@src/application/chain/run/wave-scheduler.ts';
 import { sequential } from '@src/application/chain/build/sequential.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
+import { createRunner, type Runner } from '@src/application/chain/run/runner.ts';
+import { bridgeRunnerToEventBus } from '@src/application/observability/chain-runner-bridge.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import type { ImplementDeps } from '@src/application/flows/implement/deps.ts';
 import type { ImplementWavePlan } from '@src/application/flows/implement/flow.ts';
@@ -260,6 +262,49 @@ describe('createParallelImplementElement — step starts', () => {
     }
     expect(events.indexOf('completed:load')).toBeLessThan(events.indexOf('start:work-t1'));
     expect(events.indexOf('completed:work-t2')).toBeLessThan(events.indexOf('start:save'));
+  });
+});
+
+describe('createParallelImplementElement — event bus', () => {
+  it('publishes each branch step once, under the branch chain, though the host runner is bridged too', async () => {
+    const t1 = makeTodoTask({ name: 't1' });
+    const okLeaf = (name: string): Element<ImplementCtx> =>
+      leaf<ImplementCtx, void, void>(name, {
+        useCase: { execute: async () => Result.ok(undefined) },
+        input: () => undefined,
+        output: (ctx) => ctx,
+      });
+    const branchId = `task-${String(t1.id)}`;
+    const events: AppEvent[] = [];
+    const bus = stubBus(events);
+    const element = createParallelImplementElement(
+      plan(okLeaf('load'), okLeaf('save'), [[t1]]),
+      baseConfig(
+        {
+          buildWaves: () => [[{ id: branchId, element: sequential<ImplementCtx>('branch', [okLeaf('work')]) }]],
+        },
+        recordingLocker([]),
+        bus
+      )
+    );
+    const host = createRunner<ImplementCtx>({ id: 'host', element, initialCtx: ctxWith([t1]) });
+    bridgeRunnerToEventBus(host as Runner<unknown>, bus, { flowId: 'implement' });
+
+    await host.start();
+
+    const stepEvents = (name: string): string[] =>
+      events.flatMap((e) =>
+        (e.type === 'chain-step-started' || e.type === 'chain-step-completed') && e.elementName === name
+          ? [`${e.type}@${e.chainId}`]
+          : []
+      );
+    expect(stepEvents('work')).toEqual([`chain-step-started@${branchId}`, `chain-step-completed@${branchId}`]);
+    // The host trace still carries the branch step for the step display.
+    expect(host.trace.map((e) => e.elementName)).toContain('work');
+    // A branch is a nested run: its start names the host, so it never reads as a run of its own.
+    const started = events.filter((e) => e.type === 'chain-started');
+    expect(started.find((e) => e.chainId === branchId)).toMatchObject({ parentChainId: 'host' });
+    expect(started.find((e) => e.chainId === 'host')).not.toHaveProperty('parentChainId');
   });
 });
 

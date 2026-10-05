@@ -20,6 +20,8 @@ import { evaluatorLeaf } from '@src/application/flows/implement/leaves/evaluator
 import type { GeneratorLeafDeps } from '@src/application/flows/implement/leaves/generator.ts';
 import { generatorLeaf } from '@src/application/flows/implement/leaves/generator.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
+import { runWithSession } from '@src/application/session/session.ts';
+import { runInLoopIteration } from '@src/application/chain/loop-scope.ts';
 
 /** Clean-tree git stub — the post-spawn fingerprint call is inert in these contract tests. */
 const stubGitRunner = (): GitRunner => ({
@@ -224,6 +226,19 @@ describe('evaluatorLeaf — audit-[09] contract', () => {
           at: FIXED_NOW,
         },
       ]);
+    });
+
+    it('names the run and the attempt / round loop iterations it was evaluated in', async () => {
+      const { events, eventBus } = captureBus();
+      const fixture: SpawnFixture = { kind: 'ok', payload: { schemaVersion: 1, signals: [passedEvaluation] } };
+      const element = evaluatorLeaf(buildDeps(new Map([[signalsFilePath(), fixture]]), eventBus), task.id);
+      await runWithSession('run-1', () =>
+        runInLoopIteration({ loop: 'task-attempts', n: 2 }, () =>
+          runInLoopIteration({ loop: 'gen-eval', n: 3 }, () => element.execute(baseCtx(task)))
+        )
+      );
+      const [event] = events.filter((e): e is TaskRoundEvaluatedEvent => e.type === 'task-round-evaluated');
+      expect(event).toMatchObject({ chainSessionId: 'run-1', iteration: { attempt: 2, round: 3 } });
     });
 
     it('publishes a passed verdict with no failed dimensions', async () => {

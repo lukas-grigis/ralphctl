@@ -445,6 +445,22 @@ describe('projectFlowProgress', () => {
     expect(failed.workItems.get('b')?.status).toBe('failed');
   });
 
+  it('R14: a task fan-out row with its own non-task rows still locates the running task leaf', () => {
+    const plan = seq('implement', [
+      seq(
+        'tasks',
+        [
+          seq('task-a', [lf('gen-a', { label: 'Generate' })], { label: 'Task a', workItem: T('a') }),
+          lf('tally', { label: 'Tally' }),
+        ],
+        { label: 'Run tasks' }
+      ),
+    ]);
+    const p = project(plan, { trace: [ent('tally')], inFlight: [start('gen-a')] });
+    expect(labels(p.spine[0]!.children)).toEqual(['Tally']);
+    expect(p.currentStep).toEqual({ label: 'Generate', workItemId: 'a' });
+  });
+
   it('keeps hasTaskWorkItems false for flows without work items', () => {
     const p = project(seq('plan', [lf('a', { label: 'A' })]));
     expect(p.hasTaskWorkItems).toBe(false);

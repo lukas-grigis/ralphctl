@@ -363,13 +363,11 @@ const deepestActive = (
   const id = view.workItem?.id ?? workItemId;
   const inlineActive = view.inline?.find((v) => isActive(v.status));
   if (inlineActive !== undefined) return { label: inlineActive.label, ...(id !== undefined ? { workItemId: id } : {}) };
-  // A task fan-out row never expands: descend into the running task's own subtree.
+  // A task fan-out row never expands its tasks: descend into the running task's own subtree too.
   const kids =
-    view.children.length > 0
-      ? view.children
-      : view.progress !== undefined
-        ? [...workItems.values()].filter((w) => isActive(w.status))
-        : [];
+    view.progress !== undefined
+      ? [...view.children, ...[...workItems.values()].filter((w) => isActive(w.status))]
+      : view.children;
   const deeper = deepestActive(kids, workItems, id);
   if (deeper !== undefined) return deeper;
   return {

@@ -671,8 +671,14 @@ export const buildWorktreeBranch = (
 ): Element<ImplementCtx> => {
   // Display shape only, built on first read: each run builds its own subchain on the forked ctx.
   let shape: ReadonlyArray<Element<ImplementCtx>> | undefined;
-  const bodyShape = (): ReadonlyArray<Element<ImplementCtx>> =>
-    (shape ??= [buildSubchain({ ...repo, path: worktreePath }), foldStep(deps, repo.path, branchRef, task.id)]);
+  const bodyShape = (): ReadonlyArray<Element<ImplementCtx>> => {
+    if (shape !== undefined) return shape;
+    const subchain = buildSubchain({ ...repo, path: worktreePath });
+    // The fold shows as the task's last step, inside its work item rather than beside it.
+    const fold = foldStep(deps, repo.path, branchRef, task.id);
+    shape = [{ ...subchain, children: [...(subchain.children ?? []), fold] }];
+    return shape;
+  };
   // A FACTORY, not a built element: `withWorktree` calls this once per execution so each run gets
   // its own `onSettled` side-channel. `onSettled` fires with the subchain's OWN settled ctx right
   // AFTER the subchain returns but BEFORE the fold step runs — see `withWorktree`'s docstring for

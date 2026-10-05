@@ -68,8 +68,8 @@ export interface Element<TCtx> {
    * one too when their builder was given it.
    *
    * Example: a per-repo preflight leaf keeps `name = 'preflight-task-1-/abs/path'` (stable +
-   * unique across the multi-repo iteration) but exposes `label = 'preflight · my-repo'` for the
-   * TUI rail.
+   * unique across the multi-repo iteration) but exposes `label = 'Check working tree · my-repo'`
+   * for the step display.
    */
   readonly label?: string;
   readonly kind?: ElementKind;

@@ -12,6 +12,7 @@ import { createRunner, type Runner } from '@src/application/chain/run/runner.ts'
 import { combineAbortSignals } from '@src/application/chain/run/combine-signals.ts';
 import { runWaves, type WaveBranch } from '@src/application/chain/run/wave-scheduler.ts';
 import { bridgeRunnerToEventBus } from '@src/application/observability/chain-runner-bridge.ts';
+import { rootSessionId } from '@src/application/session/session.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
 import type { FileLocker } from '@src/integration/io/file-locker.ts';
 import { repoLockFile } from '@src/integration/io/lock-paths.ts';
@@ -195,6 +196,7 @@ const runUnderLock = async (
   // leaves its closure permanently on the process-wide EventBus, pinning its runner → forked
   // ImplementCtx → trace ring for the whole TUI session (THE primary leak).
   const branchUnsubs = new Set<() => void>();
+  const parentChainId = rootSessionId();
 
   let wavesResult: Awaited<ReturnType<typeof runWaves<ImplementCtx>>>;
   try {
@@ -206,7 +208,7 @@ const runUnderLock = async (
         merge: mergeImplementWave,
         onBranchRunner: (runner, branch) => {
           branchUnsubs.add(
-            bridgeRunnerToEventBus(runner as Runner<unknown>, config.eventBus, { flowId: config.flowId })
+            bridgeRunnerToEventBus(runner as Runner<unknown>, config.eventBus, { flowId: config.flowId, parentChainId })
           );
           branchUnsubs.add(captureDurableFold(runner, branch.id, durablyFolded));
           branchUnsubs.add(forwardBranchSteps(runner, onTrace, onStart));
@@ -242,16 +244,18 @@ const runUnderLock = async (
 
 /**
  * Re-emit a branch runner's steps and starts through the host so the host trace carries every task's
- * subchain, as it does on the serial path. Self-detaches on the branch's terminal.
+ * subchain, as it does on the serial path. Tagged `forwardedFrom` so the host's bus bridge doesn't
+ * publish what the branch's own bridge already did. Self-detaches on the branch's terminal.
  */
 const forwardBranchSteps = (
   runner: Runner<ImplementCtx>,
   onTrace: OnTrace | undefined,
   onStart: OnStart | undefined
 ): (() => void) => {
+  const forwardedFrom = runner.id;
   const unsub = runner.subscribe((event) => {
-    if (event.type === 'step') onTrace?.(event.entry);
-    else if (event.type === 'step-started') onStart?.(event.step);
+    if (event.type === 'step') onTrace?.({ ...event.entry, forwardedFrom });
+    else if (event.type === 'step-started') onStart?.({ ...event.step, forwardedFrom });
     else if (event.type === 'completed' || event.type === 'failed' || event.type === 'aborted') unsub();
   });
   return unsub;
@@ -324,7 +328,10 @@ const runSubElement = async (
   // on the sub-runner's own terminal, but if `runner.start()` throws (programmer-error path) the
   // self-detach never fires; the `finally` below force-detaches both subscriptions so neither the
   // bridge nor the trace listener lingers on the EventBus / runner.
-  const unsubBridge = bridgeRunnerToEventBus(runner as Runner<unknown>, config.eventBus, { flowId: config.flowId });
+  const unsubBridge = bridgeRunnerToEventBus(runner as Runner<unknown>, config.eventBus, {
+    flowId: config.flowId,
+    parentChainId: rootSessionId(),
+  });
   // Re-emit every sub-step (and its start) through the host so the host trace stays continuous, and capture
   // a `failed` event's error off the stream (the runner does not expose its failure error directly).
   const captured: TraceEntry[] = [];

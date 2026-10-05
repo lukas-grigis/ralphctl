@@ -2,8 +2,8 @@
  * Bucket the Implement chain's live state into a per-task view. Three inputs collide here:
  *
  *  - `trace` — every leaf invocation with status + durationMs (no timestamps).
- *  - `chainEvents` — the chain-step-completed events with ISO `at` timestamps (the chain
- *    runner bridge only emits `chain-step-completed` / `chain-step-failed`, never `-started`).
+ *  - `chainEvents` — the chain-step-completed / -failed events with ISO `at` timestamps (the
+ *    caller's buffer filters out `chain-step-started`; live starts feed the step display instead).
  *  - `signals` — harness-signal bus entries (change/learning/decision/evaluation/…), each
  *    carrying the underlying signal's ISO timestamp plus an OPTIONAL explicit `taskId`.
  *
@@ -14,9 +14,9 @@
  * timestamp. Signals attributed to neither are returned as `orphanSignals`.
  *
  * Task status derivation: per-task composites (`sequential('task-<id>', …)`) do NOT emit a
- * self-trace entry — only leaves do. Likewise no producer emits `chain-step-started` events
- * (the runner bridge only translates terminal trace entries). So status is derived from the
- * per-task substep trace alone:
+ * self-trace entry — only leaves do, and this bucketing reads no `chain-step-started` events
+ * (in-flight starts live in the session's `live` map). So status is derived from the per-task
+ * substep trace alone:
  *
  *  - any substep failed/aborted (terminally) → that status (last-wins for failed-vs-aborted)
  *  - the guarded body composite (`task-body-<id>`) recorded as `skipped` → `blocked`

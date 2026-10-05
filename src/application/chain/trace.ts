@@ -34,6 +34,8 @@ export interface TraceEntry {
    * outside any loop.
    */
   readonly iterations?: readonly LoopIteration[];
+  /** Id of the nested runner that recorded this entry and already published it; host bridges skip it. */
+  readonly forwardedFrom?: string;
 }
 
 export type Trace = readonly TraceEntry[];
@@ -54,6 +56,8 @@ export interface StepStart {
   readonly label?: string;
   /** Enclosing loop iterations, outer-first — same contract as `TraceEntry.iterations`. */
   readonly iterations?: readonly LoopIteration[];
+  /** Same contract as `TraceEntry.forwardedFrom`. */
+  readonly forwardedFrom?: string;
 }
 
 /**

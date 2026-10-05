@@ -144,11 +144,19 @@ const markPendingCompleted = (ev: Ev): void => {
   for (const leaf of allLeaves(ev)) if (leaf.status === 'pending') leaf.status = 'completed';
 };
 
+/** A work-item root, or an unlabelled single-child wrapper around one (a parallel worktree branch). */
+const isWorkItemRoot = (ev: Ev): boolean =>
+  ev.node.workItem !== undefined ||
+  (ev.node.kind !== 'leaf' &&
+    ev.node.label === undefined &&
+    ev.children.length === 1 &&
+    isWorkItemRoot(ev.children[0]!));
+
 /** The trace ring evicts its head: untouched siblings before a touched one already ran. */
 export const inferEvicted = (ev: Ev): void => {
   const groups: Ev[][] = ev.iters !== undefined ? ev.iters.map((it) => it.children) : [ev.children];
   for (const kids of groups) {
-    const fanOut = kids.some((k) => k.node.workItem !== undefined);
+    const fanOut = kids.some(isWorkItemRoot);
     let lastTouched = -1;
     kids.forEach((k, i) => {
       if (isTouched(k)) lastTouched = i;

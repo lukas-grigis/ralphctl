@@ -1,6 +1,7 @@
 import { Result } from '@src/domain/result.ts';
 
 import { checkAborted, displayMeta, type Element, type ElementResult } from '@src/application/chain/element.ts';
+import { runInLoopIteration } from '@src/application/chain/loop-scope.ts';
 import {
   abortedEntry,
   type LoopIteration,
@@ -80,7 +81,9 @@ export const loop = <TCtx>(name: string, body: Element<TCtx>, opts: LoopOptions<
         const stamp = stampWith({ loop: name, n: i });
         const stampedTrace: OnTrace | undefined = onTrace && ((e) => onTrace(stamp(e)));
         const stampedStart: OnStart | undefined = onStart && ((s) => onStart(stamp(s)));
-        const result = await body.execute(currentCtx, signal, stampedTrace, stampedStart);
+        const result = await runInLoopIteration({ loop: name, n: i }, () =>
+          body.execute(currentCtx, signal, stampedTrace, stampedStart)
+        );
         if (!result.ok) {
           trace.push(...result.error.trace.map(stamp));
           return Result.error({ error: result.error.error, trace });
