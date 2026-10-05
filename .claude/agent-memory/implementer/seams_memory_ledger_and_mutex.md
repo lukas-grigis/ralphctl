@@ -80,6 +80,18 @@ per run in `buildImplementDepsBag` and inherited by branches via the deps spread
 `buildOneBranch`). **Every test bag that builds `ImplementDeps` must supply it** — grep
 `journalMutex: createFoldQueue()` to find them.
 
+## progress.md lines appended mid-attempt must be pinned, or they vanish
+
+A line a leaf appends to `progress.md` before the attempt's own section exists (restore outcome,
+quarantine pointer, rescue pointer) lands in the HEADER BAND on a sprint's first task.
+`regenerateJournal` rebuilds that band from the derived header plus only what
+`extractLifecycleBreadcrumbs` recognises, so any other line is silently erased on the next
+`progress-journal` write. **How to apply:** a new breadcrumb shape needs its phrase in the pin regex
+in `journal-structure.ts` in the same change, and the append should go through
+`ImplementDeps.journalMutex` (a plain append can land inside a sibling branch's read-modify-write and
+be lost). An e2e that reads `progress.md` after a full run is the fence; a leaf test with a capturing
+`appendFile` can't see the erasure.
+
 ## Testing an RMW race deterministically
 
 Inject a `WriteFile` that PARKS its first call on a promise gate and signals when parked. Start branch

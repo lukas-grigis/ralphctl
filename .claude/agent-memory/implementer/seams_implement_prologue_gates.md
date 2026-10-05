@@ -91,3 +91,21 @@ discard is logged at warn with the remedy. The `SetupTreeRecord` is lossless: pa
 first). It only truncates past 200 top-level entries, and a truncated record is never resumed from.
 Only the repo's latest setup row gates the resume. A `'skipped'` no-script row doesn't count because
 nothing ran, so it behaves like a resume-skip.
+
+**Leftover worktree refs are rescued, not force-deleted, and a checked-out ref must be skipped.**
+`settleStaleWorktreeRefs` runs before `worktree add` for both the current (`ralphctl-wt/`) and the
+legacy (`ralphctl/<sprint>/wt-`) shape. It skips any ref a registered worktree has checked out:
+`git branch -m` happily renames a checked-out branch and moves that worktree's HEAD, so rescuing it
+would silently break `resolveStrandedWorktree`'s adoption. So an unreadable `worktree list` must fail the setup, never default to "nothing checked out" (the delete path was safe only because git refuses `-D` on a checked-out branch; `-m` doesn't). The unlanded count uses
+`rev-list --right-only --cherry-pick HEAD...ref`, not `HEAD..ref`: a cherry-pick fold gives landed
+commits new SHAs, and plain `..` would rescue them as false positives. Trap (git 2.56): a
+`worktree add -b <ref> <path>` that fails on the PATH has already created `<ref>`, so the legacy
+adoption must clear `branchRef` before renaming the legacy ref onto it.
+
+**Restore outcomes repeat per attempt; journal lines must not.** `restore-blocked-diff` is in the
+per-attempt body, so `kept-by-choice` / `not-restored` re-stamp on every same-run retry, and every
+breadcrumb is pinned in the header band forever. The stamp stays per attempt; the journal line is
+skipped when the previous attempt carries the same kind + key + reason (`repeatsPreviousPriorWork`).
+`restoredWorkContext` likewise must stop at any settled non-`aborted` attempt: a red-verify retry's
+`quarantine-retry-diff` stashed the restored draft away, and only `running` / `aborted` attempts leave
+the tree as found.
