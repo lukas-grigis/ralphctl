@@ -4,6 +4,8 @@ import { ValidationError } from '@src/domain/value/error/validation-error.ts';
 import { createFsTemplateLoader, defaultTemplatesDir } from '@src/integration/ai/prompts/_engine/fs-template-loader.ts';
 import { computePlaceholderParity, loadPartialMap } from '@src/integration/ai/prompts/_engine/test-utils.ts';
 import { buildIdeatePrompt, ideatePromptDef } from '@src/integration/ai/prompts/ideate/definition.ts';
+import { ideateOutputContract } from '@src/application/flows/ideate/leaves/ideate.contract.ts';
+import { IdeateOutputSchema } from '@src/integration/ai/prompts/_engine/task-import-schema.ts';
 import { parseIdeateOutput } from '@src/integration/ai/prompts/ideate/parse-output.ts';
 import { composePriorLearnings } from '@src/application/flows/_shared/memory/compose-prior-learnings.ts';
 import { TicketId } from '@src/domain/value/id/ticket-id.ts';
@@ -198,12 +200,30 @@ describe('ideate/template.md — documented output example', () => {
     expect(result.value.tasks[0]?.verificationCriteria).toEqual([
       {
         id: 'C1',
-        assertion: 'TypeScript compiles with no errors',
+        assertion: 'The project type-checks with no errors',
         check: 'auto',
         command: '<project typecheck command>',
       },
       { id: 'C2', assertion: 'API returns 400 on invalid input', check: 'manual' },
     ]);
+  });
+});
+
+describe('ideate/template.md — structure', () => {
+  it('includes the approval gate once, validates before presenting, and offers the blocked escape hatch', async () => {
+    const raw = await readTemplate();
+    expect(raw.match(/\{\{APPROVAL_GATE\}\}/g)).toHaveLength(1);
+    expect(raw.indexOf('### Step 2.3 — Validate')).toBeLessThan(raw.indexOf('### Step 2.4 — Present'));
+    expect(raw).toContain('{"blocked":');
+    expect(raw).not.toContain('harness automatically appends');
+    expect(raw).not.toMatch(/12 characters or fewer/);
+  });
+
+  it('the contract example payload parses through IdeateOutputSchema', () => {
+    const example = ideateOutputContract.exampleSignals.find((s) => s.type === 'ideated-tickets');
+    if (example?.type !== 'ideated-tickets') throw new Error('ideate contract has no ideated-tickets example');
+    const parsed = IdeateOutputSchema.safeParse(JSON.parse(example.outputJson));
+    expect(parsed.success, JSON.stringify(parsed.error?.issues)).toBe(true);
   });
 });
 

@@ -33,13 +33,13 @@ export interface SelectCandidatePromptParams {
   readonly verificationCriteriaSection: string;
   /**
    * Compact structured summary of Candidate 1 — what was attempted, verification outcome,
-   * changed files, notable signals (warnings, learnings). Caller-composed; this module has no
+   * changed files, notable signals (notes, claimed changes). Caller-composed; this module has no
    * opinion on the exact rendering, only that it is compact and structured per the research
    * grounding above.
    */
-  readonly candidateASummary: string;
-  /** Compact structured summary of Candidate 2, same shape as {@link candidateASummary}. */
-  readonly candidateBSummary: string;
+  readonly candidate1Summary: string;
+  /** Compact structured summary of Candidate 2, same shape as {@link candidate1Summary}. */
+  readonly candidate2Summary: string;
   /**
    * Output contract section — rendered from the select-candidate `AiOutputContract`
    * by `renderContractSectionFor(selectCandidateOutputContract)`. Tells the AI to write
@@ -66,17 +66,17 @@ export const selectCandidatePromptDef: PromptDefinition<SelectCandidatePromptPar
       placeholder: 'VERIFICATION_CRITERIA_SECTION',
       description: '"## Done criteria" bullet list, or empty when none are declared.',
     },
-    candidateASummary: {
-      placeholder: 'CANDIDATE_A_SUMMARY',
+    candidate1Summary: {
+      placeholder: 'CANDIDATE_1_SUMMARY',
       description:
-        "Candidate 1's compact structured summary — what was attempted, verification outcome, changed files, notable signals.",
-      validate: requireNonEmpty('candidateASummary', 'candidate A summary must not be empty'),
+        "Candidate 1's compact structured summary — what was attempted, verification outcome, changed files, notes and claimed changes.",
+      validate: requireNonEmpty('candidate1Summary', 'candidate 1 summary must not be empty'),
       untrusted: { source: CANDIDATE_SOURCE },
     },
-    candidateBSummary: {
-      placeholder: 'CANDIDATE_B_SUMMARY',
-      description: "Candidate 2's compact structured summary, same shape as candidate A's.",
-      validate: requireNonEmpty('candidateBSummary', 'candidate B summary must not be empty'),
+    candidate2Summary: {
+      placeholder: 'CANDIDATE_2_SUMMARY',
+      description: "Candidate 2's compact structured summary, same shape as candidate 1's.",
+      validate: requireNonEmpty('candidate2Summary', 'candidate 2 summary must not be empty'),
       untrusted: { source: CANDIDATE_SOURCE },
     },
     outputContractSection: {
@@ -96,9 +96,9 @@ export const selectCandidatePromptDef: PromptDefinition<SelectCandidatePromptPar
 export interface BuildSelectCandidatePromptInput {
   readonly task: Task;
   /** Candidate 1's compact structured summary. */
-  readonly candidateASummary: string;
+  readonly candidate1Summary: string;
   /** Candidate 2's compact structured summary. */
-  readonly candidateBSummary: string;
+  readonly candidate2Summary: string;
   /**
    * Pre-rendered output contract section. The leaf composes this via
    * `renderContractSectionFor(selectCandidateOutputContract)` before calling the builder.
@@ -117,7 +117,7 @@ export const buildSelectCandidatePrompt = async (
     taskName: input.task.name,
     taskDescriptionSection: renderTaskDescriptionSection(input.task),
     verificationCriteriaSection: renderVerificationCriteriaSection(input.task),
-    candidateASummary: input.candidateASummary,
-    candidateBSummary: input.candidateBSummary,
+    candidate1Summary: input.candidate1Summary,
+    candidate2Summary: input.candidate2Summary,
     outputContractSection: input.outputContractSection,
   });

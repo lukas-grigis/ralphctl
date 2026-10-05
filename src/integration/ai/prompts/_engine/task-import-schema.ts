@@ -90,7 +90,7 @@ export const TaskImportListSchema = z.array(TaskImportSpecSchema);
 export const IdeateOutputSchema = z
   .object({
     requirements: z.string().min(1, 'requirements missing or empty'),
-    tasks: TaskImportListSchema,
+    tasks: TaskImportListSchema.min(1, 'tasks missing or empty'),
   })
   .strict();
 

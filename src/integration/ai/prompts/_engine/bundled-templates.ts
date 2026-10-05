@@ -50,6 +50,7 @@ export const BUNDLED_PROMPT_PARTIALS: readonly string[] = [
   'git-boundary',
   'harness-context',
   'parallel-tool-calls',
+  'question-format',
   'task-blocked',
   'task-fields',
   'task-sizing',

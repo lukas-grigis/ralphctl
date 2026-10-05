@@ -63,6 +63,7 @@ export const refinePromptDef: PromptDefinition<RefinePromptParams> = {
   },
   partials: {
     APPROVAL_GATE: 'approval-gate',
+    QUESTION_FORMAT: 'question-format',
   },
   expectedSignals: ['refined-ticket', 'note', 'learning', 'decision'],
 };

@@ -99,11 +99,12 @@ export const planPromptDef: PromptDefinition<PlanPromptParams> = {
   },
   partials: {
     APPROVAL_GATE: 'approval-gate',
+    QUESTION_FORMAT: 'question-format',
     VALIDATION_CHECKLIST: 'validation-checklist',
     TASK_FIELDS: 'task-fields',
     TASK_SIZING: 'task-sizing',
   },
-  expectedSignals: ['task-plan'],
+  expectedSignals: ['task-plan', 'note', 'learning', 'decision'],
 };
 
 export const renderSprintContext = (sprint: Sprint): string => {

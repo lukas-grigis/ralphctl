@@ -3,8 +3,8 @@ Each task entry uses these fields:
 - **`id`** — short, stable string used only for `blockedBy` references within this array (e.g.
   `"1"`, `"T1"`, `"api-shape"`).
 - **`name`** — imperative verb phrase, short (e.g. `"Wire CSV export endpoint"`).
-- **`description`** — optional longer-form context; include only when `name` leaves important
-  ambiguity.
+- **`description`** — one or two sentences on the problem this task solves and why; skip it only when
+  `name` already says both.
 - **`projectPath`** — absolute path matching exactly one of the repositories listed under
   `<repositories>`.
 - **`steps`** — concrete, ordered implementation steps. Don't end steps with "run the

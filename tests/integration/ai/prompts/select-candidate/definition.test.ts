@@ -93,8 +93,8 @@ describe('buildSelectCandidatePrompt — end-to-end against the real template', 
     const task = makeTaskWith({ description: 'Invalid export dates must return 400, not crash.' });
     const result = await buildSelectCandidatePrompt(deps, {
       task,
-      candidateASummary: CANDIDATE_A,
-      candidateBSummary: CANDIDATE_B,
+      candidate1Summary: CANDIDATE_A,
+      candidate2Summary: CANDIDATE_B,
       outputContractSection: SAMPLE_CONTRACT_SECTION,
     });
     expect(result.ok).toBe(true);
@@ -111,24 +111,24 @@ describe('buildSelectCandidatePrompt — end-to-end against the real template', 
     expect(body).not.toMatch(/\{\{[A-Z_]+\}\}/);
   });
 
-  it('rejects an empty candidateASummary via the spec validator', async () => {
+  it('rejects an empty candidate1Summary via the spec validator', async () => {
     const task = makeTaskWith({});
     const result = await buildSelectCandidatePrompt(deps, {
       task,
-      candidateASummary: '   ',
-      candidateBSummary: CANDIDATE_B,
+      candidate1Summary: '   ',
+      candidate2Summary: CANDIDATE_B,
       outputContractSection: SAMPLE_CONTRACT_SECTION,
     });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toBeInstanceOf(ValidationError);
   });
 
-  it('rejects an empty candidateBSummary via the spec validator', async () => {
+  it('rejects an empty candidate2Summary via the spec validator', async () => {
     const task = makeTaskWith({});
     const result = await buildSelectCandidatePrompt(deps, {
       task,
-      candidateASummary: CANDIDATE_A,
-      candidateBSummary: '',
+      candidate1Summary: CANDIDATE_A,
+      candidate2Summary: '',
       outputContractSection: SAMPLE_CONTRACT_SECTION,
     });
     expect(result.ok).toBe(false);
@@ -141,8 +141,8 @@ describe('select-candidate template — pairwise-judge guidance', () => {
     const task = makeTaskWith({ description: 'Invalid export dates must return 400, not crash.' });
     const r = await buildSelectCandidatePrompt(deps, {
       task,
-      candidateASummary: CANDIDATE_A,
-      candidateBSummary: CANDIDATE_B,
+      candidate1Summary: CANDIDATE_A,
+      candidate2Summary: CANDIDATE_B,
       outputContractSection: SAMPLE_CONTRACT_SECTION,
     });
     if (!r.ok) throw r.error;

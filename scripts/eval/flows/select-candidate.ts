@@ -97,8 +97,8 @@ export const selectCandidateAdapter: FlowAdapter = {
     const outputContractSection = renderContractSectionFor(selectCandidateOutputContract, runDir.value);
     const prompt = await buildSelectCandidatePrompt(ctx.loader, {
       task: task.value,
-      candidateASummary: first,
-      candidateBSummary: second,
+      candidate1Summary: first,
+      candidate2Summary: second,
       outputContractSection,
     });
     if (!prompt.ok) return Result.error(prompt.error);

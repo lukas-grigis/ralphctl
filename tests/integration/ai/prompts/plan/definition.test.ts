@@ -14,6 +14,8 @@ import {
   renderRepositories,
   renderSprintContext,
 } from '@src/integration/ai/prompts/plan/definition.ts';
+import { planOutputContract } from '@src/application/flows/plan/leaves/plan.contract.ts';
+import { TaskImportListSchema } from '@src/integration/ai/prompts/_engine/task-import-schema.ts';
 import { composePriorLearnings } from '@src/application/flows/_shared/memory/compose-prior-learnings.ts';
 
 const deps = createFsTemplateLoader(defaultTemplatesDir());
@@ -75,11 +77,11 @@ describe('planPromptDef — completeness', () => {
     expect(template).toContain('a wrong plan step costs more than an absent one');
   });
 
-  it('asks new-behaviour tasks for interface signatures and given/when/then scenarios in the criteria', async () => {
+  it('asks new-behaviour tasks for given/when/then criteria naming the interface they exercise', async () => {
     const path = `${String(defaultTemplatesDir())}/plan/template.md`;
     const template = (await fs.readFile(path, 'utf8')).replace(/\s+/g, ' ');
-    expect(template).toContain('the interface signatures the change must expose');
-    expect(template).toContain('given/when/then scenarios');
+    expect(template).toContain('name the interface they exercise');
+    expect(template).toContain('Given/When/Then');
   });
 
   it('places the approved-tickets input block before the Task Design Rules and calibration examples', async () => {
@@ -183,7 +185,29 @@ describe('buildPlanPrompt — end-to-end against the real template', () => {
     expect(result.value).toContain('<approval-gate>');
     expect(result.value).toContain('the complete document you will write, verbatim');
     expect(result.value).not.toContain('Only after that approval');
-    expect(result.value).toContain('If it forces any change, run the approval gate');
+  });
+
+  it('validates before presenting, and keeps shared-file sequencing in the dependency rules', async () => {
+    const template = await fs.readFile(`${String(defaultTemplatesDir())}/plan/template.md`, 'utf8');
+    expect(template.indexOf('{{VALIDATION_CHECKLIST}}')).toBeLessThan(template.indexOf('{{APPROVAL_GATE}}'));
+    expect(template.replace(/\s+/g, ' ')).toContain('or edits a file the blocker also edits');
+    expect(template).not.toContain('harness automatically appends');
+    expect(template).not.toMatch(/12 characters or fewer/);
+    expect(planPromptDef.expectedSignals).toEqual(['task-plan', 'note', 'learning', 'decision']);
+  });
+
+  it('the contract example task parses through the task-import schema', () => {
+    const example = planOutputContract.exampleSignals.find((s) => s.type === 'task-plan');
+    if (example?.type !== 'task-plan') throw new Error('plan contract has no task-plan example');
+    expect(TaskImportListSchema.safeParse(JSON.parse(example.tasksJson)).success).toBe(true);
+  });
+
+  it('the template task example parses through the task-import schema', async () => {
+    const template = await fs.readFile(`${String(defaultTemplatesDir())}/plan/template.md`, 'utf8');
+    const fence = template.match(/Good — precise steps[\s\S]*?```json\n([\s\S]*?)\n```/);
+    expect(fence).not.toBeNull();
+    const parsed = TaskImportListSchema.safeParse([JSON.parse(fence?.[1] ?? '')]);
+    expect(parsed.success, JSON.stringify(parsed.error?.issues)).toBe(true);
   });
 
   it('produces a fully-substituted prompt for a fresh-plan input', async () => {

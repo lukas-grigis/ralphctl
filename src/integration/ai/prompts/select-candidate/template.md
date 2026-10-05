@@ -35,11 +35,11 @@ be a correct, complete, maintainable solution. Write exactly one `candidate-sele
 </task_specification>
 
 <candidate_1>
-{{CANDIDATE_A_SUMMARY}}
+{{CANDIDATE_1_SUMMARY}}
 </candidate_1>
 
 <candidate_2>
-{{CANDIDATE_B_SUMMARY}}
+{{CANDIDATE_2_SUMMARY}}
 </candidate_2>
 
 <constraints>
@@ -47,11 +47,18 @@ be a correct, complete, maintainable solution. Write exactly one `candidate-sele
 - Judge only from `<candidate_1>` and `<candidate_2>` above — do not attempt to read either candidate's
   actual diff, branch, or working tree, even if you have the technical means to. The two summaries are
   the entire evidence base by design.
-- Weigh a cited verification outcome (a command that was run, a test that passed or failed, an endpoint
-  that was exercised) above an unverified narrative claim of completion.
-- A summary that reports its own verification as failed or partial is not automatically the loser — a
-  candidate that honestly reports a partial result and is closer to the acceptance criteria can still beat
-  one that claims full success without evidence.
+- Each summary has the same fields. `Verify outcome` and `Diff` are measured by the harness: the outcome is
+  the result of the project's verify script on that candidate's tree (`success`, `failed`, `skipped` when no
+  verify script is configured, or `spawn-error` when the script could not start), followed in parentheses by
+  an attribution against the pre-task baseline — `clean` (passed and was passing before), `regressed`
+  (passed before, fails now), `baseline-broken` (was already failing and still is), `fixed-baseline` (was
+  failing, now passes). A green script shows existing checks pass, not that the task's criteria are met.
+  `Proposed commit`, `Changes claimed` (the last 5) and `Notes` (the last 3) are the candidate's own words.
+- Weigh a measured verify outcome, and a command or test result a candidate cites, above
+  an unverified narrative claim of completion.
+- A candidate whose verify outcome failed is not automatically the loser — one that failed on a baseline
+  problem, or that is closer to the acceptance criteria, can still beat one that claims full success
+  without evidence.
 - When both summaries are similarly strong on verification, prefer the one whose changed-files list stays
   closest to the task's declared scope.
 - When the two are genuinely indistinguishable on the evidence given, declare a tie rather than inventing
@@ -70,9 +77,9 @@ evidence base. The only file you write is `signals.json`, to the output director
 
 ### Phase 1 — Read both summaries
 
-Read `<task_specification>`, then both candidate summaries in full before forming any preliminary
-judgment. Note, for each candidate: what it attempted, what its verification outcome claims, which files
-it touched, and any other notable signal worth weighing (warnings, notes, learnings).
+Read `<task_specification>` and both candidate summaries in full before forming any
+judgment, weighing for each candidate what it attempted, its verify outcome, which files it touched, and
+its notes and claimed changes.
 
 ### Phase 2 — Compare against the task
 

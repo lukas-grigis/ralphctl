@@ -17,7 +17,7 @@ implemented in a single session, and verified end-to-end against its criteria.
 - The change spans multiple repositories — one task per repo, connected via `blockedBy`.
 
 **Fold trivial cases into the task that needs them** rather than giving them their own entry: a
-`blockedBy` chain added for no real code reason, one task per file modification, or a
+`blockedBy` chain added for no real code or shared-file reason, one task per file modification, or a
 micro-refactor (add a directive, remove an import) — merge each into the task it serves instead of
 splitting it out.
 
