@@ -7,6 +7,31 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **Unblock asks what to do with a rejected diff.** When a blocked or interrupted task left its rejected work in
+  `git stash`, unblocking (`u` in the Tasks panel and Sprint detail, bulk `u` on the Sprints list) asks whether the
+  next attempt continues from it or starts fresh, suggesting one from why the task stopped. The CLI gets
+  `ralphctl task unblock <id> --prior-work continue|fresh`. Task cards show the stash, its size and what the next
+  attempt will do, and whether an attempt restored it or left it in the stash and why.
+- **Restoring earlier work is recorded.** Each attempt notes whether the rejected diff was restored, kept by choice or
+  left in the stash, in the task, `progress.md` and the card. Resetting an interrupted run warns when the working
+  tree holds the only copy of restored work.
+
+### Changed
+
+- **`ralphctl task unblock` no longer always restores the diff.** With no flag it now picks by cause: continue after a
+  self-block, a cancel or an interrupted run, start fresh after a failed review. It prints the choice and the flag to
+  flip it. Tasks unblocked before this release keep restoring automatically.
+- A blocked task's `blockedReason` no longer ends with the stash line; the stash is shown from its own field.
+
+### Fixed
+
+- **Parallel worktree ref collision.** Worktree branches now live under `ralphctl-wt/<sprint>/<task>` instead of
+  nesting under the auto-named sprint branch, which made worktree creation fail while that branch existed.
+- **Unlanded worktree commits are rescued, not deleted.** A leftover worktree ref holding commits the sprint branch
+  lacks is moved to `ralphctl-rescue/<sprint>/<task>-<timestamp>` and noted in `progress.md`.
+
 ## [0.25.0] - 2026-10-04
 
 ### Added
