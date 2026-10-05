@@ -12,8 +12,8 @@ without tool-specific knowledge.
 - Use H2 sections to group related rules — `## Build`, `## Testing`, `## Architecture`, etc.
 - Keep sections short and scannable; avoid walls of prose. Bullets work well.
 - No depth limit on headings, but rarely need more than `##`/`###`.
-- No hard line cap, but keep the file under ~150 lines — longer files dilute the signal-to-noise
-  ratio for models with a limited context window.
+- Target under ~150 lines — longer files dilute the signal-to-noise ratio for models with a limited
+  context window.
 
 **Tone and framing:**
 
@@ -31,33 +31,21 @@ engineering advice the model already follows by default.
 ```markdown
 # Project Name
 
-TypeScript monorepo. Use the workspace-aware install command; individual-package installs
+<language> monorepo. Use the workspace-aware install command; individual-package installs
 break the shared lockfile.
 
 ## Build
 
-- `<build command>` — compiles all packages to `dist/`.
+- `<build command>` — builds all packages.
 - Environment: copy `.env.example` to `.env` and fill in required values before running.
 
 ## Testing
 
-- `<test command>` — runs unit + integration tests.
-- Integration tests require a running database; start it with `<database start command>`.
-- Do not mock the database layer — use real fixtures from `tests/fixtures/`.
-
-## Architecture
-
-- <your layering rule> — e.g. which modules may import which, and which direction is forbidden.
-- <your module-boundary rule> — e.g. no barrel re-export files; every import names its symbol explicitly.
+- `<test command>` — runs unit and integration tests.
+- Integration tests need `<service>` running; start it with `<start command>`.
 
 ## Conventions
 
-- <your error-handling convention> — e.g. return a typed result instead of throwing for domain errors.
-- <your I/O convention> — e.g. all writes go through one shared helper; direct filesystem calls
-  are banned elsewhere.
-
-## Security
-
-- Do not log authentication tokens or request bodies, even at debug level.
-- Never commit `.env` files — they contain real credentials for development services.
+- <a rule that differs from the language's defaults> — state it as a checkable rule.
+- Generated files under `<dir>` are never edited by hand; regenerate with `<command>`.
 ```

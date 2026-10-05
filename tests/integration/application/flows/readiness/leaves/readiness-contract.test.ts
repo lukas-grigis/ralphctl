@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Result } from '@src/domain/result.ts';
 import type {
   AgentsMdProposalSignal,
+  NoteSignal,
   HarnessSignal,
   SetupSkillProposalSignal,
   VerifySkillProposalSignal,
@@ -400,6 +401,23 @@ describe('proposeReadinessLeaf — audit-[09] contract', () => {
     if (result.ok) return;
     expect(result.error.error).toBeInstanceOf(InvalidStateError);
     expect(result.error.error.message).toContain('no agents-md-proposal');
+  });
+
+  it('note-only signals: publishes the note and fails with its text', async () => {
+    const note: NoteSignal = {
+      type: 'note',
+      text: 'missing-input: the repository has no manifest files',
+      timestamp: ts('2026-05-22T10:00:00.000Z'),
+    };
+    const { events, eventBus } = captureBus();
+    const { deps, ctx } = await buildScene({ kind: 'signals', signals: [note] }, eventBus);
+    const leaf = proposeReadinessLeaf(deps, 'claude-code');
+    const result = await leaf.execute(ctx);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.error).toBeInstanceOf(InvalidStateError);
+    expect(result.error.error.message).toContain('missing-input: the repository has no manifest files');
+    expect(events.filter((e) => e.type === 'ai-signal')).toHaveLength(1);
   });
 
   // ── 6. Multiple agents-md-proposals — contract permits (no exactlyOne) ────────

@@ -51,6 +51,12 @@ const distillWriteUseCase = async (
     return Result.ok(false);
   }
 
+  // An empty proposal means the AI had nothing to add and no file existed; don't create an empty file.
+  if (input.proposedContent.trim() === '') {
+    log.info('skipping distill write — proposal is empty');
+    return Result.ok(false);
+  }
+
   const targetPath = input.targetPath;
   const written = await writeWithBackup(
     { writeFile: deps.writeFile, clock: deps.clock, logger: log },

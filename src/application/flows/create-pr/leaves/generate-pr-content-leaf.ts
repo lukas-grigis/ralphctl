@@ -200,6 +200,7 @@ export const generatePrContentLeaf = (deps: GeneratePrContentLeafDeps): Element<
           baseBranch: input.baseBranch,
           headBranch: input.headBranch,
           unitRoot: input.unitRoot,
+          repoPath: input.repoPath,
         });
         if (!promptResult.ok) {
           log.warn(

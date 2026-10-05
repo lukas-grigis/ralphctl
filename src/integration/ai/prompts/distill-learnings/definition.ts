@@ -113,7 +113,7 @@ export const distillLearningsPromptDef: PromptDefinition<DistillLearningsPromptP
     },
   },
   partials: {},
-  // The AI writes the full proposed context file to the harness output path; no harness signals.
+  // The AI writes only the learnings-section body to the harness output path; no harness signals.
   expectedSignals: [],
 };
 

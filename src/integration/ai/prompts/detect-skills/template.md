@@ -18,7 +18,7 @@ repo — if covered, emit a `note` instead.
   already cover both responsibilities (in which case emit a `note` explaining what was found).
 - Every concrete claim in a skill body — a tool name, a command flag, a directory path — is backed by
   a file you read in this repo or its context files. No training-data generics.
-- Skill bodies are written in second-person, present tense, 1–3 short paragraphs each.
+- Skill bodies follow the `Skill bodies` rule in the constraints below.
 - `signals.json` is valid JSON that parses against the output contract schema.
 
 </success_criteria>
@@ -51,15 +51,10 @@ skills.
 
 <skills_convention>{{SKILLS_CONVENTION}}</skills_convention>
 
-**Evidence rule.** Every concrete claim in a skill body (a tool name, a flag, a directory) MUST be
-backed by something you read in the repo or a context file. Drop any claim you cannot tie to a file.
+{{SKILL_BODY_RULES}}
 
-**Voice and length.** Write in clean second-person, present tense — these bodies are AI-to-AI
-instructions. Aim for 1–3 short paragraphs per skill. No headings inside the body (the harness wraps
-each in its own section). Code fences inside the body are fine.
-
-**Skill content must be useful, not aspirational.** "Run the project's install command" is useful. "Be
-careful with edge cases" is noise. Delete any paragraph that would apply to any project.
+The harness puts its own title heading above each body, so start with body text rather than a top-level
+`#` heading.
 
 **Document stack-specific quirks.** A non-default toolchain, tool-version pin, lockfile policy,
 monorepo sub-tree ordering dependency, or anything else that would trip up a generic AI session
@@ -85,20 +80,19 @@ to read its output and diagnose failures.
 
 <inspection_protocol>
 
-Before drafting, cover, in order:
+Read first, in this order: the existing skills at the convention path, the coding-agent context files
+(when present), then the configuration and metadata files in scope above.
 
-1. Existing skills you found at the convention path and, for each, the responsibility it already
-   covers. State explicitly whether the setup or verify intent is already taken. When no existing
-   skills exist, note that — it means you should emit both.
-2. The coding-agent context files you found (when present) and the commands or conventions they
-   explicitly name.
-3. The manifests you read and what stack each implies. For monorepos, name the sub-trees.
-4. The single most important thing the next AI session would NOT know without this skill — the
+Then establish for yourself, not as output:
+
+1. Which responsibility each existing skill already covers, and whether the setup or verify intent is
+   already taken. With no existing skills, emit both.
+2. The commands or conventions the context files explicitly name.
+3. What stack each manifest implies. For monorepos, name the sub-trees.
+4. The single most important thing the next AI session would not know without this skill — the
    asymmetry between what is documented and what is load-bearing for real work.
-5. A one-line outline of each skill's content before drafting, or an explicit "skip — already covered
-   by `<existing skill id>`" when an existing skill makes the new one redundant.
-
-Then read only the configuration and metadata files in scope above.
+5. A one-line outline of each skill before drafting, or "skip — already covered by `<existing skill
+id>`" when an existing skill makes the new one redundant.
 
 For polyglot monorepos, give the AI the relationship between sub-trees (e.g. "the frontend depends
 on a build artifact produced by the backend"). Generic boilerplate adds no value — every sentence
@@ -115,12 +109,12 @@ When the repository's context file documents the verify command and a tool-versi
   "signals": [
     {
       "type": "setup-skill-proposal",
-      "content": "This repo pins tool versions with mise. Before editing anything, run `mise install` to activate the exact versions declared in `mise.toml`. Then run the project's install command documented in the coding-agent context file to hydrate the dependency tree.\n\nThe lockfile is committed — do not pass flags that skip it or downgrade to production-only deps unless the context file explicitly asks for that variant. Setup may run more than once; keep this procedure idempotent.",
+      "content": "This repo pins tool versions with mise. Before editing anything, run `mise install` to activate the exact versions declared in `mise.toml`. Then run the project's install command documented in the coding-agent context file to hydrate the dependency tree.",
       "timestamp": "2026-05-22T10:00:00.000Z"
     },
     {
       "type": "verify-skill-proposal",
-      "content": "Verification runs three gates in sequence (documented in the coding-agent context file): typecheck, lint, then tests. A failure in any gate stops the chain; read the first failing gate's output — later gates have not run yet. Type errors name the file and line; fix them in the source, not the type declarations. Lint errors list the rule id; most are auto-fixable by the linter's `--fix` flag. Test failures show the failing assertion and the diff.",
+      "content": "Verification runs three gates in sequence (documented in the coding-agent context file): typecheck, lint, then tests. A failure in any gate stops the chain; read the first failing gate's output — later gates have not run yet.",
       "timestamp": "2026-05-22T10:00:00.000Z"
     },
     {

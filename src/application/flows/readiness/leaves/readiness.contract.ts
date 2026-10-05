@@ -138,7 +138,7 @@ const readinessExampleSignals: readonly ReadinessSignal[] = [
     content: '# Verify\n\nRun `<verify command>` (typecheck + lint + test).',
     timestamp: EXAMPLE_TS,
   },
-  { type: 'skill-suggestions', names: ['typescript-strict', 'code-style-conventions'], timestamp: EXAMPLE_TS },
+  { type: 'skill-suggestions', names: ['example-skill-one', 'example-skill-two'], timestamp: EXAMPLE_TS },
   {
     type: 'learning',
     text: 'The verify command lives in a workspace package script, not the repo root manifest.',

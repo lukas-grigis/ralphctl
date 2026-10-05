@@ -11,7 +11,7 @@ import {
 } from '@src/integration/ai/prompts/distill-learnings/definition.ts';
 import type { AssistantTool } from '@src/integration/ai/readiness/_engine/tool.ts';
 import { targetPathFor } from '@src/integration/ai/readiness/_engine/setup.ts';
-import { spliceOwnedSection } from '@src/business/context-file/splice-section.ts';
+import { hasOwnedSection, spliceOwnedSection } from '@src/business/context-file/splice-section.ts';
 import { isNodeErrnoCode, writeTextAtomic } from '@src/integration/io/fs.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
 import type { Repository } from '@src/domain/entity/repository.ts';
@@ -67,8 +67,9 @@ interface DistillProposeOutput {
  *  - prompt build error → propagated.
  *  - AI exited non-zero → propagated (typically `InvalidStateError`).
  *  - output file unreadable → `InvalidStateError`.
- *  - delta unusable (empty, own H1/H2 heading, or duplicate owned headings in the file) →
- *    `ValidationError`; nothing is proposed, so nothing is written.
+ *  - delta unusable (own H1/H2 heading, duplicate owned headings in the file, or empty while an
+ *    owned section exists) → `ValidationError`; nothing is proposed, so nothing is written.
+ *  - empty delta with no owned section yet → no-op: the existing file comes back unchanged.
  *
  * `AbortError` from the AI session forwards verbatim — the sequential sub-chain then skips confirm
  * / write / stamp, so the ledger stays un-stamped.
@@ -145,6 +146,12 @@ const distillProposeUseCase = async (
     );
   }
 
+  // Nothing to fold in and no owned section to wipe: leave the file as it is rather than fail the run.
+  if (sectionBody.trim() === '' && !hasOwnedSection(existingContextFile, DEFAULT_LEARNINGS_SECTION_HEADING)) {
+    log.info(`distill-propose-${tool}: AI proposed no learnings to add; leaving ${String(targetPath)} unchanged`);
+    return Result.ok({ proposedContent: existingContextFile, targetPath });
+  }
+
   const spliced = spliceOwnedSection(existingContextFile, DEFAULT_LEARNINGS_SECTION_HEADING, sectionBody);
   if (!spliced.ok) return Result.error(spliced.error);
   const proposedContent = spliced.value;
@@ -195,12 +202,21 @@ const prepareSandbox = async (
 };
 
 /**
- * Render the curated learnings as a markdown bullet list — one `<learning>` body per line. The
+ * Render the curated learnings as a markdown bullet list — one `<learning>` body per bullet, with
+ * `Context` / `Applies to` sub-bullets when the record carries them. The
  * distill prompt's `CANDIDATE_LEARNINGS` placeholder requires a non-empty value; the load gate
  * upstream guarantees at least one candidate before this leaf runs.
  */
 const renderCandidateList = (candidates: readonly LearningRecord[]): string =>
-  candidates.map((c) => `- ${c.text}`).join('\n');
+  candidates
+    .map((c) =>
+      [
+        `- ${c.text}`,
+        ...(c.context !== undefined && c.context !== '' ? [`  - Context: ${c.context}`] : []),
+        ...(c.appliesTo !== undefined && c.appliesTo !== '' ? [`  - Applies to: ${c.appliesTo}`] : []),
+      ].join('\n')
+    )
+    .join('\n');
 
 /**
  * Project the repository's known tooling into the prompt's `PROJECT_TOOLING` section — the only

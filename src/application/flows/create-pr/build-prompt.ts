@@ -20,6 +20,8 @@ export interface CreatePrPromptSource {
   readonly baseBranch: string;
   readonly headBranch: string;
   readonly unitRoot: AbsolutePath;
+  /** The repository the AI inspects; the same path the leaf grants as an additional root. */
+  readonly repoPath: AbsolutePath;
 }
 
 /** Single builder for the create-pr prompt, shared by `render-prompt-to-file` and the authoring leaf. */
@@ -40,6 +42,7 @@ export const buildCreatePrPromptFromCtx = async (
   return buildCreatePrPrompt(templateLoader, {
     baseBranch: source.baseBranch,
     headBranch: source.headBranch,
+    repositoryPath: String(source.repoPath),
     ticketSummary: renderTicketSummary(tickets),
     issueRefs: renderIssueRefs(refs),
     outputContractSection: renderContractSectionFor(generatePrContentOutputContract, source.unitRoot),

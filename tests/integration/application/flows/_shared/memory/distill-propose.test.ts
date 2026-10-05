@@ -138,6 +138,36 @@ describe('distillProposeLeaf — abort signal threading', () => {
     }
   });
 
+  it('renders Context / Applies-to sub-bullets for candidates that carry them', async () => {
+    const leaf = distillProposeLeaf(buildDeps(fakeAi({})), 'claude-code');
+    const ctx: DistillLearningsCtx = {
+      ...buildCtx(),
+      candidates: [
+        { ...record(), context: 'probing the cache layer', appliesTo: 'packaging' },
+        { ...record(), id: 'id-2' },
+      ],
+    };
+    expect((await leaf.execute(ctx)).ok).toBe(true);
+    const promptBody = await fs.readFile(join(String(distillRoot), 'claude-code', 'prompt.md'), 'utf8');
+    expect(promptBody).toContain('  - Context: probing the cache layer');
+    expect(promptBody).toContain('  - Applies to: packaging');
+    expect(promptBody.match(/- Context: probing/g)).toHaveLength(1);
+  });
+
+  it('treats an empty AI output with no owned section as a no-op, not a ValidationError', async () => {
+    const empty: InteractiveAiProvider = {
+      async run(input) {
+        await fs.writeFile(String(input.outputFile), '\n', 'utf8');
+        return Result.ok({});
+      },
+    };
+    await fs.writeFile(join(repoPath, 'CLAUDE.md'), '# A\n\nhand written\n', 'utf8');
+    const result = await distillProposeLeaf(buildDeps(empty), 'claude-code').execute(buildCtx());
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.ctx.entries['claude-code']?.proposedContent).toBe('# A\n\nhand written\n');
+  });
+
   describe('splicing into an existing context file', () => {
     const bodyFake = (body: string): InteractiveAiProvider => ({
       async run(input) {

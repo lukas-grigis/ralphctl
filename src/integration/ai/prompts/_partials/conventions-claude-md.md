@@ -6,12 +6,11 @@ invocation, not as a tutorial or README.
 
 **Structure rules:**
 
-- Exactly one H1 (`# Project Name`) as the opening line.
-- At most seven H2 sections (`## Build & Run`, `## Testing`, `## Architecture`, …). Fewer is better.
-- No H4 headings or deeper — three heading levels (`#`, `##`, `###`) is the practical maximum.
-- Prefer tight bullet lists over prose paragraphs; each bullet should be one verifiable claim.
-- Hard line cap: 200 lines. Instruction adherence degrades on longer context files, so
-  brevity is load-bearing.
+- Open with a one-line project description; a `# Project Name` title is fine.
+- Group rules under a few `##` sections (`## Build & Run`, `## Testing`, …) with tight bullets; each bullet
+  is one verifiable claim.
+- Target under 200 lines — adherence drops as the file grows, so brevity is load-bearing. With an existing
+  file, add sections only.
 
 **"Read on demand" pattern** — for sections that an agent rarely needs mid-task, list them under a
 `## References` heading with paths rather than embedding the content inline:
@@ -34,25 +33,23 @@ manifest files.
 ```markdown
 # Project Name
 
-Node.js 20 + TypeScript. Run `<install command>` once, then `<dev command>` to start.
+<language and runtime> service. Run `<install command>` once, then `<dev command>` to start.
 
 ## Build & Run
 
-- `<build command>` — compiles to `dist/`.
-- Required env: `DATABASE_URL` (Postgres connection string).
+- `<build command>` — writes artefacts to `<output dir>`.
+- Required env: `<VAR_NAME>` (<what it holds>).
 
 ## Testing
 
-- `<test command>` — unit + integration. Integration tests require a running database.
-- Do not mock the database layer — prior incidents show mock/prod divergence is a real risk.
+- `<test command>` — runs everything. `<single-test command>` runs one file.
+- <a prerequisite or quirk of the test run that is easy to miss>.
 
 ## Architecture
 
-- <your layering rule> — e.g. which modules may import which, and which direction is forbidden.
-- <your module-boundary rule> — e.g. no cross-module reach-arounds; go through the declared seam.
+- <your layering rule> — which modules may import which, and which direction is forbidden.
 
 ## Conventions
 
-- <your error-handling convention> — e.g. return a typed result instead of throwing.
-- <your formatting or naming convention> — state it as a checkable rule, not general advice.
+- <your naming or formatting rule> — state it as a checkable rule, not general advice.
 ```

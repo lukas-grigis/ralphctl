@@ -76,6 +76,7 @@ describe('buildCreatePrPrompt — end-to-end against the real template', () => {
     const result = await buildCreatePrPrompt(deps, {
       baseBranch: 'main',
       headBranch: 'feature/x',
+      repositoryPath: '/work/repo',
       ticketSummary: '- ticket one',
       issueRefs: 'Closes #1',
       outputContractSection: SAMPLE_CONTRACT_SECTION,
@@ -90,6 +91,11 @@ describe('buildCreatePrPrompt — end-to-end against the real template', () => {
     expect(result.value).toContain('`main`');
     expect(result.value).toContain('- ticket one');
     expect(result.value).toContain('Closes #1');
+    expect(result.value).toContain('git -C /work/repo log main..HEAD');
+    expect(result.value).toContain('git -C /work/repo diff main...HEAD --stat');
+    expect(result.value).not.toContain('MUST NOT be able to tell');
+    expect(result.value).not.toContain('authored the commits yourself');
+    expect(result.value).not.toMatch(/em-dash/i);
     expect(result.value).toContain('## Output contract');
     expect(result.value).not.toMatch(/\{\{[A-Z_]+\}\}/);
   });
@@ -98,6 +104,7 @@ describe('buildCreatePrPrompt — end-to-end against the real template', () => {
     const result = await buildCreatePrPrompt(deps, {
       baseBranch: 'main',
       headBranch: 'feature/x',
+      repositoryPath: '/work/repo',
       ticketSummary: '_no tickets_',
       issueRefs: '',
       outputContractSection: SAMPLE_CONTRACT_SECTION,
@@ -110,6 +117,7 @@ describe('buildCreatePrPrompt — end-to-end against the real template', () => {
     const result = await buildCreatePrPrompt(deps, {
       baseBranch: 'main',
       headBranch: 'feature/x',
+      repositoryPath: '/work/repo',
       ticketSummary: '',
       issueRefs: '',
       outputContractSection: '',
@@ -122,6 +130,7 @@ describe('buildCreatePrPrompt — end-to-end against the real template', () => {
     const result = await buildCreatePrPrompt(deps, {
       baseBranch: '   ',
       headBranch: 'feature/x',
+      repositoryPath: '/work/repo',
       ticketSummary: '',
       issueRefs: '',
       outputContractSection: SAMPLE_CONTRACT_SECTION,

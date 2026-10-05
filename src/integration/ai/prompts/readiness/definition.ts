@@ -75,13 +75,11 @@ export const conventionsPartialName = (tool: AssistantTool): string =>
 /**
  * Readiness prompt definition.
  *
- * Partial choice: only `harness-context` is wired. The output contract arrives through the
- * `{{OUTPUT_CONTRACT_SECTION}}` parameter rendered from the readiness `AiOutputContract`; the
- * template adds a short readiness-specific recap of the `agents-md-proposal` / `note` signals.
+ * Partial choice: only `skill-body` (the shared skill-body rules) is wired. The output contract arrives
+ * through the `{{OUTPUT_CONTRACT_SECTION}}` parameter rendered from the readiness `AiOutputContract`.
  *
- * Expected signals: `agents-md-proposal` (the proposed body — internal signal name kept stable
- * across tools) and `note` (optional commentary). The chain leaf reads them from `signals.json`
- * — see `proposeReadinessLeaf`.
+ * Expected signals: every kind the readiness contract accepts. The chain leaf reads them from
+ * `signals.json` — see `proposeReadinessLeaf`.
  */
 export const readinessPromptDef: PromptDefinition<ReadinessPromptParams> = {
   templateName: 'readiness',
@@ -122,7 +120,7 @@ export const readinessPromptDef: PromptDefinition<ReadinessPromptParams> = {
       validate: requireNonEmpty('outputContractSection', 'output-contract section must not be empty'),
     },
   },
-  partials: {},
+  partials: { SKILL_BODY_RULES: 'skill-body' },
   expectedSignals: [
     'agents-md-proposal',
     'setup-skill-proposal',

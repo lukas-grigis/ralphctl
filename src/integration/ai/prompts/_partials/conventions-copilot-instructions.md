@@ -10,7 +10,7 @@ when it understands the motivation behind a constraint, not just the constraint 
 - No required heading schema — free prose and bullets both work. H2 sections help scanability.
 - Lead every non-obvious rule with a "what + why" pair. Example: "Never mock the database layer
   in integration tests — prior incidents show mock/prod divergence masks real migration failures."
-- Keep the file under 100–150 lines; Copilot context injection has a token budget.
+- Keep it short; Copilot context injection has a token budget.
 - Prefer present-tense imperatives: "Use X", "Do not Y", "Prefer Z over W".
 - Reference file paths with backticks so Copilot can navigate to them.
 
@@ -30,22 +30,18 @@ advice the model already follows by default.
 ```markdown
 ## Architecture
 
-- <your layering rule> — e.g. inner layers must not import outer ones. State the enforcement
-  mechanism (linter, review checklist) so the model knows a violation is checkable.
-- <your module-boundary rule> — e.g. no barrel re-export files; every import names what it pulls in.
+- <your layering rule> — <why it exists>. State the enforcement mechanism (linter, review
+  checklist) so the model knows a violation is checkable.
 
 ## Testing
 
-- Integration tests hit a real database, not a mock — the team has been burned by mock/prod
-  divergence masking broken migrations. Use the test fixtures in `tests/fixtures/` to seed state.
+- <a testing rule> — <the incident or constraint behind it>.
 
 ## Conventions
 
-- <your error-handling convention> — e.g. return a typed result instead of throwing; reserve throws
-  for programmer errors.
+- <a convention that differs from defaults> — <the reason a reviewer would otherwise push back>.
 
 ## Security
 
-- Never log request bodies or auth tokens — even at debug level. The logger is structured and ships
-  to a third-party aggregator; sensitive fields would be retained.
+- <what must never be logged, committed or called> — <what goes wrong if it is>.
 ```

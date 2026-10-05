@@ -51,6 +51,7 @@ export const BUNDLED_PROMPT_PARTIALS: readonly string[] = [
   'harness-context',
   'parallel-tool-calls',
   'question-format',
+  'skill-body',
   'task-blocked',
   'task-fields',
   'task-sizing',

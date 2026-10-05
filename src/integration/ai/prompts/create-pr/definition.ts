@@ -16,6 +16,8 @@ export interface CreatePrPromptParams {
   readonly baseBranch: string;
   /** Head branch — already pushed to `origin` by the upstream push-branch leaf. */
   readonly headBranch: string;
+  /** Absolute path of the repository; every git command in the prompt targets it with `git -C`. */
+  readonly repositoryPath: string;
   /**
    * Markdown block listing the sprint's tickets (titles + links) so the AI has the
    * user-facing problem statement, not internal task names. Empty acceptable when the
@@ -51,6 +53,11 @@ export const createPrPromptDef: PromptDefinition<CreatePrPromptParams> = {
       placeholder: 'HEAD_BRANCH',
       description: 'Head branch — already pushed to origin by the upstream push-branch leaf.',
       validate: requireNonEmpty('headBranch', 'headBranch must not be empty'),
+    },
+    repositoryPath: {
+      placeholder: 'REPOSITORY_PATH',
+      description: 'Absolute path of the repository, passed to every git command via `git -C`.',
+      validate: requireNonEmpty('repositoryPath', 'repositoryPath must not be empty'),
     },
     ticketSummary: {
       placeholder: 'TICKET_SUMMARY',
