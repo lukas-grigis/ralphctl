@@ -16,7 +16,13 @@ to [Semantic Versioning](https://semver.org/).
   attempt will do, and whether an attempt restored it or left it in the stash and why.
 - **Restoring earlier work is recorded.** Each attempt notes whether the rejected diff was restored, kept by choice or
   left in the stash, in the task, `progress.md` and the card. Resetting an interrupted run warns when the working
-  tree holds the only copy of restored work.
+  tree holds the only copy of restored work. When an attempt continues from restored work, the AI is told what it
+  is and why it was rejected, instead of mistaking it for an unexplained dirty tree.
+- **Clearer step display while a flow runs.** A one-line strip in the header names the main steps (e.g.
+  `Prepare → Run tasks → Finish`) and which one is running, for every flow. The steps list shows main steps with the
+  active one expanded and finished groups collapsed to a summary; each task card shows its own Prepare / Attempt /
+  Round / Verify / Commit steps with a pass/fail verdict per review round. Bookkeeping steps stay hidden unless they
+  fail, and failures stay pinned in view.
 
 ### Changed
 
@@ -49,6 +55,11 @@ to [Semantic Versioning](https://semver.org/).
   nesting under the auto-named sprint branch, which made worktree creation fail while that branch existed.
 - **Unlanded worktree commits are rescued, not deleted.** A leftover worktree ref holding commits the sprint branch
   lacks is moved to `ralphctl-rescue/<sprint>/<task>-<timestamp>` and noted in `progress.md`.
+- **Parallel tasks no longer break each other's worktree setup.** Concurrent `git worktree` bookkeeping in one
+  repository could fail with `failed to read .git/worktrees/…/commondir` and leave a task unstarted; those git
+  commands now run one at a time per repository.
+- **The steps list no longer freezes during a run**, and steps skipped after a failure show as skipped instead of
+  pending forever.
 
 ## [0.25.0] - 2026-10-04
 
