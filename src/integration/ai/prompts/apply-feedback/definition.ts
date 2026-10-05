@@ -74,7 +74,7 @@ export const applyFeedbackPromptDef: PromptDefinition<ApplyFeedbackPromptParams>
       validate: requireNonEmpty('outputContractSection', 'output-contract section must not be empty'),
     },
   },
-  partials: { GIT_BOUNDARY: 'git-boundary' },
+  partials: { AUTONOMOUS_OPERATION: 'autonomous-operation', GIT_BOUNDARY: 'git-boundary' },
   expectedSignals: ['task-complete', 'task-blocked'],
 };
 

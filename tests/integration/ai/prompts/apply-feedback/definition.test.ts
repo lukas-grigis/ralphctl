@@ -29,6 +29,23 @@ describe('applyFeedbackPromptDef — completeness', () => {
   });
 });
 
+describe('apply-feedback template wording', () => {
+  it('states the latest-round rule once and carries no stale phrasing', async () => {
+    const raw = await readTemplate();
+    expect(raw.match(/Latest round wins/g)).toHaveLength(1);
+    for (const stale of ['invariant established by a prior round', 'dirty-tree', 'Critical divergence', 'NOW']) {
+      expect(raw).not.toContain(stale);
+    }
+  });
+
+  it('declares the autonomous-operation and git-boundary partials', () => {
+    expect(applyFeedbackPromptDef.partials).toMatchObject({
+      AUTONOMOUS_OPERATION: 'autonomous-operation',
+      GIT_BOUNDARY: 'git-boundary',
+    });
+  });
+});
+
 describe('buildApplyFeedbackPrompt — end-to-end against the real template', () => {
   it('produces a fully-substituted prompt and lists every repository', async () => {
     const repositoriesBlock = ['- `/tmp/proj-a` (proj-a)', '- `/tmp/proj-b` (proj-b)'].join('\n');
