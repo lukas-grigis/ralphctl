@@ -75,8 +75,9 @@ export const conventionsPartialName = (tool: AssistantTool): string =>
 /**
  * Readiness prompt definition.
  *
- * Partial choice: only `skill-body` (the shared skill-body rules) is wired. The output contract arrives
- * through the `{{OUTPUT_CONTRACT_SECTION}}` parameter rendered from the readiness `AiOutputContract`.
+ * Partial choice: only `skill-body` (the shared skill-body rules) is wired. The per-provider target-file
+ * conventions are not a partial slot — they arrive as the `{{TARGET_FILE_CONVENTIONS}}` parameter, loaded
+ * via `conventionsPartialName`; the output contract arrives as `{{OUTPUT_CONTRACT_SECTION}}`.
  *
  * Expected signals: every kind the readiness contract accepts. The chain leaf reads them from
  * `signals.json` — see `proposeReadinessLeaf`.

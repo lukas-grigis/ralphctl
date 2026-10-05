@@ -94,7 +94,7 @@ as "when present"; many repositories do not have one, and a learning must not as
 
 1. Read the existing context file body above and locate the `## {{LEARNINGS_SECTION_HEADING}}` section, if any.
 2. Reconcile the candidate learnings against the owned section per the idempotency rule.
-3. Write ONLY the reconciled section body (the bullets, without the section heading line) to `{{OUTPUT_FILE}}` —
+3. Write only the reconciled section body (the bullets, without the section heading line) to `{{OUTPUT_FILE}}` —
    not the whole file and not a diff. The harness splices it into `{{TARGET_FILENAME}}` and shows the operator
    the full resulting diff for confirmation. When nothing needs to change, write the section's current body
    unchanged — or an empty file when the section does not exist yet.

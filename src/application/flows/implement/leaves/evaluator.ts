@@ -196,6 +196,7 @@ const buildEvaluatorPrompt = async (
   if (args.priorEvaluatorSessionId !== undefined && args.forceFull !== true) {
     return buildEvaluateContinuationPrompt(deps.templateLoader, {
       ...sharedValues,
+      ...(args.task.extraDimensions !== undefined ? { extraDimensions: args.task.extraDimensions } : {}),
       roundNumber: args.roundNum,
       progressFile: String(deps.progressFile),
     });

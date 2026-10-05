@@ -22,5 +22,5 @@ micro-refactor (add a directive, remove an import) — merge each into the task 
 splitting it out.
 
 **Soft ceiling, not a target:** if a task will touch more than ~10 files or ~500 lines of
-meaningful change AND a natural split point exists, split it. No natural split point? Keep it
+meaningful change and a natural split point exists, split it. No natural split point? Keep it
 whole.

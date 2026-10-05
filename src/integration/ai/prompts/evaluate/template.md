@@ -29,7 +29,7 @@ still needs a concrete observation.
 
 <goal>
 Produce one `evaluation` signal in `signals.json` under the harness output directory — `status: "passed"`
-only when every floor dimension AND every task-specific dimension passes with concrete evidence;
+only when every floor dimension and every task-specific dimension passes with concrete evidence;
 `status: "failed"` otherwise with a critique the generator can act on. The exact output path is in the
 output contract section at the bottom of this prompt. You may additionally emit `learning` or `note` signals
 for durable insights discovered while grading; the `evaluation` signal remains exactly one and mandatory.
@@ -149,7 +149,7 @@ Run deterministic checks first — they are authoritative and cheap.
 For every criterion in the contract:
 
 - **`auto` criteria** — grade from your Phase 1 run — cite its exit code and decisive lines in
-  `executionEvidence`; re-run only under the flaky-result rule in Phase 1. PASS only when the command exits 0 AND the assertion holds; FAIL otherwise.
+  `executionEvidence`; re-run only under the flaky-result rule in Phase 1. PASS only when the command exits 0 and the assertion holds; FAIL otherwise.
 - **`manual` criteria** — when the changed behaviour is runnable (a command, a script, a service
   endpoint, or a test), execute the changed path yourself and cite the observed output as evidence;
   reading the diff or a green verify script alone does not substitute for that observation. Otherwise
@@ -218,7 +218,7 @@ Answer both questions honestly:
 1. Did every `auto` criterion either run, with its output recorded per the evidence bound, or carry an
    UNVERIFIED reason? (If the task has no `auto` criteria, did you run the verify script as the fallback?)
    Apply the blocked-checks rule in `<grading_rules>` to anything that did not run.
-2. Can you name a specific observation for each dimension AND each criterion? For every PASS you are about to
+2. Can you name a specific observation for each dimension and each criterion? For every PASS you are about to
    emit, point to a concrete piece of evidence. If not, Completeness fails.
 
 A false PASS is worse than a false FAIL. A false FAIL costs one extra generator round; a false PASS ships a

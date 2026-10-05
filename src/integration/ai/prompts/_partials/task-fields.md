@@ -10,7 +10,7 @@ Each task entry uses these fields:
 - **`steps`** — concrete, ordered implementation steps. Don't end steps with "run the
   verification commands" or "run all the checks" — verification belongs in `verificationCriteria`;
   the harness and the evaluator execute it. A final step that re-runs the full suite only
-  duplicates the post-task gate and inflates generator cost. Exception: a step MAY run a specific
+  duplicates the post-task gate and inflates generator cost. Exception: a step may run a specific
   check when a later step depends on its output (e.g. "run the migration dry-run and confirm the
   schema diff before writing the rollback script").
 - **`verificationCriteria`** — array of structured criteria the evaluator grades PASS / FAIL:

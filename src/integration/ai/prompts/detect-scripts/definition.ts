@@ -6,9 +6,8 @@
  * `setup-script` / `verify-script` / `verify-gates` / `note` signals — the harness validates
  * post-spawn. `verify-gates` is additive: emitted alongside `verify-script`, never instead of it.
  *
- * Sibling of `readiness` — that prompt bundles context-file generation with script proposals;
- * this one strips the context-file half away for callers who already have CLAUDE.md / AGENTS.md
- * in place and only want the scripts.
+ * Sibling of `readiness` — that prompt proposes the context-file body plus setup/verify skills;
+ * this one proposes the runnable scripts and per-module gates, and writes no context file.
  */
 
 import { type Result } from '@src/domain/result.ts';

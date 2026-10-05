@@ -164,7 +164,7 @@ Too granular — should be one task, not three:
 
 Right size:
 
-- "Centralise date formatting across all sections" — creates utility AND updates all usages.
+- "Centralise date formatting across all sections" — creates utility and updates all usages.
 - "Improve style robustness in interactive components" — handles multiple related files.
 
 ### Dependency Graph

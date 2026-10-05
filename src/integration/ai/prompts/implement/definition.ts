@@ -35,7 +35,7 @@ import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/templat
  * signals plus a `task-complete` signal. The harness runs the verify script itself as the
  * post-task commit gate, after the agent's turn — the agent does not run it as its own
  * evidence source except in the documented no-`auto`-criteria fallback. The harness renders
- * the emitted signals into `progress.md` on the next snapshot — the agent must NOT write to
+ * the emitted signals into `progress.md` on the next snapshot — the agent must not write to
  * the file directly. Every slot below is a typed string the chain leaf renders before
  * calling `buildPrompt`.
  */
@@ -68,14 +68,14 @@ export interface ImplementPromptParams {
   /** Absolute path to `progress.md` for this sprint — `{{PROGRESS_FILE}}`. */
   readonly progressFile: string;
   /**
-   * Current body of `progress.md` substituted into the `## Prior progress` section
-   *. Empty string when the journal file is absent — the template's surrounding
+   * Current body of `progress.md` substituted into the `## Prior progress` section.
+   * Empty string when the journal file is absent — the template's surrounding
    * prose handles the empty case without a per-flow special branch.
    */
   readonly priorProgress: string;
   /**
    * Markdown body for "## From prior sprints" — this project's not-yet-promoted ledger
-   * insights (principle 3, read side). Empty string when the ledger is absent / empty so the
+   * insights, read side. Empty string when the ledger is absent / empty so the
    * surrounding template prose handles the empty case without a per-flow branch.
    */
   readonly priorLearningsSection: string;

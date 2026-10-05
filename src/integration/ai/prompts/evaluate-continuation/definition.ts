@@ -4,7 +4,11 @@ import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts'
 import { buildPrompt, type BuildPromptError } from '@src/integration/ai/prompts/_engine/build-prompt.ts';
 import type { PromptDefinition } from '@src/integration/ai/prompts/_engine/definition.ts';
 import { renderFloorRubricSection } from '@src/integration/ai/prompts/_engine/renderers/floor-rubric.ts';
-import { renderGeneratorHintsSection, renderTaggedBlock } from '@src/integration/ai/prompts/_engine/renderers/task.ts';
+import {
+  renderExtraDimensionsSection,
+  renderGeneratorHintsSection,
+  renderTaggedBlock,
+} from '@src/integration/ai/prompts/_engine/renderers/task.ts';
 import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/template-loader.ts';
 
 /**
@@ -51,6 +55,11 @@ export interface EvaluateContinuationPromptParams {
    * reviewer never drifts on the rubric across rounds. Always non-empty.
    */
   readonly floorRubricSection: string;
+  /**
+   * Optional "Task-specific dimensions" block listing the extras the planner attached to this task,
+   * numbered after the floor dimensions. Empty string when the task has none — `{{EXTRA_DIMENSIONS_SECTION}}`.
+   */
+  readonly extraDimensionsSection: string;
   /**
    * Output contract section rendered from the evaluator contract for THIS round's
    * output directory (`rounds/<N>/evaluator/`). Because the leaf re-renders it per round, the
@@ -105,6 +114,10 @@ export const evaluateContinuationPromptDef: PromptDefinition<EvaluateContinuatio
         'floor-rubric section must not be empty (renderFloorRubricSection always emits a body)'
       ),
     },
+    extraDimensionsSection: {
+      placeholder: 'EXTRA_DIMENSIONS_SECTION',
+      description: 'Optional task-specific dimensions block after the floor dimensions — empty when the task has none.',
+    },
     outputContractSection: {
       placeholder: 'OUTPUT_CONTRACT_SECTION',
       description:
@@ -149,6 +162,8 @@ export interface BuildEvaluateContinuationPromptInput {
   readonly progressFile: string;
   /** Capped recent slice of the sprint journal body. */
   readonly priorProgress: string;
+  /** The task's planner-attached extra dimensions; absent or empty → `{{EXTRA_DIMENSIONS_SECTION}}` collapses. */
+  readonly extraDimensions?: readonly string[];
   /** Pre-rendered output contract section for this round's evaluator output dir. */
   readonly outputContractSection: string;
   /**
@@ -186,6 +201,7 @@ export const buildEvaluateContinuationPrompt = async (
     progressFile: input.progressFile,
     priorProgress: input.priorProgress,
     floorRubricSection: renderFloorRubricSection(),
+    extraDimensionsSection: renderExtraDimensionsSection(input.extraDimensions),
     outputContractSection: input.outputContractSection,
     generatorHintsSection: renderGeneratorHintsSection(input.generatorHints),
     reproductionSection: renderReproductionSection(input.reproduction),

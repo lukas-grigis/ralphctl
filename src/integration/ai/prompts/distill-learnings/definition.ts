@@ -128,10 +128,7 @@ export interface BuildDistillLearningsPromptInput {
 }
 
 /**
- * Top-level builder — the distill sub-chain consumes this to render the prompt before the
- * AI spawn. Exported ahead of that caller landing.
- *
- * @public
+ * Top-level builder — the distill-propose step renders the prompt with this before the AI spawn.
  */
 export const buildDistillLearningsPrompt = async (
   loader: TemplateLoader,

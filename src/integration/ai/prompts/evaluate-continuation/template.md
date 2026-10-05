@@ -15,6 +15,8 @@ tooling, and render a verdict.
 
 {{FLOOR_RUBRIC_SECTION}}
 
+{{EXTRA_DIMENSIONS_SECTION}}
+
 Grade any task-specific dimensions the planner attached with the same binary pass/fail logic. Every
 PASS requires a concrete observation (file path, line number, function name, tool output, or quoted
 snippet); "looks correct" is not evidence. A terminal `passed` or `failed` verdict MUST grade each

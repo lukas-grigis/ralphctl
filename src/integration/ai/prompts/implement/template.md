@@ -301,7 +301,7 @@ In order:
    the task name and description paragraph — thin context. Emit it on every task that touched any
    file. Omit only when the task was a pure investigation that wrote nothing.
 6. **Signal completion** — emit `task-complete` only after all the above steps pass. Then, as the
-   very LAST action of this turn, write exactly ONE file — `signals.json` — to the absolute path
+   very last action of this turn, write exactly one file — `signals.json` — to the absolute path
    named in the Output contract section below. That file is the only channel the harness reads:
    your code changes and your messages are invisible to it, so a turn that skips this write is
    treated as producing no work at all, no matter how much you did.

@@ -145,6 +145,24 @@ describe('buildEvaluateContinuationPrompt — end-to-end against the real templa
     expect(result.value).not.toMatch(/\{\{[A-Z_]+\}\}/);
   });
 
+  it('renders the task-specific dimensions after the floor rubric when present, nothing when absent', async () => {
+    const base = {
+      roundNumber: 3,
+      contractPath: CONTRACT_PATH,
+      progressFile: PROGRESS_FILE,
+      priorProgress: '',
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
+    };
+    const withExtras = await buildEvaluateContinuationPrompt(deps, { ...base, extraDimensions: ['Accessibility'] });
+    const without = await buildEvaluateContinuationPrompt(deps, base);
+    expect(withExtras.ok && without.ok).toBe(true);
+    if (!withExtras.ok || !without.ok) return;
+    expect(withExtras.value).toContain('**Task-specific dimensions**');
+    expect(withExtras.value).toContain('6. **Accessibility**');
+    expect(without.value).not.toContain('Task-specific dimensions**');
+    expect(without.value).not.toMatch(/\{\{[A-Z_]+\}\}/);
+  });
+
   it('renders generator hints when provided', async () => {
     const result = await buildEvaluateContinuationPrompt(deps, {
       roundNumber: 3,
@@ -247,6 +265,7 @@ describe('evaluateContinuationPromptDef — validate-rejected paths', () => {
       progressFile: PROGRESS_FILE,
       priorProgress: '',
       floorRubricSection: SAMPLE_FLOOR_RUBRIC_SECTION,
+      extraDimensionsSection: '',
       outputContractSection: SAMPLE_CONTRACT_SECTION,
       generatorHintsSection: '',
     });
@@ -262,6 +281,7 @@ describe('evaluateContinuationPromptDef — validate-rejected paths', () => {
       progressFile: PROGRESS_FILE,
       priorProgress: '',
       floorRubricSection: SAMPLE_FLOOR_RUBRIC_SECTION,
+      extraDimensionsSection: '',
       outputContractSection: '   ',
       generatorHintsSection: '',
     });

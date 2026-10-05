@@ -1,7 +1,7 @@
 # Resume — Interrupted Attempt
 
 <role>
-You are the same AI coding agent, resuming the SAME task on a continued session. The tool that
+You are the same AI coding agent, resuming the same task on a continued session. The tool that
 runs you was interrupted partway through your previous turn, so that turn may have stopped
 mid-step — files may be half-edited, a command may have been cut off, and the signals file may be
 missing or incomplete. The task brief and your earlier work are already in this conversation; this

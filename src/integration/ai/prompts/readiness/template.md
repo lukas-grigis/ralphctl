@@ -22,7 +22,7 @@ bottom of this prompt.
 - The resulting file follows the length guidance for `{{CURRENT_TOOL}}` in `<target_file_conventions>`
   below — the exact target is provider-specific. The target applies to the existing file plus your
   additions, so count the existing lines and keep additions within the remaining room.
-- When an existing context file is supplied in `<existing_context_file>`, `content` holds ONLY the new H2
+- When an existing context file is supplied in `<existing_context_file>`, `content` holds only the new H2
   sections to append, not the existing body; the harness appends them and keeps the existing file
   byte-for-byte.
 - Setup and verify skill proposals, when emitted, cite only commands that resolve in this specific repo
@@ -65,7 +65,7 @@ Lean is better than comprehensive.
 provider-specific. Brevity is a feature — the file is read fresh on every AI session.
 
 **Specificity rule.** Every rule must be specific and verifiable. Replace vague guidance ("write clean code")
-with concrete checks ("run `make test` before committing"). Reserve emphasis tokens (`IMPORTANT`, `YOU MUST`)
+with concrete checks ("run `make test` before committing"). Reserve emphasis tokens (all-caps warnings)
 for genuinely surprising rules — overuse erodes their meaning.
 
 **Leave out:**
