@@ -123,7 +123,8 @@ const evaluatorExampleSignals: readonly EvaluatorSignal[] = [
       },
       { id: 'C2', passed: true, evidence: 'request boundary validates input at src/foo.ts:11' },
     ],
-    critique: 'Correctness: add edge-case handling for empty input at src/foo.ts:23.',
+    critique:
+      '- [Correctness · C1] empty input returns 500 at src/foo.ts:23; should return 400 with the standard error body; look at src/foo.ts:23.',
     timestamp: EXAMPLE_TS,
   },
   {

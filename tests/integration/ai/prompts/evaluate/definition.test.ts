@@ -7,6 +7,7 @@ import { ValidationError } from '@src/domain/value/error/validation-error.ts';
 import { FIXED_REPOSITORY_ID, makeApprovedTicket, makeTodoTask } from '@tests/fixtures/domain.ts';
 import { createFsTemplateLoader, defaultTemplatesDir } from '@src/integration/ai/prompts/_engine/fs-template-loader.ts';
 import { extractPlaceholders } from '@src/integration/ai/prompts/_engine/extract-placeholders.ts';
+import { evaluatorOutputContract } from '@src/application/flows/implement/leaves/evaluator.contract.ts';
 import { buildEvaluatePrompt, evaluatePromptDef } from '@src/integration/ai/prompts/evaluate/definition.ts';
 
 // The shared task renderers (renderTaskDescriptionSection / renderTaskStepsSection /
@@ -125,7 +126,7 @@ describe('evaluatePromptDef — completeness', () => {
     const rules = (
       await fs.readFile(`${String(defaultTemplatesDir())}/_partials/evaluator-grading-rules.md`, 'utf8')
     ).replace(/\s+/g, ' ');
-    expect(rules).toContain('blocked from executing here');
+    expect(rules).toContain('blocked by the environment');
     expect(rules).toContain('not runnable by nature is never UNVERIFIED');
   });
 
@@ -433,7 +434,8 @@ describe('buildEvaluatePrompt — end-to-end against the real template', () => {
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    const failureModeOccurrences = result.value.split('worth naming, it is worth FAILing').length - 1;
+    const failureModeOccurrences =
+      result.value.split('Identifying a defect, then talking yourself into approving').length - 1;
     expect(failureModeOccurrences).toBe(1);
     const flattened = result.value.replace(/\s+/g, ' ');
     const evidenceBoundOccurrences = flattened.split('rather than the full log').length - 1;
@@ -453,8 +455,12 @@ describe('buildEvaluatePrompt — end-to-end against the real template', () => {
     expect(result.value).not.toContain('assessment in progress');
     expect(result.value).not.toContain('Phase 0');
     expect(result.value.match(/^<grading_rules>$/gm)).toHaveLength(1);
-    expect(result.value).toContain('format defined in\n  `<grading_rules>`');
-    expect(result.value).not.toContain('format defined in\n  `<constraints>`');
+    expect(result.value).toContain('in the format defined in `<grading_rules>`');
+    expect(result.value.match(/Blocked checks\./g)).toHaveLength(1);
+    expect(result.value).not.toContain('Legitimate `malformed` triggers');
+    expect(result.value).not.toContain('(a) dimension name');
+    expect(result.value).not.toContain('Completeness failure on re-evaluation');
+    expect(result.value).not.toMatch(/Zod|parseInt|process\.env/);
     expect(result.value).toContain('UNVERIFIED:');
     expect(result.value).toContain('Verification-tampering audit');
     expect(result.value).not.toMatch(/\{\{[A-Z_]+\}\}/);
@@ -530,5 +536,14 @@ describe('evaluatePromptDef — untrusted inputs', () => {
   it('flags GENERATOR_HINTS_SECTION as untrusted data', () => {
     const spec = Object.values(evaluatePromptDef.parameters).find((p) => p.placeholder === 'GENERATOR_HINTS_SECTION');
     expect(spec?.untrusted?.source).toBeTruthy();
+  });
+});
+
+describe('evaluator contract example', () => {
+  it('writes the critique as a lettered-free "- [Dimension · id]" line with a location', () => {
+    const evaluation = evaluatorOutputContract.exampleSignals.find((s) => s.type === 'evaluation');
+    expect(evaluation?.type === 'evaluation' ? evaluation.critique : '').toMatch(
+      /^- \[[A-Za-z]+ · C\d+\] .+look at \S+:\d+\.$/
+    );
   });
 });

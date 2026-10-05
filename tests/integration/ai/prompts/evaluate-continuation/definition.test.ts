@@ -64,7 +64,7 @@ describe('evaluateContinuationPromptDef — completeness', () => {
     // The UNVERIFIED escape hatch is scoped to a runnable criterion you were BLOCKED from executing —
     // not to every criterion that is not runnable by nature, which stays gradable on path:line evidence,
     // mirroring the full evaluate prompt's reconciled wording.
-    expect(template).toContain('follows the UNVERIFIED rule in `<grading_rules>`');
+    expect(template).toContain('follows the blocked-checks rule in `<grading_rules>`');
   });
 
   it('wires the autonomous-operation, evidence-bound, evaluator-failure-modes, and evaluator-grading-rules partials', () => {
@@ -201,7 +201,7 @@ describe('buildEvaluateContinuationPrompt — end-to-end against the real templa
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    const occurrences = result.value.split('worth naming, it is worth FAILing').length - 1;
+    const occurrences = result.value.split('Identifying a defect, then talking yourself into approving').length - 1;
     expect(occurrences).toBe(1);
   });
 
