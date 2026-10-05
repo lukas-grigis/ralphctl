@@ -80,6 +80,9 @@ export type StashListAnswer = { readonly messages: readonly string[] } | { reado
  * Answers `status --porcelain` per `opts.dirty`, `merge --ff-only` / `cherry-pick` per
  * `opts.foldConflict`, and every other stash / worktree / branch call with success.
  *
+ * Every branch ref exists except a `ralphctl-rescue/` one; `rev-list --count` answers per ref from
+ * `opts.uniqueCommits` (default 0), and `branch -m` fails when `opts.renameFails` is set.
+ *
  * `stash list` answers come off `opts.stashList` in call order — one entry per call, an empty stack
  * once the queue runs dry (and by default). The fake never updates that queue itself, so a test
  * scripts the stack each list call should observe.
@@ -88,7 +91,13 @@ export type StashListAnswer = { readonly messages: readonly string[] } | { reado
  * `gitStatusPorcelain`'s trailing flags concurrently.
  */
 export const fakeGitRecordingCwd = (
-  opts: { dirty?: boolean; foldConflict?: boolean; stashList?: readonly StashListAnswer[] } = {}
+  opts: {
+    dirty?: boolean;
+    foldConflict?: boolean;
+    stashList?: readonly StashListAnswer[];
+    uniqueCommits?: Readonly<Record<string, number>>;
+    renameFails?: boolean;
+  } = {}
 ): { runner: GitRunner; calls: Array<{ cwd: string; args: string[] }> } => {
   const calls: Array<{ cwd: string; args: string[] }> = [];
   const stashList = [...(opts.stashList ?? [])];
@@ -112,6 +121,12 @@ export const fakeGitRecordingCwd = (
       if (a === 'merge' && b === '--ff-only') return opts.foldConflict === true ? ok('not ff', 1) : ok();
       if (a === 'merge-base') return ok('a'.repeat(40));
       if (a === 'cherry-pick') return opts.foldConflict === true ? conflict() : ok();
+      if (a === 'show-ref') return ok('', String(args.at(-1)).startsWith('refs/heads/ralphctl-rescue/') ? 1 : 0);
+      if (a === 'rev-list') {
+        const ref = String(args.at(-1)).split('...')[1] ?? '';
+        return ok(`${String(opts.uniqueCommits?.[ref] ?? 0)}\n`);
+      }
+      if (a === 'branch' && b === '-m' && opts.renameFails === true) return ok('', 128, 'fatal: cannot rename');
       return ok(); // worktree add/remove/prune, branch -D, stash push — all succeed.
     },
   };

@@ -14,11 +14,12 @@ import type { DirtyTreePolicy } from '@src/business/task/preflight-task.ts';
 import { publishTaskBlocked } from '@src/business/task/publish-task-blocked.ts';
 import { createPublishSignal, type PublishSignal } from '@src/application/flows/_shared/publish-signal.ts';
 import {
-  gitDeleteBranch,
   gitWorktreeAdd,
   gitWorktreePrune,
   gitWorktreeRef,
+  legacyGitWorktreeRef,
 } from '@src/integration/io/git-operations.ts';
+import { gitRenameBranch } from '@src/integration/io/git-ref-rescue.ts';
 import { gitWorktreeList, type GitWorktreeEntry } from '@src/integration/io/git-worktree-list.ts';
 import { pathExists } from '@src/integration/io/fs.ts';
 import { realpath } from 'node:fs/promises';
@@ -47,6 +48,7 @@ import {
   type WorktreeTeardownArgs,
 } from '@src/application/flows/implement/worktree-teardown.ts';
 import { beginWorktreeSetupTreeCheck } from '@src/application/flows/implement/worktree-setup-tree.ts';
+import { settleStaleWorktreeRefs, type StaleRefTarget } from '@src/application/flows/implement/worktree-stale-refs.ts';
 
 /**
  * Async mutex serialising worktree folds onto the shared sprint branch. Folds MUST be
@@ -159,7 +161,8 @@ export interface BuildWaveBranchesDeps {
  *    anything in the branch can pop one — and before the worktree exists, so a raw throw out of it
  *    has nothing to strand. The teardown needs it to tell a restored diff an interrupted attempt left
  *    in the worktree from work that never sat in any stash — see `snapshotQuarantinedDiff`.
- *  - setup: prune stale bookkeeping + drop any leaked ref (both defensive), then
+ *  - setup: prune stale bookkeeping + clear any ref an earlier run left (current or legacy shape:
+ *    deleted when the sprint branch has its commits, else moved under `ralphctl-rescue/`), then
  *    `git worktree add -b <ref> <path>` forked from the sprint branch tip.
  *  - setup script: run the repo's `setupScript` IN the worktree (a fresh checkout has no build
  *    deps), bracketed by a working-tree check that settles whatever the script changed against
@@ -191,8 +194,8 @@ export interface BuildWaveBranchesDeps {
  *    `worktree-teardown.ts`) — a fold conflict blocks a task whose commits are already verified and
  *    landed on THIS ref and nowhere else, and an abort or a throw landing between the subchain
  *    settling `done` and the fold step leaves those commits equally ref-only, so deleting it here
- *    would strand that work in the reflog until GC. The keep is a recovery WINDOW, not permanence:
- *    `setupWorktree`'s defensive `gitDeleteBranch` drops the ref on that task's next launch.
+ *    would strand that work in the reflog until GC. On that task's next launch `setupWorktree`
+ *    deletes the kept ref only if the sprint branch has its commits; otherwise it moves it aside.
  *  - a THROW out of the body (`leaf.ts` re-throws every non-DomainError verbatim, and
  *    `buildSubchain` itself runs inside the body) takes the SAME teardown and then re-propagates
  *    the original error untouched — see the `catch` arm below.
@@ -218,7 +221,8 @@ const withWorktree = (
     children: [bodyShape],
     async execute(ctx, signal, onTrace): Promise<ElementResult<ImplementCtx>> {
       const quarantinedAtStart = await snapshotQuarantinedDiff(deps, repoRoot, ctx.sprintId, taskId);
-      const setupError = await setupWorktree(deps, ctx, { repoRoot, worktreePath, branchRef, taskId }, onTrace);
+      const target = { repoRoot, worktreePath, branchRef, taskId, progressFile };
+      const setupError = await setupWorktree(deps, ctx, target, onTrace);
       if (setupError !== undefined) {
         // A worktree that never got created has nothing to clean up — return the setup failure as-is
         // (non-fatal → the wave reducer leaves this task untouched so it resets/re-runs).
@@ -407,18 +411,61 @@ const blockTaskInWorktree = (
   return Result.ok({ ctx: { ...ctx, tasks: [blocked.value] }, trace: [entry] });
 };
 
-/** Where one task's worktree lives and which ref it is checked out on. */
+/** Where one task's worktree lives, which ref it is checked out on, and where its journal is. */
 interface WorktreeTarget {
   readonly repoRoot: AbsolutePath;
   readonly worktreePath: AbsolutePath;
   readonly branchRef: string;
   readonly taskId: TaskId;
+  readonly progressFile: AbsolutePath;
 }
+
+const staleRefTarget = (ctx: ImplementCtx, target: WorktreeTarget): StaleRefTarget => ({
+  repoRoot: target.repoRoot,
+  sprintId: ctx.sprintId,
+  taskId: target.taskId,
+  taskName: ctx.tasks?.find((t) => t.id === target.taskId)?.name ?? String(target.taskId),
+  progressFile: target.progressFile,
+});
 
 const samePath = async (a: string, b: string): Promise<boolean> => {
   if (a === b) return true;
   const [ra, rb] = await Promise.all([realpath(a).catch(() => a), realpath(b).catch(() => b)]);
   return ra === rb;
+};
+
+/**
+ * Why the registered worktree can't be adopted, or `undefined` when it can: only an interrupted
+ * attempt resumes in it, on this task's ref. A worktree left on the legacy-shaped ref by an older
+ * run is adopted by renaming that ref first — the fold and teardown only know `branchRef`.
+ */
+const adoptionBlocker = async (
+  deps: BuildWaveBranchesDeps,
+  ctx: ImplementCtx,
+  target: WorktreeTarget,
+  registeredBranch: string | undefined
+): Promise<string | undefined> => {
+  const { repoRoot, worktreePath, branchRef, taskId } = target;
+  const path = String(worktreePath);
+  const interrupted = ctx.tasks?.find((t) => t.id === taskId)?.attempts.at(-1)?.status === 'running';
+  const legacyRef = legacyGitWorktreeRef(String(ctx.sprintId), String(taskId));
+  if (interrupted && registeredBranch === `refs/heads/${branchRef}`) return undefined;
+  if (interrupted && registeredBranch === `refs/heads/${legacyRef}`) {
+    // The failed `worktree add -b` already created `branchRef`; clear it before taking its name.
+    const cleared = await settleStaleWorktreeRefs(deps, staleRefTarget(ctx, target), [branchRef], new Set());
+    const renamed = cleared.ok
+      ? await gitRenameBranch(deps.implement.gitRunner, repoRoot, legacyRef, branchRef)
+      : cleared;
+    if (renamed.ok) return undefined;
+    return (
+      `the interrupted attempt's worktree at ${path} is on ${legacyRef}, which could not be renamed to ` +
+      `${branchRef} (${renamed.error.message}) — rename it by hand, then unblock the task`
+    );
+  }
+  return (
+    `a worktree from an earlier run is still at ${path} and there is no interrupted attempt to resume in it — ` +
+    `inspect it, run \`git worktree remove --force ${path}\` in ${String(repoRoot)}, then unblock the task`
+  );
 };
 
 /**
@@ -435,7 +482,7 @@ const resolveStrandedWorktree = async (
   durationMs: number,
   onTrace: OnTrace | undefined
 ): Promise<ElementResult<ImplementCtx> | 'adopted' | undefined> => {
-  const { repoRoot, worktreePath, branchRef, taskId } = target;
+  const { repoRoot, worktreePath, taskId } = target;
   const path = String(worktreePath);
   const listed = await gitWorktreeList(deps.implement.gitRunner, repoRoot);
   let registered: GitWorktreeEntry | undefined;
@@ -451,16 +498,11 @@ const resolveStrandedWorktree = async (
       `a leftover directory blocks this task's worktree at ${path} — inspect it, delete it, then unblock the task`
     );
   }
-  const interrupted = ctx.tasks?.find((t) => t.id === taskId)?.attempts.at(-1)?.status === 'running';
-  if (interrupted && registered.branch === `refs/heads/${branchRef}`) {
-    deps.implement.logger.info('adopting the interrupted attempt’s worktree', { taskId: String(taskId), path });
-    onTrace?.({ elementName: name, status: 'completed', durationMs });
-    return 'adopted';
-  }
-  return blockTask(
-    `a worktree from an earlier run is still at ${path} and there is no interrupted attempt to resume in it — ` +
-      `inspect it, run \`git worktree remove --force ${path}\` in ${String(repoRoot)}, then unblock the task`
-  );
+  const blocker = await adoptionBlocker(deps, ctx, target, registered.branch);
+  if (blocker !== undefined) return blockTask(blocker);
+  deps.implement.logger.info('adopting the interrupted attempt’s worktree', { taskId: String(taskId), path });
+  onTrace?.({ elementName: name, status: 'completed', durationMs });
+  return 'adopted';
 };
 
 /**
@@ -481,18 +523,25 @@ const setupWorktree = async (
   // Prune defensively first: a crashed prior run can leave a stale `.git/worktrees/<name>` record
   // whose directory has vanished, which would make `worktree add` fail. Prune is idempotent.
   await gitWorktreePrune(gitRunner, repoRoot);
-  // Defensively drop a LEAKED `wt-<task>` ref before re-adding. `cleanupWorktree` deletes the ref
-  // after `worktree remove`, but a process that crashed between those two steps (or a delete that
-  // failed) leaves the ref behind — and `git worktree add -b <same-ref>` then fails loudly with
-  // 'branch already exists'. Prune only reaps `.git/worktrees/<name>` records for missing dirs, not
-  // orphaned refs, so it cannot heal this on its own. Best-effort: a live ref (no leak) just isn't
-  // there to delete, and a ref checked out elsewhere refuses deletion — in which case the `add`
-  // below fails loudly, which is the correct signal that something genuinely conflicts.
-  await gitDeleteBranch(gitRunner, repoRoot, branchRef);
-  const added = await gitWorktreeAdd(gitRunner, repoRoot, worktreePath, branchRef);
+  // Clear a ref an earlier run left (teardown keeps it on a block or an unfinished fold; a crash can
+  // leak it) — else `worktree add -b <same-ref>` fails with 'branch already exists'. A ref still
+  // checked out in a worktree is left for `resolveStrandedWorktree` to adopt or block on.
+  const listed = await gitWorktreeList(gitRunner, repoRoot);
+  const checkedOut = new Set(
+    (listed.ok ? listed.value : []).flatMap((e) => (e.branch !== undefined ? [e.branch] : []))
+  );
+  const cleared = await settleStaleWorktreeRefs(
+    deps,
+    staleRefTarget(ctx, target),
+    [branchRef, legacyGitWorktreeRef(String(ctx.sprintId), String(taskId))],
+    checkedOut
+  );
+  const added = cleared.ok ? await gitWorktreeAdd(gitRunner, repoRoot, worktreePath, branchRef) : cleared;
   const durationMs = performance.now() - start;
   if (!added.ok) {
-    const stranded = await resolveStrandedWorktree(deps, ctx, target, name, durationMs, onTrace);
+    const stranded = cleared.ok
+      ? await resolveStrandedWorktree(deps, ctx, target, name, durationMs, onTrace)
+      : undefined;
     if (stranded === 'adopted') return undefined;
     if (stranded !== undefined) return stranded;
     const entry: TraceEntry = { elementName: name, status: 'failed', durationMs, error: added.error };

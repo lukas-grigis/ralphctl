@@ -110,6 +110,7 @@ const fakeGit = (over?: {
       if (a === 'merge' && b === '--ff-only') return over?.foldConflict === true ? ok('not ff', 1) : ok();
       if (a === 'merge-base') return ok('a'.repeat(40));
       if (a === 'cherry-pick') return over?.foldConflict === true ? conflict() : ok();
+      if (a === 'rev-list') return ok('0\n'); // a leftover ref holds nothing the sprint branch lacks
       return ok(); // worktree add / prune / etc.
     },
   };
@@ -736,7 +737,7 @@ describe('buildWorktreeBranch — per-worktree setup working-tree check', () => 
 // ── defensive branch-ref pre-delete (idempotent relaunch after a crashed run) ──────────────────
 
 describe('setupWorktree — defensive leaked-ref delete before add', () => {
-  it('deletes the wt-<task> ref BEFORE `worktree add -b` so a leaked ref never wedges relaunch', async () => {
+  it('deletes a leaked worktree ref BEFORE `worktree add -b` so a leaked ref never wedges relaunch', async () => {
     const task = makeTodoTask();
     const done: Task = { ...makeDoneTask(), id: task.id };
     const { runner, calls } = fakeGit();

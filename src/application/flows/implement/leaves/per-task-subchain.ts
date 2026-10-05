@@ -127,7 +127,7 @@ export interface PerTaskSubchainOpts {
    * can't land a wrong-branch commit).
    *
    * The parallel launcher sets this `false`: each task runs in its own git worktree checked
-   * out on a dedicated `ralphctl/<sprintId>/wt-<taskId>` ref, so there is no shared sprint branch
+   * out on a dedicated `ralphctl-wt/<sprintId>/<taskId>` ref, so there is no shared sprint branch
    * to drift FROM. A preflight there would compare against the wrong ref and fail spuriously —
    * branch enforcement is moot per-worktree, the fold step is what lands commits on the shared
    * sprint branch.

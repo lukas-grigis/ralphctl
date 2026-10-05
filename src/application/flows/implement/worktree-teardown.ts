@@ -378,7 +378,7 @@ export const foldQuarantinePointer = (
 };
 
 /**
- * Why cleanup must KEEP the throwaway `wt-<task>` ref instead of deleting it — `undefined` when it
+ * Why cleanup must KEEP the throwaway worktree ref instead of deleting it — `undefined` when it
  * is free to drop it.
  *
  *  - `task-blocked`: a fold-conflict block re-projects an already-`done` task back to `blocked`
@@ -422,28 +422,14 @@ const cleanupWorktree = async (args: WorktreeTeardownArgs, keep: KeepBranchRefRe
     return;
   }
   if (keep !== undefined) {
-    // Keeping the ref buys a recovery WINDOW, not permanence, and the window is exactly one launch
-    // wide: `setupWorktree`'s defensive `gitDeleteBranch` (`git branch -D`, in `wave-branch.ts`)
-    // drops the ref unconditionally the next time THIS task starts — which for a blocked task is
-    // the first relaunch after the operator unblocks it. Past that point the commit survives only
-    // through its SHA, and WHERE that SHA still is depends on which reason kept the ref:
-    //  - `task-blocked`: whether the branch itself completed (a fold conflict, `captureDurableFold`
-    //    records the settled task and the epilogue persists it directly) or errored/aborted AFTER a
-    //    leaf had already persisted the block (`adopt-persisted-blocks` re-reads it into the epilogue
-    //    — see that leaf and `foldQuarantinePointer`'s docstring) — the SHA `commitTaskUseCase` wrote
-    //    is still in `tasks.json` (an operator unblock archives the attempts into `retiredAttempts`
-    //    rather than deleting them) AND on `progress.md`'s `- Commit: <sha>` line.
-    //  - `fold-incomplete`: the branch never emitted `completed`, so `captureDurableFold` skips it
-    //    and the epilogue writes that task back to its PRE-WAVE copy — clobbering the mid-run
-    //    attempt row that held `commitSha`. `progress.md`'s `- Commit:` line is then the only
-    //    surviving handle, and it is truncated to `SHA_DISPLAY_LENGTH` (7) chars by
-    //    `render-journal-entry.ts`; `git cherry-pick <short sha>` still resolves it.
-    // Either way the cherry-pick works only until gc prunes the now-unreachable object.
+    // The kept ref outlives the next launch only if it holds commits the sprint branch lacks:
+    // `setupWorktree` (via `settleStaleWorktreeRefs`) then moves it under `ralphctl-rescue/` and
+    // journals the pointer; a ref whose commits already landed is deleted there.
     logger.warn('worktree branch kept', { taskId: String(taskId), branchRef, reason: keep });
     onTrace?.({ elementName: name, status: 'completed', durationMs });
     return;
   }
-  // `worktree remove` leaves the throwaway `wt-<task>` branch ref behind; drop it so a relaunch
+  // `worktree remove` leaves the throwaway worktree branch ref behind; drop it so a relaunch
   // can recreate the worktree with `add -b <same-ref>`. Best-effort — a surviving ref is harmless
   // scratch (the commit is already folded), so a delete failure is logged, never fatal.
   const branchDeleted = await gitDeleteBranch(gitRunner, repoRoot, branchRef);

@@ -350,13 +350,20 @@ export const gitCreateAndCheckoutBranch = async (
 const WORKTREE_ADD_TIMEOUT_MS = 120_000;
 
 /**
- * Canonical worktree branch ref for one parallel task: `ralphctl/<sprintId>/wt-<taskId>`.
+ * Canonical worktree branch ref for one parallel task: `ralphctl-wt/<sprintId>/<taskId>`.
  *
- * One nesting level below the shared sprint branch (`ralphctl/<sprintId>`) so the whole sprint's
- * worktree refs share a prefix and prune cleanly. Pure — no validation here; sprint / task ids are
- * UUID-shaped upstream, so the result is always a valid git ref name.
+ * A sibling top-level namespace, never nested under the auto-named sprint branch
+ * (`ralphctl/<sprintId>`): git stores refs as paths, so a branch can't also be a directory and
+ * `worktree add -b ralphctl/<sprintId>/…` fails while that sprint branch exists. Pure — no
+ * validation here; sprint / task ids are UUID-shaped upstream, so the result is a valid ref name.
  */
-export const gitWorktreeRef = (sprintId: string, taskId: string): string => `ralphctl/${sprintId}/wt-${taskId}`;
+export const gitWorktreeRef = (sprintId: string, taskId: string): string => `ralphctl-wt/${sprintId}/${taskId}`;
+
+/**
+ * The worktree ref shape older runs created (`ralphctl/<sprintId>/wt-<taskId>`). Read only to adopt,
+ * rescue or delete what such a run left behind — never to create a worktree.
+ */
+export const legacyGitWorktreeRef = (sprintId: string, taskId: string): string => `ralphctl/${sprintId}/wt-${taskId}`;
 
 /**
  * Create a new worktree at `worktreePath` checked out on a freshly-created branch `branchName`,
@@ -408,7 +415,7 @@ export const gitWorktreeRemove = async (
 
 /**
  * Force-delete a local branch ref (`git branch -D <name>`). Used to drop the throwaway
- * `ralphctl/<sprint>/wt-<task>` ref a worktree was created on: `git worktree remove` deletes the
+ * `ralphctl-wt/<sprint>/<task>` ref a worktree was created on: `git worktree remove` deletes the
  * worktree directory and its `.git/worktrees/<name>` record but LEAVES the branch behind, so a
  * later `worktree add -b <same-ref>` (e.g. on relaunch after an aborted task) would otherwise fail
  * with "branch already exists". `gitWorktreePrune` does not cover this — it only touches worktree

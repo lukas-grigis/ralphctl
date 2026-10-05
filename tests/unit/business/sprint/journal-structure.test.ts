@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   extractLifecycleBreadcrumbs,
   renderQuarantineBreadcrumb,
+  renderRescueBreadcrumb,
   renderSectionHeader,
   sectionBelongsToTask,
   splitJournal,
@@ -60,6 +61,13 @@ describe('extractLifecycleBreadcrumbs', () => {
     const out = extractLifecycleBreadcrumbs(line);
     expect(out).toHaveLength(1);
     expect(out[0]).toContain('rejected diff quarantined to git stash');
+  });
+
+  it('recognises a rescued-ref pointer, and only one that names a rescue ref', () => {
+    const line = renderRescueBreadcrumb('kept-task', 2, 'ralphctl-wt/s/t', 'ralphctl-rescue/s/t-20261005T000000Z');
+    expect(extractLifecycleBreadcrumbs(`body\n${line}more\n`)).toEqual([line.trim()]);
+    const prose = '_Task x: 1 verified commit(s) on `a` were not on the sprint branch — moved to `elsewhere`._';
+    expect(extractLifecycleBreadcrumbs(prose)).toEqual([]);
   });
 
   it('ignores ordinary prose and derived headings (idempotent over a regenerated header)', () => {
