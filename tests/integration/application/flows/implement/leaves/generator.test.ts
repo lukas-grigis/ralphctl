@@ -16,7 +16,16 @@ import { createFsTemplateLoader, defaultTemplatesDir } from '@src/integration/ai
 import { createEventBusLogger } from '@src/business/observability/event-bus-logger.ts';
 import { createPublishSignal } from '@src/application/flows/_shared/publish-signal.ts';
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
-import { absolutePath, FIXED_LATER, FIXED_NOW, makeInProgressTaskWithRunningAttempt } from '@tests/fixtures/domain.ts';
+import {
+  absolutePath,
+  FIXED_LATER,
+  FIXED_LATEST,
+  FIXED_NOW,
+  makeInProgressTaskWithRunningAttempt,
+  makeTodoTask,
+} from '@tests/fixtures/domain.ts';
+import { markTaskBlocked, unblockTask } from '@src/domain/entity/task-lifecycle.ts';
+import { stampPriorWorkOutcome, withQuarantinedDiff } from '@src/domain/entity/task-prior-work.ts';
 import {
   failCurrentAttempt,
   recordTaskEffortEscalation,
@@ -922,6 +931,55 @@ describe('generatorLeaf', () => {
       expect(round2).toContain('# Continue — Round 2');
       expect(round2).toContain('<reproduction>');
       expect(round2).toContain('tests/unit/foo.test.ts');
+    });
+  });
+
+  describe('restored-work section', () => {
+    const MSG = 'ralphctl/s1/t1/blocked-diff';
+    const STAT = { files: 5, insertions: 142, deletions: 38 } as const;
+    const CRITIQUE = 'Retries never back off; the 429 path hammers the API.';
+
+    const unwrap = <T, E>(r: Result<T, E>): T => {
+      if (!r.ok) throw new Error(`fixture: ${String(r.error)}`);
+      return r.value as T;
+    };
+
+    // Block after a critiqued attempt, unblock (archives the run), relaunch, and stamp the pop.
+    const relaunchedWithRestoredDraft = (): InProgressTask => {
+      const started = unwrap(startNextAttempt(makeTodoTask(), FIXED_NOW, 'session-1'));
+      const critiqued = unwrap(recordRunningAttemptCritique(started, CRITIQUE));
+      const failed = unwrap(failCurrentAttempt(critiqued, FIXED_LATER, 'failed'));
+      const blocked = withQuarantinedDiff(
+        unwrap(markTaskBlocked(failed, 'attempt budget exhausted', 'own')),
+        MSG,
+        STAT,
+        1
+      );
+      const revived = unwrap(unblockTask(blocked));
+      const relaunched = unwrap(startNextAttempt(revived, FIXED_LATEST, 'session-2'));
+      return unwrap(stampPriorWorkOutcome(relaunched, { kind: 'restored', stashMessage: MSG, stat: STAT }));
+    };
+
+    it('renders the restored stat and the retired critique into the FULL prompt', async () => {
+      const task = relaunchedWithRestoredDraft();
+      const leaf = generatorLeaf(buildDeps(), task.id);
+      const result = await leaf.execute(baseCtx(task));
+      expect(result.ok).toBe(true);
+
+      const content = await fs.readFile(join(String(root.root), 'rounds', '1', 'generator', 'prompt.md'), 'utf8');
+      const block = /<restored_work>\n([\s\S]*?)\n<\/restored_work>/.exec(content)?.[1];
+      expect(block).toContain('5 files, +142 -38 lines');
+      expect(block).toContain(CRITIQUE);
+    });
+
+    it('omits the section for an ordinary task', async () => {
+      const task = makeInProgressTaskWithRunningAttempt();
+      const leaf = generatorLeaf(buildDeps(), task.id);
+      const result = await leaf.execute(baseCtx(task));
+      expect(result.ok).toBe(true);
+
+      const content = await fs.readFile(join(String(root.root), 'rounds', '1', 'generator', 'prompt.md'), 'utf8');
+      expect(content).not.toContain('<restored_work>\n');
     });
   });
 });

@@ -33,8 +33,10 @@ import {
   repositoryId,
   slug,
 } from '@tests/fixtures/domain.ts';
-import { startNextAttempt } from '@src/domain/entity/task-attempts.ts';
-import { decidePriorWork } from '@src/domain/entity/task-prior-work.ts';
+import { recordRunningAttemptCritique, startNextAttempt } from '@src/domain/entity/task-attempts.ts';
+import { markTaskBlocked, unblockTask } from '@src/domain/entity/task-lifecycle.ts';
+import { failCurrentAttempt } from '@src/domain/entity/task-settle.ts';
+import { decidePriorWork, withQuarantinedDiff } from '@src/domain/entity/task-prior-work.ts';
 import { quarantineStashMessage } from '@src/domain/value/quarantine-stash-message.ts';
 import type { InteractivePrompt } from '@src/business/interactive/prompt.ts';
 import { createRunner } from '@src/application/chain/run/runner.ts';
@@ -2959,6 +2961,12 @@ describe('createImplementFlow — relaunch after an unblock with a quarantined d
   });
 
   const STAT = { files: 5, insertions: 142, deletions: 38 } as const;
+  const CRITIQUE = 'Retries never back off; the 429 path hammers the API.';
+
+  const unwrap = <T, E>(r: Result<T, E>): T => {
+    if (!r.ok) throw new Error(`test setup: ${String(r.error)}`);
+    return r.value as T;
+  };
 
   /** Clean-tree git whose stash holds the task's quarantined diff until a pop consumes it. */
   const stashHoldingGit = (stashMessage: string): { runner: GitRunner; pops: () => number; listed: () => string } => {
@@ -2984,13 +2992,26 @@ describe('createImplementFlow — relaunch after an unblock with a quarantined d
 
   const relaunch = async (
     choice: 'continue' | 'fresh'
-  ): Promise<{ finalTask: Task | undefined; journal: string; pops: number; listed: string; message: string }> => {
+  ): Promise<{
+    finalTask: Task | undefined;
+    journal: string;
+    generatorPrompt: string;
+    pops: number;
+    listed: string;
+    message: string;
+  }> => {
     const f = await buildFixture(1);
     cleanupFns.push(f.cleanup);
     const [todo] = f.tasks;
     if (todo === undefined || todo.status !== 'todo') throw new Error('test setup: missing task');
     const message = quarantineStashMessage(f.sprint.id, todo.id);
-    const task = decidePriorWork(todo, { choice, stashMessage: message, stat: STAT, entries: 1 }, FIXED_NOW);
+    // A critiqued attempt blocked with its diff quarantined, then the operator unblocked it.
+    const critiqued = unwrap(recordRunningAttemptCritique(unwrap(startNextAttempt(todo, FIXED_NOW)), CRITIQUE));
+    const blocked = unwrap(
+      markTaskBlocked(unwrap(failCurrentAttempt(critiqued, FIXED_NOW, 'failed')), 'budget', 'own')
+    );
+    const revived = unwrap(unblockTask(withQuarantinedDiff(blocked, message, STAT, 1)));
+    const task = decidePriorWork(revived, { choice, stashMessage: message, stat: STAT, entries: 1 }, FIXED_NOW);
     const taskRepo = inMemoryTaskRepo([task]);
     const git = stashHoldingGit(message);
     const provider = createFakeAiProvider({
@@ -3030,6 +3051,10 @@ describe('createImplementFlow — relaunch after an unblock with a quarantined d
     return {
       finalTask: taskRepo.tasks()[0],
       journal: await fs.readFile(f.progressFile, 'utf8'),
+      generatorPrompt: await fs.readFile(
+        join(f.dir, 'implement', String(task.id), 'rounds', '1', 'generator', 'prompt.md'),
+        'utf8'
+      ),
       pops: git.pops(),
       listed: git.listed(),
       message,
@@ -3037,7 +3062,7 @@ describe('createImplementFlow — relaunch after an unblock with a quarantined d
   };
 
   it('fresh: the diff stays in the stash, the attempt records the choice, and the journal pins it', async () => {
-    const { finalTask, journal, pops, listed, message } = await relaunch('fresh');
+    const { finalTask, journal, generatorPrompt, pops, listed, message } = await relaunch('fresh');
 
     expect(pops).toBe(0);
     expect(listed).toContain(message);
@@ -3048,10 +3073,11 @@ describe('createImplementFlow — relaunch after an unblock with a quarantined d
     expect(journal).toContain(
       `quarantined diff kept in git stash by operator choice — attempt 1 starts fresh (message: \`${message}\`)`
     );
+    expect(generatorPrompt).not.toContain('<restored_work>\n');
   });
 
   it('continue: the diff is popped before the first turn, stamped restored, and the consumed fact is gone', async () => {
-    const { finalTask, journal, pops, listed, message } = await relaunch('continue');
+    const { finalTask, journal, generatorPrompt, pops, listed, message } = await relaunch('continue');
 
     expect(pops).toBe(1);
     expect(listed).toBe('');
@@ -3059,6 +3085,10 @@ describe('createImplementFlow — relaunch after an unblock with a quarantined d
     expect(finalTask?.attempts[0]?.priorWork).toStrictEqual({ kind: 'restored', stashMessage: message, stat: STAT });
     expect(finalTask?.quarantinedDiff).toBeUndefined();
     expect(journal).toContain('quarantined diff restored into attempt 1 — the stash entry is consumed');
+    // The generator's cold first turn is told what it is continuing from, and why it was rejected.
+    const block = /<restored_work>\n([\s\S]*?)\n<\/restored_work>/.exec(generatorPrompt)?.[1];
+    expect(block).toContain('5 files, +142 -38 lines');
+    expect(block).toContain(CRITIQUE);
   });
 });
 
