@@ -3,7 +3,7 @@
  * it with the session manager; renders the view scoped to that session id. Asserts on the
  * running frame (cancel / detach hints, status chip) and a completed frame (ResultCard).
  *
- * Doesn't drive the trace forward — that's covered by the StepTrace component tests; here we
+ * Doesn't drive the trace forward — that's covered by the flow-steps-tree tests; here we
  * only need the view to read descriptor fields and render the correct top-level layout.
  */
 
@@ -68,9 +68,8 @@ describe('ExecuteView', () => {
     expect(frame).toMatch(/running/i);
     expect(frame).toContain('cancel');
     expect(frame).toContain('detach');
-    // Default ink-testing-library width (100 cols) puts us in the compact two-column layout —
-    // the rail collapses to status-glyphs-only, so the "Flow steps" header text is suppressed.
-    // The Tasks header still renders.
+    // No plan on the fake runner, so there is no projection to show Steps for — the Tasks panel
+    // is the fallback. Plan-bearing sessions are covered in execute-view-flow-steps.test.tsx.
     expect(frame).toContain('Tasks');
     result.unmount();
   });
