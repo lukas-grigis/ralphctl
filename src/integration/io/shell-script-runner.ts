@@ -53,12 +53,7 @@ export interface ShellScriptResult {
   readonly exitCode: number | null;
   readonly output: string;
   readonly durationMs: number;
-  /**
-   * True when the runner killed the child itself — on the timeout OR the output cap — rather than
-   * the script exiting on its own. Always `passed: false` when set. Lets the verify executor tell a
-   * hang apart from a real non-zero exit (it never confirm-re-runs a killed gate). Optional so
-   * hand-built results (fakes, other adapters) need not carry it; absent reads as `false`.
-   */
+  /** Runner killed the child (timeout or output cap), so a hang isn't mistaken for a real exit. */
   readonly timedOut?: boolean;
 }
 
