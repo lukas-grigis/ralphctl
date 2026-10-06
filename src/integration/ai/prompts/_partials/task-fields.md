@@ -22,9 +22,9 @@ Each task entry uses these fields:
     the project's own commands — never hardcode a package-manager binary; read the project's
     manifest or context file for the actual command.
   - Scope a test command to the tests this task adds or changes (file path, test-name filter, or
-    tag); typecheck, lint, and build commands may run project-wide. Never repeat a verify gate, and
-    never put a whole end-to-end or browser suite in an `auto` criterion — scope it to the spec files
-    this task adds or changes. Exception: when that runner still needs something the evaluator's
+    tag); typecheck, lint, and build commands may run project-wide unless that exact command is a
+    verify gate. Never repeat a verify gate, whatever it runs, and never put a whole end-to-end or
+    browser suite in an `auto` criterion — scope it to the spec files this task adds or changes. Exception: when that runner still needs something the evaluator's
     shell cannot provide (a server it does not start itself, a seeded database, credentials), check
     that behaviour with a `manual` criterion instead.
   - When the repository lists a verify gate under `<repositories>` that has no path note and whose
