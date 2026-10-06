@@ -179,7 +179,7 @@ const buildGenEvalSegment = (
 
 /**
  * The productive half of one attempt: open the attempt, capture the pre-verify baseline, restore
- * any quarantined diff so a retry continues from the prior AI work, run the gen-eval loop, and
+ * a diff an earlier launch quarantined (when the operator chose to continue from it), run the gen-eval loop, and
  * finalize its exit into an escalation / retry decision.
  */
 const attemptWorkLeaves = (
@@ -223,8 +223,9 @@ const attemptWorkLeaves = (
     },
     taskId
   ),
-  // Restore a prior blocked diff (if any) so an escalation / retry continues from the prior AI
-  // work plus the evaluator critique instead of from a clean tree. AFTER pre-task-verify, so the
+  // Restore a blocked diff an earlier launch quarantined, on a relaunch after an operator unblock,
+  // unless the operator chose a fresh start; same-run retries stash under `attempt-<N>-rejected-diff`,
+  // which is never restored. AFTER pre-task-verify, so the
   // baseline measures HEAD rather than previously rejected work, and guarded so the stash is only
   // popped when a generator turn is guaranteed to follow: a pre-verify block leaves the diff where
   // it is (see `restoreBeforeFirstTurn`). A no-op when no matching stash exists (the common case);
@@ -233,7 +234,17 @@ const attemptWorkLeaves = (
   guard<ImplementCtx>(
     `restore-blocked-diff-guard-${String(taskId)}`,
     restoreBeforeFirstTurn,
-    restoreBlockedDiffLeaf({ gitRunner: deps.gitRunner, logger: deps.logger }, { cwd: repo.path }, taskId)
+    restoreBlockedDiffLeaf(
+      {
+        gitRunner: deps.gitRunner,
+        logger: deps.logger,
+        taskRepo: deps.taskRepo,
+        appendFile: deps.appendFile,
+        journalMutex: deps.journalMutex,
+      },
+      { cwd: repo.path, progressFile: opts.progressFile },
+      taskId
+    )
   ),
   // Composite: per-turn generator + evaluator, repeated until a terminal exit is set on ctx
   // or the configured `maxTurns` budget is hit. The evaluator is guarded — if the generator

@@ -6,6 +6,8 @@
 
 import { glyphs } from '@src/application/ui/tui/theme/tokens.ts';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
+import type { UnblockTaskOutput } from '@src/business/task/unblock-task.ts';
+import type { UnblockOneResult } from '@src/application/ui/tui/runtime/use-unblock-task.ts';
 
 export interface UnblockFeedbackInput {
   readonly succeeded: number;
@@ -37,6 +39,12 @@ export interface UnblockFeedbackInput {
    * started, and where the last unblock left it. Only the first unblock on a settled sprint
    * reopens it; later ones find it open already, so "first `from`, last status" is the whole hop.
    */
+  /** Tasks whose next attempt continues from the restored rejected diff. */
+  readonly continued?: number;
+  /** Tasks that start fresh with a rejected diff left in git stash. */
+  readonly fresh?: number;
+  /** Tasks whose stash couldn't be read; they were unblocked without a question. */
+  readonly probeFailed?: number;
   readonly reopened: { readonly from: Sprint['status']; readonly to: Sprint['status'] } | undefined;
 }
 
@@ -79,6 +87,23 @@ const reopenedClause = (
   return { text, notFullyActive };
 };
 
+/** ` — 1 continues from its rejected diff, 2 start fresh (diff kept in git stash)`, or '' with no stash to report. */
+const priorWorkClause = (continued: number, fresh: number, probeFailed: number): string => {
+  const parts: string[] = [];
+  if (continued > 0) {
+    parts.push(
+      continued === 1 ? '1 continues from its rejected diff' : `${String(continued)} continue from their rejected diffs`
+    );
+  }
+  if (fresh > 0) parts.push(fresh === 1 ? '1 starts fresh' : `${String(fresh)} start fresh`);
+  let text = parts.length > 0 ? ` ${glyphs.emDash} ${parts.join(', ')}` : '';
+  if (fresh > 0) text += ' (diff kept in git stash)';
+  if (probeFailed > 0) {
+    text += ` ${glyphs.emDash} couldn't read git stash for ${String(probeFailed)} task${probeFailed === 1 ? '' : 's'}; a rejected diff there would be restored on the next attempt`;
+  }
+  return text;
+};
+
 /**
  * Pure `succeeded`/`total`/`lastError` → toast-message formatter for a bulk-unblock run.
  *
@@ -95,6 +120,9 @@ export const formatUnblockFeedback = ({
   reopenRefused,
   reopenReason,
   reopenHint,
+  continued = 0,
+  fresh = 0,
+  probeFailed = 0,
   reopened,
 }: UnblockFeedbackInput): string => {
   const { text: reopenedText, notFullyActive } = reopenedClause(reopened);
@@ -102,11 +130,50 @@ export const formatUnblockFeedback = ({
   // A refused reopen or a stalled second hop means the run did NOT cleanly finish even when every
   // task's own transition succeeded — the head glyph must say so, or a `✓` in front of "sprint
   // stayed closed" / "not active" reads as "all done" when there is still something to do.
-  const anyIssue = reopenRefused > 0 || notFullyActive;
+  const anyIssue = reopenRefused > 0 || notFullyActive || probeFailed > 0;
   const headGlyph = succeeded === 0 ? glyphs.cross : anyIssue ? glyphs.warningGlyph : glyphs.check;
   const head =
     succeeded === total
       ? `${headGlyph} unblocked ${String(succeeded)} task${succeeded === 1 ? '' : 's'} in "${sprintName}"`
       : `${headGlyph} unblocked ${String(succeeded)} of ${String(total)}${lastError !== undefined ? ` ${glyphs.emDash} ${lastError}` : ''}`;
-  return `${head}${reopenedText}${stayedClosed}`;
+  return `${head}${priorWorkClause(continued, fresh, probeFailed)}${reopenedText}${stayedClosed}`;
+};
+
+type ReopenTally = {
+  -readonly [K in 'reopenRefused' | 'reopenReason' | 'reopenHint' | 'reopened']: UnblockFeedbackInput[K];
+};
+
+/** Add one unblock's sprint-reopen outcome to the running tally (first `from`, last status). */
+const foldReopen = (tally: ReopenTally, output: UnblockTaskOutput): void => {
+  const conflict = output.sprintReopenConflict;
+  if (conflict !== undefined) {
+    tally.reopenRefused += 1;
+    tally.reopenReason = conflict.message;
+    tally.reopenHint = conflict.hint;
+  }
+  const hop = output.sprintReopened;
+  if (hop !== undefined) tally.reopened = { from: tally.reopened?.from ?? hop.from, to: hop.sprint.status };
+};
+
+/** Fold one bulk run's per-task outcomes into the counts the toast needs. */
+export const tallyUnblockResults = (
+  results: readonly UnblockOneResult[]
+): Omit<UnblockFeedbackInput, 'total' | 'sprintName' | 'sprintId'> => {
+  let succeeded = 0;
+  let lastError: string | undefined;
+  // Counted apart from `lastError`: a refused reopen is not a failed unblock (the task IS revived).
+  const reopen: ReopenTally = { reopenRefused: 0, reopenReason: undefined, reopenHint: undefined, reopened: undefined };
+  let continued = 0;
+  let fresh = 0;
+  let probeFailed = 0;
+  for (const r of results) {
+    if (r.kind === 'failed') lastError = r.error.message;
+    if (r.kind !== 'unblocked') continue;
+    succeeded += 1;
+    probeFailed += r.probe.kind === 'unknown' ? 1 : 0;
+    continued += r.probe.kind === 'present' && r.output.quarantinedDiff?.nextAttempt === 'continue' ? 1 : 0;
+    fresh += r.probe.kind === 'present' && r.output.quarantinedDiff?.nextAttempt !== 'continue' ? 1 : 0;
+    foldReopen(reopen, r.output);
+  }
+  return { succeeded, lastError, ...reopen, continued, fresh, probeFailed };
 };

@@ -19,6 +19,7 @@
  * live next door so this file can stay a small orchestrator.
  */
 
+import type { PriorWorkNotice } from '@src/application/ui/shared/prior-work-copy.ts';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Box, Text } from 'ink';
 import {
@@ -29,6 +30,7 @@ import {
 import type { BlockedTriage, SprintState, TaskOverlay } from '@src/application/ui/tui/components/tasks-projection.ts';
 import type { TaskEvaluation } from '@src/application/ui/tui/components/tasks-panel-internals/evaluation-row.tsx';
 import type { RecoveryContext } from '@src/domain/entity/attempt.ts';
+import type { StepView } from '@src/application/ui/tui/runtime/flow-progress.ts';
 import { glyphs, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { computeListWindow, OverflowRow } from '@src/application/ui/tui/components/windowed-list.tsx';
 import { collectKinds, InlineKindsBar } from '@src/application/ui/tui/components/tasks-panel-internals/signal-rows.tsx';
@@ -79,6 +81,8 @@ interface TaskOverlaySources {
    * pass. Absent for runs whose done tasks are all clean.
    */
   readonly warningSummaryById?: ReadonlyMap<string, string>;
+  /** Optional `taskId → rejected-diff notice` map from the polled task entities (see `priorWorkNotice`). */
+  readonly priorWorkById?: ReadonlyMap<string, PriorWorkNotice>;
   /**
    * Optional `taskId → authoritative evaluation verdict` map sourced from the polled task
    * entities (the LAST attempt's `evaluation.status`, keyed by task id). The card renders THIS
@@ -89,17 +93,11 @@ interface TaskOverlaySources {
    */
   readonly taskEvaluationById?: ReadonlyMap<string, TaskEvaluation>;
   /**
-   * Optional `taskId → pending leaf names` map for upcoming (not-yet-run) sub-steps.
-   * Derived from `descriptor.plannedLeaves` by filtering to UUID-suffixed entries for each
-   * task id and subtracting already-executed leaves. Rendered as grey `◇` rows below the
-   * executed sub-steps so the operator sees the planned flow ahead, matching the Steps rail.
-   *
-   * Only FIXED surrounding leaves are included — dynamic generator/evaluator round-leaves are
-   * excluded so the pending list doesn't imply a fixed round count.
-   *
-   * Absent when `descriptor.plannedLeaves` is not available.
+   * Optional `taskId → step tree` map from the flow-progress projection (the work-item root of
+   * each task). An expanded card renders its children as the Prepare / Attempt / Round / Verify /
+   * Commit / Finish tree. Absent when the session has no plan tree.
    */
-  readonly pendingSubStepsByTaskId?: ReadonlyMap<string, readonly string[]>;
+  readonly stepTreeByTaskId?: ReadonlyMap<string, StepView>;
   /**
    * Optional projected sprint state. When supplied the per-task header appends an ETA derived
    * from `state.tasks[i].medianRoundDurationMs * (max - currentRound)`. Absent ⇒ ETA is
@@ -146,9 +144,8 @@ export interface TasksPanelProps extends TaskOverlaySources {
    */
   readonly inputActive?: boolean;
   /**
-   * Max sub-step rows per task to render; older ones drop off the top behind a single elision
-   * row. Bounds Ink reconciliation cost on long gen-eval loops (every retry adds ~12 leaves),
-   * preventing the OOM mode where unbounded child lists thrash the V8 heap every spinner tick.
+   * Row budget for one task's step tree, overflow cues included; the window stays anchored on
+   * the running (or failed) row. Bounds Ink reconciliation cost on long gen-eval loops.
    */
   readonly maxSubStepsPerTask?: number;
   /**
@@ -389,11 +386,10 @@ const buildOverlayByTaskId = (sources: TaskOverlaySources): ReadonlyMap<string, 
   mergeOverlaySource(overlays, sources.taskCriteriaById, (b) => (b.length > 0 ? { taskCriteria: b } : undefined));
   mergeOverlaySource(overlays, sources.blockedReasonById, (blockedReason) => ({ blockedReason }));
   mergeOverlaySource(overlays, sources.blockedTriageById, (blockedTriage) => ({ blockedTriage }));
+  mergeOverlaySource(overlays, sources.priorWorkById, (priorWork) => ({ priorWork }));
   mergeOverlaySource(overlays, sources.warningSummaryById, (warningSummary) => ({ warningSummary }));
   mergeOverlaySource(overlays, sources.taskEvaluationById, (taskEvaluation) => ({ taskEvaluation }));
-  mergeOverlaySource(overlays, sources.pendingSubStepsByTaskId, (l) =>
-    l.length > 0 ? { pendingSubSteps: l } : undefined
-  );
+  mergeOverlaySource(overlays, sources.stepTreeByTaskId, (stepTree) => ({ stepTree }));
   // Keyed by id (not position) so the projection order — stored by `order` — doesn't have to
   // mirror the bucketed order, which tracks the runtime sequence.
   const projections = new Map((sources.sprintState?.tasks ?? []).map((p) => [p.id, p]));
@@ -422,6 +418,10 @@ interface TaskRowDerived {
   readonly maxSignalsPerTask: number;
 }
 
+/** No Attempt iteration under the task's step tree yet; without a tree, no signal anywhere yet. */
+const hasNoAttempt = (tree: StepView | undefined, noSignalsYet: boolean): boolean =>
+  tree === undefined ? noSignalsYet : !tree.children.some((c) => c.iteration !== undefined);
+
 /**
  * Pure per-task derivation for one `TaskBlock` row — absolute index, display name, the signal
  * slice bounds, and this task's overlay.
@@ -446,7 +446,7 @@ const buildTaskRowProps = (task: TaskBucket, idx: number, derived: TaskRowDerive
     sliceStart,
     criteriaExpanded: derived.criteriaExpandedIds.has(task.id),
     isActive: idx === derived.activeTaskIdx,
-    firstRun: derived.noSignalsYet,
+    firstRun: hasNoAttempt(derived.overlayByTaskId.get(task.id)?.stepTree, derived.noSignalsYet),
     cardExpanded: derived.isCardExpanded(task.id),
     cardFocused: idx === derived.effectiveCardCursor,
     nowMs: derived.effectiveNowMs,
@@ -507,11 +507,15 @@ const useTaskOverlays = (sources: TaskOverlaySources): ReadonlyMap<string, TaskO
       sources.blockedReasonById,
       sources.blockedTriageById,
       sources.warningSummaryById,
+      sources.priorWorkById,
       sources.taskEvaluationById,
-      sources.pendingSubStepsByTaskId,
+      sources.stepTreeByTaskId,
       sources.sprintState,
     ]
   );
+
+/** Cross-task notes shown while a task is active. */
+const ACTIVE_ORPHAN_ROWS = 2;
 
 /** Stable empty-set reference for the `blockedTaskIds` default — never recreated per render. */
 const NO_BLOCKED_TASK_IDS: ReadonlySet<string> = new Set();
@@ -561,9 +565,13 @@ export const TasksPanel = ({
   // default, which freezes the clock at mount-time and so naturally suppresses the ticker
   // unless a test explicitly supplies an old timestamp.
   const effectiveNowMs = nowMs ?? Date.now();
+  // While a task runs, cross-task notes yield rows to its step tree.
+  const orphanMax = bucketed.tasks.some((t) => t.status === 'running')
+    ? Math.min(maxOrphanSignals, ACTIVE_ORPHAN_ROWS)
+    : maxOrphanSignals;
   const flatKeys = useMemo(
-    () => buildFlatFocusKeys(bucketed, maxSignalsPerTask, maxOrphanSignals),
-    [bucketed, maxSignalsPerTask, maxOrphanSignals]
+    () => buildFlatFocusKeys(bucketed, maxSignalsPerTask, orphanMax),
+    [bucketed, maxSignalsPerTask, orphanMax]
   );
 
   // Cursor identity is the focused row's stable key (not its index). When a new signal lands
@@ -618,7 +626,7 @@ export const TasksPanel = ({
   if (bucketed.tasks.length === 0 && bucketed.orphanSignals.length === 0) {
     return <EmptyTasksPanel />;
   }
-  const { orphanSliceStart, derived } = buildRenderDerived(bucketed, maxOrphanSignals, cardState, {
+  const { orphanSliceStart, derived } = buildRenderDerived(bucketed, orphanMax, cardState, {
     running,
     nameById,
     maxSubSteps: maxSubStepsPerTask,
@@ -634,7 +642,7 @@ export const TasksPanel = ({
       <InlineKindsBar kinds={collectKinds(bucketed)} />
       <OrphanSignals
         signals={bucketed.orphanSignals}
-        max={maxOrphanSignals}
+        max={orphanMax}
         focusedKey={effectiveFocusedKey}
         expandedKeys={expandedKeys}
         sliceStart={orphanSliceStart}

@@ -2,8 +2,8 @@
  * Bucket the Implement chain's live state into a per-task view. Three inputs collide here:
  *
  *  - `trace` — every leaf invocation with status + durationMs (no timestamps).
- *  - `chainEvents` — the chain-step-completed events with ISO `at` timestamps (the chain
- *    runner bridge only emits `chain-step-completed` / `chain-step-failed`, never `-started`).
+ *  - `chainEvents` — the chain-step-completed / -failed events with ISO `at` timestamps (the
+ *    caller's buffer filters out `chain-step-started`; live starts feed the step display instead).
  *  - `signals` — harness-signal bus entries (change/learning/decision/evaluation/…), each
  *    carrying the underlying signal's ISO timestamp plus an OPTIONAL explicit `taskId`.
  *
@@ -14,9 +14,9 @@
  * timestamp. Signals attributed to neither are returned as `orphanSignals`.
  *
  * Task status derivation: per-task composites (`sequential('task-<id>', …)`) do NOT emit a
- * self-trace entry — only leaves do. Likewise no producer emits `chain-step-started` events
- * (the runner bridge only translates terminal trace entries). So status is derived from the
- * per-task substep trace alone:
+ * self-trace entry — only leaves do, and this bucketing reads no `chain-step-started` events
+ * (in-flight starts live in the session's `live` map). So status is derived from the per-task
+ * substep trace alone:
  *
  *  - any substep failed/aborted (terminally) → that status (last-wins for failed-vs-aborted)
  *  - the guarded body composite (`task-body-<id>`) recorded as `skipped` → `blocked`
@@ -56,15 +56,9 @@ import type { EvaluationSignal, HarnessSignal } from '@src/domain/signal.ts';
 import type { Task } from '@src/domain/entity/task.ts';
 import type { SignalBusEntry } from '@src/application/ui/tui/runtime/sinks-context.tsx';
 
-/**
- * UUIDv7 suffix on a per-task leaf name (`<leaf>-<36-char-uuid>`). Exported so the execute
- * view's "outer flow" filter can identify per-task substeps without redeclaring the pattern.
- */
+/** UUIDv7 suffix on a per-task leaf name (`<leaf>-<36-char-uuid>`). */
 export const UUID_SUFFIX_REGEX = /-([0-9a-fA-F-]{36})$/;
 export const TOP_LEVEL_TASK_REGEX = /^task-[0-9a-fA-F-]{36}$/;
-
-/** True when an element name belongs to a per-task subchain (top-level or any nested leaf). */
-export const isPerTaskLeaf = (name: string): boolean => TOP_LEVEL_TASK_REGEX.test(name) || UUID_SUFFIX_REGEX.test(name);
 
 /**
  * Default per-task subchain terminal substep — when this leaf appears for a task id, the task's

@@ -62,9 +62,8 @@ const selectCandidateExampleSignals: readonly SelectCandidateSignal[] = [
     type: CANDIDATE_SELECTION_KIND,
     winner: 2,
     rationale:
-      'Candidate 2 ran the reproduction command and cited the passing output, and its changed-files list stayed ' +
-      'within the declared scope. Candidate 1 claims completion without citing a verification run and also edited ' +
-      'an unrelated middleware file.',
+      "Candidate 2's verify outcome is fixed-baseline and its diff touches only the files the task names. " +
+      'Candidate 1 changed only the test file and claims completion without a verify result that supports it.',
     timestamp: EXAMPLE_TS,
   },
 ];

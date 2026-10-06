@@ -10,6 +10,7 @@ import type { EventBus } from '@src/business/observability/event-bus.ts';
 import type { GenEvalExit } from '@src/business/task/gen-eval-exit.ts';
 import type { InProgressTask } from '@src/domain/entity/task.ts';
 import { latestCritique } from '@src/domain/entity/task-graph.ts';
+import { restoredWorkContext } from '@src/domain/entity/task-prior-work.ts';
 import type { TaskId } from '@src/domain/value/id/task-id.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
@@ -322,9 +323,12 @@ const buildGeneratorPrompt = async (
       task: args.task,
     });
   }
+  // A cold turn after a restore is told the dirty tree is its own earlier, rejected draft.
+  const restored = restoredWorkContext(args.task);
   return buildImplementPrompt(deps.templateLoader, {
     ...sharedValues,
     task: args.task,
+    ...(restored !== undefined ? { restoredWork: restored } : {}),
     projectPath: String(deps.cwd),
     ...(deps.verifyScript !== undefined ? { verifyScript: deps.verifyScript } : {}),
     ...(await resolveProjectToolingCarry(deps)),
@@ -623,7 +627,7 @@ const makeGeneratorInput =
   ): ((ctx: ImplementCtx) => GeneratorInput) =>
   (ctx) => {
     const { task, workspaceRoot, roundNum } = requireRoleTurnCtx(ctx, 'generator', taskId);
-    const feedForward = composeGeneratorFeedForward(ctx, task, taskId, roundNum, deps);
+    const feedForward = composeGeneratorFeedForward(ctx, task, taskId, deps);
     const reproduction = readReproductionSection(ctx);
     return {
       task,
@@ -716,4 +720,5 @@ export const generatorLeaf = (deps: GeneratorLeafDeps, taskId: TaskId): Element<
     useCase: { execute: makeGeneratorExecute(deps, taskId) },
     input: makeGeneratorInput(deps, taskId),
     output: generatorOutput,
+    label: 'Generate',
   });

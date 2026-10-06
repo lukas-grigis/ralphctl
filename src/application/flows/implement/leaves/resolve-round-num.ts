@@ -57,4 +57,6 @@ export const resolveRoundNumLeaf = (taskId: TaskId): Element<ImplementCtx> =>
       return { workspaceRoot: ctx.taskWorkspaceRoot };
     },
     output: (ctx, roundNum) => ({ ...ctx, currentRoundNum: roundNum }),
+    label: 'Number round',
+    internal: true,
   });

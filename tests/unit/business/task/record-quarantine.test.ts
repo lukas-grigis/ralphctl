@@ -11,6 +11,7 @@ import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 
 const SPRINT_ID = '01900000-0000-7000-8000-0000000000aa' as unknown as SprintId;
 const STASH = 'ralphctl/01900000-0000-7000-8000-0000000000aa/task-1/blocked-diff';
+const STAT = { files: 3, insertions: 40, deletions: 7 };
 
 const makeBlockedTask = (reason = 'verify failed: 3 tests red'): BlockedTask => {
   const r = markTaskBlocked(makeTodoTask(), reason, 'own');
@@ -41,7 +42,7 @@ const repoWith = (result: Result<void, StorageError> = Result.ok(undefined)): Re
 };
 
 describe('recordQuarantineUseCase', () => {
-  it('appends the stash pointer to blockedReason and persists', async () => {
+  it('records the structured fact and leaves blockedReason exactly as the block wrote it', async () => {
     const task = makeBlockedTask('verify failed: 3 tests red');
     const { repo, saved, calls } = repoWith();
 
@@ -49,21 +50,35 @@ describe('recordQuarantineUseCase', () => {
       task,
       sprintId: SPRINT_ID,
       stashMessage: STASH,
+      stat: STAT,
+      entries: 1,
       taskRepo: repo,
       logger: noopLogger,
     });
 
     expect(res.ok).toBe(true);
     if (!res.ok) return;
-    // Original reason preserved + the recovery line appended naming the stash message.
-    expect(res.value.blockedReason).toContain('verify failed: 3 tests red');
-    expect(res.value.blockedReason).toContain(STASH);
-    expect(res.value.blockedReason).toMatch(/git stash list/);
+    expect(res.value.quarantinedDiff).toStrictEqual({ stashMessage: STASH, stat: STAT, entries: 1 });
+    expect(res.value.blockedReason).toBe('verify failed: 3 tests red');
     expect(calls()).toBe(1);
-    expect((saved() as BlockedTask).blockedReason).toBe(res.value.blockedReason);
+    expect(saved()).toStrictEqual(res.value);
   });
 
-  it('is idempotent — re-recording the same stash message does not duplicate the line or re-write', async () => {
+  it('records the pointer without a size when the leaf could not measure the stash', async () => {
+    const { repo } = repoWith();
+    const res = await recordQuarantineUseCase({
+      task: makeBlockedTask(),
+      sprintId: SPRINT_ID,
+      stashMessage: STASH,
+      taskRepo: repo,
+      logger: noopLogger,
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.value.quarantinedDiff).toStrictEqual({ stashMessage: STASH });
+  });
+
+  it('is idempotent — re-recording the same fact does not re-write', async () => {
     const task = makeBlockedTask();
     const { repo } = repoWith();
 
@@ -71,6 +86,8 @@ describe('recordQuarantineUseCase', () => {
       task,
       sprintId: SPRINT_ID,
       stashMessage: STASH,
+      stat: STAT,
+      entries: 1,
       taskRepo: repo,
       logger: noopLogger,
     });
@@ -82,15 +99,43 @@ describe('recordQuarantineUseCase', () => {
       task: first.value, // already carries the pointer
       sprintId: SPRINT_ID,
       stashMessage: STASH,
+      stat: { ...STAT },
+      entries: 1,
       taskRepo: repo2.repo,
       logger: noopLogger,
     });
     expect(second.ok).toBe(true);
     if (!second.ok) return;
-    // No second recovery line, no redundant persist.
-    expect(second.value.blockedReason).toBe(first.value.blockedReason);
-    expect(second.value.blockedReason.match(/git stash list/g)?.length).toBe(1);
+    expect(second.value).toBe(first.value);
     expect(repo2.calls()).toBe(0);
+  });
+
+  it('a later quarantine under the same key records the newest entry', async () => {
+    const first = await recordQuarantineUseCase({
+      task: makeBlockedTask(),
+      sprintId: SPRINT_ID,
+      stashMessage: STASH,
+      stat: STAT,
+      entries: 1,
+      taskRepo: repoWith().repo,
+      logger: noopLogger,
+    });
+    if (!first.ok) throw first.error;
+    const newer = { files: 1, insertions: 2, deletions: 0 };
+    const { repo, calls } = repoWith();
+    const second = await recordQuarantineUseCase({
+      task: first.value,
+      sprintId: SPRINT_ID,
+      stashMessage: STASH,
+      stat: newer,
+      entries: 2,
+      taskRepo: repo,
+      logger: noopLogger,
+    });
+    expect(second.ok).toBe(true);
+    if (!second.ok) return;
+    expect(second.value.quarantinedDiff).toStrictEqual({ stashMessage: STASH, stat: newer, entries: 2 });
+    expect(calls()).toBe(1);
   });
 
   it('rejects a non-blocked task with InvalidStateError (no repo write)', async () => {

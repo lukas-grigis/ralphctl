@@ -52,7 +52,9 @@ import type { HeadlessAiProvider, ProviderOutput } from '@src/integration/ai/pro
 import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import { writeJsonAtomic } from '@src/integration/io/fs.ts';
-import { gitWorktreeRef } from '@src/integration/io/git-operations.ts';
+import { gitWorktreeRef, legacyGitWorktreeRef } from '@src/integration/io/git-operations.ts';
+import { gitRescueRef } from '@src/integration/io/git-ref-rescue.ts';
+import { generateBranchName } from '@src/integration/io/branch-name.ts';
 import { createGitRunner } from '@src/integration/io/git-runner.ts';
 import type { ShellScriptRunner } from '@src/integration/io/shell-script-runner.ts';
 import { createFileLocker } from '@src/integration/io/file-locker.ts';
@@ -80,7 +82,8 @@ import type { ImplementDeps } from '@src/application/flows/implement/deps.ts';
 import type { RepoExecConfig } from '@src/application/flows/implement/flow.ts';
 import { buildWaveBranches, createFoldQueue, worktreePathFor } from '@src/application/flows/implement/wave-branch.ts';
 import { startNextAttempt } from '@src/domain/entity/task-attempts.ts';
-import { quarantineStashMessage } from '@src/application/flows/implement/leaves/quarantine-blocked-diff.ts';
+import { quarantineStashMessage } from '@src/domain/value/quarantine-stash-message.ts';
+import { decidePriorWork } from '@src/domain/entity/task-prior-work.ts';
 
 import {
   absolutePath,
@@ -96,6 +99,11 @@ import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import { noopSkillsAdapter, emptySkillSource } from '@tests/fixtures/skills-fakes.ts';
 import { noopAgentDefinitionAdapter } from '@tests/fixtures/agent-definition-fakes.ts';
 import { createFakeProject, type FakeProject } from '@tests/helpers/fake-project.ts';
+import type { TraceEntry } from '@src/application/chain/trace.ts';
+
+// A failed run names each entry's error, so a one-off load flake shows which git call broke.
+const describeTrace = (trace: readonly TraceEntry[]): string =>
+  trace.map((e) => `${e.elementName}:${e.status}${e.error !== undefined ? ` — ${e.error.message}` : ''}`).join('\n');
 
 // ─── skip on Windows — worktrees are posix-heavy ────────────────────────────
 if (process.platform === 'win32') {
@@ -108,7 +116,14 @@ if (process.platform === 'win32') {
 
 function runTests(): void {
   // ─── Shared constants ──────────────────────────────────────────────────────
-  const SPRINT_BRANCH = 'ralphctl/test-sprint';
+  // Every sprint here shares one id so the sprint branch is the auto-named one the flow would pick:
+  // a worktree ref nested under it fails `worktree add` on real git.
+  const E2E_SPRINT_ID = makePlannedSprint().id;
+  const makeE2eSprint = (overrides: Parameters<typeof makePlannedSprint>[0]): ReturnType<typeof makePlannedSprint> => ({
+    ...makePlannedSprint(overrides),
+    id: E2E_SPRINT_ID,
+  });
+  const SPRINT_BRANCH = generateBranchName(E2E_SPRINT_ID);
   const FAKE_PROJECT_ID = 'proj-parallel-realgit';
   const FAKE_PROJECT_SLUG = slug('proj-parallel-realgit');
 
@@ -309,7 +324,10 @@ function runTests(): void {
     cleanup(): Promise<void>;
   }
 
-  const buildParallelFixture = async (extraSeed: Readonly<Record<string, string>> = {}): Promise<ParallelFixture> => {
+  const buildParallelFixture = async (
+    extraSeed: Readonly<Record<string, string>> = {},
+    sprintBranch: string = SPRINT_BRANCH
+  ): Promise<ParallelFixture> => {
     const repo = await createFakeProject({
       seed: {
         'README.md': '# parallel-test-repo\n',
@@ -319,7 +337,7 @@ function runTests(): void {
     });
 
     // Create and check out the sprint branch in the real repo.
-    await repo.git('checkout', '-b', SPRINT_BRANCH);
+    await repo.git('checkout', '-b', sprintBranch);
 
     // Directory for ralphctl state (sprint dir, locks, etc.)
     const raw = await fs.mkdtemp(join(tmpdir(), 'ralphctl-parallel-state-'));
@@ -476,7 +494,7 @@ function runTests(): void {
 
       // ── Domain fixtures ────────────────────────────────────────────────
       const ticket = makeApprovedTicket({ title: 'parallel-test-ticket' });
-      const sprint = makePlannedSprint({ tickets: [ticket] });
+      const sprint = makeE2eSprint({ tickets: [ticket] });
       // Pre-set the sprint branch so resolveBranchLeaf takes the resume path without prompting.
       const execution = setExecutionBranch(createSprintExecution({ sprintId: sprint.id }), SPRINT_BRANCH);
 
@@ -627,7 +645,7 @@ function runTests(): void {
 
       // ── Assert runner completed ────────────────────────────────────────
       if (runner.status !== 'completed') {
-        const trace = runner.trace.map((e) => `${e.elementName}:${e.status}`).join('\n');
+        const trace = describeTrace(runner.trace);
         throw new Error(`Runner status is '${runner.status}' — expected 'completed'.\nTrace:\n${trace}`);
       }
       expect(runner.status).toBe('completed');
@@ -709,7 +727,7 @@ function runTests(): void {
       //
       // The recording shell spy intercepts every `shellScriptRunner.run()` call:
       //   - 1 call from the prologue's `setupScriptRunnerLeaf` (main repo, cwd = repoPath)
-      //   - 3 calls from `wave-branch.ts` `runWorktreeSetupScript` (one per task, each in its
+      //   - 3 calls from `worktree-setup.ts` `runWorktreeSetupScript` (one per task, each in its
       //     own worktree directory)
       // Total = 4. The 3 worktree calls prove per-worktree setup ran inside each worktree, NOT
       // in the main repo root. Setup running in the wrong cwd would be a regression: the worktree
@@ -749,7 +767,7 @@ function runTests(): void {
       const progressPath = ap(fixture.progressFile);
 
       const ticket = makeApprovedTicket({ title: 'abort-test-ticket' });
-      const sprint = makePlannedSprint({ tickets: [ticket] });
+      const sprint = makeE2eSprint({ tickets: [ticket] });
       const execution = setExecutionBranch(createSprintExecution({ sprintId: sprint.id }), SPRINT_BRANCH);
 
       // Two independent tasks — wave 0 = {A, B}. We abort after the worktrees are set up.
@@ -920,7 +938,7 @@ function runTests(): void {
       await fixture.repo.git('commit', '-m', 'chore: seed shared.txt');
 
       const ticket = makeApprovedTicket({ title: 'conflict-test-ticket' });
-      const sprint = makePlannedSprint({ tickets: [ticket] });
+      const sprint = makeE2eSprint({ tickets: [ticket] });
       const execution = setExecutionBranch(createSprintExecution({ sprintId: sprint.id }), SPRINT_BRANCH);
 
       // Two tasks in wave 0 (no dependency edge between them) targeting the same repo.
@@ -1066,7 +1084,7 @@ function runTests(): void {
 
       // Runner must complete (never error/abort) — a fold conflict is a domain block, not a chain failure.
       if (runner.status !== 'completed') {
-        const trace = runner.trace.map((e) => `${e.elementName}:${e.status}`).join('\n');
+        const trace = describeTrace(runner.trace);
         throw new Error(`Runner status is '${runner.status}' — expected 'completed'.\nTrace:\n${trace}`);
       }
       expect(runner.status).toBe('completed');
@@ -1146,8 +1164,8 @@ function runTests(): void {
       // the ref so that verified, committed work stays reachable for manual recovery instead of
       // going straight to reflog-only until GC.
       const branchListRaw = execSync(`git -C "${repoPath}" branch -a`, { encoding: 'utf8' });
-      expect(branchListRaw).not.toContain(`wt-${String(doneTask?.id)}`);
-      expect(branchListRaw).toContain(`wt-${String(blockedTask?.id)}`);
+      expect(branchListRaw).not.toContain(gitWorktreeRef(String(sprint.id), String(doneTask?.id)));
+      expect(branchListRaw).toContain(gitWorktreeRef(String(sprint.id), String(blockedTask?.id)));
 
       // The retained ref must be a real, resolvable ref carrying the blocked task's own (unlanded)
       // commit — not a dangling name left over from a partial cleanup.
@@ -1194,7 +1212,7 @@ function runTests(): void {
       const progressPath = ap(fixture.progressFile);
 
       const ticket = makeApprovedTicket({ title: 'quarantine-round-trip-ticket' });
-      const sprint = makePlannedSprint({ tickets: [ticket] });
+      const sprint = makeE2eSprint({ tickets: [ticket] });
       const execution = setExecutionBranch(createSprintExecution({ sprintId: sprint.id }), SPRINT_BRANCH);
 
       const taskA = makeTodoTask({
@@ -1307,7 +1325,7 @@ function runTests(): void {
 
       await runner.start();
       if (runner.status !== 'completed') {
-        const trace = runner.trace.map((e) => `${e.elementName}:${e.status}`).join('\n');
+        const trace = describeTrace(runner.trace);
         throw new Error(`Runner status is '${runner.status}' — expected 'completed'.\nTrace:\n${trace}`);
       }
 
@@ -1341,8 +1359,11 @@ function runTests(): void {
       // ── The recovery pointer was persisted on each blocked task ───────
       const blockedA = afterRound1.find((t) => t.id === taskA.id) as BlockedTask;
       const blockedB = afterRound1.find((t) => t.id === taskB.id) as BlockedTask;
-      expect(blockedA.blockedReason).toContain(messageA);
-      expect(blockedB.blockedReason).toContain(messageB);
+      expect(blockedA.quarantinedDiff?.stashMessage).toBe(messageA);
+      expect(blockedB.quarantinedDiff?.stashMessage).toBe(messageB);
+      // Measured from the worktree inside the stash mutex, before the worktree was removed.
+      expect(blockedA.quarantinedDiff?.entries).toBe(1);
+      expect(blockedA.quarantinedDiff?.stat?.files).toBeGreaterThan(0);
 
       // ── Relaunch: unblock both tasks and rebuild the SAME wave through the SAME production
       // `buildWaveBranches` call. The relaunch provider writes NOTHING — it only signals success —
@@ -1351,6 +1372,8 @@ function runTests(): void {
       const unblockedB = unblockTask(blockedB);
       if (!unblockedA.ok) throw unblockedA.error;
       if (!unblockedB.ok) throw unblockedB.error;
+      // The pointer survives the clean restart that strips blockedReason.
+      expect(unblockedA.value.quarantinedDiff?.stashMessage).toBe(messageA);
       await taskStore.repo.update(sprint.id, unblockedA.value);
       await taskStore.repo.update(sprint.id, unblockedB.value);
 
@@ -1391,7 +1414,7 @@ function runTests(): void {
       await Promise.all(relaunchRunners.map((r) => r.start()));
       for (const r of relaunchRunners) {
         if (r.status !== 'completed') {
-          const trace = r.trace.map((e) => `${e.elementName}:${e.status}`).join('\n');
+          const trace = describeTrace(r.trace);
           throw new Error(
             `Relaunch runner '${r.id}' status is '${r.status}' — expected 'completed'.\nTrace:\n${trace}`
           );
@@ -1463,7 +1486,7 @@ function runTests(): void {
       const fixture = await buildParallelFixture();
       cleanupFns.push(() => fixture.cleanup());
       const ticket = makeApprovedTicket({ title: `${name}-ticket` });
-      const sprint = makePlannedSprint({ tickets: [ticket] });
+      const sprint = makeE2eSprint({ tickets: [ticket] });
       const task = makeTodoTask({ name, order: 1, ticketId: ticket.id, repositoryId: FIXED_REPOSITORY_ID });
       const marker = `${String(task.id)}-rejected.txt`;
       const content = `rejected diff belonging to ${String(task.id)}\n`;
@@ -1655,6 +1678,54 @@ function runTests(): void {
       expect(await listWorktrees(fixture.repo.path)).toStrictEqual([fixture.repo.path]);
     }, 120_000);
 
+    it('a fresh start chosen at unblock leaves the quarantined diff untouched in its stash and lands only new work', async () => {
+      const quarantinedSeed = await seedQuarantinedTask('relaunch-fresh');
+      const { fixture, marker, content, message } = quarantinedSeed;
+      if (quarantinedSeed.task.status !== 'todo') throw new Error('test setup: expected a todo task');
+      const task = decidePriorWork(quarantinedSeed.task, { choice: 'fresh', stashMessage: message }, FIXED_NOW);
+      const seeded = { ...quarantinedSeed, task };
+      const stashBefore = await fixture.repo.git('stash', 'list', '--format=%H %s');
+      const markerSeenByGenerator: boolean[] = [];
+      const provider: HeadlessAiProvider = {
+        async generate(session: AiSession): Promise<Result<ProviderOutput, DomainError>> {
+          const isEvaluate = session.prompt.includes(MARKERS.evaluate);
+          if (!isEvaluate) {
+            markerSeenByGenerator.push(
+              await fs
+                .access(join(String(session.cwd), marker))
+                .then(() => true)
+                .catch(() => false)
+            );
+            await fs.writeFile(join(String(session.cwd), 'fresh-work.txt'), 'started over\n', 'utf8');
+          }
+          const signals: HarnessSignal[] = isEvaluate ? [evaluationPassed()] : [taskVerified('rebuilt from scratch')];
+          const wrote = await writeJsonAtomic(String(session.signalsFile), signals);
+          if (!wrote.ok) return Result.error(wrote.error) as Result<ProviderOutput, DomainError>;
+          return Result.ok({ signalsFile: session.signalsFile, exitCode: 0 }) as Result<ProviderOutput, DomainError>;
+        },
+      };
+
+      const { status, taskStore } = await runSingleBranch(
+        seeded,
+        provider,
+        markerAwareShell(marker, () => true),
+        branchExecution(seeded.sprint)
+      );
+
+      expect(status).toBe('completed');
+      const settled = taskStore.tasks().find((t) => t.id === task.id);
+      expect(settled?.status).toBe('done');
+      expect(settled?.attempts.at(-1)?.priorWork).toStrictEqual({ kind: 'kept-by-choice', stashMessage: message });
+      expect(markerSeenByGenerator).toStrictEqual([false]);
+      // The entry is byte-for-byte the one quarantined before the run.
+      expect(await fixture.repo.git('stash', 'list', '--format=%H %s')).toBe(stashBefore);
+      expect(await stashedMarker(fixture.repo, marker)).toBe(content);
+      const committed = await fixture.repo.git('log', '--name-only', '--format=%H', SPRINT_BRANCH);
+      expect(committed).toContain('fresh-work.txt');
+      expect(committed).not.toContain(marker);
+      expect(await fs.readFile(fixture.progressFile, 'utf8')).toContain('kept in git stash by operator choice');
+    }, 120_000);
+
     it('with an older entry still under the same key, an abort after the restore puts the newer diff back too', async () => {
       const seeded = await seedQuarantinedTask('relaunch-abort-two-entries');
       const { fixture, task, marker: olderMarker, content: olderContent, message } = seeded;
@@ -1802,7 +1873,7 @@ function runTests(): void {
       const fixture = await buildParallelFixture({ [LOCK]: 'lock v1\n' });
       cleanupFns.push(() => fixture.cleanup());
       const ticket = makeApprovedTicket({ title: 'setup-tree-ticket' });
-      const sprint = makePlannedSprint({ tickets: [ticket] });
+      const sprint = makeE2eSprint({ tickets: [ticket] });
       const execution = setExecutionBranch(createSprintExecution({ sprintId: sprint.id }), SPRINT_BRANCH);
       const tasks = [
         makeTodoTask({ name: 'task-one', order: 1, ticketId: ticket.id, repositoryId: FIXED_REPOSITORY_ID }),
@@ -1960,11 +2031,11 @@ function runTests(): void {
     const WIP = 'interrupted-wip.txt';
 
     /** One task plus its `wt-<task>` worktree, left on disk with uncommitted work in it. */
-    const seedStranded = async (interrupted: boolean) => {
-      const fixture = await buildParallelFixture();
+    const seedStranded = async (interrupted: boolean, legacy?: { readonly sprintBranch: string }) => {
+      const fixture = await buildParallelFixture({}, legacy?.sprintBranch);
       cleanupFns.push(() => fixture.cleanup());
       const ticket = makeApprovedTicket({ title: 'stranded-ticket' });
-      const sprint = makePlannedSprint({ tickets: [ticket] });
+      const sprint = makeE2eSprint({ tickets: [ticket] });
       const todo = makeTodoTask({ name: 'stranded', order: 1, ticketId: ticket.id, repositoryId: FIXED_REPOSITORY_ID });
       let task: Task = todo;
       if (interrupted) {
@@ -1973,7 +2044,8 @@ function runTests(): void {
         task = running.value;
       }
       const worktree = String(worktreePathFor(ap(fixture.sprintDir), task.id));
-      await fixture.repo.git('worktree', 'add', '-b', gitWorktreeRef(String(sprint.id), String(task.id)), worktree);
+      const refOf = legacy !== undefined ? legacyGitWorktreeRef : gitWorktreeRef;
+      await fixture.repo.git('worktree', 'add', '-b', refOf(String(sprint.id), String(task.id)), worktree);
       await fs.writeFile(join(worktree, WIP), 'half-done work from the interrupted attempt\n', 'utf8');
       return { fixture, sprint, task, worktree };
     };
@@ -2020,8 +2092,11 @@ function runTests(): void {
       await runner.start();
       // A block raised before the subchain rides the branch ctx; the wave merge persists it.
       const settled = runner.ctx.tasks?.find((t) => t.id === task.id) ?? taskStore.tasks()[0];
-      return { status: runner.status, settled };
+      return { status: runner.status, settled, taskStore };
     };
+
+    const refsOf = async (repo: FakeProject): Promise<string[]> =>
+      (await repo.git('for-each-ref', '--format=%(refname:short)', 'refs/heads/')).split('\n').filter(Boolean);
 
     it('adopts the worktree for a task with an interrupted attempt and lands the work it held', async () => {
       const seeded = await seedStranded(true);
@@ -2047,6 +2122,47 @@ function runTests(): void {
       expect(blocked.blockedReason).toContain(`git worktree remove --force ${seeded.worktree}`);
       expect(await fs.readFile(join(seeded.worktree, WIP), 'utf8')).toContain('half-done');
       expect(await countCommitsOnBranch(seeded.fixture.repo.path, SPRINT_BRANCH)).toBe(1);
+    }, 120_000);
+
+    it('adopts a worktree an older run left on the legacy-shaped ref, under the new ref name', async () => {
+      // Legacy refs only exist next to a custom-named sprint branch: the auto-named one blocks them.
+      const sprintBranch = 'feature/custom-sprint';
+      const seeded = await seedStranded(true, { sprintBranch });
+      const { status, settled } = await runBranch(seeded);
+
+      expect(status).toBe('completed');
+      expect((settled as BlockedTask | undefined)?.blockedReason).toBeUndefined();
+      expect(settled?.status).toBe('done');
+      const landed = await getCommitFiles(seeded.fixture.repo.path, sprintBranch);
+      expect(landed).toContain(WIP);
+      expect(landed).toContain('resumed-output.txt');
+      expect(await refsOf(seeded.fixture.repo)).toStrictEqual([sprintBranch, 'main']);
+    }, 120_000);
+
+    it('moves a kept ref with unlanded commits aside, journals it, and still runs the task', async () => {
+      const fixture = await buildParallelFixture();
+      cleanupFns.push(() => fixture.cleanup());
+      const ticket = makeApprovedTicket({ title: 'kept-ref-ticket' });
+      const sprint = makeE2eSprint({ tickets: [ticket] });
+      const task = makeTodoTask({ name: 'kept', order: 1, ticketId: ticket.id, repositoryId: FIXED_REPOSITORY_ID });
+      // What a fold conflict leaves behind: the task's verified commit, on its ref and nowhere else.
+      const keptRef = gitWorktreeRef(String(sprint.id), String(task.id));
+      await fixture.repo.git('checkout', '-q', '-b', keptRef);
+      await fixture.repo.writeFile('verified-earlier.txt', 'verified work the fold never landed\n');
+      await fixture.repo.git('add', 'verified-earlier.txt');
+      await fixture.repo.git('commit', '-q', '-m', 'feat: verified earlier');
+      const keptSha = (await fixture.repo.git('rev-parse', 'HEAD')).trim();
+      await fixture.repo.git('checkout', '-q', SPRINT_BRANCH);
+
+      const { status, settled } = await runBranch({ fixture, sprint, task, worktree: '' });
+
+      expect(status).toBe('completed');
+      expect(settled?.status).toBe('done');
+      const rescueRef = gitRescueRef(String(sprint.id), String(task.id), FIXED_LATER);
+      expect((await fixture.repo.git('rev-parse', rescueRef)).trim()).toBe(keptSha);
+      expect(await refsOf(fixture.repo)).toStrictEqual(['main', SPRINT_BRANCH, rescueRef].sort());
+      const journal = await fs.readFile(fixture.progressFile, 'utf8');
+      expect(journal).toContain(`were not on the sprint branch — moved to \`${rescueRef}\``);
     }, 120_000);
   });
 }

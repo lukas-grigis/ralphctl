@@ -17,10 +17,10 @@ implemented in a single session, and verified end-to-end against its criteria.
 - The change spans multiple repositories — one task per repo, connected via `blockedBy`.
 
 **Fold trivial cases into the task that needs them** rather than giving them their own entry: a
-`blockedBy` chain added for no real code reason, one task per file modification, or a
+`blockedBy` chain added for no real code or shared-file reason, one task per file modification, or a
 micro-refactor (add a directive, remove an import) — merge each into the task it serves instead of
 splitting it out.
 
 **Soft ceiling, not a target:** if a task will touch more than ~10 files or ~500 lines of
-meaningful change AND a natural split point exists, split it. No natural split point? Keep it
+meaningful change and a natural split point exists, split it. No natural split point? Keep it
 whole.

@@ -3,14 +3,14 @@ Each task entry uses these fields:
 - **`id`** — short, stable string used only for `blockedBy` references within this array (e.g.
   `"1"`, `"T1"`, `"api-shape"`).
 - **`name`** — imperative verb phrase, short (e.g. `"Wire CSV export endpoint"`).
-- **`description`** — optional longer-form context; include only when `name` leaves important
-  ambiguity.
+- **`description`** — one or two sentences on the problem this task solves and why; skip it only when
+  `name` already says both.
 - **`projectPath`** — absolute path matching exactly one of the repositories listed under
   `<repositories>`.
 - **`steps`** — concrete, ordered implementation steps. Don't end steps with "run the
   verification commands" or "run all the checks" — verification belongs in `verificationCriteria`;
   the harness and the evaluator execute it. A final step that re-runs the full suite only
-  duplicates the post-task gate and inflates generator cost. Exception: a step MAY run a specific
+  duplicates the post-task gate and inflates generator cost. Exception: a step may run a specific
   check when a later step depends on its output (e.g. "run the migration dry-run and confirm the
   schema diff before writing the rollback script").
 - **`verificationCriteria`** — array of structured criteria the evaluator grades PASS / FAIL:

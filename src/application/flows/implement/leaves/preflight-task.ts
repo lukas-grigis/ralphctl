@@ -13,7 +13,8 @@ import type { InteractivePrompt } from '@src/business/interactive/prompt.ts';
 import { AbortError } from '@src/domain/value/error/abort-error.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf, type LeafOpts } from '@src/application/chain/build/leaf.ts';
-import { gitResetHard, gitStashPush, gitStatusPorcelain } from '@src/integration/io/git-operations.ts';
+import { gitResetHard, gitStatusPorcelain } from '@src/integration/io/git-operations.ts';
+import { gitStashPush } from '@src/integration/io/git-stash.ts';
 import type { GitRunner } from '@src/integration/io/git-runner.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 
@@ -45,6 +46,8 @@ export interface DirtyTreeMenuOpts {
   readonly question?: DirtyTreeQuestion;
   /** Replaces Keep's default description (the resume copy says what Keep means for an interrupted attempt). */
   readonly keepDescription?: string;
+  /** Replaces Reset's default description (the resume copy warns when Reset destroys the only copy of restored work). */
+  readonly resetDescription?: string;
 }
 
 /**
@@ -72,7 +75,7 @@ export const dirtyTreeMenu = (
         {
           label: 'Reset — discard all uncommitted + untracked changes, then proceed',
           value: 'reset',
-          description: 'git reset --hard && git clean -fd',
+          description: opts.resetDescription ?? 'git reset --hard && git clean -fd',
         },
         { label: 'Cancel — abort the implement run', value: 'cancel' },
       ]);
@@ -112,24 +115,21 @@ export const preflightTaskLeaf = (
   };
   const menu = dirtyTreeMenu(deps, { elementName: ELEMENT_NAME, ...menuOpts });
 
-  return leaf<ImplementCtx, PreflightTaskInput, PreflightTaskOutput>(
-    name,
-    {
-      useCase: {
-        execute: async (input) =>
-          preflightTaskUseCase({
-            cwd,
-            gitStatusEntryCount,
-            ...menu,
-            clock: deps.clock,
-            sprintId: input.sprintId,
-            logger: deps.logger,
-            ...(deps.dirtyTreePolicy !== undefined ? { dirtyTreePolicy: deps.dirtyTreePolicy } : {}),
-          }),
-      },
-      input: (ctx) => ({ sprintId: String(ctx.sprintId) }),
-      output: (ctx) => ctx,
+  return leaf<ImplementCtx, PreflightTaskInput, PreflightTaskOutput>(name, {
+    useCase: {
+      execute: async (input) =>
+        preflightTaskUseCase({
+          cwd,
+          gitStatusEntryCount,
+          ...menu,
+          clock: deps.clock,
+          sprintId: input.sprintId,
+          logger: deps.logger,
+          ...(deps.dirtyTreePolicy !== undefined ? { dirtyTreePolicy: deps.dirtyTreePolicy } : {}),
+        }),
     },
-    opts
-  );
+    input: (ctx) => ({ sprintId: String(ctx.sprintId) }),
+    output: (ctx) => ctx,
+    ...opts,
+  });
 };

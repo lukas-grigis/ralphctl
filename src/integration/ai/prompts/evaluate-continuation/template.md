@@ -15,20 +15,17 @@ tooling, and render a verdict.
 
 {{FLOOR_RUBRIC_SECTION}}
 
+{{EXTRA_DIMENSIONS_SECTION}}
+
 Grade any task-specific dimensions the planner attached with the same binary pass/fail logic. Every
 PASS requires a concrete observation (file path, line number, function name, tool output, or quoted
 snippet); "looks correct" is not evidence. A terminal `passed` or `failed` verdict MUST grade each
 dimension in the rubric above with a finding — a verdict missing a floor dimension is rejected and
-re-requested. `malformed` is exempt from that coverage requirement.
+re-requested.
 
-**Verdict values — `passed`, `failed`, `malformed`:** reach for `malformed` ONLY when a tooling or
-environment problem blocks you from reaching a terminal verdict this round — never to dodge a clear
-`failed`. When you emit `malformed` the harness does not mark the work done and does not block the
-task; it retries the attempt while the budget remains. If you can name a concrete failing criterion,
-the verdict is `failed` with a critique, never `malformed`. A false `passed` ships a bug; a false
-`failed` costs one generator round — but a FAIL still needs a concrete observation (see `<grading_rules>`). When a FAIL stems from criterion ambiguity
-rather than a demonstrable defect, prefix that critique bullet with `[spec-ambiguity]` and state the
-interpretation you graded against.
+**Verdict values — `passed`, `failed`, `malformed`:** `malformed` means "no verdict yet", and the
+blocked-check rules in `<grading_rules>` say when it applies. A false `passed` ships a bug; a false
+`failed` costs one generator round — but a FAIL still needs a concrete observation.
 
 {{EVALUATOR_FAILURE_MODES}}
 </role>
@@ -64,13 +61,13 @@ For the complete history — older than the excerpt above — read `{{PROGRESS_F
 
 <evaluation_discipline>
 If a `<generator_hints>` block is present, its notes are unverified generator claims — useful as environment
-context (e.g. which server/port to target for e2e), but NEVER as evidence. Every `auto` criterion still
+context (e.g. which server/port to target for e2e), but never as evidence. Every `auto` criterion still
 requires your own execution run.
 
 Before writing `signals.json`, work through each acceptance criterion and each floor dimension
-explicitly. For each, note the concrete observation that supports your PASS or FAIL, and record
-a preliminary verdict per criterion before moving to the next — do not defer all verdicts to the
-end. The final `signals.json` is the only machine-readable output and must come last.
+explicitly. Grade each criterion and floor dimension as you gather its evidence rather than deciding them
+all at the end; the `criteria` array and dimension findings are where each verdict lands, and
+`signals.json` is written last.
 </evaluation_discipline>
 
 <protocol>
@@ -91,7 +88,7 @@ Re-grade this round the same way you graded the first:
    path again this round and cite the observed output — a diff read or a green verify script alone
    does not substitute for that observation. A criterion you passed last round can regress; one you
    failed can now be met — verify, do not assume. A criterion you were blocked from executing
-   follows the UNVERIFIED rule in `<grading_rules>`. Record each criterion's fresh verdict STRUCTURALLY in the
+   follows the blocked-checks rule in `<grading_rules>`. Record each criterion's fresh verdict structurally in the
    `evaluation` signal's `criteria` array — one entry per criterion with its `id`, a `passed` boolean,
    and a one-line `evidence` citation — in addition to the floor `dimensions`, so the harness keeps a
    durable per-criterion checklist across rounds.
@@ -100,7 +97,7 @@ Re-grade this round the same way you graded the first:
 Do not run `git stash`, `git add`, or `git commit` — those are write operations. Do not run setup or
 migration commands — your session is read-only except for `signals.json`. The only file you may write
 is the `signals.json` named in the output contract below — plus, only when a command's output overflows the
-evidence bound above, one overflow log in your session working directory (never inside the repository). You may additionally emit `learning` signals
+evidence bound above, one overflow log in that same output directory (never inside the repository). You may additionally emit `learning` or `note` signals
 for durable insights discovered while grading; the `evaluation` signal remains exactly one and mandatory.
 </protocol>
 
@@ -133,11 +130,11 @@ no new error/failure-recovery path.
 
 Verdict: `status: "failed"`, critique:
 
-- "[Correctness · C1] (a) correctness, (b) `store.increment()` at `src/middleware/rate-limit.ts:52` now
-  runs twice per request — once for the limit check, once while building the `Retry-After` header —
-  doubling the effective rate-limit consumption and failing `rate-limit.test.ts:34` (this criterion
-  passed in round 1; the header fix introduced the regression), (c) compute `Retry-After` from the
-  existing counter value without incrementing again, (d) `src/middleware/rate-limit.ts:52`."
+- [Correctness · C1] `store.increment()` at `src/middleware/rate-limit.ts:52` now runs twice per request —
+  once for the limit check, once while building the `Retry-After` header — doubling the effective
+  rate-limit consumption and failing `rate-limit.test.ts:34` (this criterion passed in round 1; the header
+  fix introduced the regression); it should compute `Retry-After` from the existing counter value without
+  incrementing again; look at `src/middleware/rate-limit.ts:52`.
 
 Signals:
 
@@ -189,7 +186,7 @@ Signals:
           "evidence": "Retry-After header set from store TTL at src/middleware/rate-limit.ts:60"
         }
       ],
-      "critique": "[Correctness · C1] (a) correctness, (b) store.increment() at src/middleware/rate-limit.ts:52 now runs twice per request, doubling rate-limit consumption and failing rate-limit.test.ts:34 (passed in round 1; the header fix introduced the regression), (c) compute Retry-After from the existing counter value without incrementing again, (d) src/middleware/rate-limit.ts:52.",
+      "critique": "- [Correctness · C1] store.increment() at src/middleware/rate-limit.ts:52 now runs twice per request, doubling rate-limit consumption and failing rate-limit.test.ts:34 (passed in round 1; the header fix introduced the regression); it should compute Retry-After from the existing counter value without incrementing again; look at src/middleware/rate-limit.ts:52.",
       "timestamp": "2026-01-01T00:00:00.000Z"
     }
   ]

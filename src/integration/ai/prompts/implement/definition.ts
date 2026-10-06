@@ -11,10 +11,13 @@ import {
   renderPreVerifyResultsSection,
   renderPriorCritiqueSection,
   renderPriorAttemptsSection,
+  renderPriorCriteriaVerdictsSection,
   renderPriorLearningsSection,
   renderProjectToolingSection,
   renderReproductionSection,
+  renderRestoredWorkSection,
   renderRetryFeedbackSection,
+  type RestoredWorkContext,
   renderTaggedBlock,
   renderTaskDescriptionSection,
   renderTaskStepsSection,
@@ -32,7 +35,7 @@ import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/templat
  * signals plus a `task-complete` signal. The harness runs the verify script itself as the
  * post-task commit gate, after the agent's turn — the agent does not run it as its own
  * evidence source except in the documented no-`auto`-criteria fallback. The harness renders
- * the emitted signals into `progress.md` on the next snapshot — the agent must NOT write to
+ * the emitted signals into `progress.md` on the next snapshot — the agent must not write to
  * the file directly. Every slot below is a typed string the chain leaf renders before
  * calling `buildPrompt`.
  */
@@ -65,14 +68,14 @@ export interface ImplementPromptParams {
   /** Absolute path to `progress.md` for this sprint — `{{PROGRESS_FILE}}`. */
   readonly progressFile: string;
   /**
-   * Current body of `progress.md` substituted into the `## Prior progress` section
-   *. Empty string when the journal file is absent — the template's surrounding
+   * Current body of `progress.md` substituted into the `## Prior progress` section.
+   * Empty string when the journal file is absent — the template's surrounding
    * prose handles the empty case without a per-flow special branch.
    */
   readonly priorProgress: string;
   /**
-   * Markdown body for "## Learnings from prior sprints" — this project's not-yet-promoted ledger
-   * insights (principle 3, read side). Empty string when the ledger is absent / empty so the
+   * Markdown body for "## From prior sprints" — this project's not-yet-promoted ledger
+   * insights, read side. Empty string when the ledger is absent / empty so the
    * surrounding template prose handles the empty case without a per-flow branch.
    */
   readonly priorLearningsSection: string;
@@ -83,7 +86,7 @@ export interface ImplementPromptParams {
    */
   readonly priorCritiqueSection: string;
   /**
-   * "## ⚠ You have plateaued — change your approach" block — empty unless this is a plateau-break
+   * `<plateau_directive>` block ("## You have plateaued — change your approach") — empty unless this is a plateau-break
    * attempt (the gen-eval loop stalled and the escalation policy granted one more attempt). Tells
    * the generator to abandon the non-converging approach and try a fundamentally different one.
    */
@@ -145,6 +148,12 @@ export interface ImplementPromptParams {
    * undefined (empty).
    */
   readonly agentDefinitionSection?: string;
+  /**
+   * `<restored_work>` block — an earlier rejected attempt's uncommitted changes the harness restored into
+   * the working tree, with the critique that rejected them. Absent or empty → `{{RESTORED_WORK_SECTION}}`
+   * collapses cleanly (no orphan wrapper). Default undefined (empty).
+   */
+  readonly restoredWorkSection?: string;
 }
 
 /*
@@ -238,7 +247,7 @@ export const implementPromptDef: PromptDefinition<ImplementPromptParams> = {
     priorLearningsSection: {
       placeholder: 'PRIOR_LEARNINGS',
       description:
-        '"## Learnings from prior sprints" block — this project\'s not-yet-promoted ledger insights; empty when none recorded yet.',
+        '"## From prior sprints" block — this project\'s not-yet-promoted ledger entries (insights and decisions); empty when none recorded yet.',
     },
     priorCritiqueSection: {
       placeholder: 'PRIOR_CRITIQUE_SECTION',
@@ -247,8 +256,7 @@ export const implementPromptDef: PromptDefinition<ImplementPromptParams> = {
     },
     plateauDirectiveSection: {
       placeholder: 'PLATEAU_DIRECTIVE_SECTION',
-      description:
-        '"## ⚠ You have plateaued — change your approach" block — empty unless this is a plateau-break attempt.',
+      description: '`<plateau_directive>` block — empty unless this is a plateau-break attempt.',
     },
     outputContractSection: {
       placeholder: 'OUTPUT_CONTRACT_SECTION',
@@ -267,7 +275,7 @@ export const implementPromptDef: PromptDefinition<ImplementPromptParams> = {
     retryFeedbackSection: {
       placeholder: 'RETRY_FEEDBACK_SECTION',
       description:
-        'Failing post-verify command + output tail from the previous attempt — empty on a first attempt or when the prior post-verify passed.',
+        '`<retry_feedback>` block: failing post-verify command + output tail from the previous attempt — empty on a first attempt or when the prior post-verify passed.',
     },
     priorEpisodesSection: {
       placeholder: 'PRIOR_EPISODES',
@@ -282,6 +290,7 @@ export const implementPromptDef: PromptDefinition<ImplementPromptParams> = {
       description:
         'Summaries of the most instructive prior attempts on this task (select-K slice) with their ' +
         'verification outcomes. Empty → `{{PRIOR_ATTEMPTS_SECTION}}` collapses (no `<prior_attempts>` wrapper).',
+      untrusted: { source: 'summaries of earlier attempts by AI sessions' },
     },
     reproductionSection: {
       placeholder: 'REPRODUCTION_SECTION',
@@ -289,13 +298,21 @@ export const implementPromptDef: PromptDefinition<ImplementPromptParams> = {
       description:
         'Failing reproduction test a prior `reproduce` session wrote for this defect-shaped task — test ' +
         'path, run command, observed failure. Empty → `{{REPRODUCTION_SECTION}}` collapses (no `<reproduction>` wrapper).',
+      untrusted: { source: "an earlier AI session's test run" },
     },
     priorCriteriaVerdictsSection: {
       placeholder: 'PRIOR_CRITERIA_VERDICTS',
       optional: true,
       description:
-        'Durable per-criterion k-of-N checklist carried across rounds (`Task.criteriaVerdicts`), rendered ' +
-        'by `composeCriteriaHistory`. Empty (no criterion graded yet) → `{{PRIOR_CRITERIA_VERDICTS}}` collapses.',
+        '`<prior_criteria_verdicts>` block: durable per-criterion k-of-N checklist carried across rounds ' +
+        '(`Task.criteriaVerdicts`, via `composeCriteriaHistory`). Empty (none graded yet) → collapses.',
+    },
+    restoredWorkSection: {
+      placeholder: 'RESTORED_WORK_SECTION',
+      optional: true,
+      description:
+        "`<restored_work>` block: an earlier rejected attempt's uncommitted changes the harness restored into " +
+        'the working tree, plus the critique that rejected them. Empty → collapses (no orphan wrapper).',
     },
     agentDefinitionSection: {
       placeholder: 'AGENT_DEFINITION_SECTION',
@@ -311,6 +328,8 @@ export const implementPromptDef: PromptDefinition<ImplementPromptParams> = {
     PARALLEL_TOOL_CALLS: 'parallel-tool-calls',
     EVIDENCE_BOUND: 'evidence-bound',
     DECISIONS_GUIDANCE: 'decisions',
+    GIT_BOUNDARY: 'git-boundary',
+    TASK_BLOCKED: 'task-blocked',
   },
   // Documents the harness signals the implement response is expected to carry. Validation is
   // not enforced at parse time — this list drives test authors and future scoped parsers.
@@ -338,7 +357,7 @@ export interface BuildImplementPromptInput {
   /** Current `progress.md` body — inlined into the prompt's "## Prior progress" section. */
   readonly priorProgress: string;
   /**
-   * Pre-composed "## Learnings from prior sprints" body — this project's not-yet-promoted ledger
+   * Pre-composed "## From prior sprints" body — this project's not-yet-promoted ledger
    * insights (principle 3, read side). Absent or empty → the `{{PRIOR_LEARNINGS}}` placeholder
    * collapses cleanly. Built application-side by `composePriorLearnings` and passed in by the leaf.
    */
@@ -409,6 +428,8 @@ export interface BuildImplementPromptInput {
    * Absent or empty → `{{AGENT_DEFINITION_SECTION}}` collapses cleanly with no orphan heading.
    */
   readonly agentDefinition?: string;
+  /** Restored-work context for a relaunch after an operator unblock; absent → no `<restored_work>` block. */
+  readonly restoredWork?: RestoredWorkContext;
 }
 
 /**
@@ -417,7 +438,10 @@ export interface BuildImplementPromptInput {
  * empty — no XML wrapper is emitted.
  */
 const renderPriorEpisodesSection = (summary: string | undefined): string =>
-  renderTaggedBlock('prior_task_episodes', summary);
+  renderTaggedBlock('prior_task_episodes', summary, [
+    "Summaries of earlier tasks' outcomes in this sprint, for continuity — read them and do not redo work they",
+    'already cover.',
+  ]);
 
 /**
  * Top-level builder — accepts domain types, renders the param strings, calls `buildPrompt`.
@@ -450,9 +474,12 @@ export const buildImplementPrompt = async (
     reproductionSection: renderReproductionSection(input.reproduction),
     // Derived from the task itself (which already rides `input.task`) — the durable per-criterion
     // verdict map is a task field, so no leaf needs to pre-compose or thread it. Empty → collapses.
-    priorCriteriaVerdictsSection: composeCriteriaHistory({
-      verificationCriteria: input.task.verificationCriteria,
-      verdicts: input.task.criteriaVerdicts,
-    }),
+    priorCriteriaVerdictsSection: renderPriorCriteriaVerdictsSection(
+      composeCriteriaHistory({
+        verificationCriteria: input.task.verificationCriteria,
+        verdicts: input.task.criteriaVerdicts,
+      })
+    ),
     agentDefinitionSection: renderAgentDefinitionSection(input.agentDefinition),
+    restoredWorkSection: renderRestoredWorkSection(input.restoredWork),
   });

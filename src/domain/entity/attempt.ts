@@ -1,5 +1,6 @@
 import { Result } from '@src/domain/result.ts';
 import type { CommitSha } from '@src/domain/value/commit-sha.ts';
+import type { DiffStat } from '@src/domain/value/diff-stat.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import { parseRequiredString } from '@src/domain/value/parsers/parse-required-string.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
@@ -213,6 +214,21 @@ export interface VerifyRun {
  */
 export type Attribution = 'clean' | 'regressed' | 'baseline-broken' | 'fixed-baseline';
 
+/** Why `restore-blocked-diff` left a quarantined diff in its stash although the operator wanted it back. */
+export type PriorWorkNotRestoredReason =
+  'dirty-tree' | 'tree-probe-failed' | 'pop-failed' | 'pop-failed-tree-unverified' | 'stash-list-failed';
+
+/** What `restore-blocked-diff` did with the task's quarantined diff before the attempt's first turn. */
+export type PriorWorkOutcome =
+  | { readonly kind: 'restored'; readonly stashMessage: string; readonly stat?: DiffStat }
+  | { readonly kind: 'kept-by-choice'; readonly stashMessage: string }
+  | {
+      readonly kind: 'not-restored';
+      readonly stashMessage: string;
+      readonly reason: PriorWorkNotRestoredReason;
+      readonly uncommittedPaths?: number;
+    };
+
 interface AttemptBase {
   readonly n: number;
   readonly startedAt: IsoTimestamp;
@@ -290,6 +306,8 @@ interface AttemptBase {
    * field existed.
    */
   readonly durationMs?: number;
+  /** Restore outcome for the task's quarantined diff. Absent when there was nothing to restore. */
+  readonly priorWork?: PriorWorkOutcome;
 }
 
 export interface RunningAttempt extends AttemptBase {

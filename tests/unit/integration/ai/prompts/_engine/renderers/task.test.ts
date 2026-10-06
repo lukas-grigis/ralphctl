@@ -2,6 +2,12 @@ import { describe, expect, it } from 'vitest';
 import type { Task } from '@src/domain/entity/task.ts';
 import {
   renderContractMd,
+  renderPlateauDirectiveSection,
+  renderPriorCriteriaVerdictsSection,
+  renderPriorLearningsSection,
+  renderReproductionSection,
+  renderRestoredWorkSection,
+  renderRetryFeedbackSection,
   renderTicketRefsSubjectSuffix,
   renderVerificationCriteriaSection,
 } from '@src/integration/ai/prompts/_engine/renderers/task.ts';
@@ -99,5 +105,81 @@ describe('renderTicketRefsSubjectSuffix', () => {
 
   it('returns empty when every entry is whitespace-only', () => {
     expect(renderTicketRefsSubjectSuffix(['  ', '\t', ''])).toBe('');
+  });
+});
+
+describe('renderPriorLearningsSection', () => {
+  it('emits a neutral heading and the rows — no weighting prose', () => {
+    const out = renderPriorLearningsSection('- insight one\n- decision two');
+    expect(out).toBe('## From prior sprints\n\n- insight one\n- decision two');
+    expect(out).not.toContain('orientation, not instructions');
+  });
+
+  it('collapses to empty when absent or blank', () => {
+    expect(renderPriorLearningsSection(undefined)).toBe('');
+    expect(renderPriorLearningsSection('  ')).toBe('');
+  });
+});
+
+describe('renderReproductionSection', () => {
+  it('says the test is uncommitted on purpose', () => {
+    const out = renderReproductionSection('Test: tests/a.test.ts').replace(/\s+/g, ' ');
+    expect(out).toContain('uncommitted in the working tree on purpose');
+    expect(out).toContain('the harness commits it with your work');
+  });
+});
+
+describe('renderRestoredWorkSection', () => {
+  it('is empty when there is no restored work', () => {
+    expect(renderRestoredWorkSection(undefined)).toBe('');
+  });
+
+  it('states the size and carries the rejecting critique verbatim', () => {
+    const out = renderRestoredWorkSection({
+      stat: { files: 5, insertions: 142, deletions: 38 },
+      critique: '  - [correctness] missing null check at src/a.ts:4  ',
+    }).replace(/\s+/g, ' ');
+    expect(out).toContain('5 files, +142 -38 lines');
+    expect(out).toContain('a draft to check against the contract');
+    expect(out).toContain('The critique that rejected them: - [correctness] missing null check at src/a.ts:4');
+  });
+
+  it('wraps the body in its own tag so an absent block leaves no orphan wrapper', () => {
+    const out = renderRestoredWorkSection({ critique: 'x' });
+    expect(out.startsWith('<restored_work>\n')).toBe(true);
+    expect(out.endsWith('\n</restored_work>')).toBe(true);
+  });
+
+  it('says no critique was recorded when there is none', () => {
+    const out = renderRestoredWorkSection({ stat: { files: 1, insertions: 2, deletions: 0 } });
+    expect(out).toContain('1 file, +2 -0 lines');
+    expect(out).toContain('No critique of them was recorded');
+    expect(out).not.toContain('The critique that rejected them');
+  });
+});
+
+describe('empty-block prefaces', () => {
+  it('render nothing at all when the body is absent', () => {
+    expect(renderRetryFeedbackSection(undefined)).toBe('');
+    expect(renderRetryFeedbackSection('  ')).toBe('');
+    expect(renderPriorCriteriaVerdictsSection('')).toBe('');
+    expect(renderPlateauDirectiveSection(false)).toBe('');
+  });
+
+  it('carry their framing inside the tag when the body is present', () => {
+    expect(renderPriorCriteriaVerdictsSection('- C1: passing')).toMatch(
+      /^<prior_criteria_verdicts>\n.*done-criteria already pass[\s\S]*- C1: passing\n<\/prior_criteria_verdicts>$/
+    );
+  });
+});
+
+describe('renderPlateauDirectiveSection', () => {
+  it('states no counts or caps and keeps no warning glyph or shouting', () => {
+    const out = renderPlateauDirectiveSection(true);
+    expect(out.startsWith('<plateau_directive>')).toBe(true);
+    expect(out).toContain('fundamentally different');
+    expect(out).not.toContain('⚠');
+    expect(out).not.toContain('Do NOT');
+    expect(out).not.toMatch(/\d+ (rounds|attempts)/);
   });
 });

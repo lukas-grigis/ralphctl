@@ -2,21 +2,13 @@ import { promises as fs } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import type { AiSignal } from '@src/domain/signal.ts';
-import type { AiOutputContract } from '@src/integration/ai/contract/_engine/types.ts';
-import { generatorOutputContract } from '@src/application/flows/implement/leaves/generator.contract.ts';
 
 /**
  * Meta-test: the JSON example a `_partials/` body tells the AI to WRITE must itself validate
  * against the contract of the flow whose template includes that partial.
  *
- * Today's only block is a copy-me example, not a shape sketch: `decisions.md` shows the one-line
- * `decision` signal the generator appends.
- *
- * `IsoTimestampSchema` is a branded parse and `defaultMissingTimestamps` only fills a MISSING or
- * empty field, so a non-empty `"<ISO-8601 timestamp>"` reaches the schema unchanged and fails it
- * — which is why the partial carries a concrete ISO-8601 value, matching the worked examples
- * further down their own templates.
+ * No partial carries a copy-me block today (the output contract is the single source of signal
+ * shapes). A partial that adds one must be mapped to its contract below.
  *
  * The directory is enumerated rather than listed, the way
  * `tests/integration/ai/prompts/template-coverage.test.ts` enumerates the prompt flows: a NEW
@@ -40,11 +32,7 @@ const PARTIALS_DIR = join(
 /** Detects a fenced json block; the extraction regex below is global and must stay local. */
 const HAS_JSON_BLOCK = /```json\n/u;
 
-/**
- * One partial's obligation: the flow whose template includes it, and that flow's contract erased
- * to a verdict. `AiOutputContract` is invariant in `TSig`, so a heterogeneous table cannot hold
- * the concrete contracts — same bridge as `flow-signal-compatibility.test.ts`'s `ContractProbe`.
- */
+/** One partial's obligation: the flow whose template includes it, and that flow's contract erased to a verdict. */
 interface PartialContract {
   /** Templates that include the partial — named in the test title. */
   readonly flow: string;
@@ -52,18 +40,8 @@ interface PartialContract {
   readonly rejection: (signals: readonly unknown[]) => string;
 }
 
-const against = <TSig extends AiSignal>(flow: string, contract: AiOutputContract<TSig>): PartialContract => ({
-  flow,
-  rejection: (signals) => {
-    const result = contract.signalsSchema.safeParse(signals);
-    return result.success ? '' : JSON.stringify(result.error.issues);
-  },
-});
-
-/** Partial name (without `.md`) → the contract its json block is copied into. */
-const PARTIAL_CONTRACTS: Readonly<Record<string, PartialContract>> = {
-  decisions: against('implement / implement-continuation', generatorOutputContract),
-};
+/** Partial name (without `.md`) → the contract its json block is copied into. Empty while no partial ships one. */
+const PARTIAL_CONTRACTS: Readonly<Record<string, PartialContract>> = {};
 
 /** First fenced ```json block in a partial body, parsed. */
 const firstJsonBlock = async (partial: string): Promise<unknown> => {

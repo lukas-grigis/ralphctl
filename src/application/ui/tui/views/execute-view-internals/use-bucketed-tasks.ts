@@ -26,6 +26,7 @@ import {
   isInFlightBucket,
   type TaskBucket,
 } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
+import type { FlowProgress } from '@src/application/ui/tui/runtime/flow-progress.ts';
 import type { SessionDescriptor } from '@src/application/ui/tui/runtime/session-manager.ts';
 import { glyphs } from '@src/application/ui/tui/theme/tokens.ts';
 
@@ -34,6 +35,8 @@ interface UseBucketedInput {
   readonly chainEvents: readonly AppEvent[];
   readonly signals: readonly SignalBusEntry[];
   readonly eventBus: EventBus;
+  /** When present its current step names the header locator instead of the raw leaf. */
+  readonly progress?: FlowProgress | undefined;
 }
 
 export interface BucketedDerivation {
@@ -61,7 +64,8 @@ const isCompletedBucket = (t: TaskBucket): boolean => t.status === 'completed';
  */
 const summariseProgress = (
   bucketed: BucketedExecution | undefined,
-  taskNames: ReadonlyMap<string, string> | undefined
+  taskNames: ReadonlyMap<string, string> | undefined,
+  progress: FlowProgress | undefined
 ): Omit<BucketedDerivation, 'bucketed'> => {
   const tasks = bucketed?.tasks ?? [];
   const currentTaskIdx = tasks.findIndex(isInFlightBucket);
@@ -76,7 +80,11 @@ const summariseProgress = (
     currentTask,
     currentTaskIdx,
     currentTaskName,
-    currentSubStep: currentTask?.subSteps[currentTask.subSteps.length - 1]?.leafName,
+    // The projection's label is operator-facing; the raw leaf name is only the fallback for sessions without a plan.
+    currentSubStep:
+      progress !== undefined
+        ? progress.currentStep?.label
+        : currentTask?.subSteps[currentTask.subSteps.length - 1]?.leafName,
   };
 };
 
@@ -85,6 +93,7 @@ export const useBucketedTasks = ({
   chainEvents,
   signals,
   eventBus,
+  progress,
 }: UseBucketedInput): BucketedDerivation => {
   // Stable array of known task ids — only recomputed when the task set itself changes, not on
   // every chain-event or signal flush. Hoisted out of rawBucketed so the [...keys()] spread
@@ -143,5 +152,5 @@ export const useBucketedTasks = ({
     return { ...rawBucketed, tasks };
   }, [rawBucketed, taskRounds]);
 
-  return { bucketed, ...summariseProgress(bucketed, descriptor?.taskNames) };
+  return { bucketed, ...summariseProgress(bucketed, descriptor?.taskNames, progress) };
 };

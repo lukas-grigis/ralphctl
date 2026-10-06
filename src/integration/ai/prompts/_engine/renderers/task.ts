@@ -183,8 +183,8 @@ export const renderTicketRefsSubjectSuffix = (refs: readonly string[] | undefine
  *
  * `trajectory` is an optional pre-composed "## Dimension trajectory" block (built by
  * `composeDimensionTrajectory` from `ctx.plateauHistory`) carrying the failed-dimension feed-forward
- * — which dimensions were fixed / still failing for N rounds / newly failing, plus a plateau-budget
- * pressure line. It rides INSIDE this section so no new template placeholder is needed: the generator
+ * — which dimensions were fixed / still failing for N rounds / newly failing, plus a change-approach
+ * nudge once a dimension keeps failing. It rides INSIDE this section so no new template placeholder is needed: the generator
  * gets both the latest critique prose AND the multi-round trajectory in one block. Empty / absent →
  * not appended.
  *
@@ -248,8 +248,42 @@ export const renderPriorAttemptsSection = (summary: string | undefined): string 
 export const renderReproductionSection = (reproduction: string | undefined): string =>
   renderTaggedBlock('reproduction', reproduction, [
     'A failing reproduction test already exists for this task, written in an earlier session. Make it',
-    'pass without weakening it — do not delete, skip, or loosen its assertions to reach a pass.',
+    'pass without weakening it — do not delete, skip, or loosen its assertions to reach a pass. It is',
+    'uncommitted in the working tree on purpose; leave it there — the harness commits it with your work.',
   ]);
+
+/** Structural shape of the restored-work context — typed here so the prompts module stays free of domain imports. */
+export interface RestoredWorkContext {
+  readonly stat?: { readonly files: number; readonly insertions: number; readonly deletions: number };
+  readonly critique?: string;
+}
+
+/**
+ * Render the `<restored_work>` block — an earlier, rejected attempt's uncommitted changes the harness put
+ * back into the working tree. Absent → empty string, so `{{RESTORED_WORK_SECTION}}` leaves no orphan wrapper.
+ */
+export const renderRestoredWorkSection = (restored: RestoredWorkContext | undefined): string => {
+  if (restored === undefined) return '';
+  const stat = restored.stat;
+  const size =
+    stat === undefined
+      ? ''
+      : ` — ${String(stat.files)} ${stat.files === 1 ? 'file' : 'files'}, +${String(stat.insertions)} -${String(stat.deletions)} lines`;
+  const critique = restored.critique?.trim() ?? '';
+  const intro = [
+    'An earlier attempt at this task was rejected before it was committed. The harness set its uncommitted',
+    `changes aside and has restored them into the working tree${size} — so those are the uncommitted changes`,
+    'you will find. Treat them as a draft to check against the contract, not as accepted work: keep what',
+    'serves the task, and rewrite or revert what does not.',
+  ];
+  if (critique.length === 0) {
+    return renderTaggedBlock(
+      'restored_work',
+      [...intro, 'No critique of them was recorded — judge them against the contract alone.'].join('\n')
+    );
+  }
+  return renderTaggedBlock('restored_work', [...intro, 'The critique that rejected them:', '', critique].join('\n'));
+};
 
 /**
  * Render the optional pre-verify results block injected into the generator prompt. When the
@@ -266,44 +300,39 @@ export const renderPreVerifyResultsSection = (preVerifyOutput: string | undefine
 };
 
 /**
- * Render the optional "## Learnings from prior sprints" section injected into the FULL implement
- * prompt (principle 3, read side). The body is a pre-composed bullet list of this project's
- * not-yet-promoted ledger insights (Insight + optional Applies-to), built application-side by
- * `composePriorLearnings` — kept out of this integration-layer renderer so the layer boundary holds.
- *
- * The framing is deliberately read-only context, NOT a directive: these are observations earned by
- * earlier sprints on this repo (the project's test runner needs X, module Y has hidden coupling Z),
- * surfaced so the generator does not re-pay to re-discover them. Empty / absent → empty string so the
+ * Render the optional "## From prior sprints" section injected into the implement, plan and ideate
+ * prompts (principle 3, read side). The body is a pre-composed bullet list of this project's
+ * not-yet-promoted ledger entries — observed insights and deliberate decisions — built
+ * application-side by `composePriorLearnings`. The heading is neutral: how to weigh each kind is
+ * stated once in the consuming template, not here. Empty / absent → empty string so the
  * `{{PRIOR_LEARNINGS}}` placeholder collapses without an orphan heading.
  */
 export const renderPriorLearningsSection = (priorLearnings: string | undefined): string => {
   if (priorLearnings === undefined) return '';
   const trimmed = priorLearnings.trim();
   if (trimmed.length === 0) return '';
-  return [
-    '## Learnings from prior sprints',
-    '',
-    'These insights were recorded by earlier sprints working on this same project — surfaced so you',
-    'do not re-discover them from scratch. Treat them as orientation, not instructions: verify before',
-    'relying on any that bear on your task.',
-    '',
-    trimmed,
-  ].join('\n');
+  return ['## From prior sprints', '', trimmed].join('\n');
 };
 
 /**
- * Render the optional retry-feedback block injected into the generator prompt when a previous
- * attempt's harness post-verify failed. The block carries the failing command and a tail of its
- * output so the generator can treat fixing that regression as the first priority of this attempt.
- *
- * Empty / absent → empty string so the `{{RETRY_FEEDBACK_SECTION}}` placeholder inside
- * `<retry_feedback>…</retry_feedback>` collapses without leaving a stale tag body in the rendered
- * prompt.
+ * Render the optional `<retry_feedback>` block injected into the generator prompt when a previous
+ * attempt's harness post-verify failed — the failing command and a tail of its output. Empty /
+ * absent → empty string, so no orphan wrapper tag or framing sentence reaches the prompt.
  */
-export const renderRetryFeedbackSection = (retryFeedback: string | undefined): string => {
-  if (retryFeedback === undefined) return '';
-  return retryFeedback.trim();
-};
+export const renderRetryFeedbackSection = (retryFeedback: string | undefined): string =>
+  renderTaggedBlock('retry_feedback', retryFeedback, [
+    "A previous attempt's post-task verify failed — resolve this regression before any other work.",
+  ]);
+
+/**
+ * Render the optional `<prior_criteria_verdicts>` block around the pre-composed per-criterion
+ * checklist (`composeCriteriaHistory`). Empty / absent → empty string.
+ */
+export const renderPriorCriteriaVerdictsSection = (verdicts: string | undefined): string =>
+  renderTaggedBlock('prior_criteria_verdicts', verdicts, [
+    'Which done-criteria already pass. Keep those green; focus this round on the criteria still failing',
+    'rather than re-proving what already passed.',
+  ]);
 
 /**
  * Render the optional "## Agent Definition" section appended strictly AFTER the base
@@ -323,28 +352,29 @@ export const renderAgentDefinitionSection = (agentDefinition: string | undefined
 
 /**
  * "Change your approach" directive injected when this task is a plateau-break attempt — i.e. the
- * gen-eval loop stalled (the same evaluator dimensions kept failing across rounds with no real
- * progress) and the escalation policy granted one more attempt. Empty when not a plateau-break
- * attempt. The point is to break the model out of iterating on a non-converging path: it is told
- * the previous strategy is stuck and to try a fundamentally different one, rather than nudging the
- * same diff again. Pairs with the Prior Critique section (which still carries the specific failing
- * dimensions). Generator-only — the evaluator never sees it (its rubric is held constant).
+ * gen-eval loop stalled (the same evaluator dimensions kept failing across rounds) and the
+ * escalation policy granted one more attempt. Empty when not a plateau-break attempt, so no empty
+ * wrapper tag renders. Deliberately states no round counts or caps: the harness's loop budget is
+ * not exposed to the generator. Pairs with the Prior Critique section (which still carries the
+ * specific failing dimensions). Generator-only — the evaluator never sees it.
  */
 export const renderPlateauDirectiveSection = (plateauBreak: boolean): string => {
   if (!plateauBreak) return '';
-  return [
-    '## ⚠ You have plateaued — change your approach',
-    '',
-    'Earlier attempts at this task stalled: the same checks kept failing across multiple rounds with',
-    'no real progress. Do NOT keep iterating on the previous approach — that path is not converging.',
-    'Step back and rethink. Re-read the task contract and the prior critique, question the assumption',
-    'that led the earlier attempts astray, and implement a **fundamentally different** solution — a',
-    'different design, data flow, or code path. Then verify the failing criteria directly before',
-    'signalling completion.',
-    '',
-    'Before you choose that different approach, name which failure mode you were stuck in —',
-    're-exploring code you already understood, looping on the same failing edit, over-polishing',
-    'criteria that already pass, or fixing the wrong',
-    'location entirely — then change that specific behaviour, not just "try something different."',
-  ].join('\n');
+  return renderTaggedBlock(
+    'plateau_directive',
+    [
+      '## You have plateaued — change your approach',
+      '',
+      'Earlier attempts at this task stalled: the same checks kept failing across multiple rounds with',
+      'no real progress. Step back and rethink. Re-read the task contract and the prior critique, question',
+      'the assumption that led the earlier attempts astray, and implement a **fundamentally different**',
+      'solution — a different design, data flow, or code path. Then verify the failing criteria directly',
+      'before signalling completion.',
+      '',
+      'Before you choose that different approach, name which failure mode you were stuck in —',
+      're-exploring code you already understood, looping on the same failing edit, over-polishing',
+      'criteria that already pass, or fixing the wrong location entirely — then change that specific',
+      'behaviour, not just "try something different."',
+    ].join('\n')
+  );
 };

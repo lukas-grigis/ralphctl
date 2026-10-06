@@ -30,4 +30,6 @@ export const loadProjectLeaf = <TCtx extends LoadProjectCtx>(
     },
     input: (ctx) => ({ id: ctx.projectId }),
     output: (ctx, project) => ({ ...ctx, project }),
+    label: 'Load project',
+    internal: true,
   });

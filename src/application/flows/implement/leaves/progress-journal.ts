@@ -494,4 +494,6 @@ export const progressJournalLeaf = (
       ...ctx,
       ...resetSignalAccumulators(),
     }),
+    label: 'Update journal',
+    internal: true,
   });

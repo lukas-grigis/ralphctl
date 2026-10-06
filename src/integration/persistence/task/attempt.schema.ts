@@ -5,6 +5,7 @@ import type { ParseError } from '@src/domain/value/error/parse-error.ts';
 import { CommitShaSchema, IsoTimestampSchema } from '@src/integration/persistence/shared/value-schemas.ts';
 import { VerificationSchema } from '@src/integration/persistence/task/verification.schema.ts';
 import { EvaluationSchema } from '@src/integration/persistence/task/evaluation.schema.ts';
+import { PriorWorkOutcomeSchema } from '@src/integration/persistence/task/prior-work.schema.ts';
 import { type Compatible, safeParseToResult } from '@src/integration/persistence/shared/codec-internal.ts';
 
 const BudgetExhaustedWarningSchema = z.object({
@@ -104,6 +105,8 @@ const AttemptBaseShape = {
   inputTokens: z.number().int().nonnegative().optional(),
   outputTokens: z.number().int().nonnegative().optional(),
   durationMs: z.number().int().nonnegative().optional(),
+  // Restore outcome for a quarantined diff — tolerant: an unreadable value reads as absent.
+  priorWork: PriorWorkOutcomeSchema,
 };
 
 const RunningAttemptSchema = z.object({

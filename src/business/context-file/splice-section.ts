@@ -102,6 +102,12 @@ const normaliseBody = (sectionBody: string, wantedTitle: string): Result<string,
   return Result.ok(cleaned);
 };
 
+/** True when `existing` already contains a `## <heading>` section (outside fenced code). */
+export const hasOwnedSection = (existing: string, heading: string): boolean => {
+  const wanted = normTitle(heading);
+  return headingsOf(splitLines(existing)).some((h) => h.level === 2 && normTitle(h.title) === wanted);
+};
+
 /**
  * Replace the `## <heading>` section of `existing` with `sectionBody`, or append the section at the
  * end when absent. Everything else is preserved byte-for-byte.

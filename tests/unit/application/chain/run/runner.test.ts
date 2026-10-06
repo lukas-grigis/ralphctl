@@ -69,9 +69,47 @@ describe('createRunner', () => {
 
     await runner.start();
 
-    expect(events.map((e) => e.type)).toEqual(['started', 'step', 'step', 'completed']);
+    expect(events.map((e) => e.type)).toEqual(['started', 'step-started', 'step', 'step-started', 'step', 'completed']);
     expect(runner.status).toBe('completed');
     expect(runner.ctx.trail).toEqual(['a', 'b']);
+  });
+
+  it('emits step-started before each leaf step, naming the leaf', async () => {
+    const events: Array<RunnerEvent<Ctx>> = [];
+    const element = sequential<Ctx>('chain', [tag('a'), failingTag('b'), tag('c')]);
+    const runner = createRunner({ id: 'r-start', element, initialCtx: { trail: [] } });
+    runner.subscribe((e) => events.push(e));
+
+    await runner.start();
+
+    const sequence = events.flatMap((e) =>
+      e.type === 'step-started'
+        ? [`start:${e.step.elementName}`]
+        : e.type === 'step'
+          ? [`${e.entry.status}:${e.entry.elementName}`]
+          : []
+    );
+    // `c` is skipped — a synthesised entry, so it never gets a start.
+    expect(sequence).toEqual(['start:a', 'completed:a', 'start:b', 'failed:b', 'skipped:c']);
+  });
+
+  it('exposes the element it runs', () => {
+    const element = sequential<Ctx>('chain', [tag('a')]);
+    const runner = createRunner({ id: 'r-el', element, initialCtx: { trail: [] } });
+    expect(runner.element).toBe(element);
+  });
+
+  it('does not replay step-started to a late subscriber', async () => {
+    const runner = createRunner({
+      id: 'r-late',
+      element: sequential<Ctx>('chain', [tag('a')]),
+      initialCtx: { trail: [] },
+    });
+    await runner.start();
+
+    const events: Array<RunnerEvent<Ctx>> = [];
+    runner.subscribe((e) => events.push(e));
+    expect(events.map((e) => e.type)).toEqual(['step', 'completed']);
   });
 
   it('emits started → step* → failed on a failed run', async () => {

@@ -77,4 +77,5 @@ export const confirmReadinessLeaf = (deps: ConfirmReadinessLeafDeps, tool: Assis
       ...ctx,
       entries: { ...ctx.entries, [tool]: { ...ctx.entries[tool], accepted } },
     }),
+    label: 'Confirm setup',
   });

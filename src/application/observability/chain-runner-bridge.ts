@@ -4,6 +4,8 @@ import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 
 export interface RunnerBridgeOpts {
   readonly flowId: string;
+  /** The enclosing run's chain id, when this runner is nested inside another. */
+  readonly parentChainId?: string | undefined;
   /** Wall-clock used to stamp event timestamps. Tests pass a frozen value. */
   readonly clock?: () => IsoTimestamp;
 }
@@ -51,10 +53,22 @@ export const bridgeRunnerToEventBus = (
     const at = clock();
     switch (event.type) {
       case 'started':
-        bus.publish({ type: 'chain-started', chainId: runner.id, flowId: opts.flowId, at });
+        bus.publish({
+          type: 'chain-started',
+          chainId: runner.id,
+          flowId: opts.flowId,
+          ...(opts.parentChainId !== undefined ? { parentChainId: opts.parentChainId } : {}),
+          at,
+        });
+        return;
+      case 'step-started':
+        // A forwarded start was already published by the nested runner's own bridge.
+        if (event.step.forwardedFrom !== undefined) return;
+        bus.publish({ type: 'chain-step-started', chainId: runner.id, elementName: event.step.elementName, at });
         return;
       case 'step': {
         const { entry } = event;
+        if (entry.forwardedFrom !== undefined) return;
         if (entry.status === 'completed') {
           bus.publish({
             type: 'chain-step-completed',

@@ -99,4 +99,5 @@ export const installReadinessSkillsLeaf = (
       };
     },
     output: (ctx) => ctx,
+    label: 'Install readiness skills',
   });

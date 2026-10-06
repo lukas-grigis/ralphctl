@@ -8,7 +8,7 @@ Your job is to integrate them cleanly, not to invent new ones.
 
 <goal>
 Produce the up-to-date body of the `## {{LEARNINGS_SECTION_HEADING}}` section of `{{TARGET_FILENAME}}`, containing
-the candidate learnings below — folded in idempotently. You write only that section's body; the harness splices
+the candidate learnings below, folded in so a second run on the same inputs changes nothing. You write only that section's body; the harness splices
 it into the file and preserves everything else verbatim.
 </goal>
 
@@ -41,13 +41,14 @@ tool; the harness keeps it byte-for-byte, so do not reproduce it.
 </owned_section>
 
 <idempotency_rule>
-The folding MUST be idempotent — running this call twice on the same inputs leaves the file identical the
-second time:
+Fold so a second run on the same inputs changes nothing:
 
 - A candidate learning whose meaning already appears as a bullet in the owned section is a no-op — do not
   duplicate it, even when the wording differs slightly.
 - A candidate that restates an existing bullet more precisely replaces that bullet rather than adding a
   second one.
+- A candidate that contradicts an existing bullet replaces it — the candidate is newer and the operator
+  confirmed it.
 - Genuinely new candidates are appended as new bullets.
 - Existing bullets that no candidate touches stay exactly as they are.
 
@@ -70,9 +71,9 @@ imperative voice ("Prefer X over Y", "The build emits Z") — optionally followe
 Carry a candidate's context / applies-to into the sub-bullets when it has them; omit a sub-bullet when the
 candidate omits it. Keep the Insight bold so the section scans at a glance.
 
-**Conciseness.** Drop a candidate that is vague, project-agnostic, or already implied by the file's
-hand-authored guidance — "be careful" is noise. A learning earns its bullet only by telling the next
-session something specific it would not otherwise know.
+**Conciseness.** Drop a candidate only when the file's hand-authored guidance already states it;
+otherwise fold it in, tightening vague wording. A learning earns its bullet by telling the next session
+something specific it would not otherwise know.
 
 **Tooling references.** When a learning names a build, test, or task command, phrase it against this
 project's tooling — described here:
@@ -93,9 +94,10 @@ as "when present"; many repositories do not have one, and a learning must not as
 
 1. Read the existing context file body above and locate the `## {{LEARNINGS_SECTION_HEADING}}` section, if any.
 2. Reconcile the candidate learnings against the owned section per the idempotency rule.
-3. Write ONLY the reconciled section body (the bullets, without the section heading line) to `{{OUTPUT_FILE}}` —
+3. Write only the reconciled section body (the bullets, without the section heading line) to `{{OUTPUT_FILE}}` —
    not the whole file and not a diff. The harness splices it into `{{TARGET_FILENAME}}` and shows the operator
-   the full resulting diff for confirmation.
+   the full resulting diff for confirmation. When nothing needs to change, write the section's current body
+   unchanged — or an empty file when the section does not exist yet.
 
 Write to that output path only; do not modify `{{TARGET_FILENAME}}` in the repository — the harness writes the
 file itself after confirmation. Make no other edits to the repository. Emit no prose commentary outside the

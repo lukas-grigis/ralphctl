@@ -20,7 +20,8 @@ trial measures what production sends:
 Not covered: `plan`, `ideate`, `refine` (no headless path ships for them — they run through
 `InteractiveAiProvider`), `check-plan` (deterministic, no model call, already unit-tested), and
 `reproduce`, `review`, `readiness`, `detect-skills`, `create-pr` (next candidates; `reproduce` first, because
-the harness already re-runs its claim). One trial is one cold turn per role; the multi-turn gen-eval loop and
+the harness already re-runs its claim), and `apply-feedback`, `distill-learnings`, `implement-crash-resume`. One trial is one cold turn per
+role; the multi-turn gen-eval loop and
 the `*-continuation` prompts are not measured. There are no model graders and no dollar cost; cache tokens are counted, not priced.
 
 ## Commands
@@ -138,8 +139,8 @@ and knip. `evals/results/` is gitignored.
   standard error. `origin: real` items (a reconstructed past failure, made generic) are reported separately.
 - The `task` is validated with the planner's own `TaskImportSpecSchema` (minus `projectPath`).
 
-Shipped: 17 evaluate fixtures (each a clean/defect pair), 5 implement, 2 detect-scripts, 2 select-candidate.
-`ev-01`..`ev-07` are the first, easy set; `ev-08`..`ev-17` and `im-03`..`im-05` are `tier: capability`, added
+Shipped: 18 evaluate fixtures (each a clean/defect pair), 5 implement, 2 detect-scripts, 2 select-candidate.
+`ev-01`..`ev-07` are the first, easy set; `ev-08`..`ev-18` and `im-03`..`im-05` are `tier: capability`, added
 because the first real baseline put evaluate catch rate at 100% on 7 items — and "An eval at 100% tracks
 regressions but provides no signal for improvement" (Anthropic, _Demystifying evals for AI agents_). Not yet
 shipped: reviewer-labelled evaluate fixtures (`UNVERIFIED`, `[spec-ambiguity]`) and a reconstructed real
@@ -169,21 +170,22 @@ input the suite skips reveals it. Which defects an `auto` criterion command woul
 covers the happy path, and the failing behaviour is either a `manual` criterion or only in the task
 description.
 
-| Fixture                                  | Failure mode (judgment)                                                             | Why the visible checks stay green                              |
-| ---------------------------------------- | ----------------------------------------------------------------------------------- | -------------------------------------------------------------- |
-| `ev-08-vacuous-test`                     | test asserts truthiness only; hour multiplier is 360, not 3600                      | `assert.ok(x > 0)`; `C2` runs the seconds unit                 |
-| `ev-09-weakened-assertion-large-diff`    | one existing expectation (53 to 52) edited inside a diff that mostly adds tests     | the edited test agrees with the new `Math.floor`               |
-| `ev-10-boundary-page-zero`               | off-by-one on the rejection branch (`page < 0`), page 0 accepted                    | only the happy paths and `-1` are tested                       |
-| `ev-11-default-changes-caller`           | new option defaults to on; an untouched caller (`scheduler.mjs`) turns random       | new tests pass `jitter: false` explicitly; caller untested     |
-| `ev-12-option-accepted-not-implemented`  | criterion claimed in a comment and signature, never applied (`maxLength`)           | test only checks the option is accepted                        |
-| `ev-13-swallowed-parse-error`            | one catch-all returns defaults; corrupt JSON silently ignored                       | only the missing-file and valid-file cases are tested          |
-| `ev-14-lock-leak-on-error`               | release skipped when `fn` rejects (no `finally`)                                    | the rejection test never inspects the lock                     |
-| `ev-15-completion-order-results`         | results pushed in completion order instead of input order                           | test callbacks finish in start order                           |
-| `ev-16-spec-change-edits-tests`          | false-FAIL probe: both variants edit existing tests by spec; only MB/GB stay binary | defect drops the MB test; clean edits it and looks alike       |
-| `ev-17-input-mutated`                    | `items.sort` mutates and aliases the caller's array                                 | tests read the output only                                     |
-| `im-03-csv-line` (implement)             | quoting rules: embedded commas, doubled quotes, empty and trailing fields           | hidden oracle covers what a naive `split(',')` misses          |
-| `im-04-option-keeps-default` (implement) | a new option must leave the default output of `report.mjs` unchanged                | protected `test/report.test.mjs`, `test/format-bytes.test.mjs` |
-| `im-05-map-limit` (implement)            | concurrency cap, input order, and no new starts after the first rejection           | hidden oracle measures peak in-flight and start log            |
+| Fixture                                  | Failure mode (judgment)                                                                                    | Why the visible checks stay green                                         |
+| ---------------------------------------- | ---------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| `ev-08-vacuous-test`                     | test asserts truthiness only; hour multiplier is 360, not 3600                                             | `assert.ok(x > 0)`; `C2` runs the seconds unit                            |
+| `ev-09-weakened-assertion-large-diff`    | one existing expectation (53 to 52) edited inside a diff that mostly adds tests                            | the edited test agrees with the new `Math.floor`                          |
+| `ev-10-boundary-page-zero`               | off-by-one on the rejection branch (`page < 0`), page 0 accepted                                           | only the happy paths and `-1` are tested                                  |
+| `ev-11-default-changes-caller`           | new option defaults to on; an untouched caller (`scheduler.mjs`) turns random                              | new tests pass `jitter: false` explicitly; caller untested                |
+| `ev-12-option-accepted-not-implemented`  | criterion claimed in a comment and signature, never applied (`maxLength`)                                  | test only checks the option is accepted                                   |
+| `ev-13-swallowed-parse-error`            | one catch-all returns defaults; corrupt JSON silently ignored                                              | only the missing-file and valid-file cases are tested                     |
+| `ev-14-lock-leak-on-error`               | release skipped when `fn` rejects (no `finally`)                                                           | the rejection test never inspects the lock                                |
+| `ev-15-completion-order-results`         | results pushed in completion order instead of input order                                                  | test callbacks finish in start order                                      |
+| `ev-16-spec-change-edits-tests`          | false-FAIL probe: both variants edit existing tests by spec; only MB/GB stay binary                        | defect drops the MB test; clean edits it and looks alike                  |
+| `ev-17-input-mutated`                    | `items.sort` mutates and aliases the caller's array                                                        | tests read the output only                                                |
+| `ev-18-unrequested-hardening`            | false-FAIL probe: clean `chunk` skips unrequested size validation; defect `<=` adds a trailing empty group | clean meets every criterion; defect's visible tests avoid exact multiples |
+| `im-03-csv-line` (implement)             | quoting rules: embedded commas, doubled quotes, empty and trailing fields                                  | hidden oracle covers what a naive `split(',')` misses                     |
+| `im-04-option-keeps-default` (implement) | a new option must leave the default output of `report.mjs` unchanged                                       | protected `test/report.test.mjs`, `test/format-bytes.test.mjs`            |
+| `im-05-map-limit` (implement)            | concurrency cap, input order, and no new starts after the first rejection                                  | hidden oracle measures peak in-flight and start log                       |
 
 Notes. `ev-09` and `ev-16` deliberately both edit existing tests; `ev-09` protects `test/cart.test.mjs`
 (oracle restores it), `ev-16` cannot, because the spec changes those values. `ev-11` and `ev-16` carry a

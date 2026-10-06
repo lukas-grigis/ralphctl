@@ -8,7 +8,7 @@
  *           (previously gated to !sidebarLayout — gate removed).
  *   Ask #2: TokenBudgetCard at the BOTTOM of the sidebar (never clipped).
  *   Ask #3: Cross-task orphan notes (>200 chars) ellide within the main column — no overflow.
- *   Ask #4: Active task shows pending (◇) sub-steps from plannedLeaves after executed ones.
+ *   Ask #4: Active task shows its step tree (done steps, then pending ◇ ones).
  *
  * Uses the ImplementSidebar + ExecuteBody directly so the fixtures are deterministic (no
  * live EventBus wiring needed). Height invariants use useResponsiveLayout directly, which
@@ -19,10 +19,12 @@ import React from 'react';
 import { render } from 'ink-testing-library';
 import { describe, expect, it, vi } from 'vitest';
 import { ImplementSidebar } from '@src/application/ui/tui/views/execute-view-internals/implement-sidebar.tsx';
+import { taskFlowProgress } from '@tests/fixtures/flow-progress.ts';
 import { ExecuteBody } from '@src/application/ui/tui/views/execute-view-internals/body.tsx';
 import { UiStateProvider } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { DepsProvider } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { useResponsiveLayout } from '@src/application/ui/tui/views/execute-view-internals/use-responsive-layout.ts';
+import type { PlanNode } from '@src/application/chain/plan-tree.ts';
 import type { SessionDescriptor } from '@src/application/ui/tui/runtime/session-manager.ts';
 import type { BucketedExecution, TaskBucket } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
 import type { TokenUsage } from '@src/application/ui/tui/runtime/use-token-usage.ts';
@@ -86,8 +88,24 @@ const makeBucketed = (): BucketedExecution => ({
   ],
 });
 
+/** Task flow projection: load done, task A's Generate done, everything else ahead. */
+const makeProgress = (): ReturnType<typeof taskFlowProgress> =>
+  taskFlowProgress([TASK_ID_A, TASK_ID_B], {
+    trace: [
+      { elementName: 'load-tasks', status: 'completed', durationMs: 50 },
+      { elementName: `generator-${TASK_ID_A}`, status: 'completed', durationMs: 8500 },
+    ],
+  });
+
+const planOf = (names: readonly string[]): PlanNode => ({
+  name: 'root',
+  kind: 'sequential',
+  internal: false,
+  children: names.map((name) => ({ name, kind: 'leaf', internal: false, children: [] })),
+});
+
 /**
- * Descriptor with plannedLeaves that include per-task UUID-suffixed entries.
+ * Descriptor with a planTree that include per-task UUID-suffixed entries.
  * - commit-task, post-task-verify, uninstall-skills for TASK_ID_A are FIXED leaves — should
  *   show as ◇ pending after the executed sub-steps.
  * - generator + evaluator are DYNAMIC (unknown rounds) — excluded from pending display.
@@ -111,7 +129,7 @@ const makeDescriptor = (): SessionDescriptor => ({
   generatorModel: 'claude-opus-4',
   evaluatorModel: 'claude-sonnet-4-6',
   pinnedSprintLabel: 'sprint-2026-06',
-  plannedLeaves: [
+  planTree: planOf([
     'load-tasks',
     'preflight-task-1',
     // Per-task leaves for TASK_ID_A
@@ -129,7 +147,7 @@ const makeDescriptor = (): SessionDescriptor => ({
     `commit-task-${TASK_ID_B}`,
     `uninstall-skills-${TASK_ID_B}`,
     'finalize',
-  ],
+  ]),
 });
 
 /** Cumulative claude-p style token usage (totalUsed >> contextWindow → "cumul." label). */
@@ -158,6 +176,7 @@ describe('ImplementSidebar — Ask #2: TokenBudgetCard at bottom', () => {
         sidebarFlowStepsRows: layout.sidebarFlowStepsRows,
         sidebarContextSideBySide: layout.sidebarContextSideBySide,
         descriptor,
+        progress: makeProgress(),
         bucketed,
         isRunning: true,
         focusedTaskId: TASK_ID_A,
@@ -212,6 +231,7 @@ describe('ImplementSidebar — Ask #2: TokenBudgetCard at bottom', () => {
         sidebarFlowStepsRows: layout.sidebarFlowStepsRows,
         sidebarContextSideBySide: layout.sidebarContextSideBySide,
         descriptor,
+        progress: makeProgress(),
         bucketed,
         isRunning: true,
         focusedTaskId: TASK_ID_A,
@@ -260,6 +280,7 @@ describe('ExecuteBody — wide layout redesign at 180×50', () => {
           null,
           React.createElement(ExecuteBody, {
             descriptor,
+            progress: makeProgress(),
             sessionList: [],
             sessionId: 'sess-visual-test-001',
             isRunning: true,
@@ -324,12 +345,12 @@ describe('ExecuteBody — wide layout redesign at 180×50', () => {
     unmount();
   });
 
-  it('Ask #4 — active task shows ◇ pending sub-steps from plannedLeaves', () => {
+  it('Ask #4 — active task shows its step tree with pending steps', () => {
     const { frame, unmount } = renderBodyAt180();
-    // ◇ glyph from glyphs.phasePending — rendered for unexecuted fixed leaves
+    // ◇ glyph from glyphs.phasePending — rendered for unexecuted leaves
     expect(frame).toContain('◇');
-    // Fixed planned leaves for TASK_ID_A not yet executed
-    expect(frame).toContain('commit-task');
+    expect(frame).toContain('Generate');
+    expect(frame).toContain('Commit');
     unmount();
   });
 });
@@ -358,6 +379,7 @@ describe('ExecuteBody — wide layout redesign at 220×60', () => {
           null,
           React.createElement(ExecuteBody, {
             descriptor,
+            progress: makeProgress(),
             sessionList: [],
             sessionId: 'sess-visual-test-001',
             isRunning: true,
@@ -419,10 +441,10 @@ describe('ExecuteBody — wide layout redesign at 220×60', () => {
     unmount();
   });
 
-  it('Ask #4 — pending sub-steps visible at xxl', () => {
+  it('Ask #4 — step tree visible at xxl', () => {
     const { frame, unmount } = renderBodyAt220();
     expect(frame).toContain('◇');
-    expect(frame).toContain('commit-task');
+    expect(frame).toContain('Commit');
     unmount();
   });
 });

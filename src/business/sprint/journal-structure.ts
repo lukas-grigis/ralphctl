@@ -1,4 +1,6 @@
 import { sanitizeInline } from '@src/business/sprint/journal-sanitize.ts';
+import type { PriorWorkOutcome } from '@src/domain/entity/attempt.ts';
+import { describeNotRestored } from '@src/domain/entity/task-prior-work.ts';
 
 /**
  * Structural primitives for `<sprintDir>/progress.md` — the append-only sprint journal. Shared by
@@ -64,15 +66,18 @@ export const splitJournal = (body: string): JournalSplit => {
 
 // Lifecycle separators come from `renderJournalSeparator`: `_Sprint <label> at <iso>_`.
 const SEPARATOR_CAPTION = /^_Sprint .+ at .+_$/;
-// Quarantine pointers come from the quarantine-blocked-diff leaf — always lead with `_Task ` and
-// carry this exact phrase, so a blocked-reason that merely mentions the words can't match.
-const QUARANTINE_POINTER = /^_Task .*rejected diff quarantined to git stash/;
+// Quarantine pointers (quarantine-blocked-diff) and their resolutions (restore-blocked-diff) always
+// lead with `_Task ` and carry one of these exact phrases, so prose merely mentioning the words can't match.
+const QUARANTINE_POINTER =
+  /^_Task .*(rejected diff quarantined to git stash|quarantined diff (restored|left in git stash|kept in git stash))/;
+// Rescue pointers come from the worktree setup — the moved-to ref is always in the rescue namespace.
+const RESCUE_POINTER = /^_Task .* were not on the sprint branch — moved to `ralphctl-rescue\//;
 
 /**
  * Extract the lifecycle / recovery breadcrumbs from a slice of journal text — status-transition
- * separators (`---` + `_Sprint … at …_`) and quarantine-recovery pointers. Returns each as a
+ * separators (`---` + `_Sprint … at …_`), quarantine-recovery pointers and rescued-ref pointers. Returns each as a
  * normalized block (the separator rule is re-synthesised above its caption) so callers can PIN them
- * into the always-kept header band. Recognises ONLY these two shapes, so re-running it over an
+ * into the always-kept header band. Recognises ONLY these shapes, so re-running it over an
  * already-regenerated header band (which also holds derived `## Status` / `## Tasks` headings) is
  * idempotent — the derived headings are never mistaken for breadcrumbs.
  *
@@ -90,7 +95,7 @@ export const extractLifecycleBreadcrumbs = (text: string): readonly string[] => 
     const trimmed = line.trim();
     if (SEPARATOR_CAPTION.test(trimmed)) {
       if (lastNonBlank === '---') out.push(`---\n\n${trimmed}`);
-    } else if (QUARANTINE_POINTER.test(trimmed)) {
+    } else if (QUARANTINE_POINTER.test(trimmed) || RESCUE_POINTER.test(trimmed)) {
       out.push(trimmed);
     }
     if (trimmed.length > 0) lastNonBlank = trimmed;
@@ -113,3 +118,30 @@ export const renderBreadcrumbBand = (breadcrumbs: readonly string[]): string =>
  */
 export const renderQuarantineBreadcrumb = (taskName: string, stashMessage: string): string =>
   `\n_Task ${sanitizeInline(taskName)}: rejected diff quarantined to git stash — recover via \`git stash list\` (message: \`${stashMessage}\`)._\n`;
+
+/**
+ * Render what `restore-blocked-diff` did with a quarantined diff before attempt `attemptN`'s first
+ * turn. Each shape carries a phrase {@link extractLifecycleBreadcrumbs} pins, so the resolution
+ * survives the inline cap next to the pointer it resolves.
+ */
+export const renderPriorWorkBreadcrumb = (taskName: string, attemptN: number, outcome: PriorWorkOutcome): string => {
+  const head = `_Task ${sanitizeInline(taskName)}: quarantined diff`;
+  const n = String(attemptN);
+  const tail = `(message: \`${outcome.stashMessage}\`)._`;
+  switch (outcome.kind) {
+    case 'restored':
+      return `\n${head} restored into attempt ${n} — the stash entry is consumed ${tail}\n`;
+    case 'kept-by-choice':
+      return `\n${head} kept in git stash by operator choice — attempt ${n} starts fresh ${tail}\n`;
+    case 'not-restored':
+      return `\n${head} left in git stash — ${describeNotRestored(outcome.reason, outcome.uncommittedPaths)}; attempt ${n} starts without it ${tail}\n`;
+  }
+};
+
+/**
+ * Render the pointer appended to the journal when a worktree ref holding commits the sprint branch
+ * lacks is moved aside instead of deleted. Carries the exact phrase {@link extractLifecycleBreadcrumbs}
+ * pins, so the recovery handle survives the inline cap like the quarantine pointer does.
+ */
+export const renderRescueBreadcrumb = (taskName: string, commits: number, ref: string, rescueRef: string): string =>
+  `\n_Task ${sanitizeInline(taskName)}: ${String(commits)} verified commit(s) on \`${ref}\` were not on the sprint branch — moved to \`${rescueRef}\` (recover with \`git cherry-pick\`)._\n`;

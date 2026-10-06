@@ -27,16 +27,15 @@ import { createHash } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { createGitRunner } from '@src/integration/io/git-runner.ts';
-import { gitStashPush, gitStatusPorcelain } from '@src/integration/io/git-operations.ts';
+import { gitStatusPorcelain } from '@src/integration/io/git-operations.ts';
+import { gitStashPush } from '@src/integration/io/git-stash.ts';
 import { markTaskBlocked } from '@src/domain/entity/task-lifecycle.ts';
 import type { BlockedTask, Task } from '@src/domain/entity/task.ts';
 import type { UpdateTask } from '@src/domain/repository/task/update-task.ts';
 import { Result } from '@src/domain/result.ts';
 import { SprintId } from '@src/domain/value/id/sprint-id.ts';
-import {
-  quarantineBlockedDiffLeaf,
-  quarantineStashMessage,
-} from '@src/application/flows/implement/leaves/quarantine-blocked-diff.ts';
+import { quarantineBlockedDiffLeaf } from '@src/application/flows/implement/leaves/quarantine-blocked-diff.ts';
+import { quarantineStashMessage } from '@src/domain/value/quarantine-stash-message.ts';
 import { restoreBlockedDiffLeaf } from '@src/application/flows/implement/leaves/restore-blocked-diff.ts';
 import {
   buildEvaluatorReproductionSection,
@@ -45,7 +44,14 @@ import {
 } from '@src/application/flows/implement/leaves/reproduce.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import { createFakeProject, type FakeProject } from '@tests/helpers/fake-project.ts';
-import { absolutePath, makeTodoTask } from '@tests/fixtures/domain.ts';
+import { absolutePath, FIXED_NOW, makeTodoTask } from '@tests/fixtures/domain.ts';
+import { unblockTask } from '@src/domain/entity/task-lifecycle.ts';
+import { startNextAttempt } from '@src/domain/entity/task-attempts.ts';
+import type { PriorWorkChoice } from '@src/domain/entity/task-prior-work.ts';
+import type { InProgressTask } from '@src/domain/entity/task.ts';
+import type { TaskId } from '@src/domain/value/id/task-id.ts';
+import type { GitRunner } from '@src/integration/io/git-runner.ts';
+import { createFoldQueue } from '@src/application/flows/implement/wave-branch.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 
 const sprintId = ((): SprintId => {
@@ -75,6 +81,48 @@ const captureRepo = (): UpdateTask & { saved: () => Task | undefined } => {
       return Result.ok(undefined);
     },
   };
+};
+
+/** The relaunch after an unblock: `blocked` unblocked (recording `choice` when given) and its next attempt running. */
+const relaunched = (blocked: BlockedTask, choice?: PriorWorkChoice): InProgressTask => {
+  const stashMessage = quarantineStashMessage(sprintId, blocked.id);
+  const todo = unblockTask(
+    blocked,
+    choice === undefined ? undefined : { decision: { choice, stashMessage }, decidedAt: FIXED_NOW }
+  );
+  if (!todo.ok) throw todo.error;
+  const running = startNextAttempt(todo.value, FIXED_NOW, 'session-1');
+  if (!running.ok) throw running.error;
+  return running.value;
+};
+
+const relaunchCtx = (blocked: BlockedTask, choice?: PriorWorkChoice): ImplementCtx => {
+  const task = relaunched(blocked, choice);
+  return { sprintId, currentTask: task, tasks: [task] };
+};
+
+const restoreLeafFor = (
+  gitRunner: GitRunner,
+  cwd: AbsolutePath,
+  taskId: TaskId
+): { el: ReturnType<typeof restoreBlockedDiffLeaf>; repo: ReturnType<typeof captureRepo>; journal: string[] } => {
+  const repo = captureRepo();
+  const journal: string[] = [];
+  const el = restoreBlockedDiffLeaf(
+    {
+      gitRunner,
+      logger: noopLogger,
+      taskRepo: repo,
+      appendFile: async (_path, text) => {
+        journal.push(text);
+        return Result.ok(undefined);
+      },
+      journalMutex: createFoldQueue(),
+    },
+    { cwd, progressFile: absolutePath('/tmp/restore-realgit-progress.md') },
+    taskId
+  );
+  return { el, repo, journal };
 };
 
 /**
@@ -148,7 +196,7 @@ describe('restore-blocked-diff — real git round trip with quarantine', () => {
 
     // ── Restore: the leaf runs in a retry attempt, before its first generator turn, against the SAME
     // cwd + task.
-    const restored = await restoreBlockedDiffLeaf({ gitRunner, logger: noopLogger }, { cwd }, a.id).execute(ctx);
+    const restored = await restoreLeafFor(gitRunner, cwd, a.id).el.execute(relaunchCtx(a));
     expect(restored.ok).toBe(true);
 
     // The rejected diff is back in the tree, byte-for-byte.
@@ -173,10 +221,9 @@ describe('restore-blocked-diff — real git round trip with quarantine', () => {
     const gitRunner = createGitRunner();
     const a = blockedTaskA('verify failed: conflict.ts breaks the build');
     const message = quarantineStashMessage(sprintId, a.id);
-    const ctx: ImplementCtx = { sprintId, tasks: [a] };
     await arrangeConflictingStash(project, cwd, message);
 
-    const restored = await restoreBlockedDiffLeaf({ gitRunner, logger: noopLogger }, { cwd }, a.id).execute(ctx);
+    const restored = await restoreLeafFor(gitRunner, cwd, a.id).el.execute(relaunchCtx(a));
     // Best-effort as ever — the attempt proceeds, just from the pre-pop tree.
     expect(restored.ok).toBe(true);
 
@@ -203,7 +250,6 @@ describe('restore-blocked-diff — real git round trip with quarantine', () => {
     const gitRunner = createGitRunner();
     const a = blockedTaskA('verify failed: conflict.ts breaks the build');
     const message = quarantineStashMessage(sprintId, a.id);
-    const ctx: ImplementCtx = { sprintId, tasks: [a] };
     await arrangeConflictingStash(project, cwd, message);
 
     const keptEdit = '# fake-project\n\nAn edit the operator kept at preflight.\n';
@@ -211,7 +257,7 @@ describe('restore-blocked-diff — real git round trip with quarantine', () => {
     await project.writeFile('README.md', keptEdit);
     await project.writeFile('repro.test.ts', keptFile);
 
-    const restored = await restoreBlockedDiffLeaf({ gitRunner, logger: noopLogger }, { cwd }, a.id).execute(ctx);
+    const restored = await restoreLeafFor(gitRunner, cwd, a.id).el.execute(relaunchCtx(a));
     expect(restored.ok).toBe(true);
 
     expect(await project.readFile('README.md')).toBe(keptEdit);
@@ -230,14 +276,13 @@ describe('restore-blocked-diff — real git round trip with quarantine', () => {
     const gitRunner = createGitRunner();
     const a = blockedTaskA('verify failed: conflict.ts breaks the build');
     const message = quarantineStashMessage(sprintId, a.id);
-    const ctx: ImplementCtx = { sprintId, tasks: [a] };
     await arrangeConflictingStash(project, cwd, message);
     await project.git('config', 'status.showUntrackedFiles', 'no');
 
     const keptFile = 'untracked work the operator kept\n';
     await project.writeFile('kept-notes.md', keptFile);
 
-    const restored = await restoreBlockedDiffLeaf({ gitRunner, logger: noopLogger }, { cwd }, a.id).execute(ctx);
+    const restored = await restoreLeafFor(gitRunner, cwd, a.id).el.execute(relaunchCtx(a));
     expect(restored.ok).toBe(true);
 
     expect(await project.readFile('kept-notes.md')).toBe(keptFile);
@@ -253,7 +298,6 @@ describe('restore-blocked-diff — real git round trip with quarantine', () => {
     const gitRunner = createGitRunner();
     const a = blockedTaskA();
     const message = quarantineStashMessage(sprintId, a.id);
-    const ctx: ImplementCtx = { sprintId, tasks: [a] };
 
     await project.writeFile('README.md', '# fake-project\n\nAn edit from the prior attempt.\n');
     await project.writeFile('out/generated.txt', 'stashed while out/ was still tracked-eligible\n');
@@ -269,7 +313,7 @@ describe('restore-blocked-diff — real git round trip with quarantine', () => {
     const cleanBefore = await gitStatusPorcelain(gitRunner, cwd);
     expect(cleanBefore.ok && cleanBefore.value).toStrictEqual([]);
 
-    const restored = await restoreBlockedDiffLeaf({ gitRunner, logger: noopLogger }, { cwd }, a.id).execute(ctx);
+    const restored = await restoreLeafFor(gitRunner, cwd, a.id).el.execute(relaunchCtx(a));
     expect(restored.ok).toBe(true);
 
     expect(await project.readFile('README.md')).toBe(readmeAtHead);
@@ -278,6 +322,83 @@ describe('restore-blocked-diff — real git round trip with quarantine', () => {
     // Ignored paths are outside the undo's reach — the build product is untouched.
     expect(await project.readFile('out/generated.txt')).toBe(buildOutput);
     expect(await project.git('stash', 'list', '--format=%s')).toContain(message);
+  });
+});
+
+describe('restore-blocked-diff — the operator decision (real git)', () => {
+  let project: FakeProject;
+
+  beforeEach(async () => {
+    project = await createFakeProject();
+  });
+
+  afterEach(async () => {
+    await project.cleanup();
+  });
+
+  /** Quarantine a rejected diff through the real leaf, so the task carries the measured fact. */
+  const quarantineThroughLeaf = async (cwd: AbsolutePath): Promise<BlockedTask> => {
+    const a = blockedTaskA();
+    await project.writeFile('README.md', '# fake-project\n\nThe rejected attempt edited this.\n');
+    await project.writeFile('a-rejected.ts', 'export const broken = true;\n');
+    const out = await quarantineBlockedDiffLeaf(
+      {
+        gitRunner: createGitRunner(),
+        taskRepo: captureRepo(),
+        appendFile: async () => Result.ok(undefined),
+        logger: noopLogger,
+      },
+      { cwd, progressFile: absolutePath('/tmp/restore-realgit-progress.md') },
+      a.id
+    ).execute({ sprintId, tasks: [a] });
+    if (!out.ok) throw new Error('test setup: quarantine failed');
+    const quarantined = out.value.ctx.tasks?.[0];
+    if (quarantined?.status !== 'blocked' || quarantined.quarantinedDiff === undefined) {
+      throw new Error('test setup: no quarantine fact recorded');
+    }
+    return quarantined;
+  };
+
+  it('fresh leaves the stash byte-identical and never touches the tree', async () => {
+    const cwd = abs(project.path);
+    const a = await quarantineThroughLeaf(cwd);
+    // A fresh relaunch's reproduce step may already have written into the tree.
+    await project.writeFile('repro.test.ts', 'written by this launch\n');
+    const stashBefore = await project.git('stash', 'list', '--format=%H %gd %s');
+
+    const { el, repo, journal } = restoreLeafFor(createGitRunner(), cwd, a.id);
+    const out = await el.execute(relaunchCtx(a, 'fresh'));
+
+    expect(out.ok).toBe(true);
+    expect(await project.git('stash', 'list', '--format=%H %gd %s')).toBe(stashBefore);
+    expect(await project.readFile('repro.test.ts')).toBe('written by this launch\n');
+    await expect(project.readFile('a-rejected.ts')).rejects.toThrow();
+    expect(repo.saved()?.attempts.at(-1)?.priorWork).toStrictEqual({
+      kind: 'kept-by-choice',
+      stashMessage: quarantineStashMessage(sprintId, a.id),
+    });
+    expect(journal[0]).toContain('kept in git stash by operator choice');
+  });
+
+  it('continue restores the diff, consumes the entry and stamps the measured size', async () => {
+    const cwd = abs(project.path);
+    const a = await quarantineThroughLeaf(cwd);
+
+    const { el, repo, journal } = restoreLeafFor(createGitRunner(), cwd, a.id);
+    const out = await el.execute(relaunchCtx(a, 'continue'));
+
+    expect(out.ok).toBe(true);
+    expect(await project.readFile('a-rejected.ts')).toBe('export const broken = true;\n');
+    expect((await project.git('stash', 'list')).trim()).toBe('');
+    const saved = repo.saved();
+    expect(saved?.attempts.at(-1)?.priorWork).toStrictEqual({
+      kind: 'restored',
+      stashMessage: quarantineStashMessage(sprintId, a.id),
+      stat: a.quarantinedDiff?.stat,
+    });
+    expect(a.quarantinedDiff?.stat?.files).toBe(2);
+    expect(saved?.quarantinedDiff).toBeUndefined();
+    expect(journal[0]).toContain('quarantined diff restored into attempt 1');
   });
 });
 
@@ -316,12 +437,10 @@ describe('restore-blocked-diff — the reproduction a relaunch reuses (real git)
   };
 
   const restore = async (cwd: AbsolutePath, a: BlockedTask): Promise<ImplementCtx> => {
-    const ctx: ImplementCtx = { sprintId, tasks: [a], reproductionArtifact: artifact };
-    const out = await restoreBlockedDiffLeaf(
-      { gitRunner: createGitRunner(), logger: noopLogger },
-      { cwd },
-      a.id
-    ).execute(ctx);
+    const out = await restoreLeafFor(createGitRunner(), cwd, a.id).el.execute({
+      ...relaunchCtx(a),
+      reproductionArtifact: artifact,
+    });
     if (!out.ok) throw new Error(`restore failed: ${out.error.error.message}`);
     return out.value.ctx;
   };

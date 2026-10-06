@@ -102,6 +102,8 @@ export const stampPromotedLeaf = <TCtx>(
       retiredIds: config.retiredIds?.(ctx) ?? [],
     }),
     output: (ctx, stampedCount) => config.output(ctx, stampedCount),
+    label: 'Mark promoted',
+    internal: true,
   });
 
 const stamp = async (

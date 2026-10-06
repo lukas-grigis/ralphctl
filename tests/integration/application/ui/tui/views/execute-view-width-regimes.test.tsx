@@ -2,8 +2,8 @@
  * Width-regime smoke tests for ExecuteView. Verifies that each responsive breakpoint renders
  * without crashing and surfaces the expected layout variant:
  *
- *   < 100 cols       → single-column stack — "Flow steps" section header rendered.
- *   100–139 cols     → compact two-column — rail collapses to glyph spine, no "Flow steps" label.
+ *   < 100 cols       → single-column stack — Tasks section; the header strip carries the main steps.
+ *   100–139 cols     → compact — full-width Tasks, no rail column and no "Flow steps" label.
  *   ≥ 140 cols       → sidebar layout (ImplementLayout) — left sidebar carries the "Tasks" and
  *                      "Steps" section headers plus the BaselineHealthCard; the main area hosts
  *                      the collapsible task cards. The legacy three-column "Flow steps" rail is
@@ -19,6 +19,8 @@ import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
 import type { Runner } from '@src/application/chain/run/runner.ts';
 import { createSessionManager } from '@src/application/ui/tui/runtime/session-manager.ts';
+import { planToElement, taskFlowPlan } from '@tests/fixtures/flow-progress.ts';
+import type { PlanNode } from '@src/application/chain/plan-tree.ts';
 import { renderView, waitForViewReady } from '@tests/integration/application/ui/tui/_harness.tsx';
 import { useResponsiveLayout } from '@src/application/ui/tui/views/execute-view-internals/use-responsive-layout.ts';
 
@@ -36,9 +38,10 @@ const noopEventBus: EventBus = {
   subscribe: () => () => undefined,
 } as unknown as EventBus;
 
-const fakeRunner = (id: string, status: 'running' | 'completed' | 'failed'): Runner<unknown> =>
+const fakeRunner = (id: string, status: 'running' | 'completed' | 'failed', plan: PlanNode): Runner<unknown> =>
   ({
     id,
+    element: planToElement(plan),
     status,
     ctx: {},
     trace: [],
@@ -62,10 +65,13 @@ describe('ExecuteView width regimes', () => {
     sizeRef.rows = 40;
   });
 
-  const renderAt = async (columns: number): Promise<{ frame: string; unmount: () => void }> => {
+  const renderAt = async (
+    columns: number,
+    plan: PlanNode = taskFlowPlan(['t1'])
+  ): Promise<{ frame: string; unmount: () => void }> => {
     sizeRef.columns = columns;
     const sessions = createSessionManager();
-    const runner = fakeRunner('rw-1', 'running');
+    const runner = fakeRunner('rw-1', 'running', plan);
     sessions.register({ runner, flowId: 'implement', title: 'Implement — Width' });
     const { result } = renderView(<ExecuteView />, {
       deps: stubDeps(),
@@ -76,18 +82,39 @@ describe('ExecuteView width regimes', () => {
     return { frame: result.lastFrame() ?? '', unmount: () => result.unmount() };
   };
 
-  it('renders single-column stack below 100 cols — labelled "Flow steps" section', async () => {
+  it('renders single-column stack below 100 cols — Tasks section, strip in the header', async () => {
     const { frame, unmount } = await renderAt(80);
-    expect(frame).toContain('Flow steps');
+    expect(frame).not.toContain('Flow steps');
     expect(frame).toContain('Tasks');
+    expect(frame).toMatch(/steps .*Load tasks/);
     unmount();
   });
 
-  it('renders compact rail at 100 cols — "Flow steps" label suppressed, glyph spine rendered', async () => {
+  it('renders compact layout at 100 cols — no rail column, strip in the header, full-width Tasks', async () => {
     const { frame, unmount } = await renderAt(100);
-    // The compact rail intentionally drops its SectionHeader. Tasks header still renders.
     expect(frame).toContain('Tasks');
+    expect(frame).not.toContain('Flow steps');
+    expect(frame).toMatch(/steps .*Load tasks/);
     unmount();
+  });
+
+  it('shows a Steps tree in place of the Tasks panel for a flow without task work items', async () => {
+    const plan: PlanNode = {
+      name: 'plan',
+      kind: 'sequential',
+      internal: false,
+      children: [
+        { name: 'plan-ai', label: 'Plan with AI', kind: 'leaf', internal: false, children: [] },
+        { name: 'plan-apply', label: 'Approve plan', kind: 'leaf', internal: false, children: [] },
+      ],
+    };
+    for (const columns of [80, 100, 140]) {
+      const { frame, unmount } = await renderAt(columns, plan);
+      expect(frame).toContain('Steps');
+      expect(frame).toContain('Plan with AI');
+      expect(frame).not.toContain('Tasks panel empty');
+      unmount();
+    }
   });
 
   it('renders sidebar layout at 140 cols — sidebar order: Baseline → Steps → Tasks → Tokens, no column labels', async () => {
@@ -99,7 +126,7 @@ describe('ExecuteView width regimes', () => {
     // Section headers present in sidebar (Baseline card title + Steps + Tasks sections).
     expect(frame).toContain('Baseline');
     expect(frame).toContain('Tasks');
-    expect(frame).toContain('Steps');
+    expect(frame).toContain('· Steps');
     expect(frame).not.toContain('Flow steps');
     // TokenBudgetCard renders at sidebar bottom (user ask #3).
     expect(frame).toContain('Tokens');
@@ -109,7 +136,7 @@ describe('ExecuteView width regimes', () => {
     //   ("· Tasks panel empty") also contains "Tasks" and appears in the MAIN column at an
     //   earlier row in the character stream — indexOf('Tasks') would find the wrong occurrence.
     const baselineIdx = frame.indexOf('Baseline');
-    const stepsIdx = frame.indexOf('Steps');
+    const stepsIdx = frame.indexOf('· Steps');
     const tokensIdx = frame.indexOf('Tokens');
     expect(baselineIdx).toBeLessThan(stepsIdx);
     expect(stepsIdx).toBeLessThan(tokensIdx);

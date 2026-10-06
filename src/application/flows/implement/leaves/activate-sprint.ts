@@ -29,4 +29,6 @@ export const activateSprintLeaf = (deps: ActivateSprintLeafDeps): Element<Implem
       return ctx.sprint;
     },
     output: (ctx, sprint) => ({ ...ctx, sprint }),
+    label: 'Activate sprint',
+    internal: true,
   });

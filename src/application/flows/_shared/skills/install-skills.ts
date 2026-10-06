@@ -48,5 +48,7 @@ export const installSkillsLeaf = <TCtx>(deps: InstallSkillsDeps, opts: InstallSk
     },
     input: (ctx) => ({ cwd: opts.cwdPicker(ctx) }),
     output: (ctx) => ctx,
+    label: 'Install skills',
+    internal: true,
   });
 };

@@ -61,6 +61,8 @@ export const refreshMemoryMirrorLeaf = <TCtx>(
     },
     input: () => ({}),
     output: (ctx) => ctx,
+    label: 'Refresh memory mirror',
+    internal: true,
   });
 
 const refresh = async (

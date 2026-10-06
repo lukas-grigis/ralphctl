@@ -47,4 +47,5 @@ export const createDoctorFlow = (deps: DoctorDeps): Element<DoctorCtx> =>
     },
     input: (c) => c.input,
     output: (c, o) => ({ ...c, output: o }),
+    label: 'Run checks',
   });

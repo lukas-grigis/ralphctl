@@ -348,5 +348,6 @@ export const preTaskVerifyLeaf = (
     },
     input: (ctx) => buildPreTaskVerifyInput(ctx, taskId),
     output: projectPreTaskVerifyOutput,
+    label: 'Verify baseline',
   });
 };

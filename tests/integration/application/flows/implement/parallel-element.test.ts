@@ -12,6 +12,9 @@ import type { GitRunner } from '@src/integration/io/git-runner.ts';
 import type { Element, ElementResult } from '@src/application/chain/element.ts';
 import type { WaveBranch } from '@src/application/chain/run/wave-scheduler.ts';
 import { sequential } from '@src/application/chain/build/sequential.ts';
+import { leaf } from '@src/application/chain/build/leaf.ts';
+import { createRunner, type Runner } from '@src/application/chain/run/runner.ts';
+import { bridgeRunnerToEventBus } from '@src/application/observability/chain-runner-bridge.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import type { ImplementDeps } from '@src/application/flows/implement/deps.ts';
 import type { ImplementWavePlan } from '@src/application/flows/implement/flow.ts';
@@ -32,7 +35,7 @@ import { startNextAttempt } from '@src/domain/entity/task-attempts.ts';
 import { startAttemptLeaf } from '@src/application/flows/implement/leaves/start-attempt.ts';
 import { settleAttemptLeaf } from '@src/application/flows/implement/leaves/settle-attempt.ts';
 import { adoptPersistedBlocksLeaf } from '@src/application/flows/implement/leaves/adopt-persisted-blocks.ts';
-import { quarantineStashMessage } from '@src/application/flows/implement/leaves/quarantine-blocked-diff.ts';
+import { quarantineStashMessage } from '@src/domain/value/quarantine-stash-message.ts';
 import { saveTasksLeaf } from '@src/application/flows/_shared/task/save.ts';
 
 import {
@@ -196,6 +199,140 @@ describe('createParallelImplementElement — happy path under one held lock', ()
     expect(lockLog).toEqual(['lock-acquire', 'lock-release']);
     // Epilogue persisted both tasks done.
     expect(persisted.tasks?.every((t) => t.status === 'done')).toBe(true);
+  });
+});
+
+describe('createParallelImplementElement — step starts', () => {
+  it('forwards prologue and epilogue leaf starts to the host before their steps', async () => {
+    const t1 = makeTodoTask({ name: 't1' });
+    const log: string[] = [];
+    const okLeaf = (name: string): Element<ImplementCtx> =>
+      leaf<ImplementCtx, void, void>(name, {
+        useCase: { execute: async () => Result.ok(undefined) },
+        input: () => undefined,
+        output: (ctx) => ctx,
+      });
+    const element = createParallelImplementElement(
+      plan(okLeaf('load'), okLeaf('save'), [[t1]]),
+      baseConfig({ buildWaves: () => [[doneBranch(t1, log)]] }, recordingLocker([]), stubBus([]))
+    );
+    const events: string[] = [];
+
+    const result = await element.execute(
+      ctxWith([t1]),
+      undefined,
+      (e) => events.push(`${e.status}:${e.elementName}`),
+      (s) => events.push(`start:${s.elementName}`)
+    );
+
+    expect(result.ok).toBe(true);
+    expect(events).toEqual(['start:load', 'completed:load', 'start:save', 'completed:save']);
+  });
+
+  it('forwards every branch step and start to the host, so the host trace carries each task', async () => {
+    const t1 = makeTodoTask({ name: 't1' });
+    const t2 = makeTodoTask({ name: 't2' });
+    const okLeaf = (name: string): Element<ImplementCtx> =>
+      leaf<ImplementCtx, void, void>(name, {
+        useCase: { execute: async () => Result.ok(undefined) },
+        input: () => undefined,
+        output: (ctx) => ctx,
+      });
+    const leafBranch = (task: Task): WaveBranch<ImplementCtx> => ({
+      id: `task-${String(task.id)}`,
+      element: sequential<ImplementCtx>(`branch-${task.name}`, [okLeaf(`work-${task.name}`)]),
+    });
+    const element = createParallelImplementElement(
+      plan(okLeaf('load'), okLeaf('save'), [[t1, t2]]),
+      baseConfig({ buildWaves: () => [[leafBranch(t1), leafBranch(t2)]] }, recordingLocker([]), stubBus([]))
+    );
+    const events: string[] = [];
+
+    const result = await element.execute(
+      ctxWith([t1, t2]),
+      undefined,
+      (e) => events.push(`${e.status}:${e.elementName}`),
+      (s) => events.push(`start:${s.elementName}`)
+    );
+
+    expect(result.ok).toBe(true);
+    for (const name of ['work-t1', 'work-t2']) {
+      expect(events).toContain(`start:${name}`);
+      expect(events.indexOf(`start:${name}`)).toBeLessThan(events.indexOf(`completed:${name}`));
+    }
+    expect(events.indexOf('completed:load')).toBeLessThan(events.indexOf('start:work-t1'));
+    expect(events.indexOf('completed:work-t2')).toBeLessThan(events.indexOf('start:save'));
+  });
+});
+
+describe('createParallelImplementElement — event bus', () => {
+  it('publishes each branch step once, under the branch chain, though the host runner is bridged too', async () => {
+    const t1 = makeTodoTask({ name: 't1' });
+    const okLeaf = (name: string): Element<ImplementCtx> =>
+      leaf<ImplementCtx, void, void>(name, {
+        useCase: { execute: async () => Result.ok(undefined) },
+        input: () => undefined,
+        output: (ctx) => ctx,
+      });
+    const branchId = `task-${String(t1.id)}`;
+    const events: AppEvent[] = [];
+    const bus = stubBus(events);
+    const element = createParallelImplementElement(
+      plan(okLeaf('load'), okLeaf('save'), [[t1]]),
+      baseConfig(
+        {
+          buildWaves: () => [[{ id: branchId, element: sequential<ImplementCtx>('branch', [okLeaf('work')]) }]],
+        },
+        recordingLocker([]),
+        bus
+      )
+    );
+    const host = createRunner<ImplementCtx>({ id: 'host', element, initialCtx: ctxWith([t1]) });
+    bridgeRunnerToEventBus(host as Runner<unknown>, bus, { flowId: 'implement' });
+
+    await host.start();
+
+    const stepEvents = (name: string): string[] =>
+      events.flatMap((e) =>
+        (e.type === 'chain-step-started' || e.type === 'chain-step-completed') && e.elementName === name
+          ? [`${e.type}@${e.chainId}`]
+          : []
+      );
+    expect(stepEvents('work')).toEqual([`chain-step-started@${branchId}`, `chain-step-completed@${branchId}`]);
+    // The host trace still carries the branch step for the step display.
+    expect(host.trace.map((e) => e.elementName)).toContain('work');
+    // A branch is a nested run: its start names the host, so it never reads as a run of its own.
+    const started = events.filter((e) => e.type === 'chain-started');
+    expect(started.find((e) => e.chainId === branchId)).toMatchObject({ parentChainId: 'host' });
+    expect(started.find((e) => e.chainId === 'host')).not.toHaveProperty('parentChainId');
+  });
+});
+
+describe('createParallelImplementElement — plan tree', () => {
+  it('exposes prologue, a display-only implement-waves node over every branch, and epilogue', async () => {
+    const t1 = makeTodoTask({ name: 't1' });
+    const t2 = makeTodoTask({ name: 't2' });
+    const log: string[] = [];
+    const branches = [[doneBranch(t1, log)], [doneBranch(t2, log)]];
+    const buildWaves = vi.fn(() => branches);
+    const element = createParallelImplementElement(
+      plan(tagElement('implement-prologue', log), tagElement('implement-epilogue', log), [[t1], [t2]]),
+      baseConfig({ buildWaves }, recordingLocker([]), stubBus([]))
+    );
+
+    expect(element.children?.map((c) => c.name)).toEqual([
+      'implement-prologue',
+      'implement-waves',
+      'implement-epilogue',
+    ]);
+    const waves = element.children?.[1];
+    expect(waves?.label).toBe('Run tasks');
+    expect(waves?.children?.map((c) => c.name)).toEqual([`branch-${String(t1.id)}`, `branch-${String(t2.id)}`]);
+    expect((await waves!.execute(ctxWith([t1, t2]))).ok).toBe(false);
+
+    // The display walk and the run share one build of the branches.
+    expect((await element.execute(ctxWith([t1, t2]))).ok).toBe(true);
+    expect(buildWaves).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -695,11 +832,10 @@ describe('createParallelImplementElement — durable blocks survive the epilogue
     const persisted = await taskRepo.findBySprintId(sprint.id);
     expect(persisted.ok).toBe(true);
     if (!persisted.ok) return;
-    const persistedTask = persisted.value.find((t) => t.id === task.id) as
-      (Task & { blockedReason?: string }) | undefined;
+    const persistedTask = persisted.value.find((t) => t.id === task.id);
 
     // Today this comes back `todo` — both the block and the stash pointer are lost.
     expect(persistedTask?.status).toBe('blocked');
-    expect(persistedTask?.blockedReason).toContain(quarantineStashMessage(sprint.id, task.id));
+    expect(persistedTask?.quarantinedDiff?.stashMessage).toBe(quarantineStashMessage(sprint.id, task.id));
   });
 });

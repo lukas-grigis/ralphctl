@@ -2,6 +2,7 @@ import { join } from 'node:path';
 import { Result } from '@src/domain/result.ts';
 import {
   type EvaluatorTurnExit,
+  type RunEvaluatorTurnOutput,
   type RunEvaluatorTurnProps,
   runEvaluatorTurnUseCase,
 } from '@src/business/task/run-evaluator-turn.ts';
@@ -12,6 +13,8 @@ import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import type { EvaluationSignal } from '@src/domain/signal.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
+import { currentLoopIterations } from '@src/application/chain/loop-scope.ts';
+import { rootSessionId } from '@src/application/session/session.ts';
 import { buildEvaluatePrompt } from '@src/integration/ai/prompts/evaluate/definition.ts';
 import { buildEvaluateContinuationPrompt } from '@src/integration/ai/prompts/evaluate-continuation/definition.ts';
 import type { BuildPromptError } from '@src/integration/ai/prompts/_engine/build-prompt.ts';
@@ -20,6 +23,7 @@ import type { SessionId } from '@src/integration/ai/providers/_engine/session-id
 import type { ProviderUsage } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
 import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts';
 import type { GitRunner } from '@src/integration/io/git-runner.ts';
+import type { EventBus } from '@src/business/observability/event-bus.ts';
 import { computeWorkProductFingerprint } from '@src/application/flows/implement/leaves/work-product-fingerprint.ts';
 import { evaluatorOutputContract } from '@src/application/flows/implement/leaves/evaluator.contract.ts';
 import {
@@ -79,6 +83,8 @@ export interface EvaluatorLeafDeps extends RoleLeafDeps {
    * rewording. Threaded down from `ImplementDeps.gitRunner`.
    */
   readonly gitRunner: GitRunner;
+  /** Application bus for the per-round `task-round-evaluated` verdict marker. */
+  readonly eventBus: EventBus;
 }
 
 interface EvaluatorInput {
@@ -196,6 +202,7 @@ const buildEvaluatorPrompt = async (
   if (args.priorEvaluatorSessionId !== undefined && args.forceFull !== true) {
     return buildEvaluateContinuationPrompt(deps.templateLoader, {
       ...sharedValues,
+      ...(args.task.extraDimensions !== undefined ? { extraDimensions: args.task.extraDimensions } : {}),
       roundNumber: args.roundNum,
       progressFile: String(deps.progressFile),
     });
@@ -340,6 +347,7 @@ const makeEvaluatorExecute =
       logger: deps.logger,
     });
     if (!result.ok) return Result.error(result.error);
+    announceRoundVerdict(deps, input, result.value);
 
     // Read THIS turn's captured sessionId from disk (the Claude adapter just wrote it as a
     // sibling of `signals.json` via `persistSessionIdFile`). Undefined when the spawn never
@@ -356,6 +364,51 @@ const makeEvaluatorExecute =
       ...(capturedSessionId !== undefined ? { capturedSessionId } : {}),
     });
   };
+
+const HEADLINE_MAX = 120;
+
+/** First sentence of a critique, whitespace-collapsed and clipped to {@link HEADLINE_MAX}. */
+const critiqueHeadline = (critique: string | undefined): string | undefined => {
+  const flat = (critique ?? '').replace(/\s+/g, ' ').trim();
+  if (flat.length === 0) return undefined;
+  const first = /^.*?[.!?](?=\s|$)/.exec(flat)?.[0] ?? flat;
+  return first.length <= HEADLINE_MAX ? first : `${first.slice(0, HEADLINE_MAX - 1).trimEnd()}…`;
+};
+
+/**
+ * Publish this round's verdict. Turns that produced none (crash, self-block) stay silent; an absent
+ * `evaluation` signal is the `malformed` verdict the use case already records.
+ */
+const announceRoundVerdict = (
+  deps: Pick<EvaluatorLeafDeps, 'eventBus' | 'clock'>,
+  input: EvaluatorInput,
+  out: RunEvaluatorTurnOutput
+): void => {
+  const evaluation = out.evaluation;
+  const verdict = evaluation?.status ?? (out.exit?.kind === 'malformed' ? 'malformed' : undefined);
+  if (verdict === undefined) return;
+  const failedDimensions = (evaluation?.dimensions ?? [])
+    .filter((d) => !d.passed && d.applicable !== false)
+    .map((d) => d.dimension);
+  const headline = critiqueHeadline(out.turnRecord?.critique ?? evaluation?.critique);
+  const chainSessionId = rootSessionId();
+  // The round loop is the innermost loop around this leaf, the attempt loop the next one out.
+  const loops = currentLoopIterations();
+  const round = loops[loops.length - 1];
+  const attempt = loops[loops.length - 2];
+  deps.eventBus.publish({
+    type: 'task-round-evaluated',
+    taskId: String(input.task.id),
+    attemptN: input.task.attempts.length,
+    roundN: input.roundNum,
+    verdict,
+    failedDimensions,
+    ...(headline !== undefined ? { headline } : {}),
+    ...(chainSessionId !== undefined ? { chainSessionId } : {}),
+    ...(attempt !== undefined && round !== undefined ? { iteration: { attempt: attempt.n, round: round.n } } : {}),
+    at: deps.clock(),
+  });
+};
 
 /**
  * Build this leaf's `input` projection — validates the ctx preconditions the evaluator turn needs
@@ -433,4 +486,5 @@ export const evaluatorLeaf = (deps: EvaluatorLeafDeps, taskId: TaskId): Element<
     useCase: { execute: makeEvaluatorExecute(deps) },
     input: makeEvaluatorInput(taskId),
     output: evaluatorOutput,
+    label: 'Evaluate',
   });

@@ -6,7 +6,7 @@ import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Result } from '@src/domain/result.ts';
 import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
 import type { EvaluationSignal, HarnessSignal } from '@src/domain/signal.ts';
-import type { TokenUsageEvent } from '@src/business/observability/events.ts';
+import type { TaskRoundEvaluatedEvent, TokenUsageEvent } from '@src/business/observability/events.ts';
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import type { HeadlessAiProvider } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
@@ -33,7 +33,11 @@ import {
   repositoryId,
   slug,
 } from '@tests/fixtures/domain.ts';
-import { startNextAttempt } from '@src/domain/entity/task-attempts.ts';
+import { recordRunningAttemptCritique, startNextAttempt } from '@src/domain/entity/task-attempts.ts';
+import { markTaskBlocked, unblockTask } from '@src/domain/entity/task-lifecycle.ts';
+import { failCurrentAttempt } from '@src/domain/entity/task-settle.ts';
+import { decidePriorWork, withQuarantinedDiff } from '@src/domain/entity/task-prior-work.ts';
+import { quarantineStashMessage } from '@src/domain/value/quarantine-stash-message.ts';
 import type { InteractivePrompt } from '@src/business/interactive/prompt.ts';
 import { createRunner } from '@src/application/chain/run/runner.ts';
 import type { GitRunner, GitRunResult } from '@src/integration/io/git-runner.ts';
@@ -717,8 +721,17 @@ describe('createImplementFlow — gen-eval loop', () => {
       },
     });
 
+    const eventBus = createInMemoryEventBus();
+    const verdicts: TaskRoundEvaluatedEvent[] = [];
+    eventBus.subscribe((e) => {
+      if (e.type === 'task-round-evaluated') verdicts.push(e);
+    });
+
     const flow = createImplementFlow(
-      buildDeps(sprintRepo.repo, inMemoryExecutionRepo(f.execution).repo, taskRepo.repo, provider, f.dir),
+      {
+        ...buildDeps(sprintRepo.repo, inMemoryExecutionRepo(f.execution).repo, taskRepo.repo, provider, f.dir),
+        eventBus,
+      },
       {
         sprintId: f.sprint.id,
         todoTasks: f.tasks,
@@ -752,6 +765,16 @@ describe('createImplementFlow — gen-eval loop', () => {
       expect(finalTask.attempts[0]?.status).toBe('verified');
     }
     expect(sprintRepo.current().status).toBe('review');
+    // One verdict per round, published by the evaluator leaf the real flow wires.
+    expect(verdicts.map((v) => [v.taskId, v.attemptN, v.roundN, v.verdict])).toEqual([
+      [String(f.tasks[0]!.id), 1, 1, 'failed'],
+      [String(f.tasks[0]!.id), 1, 2, 'passed'],
+    ]);
+    // Each names its run and the attempt / round loop iterations the real loops ran it in.
+    expect(verdicts.map((v) => [v.chainSessionId, v.iteration])).toEqual([
+      ['r-impl-retry-pass', { attempt: 1, round: 1 }],
+      ['r-impl-retry-pass', { attempt: 1, round: 2 }],
+    ]);
   });
 
   it('exhausted budget: every turn fails — task → done with budget-exhausted warning, sprint → review', async () => {
@@ -2928,6 +2951,147 @@ describe('createImplementFlow — gen-eval loop', () => {
   });
 });
 
+describe('createImplementFlow — relaunch after an unblock with a quarantined diff', () => {
+  let cleanupFns: Array<() => Promise<void>>;
+  beforeEach(() => {
+    cleanupFns = [];
+  });
+  afterEach(async () => {
+    for (const fn of cleanupFns) await fn();
+  });
+
+  const STAT = { files: 5, insertions: 142, deletions: 38 } as const;
+  const CRITIQUE = 'Retries never back off; the 429 path hammers the API.';
+
+  const unwrap = <T, E>(r: Result<T, E>): T => {
+    if (!r.ok) throw new Error(`test setup: ${String(r.error)}`);
+    return r.value as T;
+  };
+
+  /** Clean-tree git whose stash holds the task's quarantined diff until a pop consumes it. */
+  const stashHoldingGit = (stashMessage: string): { runner: GitRunner; pops: () => number; listed: () => string } => {
+    const base = makeCleanGit();
+    let entries = [`On ralphctl/test: ${stashMessage}`];
+    let pops = 0;
+    return {
+      runner: {
+        async run(cwd, args) {
+          if (args[0] === 'stash' && args[1] === 'list') return okGit(entries.join('\n'), 0);
+          if (args[0] === 'stash' && args[1] === 'pop') {
+            pops += 1;
+            entries = [];
+            return okGit('', 0);
+          }
+          return base.run(cwd, args);
+        },
+      },
+      pops: () => pops,
+      listed: () => entries.join('\n'),
+    };
+  };
+
+  const relaunch = async (
+    choice: 'continue' | 'fresh'
+  ): Promise<{
+    finalTask: Task | undefined;
+    journal: string;
+    generatorPrompt: string;
+    pops: number;
+    listed: string;
+    message: string;
+  }> => {
+    const f = await buildFixture(1);
+    cleanupFns.push(f.cleanup);
+    const [todo] = f.tasks;
+    if (todo === undefined || todo.status !== 'todo') throw new Error('test setup: missing task');
+    const message = quarantineStashMessage(f.sprint.id, todo.id);
+    // A critiqued attempt blocked with its diff quarantined, then the operator unblocked it.
+    const critiqued = unwrap(recordRunningAttemptCritique(unwrap(startNextAttempt(todo, FIXED_NOW)), CRITIQUE));
+    const blocked = unwrap(
+      markTaskBlocked(unwrap(failCurrentAttempt(critiqued, FIXED_NOW, 'failed')), 'budget', 'own')
+    );
+    const revived = unwrap(unblockTask(withQuarantinedDiff(blocked, message, STAT, 1)));
+    const task = decidePriorWork(revived, { choice, stashMessage: message, stat: STAT, entries: 1 }, FIXED_NOW);
+    const taskRepo = inMemoryTaskRepo([task]);
+    const git = stashHoldingGit(message);
+    const provider = createFakeAiProvider({
+      signals: { implement: [taskVerified('tests pass')], evaluate: [evaluationPassed()] },
+    });
+    const flow = createImplementFlow(
+      buildDeps(
+        inMemorySprintRepo(f.sprint).repo,
+        inMemoryExecutionRepo(f.execution).repo,
+        taskRepo.repo,
+        provider,
+        f.dir,
+        git.runner
+      ),
+      {
+        sprintId: f.sprint.id,
+        todoTasks: [task],
+        repositories: FAKE_REPOSITORIES,
+        generatorProviderId: 'claude-code',
+        generatorModel: 'claude-opus-4-8',
+        evaluatorProviderId: 'claude-code',
+        evaluatorModel: 'claude-opus-4-8',
+        progressFile: absolutePath(f.progressFile),
+        sprintDir: absolutePath(f.dir),
+        memoryRoot: FAKE_MEMORY_ROOT,
+        projectId: FAKE_PROJECT_ID,
+        projectSlug: FAKE_PROJECT_SLUG,
+      }
+    );
+    const runner = createRunner({
+      id: `r-impl-relaunch-${choice}`,
+      element: flow,
+      initialCtx: { sprintId: f.sprint.id } satisfies ImplementCtx,
+    });
+    await runner.start();
+    expect(runner.status).toBe('completed');
+    return {
+      finalTask: taskRepo.tasks()[0],
+      journal: await fs.readFile(f.progressFile, 'utf8'),
+      generatorPrompt: await fs.readFile(
+        join(f.dir, 'implement', String(task.id), 'rounds', '1', 'generator', 'prompt.md'),
+        'utf8'
+      ),
+      pops: git.pops(),
+      listed: git.listed(),
+      message,
+    };
+  };
+
+  it('fresh: the diff stays in the stash, the attempt records the choice, and the journal pins it', async () => {
+    const { finalTask, journal, generatorPrompt, pops, listed, message } = await relaunch('fresh');
+
+    expect(pops).toBe(0);
+    expect(listed).toContain(message);
+    expect(finalTask?.status).toBe('done');
+    // The epilogue's whole-list save kept the stamp the restore leaf put on ctx.
+    expect(finalTask?.attempts[0]?.priorWork).toStrictEqual({ kind: 'kept-by-choice', stashMessage: message });
+    expect(finalTask?.quarantinedDiff?.nextAttempt).toBe('fresh');
+    expect(journal).toContain(
+      `quarantined diff kept in git stash by operator choice — attempt 1 starts fresh (message: \`${message}\`)`
+    );
+    expect(generatorPrompt).not.toContain('<restored_work>\n');
+  });
+
+  it('continue: the diff is popped before the first turn, stamped restored, and the consumed fact is gone', async () => {
+    const { finalTask, journal, generatorPrompt, pops, listed, message } = await relaunch('continue');
+
+    expect(pops).toBe(1);
+    expect(listed).toBe('');
+    expect(finalTask?.status).toBe('done');
+    expect(finalTask?.attempts[0]?.priorWork).toStrictEqual({ kind: 'restored', stashMessage: message, stat: STAT });
+    expect(finalTask?.quarantinedDiff).toBeUndefined();
+    expect(journal).toContain('quarantined diff restored into attempt 1 — the stash entry is consumed');
+    // The generator's cold first turn is told what it is continuing from, and why it was rejected.
+    const block = /<restored_work>\n([\s\S]*?)\n<\/restored_work>/.exec(generatorPrompt)?.[1];
+    expect(block).toContain('5 files, +142 -38 lines');
+    expect(block).toContain(CRITIQUE);
+  });
+});
+
 describe('createImplementFlow — reproduction-first (defect-shaped tasks)', () => {
   let cleanupFns: Array<() => Promise<void>>;
   beforeEach(() => {
@@ -3163,5 +3327,100 @@ describe('createImplementFlow — reproduction-first (defect-shaped tasks)', () 
 
     const reproduceEntry = runner.trace.find((e) => e.elementName === `reproduce-${String(task.id)}`);
     expect(reproduceEntry?.status).toBe('skipped');
+  });
+});
+
+describe('createImplementFlow — step-started liveness', () => {
+  let cleanupFns: Array<() => Promise<void>>;
+  beforeEach(() => {
+    cleanupFns = [];
+  });
+  afterEach(async () => {
+    for (const fn of cleanupFns) await fn();
+  });
+
+  // Fences the wiring, not the primitives: a hand-written element on the serial path that drops
+  // `onStart` leaves its leaves without a start, and this run surfaces it by name.
+  it('every leaf that ran had a matching step-started, with loop iterations stamped on both', async () => {
+    const f = await buildFixture(2);
+    cleanupFns.push(f.cleanup);
+    const sprintRepo = inMemorySprintRepo(f.sprint);
+    const taskRepo = inMemoryTaskRepo(f.tasks);
+
+    let evalCalls = 0;
+    const provider = createFakeAiProvider({
+      signals: {
+        implement: [taskVerified('tests pass')],
+        // Task 1 fails round 1, so its gen-eval loop runs a second iteration.
+        evaluate: () => {
+          evalCalls += 1;
+          return evalCalls === 1 ? [evaluationFailed('missing edge case')] : [evaluationPassed()];
+        },
+      },
+    });
+
+    const flow = createImplementFlow(
+      buildDeps(sprintRepo.repo, inMemoryExecutionRepo(f.execution).repo, taskRepo.repo, provider, f.dir),
+      {
+        sprintId: f.sprint.id,
+        todoTasks: f.tasks,
+        repositories: FAKE_REPOSITORIES,
+        generatorProviderId: 'claude-code',
+        generatorModel: 'claude-opus-4-8',
+        evaluatorProviderId: 'claude-code',
+        evaluatorModel: 'claude-opus-4-8',
+        progressFile: absolutePath(f.progressFile),
+        sprintDir: absolutePath(f.dir),
+        memoryRoot: FAKE_MEMORY_ROOT,
+        projectId: FAKE_PROJECT_ID,
+        projectSlug: FAKE_PROJECT_SLUG,
+      }
+    );
+
+    const runner = createRunner({
+      id: 'r-impl-liveness',
+      element: flow,
+      initialCtx: { sprintId: f.sprint.id } satisfies ImplementCtx,
+    });
+    const key = (name: string, iterations: unknown): string => `${name} ${JSON.stringify(iterations ?? [])}`;
+    const open = new Map<string, number>();
+    const missingStart: string[] = [];
+    let starts = 0;
+    runner.subscribe((event) => {
+      if (event.type === 'step-started') {
+        starts += 1;
+        const k = key(event.step.elementName, event.step.iterations);
+        open.set(k, (open.get(k) ?? 0) + 1);
+        return;
+      }
+      if (event.type !== 'step') return;
+      // Skipped / pre-aborted entries are synthesised by composites and never get a start.
+      if (event.entry.status !== 'completed' && event.entry.status !== 'failed') return;
+      const k = key(event.entry.elementName, event.entry.iterations);
+      const count = open.get(k) ?? 0;
+      if (count === 0) missingStart.push(k);
+      else open.set(k, count - 1);
+    });
+
+    await runner.start();
+
+    expect(runner.status).toBe('completed');
+    expect(missingStart).toEqual([]);
+    expect([...open.values()].every((n) => n === 0)).toBe(true);
+    expect(starts).toBeGreaterThan(0);
+
+    const task1 = String(f.tasks[0]?.id);
+    const generatorRounds = runner.trace.filter((e) => e.elementName === `generator-${task1}`).map((e) => e.iterations);
+    expect(generatorRounds).toEqual([
+      [
+        { loop: `task-attempts-${task1}`, n: 1 },
+        { loop: `gen-eval-${task1}`, n: 1 },
+      ],
+      [
+        { loop: `task-attempts-${task1}`, n: 1 },
+        { loop: `gen-eval-${task1}`, n: 2 },
+      ],
+    ]);
+    expect(runner.trace.find((e) => e.elementName === 'load-sprint')?.iterations).toBeUndefined();
   });
 });

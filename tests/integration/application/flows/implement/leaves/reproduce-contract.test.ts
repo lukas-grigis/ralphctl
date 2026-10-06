@@ -4,7 +4,10 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import { ParseError } from '@src/domain/value/error/parse-error.ts';
 import { validateSignalsFile } from '@src/integration/ai/contract/_engine/validate-signals-file.ts';
-import { reproduceOutputContract } from '@src/application/flows/implement/leaves/reproduce.contract.ts';
+import {
+  notReproducedExampleSignals,
+  reproduceOutputContract,
+} from '@src/application/flows/implement/leaves/reproduce.contract.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { makeTmpRoot } from '@tests/fixtures/tmp-root.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
@@ -74,6 +77,12 @@ describe('reproduceOutputContract — signal schema validation', () => {
   };
 
   // ── 1. Happy paths ──────────────────────────────────────────────────────────
+
+  it('ok: the not-reproduced example validates', async () => {
+    const outputDir = await arrange({ schemaVersion: 1, signals: notReproducedExampleSignals });
+    const result = await validateSignalsFile(outputDir, reproduceOutputContract);
+    expect(result.ok).toBe(true);
+  });
 
   it('ok: reproduction alone → validates and returns signal', async () => {
     const outputDir = await arrange({ schemaVersion: 1, signals: [reproductionSignal()] });

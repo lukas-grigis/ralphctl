@@ -24,3 +24,4 @@
 - [project_revamp_rollback.md](project_revamp_rollback.md) — Sections/tab-bar revamp rejected; original TUI + keep-list is the base
 - [project_strictmode_updater_purity_probe.md](project_strictmode_updater_purity_probe.md) — StrictMode test exposes impure setState updaters; fake-timer vs polling-helper stall
 - [project_fixed_columns_and_fake_clock_tests.md](project_fixed_columns_and_fake_clock_tests.md) — Fixed-width timeline columns; settle-jump-advance recipe for proving a fake-clock tick
+- [project_prompt_driven_view_tests.md](project_prompt_driven_view_tests.md) — Testing prompt-asking views: PromptHost wiring, eventBus stub blanks frame, body wrap, optional queue

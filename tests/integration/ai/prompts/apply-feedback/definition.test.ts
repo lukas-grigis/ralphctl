@@ -29,6 +29,23 @@ describe('applyFeedbackPromptDef — completeness', () => {
   });
 });
 
+describe('apply-feedback template wording', () => {
+  it('states the latest-round rule once and carries no stale phrasing', async () => {
+    const raw = await readTemplate();
+    expect(raw.match(/Latest round wins/g)).toHaveLength(1);
+    for (const stale of ['invariant established by a prior round', 'dirty-tree', 'Critical divergence', 'NOW']) {
+      expect(raw).not.toContain(stale);
+    }
+  });
+
+  it('declares the autonomous-operation and git-boundary partials', () => {
+    expect(applyFeedbackPromptDef.partials).toMatchObject({
+      AUTONOMOUS_OPERATION: 'autonomous-operation',
+      GIT_BOUNDARY: 'git-boundary',
+    });
+  });
+});
+
 describe('buildApplyFeedbackPrompt — end-to-end against the real template', () => {
   it('produces a fully-substituted prompt and lists every repository', async () => {
     const repositoriesBlock = ['- `/tmp/proj-a` (proj-a)', '- `/tmp/proj-b` (proj-b)'].join('\n');
@@ -48,6 +65,23 @@ describe('buildApplyFeedbackPrompt — end-to-end against the real template', ()
     expect(result.value).toContain('/tmp/proj-a');
     expect(result.value).toContain('/tmp/proj-b');
     expect(result.value).toContain('Please simplify the X feature.');
+  });
+
+  it("lets the operator's request override the git boundary's no-delete/no-revert rule", async () => {
+    const result = await buildApplyFeedbackPrompt(loader, {
+      repositories: '- `/tmp/proj-a` (proj-a)',
+      sprintContext: 'sprint ABC',
+      feedbackLog: '',
+      latestRound: 'Remove the legacy helper file.',
+      progress: '',
+      outputContractSection: '## Output contract\n\nWrite signals.json to /tmp/out.',
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const boundary = /<git_boundary>([\s\S]*?)<\/git_boundary>/.exec(result.value)?.[1]?.replace(/\s+/g, ' ') ?? '';
+    expect(boundary).toMatch(
+      /do not delete, revert, or `git clean` files you did not create — except when[^.]*operator's request/
+    );
   });
 
   it('rejects an empty latestRound via the spec validator', async () => {

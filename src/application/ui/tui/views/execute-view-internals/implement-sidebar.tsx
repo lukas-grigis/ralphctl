@@ -5,8 +5,8 @@
  *
  *   1. BaselineHealthCard — bordered card at the top of the sidebar (not a chip). Shows the
  *      harness verify-gate data (setup, pre/post verify, attribution).
- *   2. Flow-steps rail — reuses `FlowStepsRail` verbatim. Compact/suppressed (`suppressMeta`)
- *      when the sidebar is narrow; capped at `sidebarFlowStepsRows`.
+ *   2. Steps tree — the main-step spine (`FlowStepsRail`), capped at `sidebarFlowStepsRows`.
+ *      Task flows only: without task work items the main area carries the full tree instead.
  *   3. Task nav list — PASSIVE minimap: highlights the card focused in the main area. No keyboard
  *      capture — the main-area TasksPanel is the sole input owner and reports its cursor via
  *      `focusedTaskId`. The list scrolls to keep the highlighted row visible.
@@ -33,6 +33,7 @@ import { TokenBudgetCard } from '@src/application/ui/tui/components/token-budget
 import { BaselineHealthCard } from '@src/application/ui/tui/components/baseline-health-card.tsx';
 import { FlowStepsRail } from '@src/application/ui/tui/views/execute-view-internals/rail.tsx';
 import { SectionHeader } from '@src/application/ui/tui/views/execute-view-internals/section.tsx';
+import type { FlowProgress } from '@src/application/ui/tui/runtime/flow-progress.ts';
 import type { SessionDescriptor } from '@src/application/ui/tui/runtime/session-manager.ts';
 import type { TokenUsage } from '@src/application/ui/tui/runtime/use-token-usage.ts';
 import type { SprintExecution } from '@src/domain/entity/sprint-execution.ts';
@@ -186,6 +187,8 @@ export interface ImplementSidebarProps {
   readonly sidebarContextSideBySide: boolean;
   /** Session / sprint / model info from the session manager. */
   readonly descriptor: SessionDescriptor;
+  /** Flow-progress projection feeding the Steps tree. */
+  readonly progress?: FlowProgress | undefined;
   /** Bucketed task execution state — undefined while the harness hasn't emitted any events. */
   readonly bucketed: BucketedExecution | undefined;
   /** Whether the run is still in flight (drives status glyph + spinner). */
@@ -273,30 +276,29 @@ const SidebarContextCards = ({
   );
 };
 
-/** Flow-steps rail section. Self-gates: dropped entirely when the terminal has no rows to spare. */
+/** Steps tree section. Self-gates: omitted when the flow has no task work items or no rows to spare. */
 const SidebarStepsSection = ({
-  descriptor,
+  progress,
   isRunning,
   sidebarWidth,
   sidebarFlowStepsRows,
 }: {
-  readonly descriptor: SessionDescriptor;
+  readonly progress: FlowProgress | undefined;
   readonly isRunning: boolean;
   readonly sidebarWidth: number;
   readonly sidebarFlowStepsRows: number;
 }): React.JSX.Element | null => {
-  if (sidebarFlowStepsRows <= 0) return null;
+  if (sidebarFlowStepsRows <= 0 || progress === undefined || !progress.hasTaskWorkItems) return null;
   return (
     <>
       <SidebarDivider width={sidebarWidth} />
       <SectionHeader title="Steps" />
       <Box marginTop={spacing.gutter}>
         <FlowStepsRail
-          descriptor={descriptor}
+          progress={progress}
           isRunning={isRunning}
           maxRows={sidebarFlowStepsRows}
           railWidth={sidebarWidth - spacing.indent}
-          suppressMeta
         />
       </Box>
     </>
@@ -309,6 +311,7 @@ export const ImplementSidebar = ({
   sidebarFlowStepsRows,
   sidebarContextSideBySide,
   descriptor,
+  progress,
   bucketed,
   isRunning,
   focusedTaskId,
@@ -342,7 +345,7 @@ export const ImplementSidebar = ({
       />
 
       <SidebarStepsSection
-        descriptor={descriptor}
+        progress={progress}
         isRunning={isRunning}
         sidebarWidth={sidebarWidth}
         sidebarFlowStepsRows={sidebarFlowStepsRows}

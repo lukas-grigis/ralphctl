@@ -6,18 +6,26 @@ import type { TaskId } from '@src/domain/value/id/task-id.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
+import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
+import type { PriorWorkNotRestoredReason, PriorWorkOutcome } from '@src/domain/entity/attempt.ts';
+import type { InProgressTask } from '@src/domain/entity/task.ts';
+import {
+  clearStaleQuarantinedDiff,
+  repeatsPreviousPriorWork,
+  stampPriorWorkOutcome,
+} from '@src/domain/entity/task-prior-work.ts';
+import type { UpdateTask } from '@src/domain/repository/task/update-task.ts';
+import type { AppendFile } from '@src/business/io/append-file.ts';
+import { renderPriorWorkBreadcrumb } from '@src/business/sprint/journal-structure.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
-import {
-  gitResetHard,
-  gitStashList,
-  gitStashPop,
-  stashEntryMatchesMessage,
-} from '@src/integration/io/git-operations.ts';
+import { gitResetHard } from '@src/integration/io/git-operations.ts';
+import { gitStashList, gitStashPop, stashEntryMatchesMessage } from '@src/integration/io/git-stash.ts';
 import type { GitRunner } from '@src/integration/io/git-runner.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
-import { quarantineStashMessage } from '@src/application/flows/implement/leaves/quarantine-blocked-diff.ts';
+import type { FoldQueue } from '@src/application/flows/implement/wave-branch.ts';
+import { quarantineStashMessage } from '@src/domain/value/quarantine-stash-message.ts';
 import {
   type ReproductionArtifact,
   reproductionTestTampered,
@@ -59,10 +67,21 @@ import {
  *
  * Restoration is a convenience, not a correctness requirement: a retry that starts without the prior
  * diff is always valid (that work stays recoverable via `git stash list` regardless). So EVERY
- * failure here — a stash list failure, a pop conflict — is logged and swallowed as `Result.ok`. The
- * only ctx write is dropping a reproduction whose test didn't come back (see below). A missing stash
- * is the common case (most attempts have no prior block to restore) and is a silent no-op that costs
- * one git call.
+ * failure here — a stash list failure, a pop conflict, a failed outcome write — is logged and
+ * swallowed as `Result.ok`. A missing stash is the common case (most attempts have no prior block to
+ * restore) and is a silent no-op that costs one git call.
+ *
+ * ## The operator's decision, and the recorded outcome
+ *
+ * An unblock records on `task.quarantinedDiff` whether the next attempt continues from the diff or
+ * starts fresh. `fresh` never probes the tree and never pops: the entry stays exactly where it is.
+ * `continue`, and a legacy fact with no decision, pop as described below. Whatever happens is
+ * stamped on the running attempt as a typed `priorWork` outcome, persisted, journaled to
+ * `progress.md` and projected onto `ctx.currentTask` and `ctx.tasks` (the serial epilogue's
+ * whole-list save would otherwise write the unstamped copy back). A successful pop drops the entry,
+ * so `restored` is persisted BEFORE the pop and re-stamped `not-restored` if the pop fails: a crash
+ * in between then over-reports restored work in the tree, never under-reports it. A fact whose key
+ * the stash no longer lists (dropped by hand) is cleared.
  * `AbortError` stays the one exception: the leaf framework checks `signal?.aborted` around the use
  * case, so a mid-run cancel surfaces as an `aborted` trace entry verbatim — this best-effort swallow
  * only ever catches the `StorageError` a git call returns.
@@ -106,21 +125,31 @@ import {
 export interface RestoreBlockedDiffLeafDeps {
   readonly gitRunner: GitRunner;
   readonly logger: Logger;
+  /** Persists the outcome stamp; a failed write is logged and the attempt proceeds. */
+  readonly taskRepo: UpdateTask;
+  readonly appendFile: AppendFile;
+  /** The journal's read-modify-write mutex: a breadcrumb landing inside a sibling branch's rewrite would be lost. */
+  readonly journalMutex: FoldQueue;
 }
 
 export interface RestoreBlockedDiffLeafOpts {
   /** The tree the retry runs against — where the prior blocked diff is restored. */
   readonly cwd: AbsolutePath;
+  /** Sprint journal the outcome breadcrumb is appended to. */
+  readonly progressFile: AbsolutePath;
 }
 
 interface RestoreBlockedDiffInput {
   readonly sprintId: SprintId;
+  readonly task: InProgressTask;
   readonly reproductionArtifact: ReproductionArtifact | undefined;
 }
 
 interface RestoreBlockedDiffOutput {
   /** Clear `ctx.reproductionArtifact` — its test is not in the tree. */
   readonly dropReproduction: boolean;
+  /** The task with its outcome stamped (or a stale fact cleared), for ctx. Absent → task unchanged. */
+  readonly task?: InProgressTask;
 }
 
 const KEEP_CTX: RestoreBlockedDiffOutput = { dropReproduction: false };
@@ -135,9 +164,8 @@ const KEEP_CTX: RestoreBlockedDiffOutput = { dropReproduction: false };
  * second is the one specific to guarding this undo.
  *
  * A raw `gitRunner.run`, like `work-product-fingerprint.ts`'s own reads, rather than a
- * `git-operations.ts` export: that module sits at its `max-lines` budget, and the submodule override
- * is this probe's concern alone. A non-zero exit surfaces as `Result.error` so "git is broken in this
- * tree" is never read as "clean".
+ * `git-operations.ts` export: the submodule override is this probe's concern alone. A non-zero exit
+ * surfaces as `Result.error` so "git is broken in this tree" is never read as "clean".
  */
 const treeChanges = async (runner: GitRunner, cwd: AbsolutePath): Promise<Result<string[], DomainError>> => {
   const result = await runner.run(cwd, [
@@ -177,7 +205,8 @@ const treeChanges = async (runner: GitRunner, cwd: AbsolutePath): Promise<Result
  * lost either: the stash entry is still there under the same message.
  *
  * A tree the probe finds clean needs no undo. When the probe itself fails there's no reset either:
- * the tree state is then unknown, and `reset --hard` is the more destructive guess.
+ * the tree state is then unknown, and `reset --hard` is the more destructive guess. The returned
+ * reason says whether the tree is known to be back at its pre-pop state.
  */
 const undoFailedPop = async (
   runner: GitRunner,
@@ -186,7 +215,7 @@ const undoFailedPop = async (
   taskId: TaskId,
   message: string,
   popError: string
-): Promise<void> => {
+): Promise<'pop-failed' | 'pop-failed-tree-unverified'> => {
   const changed = await treeChanges(runner, cwd);
   if (!changed.ok) {
     log.warn('stash pop failed and the tree probe failed — tree state unverified, diff still in the stash', {
@@ -195,7 +224,7 @@ const undoFailedPop = async (
       error: popError,
       probeError: changed.error.message,
     });
-    return;
+    return 'pop-failed-tree-unverified';
   }
   if (changed.value.length === 0) {
     log.warn('stash pop failed without changing the tree — retry starts from the unchanged tree', {
@@ -203,7 +232,7 @@ const undoFailedPop = async (
       stashMessage: message,
       error: popError,
     });
-    return;
+    return 'pop-failed';
   }
   const reset = await gitResetHard(runner, cwd);
   if (!reset.ok) {
@@ -213,7 +242,7 @@ const undoFailedPop = async (
       changedPaths: changed.value.length,
       error: reset.error.message,
     });
-    return;
+    return 'pop-failed-tree-unverified';
   }
   log.warn('stash pop failed; tree reset to its clean pre-pop state, diff still in stash', {
     taskId: String(taskId),
@@ -221,6 +250,7 @@ const undoFailedPop = async (
     changedPaths: changed.value.length,
     error: popError,
   });
+  return 'pop-failed';
 };
 
 /**
@@ -240,18 +270,25 @@ const undoFailedPop = async (
  */
 export const restoreBeforeFirstTurn = (ctx: ImplementCtx): boolean => ctx.lastExit === undefined;
 
+/** What {@link popOntoCleanTree} did; `vanished` = the entry was gone by the time the pop ran. */
+type PopOutcome =
+  | { readonly kind: 'restored' }
+  | { readonly kind: 'vanished' }
+  | { readonly kind: 'left'; readonly reason: PriorWorkNotRestoredReason; readonly uncommittedPaths?: number };
+
 /**
  * Pop the quarantined diff, but only onto a tree probed clean a moment earlier (see "Only onto a
- * clean tree" above). Every outcome is logged; none is an error. `true` only when the pop put the
- * diff in the tree.
+ * clean tree" above). Every outcome is logged; none is an error. `beforePop` runs between the probe
+ * and the pop — where the `restored` pre-stamp is persisted.
  */
 const popOntoCleanTree = async (
   runner: GitRunner,
   cwd: AbsolutePath,
   log: Logger,
   taskId: TaskId,
-  message: string
-): Promise<boolean> => {
+  message: string,
+  beforePop: () => Promise<void>
+): Promise<PopOutcome> => {
   const before = await treeChanges(runner, cwd);
   if (!before.ok) {
     log.warn('tree probe failed — prior blocked diff left in the stash, retry starts without it', {
@@ -260,7 +297,7 @@ const popOntoCleanTree = async (
       stashMessage: message,
       error: before.error.message,
     });
-    return false;
+    return { kind: 'left', reason: 'tree-probe-failed' };
   }
   if (before.value.length > 0) {
     log.warn('tree has uncommitted changes — prior blocked diff left in the stash, retry starts without it', {
@@ -269,20 +306,20 @@ const popOntoCleanTree = async (
       stashMessage: message,
       uncommittedPaths: before.value.length,
     });
-    return false;
+    return { kind: 'left', reason: 'dirty-tree', uncommittedPaths: before.value.length };
   }
 
+  await beforePop();
   const popped = await gitStashPop(runner, cwd, message);
   if (!popped.ok) {
     // Best-effort, but never silent about the tree: whatever a failed pop applied is undone
     // before the retry proceeds (see `undoFailedPop`), and each outcome logs what happened.
-    await undoFailedPop(runner, cwd, log, taskId, message, popped.error.message);
-    return false;
+    const reason = await undoFailedPop(runner, cwd, log, taskId, message, popped.error.message);
+    return { kind: 'left', reason };
   }
-  if (popped.value.popped) {
-    log.info('prior blocked diff restored from stash', { taskId: String(taskId), stashMessage: message });
-  }
-  return popped.value.popped;
+  if (!popped.value.popped) return { kind: 'vanished' };
+  log.info('prior blocked diff restored from stash', { taskId: String(taskId), stashMessage: message });
+  return { kind: 'restored' };
 };
 
 /** Whether the file at `testPath` can be read — the same read the tamper checksum makes. */
@@ -336,6 +373,172 @@ const reproductionLeftBehind = async (
   return true;
 };
 
+/** What one run of the leaf needs besides its input. */
+interface RestoreEnv {
+  readonly deps: RestoreBlockedDiffLeafDeps;
+  readonly opts: RestoreBlockedDiffLeafOpts;
+  readonly log: Logger;
+  readonly sprintId: SprintId;
+  readonly taskId: TaskId;
+}
+
+interface Settled {
+  /** Whether the pop put the diff in the tree. */
+  readonly restored: boolean;
+  readonly task: InProgressTask;
+}
+
+/** Best-effort: the outcome still reaches the journal and ctx when the write fails. */
+const persistTask = async (env: RestoreEnv, task: InProgressTask): Promise<void> => {
+  const saved = await env.deps.taskRepo.update(env.sprintId, task);
+  if (!saved.ok) {
+    env.log.warn('could not persist the prior-work outcome', {
+      taskId: String(env.taskId),
+      error: saved.error.message,
+    });
+  }
+};
+
+/** Journaled once per run of identical outcomes: each line is pinned, so per-retry repeats would pile up. */
+const appendBreadcrumb = async (env: RestoreEnv, task: InProgressTask, outcome: PriorWorkOutcome): Promise<void> => {
+  if (repeatsPreviousPriorWork(task, outcome)) return;
+  const line = renderPriorWorkBreadcrumb(task.name, task.attempts.length, outcome);
+  const appended = await env.deps.journalMutex.run(() => env.deps.appendFile(env.opts.progressFile, line));
+  if (!appended.ok) {
+    env.log.warn('prior-work journal append failed', { taskId: String(env.taskId), error: appended.error.message });
+  }
+};
+
+/** `undefined` when the task has no running attempt to stamp — logged, and the leaf carries on unstamped. */
+const stamp = (env: RestoreEnv, task: InProgressTask, outcome: PriorWorkOutcome): InProgressTask | undefined => {
+  const stamped = stampPriorWorkOutcome(task, outcome);
+  if (stamped.ok) return stamped.value;
+  env.log.warn('no running attempt to stamp the prior-work outcome on', {
+    taskId: String(env.taskId),
+    error: stamped.error.message,
+  });
+  return undefined;
+};
+
+const notRestored = (
+  stashMessage: string,
+  reason: PriorWorkNotRestoredReason,
+  uncommittedPaths?: number
+): PriorWorkOutcome => ({
+  kind: 'not-restored',
+  stashMessage,
+  reason,
+  ...(uncommittedPaths !== undefined ? { uncommittedPaths } : {}),
+});
+
+/** Stamp, persist and journal one outcome; returns the task ctx should carry. */
+const recordOutcome = async (
+  env: RestoreEnv,
+  task: InProgressTask,
+  outcome: PriorWorkOutcome
+): Promise<InProgressTask> => {
+  const stamped = stamp(env, task, outcome);
+  if (stamped === undefined) return task;
+  await persistTask(env, stamped);
+  await appendBreadcrumb(env, stamped, outcome);
+  return stamped;
+};
+
+/** The `continue` / legacy path: pre-stamp `restored`, pop onto a clean tree, re-stamp if it didn't land. */
+const restoreOntoCleanTree = async (env: RestoreEnv, task: InProgressTask, message: string): Promise<Settled> => {
+  const stat = task.quarantinedDiff?.stat;
+  const restoredOutcome: PriorWorkOutcome = {
+    kind: 'restored',
+    stashMessage: message,
+    ...(stat !== undefined ? { stat } : {}),
+  };
+  const preStamped = stamp(env, task, restoredOutcome);
+  const popped = await popOntoCleanTree(env.deps.gitRunner, env.opts.cwd, env.log, env.taskId, message, async () => {
+    if (preStamped !== undefined) await persistTask(env, preStamped);
+  });
+  switch (popped.kind) {
+    case 'restored':
+      if (preStamped === undefined) return { restored: true, task };
+      await appendBreadcrumb(env, preStamped, restoredOutcome);
+      return { restored: true, task: preStamped };
+    case 'vanished': {
+      // Popped by someone else between the list and the pop: undo the pre-stamp, drop the stale fact.
+      const cleared = clearStaleQuarantinedDiff(task);
+      await persistTask(env, cleared);
+      return { restored: false, task: cleared };
+    }
+    case 'left': {
+      // Stamped from the original task so the fact keeps its stat and decision; overwrites the pre-stamp.
+      const outcome = notRestored(message, popped.reason, popped.uncommittedPaths);
+      return { restored: false, task: await recordOutcome(env, task, outcome) };
+    }
+  }
+};
+
+const restoreUseCase = async (
+  env: RestoreEnv,
+  input: RestoreBlockedDiffInput
+): Promise<Result<RestoreBlockedDiffOutput, DomainError>> => {
+  const { deps, opts, log, taskId } = env;
+  const message = quarantineStashMessage(input.sprintId, taskId);
+  const fact = input.task.quarantinedDiff;
+
+  const stashes = await gitStashList(deps.gitRunner, opts.cwd);
+  if (!stashes.ok) {
+    log.warn('stash list failed — retry will start from a clean tree', {
+      taskId: String(taskId),
+      cwd: String(opts.cwd),
+      error: stashes.error.message,
+    });
+    if (fact === undefined) return Result.ok(KEEP_CTX);
+    const outcome = notRestored(message, 'stash-list-failed');
+    return Result.ok({ dropReproduction: false, task: await recordOutcome(env, input.task, outcome) });
+  }
+  // Matched via `stashEntryMatchesMessage` — real git renders the subject `On <branch>: <message>`,
+  // never the bare message, so an exact-equality check here would never match a real stash.
+  if (!stashes.value.some((entry) => stashEntryMatchesMessage(entry, message))) {
+    // No prior quarantined block — the common case. A fact without its entry was dropped by hand.
+    if (fact === undefined) return Result.ok(KEEP_CTX);
+    log.info('quarantined diff is no longer in the stash — clearing its stale pointer', {
+      taskId: String(taskId),
+      stashMessage: message,
+    });
+    const cleared = clearStaleQuarantinedDiff(input.task);
+    await persistTask(env, cleared);
+    return Result.ok({ dropReproduction: false, task: cleared });
+  }
+
+  let settled: Settled;
+  if (fact?.nextAttempt === 'fresh') {
+    log.info('operator chose a fresh start — quarantined diff stays in the stash', {
+      taskId: String(taskId),
+      stashMessage: message,
+    });
+    const outcome: PriorWorkOutcome = { kind: 'kept-by-choice', stashMessage: message };
+    settled = { restored: false, task: await recordOutcome(env, input.task, outcome) };
+  } else {
+    settled = await restoreOntoCleanTree(env, input.task, message);
+  }
+  const dropReproduction = await reproductionLeftBehind(
+    deps.gitRunner,
+    opts.cwd,
+    input.reproductionArtifact,
+    settled.restored,
+    log,
+    taskId
+  );
+  return Result.ok({ dropReproduction, task: settled.task });
+};
+
+const projectOutput = (ctx: ImplementCtx, out: RestoreBlockedDiffOutput): ImplementCtx => {
+  const { task } = out;
+  const withTask =
+    task === undefined
+      ? ctx
+      : { ...ctx, currentTask: task, tasks: (ctx.tasks ?? []).map((t) => (t.id === task.id ? task : t)) };
+  return out.dropReproduction ? { ...withTask, reproductionArtifact: undefined } : withTask;
+};
+
 export const restoreBlockedDiffLeaf = (
   deps: RestoreBlockedDiffLeafDeps,
   opts: RestoreBlockedDiffLeafOpts,
@@ -343,40 +546,26 @@ export const restoreBlockedDiffLeaf = (
 ): Element<ImplementCtx> =>
   leaf<ImplementCtx, RestoreBlockedDiffInput, RestoreBlockedDiffOutput>(`restore-blocked-diff-${String(taskId)}`, {
     useCase: {
-      execute: async (input): Promise<Result<RestoreBlockedDiffOutput, DomainError>> => {
-        const log = deps.logger.named('task.restore-blocked-diff');
-        const message = quarantineStashMessage(input.sprintId, taskId);
-
-        const stashes = await gitStashList(deps.gitRunner, opts.cwd);
-        if (!stashes.ok) {
-          log.warn('stash list failed — retry will start from a clean tree', {
-            taskId: String(taskId),
-            cwd: String(opts.cwd),
-            error: stashes.error.message,
-          });
-          return Result.ok(KEEP_CTX);
-        }
-        // No prior quarantined block for this task — the common case (most attempts never
-        // blocked). Matched via `stashEntryMatchesMessage` — real git renders the subject
-        // `On <branch>: <message>`, never the bare message, so an exact-equality check here
-        // would never match a real stash and this pre-check would always (wrongly) short-circuit.
-        if (!stashes.value.some((entry) => stashEntryMatchesMessage(entry, message))) return Result.ok(KEEP_CTX);
-
-        const restored = await popOntoCleanTree(deps.gitRunner, opts.cwd, log, taskId, message);
-        const dropReproduction = await reproductionLeftBehind(
-          deps.gitRunner,
-          opts.cwd,
-          input.reproductionArtifact,
-          restored,
-          log,
-          taskId
-        );
-        return Result.ok({ dropReproduction });
-      },
+      execute: (input) =>
+        restoreUseCase(
+          { deps, opts, log: deps.logger.named('task.restore-blocked-diff'), sprintId: input.sprintId, taskId },
+          input
+        ),
     },
-    input: (ctx): RestoreBlockedDiffInput => ({
-      sprintId: ctx.sprintId,
-      reproductionArtifact: ctx.reproductionArtifact,
-    }),
-    output: (ctx, out) => (out.dropReproduction ? { ...ctx, reproductionArtifact: undefined } : ctx),
+    input: (ctx): RestoreBlockedDiffInput => {
+      const task = ctx.currentTask;
+      // start-attempt put the running task on ctx; anything else is a ctx-shape bug.
+      if (task?.id !== taskId || task.status !== 'in_progress') {
+        throw new InvalidStateError({
+          entity: 'chain',
+          currentState: task === undefined ? 'missing' : task.status,
+          attemptedAction: `restore-blocked-diff-${String(taskId)}`,
+          message: `restore-blocked-diff-${String(taskId)}: expected the in-progress task on ctx.currentTask`,
+        });
+      }
+      return { sprintId: ctx.sprintId, task, reproductionArtifact: ctx.reproductionArtifact };
+    },
+    output: projectOutput,
+    label: 'Restore diff',
+    internal: true,
   });

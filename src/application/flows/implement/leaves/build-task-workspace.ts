@@ -125,4 +125,6 @@ export const buildTaskWorkspaceLeaf = (
       return { task };
     },
     output: (ctx, out) => ({ ...ctx, taskWorkspaceRoot: out.workspaceRoot }),
+    label: 'Build workspace',
+    internal: true,
   });

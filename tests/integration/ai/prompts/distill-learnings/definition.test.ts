@@ -106,7 +106,7 @@ describe('buildDistillLearningsPrompt — end-to-end', () => {
     const result = await buildDistillLearningsPrompt(loader, VALID_INPUT);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.value).toContain('Write ONLY the reconciled section body');
+    expect(result.value).toContain('Write only the reconciled section body');
     expect(result.value).toContain('the harness rejects the proposal otherwise');
     expect(result.value).not.toContain('Write the COMPLETE proposed content');
     expect(result.value).not.toContain('preserve it byte-for-byte');

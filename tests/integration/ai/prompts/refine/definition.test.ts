@@ -171,3 +171,16 @@ describe('refinePromptDef — untrusted inputs', () => {
     expect(spec?.untrusted?.source).toBeTruthy();
   });
 });
+
+describe('refine/template.md — structure', () => {
+  it('runs the checklist before the approval step and shares the question-format partial', async () => {
+    const template = await fs.readFile(`${String(defaultTemplatesDir())}/refine/template.md`, 'utf8');
+    expect(template.indexOf('### Step 3 — Check before presenting')).toBeLessThan(
+      template.indexOf('### Step 4 — Present requirements for approval')
+    );
+    expect(template).toContain('{{QUESTION_FORMAT}}');
+    expect(template).not.toContain('harness automatically appends');
+    expect(template).not.toMatch(/12 characters or fewer/);
+    expect(template).not.toContain('requires additional library');
+  });
+});

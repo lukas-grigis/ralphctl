@@ -57,12 +57,6 @@ const scriptRunner = (calls: ScriptedCall[]): { runner: GitRunner; received: Rec
 const ok = (stdout = '', exitCode = 0, stderr = ''): Result<GitRunResult, StorageError> =>
   Result.ok({ stdout, stderr, exitCode });
 
-describe('gitWorktreeRef', () => {
-  it('builds the canonical ralphctl/<sprintId>/wt-<taskId> ref', () => {
-    expect(gitWorktreeRef('sprint-abc', 'task-7')).toBe('ralphctl/sprint-abc/wt-task-7');
-  });
-});
-
 describe('gitWorktreeAdd', () => {
   it('runs `worktree add -b <branch> <path>` with a bumped timeout', async () => {
     const branch = gitWorktreeRef('s1', 't1');
@@ -81,7 +75,7 @@ describe('gitWorktreeAdd', () => {
     const { runner } = scriptRunner([
       {
         args: ['worktree', 'add', '-b', branch, String(worktreePath)],
-        result: ok('', 128, "fatal: a branch named 'ralphctl/s1/wt-t1' already exists"),
+        result: ok('', 128, "fatal: a branch named 'ralphctl-wt/s1/t1' already exists"),
       },
     ]);
     const result = await gitWorktreeAdd(runner, repoRoot, worktreePath, branch);

@@ -406,17 +406,14 @@ export const useSprintDetailBody = (): UseSprintDetailBodyResult => {
   const [feedback, setFeedback] = useState<string | undefined>(undefined);
   const inDetail = openIds.size > 0;
 
-  // Mounted-ref guard for the async unblock / remove-ticket handlers: dismissing the confirm
-  // overlay (or firing `u`) unblocks the router, so the operator can navigate away (unmounting
-  // this view) before the awaited use-case / flow resolves. The guard skips the post-await
-  // view-local writes (setFeedback / reload) so they never fire into an unmounted tree.
+  // Mounted-ref guard: the operator can navigate away while an unblock / remove-ticket resolves;
+  // it skips the post-await view-local writes (setFeedback / reload) on an unmounted tree.
   const mountedRef = useIsMounted();
   // Latch for the `p` publish chord — see `BuildSprintDetailHandlersArgs.publishInFlightRef`.
   const publishInFlightRef = useRef(false);
 
   const edit = useEditField();
   const queue = usePromptQueue();
-
   useSprintStatusChipSync(sprint, selection);
 
   useViewHints(
@@ -429,7 +426,6 @@ export const useSprintDetailBody = (): UseSprintDetailBodyResult => {
     })
   );
 
-  const unblockTask = useUnblockTask();
   const handlers = buildSprintDetailHandlers({
     sprint,
     deps,
@@ -439,7 +435,8 @@ export const useSprintDetailBody = (): UseSprintDetailBodyResult => {
     reload,
     mountedRef,
     setFeedback,
-    unblockTask,
+    unblockTask: useUnblockTask().unblockOne,
+    project,
     setConfirmRemove,
     publishInFlightRef,
   });

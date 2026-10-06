@@ -136,7 +136,7 @@ const generatorExampleSignals: readonly GeneratorSignal[] = [
   { type: 'task-verified', output: '$ <project test command>\n... 42 passed', timestamp: EXAMPLE_TS },
   {
     type: COMMIT_MESSAGE_KIND,
-    subject: 'feat(foo): add helper for bar',
+    subject: 'Add helper for bar',
     body: 'Why: the call site repeated three times; centralising it removes a future drift hazard.',
     timestamp: EXAMPLE_TS,
   },

@@ -239,4 +239,5 @@ export const proposeDetectScriptsLeaf = (deps: ProposeDetectScriptsLeafDeps): El
         runDir: out.runDir,
       },
     }),
+    label: 'Detect scripts with AI',
   });

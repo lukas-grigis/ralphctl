@@ -98,6 +98,22 @@ helper** to `business/observability/session.ts` (or domain) and update the `runn
 the provider uuid `sessionId` is a DIFFERENT id space from the runner id
 (see [[seams_provider_engine_streaming]]).
 
+## Nested runners on the bus: forward for display, never republish
+
+The step display reads the HOST runner's trace, so the parallel element forwards every branch step/start
+into the host `onTrace`/`onStart`. Each branch runner is also bridged to the bus itself, and the launcher
+bridges the host — so forwarded entries carry `forwardedFrom` and the bridge skips them. Drop the tag and
+every task step lands twice on the bus (chain.log lines + footer counts). Nested runners (branches,
+prologue/epilogue sub-runners) stamp `parentChainId` on `chain-started`; the notification subscriber needs
+it, because subscribing a branch before `start()` makes its `started` visible and every >2 min task would
+otherwise ping "run finished". Prologue/epilogue steps are still published under both their sub-runner id
+and the host id (pre-existing; the host-keyed execute-view buffer reads the host copies).
+
+**Why per-round verdicts key on (run, loop iteration):** events' `attemptN`/`roundN` count across runs
+while the display numbers rows by loop iteration; any positional mapping attaches another run's or a
+verdict-less attempt's neighbour. The evaluator reads its iterations from `loop-scope.ts` (ALS entered by
+`loop`) — don't revert to matching by number or position.
+
 ## Two sibling TUI-runtime facts from the same work
 
 - **`RouterApi.reset(entry)` no longer accepts a bare call.** The old optional form fell back to the

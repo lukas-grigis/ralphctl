@@ -31,4 +31,6 @@ export const saveSprintExecutionLeaf = <TCtx extends SaveSprintExecutionCtx>(
     },
     input: (ctx) => assertCtxField(ctx, 'execution', name),
     output: (ctx) => ctx,
+    label: 'Save execution',
+    internal: true,
   });

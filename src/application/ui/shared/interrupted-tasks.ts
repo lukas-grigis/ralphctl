@@ -11,6 +11,7 @@ import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { Task } from '@src/domain/entity/task.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { budgetedAttemptCount } from '@src/domain/entity/task-attempts.ts';
+import { restoredWorkContext } from '@src/domain/entity/task-prior-work.ts';
 import { readLastGeneratorRound } from '@src/application/flows/implement/leaves/round-artifacts.ts';
 import { gitStatusPorcelain } from '@src/integration/io/git-operations.ts';
 import type { GitRunner } from '@src/integration/io/git-runner.ts';
@@ -33,6 +34,8 @@ export interface InterruptedFacts {
   readonly resumable?: boolean;
   /** When the dead run last wrote its record, epoch ms — closer to the interruption than the attempt's start. */
   readonly since?: number;
+  /** The attempt had popped its quarantined rejected diff, so the tree holds the only copy. Read off the task. */
+  readonly restoredPriorWork?: boolean;
 }
 
 /** `implementRunning`: a live implement run of this process already owns the sprint's in-progress tasks. */
@@ -89,6 +92,7 @@ const loadOne = async (
   return {
     ...(status?.ok === true ? { uncommitted: status.value.length } : {}),
     resumable: round !== undefined,
+    restoredPriorWork: restoredWorkContext(task) !== undefined,
   };
 };
 

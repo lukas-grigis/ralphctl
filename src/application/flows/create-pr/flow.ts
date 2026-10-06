@@ -91,6 +91,7 @@ export const createCreatePrFlow = (deps: CreatePrDeps, opts: CreateCreatePrFlowO
           baseBranch: ctx.input.base,
           headBranch: ctx.headBranch ?? '',
           unitRoot: currentUnitRoot,
+          repoPath: ctx.input.cwd,
         });
       },
       // The CLI / TUI surfaces thread `settings.ai.createPr.provider`; a caller that omits it

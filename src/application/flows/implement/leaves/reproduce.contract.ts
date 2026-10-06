@@ -46,21 +46,35 @@ const signalsArraySchema = brandSignalArray<ReproduceSignal>(signalsArraySchemaR
 const EXAMPLE_TS = '2026-05-22T10:00:00.000Z' as IsoTimestamp;
 
 /**
- * Representative reproduce payload — one `reproduction` signal plus an optional `note`
- * explaining a judgment call. Round-tripped through `signalsSchema` in the prompt unit tests.
+ * Representative reproduce payload — one `reproduction` signal, with its optional `notes`
+ * recording a judgment call. Round-tripped through `signalsSchema` in the prompt unit tests.
  */
 const reproduceExampleSignals: readonly ReproduceSignal[] = [
   {
     type: 'reproduction',
-    testPath: 'tests/unit/business/foo/bar.test.ts',
+    testPath: '<path to the test file>',
     runCommand: '<test runner> run tests/unit/business/foo/bar.test.ts',
     observedFailure: 'expected 400, got 500\n  at src/routes/foo.ts:42',
-    relevantTests: ['tests/unit/business/foo/baz.test.ts'],
+    relevantTests: ['<path to a related existing test>'],
+    notes: 'Extended the existing test file rather than adding a new one, since the case fits there.',
     timestamp: EXAMPLE_TS,
   },
+];
+
+/**
+ * Bounded not-reproduced outcome — empty test fields, `reproduced: false` and a `reason`. The contract
+ * renders one example array, so this one is pinned by a round-trip test only.
+ * @public
+ */
+export const notReproducedExampleSignals: readonly ReproduceSignal[] = [
   {
-    type: 'note',
-    text: 'Reproduced via the existing empty-input test file rather than adding a new one, since the case fits there.',
+    type: 'reproduction',
+    reproduced: false,
+    reason: 'Tried the reported input against the current code; it already returns the expected result.',
+    testPath: '',
+    runCommand: '',
+    observedFailure: '',
+    relevantTests: [],
     timestamp: EXAMPLE_TS,
   },
 ];

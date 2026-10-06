@@ -51,37 +51,35 @@ interface AdoptPersistedBlocksOutput {
 }
 
 export const adoptPersistedBlocksLeaf = (deps: AdoptPersistedBlocksLeafDeps): Element<ImplementCtx> =>
-  leaf<ImplementCtx, AdoptPersistedBlocksInput, AdoptPersistedBlocksOutput>(
-    'adopt-persisted-blocks',
-    {
-      useCase: {
-        execute: async (input): Promise<Result<AdoptPersistedBlocksOutput, DomainError>> => {
-          if (input.tasks === undefined) return Result.ok({ tasks: undefined });
+  leaf<ImplementCtx, AdoptPersistedBlocksInput, AdoptPersistedBlocksOutput>('adopt-persisted-blocks', {
+    useCase: {
+      execute: async (input): Promise<Result<AdoptPersistedBlocksOutput, DomainError>> => {
+        if (input.tasks === undefined) return Result.ok({ tasks: undefined });
 
-          const named = deps.logger.named('implement.adopt-persisted-blocks');
-          let persisted;
-          try {
-            persisted = await deps.taskRepo.findBySprintId(input.sprintId);
-          } catch (cause) {
-            if (cause instanceof AbortError) throw cause;
-            named.warn('task read threw — epilogue proceeds with the in-memory task list', {
-              sprintId: String(input.sprintId),
-              error: messageOf(cause),
-            });
-            return Result.ok({ tasks: input.tasks });
-          }
-          if (!persisted.ok) {
-            named.warn('task read failed — epilogue proceeds with the in-memory task list', {
-              sprintId: String(input.sprintId),
-              error: persisted.error.message,
-            });
-            return Result.ok({ tasks: input.tasks });
-          }
-          return Result.ok({ tasks: adoptPersistedBlocks(input.tasks, persisted.value) });
-        },
+        const named = deps.logger.named('implement.adopt-persisted-blocks');
+        let persisted;
+        try {
+          persisted = await deps.taskRepo.findBySprintId(input.sprintId);
+        } catch (cause) {
+          if (cause instanceof AbortError) throw cause;
+          named.warn('task read threw — epilogue proceeds with the in-memory task list', {
+            sprintId: String(input.sprintId),
+            error: messageOf(cause),
+          });
+          return Result.ok({ tasks: input.tasks });
+        }
+        if (!persisted.ok) {
+          named.warn('task read failed — epilogue proceeds with the in-memory task list', {
+            sprintId: String(input.sprintId),
+            error: persisted.error.message,
+          });
+          return Result.ok({ tasks: input.tasks });
+        }
+        return Result.ok({ tasks: adoptPersistedBlocks(input.tasks, persisted.value) });
       },
-      input: (ctx) => ({ sprintId: ctx.sprintId, tasks: ctx.tasks }),
-      output: (ctx, out) => (out.tasks === ctx.tasks ? ctx : { ...ctx, tasks: out.tasks }),
     },
-    { label: 'reconcile persisted blocks' }
-  );
+    input: (ctx) => ({ sprintId: ctx.sprintId, tasks: ctx.tasks }),
+    output: (ctx, out) => (out.tasks === ctx.tasks ? ctx : { ...ctx, tasks: out.tasks }),
+    label: 'Reconcile blocks',
+    internal: true,
+  });

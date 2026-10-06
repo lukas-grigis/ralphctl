@@ -55,4 +55,6 @@ export const buildUnitLeaf = <TCtx>(opts: BuildUnitOpts<TCtx>): Element<TCtx> =>
     },
     input: (ctx) => ({ path: join(String(opts.parent(ctx)), opts.slug(ctx)) }),
     output: (ctx, root) => opts.write(ctx, root),
+    label: 'Build unit',
+    internal: true,
   });

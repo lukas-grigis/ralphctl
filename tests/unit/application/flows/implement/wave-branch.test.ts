@@ -14,6 +14,7 @@ import type { GitRunner, GitRunResult } from '@src/integration/io/git-runner.ts'
 import type { ShellScriptRunner, ShellScriptResult } from '@src/integration/io/shell-script-runner.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import type { Element, ElementResult } from '@src/application/chain/element.ts';
+import { leaf } from '@src/application/chain/build/leaf.ts';
 import { createRunner } from '@src/application/chain/run/runner.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import type { ImplementDeps } from '@src/application/flows/implement/deps.ts';
@@ -100,16 +101,19 @@ const conflict = (): Result<GitRunResult, StorageError> => ok('CONFLICT (content
 const fakeGit = (over?: {
   foldConflict?: boolean;
   removeFails?: boolean;
+  listFails?: boolean;
 }): { runner: GitRunner; calls: string[][] } => {
   const calls: string[][] = [];
   const runner: GitRunner = {
     async run(_cwd, args) {
       calls.push([...args]);
       const [a, b] = args;
+      if (a === 'worktree' && b === 'list' && over?.listFails === true) return ok('', 128, 'fatal: index.lock');
       if (a === 'worktree' && b === 'remove') return over?.removeFails === true ? conflict() : ok();
       if (a === 'merge' && b === '--ff-only') return over?.foldConflict === true ? ok('not ff', 1) : ok();
       if (a === 'merge-base') return ok('a'.repeat(40));
       if (a === 'cherry-pick') return over?.foldConflict === true ? conflict() : ok();
+      if (a === 'rev-list') return ok('0\n'); // a leftover ref holds nothing the sprint branch lacks
       return ok(); // worktree add / prune / etc.
     },
   };
@@ -236,6 +240,38 @@ describe('buildWorktreeBranch — happy path', () => {
     await runBranch(branch, baseCtx([task]));
     // The branch-start snapshot LISTS the stash; nothing may ever change it from the main repo.
     expect(calls.some((c) => c[0] === 'stash' && c[1] !== 'list')).toBe(false);
+  });
+});
+
+describe('buildWorktreeBranch — step starts', () => {
+  it('emits a start before worktree setup, forwards the subchain starts, and starts the fold', async () => {
+    const task = makeTodoTask();
+    const done: Task = { ...makeDoneTask(), id: task.id };
+    const { runner } = fakeGit();
+    const deps = makeBranchDeps(runner, stubBus([]));
+    const wt = worktreePathFor(absolutePath('/data/sprints/s1'), task.id);
+    const subchain = (): Element<ImplementCtx> =>
+      leaf<ImplementCtx, void, void>(`work-${String(task.id)}`, {
+        useCase: { execute: async () => Result.ok(undefined) },
+        input: () => undefined,
+        output: (ctx) => ({ ...ctx, tasks: (ctx.tasks ?? []).map((t) => (t.id === task.id ? done : t)) }),
+      });
+    const branch = buildWorktreeBranch(deps, repo, task, wt, 'ref', PROGRESS, subchain);
+    const branchRunner = createRunner<ImplementCtx>({ id: 'branch', element: branch, initialCtx: baseCtx([task]) });
+    const events: string[] = [];
+    branchRunner.subscribe((e) => {
+      if (e.type === 'step-started') events.push(`start:${e.step.elementName}`);
+      else if (e.type === 'step') events.push(`${e.entry.status}:${e.entry.elementName}`);
+    });
+
+    await branchRunner.start();
+
+    const id = String(task.id);
+    const ran = [`worktree-setup-${id}`, `work-${id}`, `fold-${id}`];
+    for (const name of ran) {
+      expect(events.indexOf(`start:${name}`)).toBeGreaterThanOrEqual(0);
+      expect(events.indexOf(`start:${name}`)).toBeLessThan(events.indexOf(`completed:${name}`));
+    }
   });
 });
 
@@ -736,7 +772,7 @@ describe('buildWorktreeBranch — per-worktree setup working-tree check', () => 
 // ── defensive branch-ref pre-delete (idempotent relaunch after a crashed run) ──────────────────
 
 describe('setupWorktree — defensive leaked-ref delete before add', () => {
-  it('deletes the wt-<task> ref BEFORE `worktree add -b` so a leaked ref never wedges relaunch', async () => {
+  it('deletes a leaked worktree ref BEFORE `worktree add -b` so a leaked ref never wedges relaunch', async () => {
     const task = makeTodoTask();
     const done: Task = { ...makeDoneTask(), id: task.id };
     const { runner, calls } = fakeGit();
@@ -759,6 +795,30 @@ describe('setupWorktree — defensive leaked-ref delete before add', () => {
     expect(firstDeleteIdx).toBeGreaterThanOrEqual(0);
     expect(addIdx).toBeGreaterThanOrEqual(0);
     expect(firstDeleteIdx).toBeLessThan(addIdx); // defensive delete precedes the add
+  });
+});
+
+describe('setupWorktree — an unreadable worktree list', () => {
+  it('fails the setup without touching any ref — a checked-out ref could otherwise be renamed away', async () => {
+    const task = makeTodoTask();
+    const done: Task = { ...makeDoneTask(), id: task.id };
+    const { runner, calls } = fakeGit({ listFails: true });
+    const wt = worktreePathFor(absolutePath('/data/sprints/s1'), task.id);
+
+    const branch = buildWorktreeBranch(
+      makeBranchDeps(runner, stubBus([])),
+      repo,
+      task,
+      wt,
+      'ralphctl/s1/wt-x',
+      PROGRESS,
+      settlingSubchain(task.id, done)
+    );
+    const { status } = await runBranch(branch, baseCtx([task]));
+
+    expect(status).toBe('failed');
+    expect(calls.filter((c) => c[0] === 'branch')).toStrictEqual([]);
+    expect(calls.some((c) => c[0] === 'worktree' && c[1] === 'add')).toBe(false);
   });
 });
 

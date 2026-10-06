@@ -188,8 +188,12 @@ worktree teardown does:
   (`stashEntryMatchesMessage`), never a numeric stash index. On the parallel path this alone was
   not enough: several worktrees can push/list/pop against the ONE shared `refs/stash` ref
   concurrently, and a sibling's push between one call's list and its own pop shifts every later
-  index — so `git-operations.ts` now serialises every stash push/list/pop behind an in-process
+  index — so `git-stash.ts` serialises every stash push/list/pop behind an in-process
   FIFO mutex (`withStashMutex`), making each call's list-then-act sequence atomic against the others.
+  Worktree bookkeeping needs the same treatment: a half-done `worktree add`/`remove` briefly leaves
+  `.git/worktrees/<x>` incomplete, and a sibling's `worktree add`/`list`/`prune` or `branch -D`/`-m`
+  walking it dies with `failed to read …/commondir` — so those run behind a per-repo FIFO mutex
+  (`withWorktreeMutex`, `git-worktree-mutex.ts`).
 - `unblockTask` (`domain/entity/task-lifecycle.ts`) archives, rather than deletes, the attempts,
   criteria verdicts, and escalation stamps a clean restart clears off the live task — appended to
   `Task.retiredAttempts` (oldest first) so the forensic record of what happened before the operator

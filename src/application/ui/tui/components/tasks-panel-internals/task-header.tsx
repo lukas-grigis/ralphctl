@@ -12,6 +12,7 @@
  * {@link IndentedNotice} is the shared one-line notice shape, also used by the expanded body.
  */
 
+import type { PriorWorkNotice } from '@src/application/ui/shared/prior-work-copy.ts';
 import React, { useMemo } from 'react';
 import { Box, Text } from 'ink';
 import { resolveAttemptCoords, type TaskBucket } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
@@ -276,12 +277,14 @@ export const HeaderNotices = ({
   blockedReason,
   blockedTriage,
   warningSummary,
+  priorWork,
 }: {
   readonly task: TaskBucket;
   readonly cardExpanded: boolean;
   readonly blockedReason: string | undefined;
   readonly blockedTriage: BlockedTriage | undefined;
   readonly warningSummary: string | undefined;
+  readonly priorWork?: PriorWorkNotice | undefined;
 }): React.JSX.Element => {
   const { blockedReasonText, questionText, whatUnblocksMeText, warningSummaryText } = resolveNoticeTexts(
     task,
@@ -296,6 +299,7 @@ export const HeaderNotices = ({
       <OptionalNotice tone="dim" icon={glyphs.unknownGlyph} text={questionText} />
       <OptionalNotice tone="dim" icon={glyphs.arrowRight} text={whatUnblocksMeText} />
       <OptionalNotice tone="warning" icon={glyphs.warningGlyph} text={warningSummaryText} />
+      {priorWork !== undefined && <OptionalNotice tone={priorWork.tone} icon={priorWork.icon} text={priorWork.text} />}
     </>
   );
 };

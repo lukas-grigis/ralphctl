@@ -86,4 +86,5 @@ export const applyPlanLeaf = (deps: ApplyPlanLeafDeps): Element<PlanCtx> =>
       if (!out.accepted) return { ...ctx, sprint: out.sprint, tasks: out.tasks };
       return { ...ctx, sprint: out.sprint, tasks: out.tasks, plannedTasks: out.tasks as readonly TodoTask[] };
     },
+    label: 'Approve plan',
   });

@@ -20,7 +20,7 @@ import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts'
 import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/template-loader.ts';
 import type { ShellScriptRunner } from '@src/integration/io/shell-script-runner.ts';
 import { writeTextAtomic } from '@src/integration/io/fs.ts';
-import { gitStashList, stashEntryMatchesMessage } from '@src/integration/io/git-operations.ts';
+import { gitStashList, stashEntryMatchesMessage } from '@src/integration/io/git-stash.ts';
 import type { GitRunner } from '@src/integration/io/git-runner.ts';
 import type { WriteFile } from '@src/business/io/write-file.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
@@ -33,7 +33,7 @@ import { reproduceOutputContract } from '@src/application/flows/implement/leaves
 import { runPathsFor } from '@src/application/flows/_shared/allocate-run-dir.ts';
 import { readCappedProgress } from '@src/application/flows/implement/leaves/_shared/run-role-turn.ts';
 import { VERIFY_TAIL_MAX_CHARS } from '@src/application/flows/implement/leaves/_shared/verify-run-summary.ts';
-import { quarantineStashMessage } from '@src/application/flows/implement/leaves/quarantine-blocked-diff.ts';
+import { quarantineStashMessage } from '@src/domain/value/quarantine-stash-message.ts';
 import {
   loadReproductionArtifact,
   removeReproductionArtifact,
@@ -81,7 +81,9 @@ import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
  * lets the relaunch continue from that work without one. The saved command is not re-run here —
  * its test is still in the stash, so there is nothing to run yet. Instead `restore-blocked-diff`
  * drops the adopted reproduction when the test that comes back (or doesn't) no longer matches the
- * validated checksum. A stash that can't be listed falls through to a normal spawn.
+ * validated checksum. A stash that can't be listed falls through to a normal spawn. When the
+ * operator chose a fresh start at unblock, the stash is not read at all: that work stays where it
+ * is, so this launch reproduces exactly like a first one.
  */
 export interface ReproduceLeafDeps {
   readonly provider: HeadlessAiProvider;
@@ -465,14 +467,17 @@ const spawnReproduction = async (
 /**
  * Whether this task's blocked diff from an earlier launch is waiting in the stash. Matched with
  * `stashEntryMatchesMessage`, since real git renders the subject as `On <branch>: <message>`. A
- * list failure reads as "no", so the leaf spawns exactly as it would on a first launch.
+ * list failure reads as "no", so the leaf spawns exactly as it would on a first launch; so does an
+ * operator decision to start fresh, since `restore-blocked-diff` will leave that work in the stash.
  */
 const hasQuarantinedWork = async (
   deps: ReproduceLeafDeps,
   cwd: AbsolutePath,
   sprintId: SprintId,
-  taskId: TaskId
+  task: Task
 ): Promise<boolean> => {
+  if (task.quarantinedDiff?.nextAttempt === 'fresh') return false;
+  const taskId = task.id;
   const stashes = await gitStashList(deps.gitRunner, cwd);
   if (!stashes.ok) {
     deps.logger.named(LOG_SCOPE).warn('stash list failed — reproducing as on a first launch', {
@@ -520,7 +525,7 @@ const reproduceUseCase = async (
   const artifactFile = reproductionArtifactFile(reproduceDir.value);
   if (!artifactFile.ok) return Result.error(artifactFile.error);
 
-  if (await hasQuarantinedWork(deps, opts.cwd, input.sprintId, taskId)) {
+  if (await hasQuarantinedWork(deps, opts.cwd, input.sprintId, input.task)) {
     return Result.ok(await reuseSavedReproduction(deps, taskId, artifactFile.value));
   }
 
@@ -580,6 +585,7 @@ export const reproduceLeaf = (
       return { task, sprintId: ctx.sprintId, workspaceRoot: ctx.taskWorkspaceRoot };
     },
     output: (ctx, out) => (out.artifact !== undefined ? { ...ctx, reproductionArtifact: out.artifact } : ctx),
+    label: 'Reproduce defect',
   });
 
 /**
@@ -599,4 +605,6 @@ export const clearReproductionArtifactLeaf = (taskId: TaskId): Element<Implement
     },
     input: () => undefined,
     output: (ctx) => ({ ...ctx, reproductionArtifact: undefined }),
+    label: 'Reset reproduction',
+    internal: true,
   });

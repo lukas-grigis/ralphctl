@@ -27,4 +27,6 @@ export const loadSprintLeaf = <TCtx extends LoadSprintCtx>(deps: LoadSprintDeps,
     },
     input: (ctx) => ({ id: ctx.sprintId }),
     output: (ctx, sprint) => ({ ...ctx, sprint }),
+    label: 'Read sprint',
+    internal: true,
   });

@@ -54,7 +54,7 @@ const emptyTaskRepo = (): TaskRepository =>
 const stubDeps = (sprints: readonly Sprint[]): AppDeps =>
   ({
     sprintRepo: fakeSprintRepo(sprints),
-    projectRepo: {} as never,
+    projectRepo: { findById: async () => ({ ok: false, error: new Error('no project') }) } as never,
     sprintExecutionRepo: {} as never,
     taskRepo: emptyTaskRepo(),
     settingsRepo: {} as never,
@@ -224,7 +224,7 @@ describe('SprintsView', () => {
           return Result.ok([blocked] as readonly Task[]);
         },
       } as unknown as TaskRepository,
-      projectRepo: {} as never,
+      projectRepo: { findById: async () => ({ ok: false, error: new Error('no project') }) } as never,
       sprintExecutionRepo: {} as never,
       settingsRepo: {} as never,
       logger: noopLogger,
@@ -273,7 +273,7 @@ describe('SprintsView', () => {
           return new Promise<never>(() => undefined);
         },
       } as unknown as TaskRepository,
-      projectRepo: {} as never,
+      projectRepo: { findById: async () => ({ ok: false, error: new Error('no project') }) } as never,
       sprintExecutionRepo: {} as never,
       settingsRepo: {} as never,
       logger: noopLogger,
@@ -317,7 +317,7 @@ describe('SprintsView', () => {
           return Result.ok(undefined);
         },
       } as unknown as TaskRepository,
-      projectRepo: {} as never,
+      projectRepo: { findById: async () => ({ ok: false, error: new Error('no project') }) } as never,
       sprintExecutionRepo: {} as never,
       settingsRepo: {} as never,
       logger: noopLogger,
@@ -371,7 +371,7 @@ describe('SprintsView', () => {
           return Result.ok(undefined);
         },
       } as unknown as TaskRepository,
-      projectRepo: {} as never,
+      projectRepo: { findById: async () => ({ ok: false, error: new Error('no project') }) } as never,
       sprintExecutionRepo: {} as never,
       settingsRepo: {} as never,
       clock: () => IsoTimestamp.now(),
@@ -432,7 +432,7 @@ describe('SprintsView', () => {
           return Result.ok(undefined);
         },
       } as unknown as TaskRepository,
-      projectRepo: {} as never,
+      projectRepo: { findById: async () => ({ ok: false, error: new Error('no project') }) } as never,
       sprintExecutionRepo: {} as never,
       settingsRepo: {} as never,
       clock: () => IsoTimestamp.now(),
@@ -476,7 +476,7 @@ describe('SprintsView', () => {
           return Result.ok([stray] as readonly Task[]);
         },
       } as unknown as TaskRepository,
-      projectRepo: {} as never,
+      projectRepo: { findById: async () => ({ ok: false, error: new Error('no project') }) } as never,
       sprintExecutionRepo: {} as never,
       settingsRepo: {} as never,
       clock: () => IsoTimestamp.now(),
@@ -526,7 +526,7 @@ describe('SprintsView', () => {
           return Result.ok(undefined);
         },
       } as unknown as TaskRepository,
-      projectRepo: {} as never,
+      projectRepo: { findById: async () => ({ ok: false, error: new Error('no project') }) } as never,
       sprintExecutionRepo: {} as never,
       settingsRepo: {} as never,
       logger: noopLogger,
@@ -577,7 +577,7 @@ describe('SprintsView', () => {
           return Result.ok(undefined);
         },
       } as unknown as TaskRepository,
-      projectRepo: {} as never,
+      projectRepo: { findById: async () => ({ ok: false, error: new Error('no project') }) } as never,
       sprintExecutionRepo: {} as never,
       settingsRepo: {} as never,
       logger: noopLogger,

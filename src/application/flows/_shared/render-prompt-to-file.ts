@@ -45,4 +45,6 @@ export const renderPromptToFileLeaf = <TCtx>(
     },
     input: (ctx) => ({ ctx, path: opts.path(ctx) }),
     output: (ctx, path) => opts.write(ctx, path),
+    label: 'Write prompt',
+    internal: true,
   });

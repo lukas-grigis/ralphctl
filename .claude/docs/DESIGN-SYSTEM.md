@@ -53,6 +53,9 @@ Rules:
 
 Canonical set. If a view needs a symbol not in this list, **add it to `glyphs` first** (and document it here).
 
+Step trees draw depth with `spacing.indent` columns per level plus the phase glyphs above — no `├ └` connectors.
+A connector would cost two columns per level at 100 cols and add a glyph family without making the tree easier to read.
+
 | Group           | Tokens                                                                                                                                                      |
 | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Phase / status  | `phaseDone ■`, `phaseActive ◆`, `phasePending ◇`, `phaseDisabled ◌`                                                                                         |
@@ -115,13 +118,13 @@ Field lists use `FIELD_LABEL_WIDTH = 14` from tokens. That fits the longest labe
 All terminal-width decisions use the named breakpoints exported from `src/application/ui/tui/theme/tokens.ts`.
 **Never hardcode a raw column number in a view** — import the token or helper.
 
-| Name  | Threshold (cols) | Typical layout                                 |
-| ----- | ---------------- | ---------------------------------------------- |
-| `sm`  | ≥ 80             | Single-column stack; minimum supported width   |
-| `md`  | ≥ 100            | Narrow multi-column; Execute compact-rail mode |
-| `lg`  | ≥ 140            | Two-column viable (rail + main)                |
-| `xl`  | ≥ 180            | Three-column viable (rail + main + context)    |
-| `xxl` | ≥ 220            | Extra room; rails and context can grow         |
+| Name  | Threshold (cols) | Typical layout                               |
+| ----- | ---------------- | -------------------------------------------- |
+| `sm`  | ≥ 80             | Single-column stack; minimum supported width |
+| `md`  | ≥ 100            | Narrow multi-column; Execute compact mode    |
+| `lg`  | ≥ 140            | Two-column viable (rail + main)              |
+| `xl`  | ≥ 180            | Three-column viable (rail + main + context)  |
+| `xxl` | ≥ 220            | Extra room; rails and context can grow       |
 
 **Helper functions** (all exported from `tokens.ts`):
 
@@ -151,7 +154,7 @@ resolveRailWidth(columns):
   ≥ xl  (≥ 180)  →  fluid(cols, { min: 36, max: 56, ratio: 0.22 })
 ```
 
-`COMPACT_RAIL_WIDTH = 6` applies at `md` (100–139); only status glyphs are shown, no labels.
+At `md` (100–139) the Execute view has no rail column: Tasks takes the full width and the header's main-step strip names the steps.
 `tokens.ts` also exports `CONTEXT_WIDTH` for the right context column — touch those via
 `resolveRailWidth` and the breakpoint helpers, not via new magic numbers.
 
@@ -187,6 +190,10 @@ stay whole, and the status badge goes only when names would drop below six cells
 (`fitHints` in `keyboard-hints.tsx`: the view's own hints and `? help` / `q quit` are pinned, the global tail goes
 right to left). A row of shrinking `Box`es is the failure mode — Yoga squeezes each child until its text wraps into
 one-letter columns — so never build either line out of sibling Boxes.
+
+**The Execute header card carries one more row**: the main-step strip (`FlowProgressStrip`), between the model lines
+and the task locator, at every width and for every flow (§ 7.8). The locator reads `step <label>` while running and
+`failed at <label>` once settled failed — never a raw element name.
 
 **Home menu groups**, top to bottom: `NEEDS ATTENTION` (only while something needs the operator — § 5.0, § 5.1a),
 `SWITCH SPRINT` (digit quick-switch + `+`), `WORK`, `OBSERVE`, `SYSTEM` (Settings, Skills, Doctor, Housekeeping `H`).
@@ -237,20 +244,22 @@ the same job.
 
 Specialised components owned by `ExecuteView`. Don't import them from other views.
 
-| Component               | Purpose                                                                                                                       |
-| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `StepTrace`             | Outer chain trace list. Filters out per-task entries.                                                                         |
-| `TasksPanel`            | Dependency-aware per-task card list. Status pill + activity. Cards collapsed by default; `j`/`k` nav, `Enter`/`Space` expand. |
-| `RecentEventsTail`      | Rolling log-tail panel. Receives pre-filtered `LogEvent[]` as a prop.                                                         |
-| `TokenBudgetCard`       | Subscribes to `TokenUsageEvent`; renders `(input + output) / contextWindow` progress bar.                                     |
-| `BaselineHealthCard`    | Renders `SprintExecution.setupRanAt` history in the context column.                                                           |
-| `BaselineHealthChip`    | Inline status chip summarising the latest setup-script outcome per repo.                                                      |
-| `StatusBanner`          | Tiered `info` / `warn` / `error` banner driven by `BannerShowEvent` / `BannerClearEvent`. Replaces `RateLimitBanner`.         |
-| `MultiFlowStrip`        | Horizontal strip listing concurrent session statuses above the tasks panel.                                                   |
-| `EvaluatorFailurePanel` | Per-dimension evaluator verdict, parsed from the attempt's `evaluation.md`. Renders inside `EvaluationOverlay`.               |
-| `ProgressOverlay`       | Full-screen overlay (`g`) that reads `progress.md` from disk on open; no live tail.                                           |
-| `EvaluationOverlay`     | Full-screen overlay (`v`) that reads the focused task's `evaluation.md` on open. Degrades to the one-line verdict.            |
-| `CancelScopeOverlay`    | Modal picker (`c`) offering cancel-attempt vs cancel-flow choices.                                                            |
+| Component               | Purpose                                                                                                                                                                                                                                                                                                                       |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `FlowProgressStrip`     | One-line main-step strip in the header (`steps ■ Prepare → ◆ Run tasks 0/1 → ◇ Finish`, position or `failed at …` right-aligned). One truncating `Text`; `fitStepStrip` degrades full labels → glyph-only except the active step → active step alone.                                                                         |
+| `FlowStepsTree`         | Read-only step tree over the flow-progress projection (sidebar Steps, full-width Steps, or the main column of a flow without task work items). Windowed (`computeListWindow` + `OverflowRow`), anchored on the running row, or the failed row once settled failed. A failed step's message sits on its own row, never inline. |
+| `TaskStepTree`          | The same rows inside an expanded task card: Prepare / Attempt n/N / Round n/N / Verify / Commit / Finish. A short round renders inline (`◆ Round 2/5 · ⠼ Generate · ◇ Evaluate`); a finished round ends in a `✓` / `✗ dimensions` / `?` verdict chip.                                                                         |
+| `TasksPanel`            | Dependency-aware per-task card list. Status pill + activity. Cards collapsed by default; `j`/`k` nav, `Enter`/`Space` expand.                                                                                                                                                                                                 |
+| `RecentEventsTail`      | Rolling log-tail panel. Receives pre-filtered `LogEvent[]` as a prop.                                                                                                                                                                                                                                                         |
+| `TokenBudgetCard`       | Subscribes to `TokenUsageEvent`; renders `(input + output) / contextWindow` progress bar.                                                                                                                                                                                                                                     |
+| `BaselineHealthCard`    | Renders `SprintExecution.setupRanAt` history in the context column.                                                                                                                                                                                                                                                           |
+| `BaselineHealthChip`    | Inline status chip summarising the latest setup-script outcome per repo.                                                                                                                                                                                                                                                      |
+| `StatusBanner`          | Tiered `info` / `warn` / `error` banner driven by `BannerShowEvent` / `BannerClearEvent`. Replaces `RateLimitBanner`.                                                                                                                                                                                                         |
+| `MultiFlowStrip`        | Horizontal strip listing concurrent session statuses above the tasks panel.                                                                                                                                                                                                                                                   |
+| `EvaluatorFailurePanel` | Per-dimension evaluator verdict, parsed from the attempt's `evaluation.md`. Renders inside `EvaluationOverlay`.                                                                                                                                                                                                               |
+| `ProgressOverlay`       | Full-screen overlay (`g`) that reads `progress.md` from disk on open; no live tail.                                                                                                                                                                                                                                           |
+| `EvaluationOverlay`     | Full-screen overlay (`v`) that reads the focused task's `evaluation.md` on open. Degrades to the one-line verdict.                                                                                                                                                                                                            |
+| `CancelScopeOverlay`    | Modal picker (`c`) offering cancel-attempt vs cancel-flow choices.                                                                                                                                                                                                                                                            |
 
 ### 4.4 Prompt family (`src/application/ui/tui/prompts/`)
 
@@ -354,6 +363,33 @@ re-fetches it. The chord has no footer hint (the strip is already near its 100-c
 it) or stalls short of `active`, the `u` toast's retry clause names the fix in order: run
 `ralphctl sprint reopen <id>`, press `r` to reload, then `u` again — the Sprints list's bulk `u` mirrors
 the same clause (`unblock-feedback.ts`).
+
+**Prior-work question.** When git holds the task's quarantined rejected diff, `u` asks first (`ui/shared/prior-work.ts`,
+asked through `InteractivePrompt` by `useUnblockTask`): a single `askChoice` (recommended option first — Continue for a
+self-block / operator cancel / stuck `in_progress`, Start fresh otherwise) or, from the Sprints list, one
+`askMultiChoice` with the recommended-continue rows pre-ticked. Esc writes nothing and toasts `i unblock cancelled`. No
+stash, or a stash probe that failed, never asks; a failed probe warns in the toast. The Execute panel has no toast
+surface, so its answer shows only through the log line and the next poll (the card notice below).
+
+**Prior-work notices.** One formatter, `priorWorkNotice(task, surface)` (`ui/shared/prior-work-copy.ts`), returns
+`{tone, icon, text}` for the rejected-diff row on a task card; Execute feeds it through the `priorWorkById` overlay (its own
+`IndentedNotice` beside the blocked reason, never folded into it) and Sprint detail renders it on collapsed and expanded
+cards. A stamp on the current (running) attempt beats the task-level `quarantinedDiff` fact. Glyphs and tones are tokens only.
+
+| State                    | Tone        | Text                                                                                                                          |
+| ------------------------ | ----------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| blocked + stash          | dim `i`     | `rejected diff kept in git stash · <stat> · u decides what the next attempt does` (Sprint detail: `u unblocks and decides …`) |
+| todo, chose fresh        | dim `i`     | `next attempt starts fresh · rejected diff stays in git stash (<stat>)`                                                       |
+| todo, chose continue     | dim `↻`     | `next attempt continues from the rejected diff · <stat>`                                                                      |
+| todo, no recorded choice | dim `↻`     | `next attempt restores the rejected diff in git stash (no choice recorded)`                                                   |
+| attempt restored         | dim `↻`     | `continued from earlier rejected work · <stat>`                                                                               |
+| attempt kept-by-choice   | dim `i`     | `started fresh by choice · rejected diff still in git stash`                                                                  |
+| attempt not-restored     | warning `⚠` | `earlier rejected work not restored — <reason>; still in git stash`                                                           |
+
+Toast copy for the unblock outcomes (`✓ unblocked "<name>" — next attempt continues from its rejected diff (<stat>)` /
+`… starts fresh; its rejected diff stays in git stash`, `⚠` when the stash probe failed, `i unblock cancelled — "<name>" is
+still blocked`, and the bulk summary) lives in `prior-work.ts` / `unblock-feedback.ts`; the bulk question's rows read
+`<name> — <stat> · <why it stopped>`.
 
 **Anchoring.** Once a run settles (no task left in flight), the Tasks panel's card cursor — and with
 it the windowed list's visible slice — anchors on the FIRST `blocked` task instead of unconditionally
@@ -693,6 +729,48 @@ refuses honestly (`✗ A flow is running…`). Removing a project that owns spri
 `ConfirmCard` (default No) for that cascade; answering No leaves them as orphans Housekeeping can clear. A
 confirmation that follows the last row's removal renders under the empty state, not inside the vanished list.
 
+### 7.8 Flow-step display
+
+Every launchable flow shows its progress as **main steps** (what is left) and **sub-steps** (what is running now),
+built from the chain's plan tree plus the live trace and in-flight starts (`runtime/flow-progress.ts`, pure). Hierarchy
+comes from the element tree, never from parsing name strings.
+
+- **Main steps** are the top-level steps of the flow. A leading run of bookkeeping steps folds into one `Prepare`
+  row and a trailing run into `Finish`. Implement reads `Prepare → Run tasks n/N → Finish`.
+- **Hidden steps.** Bookkeeping steps (`display.internal`) don't show. A failed or aborted one pins itself visible.
+  While one is the running step, its nearest visible parent shows it as a dim tail (`◆ Attempt 1/3 · Settle attempt`)
+  so there is never dead air. A guard-skipped step below the top level is hidden; at the top level it shows
+  `◌ … · skipped`.
+- **Expansion.** Only the active path and the path to a failed step expand; everything else is one row. A finished
+  collapsed row shows `· N steps · dur`. Several steps can run at once under parallel waves.
+- **Loops.** The running iteration reads `<label> n/max`. Each finished iteration is one row with its duration and
+  verdict chip (`✓`, `✗ dimensions`, `?` malformed). After 3 finished iterations the older ones fold into `▴ k earlier`.
+  A body of three or fewer visible steps renders inline: `◆ Round 2/5 · ⠼ Generate · ◇ Evaluate`. A round whose
+  verdict failed keeps its `■` status glyph; the chip carries the `✗`.
+- **Fan-out.** A row over per-task items shows `done/total` and never expands in the Steps tree — the Tasks panel owns
+  the detail, with `TaskStepTree` inside each expanded card. Per-ticket items (refine) expand to one row per ticket,
+  labelled with the ticket title.
+- **Failure.** The first failed step is pinned and the tree anchors on it; its message sits on its own row below,
+  never inline. The strip right-aligns `failed at <label> · <work item>`.
+- **Waiting.** While the flow waits on the operator (§ 5.0) the running step is `⚠ … waiting on you` and nothing spins.
+
+Status glyphs reuse the existing tokens: `phaseDone ■` completed, `phaseActive ◆` running composite (a spinner on
+a running leaf), `warningGlyph ⚠` waiting / aborted, `cross ✗` failed, `phaseDisabled ◌` skipped, `phasePending ◇`
+pending (dim). Depth is `spacing.indent` per level (§ 2.2).
+
+**Where it renders**, by width (the gate for a Tasks panel is structural — whether the flow has task work items):
+
+| Width                         | Task flows (implement)                                                                                                        | Other flows (plan, refine, review, …)                                   |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| ≥ 140 (`lg`+, sidebar layout) | Strip in header. Sidebar Steps = `FlowStepsTree` (3-row floor taken from the task minimap). Main = Tasks with `TaskStepTree`. | Strip in header. Main = `FlowStepsTree`, full height. No sidebar Steps. |
+| 100–139 (`md`, compact)       | Strip in header. No rail column; Tasks takes the full width.                                                                  | Strip in header. Steps section = `FlowStepsTree`, full width.           |
+| < 100                         | Strip in header (degrades). Tasks section.                                                                                    | Strip in header. Steps section.                                         |
+
+**Strip degradation** (`fitStepStrip`): full labels, then glyph-only for every step but the active one, then the
+active step alone (`◆ Run tasks 1/5 · 2/3`). The position (`step k/N`) or the failure locator stays right-aligned.
+The row budget of a step tree is derived from the terminal rows; while a task runs, cross-task notes cap at two rows
+plus `▴ N more`.
+
 ## 8. Copy & tone
 
 ### 8.1 Spinner labels
@@ -718,6 +796,18 @@ user is about to do.
 
 Use one spelling everywhere. `DRAFT`, `PLANNED`, `ACTIVE`, `REVIEW`, `DONE`, `TODO`, `IN PROGRESS`, `BLOCKED`,
 `FAILED`. No mixed case (`In Progress`, `in progress`). No synonyms (`complete` vs `done`).
+
+### 8.4 Step labels
+
+Step labels (`Element.label`, shown in the strip and trees) are copy, not identifiers.
+
+- Sentence case, imperative verb plus object: `Check working tree`, `Settle attempt`. Max 24 characters.
+- A per-repo step takes the suffix ` · <repo basename>`.
+- No ids, no paths, no flow name.
+- Bookkeeping steps get a label too — they surface as a tail when running, or when they fail.
+- A work-item root's label is the task name or ticket title; that is the one place user content appears.
+
+`tests/unit/application/flows/plan-tree-labels.test.ts` fences the length, id and path rules over every flow's plan tree.
 
 ## 9. Anti-patterns (non-negotiables)
 

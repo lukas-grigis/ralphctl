@@ -86,6 +86,7 @@ export const distillLearningsPromptDef: PromptDefinition<DistillLearningsPromptP
       placeholder: 'CANDIDATE_LEARNINGS',
       description: 'Markdown list of the curated learnings to fold into the context file.',
       validate: requireNonEmpty('candidateLearnings', 'candidate learnings must not be empty'),
+      untrusted: { source: 'learnings recorded by earlier AI sessions' },
     },
     targetFilename: {
       placeholder: 'TARGET_FILENAME',
@@ -112,7 +113,7 @@ export const distillLearningsPromptDef: PromptDefinition<DistillLearningsPromptP
     },
   },
   partials: {},
-  // The AI writes the full proposed context file to the harness output path; no harness signals.
+  // The AI writes only the learnings-section body to the harness output path; no harness signals.
   expectedSignals: [],
 };
 
@@ -127,10 +128,7 @@ export interface BuildDistillLearningsPromptInput {
 }
 
 /**
- * Top-level builder — the distill sub-chain consumes this to render the prompt before the
- * AI spawn. Exported ahead of that caller landing.
- *
- * @public
+ * Top-level builder — the distill-propose step renders the prompt with this before the AI spawn.
  */
 export const buildDistillLearningsPrompt = async (
   loader: TemplateLoader,

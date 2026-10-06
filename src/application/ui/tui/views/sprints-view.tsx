@@ -45,7 +45,7 @@ import type { Task } from '@src/domain/entity/task.ts';
 import { ROW_HEIGHT, SprintRow } from '@src/application/ui/tui/views/sprints-view-internals/row-views.tsx';
 import {
   formatUnblockFeedback,
-  type UnblockFeedbackInput,
+  tallyUnblockResults,
 } from '@src/application/ui/tui/views/sprints-view-internals/unblock-feedback.ts';
 
 interface UseStuckSprintTasksResult {
@@ -78,7 +78,7 @@ const useStuckSprintTasks = (
   sprintStatus: Sprint['status'] | undefined
 ): UseStuckSprintTasksResult => {
   const deps = useDeps();
-  const unblockTask = useUnblockTask();
+  const { unblockMany } = useUnblockTask();
   const mountedRef = useIsMounted();
   const [loaded, setLoaded] = useState<{ readonly sprintId: Sprint['id']; readonly tasks: readonly Task[] }>();
   const tasks: readonly Task[] = loaded !== undefined && loaded.sprintId === sprintId ? loaded.tasks : [];
@@ -111,47 +111,21 @@ const useStuckSprintTasks = (
   ): Promise<void> => {
     if (sprint === undefined || stuckTasks.length === 0) return;
     setFeedback(undefined);
-    let succeeded = 0;
-    let lastError: string | undefined;
-    // Counted apart from `lastError`: a refused reopen is not a failed unblock (the task IS
-    // revived), so folding it into the error path would under-report `succeeded`.
-    let reopenRefused = 0;
-    let reopenReason: string | undefined;
-    let reopenHint: string | undefined;
-    let reopened: UnblockFeedbackInput['reopened'];
-    for (const task of stuckTasks) {
-      const r = await unblockTask(task, sprint.id);
-      if (r.ok) {
-        succeeded += 1;
-        if (r.value.sprintReopenConflict !== undefined) {
-          reopenRefused += 1;
-          reopenReason = r.value.sprintReopenConflict.message;
-          reopenHint = r.value.sprintReopenConflict.hint;
-        }
-        const hop = r.value.sprintReopened;
-        if (hop !== undefined) reopened = { from: reopened?.from ?? hop.from, to: hop.sprint.status };
-      } else {
-        lastError = r.error.message;
-      }
+    const project = await deps.projectRepo.findById(sprint.projectId);
+    const many = await unblockMany(stuckTasks, sprint, project.ok ? project.value : undefined);
+    if (many.kind === 'cancelled') {
+      if (mountedRef.current)
+        setFeedback(`${glyphs.infoGlyph} unblock cancelled ${glyphs.emDash} nothing was unblocked`);
+      return;
     }
-    const total = stuckTasks.length;
+    const tally = tallyUnblockResults(many.results.map((r) => r.result));
     if (!mountedRef.current) return;
     setFeedback(
-      formatUnblockFeedback({
-        succeeded,
-        total,
-        lastError,
-        sprintName: sprint.name,
-        sprintId: sprint.id,
-        reopenRefused,
-        reopenReason,
-        reopenHint,
-        reopened,
-      })
+      formatUnblockFeedback({ ...tally, total: stuckTasks.length, sprintName: sprint.name, sprintId: sprint.id })
     );
     // At least one task actually cleared: re-run the list loader so `SprintListEntry.health`
     // (the row's `· N blocked` badge and status chip) stops reporting the pre-unblock state.
-    if (succeeded > 0) reload();
+    if (tally.succeeded > 0) reload();
     // Refresh this hook's own task list so the hint and count update immediately.
     const refreshed = await deps.taskRepo.findBySprintId(sprint.id);
     if (mountedRef.current && refreshed.ok) setLoaded({ sprintId: sprint.id, tasks: refreshed.value });

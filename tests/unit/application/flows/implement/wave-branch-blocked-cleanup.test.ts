@@ -11,6 +11,8 @@ import type { AppEvent } from '@src/business/observability/events.ts';
 import type { AppendFile } from '@src/business/io/append-file.ts';
 import type { TaskRepository } from '@src/domain/repository/task/task-repository.ts';
 import type { GitRunner } from '@src/integration/io/git-runner.ts';
+import { legacyGitWorktreeRef } from '@src/integration/io/git-operations.ts';
+import { gitRescueRef } from '@src/integration/io/git-ref-rescue.ts';
 import { createRunner } from '@src/application/chain/run/runner.ts';
 import { sequential } from '@src/application/chain/build/sequential.ts';
 import type { Element, ElementResult } from '@src/application/chain/element.ts';
@@ -18,7 +20,7 @@ import type { TraceEntry } from '@src/application/chain/trace.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import type { ImplementDeps } from '@src/application/flows/implement/deps.ts';
 import type { RepoExecConfig } from '@src/application/flows/implement/leaves/resolve-repo.ts';
-import { quarantineStashMessage } from '@src/application/flows/implement/leaves/quarantine-blocked-diff.ts';
+import { quarantineStashMessage } from '@src/domain/value/quarantine-stash-message.ts';
 import { dependencyGateLeaf } from '@src/application/flows/implement/leaves/dependency-gate.ts';
 import { settleAttemptLeaf } from '@src/application/flows/implement/leaves/settle-attempt.ts';
 import { startAttemptLeaf } from '@src/application/flows/implement/leaves/start-attempt.ts';
@@ -93,6 +95,7 @@ const makeDeps = (
     logger: noopLogger,
     clock: () => FIXED_LATER,
     eventBus,
+    journalMutex: createFoldQueue(),
   } as unknown as ImplementDeps,
   eventBus,
   foldQueue: createFoldQueue(),
@@ -206,7 +209,7 @@ describe('wave-branch worktree teardown — blocked-task quarantine + branch ret
     // The recovery pointer was persisted (record-quarantine) AND folded back into the returned ctx —
     // otherwise the epilogue's later tasks.json write would clobber the persisted pointer.
     expect(taskRepo.calls).toBe(1);
-    expect((settled as { blockedReason: string }).blockedReason).toContain(message);
+    expect(settled?.quarantinedDiff?.stashMessage).toBe(message);
     expect((settled as { blockedReason: string }).blockedReason).toContain('verify failed: 2 tests red');
 
     // Durable journal breadcrumb, same as the serial path's leaf.
@@ -249,7 +252,7 @@ describe('wave-branch worktree teardown — blocked-task quarantine + branch ret
     expect(git.calls.some((c) => c.args[0] === 'stash' && c.args[1] === 'push')).toBe(false);
     expect(taskRepo.calls).toBe(0);
     expect(append.appended).toHaveLength(0);
-    // blockedReason unchanged — no pointer to append.
+    // blockedReason unchanged and no pointer recorded.
     expect((settled as { blockedReason: string }).blockedReason).toBe('baseline broken');
 
     // The branch-retention decision is independent of whether anything was actually stashed.
@@ -608,7 +611,7 @@ describe('wave-branch worktree teardown — abort inside the subchain, after the
     const lastWrite = taskRepo.saved.at(-1);
     expect(lastWrite?.status).toBe('blocked');
     expect((lastWrite as { blockedReason: string }).blockedReason).toContain(BLOCK_REASON);
-    expect((lastWrite as { blockedReason: string }).blockedReason).toContain(message);
+    expect(lastWrite?.quarantinedDiff?.stashMessage).toBe(message);
     expect(append.appended).toHaveLength(1);
     expect(append.appended[0]?.text).toContain(message);
 
@@ -1075,5 +1078,98 @@ describe('wave-branch worktree teardown — interrupted branch after a restore',
     expect(result.ok).toBe(false);
     expect(stashPushed(git.calls)).toBe(false);
     expect(git.calls.some((c) => c.args[0] === 'worktree' && c.args[1] === 'remove')).toBe(true);
+  });
+});
+
+describe('wave-branch worktree setup — a leftover ref with unlanded commits is moved aside, never deleted', () => {
+  type GitOpts = Parameters<typeof fakeGitRecordingCwd>[0];
+  const setupWith = async (gitOpts: GitOpts | ((task: Task) => GitOpts), ref: string) => {
+    const task = makeTodoTask({ name: 'land the thing' });
+    const wt = worktreePathFor(absolutePath('/data/sprints/s1'), task.id);
+    const git = fakeGitRecordingCwd(typeof gitOpts === 'function' ? gitOpts(task) : gitOpts);
+    const taskRepo = recordingTaskRepo();
+    const append = capturingAppend();
+    const events: AppEvent[] = [];
+    let subchainRan = false;
+    const subchain = (worktreeRepo: RepoExecConfig): Element<ImplementCtx> => {
+      const inner = doneSubchain(task.id)(worktreeRepo);
+      return {
+        name: inner.name,
+        async execute(ctx, signal, onTrace) {
+          subchainRan = true;
+          return inner.execute(ctx, signal, onTrace);
+        },
+      };
+    };
+    const deps = makeDeps(git.runner, taskRepo, append.fn, stubBus(events));
+    const branch = buildWorktreeBranch(deps, repo, task, wt, ref, PROGRESS, subchain);
+    const run = await runBranch(branch, baseCtx([task]));
+    const addIdx = git.calls.findIndex((c) => c.args[0] === 'worktree' && c.args[1] === 'add');
+    const rescue = gitRescueRef(String(sprint.id), String(task.id), FIXED_LATER);
+    return { ...run, task, git, taskRepo, append, events, addIdx, rescue, subchainRan: () => subchainRan };
+  };
+
+  const deletedBefore = (calls: Array<{ args: string[] }>, ref: string, idx: number): boolean =>
+    calls.slice(0, idx).some((c) => c.args[0] === 'branch' && c.args[1] === '-D' && c.args[2] === ref);
+
+  it('renames the kept ref under ralphctl-rescue/, warns, journals, then creates the worktree', async () => {
+    const ref = 'ralphctl-wt/s1/kept';
+    const r = await setupWith({ uniqueCommits: { [ref]: 2 } }, ref);
+
+    expect(r.status).toBe('completed');
+    expect(r.addIdx).toBeGreaterThan(0);
+    const renameIdx = r.git.calls.findIndex(
+      (c) => c.args[0] === 'branch' && c.args[1] === '-m' && c.args[2] === ref && c.args[3] === r.rescue
+    );
+    expect(renameIdx).toBeGreaterThanOrEqual(0);
+    expect(renameIdx).toBeLessThan(r.addIdx);
+    expect(deletedBefore(r.git.calls, ref, r.addIdx)).toBe(false);
+    expect(r.events).toContainEqual(
+      expect.objectContaining({
+        type: 'banner-show',
+        id: `ref-rescued-${String(r.task.id)}`,
+        tier: 'warn',
+        message: `kept 2 unlanded commit(s) of "land the thing" as ${r.rescue} — cherry-pick to recover`,
+      })
+    );
+    expect(r.append.appended).toEqual([
+      {
+        path: String(PROGRESS),
+        text: `\n_Task land the thing: 2 verified commit(s) on \`${ref}\` were not on the sprint branch — moved to \`${r.rescue}\` (recover with \`git cherry-pick\`)._\n`,
+      },
+    ]);
+  });
+
+  it('moves a legacy-shaped ref aside the same way', async () => {
+    const legacyOf = (task: Task): string => legacyGitWorktreeRef(String(sprint.id), String(task.id));
+    const r = await setupWith((task) => ({ uniqueCommits: { [legacyOf(task)]: 1 } }), 'ralphctl-wt/s1/current');
+
+    expect(r.status).toBe('completed');
+    const renamed = r.git.calls.find((c) => c.args[0] === 'branch' && c.args[1] === '-m');
+    expect(renamed?.args).toStrictEqual(['branch', '-m', legacyOf(r.task), r.rescue]);
+    expect(deletedBefore(r.git.calls, legacyOf(r.task), r.addIdx)).toBe(false);
+  });
+
+  it('deletes a leftover ref the sprint branch already has, with no banner or journal line', async () => {
+    const ref = 'ralphctl-wt/s1/landed';
+    const r = await setupWith({}, ref);
+
+    expect(deletedBefore(r.git.calls, ref, r.addIdx)).toBe(true);
+    expect(r.git.calls.some((c) => c.args[0] === 'branch' && c.args[1] === '-m')).toBe(false);
+    expect(r.events.some((e) => e.type === 'banner-show')).toBe(false);
+    expect(r.append.appended).toEqual([]);
+  });
+
+  it('fails the setup and leaves the task untouched when the ref cannot be moved aside', async () => {
+    const ref = 'ralphctl-wt/s1/stuck';
+    const r = await setupWith({ uniqueCommits: { [ref]: 3 }, renameFails: true }, ref);
+
+    expect(r.status).toBe('failed');
+    expect(r.addIdx).toBe(-1);
+    expect(r.subchainRan()).toBe(false);
+    expect(r.taskRepo.calls).toBe(0);
+    expect(r.git.calls.some((c) => c.args[0] === 'branch' && c.args[1] === '-D')).toBe(false);
+    expect(r.events.some((e) => e.type === 'banner-show')).toBe(false);
+    expect(r.append.appended).toEqual([]);
   });
 });

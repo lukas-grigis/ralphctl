@@ -3,9 +3,9 @@ import { Result } from '@src/domain/result.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
 import { unblockTaskUseCase } from '@src/business/task/unblock-task.ts';
 import { foldTaskRollup } from '@src/business/runs/outcome-stats.ts';
-import type { BlockedTask, Task } from '@src/domain/entity/task.ts';
+import type { BlockedTask, Task, TodoTask } from '@src/domain/entity/task.ts';
 import { BLOCKED_UPSTREAM_REASON_PREFIX, markTaskBlocked } from '@src/domain/entity/task-lifecycle.ts';
-import { recordTaskEscalation } from '@src/domain/entity/task-settle.ts';
+import { failCurrentAttempt, recordTaskEscalation } from '@src/domain/entity/task-settle.ts';
 import { recordRunningAttemptWarning } from '@src/domain/entity/task-attempts.ts';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { UpdateTask } from '@src/domain/repository/task/update-task.ts';
@@ -913,5 +913,205 @@ describe('unblockTaskUseCase', () => {
 
     expect(result.ok).toBe(true);
     expect(listCalls).toBe(0);
+  });
+});
+
+describe('unblockTaskUseCase — prior-work decision', () => {
+  const MSG = 'ralphctl/s1/t1/blocked-diff';
+  const STAT = { files: 5, insertions: 142, deletions: 38 };
+
+  /** Captures `info` lines so a test can assert the next-attempt clause. */
+  const infoRecordingLogger = (): { logger: Logger; infos: readonly string[] } => {
+    const infos: string[] = [];
+    const logger: Logger = {
+      debug() {},
+      info(message) {
+        infos.push(message);
+      },
+      warn() {},
+      error() {},
+      named() {
+        return logger;
+      },
+    };
+    return { logger, infos };
+  };
+
+  const blockedWithFact = (): BlockedTask => ({
+    ...makeBlockedTask('attempt budget exhausted'),
+    quarantinedDiff: { stashMessage: MSG, stat: STAT, entries: 1 },
+  });
+
+  it('records the decision on the revived task and echoes the persisted fact', async () => {
+    const blocked = blockedWithFact();
+    const repo = repoOk([blocked]);
+    const { logger, infos } = infoRecordingLogger();
+
+    const result = await unblockTaskUseCase({
+      task: blocked,
+      sprintId: SPRINT_ID,
+      taskRepo: repo.repo,
+      sprintRepo: sprintRepoWith().repo,
+      clock: FIXED_CLOCK,
+      logger,
+      priorWork: { choice: 'fresh', stashMessage: MSG },
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const expected = { stashMessage: MSG, stat: STAT, entries: 1, nextAttempt: 'fresh', decidedAt: FIXED_LATEST };
+    expect(result.value.task.quarantinedDiff).toStrictEqual(expected);
+    expect(result.value.quarantinedDiff).toStrictEqual(expected);
+    expect(repo.saved()[0]?.quarantinedDiff).toStrictEqual(expected);
+    expect(infos.some((m) => m.endsWith('next attempt: starts fresh'))).toBe(true);
+  });
+
+  it('keeps the fact undecided without a decision — the legacy auto-restore — and says so', async () => {
+    const blocked = blockedWithFact();
+    const repo = repoOk([blocked]);
+    const { logger, infos } = infoRecordingLogger();
+
+    const result = await unblockTaskUseCase({
+      task: blocked,
+      sprintId: SPRINT_ID,
+      taskRepo: repo.repo,
+      sprintRepo: sprintRepoWith().repo,
+      clock: FIXED_CLOCK,
+      logger,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.quarantinedDiff).toStrictEqual({ stashMessage: MSG, stat: STAT, entries: 1 });
+    expect(infos.some((m) => m.includes('next attempt: continues from the rejected diff (no choice recorded)'))).toBe(
+      true
+    );
+  });
+
+  it('omits the fact and the clause when the task quarantined nothing', async () => {
+    const blocked = makeBlockedTask();
+    const { logger, infos } = infoRecordingLogger();
+
+    const result = await unblockTaskUseCase({
+      task: blocked,
+      sprintId: SPRINT_ID,
+      taskRepo: repoOk([blocked]).repo,
+      sprintRepo: sprintRepoWith().repo,
+      clock: FIXED_CLOCK,
+      logger,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect('quarantinedDiff' in result.value).toBe(false);
+    expect(infos.some((m) => m.includes('next attempt'))).toBe(false);
+  });
+
+  it('applies the decision on the stuck in_progress path too', async () => {
+    const stuck = failCurrentAttempt(makeInProgressTaskWithRunningAttempt(), FIXED_LATEST, 'aborted', {
+      abortCause: 'user-cancel',
+    });
+    if (!stuck.ok || stuck.value.status !== 'in_progress') throw new Error('fixture: expected in_progress');
+    const repo = repoOk([stuck.value]);
+
+    const result = await unblockTaskUseCase({
+      task: stuck.value,
+      sprintId: SPRINT_ID,
+      taskRepo: repo.repo,
+      sprintRepo: sprintRepoWith().repo,
+      clock: FIXED_CLOCK,
+      logger: noopLogger,
+      priorWork: { choice: 'continue', stashMessage: MSG, stat: STAT },
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.task.status).toBe('todo');
+    expect(result.value.quarantinedDiff?.nextAttempt).toBe('continue');
+    expect(repo.saved()[0]?.quarantinedDiff?.nextAttempt).toBe('continue');
+  });
+
+  it('a todo task given a decision records the change of mind and still finishes an interrupted reopen', async () => {
+    const todo: TodoTask = {
+      ...makeTodoTask(),
+      quarantinedDiff: { stashMessage: MSG, stat: STAT, nextAttempt: 'fresh', decidedAt: FIXED_LATEST },
+    };
+    const repo = repoOk([todo]);
+    const sprintRepo = sprintRepoWith(makeReviewSprint());
+    const { logger, infos } = infoRecordingLogger();
+
+    const result = await unblockTaskUseCase({
+      task: todo,
+      sprintId: SPRINT_ID,
+      taskRepo: repo.repo,
+      sprintRepo: sprintRepo.repo,
+      clock: FIXED_CLOCK,
+      logger,
+      priorWork: { choice: 'continue', stashMessage: MSG },
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.task.status).toBe('todo');
+    expect(result.value.quarantinedDiff).toStrictEqual({
+      stashMessage: MSG,
+      stat: STAT,
+      nextAttempt: 'continue',
+      decidedAt: FIXED_LATEST,
+    });
+    expect(repo.saved()).toHaveLength(1);
+    expect(repo.saved()[0]?.quarantinedDiff?.nextAttempt).toBe('continue');
+    expect(infos.some((m) => m.endsWith('next attempt: continues from the rejected diff'))).toBe(true);
+    expect(sprintRepo.saved()?.status).toBe('active');
+  });
+
+  it('a todo change of mind that cannot be persisted fails and writes no sprint', async () => {
+    const todo = makeTodoTask();
+    const sprintRepo = sprintRepoWith(makeReviewSprint());
+
+    const result = await unblockTaskUseCase({
+      task: todo,
+      sprintId: SPRINT_ID,
+      taskRepo: repoFailing([todo]),
+      sprintRepo: sprintRepo.repo,
+      clock: FIXED_CLOCK,
+      logger: noopLogger,
+      priorWork: { choice: 'fresh', stashMessage: MSG },
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe('storage-error');
+    expect(sprintRepo.saved()).toBeUndefined();
+  });
+
+  it('records the decision on the primary only on the cascade path', async () => {
+    const root = blockedWithFact();
+    const dependent = markTaskBlocked(
+      makeTodoTask({ name: 'dep', dependsOn: [root.id] }),
+      `${BLOCKED_UPSTREAM_REASON_PREFIX} — waiting on root`,
+      'upstream'
+    );
+    if (!dependent.ok) throw dependent.error;
+    const repo = repoOk([root, dependent.value]);
+    const { logger, infos } = infoRecordingLogger();
+
+    const result = await unblockTaskUseCase({
+      task: root,
+      sprintId: SPRINT_ID,
+      taskRepo: repo.repo,
+      sprintRepo: sprintRepoWith().repo,
+      clock: FIXED_CLOCK,
+      logger,
+      priorWork: { choice: 'continue', stashMessage: MSG },
+    });
+
+    expect(result.ok).toBe(true);
+    const savedRoot = repo.saved().find((t) => t.id === root.id);
+    const savedDep = repo.saved().find((t) => t.id === dependent.value.id);
+    expect(savedRoot?.quarantinedDiff?.nextAttempt).toBe('continue');
+    expect(savedDep?.status).toBe('todo');
+    expect(savedDep?.quarantinedDiff).toBeUndefined();
+    expect(infos.some((m) => m.includes('re-armed) — next attempt: continues from the rejected diff'))).toBe(true);
   });
 });

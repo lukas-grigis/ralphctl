@@ -113,6 +113,18 @@ onward — see "Blocked-diff quarantine & restore" below for the git-level mecha
 serial and parallel implement paths, including why a blocked worktree's branch ref is kept rather
 than deleted, and how a later attempt restores it by that same message key.
 
+Unblocking a task that holds such a stash asks what its next attempt does with the rejected diff: Continue
+from it, or Start fresh (the diff stays in the stash either way). The answer is recorded on the task's
+`quarantinedDiff.nextAttempt` (`decidePriorWork`, `domain/entity/task-prior-work.ts`), which survives the
+clean restart that strips `blockedReason`. The default is cause-aware (`recommendedPriorWork`): Continue
+after a generator self-block, an operator cancel or a stuck `in_progress` run, Start fresh after every
+quality failure. The TUI asks through `ui/shared/prior-work.ts` (one `askChoice` per task, one multi-choice
+for the Sprints list's bulk `u`); the CLI takes `ralphctl task unblock <id> --prior-work continue|fresh`
+and, with no flag, applies the same cause-aware default and prints it. The use case never touches git: the
+caller probes the stash (`probeTaskQuarantine`, via `gitStashInspect`) and hands the measurement in. A task
+already `todo` given a decision records it (changing your mind); a legacy task unblocked before the
+decision existed carries no `nextAttempt` and keeps the old auto-restore.
+
 The generator's own structured triage for a self-block — `blockerClass` (`missing-information` /
 `ambiguous-request` / `contradictory-information`), the concrete `question` it needs answered, and
 `whatUnblocksMe` — rides from its `task-blocked` signal onto the persisted `BlockedTask` whenever
@@ -238,9 +250,10 @@ never retries at the task level. See `contract/_engine/corrective-retry.ts`.
 ran, its rejected uncommitted diff is stashed under the deterministic message
 `quarantineStashMessage(sprintId, taskId)` (`ralphctl/<sprintId>/<taskId>/blocked-diff`) via
 `runQuarantineBlockedDiff` (`implement/leaves/quarantine-blocked-diff.ts`), and the stash message is
-recorded onto the persisted `blockedReason` plus appended to `progress.md` (an operator unblock is a
-clean restart that strips `blockedReason`, so the journal line — not the task field — is the durable
-recovery pointer). Both implement paths call the same function: the serial path splices it in-chain,
+recorded as the structured `Task.quarantinedDiff` fact (`stashMessage`, the measured `stat`, the entry count;
+`recordQuarantineUseCase`) and appended to `progress.md`. `blockedReason` is left exactly as the block wrote
+it: the fact survives the unblock clean restart that strips the reason, the journal line is the append-only
+copy. Both implement paths call the same function: the serial path splices it in-chain,
 guarded on the settled task actually being `blocked` with a real AI turn behind it (so a dependency-
 gate skip, or a pre-task-verify hard-block with no AI diff, never triggers a spurious stash), so the
 SHARED serial worktree is clean before the next task's subchain runs — without it, a later task's
@@ -256,8 +269,9 @@ that ref and nowhere else, and an interrupted fold leaves already-verified commi
 while the epilogue rewrites the task back to its pre-wave status, so removing the ref would strand
 that work in the reflog until GC. An own-failure block's ref may hold nothing of value, but keeping
 it uniformly is cheap. The keep is a recovery WINDOW, not permanence, and the window is one launch
-wide: `setupWorktree` force-deletes the ref (`git branch -D`) the next time THAT task starts — for a
-blocked task, the first relaunch after the operator unblocks it. Past that point the commit survives
+wide: `setupWorktree` settles the ref the next time THAT task starts — for a blocked task, the first
+relaunch after the operator unblocks it — deleting it when the sprint branch already has its commits and
+moving it under `ralphctl-rescue/` otherwise (see below). Past a delete the commit survives
 only as a SHA — and where depends on the reason for the keep. A blocked task's SHA is in `tasks.json`
 either way: whether the branch's own runner reached `completed` (a fold conflict — `captureDurableFold`
 records the settled task directly) or it errored / aborted right after a leaf had already saved the
@@ -275,8 +289,12 @@ to the stash. The wave's fan-in itself only ever updates the ONE task a branch a
 branch's whole task list), so one branch failing mid-wave can no longer revert an already-`done` sibling
 the same wave already completed back to `todo`.
 
-On the task's next attempt — a relaunch, or a same-run retry within budget — `restore-blocked-
-diff.ts` looks the stash up by that SAME message key (never a raw stash index) and pops it back, so the
+On the task's next attempt after an operator unblock — a relaunch; restore is cross-launch only, because a
+same-run retry within budget stashes its rejected diff under a different key
+(`ralphctl/<sprintId>/<taskId>/attempt-<N>-rejected-diff`), which nothing restores — `restore-blocked-
+diff.ts` honours the recorded decision. `fresh` never probes the tree and never pops: the entry stays in the
+stash and the reproduce leaf behaves as on a first launch. `continue` (and a legacy fact with no decision)
+looks the stash up by that SAME message key (never a raw stash index) and pops it back, so the
 retry builds on the prior diff plus the evaluator's critique instead of starting from zero. The pop runs
 AFTER `pre-task-verify`, and only when pre-task-verify actually let the attempt through (guarded on no
 terminal exit being set yet): the baseline must measure HEAD, not HEAD plus a diff that was already
@@ -285,7 +303,7 @@ turns behind it — too early for the block to re-quarantine it (see "Pre-blocke
 before this reordering that diff was lost to the parallel teardown or the next task's `git add -A`.
 Matching by message, not position, matters because the parallel path can push/list/pop several
 worktrees' stashes concurrently against the ONE `refs/stash` ref every worktree shares with the main
-repo; `gitStashPush` / `gitStashList` / `gitStashPop` (`integration/io/git-operations.ts`) are funnelled
+repo; `gitStashPush` / `gitStashList` / `gitStashPop` / `gitStashInspect` (`integration/io/git-stash.ts`) are funnelled
 through an in-process FIFO mutex so a sibling's concurrent push can never shift the index a pop is about
 to act on out from under it. A missing stash is a silent no-op and a failed pop never fails the attempt —
 restoration is a convenience, not a correctness requirement. The leaf only pops onto a tree that
@@ -311,6 +329,17 @@ or the committed copy because the pop was skipped, undone, or restored an entry 
 no matching stash at all, ctx is left alone — an edit to the test during this launch is the evaluator's
 to flag, not this leaf's to hide.
 
+Whatever the leaf does is stamped on the running attempt as a typed `Attempt.priorWork` outcome —
+`restored` (with the stat), `kept-by-choice`, or `not-restored` with a reason (`dirty-tree`,
+`tree-probe-failed`, `pop-failed`, `pop-failed-tree-unverified`, `stash-list-failed`) — persisted,
+journaled to `progress.md` as a breadcrumb that survives the inline cap beside the quarantine pointer
+(`renderPriorWorkBreadcrumb`), and projected onto the task card (a notice in the Tasks panel and Sprint
+detail; copy in `DESIGN-SYSTEM.md`). `restored` is persisted BEFORE the pop and re-stamped `not-restored`
+if the pop fails, so a crash in between over-reports restored work, never under-reports it. A `restored`
+outcome consumes the stash entry and clears the task-level fact; every other outcome leaves the entry in
+the stash and keeps the fact. Because a popped diff is then the tree's only copy, the interrupted-run
+dirty-tree prompt and Home's NEEDS ATTENTION row warn that `Reset` / start clean destroys it.
+
 An interrupted PARALLEL branch (Ctrl-C, an error, a throw) that popped this stash but then never
 committed and never re-blocked the task leaves the restored diff sitting only in the worktree, with no
 other copy — the pop already dropped the stash entry. Each worktree branch snapshots, before the
@@ -323,6 +352,17 @@ when an older entry under the same key is still listed in the stash (an older en
 proves nothing about the one that left; the count is exact because nothing else touches this key while
 the branch runs). When that re-stash itself can't be confirmed, the worktree (and its ref) is kept on
 disk instead — the same fail-safe "leave it for inspection" the unreadable-task-state case already uses.
+
+Parallel worktree branches live on `ralphctl-wt/<sprintId>/<taskId>` (`gitWorktreeRef`), a top-level
+namespace of their own: git refs are paths, so nesting them under the auto-named sprint branch
+`ralphctl/<sprintId>` made `worktree add -b` fail while that branch existed. Refs from older runs
+(`ralphctl/<sprintId>/wt-<taskId>`) are still read, to adopt, rescue or delete. Before a task's worktree
+is created, `settleStaleWorktreeRefs` (`flows/implement/worktree-stale-refs.ts`) clears what an earlier run
+left: a ref whose commits the sprint branch already has is deleted, one holding commits it lacks is moved to
+`ralphctl-rescue/<sprintId>/<taskId>-<timestamp>` (`gitRescueRef`) instead of deleted, with a pointer
+journaled to `progress.md` (`renderRescueBreadcrumb`; recover with `git cherry-pick`). A ref some worktree
+still has checked out is skipped, and a ref whose unlanded commits can't be confirmed or moved fails the
+worktree setup rather than risk the work.
 
 **Legacy `implement` promotion.** Settings files written by ralphctl ≤ 0.7.0 stored `ai.implement`
 as a flat `{ provider, model, effort? }` row. Such files are silently promoted at load time into the
@@ -385,8 +425,10 @@ opt-in phase folder: `e` enable, `d` disable, `u` update one, `U` update every o
 reload — the filesystem under `<appRoot>/skills/<flow>/` is the source of truth (see `ARCHITECTURE.md`
 § Skills subsystem).
 
-Execute view: three-column at `xl` (≥180), two-column at `lg` (≥140), compact-rail at `md` (100–139),
-single-column below `md`. Rail grows fluidly 36→56 cols at `xl`+ via `resolveRailWidth`. Named breakpoints
+Execute view: three-column at `xl` (≥180), two-column at `lg` (≥140), compact (no rail column) at `md` (100–139),
+single-column below `md`. The header carries a main-step strip at every width; a flow without task work items
+(plan, refine, review, …) shows a Steps tree where the Tasks panel would be (`DESIGN-SYSTEM.md` § 7.8). The
+sidebar rail grows fluidly 36→56 cols at `xl`+ via `resolveRailWidth`. Named breakpoints
 (`sm 80 / md 100 / lg 140 / xl 180 / xxl 220`) are canonical — use `breakpointFor`, `fluid`
 from `theme/tokens.ts` and `useBreakpoint` from `runtime/use-breakpoint.ts`; no hardcoded column literals.
 Global keys: `g` progress, `S` / `P` pick sprint / project;

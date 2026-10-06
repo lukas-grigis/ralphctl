@@ -9,6 +9,7 @@ import { createFsTemplateLoader, defaultTemplatesDir } from '@src/integration/ai
 import { absolutePath, FIXED_NOW, makeInProgressTaskWithRunningAttempt } from '@tests/fixtures/domain.ts';
 import { recordTaskEscalation, recordTaskEvaluatorEffortEscalation } from '@src/domain/entity/task-settle.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
+import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
 import { makeTmpRoot } from '@tests/fixtures/tmp-root.ts';
 import { emptySkillSource } from '@tests/fixtures/skills-fakes.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
@@ -74,6 +75,7 @@ describe('evaluatorLeaf', () => {
     },
     clock: () => FIXED_NOW,
     logger: noopLogger,
+    eventBus: createInMemoryEventBus(),
   });
 
   it('persists evaluator prompt.md under rounds/<N>/evaluator/', async () => {

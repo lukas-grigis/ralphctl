@@ -9,7 +9,7 @@
  *   2. Multi-line collapse with an expand hotkey → `▼ more` marker line
  *      (`glyphs.collapseExpand`).
  *
- * These tests pin the visual behaviour at representative call sites — StepTrace for the
+ * These tests pin the visual behaviour at representative call sites — FlowStepsTree for the
  * single-line case, TasksPanel's CriteriaBlock for the multi-line collapse case. The
  * pure-string helpers also live behind unit assertions so a future refactor that drops the
  * marker without changing the layout fails here, not in a downstream snapshot test.
@@ -22,22 +22,18 @@
 
 import { render } from 'ink-testing-library';
 import { describe, expect, it } from 'vitest';
-import type { TraceEntry } from '@src/application/chain/trace.ts';
-import { StepTrace } from '@src/application/ui/tui/components/step-trace.tsx';
+import { FlowStepsTree } from '@src/application/ui/tui/components/flow-steps-tree.tsx';
+import type { StepView } from '@src/application/ui/tui/runtime/flow-progress.ts';
 import { TasksPanel } from '@src/application/ui/tui/components/tasks-panel.tsx';
 import { glyphs } from '@src/application/ui/tui/theme/tokens.ts';
 import type { BucketedExecution } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
 
-const trace = (name: string, status: TraceEntry['status'] = 'completed'): TraceEntry => ({
-  elementName: name,
-  status,
-  durationMs: 1,
-});
+const step = (label: string): StepView => ({ key: label, label, status: 'completed', depth: 0, children: [] });
 
 describe('display-clip marker — single-line trim (audit-[03])', () => {
   it('appends `…` (U+2026) when a step-trace label exceeds the rail budget', () => {
     const longName = `${'a'.repeat(100)}-long-step`;
-    const r = render(<StepTrace trace={[trace(longName)]} running={false} maxRows={10} railWidth={32} />);
+    const r = render(<FlowStepsTree spine={[step(longName)]} running={false} settled maxRows={10} width={32} />);
     const frame = r.lastFrame() ?? '';
     expect(frame).toContain(glyphs.clipEllipsis);
     expect(frame).not.toContain(longName); // The full string never renders.
@@ -46,7 +42,7 @@ describe('display-clip marker — single-line trim (audit-[03])', () => {
 
   it('omits the marker when content fits within the budget', () => {
     const shortName = 'load-tasks';
-    const r = render(<StepTrace trace={[trace(shortName)]} running={false} maxRows={10} railWidth={64} />);
+    const r = render(<FlowStepsTree spine={[step(shortName)]} running={false} settled maxRows={10} width={64} />);
     const frame = r.lastFrame() ?? '';
     expect(frame).toContain(shortName);
     // No clip marker because nothing was clipped — operator must NOT see a stray ellipsis

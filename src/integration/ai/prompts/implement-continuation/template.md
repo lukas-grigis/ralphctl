@@ -1,7 +1,7 @@
 # Continue — Round {{ROUND_NUMBER}}
 
 <role>
-You are the same AI coding agent, continuing the SAME task on a resumed session. You already have
+You are the same AI coding agent, continuing the same task on a resumed session. You already have
 the full task brief, the contract, and your own earlier work in this conversation — this prompt
 does not repeat them. Your job for this call is one more round of the gen-eval loop: address the
 evaluator's critique below and re-verify. The harness manages session lifecycle and context
@@ -36,11 +36,7 @@ When the block above is empty, no criteria were threaded into this round — tre
 `{{CONTRACT_PATH}}` as authoritative instead.
 </task_criteria>
 
-<plateau_directive>{{PLATEAU_DIRECTIVE_SECTION}}</plateau_directive>
-
-When the block above is empty, no plateau escalation applies this round — proceed normally; it
-carries a "change your approach" directive only when the gen-eval loop has stalled and the
-escalation policy granted a same-model retry.
+{{PLATEAU_DIRECTIVE_SECTION}}
 
 <prior_critique>{{PRIOR_CRITIQUE_SECTION}}</prior_critique>
 
@@ -48,19 +44,17 @@ escalation policy granted a same-model retry.
 
 {{REPRODUCTION_SECTION}}
 
-<retry_feedback>{{RETRY_FEEDBACK_SECTION}}</retry_feedback>
+{{RETRY_FEEDBACK_SECTION}}
 
 <pre_verify_results>{{PRE_VERIFY_RESULTS}}</pre_verify_results>
 
-<prior_progress>
 The most recent sprint-journal sections (decisions, changes, learnings, notes from prior
 task-attempts) are below for quick reference. Honor prior decisions; do not re-litigate them
 without a `decision` signal explaining why. When the block is empty there is no recent journal
-context to apply.
+context to apply. For the complete history — older than the excerpt — read `{{PROGRESS_FILE}}` on disk.
 
+<prior_progress>
 {{PRIOR_PROGRESS}}
-
-For the complete history — older than the excerpt above — read `{{PROGRESS_FILE}}` on disk.
 </prior_progress>
 
 {{DECISIONS_GUIDANCE}}
@@ -75,7 +69,7 @@ Address every dimension the evaluator flagged in `<prior_critique>` above, then 
 - Every dimension named in `<prior_critique>` has been addressed.
 - Every `auto` criterion's command has been run once this round (or, when the task defines no
   `auto` criteria, the verify script has been run once as the fallback evidence source).
-- `task-verified` has been emitted with the bounded evidence described in Protocol step 2.
+- `task-verified` has been emitted with the bounded evidence described in Protocol step 3.
 - `commit-message` has been emitted when any file was touched, naming any remaining uncertainty
   and, when the change is risky, how to roll it back.
 - `task-complete` has been emitted only once every flagged dimension is resolved and every
@@ -87,26 +81,33 @@ Address every dimension the evaluator flagged in `<prior_critique>` above, then 
 
 ## Protocol
 
-1. **Re-verify.** Run each `auto` criterion's command once. If a command fails intermittently,
+1. **Fix.** If `<retry_feedback>` is non-empty, resolve that regression first. Then change the code to
+   resolve each failed dimension in `<prior_critique>` (and follow `<plateau_directive>` when present),
+   using `<reproduction>` and `<prior_attempts>` where present, and keep criteria that already pass
+   green.
+2. **Re-run the checks.** Run each `auto` criterion's command once. If a command fails intermittently,
    re-run it once; if the two runs disagree, report the inconsistency as evidence in
-   `task-verified` rather than asserting a clean pass or fail. Do NOT run the verify script — the
+   `task-verified` rather than asserting a clean pass or fail. Do not run the verify script — the
    harness runs it after your turn as the independent commit gate. Exception: when the task
    defines no `auto` criteria, run the verify script once yourself.
-2. **Record verification results.** Emit `task-verified` with each command, its exit code, and
+3. **Record verification results.** Emit `task-verified` with each command, its exit code, and
    every failing test/check name.
 
    {{EVIDENCE_BOUND}}
 
-3. **Propose the commit message.** Emit `commit-message` when you touched any file, naming any
+4. **Propose the commit message.** Emit `commit-message` when you touched any file, naming any
    remaining uncertainty and, when the change is risky, how to roll it back.
-4. **Emit narrative signals as applicable.** `change`, `learning`, and `note` — contrast a
+5. **Emit narrative signals as applicable.** `change`, `learning`, and `note` — contrast a
    now-working approach with what failed in an earlier round when this round succeeds where a
    prior one didn't; the harness records them in the sprint journal.
-5. **Signal completion or blockage.** When a flagged item is genuinely blocked (missing
-   dependency, contradictory input, unresolvable ambiguity), emit `task-blocked` with the concrete
-   reason instead of guessing. Otherwise emit `task-complete` once every flagged dimension is
+6. **Signal completion or blockage.** When a flagged item is genuinely blocked, emit `task-blocked`
+   instead of guessing (triage fields below). Otherwise emit `task-complete` once every flagged dimension is
    resolved and every criterion command passes. When this round ends without `task-complete` or
    with criteria still failing, also emit one `note` signal distilling the approaches attempted,
    the dead ends ruled out and why, and the most promising untried direction.
+
+{{TASK_BLOCKED}}
+
+{{GIT_BOUNDARY}}
 
 {{OUTPUT_CONTRACT_SECTION}}

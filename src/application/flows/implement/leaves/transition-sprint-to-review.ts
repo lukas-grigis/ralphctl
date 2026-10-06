@@ -32,4 +32,5 @@ export const transitionSprintToReviewLeaf = (deps: TransitionSprintToReviewLeafD
       return ctx.sprint;
     },
     output: (ctx, sprint) => ({ ...ctx, sprint }),
+    label: 'Move sprint to review',
   });

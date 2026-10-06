@@ -112,6 +112,8 @@ const transitionToPlannedLeaf = (deps: Pick<IdeateDeps, 'clock'>): Element<Ideat
       return { sprint, rejected: ctx.ideateRejected === true };
     },
     output: (ctx, sprint) => ({ ...ctx, sprint }),
+    label: 'Mark sprint planned',
+    internal: true,
   });
 
 export const createIdeateFlow = (deps: IdeateDeps, opts: CreateIdeateFlowOpts): Element<IdeateCtx> => {

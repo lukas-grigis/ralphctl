@@ -6,3 +6,5 @@
 - [feedback_dont_resubstitute_key_midsentence.md](feedback_dont_resubstitute_key_midsentence.md) — Never reference a section-style `{{KEY}}` a second time in prose — substitute.ts replaces every occurrence
 - [project_harness_evidence_placeholders.md](project_harness_evidence_placeholders.md) — Pre-verify / retry-feedback / generator-hints placeholders and the verify-script phrasing rules they lock in
 - [project_provider_agnostic_reasoning.md](project_provider_agnostic_reasoning.md) — No `<thinking>`/`<reasoning>` elicitation in shared templates; reasoning depth lives at the effort-adapter seam
+- [feedback_absent_block_tests.md](feedback_absent_block_tests.md) — Assert absent tagged blocks via `'<tag>\n'` or preface text; prose mentions the bare tag
+- [feedback_wrapper_in_template_vs_renderer.md](feedback_wrapper_in_template_vs_renderer.md) — Template-wrapped placeholder => bare-body renderer, not renderTaggedBlock (double tag)

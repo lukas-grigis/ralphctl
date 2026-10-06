@@ -61,6 +61,7 @@ export const createTicketAddFlow = (deps: TicketAddDeps): Element<TicketAddCtx> 
       ...(o.trackerError !== undefined ? { trackerError: o.trackerError } : {}),
       ...(o.trackerIssueOrphaned === true ? { trackerIssueOrphaned: true } : {}),
     }),
+    label: 'Add ticket',
   });
 
 const publishAfterSave = async (deps: TicketAddDeps, sprint: Sprint, ticket: Ticket): Promise<TicketAddLeafOutput> => {

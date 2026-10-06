@@ -25,4 +25,5 @@ export const createSettingsSetFlow = (deps: SettingsSetDeps): Element<SettingsSe
     },
     input: (c) => c.input,
     output: (c, o) => ({ ...c, output: o }),
+    label: 'Update setting',
   });

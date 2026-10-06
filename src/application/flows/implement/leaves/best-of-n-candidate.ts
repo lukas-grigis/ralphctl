@@ -36,7 +36,8 @@ import {
 import { runPathsFor } from '@src/application/flows/_shared/allocate-run-dir.ts';
 import { attributeVerify, normalizeVerifyGates, runVerifyGatesUseCase } from '@src/business/task/run-verify-script.ts';
 import { runVerifyShell } from '@src/application/flows/implement/leaves/pre-task-verify.ts';
-import { gitDiffFootprint, gitStashPush } from '@src/integration/io/git-operations.ts';
+import { gitDiffFootprint } from '@src/integration/io/git-operations.ts';
+import { gitStashPush } from '@src/integration/io/git-stash.ts';
 import { computeWorkProductFingerprint } from '@src/application/flows/implement/leaves/work-product-fingerprint.ts';
 import { writeTextAtomic } from '@src/integration/io/fs.ts';
 import {
@@ -447,15 +448,11 @@ const bestOfNOneCandidateLeaf = (
       }
       const reproduction =
         ctx.reproductionArtifact !== undefined ? renderReproductionBody(ctx.reproductionArtifact) : undefined;
-      // Same feed-forward bundle a normal generator turn gets — see `CandidateLeafInput`'s
-      // docstring. `ctx.currentRoundNum` is always 1 for a candidate spawn (they only ever run in
-      // round 1 of the granted attempt), but read it off ctx rather than hardcode 1 so a future
-      // change to when candidates can run doesn't silently go stale here.
-      const feedForward = composeGeneratorFeedForward(ctx, ctx.currentTask, taskId, ctx.currentRoundNum ?? 1, {
+      // Same feed-forward bundle a normal generator turn gets — see `CandidateLeafInput`'s docstring.
+      const feedForward = composeGeneratorFeedForward(ctx, ctx.currentTask, taskId, {
         cwd: opts.cwd,
         clock: deps.clock,
         plateauThreshold: deps.config.harness.plateauThreshold,
-        maxTurns: deps.config.harness.maxTurns,
       });
       const priorCritique = latestCritique(ctx.currentTask);
       return {
@@ -478,6 +475,7 @@ const bestOfNOneCandidateLeaf = (
       bestOfNSampledCount: (ctx.bestOfNSampledCount ?? 0) + 1,
       ...(record !== undefined ? { bestOfNCandidates: [...(ctx.bestOfNCandidates ?? []), record] } : {}),
     }),
+    label: 'Generate candidates',
   });
 
 /**

@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
+import { ParseError } from '@src/domain/value/error/parse-error.ts';
 import { parseIdeateOutput } from '@src/integration/ai/prompts/ideate/parse-output.ts';
 import { TicketId } from '@src/domain/value/id/ticket-id.ts';
 import { SprintId } from '@src/domain/value/id/sprint-id.ts';
@@ -57,13 +59,13 @@ describe('parseIdeateOutput', () => {
   it('rejects malformed JSON', () => {
     const out = parseIdeateOutput('{not json', { project, sprintId, ticketId });
     expect(out.ok).toBe(false);
-    if (!out.ok) expect(out.error.subCode).toBe('invalid-json');
+    if (!out.ok) expect(out.error).toMatchObject({ subCode: 'invalid-json' });
   });
 
   it('rejects when requirements is missing', () => {
     const out = parseIdeateOutput(JSON.stringify({ tasks: [] }), { project, sprintId, ticketId });
     expect(out.ok).toBe(false);
-    if (!out.ok) expect(out.error.subCode).toBe('schema-mismatch');
+    if (!out.ok) expect(out.error).toMatchObject({ subCode: 'schema-mismatch' });
   });
 
   it('rejects when tasks is not an array', () => {
@@ -73,7 +75,7 @@ describe('parseIdeateOutput', () => {
       ticketId,
     });
     expect(out.ok).toBe(false);
-    if (!out.ok) expect(out.error.subCode).toBe('schema-mismatch');
+    if (!out.ok) expect(out.error).toMatchObject({ subCode: 'schema-mismatch' });
   });
 
   it('rejects when projectPath is not in the project repos', () => {
@@ -128,11 +130,23 @@ describe('parseIdeateOutput', () => {
     expect(out.ok).toBe(false);
   });
 
-  it('accepts empty tasks array (planning gave up but requirements stand)', () => {
+  it('rejects an empty tasks array', () => {
     const json = JSON.stringify({ requirements: 'whatever', tasks: [] });
     const out = parseIdeateOutput(json, { project, sprintId, ticketId });
-    expect(out.ok).toBe(true);
-    if (out.ok) expect(out.value.tasks).toHaveLength(0);
+    expect(out.ok).toBe(false);
+    if (!out.ok) expect(out.error).toBeInstanceOf(ParseError);
+  });
+
+  it('maps the {blocked} escape hatch to InvalidStateError carrying the reason', () => {
+    const out = parseIdeateOutput(JSON.stringify({ blocked: 'repos contradict the idea' }), {
+      project,
+      sprintId,
+      ticketId,
+    });
+    expect(out.ok).toBe(false);
+    if (out.ok) return;
+    expect(out.error).toBeInstanceOf(InvalidStateError);
+    expect(out.error.message).toContain('repos contradict the idea');
   });
 
   it('inherits externalRef from the supplied source ticket onto every generated task', () => {

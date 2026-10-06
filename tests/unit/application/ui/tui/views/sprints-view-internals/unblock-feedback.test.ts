@@ -65,4 +65,22 @@ describe('formatUnblockFeedback', () => {
       `⚠ unblocked 2 tasks in "Closed Sprint" — sprint stayed closed: cannot reopen — then 'ralphctl sprint reopen sprint-closed-fixture', then r to reload, then u again`
     );
   });
+
+  it('appends the prior-work mix before the reopen clause', () => {
+    expect(formatUnblockFeedback({ ...base, continued: 1, fresh: 1, reopened: { from: 'done', to: 'active' } })).toBe(
+      '✓ unblocked 2 tasks in "Closed Sprint" — 1 continues from its rejected diff, 1 starts fresh (diff kept in git stash) — sprint reopened done → active'
+    );
+  });
+
+  it('pluralises the continue and fresh counts', () => {
+    expect(formatUnblockFeedback({ ...base, succeeded: 4, total: 4, continued: 2, fresh: 2 })).toBe(
+      '✓ unblocked 4 tasks in "Closed Sprint" — 2 continue from their rejected diffs, 2 start fresh (diff kept in git stash)'
+    );
+  });
+
+  it('warns when a stash could not be read', () => {
+    expect(formatUnblockFeedback({ ...base, probeFailed: 1 })).toBe(
+      '⚠ unblocked 2 tasks in "Closed Sprint" — couldn\'t read git stash for 1 task; a rejected diff there would be restored on the next attempt'
+    );
+  });
 });

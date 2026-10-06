@@ -127,6 +127,7 @@ a branded `Prompt` type + parameter schema; regressions surface at typecheck.
   or `{{CHECK_GATE_EXAMPLE}}`. Downstream ecosystems differ.
 - Reference `.claude/` directories as "when present" — many downstream repos lack one.
 - `never`/`always` rules name their exception inline.
+- Partials and examples stay vendor-neutral (no provider tool names, no reasoning-field requests); `prompt-hygiene.test.ts` fences it.
 - Every prompt directory has a `tests/integration/ai/prompts/<flow>/definition.test.ts` asserting
   placeholder ↔ parameter parity (both directions). The meta-test at `template-coverage.test.ts`
   fails the suite when a new flow lands without one.

@@ -56,4 +56,6 @@ export const createLoadCreatePrContextLeaf = (deps: CreatePrDeps): Element<Creat
     },
     input: (c) => c.input,
     output: (c, o) => ({ ...c, sprint: o.sprint, tasks: o.tasks, headBranch: o.headBranch }),
+    label: 'Load PR context',
+    internal: true,
   });

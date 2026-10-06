@@ -58,6 +58,7 @@ export const createSettingsApplyPresetFlow = (deps: SettingsApplyPresetDeps): El
     },
     input: (c) => c.input,
     output: (c, o) => ({ ...c, output: o }),
+    label: 'Apply preset',
   });
 
 /** Live model lists for every provider the preset stamped; empty without the probe dep. */

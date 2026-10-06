@@ -25,12 +25,13 @@ export interface NotificationSubscriberDeps {
 
 /** Subscribe to the bus and return an unsubscribe function. Call once at composition-root time. */
 export const startNotificationSubscriber = (deps: NotificationSubscriberDeps): (() => void) => {
-  // chainId → { first start, nesting depth }. Implement's prologue / epilogue sub-runners reuse the
-  // host's chainId, so only the outermost completion may ping.
+  // chainId → { first start, nesting depth }. A re-started chain id nests, so only the outermost completion may ping.
   const running = new Map<string, { readonly startedAt: number; depth: number }>();
 
   const completionDecision = (event: AppEvent): NotificationDecision | undefined => {
     if (event.type === 'chain-started') {
+      // A nested runner (parallel task branch, prologue / epilogue) is part of its parent's run.
+      if (event.parentChainId !== undefined) return undefined;
       const open = running.get(event.chainId);
       if (open) open.depth += 1;
       else running.set(event.chainId, { startedAt: Date.parse(event.at), depth: 1 });

@@ -346,6 +346,20 @@ describe('completion notice', () => {
     expect(h.calls).toEqual([{ level: 'attention', title: 'ralphctl: run finished', body: 'Done after 6 min' }]);
   });
 
+  it('never pings for a nested run (a parallel task branch) however long it took', async () => {
+    const h = buildHarness();
+    h.bus.publish({
+      type: 'chain-started',
+      chainId: 'task-1',
+      flowId: 'implement',
+      parentChainId: 'c-1',
+      at: at('2026-05-20T10:00:00.000Z'),
+    });
+    h.bus.publish({ type: 'chain-completed', chainId: 'task-1', at: at('2026-05-20T10:05:00.000Z') });
+    await Promise.resolve();
+    expect(h.calls).toEqual([]);
+  });
+
   it('respects disabled() for both new triggers', async () => {
     const h = buildHarness({ disabled: () => true });
     run(h.bus, 'c-1', '2026-05-20T10:00:00.000Z', '2026-05-20T10:09:00.000Z');

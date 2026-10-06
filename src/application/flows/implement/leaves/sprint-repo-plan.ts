@@ -1,5 +1,6 @@
 import { basename } from 'node:path';
 import type { Task } from '@src/domain/entity/task.ts';
+import { restoredWorkContext } from '@src/domain/entity/task-prior-work.ts';
 import type { RepositoryId } from '@src/domain/value/id/repository-id.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
@@ -74,6 +75,8 @@ export const setupRepoEntriesForTasks = (
 export interface InterruptedAttemptHint {
   readonly taskName: string;
   readonly attemptN: number;
+  /** The attempt had popped its quarantined diff, so the tree holds the only copy of that work. */
+  readonly restoredPriorWork: boolean;
 }
 
 /** Per repo path, the first task whose last attempt is still `running` — the signature of a dead harness. */
@@ -86,16 +89,30 @@ export const interruptedAttemptsByCwd = (
     const last = task.attempts.at(-1);
     if (task.status !== 'in_progress' || last === undefined || last.status !== 'running') continue;
     const cwd = String(resolveRepoOrThrow(repositories, task).path);
-    if (!out.has(cwd)) out.set(cwd, { taskName: task.name, attemptN: last.n });
+    if (!out.has(cwd)) {
+      out.set(cwd, {
+        taskName: task.name,
+        attemptN: last.n,
+        restoredPriorWork: restoredWorkContext(task) !== undefined,
+      });
+    }
   }
   return out;
 };
 
-const interruptedMenu = (hint: InterruptedAttemptHint): Omit<DirtyTreeMenuOpts, 'elementName'> => ({
-  question: ({ cwd, dirtyEntries }) =>
-    `Working tree at ${String(cwd)} has ${String(dirtyEntries)} uncommitted change(s), likely from interrupted attempt ${String(hint.attemptN)} of "${hint.taskName}". Keep them to resume, or start clean?`,
-  keepDescription: 'the resumed attempt continues from them',
-});
+const interruptedMenu = (hint: InterruptedAttemptHint): Omit<DirtyTreeMenuOpts, 'elementName'> => {
+  const onlyCopy = hint.restoredPriorWork
+    ? ' — which had restored its earlier rejected diff from git stash, so this tree now holds the only copy'
+    : '';
+  return {
+    question: ({ cwd, dirtyEntries }) =>
+      `Working tree at ${String(cwd)} has ${String(dirtyEntries)} uncommitted change(s), likely from interrupted attempt ${String(hint.attemptN)} of "${hint.taskName}"${onlyCopy}. Keep them to resume, or start clean?`,
+    keepDescription: 'the resumed attempt continues from them',
+    ...(hint.restoredPriorWork
+      ? { resetDescription: 'also destroys that only copy of the restored rejected diff' }
+      : {}),
+  };
+};
 
 export interface PreflightLeavesDeps {
   readonly gitRunner: GitRunner;
@@ -130,7 +147,7 @@ export const buildPreflightLeaves = (
       },
       cwd,
       `preflight-task-${String(i + 1)}-${String(cwd)}`,
-      { label: `preflight · ${basename(String(cwd))}` },
+      { label: `Check working tree · ${basename(String(cwd))}` },
       (() => {
         const hint = interrupted.get(String(cwd));
         return hint !== undefined ? interruptedMenu(hint) : {};

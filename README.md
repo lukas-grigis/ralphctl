@@ -504,7 +504,7 @@ readiness / create sprint) stay TUI-only by design. The CLI exposes inspection +
 | `ralphctl ticket remove <id>`         | Remove a ticket from a draft sprint                                                                                         |
 | `ralphctl task list / show <id>`      | Inspect tasks (planning generates them)                                                                                     |
 | `ralphctl task evaluation <id>`       | Print the latest evaluator verdict (`evaluation.md`) for the task's last attempt                                            |
-| `ralphctl task unblock <id>`          | Reset a blocked task to `todo`                                                                                              |
+| `ralphctl task unblock <id>`          | Reset a blocked task to `todo` (`--prior-work continue\|fresh` picks what its rejected diff in git stash does next)         |
 
 ### Sprint Lifecycle
 

@@ -66,6 +66,8 @@ export const loadLearningsLeaf = <TCtx>(
     },
     input: (ctx) => ({ path: config.path(ctx) }),
     output: (ctx, candidates) => config.output(ctx, candidates),
+    label: 'Load learnings',
+    internal: true,
   });
 
 /**

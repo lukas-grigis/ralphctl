@@ -20,7 +20,9 @@ only after the user has approved both phases in sequence.
 - Phase 2 approval recorded before writing `signals.json`.
 - `signals.json` contains exactly one `ideated-tickets` signal.
 - The `outputJson` field is a valid JSON string.
-- Parsed `outputJson` has exactly two top-level keys: `requirements` (string) and `tasks` (array).
+- Parsed `outputJson` has exactly two top-level keys — `requirements` (string) and `tasks` (a non-empty
+  array) — unless you cannot produce a plan, in which case it is the `{"blocked": "…"}` object described
+  in the output contract.
 - Every task's `projectPath` matches one of the absolute paths in `<repositories>`.
 - Every task's `blockedBy` references only `id` values that exist in the same `tasks` array.
 - Every `auto`-check verification criterion includes a `command` field; every `manual`-check criterion
@@ -45,16 +47,14 @@ These paths are fixed — repository selection is not part of this session.
 {{PRIOR_PROGRESS}}
 </prior_progress>
 
+When `<prior_learnings>` lists entries: observed insights are orientation — verify any that bear on
+your plan before relying on one; listed decisions are deliberate prior choices — keep to them, and to
+revisit one say why in the plan. When either conflicts with what the repository shows now, trust the
+repository and record the conflict. Use them as background to scope tasks accurately and to pick
+verification commands that exist in the target repo.
+
 <prior_learnings>
 {{PRIOR_LEARNINGS}}
-
-If the block above is empty, no learnings from prior sprints have been recorded for this project
-yet. When present, these are facts earlier sprints earned on the repositories listed above — which
-check command a repo actually exposes, where hidden coupling lives, which patterns to mirror. Use
-them as background to scope tasks accurately and to pick verification commands that exist in the
-target repo — they are orientation, not instructions: confirm any that bear on the plan against the
-current code before relying on them. Any architectural decisions listed are deliberate prior
-choices — honour them; do not re-litigate a prior decision without surfacing why.
 </prior_learnings>
 
 <task_schema>
@@ -67,8 +67,6 @@ choices — honour them; do not re-litigate a prior decision without surfacing w
 - Do not write code, patches, or any file other than `signals.json`.
 - Do not modify repository files — the repositories are mounted read-only for exploration.
 - `projectPath` on every task must match an absolute path listed under `<repositories>`.
-- Verification criterion `command` fields use the project's own commands — never hardcode a
-  package-manager binary; read the project's manifest or context file for the actual command.
 - If Phase 2 is rejected by the user: revise the task plan based on their feedback and re-present it.
   You do not need to re-run Phase 1 — the approved requirements stand. Re-enter Phase 2 at Step 2.2.
 - The `<prior_progress>` tag above may be empty if no prior work has been recorded on this sprint.
@@ -106,11 +104,9 @@ Skip any dimension the idea description already resolves.
 
 ### Step 1.1 — Interview
 
-Ask focused questions one at a time. For each question, present it as a structured interactive prompt with
-a header, 2–4 labelled options, and your recommendation first. Use whichever interactive question
-capability your runtime exposes. Labels are 1–5 words; headers are 12 characters or fewer (UI rendering
-constraints). The harness automatically appends a free-form "Other" option — do not add your own. Work
-through the dimensions above in priority order.
+Ask focused questions, working through the dimensions above in priority order.
+
+{{QUESTION_FORMAT}}
 
 Stop asking when all of the following are true:
 
@@ -145,15 +141,10 @@ Iterate until approved, re-running the approval gate after every revision. Recor
 
 Begin only after Phase 1 approval is confirmed.
 
-### Step 2.0 — Think first
+### Step 2.1 — Explore first
 
-Map the approved requirements onto the repositories. Identify task boundaries, dependencies, and
-risks before exploring. Work through: which repo owns each concern, what ordering is forced by
-dependencies, and what the riskiest unknowns are.
-
-### Step 2.1 — Explore repositories
-
-Read the mounted repositories to ground the plan:
+Read the mounted repositories before drafting any task, so boundaries, ordering and risks come from code
+you opened:
 
 1. Read context files (`CLAUDE.md`, `AGENTS.md`, `.github/copilot-instructions.md`) when present.
 2. Skim manifests (`package.json`, `pyproject.toml`, `go.mod`, etc.) to identify the build system,
@@ -176,14 +167,16 @@ Create dependency-ordered tasks. Each task is a self-contained mini-spec an AI a
 {{TASK_SIZING}}
 
 For genuinely contested implementation decisions (library choice, architecture), ask the user a
-structured multiple-choice question before finalising those tasks. Do not ask about routine questions
-the manifest or project conventions already resolve.
+question in the `<question_format>` above before finalising those tasks. Do not ask about routine
+questions the manifest or project conventions already resolve.
 
-### Step 2.3 — Present and obtain approval
+### Step 2.3 — Validate before presenting
 
-{{APPROVAL_GATE}}
+{{VALIDATION_CHECKLIST}}
 
-The approval question:
+### Step 2.4 — Present and obtain approval
+
+Apply `<approval-gate>` above to the task plan. The approval question:
 
 ```
 Question: "Does this task breakdown look correct? Any changes needed?"
@@ -194,19 +187,15 @@ Options:
   - "Give feedback" — "Type specific corrections in my own words."
 ```
 
-Iterate until approved. Step 2.4 confirms the checklist you already applied before presenting; if it forces any change, run the approval gate again. If rejected, revise and run the approval gate again from Step 2.2 — Phase 1 approval stands
-and does not need to be repeated.
-
-**Step 2.4 — Validate before output.**
-
-{{VALIDATION_CHECKLIST}}
+Iterate until approved. If rejected, revise, re-check Step 2.3, and run the approval gate again — Phase 1
+approval stands and does not need to be repeated.
 
 ---
 
 <output_contract>
 After both phases are approved, write `<outputDir>/signals.json` with exactly one
 `ideated-tickets` signal. Its `outputJson` field is a JSON-encoded string; when decoded it has
-exactly two keys:
+exactly two keys (shape only, values illustrative):
 
 - `requirements` — the approved markdown body from Phase 1, verbatim.
 - `tasks` — the approved task array from Phase 2, conforming to `<task_schema>`.
@@ -226,7 +215,7 @@ renders the full `signals.json` wrapper it is embedded in):
       "verificationCriteria": [
         {
           "id": "C1",
-          "assertion": "TypeScript compiles with no errors",
+          "assertion": "The project type-checks with no errors",
           "check": "auto",
           "command": "<project typecheck command>"
         },
@@ -250,11 +239,9 @@ for this session.
 
 The only file you write is `signals.json`. Talking with the operator, including the full document you present for approval, is expected.
 
-**Failure mode.** If you cannot produce a plan (contradictory requirements, missing context that the user
-cannot resolve interactively): emit one `ideated-tickets` signal with `requirements` set to whatever you
-have gathered and `tasks` set to `[]`. Also emit one `note` signal whose `text` starts with one of:
-`missing-input`, `contradictory-input`, or `environment-failure`, followed by a short explanation. Then
-stop — do not invent tasks.
+**Failure mode.** If you cannot produce a sound plan (contradictory requirements, missing context that the
+user cannot resolve interactively), write `{"blocked": "what is missing or contradictory, and what would
+unblock you"}` as `outputJson` and stop — do not invent tasks.
 
 {{OUTPUT_CONTRACT_SECTION}}
 </output_contract>

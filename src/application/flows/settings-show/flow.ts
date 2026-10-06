@@ -19,4 +19,5 @@ export const createSettingsShowFlow = (deps: SettingsShowDeps): Element<Settings
     },
     input: (c) => c.input,
     output: (c, o) => ({ ...c, output: o }),
+    label: 'Show settings',
   });

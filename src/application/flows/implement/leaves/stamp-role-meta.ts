@@ -190,6 +190,8 @@ const buildStampLeaf = (
       };
     },
     output: (ctx) => ctx,
+    label: 'Record role',
+    internal: true,
   });
 };
 

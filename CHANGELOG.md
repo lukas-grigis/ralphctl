@@ -7,6 +7,60 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **Unblock asks what to do with a rejected diff.** When a blocked or interrupted task left its rejected work in
+  `git stash`, unblocking (`u` in the Tasks panel and Sprint detail, bulk `u` on the Sprints list) asks whether the
+  next attempt continues from it or starts fresh, suggesting one from why the task stopped. The CLI gets
+  `ralphctl task unblock <id> --prior-work continue|fresh`. Task cards show the stash, its size and what the next
+  attempt will do, and whether an attempt restored it or left it in the stash and why.
+- **Restoring earlier work is recorded.** Each attempt notes whether the rejected diff was restored, kept by choice or
+  left in the stash, in the task, `progress.md` and the card. Resetting an interrupted run warns when the working
+  tree holds the only copy of restored work. When an attempt continues from restored work, the AI is told what it
+  is and why it was rejected, instead of mistaking it for an unexplained dirty tree.
+- **Clearer step display while a flow runs.** A one-line strip in the header names the main steps (e.g.
+  `Prepare → Run tasks → Finish`) and which one is running, for every flow. The steps list shows main steps with the
+  active one expanded and finished groups collapsed to a summary; each task card shows its own Prepare / Attempt /
+  Round / Verify / Commit steps with a pass/fail verdict per review round. Bookkeeping steps stay hidden unless they
+  fail, and failures stay pinned in view.
+
+### Changed
+
+- **`ralphctl task unblock` no longer always restores the diff.** With no flag it now picks by cause: continue after a
+  self-block, a cancel or an interrupted run, start fresh after a failed review. It prints the choice and the flag to
+  flip it. Tasks unblocked before this release keep restoring automatically.
+- A blocked task's `blockedReason` no longer ends with the stash line; the stash is shown from its own field.
+- **Review rounds check the tree first.** Before each review round, ralphctl stops (before the editor or the AI
+  session) when the tree has uncommitted changes, lists the changed files and shows the previous round's commit
+  error. The feedback prompt no longer carries its own dirty-tree rule.
+- **Plan review shows task-specific evaluator dimensions** before you approve a plan.
+- **Evaluator prompts follow one set of grading rules.** Verdict, blocked-check and critique format live in a single
+  shared partial; the continuation evaluator also sees a task's extra dimensions. Critique lines carry a dimension
+  tag and a location.
+- **Generator prompts match what the harness does.** Uncommitted work from the reproduction test or an earlier
+  attempt is expected rather than flagged; `git stash` and other destructive git shortcuts are off limits; a check
+  that failed to start no longer counts as verification.
+- **No round counts in the generator's view.** The plateau notice asks for a fundamentally different fix without
+  showing the round number or the stall limit.
+- **More inputs are marked as data, not instructions:** reproduction output, summaries of earlier attempts,
+  candidate summaries, recorded learnings and the ticket summary.
+- **Pull-request prompt:** every `git -C` command carries the repository path, and the concealment rules are gone.
+- **Readiness** reports a note-only result with the note text instead of a generic failure; **distill-learnings**
+  treats an empty result as a no-op; **ideate** rejects a blocked result and an empty task list; **plan**,
+  **ideate** and **refine** validate the draft before presenting it.
+
+### Fixed
+
+- **Parallel worktree ref collision.** Worktree branches now live under `ralphctl-wt/<sprint>/<task>` instead of
+  nesting under the auto-named sprint branch, which made worktree creation fail while that branch existed.
+- **Unlanded worktree commits are rescued, not deleted.** A leftover worktree ref holding commits the sprint branch
+  lacks is moved to `ralphctl-rescue/<sprint>/<task>-<timestamp>` and noted in `progress.md`.
+- **Parallel tasks no longer break each other's worktree setup.** Concurrent `git worktree` bookkeeping in one
+  repository could fail with `failed to read .git/worktrees/…/commondir` and leave a task unstarted; those git
+  commands now run one at a time per repository.
+- **The steps list no longer freezes during a run**, and steps skipped after a failure show as skipped instead of
+  pending forever.
+
 ## [0.25.0] - 2026-10-04
 
 ### Added

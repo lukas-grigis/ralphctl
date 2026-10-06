@@ -49,8 +49,8 @@ export interface TolerateErrorsOpts {
 export const tolerateErrors = <TCtx>(opts: TolerateErrorsOpts, inner: Element<TCtx>): Element<TCtx> => ({
   name: `continue-on-error(${inner.name})`,
   children: [inner],
-  async execute(ctx, signal, onTrace): Promise<ElementResult<TCtx>> {
-    const result = await inner.execute(ctx, signal, onTrace);
+  async execute(ctx, signal, onTrace, onStart): Promise<ElementResult<TCtx>> {
+    const result = await inner.execute(ctx, signal, onTrace, onStart);
     if (result.ok) return result;
 
     const error = result.error.error;

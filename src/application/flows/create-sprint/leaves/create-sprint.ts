@@ -43,4 +43,5 @@ export const createSprintLeaf = (deps: CreateSprintLeafDeps): Element<CreateSpri
       };
     },
     output: (ctx, out) => ({ ...ctx, sprint: out.sprint, execution: out.execution }),
+    label: 'Create sprint',
   });

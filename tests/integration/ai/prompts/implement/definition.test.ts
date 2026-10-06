@@ -178,7 +178,7 @@ describe('implementPromptDef — completeness', () => {
 
   it('carries the reversibility, scope, and stop-when-green guardrails', async () => {
     const template = (await fs.readFile(TEMPLATE_PATH, 'utf8')).replace(/\s+/g, ' ');
-    expect(template).toContain('Keep every action reversible');
+    expect(template).toContain('{{GIT_BOUNDARY}}');
     expect(template).toContain('Do not special-case tests');
     expect(template).toContain('Stay in scope');
     expect(template).toContain('stop and report');
@@ -196,10 +196,11 @@ describe('implementPromptDef — completeness', () => {
     expect(template).toContain('comparable context file already in this ecosystem');
   });
 
-  it('gives the empty plateau_directive block an explicit empty-case sentence', async () => {
+  it('keeps the plateau_directive framing out of the template so an absent block renders nothing', async () => {
     const path = `${String(defaultTemplatesDir())}/implement/template.md`;
-    const template = (await fs.readFile(path, 'utf8')).replace(/\s+/g, ' ');
-    expect(template).toContain('no plateau escalation applies this round');
+    const template = await fs.readFile(path, 'utf8');
+    expect(template).toContain('{{PLATEAU_DIRECTIVE_SECTION}}');
+    expect(template).not.toContain('<plateau_directive>\n');
   });
 
   it('asks for a contrasting learning when an attempt succeeds where an earlier one failed', async () => {
@@ -325,9 +326,11 @@ describe('renderPreVerifyResultsSection', () => {
 });
 
 describe('renderRetryFeedbackSection', () => {
-  it('returns the trimmed feedback verbatim when provided', () => {
+  it('wraps the trimmed feedback in a tag with its framing preface when provided', () => {
     const out = renderRetryFeedbackSection('  Command: pnpm test\nExit 1  ');
-    expect(out).toBe('Command: pnpm test\nExit 1');
+    expect(out.startsWith('<retry_feedback>\n')).toBe(true);
+    expect(out).toContain('post-task verify failed');
+    expect(out).toContain('Command: pnpm test\nExit 1\n</retry_feedback>');
   });
 
   it('returns the empty string when undefined', () => {
@@ -538,8 +541,44 @@ describe('buildImplementPrompt — end-to-end against the real template', () => 
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.value).toContain('<retry_feedback>');
+    expect(result.value).not.toContain('<retry_feedback>\n');
+    expect(result.value).not.toContain('post-task verify failed');
+    expect(result.value).not.toContain('<plateau_directive>\n');
+    expect(result.value).not.toContain('<prior_criteria_verdicts>\n');
+    expect(result.value).not.toContain('<prior_task_episodes>\n');
     expect(result.value).not.toMatch(/\{\{[A-Z_]+\}\}/);
+  });
+
+  it('renders restored work inside its wrapper, and no wrapper at all when absent', async () => {
+    const base = {
+      task: makeTaskWith({ name: 'export CSV' }),
+      projectPath: '/tmp/ralph/main-repo',
+      progressFile: '/tmp/ralph/sprint-1/progress.md',
+      priorProgress: '',
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
+      contractPath: CONTRACT_PATH,
+    };
+    const withRestored = await buildImplementPrompt(deps, {
+      ...base,
+      restoredWork: { stat: { files: 3, insertions: 10, deletions: 2 }, critique: '- [correctness] off by one' },
+    });
+    expect(withRestored.ok).toBe(true);
+    if (!withRestored.ok) return;
+    expect(withRestored.value).toContain('<restored_work>\nAn earlier attempt at this task was rejected');
+    expect(withRestored.value).toContain('3 files, +10 -2 lines');
+    expect(withRestored.value).toContain('off by one');
+
+    const without = await buildImplementPrompt(deps, base);
+    expect(without.ok).toBe(true);
+    if (!without.ok) return;
+    // Only the backticked mention in the working-tree rule may remain — no bare wrapper tag.
+    expect(without.value).not.toMatch(/(?<!`)<\/?restored_work>/);
+  });
+
+  it('lists the expected uncommitted work in the working-tree rule', async () => {
+    const template = (await fs.readFile(TEMPLATE_PATH, 'utf8')).replace(/\s+/g, ' ');
+    expect(template).toContain('the reproduction test named in `<reproduction>`');
+    expect(template).toContain('`<prior_critique>`, `<retry_feedback>`, `<prior_attempts>` or `<restored_work>`');
   });
 
   it('renders prior attempts when priorAttempts is provided', async () => {
@@ -571,7 +610,7 @@ describe('buildImplementPrompt — end-to-end against the real template', () => 
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.value).not.toContain('<prior_attempts>');
+    expect(result.value).not.toContain('<prior_attempts>\n');
     expect(result.value).not.toMatch(/\{\{[A-Z_]+\}\}/);
   });
 

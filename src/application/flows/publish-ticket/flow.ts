@@ -53,4 +53,5 @@ export const createTicketPublishFlow = (deps: TicketPublishDeps): Element<Ticket
     },
     input: (c) => c.input,
     output: (c, o) => ({ ...c, output: o }),
+    label: 'Publish ticket',
   });

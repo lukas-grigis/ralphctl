@@ -33,5 +33,7 @@ export const uninstallAgentDefinitionsLeaf = <TCtx>(
     },
     input: (ctx) => ({ cwd: opts.cwdPicker(ctx) }),
     output: (ctx) => ctx,
+    label: 'Remove agents',
+    internal: true,
   });
 };

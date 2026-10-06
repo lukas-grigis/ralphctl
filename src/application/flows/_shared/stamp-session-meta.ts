@@ -144,4 +144,6 @@ export const stampSessionMetaLeaf = <TCtx>(
     input: (ctx) => opts.resolve(ctx),
     // Pure write — leaf does not mutate ctx.
     output: (ctx) => ctx,
+    label: 'Record session',
+    internal: true,
   });

@@ -54,4 +54,5 @@ export const createExportContextFlow = (deps: ExportContextDeps): Element<Export
     },
     input: (c) => c.input,
     output: (c, o) => ({ ...c, output: o }),
+    label: 'Export context',
   });

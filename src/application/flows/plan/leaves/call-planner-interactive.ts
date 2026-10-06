@@ -199,4 +199,5 @@ export const callPlannerInteractiveLeaf = (deps: CallPlannerInteractiveDeps): El
     // Proposal only — `ctx.sprint` / `ctx.tasks` stay untouched until `apply-plan` runs the
     // human gate, so a rejected plan needs no rollback here.
     output: (ctx, out) => ({ ...ctx, proposedTasks: out.tasks }),
+    label: 'Plan with AI',
   });

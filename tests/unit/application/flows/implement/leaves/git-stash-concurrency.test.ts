@@ -1,7 +1,7 @@
 /**
  * Regression coverage for the positional stash-pop race that both `quarantine-blocked-diff.ts`
  * and `restore-blocked-diff.ts` (this directory) sit on top of: `gitStashPop` (in
- * `@src/integration/io/git-operations.ts`, shared by both leaves) used to LIST the stash stack,
+ * `@src/integration/io/git-stash.ts`, shared by both leaves) used to LIST the stash stack,
  * then act on the matched entry's POSITION in a SEPARATE git invocation. On the parallel implement
  * path several worktree branches push / list / pop concurrently against the ONE `refs/stash` a
  * repo and every one of its worktrees share — a sibling's push landing between the list and the
@@ -11,13 +11,13 @@
  * This test forces that exact interleaving deterministically (a controllable "gate" the fake
  * runner awaits mid-`stash list`, so a concurrently-invoked `gitStashPush` gets a window to run
  * before the list call returns) rather than hoping a real race fires under load. `gitStashPop` and
- * `gitStashPush` now serialise through one in-process mutex (`git-operations.ts`), so the
+ * `gitStashPush` now serialise through one in-process mutex (`git-stash.ts`), so the
  * concurrently-invoked push cannot even START its own git calls until the pop's list-then-pop
  * critical section has fully settled — without that mutex, the push's calls land inside the gate
  * window and corrupt the result, which is exactly what the "before the fix" run below reproduces.
  */
 import { describe, expect, it } from 'vitest';
-import { gitStashPop, gitStashPush } from '@src/integration/io/git-operations.ts';
+import { gitStashPop, gitStashPush } from '@src/integration/io/git-stash.ts';
 import type { GitRunner, GitRunResult } from '@src/integration/io/git-runner.ts';
 import { Result } from '@src/domain/result.ts';
 import { absolutePath } from '@tests/fixtures/domain.ts';

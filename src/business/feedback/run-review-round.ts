@@ -12,6 +12,8 @@ import type { StorageError } from '@src/domain/value/error/storage-error.ts';
  * use case stays integration-agnostic.
  *
  * The decision tree:
+ *   0. Clean-tree preflight — uncommitted changes in the commit tree → exit `aborted` with
+ *      {@link RunReviewRoundOutput.dirtyTreeReason}, before the editor and the AI spawn.
  *   1. Open the editor — if it fails the user aborted → exit `aborted`.
  *   2. Read & parse `feedback.md`. If the latest round equals the previous OR is empty,
  *      the user signalled termination → exit `terminated`.
@@ -36,6 +38,13 @@ export interface ReviewRoundVerifyResult {
 export interface RunReviewRoundProps {
   readonly sprint: Sprint;
   readonly previousRound?: FeedbackRound;
+  /**
+   * Paths with uncommitted changes in the tree the harness commits to. Absent → no preflight. A
+   * read failure is logged and the round proceeds; the commit step surfaces the same git fault.
+   */
+  readonly listUncommittedChanges?: () => Promise<Result<readonly string[], DomainError>>;
+  /** The previous round's commit failure — the likely reason the tree is dirty, so the stop quotes it. */
+  readonly lastCommitError?: string;
 
   /** Open the editor on the feedback file; user-cancel → ok=false. */
   readonly openEditor: () => Promise<Result<void, DomainError>>;
@@ -68,6 +77,10 @@ export interface RunReviewRoundOutput {
   readonly currentRound?: FeedbackRound;
   /** True when this round produced a commit (used by callers to bump `roundsApplied`). */
   readonly applied: boolean;
+  /** Set when the clean-tree preflight stopped the round; lists the changed files (and last commit error). */
+  readonly dirtyTreeReason?: string;
+  /** This round's swallowed commit failure, threaded to the next round's preflight. */
+  readonly commitError?: string;
 }
 
 const COMMIT_BODY_SNIPPET_LEN = 60;
@@ -84,6 +97,28 @@ const renderFeedbackLog = (rounds: readonly FeedbackRound[]): string => {
   return rounds.map((r) => `### Round ${String(r.index)}\n\n${r.body || '_(empty)_'}`).join('\n\n');
 };
 
+const MAX_LISTED_DIRTY_PATHS = 20;
+
+const renderDirtyTreeReason = (paths: readonly string[], lastCommitError: string | undefined): string => {
+  const listed = paths.slice(0, MAX_LISTED_DIRTY_PATHS).join(', ');
+  const more =
+    paths.length > MAX_LISTED_DIRTY_PATHS ? ` and ${String(paths.length - MAX_LISTED_DIRTY_PATHS)} more` : '';
+  const head = `Uncommitted changes in the working tree — commit or discard them, then re-run review. Changed files: ${listed}${more}.`;
+  return lastCommitError === undefined ? head : `${head} Last commit error: ${lastCommitError}`;
+};
+
+/** Returns the stop reason when the tree is dirty; a failed git read proceeds (logged). */
+const preflightCleanTree = async (props: RunReviewRoundProps, log: Logger): Promise<string | undefined> => {
+  if (props.listUncommittedChanges === undefined) return undefined;
+  const changed = await props.listUncommittedChanges();
+  if (!changed.ok) {
+    log.warn(`clean-tree preflight could not read git status — ${changed.error.message}`);
+    return undefined;
+  }
+  if (changed.value.length === 0) return undefined;
+  return renderDirtyTreeReason(changed.value, props.lastCommitError);
+};
+
 const renderSprintContext = (sprint: Sprint): string => {
   const ticketCount = sprint.tickets.length;
   return [
@@ -93,10 +128,31 @@ const renderSprintContext = (sprint: Sprint): string => {
   ].join('\n');
 };
 
+/** Post-round verify is advisory — failures are logged and the loop continues. */
+const runVerifyNonFatal = async (props: RunReviewRoundProps, current: FeedbackRound, log: Logger): Promise<void> => {
+  if (props.verifyRound === undefined) return;
+  const verify = await props.verifyRound();
+  if (!verify.ok) {
+    log.warn(`verify spawn failed — ${verify.error.message}`, { round: current.index });
+  } else if (!verify.value.passed) {
+    log.warn(
+      `verify failed (exit=${String(verify.value.exitCode ?? 'null')}) after round ${String(current.index)} — surfaced as warning, loop continues`,
+      { round: current.index, exitCode: verify.value.exitCode }
+    );
+  }
+};
+
 export const runReviewRoundUseCase = async (
   props: RunReviewRoundProps
 ): Promise<Result<RunReviewRoundOutput, DomainError>> => {
   const log = props.logger.named('feedback.review-round');
+
+  // Before the editor too, so the operator never types feedback into a round that can't run.
+  const dirtyTreeReason = await preflightCleanTree(props, log);
+  if (dirtyTreeReason !== undefined) {
+    log.warn(`review round stopped before the AI ran — ${dirtyTreeReason}`, { dirtyTreeReason });
+    return Result.ok({ exit: 'aborted', applied: false, dirtyTreeReason });
+  }
 
   const editorResult = await props.openEditor();
   if (!editorResult.ok) {
@@ -149,22 +205,17 @@ export const runReviewRoundUseCase = async (
   // inflate the caller's `roundsApplied`. The loop still continues either way.
   const committed = commit.ok && commit.value.committed;
 
-  if (props.verifyRound !== undefined) {
-    const verify = await props.verifyRound();
-    if (!verify.ok) {
-      log.warn(`verify spawn failed — ${verify.error.message}`, { round: current.index });
-    } else if (!verify.value.passed) {
-      log.warn(
-        `verify failed (exit=${String(verify.value.exitCode ?? 'null')}) after round ${String(current.index)} — surfaced as warning, loop continues`,
-        { round: current.index, exitCode: verify.value.exitCode }
-      );
-    }
-  }
+  await runVerifyNonFatal(props, current, log);
 
   const appended = await props.appendNextRound(current.index + 1);
   if (!appended.ok) return Result.error(appended.error);
 
-  return Result.ok({ exit: 'continued', currentRound: current, applied: committed });
+  return Result.ok({
+    exit: 'continued',
+    currentRound: current,
+    applied: committed,
+    ...(commit.ok ? {} : { commitError: commit.error.message }),
+  });
 };
 
 export { renderCommitMessage as renderReviewCommitMessage };

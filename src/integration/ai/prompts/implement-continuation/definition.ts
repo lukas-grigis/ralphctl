@@ -83,7 +83,7 @@ export interface ImplementContinuationPromptParams {
    */
   readonly reproductionSection?: string;
   /**
-   * "## ⚠ You have plateaued — change your approach" block — empty unless this round is a
+   * `<plateau_directive>` block — empty unless this round is a
    * plateau-break attempt (top-of-ladder same-model nudge). Rendered via the shared
    * `renderPlateauDirectiveSection`.
    */
@@ -151,6 +151,7 @@ export const implementContinuationPromptDef: PromptDefinition<ImplementContinuat
       description:
         'Summaries of the most instructive prior attempts on this task (select-K slice) with their ' +
         'verification outcomes. Empty → `{{PRIOR_ATTEMPTS_SECTION}}` collapses (no `<prior_attempts>` wrapper).',
+      untrusted: { source: 'summaries of earlier attempts by AI sessions' },
     },
     reproductionSection: {
       placeholder: 'REPRODUCTION_SECTION',
@@ -158,11 +159,11 @@ export const implementContinuationPromptDef: PromptDefinition<ImplementContinuat
       description:
         'Failing reproduction test a prior `reproduce` session wrote for this defect-shaped task — test ' +
         'path, run command, observed failure. Empty → `{{REPRODUCTION_SECTION}}` collapses (no `<reproduction>` wrapper).',
+      untrusted: { source: "an earlier AI session's test run" },
     },
     plateauDirectiveSection: {
       placeholder: 'PLATEAU_DIRECTIVE_SECTION',
-      description:
-        '"## ⚠ You have plateaued — change your approach" block — empty unless this round is a plateau-break attempt.',
+      description: '`<plateau_directive>` block — empty unless this round is a plateau-break attempt.',
     },
     outputContractSection: {
       placeholder: 'OUTPUT_CONTRACT_SECTION',
@@ -190,6 +191,8 @@ export const implementContinuationPromptDef: PromptDefinition<ImplementContinuat
     PARALLEL_TOOL_CALLS: 'parallel-tool-calls',
     EVIDENCE_BOUND: 'evidence-bound',
     DECISIONS_GUIDANCE: 'decisions',
+    GIT_BOUNDARY: 'git-boundary',
+    TASK_BLOCKED: 'task-blocked',
   },
   // Same accepted signal union as the full implement prompt — a continuation turn is still a
   // generator turn and may emit the full narrative + lifecycle set.

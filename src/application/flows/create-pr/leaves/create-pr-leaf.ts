@@ -164,4 +164,5 @@ export const createCreatePrLeaf = (deps: CreatePrDeps): Element<CreatePrCtx> =>
     },
     input: (c) => (c.aiContent !== undefined ? { ...c.input, aiContent: c.aiContent } : c.input),
     output: (c, o) => ({ ...c, output: o }),
+    label: 'Open pull request',
   });

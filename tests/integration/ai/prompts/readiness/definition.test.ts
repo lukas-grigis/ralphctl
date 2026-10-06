@@ -218,7 +218,7 @@ describe('buildReadinessPrompt — end-to-end against the real template', () => 
     if (!result.ok) throw new Error(`expected ok, got ${result.error.message}`);
     const body = result.value as unknown as string;
     expect(body).toContain('holds only additions');
-    expect(body).toContain('ONLY the new H2');
+    expect(body).toContain('only the new H2');
     expect(body).toContain('existing file plus');
     expect(body).not.toMatch(/and a non-empty `content` field/);
   });

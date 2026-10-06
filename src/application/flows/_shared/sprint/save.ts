@@ -28,4 +28,6 @@ export const saveSprintLeaf = <TCtx extends SaveSprintCtx>(deps: SaveSprintDeps,
     },
     input: (ctx) => assertCtxField(ctx, 'sprint', name),
     output: (ctx) => ctx,
+    label: 'Save sprint',
+    internal: true,
   });

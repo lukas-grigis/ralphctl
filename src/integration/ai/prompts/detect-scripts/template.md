@@ -36,7 +36,7 @@ harness owns execution; the user reviews your proposal before anything runs. Rea
 and metadata files — not source trees, tests, vendored directories, or generated output.
 
 **Coding-agent context files are the strongest evidence.** Before any manifest, look for
-`CLAUDE.md`, `AGENTS.md`, `.cursor/rules/*.md`, `.github/copilot-instructions.md`, and human
+`CLAUDE.md`, `AGENTS.md`, `.cursor/rules/*.mdc`, `.github/copilot-instructions.md`, and human
 onboarding docs (`README.md`, `CONTRIBUTING.md`). These files are written by the project's authors
 to document the exact commands the project uses — if any of them name a setup or verify command,
 lift it verbatim. Prefer this over any inference from manifest scripts.
@@ -66,7 +66,9 @@ class entirely.
 
 **Script safety.** Reject pipe-to-shell shapes (`curl … | sh`, `wget -O- … | bash`), `eval`, and
 `rm -rf` — the harness runs these scripts unattended, so a remote-fetched or destructive command
-cannot be reviewed before it executes. One shell line per script — multi-line bodies and heredocs are out of contract, and so
+cannot be reviewed before it executes. This overrides verbatim lifting: when a documented command
+contains one of these shapes, omit that command and say in a `note` what you omitted and why — the
+operator decides. One shell line per script — multi-line bodies and heredocs are out of contract, and so
 are sub-shells except the single `(cd <path> && …)` fallback named above; the harness collapses
 whitespace before execution.
 
@@ -239,9 +241,5 @@ When the project's files name one, document it in a `note` signal: include the e
 what it starts (dev server at which port, CLI binary, or e2e suite), and any environment
 prerequisite the project's own files declare. Omit the note when the project's files name no run
 command — do not fabricate one from inference.
-
-When a context file and a manifest name the same command, the context file wins (it's deliberate
-author intent). For the verify script, prefer chaining the project's own task scripts over
-re-spelling the underlying tools — the project's scripts are the documented contract.
 
 </run_command_note>

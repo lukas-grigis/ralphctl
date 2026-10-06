@@ -8,7 +8,8 @@
  *
  *     HeaderCard + BaselineHealthChip are rendered by `body.tsx` above the column row at all
  *     widths (user ask #1). The sidebar is navigation-only (task minimap + flow steps +
- *     TokenBudgetCard at the bottom).
+ *     TokenBudgetCard at the bottom). A flow without task work items (plan, refine, review, …)
+ *     swaps the Tasks main area for a full-height Steps tree and drops the sidebar Steps section.
  *
  *     The keyboard model is a PASSIVE MINIMAP: `ImplementMainArea` is the single input owner.
  *     The sidebar's task list is a read-only mirror that highlights whichever card is focused in
@@ -33,9 +34,12 @@ import { Box } from 'ink';
 import { spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { ExecuteLayout } from '@src/application/ui/tui/views/execute-view-internals/layout.tsx';
 import { ImplementSidebar } from '@src/application/ui/tui/views/execute-view-internals/implement-sidebar.tsx';
+import { FlowStepsRail } from '@src/application/ui/tui/views/execute-view-internals/rail.tsx';
+import { SectionHeader } from '@src/application/ui/tui/views/execute-view-internals/section.tsx';
 import { ImplementMainArea } from '@src/application/ui/tui/views/execute-view-internals/implement-main-area.tsx';
 import type { ResponsiveLayout } from '@src/application/ui/tui/views/execute-view-internals/use-responsive-layout.ts';
 import type { SessionDescriptor } from '@src/application/ui/tui/runtime/session-manager.ts';
+import type { FlowProgress } from '@src/application/ui/tui/runtime/flow-progress.ts';
 import type { BucketedExecution } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
 import type { SprintExecution } from '@src/domain/entity/sprint-execution.ts';
 import type { Task } from '@src/domain/entity/task.ts';
@@ -48,6 +52,8 @@ import type { TokenUsage } from '@src/application/ui/tui/runtime/use-token-usage
 export interface ImplementLayoutProps {
   // ── Passed straight through to ExecuteLayout (narrow fallback) ───────────
   readonly descriptor: SessionDescriptor;
+  /** Flow-progress projection — undefined for a session without a plan tree. */
+  readonly progress?: FlowProgress | undefined;
   readonly isRunning: boolean;
   readonly sessionId: string;
   readonly termColumns: number;
@@ -90,6 +96,7 @@ export interface ImplementLayoutProps {
 
 interface WideLayoutProps {
   readonly descriptor: SessionDescriptor;
+  readonly progress: FlowProgress | undefined;
   readonly isRunning: boolean;
   readonly termColumns: number;
   readonly layout: ResponsiveLayout;
@@ -104,6 +111,7 @@ interface WideLayoutProps {
 
 const WideLayout = ({
   descriptor,
+  progress,
   isRunning,
   termColumns,
   layout,
@@ -134,6 +142,7 @@ const WideLayout = ({
             sidebarFlowStepsRows={layout.sidebarFlowStepsRows}
             sidebarContextSideBySide={layout.sidebarContextSideBySide}
             descriptor={descriptor}
+            progress={progress}
             bucketed={bucketed}
             isRunning={isRunning}
             focusedTaskId={focusedTaskId}
@@ -146,18 +155,32 @@ const WideLayout = ({
 
         {/* ── Right: main area (sole input owner) ───────────────────────── */}
         <Box flexDirection="column" flexGrow={1} flexBasis={0} minWidth={0}>
-          <ImplementMainArea
-            bucketed={bucketed}
-            descriptor={descriptor}
-            isRunning={isRunning}
-            maxSignalsPerTask={layout.tasksMaxSignals}
-            maxTasks={layout.tasksMaxBlocks}
-            inputActive={inputActive}
-            now={now}
-            taskState={taskState}
-            onFocusedCardChange={onFocusedCardChange}
-            {...(onOpenEvaluation !== undefined ? { onOpenEvaluation } : {})}
-          />
+          {progress !== undefined && !progress.hasTaskWorkItems ? (
+            <>
+              <SectionHeader title="Steps" />
+              <FlowStepsRail
+                progress={progress}
+                isRunning={isRunning}
+                maxRows={layout.stepsMainRows}
+                railWidth={termColumns - layout.sidebarWidth - 2}
+              />
+            </>
+          ) : (
+            <ImplementMainArea
+              bucketed={bucketed}
+              descriptor={descriptor}
+              progress={progress}
+              isRunning={isRunning}
+              maxSignalsPerTask={layout.tasksMaxSignals}
+              maxTasks={layout.tasksMaxBlocks}
+              maxSubStepsPerTask={layout.taskStepTreeRows}
+              inputActive={inputActive}
+              now={now}
+              taskState={taskState}
+              onFocusedCardChange={onFocusedCardChange}
+              {...(onOpenEvaluation !== undefined ? { onOpenEvaluation } : {})}
+            />
+          )}
         </Box>
       </Box>
     </Box>
@@ -179,6 +202,7 @@ const WideLayout = ({
  */
 export const ImplementLayout = ({
   descriptor,
+  progress,
   isRunning,
   sessionId,
   termColumns,
@@ -199,6 +223,7 @@ export const ImplementLayout = ({
     return (
       <WideLayout
         descriptor={descriptor}
+        progress={progress}
         isRunning={isRunning}
         termColumns={termColumns}
         layout={layout}
@@ -218,7 +243,7 @@ export const ImplementLayout = ({
   // ImplementMainArea and never touches this prop.
   return (
     <ExecuteLayout
-      descriptor={descriptor}
+      progress={progress}
       isRunning={isRunning}
       sessionId={sessionId}
       termColumns={termColumns}

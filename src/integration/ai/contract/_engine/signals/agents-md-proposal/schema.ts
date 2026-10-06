@@ -6,9 +6,8 @@ import type { Compatible } from '@src/integration/persistence/shared/codec-inter
 /**
  * Zod schema for the `agents-md-proposal` AI signal — readiness-flow body that becomes the
  * provider-native context file (`CLAUDE.md` / `.github/copilot-instructions.md` / `AGENTS.md`).
- * The `tag` discriminator records which wire tag the AI emitted so the harness can verify
- * the AI used the tool-specific tag matching the readiness row's provider
- * (`settings.ai.readiness.provider`).
+ * The `tag` discriminator records which wire tag the AI emitted; the schema accepts any of the
+ * three and the harness does not compare it against the readiness provider.
  */
 export const agentsMdProposalSignalSchema = z.object({
   type: z.literal('agents-md-proposal'),

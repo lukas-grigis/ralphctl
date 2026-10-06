@@ -3,7 +3,7 @@ import { type PendingTicket, type Ticket } from '@src/domain/entity/ticket.ts';
 import { type AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { Slug } from '@src/domain/value/slug.ts';
 import { toKebabCase } from '@src/domain/value/kebab-case.ts';
-import type { Element } from '@src/application/chain/element.ts';
+import { type Element, withDisplay } from '@src/application/chain/element.ts';
 import { sequential } from '@src/application/chain/build/sequential.ts';
 import { saveSprintLeaf } from '@src/application/flows/_shared/sprint/save.ts';
 import { loadAndAssertSprintSubChain } from '@src/application/flows/_shared/sprint/load-and-assert-sprint.ts';
@@ -102,7 +102,7 @@ export const createRefineFlow = (deps: RefineDeps, opts: CreateRefineFlowOpts): 
       ticketId,
     } satisfies Parameters<typeof aiUnitPrelude<RefineCtx>>[1];
 
-    return sequential<RefineCtx>(`refine-${ticketId}`, [
+    const unit = sequential<RefineCtx>(`refine-${ticketId}`, [
       fetchIssueContextLeaf(
         { eventBus: deps.eventBus, ...(deps.issueFetcher !== undefined ? { issueFetcher: deps.issueFetcher } : {}) },
         ticket
@@ -132,12 +132,15 @@ export const createRefineFlow = (deps: RefineDeps, opts: CreateRefineFlowOpts): 
         ticket
       ),
       ...aiUnitEpilogue<RefineCtx>({ skillsAdapter: deps.skillsAdapter }, unitOpts),
-      saveSprintLeaf<RefineCtx>({ sprintRepo: deps.sprintRepo }, `save-after-${ticketId}`),
+      withDisplay(saveSprintLeaf<RefineCtx>({ sprintRepo: deps.sprintRepo }, `save-after-${ticketId}`), {
+        label: 'Save ticket',
+      }),
     ]);
+    return withDisplay(unit, { label: ticket.title, workItem: { kind: 'ticket', id: ticketId } });
   });
 
   return sequential<RefineCtx>('refine', [
     loadAndAssertSprintSubChain<RefineCtx>({ sprintRepo: deps.sprintRepo }, ['draft']),
-    sequential<RefineCtx>('refine-tickets', perTicketChains),
+    sequential<RefineCtx>('refine-tickets', perTicketChains, { label: 'Refine tickets' }),
   ]);
 };

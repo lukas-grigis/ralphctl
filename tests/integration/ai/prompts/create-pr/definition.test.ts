@@ -54,8 +54,8 @@ describe('renderTicketSummary', () => {
     expect(out).toContain('- second');
   });
 
-  it('returns a placeholder note when the list is empty', () => {
-    expect(renderTicketSummary([])).toContain('No specific tickets');
+  it('returns an empty string when the list is empty (the template carries the fallback)', () => {
+    expect(renderTicketSummary([])).toBe('');
   });
 });
 
@@ -76,6 +76,7 @@ describe('buildCreatePrPrompt — end-to-end against the real template', () => {
     const result = await buildCreatePrPrompt(deps, {
       baseBranch: 'main',
       headBranch: 'feature/x',
+      repositoryPath: '/work/repo',
       ticketSummary: '- ticket one',
       issueRefs: 'Closes #1',
       outputContractSection: SAMPLE_CONTRACT_SECTION,
@@ -90,14 +91,36 @@ describe('buildCreatePrPrompt — end-to-end against the real template', () => {
     expect(result.value).toContain('`main`');
     expect(result.value).toContain('- ticket one');
     expect(result.value).toContain('Closes #1');
+    expect(result.value).toContain('git -C "/work/repo" log main..HEAD');
+    expect(result.value).toContain('git -C "/work/repo" diff main...HEAD --stat');
+    expect(result.value).not.toContain('MUST NOT be able to tell');
+    expect(result.value).not.toContain('authored the commits yourself');
+    expect(result.value).not.toMatch(/em-dash/i);
     expect(result.value).toContain('## Output contract');
     expect(result.value).not.toMatch(/\{\{[A-Z_]+\}\}/);
+  });
+
+  it('quotes the repository path in every git command so a path with spaces stays one argument', async () => {
+    const result = await buildCreatePrPrompt(deps, {
+      baseBranch: 'main',
+      headBranch: 'feature/x',
+      repositoryPath: '/Users/me/My Projects/app',
+      ticketSummary: '- ticket one',
+      issueRefs: '',
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const commands = result.value.match(/git -C \S.*/g) ?? [];
+    expect(commands.length).toBeGreaterThan(0);
+    for (const cmd of commands) expect(cmd).toMatch(/^git -C "\/Users\/me\/My Projects\/app" /);
   });
 
   it('renders with empty issueRefs (the prompt instructs the AI to omit the closes block)', async () => {
     const result = await buildCreatePrPrompt(deps, {
       baseBranch: 'main',
       headBranch: 'feature/x',
+      repositoryPath: '/work/repo',
       ticketSummary: '_no tickets_',
       issueRefs: '',
       outputContractSection: SAMPLE_CONTRACT_SECTION,
@@ -110,6 +133,7 @@ describe('buildCreatePrPrompt — end-to-end against the real template', () => {
     const result = await buildCreatePrPrompt(deps, {
       baseBranch: 'main',
       headBranch: 'feature/x',
+      repositoryPath: '/work/repo',
       ticketSummary: '',
       issueRefs: '',
       outputContractSection: '',
@@ -122,6 +146,7 @@ describe('buildCreatePrPrompt — end-to-end against the real template', () => {
     const result = await buildCreatePrPrompt(deps, {
       baseBranch: '   ',
       headBranch: 'feature/x',
+      repositoryPath: '/work/repo',
       ticketSummary: '',
       issueRefs: '',
       outputContractSection: SAMPLE_CONTRACT_SECTION,

@@ -15,12 +15,14 @@ export interface ReviewCtx {
   readonly sprint?: Sprint;
   readonly feedbackFile?: AbsolutePath;
   readonly progressFile?: AbsolutePath;
-  /** Set when the user aborts (editor non-zero exit, AI self-blocks) so transition-to-done skips. */
+  /** Set when the user aborts (editor non-zero exit), the AI self-blocks, or the tree is dirty — transition-to-done skips. */
   readonly aborted?: boolean;
   /** Number of rounds processed (informational; surfaced in logs). */
   readonly roundsApplied?: number;
   /** Latest parsed round; threaded between loop iterations for the next termination check. */
   readonly previousRound?: FeedbackRound;
+  /** The previous round's swallowed commit failure; the next round's clean-tree preflight quotes it. */
+  readonly lastCommitError?: string | undefined;
   /** Terminal exit set by the per-round leaf; the loop's `shouldStop` reads this. */
   readonly lastReviewExit?: ReviewRoundExit;
   /**

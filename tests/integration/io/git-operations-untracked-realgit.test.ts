@@ -22,9 +22,9 @@ import { createGitRunner } from '@src/integration/io/git-runner.ts';
 import {
   gitHasUncommittedChanges,
   gitCommitWithMessage,
-  gitStashPush,
   gitStatusPorcelain,
 } from '@src/integration/io/git-operations.ts';
+import { gitStashPush } from '@src/integration/io/git-stash.ts';
 import { createFakeProject, type FakeProject } from '@tests/helpers/fake-project.ts';
 
 const abs = (p: string): AbsolutePath => {

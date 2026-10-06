@@ -62,7 +62,8 @@ const ideateExampleSignals: readonly IdeateSignal[] = [
   {
     type: 'ideated-tickets',
     outputJson:
-      '{"requirements":"# Export CSV\\n\\n## Problem\\n…","tasks":[{"name":"Wire endpoint","projectPath":"/abs/repo","steps":["…"],"verificationCriteria":["…"]}]}',
+      '{"requirements":"# Export CSV\\n\\n## Problem\\n…","tasks":[{"id":"1","name":"Wire endpoint","projectPath":"/abs/repo","steps":["…"],' +
+      '"verificationCriteria":[{"id":"C1","assertion":"…","check":"auto","command":"<project\'s test command>"}],"blockedBy":[]}]}',
     timestamp: EXAMPLE_TS,
   },
   {

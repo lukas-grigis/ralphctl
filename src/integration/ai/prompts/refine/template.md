@@ -15,12 +15,13 @@ details.
 <success_criteria>
 
 - The problem statement names the user and the observable behaviour they need.
-- Every acceptance criterion covers at least one happy-path scenario, one alternate path, and one
-  error or edge case.
+- Each acceptance criterion has a happy-path scenario plus every alternate or error case the behaviour
+  actually has — usually 2–5 Given/When/Then bullets; no invented alternate paths.
 - Scope boundaries (in scope / out of scope / deferred) are explicit.
 - Two engineers reading the requirements would build the same thing.
-- No implementation detail appears anywhere in the body (no technology names, no architecture
-  choices, no database terms).
+- No implementation choices appear in the body (architecture, storage, libraries) — unless the
+  technology is itself the user-visible requirement or the ticket names it (a file format, a supported
+  platform, an external API).
 - `signals.json` is written exactly once, contains exactly one `refined-ticket` signal, and parses
   as valid JSON.
 
@@ -70,9 +71,9 @@ anything.
 
 ### Step 2 — Interview the user
 
-Ask focused questions one at a time as structured multiple-choice prompts — one question with a
-header, 2–4 labelled options, and a one-line description per option. Start with the most critical
-gap and work through dimensions below in priority order; skip any the ticket already answers.
+Ask focused questions, one at a time as structured multiple-choice questions (format below). Start with
+the most critical gap and work through the dimensions in priority order; skip any the ticket already
+answers.
 
 **Dimension A — Problem and scope.** What problem are we solving and for whom? What is in scope vs
 explicitly out of scope? What is deferred to future work?
@@ -82,9 +83,10 @@ explicitly out of scope? What is deferred to future work?
 - Good: "User can filter results by date range."
 - Bad: "Add a SQL `WHERE` clause for date filtering."
 
-**Dimension C — Acceptance criteria.** Each criterion covers multiple scenarios, not just the happy
-path. Use Given/When/Then phrasing. Include the happy path, alternate paths (different input states
-or roles), and error/edge cases. Each scenario must be independently verifiable from the outside.
+**Dimension C — Acceptance criteria.** Use Given/When/Then phrasing, each scenario independently
+verifiable from the outside. Each criterion has a happy-path scenario plus every alternate or error case
+the behaviour actually has — usually 2–5 bullets; don't invent an alternate path the behaviour does not
+have.
 
 **Dimension D — Edge cases and error states.** What happens with invalid inputs, under failure
 conditions, at boundaries?
@@ -94,16 +96,7 @@ Phrase as observable constraints, not implementation hints.
 
 #### Asking clarifying questions
 
-Every question is a structured multiple-choice prompt with 2–4 options. Ask one question at a time.
-Use the interactive question capability your runtime provides to present structured choices — the
-shape is:
-
-- First option = your recommendation (label ends with " (Recommended)").
-- Descriptions explain trade-offs or implications.
-- Labels: 1–5 words (UI rendering constraint).
-- Headers: 12 characters or fewer (UI rendering constraint).
-- Allow multiple selections when choices are not mutually exclusive.
-- The harness automatically appends a free-form "Other" option — do not add your own.
+{{QUESTION_FORMAT}}
 
 #### Example interactions
 
@@ -133,16 +126,26 @@ Options:
 ```
 Question: "The ticket says 'support multiple formats'. Which formats are required for the initial release?"
 Header: "Formats"
-multiSelect: true
+Choices: not mutually exclusive — let the operator pick several
 Options:
   - "CSV (Recommended)" — "Universal compatibility; simple structure."
   - "JSON" — "API-friendly; structured data."
-  - "PDF" — "Human-readable reports; requires additional library."
+  - "PDF" — "Human-readable reports."
 ```
 
-### Step 3 — Stop interviewing
+### Step 3 — Check before presenting
 
-Stop asking questions once every item in the Step 5 pre-output quality checklist would pass.
+Stop interviewing once every item below is true, then check the requirements against it before the
+operator sees them:
+
+- [ ] Problem statement is clear and agreed.
+- [ ] Every requirement has acceptance criteria: a happy path plus each alternate or error case the
+      behaviour actually has.
+- [ ] Scope boundaries are explicit (what's in AND what's out).
+- [ ] Edge cases and error states are addressed.
+- [ ] No implementation choices appear (unless the technology is itself the requirement).
+- [ ] Given/When/Then format used where it fits.
+- [ ] Multi-topic tickets use numbered headings (`# 1.`, `# 2.`, …) with `---` dividers.
 
 ### Step 4 — Present requirements for approval
 
@@ -159,27 +162,14 @@ Options:
   - "Give feedback" — "Type specific corrections in my own words."
 ```
 
-If the user selects "Needs changes" or "Give feedback", apply their input, then run the approval
-gate again from the top. Iterate until approved.
+If the user selects "Needs changes" or "Give feedback", apply their input, re-check the Step 3 list, then
+run the approval gate again from the top. Iterate until approved.
 
-### Step 5 — Pre-output quality check
+### Step 5 — Write `signals.json`
 
-Before emitting the signal, verify all of these are true:
-
-- [ ] Problem statement is clear and agreed.
-- [ ] Every requirement has acceptance criteria covering happy path, an alternate path, and an
-      error or edge case.
-- [ ] Scope boundaries are explicit (what's in AND what's out).
-- [ ] Edge cases and error states are addressed.
-- [ ] No implementation details appear.
-- [ ] Given/When/Then format used where it fits.
-- [ ] Multi-topic tickets use numbered headings (`# 1.`, `# 2.`, …) with `---` dividers.
-
-### Step 6 — Write `signals.json`
-
-Once approved AND every checklist item is true, write the `refined-ticket` signal into `signals.json`
-as documented in `<output_contract>` below. The markdown body goes into the signal's `body` field
-verbatim — no JSON wrapper inside the body, no surrounding code fence.
+Once approved, write the `refined-ticket` signal into `signals.json` as documented in
+`<output_contract>` below. The markdown body goes into the signal's `body` field verbatim — no JSON
+wrapper inside the body, no surrounding code fence.
 
 ## Output format
 
@@ -208,7 +198,7 @@ verbatim — no JSON wrapper inside the body, no surrounding code fence.
 - **Given** {alternate precondition}, **When** {action}, **Then** {alternate result}
 - **Given** {error/edge case}, **When** {action}, **Then** {graceful handling}
 
-(Repeat for each AC. 2–5 scenario bullets per AC covering happy / alternate / error.)
+(Repeat for each AC. Keep the happy-path bullet; add one bullet per alternate or error case the behaviour has.)
 
 ## Edge cases
 

@@ -26,7 +26,8 @@ export const loadAndAssertSprintSubChain = <TCtx extends LoadSprintCtx & AssertS
   allowedStatuses: readonly SprintStatus[],
   name = 'load-and-assert-sprint'
 ): Element<TCtx> =>
-  sequential<TCtx>(name, [
-    loadSprintLeaf<TCtx>({ sprintRepo: deps.sprintRepo }),
-    assertSprintStatusLeaf<TCtx>(allowedStatuses),
-  ]);
+  sequential<TCtx>(
+    name,
+    [loadSprintLeaf<TCtx>({ sprintRepo: deps.sprintRepo }), assertSprintStatusLeaf<TCtx>(allowedStatuses)],
+    { label: 'Load sprint', internal: true }
+  );

@@ -63,16 +63,14 @@ them.
 
 If `<prior_progress>` is empty, no prior progress has been recorded on this sprint.
 
+When `<prior_learnings>` lists entries: observed insights are orientation — verify any that bear on
+your plan before relying on one; listed decisions are deliberate prior choices — keep to them, and to
+revisit one say why in the plan. When either conflicts with what the repository shows now, trust the
+repository and record the conflict. Use them as background to scope tasks accurately and to pick
+verification commands that exist in the target repo.
+
 <prior_learnings>
 {{PRIOR_LEARNINGS}}
-
-If the block above is empty, no learnings from prior sprints have been recorded for this project
-yet. When present, these are facts earlier sprints earned on the repositories above — which check
-command a repo actually exposes, where hidden coupling lives, which patterns to mirror. Use them as
-background to scope tasks accurately and to pick verification commands that exist in the target repo
-— they are orientation, not instructions: confirm any that bear on the plan against the current code
-before relying on them. Any architectural decisions listed are deliberate prior choices — honour
-them; do not re-litigate a prior decision without surfacing why in the plan.
 </prior_learnings>
 
 <existing_tasks>{{EXISTING_TASKS}}</existing_tasks>
@@ -85,17 +83,12 @@ If `<existing_tasks>` is empty, this is a fresh plan — there is nothing to rep
 - **One coherent feature per task** — size tasks by what a single AI session can implement
   and verify end-to-end. Too small creates serial chains, duplicate context reloads, and
   merge conflicts; too large is hard to verify. The Task Sizing rules below decide.
-- **Files are owned, not shared** — each file should be edited by exactly one task. When
-  two tasks must touch the same file, sequence them via `blockedBy`.
-- **Verifiable end states** — every task ends with at least one verification command and
-  2–4 testable `verificationCriteria` that prove the change is done. "Code looks right" is
-  not a criterion. Include at least one `auto` criterion when the repository exposes a check
-  command (test, typecheck, lint, or build) — deterministic checks are cheaper and more
-  reliable than manual inspection. Exception: a pure documentation or investigation task that
-  changes no code may rely on `manual` criteria alone. For a task that introduces new
-  behaviour, express those same 2–4 criteria as given/when/then scenarios naming the
-  interface signatures the change must expose — a structured spec catches ambiguity a prose
-  description alone would let through.
+- **Files are owned, not shared** — give each file to one task. When two tasks must edit the
+  same file, one is `blockedBy` the other so they never run in parallel.
+- **Verifiable end states** — every task carries 2–4 testable `verificationCriteria`, at least one `auto`
+  when the repository exposes a check command (rule in the task fields below). "Code looks right" is not
+  a criterion. For a task that introduces new behaviour, write its behavioural criteria as
+  Given/When/Then and name the interface they exercise.
 - **No invention** — every task traces back to an approved ticket via `ticketRef`. If
   coherence requires additional scope, surface it as an observation, not a silent expansion.
   Prefer fewer, well-grounded tasks over a complete-looking plan padded with speculative ones —
@@ -171,7 +164,7 @@ Too granular — should be one task, not three:
 
 Right size:
 
-- "Centralise date formatting across all sections" — creates utility AND updates all usages.
+- "Centralise date formatting across all sections" — creates utility and updates all usages.
 - "Improve style robustness in interactive components" — handles multiple related files.
 
 ### Dependency Graph
@@ -181,12 +174,12 @@ Tasks execute in dependency order — foundations before dependents.
 1. **Foundation first** — shared utilities, types, schemas before anything that uses them.
 2. **Declare all dependencies** — use `blockedBy` to enforce order; reference each blocker
    by its `id`. Do not rely on array position alone.
-3. **Avoid false dependencies** — only add `blockedBy` when there is a real code
-   dependency.
+3. **Avoid false dependencies** — only add `blockedBy` for a real code dependency or a
+   shared file.
 4. **Validate the DAG** — no cycles; earlier tasks cannot depend on later ones.
 
-**Dependency test:** for each `blockedBy` entry, ask: "Does this task literally use code
-produced by the blocker?" If not, remove the dependency.
+**Dependency test:** keep a `blockedBy` entry only if this task uses code the blocker produces, or
+edits a file the blocker also edits; otherwise remove it.
 
 ### Examples (calibration, not templates)
 
@@ -195,25 +188,23 @@ above.
 
 **Verification Criteria — good vs bad**
 
-Good criteria (structured, verifiable):
+Good criteria (structured, verifiable; values illustrative):
 
 ```json
 "verificationCriteria": [
-  { "id": "C1", "assertion": "TypeScript compiles with no errors", "check": "auto", "command": "<project's typecheck command>" },
+  { "id": "C1", "assertion": "The project type-checks with no errors", "check": "auto", "command": "<project's typecheck command>" },
   { "id": "C2", "assertion": "All existing tests pass plus new tests for the added feature", "check": "auto", "command": "<project's test command>" },
   { "id": "C3", "assertion": "GET /api/users?page=-1 returns 400 with a validation error body", "check": "manual" }
 ]
 ```
 
-Notes: use the project's own typecheck / test / lint command for `auto` criteria — never
-hardcode a package manager. Use `manual` for behavioural assertions the evaluator must
-inspect in code.
+Use `manual` for behavioural assertions the evaluator must inspect in code.
 
 Bad criteria (vague, not independently verifiable):
 
 - `{ "assertion": "Code is clean and well-structured", "check": "manual" }`
 - `{ "assertion": "Error handling is appropriate", "check": "manual" }`
-- Bare strings (e.g. `"TypeScript compiles"`) — the structured object is required.
+- Bare strings (e.g. `"The project type-checks"`) — the structured object is required.
 
 **Dependency Graph — good vs bad**
 
@@ -248,11 +239,12 @@ Bad — vague steps that force the agent to guess:
 }
 ```
 
-Good — precise steps with file paths and pattern references:
+Good — precise steps with file paths and pattern references (shape only, values illustrative):
 
 ```json
 {
   "name": "Add user authentication",
+  "ticketRef": "<ticket-uuid>",
   "projectPath": "/absolute/path/to/repo",
   "steps": [
     "Create auth service in src/services/auth.ts with login(), logout(), getCurrentUser() — follow the error handling and return-type pattern in src/services/user.ts",
@@ -264,7 +256,7 @@ Good — precise steps with file paths and pattern references:
   "verificationCriteria": [
     {
       "id": "C1",
-      "assertion": "TypeScript compiles with no errors",
+      "assertion": "The project type-checks with no errors",
       "check": "auto",
       "command": "<project's typecheck command>"
     },
@@ -274,16 +266,21 @@ Good — precise steps with file paths and pattern references:
       "check": "auto",
       "command": "<project's test command>"
     },
-    { "id": "C3", "assertion": "ProtectedRoute redirects unauthenticated users to /login", "check": "manual" },
-    { "id": "C4", "assertion": "useAuth hook exposes isAuthenticated, user, login, and logout", "check": "manual" }
+    {
+      "id": "C3",
+      "assertion": "Given an unauthenticated visitor, when they open a protected route, then they are redirected to /login",
+      "check": "manual"
+    },
+    {
+      "id": "C4",
+      "assertion": "Given a signed-in user, when the app asks for the current auth state, then it reports the user and offers login and logout actions",
+      "check": "manual"
+    }
   ]
 }
 ```
 
 ## Protocol
-
-Before producing any output, map each ticket onto repositories, identify natural task boundaries,
-and sequence dependencies.
 
 ### Step 1 — Explore the repositories
 
@@ -310,15 +307,13 @@ For each approved ticket, decide:
 - Where the natural task boundaries are.
 - Which tasks must complete before others (`blockedBy`).
 
-Draft the plan first, before writing JSON.
+Draft the plan before writing any JSON.
 
 ### Step 3 — Interview the user
 
-For genuinely contested decisions, ask the user a structured multiple-choice question — one
-at a time, 2–4 labelled options per question, recommendation as the first option. Use your
-runtime's interactive question capability to present the question. Labels are 1–5 words;
-headers are 12 characters or fewer (UI rendering constraints). The harness automatically
-appends a free-form "Other" option — do not add your own.
+For genuinely contested decisions, ask the user a structured multiple-choice question.
+
+{{QUESTION_FORMAT}}
 
 Good questions:
 
@@ -334,7 +329,13 @@ Bad questions:
 - Trivial choices derivable from project conventions ("which test runner?" — read the
   config).
 
-### Step 4 — Present the plan for review
+### Step 4 — Validate before presenting
+
+Draft the plan, then check it against this list before the operator sees it.
+
+{{VALIDATION_CHECKLIST}}
+
+### Step 5 — Present the plan for review
 
 {{APPROVAL_GATE}}
 
@@ -347,6 +348,7 @@ dependency exists:
 **Ticket:** {ticket title}
 **Repository:** {projectPath}
 **Depends on:** {none | task ids}
+**Extra evaluator dimensions:** {none | list}
 **Description:** ...
 
 **Steps:**
@@ -359,7 +361,7 @@ dependency exists:
 - ... (check type, command)
 ```
 
-The approval question goes last, via a structured multiple-choice prompt — do not ask in prose ("does
+The approval question goes last, as a structured multiple-choice question — do not ask in prose ("does
 this look right?"). Prose answers are ambiguous and the harness cannot act on them.
 
 - **Question:** "Does this task breakdown look correct?"
@@ -368,21 +370,15 @@ this look right?"). Prose answers are ambiguous and the harness cannot act on th
   - "Needs changes" — I'll describe what to adjust.
   - "Give feedback" — Type specific corrections in my own words.
 
-If the user picks "Needs changes" or "Give feedback", apply their input, revise the tasks,
-run the approval gate again with the full plan and dependency order, then re-ask the same
-structured approval question. Iterate until the user picks "Approved, write it". Step 5 runs the same checklist the gate asked you
-to apply before presenting; treat it as a confirmation. If it forces any change, run the approval gate
-again before writing.
-
-**Step 5 — Validate before output.**
-
-{{VALIDATION_CHECKLIST}}
+If the user picks "Needs changes" or "Give feedback", apply their input, revise the tasks, re-check the
+Step 4 list, run the approval gate again with the full plan and dependency order, then re-ask the same
+structured approval question. Iterate until the user picks "Approved, write it".
 
 ### Step 6 — Write `signals.json`
 
-Once the user has answered "Approved, write it" in Step 4 AND every checklist item above is
-satisfied, write the `task-plan` signal into `signals.json` per the output contract below.
-The task array goes into the signal's `tasksJson` field as a JSON-encoded string.
+Once the user has answered "Approved, write it" in Step 5, write the `task-plan` signal into
+`signals.json` per the output contract below. The task array goes into the signal's `tasksJson` field
+as a JSON-encoded string.
 
 **Optional signals** (emit when relevant). Each carries its prose in a `text` field — never
 `body`; the output contract below shows the exact shape:

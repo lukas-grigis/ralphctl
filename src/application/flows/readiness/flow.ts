@@ -8,7 +8,7 @@ import {
   uniqueProvidersFromAi,
 } from '@src/domain/entity/settings.ts';
 import { ErrorCode } from '@src/domain/value/error/error-code.ts';
-import type { Element } from '@src/application/chain/element.ts';
+import { type Element, withDisplay } from '@src/application/chain/element.ts';
 import { sequential } from '@src/application/chain/build/sequential.ts';
 import { loadProjectLeaf } from '@src/application/flows/_shared/project/load.ts';
 import { pickRepositoryLeaf } from '@src/application/flows/_shared/project/pick-repository.ts';
@@ -141,7 +141,7 @@ const buildPerToolSubchain = (
   const effort = resolveEffortForRow(row, opts.ai.effort, 'readiness');
   const provideAi = deps.providerFor(provider);
   const skillsAdapter = deps.skillsAdapterFor(provider);
-  return sequential<ReadinessCtx>(`tool-${tool}`, [
+  const subchain = sequential<ReadinessCtx>(`tool-${tool}`, [
     probeReadinessLeaf({ probes: deps.probes, clock: deps.clock }, tool),
     installSkillsLeaf<ReadinessCtx>(
       { skillsAdapter, skillSource: deps.skillSource },
@@ -205,6 +205,7 @@ const buildPerToolSubchain = (
     ),
     installReadinessSkillsLeaf({ skillsAdapter, logger: deps.logger }, tool),
   ]);
+  return withDisplay(subchain, { label: `Set up · ${tool}` });
 };
 
 /**

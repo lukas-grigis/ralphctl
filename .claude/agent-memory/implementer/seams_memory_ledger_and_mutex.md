@@ -1,6 +1,6 @@
 ---
 name: seams_memory_ledger_and_mutex
-description: The learnings-ledger subsystem — raw-line preservation, the dedup asymmetry that is correct, the three shared-file mutexes, and the deterministic RMW-race test pattern
+description: The learnings-ledger subsystem — raw-line preservation, the dedup asymmetry that is correct, the three shared-file mutexes, the git stash/worktree mutexes, and the RMW-race test pattern
 metadata:
   type: project
 ---
@@ -80,6 +80,18 @@ per run in `buildImplementDepsBag` and inherited by branches via the deps spread
 `buildOneBranch`). **Every test bag that builds `ImplementDeps` must supply it** — grep
 `journalMutex: createFoldQueue()` to find them.
 
+## progress.md lines appended mid-attempt must be pinned, or they vanish
+
+A line a leaf appends to `progress.md` before the attempt's own section exists (restore outcome,
+quarantine pointer, rescue pointer) lands in the HEADER BAND on a sprint's first task.
+`regenerateJournal` rebuilds that band from the derived header plus only what
+`extractLifecycleBreadcrumbs` recognises, so any other line is silently erased on the next
+`progress-journal` write. **How to apply:** a new breadcrumb shape needs its phrase in the pin regex
+in `journal-structure.ts` in the same change, and the append should go through
+`ImplementDeps.journalMutex` (a plain append can land inside a sibling branch's read-modify-write and
+be lost). An e2e that reads `progress.md` after a full run is the fence; a leaf test with a capturing
+`appendFile` can't see the erasure.
+
 ## Testing an RMW race deterministically
 
 Inject a `WriteFile` that PARKS its first call on a promise gate and signals when parked. Start branch
@@ -89,3 +101,17 @@ proving the interleaving is real — and PRESENT when both calls go through one 
 Lives in `tests/integration/application/flows/_shared/memory/ledger-writer.test.ts`.
 
 Related: [[seams_prompt_feedforward]], [[seams_parallel_runner_architecture]].
+
+## Git-level mutexes live in `integration/io/`, not on `ImplementDeps`
+
+Two module-level FIFO queues guard git state that parallel branches share: `withStashMutex`
+(`git-stash.ts`, process-global — `refs/stash` list-then-pop) and `withWorktreeMutex`
+(`git-worktree-mutex.ts`, keyed by the main checkout root). git's worktree bookkeeping is not
+concurrency-safe: any command that walks `.git/worktrees/` — `worktree add/list/prune/remove`, and
+`branch -D/-m` (they check every worktree's HEAD) — dies with `failed to read .git/worktrees/<x>/commondir`
+or `.../locked` while a sibling add/remove is mid-flight. Symptom in e2e: a wave task stays `todo`
+(setup failed → the reducer leaves it untouched), not an error. **How to apply:** a new git primitive
+that walks worktrees must go through `withWorktreeMutex` with the same main-root key every caller
+uses, or the key splits the queue. **Reproducing load flakes in the realgit e2e:** CPU busy loops and
+3 full `pnpm test` runs did NOT reproduce it; 8–10 concurrent `npx vitest run <file>` instances of the
+WHOLE file did (~1 in 25 file runs), because the window needs concurrent git spawns, not CPU.

@@ -111,6 +111,19 @@ describe('buildPlanReviewMessage — full task fields', () => {
   });
 });
 
+describe('extraDimensions in the review', () => {
+  it('renders the line only when a task has them, carried through toPlanReviewTasks', () => {
+    const base = { steps: [], verificationCriteria: [], attempts: [], order: 1, dependsOn: [], repositoryId: 'r1' };
+    const tasks = [
+      { ...base, id: 't1', name: 'first', extraDimensions: ['accessibility', 'performance'] },
+      { ...base, id: 't2', name: 'second' },
+    ] as unknown as TodoTask[];
+    const message = buildPlanReviewMessage(toPlanReviewTasks(tasks, []));
+    expect(message).toContain('Extra evaluator dimensions: accessibility, performance');
+    expect(message.match(/Extra evaluator dimensions/g)).toHaveLength(1);
+  });
+});
+
 describe('toPlanReviewTasks', () => {
   it('resolves dependency ids to task names and repository ids to repo names', () => {
     const base = { steps: [], verificationCriteria: [], attempts: [], order: 1 };

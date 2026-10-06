@@ -252,13 +252,13 @@ The explicit close is the other door: `ralphctl sprint close <sprint-id>`, or th
 leaves whose `name` contains an absolute repo path).
 
 1. Start the **Implement** flow on the sprint
-2. Watch the flow-steps rail as preflight tasks fire
-3. **Expected:** the rail shows short labels (e.g. `preflight · my-repo`) — NOT the raw element name
-   that embeds the absolute path (`preflight-task-1-/Users/...`). Path-jammed names must not appear in the
-   rendered rail.
+2. Watch the Steps tree and the header step strip as preflight tasks fire
+3. **Expected:** the step display shows short labels (e.g. `Check working tree · my-repo`) — NOT the raw
+   element name that embeds the absolute path (`preflight-task-1-/Users/...`). Path-jammed names must not
+   appear in the Steps tree or the header strip.
 4. Resize the terminal narrower (below `xl`, i.e. < 180 cols) so the three-column layout collapses
-5. **Expected:** rail width shrinks to the fixed 28-col `RAIL_WIDTH` (or the 6-col icons-only compact rail at
-   the `md` 100–139 breakpoint); labels that exceed the budget are mid-truncated with
+5. **Expected:** the sidebar rail shrinks to the fixed 28-col `RAIL_WIDTH`; at the `md` 100–139 breakpoint there
+   is no rail column and the header strip alone names the steps. Labels that exceed the budget are clipped with
    `…` rather than wrapping mid-word or overflowing into the adjacent column.
 6. Resize back to ≥ 180 cols
 7. **Expected:** rail grows fluidly (from 36 up to ~56 cols at wide widths) and the labels breathe without any
@@ -426,7 +426,7 @@ verify script exits 0" against a script that always exits 1), so the gen-eval lo
 ralphctl settings set harness.plateauThreshold 3
 ```
 
-1. Run Implement on that sprint and watch the Execute view's step rail
+1. Run Implement on that sprint and watch the Execute view's Steps tree
 2. **Expected:** the loop does not exit on plateau before turn 3 — the predicate windows from
    `plateauThreshold`, so an earlier exit is the regression this scenario exists to catch
 3. **Expected:** when the plateau does fire, the banner names the escalation (model rung, or the effort rung

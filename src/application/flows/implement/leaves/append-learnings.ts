@@ -234,4 +234,6 @@ export const appendLearningsLeaf = (
     // and clears `currentAttemptLearnings` / `currentAttemptDecisions`. Returning ctx unchanged
     // preserves that contract.
     output: (ctx) => ctx,
+    label: 'Save learnings',
+    internal: true,
   });

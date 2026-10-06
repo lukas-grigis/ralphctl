@@ -72,4 +72,5 @@ export const checkPlanLeaf = <C extends CheckPlanCtx>(deps: CheckPlanLeafDeps): 
       tasks: assertCtxField(ctx, 'proposedTasks', LEAF_NAME, PRE_STATE),
     }),
     output: (ctx, out) => ({ ...ctx, planCheck: out }),
+    label: 'Check plan',
   });

@@ -41,4 +41,6 @@ export const assertSprintStatusLeaf = <TCtx extends AssertSprintStatusCtx>(
     },
     input: (ctx) => assertCtxField(ctx, 'sprint', name, `pre-${name}`),
     output: (ctx) => ctx,
+    label: 'Check sprint status',
+    internal: true,
   });

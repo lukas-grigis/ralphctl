@@ -81,8 +81,8 @@ const spawnJudge = async (
   const outputContractSection = renderContractSectionFor(selectCandidateOutputContract, judgeDir.value);
   const prompt = await buildSelectCandidatePrompt(deps.templateLoader, {
     task,
-    candidateASummary: a.summary,
-    candidateBSummary: b.summary,
+    candidate1Summary: a.summary,
+    candidate2Summary: b.summary,
     outputContractSection,
   });
   if (!prompt.ok) return Result.error(prompt.error);

@@ -1,12 +1,24 @@
 import { Result } from '@src/domain/result.ts';
 
-import { checkAborted, type Element, type ElementResult } from '@src/application/chain/element.ts';
+import {
+  checkAborted,
+  displayMeta,
+  type CompositeOpts,
+  type Element,
+  type ElementResult,
+} from '@src/application/chain/element.ts';
 import { abortedEntry, skippedEntry, type TraceEntry } from '@src/application/chain/trace.ts';
 
-export const sequential = <TCtx>(name: string, children: ReadonlyArray<Element<TCtx>>): Element<TCtx> => ({
+export const sequential = <TCtx>(
+  name: string,
+  children: ReadonlyArray<Element<TCtx>>,
+  opts?: CompositeOpts
+): Element<TCtx> => ({
   name,
+  kind: 'sequential',
+  ...displayMeta({ label: opts?.label, internal: opts?.internal, workItem: opts?.workItem }),
   children,
-  async execute(ctx, signal, onTrace): Promise<ElementResult<TCtx>> {
+  async execute(ctx, signal, onTrace, onStart): Promise<ElementResult<TCtx>> {
     const aborted = checkAborted<TCtx>(name, signal, onTrace);
     if (aborted) return aborted;
 
@@ -31,7 +43,7 @@ export const sequential = <TCtx>(name: string, children: ReadonlyArray<Element<T
         return Result.error({ error: entry.error, trace });
       }
 
-      const result = await child.execute(currentCtx, signal, onTrace);
+      const result = await child.execute(currentCtx, signal, onTrace, onStart);
       if (!result.ok) {
         trace.push(...result.error.trace);
         skipRest(i + 1);

@@ -1,6 +1,8 @@
 import type { Entity } from '@src/domain/entity/_base/entity.ts';
 import type { Attempt, VerifiedAttempt } from '@src/domain/entity/attempt.ts';
 import type { TaskBlockerClass } from '@src/domain/signal.ts';
+import type { DiffStat } from '@src/domain/value/diff-stat.ts';
+import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import type { RepositoryId } from '@src/domain/value/id/repository-id.ts';
 import type { TaskId } from '@src/domain/value/id/task-id.ts';
 import type { TicketId } from '@src/domain/value/id/ticket-id.ts';
@@ -60,6 +62,22 @@ export interface RetiredRun {
   readonly escalatedToModel?: string;
   readonly escalatedToEffort?: string;
   readonly escalatedToEvaluatorEffort?: string;
+}
+
+/**
+ * Rejected diff a block quarantined to git stash, and what the next attempt does with it. Keyed by
+ * the deterministic stash message, never a positional `stash@{N}` ref — see `quarantineStashMessage`.
+ * @public
+ */
+export interface QuarantinedDiff {
+  readonly stashMessage: string;
+  /** Size of the newest stash entry under {@link stashMessage}, measured at quarantine or unblock. */
+  readonly stat?: DiffStat;
+  /** How many stash entries share the message — more than one after repeated blocks. */
+  readonly entries?: number;
+  /** Operator decision at unblock; absent = recorded before the choice existed, which auto-restores. */
+  readonly nextAttempt?: 'continue' | 'fresh';
+  readonly decidedAt?: IsoTimestamp;
 }
 
 interface TaskBase extends Entity<TaskId> {
@@ -160,6 +178,11 @@ interface TaskBase extends Entity<TaskId> {
    * array so a cleared history keeps counting towards the outcome report.
    */
   readonly retiredAttempts?: readonly RetiredRun[];
+  /**
+   * Structured pointer to this task's quarantined rejected diff. Survives the unblock clean restart
+   * (unlike `blockedReason`) and is cleared once a restore consumes the stash entry.
+   */
+  readonly quarantinedDiff?: QuarantinedDiff;
 }
 
 export interface TodoTask extends TaskBase {

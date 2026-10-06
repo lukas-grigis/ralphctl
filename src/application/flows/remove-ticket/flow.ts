@@ -38,4 +38,5 @@ export const createTicketRemoveFlow = (deps: TicketRemoveDeps): Element<TicketRe
     },
     input: (c) => c.input,
     output: (c, o) => ({ ...c, output: o }),
+    label: 'Remove ticket',
   });

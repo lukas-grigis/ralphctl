@@ -91,11 +91,12 @@ The `Element` interface plus four factory functions under `src/application/chain
 
 - `element.ts` — the `Element<TCtx>` interface every primitive implements. Carries `name`, optional `label`
   (human-friendly display string for UI surfaces — see below), optional `children` (for composite walk), and
-  `execute(ctx, signal?, onTrace?): Promise<ElementResult<TCtx>>`.
+  `execute(ctx, signal?, onTrace?, onStart?): Promise<ElementResult<TCtx>>`. Also carries display-only
+  metadata (`kind`, `display`, `maxIterations`) that the step display reads and execution never does.
 - `build/leaf.ts` — `leaf(name, { useCase, input, output }, opts?)`. The only seam to a business use case.
   `input` projects ctx → use-case input; `output` merges use-case output → new ctx. Optional `opts.label`
   sets a human-friendly display label on the element and every `TraceEntry` it emits — `name` stays the
-  canonical identifier; the TUI rail renders `label` when present and falls back to `name`.
+  canonical identifier; the TUI step display renders `label` when present and falls back to `name`.
 - `build/sequential.ts` — `sequential(name, [elements])`. Threads ctx; aborts remaining on first failure.
 - `build/loop.ts` — `loop(name, body, opts)`. Generator-evaluator primitive. `shouldContinue` (pre-iteration)
   and `shouldStop` (post-iteration) predicates exit naturally; `maxIterations` (default 1000) is a hard cap.
@@ -128,18 +129,22 @@ already-`done` sibling the same wave already completed. A branch whose fold conf
 re-projects the task to `blocked` and KEEPS its worktree branch ref instead of deleting it, as does a branch
 that never completed its fold at all (an abort or a throw after the task settled `done`) — the commits
 already landed there and nowhere else. The keep lasts until that task's next launch, when `setupWorktree`
-force-deletes the ref. A worktree branch that settles `blocked` for any reason also
+settles the ref (deleted when its commits already landed, moved under `ralphctl-rescue/` otherwise;
+worktree refs live on `ralphctl-wt/<sprintId>/<taskId>`, apart from the sprint branch). A worktree branch that settles `blocked` for any reason also
 quarantines the rejected working-tree diff, via the same deterministic `git stash` entry (keyed on
 `sprintId` + `taskId`) the serial path quarantines a blocked task's diff with between tasks sharing one tree
 (`flows/implement/leaves/quarantine-blocked-diff.ts` — `wave-branch.ts`'s teardown calls its
 `runQuarantineBlockedDiff` directly, ahead of `git worktree remove --force`, so a worktree's stash survives
-the worktree's own removal). The PARALLEL epilogue (`buildParallelImplementEpilogue`) runs one extra leaf,
+the worktree's own removal). The stash family (`gitStashPush` / `gitStashList` / `gitStashPop` / `gitStashInspect`)
+lives in `integration/io/git-stash.ts`, behind one in-process mutex; `git-ref-rescue.ts` holds the rescue-ref
+helpers. The PARALLEL epilogue (`buildParallelImplementEpilogue`) runs one extra leaf,
 `adopt-persisted-blocks`, before its `saveTasksLeaf`: it re-reads `tasks.json` and substitutes the persisted
 row for any in-memory `todo` / `in_progress` task whose disk row is `blocked` — recovering a block (and a
 quarantined diff's stash pointer) that a non-`completed` branch had already saved to disk right before
 erroring or aborting, which the disjoint fan-in above now drops from ctx. It never adopts a persisted `done`
 (an unfolded commit must still re-run), and it exempts `AbortError`. `restore-blocked-diff.ts` pops that
-same-keyed stash back in, after `pre-task-verify`, only when a generator turn is guaranteed to follow —
+same-keyed stash back in, after `pre-task-verify`, only when a generator turn is guaranteed to follow and the
+operator's recorded prior-work decision (`Task.quarantinedDiff.nextAttempt`) isn't `fresh` —
 matched by the message key, never by stash index, so a sibling branch's concurrent push can't shift the
 wrong entry into the wrong worktree. A parallel branch interrupted after that pop but before it commits or
 re-blocks the task re-stashes the restored diff under the same message before its worktree is removed
@@ -635,7 +640,9 @@ and the non-obvious mutators.
   `blockedBy` and `parseTaskList` resolves them onto `dependsOn`). Carries an `attempts[]` history — each
   `Attempt` has `evaluation`, `verification`, `attribution` (`clean` / `regressed` / `baseline-broken` /
   `fixed-baseline` from pre/post verify-script comparison), optional `abortCause` (`AbortCause` discriminated
-  union), and optional `recovering` (a `RecoveryContext` — resume-from-aborted metadata). `BlockedTask` adds a structural
+  union), optional `recovering` (a `RecoveryContext` — resume-from-aborted metadata), and optional `priorWork`
+  (`PriorWorkOutcome` — what `restore-blocked-diff` did with the quarantined diff: `restored` / `kept-by-choice` /
+  `not-restored` with a reason). `BlockedTask` adds a structural
   `blockKind: 'upstream' | 'own'` discriminant — `'upstream'` when the `dependency-gate` parked the task
   because a prerequisite was not `done`; `'own'` for evaluator / verify / budget failures. New code reads
   `isUpstreamBlocked(task)` (checks `blockKind`) — never the `blockedReason` string prefix. Legacy
@@ -661,7 +668,12 @@ and the non-obvious mutators.
   `criteriaVerdicts`, and escalation stamps it clears off the live fields into one archived entry here
   instead of discarding them, so `foldOutcomeStats` (`business/runs/outcome-stats.ts`) keeps counting a
   retired run's attempts after the reset. A cascade-cleared dependent with nothing of its own archives
-  nothing.
+  nothing. Optional `quarantinedDiff` (`QuarantinedDiff`: `stashMessage`, measured `stat`, `entries`, and the
+  operator's `nextAttempt` of `continue` / `fresh` with `decidedAt`) is the structured pointer to the task's
+  rejected diff in git stash — written by `recordQuarantineUseCase`, decided by `unblockTaskUseCase`, read by
+  `restore-blocked-diff`, and cleared once a restore consumes the entry. It survives the unblock clean restart;
+  `blockedReason` no longer carries the stash line. Pure rules over it live in
+  `domain/entity/task-prior-work.ts`.
 - **`TaskEpisode`** (`src/domain/entity/task-episode.ts`) — an in-memory value type (no
   on-disk persistence in this release) capturing the outcome of one settled task: `taskId`, `sprintId`,
   `goal`, `outcome` (`success | partial | blocked | abandoned`), `keyLearnings`, `timestamp`. Derived
@@ -797,8 +809,8 @@ contract) and are not restated here:
   (`runtime/system-status-context.tsx`) on mount and on refresh; renders per-check rows + an aggregate card.
 - **Execute view is responsive** — flow-steps rail / tasks-stream / context columns collapse from three to one as
   the terminal narrows. Every width decision goes through the named breakpoints and `resolveRailWidth` in
-  `theme/tokens.ts` — no hardcoded column literals. `StepTrace` renders `Element.label` when present,
-  mid-truncated to the rail budget.
+  `theme/tokens.ts` — no hardcoded column literals. The step tree renders `Element.label` when present,
+  truncated to its column budget.
 - **Overlays snapshot on open** — `ProgressOverlay` reads `progress.md` and `EvaluationOverlay` reads
   `<sprintDir>/implement/<task-id>/<Attempt.evaluation.file>` from disk when opened; there is no live tail or
   file watcher. A stale / absent path or a pruned workspace degrades to the one-line `EvaluationLine`, never an

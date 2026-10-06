@@ -15,7 +15,8 @@ import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import { ProbeError } from '@src/domain/value/error/probe-error.ts';
 import { ValidationError } from '@src/domain/value/error/validation-error.ts';
 import type { Element, ElementResult } from '@src/application/chain/element.ts';
-import type { TraceEntry } from '@src/application/chain/trace.ts';
+import type { StepStart, TraceEntry } from '@src/application/chain/trace.ts';
+import { leaf } from '@src/application/chain/build/leaf.ts';
 import { tolerateErrors } from '@src/application/flows/_shared/tolerate-errors.ts';
 import type { AppEvent, BannerShowEvent } from '@src/business/observability/events.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
@@ -163,5 +164,19 @@ describe('tolerateErrors', () => {
     );
 
     await expect(wrapped.execute(CTX)).rejects.toBe(thrown);
+  });
+
+  it('forwards onStart to the inner chain', async () => {
+    const inner = leaf<Ctx, void, void>(INNER_NAME, {
+      useCase: { execute: async () => Result.ok(undefined) },
+      input: () => undefined,
+      output: (c) => c,
+    });
+    const wrapped = tolerateErrors<Ctx>({ eventBus: createInMemoryEventBus(), tolerate: () => true }, inner);
+    const starts: StepStart[] = [];
+
+    await wrapped.execute(CTX, undefined, undefined, (s) => starts.push(s));
+
+    expect(starts).toEqual([{ elementName: INNER_NAME }]);
   });
 });

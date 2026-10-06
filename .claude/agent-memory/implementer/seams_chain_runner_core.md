@@ -90,5 +90,35 @@ view's `useBucketedTasks` memo (keyed on descriptor ref) and re-running `bucketT
 the commit amplifier. `'step'` now calls `touchTrace(id)` (notify only, no descriptor rebuild); the live
 rail stays current via chainEvents + the shared-mutable trace.
 
+## `onStart` / `step-started` is display-only and fails silent
+
+The 4th `execute` param carries leaf starts; `loop` stamps `iterations` (outer-first) on both the
+forwarded and returned entries and on starts. A hand-written element that drops `onStart` breaks
+nothing at runtime — the step display just loses its in-flight row — so no type error or unit test
+notices. **How to apply:** any new wrapper or nested runner must forward `onStart` (re-emit a nested
+runner's `step-started`); the serial-path fence is the liveness case in the implement e2e suite.
+`worktree-teardown.ts` entries still have no start (it was outside the change's file set). The bridge's
+`chain-step-started` also lands in `chain.log` via the file sink's catch-all line writer — intended,
+it shows what was running when a run died.
+
+## Display grouping vs execution nesting
+
+Nesting a `sequential` inside another RENAMES the skip/abort entries a failure synthesises: the
+outer `skipRest` names its direct children, so a nested `implement-epilogue` emits one
+`implement-epilogue:skipped` instead of `save-tasks` + the review guard. That is why serial implement
+executes the prologue/epilogue leaves spliced flat and only regroups them via `children`
+(`groupedForDisplay` in `flows/implement/flow.ts`); the flow-shape fence proves both the trace
+equality and that naive nesting breaks it. **Do not "simplify" it into a real nested sequential.**
+Display-only children are a precedent (`implement-waves`, the worktree branch body): never executed.
+
+Leaf display facts (`label`, `internal`) live IN the leaf config, not a 3rd arg — a 3rd arg after the
+multi-line config makes prettier explode every call site (thousands of reindented lines across ~90
+leaf files, a merge hazard for parallel tracks). Built composites get late labels via `withDisplay`.
+
+`runWaves`' `onBranchRunner` now runs BEFORE `runner.start()`: start emits `started` and any leading
+leaf start synchronously, so a hook run after it missed them (branch `chain-started` never reached
+the bus). Branch steps/starts are also forwarded into the host `onTrace`/`onStart`, so each step
+reaches `chain.log` twice (branch chainId + host chainId) — same as prologue/epilogue sub-runners.
+
 Related: [[seams_parallel_runner_architecture]], [[seams_tui_architecture_patterns]],
 [[seams_memory_ledger_and_mutex]].

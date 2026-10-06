@@ -3,7 +3,7 @@ import { Result } from '@src/domain/result.ts';
 import { AbortError } from '@src/domain/value/error/abort-error.ts';
 import { ValidationError } from '@src/domain/value/error/validation-error.ts';
 import type { Element } from '@src/application/chain/element.ts';
-import type { TraceEntry } from '@src/application/chain/trace.ts';
+import type { StepStart, TraceEntry } from '@src/application/chain/trace.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
 import { guard } from '@src/application/chain/build/guard.ts';
 
@@ -123,5 +123,34 @@ describe('guard', () => {
       expect(result.error.trace[0]?.elementName).toBe('only-when');
       expect(result.error.trace[0]?.status).toBe('aborted');
     }
+  });
+
+  it('forwards onStart into the body when the predicate passes, and emits none on a skip', async () => {
+    const passed: StepStart[] = [];
+    await guard<Ctx>('g', () => true, tag('body')).execute({ trail: [] }, undefined, undefined, (s) => passed.push(s));
+    expect(passed.map((s) => s.elementName)).toEqual(['body']);
+
+    const skipped: StepStart[] = [];
+    await guard<Ctx>('g', () => false, tag('body')).execute({ trail: [] }, undefined, undefined, (s) =>
+      skipped.push(s)
+    );
+    expect(skipped).toEqual([]);
+  });
+
+  it('carries composite opts on the element and keeps the keys absent when not passed', () => {
+    const plain = guard<Ctx>('g', () => true, tag('body'));
+    expect(plain.kind).toBe('guard');
+    expect('label' in plain).toBe(false);
+    expect('display' in plain).toBe(false);
+
+    const annotated = guard<Ctx>('g', () => true, tag('body'), { label: 'Evaluate', internal: true });
+    expect(annotated.label).toBe('Evaluate');
+    expect(annotated.display).toEqual({ internal: true });
+  });
+
+  it('keeps the skipped entry naming the body when opts are passed', async () => {
+    const result = await guard<Ctx>('g', () => false, tag('body'), { label: 'Guarded' }).execute({ trail: [] });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.value.trace).toEqual([{ elementName: 'body', status: 'skipped', durationMs: 0 }]);
   });
 });

@@ -2,13 +2,13 @@
 
 ## Pre-Output Validation
 
-Before writing the JSON output, verify every item:
+Before presenting the plan, verify every item — and again if anything changes before you write the output:
 
 1. **Requirements understood** — every requirement in scope is reflected in at least one task; nothing in scope is dropped.
-2. **Exclusive file ownership** — each file is owned by exactly one task. When two tasks must edit the same file,
-   make the relationship explicit via `blockedBy` so they run in sequence, not in parallel.
+2. **Shared files are sequenced** — when two tasks edit the same file, one is `blockedBy` the other so they
+   never run in parallel; otherwise give each file to one task.
 3. **Foundations before dependents** — order tasks so prerequisites come first; `blockedBy` reflects genuine code
-   coupling, not arbitrary preference.
+   coupling or a shared file, not arbitrary preference.
 4. **Valid `blockedBy` references** — every id in `blockedBy` matches an earlier task's `id` placeholder; no
    self-edges; no cycles.
 5. **Precise steps** — each task has 2–8 specific, actionable steps. Each step references concrete files or
@@ -20,9 +20,6 @@ Before writing the JSON output, verify every item:
    In chat you present it as the readable plan; only the signal file is read by the harness.
 9. **Unique placeholder ids** — each task's `id` is a unique string within this array (used only for
    `blockedBy` resolution; the harness assigns persistent ids on save).
-10. **Deterministic checks preferred** — each task includes at least one `auto` criterion when the
-    repository exposes a check command (test, typecheck, lint, or build). A task that relies solely on
-    `manual` criteria is acceptable only when it is pure documentation or investigation work with no
-    code change to check.
+10. **Deterministic checks** — the `auto`-criterion rule from the task fields holds for every task.
 
 </validation-checklist>

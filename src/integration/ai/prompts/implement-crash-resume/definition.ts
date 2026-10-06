@@ -32,6 +32,7 @@ export const implementCrashResumePromptDef: PromptDefinition<ImplementCrashResum
       ),
     },
   },
+  partials: { GIT_BOUNDARY: 'git-boundary', TASK_BLOCKED: 'task-blocked' },
   // Same accepted union as the full implement prompt — a resumed turn is still a generator turn.
   expectedSignals: [
     'change',

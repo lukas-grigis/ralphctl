@@ -6,12 +6,14 @@ import type { BlockedTask } from '@src/domain/entity/task.ts';
 import type { TaskId } from '@src/domain/value/id/task-id.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
+import type { DiffStat } from '@src/domain/value/diff-stat.ts';
 import type { UpdateTask } from '@src/domain/repository/task/update-task.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
-import { gitStashPush } from '@src/integration/io/git-operations.ts';
+import { gitStashInspect, gitStashPush } from '@src/integration/io/git-stash.ts';
+import { quarantineStashMessage } from '@src/domain/value/quarantine-stash-message.ts';
 import type { GitRunner } from '@src/integration/io/git-runner.ts';
 import { renderQuarantineBreadcrumb } from '@src/business/sprint/journal-structure.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
@@ -78,10 +80,9 @@ export interface QuarantineBlockedDiffLeafOpts {
   /** The shared sprint worktree the just-blocked task ran (and dirtied) against. */
   readonly cwd: AbsolutePath;
   /**
-   * Sprint journal the recovery pointer is ALSO appended to. `blockedReason` alone is not
-   * durable: an operator unblock is a clean restart that strips the reason — erasing the only
-   * persisted pointer right at the moment the operator acts on the block. The journal line
-   * survives the unblock, so the stash stays discoverable from a harness artifact.
+   * Sprint journal the recovery pointer is ALSO appended to. The `quarantinedDiff` fact is cleared
+   * once a restore consumes the entry, and an operator can edit `tasks.json`; the journal line is an
+   * append-only harness artifact that keeps the stash discoverable either way.
    */
   readonly progressFile: AbsolutePath;
 }
@@ -92,18 +93,31 @@ export interface QuarantineInput {
 }
 
 /**
- * Deterministic stash message for one quarantined block — the recovery handle the operator greps
- * for in `git stash list`. Stable across runs (no timestamp / positional ref), so a relaunch that
- * re-quarantines produces an identical message and `record-quarantine` stays idempotent.
- *
- * @public
+ * Size and entry count of what was just stashed under `message`, for the card and the unblock
+ * question. Best-effort: a failed inspect records the pointer without them.
  */
-export const quarantineStashMessage = (sprintId: SprintId, taskId: TaskId): string =>
-  `ralphctl/${String(sprintId)}/${String(taskId)}/blocked-diff`;
+const measureQuarantine = async (
+  runner: GitRunner,
+  cwd: AbsolutePath,
+  message: string,
+  log: Logger
+): Promise<{ readonly stat?: DiffStat; readonly entries?: number }> => {
+  const inspected = await gitStashInspect(runner, cwd, message);
+  if (!inspected.ok) {
+    log.warn('could not measure the quarantined diff — recording the pointer without a size', {
+      stashMessage: message,
+      error: inspected.error.message,
+    });
+    return {};
+  }
+  const { entries, newest } = inspected.value;
+  if (newest === undefined) return {};
+  return { stat: newest.stat, entries };
+};
 
 /**
  * Core quarantine operation — stash the rejected diff (`git stash push -u` under the deterministic
- * message), record the durable `blockedReason` pointer, and append the journal breadcrumb. Shared
+ * message), record the durable `quarantinedDiff` pointer, and append the journal breadcrumb. Shared
  * by the in-chain leaf below (the serial path, via `useCase.execute`) AND by the parallel path's
  * `worktree-teardown.ts`, which calls this directly — outside the chain — from the worktree-teardown
  * sequence, BEFORE `git worktree remove --force` destroys the worktree's working tree. `opts.cwd`
@@ -143,10 +157,12 @@ export const runQuarantineBlockedDiff = async (
   // inherits a clean tree exactly as the prologue's one-shot preflight assumes.
   if (!stashed.value.stashed) return Result.ok(undefined);
 
+  const measured = await measureQuarantine(deps.gitRunner, opts.cwd, message, log);
   const recorded = await recordQuarantineUseCase({
     task: input.task,
     sprintId: input.sprintId,
     stashMessage: message,
+    ...measured,
     taskRepo: deps.taskRepo,
     logger: deps.logger,
   });
@@ -165,8 +181,7 @@ export const runQuarantineBlockedDiff = async (
   // used to be destroyed silently on worktree teardown with nothing logged at all). An operator
   // watching logs should see every capture on either path, not just the persisted pointer.
   log.warn('blocked task rejected diff quarantined to git stash', { taskId: String(taskId), stashMessage: message });
-  // Durable pointer: blockedReason is stripped by an operator unblock (clean restart), so
-  // the journal carries the recovery handle too. Shared renderer keeps the breadcrumb in the
+  // Append-only pointer next to the task fact. Shared renderer keeps the breadcrumb in the
   // exact shape the inline cap recognises and pins. Best-effort like everything here.
   const journalLine = renderQuarantineBreadcrumb(recorded.value.name, message);
   const appended = await deps.appendFile(opts.progressFile, journalLine);
@@ -205,7 +220,7 @@ export const quarantineBlockedDiffLeaf = (
     },
     output: (ctx, out) => {
       // No write (clean tree, stash failure, or record failure) → ctx untouched. On a recorded
-      // quarantine, fold the updated blockedReason back into ctx.tasks so downstream readers
+      // quarantine, fold the updated task back into ctx.tasks so downstream readers
       // (save-tasks epilogue, TUI) see the recovery pointer.
       if (out === undefined) return ctx;
       return {
@@ -213,6 +228,8 @@ export const quarantineBlockedDiffLeaf = (
         tasks: (ctx.tasks ?? []).map((t) => (t.id === out.id ? out : t)),
       };
     },
+    label: 'Stash blocked diff',
+    internal: true,
   });
 
 /**

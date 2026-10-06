@@ -151,6 +151,7 @@ export const createReviewFlow = (deps: ReviewDeps, opts: CreateReviewFlowOpts): 
         return false;
       },
       shouldStop: (ctx) => ctx.lastReviewExit !== undefined,
+      label: 'Review round',
     }),
     // Only settle the sprint to `done` on the human terminal decision (an empty / repeat round →
     // `terminated`). A round-cap exit (undefined) or an esc cancel (`aborted`) skips every settle

@@ -466,4 +466,22 @@ describe('runWaves — onBranchRunner hook', () => {
       { id: 'b', runnerId: 'b' },
     ]);
   });
+
+  it('runs the hook before the branch starts, so a subscriber sees every event from `started` on', async () => {
+    const events: string[] = [];
+    // okElement traces synchronously — before its first await — like a leaf announcing its start.
+    const branches: Array<WaveBranch<Ctx>> = [{ id: 'a', element: okElement('a') }];
+
+    await runWaves(
+      [branches],
+      BASE,
+      cfg({
+        onBranchRunner: (runner) => {
+          runner.subscribe((e) => events.push(e.type === 'step' ? `step:${e.entry.elementName}` : e.type));
+        },
+      })
+    );
+
+    expect(events).toEqual(['started', 'step:a', 'completed']);
+  });
 });

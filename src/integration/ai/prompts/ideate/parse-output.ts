@@ -1,4 +1,5 @@
 import { Result } from '@src/domain/result.ts';
+import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import type { TodoTask } from '@src/domain/entity/task.ts';
 import type { Ticket } from '@src/domain/entity/ticket.ts';
 import type { TicketId } from '@src/domain/value/id/ticket-id.ts';
@@ -7,7 +8,7 @@ import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import { ParseError } from '@src/domain/value/error/parse-error.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
 import { formatZodIssue, parseTaskList } from '@src/integration/ai/prompts/_engine/parse-task-list.ts';
-import { IdeateOutputSchema } from '@src/integration/ai/prompts/_engine/task-import-schema.ts';
+import { IdeateOutputSchema, PlanBlockedSchema } from '@src/integration/ai/prompts/_engine/task-import-schema.ts';
 
 /**
  * Parse the JSON the AI writes after an ideate session. Pure — no I/O.
@@ -23,6 +24,8 @@ import { IdeateOutputSchema } from '@src/integration/ai/prompts/_engine/task-imp
  *       "requirements": "## Problem ...",
  *       "tasks": [ TaskImportSpec, ... ]
  *     }
+ *
+ * or `{ "blocked": "<reason>" }`, surfaced as an `InvalidStateError`.
  */
 
 export interface ParseIdeateOutputInput {
@@ -52,13 +55,26 @@ export interface ParseIdeateOutputResult {
 export const parseIdeateOutput = (
   raw: string,
   ctx: ParseIdeateOutputInput
-): Result<ParseIdeateOutputResult, ParseError> => {
+): Result<ParseIdeateOutputResult, ParseError | InvalidStateError> => {
   let json: unknown;
   try {
     json = JSON.parse(raw);
   } catch (cause) {
     return Result.error(
       new ParseError({ subCode: 'invalid-json', message: 'ideate: AI output is not valid JSON', cause })
+    );
+  }
+
+  // `{ "blocked": "<reason>" }` is the AI's escape hatch when it cannot produce a sound plan.
+  const blocked = PlanBlockedSchema.safeParse(json);
+  if (blocked.success) {
+    return Result.error(
+      new InvalidStateError({
+        entity: 'ideate',
+        currentState: 'blocked',
+        attemptedAction: 'ideate',
+        message: `ideate: AI emitted blocked: ${blocked.data.blocked}`,
+      })
     );
   }
 

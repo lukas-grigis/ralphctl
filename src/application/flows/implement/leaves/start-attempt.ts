@@ -124,5 +124,7 @@ export const startAttemptLeaf = (
       currentTask: inProgress,
       tasks: (ctx.tasks ?? []).map((t) => (t.id === inProgress.id ? inProgress : t)),
     }),
+    label: 'Start attempt',
+    internal: true,
   });
 };

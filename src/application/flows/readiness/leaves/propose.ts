@@ -8,6 +8,7 @@ import { isPresent } from '@src/integration/ai/readiness/_engine/predicates.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
 import type { WriteFile } from '@src/business/io/write-file.ts';
 import type { Repository } from '@src/domain/entity/repository.ts';
+import type { AiSignal } from '@src/domain/signal.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
@@ -84,6 +85,29 @@ interface ProposeReadinessOutput {
 }
 
 /**
+ * No `agents-md-proposal`: publish what the AI did emit so the operator sees it, then fail. A `note`
+ * means the AI deliberately stopped (cannot characterise the repo), so its text becomes the message.
+ */
+const missingProposal = (
+  deps: ProposeReadinessLeafDeps,
+  signals: readonly AiSignal[]
+): Result<ProposeReadinessOutput, DomainError> => {
+  for (const sig of signals) deps.publishSignal(sig);
+  const note = signals.find((s) => s.type === 'note');
+  return Result.error(
+    new InvalidStateError({
+      entity: 'readiness',
+      currentState: 'post-validation',
+      attemptedAction: 'project-signal',
+      message:
+        note !== undefined
+          ? `readiness: the AI could not characterise the repo: ${note.text}`
+          : 'readiness: validated signals contained no agents-md-proposal signal',
+    })
+  );
+};
+
+/**
  * Build the readiness prompt, call the AI, validate the audit-[09] `signals.json` it wrote
  * into the per-run dir, fan validated signals out to the bus, render harness-owned
  * sidecars, then project the proposal bodies onto ctx for downstream leaves.
@@ -154,16 +178,7 @@ const proposeReadinessUseCase = async (
 
   // Find the proposal body the harness will write to the tool's native context file.
   const proposal = signals.find((s) => s.type === 'agents-md-proposal');
-  if (proposal === undefined) {
-    return Result.error(
-      new InvalidStateError({
-        entity: 'readiness',
-        currentState: 'post-validation',
-        attemptedAction: 'project-signal',
-        message: 'readiness: validated signals contained no agents-md-proposal signal',
-      })
-    );
-  }
+  if (proposal === undefined) return missingProposal(deps, signals);
 
   // The model emits only the sections to append when a context file already exists; splice them
   // onto the raw existing bytes so the file is preserved byte-for-byte (CRLF / final newline / spacing
@@ -286,4 +301,5 @@ export const proposeReadinessLeaf = (deps: ProposeReadinessLeafDeps, tool: Assis
         },
       },
     }),
+    label: 'Propose setup with AI',
   });

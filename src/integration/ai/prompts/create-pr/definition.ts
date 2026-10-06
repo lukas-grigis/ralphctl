@@ -16,6 +16,8 @@ export interface CreatePrPromptParams {
   readonly baseBranch: string;
   /** Head branch — already pushed to `origin` by the upstream push-branch leaf. */
   readonly headBranch: string;
+  /** Absolute path of the repository; every git command in the prompt targets it with `git -C`. */
+  readonly repositoryPath: string;
   /**
    * Markdown block listing the sprint's tickets (titles + links) so the AI has the
    * user-facing problem statement, not internal task names. Empty acceptable when the
@@ -52,11 +54,17 @@ export const createPrPromptDef: PromptDefinition<CreatePrPromptParams> = {
       description: 'Head branch — already pushed to origin by the upstream push-branch leaf.',
       validate: requireNonEmpty('headBranch', 'headBranch must not be empty'),
     },
+    repositoryPath: {
+      placeholder: 'REPOSITORY_PATH',
+      description: 'Absolute path of the repository, passed to every git command via `git -C`.',
+      validate: requireNonEmpty('repositoryPath', 'repositoryPath must not be empty'),
+    },
     ticketSummary: {
       placeholder: 'TICKET_SUMMARY',
       description:
-        'Markdown block listing the sprint tickets (title + link when set). Empty falls back to a "no tickets recorded" note in the prompt body — represented here as an empty value via the optional flag.',
+        'Markdown block listing the sprint tickets (title + link when set). Empty when no tickets are recorded — the template states the fallback.',
       optional: true,
+      untrusted: { source: 'the ticket author' },
     },
     issueRefs: {
       placeholder: 'ISSUE_REFS',
@@ -78,13 +86,13 @@ export const createPrPromptDef: PromptDefinition<CreatePrPromptParams> = {
 /**
  * Render a list of tickets into the markdown block the create-pr template's
  * `{{TICKET_SUMMARY}}` slot expects. Each ticket renders as a bullet with title + link
- * (when set). The empty list returns a placeholder note so the prompt section stays
- * coherent rather than collapsing into a blank section.
+ * (when set). The empty list returns '' so the untrusted-data notice stays off; the template
+ * carries the no-tickets fallback sentence.
  */
 export const renderTicketSummary = (
   tickets: ReadonlyArray<{ readonly title: string; readonly link?: string }>
 ): string => {
-  if (tickets.length === 0) return '_No specific tickets recorded for this branch._';
+  if (tickets.length === 0) return '';
   return tickets.map((t) => (t.link !== undefined ? `- ${t.title} (${t.link})` : `- ${t.title}`)).join('\n');
 };
 
