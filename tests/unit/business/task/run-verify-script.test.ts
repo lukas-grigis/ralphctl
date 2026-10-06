@@ -4,6 +4,7 @@ import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import { absolutePath, FIXED_NOW } from '@tests/fixtures/domain.ts';
 import {
   attributeVerify,
+  type ConfirmFailedGate,
   normalizeVerifyGates,
   runVerifyGatesUseCase,
   type RunShellScript,
@@ -483,5 +484,239 @@ describe('runVerifyGatesUseCase — multi-gate execution (T10)', () => {
     expect(postShell.ran()).toEqual(['gate-web']);
     expect(post.run.outcome).toBe('failed');
     expect(attributeVerify(pre.run.outcome, post.run.outcome)).toBe('regressed');
+  });
+});
+
+describe('runVerifyGatesUseCase — confirm-on-red re-run (confirmFailedGateOnce)', () => {
+  type ShellStep =
+    | {
+        readonly passed: boolean;
+        readonly exitCode: number | null;
+        readonly output: string;
+        readonly durationMs: number;
+        readonly timedOut?: boolean;
+      }
+    | { readonly spawnError: string };
+
+  // Per-command FIFO of results: each call to a command consumes the next scripted step, so a
+  // test can make one gate red on its first run and green on the confirm re-run. A command with
+  // no (remaining) steps passes.
+  const sequencedShell = (
+    plan: Readonly<Record<string, readonly ShellStep[]>>
+  ): { shell: RunShellScript; calls: () => readonly string[] } => {
+    const calls: string[] = [];
+    const cursor = new Map<string, number>();
+    const shell: RunShellScript = async (_cwd, command) => {
+      calls.push(command);
+      const i = cursor.get(command) ?? 0;
+      cursor.set(command, i + 1);
+      const step = plan[command]?.[i];
+      if (step === undefined) return Result.ok({ passed: true, exitCode: 0, output: `${command}-ok`, durationMs: 10 });
+      if ('spawnError' in step) return Result.error(new StorageError({ subCode: 'io', message: step.spawnError }));
+      return Result.ok(step);
+    };
+    return { shell, calls: () => calls };
+  };
+
+  const base = { cwd: CWD, clock: () => FIXED_NOW, logger: noopLogger } as const;
+  const red = (output: string, exitCode = 1, durationMs = 100): ShellStep => ({
+    passed: false,
+    exitCode,
+    output,
+    durationMs,
+  });
+  const green = (output: string, durationMs = 50): ShellStep => ({ passed: true, exitCode: 0, output, durationMs });
+  // The gate leaves the tree as it found it — the precondition for a confirm re-run.
+  const stableTree: ConfirmFailedGate = { treeFingerprint: async () => 'tree-a' };
+
+  it('a red run that changed the tree fingerprint is NOT re-run — the red stands', async () => {
+    const fingerprints = ['tree-a', 'tree-b'];
+    const { shell, calls } = sequencedShell({ 'pnpm lint --fix': [red('fixed 3 files, 1 left', 1), green('ok')] });
+    const out = await runVerifyGatesUseCase({
+      ...base,
+      phase: 'post',
+      gates: normalizeVerifyGates('pnpm lint --fix', undefined),
+      mode: 'fail-fast',
+      confirmFailedGateOnce: { treeFingerprint: async () => fingerprints.shift() },
+      runShellScript: shell,
+    });
+    expect(calls()).toEqual(['pnpm lint --fix']);
+    expect(out.run.outcome).toBe('failed');
+    expect(out.run.exitCode).toBe(1);
+    expect(out.run.flakyFailure).toBeUndefined();
+    expect(out.rawOutput).not.toContain('confirm re-run');
+    expect(attributeVerify('success', out.run.outcome)).toBe('regressed');
+  });
+
+  it('an unavailable tree fingerprint counts as changed — no confirm re-run', async () => {
+    const { shell, calls } = sequencedShell({ 'pnpm test': [red('flake?'), green('ok')] });
+    const out = await runVerifyGatesUseCase({
+      ...base,
+      phase: 'post',
+      gates: normalizeVerifyGates('pnpm test', undefined),
+      mode: 'fail-fast',
+      confirmFailedGateOnce: { treeFingerprint: async () => undefined },
+      runShellScript: shell,
+    });
+    expect(calls()).toEqual(['pnpm test']);
+    expect(out.run.outcome).toBe('failed');
+  });
+
+  it('red then green on the confirm re-run → success stamped with flakyFailure, both outputs, summed duration', async () => {
+    const { shell, calls } = sequencedShell({ 'pnpm test': [red('flake!', 2, 100), green('all good', 50)] });
+    const out = await runVerifyGatesUseCase({
+      ...base,
+      phase: 'post',
+      gates: normalizeVerifyGates('pnpm test', undefined),
+      mode: 'fail-fast',
+      confirmFailedGateOnce: stableTree,
+      runShellScript: shell,
+    });
+    expect(calls()).toEqual(['pnpm test', 'pnpm test']);
+    expect(out.run.outcome).toBe('success');
+    expect(out.run.exitCode).toBe(0);
+    expect(out.run.command).toBe('pnpm test');
+    expect(out.run.flakyFailure).toEqual({ command: 'pnpm test', exitCode: 2 });
+    expect(out.run.durationMs).toBe(150);
+    expect(out.rawOutput).toContain('flake!');
+    expect(out.rawOutput).toContain('── pnpm test (confirm re-run) ──');
+    expect(out.rawOutput).toContain('all good');
+    expect(out.rawOutput.indexOf('flake!')).toBeLessThan(out.rawOutput.indexOf('all good'));
+  });
+
+  it('red on both runs → failed with the FIRST exit code, and attributeVerify still says regressed', async () => {
+    const { shell, calls } = sequencedShell({ 'pnpm test': [red('broke once', 3, 100), red('broke twice', 7, 40)] });
+    const out = await runVerifyGatesUseCase({
+      ...base,
+      phase: 'post',
+      gates: normalizeVerifyGates('pnpm test', undefined),
+      mode: 'fail-fast',
+      confirmFailedGateOnce: stableTree,
+      runShellScript: shell,
+    });
+    expect(calls()).toEqual(['pnpm test', 'pnpm test']);
+    expect(out.run.outcome).toBe('failed');
+    expect(out.run.exitCode).toBe(3);
+    expect(out.run.command).toBe('pnpm test');
+    expect(out.run.flakyFailure).toBeUndefined();
+    expect(out.run.durationMs).toBe(140);
+    expect(out.rawOutput).toContain('broke once');
+    expect(out.rawOutput).toContain('── pnpm test (confirm re-run) ──');
+    expect(out.rawOutput).toContain('broke twice');
+    // The regression guard: a deterministic red still attributes as `regressed`.
+    expect(attributeVerify('success', out.run.outcome)).toBe('regressed');
+  });
+
+  it('a timed-out red is NOT re-run (exactly one call)', async () => {
+    const { shell, calls } = sequencedShell({
+      'pnpm test': [
+        { passed: false, exitCode: 143, output: '[timeout]', durationMs: 1000, timedOut: true },
+        green('late'),
+      ],
+    });
+    const out = await runVerifyGatesUseCase({
+      ...base,
+      phase: 'post',
+      gates: normalizeVerifyGates('pnpm test', undefined),
+      mode: 'fail-fast',
+      confirmFailedGateOnce: stableTree,
+      runShellScript: shell,
+    });
+    expect(calls()).toEqual(['pnpm test']);
+    expect(out.run.outcome).toBe('failed');
+    expect(out.run.exitCode).toBe(143);
+    expect(out.run.flakyFailure).toBeUndefined();
+    expect(out.rawOutput).not.toContain('confirm re-run');
+  });
+
+  it('a null exit code (killed / child error) is NOT re-run', async () => {
+    const { shell, calls } = sequencedShell({
+      'pnpm test': [{ passed: false, exitCode: null, output: '[spawn error: x]', durationMs: 5 }, green('late')],
+    });
+    const out = await runVerifyGatesUseCase({
+      ...base,
+      phase: 'post',
+      gates: normalizeVerifyGates('pnpm test', undefined),
+      mode: 'fail-fast',
+      confirmFailedGateOnce: stableTree,
+      runShellScript: shell,
+    });
+    expect(calls()).toEqual(['pnpm test']);
+    expect(out.run.outcome).toBe('failed');
+  });
+
+  it('a spawn-error is NOT re-run (exactly one call)', async () => {
+    const { shell, calls } = sequencedShell({ 'pnpm test': [{ spawnError: 'spawn ENOENT' }, green('late')] });
+    const out = await runVerifyGatesUseCase({
+      ...base,
+      phase: 'post',
+      gates: normalizeVerifyGates('pnpm test', undefined),
+      mode: 'fail-fast',
+      confirmFailedGateOnce: stableTree,
+      runShellScript: shell,
+    });
+    expect(calls()).toEqual(['pnpm test']);
+    expect(out.run.outcome).toBe('spawn-error');
+    expect(out.run.flakyFailure).toBeUndefined();
+  });
+
+  it('confirm off (default) → exactly one call per gate, a red stays red', async () => {
+    const gates: readonly VerifyGate[] = [
+      { pathPrefix: '', command: 'gate-1' },
+      { pathPrefix: '', command: 'gate-2' },
+    ];
+    const { shell, calls } = sequencedShell({ 'gate-1': [red('nope'), green('would pass')] });
+    const out = await runVerifyGatesUseCase({ ...base, phase: 'pre', gates, mode: 'all-run', runShellScript: shell });
+    expect(calls()).toEqual(['gate-1', 'gate-2']);
+    expect(out.run.outcome).toBe('failed');
+    expect(out.run.command).toBe('gate-1');
+  });
+
+  it('fail-fast with gate 1 flaky → gates 2 and 3 still run, success carries gate 1 as flakyFailure', async () => {
+    const gates: readonly VerifyGate[] = [
+      { pathPrefix: '', command: 'gate-1' },
+      { pathPrefix: '', command: 'gate-2' },
+      { pathPrefix: '', command: 'gate-3' },
+    ];
+    const { shell, calls } = sequencedShell({ 'gate-1': [red('flake', 4), green('ok now')] });
+    const out = await runVerifyGatesUseCase({
+      ...base,
+      phase: 'post',
+      gates,
+      mode: 'fail-fast',
+      confirmFailedGateOnce: stableTree,
+      runShellScript: shell,
+    });
+    expect(calls()).toEqual(['gate-1', 'gate-1', 'gate-2', 'gate-3']);
+    expect(out.run.outcome).toBe('success');
+    expect(out.run.command).toBe('gate-1; gate-2; gate-3');
+    expect(out.run.flakyFailure).toEqual({ command: 'gate-1', exitCode: 4 });
+    expect(out.rawOutput).toContain('── gate-1 ──');
+    expect(out.rawOutput).toContain('── gate-1 (confirm re-run) ──');
+    expect(out.rawOutput).toContain('── gate-3 ──');
+  });
+
+  it('fail-fast: a flaky gate 1 then a deterministic red gate 2 → failed on gate 2, no flakyFailure on the row', async () => {
+    const gates: readonly VerifyGate[] = [
+      { pathPrefix: '', command: 'gate-1' },
+      { pathPrefix: '', command: 'gate-2' },
+      { pathPrefix: '', command: 'gate-3' },
+    ];
+    const { shell, calls } = sequencedShell({
+      'gate-1': [red('flake', 4), green('ok')],
+      'gate-2': [red('real', 9), red('real again', 9)],
+    });
+    const out = await runVerifyGatesUseCase({
+      ...base,
+      phase: 'post',
+      gates,
+      mode: 'fail-fast',
+      confirmFailedGateOnce: stableTree,
+      runShellScript: shell,
+    });
+    expect(calls()).toEqual(['gate-1', 'gate-1', 'gate-2', 'gate-2']);
+    expect(out.run.outcome).toBe('failed');
+    expect(out.run.command).toBe('gate-2');
+    expect(out.run.exitCode).toBe(9);
   });
 });

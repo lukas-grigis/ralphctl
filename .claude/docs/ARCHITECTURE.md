@@ -639,7 +639,8 @@ and the non-obvious mutators.
   `Sprint` via `ticketId` and DAG edges via `dependsOn` (array of `TaskId`; the planner emits them as
   `blockedBy` and `parseTaskList` resolves them onto `dependsOn`). Carries an `attempts[]` history — each
   `Attempt` has `evaluation`, `verification`, `attribution` (`clean` / `regressed` / `baseline-broken` /
-  `fixed-baseline` from pre/post verify-script comparison), optional `abortCause` (`AbortCause` discriminated
+  `fixed-baseline` from pre/post verify-script comparison; a post gate that failed then passed one confirm re-run
+  attributes `clean` and stamps `VerifyRun.flakyFailure`), optional `abortCause` (`AbortCause` discriminated
   union), optional `recovering` (a `RecoveryContext` — resume-from-aborted metadata), and optional `priorWork`
   (`PriorWorkOutcome` — what `restore-blocked-diff` did with the quarantined diff: `restored` / `kept-by-choice` /
   `not-restored` with a reason). `BlockedTask` adds a structural

@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { ValidationError } from '@src/domain/value/error/validation-error.ts';
 import { addTicket, type Sprint } from '@src/domain/entity/sprint.ts';
 import { approveTicketRequirements } from '@src/domain/entity/ticket.ts';
-import { makeDraftSprint, makePendingTicket, makeProject } from '@tests/fixtures/domain.ts';
+import { makeDraftSprint, makePendingTicket, makeProject, makeRepository } from '@tests/fixtures/domain.ts';
 import { createFsTemplateLoader, defaultTemplatesDir } from '@src/integration/ai/prompts/_engine/fs-template-loader.ts';
 import { extractPlaceholders } from '@src/integration/ai/prompts/_engine/extract-placeholders.ts';
 import {
@@ -11,7 +11,6 @@ import {
   planPromptDef,
   renderApprovedTickets,
   renderExistingTasks,
-  renderRepositories,
   renderSprintContext,
 } from '@src/integration/ai/prompts/plan/definition.ts';
 import { planOutputContract } from '@src/application/flows/plan/leaves/plan.contract.ts';
@@ -126,14 +125,6 @@ describe('renderApprovedTickets', () => {
   });
 });
 
-describe('renderRepositories', () => {
-  it('renders a markdown bullet list', () => {
-    const project = makeProject();
-    const out = renderRepositories(project);
-    expect(out).toContain(String(project.repositories[0]?.path));
-  });
-});
-
 describe('renderExistingTasks', () => {
   it('returns empty string for an empty task list (replan flow opt-out)', () => {
     expect(renderExistingTasks([])).toBe('');
@@ -171,6 +162,51 @@ describe('buildPlanPrompt — end-to-end against the real template', () => {
     // field whose rule is "attach ONLY when …, when in doubt omit" lost its only demonstration
     // of the allowed case.
     expect(normalized).toContain('Example of a justified attachment: `migration-safety`');
+  });
+
+  it('teaches scoped test criteria and explains the verify gate line', async () => {
+    const result = await buildPlanPrompt(deps, {
+      sprint: draftWithApproved(1),
+      project: makeProject(),
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
+      priorProgress: '',
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const normalized = (result.value as unknown as string).replace(/\s+/g, ' ');
+    expect(normalized).toContain('Scope a test command to the tests this task adds or changes');
+    expect(normalized).toContain(
+      "A `verify gate:` line under a repository is a command the harness runs after every task to catch regressions — only when the task's diff touches the noted path, when a path is noted. No such line means none is configured."
+    );
+    expect(normalized).not.toContain('All existing tests pass');
+    // The whole-suite ban is conditional: only an unscoped gate that runs the tests replaces the
+    // project-wide regression criterion; a gateless, test-less or path-scoped repo keeps one.
+    expect(normalized).toContain('that has no path note and whose command runs the test suite');
+    expect(normalized).toContain(
+      'Otherwise — no verify gate, a gate that runs no tests, or only gates with a path note — nothing guarantees a project-wide test run after the task, so add one criterion running the suite CI gates on'
+    );
+    // Whole e2e suites are excluded whatever the gate runs (the e2e-red-on-baseline incident); scoped specs stay allowed.
+    expect(normalized).toContain(
+      'never put a whole end-to-end or browser suite in an `auto` criterion — scope it to the spec files this task adds or changes'
+    );
+    // The inline copies point at the conditional rule instead of restating an unconditional one.
+    expect(normalized).not.toContain('a criterion that re-runs the whole suite duplicates it');
+  });
+
+  it('shows the repository verify gate inside <repositories>', async () => {
+    const project = makeProject({
+      repositories: [{ ...makeRepository(), verifyScript: '(cd services && mvn verify) && (cd web-ui && pnpm check)' }],
+    });
+    const result = await buildPlanPrompt(deps, {
+      sprint: draftWithApproved(1),
+      project,
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
+      priorProgress: '',
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const block = /<repositories>([\s\S]*?)<\/repositories>/.exec(result.value as unknown as string)?.[1] ?? '';
+    expect(block).toContain('verify gate: `(cd services && mvn verify) && (cd web-ui && pnpm check)`');
   });
 
   it('renders the approval-gate partial so every approval round shows the full plan', async () => {

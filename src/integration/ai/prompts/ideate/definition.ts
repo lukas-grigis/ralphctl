@@ -3,6 +3,7 @@ import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts'
 import type { Project } from '@src/domain/entity/project.ts';
 import { buildPrompt, type BuildPromptError } from '@src/integration/ai/prompts/_engine/build-prompt.ts';
 import type { PromptDefinition } from '@src/integration/ai/prompts/_engine/definition.ts';
+import { renderRepositoriesSection } from '@src/integration/ai/prompts/_engine/renderers/repositories.ts';
 import { renderPriorLearningsSection } from '@src/integration/ai/prompts/_engine/renderers/task.ts';
 import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/template-loader.ts';
 import { TASK_IMPORT_JSON_SCHEMA } from '@src/integration/ai/prompts/_engine/task-import-schema.ts';
@@ -98,11 +99,6 @@ export const ideatePromptDef: PromptDefinition<IdeatePromptParams> = {
   expectedSignals: ['ideated-tickets', 'note', 'learning', 'decision'],
 };
 
-export const renderRepositories = (project: Project): string => {
-  if (project.repositories.length === 0) return '_no repositories configured_';
-  return project.repositories.map((r) => `- \`${String(r.path)}\` (${r.name})`).join('\n');
-};
-
 export const buildIdeatePrompt = async (
   deps: TemplateLoader,
   input: {
@@ -124,7 +120,7 @@ export const buildIdeatePrompt = async (
     ideaTitle: input.ideaTitle,
     ideaDescription: input.ideaDescription,
     projectName: project_name(input.project),
-    repositories: renderRepositories(input.project),
+    repositories: renderRepositoriesSection(input.project),
     schema: TASK_IMPORT_JSON_SCHEMA,
     outputContractSection: input.outputContractSection,
     priorProgress: input.priorProgress,

@@ -33,9 +33,10 @@ import type { OrphanReaper } from '@src/integration/io/orphan-reaper.ts';
  *     marker.
  *
  * Result semantics:
- *   - `Result.ok({ passed, exitCode, output, durationMs })` — script ran. `passed` is
+ *   - `Result.ok({ passed, exitCode, output, durationMs, timedOut })` — script ran. `passed` is
  *     `exitCode === 0`. Non-zero exit is *not* a system failure: the gate failed cleanly and
- *     the caller decides what to do.
+ *     the caller decides what to do. `timedOut` is true when the runner killed the child on the
+ *     timeout or the output cap.
  *   - `Result.error(StorageError)` — only for system-level failures (spawn fails because the
  *     shell binary is missing). Timeouts and cap-kills surface as `passed: false` with a
  *     marker, not as errors.
@@ -52,6 +53,13 @@ export interface ShellScriptResult {
   readonly exitCode: number | null;
   readonly output: string;
   readonly durationMs: number;
+  /**
+   * True when the runner killed the child itself — on the timeout OR the output cap — rather than
+   * the script exiting on its own. Always `passed: false` when set. Lets the verify executor tell a
+   * hang apart from a real non-zero exit (it never confirm-re-runs a killed gate). Optional so
+   * hand-built results (fakes, other adapters) need not carry it; absent reads as `false`.
+   */
+  readonly timedOut?: boolean;
 }
 
 export const DEFAULT_SHELL_TIMEOUT_MS = 5 * 60_000;
@@ -345,12 +353,14 @@ const runChildProcess = (
     }
     const base = sink.toBufferString();
     const output = marker !== undefined ? (base.length > 0 ? `${base}\n${marker}` : marker) : base;
+    const killedByRunner = timedOut || sink.isCapExceeded();
     resolve(
       Result.ok({
-        passed: exitCode === 0 && !timedOut && !sink.isCapExceeded(),
+        passed: exitCode === 0 && !killedByRunner,
         exitCode,
         output,
         durationMs: now() - start,
+        timedOut: killedByRunner,
       })
     );
   };

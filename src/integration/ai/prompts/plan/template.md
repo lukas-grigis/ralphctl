@@ -51,6 +51,8 @@ write in this session is `signals.json` in your output directory.
 
 <repositories>{{REPOSITORIES}}</repositories>
 
+A `verify gate:` line under a repository is a command the harness runs after every task to catch regressions — only when the task's diff touches the noted path, when a path is noted. No such line means none is configured.
+
 All paths above are fixed — repository selection is not part of this session.
 
 ## Prior progress on this sprint
@@ -68,6 +70,9 @@ your plan before relying on one; listed decisions are deliberate prior choices �
 revisit one say why in the plan. When either conflicts with what the repository shows now, trust the
 repository and record the conflict. Use them as background to scope tasks accurately and to pick
 verification commands that exist in the target repo.
+A learning that a command fails at HEAD or depends on the local environment (a running dev server,
+seeded database, browser, environment variable) is enough to keep that command out of every `auto`
+criterion.
 
 <prior_learnings>
 {{PRIOR_LEARNINGS}}
@@ -87,8 +92,9 @@ If `<existing_tasks>` is empty, this is a fresh plan — there is nothing to rep
   same file, one is `blockedBy` the other so they never run in parallel.
 - **Verifiable end states** — every task carries 2–4 testable `verificationCriteria`, at least one `auto`
   when the repository exposes a check command (rule in the task fields below). "Code looks right" is not
-  a criterion. For a task that introduces new behaviour, write its behavioural criteria as
-  Given/When/Then and name the interface they exercise.
+  a criterion. Scope test commands by the `verificationCriteria` rules in the task fields — whether
+  a whole-suite criterion belongs depends on the repository's verify gate. For a task that introduces
+  new behaviour, write its behavioural criteria as Given/When/Then and name the interface they exercise.
 - **No invention** — every task traces back to an approved ticket via `ticketRef`. If
   coherence requires additional scope, surface it as an observation, not a silent expansion.
   Prefer fewer, well-grounded tasks over a complete-looking plan padded with speculative ones —
@@ -193,17 +199,26 @@ Good criteria (structured, verifiable; values illustrative):
 ```json
 "verificationCriteria": [
   { "id": "C1", "assertion": "The project type-checks with no errors", "check": "auto", "command": "<project's typecheck command>" },
-  { "id": "C2", "assertion": "All existing tests pass plus new tests for the added feature", "check": "auto", "command": "<project's test command>" },
+  { "id": "C2", "assertion": "The new pagination tests in tests/users/pagination.test.ts pass", "check": "auto", "command": "<project's test command scoped to tests/users/pagination.test.ts>" },
   { "id": "C3", "assertion": "GET /api/users?page=-1 returns 400 with a validation error body", "check": "manual" }
 ]
 ```
 
+Scope test commands to the tests the task adds or changes (file path, test-name filter, or tag),
+and keep or drop a project-wide regression criterion by the verify-gate rules in the task fields.
 Use `manual` for behavioural assertions the evaluator must inspect in code.
 
 Bad criteria (vague, not independently verifiable):
 
 - `{ "assertion": "Code is clean and well-structured", "check": "manual" }`
 - `{ "assertion": "Error handling is appropriate", "check": "manual" }`
+- `{ "assertion": "The full test suite passes, including the new specs", "check": "auto", "command": "<project's full test command>" }`
+  when the repository's verify gate already runs that suite after every task — one pre-existing
+  failure anywhere makes this impossible to pass without editing tests the task doesn't own.
+  Exception: a task whose stated purpose is to make that suite pass.
+- `{ "assertion": "The end-to-end suite passes", "check": "auto", "command": "<project's e2e command>" }`
+  — whatever the verify gate runs, one stale or environment-dependent spec anywhere in the suite
+  blocks the task; scope the command to the spec files the task adds or changes instead.
 - Bare strings (e.g. `"The project type-checks"`) — the structured object is required.
 
 **Dependency Graph — good vs bad**
@@ -262,9 +277,9 @@ Good — precise steps with file paths and pattern references (shape only, value
     },
     {
       "id": "C2",
-      "assertion": "All existing tests pass plus new auth tests",
+      "assertion": "The new auth service tests pass",
       "check": "auto",
-      "command": "<project's test command>"
+      "command": "<project's test command scoped to src/services/__tests__/auth.test.ts>"
     },
     {
       "id": "C3",
@@ -294,7 +309,8 @@ Read the repositories mounted under `<repositories>` to:
 3. Run `git log --oneline -20` per repository so you don't plan tasks that re-implement
    already-landed work.
 4. Find similar implementations to mirror existing patterns.
-5. Extract verification commands (build, test, lint, typecheck).
+5. Extract verification commands (build, test, lint, typecheck), how to run the test runner
+   against one file, name, or tag, and which subset CI gates on when CI filters (e.g. a tag or grep).
 
 Remember: you are in the per-sprint plan unit root, not inside any repository. Use the
 repository paths from `<repositories>` as the roots for all file reads and searches.

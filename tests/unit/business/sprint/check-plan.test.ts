@@ -10,7 +10,8 @@ import {
 } from '@src/business/sprint/check-plan.ts';
 import { createProject } from '@src/domain/entity/project.ts';
 import { createRepository } from '@src/domain/entity/repository.ts';
-import type { Repository } from '@src/domain/entity/repository.ts';
+import type { Repository, VerifyGate } from '@src/domain/entity/repository.ts';
+import { normalizeVerifyGates } from '@src/business/task/run-verify-script.ts';
 import type { Project } from '@src/domain/entity/project.ts';
 import type { TodoTask, VerificationCriterion } from '@src/domain/entity/task.ts';
 import type { TaskId } from '@src/domain/value/id/task-id.ts';
@@ -137,7 +138,11 @@ describe('checkPlanUseCase — structural (error tier)', () => {
 
 describe('checkPlanUseCase — command quality (warning tier)', () => {
   it.each([
-    ["<project's test command>", 'the plan template example, copied verbatim'],
+    [
+      "<project's test command scoped to tests/users/pagination.test.ts>",
+      'the plan template scoped-test example, copied verbatim',
+    ],
+    ["<project's test command>", 'the pre-scoping plan template example'],
     ['pnpm test # TODO pick the real one', 'a leftover TODO token'],
     ['pnpm test ...', 'an elided command'],
     ['cat src/.../x', 'an elided path'],
@@ -166,6 +171,9 @@ describe('checkPlanUseCase — command quality (warning tier)', () => {
     'go test ./...',
     'go vet ./pkg/...',
     'CI=1 pnpm test',
+    '(cd web-ui && pnpm check)',
+    '(cd services && mvn verify) && (cd web-ui && pnpm check)',
+    '{ make build; make test; }',
   ])('leaves %j alone', (command) => {
     expect(kindsOf([withCriteria([auto(command)])])).toEqual([]);
   });
@@ -197,6 +205,128 @@ describe('checkPlanUseCase — command quality (warning tier)', () => {
   it('stays quiet on an all-manual task when the repository exposes no check command', () => {
     // `makeProject()`'s repository has neither verifyScript nor verifyGates.
     expect(kindsOf([withCriteria([manual()])])).toEqual([]);
+  });
+});
+
+describe('checkPlanUseCase — verify-gate-criterion', () => {
+  /** The incident: the planner's auto criterion re-ran the repo's whole post-task verify gate. */
+  const INCIDENT_GATE = '(cd services && mvn verify) && (cd web-ui && pnpm check)';
+
+  const repoWith = (
+    gate: { readonly verifyScript?: string; readonly verifyGates?: readonly VerifyGate[] },
+    name = 'check-plan-gate'
+  ): Repository => {
+    const repo = createRepository({
+      id: FIXED_REPOSITORY_ID,
+      path: absolutePath(`/tmp/ralph/${name}`),
+      name: 'main-repo',
+      ...gate,
+    });
+    if (!repo.ok) throw new Error('fixture setup failed');
+    return repo.value;
+  };
+
+  it('flags an auto criterion whose command equals the verifyScript', () => {
+    const project = projectWith(repoWith({ verifyScript: INCIDENT_GATE }));
+    const report = checkPlanUseCase({ project, tasks: [withCriteria([auto(INCIDENT_GATE, 'C2')])] });
+    expect(report.ok).toBe(true);
+    if (!report.ok) return;
+    expect(report.value.findings).toEqual([
+      expect.objectContaining({ kind: 'verify-gate-criterion', criterionId: 'C2' }),
+    ]);
+    expect(report.value.warningCount).toBe(1);
+    expect(report.value.findings[0]?.detail).toContain("repeats the repository's post-task verify gate");
+  });
+
+  it('flags the gate even when the criterion differs only in whitespace', () => {
+    const project = projectWith(repoWith({ verifyScript: INCIDENT_GATE }));
+    const spaced = '  (cd services &&   mvn verify)\t&&  (cd web-ui && pnpm check) ';
+    expect(kindsOf([withCriteria([auto(spaced)])], project)).toEqual(['verify-gate-criterion']);
+  });
+
+  it('flags a match against one of several verifyGates', () => {
+    const project = projectWith(
+      repoWith({
+        verifyGates: [
+          { pathPrefix: 'services', command: '(cd services && mvn verify)' },
+          { pathPrefix: 'web-ui', command: '(cd web-ui && pnpm check)' },
+        ],
+      })
+    );
+    expect(kindsOf([withCriteria([auto('(cd web-ui && pnpm check)')])], project)).toEqual(['verify-gate-criterion']);
+  });
+
+  it.each([
+    'cd web-ui && pnpm test:e2e',
+    'cd web-ui && pnpm exec playwright test e2e/pagination.spec.ts',
+    '(cd services && mvn verify)',
+  ])('stays quiet for %j, which is not the gate verbatim', (command) => {
+    const project = projectWith(repoWith({ verifyScript: INCIDENT_GATE }));
+    expect(kindsOf([withCriteria([auto(command)])], project)).toEqual([]);
+  });
+
+  it('stays quiet when a gate-like command is a prefix of a longer one', () => {
+    const project = projectWith(repoWith({ verifyScript: 'pnpm test' }));
+    expect(kindsOf([withCriteria([auto('pnpm test:unit')])], project)).toEqual([]);
+  });
+
+  it('stays quiet for manual criteria', () => {
+    const project = projectWith(repoWith({ verifyScript: INCIDENT_GATE }));
+    const manualWithGate: VerificationCriterion = {
+      id: 'C1',
+      assertion: 'the whole suite is green',
+      check: 'manual',
+      command: INCIDENT_GATE,
+    };
+    // A sibling auto criterion keeps the unrelated no-auto-criterion warning out of the picture.
+    expect(kindsOf([withCriteria([manualWithGate, auto('make lint', 'C2')])], project)).toEqual([]);
+  });
+
+  it('stays quiet when the repository has no verify gate', () => {
+    // `makeProject()`'s repository has neither verifyScript nor verifyGates.
+    expect(kindsOf([withCriteria([auto(INCIDENT_GATE)])])).toEqual([]);
+  });
+
+  it('compares against verifyGates, not a stale verifyScript, when both are set', () => {
+    const project = projectWith(
+      repoWith({ verifyScript: INCIDENT_GATE, verifyGates: [{ pathPrefix: '', command: 'make check' }] })
+    );
+    expect(kindsOf([withCriteria([auto(INCIDENT_GATE)])], project)).toEqual([]);
+    expect(kindsOf([withCriteria([auto('make check')])], project)).toEqual(['verify-gate-criterion']);
+  });
+
+  // check-plan cannot import `normalizeVerifyGates` (sibling-business fence), so it restates the
+  // gate-precedence rule. Pin the copy to the canonical helper: every command the post-task
+  // verify gate would run is flagged, and nothing else is.
+  it.each<[string, { readonly verifyScript?: string; readonly verifyGates?: readonly VerifyGate[] }]>([
+    ['verifyScript only', { verifyScript: '  make check  ' }],
+    [
+      'verifyGates only',
+      {
+        verifyGates: [
+          { pathPrefix: 'api', command: 'make api' },
+          { pathPrefix: '', command: 'make all' },
+        ],
+      },
+    ],
+    ['both — gates win', { verifyScript: 'make legacy', verifyGates: [{ pathPrefix: '', command: 'make check' }] }],
+    ['neither', {}],
+  ])('flags exactly the commands normalizeVerifyGates yields (%s)', (_label, gate) => {
+    const repo = repoWith(gate);
+    const gateCommands = normalizeVerifyGates(repo.verifyScript, repo.verifyGates).map((g) => g.command);
+    const project = projectWith(repo);
+    for (const command of ['make check', 'make legacy', 'make api', 'make all']) {
+      const flagged = kindsOf([withCriteria([auto(command)])], project).includes('verify-gate-criterion');
+      expect(flagged, command).toBe(gateCommands.includes(command));
+    }
+  });
+
+  it('stays quiet when the task points at an unknown repository', () => {
+    const project = projectWith(repoWith({ verifyScript: 'make check' }));
+    const stray = withCriteria([auto('make check')], {
+      repositoryId: repositoryId('01900000-0000-7000-8000-0000000000dd'),
+    });
+    expect(kindsOf([stray], project)).toEqual(['unknown-repository']);
   });
 });
 
@@ -233,7 +363,8 @@ describe('checkPlanUseCase — report shape', () => {
 describe('severity + rendering', () => {
   it('assigns a severity to every finding kind', () => {
     const kinds = Object.keys(SEVERITY_BY_KIND) as readonly PlanCheckFindingKind[];
-    expect(kinds).toHaveLength(9);
+    expect(kinds).toHaveLength(10);
+    expect(SEVERITY_BY_KIND['verify-gate-criterion']).toBe('warning');
     for (const kind of kinds) expect(['error', 'warning']).toContain(SEVERITY_BY_KIND[kind]);
   });
 

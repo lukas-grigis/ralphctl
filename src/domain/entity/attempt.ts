@@ -196,9 +196,17 @@ export interface VerifyRun {
    * `'spawn-error'`.
    */
   readonly exitCode: number;
-  /** Total wall-clock duration in ms. `0` for `'skipped'`. */
+  /** Total wall-clock duration in ms. `0` for `'skipped'`. Includes any confirm re-run. */
   readonly durationMs: number;
   readonly outcome: VerifyRunOutcome;
+  /**
+   * Present only on a `'success'` post-verify row where a gate failed its first run (with
+   * `exitCode`) and then passed the harness's confirm re-run on the same tree — i.e. a flake,
+   * not a regression. Names the FIRST such gate. A flaky pass attributes `'clean'`; this field is
+   * what keeps the flake visible (journal line, next task re-measures its baseline). Absent on
+   * every legacy row.
+   */
+  readonly flakyFailure?: { readonly command: string; readonly exitCode: number };
 }
 
 /**

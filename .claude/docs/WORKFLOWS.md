@@ -149,8 +149,9 @@ save-sprint` (fenced by `tests/unit/application/flows/ideate/flow-shape.test.ts`
 (`ctx.proposedTasks`) — it no longer runs the `draft → planned` transition itself. A zero-token,
 deterministic `check-plan` leaf (`business/sprint/check-plan.ts`) runs next: an infallible fold over the
 proposal that catches task-graph faults, an unknown repository, missing verification criteria, a missing
-`auto` command, a placeholder / prose / multi-line command, or a duplicate criterion id, tiered `error` /
-`warning`. Findings are advisory — they never fail the chain, and are rendered above the "Approve plan?"
+`auto` command, a placeholder / prose / multi-line command, a duplicate criterion id, or an `auto` criterion
+that repeats the repository's post-task verify gate (`verify-gate-criterion` — exact match after whitespace
+normalisation, so a scoped `pnpm test:unit` never trips a `pnpm test` gate), tiered `error` / `warning`. Findings are advisory — they never fail the chain, and are rendered above the "Approve plan?"
 prompt for the operator to read before deciding. `apply-plan` then owns the HITL `reviewBeforeApprove`
 gate (now takes the findings as a third argument) and the `draft → planned` transition. Both new leaves sit
 AFTER `uninstall-skills`, so the skills sandbox is torn down before a potentially long human pause at the
@@ -499,6 +500,23 @@ and log tail are injected into the next attempt's generator prompt via the `RETR
 placeholder (the quarantine leaf stashes the rejected diff so the retry starts from the last clean commit).
 Budget exhaustion still transitions to `blocked` and the commit guard independently keys on the block
 reason, so red work never lands regardless of budget.
+
+**Confirm re-run on a red post-verify gate.** A post-task gate that exits non-zero on its own is re-run ONCE
+on the same tree (`confirmFailedGateOnce` on `runVerifyGatesUseCase`, `business/task/run-verify-script.ts`).
+A green re-run is a flake: the row is `success`, `VerifyRun.flakyFailure` (`{ command, exitCode }`, first
+such gate) is stamped, attribution is `clean`, a warn names the gate, and the carried
+`priorPostVerifyOutcome.coveredAllGates` is forced `false` so the next task's pre-verify re-measures the
+baseline instead of trusting a flaky green. A red that reproduces keeps the FIRST run's exit code and stays
+`failed`, so `regressed` now means failing twice on the same tree and the retry / block policy above is
+unchanged. Never re-run: a timeout or output-cap kill (`ShellScriptResult.timedOut`, `integration/io/shell-script-runner.ts`),
+a spawn error or null exit (a hang or a missing shell is not a flake signal), a red run that changed the tree
+(`ConfirmFailedGate.treeFingerprint`, wired to `computeWorkProductFingerprint` before and after the run — an
+auto-fixer or codegen gate would otherwise pass its re-run on a rewritten tree; an unavailable fingerprint
+counts as changed), and a post-verify whose pre was already `failed` (that red never blocks, so a re-run is
+pure cost). Pre-verify never confirms — its baseline is
+evidence, not a verdict. Best-of-N candidate verification confirms too. The log carries both runs, the second
+behind a `── <command> (confirm re-run) ──` separator, and the progress journal's verify bullet gets a
+`flaky:` suffix, so the reclassification is never silent.
 
 **Branch management.** `resolveBranchLeaf` prompts on first run; persists on `SprintExecution.branch`;
 per-task preflight verifies the right branch. `ralphctl create-pr [--sprint <id>]` opens PR / MR via `gh` /

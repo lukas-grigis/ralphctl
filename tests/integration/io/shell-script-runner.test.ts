@@ -5,7 +5,11 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
-import { createShellScriptRunner, DEFAULT_SHELL_TIMEOUT_MS } from '@src/integration/io/shell-script-runner.ts';
+import {
+  createShellScriptRunner,
+  DEFAULT_SHELL_TIMEOUT_MS,
+  MAX_OUTPUT_BYTES,
+} from '@src/integration/io/shell-script-runner.ts';
 import type { Spawn, SpawnOptions } from '@src/integration/io/spawn.ts';
 import { markProcessGroupLeader } from '@src/integration/io/kill-process-tree.ts';
 
@@ -165,6 +169,56 @@ describe('createShellScriptRunner', () => {
       expect(result.value.passed).toBe(false);
       expect(result.value.output).toContain('[timeout exceeded after 5ms]');
     }
+  });
+
+  describe('timedOut flag', () => {
+    // The verify executor's confirm-on-red re-run must never re-run a killed gate (a hang is not a
+    // flake signal), so the runner reports WHY a red happened rather than folding it into `passed`.
+    it('is true when the runner killed the child on timeout', async () => {
+      const { spawn } = fakeSpawn({ hang: true });
+      const runner = createShellScriptRunner({ spawn });
+      const result = await runner.run(cwd, 'sleep 999', { timeoutMs: 5 });
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.passed).toBe(false);
+        expect(result.value.timedOut).toBe(true);
+      }
+    });
+
+    it('is true when the runner killed the child on the output cap', async () => {
+      const { spawn } = fakeSpawn({ stdout: ['x'.repeat(MAX_OUTPUT_BYTES + 1)], hang: true });
+      const runner = createShellScriptRunner({ spawn });
+      const result = await runner.run(cwd, 'yes', { timeoutMs: 60_000 });
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.passed).toBe(false);
+        expect(result.value.timedOut).toBe(true);
+      }
+    });
+
+    it('is false on a normal non-zero exit', async () => {
+      const { spawn } = fakeSpawn({ stdout: ['boom\n'], exitCode: 1 });
+      const runner = createShellScriptRunner({ spawn });
+      const result = await runner.run(cwd, 'false');
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.passed).toBe(false);
+        expect(result.value.exitCode).toBe(1);
+        expect(result.value.timedOut).toBe(false);
+      }
+    });
+
+    it('is false on a green exit', async () => {
+      const { spawn } = fakeSpawn({ exitCode: 0 });
+      const runner = createShellScriptRunner({ spawn });
+      const result = await runner.run(cwd, 'true');
+
+      expect(result.ok).toBe(true);
+      if (result.ok) expect(result.value.timedOut).toBe(false);
+    });
   });
 
   it('escalates a timeout kill to SIGKILL when the script traps SIGTERM', async () => {

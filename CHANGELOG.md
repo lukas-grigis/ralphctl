@@ -60,6 +60,12 @@ to [Semantic Versioning](https://semver.org/).
   commands now run one at a time per repository.
 - **The steps list no longer freezes during a run**, and steps skipped after a failure show as skipped instead of
   pending forever.
+- **Planned `auto` criteria no longer make a task impossible to pass.** The planner now scopes test criteria to the
+  task's own tests, sees each repository's verify gate, and the plan check warns when a criterion repeats it. A whole
+  suite that was already red, or that depends on the environment, used to leave tasks that could never pass.
+- **A flaky verify gate no longer burns an attempt.** A post-task gate that fails once and passes on an immediate
+  re-run on the same tree is recorded as flaky in the progress journal instead of being blamed on the task. A gate that
+  fails both times is still treated as a regression.
 
 ## [0.25.0] - 2026-10-04
 

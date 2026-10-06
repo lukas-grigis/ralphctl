@@ -28,6 +28,7 @@ import type { ShellScriptRunner } from '@src/integration/io/shell-script-runner.
 import { runVerifyShell } from '@src/application/flows/implement/leaves/pre-task-verify.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import { persistVerifyLog } from '@src/application/flows/implement/leaves/verify-log.ts';
+import { computeWorkProductFingerprint } from '@src/application/flows/implement/leaves/work-product-fingerprint.ts';
 
 /** `VerifyRunOutcome` member tag for a shell that could not start the command. */
 const SPAWN_ERROR_OUTCOME = 'spawn-error';
@@ -78,6 +79,17 @@ const SPAWN_ERROR_OUTCOME = 'spawn-error';
  * Other attributions keep today's behaviour exactly: `clean` / `fixed-baseline` (post green → no
  * block), `baseline-broken` (escape hatch → no block, preserve verdict), and `undefined` (raw red
  * with no pre-verify evidence → block, no retry).
+ *
+ * ## Confirm-on-red (flaky gates)
+ *
+ * Unless the baseline was already red (`preOutcome === 'failed'` — that red never blocks, so a
+ * re-run would be wasted), a gate that exits non-zero on its own is re-run ONCE on the same tree
+ * (see `confirmFailedGateOnce` on the use case) — a red run that changed the tree's work-product
+ * fingerprint (an auto-fixer, codegen) is not re-run and its red stands. A red that does not reproduce is a flake: the row
+ * is `'success'` with `flakyFailure` stamped, attribution is `'clean'`, a warn names the gate, and
+ * the carried `coveredAllGates` is forced false so the next task's pre-verify re-measures instead
+ * of trusting a flaky green. A red that reproduces stays `'failed'` → `'regressed'`, so the
+ * block/retry policy above is untouched. Timeouts, cap kills and spawn errors are never re-run.
  *
  * This leaf must sit BEFORE `commit-task` in the per-task chain — that's how the harness
  * enforces "tests must pass before we declare the task complete." The AI is told to run the
@@ -292,6 +304,7 @@ const buildZeroTurnSkippedResult = (deps: Pick<PostTaskVerifyLeafDeps, 'clock'>,
 const runPostVerifyGates = async (
   deps: PostTaskVerifyLeafDeps,
   opts: PostTaskVerifyLeafOpts,
+  preOutcome: VerifyRunOutcome | undefined,
   signal?: AbortSignal
 ): Promise<RunVerifyScriptOutput & { readonly coveredAllGates: boolean }> => {
   const gates = normalizeVerifyGates(opts.verifyScript, opts.verifyGates);
@@ -304,6 +317,12 @@ const runPostVerifyGates = async (
     mode: 'fail-fast',
     ...(scope !== undefined ? { scope } : {}),
     ...(opts.timeoutMs !== undefined ? { defaultTimeoutMs: opts.timeoutMs } : {}),
+    // Confirm a red once on the same tree so a flake isn't attributed `regressed`. Skipped on a
+    // red baseline: a `baseline-broken` red never blocks, so the re-run would be pure cost. The
+    // fingerprint keeps a gate that rewrote the tree on its red run from passing a re-run.
+    ...(preOutcome !== 'failed'
+      ? { confirmFailedGateOnce: { treeFingerprint: () => computeWorkProductFingerprint(deps.gitRunner, opts.cwd) } }
+      : {}),
     clock: deps.clock,
     // Thread the chain abort signal so a Ctrl-C mid-verify kills the child promptly instead
     // of stranding the repo lock for the full verifyTimeout. `runVerifyShell` collapses the
@@ -365,6 +384,14 @@ const logAttributionOutcome = (
   attribution: Attribution | undefined,
   spawnErrorMessage: string | undefined
 ): void => {
+  if (run.flakyFailure !== undefined) {
+    deps.eventBus.publish({
+      type: 'log',
+      level: 'warn',
+      message: `post-task-verify ${String(opts.cwd)}: flaky gate \`${run.flakyFailure.command}\` failed (exit=${String(run.flakyFailure.exitCode)}) then passed on the harness confirm re-run — not blamed on the task; next task re-measures the baseline`,
+      at: deps.clock(),
+    });
+  }
   if (attribution === 'regressed') {
     deps.eventBus.publish({
       type: 'log',
@@ -410,7 +437,12 @@ const createPostTaskVerifyExecute =
       return Result.ok(buildZeroTurnSkippedResult(deps, input.task));
     }
 
-    const { run, rawOutput, spawnErrorMessage, coveredAllGates } = await runPostVerifyGates(deps, opts, signal);
+    const { run, rawOutput, spawnErrorMessage, coveredAllGates } = await runPostVerifyGates(
+      deps,
+      opts,
+      input.preOutcome,
+      signal
+    );
 
     // Cancellation propagates verbatim. `runVerifyGatesUseCase` folds a runner
     // `Result.error` into a `spawn-error` row, so the abort would otherwise be swallowed as an
@@ -521,7 +553,13 @@ const projectLeafOutput = (ctx: ImplementCtx, out: LeafOutput, opts: PostTaskVer
     // this field only asserts "these gates ran here and got this outcome." `coveredAllGates`
     // is false for a diff-scoped run, whose green says nothing about the gates it skipped.
     // Survives `settle-attempt` (which clears per-attempt fields only).
-    priorPostVerifyOutcome: { cwd: opts.cwd, outcome: out.run.outcome, coveredAllGates: out.coveredAllGates },
+    // A flaky green (a gate passed only on its confirm re-run) is likewise not trustworthy
+    // whole-tree evidence: force the flag false so the next pre-verify re-measures.
+    priorPostVerifyOutcome: {
+      cwd: opts.cwd,
+      outcome: out.run.outcome,
+      coveredAllGates: out.coveredAllGates && out.run.flakyFailure === undefined,
+    },
     ...(blockReason !== undefined ? { lastBlockReason: blockReason } : {}),
     ...(grantRetry ? { lastShouldFailAttempt: true } : {}),
   };

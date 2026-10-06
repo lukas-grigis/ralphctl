@@ -371,6 +371,28 @@ describe('renderJournalEntry — Continuation state (deterministic, harness-deri
     expect(out.indexOf('Verify (pre)')).toBeLessThan(out.indexOf('Verify (post)'));
   });
 
+  it('renders a flaky post verify run with its suffix — a confirm-re-run pass is never silent', () => {
+    const out = renderJournalEntry(
+      baseInput({
+        continuation: {
+          verifyRuns: [
+            { phase: 'pre', command: 'pnpm test', outcome: 'success' },
+            {
+              phase: 'post',
+              command: 'pnpm test',
+              outcome: 'success',
+              flakyFailure: { command: 'pnpm test', exitCode: 1 },
+            },
+          ],
+        },
+      })
+    );
+    expect(out).toContain(
+      '- Verify (post): pnpm test — success — flaky: `pnpm test` failed (exit 1), passed on harness re-run'
+    );
+    expect(out).toContain('- Verify (pre): pnpm test — success\n');
+  });
+
   it('renders an em-dash for a skipped verify run with no command', () => {
     const out = renderJournalEntry(
       baseInput({ continuation: { verifyRuns: [{ phase: 'pre', command: '', outcome: 'skipped' }] } })

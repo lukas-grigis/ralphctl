@@ -75,6 +75,9 @@ const VerifyRunSchema = z.object({
   exitCode: z.number().int(),
   durationMs: z.number().int().nonnegative(),
   outcome: VerifyRunOutcomeSchema,
+  // Gate that failed then passed its confirm re-run. Optional + additive: legacy rows parse
+  // without it, so no data-version bump.
+  flakyFailure: z.object({ command: z.string(), exitCode: z.number().int() }).optional(),
 });
 const AttributionSchema = z.enum(['clean', 'regressed', 'baseline-broken', 'fixed-baseline']);
 
