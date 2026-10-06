@@ -233,15 +233,13 @@ const ladderBypassed = (warning: AttemptWarning | undefined): boolean =>
 const toAttemptStatus = (attempt: Attempt | undefined): JournalContinuationState['attemptStatus'] =>
   attempt !== undefined && attempt.status !== 'running' ? attempt.status : undefined;
 
-/** Flatten the domain `VerifyRun` rows into the renderer's decoupled shape (flaky marker included). */
+/** Flatten the domain `VerifyRun` rows into the renderer's decoupled shape. */
 const toJournalVerifyRuns = (attempt: Attempt | undefined): readonly JournalVerifyRun[] =>
   (attempt?.verifyRuns ?? []).map((run) => ({
     phase: run.phase,
     command: run.command,
     outcome: run.outcome,
-    ...(run.flakyFailure !== undefined
-      ? { flakyFailure: { command: run.flakyFailure.command, exitCode: run.flakyFailure.exitCode } }
-      : {}),
+    ...(run.flakyFailure !== undefined ? { flakyFailure: run.flakyFailure } : {}),
   }));
 
 /** Project the domain `RecoveryContext`, when this attempt opened as a resume of an aborted one. */

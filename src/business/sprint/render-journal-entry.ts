@@ -392,10 +392,7 @@ const correctiveNudgesSentence = (nudges: { readonly generator: number; readonly
 const orderedVerifyRuns = (runs: readonly JournalVerifyRun[]): readonly JournalVerifyRun[] =>
   [...runs].sort((a, b) => (a.phase === b.phase ? 0 : a.phase === 'pre' ? -1 : 1));
 
-/**
- * One verify bullet. A flaky pass carries a suffix naming the gate that failed then passed on the
- * harness re-run, so a reclassified red is always visible in the journal (HARNESS-PRINCIPLES § 5).
- */
+/** One verify bullet; a flaky pass names its gate so a reclassified red never goes silent. */
 const renderVerifyLine = (run: JournalVerifyRun): string => {
   const command = sanitizeInline(run.command);
   const base = `- Verify (${run.phase}): ${command.length > 0 ? command : EM_DASH} — ${run.outcome}`;
