@@ -7,6 +7,8 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.26.0] - 2026-10-08
+
 ### Added
 
 - **Unblock asks what to do with a rejected diff.** When a blocked or interrupted task left its rejected work in
