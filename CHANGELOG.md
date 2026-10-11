@@ -14,6 +14,16 @@ to [Semantic Versioning](https://semver.org/).
   readiness and PR drafting on it at `low`; plan, implement and ideate stay on Sonnet 5.5. It is also the new
   bottom step of the Claude Code escalation ladder (Haiku 5.5 → Sonnet 5.5 → Opus 5.5). An older Claude Code CLI
   fails the spawn on it — upgrade, or set those rows to Sonnet 5.5. Haiku 4.5 still works for saved settings.
+- **Security skill for implement.** The new bundled `ralphctl-security-and-hardening` skill loads by default for
+  implement: threat-model first, validate untrusted input, keep secrets out of code and logs, check authorization,
+  guard destructive file operations, review new dependencies and treat model output as untrusted. Sensitive changes
+  the task didn't ask for (auth, permissions, new kinds of personal data) are escalated rather than made silently —
+  the implementing AI blocks the task with a question, and the reviewer flags it. The Skills catalog also suggests
+  it for plan and PR drafting.
+- **Spec-driven development skill (opt-in).** `ralphctl-spec-driven-development` is available in the Skills catalog
+  for refine and ideate. It helps turn a vague ticket or idea into sharper requirements — a clear objective, explicit
+  scope, testable criteria and named open questions — without adding files or approval steps of its own. It is off
+  by default.
 
 ### Changed
 
@@ -21,6 +31,9 @@ to [Semantic Versioning](https://semver.org/).
   presets, the Copilot defaults and the top of the Copilot escalation ladder move from `claude-opus-4.8` to the
   cheaper `claude-opus-5.5` ($4/$20 vs $5/$25 per MTok). Saved settings on Opus 4.8 or Opus 5 keep working and now
   escalate to 5.5. Applying a preset on an account without 5.5 falls back to Opus 4.8, then Sonnet 5.5.
+- **`ralphctl-karpathy-guidelines` now loads by default for plan only.** On implement it overlapped the
+  `ralphctl-surgical-simplicity` and `ralphctl-ponytail` skills that already load there, so it moves to a Skills
+  catalog suggestion for implement. Enable it from the catalog to keep the old behaviour.
 
 ## [0.26.0] - 2026-10-08
 

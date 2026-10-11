@@ -6,7 +6,8 @@ verbatim upstream snapshots used for drift review live under `scripts/vendor/ski
 upstream's license and copyright notice is reproduced in full below, as the MIT license requires.
 
 - `ralphctl-debugging-and-error-recovery`, `ralphctl-code-review-and-quality`,
-  `ralphctl-test-driven-development`, `ralphctl-idea-refinement` — from
+  `ralphctl-test-driven-development`, `ralphctl-idea-refinement`, `ralphctl-security-and-hardening`,
+  `ralphctl-spec-driven-development` — from
   [addyosmani/agent-skills](https://github.com/addyosmani/agent-skills)
 - `ralphctl-ponytail` — from [DietrichGebert/ponytail](https://github.com/DietrichGebert/ponytail)
 - `ralphctl-domain-driven-design` — from [wondelai/skills](https://github.com/wondelai/skills)

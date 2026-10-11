@@ -18,9 +18,11 @@
  * `FLOW_SKILLS`; the curated additions below them are promoted into the phases where their
  * discipline is strongest (rationale inline per row). Overlap between skills is deliberate —
  * skill bodies are lightweight and the per-run / per-flow opt-out (`settings.ai.skills`,
- * customize-picker skills step) lets an operator trim any of it. `ralphctl-cherny-workflow` is
- * the one curated skill left default-OFF: the harness itself already enforces its core loop
- * (plan gate, check gate, evaluator), so it stays an opt-in reinforcement.
+ * customize-picker skills step) lets an operator trim any of it. Two curated skills stay
+ * default-OFF: `ralphctl-cherny-workflow`, because the harness itself already enforces its core
+ * loop (plan gate, check gate, evaluator), and `ralphctl-spec-driven-development`, because the
+ * refine / ideate prompts already own the requirements output and its approval gate — both are
+ * opt-in reinforcements.
  *
  * `FlowId` is re-exported from `domain/value/flow-id.ts` so this module, the settings schema,
  * the skill sources, and the launcher all read one definition of the flow set. The registry
@@ -104,11 +106,13 @@ export const BUNDLED_SKILLS: readonly BundledSkillEntry[] = [
     recommendedFor: ['createPr'],
   },
   {
-    // Guardrails against silent assumptions and unverified completion bite exactly while
-    // planning and implementing; no phase left to merely recommend.
+    // Default only where its unique value lands: silent assumptions and uncheckable success
+    // criteria (modes 1 and 4) sink a plan before any code exists. On implement its modes 2–3
+    // restate what surgical-simplicity and ponytail already cover there by default, so it is a
+    // suggestion only.
     name: 'ralphctl-karpathy-guidelines',
-    defaultFor: ['plan', 'implement'],
-    recommendedFor: [],
+    defaultFor: ['plan'],
+    recommendedFor: ['implement'],
   },
   {
     // Default-OFF by design: the harness already structures this skill's loop (plan gate,
@@ -130,6 +134,25 @@ export const BUNDLED_SKILLS: readonly BundledSkillEntry[] = [
     name: 'ralphctl-domain-driven-design',
     defaultFor: ['refine', 'plan'],
     recommendedFor: ['implement'],
+  },
+  {
+    // Trust-boundary discipline earns its place wherever code is written or reviewed: implement
+    // mounts it for the generator AND the read-only evaluator, so its escalation guidance is
+    // role-split (the generator blocks, a reviewer records a finding). Plan (abuse cases as
+    // verification criteria, authorising sensitive changes up front) and createPr (flagging
+    // security-relevant changes for the human reviewer) are suggestions only.
+    name: 'ralphctl-security-and-hardening',
+    defaultFor: ['implement'],
+    recommendedFor: ['plan', 'createPr'],
+  },
+  {
+    // Default-OFF by design: refine and ideate already own the requirements output, its layout,
+    // and the operator approval gate. This skill only sharpens that body (objective, boundaries,
+    // testable criteria, open questions) and is adapted to add no files or gates of its own —
+    // an opt-in reinforcement, like cherny-workflow.
+    name: 'ralphctl-spec-driven-development',
+    defaultFor: [],
+    recommendedFor: ['refine', 'ideate'],
   },
 ];
 

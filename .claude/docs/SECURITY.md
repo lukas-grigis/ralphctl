@@ -281,7 +281,7 @@ already has a link; comments use the ticket link, not the create origin.
 
 `Project.defaultIssueOrigin` survives as a persisted field but these writes do not consult it.
 
-**Bundled skills (13 total) always lose to project skills — unless the folder is a leftover of ralphctl's
+**Bundled skills (15 total) always lose to project skills — unless the folder is a leftover of ralphctl's
 own.** When `<cwd>/.claude/skills/<name>/` already exists, the bundled copy is skipped and the project
 copy is left untouched, UNLESS that folder itself carries a `.ralphctl-install.json` ownership marker
 (`skill-install-marker.ts`) naming a process that is no longer running — a leftover from a run that was

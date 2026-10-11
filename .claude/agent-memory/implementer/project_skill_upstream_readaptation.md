@@ -17,3 +17,10 @@ metadata:
   Critical/Major/Minor/Nit scale — map new upstream severity guidance onto it rather than importing labels).
 - No static content hash exists for bundled skills; `.provenance.json` hashes are computed at runtime,
   so editing a bundled SKILL.md surfaces as `update-available` to operators who enabled a copy — expected.
+- Upstream "Ask first / requires human approval" tiers: headless turns cannot ask. Map them to a
+  generator-only `task-blocked` bullet (the passage must contain the word "generator", or the
+  flow-signal test counts it against evaluator/judge) plus a `note` fallback carrying the literal
+  phrase "when the prompt's output-contract section lists" — paraphrasing it loses the test exemption.
+- Never port upstream artifact files or turn-ending approval gates (SPEC.md, tasks/plan.md, "STOP YOUR
+  TURN"): refine/ideate own the single output signal and the operator approval gate, and ideate runs
+  Phase 1 → Phase 2 in ONE session, so a stop-after-spec rule would break it.
