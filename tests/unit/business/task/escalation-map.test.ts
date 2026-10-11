@@ -408,17 +408,30 @@ describe('nextEffortRung', () => {
     expect(nextEffortRung('openai-codex', 'gpt-5.5', 'ultra')).toBeUndefined();
   });
 
-  // ── Grok shares Codex's fixed `xhigh` target — universal across the grok catalog. ──
+  // ── Grok targets `xhigh`, capped to the model's own ceiling — grok-4.5 tops out at `high`. ──
 
-  it('grok escalates a fresh, below-target, or `minimal` row to the fixed target `xhigh`', () => {
+  it('grok escalates a fresh, below-target, or `minimal` row to `xhigh` on grok-4.6 / grok-4.7', () => {
     expect(nextEffortRung('xai-grok', 'grok-4.6', undefined)).toBe(CODEX_EFFORT_ESCALATION_TARGET);
-    expect(nextEffortRung('xai-grok', 'grok-4.6', 'high')).toBe(CODEX_EFFORT_ESCALATION_TARGET);
-    expect(nextEffortRung('xai-grok', 'grok-4.5', 'minimal')).toBe(CODEX_EFFORT_ESCALATION_TARGET);
+    expect(nextEffortRung('xai-grok', 'grok-4.7', 'high')).toBe(CODEX_EFFORT_ESCALATION_TARGET);
+    expect(nextEffortRung('xai-grok', 'grok-4.6', 'minimal')).toBe(CODEX_EFFORT_ESCALATION_TARGET);
   });
 
-  it('grok returns undefined when already at/above the fixed target (no headroom)', () => {
+  it('grok returns undefined when already at/above the target (no headroom)', () => {
     expect(nextEffortRung('xai-grok', 'grok-4.6', 'xhigh')).toBeUndefined();
-    expect(nextEffortRung('xai-grok', 'grok-4.6', 'max')).toBeUndefined();
+    expect(nextEffortRung('xai-grok', 'grok-4.7', 'max')).toBeUndefined();
+  });
+
+  it('grok-4.5 climbs only to its own ceiling `high` — never to an `xhigh` the model rejects', () => {
+    expect(nextEffortRung('xai-grok', 'grok-4.5', 'low')).toBe('high');
+    expect(nextEffortRung('xai-grok', 'grok-4.5', 'minimal')).toBe('high');
+    expect(nextEffortRung('xai-grok', 'grok-4.5', undefined)).toBe('high');
+    expect(nextEffortRung('xai-grok', 'grok-4.5', 'high')).toBeUndefined();
+    expect(nextEffortRung('xai-grok', 'grok-4.5', 'xhigh')).toBeUndefined();
+  });
+
+  it('grok passes a model without effort data (grok-4.7-build-fast, custom ids) to the fixed `xhigh`', () => {
+    expect(nextEffortRung('xai-grok', 'grok-4.7-build-fast', 'high')).toBe(CODEX_EFFORT_ESCALATION_TARGET);
+    expect(nextEffortRung('xai-grok', 'grok-9-custom', undefined)).toBe(CODEX_EFFORT_ESCALATION_TARGET);
   });
 
   it('returns undefined when no provider is resolvable (skips the rung gracefully)', () => {

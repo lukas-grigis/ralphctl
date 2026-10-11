@@ -19,3 +19,14 @@ export type GrokModel = 'grok-4.7' | 'grok-4.7-build-fast' | 'grok-4.6' | 'grok-
 export const GROK_MODELS: readonly GrokModel[] = ['grok-4.7', 'grok-4.7-build-fast', 'grok-4.6', 'grok-4.5'] as const;
 
 export const isGrokModel = (s: string): s is GrokModel => (GROK_MODELS as readonly string[]).includes(s);
+
+/**
+ * Effort levels each Grok model accepts — the CLI takes `none..max`, the models cap lower (models.dev
+ * xai data, not live-probed). `none` / `minimal` stay so a pinned `minimal` row isn't raised to `low`;
+ * `grok-4.7-build-fast` has no published data, so it passes through.
+ */
+export const GROK_MODEL_EFFORT_LEVELS: Readonly<Partial<Record<GrokModel, readonly string[]>>> = {
+  'grok-4.7': ['none', 'minimal', 'low', 'medium', 'high', 'xhigh'],
+  'grok-4.6': ['none', 'minimal', 'low', 'medium', 'high', 'xhigh'],
+  'grok-4.5': ['none', 'minimal', 'low', 'medium', 'high'],
+};

@@ -447,6 +447,21 @@ describe('generatorLeaf', () => {
     expect(provider.recordedSessions[0]?.model).toBe('claude-opus-4-8');
   });
 
+  it('clamps a persisted escalatedToEffort to the spawn model ceiling (grok-4.5 tops out at high)', async () => {
+    // A task stamped before the per-model clamp may carry `xhigh`, which grok-4.5's CLI rejects.
+    const initial = makeInProgressTaskWithRunningAttempt();
+    const stamped = recordTaskEffortEscalation(initial, 'xhigh');
+    if (!stamped.ok) throw stamped.error;
+    const provider = createFakeAiProvider({ responses: { implement: '' } });
+    const leaf = generatorLeaf(
+      { ...buildDeps(), provider, providerId: 'xai-grok', model: 'grok-4.5', effort: 'medium' },
+      stamped.value.id
+    );
+    const result = await leaf.execute(baseCtx(stamped.value));
+    expect(result.ok).toBe(true);
+    expect(provider.recordedSessions[0]?.effort).toBe('high');
+  });
+
   it('falls back to the configured effort when the task has no escalatedToEffort', async () => {
     const task = makeInProgressTaskWithRunningAttempt();
     const provider = createFakeAiProvider({ responses: { implement: '' } });

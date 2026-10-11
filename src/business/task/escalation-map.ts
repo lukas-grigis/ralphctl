@@ -323,11 +323,12 @@ const claudeEffortRung = (model: string, currentEffort: string | undefined): str
  *     escalatable (its CLI default sits ~medium), and `high | xhigh | max` are spent. Non-OpenAI
  *     models' effort semantics are opaque, so Copilot stays conservative rather than climbing further.
  *   - **openai-codex** and **xai-grok** — fixed target {@link CODEX_EFFORT_ESCALATION_TARGET}
- *     (`xhigh`, universal across the codex catalog since the vocabulary change, and the rung below
- *     the `max` that Grok's `--effort` tops out at); `unset` and a legacy `minimal` (retired, pre-migration)
- *     count as escalatable, and `xhigh | max | ultra` are spent. `model` plays no role on the
- *     Copilot, Codex, or Grok path — they are the fallthrough once Claude, the one model-aware
- *     provider, has been handled.
+ *     (`xhigh`, universal across the codex catalog since the vocabulary change, and the ceiling of
+ *     `grok-4.6` / `grok-4.7`); `unset` and a legacy `minimal` (retired, pre-migration) count as
+ *     escalatable, and `xhigh | max | ultra` are spent. On Grok the target is capped to the model's
+ *     own ceiling ({@link grokEffortRung}): `grok-4.5` tops out at `high`, so it climbs there instead.
+ *     Beyond that cap and the catalog-support check, `model` plays no role on the Copilot, Codex, or
+ *     Grok path.
  *
  * `currentEffort` is the resolved per-flow effort (`resolveEffort`/`resolveEffortForRow`), or
  * `undefined` for the CLI default. Pure; no I/O.
@@ -349,7 +350,18 @@ export const nextEffortRung = (
     if (currentEffort !== undefined && EFFORT_AT_OR_ABOVE_TARGET.has(currentEffort)) return undefined;
     return supports(EFFORT_ESCALATION_TARGET) ? EFFORT_ESCALATION_TARGET : undefined;
   }
-  // openai-codex and xai-grok: xhigh is universal; max/ultra are already above it.
+  // openai-codex and xai-grok: xhigh is the target; max/ultra are already above it.
   if (currentEffort !== undefined && CODEX_EFFORT_AT_OR_ABOVE_TARGET.has(currentEffort)) return undefined;
+  if (provider === 'xai-grok' && levels !== undefined) return grokEffortRung(levels, currentEffort);
   return supports(CODEX_EFFORT_ESCALATION_TARGET) ? CODEX_EFFORT_ESCALATION_TARGET : undefined;
+};
+
+/** `xhigh`, or the model's ceiling below it (`high` on `grok-4.5`); spent once the current level reaches it. */
+const grokEffortRung = (levels: readonly string[], currentEffort: string | undefined): string | undefined => {
+  const target = levels.includes(CODEX_EFFORT_ESCALATION_TARGET)
+    ? CODEX_EFFORT_ESCALATION_TARGET
+    : levels.filter((level) => !CODEX_EFFORT_AT_OR_ABOVE_TARGET.has(level)).at(-1);
+  if (target === undefined) return undefined;
+  if (currentEffort !== undefined && levels.indexOf(currentEffort) >= levels.indexOf(target)) return undefined;
+  return target;
 };

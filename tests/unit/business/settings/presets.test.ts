@@ -9,6 +9,7 @@ import { isOpencodeModel } from '@src/domain/value/settings-models/opencode.ts';
 import { isCopilotModel } from '@src/domain/value/settings-models/copilot.ts';
 import { isGrokModel } from '@src/domain/value/settings-models/grok.ts';
 import { mergeEscalationMap } from '@src/business/task/escalation-map.ts';
+import { modelEffortLevels } from '@src/domain/value/settings-models/effort.ts';
 
 /** The exact 26-preset order — mixed first within each family; OpenCode stays standard-only. */
 const EXPECTED_PRESET_ORDER: readonly PresetName[] = [
@@ -305,13 +306,13 @@ const EXPECTED_MATRICES: Readonly<Record<Exclude<PresetName, 'opencode-only'>, M
     createPr: [G, 'grok-4.5', 'low'],
   },
   'grok-frontier': {
-    effort: 'max',
+    effort: 'xhigh',
     refine: [G, 'grok-4.7', 'high'],
-    plan: [G, 'grok-4.7', 'max'],
-    generator: [G, 'grok-4.7', 'max'],
-    evaluator: [G, 'grok-4.7', 'max'],
+    plan: [G, 'grok-4.7', 'xhigh'],
+    generator: [G, 'grok-4.7', 'xhigh'],
+    evaluator: [G, 'grok-4.7', 'xhigh'],
     readiness: [G, 'grok-4.7', 'high'],
-    ideate: [G, 'grok-4.7', 'high'],
+    ideate: [G, 'grok-4.7', 'xhigh'],
     createPr: [G, 'grok-4.7', 'medium'],
   },
   mixed: {
@@ -438,6 +439,20 @@ describe('presets', () => {
           const guard = modelGuardFor(row.provider);
           expect(guard(row.model), `${preset}/${flow}: ${row.provider} → ${row.model}`).toBe(true);
         }
+      }
+    }
+  });
+
+  // The provider CLIs hard-fail on a level the model lacks; resolution would silently clamp it, so a
+  // shipped row asking for one says something the spawn never does (grok-frontier once pinned `max`
+  // on `grok-4.7`, which caps at `xhigh`). Models with no catalog effort list are skipped.
+  it('no preset row pins an effort its model does not accept', () => {
+    for (const preset of PRESET_NAMES) {
+      const out = applyPreset(preset, DEFAULT_SETTINGS);
+      for (const [flow, row] of rowsOf(out)) {
+        const levels = modelEffortLevels(row.provider, row.model);
+        if (levels === undefined || row.effort === undefined) continue;
+        expect(levels, `${preset}/${flow}: ${row.provider} ${row.model} @ ${row.effort}`).toContain(row.effort);
       }
     }
   });

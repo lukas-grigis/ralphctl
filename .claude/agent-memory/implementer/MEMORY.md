@@ -2,7 +2,7 @@
 
 ## Subsystem seams
 
-- [seams_escalation_ladder.md](seams_escalation_ladder.md) — Which exits consult the policy, the provider/model-aware effort rung and its wiring, and where AbortCause can be stamped
+- [seams_escalation_ladder.md](seams_escalation_ladder.md) — Which exits consult the policy, the effort rung and its wiring, the spawn-effort clamp vs the task→settings fence, AbortCause stamping
 - [seams_plateau_and_turn_errors.md](seams_plateau_and_turn_errors.md) — Count-based plateau predicate and exemptions, budget precedence over the in-loop guards, which turn errors block vs propagate
 - [seams_attempt_ctx_and_telemetry.md](seams_attempt_ctx_and_telemetry.md) — Per-attempt ctx lifecycle: reset sites, the ctx-field classification guard, cost telemetry, round numbering, round display
 - [seams_prompt_feedforward.md](seams_prompt_feedforward.md) — Criteria history, dimension trajectory, prior learnings: where each is composed and which prompt it rides

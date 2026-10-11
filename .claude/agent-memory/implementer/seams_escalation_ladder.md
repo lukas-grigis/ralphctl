@@ -125,3 +125,13 @@ settle transition actually produces `aborted`.
 
 Related: [[seams_plateau_and_turn_errors]], [[seams_attempt_ctx_and_telemetry]],
 [[seams_model_catalog_refresh]].
+
+## Spawn-effort clamp and the business sibling fence
+
+`business/task/**` may NOT import `business/settings/**` (ESLint sibling-business fence), so
+`clampEffortToModel` can't be called from `escalation-map.ts` / `escalation-policy.ts`. That is why
+`grokEffortRung` hand-rolls the clamp (don't "dedupe" it into settings without moving it to an `_engine/`),
+and why the spawn-side helper `resolveSpawnEffort` lives in `resolve-effort.ts` and the generator's
+model+effort pair (`generatorSpawnTarget`) lives in the application-layer `_shared/role-spawn.ts`. The
+generator leaf and finalize leaf both go through it so the policy sees the clamped level that actually ran;
+`generator.ts` sits at the 400-line max-lines cap, so any extra line there trips `--max-warnings 0`.

@@ -38,6 +38,15 @@ to [Semantic Versioning](https://semver.org/).
   `ralphctl-surgical-simplicity` and `ralphctl-ponytail` skills that already load there, so it moves to a Skills
   catalog suggestion for implement. Enable it from the catalog to keep the old behaviour.
 
+### Fixed
+
+- **Grok effort stays within what each model accepts.** `grok-4.5` takes effort up to `high` and `grok-4.6` /
+  `grok-4.7` up to `xhigh`; none takes `max`. ralphctl now lowers a higher level to the model's highest, the same way
+  it already does for Copilot and Codex, so a saved `max` runs at `xhigh` on `grok-4.7` instead of risking a rejected
+  spawn. `grok-frontier` now uses `xhigh` on plan, implement and ideate, and `xhigh` as its global effort. When
+  escalating effort on `grok-4.5`, ralphctl now raises it to `high` instead of `xhigh`. `none` and `minimal` are
+  unchanged.
+
 ## [0.26.0] - 2026-10-08
 
 ### Added

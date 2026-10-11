@@ -13,7 +13,8 @@ import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { UpdateTask } from '@src/domain/repository/task/update-task.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
-import { effectiveGeneratorModel } from '@src/business/task/escalation-policy.ts';
+import { resolveSpawnEffort } from '@src/business/settings/resolve-effort.ts';
+import { generatorSpawnTarget } from '@src/application/flows/implement/leaves/_shared/role-spawn.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
@@ -110,29 +111,30 @@ export const finalizeGenEvalLeaf = (deps: FinalizeGenEvalLeafDeps, taskId: TaskI
           message: `finalize-gen-eval-${String(taskId)}: expected in_progress task`,
         });
       }
-      // Per-attempt generator model is the task's escalation override when present, else the
-      // configured settings row — matches the resolution order in `generator.ts`. Read here
-      // so the escalation policy can look up the rung above the actual model that ran.
-      const generatorModel = effectiveGeneratorModel(
-        ctx.currentTask,
-        deps.configuredGeneratorModel,
-        deps.configuredGeneratorProvider
-      );
-      // Per-attempt generator effort mirrors that resolution order (`task.escalatedToEffort ??
-      // configured`) so the policy sees the effort the just-finished attempt actually ran at — a
-      // prior effort bump reads back as the raised level, stopping the effort rung from re-firing.
-      const generatorEffort = ctx.currentTask.escalatedToEffort ?? deps.configuredGeneratorEffort;
-      // Evaluator effort mirrors the same resolution order — a prior lockstep bump reads back as
-      // the raised level, so the ladder advances one step per event instead of re-firing. The
+      // The model + effort the just-finished attempt actually ran at — the generator spawn's own
+      // resolver — so the policy looks up the rung above what ran, and a prior effort bump reads
+      // back as the raised level instead of re-firing.
+      const generator = generatorSpawnTarget(ctx.currentTask, {
+        providerId: deps.configuredGeneratorProvider,
+        model: deps.configuredGeneratorModel,
+        effort: deps.configuredGeneratorEffort,
+      });
+      // Evaluator effort mirrors the same resolution — a prior lockstep bump reads back as the
+      // raised level, so the ladder advances one step per event instead of re-firing. The
       // evaluator MODEL is never escalated, so `configuredEvaluatorModel` rides through unchanged.
-      const evaluatorEffort = ctx.currentTask.escalatedToEvaluatorEffort ?? deps.configuredEvaluatorEffort;
+      const evaluatorEffort = resolveSpawnEffort(
+        ctx.currentTask.escalatedToEvaluatorEffort,
+        deps.configuredEvaluatorEffort,
+        deps.configuredEvaluatorProvider,
+        deps.configuredEvaluatorModel
+      );
       return {
         task: ctx.currentTask,
         sprintId: ctx.sprintId,
         ...(ctx.lastExit !== undefined ? { exit: ctx.lastExit } : {}),
         turnsUsed: ctx.genEvalTurn ?? 0,
-        generatorModel,
-        ...(generatorEffort !== undefined ? { generatorEffort } : {}),
+        generatorModel: generator.model,
+        ...(generator.effort !== undefined ? { generatorEffort: generator.effort } : {}),
         ...(evaluatorEffort !== undefined ? { evaluatorEffort } : {}),
       };
     },

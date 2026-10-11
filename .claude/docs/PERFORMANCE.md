@@ -168,7 +168,8 @@ firing climbs exactly one tier on `low → medium → high → xhigh → max` (t
 tier, e.g. Sonnet 4.6, go `high → max`), capping at `max`. Copilot
 keeps the fixed target `EFFORT_ESCALATION_TARGET`
 (`high`); Codex and Grok keep the same fixed target `CODEX_EFFORT_ESCALATION_TARGET` (`xhigh`) —
-`xhigh` is accepted by every codex catalog model and by every Grok catalog id, unlike the old shared
+`xhigh` is accepted by every codex catalog model and by `grok-4.6` / `grok-4.7` (on `grok-4.5`, which caps
+at `high`, the Grok target is capped to that ceiling), unlike the old shared
 `high` target, which every codex preset already stamped on implement and so left the rung permanently
 spent for them. It stamps
 `Task.escalatedToEffort` (no model change), the generator leaf prefers that over the configured `effort` at

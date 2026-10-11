@@ -4,7 +4,8 @@ import { GROK, GROK_CHEAP, GROK_FLAGSHIP, GROK_MID } from '@src/business/setting
 /*
  * Grok preset matrices. One file per provider; `presets.ts` is only the registry. Tiers (cheap
  * `grok-4.5`, mid `grok-4.6`, flagship `grok-4.7`) are documented in `preset-model-ids.ts`.
- * Every row pins an explicit effort, with the same per-flow shape as the other providers.
+ * Every row pins an explicit effort, with the same per-flow shape as the other providers, capped
+ * at what the row's model accepts (`grok-4.5` ≤ `high`, `grok-4.6` / `grok-4.7` ≤ `xhigh`).
  */
 
 export const GROK_ONLY: AiSettings = {
@@ -62,16 +63,16 @@ export const GROK_FAST: AiSettings = {
   createPr: { provider: GROK, model: GROK_CHEAP, effort: 'low' },
 };
 
-/** `grok-4.7` everywhere, `max` on the deep flows. `grok-4.7-build-fast` stays opt-in. */
+/** `grok-4.7` everywhere, `xhigh` (its ceiling) on the deep flows and ideate. `grok-4.7-build-fast` stays opt-in. */
 export const GROK_FRONTIER: AiSettings = {
-  effort: 'max',
+  effort: 'xhigh',
   refine: { provider: GROK, model: GROK_FLAGSHIP, effort: 'high' },
-  plan: { provider: GROK, model: GROK_FLAGSHIP, effort: 'max' },
+  plan: { provider: GROK, model: GROK_FLAGSHIP, effort: 'xhigh' },
   implement: {
-    generator: { provider: GROK, model: GROK_FLAGSHIP, effort: 'max' },
-    evaluator: { provider: GROK, model: GROK_FLAGSHIP, effort: 'max' },
+    generator: { provider: GROK, model: GROK_FLAGSHIP, effort: 'xhigh' },
+    evaluator: { provider: GROK, model: GROK_FLAGSHIP, effort: 'xhigh' },
   },
   readiness: { provider: GROK, model: GROK_FLAGSHIP, effort: 'high' },
-  ideate: { provider: GROK, model: GROK_FLAGSHIP, effort: 'high' },
+  ideate: { provider: GROK, model: GROK_FLAGSHIP, effort: 'xhigh' },
   createPr: { provider: GROK, model: GROK_FLAGSHIP, effort: 'medium' },
 };

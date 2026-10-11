@@ -160,6 +160,24 @@ describe('evaluatorLeaf', () => {
     expect(deps.provider.recordedSessions[0]?.model).toBe('evaluator-model-fixed');
   });
 
+  it('clamps a persisted escalatedToEvaluatorEffort to the evaluator model ceiling (grok-4.5 tops out at high)', async () => {
+    const initial = makeInProgressTaskWithRunningAttempt();
+    const stamped = recordTaskEvaluatorEffortEscalation(initial, 'xhigh');
+    if (!stamped.ok) throw stamped.error;
+    const task = stamped.value;
+    const deps = buildDeps();
+    const leaf = evaluatorLeaf({ ...deps, providerId: 'xai-grok', model: 'grok-4.5', effort: 'medium' }, task.id);
+    const ctx: ImplementCtx = {
+      sprintId: task.id as unknown as ImplementCtx['sprintId'],
+      tasks: [task],
+      currentTask: task,
+      currentRoundNum: 1,
+      taskWorkspaceRoot: root.root,
+    };
+    await leaf.execute(ctx);
+    expect(deps.provider.recordedSessions[0]?.effort).toBe('high');
+  });
+
   it('falls back to the configured evaluator effort when the task has no escalatedToEvaluatorEffort', async () => {
     const task = makeInProgressTaskWithRunningAttempt();
     const deps = buildDeps();

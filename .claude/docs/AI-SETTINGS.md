@@ -27,12 +27,14 @@ models ran at `high`). The only
 path that still reaches the CLI default is an opencode row with no row or global effort. Readiness,
 distill, the implement roles, create-pr and review all resolve through the same function.
 **Per-model narrowing:** every layer is then clamped to the row's MODEL when the catalog knows its effort
-list — `COPILOT_MODEL_EFFORT_LEVELS` (`settings-models/copilot.ts`, from the Copilot SDK's `listModels()`)
-and `CODEX_MODEL_EFFORT_LEVELS` (`settings-models/codex.ts`, from `~/.codex/models_cache.json`), read via
-`modelEffortLevels()` in `effort.ts`. Both CLIs exit 1 on a level the model lacks. `clampEffortToModel`
+list — `COPILOT_MODEL_EFFORT_LEVELS` (`settings-models/copilot.ts`, from the Copilot SDK's `listModels()`),
+`CODEX_MODEL_EFFORT_LEVELS` (`settings-models/codex.ts`, from `~/.codex/models_cache.json`) and
+`GROK_MODEL_EFFORT_LEVELS` (`settings-models/grok.ts`, from models.dev's xai data citing docs.x.ai —
+medium confidence, not live-probed), read via `modelEffortLevels()` in `effort.ts`. The Copilot and Codex
+CLIs exit 1 on a level the model lacks. `clampEffortToModel`
 drops effort for a model with none (Copilot `claude-haiku-4.5` — the CLI rejects every level) and otherwise
 takes the strongest supported level below the request; it applies to an explicit row effort too. An
-unknown model (custom id, or a claude / grok / opencode row) falls back to the provider floor for the
+unknown model (custom id, `grok-4.7-build-fast`, or a claude / opencode row) falls back to the provider floor for the
 global / default / agent-binding layers and passes an explicit row effort through verbatim. When a CLI
 still rejects the effort or model, `classifySpawnExit` returns a non-retryable `InvalidStateError` stamped
 with a `ProviderConfigRejection` state, and the implement turn blocks once, naming
@@ -51,16 +53,21 @@ the interactive TUI path (`opencode <cwd> --model …`) forwards no effort at al
 asymmetry is declared per provider as `ProviderTraits.effortForwarding.{headless,interactive}`
 (`providers/_engine/provider-traits.ts`) — OpenCode is the only row where the two differ — and the port
 conformance suites assert each adapter's argv against that declaration in both directions, so an adapter
-that starts or stops forwarding effort without updating its row fails at `pnpm test`. Grok accepts
+that starts or stops forwarding effort without updating its row fails at `pnpm test`. The Grok CLI accepts
 `none | minimal | low | medium | high | xhigh | max` and forwards `--effort` on **both** surfaces
 (identity in `clampEffortToProvider` — the native vocabulary includes the global superset plus
-`none` / `minimal`). Grok is in `EFFORT_CAPABLE_PROVIDERS`. The implement generator's
+`none` / `minimal`), but the models cap lower: `grok-4.5` takes up to `high`, `grok-4.6` / `grok-4.7` up
+to `xhigh`, and none takes `max` — so a row or global `max` resolves to `xhigh` on `grok-4.7`. `none` /
+`minimal` stay in every per-model list (Grok-native, CLI-accepted, and not contradicted by the published
+`low..` ranges), so only the top of the range is narrowed. `grok-4.7-build-fast` has no published effort
+data and passes through. Grok is in `EFFORT_CAPABLE_PROVIDERS`. The implement generator's
 resolved effort also feeds the escalation policy's same-model effort rung,
 whose target is provider- and model-aware: a Claude generator at the top of the model ladder climbs one
 tier above its EFFECTIVE effort — the explicit level, or, only when genuinely unset, the model's own
 Claude Code CLI default (`medium` on Opus 5.5 and Sonnet 5.5, `high` on every other effort-capable Claude model — the gap
 between the two is exactly why ralphctl stamps an explicit effort on every flow now) — while Copilot
-escalates to a fixed `high` and Codex and Grok to a fixed `xhigh` — see
+escalates to a fixed `high` and Codex and Grok to a fixed `xhigh` (on Grok capped to the model's ceiling,
+so `grok-4.5` climbs to `high`) — see
 `PERFORMANCE.md § plateau escalation` and `§ Default escalation posture` below for the shipped default's
 own trace.
 
@@ -172,8 +179,11 @@ resolution** above). The families:
   with `gpt-6.1-sol` on the light ones; `ultra` is deliberately not used (plan-gated to Plus+, would brick
   spawns on lower plans). `copilot-frontier` and `grok-frontier` have no equivalent premium tier available
   by default, so they stay on their existing flagship (`claude-opus-5.5` — GitHub gates Opus 4.8 / 5 / 5.5
-  identically, so the newest and cheapest Opus reaches the same accounts — and `grok-4.7`) and
-  differentiate purely by effort. `grok-4.7-build-fast` is the same exclusion
+  identically, so the newest and cheapest Opus reaches the same accounts — and `grok-4.7`).
+  `copilot-frontier` differentiates purely by effort. `grok-frontier` cannot: `grok-4.7` caps at `xhigh`,
+  the level `grok-only` already runs on the deep flows, so it stamps `xhigh` there (global too) and
+  differentiates by running every light flow on the flagship (`refine` / `readiness` at `high`, `createPr`
+  at `medium`) and lifting `ideate` to `xhigh`. `grok-4.7-build-fast` is the same exclusion
   as Fable / Astra: same model, twice the token price, never a preset pick.
 
 **`applyPreset` stamps `harness.escalateOnPlateau`** alongside the AI section. Standard / economic /

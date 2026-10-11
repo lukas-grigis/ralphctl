@@ -9,6 +9,7 @@ import {
   floorEffort,
   resolveEffort,
   resolveEffortForRow,
+  resolveSpawnEffort,
 } from '@src/business/settings/resolve-effort.ts';
 import type { AiFlowSettings } from '@src/domain/entity/settings.ts';
 
@@ -240,6 +241,20 @@ describe('clampEffortToModel', () => {
     expect(clampEffortToModel('xhigh', 'claude-code', 'claude-haiku-4-5')).toBe('xhigh');
     expect(clampEffortToModel('ultra-mega', 'openai-codex', 'gpt-5.5')).toBe('ultra-mega');
   });
+
+  it('caps Grok per model — max → xhigh on grok-4.7 / grok-4.6, anything above high → high on grok-4.5', () => {
+    expect(clampEffortToModel('max', 'xai-grok', 'grok-4.7')).toBe('xhigh');
+    expect(clampEffortToModel('max', 'xai-grok', 'grok-4.6')).toBe('xhigh');
+    expect(clampEffortToModel('xhigh', 'xai-grok', 'grok-4.5')).toBe('high');
+    expect(clampEffortToModel('max', 'xai-grok', 'grok-4.5')).toBe('high');
+    expect(clampEffortToModel('xhigh', 'xai-grok', 'grok-4.7')).toBe('xhigh');
+  });
+
+  it('keeps Grok none / minimal verbatim and passes grok-4.7-build-fast (no effort data) through', () => {
+    expect(clampEffortToModel('none', 'xai-grok', 'grok-4.5')).toBe('none');
+    expect(clampEffortToModel('minimal', 'xai-grok', 'grok-4.7')).toBe('minimal');
+    expect(clampEffortToModel('max', 'xai-grok', 'grok-4.7-build-fast')).toBe('max');
+  });
 });
 
 describe('floorEffort', () => {
@@ -248,6 +263,9 @@ describe('floorEffort', () => {
     expect(floorEffort('max', 'openai-codex', 'gpt-5.5')).toBe('xhigh');
     expect(floorEffort('max', 'openai-codex', 'my-custom-model')).toBe('xhigh');
     expect(floorEffort('high', 'github-copilot', 'claude-haiku-4.5')).toBeUndefined();
+    // Grok has no provider-level floor, so a global `max` only narrows on a catalogued model.
+    expect(floorEffort('max', 'xai-grok', 'grok-4.7')).toBe('xhigh');
+    expect(floorEffort('max', 'xai-grok', 'grok-4.7-build-fast')).toBe('max');
   });
 });
 
@@ -268,5 +286,33 @@ describe('resolveEffortForRow — per-model effort', () => {
   it('honours a global max on a codex model that supports it instead of the provider-wide floor', () => {
     expect(resolveEffortForRow(row('openai-codex', 'gpt-6-sol'), 'max', 'implement')).toBe('max');
     expect(resolveEffortForRow(row('openai-codex', 'gpt-5.5'), 'max', 'implement')).toBe('xhigh');
+  });
+
+  it('caps a persisted Grok max (row or global) at the model ceiling — xhigh on grok-4.7, high on grok-4.5', () => {
+    expect(resolveEffortForRow(row('xai-grok', 'grok-4.7', 'max'), undefined, 'implement')).toBe('xhigh');
+    expect(resolveEffortForRow(row('xai-grok', 'grok-4.7'), 'max', 'plan')).toBe('xhigh');
+    expect(resolveEffortForRow(row('xai-grok', 'grok-4.5'), 'xhigh', 'implement')).toBe('high');
+    expect(resolveEffortForRow(row('xai-grok', 'grok-4.7-build-fast', 'max'), undefined, 'implement')).toBe('max');
+  });
+});
+
+describe('resolveSpawnEffort', () => {
+  it('clamps an escalated level above the model ceiling (grok-4.5 tops out at high)', () => {
+    expect(resolveSpawnEffort('xhigh', 'medium', 'xai-grok', 'grok-4.5')).toBe('high');
+  });
+
+  it('falls back to the configured level, also clamped to the model', () => {
+    expect(resolveSpawnEffort(undefined, 'xhigh', 'xai-grok', 'grok-4.5')).toBe('high');
+    expect(resolveSpawnEffort(undefined, 'medium', 'xai-grok', 'grok-4.5')).toBe('medium');
+  });
+
+  it('passes the level through when the provider or model is unknown', () => {
+    expect(resolveSpawnEffort('xhigh', undefined, undefined, 'grok-4.5')).toBe('xhigh');
+    expect(resolveSpawnEffort('xhigh', undefined, 'not-a-provider', 'grok-4.5')).toBe('xhigh');
+    expect(resolveSpawnEffort('xhigh', undefined, 'xai-grok', undefined)).toBe('xhigh');
+  });
+
+  it('returns undefined when neither level is set', () => {
+    expect(resolveSpawnEffort(undefined, undefined, 'xai-grok', 'grok-4.5')).toBeUndefined();
   });
 });
