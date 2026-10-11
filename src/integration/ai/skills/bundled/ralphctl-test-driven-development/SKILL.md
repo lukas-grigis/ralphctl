@@ -1,6 +1,6 @@
 ---
 name: ralphctl-test-driven-development
-description: Execute-phase skill — write the failing test before the code that makes it pass; for bug fixes, this is the reproduction test itself. Use for any logic change, bug fix, or behavioural modification; for the full root-cause triage pipeline around an unexpected failure, see ralphctl-debugging-and-error-recovery.
+description: Execute-phase skill — drive changes with the red-green-refactor loop; write the failing test before the code that makes it pass; for bug fixes, this is the reproduction test itself. Use for any logic change, bug fix, or behavioural modification; for the full root-cause triage pipeline around an unexpected failure, see ralphctl-debugging-and-error-recovery.
 license: MIT
 ---
 
@@ -22,6 +22,28 @@ AI agent's superpower; a codebase without tests is a liability.
 
 **When NOT to use:** Pure configuration changes, documentation updates, or static content changes with no
 behavioural impact.
+
+## Discover the Stack First
+
+The TDD cycle is universal; the commands are not. Before writing the first test, find out how _this_
+repository tests, and use its commands for every RED, GREEN, and narrow-check step:
+
+- **Commands the harness hands you** — the prompt's project-tooling or check-gate section, when present, is
+  the authoritative source; prefer it over anything you infer.
+- **Language and build system** — the dependency manifest or build file (`package.json`, `pom.xml` /
+  `build.gradle`, `pyproject.toml`, `go.mod`, `Cargo.toml`, `Gemfile`, a `Makefile`).
+- **Checked-in wrappers** — prefer a repo wrapper or script (`./gradlew`, `./mvnw`, a `Makefile` target) over
+  a globally installed tool.
+- **Test framework and configuration** — and how it runs a single focused test versus the full suite.
+- **Existing conventions** — where tests live, how files are named, what patterns neighbouring tests follow.
+- **Documented commands** — the project's AI context file, README, CONTRIBUTING, and CI workflows show the
+  commands that actually gate merges.
+
+Run the repository's focused-test command during the loop. Never assume a default test command from another
+ecosystem — a Gradle, Cargo, or pytest project has its own equivalent.
+
+The examples below use TypeScript for illustration; the workflow is identical in any language once you have
+discovered the project's own tooling.
 
 ## The TDD Cycle
 
@@ -319,6 +341,7 @@ describe('TaskService', () => {
 ## Red Flags
 
 - Writing code without any corresponding tests
+- Reaching for a default test command without checking what this repository actually uses
 - Tests that pass on the first run (they may not be testing what you think)
 - "All tests pass" but no tests were actually run
 - Bug fixes without a reproduction test
