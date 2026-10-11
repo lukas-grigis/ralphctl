@@ -10,7 +10,7 @@
 - [seams_implement_prologue_gates.md](seams_implement_prologue_gates.md) — Dirty-tree menu + post-setup check; e2e porcelain counters; restore after pre-verify; bugfix relaunch; worktree discard + resume gate; stale-ref rescue
 - [seams_verify_gates.md](seams_verify_gates.md) — Per-module verify gates: precedence, multi-gate representation, diff-footprint scoping + coverage flag, fresh-setup skip, detect-scripts emission, confirm-on-red re-run
 - [seams_provider_engine_streaming.md](seams_provider_engine_streaming.md) — One shared rate-limit retry loop, empirical stream field names, stdout OOM caps, kill escalation
-- [seams_provider_conformance_and_demo.md](seams_provider_conformance_and_demo.md) — The src-side scripted-spawn builder shared by conformance suites and `demo --script`; buildEnv / effortForwarding contracts
+- [seams_provider_conformance_and_demo.md](seams_provider_conformance_and_demo.md) — The src-side scripted-spawn builder shared by conformance suites, `demo --script` and the README recorder (pacing, VHS traps); buildEnv / effortForwarding contracts
 - [seams_chain_runner_core.md](seams_chain_runner_core.md) — createRunner containment, aborted-with-error, listener-leak seams, onStart, display-only grouping vs nesting
 - [seams_parallel_runner_architecture.md](seams_parallel_runner_architecture.md) — runWaves above the chain, nested-runner adapter, rootSessionId, ALS fence, forwarded-entry/parentChainId bus rules
 - [seams_tui_architecture_patterns.md](seams_tui_architecture_patterns.md) — Modal overlays, global hotkeys over view-local data, clip markers, one hint source, the commit-storm coalescer, cancel-vs-abort

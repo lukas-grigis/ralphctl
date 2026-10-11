@@ -57,6 +57,20 @@ pnpm format              # Format all files with Prettier
 > Pre-commit hooks (lint + format on staged files) are installed automatically
 > on `pnpm install` via Husky. No manual setup needed.
 
+### Re-recording the README demo
+
+`.github/assets/demo.gif` is generated, not hand-made. With [VHS](https://github.com/charmbracelet/vhs) (plus its
+`ttyd` and `ffmpeg` dependencies) on `PATH`, run from the repository root:
+
+```bash
+vhs .github/assets/demo.tape            # export VHS_NO_SANDBOX=true first when running as root
+```
+
+The tape drives `pnpm demo:record` (`scripts/record-demo.ts`): it seeds a throwaway sandbox and replays the canned
+`ralphctl demo --script` transcript, paced for the camera, through the real Implement flow — no AI CLI, no tokens.
+`tests/integration/scripts/record-demo.test.ts` keeps that run reaching a committed task. To watch it without
+recording, run `pnpm demo:record` and press `n`, then Enter three times.
+
 ## Making changes
 
 1. **Fork and branch.** Create a feature branch from `main`:

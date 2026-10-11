@@ -24,6 +24,9 @@ to [Semantic Versioning](https://semver.org/).
   for refine and ideate. It helps turn a vague ticket or idea into sharper requirements — a clear objective, explicit
   scope, testable criteria and named open questions — without adding files or approval steps of its own. It is off
   by default.
+- **The README opens with a recording of the loop.** A ~10-second capture shows one task going through it: the
+  evaluator fails round 1 with a critique, the generator applies it, and round 2 passes and commits.
+  `ralphctl demo --script` replays the same run with no AI CLI and no tokens.
 
 ### Changed
 

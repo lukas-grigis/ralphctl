@@ -48,6 +48,8 @@ export interface PrepareScriptedDemoInput {
   readonly homeDir: AbsolutePath;
   /** Clock for the transcript's signal timestamps. Tests pin it; production omits it. */
   readonly now?: () => IsoTimestamp;
+  /** Per-session pacing; only the README recorder (`scripts/record-demo.ts`) sets it. */
+  readonly sessionDelayMs?: number;
 }
 
 export interface PreparedScriptedDemo {
@@ -123,5 +125,6 @@ export const prepareScriptedDemo = async (
   }
 
   const transcript = input.now === undefined ? demoTranscript() : demoTranscript(input.now);
-  return Result.ok({ providerSpawn: createDemoProviderSpawn(transcript), settings });
+  const providerSpawn = createDemoProviderSpawn(transcript, { sessionDelayMs: input.sessionDelayMs });
+  return Result.ok({ providerSpawn, settings });
 };

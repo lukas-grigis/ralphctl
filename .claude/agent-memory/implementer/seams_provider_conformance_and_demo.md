@@ -1,6 +1,6 @@
 ---
 name: seams_provider_conformance_and_demo
-description: The src-side scripted-spawn builder shared by the conformance suites and `ralphctl demo --script`, the buildEnv/effortForwarding contracts, and the lint gotchas around them
+description: The src-side scripted-spawn builder shared by the conformance suites, `ralphctl demo --script` and the README recorder, the buildEnv/effortForwarding contracts, and the lint gotchas around them
 metadata:
   type: project
 ---
@@ -65,6 +65,20 @@ an authenticated provider CLI, and a mocked chain would prove nothing.
   script has no beat for an escalation rung), and node one-liners for the seeded verify script /
   criterion. The repo verify script must be GREEN at baseline — a red pre-task-verify opens the "proceed
   on a broken tree?" operator gate mid-recording.
+
+## README capture (`scripts/record-demo.ts` + `.github/assets/demo.tape`)
+
+- **Pacing is `sessionDelayMs` → the scripted child's `exitDelayMs`, a function arg only** — no env
+  var / CLI flag, so a shipped binary can't be talked into the fake spawn beyond the explicit
+  `demo --script`. The delay holds the child open AFTER it wrote signals; the TUI only shows them
+  once the leaf validates post-exit, so the round-1 `✗ correctness` row is visible for all of round 2.
+- **Fence pacing per child (spawn → `exit` lifetime), not by total run time** — the unpaced run's
+  git + verify work already exceeds 4× a small delay, so a whole-run elapsed assertion is vacuous.
+- **VHS: wait on `/tasks pending/` then sleep ~1s before `Show`.** Home paints progressively;
+  "Start a flow" appears while the state card still says "loading state…". As root VHS needs
+  `VHS_NO_SANDBOX=true`; ttyd comes from its GitHub release binary.
+- The doctor-warning count in the footer comes from module-imported `commandExists`/`runCommand`
+  in `system-status-context.tsx`, not AppDeps — it can't be faked from the recorder.
 
 ## Two lint gotchas hit landing this
 
