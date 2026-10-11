@@ -30,13 +30,13 @@ import { modelEffortLevels } from '@src/domain/value/settings-models/effort.ts';
  *  - **github-copilot** — Haiku 4.5 → Sonnet 5.5 → Opus 5.5 (top); rows pinned to Sonnet 5,
  *    Opus 4.8 or Opus 5 also climb to Opus 5.5. GitHub gates Opus 4.8 / 5 / 5.5 identically (Pro+
  *    and up), so topping out on 5.5 reaches no fewer accounts than 4.8 did, at a lower price. GPT:
- *    the 2026-10-19-deprecated ids step to GitHub's named successors (minis → `gpt-5.6-luna`,
- *    `gpt-5.4` / `gpt-5.5` → `gpt-5.6-sol`); within 5.6, luna → terra → sol. The
- *    GPT-6 ids are not rungs — `gpt-6-sol` / `gpt-6.1-sol` are Pro+ only.
+ *    luna → terra → sol within 5.6 (rows pinned to the 2026-10-19-retired GPT-5 ids are remapped
+ *    onto those tiers at parse time). The GPT-6 ids are not rungs — `gpt-6-sol` / `gpt-6.1-sol`
+ *    are Pro+ only.
  *  - **openai-codex** — `gpt-6-luna` → `gpt-6.1-sol` (top). `gpt-6-astra` is opt-in premium (5x the
  *    sol price), never a default rung. Pinned older tiers converge on `gpt-6.1-sol`: `gpt-6-sol` →
- *    `gpt-6.1-sol` (same price, the cache's current workhorse), `gpt-5.5` → `gpt-5.6-sol`, luna →
- *    terra → sol within 5.6, then `gpt-5.6-sol` → `gpt-6.1-sol`.
+ *    `gpt-6.1-sol` (same price, the cache's current workhorse), luna → terra → sol within 5.6,
+ *    then `gpt-5.6-sol` → `gpt-6.1-sol`.
  *  - **xai-grok** — one generation per plateau up to `grok-4.7`. `grok-4.7-build-fast` is the same
  *    model at 2x price, so it is not a rung.
  *  - **opencode** — none. OpenCode aggregates upstream providers, so there is no vendor ladder.
@@ -49,7 +49,6 @@ import { modelEffortLevels } from '@src/domain/value/settings-models/effort.ts';
  */
 const CLAUDE_OPUS_5_5 = 'claude-opus-5-5';
 const CLAUDE_SONNET_5_5 = 'claude-sonnet-5-5';
-const GPT_5_5 = 'gpt-5.5';
 const GPT_5_6_SOL = 'gpt-5.6-sol';
 const GPT_6_1_SOL = 'gpt-6.1-sol';
 const GPT_5_6_LUNA = 'gpt-5.6-luna';
@@ -72,18 +71,12 @@ export const DEFAULT_ESCALATION_LADDERS: Readonly<Record<AiProvider, Readonly<Re
     'claude-sonnet-5': COPILOT_OPUS_5_5,
     'claude-opus-4.8': COPILOT_OPUS_5_5,
     'claude-opus-5': COPILOT_OPUS_5_5,
-    'gpt-5-mini': GPT_5_6_LUNA,
-    'gpt-5.4-mini': GPT_5_6_LUNA,
-    'gpt-5.4': GPT_5_6_SOL,
-    [GPT_5_5]: GPT_5_6_SOL,
     [GPT_5_6_LUNA]: 'gpt-5.6-terra',
     'gpt-5.6-terra': GPT_5_6_SOL,
-    'grok-4.5': 'grok-4.6',
   },
   'openai-codex': {
     'gpt-6-luna': GPT_6_1_SOL,
     'gpt-6-sol': GPT_6_1_SOL,
-    [GPT_5_5]: GPT_5_6_SOL,
     [GPT_5_6_LUNA]: 'gpt-5.6-terra',
     'gpt-5.6-terra': GPT_5_6_SOL,
     [GPT_5_6_SOL]: GPT_6_1_SOL,
@@ -128,8 +121,8 @@ export const warnEscalationMapSelfLoops = (escalationMap: Readonly<Record<string
  * Emit one warn-level log record per escalation target that is still a retired slug after the
  * parse. Unambiguous retirements are already rewritten by the settings schema's harness
  * preprocess, so any survivor is AMBIGUOUS — retired on one provider but live on another (e.g.
- * `gpt-5.4`: gone from codex, still a Copilot id), or retired on several with different
- * successors. The rung stays as written (correct for the provider that still serves it); the
+ * `grok-4.5`: gone from Copilot, still an xai-grok id), or retired on several with different
+ * successors (`gpt-5.4`). The rung stays as written (correct for the provider that still serves it); the
  * warning names the provider(s) whose spawn would reject it and the successor to pin instead.
  */
 export const warnEscalationMapRetiredValues = (

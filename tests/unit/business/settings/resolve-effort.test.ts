@@ -226,8 +226,7 @@ describe('clampEffortToModel', () => {
   });
 
   it('floors to the strongest level the model supports below the request', () => {
-    expect(clampEffortToModel('max', 'github-copilot', 'gpt-5-mini')).toBe('high');
-    expect(clampEffortToModel('max', 'openai-codex', 'gpt-5.5')).toBe('xhigh');
+    expect(clampEffortToModel('max', 'github-copilot', 'mai-code-1.1-flash')).toBe('high');
     expect(clampEffortToModel('ultra', 'openai-codex', 'gpt-6-luna')).toBe('max');
   });
 
@@ -239,7 +238,7 @@ describe('clampEffortToModel', () => {
     expect(clampEffortToModel('max', 'github-copilot', 'claude-sonnet-5')).toBe('max');
     expect(clampEffortToModel('max', 'openai-codex', 'my-custom-model')).toBe('max');
     expect(clampEffortToModel('xhigh', 'claude-code', 'claude-haiku-4-5')).toBe('xhigh');
-    expect(clampEffortToModel('ultra-mega', 'openai-codex', 'gpt-5.5')).toBe('ultra-mega');
+    expect(clampEffortToModel('ultra-mega', 'openai-codex', 'gpt-6-luna')).toBe('ultra-mega');
   });
 
   it('caps Grok per model — max → xhigh on grok-4.7 / grok-4.6, anything above high → high on grok-4.5', () => {
@@ -260,7 +259,7 @@ describe('clampEffortToModel', () => {
 describe('floorEffort', () => {
   it('uses the model list when known, else the provider floor', () => {
     expect(floorEffort('max', 'openai-codex', 'gpt-6-sol')).toBe('max');
-    expect(floorEffort('max', 'openai-codex', 'gpt-5.5')).toBe('xhigh');
+    expect(floorEffort('ultra', 'openai-codex', 'gpt-6-luna')).toBe('max');
     expect(floorEffort('max', 'openai-codex', 'my-custom-model')).toBe('xhigh');
     expect(floorEffort('high', 'github-copilot', 'claude-haiku-4.5')).toBeUndefined();
     // Grok has no provider-level floor, so a global `max` only narrows on a catalogued model.
@@ -279,13 +278,15 @@ describe('resolveEffortForRow — per-model effort', () => {
   });
 
   it('narrows an explicit row effort the model rejects, but keeps it verbatim on a custom model', () => {
-    expect(resolveEffortForRow(row('github-copilot', 'gpt-5-mini', 'xhigh'), undefined, 'implement')).toBe('high');
+    expect(resolveEffortForRow(row('github-copilot', 'mai-code-1.1-flash', 'xhigh'), undefined, 'implement')).toBe(
+      'high'
+    );
     expect(resolveEffortForRow(row('openai-codex', 'my-custom-model', 'max'), undefined, 'implement')).toBe('max');
   });
 
   it('honours a global max on a codex model that supports it instead of the provider-wide floor', () => {
     expect(resolveEffortForRow(row('openai-codex', 'gpt-6-sol'), 'max', 'implement')).toBe('max');
-    expect(resolveEffortForRow(row('openai-codex', 'gpt-5.5'), 'max', 'implement')).toBe('xhigh');
+    expect(resolveEffortForRow(row('openai-codex', 'my-custom-model'), 'max', 'implement')).toBe('xhigh');
   });
 
   it('caps a persisted Grok max (row or global) at the model ceiling — xhigh on grok-4.7, high on grok-4.5', () => {

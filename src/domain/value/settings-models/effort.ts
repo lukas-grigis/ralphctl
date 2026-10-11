@@ -8,10 +8,9 @@
  * the literals.
  *
  * The Codex list is the provider-level superset — `minimal` was retired by codex ≥ 0.145
- * (persisted rows are migrated to `low`); `max` exists only on the 5.6 and GPT-6 families and
- * `ultra` only on gpt-6-astra / gpt-6-sol / gpt-5.6-sol / gpt-5.6-terra (plan-gated to Plus+,
- * never on the luna tiers) — per-model narrowing is deliberately left to the codex CLI at spawn,
- * matching the custom-model policy.
+ * (persisted rows are migrated to `low`); every catalog model accepts `max`, and `ultra` exists
+ * only on the non-luna tiers (plan-gated to Plus+) — per-model narrowing is left to the codex CLI
+ * at spawn, matching the custom-model policy.
  *
  * @public
  */

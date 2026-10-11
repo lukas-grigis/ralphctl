@@ -45,6 +45,19 @@ remap must check every catalog.
 `generator.ts` sits at the `max-lines` 400 ceiling (comments/blank skipped) — a new import or field
 there trips lint; merge imports or put the field on `RoleLeafDeps`.
 
+## Removing a catalog id breaks tests no grep for "retired" finds
+
+The provider adapter suites (`tests/integration/ai/providers/{codex,copilot}/*-provider.test.ts`) use a
+catalog id as the default `session().model`; the adapter rejects off-catalog ids, so dropping that id
+fails ~70 tests that look unrelated. Effort-clamp examples in `resolve-effort.test.ts` /
+`resolve-agent-override.test.ts` also lean on specific "model lacks level X" ids — when the last such
+model goes, the example silently turns into a custom-id passthrough (still green, now meaningless), so
+re-point it at a model that still lacks the level rather than just keeping the assertion passing.
+
+When a slug retires on TWO providers, `remapRetiredModel` is per-provider, but the provider-less
+`unambiguousRetiredSuccessor` (escalationMap values) only rewrites when every retirement names the same
+successor; differing successors stay in place and warn.
+
 ## Sweep order
 
 catalog file → `RETIRED_MODEL_REMAPS` in `src/domain/entity/settings.ts` → fingerprint → the two remap

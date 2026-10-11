@@ -53,3 +53,9 @@ files become hotspots. Symptoms seen:
 backup-then-swap loop (to see a test fail against HEAD sources) silently backs up nothing and the
 restore loop no-ops — the fixes are lost. Use an array (`files=(a b); for f in $files`) and check
 the backup exists before overwriting.
+
+**Two tasks, one tree, separate commits.** When the parent wants two independently-committable changes,
+save `git diff -- <task-A files> > scratchpad/taskA.patch` as soon as task A is done; afterwards the
+parent can stage exactly task A with `git apply --cached taskA.patch` (index-only, worktree untouched)
+even where task B later edited the same files. Keep the two tasks' edits on non-adjacent lines in shared
+files so the hunks stay separable.

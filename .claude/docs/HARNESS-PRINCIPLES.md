@@ -590,6 +590,19 @@ updating the recorded hash:
 
 **Model-bump audit log.**
 
+- **2026-10-11 — Codex `gpt-5.5` (2026-10-14) and the Copilot 2026-10-19 batch retired.** Step 1: Codex
+  drops `gpt-5.5`; Copilot drops `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`, `gpt-5-mini`, `gemini-3.7-flash`
+  and `grok-4.5`. Each was a ladder key (Codex `gpt-5.5`; the five Copilot GPT / Grok ids) and none a
+  destination, so the keys were dropped with the ids — `RETIRED_MODEL_REMAPS` moves persisted rows onto
+  GitHub's named successors (`gpt-5.6-sol` / `gpt-5.6-luna` / `gemini-3.8-flash` / `grok-4.6`) and Codex
+  `gpt-5.5` onto `gpt-5.6-sol` before they reach the escalation policy. The older Codex remaps that
+  targeted `gpt-5.5` were chain-collapsed onto `gpt-5.6-sol`. `grok-4.5` stays a live `xai-grok` id, and
+  `gpt-5.4` now retires to different successors per provider, so neither is rewritten in a provider-less
+  `escalationMap`; `gpt-5.5` retires to `gpt-5.6-sol` on both, which `unambiguousRetiredSuccessor` now
+  accepts as unambiguous. No preset or default pointed at any of them. Step 2: the only `partial` rows are
+  §14 and §18, the audit mechanism itself — a retirement closes neither; there are no `gap` rows. Step 3:
+  a pure removal adds no capability, so no `applied` row was re-measured and none removed.
+
 - **2026-10-11 — Claude Haiku 5.5 / Copilot Opus 5.5.** Step 1: `claude-haiku-5-5` joins the
   claude-code catalog and becomes the bottom of the claude-code ladder (Haiku 5.5 → Sonnet 5.5 → Opus
   5.5); `claude-haiku-4-5` stays catalogued and keyed (→ Sonnet 5.5) so pinned rows still escalate.

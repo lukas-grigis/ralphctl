@@ -566,12 +566,12 @@ describe('presets', () => {
   });
 
   it('no preset row references a retiring cheap tier', () => {
-    // `gpt-5.4-mini` left Codex on 2026-08-31 and `gpt-5-mini` is the generation below it; the
-    // cheap tier is now `gpt-6-luna` on both Codex and Copilot. `gpt-5.5` leaves Codex on 2026-10-14,
-    // and Copilot drops `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`, `gpt-5-mini` and `gemini-3.7-flash` on
-    // 2026-10-19. `claude-haiku-4-5` has an Anthropic retirement horizon (not before
-    // 2026-10-15); its successor `claude-haiku-5-5` carries the cheap claude light flows instead. Ids that remain catalogued stay pinnable until the
-    // shutoff — what this fences is the curated matrices shipping a row that stops spawning on a
+    // `gpt-5.4-mini` left Codex on 2026-08-31 and `gpt-5.5` on 2026-10-14; Copilot dropped `gpt-5.5`,
+    // `gpt-5.4`, `gpt-5.4-mini`, `gpt-5-mini` and `gemini-3.7-flash` on 2026-10-19 (all remapped at
+    // parse time). The cheap tier is now `gpt-6-luna` on both Codex and Copilot. `claude-haiku-4-5`
+    // has an Anthropic retirement horizon (not before 2026-10-15); its successor `claude-haiku-5-5`
+    // carries the cheap claude light flows instead. Ids that remain catalogued stay pinnable until
+    // the shutoff — what this fences is the curated matrices shipping a row that stops spawning on a
     // known date.
     const retiring = new Set([
       'gpt-5.4-mini',

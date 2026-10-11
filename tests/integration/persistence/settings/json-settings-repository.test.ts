@@ -136,15 +136,15 @@ describe('JsonSettingsRepository', () => {
       schemaVersion: CURRENT_SCHEMA_VERSION,
       ai: {
         effort: 'high',
-        refine: { provider: 'github-copilot', model: 'gpt-5-mini' },
-        plan: { provider: 'github-copilot', model: 'gpt-5.4', effort: 'xhigh' },
+        refine: { provider: 'github-copilot', model: 'gpt-5.6-luna' },
+        plan: { provider: 'github-copilot', model: 'gpt-5.6-sol', effort: 'xhigh' },
         implement: {
           generator: { provider: 'claude-code', model: 'claude-opus-4-8', effort: 'max' },
-          evaluator: { provider: 'openai-codex', model: 'gpt-5.5', effort: 'high' },
+          evaluator: { provider: 'openai-codex', model: 'gpt-5.6-sol', effort: 'high' },
         },
         readiness: { provider: 'openai-codex', model: 'gpt-6-luna' },
-        ideate: { provider: 'github-copilot', model: 'gpt-5-mini' },
-        createPr: { provider: 'github-copilot', model: 'gpt-5-mini' },
+        ideate: { provider: 'github-copilot', model: 'gpt-5.6-luna' },
+        createPr: { provider: 'github-copilot', model: 'gpt-5.6-luna' },
       },
       harness: {
         maxTurns: 8,
@@ -375,6 +375,49 @@ describe('JsonSettingsRepository', () => {
     expect(loaded.value.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
     const onDisk = JSON.parse(await fs.readFile(path, 'utf8')) as { readonly ai: Record<string, unknown> };
     expect(onDisk.ai['plan']).toEqual({ provider: 'github-copilot', model: retired });
+  });
+
+  // Codex `gpt-5.5` retired 2026-10-14 and the Copilot batch on 2026-10-19. One file pinning every
+  // affected row shape (flat + both implement roles, two providers) loads onto the named successors.
+  it('load remaps rows pinned to the October 2026 Codex and Copilot retirements onto their successors', async () => {
+    const path = join(String(configRoot), SETTINGS_FILE_NAME);
+    const pinned = {
+      ...DEFAULT_SETTINGS,
+      ai: {
+        ...DEFAULT_SETTINGS.ai,
+        refine: { provider: 'github-copilot', model: 'gpt-5-mini', effort: 'low' },
+        plan: { provider: 'github-copilot', model: 'gpt-5.4', effort: 'xhigh' },
+        readiness: { provider: 'github-copilot', model: 'gemini-3.7-flash' },
+        ideate: { provider: 'github-copilot', model: 'grok-4.5' },
+        implement: {
+          generator: { provider: 'openai-codex', model: 'gpt-5.5', effort: 'xhigh' },
+          evaluator: { provider: 'github-copilot', model: 'gpt-5.5', effort: 'high' },
+        },
+      },
+    };
+    await fs.writeFile(path, `${JSON.stringify(pinned, null, 2)}\n`);
+
+    const repo = createJsonSettingsRepository({ configRoot });
+    const loaded = await repo.load();
+    expect(loaded.ok).toBe(true);
+    if (!loaded.ok) return;
+    expect(loaded.value.ai.refine).toEqual({ provider: 'github-copilot', model: 'gpt-5.6-luna', effort: 'low' });
+    expect(loaded.value.ai.plan).toEqual({ provider: 'github-copilot', model: 'gpt-5.6-sol', effort: 'xhigh' });
+    expect(loaded.value.ai.readiness).toEqual({ provider: 'github-copilot', model: 'gemini-3.8-flash' });
+    expect(loaded.value.ai.ideate).toEqual({ provider: 'github-copilot', model: 'grok-4.6' });
+    expect(loaded.value.ai.implement.generator).toEqual({
+      provider: 'openai-codex',
+      model: 'gpt-5.6-sol',
+      effort: 'xhigh',
+    });
+    expect(loaded.value.ai.implement.evaluator).toEqual({
+      provider: 'github-copilot',
+      model: 'gpt-5.6-sol',
+      effort: 'high',
+    });
+    // Read-time only — the on-disk file keeps the retired ids until the next save.
+    const onDisk = JSON.parse(await fs.readFile(path, 'utf8')) as { readonly ai: Record<string, unknown> };
+    expect(onDisk.ai['plan']).toEqual({ provider: 'github-copilot', model: 'gpt-5.4', effort: 'xhigh' });
   });
 
   // Sonnet 5 stays live on Claude Code after the presets moved to Sonnet 5.5 — a row pinned to it,

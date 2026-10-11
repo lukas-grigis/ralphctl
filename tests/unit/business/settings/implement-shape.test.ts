@@ -227,6 +227,13 @@ describe('settings.ai — retired claude-opus-4-7 migration', () => {
     ['gemini-3.1-pro', 'gemini-3.8-flash'],
     ['raptor-mini', 'mai-code-1.1-flash'],
     ['mai-code-1-flash', 'mai-code-1.1-flash'],
+    // 2026-10-19 deprecation — GitHub's named successors.
+    ['gpt-5.5', 'gpt-5.6-sol'],
+    ['gpt-5.4', 'gpt-5.6-sol'],
+    ['gpt-5.4-mini', 'gpt-5.6-luna'],
+    ['gpt-5-mini', 'gpt-5.6-luna'],
+    ['gemini-3.7-flash', 'gemini-3.8-flash'],
+    ['grok-4.5', 'grok-4.6'],
   ])('rewrites a copilot flat row pinned to the retired %s to %s', (retired, successor) => {
     const stale = {
       ...baseRecord,
@@ -277,8 +284,9 @@ describe('settings.ai — retired claude-opus-4-7 migration', () => {
     expect(parsed.data.ai.plan).toEqual({ provider: 'opencode', model: 'gemini-2.5-pro' });
   });
 
-  it.each(['gpt-5.3-codex', 'gpt-5.2', 'gpt-5.3-codex-spark'])(
-    'rewrites a codex flat row pinned to the removed %s to gpt-5.5',
+  // Chain-collapsed: these used to land on `gpt-5.5`, which itself retired from Codex on 2026-10-14.
+  it.each(['gpt-5.3-codex', 'gpt-5.2', 'gpt-5.3-codex-spark', 'gpt-5.5'])(
+    'rewrites a codex flat row pinned to the removed %s to gpt-5.6-sol',
     (removedModel) => {
       const stale = {
         ...baseRecord,
@@ -291,7 +299,7 @@ describe('settings.ai — retired claude-opus-4-7 migration', () => {
       const parsed = SettingsSchema.safeParse(stale);
       expect(parsed.success).toBe(true);
       if (!parsed.success) return;
-      expect(parsed.data.ai.refine).toEqual({ provider: 'openai-codex', model: 'gpt-5.5' });
+      expect(parsed.data.ai.refine).toEqual({ provider: 'openai-codex', model: 'gpt-5.6-sol' });
     }
   );
 
@@ -313,19 +321,36 @@ describe('settings.ai — retired claude-opus-4-7 migration', () => {
     expect(parsed.data.ai.refine).toEqual({ provider: 'openai-codex', model: successor });
   });
 
-  it('leaves a Copilot row pinned to gpt-5.4 untouched — the codex retirement is provider-guarded', () => {
+  it('remaps gpt-5.4 per provider — Copilot to gpt-5.6-sol, codex to gpt-6-sol', () => {
     const stale = {
       ...baseRecord,
       ai: {
         ...baseRecord.ai,
         plan: { provider: 'github-copilot', model: 'gpt-5.4' },
+        refine: { provider: 'openai-codex', model: 'gpt-5.4' },
         implement: nestedImplement,
       },
     };
     const parsed = SettingsSchema.safeParse(stale);
     expect(parsed.success).toBe(true);
     if (!parsed.success) return;
-    expect(parsed.data.ai.plan).toEqual({ provider: 'github-copilot', model: 'gpt-5.4' });
+    expect(parsed.data.ai.plan).toEqual({ provider: 'github-copilot', model: 'gpt-5.6-sol' });
+    expect(parsed.data.ai.refine).toEqual({ provider: 'openai-codex', model: 'gpt-6-sol' });
+  });
+
+  it('leaves an xai-grok row pinned to grok-4.5 untouched — the Copilot retirement is provider-guarded', () => {
+    const stale = {
+      ...baseRecord,
+      ai: {
+        ...baseRecord.ai,
+        readiness: { provider: 'xai-grok', model: 'grok-4.5', effort: 'medium' },
+        implement: nestedImplement,
+      },
+    };
+    const parsed = SettingsSchema.safeParse(stale);
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) return;
+    expect(parsed.data.ai.readiness).toEqual({ provider: 'xai-grok', model: 'grok-4.5', effort: 'medium' });
   });
 
   it.each([
@@ -377,8 +402,8 @@ describe('settings.ai — retired claude-opus-4-7 migration', () => {
     const parsed = SettingsSchema.safeParse(stale);
     expect(parsed.success).toBe(true);
     if (!parsed.success) return;
-    expect(parsed.data.ai.implement.generator.model).toBe('gpt-5.5');
-    expect(parsed.data.ai.implement.evaluator.model).toBe('gpt-5.5');
+    expect(parsed.data.ai.implement.generator.model).toBe('gpt-5.6-sol');
+    expect(parsed.data.ai.implement.evaluator.model).toBe('gpt-5.6-sol');
   });
 });
 

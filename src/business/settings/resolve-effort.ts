@@ -98,7 +98,7 @@ export const clampEffortToProvider = (effort: string, provider: AiProvider): str
 /**
  * Narrow an effort to what the row's MODEL accepts, using the catalog's per-model effort list
  * (`modelEffortLevels`). The provider CLIs hard-fail on a level the model doesn't support (Copilot
- * on any level for `claude-haiku-4.5`; Codex `max` on `gpt-5.5`), so this applies to an explicit
+ * on any level for `claude-haiku-4.5`; Codex `ultra` on the luna tiers), so this applies to an explicit
  * row effort too:
  *
  * - model has no effort dimension → `undefined` (no flag is sent);

@@ -47,6 +47,15 @@ to [Semantic Versioning](https://semver.org/).
   escalating effort on `grok-4.5`, ralphctl now raises it to `high` instead of `xhigh`. `none` and `minimal` are
   unchanged.
 
+### Removed
+
+- **Retired Codex and Copilot models.** Codex retired `gpt-5.5` on 2026-10-14 and Copilot retired `gpt-5.5`, `gpt-5.4`,
+  `gpt-5.4-mini`, `gpt-5-mini`, `gemini-3.7-flash` and `grok-4.5` on 2026-10-19, so ralphctl no longer lists them.
+  Saved settings that use them still load and switch to the replacement models: `gpt-5.6-sol` for `gpt-5.5` and
+  Copilot's `gpt-5.4`, `gpt-5.6-luna` for `gpt-5.4-mini` and `gpt-5-mini`, `gemini-3.8-flash` and `grok-4.6`. Codex
+  rows on `gpt-5.2` or `gpt-5.3-codex` now switch to `gpt-5.6-sol` too. `grok-4.5` stays available on the Grok
+  provider.
+
 ## [0.26.0] - 2026-10-08
 
 ### Added
