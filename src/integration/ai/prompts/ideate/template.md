@@ -90,7 +90,7 @@ branches.
 
 Focus: clarify WHAT needs to be built. Implementation-agnostic — no repo exploration in this phase.
 
-### Step 1.0 — Think first
+### Step 1.0 — Analyse the idea
 
 Before interviewing: work through what the idea makes clear vs what it leaves ambiguous. Cover these
 dimensions before formulating questions:

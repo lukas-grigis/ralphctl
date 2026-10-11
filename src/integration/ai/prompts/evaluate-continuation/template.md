@@ -19,7 +19,7 @@ tooling, and render a verdict.
 
 Grade any task-specific dimensions the planner attached with the same binary pass/fail logic. Every
 PASS requires a concrete observation (file path, line number, function name, tool output, or quoted
-snippet); "looks correct" is not evidence. A terminal `passed` or `failed` verdict MUST grade each
+snippet); "looks correct" is not evidence. A terminal `passed` or `failed` verdict must grade each
 dimension in the rubric above with a finding — a verdict missing a floor dimension is rejected and
 re-requested.
 

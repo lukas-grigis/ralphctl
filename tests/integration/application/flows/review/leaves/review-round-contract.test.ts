@@ -19,7 +19,7 @@ import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
  *
  * Contract rules:
  *  - Exactly one of `task-complete` or `task-blocked` must be present.
- *  - No other signal kinds are permitted.
+ *  - Non-terminal entries (e.g. a skill-prompted `note`) are dropped before validation.
  *  - `task-blocked` requires a `reason` string.
  *  - `migrations[0]` lifts a legacy bare array into the `{ schemaVersion, signals }` wrapper.
  */
@@ -128,7 +128,7 @@ describe('reviewRoundOutputContract — signal schema validation', () => {
 
   // ── 4. Invalid / unknown signal kind ──────────────────────────────────────
 
-  it('unknown signal kind (commit-message) → ParseError(schema-mismatch)', async () => {
+  it('unknown signal kind alone (commit-message) → dropped, ParseError (zero terminals)', async () => {
     const outputDir = await arrange({
       schemaVersion: 1,
       signals: [{ type: 'commit-message', subject: 'feat: irrelevant', timestamp: TS }],
@@ -137,7 +137,33 @@ describe('reviewRoundOutputContract — signal schema validation', () => {
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.error).toBeInstanceOf(ParseError);
-    expect(result.error.message).toContain('schema');
+    expect(result.error.message).toContain('exactly one');
+  });
+
+  it('a non-terminal note beside a valid terminal is dropped → validates with only the terminal', async () => {
+    const outputDir = await arrange({
+      schemaVersion: 1,
+      signals: [
+        { type: 'note', text: 'mounted skill asked for a note', timestamp: TS },
+        { type: 'task-complete', timestamp: TS },
+      ],
+    });
+    const result = await validateSignalsFile(outputDir, reviewRoundOutputContract);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value).toEqual([{ type: 'task-complete', timestamp: TS }]);
+  });
+
+  it('a lone note (no terminal) → ParseError (zero terminals)', async () => {
+    const outputDir = await arrange({
+      schemaVersion: 1,
+      signals: [{ type: 'note', text: 'no terminal emitted', timestamp: TS }],
+    });
+    const result = await validateSignalsFile(outputDir, reviewRoundOutputContract);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toBeInstanceOf(ParseError);
+    expect(result.error.message).toContain('exactly one');
   });
 
   // ── 5. Missing required field on a valid type ──────────────────────────────
