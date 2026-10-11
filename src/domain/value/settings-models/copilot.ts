@@ -22,8 +22,10 @@
  * passes.
  *
  * Plan gating (changelog): `claude-sonnet-5.5` (2026-09-28) and `gpt-6-luna` reach Pro and up;
- * `gpt-6.1-sol` (2026-09-29), `gpt-6-sol`, `gpt-6-astra`, `claude-opus-5` / `-5.5` and
- * `claude-fable-5.1` are Pro+ and up, so they stay catalog + pin-only on Copilot.
+ * `gpt-6.1-sol` (2026-09-29), `gpt-6-sol`, `gpt-6-astra`, `claude-opus-4.8` / `-5` / `-5.5` (gated
+ * identically — none on Pro) and `claude-fable-5.1` are Pro+ and up. The Copilot presets top out
+ * on `claude-opus-5.5` (the cheapest of the three Opus ids); a Pro account falls back to Sonnet
+ * 5.5 through `adapt-to-available-models.ts`.
  *
  * Listed by `listModels()` on the reference account: `claude-sonnet-5`, `claude-sonnet-5.5`,
  * `claude-fable-5`, `claude-fable-5.1`, `claude-opus-5.5`, `claude-opus-5`, `claude-opus-4.8`,

@@ -115,12 +115,17 @@ describe('effectiveEscalationChains', () => {
     expect(chain?.customised).toBe(false);
   });
 
-  it('shows the Copilot and Claude Code ladders topping out differently', () => {
+  it('renders the Claude-Code haiku-5-5→sonnet-5-5→opus-5-5 chain as its own root', () => {
+    const chain = chainFrom(effectiveEscalationChains({}), 'claude-code', 'claude-haiku-5-5');
+    expect(chain?.models).toEqual(['claude-haiku-5-5', 'claude-sonnet-5-5', 'claude-opus-5-5']);
+  });
+
+  it('shows the Copilot and Claude Code ladders topping out on Opus 5.5 in their own spelling', () => {
     const chains = effectiveEscalationChains({});
     expect(chainFrom(chains, 'github-copilot', 'claude-haiku-4.5')?.models).toEqual([
       'claude-haiku-4.5',
       'claude-sonnet-5.5',
-      'claude-opus-4.8',
+      'claude-opus-5.5',
     ]);
     expect(chainFrom(chains, 'claude-code', 'claude-haiku-4-5')?.models).toContain('claude-opus-5-5');
     // OpenCode has no built-in ladder, so it contributes no chain without overrides.

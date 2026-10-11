@@ -49,7 +49,9 @@ const CODEX_LADDER = DEFAULT_ESCALATION_LADDERS['openai-codex'];
 const GROK_LADDER = DEFAULT_ESCALATION_LADDERS['xai-grok'];
 
 describe('DEFAULT_ESCALATION_LADDERS', () => {
-  it('climbs the Claude-Code ladder haiku → sonnet-5-5 → opus-5-5', () => {
+  it('climbs the Claude-Code ladder haiku-5-5 → sonnet-5-5 → opus-5-5', () => {
+    expect(CLAUDE_LADDER['claude-haiku-5-5']).toBe('claude-sonnet-5-5');
+    // Haiku 4.5 stays keyed so a row still pinned to it keeps its rung.
     expect(CLAUDE_LADDER['claude-haiku-4-5']).toBe('claude-sonnet-5-5');
     expect(CLAUDE_LADDER['claude-sonnet-5-5']).toBe('claude-opus-5-5');
     expect(CLAUDE_LADDER['claude-opus-5-5']).toBeUndefined();
@@ -76,15 +78,18 @@ describe('DEFAULT_ESCALATION_LADDERS', () => {
   it('climbs the shared claude-sonnet-5 slug to a different Opus per provider', () => {
     // The reason the ladder is provider-scoped: one flat map could hold only one of these.
     expect(CLAUDE_LADDER['claude-sonnet-5']).toBe('claude-opus-5-5');
-    expect(COPILOT_LADDER['claude-sonnet-5']).toBe('claude-opus-4.8');
+    expect(COPILOT_LADDER['claude-sonnet-5']).toBe('claude-opus-5.5');
   });
 
-  it('tops the Copilot Claude ladder at Opus 4.8 — Opus 5 / 5.5 are plan-gated there', () => {
+  it('tops the Copilot Claude ladder at Opus 5.5 — GitHub gates Opus 4.8 / 5 / 5.5 identically', () => {
     expect(COPILOT_LADDER['claude-haiku-4.5']).toBe('claude-sonnet-5.5');
-    expect(COPILOT_LADDER['claude-sonnet-5.5']).toBe('claude-opus-4.8');
-    expect(COPILOT_LADDER['claude-opus-4.8']).toBeUndefined();
-    expect(Object.values(COPILOT_LADDER)).not.toContain('claude-opus-5');
-    expect(Object.values(COPILOT_LADDER)).not.toContain('claude-opus-5.5');
+    expect(COPILOT_LADDER['claude-sonnet-5.5']).toBe('claude-opus-5.5');
+    // Pinned older Opus rows converge on the cheaper, newer 5.5.
+    expect(COPILOT_LADDER['claude-opus-4.8']).toBe('claude-opus-5.5');
+    expect(COPILOT_LADDER['claude-opus-5']).toBe('claude-opus-5.5');
+    expect(COPILOT_LADDER['claude-opus-5.5']).toBeUndefined();
+    // No Copilot Haiku 5.5 id is verified, so the Copilot ladder never names one.
+    expect(Object.keys(COPILOT_LADDER).some((k) => k.startsWith('claude-haiku-5'))).toBe(false);
   });
 
   it("steps the 2026-10-19-deprecated Copilot GPT ids to GitHub's named 5.6 successors", () => {
@@ -306,7 +311,7 @@ describe('DEFAULT_ESCALATION_LADDERS — catalog lockstep (mechanizes the sectio
       .slice(0, 16);
 
   it('catalog fingerprints are unchanged — a failure means a model bump landed; run the model-bump audit', () => {
-    expect(fingerprint(CLAUDE_MODELS)).toBe('aa9bc8d374ad20df');
+    expect(fingerprint(CLAUDE_MODELS)).toBe('1c0ed938d5b989e2');
     expect(fingerprint(CODEX_MODELS)).toBe('5ec7fc3cd9b8f97a');
     expect(fingerprint(COPILOT_MODELS)).toBe('f5953626fd1c7ee4');
     expect(fingerprint(GROK_MODELS)).toBe('2c56e449169a2ec3');
@@ -361,6 +366,14 @@ describe('nextEffortRung', () => {
   it('claude model with no effort dimension (Haiku) → skipped (undefined) regardless of effort', () => {
     expect(nextEffortRung('claude-code', HAIKU, undefined)).toBeUndefined();
     expect(nextEffortRung('claude-code', HAIKU, 'low')).toBeUndefined();
+  });
+
+  it('claude Haiku 5.5 has the full effort ladder and a CLI default of `medium` (unset → high)', () => {
+    // Unlike Haiku 4.5 it is effort-capable; a `high` fallback default would skip a tier (→ xhigh).
+    expect(nextEffortRung('claude-code', 'claude-haiku-5-5', undefined)).toBe('high');
+    expect(nextEffortRung('claude-code', 'claude-haiku-5-5', 'low')).toBe('medium');
+    expect(nextEffortRung('claude-code', 'claude-haiku-5-5', 'high')).toBe('xhigh');
+    expect(nextEffortRung('claude-code', 'claude-haiku-5-5', 'max')).toBeUndefined();
   });
 
   // ── Copilot keeps the fixed-`high` target; the model only matters when its effort list lacks it. ──

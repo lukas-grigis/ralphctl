@@ -144,11 +144,11 @@ The escalation policy is a **graduated remedy ladder** (`src/business/task/escal
 spent cheapest-first across successive plateau or budget-exhausted exits:
 (1) **model escalation** — climbs **one rung per exit** up the generator provider's entry in
 `DEFAULT_ESCALATION_LADDERS` (`src/business/task/escalation-map.ts`), merged with any
-`settings.harness.escalationMap` override: **claude-code** climbs Haiku → Sonnet 5.5 → Opus 5.5, with the
-legacy Sonnet 4.6 / Opus 4.8 generation chaining through its own tier and Opus 5 and a pinned Sonnet 5
-stepping straight across,
-all converging at the same flagship; **github-copilot** climbs Haiku → Sonnet 5.5 → Opus 4.8 (Sonnet 5 also
-steps to 4.8; the ladder deliberately tops out below Opus 5 / 5.5, both plan-gated on Copilot), and its
+`settings.harness.escalationMap` override: **claude-code** climbs Haiku 5.5 → Sonnet 5.5 → Opus 5.5, with
+the legacy Haiku 4.5 / Sonnet 4.6 / Opus 4.8 generation chaining through its own tier and Opus 5 and a
+pinned Sonnet 5 stepping straight across,
+all converging at the same flagship; **github-copilot** climbs Haiku 4.5 → Sonnet 5.5 → Opus 5.5 (Sonnet 5,
+Opus 4.8 and Opus 5 also step to 5.5 — GitHub gates all three Opus ids identically), and its
 GPT minis (`gpt-5-mini`, `gpt-5.4-mini`) step to `gpt-5.6-luna` and `gpt-5.4` / `gpt-5.5` to `gpt-5.6-sol`
 (`gpt-5.6-luna → gpt-5.6-terra → gpt-5.6-sol`; the GPT-6 ids are not rungs); **openai-codex** climbs
 `gpt-6-luna → gpt-6.1-sol` directly (a pinned `gpt-6-sol` also steps to it), with the pinned 5.5/5.6 generation chaining through its own tier and

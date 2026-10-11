@@ -16,13 +16,11 @@
  * a wrong % bar in the TUI; an omission surfaces as "no label rendered". Prefer the latter — add a
  * model only when the vendor publishes the figure.
  *
- *  - **Claude (Anthropic)** — 200 000 for the 4.x line (Haiku 4.5 / Sonnet 4.6 / Opus 4.8).
- *    The `[1m]` suffix IS Claude Code's 1M-token long-context selector — the figure comes from
- *    the id itself, not a model card. Sonnet 5 (`claude-sonnet-5`), Sonnet 5.5
- *    (`claude-sonnet-5-5`), Opus 5 (`claude-opus-5`), Opus 5.5 (`claude-opus-5-5`) and Fable 5.1
- *    (`claude-fable-5-1`) are the exception: none has a `[1m]` variant because each ALWAYS runs
- *    at its native 1 000 000 window in Claude Code — so the 1M figure is keyed on the bare id
- *    rather than a `[1m]` selector.
+ *  - **Claude (Anthropic)** — 200 000 for Haiku 4.5, Sonnet 4.6 and the bare Opus 4.8 id: Claude
+ *    Code only runs Opus 4.8 at 1M on some plans (Pro needs usage credits), so 200K is the figure
+ *    every account gets. The `[1m]` suffix IS Claude Code's 1M-token long-context selector.
+ *    Haiku 5.5 (`claude-haiku-5-5`), Sonnet 5 / 5.5, Opus 5 / 5.5 and Fable 5.1 have no `[1m]`
+ *    variant because each always runs at its native 1 000 000 window, so the bare id carries 1M.
  *  - **Copilot / Codex** — omitted; the CLIs do not surface per-model window sizes.
  *  - **Grok (xAI)** — 500 000 for `grok-4.7`, `grok-4.7-build-fast` (same model, faster serving),
  *    `grok-4.6`, and `grok-4.5` (docs.x.ai).
@@ -34,7 +32,10 @@ const CONTEXT_WINDOW: Readonly<Record<string, number>> = {
   // Claude (claude-code adapter — Anthropic direct)
   'claude-haiku-4-5': 200_000,
   'claude-sonnet-4-6': 200_000,
+  // 1M on Opus 4.8 is plan-dependent in Claude Code; the `[1m]` id below carries it.
   'claude-opus-4-8': 200_000,
+  // Haiku 5.5 — natively 1M in Claude Code, no `[1m]` selector.
+  'claude-haiku-5-5': 1_000_000,
   // Sonnet 5.5 and Sonnet 5 always run at their native 1M window on the Anthropic API — no `[1m]`
   // selector, so the bare id carries the 1M figure directly.
   'claude-sonnet-5': 1_000_000,

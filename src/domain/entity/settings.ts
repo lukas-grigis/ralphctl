@@ -236,7 +236,7 @@ const COPILOT_SMALL_CODE_SUCCESSOR = 'mai-code-1.1-flash';
  * Retirements, by provider:
  *  - claude-code — `claude-opus-4-7` retired for `claude-opus-4-8`.
  *  - github-copilot — the 2026-09-01 deprecation removed `claude-opus-4.5` / `claude-opus-4.6`
- *    (→ `claude-opus-4.8`, the Copilot Opus that every plan can reach), `claude-sonnet-4.5` /
+ *    (→ `claude-opus-4.8`, their nearest live successor), `claude-sonnet-4.5` /
  *    `claude-sonnet-4.6` (→ `claude-sonnet-5`), `gemini-3.1-pro` (→ `gemini-3.8-flash`, the
  *    newest Gemini left on Copilot), and `raptor-mini` (→ `mai-code-1.1-flash`, the remaining
  *    small code model); `mai-code-1-flash` was superseded by `mai-code-1.1-flash`. Earlier
@@ -244,8 +244,8 @@ const COPILOT_SMALL_CODE_SUCCESSOR = 'mai-code-1.1-flash';
  *    `claude-opus-4.8-fast`, `gemini-3.1-pro-preview` and `gemini-2.5-pro` → `gemini-3.8-flash`,
  *    `raptor-mini-preview` → `mai-code-1.1-flash`. The 2026-10-02 deprecation removed
  *    `gemini-3.5-flash` / `gemini-3.6-flash` (and the older `gemini-3-flash`) → `gemini-3.8-flash`,
- *    `kimi-k2.7-code` → `kimi-k3`, and `claude-opus-4.7` → `claude-opus-4.8` (GitHub suggests
- *    Opus 5.5, but that is Pro+ only; 4.8 is the Copilot Opus every plan the presets target reaches).
+ *    `kimi-k2.7-code` → `kimi-k3`, and `claude-opus-4.7` → `claude-opus-4.8` (the nearest
+ *    live successor; GitHub suggests Opus 5.5, which the default ladder climbs to on plateau).
  *  - openai-codex — `gpt-5.4` / `gpt-5.4-mini` retired 2026-08-31 (→ `gpt-6-sol` / `gpt-6-luna`,
  *    the codex cache's upgrade targets); codex ≥ 0.145 dropped `gpt-5.2` / `gpt-5.3-codex` /
  *    `gpt-5.3-codex-spark` (→ `gpt-5.5`, which the default ladder climbs on plateau).

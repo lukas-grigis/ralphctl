@@ -7,6 +7,21 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **Claude Haiku 5.5.** Claude Code gains `claude-haiku-5-5` (needs Claude Code 2.1.293 or later): $0.10/$0.50 per
+  MTok, a 1M context window and all five effort levels. `claude-fast` and `claude-economic` now run refine,
+  readiness and PR drafting on it at `low`; plan, implement and ideate stay on Sonnet 5.5. It is also the new
+  bottom step of the Claude Code escalation ladder (Haiku 5.5 → Sonnet 5.5 → Opus 5.5). An older Claude Code CLI
+  fails the spawn on it — upgrade, or set those rows to Sonnet 5.5. Haiku 4.5 still works for saved settings.
+
+### Changed
+
+- **Copilot presets use Opus 5.5.** GitHub gives Opus 4.8, 5 and 5.5 to the same Copilot plans, so the Copilot
+  presets, the Copilot defaults and the top of the Copilot escalation ladder move from `claude-opus-4.8` to the
+  cheaper `claude-opus-5.5` ($4/$20 vs $5/$25 per MTok). Saved settings on Opus 4.8 or Opus 5 keep working and now
+  escalate to 5.5. Applying a preset on an account without 5.5 falls back to Opus 4.8, then Sonnet 5.5.
+
 ## [0.26.0] - 2026-10-08
 
 ### Added

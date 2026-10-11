@@ -1,5 +1,6 @@
 // Verified against `claude --help` / `claude config get` (Claude Code v2.x); Opus 5.5 / Fable 5.1
-// live-probed on Claude Code 2.1.280 (2026-09-22); Sonnet 5.5 on Claude Code 2.1.285 (2026-09-30).
+// live-probed on Claude Code 2.1.280 (2026-09-22); Sonnet 5.5 on Claude Code 2.1.285 (2026-09-30);
+// Haiku 5.5 from the Claude Code CHANGELOG (>= 2.1.293) + platform model overview (2026-10-11).
 // Docs: https://docs.claude.com/en/docs/claude-code/cli-reference
 
 /**
@@ -31,15 +32,19 @@
  *
  * `claude-sonnet-5-5` (Claude Code >= 2.1.284) is the default Sonnet and the preset pick: $2/$10
  * per MTok, natively 1M with no `[1m]` variant, all five effort levels, and — like Opus 5.5 — a
- * CLI default effort of `medium` (code.claude.com/docs/en/model-config). Claude Code only; the
- * Copilot CLI does not serve it, so Copilot rows stay on `claude-sonnet-5`.
+ * CLI default effort of `medium` (code.claude.com/docs/en/model-config). Copilot serves the same
+ * model under the dotted id `claude-sonnet-5.5`.
  * `claude-sonnet-5` is NOT retired: it stays live (and is Claude Code's cybersecurity fallback
  * for Sonnet 5.5), keeps its own ladder rung to Opus 5.5, and pinned configs load unchanged.
  * `claude-sonnet-4-6` is kept too (still Active at Anthropic) so configs pinned to 4.6 keep
  * working. The 1M figures are recorded in the context-window tables against the bare ids.
+ *
+ * `claude-haiku-5-5` (Claude Code >= 2.1.293) succeeds Haiku 4.5: natively 1M, all five effort
+ * levels, CLI default `medium`. `claude-haiku-4-5` (no effort dimension) stays for pinned configs.
  */
 export type ClaudeModel =
   | 'claude-haiku-4-5'
+  | 'claude-haiku-5-5'
   | 'claude-sonnet-4-6'
   | 'claude-sonnet-5'
   | 'claude-sonnet-5-5'
@@ -53,6 +58,7 @@ export type ClaudeModel =
 
 export const CLAUDE_MODELS: readonly ClaudeModel[] = [
   'claude-haiku-4-5',
+  'claude-haiku-5-5',
   'claude-sonnet-4-6',
   'claude-sonnet-5',
   'claude-sonnet-5-5',

@@ -11,6 +11,7 @@ import {
   GROK_CHEAP,
   GROK_FLAGSHIP,
   GROK_MID,
+  HAIKU,
   OPENCODE_BIG,
   OPENCODE_MINI,
   OPUS,
@@ -27,19 +28,22 @@ const GPT_5_6_SOL = 'gpt-5.6-sol';
 /**
  * Same-provider stand-ins for every model a preset or provider default stamps, nearest first.
  * Used when the account can't run the stamped model (plan gating, a gradual rollout, a revoked
- * model policy). Stand-ins stay at the same or a cheaper tier, except for a provider's cheapest tier
- * (`grok-4.5`), which can only step up. When no listed stand-in is available the row keeps its
- * model and the caller reports it. Effort rides along unchanged — resolution
- * narrows it to whatever the stand-in accepts (`clampEffortToModel`).
+ * model policy). Stand-ins stay at the same or a cheaper tier, except for a cheapest tier
+ * (`grok-4.5`, `claude-haiku-5-5`), which can only step up. The claude-code and xai-grok probes are
+ * passthroughs, so their entries stay inert until a real probe exists. When no listed stand-in is
+ * available the row keeps its model and the caller reports it. Effort rides along unchanged —
+ * resolution narrows it to whatever the stand-in accepts (`clampEffortToModel`).
  */
 export const PRESET_MODEL_FALLBACKS: Readonly<Record<AiProvider, Readonly<Record<string, readonly string[]>>>> = {
   'claude-code': {
     [FABLE]: [OPUS, CLAUDE_OPUS_5, CLAUDE_OPUS_4_8],
     [OPUS]: [CLAUDE_OPUS_5, CLAUDE_OPUS_4_8, SONNET],
     [SONNET]: [SONNET_5, 'claude-sonnet-4-6'],
+    // Haiku 5.5 has no cheaper sibling; Sonnet first (newer, effort-capable), then Haiku 4.5.
+    [HAIKU]: [SONNET, 'claude-haiku-4-5'],
   },
   'github-copilot': {
-    [COPILOT_OPUS]: [COPILOT_SONNET, SONNET_5],
+    [COPILOT_OPUS]: ['claude-opus-4.8', COPILOT_SONNET, SONNET_5],
     [COPILOT_SONNET]: [SONNET_5],
     [COPILOT_LUNA]: ['gpt-5.6-luna'],
   },

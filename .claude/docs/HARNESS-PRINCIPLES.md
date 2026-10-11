@@ -590,6 +590,23 @@ updating the recorded hash:
 
 **Model-bump audit log.**
 
+- **2026-10-11 — Claude Haiku 5.5 / Copilot Opus 5.5.** Step 1: `claude-haiku-5-5` joins the
+  claude-code catalog and becomes the bottom of the claude-code ladder (Haiku 5.5 → Sonnet 5.5 → Opus
+  5.5); `claude-haiku-4-5` stays catalogued and keyed (→ Sonnet 5.5) so pinned rows still escalate.
+  Nothing was de-listed, so no key or destination was stranded. `CLAUDE_CLI_DEFAULT_EFFORT` gained Haiku
+  5.5 at `medium`; unlike Haiku 4.5 it is effort-capable (all five levels), so it is not in
+  `CLAUDE_EFFORTLESS_MODELS`. The Copilot catalog is unchanged, but GitHub's plan tables show Opus 4.8,
+  5 and 5.5 gated identically (none on Pro), which refuted the "4.8 reaches more plans" rationale: the
+  Copilot ladder now tops out on `claude-opus-5.5` (Sonnet 5.5, Sonnet 5, Opus 4.8 and Opus 5 climb to
+  it) and `COPILOT_OPUS` moved with it. No Copilot Haiku 5.5 id was added — unverified. The context-window
+  table now records the bare `claude-opus-4-8` / `claude-fable-5` ids at 1M (Claude Code runs Opus 4.7+
+  and Fable at 1M natively), which makes the `[1m]` ids redundant; they stay for pinned configs. Step 2:
+  the only `partial` rows are §14 and §18, both the audit mechanism itself — a new cheap tier does not
+  close them; there are no `gap` rows. Step 3: no `applied` row was re-measured and none removed. The
+  fast / economic Claude presets moved their light flows (refine / readiness / createPr) to Haiku 5.5;
+  readiness drives the eval harness's `detect-scripts` row, so the default eval arm now runs it on Haiku
+  — the first thing to compare in an eval sweep (`EVALS.md`).
+
 - **2026-10-03 — GPT-6.1 Sol / Copilot Sonnet 5.5 + Copilot deprecations.** Step 1: `gpt-6.1-sol`
   joins the Codex and Copilot catalogs and replaces `gpt-6-sol` as the Codex ladder top (`gpt-6-luna`,
   `gpt-6-sol` and `gpt-5.6-sol` now climb to it). `claude-sonnet-5.5` joins the Copilot catalog and

@@ -71,10 +71,31 @@ describe('adaptAiToAvailableModels', () => {
   it('walks the stand-in list in order and labels implement roles', () => {
     const out = adaptAiToAvailableModels(
       copilotOnly,
-      without('github-copilot', 'claude-opus-4.8', 'claude-sonnet-5.5')
+      without('github-copilot', 'claude-opus-5.5', 'claude-opus-4.8', 'claude-sonnet-5.5')
     );
     expect(out.ai.implement.generator.model).toBe('claude-sonnet-5');
     expect(out.substitutions.map(aiRowKey)).toContain('ai.implement.generator');
+  });
+
+  it('steps a Copilot Opus 5.5 row to Opus 4.8 first, then Sonnet 5.5 on a Pro account', () => {
+    expect(copilotOnly.implement.generator.model).toBe('claude-opus-5.5');
+    const no55 = adaptAiToAvailableModels(copilotOnly, without('github-copilot', 'claude-opus-5.5'));
+    expect(no55.ai.implement.generator.model).toBe('claude-opus-4.8');
+    // Pro: GitHub gates every Opus id the same way, so all three are gone together.
+    const pro = adaptAiToAvailableModels(
+      copilotOnly,
+      without('github-copilot', 'claude-opus-5.5', 'claude-opus-5', 'claude-opus-4.8')
+    );
+    expect(pro.ai.implement.generator.model).toBe('claude-sonnet-5.5');
+  });
+
+  it('falls a claude-fast Haiku 5.5 row back to Sonnet 5.5, then Haiku 4.5', () => {
+    const fast = applyPreset('claude-fast', DEFAULT_SETTINGS).ai;
+    expect(fast.refine.model).toBe('claude-haiku-5-5');
+    const noHaiku = adaptAiToAvailableModels(fast, without('claude-code', 'claude-haiku-5-5'));
+    expect(noHaiku.ai.refine).toEqual({ ...fast.refine, model: 'claude-sonnet-5-5' });
+    const neither = adaptAiToAvailableModels(fast, without('claude-code', 'claude-haiku-5-5', 'claude-sonnet-5-5'));
+    expect(neither.ai.refine.model).toBe('claude-haiku-4-5');
   });
 
   it('keeps the model and reports it when no stand-in is available', () => {

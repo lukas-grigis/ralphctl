@@ -11,14 +11,14 @@ const arm = (opts: Parameters<typeof buildArm>[0]) => {
 };
 
 describe('buildArm', () => {
-  it('defaults to claude-economic: Sonnet on every row, effort resolved per role', () => {
-    // claude-preset-matrices.ts CLAUDE_ECONOMIC: evaluator high, generator high, readiness low.
+  it('defaults to claude-economic: Sonnet on implement, Haiku 5.5 on readiness, effort resolved per role', () => {
+    // claude-preset-matrices.ts CLAUDE_ECONOMIC: evaluator high, generator high, readiness Haiku 5.5 low.
     const rows = arm({ name: 'baseline' }).rows;
     expect(DEFAULT_PRESET).toBe('claude-economic');
     expect(rows.evaluate).toEqual({ provider: 'claude-code', model: 'claude-sonnet-5-5', effort: 'high' });
     expect(rows.implement).toEqual({ provider: 'claude-code', model: 'claude-sonnet-5-5', effort: 'high' });
     expect(rows['select-candidate']).toEqual(rows.evaluate); // the judge runs on the evaluator row
-    expect(rows['detect-scripts']).toEqual({ provider: 'claude-code', model: 'claude-sonnet-5-5', effort: 'low' }); // readiness row
+    expect(rows['detect-scripts']).toEqual({ provider: 'claude-code', model: 'claude-haiku-5-5', effort: 'low' }); // readiness row
   });
 
   it('accepts any preset name', () => {
