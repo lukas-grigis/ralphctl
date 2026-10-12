@@ -75,7 +75,7 @@
   "dependencies": {
     "commander": "^15.0.0",
     "cross-spawn": "^7.0.6",
-    "ink": "^7.1.1",
+    "ink": "^8.0.0",
     "proper-lockfile": "^4.1.2",
     "react": "^19.3.0",
     "typescript-result": "^3.5.2",
