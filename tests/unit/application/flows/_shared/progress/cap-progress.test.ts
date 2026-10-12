@@ -238,7 +238,7 @@ describe('capProgressBody', () => {
 
 describe('progressCapBudgetForModel', () => {
   it('scales the sibling budget with the resolved context window (1M > 200K)', () => {
-    const small = progressCapBudgetForModel('claude-opus-4-8'); // 200K
+    const small = progressCapBudgetForModel('claude-sonnet-4-6'); // 200K
     const large = progressCapBudgetForModel('claude-opus-4-8[1m]'); // 1M
     expect(large).toBeGreaterThan(small);
   });

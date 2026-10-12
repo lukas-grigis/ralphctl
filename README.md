@@ -13,8 +13,11 @@
 [![Built with Donuts](https://img.shields.io/badge/%F0%9F%8D%A9-Built_with_Donuts-ff6f00?style=flat)](https://github.com/lukas-grigis/ralphctl)
 
 <p align="center">
-  <img src="./.github/assets/home.png" alt="ralphctl home screen — Ralph donut banner with 'The pointy kitty took it!' tagline, WORK / OBSERVE / SYSTEM menus with keybindings, bottom footer" width="900" />
+  <img src="./.github/assets/demo.gif" alt="ralphctl running the Implement flow in its terminal UI: the generator edits hello.py and reports the task done, the evaluator fails the correctness dimension with a critique (hello.py must print exactly &quot;Hello, world!&quot;), the generator retries with the critique applied, the evaluator passes, and the task commits" width="900" />
 </p>
+
+<p align="center"><sub>One task through the generator → evaluator loop: round 1 fails review, round 2 applies the critique and
+passes. Replayed with <code>ralphctl demo --script</code> — no AI CLI, no tokens.</sub></p>
 
 # ralphctl
 
@@ -73,6 +76,9 @@ project (three sprints, one per pre-flow state) and launches straight into it �
 ```bash
 ralphctl demo
 ```
+
+`ralphctl demo --script` replays the run in the recording above — a canned two-round session through the real
+Implement chain, git commit and verify gate included — so you can watch the loop without spending a token.
 
 Otherwise, install one of the supported CLIs and authenticate it:
 
@@ -362,7 +368,7 @@ ralphctl settings apply-preset grok-fast
 
 # Frontier — the vendor's top model on plan/implement at max effort; light flows stay below max.
 # Claude/Codex step up to Fable 5.1 / gpt-6-astra (Fable 5.1 needs a non-ZDR org);
-# Copilot/Grok keep their flagship (Opus 4.8 / grok-4.7).
+# Copilot/Grok keep their flagship (Opus 5.5 / grok-4.7).
 ralphctl settings apply-preset mixed-frontier
 ralphctl settings apply-preset claude-frontier
 ralphctl settings apply-preset copilot-frontier

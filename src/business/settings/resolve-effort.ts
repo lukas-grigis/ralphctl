@@ -1,4 +1,10 @@
-import { type AiFlowSettings, type AiProvider, primaryFlowRow, type Settings } from '@src/domain/entity/settings.ts';
+import {
+  type AiFlowSettings,
+  type AiProvider,
+  isAiProvider,
+  primaryFlowRow,
+  type Settings,
+} from '@src/domain/entity/settings.ts';
 import type { FlowId } from '@src/domain/value/flow-id.ts';
 import { modelEffortLevels } from '@src/domain/value/settings-models/effort.ts';
 
@@ -92,13 +98,15 @@ export const clampEffortToProvider = (effort: string, provider: AiProvider): str
 /**
  * Narrow an effort to what the row's MODEL accepts, using the catalog's per-model effort list
  * (`modelEffortLevels`). The provider CLIs hard-fail on a level the model doesn't support (Copilot
- * on any level for `claude-haiku-4.5`; Codex `max` on `gpt-5.5`), so this applies to an explicit
+ * on any level for `claude-haiku-4.5`; Codex `ultra` on the luna tiers), so this applies to an explicit
  * row effort too:
  *
  * - model has no effort dimension → `undefined` (no flag is sent);
  * - level supported → unchanged;
- * - level unsupported → the strongest supported level below it, else the weakest supported one;
- * - model or level unknown (custom id; opencode / grok / claude rows) → unchanged, the CLI arbitrates.
+ * - level unsupported → the strongest supported level below it, else the weakest supported one
+ *   (Grok `max` → `xhigh` on `grok-4.7`, `high` on `grok-4.5`);
+ * - model or level unknown (custom id, `grok-4.7-build-fast`; opencode / claude rows) → unchanged,
+ *   the CLI arbitrates.
  */
 export const clampEffortToModel = (effort: string, provider: AiProvider, model: string): string | undefined => {
   const levels = modelEffortLevels(provider, model);
@@ -119,3 +127,15 @@ export const floorEffort = (effort: string, provider: AiProvider, model: string)
   modelEffortLevels(provider, model) === undefined
     ? clampEffortToProvider(effort, provider)
     : clampEffortToModel(effort, provider, model);
+
+/** Escalated-else-configured effort, clamped to the effective spawn model — a persisted escalation can exceed its ceiling. */
+export const resolveSpawnEffort = (
+  escalated: string | undefined,
+  configured: string | undefined,
+  provider: string | undefined,
+  model: string | undefined
+): string | undefined => {
+  const effort = escalated ?? configured;
+  if (effort === undefined || model === undefined || provider === undefined || !isAiProvider(provider)) return effort;
+  return clampEffortToModel(effort, provider, model);
+};

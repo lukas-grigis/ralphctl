@@ -10,11 +10,11 @@ describe('v1 → v2 settings migration', () => {
       ai: {
         provider: 'github-copilot',
         models: {
-          refine: 'gpt-5-mini',
-          plan: 'gpt-5.4',
-          implement: 'gpt-5.4',
-          readiness: 'gpt-5-mini',
-          ideate: 'gpt-5-mini',
+          refine: 'gpt-5.6-luna',
+          plan: 'gpt-5.6-sol',
+          implement: 'gpt-5.6-sol',
+          readiness: 'gpt-5.6-luna',
+          ideate: 'gpt-5.6-luna',
         },
       },
       harness: { maxTurns: 5, maxAttempts: 3, rateLimitRetries: 3, plateauThreshold: 2 },
@@ -32,18 +32,18 @@ describe('v1 → v2 settings migration', () => {
 
     const ai = parsed.data.ai;
     expect(ai.effort).toBe('high');
-    expect(ai.refine).toEqual({ provider: 'github-copilot', model: 'gpt-5-mini' });
-    expect(ai.plan).toEqual({ provider: 'github-copilot', model: 'gpt-5.4', effort: 'xhigh' });
+    expect(ai.refine).toEqual({ provider: 'github-copilot', model: 'gpt-5.6-luna' });
+    expect(ai.plan).toEqual({ provider: 'github-copilot', model: 'gpt-5.6-sol', effort: 'xhigh' });
     // The v1→v2 migration writes the flat implement shape; the inline preprocess at parse
     // time then promotes it to {generator, evaluator} silently — both roles equal — so
     // legacy v1 files land in the canonical nested shape without bumping schemaVersion.
-    const implementRow = { provider: 'github-copilot', model: 'gpt-5.4', effort: 'xhigh' };
+    const implementRow = { provider: 'github-copilot', model: 'gpt-5.6-sol', effort: 'xhigh' };
     expect(ai.implement).toEqual({ generator: implementRow, evaluator: implementRow });
-    expect(ai.readiness).toEqual({ provider: 'github-copilot', model: 'gpt-5-mini', effort: 'medium' });
-    expect(ai.ideate).toEqual({ provider: 'github-copilot', model: 'gpt-5-mini' });
+    expect(ai.readiness).toEqual({ provider: 'github-copilot', model: 'gpt-5.6-luna', effort: 'medium' });
+    expect(ai.ideate).toEqual({ provider: 'github-copilot', model: 'gpt-5.6-luna' });
     // v1 had no `models.createPr` slot — the migration seeds the new row by falling back to
     // refine's model so post-migration the create-pr AI step has a sane catalog entry.
-    expect(ai.createPr).toEqual({ provider: 'github-copilot', model: 'gpt-5-mini' });
+    expect(ai.createPr).toEqual({ provider: 'github-copilot', model: 'gpt-5.6-luna' });
   });
 
   it('post-migration resolveEffort yields the documented matrix', () => {

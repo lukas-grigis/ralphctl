@@ -1,6 +1,6 @@
 ---
 name: ralphctl-debugging-and-error-recovery
-description: Systematic root-cause debugging. Use when tests fail, builds break, or behaviour does not match expectations. Follow stop-the-line → reproduce → localize → reduce → root-cause → guard-with-regression-test → verify, not guessing; the reproduction and regression steps follow the same red-green discipline as ralphctl-test-driven-development.
+description: Systematic root-cause debugging. Use when tests fail, builds break, something that worked before broke, or behaviour does not match expectations — when you need to figure out what broke and why. Follow stop-the-line → reproduce → localize → reduce → root-cause → guard-with-regression-test → verify, not guessing; the reproduction and regression steps follow the same red-green discipline as ralphctl-test-driven-development.
 license: MIT
 ---
 
@@ -32,7 +32,7 @@ When anything unexpected happens:
 6. **Resume** only after the fix is verified with the project's narrow check gate.
 
 Do not push past a failing test or broken build to work on the next feature. Errors compound — a
-bug at Step 3 that goes unfixed makes Steps 4–10 wrong.
+bug at Step 3 that goes unfixed makes Steps 4–6 wrong.
 
 ## The Triage Checklist
 

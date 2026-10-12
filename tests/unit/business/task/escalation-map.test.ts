@@ -49,7 +49,9 @@ const CODEX_LADDER = DEFAULT_ESCALATION_LADDERS['openai-codex'];
 const GROK_LADDER = DEFAULT_ESCALATION_LADDERS['xai-grok'];
 
 describe('DEFAULT_ESCALATION_LADDERS', () => {
-  it('climbs the Claude-Code ladder haiku → sonnet-5-5 → opus-5-5', () => {
+  it('climbs the Claude-Code ladder haiku-5-5 → sonnet-5-5 → opus-5-5', () => {
+    expect(CLAUDE_LADDER['claude-haiku-5-5']).toBe('claude-sonnet-5-5');
+    // Haiku 4.5 stays keyed so a row still pinned to it keeps its rung.
     expect(CLAUDE_LADDER['claude-haiku-4-5']).toBe('claude-sonnet-5-5');
     expect(CLAUDE_LADDER['claude-sonnet-5-5']).toBe('claude-opus-5-5');
     expect(CLAUDE_LADDER['claude-opus-5-5']).toBeUndefined();
@@ -76,22 +78,25 @@ describe('DEFAULT_ESCALATION_LADDERS', () => {
   it('climbs the shared claude-sonnet-5 slug to a different Opus per provider', () => {
     // The reason the ladder is provider-scoped: one flat map could hold only one of these.
     expect(CLAUDE_LADDER['claude-sonnet-5']).toBe('claude-opus-5-5');
-    expect(COPILOT_LADDER['claude-sonnet-5']).toBe('claude-opus-4.8');
+    expect(COPILOT_LADDER['claude-sonnet-5']).toBe('claude-opus-5.5');
   });
 
-  it('tops the Copilot Claude ladder at Opus 4.8 — Opus 5 / 5.5 are plan-gated there', () => {
+  it('tops the Copilot Claude ladder at Opus 5.5 — GitHub gates Opus 4.8 / 5 / 5.5 identically', () => {
     expect(COPILOT_LADDER['claude-haiku-4.5']).toBe('claude-sonnet-5.5');
-    expect(COPILOT_LADDER['claude-sonnet-5.5']).toBe('claude-opus-4.8');
-    expect(COPILOT_LADDER['claude-opus-4.8']).toBeUndefined();
-    expect(Object.values(COPILOT_LADDER)).not.toContain('claude-opus-5');
-    expect(Object.values(COPILOT_LADDER)).not.toContain('claude-opus-5.5');
+    expect(COPILOT_LADDER['claude-sonnet-5.5']).toBe('claude-opus-5.5');
+    // Pinned older Opus rows converge on the cheaper, newer 5.5.
+    expect(COPILOT_LADDER['claude-opus-4.8']).toBe('claude-opus-5.5');
+    expect(COPILOT_LADDER['claude-opus-5']).toBe('claude-opus-5.5');
+    expect(COPILOT_LADDER['claude-opus-5.5']).toBeUndefined();
+    // No Copilot Haiku 5.5 id is verified, so the Copilot ladder never names one.
+    expect(Object.keys(COPILOT_LADDER).some((k) => k.startsWith('claude-haiku-5'))).toBe(false);
   });
 
-  it("steps the 2026-10-19-deprecated Copilot GPT ids to GitHub's named 5.6 successors", () => {
-    expect(COPILOT_LADDER['gpt-5-mini']).toBe('gpt-5.6-luna');
-    expect(COPILOT_LADDER['gpt-5.4-mini']).toBe('gpt-5.6-luna');
-    expect(COPILOT_LADDER['gpt-5.4']).toBe('gpt-5.6-sol');
-    expect(COPILOT_LADDER['gpt-5.5']).toBe('gpt-5.6-sol');
+  it('climbs the Copilot GPT-5.6 tiers luna → terra → sol; the retired 2026-10-19 ids are no longer rungs', () => {
+    // Retired rows are remapped at parse time (`RETIRED_MODEL_REMAPS`), so their keys are dead.
+    for (const retired of ['gpt-5-mini', 'gpt-5.4-mini', 'gpt-5.4', 'gpt-5.5', 'grok-4.5']) {
+      expect(COPILOT_LADDER[retired], retired).toBeUndefined();
+    }
     expect(COPILOT_LADDER['gpt-5.6-luna']).toBe('gpt-5.6-terra');
     expect(COPILOT_LADDER['gpt-5.6-terra']).toBe('gpt-5.6-sol');
     expect(COPILOT_LADDER['gpt-5.6-sol']).toBeUndefined();
@@ -105,7 +110,8 @@ describe('DEFAULT_ESCALATION_LADDERS', () => {
 
   it('converges pinned older Codex tiers on gpt-6.1-sol', () => {
     expect(CODEX_LADDER['gpt-6-sol']).toBe('gpt-6.1-sol');
-    expect(CODEX_LADDER['gpt-5.5']).toBe('gpt-5.6-sol');
+    // `gpt-5.5` retired from Codex on 2026-10-14 — remapped to `gpt-5.6-sol` at parse time.
+    expect(CODEX_LADDER['gpt-5.5']).toBeUndefined();
     expect(CODEX_LADDER['gpt-5.6-luna']).toBe('gpt-5.6-terra');
     expect(CODEX_LADDER['gpt-5.6-terra']).toBe('gpt-5.6-sol');
     expect(CODEX_LADDER['gpt-5.6-sol']).toBe('gpt-6.1-sol');
@@ -257,15 +263,32 @@ describe('escalationMap retired targets', () => {
     expect(warn).not.toHaveBeenCalled();
   });
 
-  it('leaves an ambiguous target (retired on codex, live on Copilot) in place and warns once', () => {
-    const map = parseWithMap({ 'gpt-5-mini': 'gpt-5.4' });
-    expect(map).toEqual({ 'gpt-5-mini': 'gpt-5.4' });
+  it('leaves an ambiguous target (retired on codex and Copilot with different successors) in place and warns once', () => {
+    const map = parseWithMap({ 'gpt-5.6-luna': 'gpt-5.4' });
+    expect(map).toEqual({ 'gpt-5.6-luna': 'gpt-5.4' });
     const { logger, warn } = fakeLogger();
     warnEscalationMapRetiredValues(map, logger);
     expect(warn).toHaveBeenCalledTimes(1);
     const message = String(warn.mock.calls[0]?.[0]);
-    expect(message).toContain('openai-codex');
-    expect(message).toContain('gpt-6-sol');
+    expect(message).toContain("openai-codex (successor 'gpt-6-sol')");
+    expect(message).toContain("github-copilot (successor 'gpt-5.6-sol')");
+  });
+
+  it('rewrites a target retired on several providers onto the same successor (gpt-5.5 → gpt-5.6-sol)', () => {
+    const map = parseWithMap({ 'gpt-5.6-luna': 'gpt-5.5' });
+    expect(map).toEqual({ 'gpt-5.6-luna': 'gpt-5.6-sol' });
+    const { logger, warn } = fakeLogger();
+    warnEscalationMapRetiredValues(map, logger);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it('leaves a target retired on Copilot but live on xai-grok (grok-4.5) in place and warns', () => {
+    const map = parseWithMap({ 'claude-sonnet-5': 'grok-4.5' });
+    expect(map).toEqual({ 'claude-sonnet-5': 'grok-4.5' });
+    const { logger, warn } = fakeLogger();
+    warnEscalationMapRetiredValues(map, logger);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(String(warn.mock.calls[0]?.[0])).toContain("github-copilot (successor 'grok-4.6')");
   });
 });
 
@@ -306,9 +329,9 @@ describe('DEFAULT_ESCALATION_LADDERS — catalog lockstep (mechanizes the sectio
       .slice(0, 16);
 
   it('catalog fingerprints are unchanged — a failure means a model bump landed; run the model-bump audit', () => {
-    expect(fingerprint(CLAUDE_MODELS)).toBe('aa9bc8d374ad20df');
-    expect(fingerprint(CODEX_MODELS)).toBe('5ec7fc3cd9b8f97a');
-    expect(fingerprint(COPILOT_MODELS)).toBe('f5953626fd1c7ee4');
+    expect(fingerprint(CLAUDE_MODELS)).toBe('1c0ed938d5b989e2');
+    expect(fingerprint(CODEX_MODELS)).toBe('b70fff53d4d3ab28');
+    expect(fingerprint(COPILOT_MODELS)).toBe('4af26f683d4da3d1');
     expect(fingerprint(GROK_MODELS)).toBe('2c56e449169a2ec3');
   });
 });
@@ -363,16 +386,24 @@ describe('nextEffortRung', () => {
     expect(nextEffortRung('claude-code', HAIKU, 'low')).toBeUndefined();
   });
 
+  it('claude Haiku 5.5 has the full effort ladder and a CLI default of `medium` (unset → high)', () => {
+    // Unlike Haiku 4.5 it is effort-capable; a `high` fallback default would skip a tier (→ xhigh).
+    expect(nextEffortRung('claude-code', 'claude-haiku-5-5', undefined)).toBe('high');
+    expect(nextEffortRung('claude-code', 'claude-haiku-5-5', 'low')).toBe('medium');
+    expect(nextEffortRung('claude-code', 'claude-haiku-5-5', 'high')).toBe('xhigh');
+    expect(nextEffortRung('claude-code', 'claude-haiku-5-5', 'max')).toBeUndefined();
+  });
+
   // ── Copilot keeps the fixed-`high` target; the model only matters when its effort list lacks it. ──
 
   it('copilot escalates a fresh or below-target row to the fixed target `high`', () => {
-    expect(nextEffortRung('github-copilot', 'gpt-5.5', undefined)).toBe(EFFORT_ESCALATION_TARGET);
-    expect(nextEffortRung('github-copilot', 'gpt-5.5', 'low')).toBe(EFFORT_ESCALATION_TARGET);
+    expect(nextEffortRung('github-copilot', 'gpt-5.6-sol', undefined)).toBe(EFFORT_ESCALATION_TARGET);
+    expect(nextEffortRung('github-copilot', 'gpt-5.6-sol', 'low')).toBe(EFFORT_ESCALATION_TARGET);
   });
 
   it('copilot returns undefined when already at/above the fixed target (no headroom)', () => {
-    expect(nextEffortRung('github-copilot', 'gpt-5.5', 'high')).toBeUndefined();
-    expect(nextEffortRung('github-copilot', 'gpt-5.5', 'xhigh')).toBeUndefined();
+    expect(nextEffortRung('github-copilot', 'gpt-5.6-sol', 'high')).toBeUndefined();
+    expect(nextEffortRung('github-copilot', 'gpt-5.6-sol', 'xhigh')).toBeUndefined();
   });
 
   it('copilot skips the rung for a model with no effort dimension — the CLI would reject any level', () => {
@@ -385,27 +416,40 @@ describe('nextEffortRung', () => {
 
   it('codex escalates a fresh, below-target, or legacy `minimal` row to the fixed target `xhigh`', () => {
     expect(nextEffortRung('openai-codex', 'gpt-5.6-sol', undefined)).toBe(CODEX_EFFORT_ESCALATION_TARGET);
-    expect(nextEffortRung('openai-codex', 'gpt-5.5', 'high')).toBe(CODEX_EFFORT_ESCALATION_TARGET);
-    expect(nextEffortRung('openai-codex', 'gpt-5.5', 'minimal')).toBe(CODEX_EFFORT_ESCALATION_TARGET);
+    expect(nextEffortRung('openai-codex', 'gpt-6-luna', 'high')).toBe(CODEX_EFFORT_ESCALATION_TARGET);
+    expect(nextEffortRung('openai-codex', 'gpt-6-luna', 'minimal')).toBe(CODEX_EFFORT_ESCALATION_TARGET);
   });
 
   it('codex returns undefined when already at/above the fixed target (no headroom)', () => {
-    expect(nextEffortRung('openai-codex', 'gpt-5.5', 'xhigh')).toBeUndefined();
-    expect(nextEffortRung('openai-codex', 'gpt-5.5', 'max')).toBeUndefined();
-    expect(nextEffortRung('openai-codex', 'gpt-5.5', 'ultra')).toBeUndefined();
+    expect(nextEffortRung('openai-codex', 'gpt-6-luna', 'xhigh')).toBeUndefined();
+    expect(nextEffortRung('openai-codex', 'gpt-6-luna', 'max')).toBeUndefined();
+    expect(nextEffortRung('openai-codex', 'gpt-6-luna', 'ultra')).toBeUndefined();
   });
 
-  // ── Grok shares Codex's fixed `xhigh` target — universal across the grok catalog. ──
+  // ── Grok targets `xhigh`, capped to the model's own ceiling — grok-4.5 tops out at `high`. ──
 
-  it('grok escalates a fresh, below-target, or `minimal` row to the fixed target `xhigh`', () => {
+  it('grok escalates a fresh, below-target, or `minimal` row to `xhigh` on grok-4.6 / grok-4.7', () => {
     expect(nextEffortRung('xai-grok', 'grok-4.6', undefined)).toBe(CODEX_EFFORT_ESCALATION_TARGET);
-    expect(nextEffortRung('xai-grok', 'grok-4.6', 'high')).toBe(CODEX_EFFORT_ESCALATION_TARGET);
-    expect(nextEffortRung('xai-grok', 'grok-4.5', 'minimal')).toBe(CODEX_EFFORT_ESCALATION_TARGET);
+    expect(nextEffortRung('xai-grok', 'grok-4.7', 'high')).toBe(CODEX_EFFORT_ESCALATION_TARGET);
+    expect(nextEffortRung('xai-grok', 'grok-4.6', 'minimal')).toBe(CODEX_EFFORT_ESCALATION_TARGET);
   });
 
-  it('grok returns undefined when already at/above the fixed target (no headroom)', () => {
+  it('grok returns undefined when already at/above the target (no headroom)', () => {
     expect(nextEffortRung('xai-grok', 'grok-4.6', 'xhigh')).toBeUndefined();
-    expect(nextEffortRung('xai-grok', 'grok-4.6', 'max')).toBeUndefined();
+    expect(nextEffortRung('xai-grok', 'grok-4.7', 'max')).toBeUndefined();
+  });
+
+  it('grok-4.5 climbs only to its own ceiling `high` — never to an `xhigh` the model rejects', () => {
+    expect(nextEffortRung('xai-grok', 'grok-4.5', 'low')).toBe('high');
+    expect(nextEffortRung('xai-grok', 'grok-4.5', 'minimal')).toBe('high');
+    expect(nextEffortRung('xai-grok', 'grok-4.5', undefined)).toBe('high');
+    expect(nextEffortRung('xai-grok', 'grok-4.5', 'high')).toBeUndefined();
+    expect(nextEffortRung('xai-grok', 'grok-4.5', 'xhigh')).toBeUndefined();
+  });
+
+  it('grok passes a model without effort data (grok-4.7-build-fast, custom ids) to the fixed `xhigh`', () => {
+    expect(nextEffortRung('xai-grok', 'grok-4.7-build-fast', 'high')).toBe(CODEX_EFFORT_ESCALATION_TARGET);
+    expect(nextEffortRung('xai-grok', 'grok-9-custom', undefined)).toBe(CODEX_EFFORT_ESCALATION_TARGET);
   });
 
   it('returns undefined when no provider is resolvable (skips the rung gracefully)', () => {

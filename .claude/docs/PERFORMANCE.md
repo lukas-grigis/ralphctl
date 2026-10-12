@@ -144,14 +144,14 @@ The escalation policy is a **graduated remedy ladder** (`src/business/task/escal
 spent cheapest-first across successive plateau or budget-exhausted exits:
 (1) **model escalation** — climbs **one rung per exit** up the generator provider's entry in
 `DEFAULT_ESCALATION_LADDERS` (`src/business/task/escalation-map.ts`), merged with any
-`settings.harness.escalationMap` override: **claude-code** climbs Haiku → Sonnet 5.5 → Opus 5.5, with the
-legacy Sonnet 4.6 / Opus 4.8 generation chaining through its own tier and Opus 5 and a pinned Sonnet 5
-stepping straight across,
-all converging at the same flagship; **github-copilot** climbs Haiku → Sonnet 5.5 → Opus 4.8 (Sonnet 5 also
-steps to 4.8; the ladder deliberately tops out below Opus 5 / 5.5, both plan-gated on Copilot), and its
-GPT minis (`gpt-5-mini`, `gpt-5.4-mini`) step to `gpt-5.6-luna` and `gpt-5.4` / `gpt-5.5` to `gpt-5.6-sol`
-(`gpt-5.6-luna → gpt-5.6-terra → gpt-5.6-sol`; the GPT-6 ids are not rungs); **openai-codex** climbs
-`gpt-6-luna → gpt-6.1-sol` directly (a pinned `gpt-6-sol` also steps to it), with the pinned 5.5/5.6 generation chaining through its own tier and
+`settings.harness.escalationMap` override: **claude-code** climbs Haiku 5.5 → Sonnet 5.5 → Opus 5.5, with
+the legacy Haiku 4.5 / Sonnet 4.6 / Opus 4.8 generation chaining through its own tier and Opus 5 and a
+pinned Sonnet 5 stepping straight across,
+all converging at the same flagship; **github-copilot** climbs Haiku 4.5 → Sonnet 5.5 → Opus 5.5 (Sonnet 5,
+Opus 4.8 and Opus 5 also step to 5.5 — GitHub gates all three Opus ids identically), and its
+GPT tiers climb `gpt-5.6-luna → gpt-5.6-terra → gpt-5.6-sol` (the GPT-6 ids are not rungs; rows on the
+retired GPT-5 ids are remapped onto those tiers at parse time); **openai-codex** climbs
+`gpt-6-luna → gpt-6.1-sol` directly (a pinned `gpt-6-sol` also steps to it), with the pinned 5.6 generation chaining through its own tier and
 then `gpt-5.6-sol → gpt-6.1-sol`; **xai-grok** climbs `grok-4.5 → grok-4.6 → grok-4.7`; **opencode** has no
 built-in ladder — only user `escalationMap` rungs apply. Kept in lockstep with
 `domain/value/settings-models/` by the catalog-fingerprint verify gate. Each exit re-reads the most-recent
@@ -168,7 +168,8 @@ firing climbs exactly one tier on `low → medium → high → xhigh → max` (t
 tier, e.g. Sonnet 4.6, go `high → max`), capping at `max`. Copilot
 keeps the fixed target `EFFORT_ESCALATION_TARGET`
 (`high`); Codex and Grok keep the same fixed target `CODEX_EFFORT_ESCALATION_TARGET` (`xhigh`) —
-`xhigh` is accepted by every codex catalog model and by every Grok catalog id, unlike the old shared
+`xhigh` is accepted by every codex catalog model and by `grok-4.6` / `grok-4.7` (on `grok-4.5`, which caps
+at `high`, the Grok target is capped to that ceiling), unlike the old shared
 `high` target, which every codex preset already stamped on implement and so left the rung permanently
 spent for them. It stamps
 `Task.escalatedToEffort` (no model change), the generator leaf prefers that over the configured `effort` at

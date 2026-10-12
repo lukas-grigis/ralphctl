@@ -14,14 +14,18 @@ describe('contextWindowFor', () => {
     expect(contextWindowFor('claude-opus-4-8')).toBe(200_000);
   });
 
+  it('returns 1_000_000 for the bare Haiku 5.5 id (native 1M, no [1m] selector)', () => {
+    expect(contextWindowFor('claude-haiku-5-5')).toBe(1_000_000);
+    expect(contextWindowLabel('claude-haiku-5-5')).toBe('1M');
+  });
+
   it('returns 1_000_000 for [1m] long-context variants', () => {
     expect(contextWindowFor('claude-opus-4-8[1m]')).toBe(1_000_000);
     expect(contextWindowFor('claude-fable-5[1m]')).toBe(1_000_000);
   });
 
   it('returns 1_000_000 for the bare claude-sonnet-5 id (native 1M, no [1m] selector)', () => {
-    // Sonnet 5 always runs at its native 1M window on the Anthropic API — the only base id (not a
-    // `[1m]` variant) that carries a 1M window.
+    // Sonnet 5 always runs at its native 1M window on the Anthropic API — no `[1m]` selector.
     expect(contextWindowFor('claude-sonnet-5')).toBe(1_000_000);
   });
 

@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { BUNDLED_SKILLS, skillsForFlow } from '@src/integration/ai/skills/_engine/registry.ts';
 import { flowRegistry } from '@src/application/registry.ts';
+import { FLOW_IDS } from '@src/domain/value/flow-id.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const BUNDLED_ROOT = join(HERE, '../../../../../src/integration/ai/skills/bundled');
@@ -58,6 +59,20 @@ describe('skillsForFlow', () => {
     // `ralphctl-surgical-simplicity` is recommendedFor `refine` but NOT defaultFor it.
     expect(skillsForFlow('refine')).not.toContain('ralphctl-surgical-simplicity');
     expect(skillsForFlow('implement')).toContain('ralphctl-surgical-simplicity');
+  });
+
+  it('never loads the opt-in-only skills by default in any flow', () => {
+    // These ride on flows that already own their loop / output + approval gate; the maintainer
+    // keeps them catalog suggestions only.
+    for (const flowId of FLOW_IDS) {
+      expect(skillsForFlow(flowId)).not.toContain('ralphctl-spec-driven-development');
+      expect(skillsForFlow(flowId)).not.toContain('ralphctl-cherny-workflow');
+    }
+  });
+
+  it('loads ralphctl-karpathy-guidelines by default for plan only (implement is opt-in)', () => {
+    expect(skillsForFlow('plan')).toContain('ralphctl-karpathy-guidelines');
+    expect(skillsForFlow('implement')).not.toContain('ralphctl-karpathy-guidelines');
   });
 
   it('returns names in table order', () => {

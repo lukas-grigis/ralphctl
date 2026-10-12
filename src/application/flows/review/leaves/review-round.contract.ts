@@ -14,6 +14,8 @@ import { wrapLegacySignalArray } from '@src/integration/ai/contract/_engine/lega
  *   - `task-complete`        — round applied successfully; harness commits + verifies.
  *   - `task-blocked` (reason) — round could not be applied; harness ends the review loop.
  *
+ * Any other entry (e.g. a skill-prompted `note`) is dropped before validation, not rejected.
+ *
  * Implementation contract: exactly one of the two MUST be present per spawn. The Zod refine
  * enforces this at validation time so the leaf-side decision tree (`runReviewRoundUseCase`)
  * sees an unambiguous outcome — no "AI emitted both" or "AI emitted neither" silent paths.
@@ -29,14 +31,18 @@ import { wrapLegacySignalArray } from '@src/integration/ai/contract/_engine/lega
 
 type ReviewRoundSignal = TaskCompleteSignal | TaskBlockedSignal;
 
-const hasExactlyOneTerminal = (signals: ReadonlyArray<{ readonly type: string }>): boolean => {
-  const terminals = signals.filter((s) => s.type === 'task-complete' || s.type === 'task-blocked');
-  return terminals.length === 1;
-};
+const isTerminalEntry = (entry: unknown): boolean =>
+  typeof entry === 'object' &&
+  entry !== null &&
+  'type' in entry &&
+  (entry.type === 'task-complete' || entry.type === 'task-blocked');
 
-const signalsArraySchemaRaw = z
-  .array(z.union([taskCompleteSignalSchema, taskBlockedSignalSchema]))
-  .refine(hasExactlyOneTerminal, 'exactly one of `task-complete` or `task-blocked` is required per round');
+const signalsArraySchemaRaw = z.preprocess(
+  (raw) => (Array.isArray(raw) ? raw.filter(isTerminalEntry) : raw),
+  z
+    .array(z.union([taskCompleteSignalSchema, taskBlockedSignalSchema]))
+    .refine((signals) => signals.length === 1, 'exactly one of `task-complete` or `task-blocked` is required per round')
+);
 
 /**
  * Cast bridge between Zod's inferred shape (optional fields widened to `T | undefined`

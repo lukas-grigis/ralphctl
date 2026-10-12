@@ -39,8 +39,8 @@ const DEFAULT_MODELS_BY_PROVIDER: Readonly<Record<AiProvider, Readonly<Record<Fl
     // light reasoning profile and avoids the Opus premium for a few-paragraph diff write-up.
     createPr: SONNET,
   },
-  // Same tiers as `copilot-only`. Opus 4.8 rather than Opus 5 / 5.5 (plan-gated on Copilot), and
-  // it tops the Copilot escalation ladder, so the reset-to-copilot implement default and the
+  // Same tiers as `copilot-only`. Opus 5.5 (GitHub gates Opus 4.8 / 5 / 5.5 identically, and 5.5 is
+  // the cheapest) tops the Copilot escalation ladder, so the reset-to-copilot implement default and the
   // ladder top stay aligned.
   'github-copilot': {
     refine: COPILOT_SONNET,

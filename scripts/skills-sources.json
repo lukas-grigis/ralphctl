@@ -53,6 +53,22 @@
       "ref": "main",
       "license": "MIT",
       "upstreamUrl": "https://github.com/wondelai/skills"
+    },
+    {
+      "name": "ralphctl-security-and-hardening",
+      "repo": "addyosmani/agent-skills",
+      "path": "skills/security-and-hardening/SKILL.md",
+      "ref": "main",
+      "license": "MIT",
+      "upstreamUrl": "https://github.com/addyosmani/agent-skills"
+    },
+    {
+      "name": "ralphctl-spec-driven-development",
+      "repo": "addyosmani/agent-skills",
+      "path": "skills/spec-driven-development/SKILL.md",
+      "ref": "main",
+      "license": "MIT",
+      "upstreamUrl": "https://github.com/addyosmani/agent-skills"
     }
   ]
 }

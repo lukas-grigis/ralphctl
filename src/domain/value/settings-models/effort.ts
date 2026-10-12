@@ -8,10 +8,9 @@
  * the literals.
  *
  * The Codex list is the provider-level superset — `minimal` was retired by codex ≥ 0.145
- * (persisted rows are migrated to `low`); `max` exists only on the 5.6 and GPT-6 families and
- * `ultra` only on gpt-6-astra / gpt-6-sol / gpt-5.6-sol / gpt-5.6-terra (plan-gated to Plus+,
- * never on the luna tiers) — per-model narrowing is deliberately left to the codex CLI at spawn,
- * matching the custom-model policy.
+ * (persisted rows are migrated to `low`); every catalog model accepts `max`, and `ultra` exists
+ * only on the non-luna tiers (plan-gated to Plus+) — per-model narrowing is left to the codex CLI
+ * at spawn, matching the custom-model policy.
  *
  * @public
  */
@@ -19,6 +18,7 @@
 import type { AiProvider } from '@src/domain/entity/settings.ts';
 import { CODEX_MODEL_EFFORT_LEVELS, isCodexModel } from '@src/domain/value/settings-models/codex.ts';
 import { COPILOT_MODEL_EFFORT_LEVELS, isCopilotModel } from '@src/domain/value/settings-models/copilot.ts';
+import { GROK_MODEL_EFFORT_LEVELS, isGrokModel } from '@src/domain/value/settings-models/grok.ts';
 
 export const PROVIDER_EFFORT_LEVELS = {
   'claude-code': ['low', 'medium', 'high', 'xhigh', 'max'],
@@ -28,6 +28,8 @@ export const PROVIDER_EFFORT_LEVELS = {
   // provider behind the selected `provider/model` id — so this is a permissive superset and the
   // CLI narrows per model at spawn, same posture as the codex row above.
   opencode: ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'],
+  // The Grok CLI's own superset; the catalog models cap lower (`GROK_MODEL_EFFORT_LEVELS`), so
+  // `max` only reaches an uncatalogued model such as `grok-4.7-build-fast`.
   'xai-grok': ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'],
 } as const satisfies Record<AiProvider, readonly [string, ...string[]]>;
 
@@ -39,5 +41,6 @@ export const PROVIDER_EFFORT_LEVELS = {
 export const modelEffortLevels = (provider: AiProvider, model: string): readonly string[] | undefined => {
   if (provider === 'github-copilot') return isCopilotModel(model) ? COPILOT_MODEL_EFFORT_LEVELS[model] : undefined;
   if (provider === 'openai-codex') return isCodexModel(model) ? CODEX_MODEL_EFFORT_LEVELS[model] : undefined;
+  if (provider === 'xai-grok') return isGrokModel(model) ? GROK_MODEL_EFFORT_LEVELS[model] : undefined;
   return undefined;
 };

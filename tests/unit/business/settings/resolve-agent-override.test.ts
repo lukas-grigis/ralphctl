@@ -112,8 +112,10 @@ describe('resolveAgentOverride', () => {
       model: 'claude-haiku-4.5',
       effort: undefined,
     });
-    expect(resolveAgentOverride(copilotRow, undefined, { model: 'gpt-5-mini', effort: 'max' }, 'implement')).toEqual({
-      model: 'gpt-5-mini',
+    expect(
+      resolveAgentOverride(copilotRow, undefined, { model: 'mai-code-1.1-flash', effort: 'max' }, 'implement')
+    ).toEqual({
+      model: 'mai-code-1.1-flash',
       effort: 'high',
     });
   });

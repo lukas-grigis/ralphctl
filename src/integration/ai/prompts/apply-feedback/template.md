@@ -53,8 +53,9 @@ repository or repositories `<latest_round>` touches based on the feedback conten
 Snapshot of the sprint's `progress.md` — pinned learnings, decisions, and per-task activity. Use it for
 orientation so you do not re-discover context the prior tasks already established.
 
-Note: the review flow does not mine signals back into `progress.md`. Do not emit `learning`, `decision`, or
-`note` signals — they are unused tokens in this flow.
+Note: the review flow does not mine signals back into `progress.md`. Emit only `task-complete` or
+`task-blocked` — any other signal kind (`learning`, `decision`, or a `note` for an out-of-scope extra you
+noticed) fails validation of the whole file, whatever the autonomous-operation guidance above says about notes.
 
 {{PROGRESS}}
 </progress>

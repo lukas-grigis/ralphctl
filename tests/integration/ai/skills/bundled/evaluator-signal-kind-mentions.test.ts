@@ -126,6 +126,12 @@ const SCAN_TARGETS: readonly SkillScanTarget[] = [
     skill: 'ralphctl-karpathy-guidelines',
     headings: ['## Mode 1 — Silent assumptions'],
   },
+  {
+    // Its escalate-first tier maps "ask a human" onto `task-blocked` for the generator only; the
+    // reviewer-facing fallback must stay a kind the evaluator accepts.
+    skill: 'ralphctl-security-and-hardening',
+    headings: ['### Escalate first'],
+  },
 ];
 
 describe('bundled skills — evaluator-facing signal-kind mentions match the real evaluator contract', () => {

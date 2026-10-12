@@ -395,6 +395,7 @@ describe('generatorLeaf', () => {
   it.each([
     ['github-copilot', 'claude-haiku-4.5', 'claude-sonnet-4.6', 'claude-sonnet-5'],
     ['openai-codex', 'gpt-5.4-mini', 'gpt-5.4', 'gpt-6-sol'],
+    ['github-copilot', 'gpt-5-mini', 'gpt-5.5', 'gpt-5.6-sol'],
   ])('remaps a retired %s escalatedToModel (%s -> %s) to %s at spawn', async (providerId, from, to, expected) => {
     const stamped = recordTaskEscalation(makeInProgressTaskWithRunningAttempt(), from, to);
     if (!stamped.ok) throw stamped.error;
@@ -407,18 +408,18 @@ describe('generatorLeaf', () => {
   });
 
   it('leaves a retired-elsewhere escalatedToModel alone on a provider that still serves it', async () => {
-    // `gpt-5.4` is retired on codex but a live Copilot id — the remap is provider-guarded.
-    const stamped = recordTaskEscalation(makeInProgressTaskWithRunningAttempt(), 'gpt-5.4-mini', 'gpt-5.4');
+    // `gpt-5.3-codex` is retired on codex but a live Copilot id — the remap is provider-guarded.
+    const stamped = recordTaskEscalation(makeInProgressTaskWithRunningAttempt(), 'gpt-5.6-luna', 'gpt-5.3-codex');
     if (!stamped.ok) throw stamped.error;
     const task = stamped.value;
     const provider = createFakeAiProvider({ responses: { implement: '' } });
     const leaf = generatorLeaf(
-      { ...buildDeps(), provider, providerId: 'github-copilot', model: 'gpt-5.4-mini' },
+      { ...buildDeps(), provider, providerId: 'github-copilot', model: 'gpt-5.6-luna' },
       task.id
     );
     const result = await leaf.execute(baseCtx(task));
     expect(result.ok).toBe(true);
-    expect(provider.recordedSessions[0]?.model).toBe('gpt-5.4');
+    expect(provider.recordedSessions[0]?.model).toBe('gpt-5.3-codex');
   });
 
   it('falls back to the configured model when the task has no escalatedToModel', async () => {
@@ -445,6 +446,21 @@ describe('generatorLeaf', () => {
     expect(provider.recordedSessions[0]?.effort).toBe('high');
     // Model stays the configured value — the effort rung never touches the model.
     expect(provider.recordedSessions[0]?.model).toBe('claude-opus-4-8');
+  });
+
+  it('clamps a persisted escalatedToEffort to the spawn model ceiling (grok-4.5 tops out at high)', async () => {
+    // A task stamped before the per-model clamp may carry `xhigh`, which grok-4.5's CLI rejects.
+    const initial = makeInProgressTaskWithRunningAttempt();
+    const stamped = recordTaskEffortEscalation(initial, 'xhigh');
+    if (!stamped.ok) throw stamped.error;
+    const provider = createFakeAiProvider({ responses: { implement: '' } });
+    const leaf = generatorLeaf(
+      { ...buildDeps(), provider, providerId: 'xai-grok', model: 'grok-4.5', effort: 'medium' },
+      stamped.value.id
+    );
+    const result = await leaf.execute(baseCtx(stamped.value));
+    expect(result.ok).toBe(true);
+    expect(provider.recordedSessions[0]?.effort).toBe('high');
   });
 
   it('falls back to the configured effort when the task has no escalatedToEffort', async () => {

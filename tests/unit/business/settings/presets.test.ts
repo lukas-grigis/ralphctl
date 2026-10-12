@@ -9,6 +9,7 @@ import { isOpencodeModel } from '@src/domain/value/settings-models/opencode.ts';
 import { isCopilotModel } from '@src/domain/value/settings-models/copilot.ts';
 import { isGrokModel } from '@src/domain/value/settings-models/grok.ts';
 import { mergeEscalationMap } from '@src/business/task/escalation-map.ts';
+import { modelEffortLevels } from '@src/domain/value/settings-models/effort.ts';
 
 /** The exact 26-preset order — mixed first within each family; OpenCode stays standard-only. */
 const EXPECTED_PRESET_ORDER: readonly PresetName[] = [
@@ -97,9 +98,11 @@ const G = 'xai-grok';
 const S = 'claude-sonnet-5-5';
 const O = 'claude-opus-5-5';
 const F = 'claude-fable-5-1';
+const H = 'claude-haiku-5-5';
 // Copilot spells Sonnet 5.5 with a dot (Pro and up since the 2026-09-28 changelog).
 const CS = 'claude-sonnet-5.5';
-const CO = 'claude-opus-4.8';
+// Copilot's Opus: GitHub gates Opus 4.8 / 5 / 5.5 identically, so the presets take the cheapest, 5.5.
+const CO = 'claude-opus-5.5';
 // Copilot's light tier — the same `gpt-6-luna` id Codex uses, on the Copilot provider.
 const L = 'gpt-6-luna';
 const LUNA = 'gpt-6-luna';
@@ -124,13 +127,13 @@ const EXPECTED_MATRICES: Readonly<Record<Exclude<PresetName, 'opencode-only'>, M
   },
   'claude-economic': {
     effort: 'high',
-    refine: [C, S, 'low'],
+    refine: [C, H, 'low'],
     plan: [C, S, 'high'],
     generator: [C, S, 'high'],
     evaluator: [C, S, 'high'],
-    readiness: [C, S, 'low'],
+    readiness: [C, H, 'low'],
     ideate: [C, S, 'medium'],
-    createPr: [C, S, 'low'],
+    createPr: [C, H, 'low'],
   },
   'claude-strong-gate': {
     effort: 'high',
@@ -144,13 +147,13 @@ const EXPECTED_MATRICES: Readonly<Record<Exclude<PresetName, 'opencode-only'>, M
   },
   'claude-fast': {
     effort: 'low',
-    refine: [C, S, 'low'],
+    refine: [C, H, 'low'],
     plan: [C, S, 'low'],
     generator: [C, S, 'low'],
     evaluator: [C, S, 'low'],
-    readiness: [C, S, 'low'],
+    readiness: [C, H, 'low'],
     ideate: [C, S, 'low'],
-    createPr: [C, S, 'low'],
+    createPr: [C, H, 'low'],
   },
   'claude-frontier': {
     effort: 'max',
@@ -303,13 +306,13 @@ const EXPECTED_MATRICES: Readonly<Record<Exclude<PresetName, 'opencode-only'>, M
     createPr: [G, 'grok-4.5', 'low'],
   },
   'grok-frontier': {
-    effort: 'max',
+    effort: 'xhigh',
     refine: [G, 'grok-4.7', 'high'],
-    plan: [G, 'grok-4.7', 'max'],
-    generator: [G, 'grok-4.7', 'max'],
-    evaluator: [G, 'grok-4.7', 'max'],
+    plan: [G, 'grok-4.7', 'xhigh'],
+    generator: [G, 'grok-4.7', 'xhigh'],
+    evaluator: [G, 'grok-4.7', 'xhigh'],
     readiness: [G, 'grok-4.7', 'high'],
-    ideate: [G, 'grok-4.7', 'high'],
+    ideate: [G, 'grok-4.7', 'xhigh'],
     createPr: [G, 'grok-4.7', 'medium'],
   },
   mixed: {
@@ -440,6 +443,20 @@ describe('presets', () => {
     }
   });
 
+  // The provider CLIs hard-fail on a level the model lacks; resolution would silently clamp it, so a
+  // shipped row asking for one says something the spawn never does (grok-frontier once pinned `max`
+  // on `grok-4.7`, which caps at `xhigh`). Models with no catalog effort list are skipped.
+  it('no preset row pins an effort its model does not accept', () => {
+    for (const preset of PRESET_NAMES) {
+      const out = applyPreset(preset, DEFAULT_SETTINGS);
+      for (const [flow, row] of rowsOf(out)) {
+        const levels = modelEffortLevels(row.provider, row.model);
+        if (levels === undefined || row.effort === undefined) continue;
+        expect(levels, `${preset}/${flow}: ${row.provider} ${row.model} @ ${row.effort}`).toContain(row.effort);
+      }
+    }
+  });
+
   // Sibling of the preset check above, for the OTHER table of harness-authored model ids.
   // `defaultAiSettingsForProvider` feeds the welcome flow and `settings-set-provider`, so an
   // off-catalog id here ships a first-run config the adapter would reject. defaults.ts was
@@ -549,13 +566,12 @@ describe('presets', () => {
   });
 
   it('no preset row references a retiring cheap tier', () => {
-    // `gpt-5.4-mini` left Codex on 2026-08-31 and `gpt-5-mini` is the generation below it; the
-    // cheap tier is now `gpt-6-luna` on both Codex and Copilot. `gpt-5.5` leaves Codex on 2026-10-14,
-    // and Copilot drops `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`, `gpt-5-mini` and `gemini-3.7-flash` on
-    // 2026-10-19. `claude-haiku-4-5` has an Anthropic retirement horizon (not before
-    // 2026-10-15) with no Haiku 5 successor, so every cheap-flow claude slot sits on
-    // `claude-sonnet-5-5` at `low` effort instead. Ids that remain catalogued stay pinnable until the
-    // shutoff — what this fences is the curated matrices shipping a row that stops spawning on a
+    // `gpt-5.4-mini` left Codex on 2026-08-31 and `gpt-5.5` on 2026-10-14; Copilot dropped `gpt-5.5`,
+    // `gpt-5.4`, `gpt-5.4-mini`, `gpt-5-mini` and `gemini-3.7-flash` on 2026-10-19 (all remapped at
+    // parse time). The cheap tier is now `gpt-6-luna` on both Codex and Copilot. `claude-haiku-4-5`
+    // has an Anthropic retirement horizon (not before 2026-10-15); its successor `claude-haiku-5-5`
+    // carries the cheap claude light flows instead. Ids that remain catalogued stay pinnable until
+    // the shutoff — what this fences is the curated matrices shipping a row that stops spawning on a
     // known date.
     const retiring = new Set([
       'gpt-5.4-mini',
@@ -576,40 +592,42 @@ describe('presets', () => {
     }
   });
 
-  it('every claude family routes readiness to Sonnet 5.5 — the cheap families separate by EFFORT, not by model', () => {
-    // Haiku 4.5 is on a retirement horizon with no successor, so the cheap claude families moved
-    // their light flows onto sonnet at `low` effort rather than a weaker model. The cost intent
-    // survives in the effort column: standard reads a repo at `medium`, the cheap families at
-    // `low`. `low` is pinned EXPLICITLY on those rows — leaving effort unset would inherit the
-    // global (`high` for economic / strong-gate) and silently raise the bill.
+  it('routes claude readiness by family — Haiku 5.5 on the fast / economic families, Sonnet 5.5 elsewhere', () => {
+    // The fast and economic families run their light flows on Haiku 5.5; standard and strong-gate
+    // keep Sonnet 5.5 and separate by EFFORT (`medium` vs `low`). `low` is pinned EXPLICITLY on the
+    // cheap rows — leaving effort unset would inherit the global (`high` for economic /
+    // strong-gate) and silently raise the bill.
     expect(applyPreset('claude-only', DEFAULT_SETTINGS).ai.readiness.model).toBe('claude-sonnet-5-5');
     expect(applyPreset('claude-only', DEFAULT_SETTINGS).ai.readiness.effort).toBe('medium');
+    expect(applyPreset('claude-strong-gate', DEFAULT_SETTINGS).ai.readiness.model).toBe('claude-sonnet-5-5');
+    for (const preset of ['claude-economic', 'claude-fast'] as const) {
+      expect(applyPreset(preset, DEFAULT_SETTINGS).ai.readiness.model, preset).toBe('claude-haiku-5-5');
+    }
     for (const preset of ['claude-economic', 'claude-strong-gate', 'claude-fast'] as const) {
-      const out = applyPreset(preset, DEFAULT_SETTINGS);
-      expect(out.ai.readiness.model, preset).toBe('claude-sonnet-5-5');
-      expect(out.ai.readiness.effort, preset).toBe('low');
+      expect(applyPreset(preset, DEFAULT_SETTINGS).ai.readiness.effort, preset).toBe('low');
     }
   });
 
   it('every migrated cheap-flow row pins effort explicitly so it cannot inherit a pricier global', () => {
-    // The rows that used to be haiku: refine / readiness / createPr on claude-economic and
-    // claude-fast, readiness / createPr on claude-strong-gate, ideate on mixed-fast + claude-fast.
-    const cheapClaudeRows: ReadonlyArray<[PresetName, 'refine' | 'readiness' | 'ideate' | 'createPr']> = [
-      ['claude-economic', 'refine'],
-      ['claude-economic', 'readiness'],
-      ['claude-economic', 'createPr'],
-      ['claude-strong-gate', 'readiness'],
-      ['claude-strong-gate', 'createPr'],
-      ['mixed-fast', 'ideate'],
-      ['claude-fast', 'refine'],
-      ['claude-fast', 'readiness'],
-      ['claude-fast', 'ideate'],
-      ['claude-fast', 'createPr'],
+    // The cheap claude light-flow rows: refine / readiness / createPr on claude-economic and
+    // claude-fast run Haiku 5.5; readiness / createPr on claude-strong-gate and ideate on
+    // mixed-fast + claude-fast stay on Sonnet 5.5. All pin `low`.
+    const cheapClaudeRows: ReadonlyArray<[PresetName, 'refine' | 'readiness' | 'ideate' | 'createPr', string]> = [
+      ['claude-economic', 'refine', 'claude-haiku-5-5'],
+      ['claude-economic', 'readiness', 'claude-haiku-5-5'],
+      ['claude-economic', 'createPr', 'claude-haiku-5-5'],
+      ['claude-strong-gate', 'readiness', 'claude-sonnet-5-5'],
+      ['claude-strong-gate', 'createPr', 'claude-sonnet-5-5'],
+      ['mixed-fast', 'ideate', 'claude-sonnet-5-5'],
+      ['claude-fast', 'refine', 'claude-haiku-5-5'],
+      ['claude-fast', 'readiness', 'claude-haiku-5-5'],
+      ['claude-fast', 'ideate', 'claude-sonnet-5-5'],
+      ['claude-fast', 'createPr', 'claude-haiku-5-5'],
     ];
-    for (const [preset, flow] of cheapClaudeRows) {
+    for (const [preset, flow, model] of cheapClaudeRows) {
       const row = applyPreset(preset, DEFAULT_SETTINGS).ai[flow];
       expect(row.provider, `${preset}/${flow}`).toBe('claude-code');
-      expect(row.model, `${preset}/${flow}`).toBe('claude-sonnet-5-5');
+      expect(row.model, `${preset}/${flow}`).toBe(model);
       expect(row.effort, `${preset}/${flow}`).toBe('low');
     }
   });

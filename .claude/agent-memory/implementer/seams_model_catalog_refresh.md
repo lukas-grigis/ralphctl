@@ -45,6 +45,19 @@ remap must check every catalog.
 `generator.ts` sits at the `max-lines` 400 ceiling (comments/blank skipped) — a new import or field
 there trips lint; merge imports or put the field on `RoleLeafDeps`.
 
+## Removing a catalog id breaks tests no grep for "retired" finds
+
+The provider adapter suites (`tests/integration/ai/providers/{codex,copilot}/*-provider.test.ts`) use a
+catalog id as the default `session().model`; the adapter rejects off-catalog ids, so dropping that id
+fails ~70 tests that look unrelated. Effort-clamp examples in `resolve-effort.test.ts` /
+`resolve-agent-override.test.ts` also lean on specific "model lacks level X" ids — when the last such
+model goes, the example silently turns into a custom-id passthrough (still green, now meaningless), so
+re-point it at a model that still lacks the level rather than just keeping the assertion passing.
+
+When a slug retires on TWO providers, `remapRetiredModel` is per-provider, but the provider-less
+`unambiguousRetiredSuccessor` (escalationMap values) only rewrites when every retirement names the same
+successor; differing successors stay in place and warn.
+
 ## Sweep order
 
 catalog file → `RETIRED_MODEL_REMAPS` in `src/domain/entity/settings.ts` → fingerprint → the two remap
@@ -81,10 +94,24 @@ When a cheap-tier MODEL disappears, the cost intent has to move into the effort 
 `effort: 'low'` on each migrated row, because an absent effort inherits the preset's global (`high`
 on economic / strong-gate) and silently raises spend.
 
-Touchpoints that usually need NO change on a pure catalog add: `escalation-map.ts` (rungs name only claude/gpt slugs),
+Touchpoints that usually need NO change on a pure catalog add: `escalation-map.ts` ladders (but a new
+effort-capable Claude id whose CLI default is not `high` MUST go into `CLAUDE_CLI_DEFAULT_EFFORT`, else the
+unset-effort rung skips a tier — and an effort-less one into `CLAUDE_EFFORTLESS_MODELS`),
 `context-window.ts` (Copilot/Codex windows are deliberately omitted — the CLIs don't surface them),
 `suspended-models.ts` (empty by design, kept as a kill-switch mechanism), `effort.ts`,
 `validate-model.ts` (generic), and `business/settings/{defaults,presets}.ts`.
+
+## Catalog ORDER is pinned by a TUI test
+
+`settings-view.escalation-map.test.tsx` presses ENTER twice in the escalation picker and asserts the saved
+pair — i.e. catalog entries #1 and #2 of `CLAUDE_MODELS`. Inserting an id near the top (a new Haiku) changes
+the expected pair; it is not a picker bug.
+
+## Copilot plan gating is per-model-family, not per-version
+
+GitHub's plan tables gate every Copilot Opus id (4.8 / 5 / 5.5) the same way (Pro+ and up). An earlier
+rationale ("4.8 reaches more plans") kept presets on 4.8 and was wrong; the Pro-account answer is the
+`PRESET_MODEL_FALLBACKS` step down to Sonnet, not an older Opus. Check the plan table before citing gating.
 
 ## The settings.ts duplicate-string hazard
 

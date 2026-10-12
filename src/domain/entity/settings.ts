@@ -223,6 +223,9 @@ const seedLegacyCreatePrRow = (ai: unknown): unknown => {
 const COPILOT_GEMINI_SUCCESSOR = 'gemini-3.8-flash';
 const COPILOT_OPUS_SUCCESSOR = 'claude-opus-4.8';
 const COPILOT_SMALL_CODE_SUCCESSOR = 'mai-code-1.1-flash';
+// GitHub's named successors for the 2026-10-19 GPT deprecations; also Codex's `gpt-5.5` successor.
+const GPT_5_6_SOL = 'gpt-5.6-sol';
+const GPT_5_6_LUNA = 'gpt-5.6-luna';
 
 /**
  * Retired model slugs and their catalog successors, per provider — rewritten at parse time.
@@ -236,7 +239,7 @@ const COPILOT_SMALL_CODE_SUCCESSOR = 'mai-code-1.1-flash';
  * Retirements, by provider:
  *  - claude-code — `claude-opus-4-7` retired for `claude-opus-4-8`.
  *  - github-copilot — the 2026-09-01 deprecation removed `claude-opus-4.5` / `claude-opus-4.6`
- *    (→ `claude-opus-4.8`, the Copilot Opus that every plan can reach), `claude-sonnet-4.5` /
+ *    (→ `claude-opus-4.8`, their nearest live successor), `claude-sonnet-4.5` /
  *    `claude-sonnet-4.6` (→ `claude-sonnet-5`), `gemini-3.1-pro` (→ `gemini-3.8-flash`, the
  *    newest Gemini left on Copilot), and `raptor-mini` (→ `mai-code-1.1-flash`, the remaining
  *    small code model); `mai-code-1-flash` was superseded by `mai-code-1.1-flash`. Earlier
@@ -244,11 +247,16 @@ const COPILOT_SMALL_CODE_SUCCESSOR = 'mai-code-1.1-flash';
  *    `claude-opus-4.8-fast`, `gemini-3.1-pro-preview` and `gemini-2.5-pro` → `gemini-3.8-flash`,
  *    `raptor-mini-preview` → `mai-code-1.1-flash`. The 2026-10-02 deprecation removed
  *    `gemini-3.5-flash` / `gemini-3.6-flash` (and the older `gemini-3-flash`) → `gemini-3.8-flash`,
- *    `kimi-k2.7-code` → `kimi-k3`, and `claude-opus-4.7` → `claude-opus-4.8` (GitHub suggests
- *    Opus 5.5, but that is Pro+ only; 4.8 is the Copilot Opus every plan the presets target reaches).
- *  - openai-codex — `gpt-5.4` / `gpt-5.4-mini` retired 2026-08-31 (→ `gpt-6-sol` / `gpt-6-luna`,
- *    the codex cache's upgrade targets); codex ≥ 0.145 dropped `gpt-5.2` / `gpt-5.3-codex` /
- *    `gpt-5.3-codex-spark` (→ `gpt-5.5`, which the default ladder climbs on plateau).
+ *    `kimi-k2.7-code` → `kimi-k3`, and `claude-opus-4.7` → `claude-opus-4.8` (the nearest
+ *    live successor; GitHub suggests Opus 5.5, which the default ladder climbs to on plateau).
+ *    The 2026-10-19 deprecation removed `gpt-5.5` / `gpt-5.4` (→ `gpt-5.6-sol`), `gpt-5.4-mini` /
+ *    `gpt-5-mini` (→ `gpt-5.6-luna`), `gemini-3.7-flash` (→ `gemini-3.8-flash`) and `grok-4.5`
+ *    (→ `grok-4.6`) — GitHub's named successors. `grok-4.5` is retired on Copilot only; it stays a
+ *    live `xai-grok` id, so the provider guard matters there.
+ *  - openai-codex — `gpt-5.5` retired 2026-10-14 (→ `gpt-5.6-sol`, already its ladder rung);
+ *    `gpt-5.4` / `gpt-5.4-mini` retired 2026-08-31 (→ `gpt-6-sol` / `gpt-6-luna`, the codex cache's
+ *    upgrade targets); codex ≥ 0.145 dropped `gpt-5.2` / `gpt-5.3-codex` / `gpt-5.3-codex-spark`
+ *    (they pointed at `gpt-5.5`; chain-collapsed onto `gpt-5.6-sol` when it retired).
  *  - opencode — free-tier ids that left `opencode models` with a clear successor:
  *    `deepseek-v4-flash-free` → `nemotron-3.5-lightning-free`, `ling-3.0-tiny-free` →
  *    `ling-3.0-flash-fin-free`.
@@ -279,11 +287,18 @@ export const RETIRED_MODEL_REMAPS: ReadonlyArray<{
   { provider: PROVIDER_GITHUB_COPILOT, from: 'raptor-mini', to: COPILOT_SMALL_CODE_SUCCESSOR },
   { provider: PROVIDER_GITHUB_COPILOT, from: 'raptor-mini-preview', to: COPILOT_SMALL_CODE_SUCCESSOR },
   { provider: PROVIDER_GITHUB_COPILOT, from: 'mai-code-1-flash', to: COPILOT_SMALL_CODE_SUCCESSOR },
+  { provider: PROVIDER_GITHUB_COPILOT, from: 'gpt-5.5', to: GPT_5_6_SOL },
+  { provider: PROVIDER_GITHUB_COPILOT, from: 'gpt-5.4', to: GPT_5_6_SOL },
+  { provider: PROVIDER_GITHUB_COPILOT, from: 'gpt-5.4-mini', to: GPT_5_6_LUNA },
+  { provider: PROVIDER_GITHUB_COPILOT, from: 'gpt-5-mini', to: GPT_5_6_LUNA },
+  { provider: PROVIDER_GITHUB_COPILOT, from: 'gemini-3.7-flash', to: COPILOT_GEMINI_SUCCESSOR },
+  { provider: PROVIDER_GITHUB_COPILOT, from: 'grok-4.5', to: 'grok-4.6' },
+  { provider: PROVIDER_OPENAI_CODEX, from: 'gpt-5.5', to: GPT_5_6_SOL },
   { provider: PROVIDER_OPENAI_CODEX, from: 'gpt-5.4', to: 'gpt-6-sol' },
   { provider: PROVIDER_OPENAI_CODEX, from: 'gpt-5.4-mini', to: 'gpt-6-luna' },
-  { provider: PROVIDER_OPENAI_CODEX, from: 'gpt-5.2', to: 'gpt-5.5' },
-  { provider: PROVIDER_OPENAI_CODEX, from: 'gpt-5.3-codex', to: 'gpt-5.5' },
-  { provider: PROVIDER_OPENAI_CODEX, from: 'gpt-5.3-codex-spark', to: 'gpt-5.5' },
+  { provider: PROVIDER_OPENAI_CODEX, from: 'gpt-5.2', to: GPT_5_6_SOL },
+  { provider: PROVIDER_OPENAI_CODEX, from: 'gpt-5.3-codex', to: GPT_5_6_SOL },
+  { provider: PROVIDER_OPENAI_CODEX, from: 'gpt-5.3-codex-spark', to: GPT_5_6_SOL },
   { provider: PROVIDER_OPENCODE, from: 'opencode/deepseek-v4-flash-free', to: 'opencode/nemotron-3.5-lightning-free' },
   { provider: PROVIDER_OPENCODE, from: 'opencode/ling-3.0-tiny-free', to: 'opencode/ling-3.0-flash-fin-free' },
 ];
@@ -291,9 +306,10 @@ export const RETIRED_MODEL_REMAPS: ReadonlyArray<{
 /**
  * The live successor of `model` on `provider` when that pair is retired (one hop — see
  * {@link RETIRED_MODEL_REMAPS}), else `model` unchanged. Provider-guarded: a slug retired on one
- * backend but live on another (`gpt-5.4` is gone from codex yet still a Copilot id) only remaps
- * for the backend that retired it. Takes the provider as a plain string so callers holding a
- * resolved provider id need no cast — an unknown provider simply matches nothing.
+ * backend but live on another (`grok-4.5` is gone from Copilot yet still an xai-grok id) only
+ * remaps for the backend that retired it, and a slug two backends retired onto different
+ * successors (`gpt-5.4`) lands on each backend's own. Takes the provider as a plain string so
+ * callers holding a resolved provider id need no cast — an unknown provider simply matches nothing.
  *
  * Used by the settings-row migration below and by every reader that turns a PERSISTED model id
  * into a spawn model outside the settings file (a task's `escalatedToModel` stamped before an
@@ -313,15 +329,17 @@ const LIVE_CATALOG_IDS: ReadonlySet<string> = new Set<string>([
 
 /**
  * The live successor of a retired `model` when the retirement is UNAMBIGUOUS without knowing the
- * provider — exactly one provider retired the slug and no static catalog still lists it — else
- * `undefined`. For provider-less model references such as `harness.escalationMap` values, which
- * apply to whichever backend the generator runs on: rewriting `gpt-5.4` (retired on codex, live
- * on Copilot) would break a Copilot rung, so an ambiguous slug is left for the caller to warn on.
+ * provider — no static catalog still lists the slug, and every provider that retired it names the
+ * same successor (`gpt-5.5` → `gpt-5.6-sol` on both Codex and Copilot) — else `undefined`. For
+ * provider-less model references such as `harness.escalationMap` values, which apply to whichever
+ * backend the generator runs on: rewriting `grok-4.5` (retired on Copilot, live on xai-grok) would
+ * break a Grok rung, and `gpt-5.4` (codex → `gpt-6-sol`, Copilot → `gpt-5.6-sol`) has no single
+ * answer, so an ambiguous slug is left for the caller to warn on.
  */
 export const unambiguousRetiredSuccessor = (model: string): string | undefined => {
   if (LIVE_CATALOG_IDS.has(model)) return undefined;
-  const hits = RETIRED_MODEL_REMAPS.filter((r) => r.from === model);
-  return hits.length === 1 ? hits[0]?.to : undefined;
+  const successors = new Set(RETIRED_MODEL_REMAPS.filter((r) => r.from === model).map((r) => r.to));
+  return successors.size === 1 ? [...successors][0] : undefined;
 };
 
 /** Codex retired the 'minimal' reasoning-effort level (codex CLI >= 0.145); 'low' succeeds it. */

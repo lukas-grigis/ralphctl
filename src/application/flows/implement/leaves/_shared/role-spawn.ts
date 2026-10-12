@@ -1,4 +1,7 @@
 import type { HeadlessAiProvider } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
+import type { Task } from '@src/domain/entity/task.ts';
+import { effectiveGeneratorModel } from '@src/business/task/escalation-policy.ts';
+import { resolveSpawnEffort } from '@src/business/settings/resolve-effort.ts';
 
 /**
  * Per-role spawn identity + prompt-decoration config for one side of the gen-eval loop (generator
@@ -60,3 +63,16 @@ export const roleSpawnConfig = (
   model: role.model,
   ...(role.effort !== undefined ? { effort: role.effort } : {}),
 });
+
+/**
+ * The model + effort the generator spawns at for `task`: the per-task escalation overrides win,
+ * and the effort is clamped to the resolved model. The one resolution site for the spawn and the
+ * escalation policy's lookup (finalize leaf), so the two can never disagree.
+ */
+export const generatorSpawnTarget = (
+  task: Pick<Task, 'escalatedToModel' | 'escalatedToEffort'>,
+  configured: { readonly providerId?: string | undefined; readonly model: string; readonly effort?: string | undefined }
+): { readonly model: string; readonly effort: string | undefined } => {
+  const model = effectiveGeneratorModel(task, configured.model, configured.providerId);
+  return { model, effort: resolveSpawnEffort(task.escalatedToEffort, configured.effort, configured.providerId, model) };
+};

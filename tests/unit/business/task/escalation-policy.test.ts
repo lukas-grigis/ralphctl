@@ -150,7 +150,7 @@ describe('decideEscalation', () => {
     const onClaude = decideEscalation({ ...base, generatorProvider: 'claude-code' });
     const onCopilot = decideEscalation({ ...base, generatorProvider: 'github-copilot' });
     expect(onClaude.kind === 'escalate' ? onClaude.to : onClaude.kind).toBe('claude-opus-5-5');
-    expect(onCopilot.kind === 'escalate' ? onCopilot.to : onCopilot.kind).toBe('claude-opus-4.8');
+    expect(onCopilot.kind === 'escalate' ? onCopilot.to : onCopilot.kind).toBe('claude-opus-5.5');
   });
 
   it('climbs only the user rungs when no generator provider is known', () => {

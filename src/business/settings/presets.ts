@@ -60,11 +60,12 @@ import { OPENCODE_ONLY } from '@src/business/settings/opencode-preset-matrices.t
  *   strong-gate   — cheap implement generator paired with a permanently-strong evaluator — the
  *                   family that splits generator and evaluator by TIER on one provider
  *                   (`mixed`, `mixed-economic` and `mixed-frontier` split by provider instead).
- *   fast          — cheapest viable tier at `low` effort, optimising speed/cost over quality;
+ *   fast          — cheapest viable tier at `low` effort, optimising speed/cost over quality
+ *                   (Claude: Haiku 5.5 on the light flows, Sonnet 5.5 on the code flows);
  *                   the only family with `escalateOnPlateau` stamped OFF so a plateau settles.
  *   frontier      — no cost ceiling: the vendor's top model at `max` on the deep flows (Fable 5.1
- *                   on Claude, `gpt-6-astra` on Codex, Opus 4.8 on Copilot where Opus 5 / 5.5
- *                   are plan-gated, `grok-4.7` on Grok). Fable needs a non-zero-data-retention
+ *                   on Claude, `gpt-6-astra` on Codex, Opus 5.5 on Copilot, `grok-4.7` on
+ *                   Grok — at `xhigh`, its ceiling). Fable needs a non-zero-data-retention
  *                   org. Neither Fable nor astra is a default-ladder rung, so a frontier
  *                   generator never escalates; `grok-4.7-build-fast` stays opt-in.
  *

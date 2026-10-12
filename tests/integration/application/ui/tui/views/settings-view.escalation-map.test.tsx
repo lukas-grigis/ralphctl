@@ -83,11 +83,11 @@ describe('SettingsView — escalation map editor', () => {
     await waitForPredicate(() => (result.lastFrame() ?? '').includes('step 2/2'));
     expect(result.lastFrame() ?? '').toContain('claude-haiku-4-5');
 
-    // Step 2 — first compatible target is claude-sonnet-4-6.
+    // Step 2 — first compatible target is the next catalog entry, claude-haiku-5-5.
     result.stdin.write(ENTER);
     await waitForPredicate(() => saved() !== undefined);
 
-    expect(saved()?.harness.escalationMap).toEqual({ 'claude-haiku-4-5': 'claude-sonnet-4-6' });
+    expect(saved()?.harness.escalationMap).toEqual({ 'claude-haiku-4-5': 'claude-haiku-5-5' });
 
     // Back on the section: the override row + customised ladder render after the refresh.
     await waitForPredicate(() => (result.lastFrame() ?? '').includes('1 override'));

@@ -135,7 +135,11 @@ const unscriptedScript = (reason: string): SpawnScript => ({
  *
  * @public
  */
-export const createDemoProviderSpawn = (transcript: DemoTranscript): ProviderSpawn => {
+export const createDemoProviderSpawn = (
+  transcript: DemoTranscript,
+  // How long each session stays "running" before it exits; only the README recorder sets it.
+  { sessionDelayMs: exitDelayMs = 0 }: { readonly sessionDelayMs?: number | undefined } = {}
+): ProviderSpawn => {
   return (_command, args, options): ChildProcessWithoutNullStreams => {
     let prompt = '';
     return createScriptedChild(
@@ -149,7 +153,10 @@ export const createDemoProviderSpawn = (transcript: DemoTranscript): ProviderSpa
           return unscriptedScript(`no scripted beat for ${target.role} round ${String(target.round)}`);
         }
         applyBeat(beat, target, options.cwd);
-        return { stdoutChunks: [streamLines(beat, sessionIdFor(target.role), flagValue(args, '--model'))] };
+        return {
+          stdoutChunks: [streamLines(beat, sessionIdFor(target.role), flagValue(args, '--model'))],
+          exitDelayMs,
+        };
       },
       {
         onStdin: (chunk) => {

@@ -103,7 +103,7 @@ describe('settings-apply-preset — model availability', () => {
     const flow = createSettingsApplyPresetFlow({
       settingsRepo: repo,
       detectInstalledProviders: detectFor(['github-copilot']),
-      availableModelsFor: async () => ['claude-opus-4.8', 'claude-sonnet-5.5', 'gpt-5.6-luna'],
+      availableModelsFor: async () => ['claude-opus-5.5', 'claude-sonnet-5.5', 'gpt-5.6-luna'],
     });
     const result = await flow.execute({ input: { preset: 'copilot-only' } });
     expect(result.ok).toBe(true);

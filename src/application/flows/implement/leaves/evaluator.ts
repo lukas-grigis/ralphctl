@@ -51,6 +51,7 @@ import {
 } from '@src/application/flows/implement/leaves/_shared/run-role-turn.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import type { PlateauTurnRecord } from '@src/business/task/plateau-detection.ts';
+import { resolveSpawnEffort } from '@src/business/settings/resolve-effort.ts';
 import { replaceTask } from '@src/application/flows/implement/leaves/_shared/replace-task.ts';
 
 /**
@@ -284,8 +285,8 @@ const makeEvaluatorCallEvaluate =
       // Per-task evaluator-EFFORT escalation: the escalation policy's lockstep bump stamps
       // `escalatedToEvaluatorEffort` (computed against the evaluator's own ladder, never copied
       // from the generator's target) when it fires alongside the generator's same-model effort
-      // rung. Prefer it over the configured `deps.effort` at spawn.
-      effort: task.escalatedToEvaluatorEffort ?? deps.effort,
+      // rung. Prefer it over the configured `deps.effort` at spawn, clamped to the evaluator model.
+      effort: resolveSpawnEffort(task.escalatedToEvaluatorEffort, deps.effort, deps.providerId, deps.model),
       priorSessionId: args.input.priorEvaluatorSessionId,
       signal: args.signal,
       contract: evaluatorOutputContract,

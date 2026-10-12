@@ -100,7 +100,7 @@ const tempSignalsFile = () => {
 const session = (overrides: Partial<AiSession> = {}): AiSession => ({
   prompt: PROMPT,
   cwd: CWD,
-  model: 'gpt-5.5',
+  model: 'gpt-5.6-sol',
   permissions: READ_ONLY,
   signalsFile: tempSignalsFile(),
   ...overrides,
@@ -120,7 +120,7 @@ describe('createCopilotProvider', () => {
     const { spawn } = makeSpawn([
       {
         stdoutChunks: [
-          '{"session_id":"sess-1","model":"gpt-5.5"}\n',
+          '{"session_id":"sess-1","model":"gpt-5.6-sol"}\n',
           '{"type":"assistant.message_delta","data":{"deltaContent":"completed task"}}\n',
           '{"type":"assistant.message_delta","data":{"deltaContent":"; wrote signals.json."}}\n',
         ],
@@ -145,7 +145,7 @@ describe('createCopilotProvider', () => {
     const sess = session();
     const { spawn } = makeSpawn([
       {
-        stdoutChunks: ['{"session_id":"sess-persist","model":"gpt-5.5"}\n', '<task-complete/>\n'],
+        stdoutChunks: ['{"session_id":"sess-persist","model":"gpt-5.6-sol"}\n', '<task-complete/>\n'],
         exitCode: 0,
       },
     ]);
@@ -220,12 +220,12 @@ describe('createCopilotProvider', () => {
     const { spawn, calls } = makeSpawn([
       // Attempt 1: captures the session id, then a rate-limit exit.
       {
-        stdoutChunks: ['{"session_id":"sess-429","model":"gpt-5.5"}\n'],
+        stdoutChunks: ['{"session_id":"sess-429","model":"gpt-5.6-sol"}\n'],
         stderrChunks: ['Error: rate limit exceeded\n'],
         exitCode: 1,
       },
       // Attempt 2: clean success resuming the session.
-      { stdoutChunks: ['{"session_id":"sess-429","model":"gpt-5.5"}\n', '<task-complete/>\n'], exitCode: 0 },
+      { stdoutChunks: ['{"session_id":"sess-429","model":"gpt-5.6-sol"}\n', '<task-complete/>\n'], exitCode: 0 },
     ]);
 
     const provider = createCopilotProvider({
@@ -282,7 +282,7 @@ describe('createCopilotProvider', () => {
     const { spawn } = makeSpawn([
       {
         stdoutChunks: [
-          '{"session_id":"sess-json","model":"gpt-5.5"}\n',
+          '{"session_id":"sess-json","model":"gpt-5.6-sol"}\n',
           '{"type":"assistant.message_delta","data":{"deltaContent":"working"}}\n',
           '{"type":"assistant.message_delta","data":{"deltaContent":"; verified."}}\n',
         ],
@@ -307,7 +307,7 @@ describe('createCopilotProvider', () => {
     const { spawn } = makeSpawn([
       {
         stdoutChunks: [
-          '{"session_id":"sess-body","model":"gpt-5.5"}\n',
+          '{"session_id":"sess-body","model":"gpt-5.6-sol"}\n',
           'plain text body line\n',
           '<task-complete/>\n',
         ],
@@ -334,7 +334,7 @@ describe('createCopilotProvider', () => {
     const { spawn } = makeSpawn([
       {
         stdoutChunks: [
-          '{"session_id":"sess-empty","model":"gpt-5.5"}\n',
+          '{"session_id":"sess-empty","model":"gpt-5.6-sol"}\n',
           'I considered the repo but did not find conclusive scripts.\n',
         ],
         exitCode: 0,
@@ -356,7 +356,7 @@ describe('createCopilotProvider', () => {
     const cwd = absolutePath('/tmp/some-target-repo');
     const sess = session({ cwd });
     const { spawn, calls } = makeSpawn([
-      { stdoutChunks: ['{"session_id":"sess-cwd","model":"gpt-5.5"}\n', '<task-complete/>\n'], exitCode: 0 },
+      { stdoutChunks: ['{"session_id":"sess-cwd","model":"gpt-5.6-sol"}\n', '<task-complete/>\n'], exitCode: 0 },
     ]);
 
     const provider = createCopilotProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
@@ -378,7 +378,7 @@ describe('createCopilotProvider', () => {
     const knownDelta = '{"type":"assistant.message_delta","data":{"deltaContent":"<task-complete/>"}}';
     const { spawn } = makeSpawn([
       {
-        stdoutChunks: [`{"session_id":"sess-mix","model":"gpt-5.5"}\n${unknownEvt}\n${knownDelta}\n`],
+        stdoutChunks: [`{"session_id":"sess-mix","model":"gpt-5.6-sol"}\n${unknownEvt}\n${knownDelta}\n`],
         exitCode: 0,
       },
     ]);
@@ -415,7 +415,7 @@ describe('createCopilotProvider', () => {
     });
     const { spawn } = makeSpawn([
       {
-        stdoutChunks: [`{"session_id":"sess-echo","model":"gpt-5.5"}\n${userEcho}\n${assistantTurn}\n`],
+        stdoutChunks: [`{"session_id":"sess-echo","model":"gpt-5.6-sol"}\n${userEcho}\n${assistantTurn}\n`],
         exitCode: 0,
       },
     ]);
@@ -442,7 +442,7 @@ describe('createCopilotProvider', () => {
     const sess = session({ signalsFile, bodyFile });
     const { spawn } = makeSpawn([
       {
-        stdoutChunks: ['{"session_id":"sess-clobber","model":"gpt-5.5"}\n', 'fresh body\n'],
+        stdoutChunks: ['{"session_id":"sess-clobber","model":"gpt-5.6-sol"}\n', 'fresh body\n'],
         exitCode: 0,
       },
     ]);
@@ -525,7 +525,7 @@ describe('createCopilotProvider — TokenUsageEvent emission', () => {
     // Bare meta line — sessionId + model, no usage object. Honest about missing fields.
     const { spawn } = makeSpawn([
       {
-        stdoutChunks: ['{"session_id":"sess-tu","model":"gpt-5.5"}\n', '<task-complete/>\n'],
+        stdoutChunks: ['{"session_id":"sess-tu","model":"gpt-5.6-sol"}\n', '<task-complete/>\n'],
         exitCode: 0,
       },
     ]);
@@ -539,7 +539,7 @@ describe('createCopilotProvider — TokenUsageEvent emission', () => {
     const evt = tokenEvents[0]!;
     expect(evt.provider).toBe('github-copilot');
     expect(evt.sessionId).toBe('sess-tu');
-    expect(evt.model).toBe('gpt-5.5');
+    expect(evt.model).toBe('gpt-5.6-sol');
     expect(evt.inputTokens).toBeUndefined();
     expect(evt.outputTokens).toBeUndefined();
     // Copilot models are not in the static context-window table.
@@ -551,7 +551,7 @@ describe('createCopilotProvider — TokenUsageEvent emission', () => {
     const sess = session();
     const meta = JSON.stringify({
       session_id: 'sess-u',
-      model: 'gpt-5.5',
+      model: 'gpt-5.6-sol',
       usage: { input_tokens: 444, output_tokens: 222 },
     });
     const { spawn } = makeSpawn([{ stdoutChunks: [`${meta}\n`, '<task-complete/>\n'], exitCode: 0 }]);
@@ -573,7 +573,7 @@ describe('createCopilotProvider — TokenUsageEvent emission', () => {
     const sess = session();
     const { spawn } = makeSpawn([
       {
-        stdoutChunks: ['{"session_id":"sess-fail","model":"gpt-5.5"}\n'],
+        stdoutChunks: ['{"session_id":"sess-fail","model":"gpt-5.6-sol"}\n'],
         stderrChunks: ['boom\n'],
         exitCode: 7,
       },
@@ -591,7 +591,7 @@ describe('createCopilotProvider — TokenUsageEvent emission', () => {
     const cap = createCapturingBus();
     const sess = session({ chainSessionId: 'chain-run-42' });
     const { spawn } = makeSpawn([
-      { stdoutChunks: ['{"session_id":"sess-cs","model":"gpt-5.5"}\n', '<task-complete/>\n'], exitCode: 0 },
+      { stdoutChunks: ['{"session_id":"sess-cs","model":"gpt-5.6-sol"}\n', '<task-complete/>\n'], exitCode: 0 },
     ]);
 
     const provider = createCopilotProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });

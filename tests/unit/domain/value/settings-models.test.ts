@@ -41,10 +41,10 @@ describe('settings-models / claude catalog', () => {
 
 describe('settings-models / codex catalog', () => {
   // Verified against the live CLI model cache (codex CLI v0.160.0, 2026-10-03).
-  const kept = ['gpt-5.5', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna', 'codex-auto-review'] as const;
+  const kept = ['gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna', 'codex-auto-review'] as const;
   const added = ['gpt-6.1-sol', 'gpt-6-astra', 'gpt-6-sol', 'gpt-6-luna'] as const;
   // Gone from the codex CLI entirely — persisted rows are remapped at parse time.
-  const removed = ['gpt-5.2', 'gpt-5.3-codex', 'gpt-5.3-codex-spark', 'gpt-5.4', 'gpt-5.4-mini'] as const;
+  const removed = ['gpt-5.2', 'gpt-5.3-codex', 'gpt-5.3-codex-spark', 'gpt-5.4', 'gpt-5.4-mini', 'gpt-5.5'] as const;
 
   it('keeps the still-served entries plus the synthetic review id', () => {
     for (const m of kept) {
@@ -79,12 +79,8 @@ describe('settings-models / copilot catalog', () => {
   // Reconciled to GitHub's supported-models doc + changelog (as of 2026-10-03).
   const official = [
     // OpenAI
-    'gpt-5-mini',
     'gpt-5.3-codex',
-    'gpt-5.4',
-    'gpt-5.4-mini',
     'gpt-5.4-nano',
-    'gpt-5.5',
     'gpt-5.6-sol',
     'gpt-5.6-terra',
     'gpt-5.6-luna',
@@ -103,14 +99,12 @@ describe('settings-models / copilot catalog', () => {
     'claude-sonnet-5',
     'claude-sonnet-5.5',
     // Google
-    'gemini-3.7-flash',
     'gemini-3.8-flash',
     // Microsoft
     'mai-code-1.1-flash',
     // Moonshot
     'kimi-k3',
     // xAI
-    'grok-4.5',
     'grok-4.6',
     'grok-4.7',
   ] as const;
@@ -159,6 +153,13 @@ describe('settings-models / copilot catalog', () => {
     'gemini-3.6-flash',
     'kimi-k2.7-code',
     'claude-opus-4.7',
+    // 2026-10-19 deprecation.
+    'gpt-5.5',
+    'gpt-5.4',
+    'gpt-5.4-mini',
+    'gpt-5-mini',
+    'gemini-3.7-flash',
+    'grok-4.5',
   ] as const;
 
   it('contains exactly the official supported-models list', () => {
@@ -248,8 +249,17 @@ describe('remapRetiredModel — provider-guarded one-hop remap', () => {
     expect(remapRetiredModel('openai-codex', 'gpt-5.4')).toBe('gpt-6-sol');
   });
 
+  it('picks the successor per provider when two providers retired the same slug differently', () => {
+    // Codex dropped `gpt-5.4` for `gpt-6-sol`; Copilot's 2026-10-19 deprecation names `gpt-5.6-sol`.
+    expect(remapRetiredModel('github-copilot', 'gpt-5.4')).toBe('gpt-5.6-sol');
+    expect(remapRetiredModel('github-copilot', 'gpt-5.4-mini')).toBe('gpt-5.6-luna');
+    expect(remapRetiredModel('openai-codex', 'gpt-5.4-mini')).toBe('gpt-6-luna');
+  });
+
   it('leaves the slug alone on a provider that still serves it, and for live or unknown ids', () => {
-    expect(remapRetiredModel('github-copilot', 'gpt-5.4')).toBe('gpt-5.4');
+    // `grok-4.5` left Copilot on 2026-10-19 but stays on the xai-grok backend.
+    expect(remapRetiredModel('github-copilot', 'grok-4.5')).toBe('grok-4.6');
+    expect(remapRetiredModel('xai-grok', 'grok-4.5')).toBe('grok-4.5');
     expect(remapRetiredModel('claude-code', 'claude-opus-5-5')).toBe('claude-opus-5-5');
     expect(remapRetiredModel('not-a-provider', 'gpt-5.4')).toBe('gpt-5.4');
   });
@@ -261,9 +271,20 @@ describe('unambiguousRetiredSuccessor — provider-less remap', () => {
     expect(unambiguousRetiredSuccessor('claude-opus-4-7')).toBe('claude-opus-4-8');
   });
 
+  it('returns the shared successor when several providers retired the slug onto the same model', () => {
+    // `gpt-5.5` left Codex (2026-10-14) and Copilot (2026-10-19); both name `gpt-5.6-sol`.
+    expect(unambiguousRetiredSuccessor('gpt-5.5')).toBe('gpt-5.6-sol');
+  });
+
   it('returns undefined for a slug retired on one provider but live on another', () => {
-    // `gpt-5.4` left codex but is still a Copilot id.
+    // `grok-4.5` left Copilot but is still an xai-grok id.
+    expect(unambiguousRetiredSuccessor('grok-4.5')).toBeUndefined();
+  });
+
+  it('returns undefined when the providers that retired a slug name different successors', () => {
+    // `gpt-5.4`: codex → `gpt-6-sol`, Copilot → `gpt-5.6-sol`.
     expect(unambiguousRetiredSuccessor('gpt-5.4')).toBeUndefined();
+    expect(unambiguousRetiredSuccessor('gpt-5.4-mini')).toBeUndefined();
   });
 
   it('returns undefined for a live or unknown slug', () => {

@@ -1,4 +1,5 @@
-// Reconciled to GitHub's supported-models doc + changelog and live-probed (2026-10-03).
+// Reconciled to GitHub's supported-models doc + changelog and live-probed (2026-10-03); the
+// 2026-10-19 deprecation batch dropped on its retirement date.
 // Docs: https://docs.github.com/en/copilot/reference/ai-models/supported-models
 
 /**
@@ -13,23 +14,22 @@
  * "Not available" on one account is often plan gating or a gradual rollout, so only models GitHub
  * itself deprecated are removed. Removed so far (each remapped at parse time — `RETIRED_MODEL_REMAPS`
  * in `settings.ts`): the 2026-09-01 batch (`claude-opus-4.5` / `-4.6`, `claude-sonnet-4.5` / `-4.6`,
- * `gemini-3.1-pro`, `raptor-mini`, plus `mai-code-1-flash`) and the 2026-10-02 batch
- * (`gemini-3.5-flash`, `gemini-3.6-flash`, `kimi-k2.7-code`, `claude-opus-4.7`).
- *
- * Scheduled for deprecation on 2026-10-19 (changelog 2026-09-18), still live until then and kept so
- * pinned rows keep working: `gemini-3.7-flash`, `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`, `gpt-5-mini`,
- * `grok-4.5`. No preset or default ladder rung points at them; drop them with a remap once the date
- * passes.
+ * `gemini-3.1-pro`, `raptor-mini`, plus `mai-code-1-flash`), the 2026-10-02 batch
+ * (`gemini-3.5-flash`, `gemini-3.6-flash`, `kimi-k2.7-code`, `claude-opus-4.7`) and the 2026-10-19
+ * batch (changelog 2026-09-18; GitHub's named successors): `gpt-5.5` / `gpt-5.4` → `gpt-5.6-sol`,
+ * `gpt-5.4-mini` / `gpt-5-mini` → `gpt-5.6-luna`, `gemini-3.7-flash` → `gemini-3.8-flash`, and
+ * `grok-4.5` → `grok-4.6` (Copilot only — `grok-4.5` stays on the `xai-grok` backend).
  *
  * Plan gating (changelog): `claude-sonnet-5.5` (2026-09-28) and `gpt-6-luna` reach Pro and up;
- * `gpt-6.1-sol` (2026-09-29), `gpt-6-sol`, `gpt-6-astra`, `claude-opus-5` / `-5.5` and
- * `claude-fable-5.1` are Pro+ and up, so they stay catalog + pin-only on Copilot.
+ * `gpt-6.1-sol` (2026-09-29), `gpt-6-sol`, `gpt-6-astra`, `claude-opus-4.8` / `-5` / `-5.5` (gated
+ * identically — none on Pro) and `claude-fable-5.1` are Pro+ and up. The Copilot presets top out
+ * on `claude-opus-5.5` (the cheapest of the three Opus ids); a Pro account falls back to Sonnet
+ * 5.5 through `adapt-to-available-models.ts`.
  *
  * Listed by `listModels()` on the reference account: `claude-sonnet-5`, `claude-sonnet-5.5`,
  * `claude-fable-5`, `claude-fable-5.1`, `claude-opus-5.5`, `claude-opus-5`, `claude-opus-4.8`,
  * `claude-haiku-4.5`, `gpt-6.1-sol`, `gpt-6-sol`, `gpt-6-luna`, `gpt-6-astra`, `gpt-5.6-sol` /
- * `-terra` / `-luna`, `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.3-codex`, `gpt-5-mini`,
- * `mai-code-1.1-flash`, `grok-4.6`, `grok-4.7`. The remaining entries are convention-derived slugs
+ * `-terra` / `-luna`, `gpt-5.3-codex`, `mai-code-1.1-flash`, `grok-4.6`, `grok-4.7`. The remaining entries are convention-derived slugs
  * from the doc's display names, not validated against the live CLI.
  *
  * Claude slugs with no dot or date — `claude-sonnet-5`, `claude-opus-5`, `claude-fable-5` — are
@@ -38,12 +38,8 @@
  */
 export type CopilotModel =
   // OpenAI
-  | 'gpt-5-mini'
   | 'gpt-5.3-codex'
-  | 'gpt-5.4'
-  | 'gpt-5.4-mini'
   | 'gpt-5.4-nano'
-  | 'gpt-5.5'
   | 'gpt-5.6-sol'
   | 'gpt-5.6-terra'
   | 'gpt-5.6-luna'
@@ -62,25 +58,19 @@ export type CopilotModel =
   | 'claude-sonnet-5'
   | 'claude-sonnet-5.5'
   // Google
-  | 'gemini-3.7-flash'
   | 'gemini-3.8-flash'
   // Microsoft
   | 'mai-code-1.1-flash'
   // Moonshot
   | 'kimi-k3'
   // xAI
-  | 'grok-4.5'
   | 'grok-4.6'
   | 'grok-4.7';
 
 export const COPILOT_MODELS: readonly CopilotModel[] = [
   // OpenAI
-  'gpt-5-mini',
   'gpt-5.3-codex',
-  'gpt-5.4',
-  'gpt-5.4-mini',
   'gpt-5.4-nano',
-  'gpt-5.5',
   'gpt-5.6-sol',
   'gpt-5.6-terra',
   'gpt-5.6-luna',
@@ -99,14 +89,12 @@ export const COPILOT_MODELS: readonly CopilotModel[] = [
   'claude-sonnet-5',
   'claude-sonnet-5.5',
   // Google
-  'gemini-3.7-flash',
   'gemini-3.8-flash',
   // Microsoft
   'mai-code-1.1-flash',
   // Moonshot
   'kimi-k3',
   // xAI
-  'grok-4.5',
   'grok-4.6',
   'grok-4.7',
 ] as const;
@@ -118,17 +106,13 @@ export const isCopilotModel = (s: string): s is CopilotModel => (COPILOT_MODELS 
  * effort dimension and the CLI exits 1 on ANY level (`Model "claude-haiku-4.5" does not support
  * reasoning effort configuration`). Models absent here are unverified — effort passes through and
  * the CLI arbitrates. An out-of-list level also exits 1 (`Reasoning effort "max" is not supported
- * for model "gpt-5-mini"`), so resolution clamps to this list.
+ * for model "<model>"`), so resolution clamps to this list.
  *
  * Source: the Copilot SDK's `listModels()` (`capabilities.supports.reasoningEffort` +
  * `supportedReasoningEfforts`) against Copilot CLI 1.0.91 on the reference account, 2026-10-03.
  */
 export const COPILOT_MODEL_EFFORT_LEVELS: Readonly<Partial<Record<CopilotModel, readonly string[]>>> = {
-  'gpt-5-mini': ['low', 'medium', 'high'],
   'gpt-5.3-codex': ['low', 'medium', 'high', 'xhigh'],
-  'gpt-5.4': ['none', 'low', 'medium', 'high', 'xhigh'],
-  'gpt-5.4-mini': ['none', 'low', 'medium', 'high', 'xhigh'],
-  'gpt-5.5': ['none', 'low', 'medium', 'high', 'xhigh'],
   'gpt-5.6-sol': ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
   'gpt-5.6-terra': ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
   'gpt-5.6-luna': ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
