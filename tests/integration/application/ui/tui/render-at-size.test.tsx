@@ -31,4 +31,26 @@ describe('renderAtSize', () => {
     await waitForPredicate(() => (r.lastFrame() ?? '').includes('size:80x24'), { label: 'resized frame' });
     r.unmount();
   });
+
+  it('shares one resize listener across every size consumer', async () => {
+    const one = renderAtSize(<Size />, { columns: 120, rows: 40 });
+    const baseline = one.resizeListenerCount();
+    one.unmount();
+
+    const many = renderAtSize(
+      <Box flexDirection="column">
+        {Array.from({ length: 20 }, (_, i) => (
+          <Size key={i} />
+        ))}
+      </Box>,
+      { columns: 120, rows: 40 }
+    );
+    expect(many.resizeListenerCount()).toBe(baseline);
+    many.resize(80, 24);
+    await waitForPredicate(() => (many.lastFrame() ?? '').split('size:80x24').length === 21, {
+      label: 'every consumer resized',
+    });
+    many.unmount();
+    expect(many.resizeListenerCount()).toBe(0);
+  });
 });

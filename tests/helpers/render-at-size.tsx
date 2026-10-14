@@ -70,6 +70,7 @@ export interface RenderAtSizeResult {
   readonly rerender: (node: React.ReactNode) => void;
   /** Update the fake terminal size and emit `'resize'`, as a SIGWINCH would. */
   readonly resize: (columns: number, rows: number) => void;
+  readonly resizeListenerCount: () => number;
   readonly unmount: () => void;
 }
 
@@ -111,6 +112,7 @@ export const renderAtSize = (node: React.ReactNode, dims: TerminalDims): RenderA
       stdout.rows = rows;
       stdout.emit('resize');
     },
+    resizeListenerCount: () => stdout.listenerCount('resize'),
     unmount: () => {
       instance.unmount();
       instance.cleanup();

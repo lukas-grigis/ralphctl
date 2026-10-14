@@ -223,7 +223,7 @@ const useWheelScroll = (args: {
   const { stdin, isRawModeSupported } = useStdin();
   const { stdout } = useStdout();
   useEffect(() => {
-    if (!isRawModeSupported || !stdin || !stdout || !stdout.isTTY) return undefined;
+    if (!isRawModeSupported || !(stdout as Partial<NodeJS.WriteStream>).isTTY) return undefined;
     if (disabled) return undefined;
     const enable = '\x1b[?1000h\x1b[?1006h';
     const disableSeq = '\x1b[?1006l\x1b[?1000l';
