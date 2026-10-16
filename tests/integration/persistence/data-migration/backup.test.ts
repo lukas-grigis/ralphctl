@@ -25,6 +25,9 @@ afterEach(async () => {
   await fs.rm(appRoot, { recursive: true, force: true });
 });
 
+const backupSiblings = async (): Promise<string[]> =>
+  (await fs.readdir(appRoot)).filter((name) => name.startsWith('data.backup-'));
+
 describe('backupDirName', () => {
   it('builds a timestamped, filesystem-safe name', () => {
     expect(backupDirName(1, '2026-06-19T10:00:00.000Z')).toBe('data.backup-v1-2026-06-19T10-00-00.000Z');
@@ -66,9 +69,35 @@ describe('backupDataDir', () => {
       expect(res.ok).toBe(false);
       if (res.ok) return;
       expect(res.error.message).toContain('incomplete');
+      expect(await backupSiblings()).toEqual([]);
     } finally {
       spy.mockRestore();
     }
+  });
+
+  it('a copy that throws mid-way leaves no partial data.backup-* sibling behind', async () => {
+    const spy = vi.spyOn(fs, 'cp').mockImplementation(async (_src, dest) => {
+      await fs.mkdir(join(String(dest), 'projects'), { recursive: true });
+      throw Object.assign(new Error('simulated ENOSPC'), { code: 'ENOSPC' });
+    });
+    try {
+      const res = await backupDataDir(absolutePath(dataRoot), 1, '2026-06-19T14:00:00.000Z');
+      expect(res.ok).toBe(false);
+      expect(await backupSiblings()).toEqual([]);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('refuses to reuse an existing backup dir and leaves it untouched', async () => {
+    const existing = join(appRoot, backupDirName(1, '2026-06-19T15:00:00.000Z'));
+    await fs.mkdir(existing, { recursive: true });
+    await fs.writeFile(join(existing, 'earlier.json'), 'keep', 'utf8');
+
+    const res = await backupDataDir(absolutePath(dataRoot), 1, '2026-06-19T15:00:00.000Z');
+
+    expect(res.ok).toBe(false);
+    expect(await fs.readdir(existing)).toEqual(['earlier.json']);
   });
 
   it('does not copy existing data.backup-* siblings into the new backup', async () => {

@@ -3,6 +3,7 @@ import { basename, dirname, join } from 'node:path';
 import { Result } from '@src/domain/result.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
+import { pathExists, removeDir } from '@src/integration/io/fs.ts';
 
 /** Prefix every backup directory name shares — used to exclude prior backups from a fresh copy. */
 export const BACKUP_DIR_PREFIX = 'data.backup-';
@@ -25,8 +26,10 @@ export const backupDirName = (fromVersion: number, timestamp: string): string =>
  * the copy so backups never nest inside backups.
  *
  * The copy is VERIFIED to exist (a `stat` of the destination) before returning — a silent partial
- * copy must not let the apply step proceed believing the data is safe. Returns the absolute backup
- * path on success.
+ * copy must not let the apply step proceed believing the data is safe. A failed copy or verify
+ * removes the partial destination so retries don't pile up copies; an already-existing destination
+ * is refused up front, so that cleanup can only ever touch a dir this call created. Returns the
+ * absolute backup path on success.
  *
  * @public
  */
@@ -38,6 +41,23 @@ export const backupDataDir = async (
   const src = String(dataRoot);
   const dest = join(dirname(src), backupDirName(fromVersion, timestamp));
 
+  const taken = await pathExists(dest);
+  if (!taken.ok) return Result.error(taken.error);
+  if (taken.value) {
+    return Result.error(
+      new StorageError({ subCode: 'io', message: `backup target already exists: ${dest}`, path: dest })
+    );
+  }
+
+  const copied = await copyAndVerify(src, dest);
+  if (!copied.ok) {
+    await removeDir(dest); // best-effort; the copy error is the one worth reporting
+    return Result.error(copied.error);
+  }
+  return Result.ok(dest);
+};
+
+const copyAndVerify = async (src: string, dest: string): Promise<Result<void, StorageError>> => {
   try {
     await fs.cp(src, dest, {
       recursive: true,
@@ -84,10 +104,7 @@ export const backupDataDir = async (
   // is partial. Compare the top-level entry counts (excluding the backup siblings the filter dropped
   // from the source): the destination must have at LEAST as many entries as the source did, or the
   // copy is incomplete and a rename on top of the originals would be unsafe. Abort BEFORE any rename.
-  const verified = await verifyEntryCount(src, dest);
-  if (!verified.ok) return Result.error(verified.error);
-
-  return Result.ok(dest);
+  return verifyEntryCount(src, dest);
 };
 
 /**

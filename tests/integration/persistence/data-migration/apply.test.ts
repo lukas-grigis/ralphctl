@@ -81,8 +81,10 @@ const testMerge = (sluggedBody: string, legacyBody: string): { ndjson: string; m
   return { ndjson, md: lines.length > 0 ? `# Learnings\n\n${ndjson}` : undefined };
 };
 
+// Each run gets its own backup dir, exactly as the per-run clock read gives in production.
+let runSeq = 0;
 const ctx = (): ApplyCtx => ({
-  timestamp: '2026-06-19T10:00:00.000Z',
+  timestamp: new Date(Date.UTC(2026, 5, 19, 10, 0, 0, (runSeq += 1))).toISOString(),
   appVersion: '0.12.1',
   stateRoot: absolutePath(stateRoot),
   // Trivial renderer: any non-empty ledger body produces a one-line md so the backfill writes.
