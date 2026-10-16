@@ -27,14 +27,16 @@ models ran at `high`). The only
 path that still reaches the CLI default is an opencode row with no row or global effort. Readiness,
 distill, the implement roles, create-pr and review all resolve through the same function.
 **Per-model narrowing:** every layer is then clamped to the row's MODEL when the catalog knows its effort
-list — `COPILOT_MODEL_EFFORT_LEVELS` (`settings-models/copilot.ts`, from the Copilot SDK's `listModels()`),
+list — `CLAUDE_MODEL_EFFORT_LEVELS` (`settings-models/claude.ts`: `claude-haiku-4-5` has no effort,
+`claude-sonnet-4-6` no `xhigh`), `COPILOT_MODEL_EFFORT_LEVELS` (`settings-models/copilot.ts`, from the Copilot SDK's `listModels()`),
 `CODEX_MODEL_EFFORT_LEVELS` (`settings-models/codex.ts`, from `~/.codex/models_cache.json`) and
 `GROK_MODEL_EFFORT_LEVELS` (`settings-models/grok.ts`, from models.dev's xai data citing docs.x.ai —
 medium confidence, not live-probed), read via `modelEffortLevels()` in `effort.ts`. The Copilot and Codex
 CLIs exit 1 on a level the model lacks. `clampEffortToModel`
-drops effort for a model with none (Copilot `claude-haiku-4.5` — the CLI rejects every level) and otherwise
+drops effort for a model with none (Copilot `claude-haiku-4.5` — the CLI rejects every level; Claude Code
+`claude-haiku-4-5` — the CLI ignores it) and otherwise
 takes the strongest supported level below the request; it applies to an explicit row effort too. An
-unknown model (custom id, `grok-4.7-build-fast`, or a claude / opencode row) falls back to the provider floor for the
+unknown model (custom id, `grok-4.7-build-fast`, or an opencode row) falls back to the provider floor for the
 global / default / agent-binding layers and passes an explicit row effort through verbatim. When a CLI
 still rejects the effort or model, `classifySpawnExit` returns a non-retryable `InvalidStateError` stamped
 with a `ProviderConfigRejection` state, and the implement turn blocks once, naming

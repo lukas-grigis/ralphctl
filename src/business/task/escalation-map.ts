@@ -232,23 +232,6 @@ const CLAUDE_EFFORT_LADDER = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
 type ClaudeEffort = (typeof CLAUDE_EFFORT_LADDER)[number];
 
 /**
- * Claude models with NO reasoning-effort dimension — the CLI ignores an effort flag for them, so
- * the rung is skipped (returns `undefined`) rather than stamping a level the model does not honour.
- * Currently just Haiku 4.5 (Haiku 5.5 has all five levels). Both the dash-form (Claude-Code
- * catalog) and dot-form ids are listed so the classification is robust even if a dot-form id ever
- * reaches the Claude path.
- */
-const CLAUDE_EFFORTLESS_MODELS: ReadonlySet<string> = new Set(['claude-haiku-4-5', 'claude-haiku-4.5']);
-
-/**
- * Effort-capable Claude models WITHOUT the `xhigh` tier. Sonnet 4.6 is the only such model in the
- * Claude-Code catalog; its ladder skips straight from `high` to `max`. Every other effort-capable
- * Claude model (Haiku 5.5, Sonnet 5/5.5, Opus 4.7/4.8/5/5.5, Fable 5/5.1, and — by default — any
- * future frontier id not listed here) is treated as xhigh-capable.
- */
-const CLAUDE_NO_XHIGH_MODELS: ReadonlySet<string> = new Set(['claude-sonnet-4-6', 'claude-sonnet-4.6']);
-
-/**
  * Claude Code's built-in effort when no `--effort` is passed, for models whose default is NOT
  * `high` (code.claude.com/docs/en/model-config, checked 2026-09-30; Haiku 5.5 from the platform
  * overview, 2026-10-11): Opus 5.5, Sonnet 5.5 and Haiku 5.5 default to `medium`. Every other
@@ -271,7 +254,8 @@ const isClaudeEffort = (s: string): s is ClaudeEffort => (CLAUDE_EFFORT_LADDER a
 /**
  * Model-aware Claude effort rung — one tier above the effective effort:
  *
- *   - Haiku (no effort dimension) → `undefined`; the rung is skipped gracefully.
+ *   - A model with no effort dimension (`claude-haiku-4-5`) → `undefined`; the rung is skipped.
+ *     The model's levels come from `CLAUDE_MODEL_EFFORT_LEVELS`; a custom id gets the full ladder.
  *   - The `effective` current effort is the explicit level, or — when unset — the model's CLI
  *     default ({@link CLAUDE_CLI_DEFAULT_EFFORT}: `medium` on Opus / Sonnet 5.5, `high` elsewhere).
  *   - The target is the next tier strictly above `effective` on the model's own ladder
@@ -282,17 +266,21 @@ const isClaudeEffort = (s: string): s is ClaudeEffort => (CLAUDE_EFFORT_LADDER a
  * would be a no-op attempt. ralphctl stamps an explicit effort on effort-capable rows, so the
  * unset path is a fallback, but it stays correct.
  */
-const claudeEffortRung = (model: string, currentEffort: string | undefined): string | undefined => {
-  if (CLAUDE_EFFORTLESS_MODELS.has(model)) return undefined;
+const claudeEffortRung = (
+  model: string,
+  modelLevels: readonly string[] | undefined,
+  currentEffort: string | undefined
+): string | undefined => {
+  const levels = modelLevels ?? CLAUDE_EFFORT_LADDER;
+  if (levels.length === 0) return undefined;
   const effective = currentEffort ?? CLAUDE_CLI_DEFAULT_EFFORT[model] ?? CLAUDE_FALLBACK_CLI_DEFAULT_EFFORT;
   // An effort string outside the Claude ladder (never expected from a validated row) — skip rather
   // than stamp a level we can't reason about.
   if (!isClaudeEffort(effective)) return undefined;
   const effectiveIndex = CLAUDE_EFFORT_LADDER.indexOf(effective);
-  const modelLadder = CLAUDE_NO_XHIGH_MODELS.has(model)
-    ? CLAUDE_EFFORT_LADDER.filter((level) => level !== 'xhigh')
-    : CLAUDE_EFFORT_LADDER;
-  return modelLadder.find((level) => CLAUDE_EFFORT_LADDER.indexOf(level) > effectiveIndex);
+  return CLAUDE_EFFORT_LADDER.find(
+    (level) => levels.includes(level) && CLAUDE_EFFORT_LADDER.indexOf(level) > effectiveIndex
+  );
 };
 
 /**
@@ -303,7 +291,7 @@ const claudeEffortRung = (model: string, currentEffort: string | undefined): str
  *
  *   - the provider has no effort dimension the caller could resolve (`undefined` provider, or a
  *     future provider outside {@link EFFORT_CAPABLE_PROVIDERS}); or
- *   - the model has no effort dimension (Claude Haiku on either catalog) or its catalog effort
+ *   - the model has no effort dimension (Haiku 4.5 on either catalog) or its catalog effort
  *     list lacks the target; or
  *   - the generator has no headroom left (already at the ceiling for its provider/model).
  *
@@ -334,10 +322,10 @@ export const nextEffortRung = (
   currentEffort: string | undefined
 ): string | undefined => {
   if (provider === undefined || !EFFORT_CAPABLE_PROVIDERS.has(provider)) return undefined;
-  if (provider === 'claude-code') return claudeEffortRung(model, currentEffort);
+  const levels = modelEffortLevels(provider, model);
+  if (provider === 'claude-code') return claudeEffortRung(model, levels, currentEffort);
   // A catalog model whose effort list lacks the target (e.g. Copilot `claude-haiku-4.5`, no effort
   // at all) would hard-fail the CLI — skip the rung rather than escalate into a spawn error.
-  const levels = modelEffortLevels(provider, model);
   const supports = (target: string): boolean => levels === undefined || levels.includes(target);
   if (provider === 'github-copilot') {
     if (currentEffort !== undefined && EFFORT_AT_OR_ABOVE_TARGET.has(currentEffort)) return undefined;

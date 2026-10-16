@@ -96,7 +96,7 @@ on economic / strong-gate) and silently raises spend.
 
 Touchpoints that usually need NO change on a pure catalog add: `escalation-map.ts` ladders (but a new
 effort-capable Claude id whose CLI default is not `high` MUST go into `CLAUDE_CLI_DEFAULT_EFFORT`, else the
-unset-effort rung skips a tier — and an effort-less one into `CLAUDE_EFFORTLESS_MODELS`),
+unset-effort rung skips a tier; `CLAUDE_MODEL_EFFORT_LEVELS` is total over `ClaudeModel`, so typecheck forces its row),
 `context-window.ts` (Copilot/Codex windows are deliberately omitted — the CLIs don't surface them),
 `suspended-models.ts` (empty by design, kept as a kill-switch mechanism), `effort.ts`,
 `validate-model.ts` (generic), and `business/settings/{defaults,presets}.ts`.

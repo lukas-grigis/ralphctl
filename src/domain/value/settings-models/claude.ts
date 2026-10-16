@@ -72,3 +72,25 @@ export const CLAUDE_MODELS: readonly ClaudeModel[] = [
 ] as const;
 
 export const isClaudeModel = (s: string): s is ClaudeModel => (CLAUDE_MODELS as readonly string[]).includes(s);
+
+const ALL_CLAUDE_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
+
+/**
+ * Effort levels each catalog model accepts on `--effort`. Haiku 4.5 has no effort dimension and
+ * Sonnet 4.6 has no `xhigh`; every other catalog model takes all five. Total over `ClaudeModel`
+ * so a new catalog id must be classified here.
+ */
+export const CLAUDE_MODEL_EFFORT_LEVELS: Readonly<Record<ClaudeModel, readonly string[]>> = {
+  'claude-haiku-4-5': [],
+  'claude-haiku-5-5': ALL_CLAUDE_EFFORTS,
+  'claude-sonnet-4-6': ['low', 'medium', 'high', 'max'],
+  'claude-sonnet-5': ALL_CLAUDE_EFFORTS,
+  'claude-sonnet-5-5': ALL_CLAUDE_EFFORTS,
+  'claude-opus-4-8': ALL_CLAUDE_EFFORTS,
+  'claude-opus-4-8[1m]': ALL_CLAUDE_EFFORTS,
+  'claude-opus-5': ALL_CLAUDE_EFFORTS,
+  'claude-opus-5-5': ALL_CLAUDE_EFFORTS,
+  'claude-fable-5': ALL_CLAUDE_EFFORTS,
+  'claude-fable-5[1m]': ALL_CLAUDE_EFFORTS,
+  'claude-fable-5-1': ALL_CLAUDE_EFFORTS,
+};

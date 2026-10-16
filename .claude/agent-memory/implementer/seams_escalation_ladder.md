@@ -53,15 +53,16 @@ event — there is no new event type and no UI file reads the escalation fields 
 
 **`nextEffortRung(provider, model, currentEffort)` is provider- AND model-aware.** A fixed `high` target
 was a no-op or an outright DOWNGRADE for claude-code, whose CLI default is already `xhigh` on
-xhigh-capable models. All the logic lives in `escalation-map.ts`; effort.ts and domain are untouched and
-the catalog fingerprint is not involved.
+xhigh-capable models. The rung logic lives in `escalation-map.ts`; the per-model level facts live in the
+domain table so the rung and the spawn clamp can't disagree.
 
-- **claude-code** (`claudeEffortRung`): Haiku (`CLAUDE_EFFORTLESS_MODELS`) → skip. Effective current =
+- **claude-code** (`claudeEffortRung`): per-model levels come from `CLAUDE_MODEL_EFFORT_LEVELS` (the same table the
+  spawn clamp reads); `[]` (Haiku 4.5) → skip, a custom id gets the full ladder. Effective current =
   explicit effort, else the CLI default (`xhigh` on xhigh-capable, `high` on `CLAUDE_HIGH_DEFAULT_MODELS`).
   Explicit `low|medium|high` on an xhigh-capable model → `xhigh`; `unset|xhigh` (and every tier on a
   non-xhigh model) → `max`; `max` → undefined (spent). Never returns ≤ effective. Ladder is
   `low<medium<high<xhigh<max`, and **xhigh-capable is the DEFAULT assumption for any unrecognised
-  claude-code model** — only Sonnet 4.6 and Haiku are exceptions.
+  claude-code model** — only Sonnet 4.6 and Haiku 4.5 are exceptions, and dot-form ids on a claude-code row are custom.
 - **github-copilot / openai-codex**: fixed target `EFFORT_ESCALATION_TARGET='high'` (that constant is now
   copilot/codex-only); `unset` escalatable, `high|xhigh|max` spent, model ignored.
 
