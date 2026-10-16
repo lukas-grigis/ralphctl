@@ -118,6 +118,24 @@ describe('buildCreatePrPrompt — end-to-end against the real template', () => {
     expect(flattened).toContain('only when nothing can proceed without the operator');
   });
 
+  it('asks for literal prose with no metaphor, stock phrases or unprompted contrasts', async () => {
+    const result = await buildCreatePrPrompt(deps, {
+      baseBranch: 'main',
+      headBranch: 'feature/x',
+      repositoryPath: '/work/repo',
+      ticketSummary: '',
+      issueRefs: '',
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const flattened = result.value.replace(/\s+/g, ' ');
+    expect(flattened).toContain('Say things literally');
+    expect(flattened).toContain('no metaphor, no stock phrases');
+    expect(flattened).toContain('no unprompted "X, not Y" contrasts');
+    expect(flattened).not.toContain('Neither terse shorthand nor essay-length explanation');
+  });
+
   it('quotes the repository path in every git command so a path with spaces stays one argument', async () => {
     const result = await buildCreatePrPrompt(deps, {
       baseBranch: 'main',

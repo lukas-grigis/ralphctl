@@ -70,8 +70,8 @@ Body rules:
 - **`## Test plan`** — markdown checklist of how a reviewer verifies the branch. Name concrete actions, not
   abstractions. Include both manual checks and automated coverage when applicable.
 - Body length: ≤80 lines. Prefer fewer lines over more — reviewers skim.
-- Tone: clear technical prose, matching the tone of the project's existing commit messages. Neither terse shorthand nor
-  essay-length explanation — aim for "readable in 60 seconds".
+- Tone: clear technical prose matching the project's existing commit messages, readable in 60 seconds. Say things
+  literally — plain verbs, no metaphor, no stock phrases, and no unprompted "X, not Y" contrasts.
 
 Issue references:
 
