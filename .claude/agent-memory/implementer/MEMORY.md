@@ -12,7 +12,7 @@
 - [seams_provider_engine_streaming.md](seams_provider_engine_streaming.md) — One shared rate-limit retry loop, empirical stream field names, stdout OOM caps, kill escalation
 - [seams_provider_conformance_and_demo.md](seams_provider_conformance_and_demo.md) — The src-side scripted-spawn builder shared by conformance suites, `demo --script` and the README recorder (pacing, VHS traps); buildEnv / effortForwarding contracts
 - [seams_chain_runner_core.md](seams_chain_runner_core.md) — createRunner containment, aborted-with-error, listener-leak seams, onStart, display-only grouping vs nesting
-- [seams_parallel_runner_architecture.md](seams_parallel_runner_architecture.md) — runWaves above the chain, nested-runner adapter, rootSessionId, ALS fence, forwarded-entry/parentChainId bus rules
+- [seams_parallel_runner_architecture.md](seams_parallel_runner_architecture.md) — runWaves above the chain, nested-runner adapter, rootSessionId, ALS fence, bus rules, done-held-until-fold + adopt predicates
 - [seams_tui_architecture_patterns.md](seams_tui_architecture_patterns.md) — Modal overlays, global hotkeys over view-local data, clip markers, one hint source, the commit-storm coalescer, cancel-vs-abort
 - [seams_tui_test_gotchas.md](seams_tui_test_gotchas.md) — Test setups that pass for the wrong reason (batched stdin, 100x24 stub, spinner flap, vacuous scroll); known resize-listener warning noise
 - [seams_model_catalog_refresh.md](seams_model_catalog_refresh.md) — Catalog-refresh checklist: fingerprint gate, remap tests, CLI-vs-API effort default, eval/TUI tests pinning preset ids and catalog order, Copilot gating, settings.ts lint hazard
@@ -30,3 +30,4 @@
 - [project_flows_view_soft_repo_default.md](project_flows_view_soft_repo_default.md) — Flows-view repo selection and its soft default
 - [project_doctor_probes_and_escape_keys.md](project_doctor_probes_and_escape_keys.md) — Doctor probes return unknown not fail, useViewKeys can't match Escape, demo seeder marker rule
 - [feedback_concurrent_agent_writes.md](feedback_concurrent_agent_writes.md) — Parallel-agent collisions; zsh no-word-split trap in swap-to-HEAD loops
+- [feedback_worktree_isolation_command_filter.md](feedback_worktree_isolation_command_filter.md) — Isolated runs refuse heredocs/pipelines mentioning git; script via scratchpad files

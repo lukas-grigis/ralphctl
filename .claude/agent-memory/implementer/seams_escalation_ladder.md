@@ -115,10 +115,10 @@ RateLimit) makes the turn use case return `Result.error`, tearing down the per-t
 runs, the attempt stays `running`, and the next launch's `start-attempt` resume stamps
 `harness-interrupted`, which is FREE against `maxAttempts` — so a rate-limit-exhausted or cancelled
 attempt costs no budget either. Only in-process settles (`failed` + `crashed` warning) count. Wiring them needs a settle-then-re-raise seam: an in-leaf settle is an `onError`
-primitive in disguise (banned) AND would be clobbered on the parallel path by the epilogue's `save-tasks`
-leaf persisting the stale in-memory running attempt. The honest placement is above the chain (the
-launcher's runner-event subscription, after the epilogue), deferred with the process-level
-SIGINT/SIGTERM work.
+primitive in disguise (banned). The honest placement is above the chain — the operator-stop settle
+(`settle-abandoned-attempts.ts`, after the runner's terminal) already does this for `user-cancel`; it
+only sees a parallel attempt because the epilogue's `adopt-persisted-blocks` keeps every persisted
+non-`done` row instead of saving the branch's pre-wave copy over it.
 
 **How to apply:** before adding a new `AbortCause` member or claiming a cause is "recorded", check which
 settle transition actually produces `aborted`.
