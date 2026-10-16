@@ -76,6 +76,16 @@ export interface ProviderTraits {
     readonly headless: boolean;
     readonly interactive: boolean;
   };
+  /**
+   * The one major version the adapter's argv targets, when a newer major ships under the same
+   * binary with an incompatible flag surface. The launch check reads `<binary> --version` and
+   * fails fast on any other major; absent means no check.
+   */
+  readonly versionGate?: {
+    readonly supportedMajor: number;
+    /** Installers that still ship the supported major, as one line. */
+    readonly installHint: string;
+  };
 }
 
 /** Forwarded on both surfaces — every backend except OpenCode's interactive command. */
@@ -84,7 +94,10 @@ const EFFORT_ON_BOTH_SURFACES = { headless: true, interactive: true } as const;
 const NPM_INSTALL_CLAUDE = 'npm install -g @anthropic-ai/claude-code';
 const NPM_INSTALL_COPILOT = 'npm install -g @github/copilot';
 const NPM_INSTALL_CODEX = 'npm install -g @openai/codex';
-const NPM_INSTALL_OPENCODE = 'npm install -g opencode-ai';
+// Pinned to 1.x: the adapter's argv (`run --dir` / `--variant`, root `--model`) is OpenCode 1's.
+const NPM_INSTALL_OPENCODE = 'npm install -g opencode-ai@1';
+// Homebrew core's `opencode` formula tracks 2.x; the sst tap and the install script stay on 1.x.
+const BREW_INSTALL_OPENCODE = 'brew install sst/tap/opencode';
 const NPM_INSTALL_GROK = 'npm install -g @xai-official/grok';
 /** OpenCode keeps skills, agents and config under one project directory. */
 const OPENCODE_PARENT_DIR = '.opencode';
@@ -177,7 +190,7 @@ export const PROVIDER_TRAITS: Readonly<Record<AiProvider, ProviderTraits>> = {
     installGuidance: {
       docsUrl: 'https://opencode.ai/docs/',
       commandsByPlatform: {
-        darwin: ['brew install sst/tap/opencode', OPENCODE_INSTALL_SH, NPM_INSTALL_OPENCODE],
+        darwin: [BREW_INSTALL_OPENCODE, OPENCODE_INSTALL_SH, NPM_INSTALL_OPENCODE],
         linux: [OPENCODE_INSTALL_SH, NPM_INSTALL_OPENCODE],
         win32: [NPM_INSTALL_OPENCODE, OPENCODE_INSTALL_SH],
       },
@@ -198,6 +211,11 @@ export const PROVIDER_TRAITS: Readonly<Record<AiProvider, ProviderTraits>> = {
     // flag — so forwarding an operator's configured effort interactively would turn a working
     // session into a hard spawn failure. The interactive adapter drops it deliberately.
     effortForwarding: { headless: true, interactive: false },
+    // OpenCode 2 ships as the same `opencode` binary but drops `run --dir` / `--variant` and root `--model`.
+    versionGate: {
+      supportedMajor: 1,
+      installHint: `${BREW_INSTALL_OPENCODE}, ${OPENCODE_INSTALL_SH}, or ${NPM_INSTALL_OPENCODE}`,
+    },
   },
   'xai-grok': {
     binary: 'grok',

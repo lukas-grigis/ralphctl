@@ -7,6 +7,8 @@
  * `system/detect-cli.ts`; only the input/option shapes belong here.
  */
 
+import type { AiProvider } from '@src/domain/entity/settings.ts';
+
 /**
  * The three desktop OS families ralphctl supports. `darwin` / `linux` / `win32` mirror Node's
  * `process.platform` values; any other value the runtime might report (`aix`, `freebsd`, …)
@@ -36,3 +38,17 @@ export interface DetectInstalledProvidersOptions {
   /** Test seam — defaults to the `command -v <binary>` implementation. */
   readonly which?: WhichFn;
 }
+
+/** A provider CLI on PATH whose major version the adapter cannot drive. */
+export interface UnsupportedProviderVersion {
+  readonly provider: AiProvider;
+  /** The version string the CLI reported, e.g. `2.0.1`. */
+  readonly version: string;
+  /** The one major line the adapter supports. */
+  readonly supportedMajor: number;
+  /** One line naming installers that still ship the supported major. */
+  readonly installHint: string;
+}
+
+/** Resolves the version problem for one provider's CLI, or `undefined` when it is fine or unreadable. */
+export type ProbeProviderVersion = (provider: AiProvider) => Promise<UnsupportedProviderVersion | undefined>;
