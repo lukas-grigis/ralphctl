@@ -44,9 +44,10 @@ under fan-out). Launch then applies a
 status-only stable override: `in_progress` tasks first (so a resumed sprint picks up the previously
 aborted task before any fresh work), then `todo`; V8's stable sort preserves dependency order within
 each status group. A `dependency-gate` leaf at the head of every per-task subchain enforces the
-prerequisite contract at run time: if any `dependsOn` task is not `done` (blocked or still unsettled),
-the dependent transitions to `blocked` with `blockKind: 'upstream'` and the subchain body is skipped — no AI
-spawn wasted. `BlockedTask.blockKind: 'upstream' | 'own'` is the structural discriminant; `isUpstreamBlocked`
+prerequisite contract at run time: if a `dependsOn` task is `blocked`, the dependent transitions to
+`blocked` with `blockKind: 'upstream'` and the subchain body is skipped — no AI spawn wasted. A prerequisite
+that is merely unsettled (a parallel branch that failed before settling) leaves the dependent `todo` for a
+later launch instead, since no unblock would ever re-arm that block. `BlockedTask.blockKind: 'upstream' | 'own'` is the structural discriminant; `isUpstreamBlocked`
 reads it — never the reason-string prefix. Legacy `tasks.json` entries without `blockKind` are migrated at
 read time. The gate is status-only and works in both the serial and parallel paths. Block is transitive by
 construction (A → B → C cascades automatically). Unblocking the root prerequisite cascade-unblocks the

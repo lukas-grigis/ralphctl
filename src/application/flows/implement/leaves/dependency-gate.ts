@@ -22,11 +22,16 @@ import { replaceTask } from '@src/application/flows/implement/leaves/_shared/rep
  * independent failures, with the sprint silently shipping partial results.
  *
  * This leaf runs at the head of every per-task subchain (before `start-attempt`). It checks
- * whether every `dependsOn` task has settled `done`; if any prerequisite is not done (blocked,
- * or — defensively — still unsettled), it transitions THIS task straight to `blocked` with a
- * `blocked upstream …` reason and persists it. The body guard downstream then skips the whole
- * attempt loop, so no AI spawn is wasted. The transition is transitive by construction: if A
- * blocks, B (→A) blocks here, then C (→B) sees B blocked and blocks too.
+ * whether every `dependsOn` task has settled `done`; if a prerequisite is `blocked` (or missing),
+ * it transitions THIS task straight to `blocked` with a `blocked upstream …` reason and persists
+ * it. The body guard downstream then skips the whole attempt loop, so no AI spawn is wasted. The
+ * transition is transitive by construction: if A blocks, B (→A) blocks here, then C (→B) sees B
+ * blocked and blocks too.
+ *
+ * A prerequisite that is merely unsettled (`todo` / `in_progress` — a parallel branch that failed
+ * before settling) never blocks the dependent: nothing would ever re-arm that block, because the
+ * unblock cascade starts from a blocked root. The leaf then fails without writing, so the
+ * dependent stays `todo` and runs on a later launch.
  *
  * Recovery: unblocking the root prerequisite cascade-unblocks these upstream-blocked dependents
  * (see `unblock-task` use case), so the operator fixes one task and relaunches rather than
@@ -70,6 +75,17 @@ export const dependencyGateLeaf = (deps: DependencyGateLeafDeps, taskId: TaskId)
         const detail = unmet
           .map(({ depId, dep }) => (dep === undefined ? `${String(depId)} (missing)` : `${dep.name} (${dep.status})`))
           .join(', ');
+        if (unmet.every(({ dep }) => dep !== undefined && dep.status !== 'blocked')) {
+          return Result.error(
+            new InvalidStateError({
+              entity: 'task',
+              currentState: task.status,
+              attemptedAction: `dependency-gate-${String(taskId)}`,
+              message: `task '${String(taskId)}' waits on a prerequisite that has not settled: ${detail}`,
+              hint: 'The task stays todo and runs on a later launch once its prerequisites are done.',
+            })
+          );
+        }
         const reason = `${BLOCKED_UPSTREAM_REASON_PREFIX} — prerequisite not done: ${detail}`;
 
         const blocked = markTaskBlocked(task, reason, 'upstream');

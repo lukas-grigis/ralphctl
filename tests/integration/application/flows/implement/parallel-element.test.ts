@@ -35,6 +35,7 @@ import { startNextAttempt } from '@src/domain/entity/task-attempts.ts';
 import { startAttemptLeaf } from '@src/application/flows/implement/leaves/start-attempt.ts';
 import { settleAttemptLeaf } from '@src/application/flows/implement/leaves/settle-attempt.ts';
 import { adoptPersistedBlocksLeaf } from '@src/application/flows/implement/leaves/adopt-persisted-blocks.ts';
+import { dependencyGateLeaf } from '@src/application/flows/implement/leaves/dependency-gate.ts';
 import { quarantineStashMessage } from '@src/domain/value/quarantine-stash-message.ts';
 import { saveTasksLeaf } from '@src/application/flows/_shared/task/save.ts';
 
@@ -802,6 +803,54 @@ describe('createParallelImplementElement — durable blocks survive the epilogue
 
     // Exactly one notification for the resume block — no duplicate re-block/re-notify.
     expect(events.filter((e) => e.type === 'task-blocked')).toHaveLength(1);
+  });
+
+  it('a dependent of a prerequisite whose branch failed without settling stays todo, never blocked upstream', async () => {
+    const sprint = makePlannedSprint();
+    const prerequisite = makeTodoTask({ name: 'prerequisite' });
+    const dependent = makeTodoTask({ name: 'dependent', dependsOn: [prerequisite.id] });
+    const taskRepo = recordingTaskRepo([prerequisite, dependent]);
+    const bus = stubBus([]);
+    const deps = branchDeps(fakeGitRecordingCwd().runner, taskRepo, bus);
+
+    // A non-fatal failure before the prerequisite settles — e.g. its worktree could not be set up.
+    const failedPrerequisite: WaveBranch<ImplementCtx> = {
+      id: implementBranchId(prerequisite.id),
+      element: {
+        name: `branch-${String(prerequisite.id)}`,
+        async execute(): Promise<ElementResult<ImplementCtx>> {
+          const error = new StorageError({ subCode: 'io', message: 'worktree add failed' });
+          return Result.error({
+            error,
+            trace: [{ elementName: 'worktree-setup', status: 'failed', durationMs: 0, error }],
+          });
+        },
+      },
+    };
+    const gatedDependent: WaveBranch<ImplementCtx> = {
+      id: implementBranchId(dependent.id),
+      element: buildWorktreeBranch(
+        deps,
+        repo,
+        dependent,
+        worktreePathFor(SPRINT_DIR, dependent.id),
+        'ralphctl/s1/wt-dependent',
+        PROGRESS,
+        () => sequential<ImplementCtx>('task', [dependencyGateLeaf({ taskRepo, logger: noopLogger }, dependent.id)])
+      ),
+    };
+
+    const element = createParallelImplementElement(
+      plan(tagElement('implement-prologue', []), realEpilogue(taskRepo), [[prerequisite], [dependent]]),
+      baseConfig({ buildWaves: () => [[failedPrerequisite], [gatedDependent]] }, recordingLocker([]), bus)
+    );
+
+    await element.execute({ sprintId: sprint.id, sprint, tasks: [prerequisite, dependent] });
+
+    const persisted = await taskRepo.findBySprintId(sprint.id);
+    if (!persisted.ok) throw persisted.error;
+    // A block here would strand the dependent: the prerequisite never blocks, so nothing re-arms it.
+    expect(persisted.value.find((t) => t.id === dependent.id)?.status).toBe('todo');
   });
 
   it('an abort landing after settle already persisted a block keeps the block AND its stash pointer', async () => {

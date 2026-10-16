@@ -656,7 +656,9 @@ describe('wave-branch worktree teardown — abort inside the subchain, after the
   it('a block this branch reached without opening an attempt is not quarantined', async () => {
     // The dependency gate blocks before any attempt starts, so nothing in this worktree is AI work —
     // a dirty tree here is setup-script output, not a rejected diff.
-    const prerequisite = makeTodoTask({ name: 'prerequisite' });
+    const blockedPrerequisite = markTaskBlocked(makeTodoTask({ name: 'prerequisite' }), 'verify red', 'own');
+    if (!blockedPrerequisite.ok) throw blockedPrerequisite.error;
+    const prerequisite = blockedPrerequisite.value;
     const task = makeTodoTask({ name: 'dependent', dependsOn: [prerequisite.id] });
     const ref = 'ralphctl/s1/wt-abort-upstream';
     const wt = worktreePathFor(absolutePath('/data/sprints/s1'), task.id);

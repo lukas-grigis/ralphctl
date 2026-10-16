@@ -48,8 +48,8 @@ import type { AgentDefinition } from '@src/integration/ai/agents/_engine/agent-d
  *
  * `buildAttemptBody` (see `attempt-body.ts`) is the per-attempt segment the loop re-enters.
  *
- * The leading `dependency-gate` is the blocked-dependency dead-end fix: if any `dependsOn` task
- * is not `done`, it transitions this task to `blocked upstream …` and the `task-runnable` guard
+ * The leading `dependency-gate` is the blocked-dependency dead-end fix: if a `dependsOn` task is
+ * `blocked`, it transitions this task to `blocked upstream …` and the `task-runnable` guard
  * skips the entire body — so a dependent never spawns the generator against a tree missing its
  * prerequisite's work (which used to self-block and ship the sprint partial).
  *
@@ -315,8 +315,8 @@ export const createPerTaskSubchain = (
   // disagree about which attempt the budget runs out on.
   const effectiveMaxAttempts = task.maxAttempts ?? deps.config.harness.maxAttempts;
   const subchain = sequential<ImplementCtx>(`task-${String(taskId)}`, [
-    // Dependency gate (blocked-dependency dead-end fix). Runs FIRST: if any `dependsOn` task is
-    // not `done`, it transitions this task straight to `blocked upstream …` and the body guard
+    // Dependency gate (blocked-dependency dead-end fix). Runs FIRST: if a `dependsOn` task is
+    // `blocked`, it transitions this task straight to `blocked upstream …` and the body guard
     // below skips the whole lifecycle — so a dependent never spawns the generator against a tree
     // missing its prerequisite's work. Transitive by construction (A blocks → B → C …).
     dependencyGateLeaf({ taskRepo: deps.taskRepo, logger: deps.logger }, taskId),
