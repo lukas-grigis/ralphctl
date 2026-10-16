@@ -10,10 +10,16 @@ to [Semantic Versioning](https://semver.org/).
 ### Added
 
 - **Claude Haiku 5.5.** Claude Code gains `claude-haiku-5-5` (needs Claude Code 2.1.293 or later): $0.10/$0.50 per
-  MTok, a 1M context window and all five effort levels. `claude-fast` and `claude-economic` now run refine,
+  MTok ($0.50/$2.50 for prompts over 100K tokens), a 1M context window and all five effort levels. `claude-fast` and `claude-economic` now run refine,
   readiness and PR drafting on it at `low`; plan, implement and ideate stay on Sonnet 5.5. It is also the new
   bottom step of the Claude Code escalation ladder (Haiku 5.5 → Sonnet 5.5 → Opus 5.5). An older Claude Code CLI
   fails the spawn on it — upgrade, or set those rows to Sonnet 5.5. Haiku 4.5 still works for saved settings.
+- **Claude Haiku 5.5 on Copilot.** `claude-haiku-5.5` is selectable for Copilot rows (needs Copilot CLI 1.0.94 or
+  later) and escalates to Sonnet 5.5. No preset uses it.
+- **OpenCode 2 is detected at launch.** OpenCode 2 installs as the same `opencode` command but changed the flags
+  ralphctl uses, so a flow on OpenCode 2 now stops before it starts and says how to get OpenCode 1 back:
+  `brew install sst/tap/opencode` (Homebrew's own `opencode` formula is now 2.x), the install script, or
+  `npm install -g opencode-ai@1`. Install suggestions for OpenCode now pin the 1.x line.
 - **Security skill for implement.** The new bundled `ralphctl-security-and-hardening` skill loads by default for
   implement: threat-model first, validate untrusted input, keep secrets out of code and logs, check authorization,
   guard destructive file operations, review new dependencies and treat model output as untrusted. Sensitive changes
@@ -41,7 +47,18 @@ to [Semantic Versioning](https://semver.org/).
 - **Copilot presets use Opus 5.5.** GitHub gives Opus 4.8, 5 and 5.5 to the same Copilot plans, so the Copilot
   presets, the Copilot defaults and the top of the Copilot escalation ladder move from `claude-opus-4.8` to the
   cheaper `claude-opus-5.5` ($4/$20 vs $5/$25 per MTok). Saved settings on Opus 4.8 or Opus 5 keep working and now
-  escalate to 5.5. Applying a preset on an account without 5.5 falls back to Opus 4.8, then Sonnet 5.5.
+  escalate to 5.5. Applying a preset on an account without 5.5 falls back to Sonnet 5.5.
+- **Copilot gets ready for the 2026-11-16 retirements.** GitHub retires `claude-opus-4.8`, `claude-opus-5` and
+  `gpt-5.6-terra` on Copilot on 2026-11-16. They stay selectable until then, but ralphctl no longer steers anything
+  onto them: escalation from `gpt-5.6-luna` goes straight to `gpt-5.6-sol`, and saved settings on the older retired
+  Opus ids (4.5, 4.6, 4.7) now load as `claude-opus-5.5` instead of 4.8.
+- **Claude Code runs without fork subagents.** Claude Code 2.1.302 turned fork subagents on by default for
+  headless runs. ralphctl turns them off for the sessions it starts, which keeps a run's cost the same as before
+  and keeps read-only sessions from handing work to a copy whose tool limits aren't confirmed.
+- **OpenCode free models refreshed.** The free tier now lists `exo-free`, `ling-3.1-flash-free`,
+  `longcat-2.5-preview-free`, `mimo-v2.6-flash-free`, `muse-spark-1.3-contributor-free`, `space-bunny-free` and
+  `step-5-preview-free`. `hy3-free`, `mimo-v2.5-free` and `muse-spark-1.2-contributor-free` are gone; saved
+  settings on the last two switch to `mimo-v2.6-flash-free` and `muse-spark-1.3-contributor-free`.
 - **`ralphctl-karpathy-guidelines` now loads by default for plan only.** On implement it overlapped the
   `ralphctl-surgical-simplicity` and `ralphctl-ponytail` skills that already load there, so it moves to a Skills
   catalog suggestion for implement. Enable it from the catalog to keep the old behaviour.
@@ -52,8 +69,9 @@ to [Semantic Versioning](https://semver.org/).
   `grok-4.7` up to `xhigh`; none takes `max`. ralphctl now lowers a higher level to the model's highest, the same way
   it already does for Copilot and Codex, so a saved `max` runs at `xhigh` on `grok-4.7` instead of risking a rejected
   spawn. `grok-frontier` now uses `xhigh` on plan, implement and ideate, and `xhigh` as its global effort. When
-  escalating effort on `grok-4.5`, ralphctl now raises it to `high` instead of `xhigh`. `none` and `minimal` are
-  unchanged.
+  escalating effort on `grok-4.5`, ralphctl now raises it to `high` instead of `xhigh`. The Grok CLI also refuses
+  `none` and `minimal`, so they are no longer offered; saved Grok rows using them load as `low`. When the Grok CLI
+  does reject an effort, the task stops once with a message naming the setting to change instead of retrying.
 
 ### Removed
 

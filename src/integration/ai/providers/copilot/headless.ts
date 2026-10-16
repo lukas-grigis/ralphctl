@@ -148,12 +148,10 @@ export const buildCopilotArgs = (
   // between actions in non-interactive mode and never finish the turn. v1's working headless
   // adapter sets this flag too — keeping the patterns aligned across versions.
   //
-  // `--max-autopilot-continues=200` raises the per-spawn turn budget far above Copilot's
-  // default of 5. An implement-flow generator routinely takes 10+ tool calls (read,
-  // think, edit, verify, edit again, …) before emitting `task-complete`; the default cap
-  // truncates mid-task and signals.json never lands. 200 leaves headroom for the largest
-  // realistic per-task action graph while still bounding pathological runaway. Bump if
-  // pathologically long tasks hit it.
+  // `--max-autopilot-continues=200` is a runaway cap. Copilot CLI 1.0.91 defaults to 5, which
+  // truncates an implement generator's 10+ tool calls before `task-complete` lands; the current CLI
+  // reference documents unlimited, which never stops a looping session. 200 leaves headroom
+  // for the largest realistic per-task action graph either way. Bump if long tasks hit it.
   //
   // We use `--model=<value>` / `--add-dir=<value>` for deterministic argv construction.
   const args: string[] = [

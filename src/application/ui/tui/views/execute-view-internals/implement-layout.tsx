@@ -24,7 +24,7 @@
  *
  * Focus model:
  *   - `WideLayout` stores `focusedTaskId` (the id reported by the main-area panel).
- *   - `ImplementMainArea`'s `onFocusedCardChange` fires (deduped) whenever the card cursor moves.
+ *   - `TasksPanelHost`'s `onFocusedCardChange` fires (deduped) whenever the card cursor moves.
  *   - `ImplementSidebar` receives `focusedTaskId` and highlights that row; it does not capture
  *     any keyboard input.
  */

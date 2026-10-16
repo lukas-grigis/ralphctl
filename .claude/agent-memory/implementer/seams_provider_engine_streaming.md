@@ -114,5 +114,14 @@ SIGTERM'd cancel surfaces `AbortError`, not `InvalidStateError`.
 literals. Reuse the module-level `const PROVIDER = 'interactive-<x>'` for both `entity` and
 `elementName` rather than re-typing the literal.
 
+## Headless spawn env: full env on the port, overlay on the attempt
+
+`ProviderSpawn.options.env` carries the child's WHOLE environment (node semantics), and the overlay
+merge (`{ ...process.env, ...input.env }`) happens in `runProviderAttempt`. Don't move the merge into
+`defaultProviderSpawn` and make the port an overlay: `wire()` falls back `opts.providerSpawn ??
+opts.spawn`, so a general `Spawn` (whose `env` replaces) must stay assignable — with overlay semantics
+it would type-fail, and a real `Spawn` passed there would start the CLI with only the overlay (no PATH).
+Fake spawns in tests therefore see the full env; assert the key, not `toEqual` on the object.
+
 Related: [[seams_provider_conformance_and_demo]], [[seams_chain_runner_core]],
 [[seams_model_catalog_refresh]].

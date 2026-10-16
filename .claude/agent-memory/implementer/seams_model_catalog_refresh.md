@@ -101,6 +101,13 @@ unset-effort rung skips a tier; `CLAUDE_MODEL_EFFORT_LEVELS` is total over `Clau
 `suspended-models.ts` (empty by design, kept as a kill-switch mechanism), `effort.ts`,
 `validate-model.ts` (generic), and `business/settings/{defaults,presets}.ts`.
 
+## Grok effort facts come from the model menus, not the CLI reference
+
+The Grok CLI reference (and `--help`) still lists canonical levels `none..max`, but each model only
+accepts what its menu advertises, and the menus (in the binary's embedded catalog: `strings` over
+`@xai-official/grok-<platform>`) start at `low`. Trusting the reference is what kept `none` / `minimal`
+in `GROK_MODEL_EFFORT_LEVELS` too long. Re-derive per-model levels from the menu on each Grok bump.
+
 ## Catalog ORDER is pinned by a TUI test
 
 `settings-view.escalation-map.test.tsx` presses ENTER twice in the escalation picker and asserts the saved

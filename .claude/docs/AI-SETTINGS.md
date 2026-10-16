@@ -30,8 +30,8 @@ distill, the implement roles, create-pr and review all resolve through the same 
 list — `CLAUDE_MODEL_EFFORT_LEVELS` (`settings-models/claude.ts`: `claude-haiku-4-5` has no effort,
 `claude-sonnet-4-6` no `xhigh`), `COPILOT_MODEL_EFFORT_LEVELS` (`settings-models/copilot.ts`, from the Copilot SDK's `listModels()`),
 `CODEX_MODEL_EFFORT_LEVELS` (`settings-models/codex.ts`, from `~/.codex/models_cache.json`) and
-`GROK_MODEL_EFFORT_LEVELS` (`settings-models/grok.ts`, from models.dev's xai data citing docs.x.ai —
-medium confidence, not live-probed), read via `modelEffortLevels()` in `effort.ts`. The Copilot and Codex
+`GROK_MODEL_EFFORT_LEVELS` (`settings-models/grok.ts`, from the model menus shipped in the Grok Build CLI
+1.0.62 binary), read via `modelEffortLevels()` in `effort.ts`. The Copilot, Codex and Grok
 CLIs exit 1 on a level the model lacks. `clampEffortToModel`
 drops effort for a model with none (Copilot `claude-haiku-4.5` — the CLI rejects every level; Claude Code
 `claude-haiku-4-5` — the CLI ignores it) and otherwise
@@ -55,13 +55,14 @@ the interactive TUI path (`opencode <cwd> --model …`) forwards no effort at al
 asymmetry is declared per provider as `ProviderTraits.effortForwarding.{headless,interactive}`
 (`providers/_engine/provider-traits.ts`) — OpenCode is the only row where the two differ — and the port
 conformance suites assert each adapter's argv against that declaration in both directions, so an adapter
-that starts or stops forwarding effort without updating its row fails at `pnpm test`. The Grok CLI accepts
-`none | minimal | low | medium | high | xhigh | max` and forwards `--effort` on **both** surfaces
-(identity in `clampEffortToProvider` — the native vocabulary includes the global superset plus
-`none` / `minimal`), but the models cap lower: `grok-4.5` takes up to `high`, `grok-4.6` / `grok-4.7` up
-to `xhigh`, and none takes `max` — so a row or global `max` resolves to `xhigh` on `grok-4.7`. `none` /
-`minimal` stay in every per-model list (Grok-native, CLI-accepted, and not contradicted by the published
-`low..` ranges), so only the top of the range is narrowed. `grok-4.7-build-fast` has no published effort
+that starts or stops forwarding effort without updating its row fails at `pnpm test`. Grok rows accept
+`low | medium | high | xhigh | max` and forward `--effort` on **both** surfaces (identity in
+`clampEffortToProvider`), but the models cap lower: `grok-4.5` takes `low..high`, `grok-4.6` / `grok-4.7`
+`low..xhigh`, and none takes `max` — so a row or global `max` resolves to `xhigh` on `grok-4.7`. The CLI
+refuses any level a model's menu doesn't list, which rules out `none` / `minimal` everywhere: persisted
+grok rows carrying either migrate to `low` at parse time, like Codex `minimal`. A Grok rejection
+(`Couldn't apply reasoning effort` / `unknown effort level`) classifies as the same `ProviderConfigRejection`
+as Copilot's and Codex's. `grok-4.7-build-fast` has no published effort
 data and passes through. Grok is in `EFFORT_CAPABLE_PROVIDERS`. The implement generator's
 resolved effort also feeds the escalation policy's same-model effort rung,
 whose target is provider- and model-aware: a Claude generator at the top of the model ladder climbs one
@@ -212,7 +213,7 @@ the implement agent bindings (`ai.implement.agents`) carry over. Subsequent per-
 model-availability probe (`AppDeps.availableModelsFor`) which models the signed-in account can run, and
 `adaptAiToAvailableModels` (`business/settings/adapt-to-available-models.ts`) moves any row it can't run
 to the nearest available stand-in from `PRESET_MODEL_FALLBACKS` (same provider, same or cheaper tier —
-e.g. Copilot `gpt-6-luna` → `gpt-5.6-luna`, `claude-opus-5.5` → `claude-opus-4.8` → `claude-sonnet-5.5`;
+e.g. Copilot `gpt-6-luna` → `gpt-5.6-luna`, `claude-opus-5.5` → `claude-sonnet-5.5` (Opus 4.8 retires 2026-11-16);
 a cheapest tier with no cheaper sibling steps up instead). Each swap is
 reported (CLI `note:` lines, TUI preset card, first-run Welcome log); a row with no available stand-in
 keeps its model and is reported too. A probe that can't answer fails open to the full catalog, so it
@@ -265,11 +266,11 @@ never rewrites a row. Live sources: Copilot's headless server, Codex's `~/.codex
   been lifted — `settings-models/suspended-models.ts` keeps the kill-switch mechanism, now empty) — it
   stays opt-in outside the frontier presets for a different reason: 2.5× the Opus 5.5 price is an operator
   spend decision, not a capability gate.
-- GitHub Copilot — lists 23 models reconciled to GitHub's supported-models doc + changelog and
+- GitHub Copilot — lists 24 models reconciled to GitHub's supported-models doc + changelog and
   checked against the Copilot SDK's `listModels()` (Copilot CLI 1.0.91) on a reference account (as of 2026-10-03): OpenAI
   `gpt-5.3-codex`, `gpt-5.4-nano`, `gpt-5.6-sol`,
   `gpt-5.6-terra`, `gpt-5.6-luna`, `gpt-6-astra`, `gpt-6-sol`, `gpt-6.1-sol`, `gpt-6-luna`; Anthropic `claude-haiku-4.5`,
-  `claude-opus-4.8`, `claude-opus-4.8-fast`, `claude-opus-5`, `claude-opus-5.5`,
+  `claude-haiku-5.5`, `claude-opus-4.8`, `claude-opus-4.8-fast`, `claude-opus-5`, `claude-opus-5.5`,
   `claude-fable-5`, `claude-fable-5.1`, `claude-sonnet-5`, `claude-sonnet-5.5`; Google
   `gemini-3.8-flash`; Microsoft `mai-code-1.1-flash`; Moonshot `kimi-k3`; xAI `grok-4.6`, `grok-4.7`. The 2026-09-01 GitHub deprecation (changelog
   2026-08-31) removed `claude-opus-4.5`, `claude-opus-4.6`, `claude-sonnet-4.5` (the former default),
@@ -280,7 +281,15 @@ never rewrites a row. Live sources: Copilot's headless server, Codex's `~/.codex
   deprecation removed `gpt-5.5` / `gpt-5.4` (→ `gpt-5.6-sol`), `gpt-5.4-mini` / `gpt-5-mini`
   (→ `gpt-5.6-luna`), `gemini-3.7-flash` (→ `gemini-3.8-flash`) and `grok-4.5` (→ `grok-4.6`) — GitHub's
   named successors, remapped at parse time; `grok-4.5` is retired on Copilot only and stays on the
-  `xai-grok` backend, so its remap is copilot-provider-guarded. New in the 2026-09
+  `xai-grok` backend, so its remap is copilot-provider-guarded. **Added 2026-10-17:** `claude-haiku-5.5`
+  (changelog 2026-10-07; needs Copilot CLI 1.0.94 or later), with a ladder rung to `claude-sonnet-5.5`.
+  Its effort list mirrors Claude Code's Haiku 5.5 (all five levels) and is not yet confirmed by
+  `listModels()`. **Retiring 2026-11-16** (changelog 2026-10-15): `claude-opus-4.8` and `claude-opus-5`
+  (→ `claude-opus-5.5`; 4.8 stays for annual plans) and `gpt-5.6-terra` (→ `gpt-6.1-sol` or
+  `gpt-6-luna`). They stay listed until that date, but nothing ralphctl stamps leans on them: the ladder
+  climbs `gpt-5.6-luna` straight to `gpt-5.6-sol`, the `claude-opus-5.5` preset fallback goes to Sonnet
+  5.5, and the older retired Opus ids (`claude-opus-4.5` / `-4.6` / `-4.7`) remap to `claude-opus-5.5`.
+  New in the 2026-09
   changelog: `claude-opus-5.5` (09-22, Pro+/Max/Business/Enterprise), `claude-fable-5.1` (09-01, Pro+ and
   up, off by default for Business/Enterprise), `gpt-6-astra` (09-04, Pro+ and up), `gpt-6-sol` /
   `gpt-6-luna` (09-22; luna includes Pro), `gemini-3.8-flash` (09-03), and `grok-4.7` (09-21, gradual
@@ -324,8 +333,13 @@ never rewrites a row. Live sources: Copilot's headless server, Codex's `~/.codex
   `minimal` was retired and persisted rows migrate to `low`; `max` now covers the 5.6 AND GPT-6 families,
   `ultra` every non-luna tier of those two families.
 - OpenCode — structurally unlike the other four: `OPENCODE_MODELS`
-  (`src/domain/value/settings-models/opencode.ts`, verified against `opencode models`, opencode-ai
-  v1.18.32, 2026-09-22) is the **zero-auth free-tier floor**, not a vendor catalog. Ids are namespaced
+  (`src/domain/value/settings-models/opencode.ts`, verified against `opencode models opencode`,
+  opencode-ai v1.18.35, 2026-10-17 — 11 ids; `hy3-free`, `mimo-v2.5-free` and
+  `muse-spark-1.2-contributor-free` left the tier, the last two remapping to `mimo-v2.6-flash-free` /
+  `muse-spark-1.3-contributor-free`) is the **zero-auth free-tier floor**, not a vendor catalog. Only
+  **OpenCode 1** is supported: OpenCode 2 ships as the same `opencode` binary but its `run` has no
+  `--dir` / `--variant` and its root command no `--model`, so the launch check below refuses a 2.x
+  binary. Ids are namespaced
   `<provider>/<model>` (an aggregator upstream may add further segments), and the adapter validates only
   that SHAPE — it does **not** reject off-catalog ids, because doing so would make every authenticated
   model un-runnable. The runtime `opencode models` probe
@@ -395,5 +409,10 @@ that can be retargeted or removed without leaving the TUI.
 `copilot` / `codex` / `opencode` / `grok` — `PROVIDER_BINARY` in `src/integration/system/detect-cli.ts`
 covers all five) and exits with `LaunchResult.fail` naming the
 binary, the flow, and the offending `settings.ai.<flow>.provider` key when the binary is absent.
-`apply-preset` emits non-fatal warnings for any preset row whose CLI is missing at apply time, and the
+Once every binary is present, a provider whose traits declare a `versionGate`
+(`providers/_engine/provider-traits.ts` — today only OpenCode, pinned to major 1) has its
+`<binary> --version` read once per launch (`probeUnsupportedVersion`); any other major fails the launch
+with a one-line reason naming the version, the settings key, and the installers that still ship 1.x
+(`brew install sst/tap/opencode` — Homebrew core's `opencode` formula tracks 2.x — the install script,
+or `npm install -g opencode-ai@1`). An unreadable version fails open. `apply-preset` emits non-fatal warnings for any preset row whose CLI is missing at apply time, and the
 welcome view silently auto-seeds a preset on fresh install based on what it detects on PATH.
