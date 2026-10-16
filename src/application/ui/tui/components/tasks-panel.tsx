@@ -171,8 +171,8 @@ export interface TasksPanelProps extends TaskOverlaySources {
   readonly onFocusedCardChange?: (taskId: string | undefined) => void;
   /**
    * Optional callback fired when the focused card's expansion state changes (deduplicated —
-   * only called when the boolean value differs from the previous call). The wide-layout
-   * `ImplementMainArea` uses this to claim the `esc` keystroke (via `useUiState().claimEscape()`)
+   * only called when the boolean value differs from the previous call). The
+   * `TasksPanelHost` uses this to claim the `esc` keystroke (via `claimEscape()`)
    * while an expanded card is focused, so pressing Esc collapses the card instead of popping the
    * route. Absent ⇒ the panel is fully self-contained (existing callers are unaffected).
    */

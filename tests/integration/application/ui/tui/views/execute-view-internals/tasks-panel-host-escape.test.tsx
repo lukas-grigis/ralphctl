@@ -1,14 +1,14 @@
 /**
- * ImplementMainArea — Esc-collapse-before-pop wiring (wide-layout ≥140 col Implement view).
+ * TasksPanelHost — Esc-collapse-before-pop wiring, shared by the wide sidebar layout and the
+ * narrow (<140 col) single-column layout, which both render the host directly.
  *
- * Mounts `useGlobalKeys` alongside `ImplementMainArea` inside the shared `renderView` harness
- * (which already provides `UiStateProvider` + `RouterProvider`) so the test exercises the real
- * "esc → collapse card" vs "esc → router.pop()" race, not a synthetic stand-in. A second route
- * is pushed on mount so a pop is observable (`renderView`'s single `initial` entry can't pop).
+ * Mounts `useGlobalKeys` alongside the host inside the shared `renderView` harness (which already
+ * provides `UiStateProvider` + `RouterProvider`) so the test exercises the real "esc → collapse
+ * card" vs "esc → router.pop()" race. A second route is pushed on mount so a pop is observable.
  *
- * `ImplementMainArea` claims `esc` (via `useUiState().claimEscape()`) whenever the focused card
- * is expanded — `TasksPanel`'s own `useInput` collapses the card on the same keystroke — and
- * releases the claim the instant the card collapses or the component unmounts.
+ * The host claims `esc` whenever the focused card is expanded — `TasksPanel`'s own `useInput`
+ * collapses the card on the same keystroke — and releases the claim the instant the card
+ * collapses or the host unmounts.
  */
 
 import React from 'react';
@@ -16,7 +16,7 @@ import { Text, useInput } from 'ink';
 import { describe, expect, it, vi } from 'vitest';
 import { useRouter } from '@src/application/ui/tui/runtime/router.tsx';
 import { useGlobalKeys } from '@src/application/ui/tui/runtime/use-global-keys.ts';
-import { ImplementMainArea } from '@src/application/ui/tui/views/execute-view-internals/implement-main-area.tsx';
+import { TasksPanelHost } from '@src/application/ui/tui/views/execute-view-internals/tasks-panel-host.tsx';
 import type { BucketedExecution } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
 import type { SessionDescriptor } from '@src/application/ui/tui/runtime/session-manager.ts';
 import type { AppDeps } from '@src/application/bootstrap/wire.ts';
@@ -62,9 +62,9 @@ const noopEventBus: EventBus = {
 const stubDeps = (): AppDeps => ({ eventBus: noopEventBus }) as unknown as AppDeps;
 
 /**
- * Mounts the real global key handler + a route-depth probe + `ImplementMainArea`. Pushes a
+ * Mounts the real global key handler + a route-depth probe + `TasksPanelHost`. Pushes a
  * second route on mount so `router.pop()` is observable, and exposes a `u` hotkey to unmount
- * `ImplementMainArea` on demand (scenario c — claim-release-on-unmount).
+ * `TasksPanelHost` on demand (scenario c — claim-release-on-unmount).
  */
 const Harness = (): React.JSX.Element => {
   useGlobalKeys();
@@ -87,7 +87,7 @@ const Harness = (): React.JSX.Element => {
         ROUTE:{router.current.id}:{String(router.stack.length)}
       </Text>
       {mounted && (
-        <ImplementMainArea
+        <TasksPanelHost
           bucketed={BUCKETED}
           descriptor={DESCRIPTOR}
           isRunning={true}
@@ -105,7 +105,7 @@ const Harness = (): React.JSX.Element => {
 const mount = (): ReturnType<typeof renderView> =>
   renderView(<Harness />, { deps: stubDeps(), initial: { id: 'execute' } });
 
-describe('ImplementMainArea — Esc collapse-before-pop', () => {
+describe('TasksPanelHost — Esc collapse-before-pop', () => {
   it('Esc collapses the expanded focused card and does NOT pop the route', async () => {
     const { result } = mount();
     await waitForViewReady(result, (f) => f.includes(LIVE_SIGNAL_TEXT));
@@ -148,7 +148,7 @@ describe('ImplementMainArea — Esc collapse-before-pop', () => {
     await waitForViewReady(result, (f) => f.includes(LIVE_SIGNAL_TEXT));
     await waitForPredicate(() => (result.lastFrame() ?? '').includes('ROUTE:sessions:2'));
 
-    // Unmount ImplementMainArea while its focused card is still expanded — the claim is live.
+    // Unmount TasksPanelHost while its focused card is still expanded — the claim is live.
     result.stdin.write('u');
     await tick(30);
     expect(result.lastFrame() ?? '').not.toContain(LIVE_SIGNAL_TEXT);

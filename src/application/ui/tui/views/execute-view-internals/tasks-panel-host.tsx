@@ -19,12 +19,14 @@
  *     feeds a locked rewrite), and the implement epilogue's `saveTasksLeaf` rewrites `tasks.json`
  *     wholesale from its own stale in-memory snapshot at the end of every run — either would
  *     silently clobber a mid-run unblock. The chord re-arms the instant the run settles.
+ *   - Claims `esc` while the focused card is expanded so the global `router.pop()` stands down and
+ *     the panel's own handler collapses the card (`handleEscapeCollapse` in `keymap.ts`).
  *   - Returns `null` when no bucket has been produced yet (early descriptor / no session),
  *     keeping the orchestrator's JSX a single expression.
  */
 
 import { priorWorkNotice, type PriorWorkNotice } from '@src/application/ui/shared/prior-work-copy.ts';
-import React, { useCallback, useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { TasksPanel, type TasksPanelProps } from '@src/application/ui/tui/components/tasks-panel.tsx';
 import type { BucketedExecution } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
 import { overlayEntityBlockedStatus } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
@@ -32,6 +34,7 @@ import type { FlowProgress } from '@src/application/ui/tui/runtime/flow-progress
 import type { SessionDescriptor } from '@src/application/ui/tui/runtime/session-manager.ts';
 import type { TaskEvaluation } from '@src/application/ui/tui/components/tasks-panel-internals/evaluation-row.tsx';
 import type { BlockedTriage } from '@src/application/ui/tui/components/tasks-projection.ts';
+import { useOptionalOverlayState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { useUnblockTask } from '@src/application/ui/tui/runtime/use-unblock-task.ts';
 import type { AttemptWarning } from '@src/domain/entity/attempt.ts';
 import type { Task } from '@src/domain/entity/task.ts';
@@ -264,8 +267,6 @@ export interface TasksPanelHostProps {
   readonly taskState: readonly Task[] | undefined;
   /** Optional callback — fired (deduped) when the focused card id changes. See `TasksPanel`. */
   readonly onFocusedCardChange?: (taskId: string | undefined) => void;
-  /** Optional callback — fired (deduped) when the focused card's expansion state changes. See `TasksPanel`. */
-  readonly onExpandedCardChange?: (expanded: boolean) => void;
   /** Optional `v` handler — opens the evaluation overlay for a card that has a recorded verdict. */
   readonly onOpenEvaluation?: (taskId: string) => void;
 }
@@ -282,7 +283,6 @@ const TasksPanelHostImpl = ({
   now,
   taskState,
   onFocusedCardChange,
-  onExpandedCardChange,
   onOpenEvaluation,
 }: TasksPanelHostProps): React.JSX.Element | null => {
   const entityProps = useMemo(
@@ -307,6 +307,12 @@ const TasksPanelHostImpl = ({
     () => (bucketed !== undefined ? overlayEntityBlockedStatus(bucketed, taskState, isRunning) : undefined),
     [bucketed, taskState, isRunning]
   );
+  // Esc collapses an expanded card instead of popping the route, in every layout; optional so
+  // isolated renders without a provider still work.
+  const claimEscape = useOptionalOverlayState()?.claimEscape;
+  const [cardExpanded, setCardExpanded] = useState(false);
+  const claimsEscape = cardExpanded && correctedBucketed !== undefined;
+  useEffect(() => (claimsEscape && claimEscape !== undefined ? claimEscape() : undefined), [claimsEscape, claimEscape]);
   if (correctedBucketed === undefined) return null;
 
   return (
@@ -320,7 +326,7 @@ const TasksPanelHostImpl = ({
       blockedTaskIds={blockedTaskIds}
       onUnblock={onUnblock}
       {...(onFocusedCardChange !== undefined ? { onFocusedCardChange } : {})}
-      {...(onExpandedCardChange !== undefined ? { onExpandedCardChange } : {})}
+      onExpandedCardChange={setCardExpanded}
       {...(onOpenEvaluation !== undefined ? { onOpenEvaluation } : {})}
       {...(descriptor.taskNames !== undefined ? { nameById: descriptor.taskNames } : {})}
       {...(descriptor.taskRecovering !== undefined ? { recoveringByTaskId: descriptor.taskRecovering } : {})}

@@ -4,14 +4,14 @@
  * Two regimes, derived from `layout.sidebarLayout`:
  *
  *   ≥140 cols (sidebarLayout === true):
- *     [ImplementSidebar | ImplementMainArea]
+ *     [ImplementSidebar | TasksPanelHost]
  *
  *     HeaderCard + BaselineHealthChip are rendered by `body.tsx` above the column row at all
  *     widths (user ask #1). The sidebar is navigation-only (task minimap + flow steps +
  *     TokenBudgetCard at the bottom). A flow without task work items (plan, refine, review, …)
  *     swaps the Tasks main area for a full-height Steps tree and drops the sidebar Steps section.
  *
- *     The keyboard model is a PASSIVE MINIMAP: `ImplementMainArea` is the single input owner.
+ *     The keyboard model is a PASSIVE MINIMAP: `TasksPanelHost` is the single input owner.
  *     The sidebar's task list is a read-only mirror that highlights whichever card is focused in
  *     the main area. There is NO separate sidebar focus, NO Tab toggle, ONE cursor.
  *
@@ -36,7 +36,7 @@ import { ExecuteLayout } from '@src/application/ui/tui/views/execute-view-intern
 import { ImplementSidebar } from '@src/application/ui/tui/views/execute-view-internals/implement-sidebar.tsx';
 import { FlowStepsRail } from '@src/application/ui/tui/views/execute-view-internals/rail.tsx';
 import { SectionHeader } from '@src/application/ui/tui/views/execute-view-internals/section.tsx';
-import { ImplementMainArea } from '@src/application/ui/tui/views/execute-view-internals/implement-main-area.tsx';
+import { TasksPanelHost } from '@src/application/ui/tui/views/execute-view-internals/tasks-panel-host.tsx';
 import type { ResponsiveLayout } from '@src/application/ui/tui/views/execute-view-internals/use-responsive-layout.ts';
 import type { SessionDescriptor } from '@src/application/ui/tui/runtime/session-manager.ts';
 import type { FlowProgress } from '@src/application/ui/tui/runtime/flow-progress.ts';
@@ -60,7 +60,7 @@ export interface ImplementLayoutProps {
   readonly termRows: number;
   /**
    * Pre-built TasksPanel node used by the narrow (<140 col) ExecuteLayout fallback only.
-   * The wide sidebar path builds its own TasksPanelHost inside ImplementMainArea and ignores
+   * The wide sidebar path builds its own TasksPanelHost and ignores
    * this prop — it is built unconditionally in execute-view.tsx because the layout decision is
    * made after the hook call. A comment in execute-view.tsx documents the narrow-only usage.
    */
@@ -74,7 +74,7 @@ export interface ImplementLayoutProps {
   // ── Sidebar-only ─────────────────────────────────────────────────────────
   /** Full responsive-layout record — drives the sidebarLayout switch + sidebar sizing. */
   readonly layout: ResponsiveLayout;
-  /** Bucketed task execution state — drives the sidebar task-nav list + ImplementMainArea. */
+  /** Bucketed task execution state — drives the sidebar task-nav list + TasksPanelHost. */
   readonly bucketed: BucketedExecution | undefined;
   /**
    * When true, keyboard input is active for this compositor and its children.
@@ -166,7 +166,7 @@ const WideLayout = ({
               />
             </>
           ) : (
-            <ImplementMainArea
+            <TasksPanelHost
               bucketed={bucketed}
               descriptor={descriptor}
               progress={progress}
@@ -238,7 +238,7 @@ export const ImplementLayout = ({
 
   // Narrow fallback — preserve existing behaviour exactly.
   // `tasksPanel` is the narrow-only pre-built node; the wide path builds its own inside
-  // ImplementMainArea and never touches this prop.
+  // TasksPanelHost and never touches this prop.
   return (
     <ExecuteLayout
       progress={progress}
