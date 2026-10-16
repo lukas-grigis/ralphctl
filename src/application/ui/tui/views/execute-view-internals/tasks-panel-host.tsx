@@ -16,11 +16,9 @@
  *   - Wires the `u` unblock affordance: derives `blockedTaskIds` from the same polled entities as
  *     `blockedReasonById`, and builds the `onUnblock` handler over `useUnblockTask` + the run's
  *     own pinned sprint (`descriptor.pinnedSprintId`) so the panel never has to know the use case.
- *     Both are suppressed WHILE THE RUN IS LIVE: `unblockTaskUseCase`'s own docblock states its
- *     cascade path is unsafe to run concurrently with an active Implement run (an unlocked read
- *     feeds a locked rewrite), and the implement epilogue's `saveTasksLeaf` rewrites `tasks.json`
- *     wholesale from its own stale in-memory snapshot at the end of every run — either would
- *     silently clobber a mid-run unblock. The chord re-arms the instant the run settles.
+ *     Both are suppressed WHILE THE RUN IS LIVE: the unblock goes through `unblockTaskLocked`, which
+ *     takes the sprint-dir lock the run holds for its whole length, so a mid-run press would only
+ *     stall ~5s and then fail on contention. The chord re-arms the instant the run settles.
  *   - Claims `esc` while the focused card is expanded so the global `router.pop()` stands down and
  *     the panel's own handler collapses the card (`handleEscapeCollapse` in `keymap.ts`).
  *   - Returns `null` when no bucket has been produced yet (early descriptor / no session),
@@ -218,14 +216,10 @@ interface UnblockAffordance {
  * reflects the dependency-gate case) — the `u` chord's gate, so it also reaches a task stuck on
  * its own failure (maxAttempts exhausted / verify failed), not only a dependency block.
  *
- * Forced empty WHILE RUNNING: `unblockTaskUseCase`'s own docblock names an explicit TOCTOU
- * precondition — its cascade path does an unlocked read that feeds a locked rewrite, so it "MUST
- * NOT run while an Implement run is active on the same sprint". Even the non-cascade path would
- * lose to the implement epilogue's `saveTasksLeaf`, which rewrites `tasks.json` wholesale from its
- * own in-memory snapshot at the end of every run — a mid-run unblock would be silently overwritten
- * the moment the run settles, reading as the harness re-blocking the operator's own fix. Emptying
- * the set here (rather than only guarding `onUnblock`) also keeps the footer/hint contract honest:
- * nothing downstream can treat a live card as unblockable.
+ * Forced empty WHILE RUNNING: `unblockTaskLocked` waits on the sprint-dir lock the live run holds,
+ * so a mid-run unblock cannot clobber the run's writes but would stall and then fail on contention.
+ * Emptying the set here (rather than only guarding `onUnblock`) also keeps the footer/hint contract
+ * honest: nothing downstream can treat a live card as unblockable.
  */
 const useUnblockAffordance = ({
   isRunning,
