@@ -32,23 +32,27 @@ export const VersionCheckCacheSchema = z.object({
 
 /**
  * Compare two dotted-numeric version strings. Returns 1 / -1 / 0 in the spirit of
- * `String.prototype.localeCompare`. Pre-release suffixes (`1.2.3-alpha`) are stripped before
- * comparison — this is intentionally semver-flavoured rather than full semver, since npm's
- * `latest` dist-tag is always a stable release.
+ * `String.prototype.localeCompare`. Build metadata (`+…`) is ignored. On equal numbers a
+ * pre-release (`1.2.3-rc.1`) sorts below the stable release, so an rc user hears about the
+ * stable one; two pre-releases are not ordered against each other, since npm's `latest`
+ * dist-tag is always stable — semver-flavoured, not full semver.
  */
 export const compareVersions = (a: string, b: string): number => {
-  const parse = (v: string): readonly number[] =>
-    (v.split('-')[0] ?? '').split('.').map((x) => Number.parseInt(x, 10) || 0);
+  const parse = (v: string): { readonly parts: readonly number[]; readonly prerelease: boolean } => {
+    const [core = '', ...pre] = (v.split('+')[0] ?? '').split('-');
+    return { parts: core.split('.').map((x) => Number.parseInt(x, 10) || 0), prerelease: pre.length > 0 };
+  };
   const pa = parse(a);
   const pb = parse(b);
-  const len = Math.max(pa.length, pb.length);
+  const len = Math.max(pa.parts.length, pb.parts.length);
   for (let i = 0; i < len; i++) {
-    const x = pa[i] ?? 0;
-    const y = pb[i] ?? 0;
+    const x = pa.parts[i] ?? 0;
+    const y = pb.parts[i] ?? 0;
     if (x > y) return 1;
     if (x < y) return -1;
   }
-  return 0;
+  if (pa.prerelease === pb.prerelease) return 0;
+  return pa.prerelease ? -1 : 1;
 };
 
 /**

@@ -62,6 +62,18 @@ describe('createNpmVersionChecker', () => {
     expect(result?.updateAvailable).toBe(false);
   });
 
+  it('reports an update when an installed pre-release has shipped as stable', async () => {
+    const checker = createNpmVersionChecker({
+      stateRoot,
+      currentVersion: '0.26.0-rc.1',
+      packageName: 'ralphctl',
+      env,
+      fetchImpl: fakeFetchOk('0.26.0'),
+      clock: () => Date.parse('2026-01-15T12:00:00Z'),
+    });
+    expect((await checker())?.updateAvailable).toBe(true);
+  });
+
   it('returns null on fetch failure', async () => {
     const checker = createNpmVersionChecker({
       stateRoot,
