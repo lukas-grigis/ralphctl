@@ -805,6 +805,47 @@ describe('createParallelImplementElement — durable blocks survive the epilogue
     expect(events.filter((e) => e.type === 'task-blocked')).toHaveLength(1);
   });
 
+  it('an abort mid-attempt keeps the attempt the branch opened, so the stopped run can still settle it', async () => {
+    const sprint = makePlannedSprint();
+    const task = makeTodoTask();
+    const taskRepo = recordingTaskRepo([task]);
+    const bus = stubBus([]);
+    const controller = new AbortController();
+    const deps = branchDeps(fakeGitRecordingCwd().runner, taskRepo, bus);
+
+    const branch = buildWorktreeBranch(
+      deps,
+      repo,
+      task,
+      worktreePathFor(SPRINT_DIR, task.id),
+      'ralphctl/s1/wt-mid-attempt',
+      PROGRESS,
+      () =>
+        sequential<ImplementCtx>('task', [
+          startAttemptLeaf({ taskRepo, clock: () => FIXED_LATER, logger: noopLogger, eventBus: bus }, task.id),
+          abortLandsIn(`generator-${String(task.id)}`, controller),
+        ])
+    );
+    const element = createParallelImplementElement(
+      plan(tagElement('implement-prologue', []), realEpilogue(taskRepo), [[task]]),
+      baseConfig(
+        { buildWaves: () => [[{ id: implementBranchId(task.id), element: branch }]] },
+        recordingLocker([]),
+        bus
+      )
+    );
+
+    const result = await element.execute({ sprintId: sprint.id, sprint, tasks: [task] }, controller.signal);
+
+    expect(result.ok).toBe(false);
+    const persisted = await taskRepo.findBySprintId(sprint.id);
+    if (!persisted.ok) throw persisted.error;
+    const persistedTask = persisted.value.find((t) => t.id === task.id);
+    // Rewriting the pre-wave copy here erased the attempt, so the operator-stop settle found nothing.
+    expect(persistedTask?.status).toBe('in_progress');
+    expect(persistedTask?.attempts.map((a) => a.status)).toEqual(['running']);
+  });
+
   it('a dependent of a prerequisite whose branch failed without settling stays todo, never blocked upstream', async () => {
     const sprint = makePlannedSprint();
     const prerequisite = makeTodoTask({ name: 'prerequisite' });

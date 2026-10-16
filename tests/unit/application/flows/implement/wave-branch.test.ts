@@ -34,7 +34,12 @@ import { createEventBusLogger } from '@src/business/observability/event-bus-logg
 
 import { absolutePath, FIXED_LATER, makeDoneTask, makePlannedSprint, makeTodoTask } from '@tests/fixtures/domain.ts';
 import { createCapturingBus } from '@tests/fixtures/capturing-event-bus.ts';
-import { scriptedWorktreeTree, type ScriptedWorktreeTreeOpts } from '@tests/fixtures/implement-parallel.ts';
+import {
+  recordingTaskRepo,
+  scriptedWorktreeTree,
+  type ScriptedWorktreeTreeOpts,
+} from '@tests/fixtures/implement-parallel.ts';
+import type { TaskRepository } from '@src/domain/repository/task/task-repository.ts';
 
 // ── createFoldQueue ─────────────────────────────────────────────────────────────────────────
 
@@ -128,10 +133,12 @@ const stubBus = (events: AppEvent[]): EventBus => ({
 const makeBranchDeps = (
   runner: GitRunner,
   eventBus: EventBus,
-  shellScriptRunner?: ShellScriptRunner
+  shellScriptRunner?: ShellScriptRunner,
+  taskRepo: TaskRepository = recordingTaskRepo()
 ): BuildWaveBranchesDeps => ({
   implement: {
     gitRunner: runner,
+    taskRepo,
     logger: noopLogger,
     clock: () => FIXED_LATER,
     ...(shellScriptRunner !== undefined ? { shellScriptRunner } : {}),
@@ -223,6 +230,25 @@ describe('buildWorktreeBranch — happy path', () => {
     expect(calls.some((c) => c[0] === 'worktree' && c[1] === 'remove' && c[2] === '--force')).toBe(true);
   });
 
+  it('fails the branch, keeping its ref, when the landed task cannot be recorded done', async () => {
+    const task = makeTodoTask();
+    const done: Task = { ...makeDoneTask(), id: task.id };
+    const { runner, calls } = fakeGit();
+    const writeFails: TaskRepository = {
+      ...recordingTaskRepo(),
+      update: async () => Result.error(new StorageError({ subCode: 'io', message: 'disk full' })),
+    };
+    const deps = makeBranchDeps(runner, stubBus([]), undefined, writeFails);
+    const wt = worktreePathFor(absolutePath('/data/sprints/s1'), task.id);
+
+    const branch = buildWorktreeBranch(deps, repo, task, wt, 'ref', PROGRESS, settlingSubchain(task.id, done));
+    const { status } = await runBranch(branch, baseCtx([task]));
+
+    expect(status).toBe('failed');
+    // Only the pre-add defensive delete ran; the ref outlives the branch for the next launch.
+    expect(calls.filter((c) => c[0] === 'branch' && c[1] === '-D' && c[2] === 'ref')).toHaveLength(1);
+  });
+
   it('never stashes the main repo', async () => {
     const task = makeTodoTask();
     const { runner, calls } = fakeGit();
@@ -305,6 +331,27 @@ describe('buildWorktreeBranch — fold conflict → blocked', () => {
         at: FIXED_LATER,
       },
     ]);
+  });
+
+  it('persists the conflict block before announcing it, so a crash after the fold never leaves the task done', async () => {
+    const task = makeTodoTask();
+    const done: Task = { ...makeDoneTask(), id: task.id };
+    const taskRepo = recordingTaskRepo([done]);
+    const persistedWhenAnnounced: string[] = [];
+    const bus: EventBus = {
+      publish: (e) => {
+        if (e.type === 'task-blocked') persistedWhenAnnounced.push(taskRepo.saved.at(-1)?.status ?? 'none');
+      },
+      subscribe: () => () => {},
+    };
+    const deps = makeBranchDeps(fakeGit({ foldConflict: true }).runner, bus, undefined, taskRepo);
+    const wt = worktreePathFor(absolutePath('/data/sprints/s1'), task.id);
+
+    const branch = buildWorktreeBranch(deps, repo, task, wt, 'ref', PROGRESS, settlingSubchain(task.id, done));
+    await runBranch(branch, baseCtx([task]));
+
+    expect(taskRepo.saved.at(-1)).toMatchObject({ id: task.id, status: 'blocked', blockCause: 'fold-conflict' });
+    expect(persistedWhenAnnounced).toEqual(['blocked']);
   });
 
   it('announces nothing when the fold lands cleanly', async () => {
@@ -596,6 +643,7 @@ describe('buildWorktreeBranch — per-worktree setup working-tree check', () => 
     const deps: BuildWaveBranchesDeps = {
       implement: {
         gitRunner: tree.runner,
+        taskRepo: recordingTaskRepo(),
         logger,
         clock: () => FIXED_LATER,
         shellScriptRunner: shell,

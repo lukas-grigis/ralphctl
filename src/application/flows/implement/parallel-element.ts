@@ -62,17 +62,16 @@ const WAVES_NODE_NAME = 'implement-waves';
  *      the single fold queue.
  *   3. epilogue runner — ALWAYS runs, on the partially-merged ctx, even when `runWaves` returned an
  *      abort / fatal error (THE B4 durability gate). Its FIRST leaf, `adopt-persisted-blocks`,
- *      re-reads `tasks.json` and pulls back any `blocked` row a non-`completed` branch already
- *      persisted (a resume-budget exhaustion, a settle-then-abort, a dependency-gate block) before
- *      `saveTasksLeaf` runs — `mergeImplementWave` skips a non-`completed` branch entirely, so
- *      without this the epilogue would clobber that persisted block with the branch's pre-wave
- *      copy and the next launch would re-enter, re-block, and re-notify forever. `saveTasksLeaf`
- *      then persists every task whose commit was folded before the failure, so those commits are
- *      recorded in `tasks.json` and never re-execute as duplicates on relaunch.
+ *      re-reads `tasks.json` and pulls back every non-`done` row a non-`completed` branch already
+ *      persisted (a block, or an attempt it opened) before `saveTasksLeaf` runs —
+ *      `mergeImplementWave` skips a non-`completed` branch entirely, so without this the epilogue
+ *      would clobber those writes with the branch's pre-wave copy. `saveTasksLeaf` then persists
+ *      every task whose commit was folded before the failure, so those commits are recorded in
+ *      `tasks.json` and never re-execute as duplicates on relaunch.
  *
  * After the epilogue, the `runWaves` error (AbortError verbatim, or a rate-limit) propagates so the
- * sprint stays runnable — in-progress / un-settled tasks reset to `todo` on the next launch via the
- * existing resume logic.
+ * sprint stays runnable — an attempt left `running` is settled by the operator-stop settle or, on
+ * the next launch, by `start-attempt`'s resume path.
  *
  * @public
  */
@@ -237,7 +236,7 @@ const forwardBranchSteps = (
  * once it reaches a terminal state. ONLY a runner that `completed` is captured: a `completed`
  * branch ran its fold step to the end, so its task either folded (`done`) or fold-conflicted
  * (`blocked`) — either way the transition is durable. An `aborted` / `failed` branch is skipped so
- * its task falls back to `base` (resets to `todo` and re-runs).
+ * its task falls back to `base`, and the epilogue's `adopt-persisted-blocks` restores what it wrote.
  *
  * Captures ONLY the task the branch OWNS (via {@link ownedTask}, keyed off the branch's stable
  * `id`) — never the whole `event.ctx.tasks` list. A branch's ctx nominally carries every task
@@ -266,7 +265,7 @@ const captureDurableFold = (runner: Runner<ImplementCtx>, branchId: string, into
 /**
  * Overlay the durably-folded task copies onto a base ctx's `tasks` by id — the abort-path epilogue
  * ctx. `folded` holds only tasks OWNED by a branch that reached `completed` (see
- * {@link captureDurableFold}), so this can only ever advance a task, never revert one; any block a
+ * {@link captureDurableFold}), so this can only ever advance a task, never revert one; whatever a
  * non-`completed` branch persisted to disk (and is therefore NOT in `folded`) is picked back up
  * separately by the epilogue's `adopt-persisted-blocks` leaf, not here.
  */

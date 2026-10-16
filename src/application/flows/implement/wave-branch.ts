@@ -1,6 +1,7 @@
 import { Result } from '@src/domain/result.ts';
 import type { Task } from '@src/domain/entity/task.ts';
 import type { TaskId } from '@src/domain/value/id/task-id.ts';
+import type { TaskRepository } from '@src/domain/repository/task/task-repository.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { join } from 'node:path';
 
@@ -315,12 +316,13 @@ const buildOneBranch = (
   const worktreePath = worktreePathFor(opts.sprintDir, task.id);
   const branchRef = gitWorktreeRef(String(opts.sprintId), String(task.id));
 
-  // Per-branch deps clone — only the signal publisher differs (keyed on this task's id so
-  // concurrent branches don't cross-attribute their signals). Everything else, including the
-  // run's shared `journalMutex` / `ledgerMutex`, is inherited from `deps.implement`.
+  // Per-branch deps clone — the signal publisher is keyed on this task's id so concurrent branches
+  // don't cross-attribute their signals, and the task's own `done` write waits for the fold.
+  // Everything else, including the run's shared `journalMutex` / `ledgerMutex`, is inherited.
   const branchDeps: ImplementDeps = {
     ...deps.implement,
     publishSignal: perBranchSignalPublisher(deps.eventBus, task.id),
+    taskRepo: holdOwnDoneWrite(deps.implement.taskRepo, task.id),
   };
 
   const subchainOpts: PerTaskSubchainOpts = { ...perTaskSubchainOpts(opts), includeBranchPreflight: false };
@@ -344,6 +346,21 @@ const buildOneBranch = (
     ),
   };
 };
+
+/**
+ * The branch's task repository, minus one write: settling its own task `done`. A branch commits on
+ * its worktree ref, and that commit reaches the sprint branch only at the fold, so `done` on disk
+ * before the fold would let a crash in between strand the commit on the ref behind a task that never
+ * re-runs. `foldStep` persists the row once the fold has landed. Every other write passes through,
+ * so a block or a retry stays durable the moment it is decided.
+ */
+const holdOwnDoneWrite = (taskRepo: TaskRepository, taskId: TaskId): TaskRepository => ({
+  findById: (sprintId, id) => taskRepo.findById(sprintId, id),
+  findBySprintId: (sprintId) => taskRepo.findBySprintId(sprintId),
+  saveAll: (sprintId, tasks) => taskRepo.saveAll(sprintId, tasks),
+  update: async (sprintId, updated) =>
+    updated.id === taskId && updated.status === 'done' ? Result.ok(undefined) : taskRepo.update(sprintId, updated),
+});
 
 /**
  * Assemble the worktree-wrapped branch element from a subchain FACTORY. The factory receives the

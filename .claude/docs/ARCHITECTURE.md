@@ -139,10 +139,13 @@ the worktree's own removal). The stash family (`gitStashPush` / `gitStashList` /
 lives in `integration/io/git-stash.ts`, behind one in-process mutex; `git-ref-rescue.ts` holds the rescue-ref
 helpers. The PARALLEL epilogue (`buildParallelImplementEpilogue`) runs one extra leaf,
 `adopt-persisted-blocks`, before its `saveTasksLeaf`: it re-reads `tasks.json` and substitutes the persisted
-row for any in-memory `todo` / `in_progress` task whose disk row is `blocked` — recovering a block (and a
-quarantined diff's stash pointer) that a non-`completed` branch had already saved to disk right before
-erroring or aborting, which the disjoint fan-in above now drops from ctx. It never adopts a persisted `done`
-(an unfolded commit must still re-run), and it exempts `AbortError`. `restore-blocked-diff.ts` pops that
+row for any in-memory `todo` / `in_progress` task whose disk row is not `done` — recovering a block (and a
+quarantined diff's stash pointer) or an opened attempt that a non-`completed` branch had already saved to
+disk right before erroring or aborting, which the disjoint fan-in above drops from ctx. It never adopts a
+persisted `done`, and it exempts `AbortError`. A branch holds its own task's `done` write back until the
+fold has landed the commit on the sprint branch (`holdOwnDoneWrite`, `wave-branch.ts`); the fold step then
+persists it, and a fold conflict persists its block before announcing it — so `tasks.json` never says `done`
+for work that exists only on a worktree ref, even across a crash. `restore-blocked-diff.ts` pops that
 same-keyed stash back in, after `pre-task-verify`, only when a generator turn is guaranteed to follow and the
 operator's recorded prior-work decision (`Task.quarantinedDiff.nextAttempt`) isn't `fresh` —
 matched by the message key, never by stash index, so a sibling branch's concurrent push can't shift the

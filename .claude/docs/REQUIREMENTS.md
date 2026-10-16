@@ -172,8 +172,8 @@ and `done → review` — that keep `done` from being a genuine dead end for the
       peer, when another sprint of the project already holds it). Blocked work is counted on
       every orientation surface (Home card, Sprints list, sprint picker, sprint-detail, settled-run
       summary, next-steps) and cannot be windowed off-screen in the Tasks panel. On the parallel path, a
-      block a task already persisted to disk survives even when its own branch then errors or aborts
-      (`adopt-persisted-blocks` re-reads it ahead of the run's task-list write, and the fan-in itself only
+      block or an opened attempt a task already persisted to disk survives even when its own branch then
+      errors or aborts (`adopt-persisted-blocks` re-reads it ahead of the run's task-list write, and the fan-in itself only
       ever updates the one task each branch settled, never a sibling's), and a diff `restore-blocked-diff`
       had already popped back into a worktree is re-quarantined if that branch is interrupted before it
       commits — even when an older, already-quarantined entry for that same task is still sitting in the

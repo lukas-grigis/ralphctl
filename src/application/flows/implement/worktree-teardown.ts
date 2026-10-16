@@ -382,10 +382,9 @@ export const foldQuarantinePointer = (
  *    ref, but keeping it uniformly is cheap.
  *  - `fold-incomplete`: the branch never completed its fold — it errored (an abort: `foldStep`
  *    returns `abortedStep` BEFORE folding, so a task that already settled `done` still has its
- *    verified commits on this ref and nowhere else) or it threw. `captureDurableFold` records only
- *    a `completed` branch, so the epilogue rewrites that task back to its pre-wave status and the
- *    relaunch re-runs it from scratch; keeping the ref is what lets an operator cherry-pick the
- *    work instead of paying a second full generator/evaluator spend for it.
+ *    verified commits on this ref and nowhere else) or it threw. That `done` never reached disk
+ *    (`holdOwnDoneWrite`, `wave-branch.ts`), so the task relaunches; keeping the ref is what lets
+ *    that launch rescue the commits instead of paying a second full generator/evaluator spend.
  */
 type KeepBranchRefReason = 'task-blocked' | 'fold-incomplete';
 

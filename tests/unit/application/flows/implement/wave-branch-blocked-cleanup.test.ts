@@ -288,7 +288,9 @@ describe('wave-branch worktree teardown — blocked-task quarantine + branch ret
 
     expect(git.calls.some((c) => c.args[0] === 'status')).toBe(true); // the dirty-tree check ran…
     expect(stashPushed(git.calls)).toBe(false); // …but found nothing to stash.
-    expect(taskRepo.calls).toBe(0);
+    // The fold records its own block; no quarantine pointer follows it.
+    expect(taskRepo.saved.map((t) => t.status)).toEqual(['blocked']);
+    expect(taskRepo.saved[0]?.quarantinedDiff).toBeUndefined();
     expect(append.appended).toHaveLength(0);
 
     expect(git.calls.some((c) => c.args[0] === 'worktree' && c.args[1] === 'remove')).toBe(true);
@@ -311,7 +313,8 @@ describe('wave-branch worktree teardown — blocked-task quarantine + branch ret
     expect(status).toBe('completed');
     expect(ctx.tasks?.find((t) => t.id === task.id)?.status).toBe('done');
     expect(stashPushed(git.calls)).toBe(false);
-    expect(taskRepo.calls).toBe(0);
+    // The only write is the fold recording the landed task.
+    expect(taskRepo.saved.map((t) => t.status)).toEqual(['done']);
     // Pre-add defensive delete AND the post-cleanup delete both ran — regression guard: a normal,
     // non-blocked task's branch cleanup is completely unaffected by this fix.
     expect(branchDeleteCount(git.calls, ref)).toBe(2);

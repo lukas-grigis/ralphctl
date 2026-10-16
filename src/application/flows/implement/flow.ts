@@ -330,10 +330,9 @@ export const buildImplementEpilogue = (deps: ImplementDeps, opts: CreateImplemen
  * sub-chains run against the SAME `ctx.tasks` the epilogue later saves, one task at a time inside
  * one flat `sequential`, so a task's own persisted transition is never trampled by a sibling's
  * outcome. The parallel path's `mergeImplementWave` fan-in has no such guarantee — a branch that
- * errors or aborts AFTER persisting a block (a resume-budget exhaustion, a settle-then-abort) is
- * skipped by the merge entirely, so without this leaf `saveTasksLeaf` below would overwrite that
- * persisted block with the branch's pre-wave copy on every relaunch. See `adopt-persisted-blocks.ts`
- * and `merge-wave.ts` for the full contract.
+ * errors or aborts AFTER persisting its task (a block, an opened attempt) is skipped by the merge
+ * entirely, so without this leaf `saveTasksLeaf` below would overwrite that write with the branch's
+ * pre-wave copy. See `adopt-persisted-blocks.ts` and `merge-wave.ts` for the full contract.
  *
  * Only ever wrapped in `sequential('implement-epilogue', …)` here — reusing the SAME name as
  * {@link buildImplementEpilogue}'s own wrapper is deliberate: this segment is a drop-in replacement
@@ -384,7 +383,7 @@ export interface ImplementWavePlan {
    * `sequential('implement-epilogue', [...])` — the once-per-run teardown, built by
    * {@link buildParallelImplementEpilogue} as `adopt-persisted-blocks` (reconcile) followed by
    * every leaf {@link buildImplementEpilogue} produces (save → transition). Run once on its own
-   * runner after the waves (including on the abort/fatal path, so folded commits AND any block a
+   * runner after the waves (including on the abort/fatal path, so folded commits AND whatever a
    * non-completed branch already persisted are both durably recorded).
    */
   readonly epilogue: Element<ImplementCtx>;

@@ -67,6 +67,18 @@ const blockTaskForFoldConflict = (task: DoneTask, reason: string): BlockedTask =
   };
 };
 
+/** A failed fold step whose error is the branch's result. */
+const failedStep = (
+  name: string,
+  durationMs: number,
+  error: DomainError,
+  onTrace: OnTrace | undefined
+): ElementResult<ImplementCtx> => {
+  const entry: TraceEntry = { elementName: name, status: 'failed', durationMs, error };
+  onTrace?.(entry);
+  return Result.error({ error, trace: [entry] });
+};
+
 /**
  * Handle a non-abort fold failure (a cherry-pick conflict). Blocks THIS task, leaves siblings
  * folded. Returns `Result.ok` with the blocked task so the branch runner COMPLETES and its
@@ -76,24 +88,29 @@ const blockTaskForFoldConflict = (task: DoneTask, reason: string): BlockedTask =
  * the fold-conflict block, silently losing the block and letting a relaunch redo already-landed
  * work rather than merely "re-surfacing as done".)
  *
+ * The block is persisted here, before it is announced: the branch's `done` never reached disk (see
+ * `holdOwnDoneWrite` in `wave-branch.ts`), so a crash after this point leaves the block, not a stale
+ * `in_progress`. A failed write fails the branch instead, leaving the task resumable and its ref kept.
+ *
  * This is the one place the conflict block is decided, so it is also where the operator is told:
  * the task settled `done` (no notification), and nothing downstream re-announces it.
  */
-const conflictFold = (
+const conflictFold = async (
   deps: BuildWaveBranchesDeps,
   ctx: ImplementCtx,
   task: DoneTask,
   branchRef: string,
-  taskId: TaskId,
   name: string,
   durationMs: number,
   error: DomainError,
   onTrace: OnTrace | undefined
-): ElementResult<ImplementCtx> => {
+): Promise<ElementResult<ImplementCtx>> => {
   const reason = `fold conflict — worktree branch '${branchRef}' could not land on the sprint branch: ${error.message}`;
   const blocked = blockTaskForFoldConflict(task, reason);
-  const tasks = ctx.tasks?.map((t) => (t.id === taskId ? blocked : t)) ?? [blocked];
-  deps.implement.logger.warn('fold conflict — task blocked', { taskId: String(taskId), branchRef });
+  const persisted = await deps.implement.taskRepo.update(ctx.sprintId, blocked);
+  if (!persisted.ok) return failedStep(name, durationMs, persisted.error, onTrace);
+  const tasks = ctx.tasks?.map((t) => (t.id === task.id ? blocked : t)) ?? [blocked];
+  deps.implement.logger.warn('fold conflict — task blocked', { taskId: String(task.id), branchRef });
   publishTaskBlocked(deps.eventBus, blocked, deps.implement.clock());
   const entry: TraceEntry = { elementName: name, status: 'failed', durationMs, error };
   onTrace?.(entry);
@@ -106,6 +123,8 @@ const conflictFold = (
  *
  *  - Only `done` tasks fold — a `blocked` task's worktree carries no landable commit (the commit
  *    guard skipped), so there is nothing to fold and folding would be a no-op fast-forward.
+ *  - A landed fold persists the task's `done`, which the branch held back until now.
+ *    A failed write fails the branch: the task stays resumable on disk and the ref is kept.
  *  - A cherry-pick CONFLICT (`gitFoldBranch` returns a `StorageError`) transitions THIS task to
  *    `blocked` in the branch ctx and returns `Result.ok` carrying the blocked task — so the branch
  *    runner COMPLETES (its `runner.ctx` holds the block) and `mergeImplementWave` overlays it. The
@@ -147,6 +166,9 @@ export const foldStep = (
     const durationMs = performance.now() - start;
 
     if (folded.ok) {
+      // The commit is on the sprint branch now, so the task's `done` can be recorded.
+      const persisted = await deps.implement.taskRepo.update(ctx.sprintId, task);
+      if (!persisted.ok) return failedStep(name, durationMs, persisted.error, onTrace);
       const entry: TraceEntry = { elementName: name, status: 'completed', durationMs };
       onTrace?.(entry);
       return Result.ok({ ctx, trace: [entry] });
@@ -155,6 +177,6 @@ export const foldStep = (
     // `gitFoldBranch` only ever returns a `StorageError`, so the only abort source is the outer signal.
     if (signal?.aborted) return abortedStep(name, durationMs, onTrace);
 
-    return conflictFold(deps, ctx, task, branchRef, taskId, name, durationMs, folded.error, onTrace);
+    return conflictFold(deps, ctx, task, branchRef, name, durationMs, folded.error, onTrace);
   },
 });

@@ -276,6 +276,15 @@ describe('adoptPersistedBlocks', () => {
     expect(result[0]).toBe(persistedBlocked);
   });
 
+  it('substitutes the persisted row when a branch opened an attempt on an in-memory todo task', () => {
+    const inMemory = makeTodoTask();
+    const persistedRunning: Task = { ...makeInProgressTaskWithRunningAttempt(), id: inMemory.id };
+
+    const result = adoptPersistedBlocks([inMemory], [persistedRunning]);
+
+    expect(result[0]).toBe(persistedRunning);
+  });
+
   it('leaves a todo task unchanged when its persisted row is also todo', () => {
     const t = makeTodoTask();
     const result = adoptPersistedBlocks([t], [t]);

@@ -267,23 +267,22 @@ worktree's branch ref is also kept rather than deleted on cleanup whenever the t
 OR the branch never completed its fold (an abort — or a throw — landing between the subchain settling
 `done` and the fold step): a fold-conflict block means the worktree's commits are real and landed on
 that ref and nowhere else, and an interrupted fold leaves already-verified commits equally ref-only
-while the epilogue rewrites the task back to its pre-wave status, so removing the ref would strand
-that work in the reflog until GC. An own-failure block's ref may hold nothing of value, but keeping
+while the task stays resumable (its `done` reaches `tasks.json` only once the fold lands), so removing
+the ref would strand that work in the reflog until GC. An own-failure block's ref may hold nothing of value, but keeping
 it uniformly is cheap. The keep is a recovery WINDOW, not permanence, and the window is one launch
 wide: `setupWorktree` settles the ref the next time THAT task starts — for a blocked task, the first
 relaunch after the operator unblocks it — deleting it when the sprint branch already has its commits and
 moving it under `ralphctl-rescue/` otherwise (see below). Past a delete the commit survives
 only as a SHA — and where depends on the reason for the keep. A blocked task's SHA is in `tasks.json`
-either way: whether the branch's own runner reached `completed` (a fold conflict — `captureDurableFold`
-records the settled task directly) or it errored / aborted right after a leaf had already saved the
-block to disk (a resume-budget exhaustion, or a settle-then-abort) — the epilogue's
-`adopt-persisted-blocks` step re-reads that persisted row, stash pointer included, before
-`saveTasksLeaf` writes the run's task list, so a non-`completed` branch's block is recovered rather than
-overwritten with its pre-wave copy (an unblock still archives the attempts into `retiredAttempts` rather
-than deleting them). It's also on `progress.md`'s `- Commit: <sha>` line. An interrupted fold's SHA is on
-`progress.md` ONLY: an aborted branch never emits `completed`, so `captureDurableFold` skips it and the
-epilogue's `saveTasksLeaf` rewrites the task back to its pre-wave copy, clobbering the attempt row that
-held `commitSha`. Either still feeds a manual `git cherry-pick` until gc prunes the object.
+either way: whether the branch's own runner reached `completed` (a fold conflict — the fold step
+persists the block itself) or it errored / aborted right after a leaf had already saved the block to
+disk (a settle-then-abort) — the epilogue's `adopt-persisted-blocks` step re-reads every persisted
+non-`done` row, stash pointer included, before `saveTasksLeaf` writes the run's task list, so a
+non-`completed` branch's block or opened attempt is recovered rather than overwritten with its pre-wave
+copy (an unblock still archives the attempts into `retiredAttempts` rather than deleting them). It's also
+on `progress.md`'s `- Commit: <sha>` line. An interrupted fold's SHA stays in `tasks.json` too, on the
+`in_progress` task's attempt row the same step recovers. Either still feeds a manual `git cherry-pick`
+until gc prunes the object.
 Intermediate commits from earlier green-verify attempts of a later-blocked task remain on the sprint
 branch by design — each passed its own verify; only the final blocked attempt's uncommitted diff moves
 to the stash. The wave's fan-in itself only ever updates the ONE task a branch actually settled (never a

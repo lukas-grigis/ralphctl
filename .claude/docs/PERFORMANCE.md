@@ -36,9 +36,10 @@ scheduling time. The sprint lock (`repoLockFile(locksRoot, sprintDir)`) spans pr
 epilogue using the same lock key as the serial path, so a serial and a parallel run of the same
 sprint mutually exclude. The wave fan-in updates only the one task each branch actually settled, so a
 branch that fails or aborts mid-wave can neither revert itself nor an already-`done` sibling the same
-wave already completed; a block that branch had already saved to disk right before failing is picked
-back up by the epilogue's `adopt-persisted-blocks` step ahead of its task-list write. Commits durably
-folded before an abort are preserved by the epilogue and never re-executed on relaunch. Concurrent appends
+wave already completed; a block or attempt that branch had already saved to disk right before failing is
+picked back up by the epilogue's `adopt-persisted-blocks` step ahead of its task-list write. A task is
+recorded `done` only once its fold landed the commit, so commits durably folded before an abort (or a
+crash) are never re-executed on relaunch, and an unfolded one is never recorded as done. Concurrent appends
 to `progress.md` and the learnings ledger are serialised through one in-process mutex (no torn lines
 under fan-out). Launch then applies a
 status-only stable override: `in_progress` tasks first (so a resumed sprint picks up the previously
