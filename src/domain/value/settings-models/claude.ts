@@ -39,8 +39,8 @@
  * `claude-sonnet-4-6` is kept too (still Active at Anthropic) so configs pinned to 4.6 keep
  * working. The 1M figures are recorded in the context-window tables against the bare ids.
  *
- * `claude-haiku-5-5` (Claude Code >= 2.1.293) succeeds Haiku 4.5: natively 1M, all five effort
- * levels, CLI default `medium`. `claude-haiku-4-5` (no effort dimension) stays for pinned configs.
+ * `claude-haiku-5-5` (Claude Code >= 2.1.293) succeeds Haiku 4.5: $0.10/$0.50 per MTok ($0.50/$2.50
+ * for prompts over 100K tokens), natively 1M, all five effort levels, CLI default `medium`. `claude-haiku-4-5` (no effort dimension) stays for pinned configs.
  */
 export type ClaudeModel =
   | 'claude-haiku-4-5'

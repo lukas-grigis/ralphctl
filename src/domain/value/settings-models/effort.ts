@@ -27,9 +27,9 @@ export const PROVIDER_EFFORT_LEVELS = {
   // provider behind the selected `provider/model` id — so this is a permissive superset and the
   // CLI narrows per model at spawn, same posture as the codex row above.
   opencode: ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'],
-  // The Grok CLI's own superset; the catalog models cap lower (`GROK_MODEL_EFFORT_LEVELS`), so
-  // `max` only reaches an uncatalogued model such as `grok-4.7-build-fast`.
-  'xai-grok': ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'],
+  // The catalog models cap lower (`GROK_MODEL_EFFORT_LEVELS`), so `max` only reaches an
+  // uncatalogued model such as `grok-4.7-build-fast`; `none` / `minimal` are refused by every menu.
+  'xai-grok': ['low', 'medium', 'high', 'xhigh', 'max'],
 } as const satisfies Record<AiProvider, readonly [string, ...string[]]>;
 
 /**

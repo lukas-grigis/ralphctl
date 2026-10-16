@@ -249,9 +249,9 @@ describe('clampEffortToModel', () => {
     expect(clampEffortToModel('xhigh', 'xai-grok', 'grok-4.7')).toBe('xhigh');
   });
 
-  it('keeps Grok none / minimal verbatim and passes grok-4.7-build-fast (no effort data) through', () => {
-    expect(clampEffortToModel('none', 'xai-grok', 'grok-4.5')).toBe('none');
-    expect(clampEffortToModel('minimal', 'xai-grok', 'grok-4.7')).toBe('minimal');
+  it('lifts Grok none / minimal to low and passes grok-4.7-build-fast (no effort data) through', () => {
+    expect(clampEffortToModel('none', 'xai-grok', 'grok-4.5')).toBe('low');
+    expect(clampEffortToModel('minimal', 'xai-grok', 'grok-4.7')).toBe('low');
     expect(clampEffortToModel('max', 'xai-grok', 'grok-4.7-build-fast')).toBe('max');
   });
 });

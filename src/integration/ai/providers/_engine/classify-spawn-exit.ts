@@ -127,10 +127,12 @@ const MODEL_UNAVAILABLE_RE =
  *  - codex (stdout error record, unwrapped by the adapter): `Unsupported value: 'max' is not
  *    supported with the 'gpt-5.5' model. … (param: reasoning.effort)`; the raw JSON envelope
  *    carries `"param": "reasoning.effort"`.
+ *  - grok (the 1.0.62 binary's format strings): `Couldn't apply reasoning effort: …` and
+ *    `--effort/--reasoning-effort: unknown effort level '<level>' …`.
  * Scanned on the same CLI-diagnostic haystacks as {@link MODEL_UNAVAILABLE_RE}, never `stdoutTail`.
  */
 const EFFORT_UNSUPPORTED_RE =
-  /does not support reasoning effort|reasoning effort\b[^\n]*\bnot supported|\bunsupported\b[^\n]*\breasoning\.effort\b|"param"\s*:\s*"reasoning\.effort"/i;
+  /does not support reasoning effort|reasoning effort\b[^\n]*\bnot supported|\bunsupported\b[^\n]*\breasoning\.effort\b|"param"\s*:\s*"reasoning\.effort"|couldn['’]t apply reasoning effort|unknown effort level/i;
 
 const COMPLETE_GENERATION = 'complete generation';
 

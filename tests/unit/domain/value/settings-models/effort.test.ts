@@ -46,9 +46,15 @@ describe('settings-models / per-model effort levels', () => {
     for (const levels of Object.values(GROK_MODEL_EFFORT_LEVELS)) expect(levels).not.toContain('max');
   });
 
-  it('keeps the Grok-native levels below low (none / minimal) on every listed Grok model', () => {
-    for (const levels of Object.values(GROK_MODEL_EFFORT_LEVELS)) {
-      expect(levels?.slice(0, 3)).toEqual(['none', 'minimal', 'low']);
-    }
+  it('starts every Grok model at low — the Grok CLI refuses none / minimal', () => {
+    expect(GROK_MODEL_EFFORT_LEVELS['grok-4.7']).toEqual(['low', 'medium', 'high', 'xhigh']);
+    expect(GROK_MODEL_EFFORT_LEVELS['grok-4.6']).toEqual(['low', 'medium', 'high', 'xhigh']);
+    expect(GROK_MODEL_EFFORT_LEVELS['grok-4.5']).toEqual(['low', 'medium', 'high']);
+    expect(PROVIDER_EFFORT_LEVELS['xai-grok']).not.toContain('none');
+    expect(PROVIDER_EFFORT_LEVELS['xai-grok']).not.toContain('minimal');
+  });
+
+  it('records Copilot claude-haiku-5.5 with the same five levels Claude Code serves it at', () => {
+    expect(modelEffortLevels('github-copilot', 'claude-haiku-5.5')).toEqual(PROVIDER_EFFORT_LEVELS['claude-code']);
   });
 });

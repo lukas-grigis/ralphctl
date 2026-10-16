@@ -88,16 +88,16 @@ describe('DEFAULT_ESCALATION_LADDERS', () => {
     expect(COPILOT_LADDER['claude-opus-4.8']).toBe('claude-opus-5.5');
     expect(COPILOT_LADDER['claude-opus-5']).toBe('claude-opus-5.5');
     expect(COPILOT_LADDER['claude-opus-5.5']).toBeUndefined();
-    // No Copilot Haiku 5.5 id is verified, so the Copilot ladder never names one.
-    expect(Object.keys(COPILOT_LADDER).some((k) => k.startsWith('claude-haiku-5'))).toBe(false);
+    expect(COPILOT_LADDER['claude-haiku-5.5']).toBe('claude-sonnet-5.5');
   });
 
-  it('climbs the Copilot GPT-5.6 tiers luna → terra → sol; the retired 2026-10-19 ids are no longer rungs', () => {
+  it('climbs Copilot GPT-5.6 luna straight to sol — terra retires 2026-11-16; the 2026-10-19 ids are no longer rungs', () => {
     // Retired rows are remapped at parse time (`RETIRED_MODEL_REMAPS`), so their keys are dead.
     for (const retired of ['gpt-5-mini', 'gpt-5.4-mini', 'gpt-5.4', 'gpt-5.5', 'grok-4.5']) {
       expect(COPILOT_LADDER[retired], retired).toBeUndefined();
     }
-    expect(COPILOT_LADDER['gpt-5.6-luna']).toBe('gpt-5.6-terra');
+    expect(COPILOT_LADDER['gpt-5.6-luna']).toBe('gpt-5.6-sol');
+    // Rows still pinned to terra keep a rung until it leaves the catalog.
     expect(COPILOT_LADDER['gpt-5.6-terra']).toBe('gpt-5.6-sol');
     expect(COPILOT_LADDER['gpt-5.6-sol']).toBeUndefined();
   });
@@ -331,7 +331,7 @@ describe('DEFAULT_ESCALATION_LADDERS — catalog lockstep (mechanizes the sectio
   it('catalog fingerprints are unchanged — a failure means a model bump landed; run the model-bump audit', () => {
     expect(fingerprint(CLAUDE_MODELS)).toBe('1c0ed938d5b989e2');
     expect(fingerprint(CODEX_MODELS)).toBe('b70fff53d4d3ab28');
-    expect(fingerprint(COPILOT_MODELS)).toBe('4af26f683d4da3d1');
+    expect(fingerprint(COPILOT_MODELS)).toBe('36c19d7e3760ca25');
     expect(fingerprint(GROK_MODELS)).toBe('2c56e449169a2ec3');
   });
 });

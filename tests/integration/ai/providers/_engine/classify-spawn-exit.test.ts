@@ -691,6 +691,9 @@ describe.each(PROVIDERS)('classifySpawnExit [%s]', (providerName) => {
       processErrorText:
         "Unsupported value: 'max' is not supported with the 'gpt-5.5' model. Supported values are: 'none', 'low', 'medium', 'high', and 'xhigh'. (param: reasoning.effort)",
     },
+    // Grok 1.0.62 — assembled from the binary's format strings, not captured from a live run.
+    { stderr: "Couldn't apply reasoning effort: this model has no selectable effort levels" },
+    { stderr: "--effort/--reasoning-effort: unknown effort level 'none' (use one of: low, medium, high, xhigh)" },
   ];
 
   it.each(EFFORT_REJECTIONS)(

@@ -594,6 +594,18 @@ updating the recorded hash:
 
 **Model-bump audit log.**
 
+- **2026-10-17 — Copilot Haiku 5.5, the Copilot 2026-11-16 batch announced, Grok effort menus.** Step 1:
+  `claude-haiku-5.5` joins the Copilot catalog (Copilot CLI 1.0.94+) and climbs to Sonnet 5.5; its effort
+  list mirrors Claude Code's Haiku 5.5 and is unverified against `listModels()`. GitHub retires
+  `claude-opus-4.8`, `claude-opus-5` and `gpt-5.6-terra` on 2026-11-16; they stay listed until then, but
+  the Copilot ladder now climbs `gpt-5.6-luna` straight to `gpt-5.6-sol` (terra keeps its own rung for
+  pinned rows), the Opus 5.5 preset fallback skips 4.8, and the older retired Opus ids remap to 5.5.
+  Nothing was de-listed, so no key or destination was stranded. Grok's model menus (CLI 1.0.62) start
+  at `low`, so `none` / `minimal` left the Grok vocabulary and saved rows migrate to `low`; the effort
+  rung's target is unchanged. Step 2: the only `partial` rows are §14 and §18, the audit mechanism
+  itself; there are no `gap` rows. Step 3: no capability was added that touches an `applied` row, so none
+  was re-measured and none removed.
+
 - **2026-10-11 — Codex `gpt-5.5` (2026-10-14) and the Copilot 2026-10-19 batch retired.** Step 1: Codex
   drops `gpt-5.5`; Copilot drops `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`, `gpt-5-mini`, `gemini-3.7-flash`
   and `grok-4.5`. Each was a ladder key (Codex `gpt-5.5`; the five Copilot GPT / Grok ids) and none a

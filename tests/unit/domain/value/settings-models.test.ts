@@ -90,6 +90,7 @@ describe('settings-models / copilot catalog', () => {
     'gpt-6-luna',
     // Anthropic
     'claude-haiku-4.5',
+    'claude-haiku-5.5',
     'claude-opus-4.8',
     'claude-opus-4.8-fast',
     'claude-opus-5',
@@ -192,24 +193,35 @@ describe('settings-models / copilot catalog', () => {
 });
 
 describe('settings-models / opencode catalog', () => {
-  // Verified against `opencode models` on opencode-ai v1.18.32 (2026-09-22).
-  it('drops the free-tier ids that left the live listing and adds the new ones', () => {
+  // Verified against `opencode models opencode` on opencode-ai v1.18.35 (2026-10-17).
+  it('matches the live free-tier listing exactly', () => {
+    expect([...OPENCODE_MODELS].sort()).toEqual([
+      'opencode/big-pickle',
+      'opencode/exo-free',
+      'opencode/ling-3.0-flash-fin-free',
+      'opencode/ling-3.1-flash-free',
+      'opencode/longcat-2.5-preview-free',
+      'opencode/mimo-v2.6-flash-free',
+      'opencode/muse-spark-1.3-contributor-free',
+      'opencode/nemotron-3-ultra-free',
+      'opencode/nemotron-3.5-lightning-free',
+      'opencode/space-bunny-free',
+      'opencode/step-5-preview-free',
+    ]);
+  });
+
+  it('drops the free-tier ids that left the live listing', () => {
     for (const gone of [
       'opencode/deepseek-v4-flash-free',
       'opencode/laguna-s-2.1-free',
       'opencode/ling-3.0-tiny-free',
       'opencode/longcat-2.0-free',
       'opencode/north-mini-code-free',
+      'opencode/hy3-free',
+      'opencode/mimo-v2.5-free',
+      'opencode/muse-spark-1.2-contributor-free',
     ]) {
       expect(isOpencodeModel(gone), gone).toBe(false);
-    }
-    for (const added of [
-      'opencode/hy3-free',
-      'opencode/ling-3.0-flash-fin-free',
-      'opencode/muse-spark-1.2-contributor-free',
-      'opencode/nemotron-3.5-lightning-free',
-    ]) {
-      expect(isOpencodeModel(added), added).toBe(true);
     }
   });
 });

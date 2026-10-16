@@ -352,9 +352,9 @@ describe('JsonSettingsRepository', () => {
     ['raptor-mini-preview', 'mai-code-1.1-flash'],
     ['gemini-2.5-pro', 'gemini-3.8-flash'],
     ['gemini-3-flash', 'gemini-3.8-flash'],
-    ['claude-opus-4.7', 'claude-opus-4.8'],
+    ['claude-opus-4.7', 'claude-opus-5.5'],
     ['claude-sonnet-4.6', 'claude-sonnet-5'],
-    ['claude-opus-4.6', 'claude-opus-4.8'],
+    ['claude-opus-4.6', 'claude-opus-5.5'],
   ])('load remaps a persisted copilot row pinned to the retired %s onto %s', async (retired, successor) => {
     const path = join(String(configRoot), SETTINGS_FILE_NAME);
     const pinned = {

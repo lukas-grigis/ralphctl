@@ -27,12 +27,13 @@ import { modelEffortLevels } from '@src/domain/value/settings-models/effort.ts';
  *    Sonnet 5 escalate), Sonnet 4.6 → Opus 4.8 → Opus 5.5, and Opus 5 → Opus 5.5 (cheaper and
  *    stronger). Fable is never a default rung — it costs 2.5x Opus 5.5 and needs a non-ZDR org;
  *    opt in via `escalationMap` (`'claude-opus-5-5': 'claude-fable-5-1'`).
- *  - **github-copilot** — Haiku 4.5 → Sonnet 5.5 → Opus 5.5 (top); rows pinned to Sonnet 5,
- *    Opus 4.8 or Opus 5 also climb to Opus 5.5. GitHub gates Opus 4.8 / 5 / 5.5 identically (Pro+
- *    and up), so topping out on 5.5 reaches no fewer accounts than 4.8 did, at a lower price. GPT:
- *    luna → terra → sol within 5.6 (rows pinned to the 2026-10-19-retired GPT-5 ids are remapped
- *    onto those tiers at parse time). The GPT-6 ids are not rungs — `gpt-6-sol` / `gpt-6.1-sol`
- *    are Pro+ only.
+ *  - **github-copilot** — Haiku 5.5 / Haiku 4.5 → Sonnet 5.5 → Opus 5.5 (top); rows pinned to
+ *    Sonnet 5, Opus 4.8 or Opus 5 also climb to Opus 5.5. GitHub gates Opus 4.8 / 5 / 5.5
+ *    identically (Pro+ and up), so topping out on 5.5 reaches no fewer accounts than 4.8 did, at a
+ *    lower price. GPT: luna → sol within 5.6, skipping terra (it retires 2026-11-16; pinned terra
+ *    rows still climb to sol). Rows pinned to the 2026-10-19-retired GPT-5 ids are remapped onto
+ *    those tiers at parse time. The GPT-6 ids are not rungs — `gpt-6-sol` / `gpt-6.1-sol` are Pro+
+ *    only.
  *  - **openai-codex** — `gpt-6-luna` → `gpt-6.1-sol` (top). `gpt-6-astra` is opt-in premium (5x the
  *    sol price), never a default rung. Pinned older tiers converge on `gpt-6.1-sol`: `gpt-6-sol` →
  *    `gpt-6.1-sol` (same price, the cache's current workhorse), luna → terra → sol within 5.6,
@@ -66,12 +67,13 @@ export const DEFAULT_ESCALATION_LADDERS: Readonly<Record<AiProvider, Readonly<Re
     'claude-opus-5': CLAUDE_OPUS_5_5,
   },
   'github-copilot': {
+    'claude-haiku-5.5': COPILOT_SONNET_5_5,
     'claude-haiku-4.5': COPILOT_SONNET_5_5,
     [COPILOT_SONNET_5_5]: COPILOT_OPUS_5_5,
     'claude-sonnet-5': COPILOT_OPUS_5_5,
     'claude-opus-4.8': COPILOT_OPUS_5_5,
     'claude-opus-5': COPILOT_OPUS_5_5,
-    [GPT_5_6_LUNA]: 'gpt-5.6-terra',
+    [GPT_5_6_LUNA]: GPT_5_6_SOL,
     'gpt-5.6-terra': GPT_5_6_SOL,
   },
   'openai-codex': {

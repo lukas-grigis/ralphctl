@@ -219,9 +219,10 @@ describe('settings.ai — retired claude-opus-4-7 migration', () => {
     ['gemini-3.5-flash', 'gemini-3.8-flash'],
     ['gemini-3.6-flash', 'gemini-3.8-flash'],
     ['kimi-k2.7-code', 'kimi-k3'],
-    ['claude-opus-4.7', 'claude-opus-4.8'],
-    ['claude-opus-4.5', 'claude-opus-4.8'],
-    ['claude-opus-4.6', 'claude-opus-4.8'],
+    // Opus 4.8 itself retires 2026-11-16, so older Opus ids land on GitHub's named successor.
+    ['claude-opus-4.7', 'claude-opus-5.5'],
+    ['claude-opus-4.5', 'claude-opus-5.5'],
+    ['claude-opus-4.6', 'claude-opus-5.5'],
     ['claude-sonnet-4.5', 'claude-sonnet-5'],
     ['claude-sonnet-4.6', 'claude-sonnet-5'],
     ['gemini-3.1-pro', 'gemini-3.8-flash'],
@@ -356,6 +357,8 @@ describe('settings.ai — retired claude-opus-4-7 migration', () => {
   it.each([
     ['opencode/deepseek-v4-flash-free', 'opencode/nemotron-3.5-lightning-free'],
     ['opencode/ling-3.0-tiny-free', 'opencode/ling-3.0-flash-fin-free'],
+    ['opencode/mimo-v2.5-free', 'opencode/mimo-v2.6-flash-free'],
+    ['opencode/muse-spark-1.2-contributor-free', 'opencode/muse-spark-1.3-contributor-free'],
   ])('rewrites an opencode row pinned to the dropped free-tier %s to %s', (retired, successor) => {
     const stale = {
       ...baseRecord,
@@ -474,6 +477,26 @@ describe("settings.ai — retired codex effort 'minimal' migration", () => {
     expect(parsed.success).toBe(true);
     if (!parsed.success) return;
     expect(parsed.data.ai.refine).toEqual({ provider: 'openai-codex', model: 'gpt-6-luna', effort: 'low' });
+  });
+
+  it.each(['none', 'minimal'])("lifts a saved grok effort '%s' to 'low' on flat and nested rows", (effort) => {
+    const stale = {
+      ...baseRecord,
+      ai: {
+        ...baseRecord.ai,
+        refine: { provider: 'xai-grok', model: 'grok-4.7', effort },
+        implement: {
+          generator: { provider: 'xai-grok', model: 'grok-4.6', effort },
+          evaluator: { provider: 'xai-grok', model: 'grok-4.5', effort },
+        },
+      },
+    };
+    const parsed = SettingsSchema.safeParse(stale);
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) return;
+    expect(parsed.data.ai.refine).toEqual({ provider: 'xai-grok', model: 'grok-4.7', effort: 'low' });
+    expect(parsed.data.ai.implement.generator.effort).toBe('low');
+    expect(parsed.data.ai.implement.evaluator.effort).toBe('low');
   });
 
   it('never rewrites effort on a claude-code row, even one carrying an off-vocabulary string', () => {
