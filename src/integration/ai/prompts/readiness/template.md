@@ -49,10 +49,10 @@ bottom of this prompt.
 **Read-only scope.** Read configuration and metadata files only — `package.json`, `pyproject.toml`,
 `Cargo.toml`, `go.mod`, `Makefile`, `mise.toml`, `.tool-versions`, `.github/workflows/*.yml`, `README.md`,
 top-level `scripts/` entries, `flake.nix`. Also read other tools' context files and onboarding docs when
-present — `AGENTS.md`, `CLAUDE.md`, `.github/copilot-instructions.md`, `.cursor/rules/`, `CONTRIBUTING.md` —
-and do not restate or contradict them; when they disagree with a manifest, mention it in a `note`. Do not
-read source trees, test directories, vendored or generated directories. Do not write any file other than
-`signals.json` in `<outputDir>`.
+present — `AGENTS.md`, `CLAUDE.md`, `.github/copilot-instructions.md`, `.cursor/rules/`, `.grok/rules/`,
+`.claude/rules/`, `CONTRIBUTING.md` — and do not restate or contradict them; when they disagree with a
+manifest, mention it in a `note`. Do not read source trees, test directories, vendored or generated
+directories. Do not write any file other than `signals.json` in `<outputDir>`.
 
 **Evidence requirement.** For each tech-stack claim in the context file body, quote the file that
 establishes it (e.g. `"build": "tsup src/index.ts"` from `package.json` → `## Build & Run` bullet).

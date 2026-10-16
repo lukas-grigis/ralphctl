@@ -114,6 +114,12 @@ describe('detect-scripts template — detection guidance', () => {
     expect(body).toMatch(/AGENTS\.md/);
   });
 
+  it('also looks in the rules directories other tools read next to their context files', async () => {
+    const body = await renderedBody();
+    expect(body).toContain('`.grok/rules/*.md`');
+    expect(body).toContain('`.claude/rules/`');
+  });
+
   it('treats a coding-agent context file as valid standalone evidence', async () => {
     const body = await renderedBody();
     // The constraint block must explicitly elevate context files over manifest inference —

@@ -183,6 +183,19 @@ describe('buildReadinessPrompt — end-to-end against the real template', () => 
     expect(flattened).toContain('only when nothing can proceed without the operator');
   });
 
+  it('also reads the rules directories other tools keep next to their context files', async () => {
+    const result = await buildReadinessPrompt(deps, {
+      repositoryPath: '/repo/main',
+      currentTool: 'claude-code',
+      probedState: absentState(FIXED_NOW),
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value).toContain('`.grok/rules/`');
+    expect(result.value).toContain('`.claude/rules/`');
+  });
+
   it('threads an existing context body verbatim into the rendered prompt', async () => {
     const existing = '# Acme API\n\n## Build & Run\n- `pnpm install`';
     const result = await buildReadinessPrompt(deps, {
