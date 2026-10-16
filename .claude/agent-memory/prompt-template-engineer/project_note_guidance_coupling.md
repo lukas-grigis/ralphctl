@@ -9,4 +9,4 @@ metadata:
 
 **Why:** new note-emitting lines in a shared partial silently contradict those two flows. apply-feedback's template carries an override sentence ("any other signal kind … whatever the autonomous-operation guidance above says about notes"), pinned by its definition test. `one-shot-operation.md` says nothing about notes for the same reason.
 
-**How to apply:** before adding signal-kind guidance to a shared partial, read each consuming flow's `*.contract.ts`. Open point for the contract owner: the apply-feedback sentence says other signals "fail validation of the whole file", but the review-round contract filters non-terminal entries out before validating, so the claim overstates.
+**How to apply:** before adding signal-kind guidance to a shared partial, read each consuming flow's `*.contract.ts`. The apply-feedback override says other signals are discarded (the review-round contract filters non-terminal entries before validating), so a note there is lost, not rejected.
