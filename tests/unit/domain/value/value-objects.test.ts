@@ -74,6 +74,22 @@ describe('AbsolutePath', () => {
     expect(AbsolutePath.parse('${HOME}/foo').ok).toBe(false);
     expect(AbsolutePath.parse('relative').ok).toBe(false);
   });
+  it('names the unexpanded home dir or env var in the hint', () => {
+    const tilde = AbsolutePath.parse('~/foo');
+    const env = AbsolutePath.parse('${HOME}/foo');
+    if (tilde.ok || env.ok) throw new Error('expected both to be rejected');
+    expect(tilde.error.message).toContain('"~"');
+    expect(env.error.message).toContain('environment variable');
+  });
+  // '~' and '$' are legal in directory names (iCloud, editor backups, Windows 8.3 short names).
+  it.each([
+    '/Users/a/Library/Mobile Documents/com~apple~CloudDocs/proj',
+    '/home/u/proj~v2',
+    '/tmp/RUNNER~1/x',
+    '/srv/$build',
+  ])('accepts an absolute path with "~" or "$" past the root: %s', (input) => {
+    expect(AbsolutePath.parse(input).ok).toBe(true);
+  });
 });
 
 describe('CommitSha', () => {
