@@ -120,12 +120,8 @@ export const useBucketedTasks = ({
             ...(knownTaskIds !== undefined ? { knownTaskIds } : {}),
           })
         : undefined,
-    // Use chainEvents.length and signals.length (not the array references themselves) so this
-    // memo only re-runs when events are actually added or the oldest is evicted — not on every
-    // 60 ms coalescer flush that replaces the array reference with the same logical content.
-    // The closure still captures the latest chainEvents / signals values at execution time.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [descriptor, chainEvents.length, signals.length, knownTaskIds]
+    // Array identity, not length: a capped window slides at constant length.
+    [descriptor, chainEvents, signals, knownTaskIds]
   );
 
   const taskRounds = useTaskRoundTracker(eventBus);
