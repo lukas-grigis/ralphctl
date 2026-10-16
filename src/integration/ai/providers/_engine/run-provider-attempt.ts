@@ -112,7 +112,6 @@ export interface ProviderAttemptInput {
   readonly command: string;
   readonly args: readonly string[];
   readonly session: AiSession;
-  readonly resolveOn: 'exit' | 'close';
   /**
    * Prompt piped to stdin. Omit for providers (Copilot) that pass the prompt as an argv
    * argument — `runHeadlessSpawn` closes stdin immediately when this field is absent.
@@ -191,7 +190,7 @@ const registerChild = (
  * - Child spawn with cwd (context-file autoload depends on the child's `process.cwd()`).
  * - Bounded stderr tail (`STDERR_TAIL_CAP`).
  * - Watchdog banner id keyed by `watchdog-<slug>-<pid>`.
- * - `runHeadlessSpawn` wiring — onStdout / onStderr / stdin / resolveOn / idleMs /
+ * - `runHeadlessSpawn` wiring — onStdout / onStderr / stdin / idleMs /
  *   abortSignal / onIdle (idle-watchdog warn + banner-show).
  * - `onSuccess` plumbing — `emitSessionIdCaptured`, `emitProviderTokenUsage`,
  *   `persistSessionIdBestEffort`, bodyFile mirror.
@@ -390,7 +389,7 @@ const superviseAttempt = async (
   startedAtMs: number,
   registered: RegisteredChildHandle | undefined
 ): Promise<AttemptOutcome> => {
-  const { session, resolveOn, rateLimitRe, providerName, providerSlug, eventBus } = input;
+  const { session, rateLimitRe, providerName, providerSlug, eventBus } = input;
 
   const stderrTail = createBoundedTail(STDERR_TAIL_CAP);
   const watchdogBannerId = `watchdog-${providerSlug}-${String(child.pid ?? 'unknown')}`;
@@ -407,7 +406,6 @@ const superviseAttempt = async (
       stderrTail.append(chunk);
     },
     ...(input.stdin !== undefined ? { stdin: input.stdin } : {}),
-    resolveOn,
     ...idle.spawnOption,
     ...(session.abortSignal !== undefined ? { abortSignal: session.abortSignal } : {}),
     onIdle: idle.onIdle,

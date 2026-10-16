@@ -117,8 +117,8 @@ export const createScriptedChild = (
     if (exited) return;
     exited = true;
     child.emit('exit', code, signal);
-    // Real children flush their streams between `exit` and `close`; adapters wait on one or the
-    // other (`resolveOn`), so both have to fire and in that order.
+    // Real children flush their streams between `exit` and `close`; the engine reaps on one and
+    // settles on the other, so both have to fire and in that order.
     setTimeout(() => child.emit('close', code, signal), 0);
   };
 

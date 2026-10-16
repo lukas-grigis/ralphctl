@@ -18,6 +18,8 @@ import type { TokenUsageEvent } from '@src/business/observability/events.ts';
 
 interface FakeChildScript {
   readonly stdoutChunks?: readonly string[];
+  /** Delivered after `exit` and before `close`, the order a real child's final pipe data can take. */
+  readonly stdoutAfterExit?: readonly string[];
   readonly stderrChunks?: readonly string[];
   readonly exitCode?: number | null;
   readonly exitSignal?: NodeJS.Signals | null;
@@ -45,7 +47,10 @@ const makeFakeChild = (script: FakeChildScript): ChildProcessWithoutNullStreams 
     stdin,
     kill(): boolean {
       child._killed = true;
-      setTimeout(() => child.emit('exit', null, 'SIGTERM'), 0);
+      setTimeout(() => {
+        child.emit('exit', null, 'SIGTERM');
+        setTimeout(() => child.emit('close', null, 'SIGTERM'), 0);
+      }, 0);
       return true;
     },
     _killed: false,
@@ -54,7 +59,15 @@ const makeFakeChild = (script: FakeChildScript): ChildProcessWithoutNullStreams 
     for (const chunk of script.stdoutChunks ?? []) stdout.emit('data', chunk);
     for (const chunk of script.stderrChunks ?? []) stderr.emit('data', chunk);
     if (script.hang === true) return;
-    setTimeout(() => child.emit('exit', script.exitCode ?? 0, script.exitSignal ?? null), 0);
+    setTimeout(() => {
+      const code = script.exitCode ?? 0;
+      const signal = script.exitSignal ?? null;
+      child.emit('exit', code, signal);
+      setTimeout(() => {
+        for (const chunk of script.stdoutAfterExit ?? []) stdout.emit('data', chunk);
+        child.emit('close', code, signal);
+      }, 0);
+    }, 0);
   }, 0);
   return child;
 };
@@ -641,6 +654,39 @@ describe('createCodexProvider', () => {
     expect(out.error.message).toContain('model "gpt-5.6-luna" doesn\'t support reasoning effort "ultra"');
     expect(out.error.message).toContain("Unsupported value: 'ultra' is not supported with the 'gpt-5.6-luna' model");
     expect(out.error.message).not.toContain('rmcp');
+  });
+
+  it('reads the final error record even when it reaches stdout after the exit event', async () => {
+    // Node may deliver a child's last pipe data after `exit`; only `close` guarantees it drained.
+    const apiError = JSON.stringify({
+      type: 'error',
+      error: { type: 'invalid_request_error', message: "Unsupported value: 'ultra'", param: 'reasoning.effort' },
+      status: 400,
+    });
+    const cap = createCapturingBus();
+    const { spawn, calls } = makeSpawn([
+      {
+        stdoutChunks: ['{"type":"thread.started","thread_id":"t-late"}\n'],
+        stdoutAfterExit: [`${JSON.stringify({ type: 'turn.failed', error: { message: apiError } })}\n`],
+        exitCode: 1,
+      },
+    ]);
+    const fsStub = stubFs('unused');
+    const provider = createCodexProvider({
+      rateLimitRetries: 2,
+      eventBus: cap.bus,
+      spawn,
+      readFile: fsStub.readFile,
+      unlink: fsStub.unlink,
+      mkTempPath: fsStub.mkTempPath,
+    });
+
+    const out = await provider.generate({ ...session(), model: 'gpt-5.6-luna', effort: 'ultra' });
+    expect(calls).toHaveLength(1);
+    expect(out.ok).toBe(false);
+    if (out.ok) return;
+    expect(out.error.code).toBe('invalid-state');
+    expect(out.error.message).toContain("Unsupported value: 'ultra'");
   });
 
   it('cleans up the output tempfile even when the call errors', async () => {

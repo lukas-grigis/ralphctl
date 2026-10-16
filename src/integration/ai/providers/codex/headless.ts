@@ -436,7 +436,6 @@ const runCodexAttempt = (
     ...base,
     args: built.value,
     session: attemptSession,
-    resolveOn: 'exit',
     // `cwd` is set in addition to codex's argv `-C` so context-file autoload works on
     // `exec resume` (which does not accept `-C`) and is consistent with the other adapters.
     // See CLAUDE.md §Security.

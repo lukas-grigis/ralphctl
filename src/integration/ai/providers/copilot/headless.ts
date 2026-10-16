@@ -334,7 +334,6 @@ const createCopilotAttempt = (deps: HeadlessProviderDeps, base: AttemptBase) => 
       ...base,
       args: built.value,
       session: attemptSession,
-      resolveOn: 'exit',
       // Copilot takes its prompt from `-p` argv, not stdin (no stdin payload exists on this CLI);
       // omitting `stdin` causes runProviderAttempt to close the child's stdin immediately.
       rateLimitRe: DEFAULT_RATE_LIMIT_RE,

@@ -313,7 +313,6 @@ export const createClaudeProvider = (deps: HeadlessProviderDeps): HeadlessAiProv
           ...base,
           args: built.value,
           session: attemptSession,
-          resolveOn: 'close',
           // `cwd` is critical — the Claude Code CLI only auto-discovers `CLAUDE.md`, skills, agents,
           // and `.mcp.json` from the child's `process.cwd()`. Without this, the native context-file
           // pipeline silently misses and the AI runs without project guidance. See CLAUDE.md §Security.

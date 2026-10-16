@@ -12,7 +12,6 @@ import { createProcessGroupTerminator } from '@src/integration/io/process-livene
  *
  *  - what to do with each stdout chunk (raw accumulate, line-parse, session-id extract …)
  *  - whether to send a prompt down stdin (and which one)
- *  - which exit event to wait on (`'exit'` vs `'close'`)
  *
  * Everything else — listener attach/detach, watchdog install/stop, abort handling, idle
  * warning emission, reaping the leader's process group once it exits — lives here. Listeners are
@@ -32,12 +31,6 @@ export interface RunHeadlessSpawnOptions {
    * doesn't hang waiting for input.
    */
   readonly stdin?: string;
-  /**
-   * Which child exit event to await. `'close'` waits for streams to flush (claude needs this
-   * so the final stdout chunk is captured); `'exit'` is sufficient for copilot/codex which
-   * stream their tokens incrementally to the on-stdout handler.
-   */
-  readonly resolveOn: 'exit' | 'close';
   /** Stdio-silence cap before SIGTERM. Defaults to `DEFAULT_IDLE_MS`. */
   readonly idleMs?: number;
   /** Caller-controlled abort (Ctrl-C / TUI cancel). Threaded into the watchdog kill ladder. */
@@ -68,7 +61,7 @@ const reapGroupOnExit = (child: ChildProcessWithoutNullStreams): void => {
 };
 
 export const runHeadlessSpawn = async (opts: RunHeadlessSpawnOptions): Promise<SpawnExit> => {
-  const { child, onStdout, onStderr, stdin, resolveOn, abortSignal, onIdle } = opts;
+  const { child, onStdout, onStderr, stdin, abortSignal, onIdle } = opts;
   const idleMs = opts.idleMs ?? DEFAULT_IDLE_MS;
 
   child.stdout.setEncoding('utf8');
@@ -97,7 +90,8 @@ export const runHeadlessSpawn = async (opts: RunHeadlessSpawnOptions): Promise<S
       };
       child.once('error', (err: NodeJS.ErrnoException) => settle({ code: null, signal: null, spawnError: err }));
       child.once('exit', () => reapGroupOnExit(child));
-      child.once(resolveOn, (code, signal) => settle({ code, signal }));
+      // Not `'exit'`: the final records (an error, a session id) can still be in the pipe then.
+      child.once('close', (code, signal) => settle({ code, signal }));
 
       // stdin: send the prompt (claude/codex) or close immediately (copilot reads from argv).
       // The write goes against a child that may already be dead (raced the spawn `'error'`):

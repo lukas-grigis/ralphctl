@@ -6,6 +6,7 @@
  *  - Listener detach in finally on the success path.
  *  - Listener detach even when the close-await throws (provider-level error after attach).
  *  - Stdin handling: prompt sent when provided, stdin closed when omitted (copilot's argv path).
+ *  - Settling on `close`, not `exit`, so the final stdout records are never dropped.
  *  - Watchdog stop is called even when the await rejects.
  */
 
@@ -95,7 +96,6 @@ describe('runHeadlessSpawn', () => {
       onStdout,
       onStderr,
       stdin: 'prompt',
-      resolveOn: 'close',
       idleMs: 1000,
     });
 
@@ -116,6 +116,25 @@ describe('runHeadlessSpawn', () => {
     expect(f.stderrListeners()).toBe(0);
   });
 
+  it('waits past `exit` for `close`, so stdout delivered in between still reaches onStdout', async () => {
+    const f = makeFakeChild();
+    const onStdout = vi.fn();
+    let settled = false;
+    const p = runHeadlessSpawn({ child: f.child, onStdout, onStderr: () => undefined, idleMs: 1000 }).then((exit) => {
+      settled = true;
+      return exit;
+    });
+
+    f.emitExit(1, null);
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    f.emitStdout('{"type":"turn.failed"}\n');
+    f.emitClose(1, null);
+
+    expect(await p).toEqual({ code: 1, signal: null });
+    expect(onStdout).toHaveBeenCalledWith('{"type":"turn.failed"}\n');
+  });
+
   it('sends prompt via stdin.end when `stdin` is provided', async () => {
     const f = makeFakeChild();
     const p = runHeadlessSpawn({
@@ -123,7 +142,6 @@ describe('runHeadlessSpawn', () => {
       onStdout: () => undefined,
       onStderr: () => undefined,
       stdin: 'hello-world',
-      resolveOn: 'close',
       idleMs: 1000,
     });
     f.emitClose(0, null);
@@ -137,10 +155,9 @@ describe('runHeadlessSpawn', () => {
       child: f.child,
       onStdout: () => undefined,
       onStderr: () => undefined,
-      resolveOn: 'exit',
       idleMs: 1000,
     });
-    f.emitExit(0, null);
+    f.emitClose(0, null);
     await p;
     // `<no-arg>` is the sentinel our fake records when `end()` is called with no payload.
     expect(f.stdinEndChunks).toEqual(['<no-arg>']);
@@ -153,7 +170,6 @@ describe('runHeadlessSpawn', () => {
       onStdout: () => undefined,
       onStderr: () => undefined,
       stdin: 'p',
-      resolveOn: 'close',
       idleMs: 100,
       onIdle: () => undefined,
     });
@@ -179,7 +195,6 @@ describe('runHeadlessSpawn', () => {
       onStdout: () => undefined,
       onStderr: () => undefined,
       stdin: 'prompt',
-      resolveOn: 'close',
       idleMs: 1000,
     });
 
@@ -200,13 +215,12 @@ describe('runHeadlessSpawn', () => {
       child: f.child,
       onStdout: () => undefined,
       onStderr: () => undefined,
-      resolveOn: 'exit',
       idleMs: 1000,
     });
 
     f.emitError(errno('EACCES', 'spawn EACCES'));
-    // A late exit can still fire — it must NOT clobber the already-resolved spawn error.
-    f.emitExit(1, null);
+    // A late close can still fire — it must NOT clobber the already-resolved spawn error.
+    f.emitClose(1, null);
     const result = await p;
     expect(result.spawnError?.code).toBe('EACCES');
     expect(result.code).toBeNull();
@@ -219,7 +233,6 @@ describe('runHeadlessSpawn', () => {
       onStdout: () => undefined,
       onStderr: () => undefined,
       stdin: 'prompt',
-      resolveOn: 'close',
       idleMs: 1000,
     });
 
@@ -239,7 +252,6 @@ describe('runHeadlessSpawn', () => {
       onStdout: () => undefined,
       onStderr: () => undefined,
       stdin: 'prompt',
-      resolveOn: 'close',
       idleMs: 1000,
     });
 

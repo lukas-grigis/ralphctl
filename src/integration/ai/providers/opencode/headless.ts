@@ -165,7 +165,6 @@ const runOpencodeAttempt = (attemptSession: AiSession, { base }: RunOpencodeAtte
     ...base,
     args: built.value,
     session: attemptSession,
-    resolveOn: 'exit',
     stdin: attemptSession.prompt,
     rateLimitRe: DEFAULT_RATE_LIMIT_RE,
     onStdoutChunk: (chunk) => tracker.consumeChunk(chunk),

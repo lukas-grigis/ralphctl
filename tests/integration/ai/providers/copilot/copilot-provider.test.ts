@@ -30,6 +30,12 @@ const makeStream = (): EventEmitter & { setEncoding: (e: string) => void } => {
   return ee;
 };
 
+/** A real child emits `close` once its pipes drain, after `exit`; the adapter waits on `close`. */
+const exitThenClose = (child: EventEmitter, code: number | null, signal: NodeJS.Signals | null): void => {
+  child.emit('exit', code, signal);
+  setTimeout(() => child.emit('close', code, signal), 0);
+};
+
 const makeFakeChild = (script: FakeChildScript): ChildProcessWithoutNullStreams => {
   const child = new EventEmitter() as ChildProcessWithoutNullStreams & { _killed: boolean };
   const stdout = makeStream();
@@ -45,7 +51,7 @@ const makeFakeChild = (script: FakeChildScript): ChildProcessWithoutNullStreams 
     stdin,
     kill(): boolean {
       child._killed = true;
-      setTimeout(() => child.emit('exit', null, 'SIGTERM'), 0);
+      setTimeout(() => exitThenClose(child, null, 'SIGTERM'), 0);
       return true;
     },
     _killed: false,
@@ -54,7 +60,7 @@ const makeFakeChild = (script: FakeChildScript): ChildProcessWithoutNullStreams 
     for (const chunk of script.stdoutChunks ?? []) stdout.emit('data', chunk);
     for (const chunk of script.stderrChunks ?? []) stderr.emit('data', chunk);
     if (script.hang === true) return;
-    setTimeout(() => child.emit('exit', script.exitCode ?? 0, script.exitSignal ?? null), 0);
+    setTimeout(() => exitThenClose(child, script.exitCode ?? 0, script.exitSignal ?? null), 0);
   }, 0);
   return child;
 };

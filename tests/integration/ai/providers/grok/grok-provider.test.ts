@@ -17,7 +17,7 @@ import type { TokenUsageEvent } from '@src/business/observability/events.ts';
 
 interface FakeChildScript {
   readonly stdoutChunks?: readonly string[];
-  /** Emitted after `exit` and before `close` — proves `resolveOn: 'close'` keeps a late `end`. */
+  /** Emitted after `exit` and before `close` — proves the adapter keeps a late `end`. */
   readonly stdoutAfterExit?: readonly string[];
   readonly stderrChunks?: readonly string[];
   readonly exitCode?: number | null;
