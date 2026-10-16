@@ -23,7 +23,7 @@
 
 - [project_release_gate_seams.md](project_release_gate_seams.md) — Release/CI seams: color pin, npm-pack prefix trap, CLI error frame, prompts-list gate, pre-release tag/dist-tag pairing
 - [project_settings_default_flip_surfaces.md](project_settings_default_flip_surfaces.md) — Every surface that restates a `settings.harness` default, plus the preset-pin seam
-- [project_slugged_data_layout_resolver.md](project_slugged_data_layout_resolver.md) — The slugged on-disk data layout and its tolerant resolvers
+- [project_slugged_data_layout_resolver.md](project_slugged_data_layout_resolver.md) — Slugged data layout, tolerant resolvers, never-delete sprint reconcile, launchers converge first
 - [project_migration_consent_gate_wiring.md](project_migration_consent_gate_wiring.md) — The data-migration consent splash + backup gate and how it is wired
 - [project_skill_upstream_readaptation.md](project_skill_upstream_readaptation.md) — Porting upstream skill drift: diff noise, read-only evaluator trap, what never ports
 - [project_skill_selection_resolution_seam.md](project_skill_selection_resolution_seam.md) — Skill selection → `createResolvedSkillSource` resolution path

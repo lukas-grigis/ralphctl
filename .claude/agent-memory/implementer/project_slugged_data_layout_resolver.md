@@ -31,9 +31,16 @@ files, sprint dirs, memory dirs). `--` is the separator; kebab slugs never conta
 
 - Project repo: write canonical `<id>--<slug>.json` FIRST, THEN remove stale siblings (bare `<id>` or
   old-slug) — order matters so a crash never leaves zero readable files.
-- Sprint repo: rename the stale dir onto the canonical name FIRST (atomic `fs.rename` via new `renamePath`
-  in fs.ts — carries execution.json/tasks.json together), THEN write sprint.json. If canonical already
-  exists, remove the stale dir instead. All best-effort (swallow failures — tolerant reader covers gaps).
+- Sprint repo: rename the stale dir onto the canonical name FIRST (atomic `fs.rename` via `renamePath`
+  — carries execution.json/tasks.json together), THEN write sprint.json. If canonical already exists,
+  merge-move the stale entries it lacks and `rmdir` (never `rm -rf`) the stale dir. Do NOT reintroduce a
+  `removeDir(stale)` when canonical exists: a side-file writer can create a canonical dir holding only
+  events.ndjson/progress.md, and the old removeDir then wiped tasks.json + history.
+- Any launcher writing sprint side files must take its dir from `ensureCanonicalSprintDir` (converges
+  first), NOT the pure `sprintDir` builder: readers prefer `<id>--*`, so a side file under a not-yet-
+  renamed legacy sprint makes `findById`/tasks read the empty canonical dir. Pointing launchers at the
+  bare dir instead is also wrong — the next save renames it out from under worktrees and the lock key
+  (`sprint-lock-reader` always keys the canonical path) splits.
 
 **Memory ledger**: `learningsLedgerPath` was REPLACED by two functions in
 `flows/_shared/memory/ledger-path.ts`: `resolveLearningsLedgerPath(memoryRoot, projectId)` (async,
