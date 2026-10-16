@@ -42,6 +42,15 @@ describe('createBundledAgentDefinitionSource (production root)', () => {
     expect(generator?.content.length).toBeGreaterThan(0);
   });
 
+  it('tells the generator to take the most directly supported reading of an ambiguous requirement, not the narrowest', async () => {
+    const result = await source.getByName('ralphctl-generator');
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const body = result.value?.content.replace(/\s+/g, ' ') ?? '';
+    expect(body).toContain('most directly support');
+    expect(body).not.toContain('narrowest interpretation');
+  });
+
   it('getByName resolves a known bundled definition by its exact file name', async () => {
     const result = await source.getByName('ralphctl-evaluator');
     expect(result.ok).toBe(true);

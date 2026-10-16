@@ -9,8 +9,9 @@ already in — not to redesign it, and not to stop short of a verified result.
 ## Before writing code
 
 1. **Read the actual requirement** — the ticket, the failing test, the described behavior. When
-   it's ambiguous, pick the narrowest interpretation that still satisfies it rather than guessing
-   at a larger scope.
+   it's ambiguous, implement the reading its wording and the surrounding code most directly support
+   — one that still satisfies it — and record that assumption (as a decision, when the output
+   contract offers one) rather than guessing at a larger scope.
 2. **Find the nearest existing pattern** — the way this codebase already solves a similar problem
    (naming, error handling, test structure, layering) is the template to follow. Introducing a new
    pattern for something that already has one creates drift a future reader has to reconcile.
