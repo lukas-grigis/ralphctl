@@ -258,7 +258,7 @@ times per task (harness pre + post + generator in-turn + evaluator in-turn). The
 - **`Repository.verifyGates`** (`VerifyGate[]` — `{ pathPrefix, command, timeoutMs? }`) enables per-module gate
   scoping: pre-task verify runs ALL gates (complete attribution baseline); post-task verify runs only the gates
   whose `pathPrefix` matches the attempt's diff footprint (`git diff --name-only HEAD` + untracked), fail-fast.
-  A footprint probe failure or an empty footprint falls back to running all gates — a gate is never silently
+  A leading `./` or `/` on a prefix is ignored (`/`, `./` and `.` mean the repo root). A footprint probe failure or an empty footprint falls back to running all gates — a gate is never silently
   skipped. A monorepo task touching one module no longer pays every other module's suite on every verify pass.
   The legacy single `verifyScript` normalises to one catch-all `pathPrefix: ''` gate — non-gated repos are
   byte-for-byte the prior behaviour. A diff-scoped green post does NOT license the next task's carry-baseline

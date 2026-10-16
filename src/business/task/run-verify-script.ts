@@ -2,7 +2,7 @@ import type { Result } from '@src/domain/result.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { VerifyRun, VerifyRunPhase } from '@src/domain/entity/attempt.ts';
-import type { VerifyGate } from '@src/domain/entity/repository.ts';
+import { canonicalGatePrefix, type VerifyGate } from '@src/domain/entity/repository.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import type { StorageError } from '@src/domain/value/error/storage-error.ts';
 
@@ -107,12 +107,14 @@ export const normalizeVerifyGates = (
 /**
  * True iff `gate` should run under `scope`. A `''` prefix is the catch-all and always matches.
  * Otherwise the gate runs when its prefix prefixes ANY touched path. `scope === undefined` means
- * "no scope supplied" → every gate runs (the caller already decided not to filter).
+ * "no scope supplied" → every gate runs (the caller already decided not to filter). Canonicalised
+ * here too because persisted gates load without passing through the entity factory.
  */
 const gateInScope = (gate: VerifyGate, scope: readonly string[] | undefined): boolean => {
   if (scope === undefined) return true;
-  if (gate.pathPrefix === '') return true;
-  return scope.some((path) => pathUnderPrefix(path, gate.pathPrefix));
+  const prefix = canonicalGatePrefix(gate.pathPrefix);
+  if (prefix === '') return true;
+  return scope.some((path) => pathUnderPrefix(path, prefix));
 };
 
 /**

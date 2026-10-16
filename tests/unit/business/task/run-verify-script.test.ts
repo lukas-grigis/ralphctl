@@ -394,6 +394,30 @@ describe('runVerifyGatesUseCase — multi-gate execution (T10)', () => {
     expect(ran()).toEqual(['gate-app']);
   });
 
+  // git emits bare repo-relative paths, so a stored './x' or '/x' prefix would otherwise never match
+  // and a failing gate would be recorded as skipped. '/', './' and '.' mean the repo root.
+  it.each([
+    ['./packages/api', ['packages/api/src/a.ts']],
+    ['/packages/api', ['packages/api/src/a.ts']],
+    ['.//packages/api/', ['packages/api/src/a.ts']],
+    ['/', ['docs/readme.md']],
+    ['./', ['docs/readme.md']],
+    ['.', ['docs/readme.md']],
+  ])('a leading "./" or "/" on prefix %j is ignored when matching scope', async (pathPrefix, scope) => {
+    const gates: readonly VerifyGate[] = [{ pathPrefix, command: 'gate-red' }];
+    const { shell, ran } = scriptedShell({ 'gate-red': { passed: false, exitCode: 1, output: 'boom' } });
+    const { run } = await runVerifyGatesUseCase({
+      ...base,
+      phase: 'post',
+      gates,
+      scope,
+      mode: 'fail-fast',
+      runShellScript: shell,
+    });
+    expect(ran()).toEqual(['gate-red']);
+    expect(run.outcome).toBe('failed');
+  });
+
   it('per-gate timeoutMs is threaded; falls back to defaultTimeoutMs when absent', async () => {
     const seen: Array<number | undefined> = [];
     const shell: Parameters<typeof runVerifyGatesUseCase>[0]['runShellScript'] = async (_cwd, _command, sopts) => {

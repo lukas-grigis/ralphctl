@@ -32,6 +32,16 @@ describe('createRepository — verifyGates normalisation', () => {
     ]);
   });
 
+  it('stores a prefix without a leading "./" or "/" so it reads like a git path', () => {
+    const repo = mustCreate([
+      { pathPrefix: './apps/api', command: 'go test ./...' },
+      { pathPrefix: '/apps/web', command: 'pnpm test' },
+      { pathPrefix: './', command: 'pnpm lint' },
+      { pathPrefix: ' apps/x', command: 'make' },
+    ]);
+    expect(repo.verifyGates?.map((g) => g.pathPrefix)).toEqual(['apps/api', 'apps/web', '', ' apps/x']);
+  });
+
   it('drops gates with a blank command and omits the field when none survive', () => {
     expect(mustCreate([{ pathPrefix: 'a', command: '   ' }]).verifyGates).toBeUndefined();
   });
