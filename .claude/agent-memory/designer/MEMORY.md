@@ -26,3 +26,4 @@
 - [project_fixed_columns_and_fake_clock_tests.md](project_fixed_columns_and_fake_clock_tests.md) — Fixed-width timeline columns; settle-jump-advance recipe for proving a fake-clock tick
 - [project_prompt_driven_view_tests.md](project_prompt_driven_view_tests.md) — Testing prompt-asking views: PromptHost wiring, eventBus stub blanks frame, body wrap, optional queue
 - [project_layout_parity_and_capped_buffers.md](project_layout_parity_and_capped_buffers.md) — Wire behaviour in the shared host not a width wrapper; capped windows keep constant length (no length-keyed memos)
+- [project_ink_paste_ownership.md](project_ink_paste_ownership.md) — Ink 8 parses paste before useInput; usePromptPaste + Ink owns DEC 2004; test via TTY-flagged fake stdout
