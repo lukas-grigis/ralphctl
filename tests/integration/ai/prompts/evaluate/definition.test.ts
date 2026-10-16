@@ -442,6 +442,25 @@ describe('buildEvaluatePrompt — end-to-end against the real template', () => {
     expect(evidenceBoundOccurrences).toBe(1);
   });
 
+  it('fails defects in code the change owns, records pre-existing ones, and asks critiques to name the pattern', async () => {
+    const task = makeTaskWith({ name: 'export CSV' });
+    const result = await buildEvaluatePrompt(deps, {
+      task,
+      projectPath: '/tmp/ralph/main-repo',
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
+      contractPath: CONTRACT_PATH,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const flattened = result.value.replace(/\s+/g, ' ');
+    expect(flattened).toContain('in code the change adds, edits, or newly depends on');
+    expect(flattened).toContain('a defect in code the change neither touches nor newly depends on');
+    expect(flattened).toContain("if you cannot tell, treat it as the change's own");
+    // The worked PASS example shows the label in use.
+    expect(flattened).toContain('pre-existing, not graded:');
+    expect(flattened).toContain('name the pattern and list the other locations you saw');
+  });
+
   it('carries no placeholder-checkpoint phase and renders the shared grading rules once', async () => {
     const task = makeTaskWith({ name: 'export CSV' });
     const result = await buildEvaluatePrompt(deps, {
