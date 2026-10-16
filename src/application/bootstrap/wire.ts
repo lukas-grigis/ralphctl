@@ -408,10 +408,11 @@ const buildDataServices = (
   storage: StoragePaths,
   logger: Logger,
   inProcessRuns: InProcessRuns,
-  liveRunActivity: RunActivityProbe
+  liveRunActivity: RunActivityProbe,
+  fileLocker: FileLocker
 ): Pick<AppDeps, 'projectRepo' | 'sprintRepo' | 'housekeeping' | 'projectRemoval' | 'sprintRemoval'> => {
   const projectRepo = createFsProjectRepository({ root: storage.dataRoot });
-  const sprintRepo = createFsSprintRepository({ root: storage.dataRoot });
+  const sprintRepo = createFsSprintRepository({ root: storage.dataRoot, fileLocker, locksRoot: storage.locksRoot });
   const housekeepingDisk = createFsHousekeepingDisk({
     dataRoot: storage.dataRoot,
     memoryRoot: storage.memoryRoot,
@@ -488,7 +489,7 @@ export const wire = (opts: WireOptions): AppDeps => {
   return {
     storage: opts.storage,
     ...liveRuns,
-    ...buildDataServices(opts.storage, logger, liveRuns.inProcessRuns, liveRunActivity),
+    ...buildDataServices(opts.storage, logger, liveRuns.inProcessRuns, liveRunActivity, fileLocker),
     sprintExecutionRepo: createFsSprintExecutionRepository({ root: opts.storage.dataRoot }),
     taskRepo,
     settings: opts.settings,

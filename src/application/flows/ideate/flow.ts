@@ -9,7 +9,11 @@ import { leaf } from '@src/application/chain/build/leaf.ts';
 import { loadAndAssertSprintSubChain } from '@src/application/flows/_shared/sprint/load-and-assert-sprint.ts';
 import { loadProjectLeaf } from '@src/application/flows/_shared/project/load.ts';
 import { loadTasksLeaf } from '@src/application/flows/_shared/task/load.ts';
-import { saveSprintLeaf } from '@src/application/flows/_shared/sprint/save.ts';
+import {
+  assertTicketsUnchangedLeaf,
+  savePlannedSprintLeaf,
+  type TicketBasis,
+} from '@src/application/flows/_shared/sprint/commit-planned.ts';
 import { saveTasksLeaf } from '@src/application/flows/_shared/task/save.ts';
 import { buildIdeatePrompt } from '@src/integration/ai/prompts/ideate/definition.ts';
 import { readCappedSprintProgress } from '@src/application/flows/_shared/progress/read-sprint-progress.ts';
@@ -116,6 +120,9 @@ const transitionToPlannedLeaf = (deps: Pick<IdeateDeps, 'clock'>): Element<Ideat
     internal: true,
   });
 
+/** The tickets the planning session saw; a change to them by another writer fails the commit. */
+const ticketBasis: TicketBasis<IdeateCtx> = (ctx) => ctx.preIdeate?.sprint.tickets ?? ctx.sprint?.tickets ?? [];
+
 export const createIdeateFlow = (deps: IdeateDeps, opts: CreateIdeateFlowOpts): Element<IdeateCtx> => {
   const slug = `session-${String(Date.now())}`;
 
@@ -183,7 +190,8 @@ export const createIdeateFlow = (deps: IdeateDeps, opts: CreateIdeateFlowOpts): 
       ...(deps.reviewBeforeApprove !== undefined ? { reviewBeforeApprove: deps.reviewBeforeApprove } : {}),
     }),
     transitionToPlannedLeaf({ clock: deps.clock }),
+    assertTicketsUnchangedLeaf<IdeateCtx>({ sprintRepo: deps.sprintRepo }, ticketBasis),
     saveTasksLeaf<IdeateCtx>({ taskRepo: deps.taskRepo }),
-    saveSprintLeaf<IdeateCtx>({ sprintRepo: deps.sprintRepo }),
+    savePlannedSprintLeaf<IdeateCtx>({ sprintRepo: deps.sprintRepo, clock: deps.clock }, ticketBasis),
   ]);
 };

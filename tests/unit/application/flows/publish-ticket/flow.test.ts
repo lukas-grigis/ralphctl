@@ -7,6 +7,7 @@ import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import type { PublishTracker } from '@src/business/ticket/publish-to-tracker.ts';
 import { createTicketPublishFlow } from '@src/application/flows/publish-ticket/flow.ts';
 import { makeApprovedTicket, makeDraftSprint, makeProject } from '@tests/fixtures/domain.ts';
+import { withUpdate } from '@tests/fixtures/sprint-repo-update.ts';
 
 const ISSUE_URL = 'https://github.com/x/y/issues/42';
 
@@ -28,10 +29,10 @@ describe('createTicketPublishFlow', () => {
   it('reports the created URL when saving the link fails after a successful create', async () => {
     const ticket = makeApprovedTicket();
     const sprint: Sprint = makeDraftSprint({ tickets: [ticket] });
-    const sprintRepo = {
+    const sprintRepo = withUpdate({
       findById: async () => Result.ok(sprint),
       save: async () => Result.error(new StorageError({ subCode: 'io', message: 'disk full' })),
-    } as unknown as SprintRepository;
+    }) as unknown as SprintRepository;
     const projectRepo = { findById: async () => Result.ok(makeProject()) } as unknown as ProjectRepository;
     const { tracker, creates } = creatingTracker();
 

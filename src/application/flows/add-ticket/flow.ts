@@ -1,10 +1,14 @@
 import { Result } from '@src/domain/result.ts';
 import type { Ticket } from '@src/domain/entity/ticket.ts';
 import { createTicket } from '@src/domain/entity/ticket.ts';
-import { addTicket, type Sprint } from '@src/domain/entity/sprint.ts';
+import { addTicket, attachTicketLink, type Sprint } from '@src/domain/entity/sprint.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
-import { publishSaveFailedError, publishTicketToTracker } from '@src/business/ticket/publish-to-tracker.ts';
+import {
+  createdLink,
+  publishSaveFailedError,
+  publishTicketToTracker,
+} from '@src/business/ticket/publish-to-tracker.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
 
@@ -19,7 +23,8 @@ interface TicketAddLeafOutput {
 
 /**
  * Append a pending ticket to a sprint. Linear: load sprint → mint ticket → addTicket guard
- * (refuses non-draft sprints, rejects duplicate ids) → save the updated sprint. When
+ * (refuses non-draft sprints, rejects duplicate ids), applied to the fresh sprint under the
+ * repository's locked `update`. When
  * `createTrackerIssue` is set, publish against the first repository path after that save;
  * a tracker failure lands on `ctx.trackerError` and does not fail the leaf. When the issue
  * was created but the link save failed, `ctx.trackerIssueOrphaned` is set and the error
@@ -29,9 +34,6 @@ export const createTicketAddFlow = (deps: TicketAddDeps): Element<TicketAddCtx> 
   leaf<TicketAddCtx, TicketAddInput, TicketAddLeafOutput>('add-ticket', {
     useCase: {
       async execute(input) {
-        const sprint = await deps.sprintRepo.findById(input.sprintId);
-        if (!sprint.ok) return Result.error(sprint.error);
-
         const ticketInput: Parameters<typeof createTicket>[0] = {
           title: input.title,
           ...(input.description !== undefined ? { description: input.description } : {}),
@@ -40,17 +42,14 @@ export const createTicketAddFlow = (deps: TicketAddDeps): Element<TicketAddCtx> 
         const ticket = createTicket(ticketInput);
         if (!ticket.ok) return Result.error(ticket.error);
 
-        const updated = addTicket(sprint.value, ticket.value);
-        if (!updated.ok) return Result.error(updated.error);
-
-        const saved = await deps.sprintRepo.save(updated.value);
+        const saved = await deps.sprintRepo.update(input.sprintId, (fresh) => addTicket(fresh, ticket.value));
         if (!saved.ok) return Result.error(saved.error);
 
         if (input.createTrackerIssue !== true) {
           return Result.ok({ ticket: ticket.value });
         }
 
-        const published = await publishAfterSave(deps, updated.value, ticket.value);
+        const published = await publishAfterSave(deps, saved.value, ticket.value);
         return Result.ok(published);
       },
     },
@@ -102,7 +101,11 @@ const publishAfterSave = async (deps: TicketAddDeps, sprint: Sprint, ticket: Tic
     return { ticket, trackerError: published.error };
   }
 
-  const relinked = await deps.sprintRepo.save(published.value.sprint);
+  const link = createdLink(published.value, ticket.id);
+  const relinked =
+    link === undefined
+      ? Result.ok(undefined)
+      : await deps.sprintRepo.update(sprint.id, (fresh) => attachTicketLink(fresh, ticket.id, link));
   if (!relinked.ok) {
     return {
       ticket,

@@ -32,11 +32,12 @@ import { passthroughRunInTerminal } from '@src/application/ui/shared/run-in-term
 import { createRefineFlow } from '@src/application/flows/refine/flow.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import { emptySkillSource, noopSkillsAdapter } from '@tests/fixtures/skills-fakes.ts';
+import { withUpdate } from '@tests/fixtures/sprint-repo-update.ts';
 
 const inMemoryRepo = (initial?: Sprint): { repo: SprintRepository; saves: Sprint[] } => {
   let current: Sprint | undefined = initial;
   const saves: Sprint[] = [];
-  const repo = {
+  const repo = withUpdate({
     async findById(id: SprintId) {
       if (current && current.id === id) return Result.ok(current);
       return Result.error(new NotFoundError({ entity: 'sprint', id: String(id) }));
@@ -46,7 +47,7 @@ const inMemoryRepo = (initial?: Sprint): { repo: SprintRepository; saves: Sprint
       saves.push(sprint);
       return Result.ok(undefined);
     },
-  } as SprintRepository;
+  }) as unknown as SprintRepository;
   return { repo, saves };
 };
 
@@ -783,5 +784,35 @@ describe('createRefineFlow — interactive', () => {
     const onDisk = await readTicketsFromDisk(root, sprint.id);
     expect(onDisk[0]?.status).toBe('pending');
     expect(onDisk[0]?.requirements ?? '').toBe('');
+  });
+
+  it('filesystem-truth: a ticket another process adds mid-session survives the per-ticket save', async () => {
+    const { sprint, tickets } = draftWithPending(1);
+    const { repo, root } = await realFsRepo(sprint);
+    // A second writer standing in for `ralphctl ticket add` in another terminal.
+    const other = createFsSprintRepository({ root });
+    const fake = fakeInteractiveAi(async () => {
+      const fresh = await other.findById(sprint.id);
+      if (!fresh.ok) throw new Error(fresh.error.message);
+      const added = addTicket(fresh.value, makePendingTicket({ title: 'added-meanwhile' }));
+      if (!added.ok) throw new Error(added.error.message);
+      await other.save(added.value);
+      return '# refined';
+    });
+
+    const { runner } = await startRefine({
+      sprint,
+      tickets,
+      repo,
+      interactiveAi: fake.session,
+      runnerId: 'r-refine-concurrent-add',
+    });
+
+    expect(runner.status).toBe('completed');
+    const onDisk = await readTicketsFromDisk(root, sprint.id);
+    expect(onDisk.map((t) => [t.title, t.status])).toEqual([
+      ['ticket-1', 'approved'],
+      ['added-meanwhile', 'pending'],
+    ]);
   });
 });

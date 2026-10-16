@@ -29,6 +29,7 @@ import { createIdeateFlow } from '@src/application/flows/ideate/flow.ts';
 import type { IdeateCtx } from '@src/application/flows/ideate/ctx.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import { emptySkillSource, noopSkillsAdapter } from '@tests/fixtures/skills-fakes.ts';
+import { withUpdate } from '@tests/fixtures/sprint-repo-update.ts';
 
 /** Review gate: reject leaves the draft sprint unsaved-as-planned and no tasks written; accept plans it. */
 const FAKE_CWD = absolutePath('/tmp/ralph/fake-cwd');
@@ -36,7 +37,7 @@ const FAKE_CWD = absolutePath('/tmp/ralph/fake-cwd');
 const saved: Sprint[] = [];
 
 const inMemorySprintRepo = (initial: Sprint): SprintRepository =>
-  ({
+  withUpdate({
     async findById(id: SprintId) {
       if (initial.id === id) return Result.ok(initial);
       return Result.error(new NotFoundError({ entity: 'sprint', id: String(id) }));

@@ -37,10 +37,11 @@ import { passthroughRunInTerminal } from '@src/application/ui/shared/run-in-term
 import { createPlanFlow } from '@src/application/flows/plan/flow.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import { emptySkillSource, noopSkillsAdapter } from '@tests/fixtures/skills-fakes.ts';
+import { withUpdate } from '@tests/fixtures/sprint-repo-update.ts';
 
 const inMemorySprintRepo = (initial: Sprint): { repo: SprintRepository; current: () => Sprint } => {
   let current = initial;
-  const repo = {
+  const repo = withUpdate({
     async findById(id: SprintId) {
       if (current.id === id) return Result.ok(current);
       return Result.error(new NotFoundError({ entity: 'sprint', id: String(id) }));
@@ -49,7 +50,7 @@ const inMemorySprintRepo = (initial: Sprint): { repo: SprintRepository; current:
       current = sprint;
       return Result.ok(undefined);
     },
-  } as SprintRepository;
+  }) as unknown as SprintRepository;
   return { repo, current: () => current };
 };
 
@@ -156,6 +157,7 @@ const HAPPY_TRACE = [
   'uninstall-skills',
   'check-plan',
   'apply-plan',
+  'assert-tickets-unchanged',
   'save-tasks',
   'save-sprint',
 ] as const;
@@ -388,7 +390,14 @@ describe('createPlanFlow — interactive', () => {
     // so neither the critic nor the human gate ever runs on a plan that never parsed.
     expect(traceNames(runner)).toEqual([...HAPPY_TRACE]);
     expect(runner.trace.find((e) => e.elementName === 'call-planner-interactive')?.status).toBe('failed');
-    for (const name of ['uninstall-skills', 'check-plan', 'apply-plan', 'save-tasks', 'save-sprint']) {
+    for (const name of [
+      'uninstall-skills',
+      'check-plan',
+      'apply-plan',
+      'assert-tickets-unchanged',
+      'save-tasks',
+      'save-sprint',
+    ]) {
       expect(runner.trace.find((e) => e.elementName === name)?.status).toBe('skipped');
     }
     expect(sprintRepo.current().status).toBe('draft');
@@ -434,6 +443,49 @@ describe('createPlanFlow — interactive', () => {
     expect(runner.trace.find((e) => e.elementName === 'check-plan')?.status).toBe('skipped');
     expect(runner.trace.find((e) => e.elementName === 'apply-plan')?.status).toBe('skipped');
     expect(sprintRepo.current().status).toBe('draft');
+    expect(taskRepo.tasks()).toHaveLength(0);
+  });
+
+  it('refuses to plan when a ticket lands on the sprint during the session — nothing persisted', async () => {
+    const project = makeProject();
+    const { sprint, ticketIds } = draftWithApproved(1);
+    const sprintRepo = inMemorySprintRepo(sprint);
+    const taskRepo = inMemoryTaskRepo([]);
+    const fake = fakeInteractiveAi(() => {
+      // `ralphctl ticket add` in another terminal while the planner is open.
+      const added = addTicket(sprintRepo.current(), makePendingTicket({ title: 'added-meanwhile' }));
+      if (!added.ok) throw new Error(added.error.message);
+      void sprintRepo.repo.save(added.value);
+      return JSON.stringify([
+        {
+          id: 'T1',
+          name: 'Add CSV utility',
+          ticketRef: ticketIds[0],
+          projectPath: String(project.repositories[0]?.path),
+          steps: ['create util'],
+          verificationCriteria: [{ id: 'C1', assertion: 'util exported', check: 'manual' }],
+        },
+      ]);
+    });
+
+    const flow = createPlanFlow(buildDeps(sprintRepo.repo, project, sprint, taskRepo.repo, fake.session), {
+      sprintId: sprint.id,
+      projectId: project.id,
+      providerId: 'claude-code',
+      model: 'claude-opus-4-8',
+      maxAttempts: 3,
+      planRoot: planRoot(),
+    });
+    const runner = createRunner({
+      id: 'r-plan-concurrent-add',
+      element: flow,
+      initialCtx: { sprintId: sprint.id, projectId: project.id },
+    });
+    await runner.start();
+
+    expect(runner.status).toBe('failed');
+    expect(sprintRepo.current().status).toBe('draft');
+    expect(sprintRepo.current().tickets.map((t) => t.title)).toContain('added-meanwhile');
     expect(taskRepo.tasks()).toHaveLength(0);
   });
 });

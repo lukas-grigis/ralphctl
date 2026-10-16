@@ -140,10 +140,10 @@ itself stores no repo list; AI generates `tasks.json` atomically and the sprint 
 does before anything is saved: `check-plan` (shared leaf, advisory findings) then a harness-owned
 `review-ideate` gate that shows the requirements body, then the findings and task list (built by the same
 `buildPlanReviewMessage` plan uses). Reject or cancel restores the pre-ideate sprint and tasks and sets
-`ctx.ideateRejected`; `transition-to-planned` then skips, so the saves write back the unchanged draft
-(no ticket or tasks land). With no reviewer wired (tests, headless) the gate auto-accepts. Full chain:
-`… ideate-and-plan → uninstall-skills → check-plan → review-ideate → transition-to-planned → save-tasks →
-save-sprint` (fenced by `tests/unit/application/flows/ideate/flow-shape.test.ts`).
+`ctx.ideateRejected`; `transition-to-planned` then skips, so no ticket or tasks land and `sprint.json` is
+not written. With no reviewer wired (tests, headless) the gate auto-accepts. Full chain:
+`… ideate-and-plan → uninstall-skills → check-plan → review-ideate → transition-to-planned →
+assert-tickets-unchanged → save-tasks → save-sprint` (fenced by `tests/unit/application/flows/ideate/flow-shape.test.ts`).
 
 **Plan's approval gate is split from the AI hand-off.** `call-planner-interactive` stops at the proposal
 (`ctx.proposedTasks`) — it no longer runs the `draft → planned` transition itself. A zero-token,
@@ -156,8 +156,17 @@ prompt for the operator to read before deciding. `apply-plan` then owns the HITL
 gate (now takes the findings as a third argument) and the `draft → planned` transition. Both new leaves sit
 AFTER `uninstall-skills`, so the skills sandbox is torn down before a potentially long human pause at the
 gate. Full chain: `… render-prompt-to-file → install-skills → stamp-meta-plan → call-planner-interactive →
-uninstall-skills → check-plan → apply-plan → save-tasks → save-sprint` (fenced by
+uninstall-skills → check-plan → apply-plan → assert-tickets-unchanged → save-tasks → save-sprint` (fenced by
 `tests/unit/application/flows/plan/flow-shape.test.ts`).
+
+**Long sessions never write a stale sprint.** Plan, ideate and refine hold the sprint they loaded across an
+interactive AI session, while `ticket add` / `remove` / `publish` may edit `sprint.json` from another terminal.
+So their writes go through the sprint repository's locked `update(id, mutate)` (`<locksRoot>/sprint-<id>.lock`),
+which hands `mutate` the sprint as it is on disk now. Refine applies each approved ticket onto that fresh copy,
+and fails for a ticket that was removed or edited meanwhile. Plan and ideate compare the fresh tickets with the
+ones the session planned against, both before `save-tasks` (`assert-tickets-unchanged`) and under the lock in
+`save-sprint`. Any difference fails the run with a `ConflictError` and nothing is planned. The ticket flows use
+the same `update`, so every ticket writer serialises on one lock.
 
 **Task-sizing heuristics for ralphctl work** (when breaking a change into tasks):
 

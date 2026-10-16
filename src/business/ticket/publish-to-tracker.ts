@@ -120,6 +120,10 @@ const publishExistingLink = async (
   return Result.ok({ sprint: props.sprint, outcome: 'commented' });
 };
 
+/** The link a just-created issue needs persisted onto the ticket; `undefined` when the sprint is unchanged. */
+export const createdLink = (output: PublishTicketToTrackerOutput, ticketId: TicketId): string | undefined =>
+  output.outcome === 'created' ? output.sprint.tickets.find((t) => t.id === ticketId)?.link : undefined;
+
 /**
  * Map a failed save of the publish result. When the issue was just created, the tracker
  * already holds it but the sprint does not — return an error that carries the URL so the
@@ -131,8 +135,7 @@ export const publishSaveFailedError = (
   ticketId: TicketId,
   saveError: DomainError
 ): DomainError => {
-  if (output.outcome !== 'created') return saveError;
-  const url = output.sprint.tickets.find((t) => t.id === ticketId)?.link;
+  const url = createdLink(output, ticketId);
   if (url === undefined) return saveError;
   return new StorageError({
     subCode: 'io',

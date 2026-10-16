@@ -46,6 +46,7 @@ describe('createIdeateFlow — chain-shape fence', () => {
       'check-plan',
       'review-ideate',
       'transition-to-planned',
+      'assert-tickets-unchanged',
       'save-tasks',
       'save-sprint',
     ]);

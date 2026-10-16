@@ -43,6 +43,7 @@ describe('createPlanFlow — chain-shape fence', () => {
       'uninstall-skills',
       'check-plan',
       'apply-plan',
+      'assert-tickets-unchanged',
       'save-tasks',
       'save-sprint',
     ]);

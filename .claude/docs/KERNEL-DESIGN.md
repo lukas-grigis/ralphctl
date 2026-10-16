@@ -326,7 +326,7 @@ sequential('refine', [
         stampSessionMetaLeaf,
         refineTicketInteractiveLeaf, // reads <unit-root>/signals.json (refine contract), updates ticket
         uninstallSkillsLeaf({ name: `uninstall-skills-${t.id}` }),
-        saveSprintLeaf,
+        saveRefinedTicketLeaf, // locked update: approved ticket onto the sprint as it is on disk now
       ])
     )
   ),

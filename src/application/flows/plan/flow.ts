@@ -7,7 +7,11 @@ import { loadAndAssertSprintSubChain } from '@src/application/flows/_shared/spri
 import { loadProjectLeaf } from '@src/application/flows/_shared/project/load.ts';
 import { loadSprintExecutionLeaf } from '@src/application/flows/_shared/sprint/load-execution.ts';
 import { loadTasksLeaf } from '@src/application/flows/_shared/task/load.ts';
-import { saveSprintLeaf } from '@src/application/flows/_shared/sprint/save.ts';
+import {
+  assertTicketsUnchangedLeaf,
+  savePlannedSprintLeaf,
+  type TicketBasis,
+} from '@src/application/flows/_shared/sprint/commit-planned.ts';
 import { saveTasksLeaf } from '@src/application/flows/_shared/task/save.ts';
 import { buildPlanPrompt } from '@src/integration/ai/prompts/plan/definition.ts';
 import { readCappedSprintProgress } from '@src/application/flows/_shared/progress/read-sprint-progress.ts';
@@ -58,6 +62,9 @@ export interface CreatePlanFlowOpts {
    */
   readonly memoryRoot?: AbsolutePath;
 }
+
+/** The tickets the planning session saw; a change to them by another writer fails the commit. */
+const ticketBasis: TicketBasis<PlanCtx> = (ctx) => ctx.sprint?.tickets ?? [];
 
 /**
  * Build the plan chain. Plan is **always interactive** — the user is in the loop for
@@ -159,7 +166,8 @@ export const createPlanFlow = (deps: PlanDeps, opts: CreatePlanFlowOpts): Elemen
       clock: deps.clock,
       ...(deps.reviewBeforeApprove !== undefined ? { reviewBeforeApprove: deps.reviewBeforeApprove } : {}),
     }),
+    assertTicketsUnchangedLeaf<PlanCtx>({ sprintRepo: deps.sprintRepo }, ticketBasis),
     saveTasksLeaf<PlanCtx>({ taskRepo: deps.taskRepo }),
-    saveSprintLeaf<PlanCtx>({ sprintRepo: deps.sprintRepo }),
+    savePlannedSprintLeaf<PlanCtx>({ sprintRepo: deps.sprintRepo, clock: deps.clock }, ticketBasis),
   ]);
 };

@@ -382,6 +382,9 @@ A use case declares `Deps = { sprints: FindById<SprintId, Sprint> & Save<Sprint>
 the composite `SprintRepository` (which already satisfies both sub-interfaces) as that prop. ESLint blocks
 business code from importing composite `*Repository` types.
 
+Aggregate-specific capabilities sit beside their composite: `task/update-task.ts` and `sprint/update-sprint.ts`
+(`update(id, mutate)`, a read-modify-write locked per sprint, for writers that hold a sprint across a long session).
+
 Sibling-isolation: each aggregate's repository folder (`sprint/`, `task/`, `project/`, `settings/`) is independent;
 shared abstractions live under `_base/`.
 

@@ -28,12 +28,13 @@ import { passthroughRunInTerminal } from '@src/application/ui/shared/run-in-term
 import { createIdeateFlow } from '@src/application/flows/ideate/flow.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import { emptySkillSource, noopSkillsAdapter } from '@tests/fixtures/skills-fakes.ts';
+import { withUpdate } from '@tests/fixtures/sprint-repo-update.ts';
 
 const FAKE_CWD = absolutePath('/tmp/ralph/fake-cwd');
 
 const inMemorySprintRepo = (initial: Sprint): { repo: SprintRepository; current: () => Sprint } => {
   let current = initial;
-  const repo = {
+  const repo = withUpdate({
     async findById(id: SprintId) {
       if (current.id === id) return Result.ok(current);
       return Result.error(new NotFoundError({ entity: 'sprint', id: String(id) }));
@@ -42,7 +43,7 @@ const inMemorySprintRepo = (initial: Sprint): { repo: SprintRepository; current:
       current = sprint;
       return Result.ok(undefined);
     },
-  } as SprintRepository;
+  }) as unknown as SprintRepository;
   return { repo, current: () => current };
 };
 
@@ -227,6 +228,7 @@ describe('createIdeateFlow', () => {
       'check-plan',
       'review-ideate',
       'transition-to-planned',
+      'assert-tickets-unchanged',
       'save-tasks',
       'save-sprint',
     ]);

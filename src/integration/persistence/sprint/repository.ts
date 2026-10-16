@@ -5,7 +5,9 @@ import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { Slug } from '@src/domain/value/slug.ts';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { SprintRepository } from '@src/domain/repository/sprint/sprint-repository.ts';
-import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
+import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
+import type { DomainError } from '@src/domain/value/error/domain-error.ts';
+import type { FileLocker } from '@src/integration/io/file-locker.ts';
 import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
 import { type StorageError } from '@src/domain/value/error/storage-error.ts';
 import { fromJsonSprint, toJsonSprint } from '@src/integration/persistence/sprint/sprint.schema.ts';
@@ -30,6 +32,10 @@ import { decodeDeduped, readEntity } from '@src/integration/persistence/shared/r
 export interface FsSprintRepositoryDeps {
   /** Root of the on-disk layout. Per the path resolver, sprints land under `<root>/sprints/`. */
   readonly root: AbsolutePath;
+  /** Serialises `update()`. Absent runs it unlocked — fine for tests and single-writer callers. */
+  readonly fileLocker?: FileLocker;
+  /** Where `update()`'s per-sprint lock lives — outside the sprint dir, which a slug rename moves. */
+  readonly locksRoot?: AbsolutePath;
 }
 
 /**
@@ -131,11 +137,36 @@ const listSprints = async (root: AbsolutePath): Promise<Result<readonly Sprint[]
 export const createFsSprintRepository = (deps: FsSprintRepositoryDeps): SprintRepository => {
   const list = (): Promise<Result<readonly Sprint[], StorageError>> => listSprints(deps.root);
 
+  const findById: SprintRepository['findById'] = async (id) => {
+    const dir = await resolveSprintDir(deps.root, id);
+    return readEntity(dir === undefined ? undefined : join(dir, 'sprint.json'), fromJsonSprint, 'sprint', String(id));
+  };
+
+  const save: SprintRepository['save'] = async (sprint) => {
+    // Reconcile first so a legacy dir's execution.json + tasks.json end up beside the new sprint.json.
+    await ensureCanonicalSprintDir(deps.root, sprint.id, sprint.slug);
+    return writeJsonAtomic(sprintFile(deps.root, sprint.id, sprint.slug), toJsonSprint(sprint));
+  };
+
+  const update: SprintRepository['update'] = async (id, mutate) => {
+    const readModifyWrite = async (): Promise<Result<Sprint, DomainError>> => {
+      const fresh = await findById(id);
+      if (!fresh.ok) return Result.error(fresh.error);
+      const next = mutate(fresh.value);
+      if (!next.ok) return Result.error(next.error);
+      if (next.value === fresh.value) return Result.ok(fresh.value);
+      const saved = await save(next.value);
+      return saved.ok ? Result.ok(next.value) : Result.error(saved.error);
+    };
+    if (deps.fileLocker === undefined || deps.locksRoot === undefined) return readModifyWrite();
+    const lockPath = AbsolutePath.parse(join(String(deps.locksRoot), `sprint-${String(id)}.lock`));
+    if (!lockPath.ok) return readModifyWrite();
+    const locked = await deps.fileLocker.withLock(lockPath.value, readModifyWrite, { purpose: 'sprint update' });
+    return locked.ok ? locked.value : Result.error(locked.error);
+  };
+
   return {
-    async findById(id) {
-      const dir = await resolveSprintDir(deps.root, id);
-      return readEntity(dir === undefined ? undefined : join(dir, 'sprint.json'), fromJsonSprint, 'sprint', String(id));
-    },
+    findById,
 
     async findBySlug(slug, projectId: ProjectId) {
       const all = await list();
@@ -154,12 +185,8 @@ export const createFsSprintRepository = (deps: FsSprintRepositoryDeps): SprintRe
     },
 
     list,
-
-    async save(sprint) {
-      // Reconcile first so a legacy dir's execution.json + tasks.json end up beside the new sprint.json.
-      await ensureCanonicalSprintDir(deps.root, sprint.id, sprint.slug);
-      return writeJsonAtomic(sprintFile(deps.root, sprint.id, sprint.slug), toJsonSprint(sprint));
-    },
+    save,
+    update,
 
     async remove(id) {
       const dir = await resolveSprintDir(deps.root, id);
