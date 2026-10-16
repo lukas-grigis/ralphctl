@@ -7,7 +7,9 @@ license: MIT
 # Code Review and Quality
 
 > Concept from [addyosmani/agent-skills — "Code Review and Quality"](https://github.com/addyosmani/agent-skills),
-> MIT License. Adapted for ralphctl's evaluator role and review flow.
+> MIT License. Adapted for ralphctl's evaluator role and review flow. The smell baseline draws on
+> [mattpocock/skills](https://github.com/mattpocock/skills) and the concrete-case and expected-load rules on
+> [DietrichGebert/ponytail](https://github.com/DietrichGebert/ponytail) (both MIT).
 
 One-shot generation looks fast and is slow. Catching a correctness, architecture, or security problem at the
 seam between two changes is cheap; catching it at the end of a 200-line diff — or after the post-task gate
@@ -105,6 +107,11 @@ Does the change introduce performance problems?
 - Any missing pagination on list endpoints?
 - Any large objects created in hot paths?
 
+Judge scale against the expected load, found in the repository (README, deploy configuration): a script one
+person runs is not a service under concurrent traffic. Check-then-write races, work every process repeats,
+collections that only grow, and per-process state that must be shared are findings at the load that
+triggers them — say which load you assumed.
+
 ## Structural Remedies
 
 When you flag a structural problem, propose the move — not just the problem. A finding that only says "this
@@ -120,6 +127,26 @@ is complex" leaves the generator or author guessing. Reach for a named restructu
 - **Extract a helper, or split a large file** into focused modules.
 
 Prefer the remedy that removes moving pieces over one that spreads the same complexity around.
+
+## Smell Baseline
+
+On top of whatever the project documents, a fixed set of code smells (Fowler, _Refactoring_) applies even
+where a repository documents nothing. Each is a labelled judgement call ("possible Feature Envy") at Minor or
+Nit, never a hard violation. A documented project standard that endorses the pattern overrides the smell, and
+anything tooling already enforces is skipped.
+
+- **Mysterious Name** — the name does not say what it does or holds → rename; no honest name means murky design.
+- **Duplicated Code** — the same logic shape in several hunks or files → extract it once.
+- **Feature Envy** — a function that works on another module's data more than its own → move it there.
+- **Data Clumps** — the same few values always travel together → give them one type.
+- **Primitive Obsession** — a string or number standing in for a domain concept → give the concept a type.
+- **Repeated Switches** — the same branching on the same type in several places → one dispatch both share.
+- **Shotgun Surgery** — one logical change forces scattered edits → gather what changes together.
+- **Divergent Change** — one module edited for several unrelated reasons → split by reason.
+- **Speculative Generality** — hooks, parameters, or abstractions for needs nobody has → delete them.
+- **Message Chains** — callers walking a long chain of navigation → hide the walk behind one call.
+- **Middle Man** — a layer that mostly delegates → call the real target directly.
+- **Refused Bequest** — an implementer ignoring most of what it inherits → compose instead of inheriting.
 
 ## Severity Vocabulary
 
@@ -281,6 +308,9 @@ Prefer the standard library and existing utilities over new dependencies. Every 
 Whether reviewing code you wrote, code a generator produced, or a human's change:
 
 - Do not rubber-stamp. "Looks fine" without evidence of review helps no one.
+- Back every correctness, security, or scale finding with a concrete case — this input or situation leads to
+  this wrong result — and re-read the lines to confirm it: the caller exists, the value can really be empty,
+  the code really is unused. No case, no finding. Structural findings follow the presumptive rules above.
 - Do not soften real issues. "This might be a minor concern" when it is a bug that will hit production is
   misleading.
 - Quantify problems when possible. "This N+1 query will add ~50 ms per item in the list" is better than

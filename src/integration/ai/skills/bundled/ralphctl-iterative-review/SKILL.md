@@ -8,7 +8,8 @@ description: Cross-phase skill — treat AI output as a controlled feedback loop
 > Concept
 >
 > from [SPDD (Zhang & Xia, martinfowler.com) — "Iterative Review"](https://martinfowler.com/articles/structured-prompt-driven/iterative-review.html).
-> Adapted for ralphctl's three phases.
+> Adapted for ralphctl's three phases. Risk-first slicing draws on
+> [addyosmani/agent-skills — "Incremental Implementation"](https://github.com/addyosmani/agent-skills) (MIT).
 
 One-shot generation looks fast and is slow. The cheap review you skipped at iteration N becomes the expensive
 unwind at iteration N+5, when a regression that lived undetected through five steps surfaces only at the
@@ -32,11 +33,15 @@ deployed form — but the same posture also belongs **inside** each phase's work
 
 1. **Run the cheapest check first, often.** Lint, typecheck, narrow test runs — not the full suite — after
    each meaningful change. The point is to catch the regression at the seam, not to certify completion.
-2. **Re-read your own output once before submitting.** Whether it is criteria, tasks, or a diff, the second
+2. **Slice risk-first, and stay buildable between slices.** When the work has several parts, take the
+   least certain one first — the unproven integration, the unfamiliar API — so a dead end surfaces before
+   anything is built on it; a plan orders its tasks the same way. After each slice the project still
+   builds and its existing checks still pass, so the next slice never starts on a broken tree.
+3. **Re-read your own output once before submitting.** Whether it is criteria, tasks, or a diff, the second
    read catches what the first one missed. Cheap.
-3. **Treat the check gate as a loop, not a finish line.** A failing gate is feedback, not a verdict. Apply
+4. **Treat the check gate as a loop, not a finish line.** A failing gate is feedback, not a verdict. Apply
    the fix and re-run; do not signal completion against a red gate.
-4. **When a fix attempt repeats the same failure, escalate rather than retry.** Two iterations of the same
+5. **When a fix attempt repeats the same failure, escalate rather than retry.** Two iterations of the same
    error is a plateau — the next fix is a guess. Surface the blocker rather than burning the budget on a
    third attempt: write a `note` signal in `signals.json` when the prompt's output-contract section lists
    it as an accepted kind; when it does not, use whichever blocked or narrative signal the contract does

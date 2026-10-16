@@ -17,6 +17,8 @@ worth building — through structured divergent and convergent thinking, not a t
 - **Ideate** — the primary home: turning a raw prompt or hunch into evaluated, distinct directions.
 - **Refine** — when the input requirement is really an unshaped idea: run a compressed version of the phases below before writing acceptance criteria.
 
+**Not for:** a direction that is already chosen and now needs sharp requirements — that is ralphctl-spec-driven-development when installed.
+
 ## Philosophy
 
 - Simplicity is the ultimate sophistication. Push toward the simplest version that still solves the real problem.

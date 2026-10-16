@@ -7,7 +7,8 @@ license: MIT
 # Test-Driven Development
 
 > Concept from [Addy Osmani — "Test-Driven Development"](https://github.com/addyosmani/agent-skills)
-> (agent-skills, MIT). Adapted for ralphctl's execute phase.
+> (agent-skills, MIT), with the tautological-assertion anti-pattern drawn from
+> [mattpocock/skills](https://github.com/mattpocock/skills) (MIT). Adapted for ralphctl's execute phase.
 
 Write a failing test before writing the code that makes it pass. For bug fixes, reproduce the bug with a
 test before attempting a fix. Tests are proof — "seems right" is not done. A codebase with good tests is an
@@ -320,6 +321,7 @@ describe('TaskService', () => {
 | Anti-Pattern                          | Problem                                                     | Fix                                                                                                                         |
 | ------------------------------------- | ----------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
 | Testing implementation details        | Tests break when refactoring even if behaviour is unchanged | Test inputs and outputs, not internal structure                                                                             |
+| Tautological assertions               | Recomputes the expected value the way the code does         | Expected values come from an independent source — a literal, a worked example, the spec — never the code's own formula      |
 | Flaky tests (timing, order-dependent) | Erode trust in the test suite                               | Use deterministic assertions, isolate test state                                                                            |
 | Testing framework code                | Wastes time testing third-party behaviour                   | Only test YOUR code                                                                                                         |
 | Snapshot abuse                        | Large snapshots nobody reviews, break on any change         | Use snapshots sparingly and review every change                                                                             |
@@ -343,6 +345,8 @@ describe('TaskService', () => {
 - Writing code without any corresponding tests
 - Reaching for a default test command without checking what this repository actually uses
 - Tests that pass on the first run (they may not be testing what you think)
+- An expected value computed with the code's own formula (`add(a, b)` checked against `a + b`) — it passes by
+  construction
 - "All tests pass" but no tests were actually run
 - Bug fixes without a reproduction test
 - Tests that verify framework behaviour instead of application behaviour
