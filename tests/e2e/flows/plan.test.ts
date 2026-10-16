@@ -514,12 +514,14 @@ describe('createPlanFlow — interactive', () => {
     });
     await runner.start();
 
-    // A planned sprint with zero tasks is a dead end: nothing re-plans a non-draft sprint.
+    // A planned sprint with zero tasks is a dead end (nothing re-plans a non-draft sprint), so the
+    // empty list is refused where it is parsed — before the critic and the approval gate.
     expect(runner.status).toBe('failed');
     expect(traceNames(runner)).toEqual([...HAPPY_TRACE]);
-    expect(runner.trace.find((e) => e.elementName === 'apply-plan')?.status).toBe('failed');
-    expect(runner.trace.find((e) => e.elementName === 'save-tasks')?.status).toBe('skipped');
-    expect(runner.trace.find((e) => e.elementName === 'save-sprint')?.status).toBe('skipped');
+    expect(runner.trace.find((e) => e.elementName === 'call-planner-interactive')?.status).toBe('failed');
+    for (const name of ['check-plan', 'apply-plan', 'save-tasks', 'save-sprint']) {
+      expect(runner.trace.find((e) => e.elementName === name)?.status).toBe('skipped');
+    }
     expect(sprintRepo.current().status).toBe('draft');
     expect(taskRepo.tasks()).toEqual([existing]);
   });

@@ -210,12 +210,14 @@ describe('parseTaskList — dependency-wave schedule', () => {
     expect(logger.calls).toHaveLength(1);
   });
 
-  it('empty input → no-op, no log', () => {
+  it('empty input → schema-mismatch, no log', () => {
     const logger = fakeLogger();
     const out = parseTaskList([], { project, mode: { kind: 'fixed', ticketId }, logger });
-    expect(out.ok).toBe(true);
-    if (!out.ok) return;
-    expect(out.value).toHaveLength(0);
+    expect(out.ok).toBe(false);
+    if (!out.ok) {
+      expect(out.error).toMatchObject({ subCode: 'schema-mismatch' });
+      expect(out.error.message).toContain('tasks missing or empty');
+    }
     expect(logger.calls).toHaveLength(0);
   });
 

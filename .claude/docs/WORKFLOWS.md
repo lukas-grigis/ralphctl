@@ -153,8 +153,11 @@ proposal that catches task-graph faults, an unknown repository, missing verifica
 that repeats the repository's post-task verify gate (`verify-gate-criterion` — exact match after whitespace
 normalisation, so a scoped `pnpm test:unit` never trips a `pnpm test` gate), tiered `error` / `warning`. Findings are advisory — they never fail the chain, and are rendered above the "Approve plan?"
 prompt for the operator to read before deciding. `apply-plan` then owns the HITL `reviewBeforeApprove`
-gate (now takes the findings as a third argument) and the `draft → planned` transition. An empty proposal
-fails `apply-plan` before the gate, so the sprint stays `draft` and re-plannable. Both new leaves sit
+gate (now takes the findings as a third argument) and the `draft → planned` transition. An empty task list
+fails `call-planner-interactive` (the task-import schema requires at least one task; a planner that cannot
+plan emits `{ "blocked": … }`), and `apply-plan` rejects an empty proposal before the gate as a backstop, so
+the sprint stays `draft` and re-plannable. There is no corrective retry on the interactive plan and ideate
+sessions; the operator re-runs the flow. Both new leaves sit
 AFTER `uninstall-skills`, so the skills sandbox is torn down before a potentially long human pause at the
 gate. Full chain: `… render-prompt-to-file → install-skills → stamp-meta-plan → call-planner-interactive →
 uninstall-skills → check-plan → apply-plan → assert-tickets-unchanged → save-tasks → save-sprint` (fenced by

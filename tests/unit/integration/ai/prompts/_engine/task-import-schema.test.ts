@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+  TASK_IMPORT_JSON_SCHEMA,
+  TaskImportListSchema,
   TaskImportSpecSchema,
   VerificationCriterionImportSchema,
 } from '@src/integration/ai/prompts/_engine/task-import-schema.ts';
@@ -96,5 +98,23 @@ describe('TaskImportSpecSchema', () => {
       verificationCriteria: [{ id: 'C1', assertion: 'X', check: 'auto' }],
     });
     expect(r.success).toBe(false);
+  });
+});
+
+describe('TaskImportListSchema', () => {
+  const spec = { ...baseSpec, verificationCriteria: [{ id: 'C1', assertion: 'X', check: 'manual' }] };
+
+  it('accepts a one-task list', () => {
+    expect(TaskImportListSchema.safeParse([spec]).success).toBe(true);
+  });
+
+  it('rejects an empty list so the planner has to emit the blocked object instead', () => {
+    const r = TaskImportListSchema.safeParse([]);
+    expect(r.success).toBe(false);
+    if (!r.success) expect(r.error.issues[0]?.message).toBe('tasks missing or empty');
+  });
+
+  it('tells the AI at least one task is required via the JSON Schema it is shown', () => {
+    expect(JSON.parse(TASK_IMPORT_JSON_SCHEMA)).toMatchObject({ type: 'array', minItems: 1 });
   });
 });
