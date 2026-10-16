@@ -8,6 +8,7 @@ const ALIASES = {
 
 export default defineConfig({
   test: {
+    globalSetup: ['./tests/global-setup.ts'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'html', 'json-summary', 'lcov'],
