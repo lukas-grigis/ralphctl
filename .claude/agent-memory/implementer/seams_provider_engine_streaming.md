@@ -26,6 +26,11 @@ cold-started instead of resuming the interrupted session.
   It drops `resume` for ONE cold respawn (latched) and re-runs the SAME attempt index, so it does NOT
   consume a rate-limit slot. Each adapter passes its own regex; codex keeps
   `/no rollout found|thread\/resume failed|code -32600/i`.
+- **A cold fallback that fires every time hides a dead resume path.** Codex passed `--ephemeral`
+  (writes no rollout), so every `exec resume` failed stale and the fallback quietly made codex cold
+  forever. Verified live (codex-cli 0.162.0): `exec resume` also does NOT restore the original
+  sandbox — it runs read-only, so signals.json can't land — unless re-declared via
+  `-c sandbox_mode=…` + `-c sandbox_workspace_write.writable_roots=[…]`. Re-check both on a codex bump.
 - **Rate-limit detection scans stderr PLUS a per-adapter `stdoutTail`** fed to `classifySpawnExit` —
   providers report quota on stdout, not stderr. The regexes are broader than bare `/rate.?limit/i`
   (claude adds `usage limit reached|5-hour limit|overloaded_error|429`; others add `quota|429`).

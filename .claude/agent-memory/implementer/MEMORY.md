@@ -9,7 +9,7 @@
 - [seams_memory_ledger_and_mutex.md](seams_memory_ledger_and_mutex.md) — Raw-line preservation, dedup asymmetry, shared-file + git stash/worktree mutexes, journal pinning, RMW-race + load-flake repro
 - [seams_implement_prologue_gates.md](seams_implement_prologue_gates.md) — Dirty-tree menu + post-setup check; e2e porcelain counters; restore after pre-verify; bugfix relaunch; worktree discard + resume gate; stale-ref rescue
 - [seams_verify_gates.md](seams_verify_gates.md) — Per-module verify gates: precedence, multi-gate representation, diff-footprint scoping + coverage flag, fresh-setup skip, detect-scripts emission, confirm-on-red re-run
-- [seams_provider_engine_streaming.md](seams_provider_engine_streaming.md) — One shared rate-limit retry loop, empirical stream field names, stdout OOM caps, kill escalation
+- [seams_provider_engine_streaming.md](seams_provider_engine_streaming.md) — One shared rate-limit retry loop, codex resume/sandbox trap, stream field names, stdout OOM caps, kill escalation
 - [seams_provider_conformance_and_demo.md](seams_provider_conformance_and_demo.md) — The src-side scripted-spawn builder shared by conformance suites, `demo --script` and the README recorder (pacing, VHS traps); buildEnv / effortForwarding contracts
 - [seams_chain_runner_core.md](seams_chain_runner_core.md) — createRunner containment, aborted-with-error, listener-leak seams, onStart, display-only grouping vs nesting
 - [seams_parallel_runner_architecture.md](seams_parallel_runner_architecture.md) — runWaves above the chain, nested-runner adapter, rootSessionId, ALS fence, bus rules, done-held-until-fold + adopt predicates
@@ -17,6 +17,7 @@
 - [seams_tui_test_gotchas.md](seams_tui_test_gotchas.md) — Test setups that pass for the wrong reason (batched stdin, 100x24 stub, spinner flap, vacuous scroll); known resize-listener warning noise
 - [seams_model_catalog_refresh.md](seams_model_catalog_refresh.md) — Catalog-refresh checklist: fingerprint gate, remap tests, CLI-vs-API effort default, eval/TUI tests pinning preset ids and catalog order, Copilot gating, settings.ts lint hazard
 - [seams_process_lifecycle.md](seams_process_lifecycle.md) — Group-kill only marked leaders, exit+drain settle, lock owner file, reaper test shape, pid-0 fakes, crash-resume lookup
+- [seams_process_lifecycle.md](seams_process_lifecycle.md) — Group-kill only marked leaders, exit-time reap bounds 'close', skill-marker boot id, lock owner file, reaper tests, crash resume
 - [seams_eval_harness.md](seams_eval_harness.md) — Prompt-eval harness: budget under-counts (no cache tokens), private-constant duplicates, fixture tooling exclusions, protectedPaths granularity
 
 ## Standalone

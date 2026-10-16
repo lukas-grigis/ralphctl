@@ -19,10 +19,21 @@ process the user owns. Unit tests that want the group path must `vi.spyOn(proces
 
 ## Why group kill also fixes an abort hang
 
-Claude resolves on `'close'`, which waits for EVERY holder of the stdout pipe. A tool subprocess the
-CLI forked inherits that pipe, so a single-pid SIGTERM left the attempt hanging until the grandchild
-exited. The watchdog's `stop()` deliberately lets a pending group SIGKILL land (unref'd) after the
-leader exits; only a lone child's escalation is cancelled (pid-reuse guard).
+Every headless spawn settles on `'close'` (settling on `'exit'` dropped final records under load on
+Linux), which waits for EVERY holder of the stdout pipe. A tool subprocess the CLI forked inherits
+that pipe, so a single-pid SIGTERM left the attempt hanging until the grandchild exited. The
+watchdog's `stop()` deliberately lets a pending group SIGKILL land (unref'd) after the leader exits;
+only a lone child's escalation is cancelled (pid-reuse guard).
+
+**The `'exit'`-time group reap in `runHeadlessSpawn` is what keeps `'close'` bounded on a clean exit.**
+Don't "fix" a close-hang by settling on `'exit'` again; the watchdog alone can't bound it, because a
+backgrounded job that keeps writing to the inherited stdout resets the idle timer forever.
+
+## Skill install marker: own pid uses a boot id, not `ps`
+
+`classifySkillFolder` checks a marker naming `process.pid` against a per-process random boot id
+rather than `ps` identity: slim containers have no `ps` and give ralphctl the same pid every start,
+so an identity-only check left crash leftovers "live" forever there. Other pids use `processGone`.
 
 ## git / shell runners settle on exit + drain, not on close or timer
 
