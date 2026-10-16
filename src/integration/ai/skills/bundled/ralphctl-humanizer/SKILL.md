@@ -1,6 +1,6 @@
 ---
 name: ralphctl-humanizer
-description: Edit prose so it reads like a specific person wrote it, without changing what it says — remove staged contrasts, restating closers, run-up openers, reflexive lists of three, dash-chained clauses, inflated significance, promotional and stock model vocabulary, decorative bold and headings, and chat leftovers, while keeping every fact and the format the output contract requires. Use when writing or revising human-facing text such as a PR description, requirements prose, or a summary.
+description: Edit prose so it reads like a specific person wrote it while keeping its meaning intact — remove staged contrasts, restating closers, run-up openers, reflexive lists of three, dash-chained clauses, inflated significance, promotional and stock model vocabulary, decorative bold and headings, and chat leftovers, while keeping every fact and the format the output contract requires. Use when writing or revising human-facing text such as a PR description, requirements prose, or a summary.
 license: MIT
 ---
 
@@ -20,8 +20,8 @@ the content.
   draft, no list of patterns found, no commentary about the edit.
 - The prompt's output contract wins: keep its required headings, sections, field formats, and literal
   values. Leave code, commands, paths, identifiers, and link targets exactly as they are.
-- Add nothing. No fact, name, number, date, or claim that is not in your source material. When a sentence
-  needs a detail you lack, write a simpler sentence.
+- Add nothing. No fact, name, number, date, or claim that is not in your source material. If a sentence
+  only works with a detail you don't have, simplify the sentence instead.
 
 ## When this applies
 
@@ -31,10 +31,11 @@ the content.
 
 ## Method
 
-1. **Find the tells.** Read the whole text and mark every pattern below, at sentence and paragraph scale —
-   a contrast split over two sentences, or the same closer after every section, is the same tell bigger.
-2. **Rewrite each point plainly.** State it directly; rebuild an awkward paragraph around its main point
-   rather than patching phrases. Let sentence length vary.
+1. **Spot the patterns.** Go through the full draft and mark each pattern listed below. They also show up
+   across sentences and paragraphs: a contrast spread over two sentences counts, and so does every section
+   ending on an identical wrap-up line.
+2. **Rewrite each point plainly.** State it directly. When a paragraph is awkward, restructure it from its
+   central point instead of patching phrases. Let sentence length vary.
 3. **Check the result.** Nothing added, nothing lost. Then look once more for the tells that survive a
    rewrite most often: contrasts, closers, threes, dashes, and bold labels.
 
@@ -44,12 +45,12 @@ the content.
 
 1. **Contrast with a claim nobody made.** "This isn't just X — it's Y", "rather than X", a "No, it's
    not…" sentence followed by the real point, a trailing "— no X needed". The negative half inflates the
-   positive one. Keep a contrast only when it corrects something the reader actually believes, or when
-   both halves carry information.
+   positive one. A contrast earns its place if it fixes a misconception your reader really has, or if each
+   side tells them something.
 2. **Closers that restate.** A last short line repeating the paragraph ("That's the whole point."), a
    string of fragments for drama, emphasis by capitals or dotted words. Cut it unless it adds a fact.
-3. **Borrowed depth.** "At its heart", "the real question is", "X is the currency of Y". Replace the
-   saying with the specific claim.
+3. **Borrowed depth.** "At its heart", "the real question is", "X is the currency of Y". Drop the
+   aphorism and state the concrete point.
 4. **Run-ups.** Announcing what comes next ("Here's the thing", "Let's walk through it", "Quick note").
    Start with the content.
 5. **Answering no one.** "To be clear", "This doesn't mean", "You might think". Remove the defence unless
@@ -59,10 +60,11 @@ the content.
 
 6. **Reflexive threes.** Three items because three sounds complete. Keep three only when there are three
    distinct things.
-7. **Repeated openings.** Several sentences in a row starting the same way. Merge them or vary the
-   subject.
-8. **Dashes as default glue.** Prefer a period, comma, colon, or parentheses; keep a dash only where
-   nothing else fits. Dashes inside code, commands, paths, and URLs stay.
+7. **Repeated openings.** Consecutive sentences that open with the same word or phrase. Merge them or
+   vary the subject.
+8. **Dashes as default glue.** Reach for ordinary punctuation first (full stop, comma, colon, brackets) and
+   use a dash only when none of those works. Never touch a dash that belongs to code, a command, a path, or
+   a URL.
 9. **Piled hedges.** "Could potentially perhaps". Keep one qualifier where the doubt is real.
 
 ### Inflation
@@ -73,7 +75,7 @@ the content.
     showcase, underscore, testament, meticulous, game-changing, cutting-edge. Use the plain word. One on
     its own is weak evidence; a cluster is strong.
 11. **Inflated significance.** "Marks a turning point", "paves the way", "raises the bar", a closing
-    paragraph about what the future holds. End on the last concrete fact.
+    paragraph about what the future holds. Stop once the concrete facts run out.
 12. **Editorialising -ing tails.** "…, highlighting its importance", "…, ensuring a smooth experience".
     Keep the fact; drop the tail unless the source supports it.
 13. **Promotional tone.** "Powerful", "effortless", "best-in-class", "beautifully". Say what the thing does.
@@ -84,25 +86,25 @@ the content.
 
 ### Formatting by habit
 
-17. **Bold everywhere.** Bold on ordinary words, or every bullet opening with a bold label and a colon.
-    Drop the bold; turn labelled bullets into prose when the labels add nothing.
+17. **Bold everywhere.** Bold on ordinary words, or a bolded label plus colon at the start of every
+    bullet. Remove the bold, and when the labels say nothing, rewrite the list as sentences.
 18. **Decorated headings.** Title Case, emoji, arrows, a rule between every section. Use sentence case and
     plain headings, unless the contract prescribes the heading text.
 
 ### Leftovers
 
-19. **Chat residue.** "I hope this helps", "Great question", "Let me know if you'd like", offers to do
+19. **Chat residue.** "I hope this helps", "Great question", "Happy to adjust this", offers to do
     more. Remove the wrapper, keep the content.
 20. **Writing about the text.** "Below is a summary of", "this description was generated from",
     narrating how the text was assembled. Describing what a change replaces is fine in a PR description —
     that is its subject.
-21. **Knowledge-limit filler.** Admitting a gap and then filling it with a plausible guess. State what is
-    not known, or cut the sentence.
+21. **Knowledge-limit filler.** Conceding that information is missing, then papering over the hole with
+    something that merely sounds right. Say plainly what is unknown, or delete the sentence.
 
 ### Wrong reader
 
-22. **Re-explaining what the reader knows.** A reviewer already has the ticket and the diff. Lead with the
-    decision and keep only the reasoning that would change whether they agree.
+22. **Telling the reader what they already know.** A reviewer already has the ticket and the diff. Open with
+    the decision and include only the argument that could change their mind about it.
 
 ## Before and after
 
@@ -123,9 +125,9 @@ After: cut both lines. Neither says what changed; name the concrete changes from
 
 ## When not to act
 
-Leave a watched phrase alone inside a quotation, a name or title, or text that discusses the phrase. A
-single tell is weak evidence; act on clusters. Keep what carries a writer's voice — an unusual specific
-detail, mixed feelings, a genuine aside.
+Don't rewrite a flagged phrase when it sits in a quotation, a name or title, or a passage about the phrase
+itself. A single tell is weak evidence; act on clusters. Keep what carries a writer's voice — an unusual
+specific detail, mixed feelings, a genuine aside.
 
 ## Self-check
 
