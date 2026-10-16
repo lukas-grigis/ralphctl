@@ -29,12 +29,31 @@ describe('planSprintUseCase', () => {
     const result = await planSprintUseCase({
       sprint,
       existingTasks: [],
-      tasks: [],
+      tasks: [makeTodoTask()],
       clock: () => FIXED_LATER,
       logger: noopLogger,
     });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toBeInstanceOf(InvalidStateError);
+  });
+
+  it('rejects an empty plan before the reviewer is asked, so the sprint stays re-plannable', async () => {
+    const sprint = makeDraftSprint({ tickets: [makeApprovedTicket()] });
+    const review = vi.fn().mockResolvedValue({ accept: true });
+    const result = await planSprintUseCase({
+      sprint,
+      existingTasks: [makeTodoTask({ name: 'existing' })],
+      tasks: [],
+      clock: () => FIXED_LATER,
+      logger: noopLogger,
+      reviewBeforeApprove: review,
+    });
+    expect(review).not.toHaveBeenCalled();
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toBeInstanceOf(InvalidStateError);
+      expect(result.error.message).toContain('no tasks');
+    }
   });
 
   it('leaves the sprint draft and returns existing tasks when the reviewer rejects', async () => {

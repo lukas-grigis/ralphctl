@@ -28,6 +28,7 @@ import {
   makePendingTicket,
   makeProject,
   makeRepository,
+  makeTodoTask,
 } from '@tests/fixtures/domain.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { createRunner } from '@src/application/chain/run/runner.ts';
@@ -487,5 +488,39 @@ describe('createPlanFlow — interactive', () => {
     expect(sprintRepo.current().status).toBe('draft');
     expect(sprintRepo.current().tickets.map((t) => t.title)).toContain('added-meanwhile');
     expect(taskRepo.tasks()).toHaveLength(0);
+  });
+
+  it('halts when AI emits an empty task list — sprint stays draft, existing tasks kept', async () => {
+    const project = makeProject();
+    const { sprint } = draftWithApproved(1);
+    const sprintRepo = inMemorySprintRepo(sprint);
+    const existing = makeTodoTask({ name: 'kept from an earlier plan' });
+    const taskRepo = inMemoryTaskRepo([existing]);
+
+    const fake = fakeInteractiveAi(() => JSON.stringify([]));
+
+    const flow = createPlanFlow(buildDeps(sprintRepo.repo, project, sprint, taskRepo.repo, fake.session), {
+      sprintId: sprint.id,
+      projectId: project.id,
+      providerId: 'claude-code',
+      model: 'claude-opus-4-8',
+      maxAttempts: 3,
+      planRoot: planRoot(),
+    });
+    const runner = createRunner({
+      id: 'r-plan-empty',
+      element: flow,
+      initialCtx: { sprintId: sprint.id, projectId: project.id },
+    });
+    await runner.start();
+
+    // A planned sprint with zero tasks is a dead end: nothing re-plans a non-draft sprint.
+    expect(runner.status).toBe('failed');
+    expect(traceNames(runner)).toEqual([...HAPPY_TRACE]);
+    expect(runner.trace.find((e) => e.elementName === 'apply-plan')?.status).toBe('failed');
+    expect(runner.trace.find((e) => e.elementName === 'save-tasks')?.status).toBe('skipped');
+    expect(runner.trace.find((e) => e.elementName === 'save-sprint')?.status).toBe('skipped');
+    expect(sprintRepo.current().status).toBe('draft');
+    expect(taskRepo.tasks()).toEqual([existing]);
   });
 });
