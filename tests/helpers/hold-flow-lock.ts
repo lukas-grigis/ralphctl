@@ -3,6 +3,8 @@
  * `release()`, so a test can stand in for a live run in this or another process.
  */
 
+import properLockfile from 'proper-lockfile';
+import { vi } from 'vitest';
 import type { StoragePaths } from '@src/application/bootstrap/storage-paths.ts';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
@@ -11,6 +13,11 @@ import { repoLockFile } from '@src/integration/io/lock-paths.ts';
 import { sprintDir } from '@src/integration/persistence/storage.ts';
 
 export interface HeldFlowLock {
+  /**
+   * Resolves once an in-process competitor starts acquiring this lock, so it is queued behind the hold
+   * and has read nothing under it yet. Call it before starting the competitor.
+   */
+  contender(): Promise<void>;
   release(): Promise<void>;
 }
 
@@ -34,8 +41,22 @@ const holdLock = async (
     purpose !== undefined ? { purpose } : {}
   );
   await Promise.race([ready, run.then((r) => (r.ok ? undefined : Promise.reject(r.error)))]);
+  let unwatch = (): void => undefined;
   return {
+    contender: () =>
+      new Promise<void>((resolve) => {
+        const lock = properLockfile.lock;
+        const spy = vi.spyOn(properLockfile, 'lock').mockImplementation(async (file, options) => {
+          if (file === String(lockPath.value)) {
+            unwatch();
+            resolve();
+          }
+          return lock(file, options);
+        });
+        unwatch = () => spy.mockRestore();
+      }),
     release: async () => {
+      unwatch();
       finish();
       const r = await run;
       if (!r.ok) throw r.error;

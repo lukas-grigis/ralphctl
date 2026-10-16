@@ -4,7 +4,6 @@
  * Sprints view's `u` (which has no running-state gate of its own) cannot clobber the run's write.
  */
 
-import { setTimeout as sleep } from 'node:timers/promises';
 import { useEffect } from 'react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
@@ -47,12 +46,19 @@ describe('useUnblockTask — while a run holds the sprint', () => {
 
     const run = await holdSprintLock(app.paths, sprint);
     let outcome: UnblockOneResult | undefined;
-    renderView(<Probe task={blocked.value} sprint={sprint} onDone={(r) => (outcome = r)} />, {
+    let settled!: () => void;
+    const done = new Promise<void>((resolve) => (settled = resolve));
+    const contended = run.contender();
+    const onDone = (r: UnblockOneResult): void => {
+      outcome = r;
+      settled();
+    };
+    renderView(<Probe task={blocked.value} sprint={sprint} onDone={onDone} />, {
       deps: app.deps,
       initial: { id: 'home' },
     });
-    await sleep(300);
-    expect(outcome).toBeUndefined();
+    const first = await Promise.race([contended.then(() => 'waiting'), done.then(() => 'finished')]);
+    expect(first).toBe('waiting');
     const finished: DoneTask = { ...makeDoneTask({ name: 'flaky' }), id: blocked.value.id };
     await app.deps.taskRepo.saveAll(sprint.id, [finished]);
     await run.release();

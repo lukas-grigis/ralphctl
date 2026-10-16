@@ -4,7 +4,6 @@
  * the run's final write.
  */
 
-import { setTimeout as sleep } from 'node:timers/promises';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { DoneTask } from '@src/domain/entity/task.ts';
 import { markTaskBlocked } from '@src/domain/entity/task-lifecycle.ts';
@@ -32,8 +31,10 @@ describe('ralphctl task unblock — while a run holds the sprint', () => {
     await taskRepo.saveAll(sprint.id, [blocked.value]);
 
     const run = await holdSprintLock(cli.paths, sprint);
+    const contended = run.contender();
     const unblock = runCliCaptured(cli, ['task', 'unblock', '--sprint', String(sprint.id), String(blocked.value.id)]);
-    await sleep(300);
+    const first = await Promise.race([contended.then(() => 'waiting'), unblock.then(() => 'finished')]);
+    expect(first).toBe('waiting');
     // The run's epilogue: its retry of the task succeeded.
     const finished: DoneTask = { ...makeDoneTask({ name: 'flaky' }), id: blocked.value.id };
     await taskRepo.saveAll(sprint.id, [finished]);

@@ -3,7 +3,6 @@
  * sprint lock and judge the sprint as the run left it, never flip a stale `review` copy to `done`.
  */
 
-import { setTimeout as sleep } from 'node:timers/promises';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { revertSprintToActive } from '@src/domain/entity/sprint.ts';
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
@@ -27,8 +26,10 @@ describe('ralphctl sprint close — while a run holds the sprint', () => {
     await sprintRepo.save(sprint);
 
     const run = await holdSprintLock(cli.paths, sprint, 'review');
+    const contended = run.contender();
     const close = runCliCaptured(cli, ['sprint', 'close', String(sprint.id), '--yes']);
-    await sleep(300);
+    const first = await Promise.race([contended.then(() => 'waiting'), close.then(() => 'finished')]);
+    expect(first).toBe('waiting');
     // The review round found more work and reopened the sprint.
     const reopened = revertSprintToActive(sprint, IsoTimestamp.now());
     if (!reopened.ok) throw new Error(reopened.error.message);
