@@ -138,7 +138,8 @@ is held across the whole run by the implement flow (both paths) and by the revie
 exclude.
 
 **Lock owner.** A lock taken with a `purpose` carries `owner.json` (pid, host, machine id, process start, `ps`
-identity, purpose) inside the lock directory. A lock whose owner pid is dead on this machine is reclaimed at once
+identity, purpose) inside the lock directory; every call site passes one, including the per-write `tasks.json.lock`.
+A lock whose owner pid is dead on this machine is reclaimed at once
 rather than after `staleAfterMs`; a live or other-machine owner still waits for the heartbeat to go stale. The same
 dead-owner check keeps `anyLockHeld` (`integration/io/lock-guard.ts`, the purge / removal / migration guard) from
 counting a crash leftover as held for the rest of its stale window. Contention names the holder

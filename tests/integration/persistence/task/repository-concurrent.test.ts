@@ -1,9 +1,12 @@
+import { spawn } from 'node:child_process';
+import { promises as fs } from 'node:fs';
+import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { makeTodoTask } from '@tests/fixtures/domain.ts';
 import { createFsTaskRepository } from '@src/integration/persistence/task/repository.ts';
-import { createFileLocker } from '@src/integration/io/file-locker.ts';
+import { createFileLocker, type FileLocker } from '@src/integration/io/file-locker.ts';
 import { makeTmpRoot } from '@tests/fixtures/tmp-root.ts';
 
 /**
@@ -92,5 +95,63 @@ describe('createFsTaskRepository — concurrent saveAll vs update under a real l
     const finalState = await repo.findBySprintId(sprintId);
     if (!finalState.ok) throw new Error('findBySprintId failed');
     expect(finalState.value.map((t) => t.name)).toEqual(['t0', 't1', 't2', 't3', 't4']);
+  });
+});
+
+describe('createFsTaskRepository — tasks.json lock left by a killed holder', () => {
+  let root: AbsolutePath;
+  let cleanup: () => Promise<void>;
+  const sprintId = SprintId.generate();
+
+  beforeEach(async () => {
+    const tmp = await makeTmpRoot();
+    root = tmp.root;
+    cleanup = tmp.cleanup;
+  });
+
+  afterEach(async () => cleanup());
+
+  const deadPid = async (): Promise<number> => {
+    const child = spawn(process.execPath, ['-e', ''], { stdio: 'ignore' });
+    await new Promise((r) => child.once('exit', r));
+    return child.pid!;
+  };
+
+  it("stamps a lock owner on every write, so a killed holder's lock is reclaimed at once", async () => {
+    const t1 = makeTodoTask({ name: 't1', order: 1 });
+    const seed = await createFsTaskRepository({ root }).saveAll(sprintId, [t1]);
+    expect(seed.ok).toBe(true);
+
+    // Capture the owner file our own held lock carries; it is what a SIGKILLed holder leaves behind.
+    const real = createFileLocker();
+    const owners: Array<Record<string, unknown>> = [];
+    const capturing: FileLocker = {
+      withLock: (lockPath, fn, lockOpts) =>
+        real.withLock(
+          lockPath,
+          async (signal) => {
+            const raw = await fs.readFile(join(String(lockPath), 'owner.json'), 'utf8').catch(() => undefined);
+            if (raw !== undefined) owners.push(JSON.parse(raw) as Record<string, unknown>);
+            return fn(signal);
+          },
+          lockOpts
+        ),
+    };
+    const capturingRepo = createFsTaskRepository({ root, fileLocker: capturing });
+    expect((await capturingRepo.saveAll(sprintId, [t1])).ok).toBe(true);
+    expect((await capturingRepo.update(sprintId, t1)).ok).toBe(true);
+    expect(owners).toEqual([
+      expect.objectContaining({ pid: process.pid }),
+      expect.objectContaining({ pid: process.pid }),
+    ]);
+
+    const lockDir = join(String(root), 'sprints', String(sprintId), 'tasks.json.lock');
+    await fs.mkdir(lockDir);
+    await fs.writeFile(join(lockDir, 'owner.json'), JSON.stringify({ ...owners[0], pid: await deadPid() }));
+    const repo = createFsTaskRepository({ root, fileLocker: createFileLocker({ maxRetries: 0 }) });
+
+    const updated = await repo.update(sprintId, { ...t1, name: 't1-renamed' });
+
+    expect(updated.ok).toBe(true);
   });
 });
