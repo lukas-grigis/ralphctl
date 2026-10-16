@@ -372,6 +372,25 @@ describe('apply — crash safety', () => {
     await expect(fs.stat(join(dataRoot, 'sprints', `${b}--two`))).resolves.toBeTruthy();
   });
 
+  it('a stat fault on a rename target stops the run instead of renaming onto it', async () => {
+    const pid = freshId();
+    await seedLegacyProject(dataRoot, pid, 'alpha');
+    const report = await dryRun(absolutePath(dataRoot));
+    const target = join(dataRoot, 'projects', `${pid}--alpha.json`);
+
+    const realStat = fs.stat.bind(fs);
+    const statSpy = vi.spyOn(fs, 'stat').mockImplementation((async (path: string, opts?: unknown) => {
+      if (String(path) === target) throw Object.assign(new Error('simulated EIO'), { code: 'EIO' });
+      return realStat(path, opts as undefined);
+    }) as typeof fs.stat);
+    const result = await apply(absolutePath(dataRoot), report, ctx());
+    statSpy.mockRestore();
+
+    expect(result.kind).toBe('failed');
+    expect((await readDataVersion(absolutePath(dataRoot))).dataVersion).toBe(1);
+    await expect(fs.stat(join(dataRoot, 'projects', `${pid}.json`))).resolves.toBeTruthy();
+  });
+
   it('a merge ledger write that throws ⇒ marker NOT stamped, legacy memory dir survives ⇒ a clean re-run finishes', async () => {
     const row = (id: string, text: string): string => `${JSON.stringify({ v: 1, id, text, promotedAt: null })}\n`;
     const pid = freshId();

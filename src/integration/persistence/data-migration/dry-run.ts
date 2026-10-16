@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { isUuidv7 } from '@src/domain/value/uuid7.ts';
 import { Slug } from '@src/domain/value/slug.ts';
-import { listDir } from '@src/integration/io/fs.ts';
+import { listDir, pathExists, pathIsDirectory } from '@src/integration/io/fs.ts';
 import { buildSluggedName, NAME_SEPARATOR, parseIdFromName } from '@src/integration/persistence/storage.ts';
 import { DATA_VERSION_FILENAME } from '@src/integration/persistence/data-migration/version-marker.ts';
 import type {
@@ -21,6 +21,7 @@ const MEMORY_DIR = 'memory';
 const SPRINT_JSON = 'sprint.json';
 const REASON_ALREADY_MIGRATED = 'already migrated (slugged name)';
 const REASON_MALFORMED_NAME = 'malformed name — not a uuidv7 id';
+const REASON_STAT_FAILED = 'could not stat the entry or its target — left in place';
 const REASON_ORPHAN_MEMORY = 'orphan memory dir — no owning project; left in place (reclaim via housekeeping)';
 
 /**
@@ -143,8 +144,12 @@ const scanDirFamily = async (
       continue;
     }
     const full = join(parent, name);
-    const isDir = await isDirectory(full);
-    if (!isDir) {
+    const isDir = await pathIsDirectory(full);
+    if (!isDir.ok) {
+      acc.problems.push({ name, reason: REASON_STAT_FAILED });
+      continue;
+    }
+    if (!isDir.value) {
       acc.skipped.push({ name, reason: 'not a directory' });
       continue;
     }
@@ -195,7 +200,9 @@ const classifyMemoryEntry = async (
 ): Promise<void> => {
   if (name === DATA_VERSION_FILENAME) return void acc.skipped.push({ name, reason: 'version marker' });
   const full = join(parent, name);
-  if (!(await isDirectory(full))) return void acc.skipped.push({ name, reason: 'not a directory' });
+  const isDir = await pathIsDirectory(full);
+  if (!isDir.ok) return void acc.problems.push({ name, reason: REASON_STAT_FAILED });
+  if (!isDir.value) return void acc.skipped.push({ name, reason: 'not a directory' });
   if (name.includes(NAME_SEPARATOR)) {
     return void acc.skipped.push({ name, reason: REASON_ALREADY_MIGRATED });
   }
@@ -208,7 +215,9 @@ const classifyMemoryEntry = async (
 
   const toName = buildSluggedName(name, slug);
   const toFull = join(parent, toName);
-  if (await pathPresent(toFull)) {
+  const sluggedPresent = await pathExists(toFull);
+  if (!sluggedPresent.ok) return void acc.problems.push({ name, reason: REASON_STAT_FAILED });
+  if (sluggedPresent.value) {
     // Both dirs present → MERGE the legacy ledger into the slugged one (apply unions + dedups by id).
     const legacy = AbsolutePath.parse(full);
     const slugged = AbsolutePath.parse(toFull);
@@ -240,7 +249,12 @@ const planRename = async (
     return;
   }
   const toFull = join(parent, toName);
-  if (await pathPresent(toFull)) {
+  const taken = await pathExists(toFull);
+  if (!taken.ok) {
+    acc.problems.push({ name: fromName, reason: REASON_STAT_FAILED });
+    return;
+  }
+  if (taken.value) {
     acc.problems.push({
       name: fromName,
       reason: `collision — target ${toName} already exists; leaving legacy entry in place`,
@@ -254,23 +268,6 @@ const planRename = async (
     return;
   }
   acc.planned.push({ kind, id, slug, fromName, toName, from: from.value, to: to.value });
-};
-
-const pathPresent = async (path: string): Promise<boolean> => {
-  try {
-    await fs.stat(path);
-    return true;
-  } catch {
-    return false;
-  }
-};
-
-const isDirectory = async (path: string): Promise<boolean> => {
-  try {
-    return (await fs.stat(path)).isDirectory();
-  } catch {
-    return false;
-  }
 };
 
 /** Read the top-level `slug` from a project `.json` file; `undefined` when missing/invalid. */

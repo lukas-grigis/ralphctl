@@ -193,10 +193,12 @@ export const apply = async (dataRoot: AbsolutePath, report: DryRunReport, ctx: A
  * race) is an idempotent skip.
  */
 const applyOne = async (plan: RenamePlan): Promise<Result<AppliedRename, StorageError>> => {
-  const fromExists = await pathPresent(String(plan.from));
-  const toExists = await pathPresent(String(plan.to));
+  const fromExists = await pathExists(String(plan.from));
+  if (!fromExists.ok) return Result.error(fromExists.error);
+  const toExists = await pathExists(String(plan.to));
+  if (!toExists.ok) return Result.error(toExists.error);
 
-  if (toExists || !fromExists) {
+  if (toExists.value || !fromExists.value) {
     return Result.ok(skipped(plan)) as Result<AppliedRename, StorageError>;
   }
 
@@ -346,14 +348,14 @@ const backfillOneMemoryDir = async (memoryRoot: string, dir: string, ctx: ApplyC
   const ledgerPath = join(memoryRoot, dir, LEARNINGS_NDJSON);
   const mdPath = join(memoryRoot, dir, LEARNINGS_MD);
   if (await ledgerExceedsCeiling(ledgerPath)) return; // oversized — runtime mirror heals it
-  if (!(await pathPresent(ledgerPath))) return;
-  if (await pathPresent(mdPath)) return; // already has a mirror — leave it
+  const mdPresent = await pathExists(mdPath);
+  if (!mdPresent.ok || mdPresent.value) return; // already mirrored, or unknowable — leave it
 
   let body: string;
   try {
     body = await fs.readFile(ledgerPath, 'utf8');
   } catch {
-    return;
+    return; // absent or unreadable ledger — nothing to mirror
   }
   const md = ctx.renderLearnings(body);
   if (md === undefined) return;
@@ -386,14 +388,5 @@ const ledgerExceedsCeiling = async (ledgerPath: string): Promise<boolean> => {
     return size > MIRROR_BACKFILL_CEILING_BYTES;
   } catch {
     return false; // absent / unreadable → the read below handles it
-  }
-};
-
-const pathPresent = async (path: string): Promise<boolean> => {
-  try {
-    await fs.stat(path);
-    return true;
-  } catch {
-    return false;
   }
 };

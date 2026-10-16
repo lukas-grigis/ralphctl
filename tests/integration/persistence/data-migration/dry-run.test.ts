@@ -10,7 +10,7 @@
 import { promises as fs } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { absolutePath } from '@tests/fixtures/domain.ts';
 import { dryRun } from '@src/integration/persistence/data-migration/dry-run.ts';
 import {
@@ -126,6 +126,23 @@ describe('dryRun', () => {
 
     expect(report.planned).toEqual([]);
     expect(report.problems.some((p) => p.name === pid && p.reason.includes('slug'))).toBe(true);
+  });
+
+  it('a stat fault on a rename target is a problem, not a planned rename', async () => {
+    const sid = freshId();
+    await seedLegacySprint(root, sid, 'beta');
+    const target = join(root, 'sprints', `${sid}--beta`);
+    const realStat = fs.stat.bind(fs);
+    const statSpy = vi.spyOn(fs, 'stat').mockImplementation((async (path: string, opts?: unknown) => {
+      if (String(path) === target) throw Object.assign(new Error('simulated EIO'), { code: 'EIO' });
+      return realStat(path, opts as undefined);
+    }) as typeof fs.stat);
+
+    const report = await dryRun(dataRoot());
+    statSpy.mockRestore();
+
+    expect(report.planned).toEqual([]);
+    expect(report.problems.some((p) => p.name === sid)).toBe(true);
   });
 
   it('flags a malformed (non-uuid) directory name', async () => {
