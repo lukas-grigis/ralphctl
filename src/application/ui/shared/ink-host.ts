@@ -9,20 +9,6 @@ import { releaseStdinForChild } from '@src/application/ui/shared/stdin-handoff.t
 import type { RunInTerminal } from '@src/integration/io/run-in-terminal.ts';
 import { messageOf } from '@src/domain/value/error/error-message.ts';
 
-/** DEC private mode 2004 — bracketed paste. */
-const BRACKETED_PASTE_ON = '\x1b[?2004h';
-const BRACKETED_PASTE_OFF = '\x1b[?2004l';
-
-const setBracketedPaste = (enabled: boolean): void => {
-  if (!process.stdout.isTTY) return;
-  try {
-    process.stdout.write(enabled ? BRACKETED_PASTE_ON : BRACKETED_PASTE_OFF);
-  } catch {
-    // Best-effort: a closed/erroring stdout must not crash the host. The prompts keep a
-    // normalization fallback for terminals that never honoured the mode anyway.
-  }
-};
-
 export interface InkHostDeps {
   /** Factory that builds the App element to mount. */
   readonly renderElement: () => ReactElement;
@@ -47,9 +33,6 @@ export interface InkHost {
 export const createInkHost = (deps: InkHostDeps): InkHost => {
   const alternateScreen = deps.alternateScreen ?? true;
   const renderOnce = (): InkInstance => {
-    // Enable bracketed paste alongside the mount; disabled on every unmount path below so it does
-    // not bleed into a paused AI session or the user's shell after shutdown.
-    setBracketedPaste(true);
     // The app owns ctrl+c (quit chord); Ink's own exit would skip the live-run confirm.
     return render(deps.renderElement(), { alternateScreen, exitOnCtrlC: false });
   };
@@ -68,9 +51,6 @@ export const createInkHost = (deps: InkHostDeps): InkHost => {
     // Awaited, and restored before `renderOnce()`: a parent still reading stdin eats the child's terminal replies
     // (the black-screen hang — see .claude/docs/INTERACTIVE-HANDOFF-HANG.md).
     const restoreStdin = await releaseStdinForChild();
-    // The user owns the terminal while `fn` runs — turn bracketed paste off so a paste into the
-    // AI session isn't wrapped in markers. `renderOnce()` re-enables it when the TUI remounts.
-    setBracketedPaste(false);
     try {
       return await fn();
     } finally {
@@ -82,16 +62,6 @@ export const createInkHost = (deps: InkHostDeps): InkHost => {
   };
 
   const waitForShutdown = async (): Promise<void> => {
-    try {
-      return await runShutdownLoop();
-    } finally {
-      // Whatever exit path we leave on (clean quit, fatal error, AbortError re-throw), disable
-      // bracketed paste so the mode never leaks into the user's shell after the TUI is gone.
-      setBracketedPaste(false);
-    }
-  };
-
-  const runShutdownLoop = async (): Promise<void> => {
     for (;;) {
       try {
         const result: unknown = await instance.waitUntilExit();

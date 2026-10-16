@@ -229,6 +229,17 @@ describe('TextPrompt', () => {
     unmount();
   });
 
+  it('does not submit when the pasted payload is a lone carriage return', async () => {
+    const onSubmit = vi.fn();
+    const { stdin, unmount } = render(<TextPrompt message="Name" onSubmit={onSubmit} onCancel={() => undefined} />);
+    stdin.write('ab');
+    await tick();
+    stdin.write(bracketed('\r'));
+    await tick();
+    expect(onSubmit).not.toHaveBeenCalled();
+    unmount();
+  });
+
   it('never leaks bracketed-paste marker bytes into a single-line field', async () => {
     const onSubmit = vi.fn();
     const { stdin, lastFrame, unmount } = render(
