@@ -281,6 +281,25 @@ describe('apply — memory both-dirs merge (never blocks)', () => {
     );
   });
 
+  it('drops a stale learnings.md left alone in the legacy dir instead of moving it across as clutter', async () => {
+    const pid = freshId();
+    await seedLegacyProject(dataRoot, pid, 'alpha');
+    await seedNewMemory(dataRoot, pid, 'alpha', row('a', 'A'));
+    const sluggedDir = join(dataRoot, 'memory', `${pid}--alpha`);
+    await fs.writeFile(join(sluggedDir, 'learnings.md'), 'slugged mirror', 'utf8');
+    // A crash after the legacy ledger was deleted but before its mirror was.
+    const legacyDir = join(dataRoot, 'memory', pid);
+    await fs.mkdir(legacyDir, { recursive: true });
+    await fs.writeFile(join(legacyDir, 'learnings.md'), 'stale legacy mirror', 'utf8');
+
+    const result = await runFull();
+
+    expect(result.kind).toBe('ok');
+    await expect(fs.stat(legacyDir)).rejects.toThrow();
+    expect((await fs.readdir(sluggedDir)).sort()).toEqual(['learnings.md', 'learnings.ndjson']);
+    expect(await fs.readFile(join(sluggedDir, 'learnings.md'), 'utf8')).toBe('slugged mirror');
+  });
+
   it('is idempotent: a re-run after the legacy dir is gone is a clean no-op merge', async () => {
     const pid = freshId();
     await seedLegacyProject(dataRoot, pid, 'alpha');

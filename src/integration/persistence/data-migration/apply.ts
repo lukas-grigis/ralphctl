@@ -216,7 +216,8 @@ const skipped = (plan: RenamePlan): AppliedRename => ({
  * the merged ledger + regenerated `learnings.md` into the slugged dir, then drains the legacy dir
  * (see {@link drainLegacyDir}) — nothing but the two merged files is ever deleted.
  *
- * Idempotent: a legacy dir with no ledger left (a prior run merged it) is only drained. Any I/O fault
+ * Idempotent: a legacy dir with no ledger left (a prior run merged it) is only drained, dropping any
+ * leftover `learnings.md` — a derived mirror; the slugged dir has or backfills its own. Any I/O fault
  * other than an absent ledger — on a stat, either read, the slugged write, or the drain — surfaces as
  * a `StorageError` that stops the run BEFORE the stamp; the legacy ledger is removed only AFTER the
  * merged one is durably written, so a crash in between just re-merges next run.
@@ -225,7 +226,7 @@ const mergeOne = async (merge: MemoryMergePlan, ctx: ApplyCtx): Promise<Result<v
   const legacyLedger = join(String(merge.legacyDir), LEARNINGS_NDJSON);
   const legacyPresent = await pathExists(legacyLedger);
   if (!legacyPresent.ok) return Result.error(legacyPresent.error);
-  if (!legacyPresent.value) return drainLegacyDir(merge, []);
+  if (!legacyPresent.value) return drainLegacyDir(merge, [LEARNINGS_MD]);
 
   const legacyBody = await readLedger(legacyLedger);
   if (!legacyBody.ok) return Result.error(legacyBody.error);
