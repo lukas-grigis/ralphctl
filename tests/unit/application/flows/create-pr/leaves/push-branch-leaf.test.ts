@@ -268,4 +268,32 @@ describe('push-branch-leaf', () => {
     expect(!auth.ok && auth.error.error.message).toContain('credential helper');
     expect(!other.ok && other.error.error.message).not.toContain('credential helper');
   });
+
+  it("tells an SSH key rejection from a hook's own 'permission denied'", async () => {
+    const pushFailing = (stderr: string): GitRunner =>
+      scriptedGitRunner([
+        {
+          args: ['rev-parse', '--abbrev-ref', 'HEAD'],
+          result: Result.ok({ stdout: `${BRANCH}\n`, stderr: '', exitCode: 0 }),
+        },
+        { args: ['push', '-u', 'origin', BRANCH], result: Result.ok({ stdout: '', stderr, exitCode: 1 }) },
+      ]).runner;
+    const messageFor = async (stderr: string): Promise<string> => {
+      const out = await createPushBranchLeaf(stubCreatePrDeps({ runner: pushFailing(stderr) })).execute(baseCtx);
+      return out.ok ? '' : out.error.error.message;
+    };
+
+    expect(
+      await messageFor('git@github.com: Permission denied (publickey).\nfatal: Could not read from remote')
+    ).toContain('credential helper');
+    expect(await messageFor('git@host: Permission denied (gssapi-keyex,publickey,password).\n')).toContain(
+      'credential helper'
+    );
+    expect(
+      await messageFor('.husky/pre-push: line 4: ./scripts/lint: Permission denied\nerror: failed to push')
+    ).not.toContain('credential helper');
+    expect(await messageFor('error: Permission denied (os error 13)\nerror: failed to push some refs')).not.toContain(
+      'credential helper'
+    );
+  });
 });

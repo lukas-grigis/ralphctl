@@ -12,8 +12,9 @@ import type { CreatePrDeps } from '@src/application/flows/create-pr/deps.ts';
 import { assertSprintEligible } from '@src/application/flows/create-pr/eligibility.ts';
 
 // git runs without a terminal to prompt on, so missing credentials must come from a helper or agent.
+// Only ssh's key rejection — a hook's own "Permission denied" (a non-executable script) is no credential issue.
 const AUTH_FAILURE_RE =
-  /terminal prompts disabled|could not read (?:username|password)|authentication failed|permission denied|host key verification failed/i;
+  /terminal prompts disabled|could not read (?:username|password)|authentication failed|permission denied \([\w,-]*publickey|host key verification failed/i;
 const AUTH_HINT =
   ' — configure a git credential helper (e.g. `gh auth setup-git`) or load your key into an SSH agent; ralphctl cannot answer a credential prompt';
 
