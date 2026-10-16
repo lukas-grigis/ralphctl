@@ -16,8 +16,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { Box, Text } from 'ink';
-import { homedir as osHomedir } from 'node:os';
-import { basename, join } from 'node:path';
+import { basename } from 'node:path';
 import { ViewShell } from '@src/application/ui/tui/components/view-shell.tsx';
 import { Card } from '@src/application/ui/tui/components/card.tsx';
 import { FieldList } from '@src/application/ui/tui/components/field-list.tsx';
@@ -26,6 +25,7 @@ import { TextPrompt } from '@src/application/ui/tui/prompts/text-prompt.tsx';
 import { ConfirmPrompt } from '@src/application/ui/tui/prompts/confirm-prompt.tsx';
 import { PathPickerPrompt } from '@src/application/ui/tui/prompts/path-picker-prompt.tsx';
 import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
+import { expandHome } from '@src/application/ui/tui/runtime/expand-home.ts';
 import { useRouter } from '@src/application/ui/tui/runtime/router.tsx';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
 import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
@@ -63,17 +63,6 @@ type Step =
     }
   | { readonly kind: 'saving' }
   | { readonly kind: 'error'; readonly message: string };
-
-/**
- * Lightweight `~` expansion: only the leading `~` followed by `/` or end-of-string is treated
- * as the home directory. Embedded `~` in the middle of a path is left alone so the
- * AbsolutePath validator can surface it.
- */
-const expandHome = (input: string): string => {
-  if (input === '~') return osHomedir();
-  if (input.startsWith('~/')) return join(osHomedir(), input.slice(2));
-  return input;
-};
 
 /**
  * Previous step for the current one. Used as the `esc` target so the user can fix a typo

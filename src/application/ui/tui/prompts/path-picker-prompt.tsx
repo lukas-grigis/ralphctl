@@ -30,6 +30,7 @@ import { homedir } from 'node:os';
 import { Box, Text, type Key } from 'ink';
 import { usePromptInput } from '@src/application/ui/tui/prompts/use-prompt-input.ts';
 import { TextPrompt } from '@src/application/ui/tui/prompts/text-prompt.tsx';
+import { expandHome } from '@src/application/ui/tui/runtime/expand-home.ts';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 
 export interface PathPickerPromptProps {
@@ -53,12 +54,6 @@ type Row =
 
 const VISIBLE_ROWS = 12;
 const clamp = (n: number, min: number, max: number): number => Math.max(min, Math.min(max, n));
-
-const expandHome = (input: string): string => {
-  if (input === '~') return homedir();
-  if (input.startsWith('~/')) return join(homedir(), input.slice(2));
-  return input;
-};
 
 interface DirectoryEntriesState {
   readonly entries: readonly Entry[];
