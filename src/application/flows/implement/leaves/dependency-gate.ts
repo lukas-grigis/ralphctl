@@ -76,6 +76,7 @@ export const dependencyGateLeaf = (deps: DependencyGateLeafDeps, taskId: TaskId)
           .map(({ depId, dep }) => (dep === undefined ? `${String(depId)} (missing)` : `${dep.name} (${dep.status})`))
           .join(', ');
         if (unmet.every(({ dep }) => dep !== undefined && dep.status !== 'blocked')) {
+          // Parallel-only: the serial queue is topological and a prerequisite's attempt loop ends done or blocked.
           return Result.error(
             new InvalidStateError({
               entity: 'task',
