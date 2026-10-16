@@ -103,6 +103,31 @@ describe('dryRun', () => {
     expect(String(report.merges[0]?.sluggedDir)).toContain(`/memory/${pid}--alpha`);
   });
 
+  it('skips an orphan memory dir (no owning project) instead of blocking the migration', async () => {
+    const pid = freshId();
+    const orphan = freshId();
+    await seedLegacyProject(root, pid, 'alpha');
+    // A removed project leaves its memory dir behind unless the opt-in cascade ran.
+    await seedLegacyMemory(root, orphan, '{"id":"a"}\n');
+
+    const report = await dryRun(dataRoot());
+
+    expect(report.problems).toEqual([]);
+    expect(report.planned.map((p) => p.fromName)).toEqual([`${pid}.json`]);
+    expect(report.skipped.some((s) => s.name === orphan && s.reason.includes('orphan'))).toBe(true);
+  });
+
+  it('still flags a memory dir whose owning project has an unreadable slug', async () => {
+    const pid = freshId();
+    await fs.writeFile(join(root, 'projects', `${pid}--alpha.json`), '{ not json', 'utf8');
+    await seedLegacyMemory(root, pid);
+
+    const report = await dryRun(dataRoot());
+
+    expect(report.planned).toEqual([]);
+    expect(report.problems.some((p) => p.name === pid && p.reason.includes('slug'))).toBe(true);
+  });
+
   it('flags a malformed (non-uuid) directory name', async () => {
     await fs.mkdir(join(root, 'sprints', 'not-a-uuid'), { recursive: true });
     await fs.writeFile(join(root, 'sprints', 'not-a-uuid', 'sprint.json'), '{}', 'utf8');

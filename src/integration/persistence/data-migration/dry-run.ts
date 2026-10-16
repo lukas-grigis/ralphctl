@@ -4,7 +4,7 @@ import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { isUuidv7 } from '@src/domain/value/uuid7.ts';
 import { Slug } from '@src/domain/value/slug.ts';
 import { listDir } from '@src/integration/io/fs.ts';
-import { buildSluggedName, NAME_SEPARATOR } from '@src/integration/persistence/storage.ts';
+import { buildSluggedName, NAME_SEPARATOR, parseIdFromName } from '@src/integration/persistence/storage.ts';
 import { DATA_VERSION_FILENAME } from '@src/integration/persistence/data-migration/version-marker.ts';
 import type {
   DryRunReport,
@@ -21,6 +21,7 @@ const MEMORY_DIR = 'memory';
 const SPRINT_JSON = 'sprint.json';
 const REASON_ALREADY_MIGRATED = 'already migrated (slugged name)';
 const REASON_MALFORMED_NAME = 'malformed name — not a uuidv7 id';
+const REASON_ORPHAN_MEMORY = 'orphan memory dir — no owning project; left in place (reclaim via housekeeping)';
 
 /**
  * Mutable accumulators for a single dry-run pass. Returned (frozen) as a {@link DryRunReport}.
@@ -40,7 +41,8 @@ interface Accumulator {
  *
  * Classification:
  *  - PLANNED — a legacy bare-`<id>` entry with a readable slug and a free target name.
- *  - SKIPPED — already-migrated (`<id>--<slug>` form), the version marker, or an unrelated file.
+ *  - SKIPPED — already-migrated (`<id>--<slug>` form), the version marker, an unrelated file, or an
+ *    orphan memory dir whose project no longer exists.
  *  - PROBLEM — a collision (target exists and differs), a malformed / non-uuid name, a missing /
  *    unreadable slug, or an unwritable backup target.
  *
@@ -199,8 +201,10 @@ const classifyMemoryEntry = async (
   }
   if (!isUuidv7(name)) return void acc.problems.push({ name, reason: REASON_MALFORMED_NAME });
 
-  const slug = await readProjectSlugForId(dataRoot, name);
-  if (slug === undefined) return void acc.problems.push({ name, reason: 'missing or unreadable slug' });
+  const owner = await readProjectSlugForId(dataRoot, name);
+  if (owner.kind === 'no-project') return void acc.skipped.push({ name, reason: REASON_ORPHAN_MEMORY });
+  if (owner.kind === 'unreadable') return void acc.problems.push({ name, reason: 'missing or unreadable slug' });
+  const { slug } = owner;
 
   const toName = buildSluggedName(name, slug);
   const toFull = join(parent, toName);
@@ -276,24 +280,23 @@ const readProjectSlug = async (filePath: string): Promise<string | undefined> =>
 const readSprintSlug = async (sprintDir: string): Promise<string | undefined> =>
   readSlugField(join(sprintDir, SPRINT_JSON));
 
+type OwningProjectSlug =
+  { readonly kind: 'slug'; readonly slug: string } | { readonly kind: 'no-project' } | { readonly kind: 'unreadable' };
+
 /**
  * Resolve the OWNING PROJECT's slug for a memory directory named `<projectId>`. The slug is NOT in
  * the memory dir — it lives in `projects/<projectId>--<slug>.json` (or the legacy bare
- * `<projectId>.json`). Scans the projects dir for the file whose leading id matches, then reads its
- * `slug`. `undefined` when no matching project file exists or its slug is unreadable.
+ * `<projectId>.json`). `no-project` when no project file carries that id (an orphan left by a
+ * removal without the memory cascade); `unreadable` when the projects dir or the file's slug can't be read.
  */
-const readProjectSlugForId = async (dataRoot: AbsolutePath, projectId: string): Promise<string | undefined> => {
+const readProjectSlugForId = async (dataRoot: AbsolutePath, projectId: string): Promise<OwningProjectSlug> => {
   const projects = join(String(dataRoot), PROJECTS_DIR);
   const entries = await listDir(projects);
-  if (!entries.ok) return undefined;
-  const match = entries.value.find((n) => {
-    if (!n.endsWith('.json')) return false;
-    const base = n.slice(0, -'.json'.length);
-    const sep = base.indexOf(NAME_SEPARATOR);
-    return (sep === -1 ? base : base.slice(0, sep)) === projectId;
-  });
-  if (match === undefined) return undefined;
-  return readSlugField(join(projects, match));
+  if (!entries.ok) return { kind: 'unreadable' };
+  const match = entries.value.find((n) => n.endsWith('.json') && parseIdFromName(n) === projectId);
+  if (match === undefined) return { kind: 'no-project' };
+  const slug = await readSlugField(join(projects, match));
+  return slug === undefined ? { kind: 'unreadable' } : { kind: 'slug', slug };
 };
 
 /**
