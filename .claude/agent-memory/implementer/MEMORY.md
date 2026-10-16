@@ -16,7 +16,7 @@
 - [seams_tui_architecture_patterns.md](seams_tui_architecture_patterns.md) — Modal overlays, global hotkeys over view-local data, clip markers, one hint source, the commit-storm coalescer, cancel-vs-abort
 - [seams_tui_test_gotchas.md](seams_tui_test_gotchas.md) — Test setups that pass for the wrong reason (batched stdin, 100x24 stub, spinner flap, vacuous scroll); known resize-listener warning noise
 - [seams_model_catalog_refresh.md](seams_model_catalog_refresh.md) — Catalog-refresh checklist: fingerprint gate, remap tests, CLI-vs-API effort default, eval/TUI tests pinning preset ids and catalog order, Copilot gating, settings.ts lint hazard
-- [seams_process_lifecycle.md](seams_process_lifecycle.md) — Group-kill only marked leaders, lock owner file, reaper test shape, pid-0 fakes, crash-resume lookup + free budget
+- [seams_process_lifecycle.md](seams_process_lifecycle.md) — Group-kill only marked leaders, exit+drain settle, lock owner file, reaper test shape, pid-0 fakes, crash-resume lookup
 - [seams_eval_harness.md](seams_eval_harness.md) — Prompt-eval harness: budget under-counts (no cache tokens), private-constant duplicates, fixture tooling exclusions, protectedPaths granularity
 
 ## Standalone
@@ -31,3 +31,4 @@
 - [project_doctor_probes_and_escape_keys.md](project_doctor_probes_and_escape_keys.md) — Doctor probes return unknown not fail, useViewKeys can't match Escape, demo seeder marker rule
 - [feedback_concurrent_agent_writes.md](feedback_concurrent_agent_writes.md) — Parallel-agent collisions; zsh no-word-split trap in swap-to-HEAD loops
 - [feedback_worktree_isolation_command_filter.md](feedback_worktree_isolation_command_filter.md) — Isolated runs refuse heredocs/pipelines mentioning git; script via scratchpad files
+- [feedback_concurrent_agent_writes.md](feedback_concurrent_agent_writes.md) — Parallel-agent collisions; zsh no-word-split trap; worktree guard refusing commands that name git twice

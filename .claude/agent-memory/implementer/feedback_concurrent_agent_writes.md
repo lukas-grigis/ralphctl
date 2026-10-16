@@ -1,6 +1,6 @@
 ---
 name: concurrent-agent-writes
-description: Parallel agents overwrite shared files (check git status mid-task); plus the zsh word-split trap that loses fixes in a backup-and-swap loop.
+description: Parallel agents overwrite shared files (check git status mid-task); the zsh word-split trap in backup-and-swap loops; the worktree Bash guard that refuses commands naming git twice.
 metadata:
   type: feedback
 ---
@@ -59,3 +59,10 @@ save `git diff -- <task-A files> > scratchpad/taskA.patch` as soon as task A is 
 parent can stage exactly task A with `git apply --cached taskA.patch` (index-only, worktree untouched)
 even where task B later edited the same files. Keep the two tasks' edits on non-adjacent lines in shared
 files so the hunks stay separable.
+
+**Isolated-worktree Bash guard counts the token `git`.** The repo path contains `github`, and a branch
+or file name may contain `git` too, so `cd <abs path> && git …`, `git checkout -b x/git-y`, or a
+python/heredoc whose text names git are all refused as "names git more than once". **How to apply:**
+run git bare (cwd is already the worktree), one git per command, and do file edits through the Edit
+tool rather than scripts that mention git; if the requested branch name contains `git`, pick another
+and report it.

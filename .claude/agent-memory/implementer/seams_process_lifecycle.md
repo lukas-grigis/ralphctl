@@ -24,6 +24,17 @@ CLI forked inherits that pipe, so a single-pid SIGTERM left the attempt hanging 
 exited. The watchdog's `stop()` deliberately lets a pending group SIGKILL land (unref'd) after the
 leader exits; only a lone child's escalation is cancelled (pid-reuse guard).
 
+## git / shell runners settle on exit + drain, not on close or timer
+
+`onChildDone` (`integration/io/child-exit.ts`) settles on `close`, or 1s after `exit` with the pipes
+destroyed. **Why not settle at timer-fire** (the run-cli shape): the next git op would race the dying
+git's `.git/index.lock`. **Why not wait for `close`:** a hook's or script's background job holds the
+pipe, so a commit that landed was reported as a timeout, and a setsid'd daemon stalled the run for its
+whole life. The timeout timer is cleared on `exit`, so a drain never reads as a timeout. Git children
+are `detached` (own session → no controlling tty, which is also what makes ssh prompts fail fast);
+git leftovers are NOT killed on a normal exit (a post-commit hook's background job is legitimate),
+shell-script leftovers are. Group SIGKILL escalation is never cancelled on leader exit.
+
 ## Lock owner file inside a proper-lockfile dir
 
 A file inside the lock dir breaks the library twice: its bare `rmdir` (release, stale reclaim,
