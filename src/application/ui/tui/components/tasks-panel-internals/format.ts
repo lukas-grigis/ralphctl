@@ -70,8 +70,9 @@ export const fmtEta = (ms: number): string | undefined => {
 };
 
 /**
- * Derive ETA text for the active-task header from the projected task. The estimate uses the
- * median settled round duration over the remaining rounds in the gen-eval loop. Returns the
+ * Derive ETA text for the active-task header from the projected task. The estimate spreads the
+ * median settled attempt duration over the round cap (an attempt is assumed to span it) and
+ * multiplies by the rounds left. Returns the
  * pre-formatted string `· ~Xm Ys remaining` ready to splice into the header, or
  * `· no ETA yet` when the projection has no median yet (first round of first task, or any
  * task whose attempts haven't settled). When the cap is already reached, returns `undefined`
@@ -86,11 +87,11 @@ export const formatEtaChip = (
   if (maxRounds === undefined || maxRounds <= 0) return undefined;
   const remaining = Math.max(0, maxRounds - Math.max(0, currentRound));
   if (remaining === 0) return undefined;
-  const median = projection.medianRoundDurationMs;
+  const median = projection.medianAttemptDurationMs;
   if (median === undefined || median <= 0) {
     return `${glyphs.bullet} no ETA yet`;
   }
-  const text = fmtEta(median * remaining);
+  const text = fmtEta((median * remaining) / maxRounds);
   if (text === undefined) return undefined;
   return `${glyphs.bullet} ${text} remaining`;
 };

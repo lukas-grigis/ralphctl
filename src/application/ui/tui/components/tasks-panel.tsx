@@ -100,7 +100,7 @@ interface TaskOverlaySources {
   readonly stepTreeByTaskId?: ReadonlyMap<string, StepView>;
   /**
    * Optional projected sprint state. When supplied the per-task header appends an ETA derived
-   * from `state.tasks[i].medianRoundDurationMs * (max - currentRound)`. Absent ⇒ ETA is
+   * from `state.tasks[i].medianAttemptDurationMs * (max - currentRound) / max`. Absent ⇒ ETA is
    * silently omitted (the existing `round N/M` rendering is unchanged). The view is the source
    * of truth for whether to project: tests render TasksPanel in isolation without a projection,
    * and the live dashboard threads it once `taskState` is polled.

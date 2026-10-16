@@ -2,6 +2,8 @@
  * Adapter that wires the live bucketed-task derivation into the shared `TasksPanel`. Folds
  * five concerns the orchestrator would otherwise carry inline:
  *
+ *   - Projects each entity's attempt count / latest commit / median attempt time (`sprintState`) for
+ *     the header chips and ETA.
  *   - Translates the `Task.verificationCriteria` array into per-task bullet strings (the
  *     panel renders one criterion per line; audit-[05] says `Task.verificationCriteria`
  *     is the canonical source — never read `done-criteria.md`).
@@ -33,7 +35,7 @@ import { overlayEntityBlockedStatus } from '@src/application/ui/tui/runtime/buck
 import type { FlowProgress } from '@src/application/ui/tui/runtime/flow-progress.ts';
 import type { SessionDescriptor } from '@src/application/ui/tui/runtime/session-manager.ts';
 import type { TaskEvaluation } from '@src/application/ui/tui/components/tasks-panel-internals/evaluation-row.tsx';
-import type { BlockedTriage } from '@src/application/ui/tui/components/tasks-projection.ts';
+import { type BlockedTriage, projectTasksSprintState } from '@src/application/ui/tui/components/tasks-projection.ts';
 import { useOptionalOverlayState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { useUnblockTask } from '@src/application/ui/tui/runtime/use-unblock-task.ts';
 import type { AttemptWarning } from '@src/domain/entity/attempt.ts';
@@ -173,6 +175,7 @@ type EntityPanelProps = Pick<
   | 'warningSummaryById'
   | 'priorWorkById'
   | 'taskEvaluationById'
+  | 'sprintState'
 >;
 
 /** Every entity-sourced map, with absent ones left out so the panel's prop diff stays clean. */
@@ -184,6 +187,7 @@ const entityPanelProps = (taskState: readonly Task[], isRunning: boolean): Entit
   const taskEvaluationById = evaluationsByTaskId(taskState);
   return {
     taskCriteriaById: criteriaBulletsByTaskId(taskState),
+    sprintState: projectTasksSprintState(taskState),
     ...(blockedReasonById !== undefined ? { blockedReasonById } : {}),
     ...(blockedTriageById !== undefined ? { blockedTriageById } : {}),
     ...(warningSummaryById !== undefined ? { warningSummaryById } : {}),
