@@ -100,6 +100,24 @@ describe('buildCreatePrPrompt — end-to-end against the real template', () => {
     expect(result.value).not.toMatch(/\{\{[A-Z_]+\}\}/);
   });
 
+  it('keeps the one-shot session going until the signals file is written', async () => {
+    expect(createPrPromptDef.partials).toMatchObject({ ONE_SHOT_OPERATION: 'one-shot-operation' });
+    const result = await buildCreatePrPrompt(deps, {
+      baseBranch: 'main',
+      headBranch: 'feature/x',
+      repositoryPath: '/work/repo',
+      ticketSummary: '',
+      issueRefs: '',
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const flattened = result.value.replace(/\s+/g, ' ');
+    expect(flattened.split('<one-shot-operation>')).toHaveLength(2);
+    expect(flattened).toContain('keep going until `signals.json` is written at the path the output contract names');
+    expect(flattened).toContain('only when nothing can proceed without the operator');
+  });
+
   it('quotes the repository path in every git command so a path with spaces stays one argument', async () => {
     const result = await buildCreatePrPrompt(deps, {
       baseBranch: 'main',

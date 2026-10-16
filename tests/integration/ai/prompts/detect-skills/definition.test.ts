@@ -39,6 +39,21 @@ describe('buildDetectSkillsPrompt — end-to-end', () => {
     expect(result.value).toContain('## Output contract');
   });
 
+  it('keeps the one-shot session going until the signals file is written', async () => {
+    expect(detectSkillsPromptDef.partials).toMatchObject({ ONE_SHOT_OPERATION: 'one-shot-operation' });
+    const result = await buildDetectSkillsPrompt(loader, {
+      repositoryPath: '/tmp/repo',
+      skillsConvention: 'Skills land in `.claude/skills/<name>/SKILL.md`.',
+      outputContractSection: EXAMPLE_CONTRACT,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const flattened = result.value.replace(/\s+/g, ' ');
+    expect(flattened.split('<one-shot-operation>')).toHaveLength(2);
+    expect(flattened).toContain('keep going until `signals.json` is written at the path the output contract names');
+    expect(flattened).toContain('only when nothing can proceed without the operator');
+  });
+
   it('rejects empty repositoryPath', async () => {
     const result = await buildDetectSkillsPrompt(loader, {
       repositoryPath: '  ',

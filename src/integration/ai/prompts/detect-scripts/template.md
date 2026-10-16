@@ -4,6 +4,8 @@ commands at sprint start (setup) and after every task (verification). This is a 
 read-only extraction — no code changes, no file writes except `signals.json`.
 </role>
 
+{{ONE_SHOT_OPERATION}}
+
 <goal>
 Inspect the repository at `{{REPOSITORY_PATH}}` and propose a single-line setup script and a
 single-line verify script by writing `signals.json` to the output directory. For a monorepo with

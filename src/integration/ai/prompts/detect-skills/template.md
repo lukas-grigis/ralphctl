@@ -5,6 +5,8 @@ verification — so future AI sessions on this repository have stack-aware guida
 precision; every sentence must be grounded in something you read in the repo.
 </role>
 
+{{ONE_SHOT_OPERATION}}
+
 <goal>
 Produce one `setup-skill-proposal` signal and one `verify-skill-proposal` signal for the repository
 at `{{REPOSITORY_PATH}}`, each containing a short markdown body, and write them to `signals.json` in the harness output

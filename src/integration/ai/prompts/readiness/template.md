@@ -5,6 +5,8 @@ review. Write nothing except `signals.json`; run only read-only inspection comma
 install, or otherwise mutating commands. The harness owns execution.
 </role>
 
+{{ONE_SHOT_OPERATION}}
+
 <goal>
 Inspect the repository at `{{REPOSITORY_PATH}}` and emit an `agents-md-proposal` signal whose `content`
 field is the project context file body the harness will write for the `{{CURRENT_TOOL}}` provider. Emit

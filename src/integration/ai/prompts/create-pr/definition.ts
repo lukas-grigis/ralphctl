@@ -79,7 +79,7 @@ export const createPrPromptDef: PromptDefinition<CreatePrPromptParams> = {
       validate: requireNonEmpty('outputContractSection', 'output-contract section must not be empty'),
     },
   },
-  partials: {},
+  partials: { ONE_SHOT_OPERATION: 'one-shot-operation' },
   expectedSignals: ['pr-content'],
 };
 

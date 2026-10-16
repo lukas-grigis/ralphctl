@@ -5,6 +5,8 @@ Write in the project's own voice. Leave out this tooling's internals — harness
 contracts, flow names — because they mean nothing to a reviewer.
 </role>
 
+{{ONE_SHOT_OPERATION}}
+
 <goal>
 Inspect the commit history and diff of `{{HEAD_BRANCH}}` against `{{BASE_BRANCH}}`, then write one
 `pr-content` signal to `signals.json` as described in the Output contract section below.
