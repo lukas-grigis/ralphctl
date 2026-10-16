@@ -145,9 +145,11 @@ is held across the whole run by the implement flow (both paths), by the review f
 `withRepoLock` (`flows/_shared/`) on the same sprint-dir key — implement, review and close of one sprint mutually
 exclude. Manual task unblock (CLI and TUI) takes the same sprint-dir key around its write via `unblockTaskLocked`
 (`ui/shared/`) and re-reads the task under it, so it waits out a live run instead of being overwritten by it.
+Close-sprint holds the lock across its blocked-task confirm prompt and its distill step too, so while the
+operator answers or the AI distills, other writers (unblock, purge, migration) wait or refuse.
 
 **Lock owner.** A lock taken with a `purpose` carries `owner.json` (pid, host, machine id, process start, `ps`
-identity, purpose) inside the lock directory; every call site passes one, including the per-write `tasks.json.lock`.
+identity, purpose) inside the lock directory; every current call site passes one, including the per-write `tasks.json.lock`.
 A lock whose owner pid is dead on this machine is reclaimed at once
 rather than after `staleAfterMs`; a live or other-machine owner still waits for the heartbeat to go stale. The same
 dead-owner check keeps `anyLockHeld` (`integration/io/lock-guard.ts`, the purge / removal / migration guard) from
