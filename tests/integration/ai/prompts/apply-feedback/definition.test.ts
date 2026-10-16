@@ -97,7 +97,9 @@ describe('buildApplyFeedbackPrompt — end-to-end against the real template', ()
     if (!result.ok) return;
     const flattened = result.value.replace(/\s+/g, ' ');
     expect(flattened).toContain('in a `note` signal instead of pausing');
-    expect(flattened).toContain('or any `note`) fails validation of the whole file');
+    // The contract drops non-terminal entries before validating, so the prompt must say "discarded", not "fails".
+    expect(flattened).toContain('or any `note`) is discarded');
+    expect(flattened).not.toContain('fails validation');
   });
 
   it('rejects an empty latestRound via the spec validator', async () => {
