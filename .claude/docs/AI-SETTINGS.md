@@ -202,7 +202,8 @@ results swing significantly with scaffolding). Treat this as relative-ordering r
 performance promise.
 
 Apply via `ralphctl settings apply-preset <name>` or from the TUI settings view. Re-applying overwrites
-every `ai` row plus `harness.escalateOnPlateau` in one transaction; subsequent per-key edits via
+every `ai` row plus `harness.escalateOnPlateau` in one transaction; the skills opt-out (`ai.skills`) and
+the implement agent bindings (`ai.implement.agents`) carry over. Subsequent per-key edits via
 `ralphctl settings set ai.<flow>.<field> <value>` stick.
 
 **Presets adapt to the account.** Before saving, the apply-preset flow asks each stamped provider's

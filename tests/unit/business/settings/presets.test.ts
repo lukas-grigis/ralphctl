@@ -794,6 +794,22 @@ describe('presets', () => {
       }
     });
 
+    it('keeps ai.skills and ai.implement.agents from current — they are operator preferences, not matrix rows', () => {
+      const current: Settings = {
+        ...DEFAULT_SETTINGS,
+        ai: {
+          ...DEFAULT_SETTINGS.ai,
+          skills: { plan: { disabled: ['ralphctl-x'] } },
+          implement: { ...DEFAULT_SETTINGS.ai.implement, agents: { evaluator: 'critic' } },
+        },
+      };
+      const out = applyPreset('codex-only', current);
+      expect(out.ai.skills).toEqual({ plan: { disabled: ['ralphctl-x'] } });
+      expect(out.ai.implement.agents).toEqual({ evaluator: 'critic' });
+      expect(out.ai.implement.generator.provider).toBe('openai-codex');
+      expect(applyPreset('codex-only', DEFAULT_SETTINGS).ai).not.toHaveProperty('skills');
+    });
+
     it('leaves no preset identity behind — a subsequent manual edit sticks', () => {
       const applied = applyPreset('claude-only', DEFAULT_SETTINGS);
       const edited: Settings = {

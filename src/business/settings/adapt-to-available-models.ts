@@ -123,6 +123,7 @@ export const adaptAiToAvailableModels = (
       next = {
         ...next,
         implement: {
+          ...next.implement,
           generator: adaptRow(next.implement.generator, { flow, role: 'generator' }),
           evaluator: adaptRow(next.implement.evaluator, { flow, role: 'evaluator' }),
         },
