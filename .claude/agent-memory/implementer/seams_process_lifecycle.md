@@ -1,6 +1,6 @@
 ---
 name: seams_process_lifecycle
-description: Process groups, the orphan reaper sidecar, live-run records, the lock owner file and crash resume — the traps behind each and how the tests must be shaped
+description: Process groups, the exit+drain settle rule, which git verbs may take a cancel signal, the orphan reaper sidecar, live-run records, the lock owner file and crash resume — the traps behind each and how the tests must be shaped
 metadata:
   type: project
 ---
@@ -19,15 +19,17 @@ process the user owns. Unit tests that want the group path must `vi.spyOn(proces
 
 ## Why group kill also fixes an abort hang
 
-Every headless spawn settles on `'close'` (settling on `'exit'` dropped final records under load on
-Linux), which waits for EVERY holder of the stdout pipe. A tool subprocess the CLI forked inherits
+Every headless spawn settles on `'close'` (settling at bare `'exit'` dropped final records under load
+on Linux), which waits for EVERY holder of the stdout pipe. A tool subprocess the CLI forked inherits
 that pipe, so a single-pid SIGTERM left the attempt hanging until the grandchild exited. The
 watchdog's `stop()` deliberately lets a pending group SIGKILL land (unref'd) after the leader exits;
 only a lone child's escalation is cancelled (pid-reuse guard).
 
-**The `'exit'`-time group reap in `runHeadlessSpawn` is what keeps `'close'` bounded on a clean exit.**
-Don't "fix" a close-hang by settling on `'exit'` again; the watchdog alone can't bound it, because a
-backgrounded job that keeps writing to the inherited stdout resets the idle timer forever.
+**The `'exit'`-time group reap keeps `'close'` prompt; `onChildDone`'s 1s drain is the backstop** for a
+holder no group kill reaches (Windows has no pgid; a setsid escapee). Don't drop either: the watchdog
+can't bound it, since a job writing to the inherited stdout resets the idle timer forever. A real
+escapee for tests: `writeStubCli(..., { grandchildEscapesGroup: true })` (node `detached` = setsid;
+macOS has no `setsid` binary).
 
 ## Skill install marker: own pid uses a boot id, not `ps`
 
@@ -35,16 +37,29 @@ backgrounded job that keeps writing to the inherited stdout resets the idle time
 rather than `ps` identity: slim containers have no `ps` and give ralphctl the same pid every start,
 so an identity-only check left crash leftovers "live" forever there. Other pids use `processGone`.
 
-## git / shell runners settle on exit + drain, not on close or timer
+## Every piped-output runner settles on exit + drain, not on close alone
 
 `onChildDone` (`integration/io/child-exit.ts`) settles on `close`, or 1s after `exit` with the pipes
-destroyed. **Why not settle at timer-fire** (the run-cli shape): the next git op would race the dying
-git's `.git/index.lock`. **Why not wait for `close`:** a hook's or script's background job holds the
-pipe, so a commit that landed was reported as a timeout, and a setsid'd daemon stalled the run for its
-whole life. The timeout timer is cleared on `exit`, so a drain never reads as a timeout. Git children
-are `detached` (own session → no controlling tty, which is also what makes ssh prompts fail fast);
-git leftovers are NOT killed on a normal exit (a post-commit hook's background job is legitimate),
-shell-script leftovers are. Group SIGKILL escalation is never cancelled on leader exit.
+destroyed — git, shell, headless engine, run-cli, run-command, clipboard, opencode probe all use it.
+**Why git doesn't settle at timer-fire** (run-cli still does on timeout): the next git op would race
+the dying git's `.git/index.lock`. **Why not wait for `close`:** a hook's or script's background job
+holds the pipe, so a commit that landed was reported as a timeout. Clear the timeout timer on `exit`
+so a drain never reads as one. The drain calls `stdout.destroy()`: a fake child that emits `exit`
+without `close` needs a `destroy` on its streams or the timer throws. Git children are `detached` (own
+session → no controlling tty, so ssh prompts fail fast); git leftovers are NOT killed on a normal exit
+(a post-commit hook's background job is legitimate), shell-script leftovers are.
+
+## Which git verbs take the cancel signal
+
+Only hook verbs (checkout, worktree add, merge, cherry-pick, commit, push). Stash push/pop and worktree
+remove must NOT: they mostly run on the abort path as cleanup (worktree teardown, best-of-N baseline
+restore, the pre-verify exclude pop in a `finally`), and the runner refuses to spawn on an
+already-aborted signal — the cleanup would silently skip and strand worktrees/diffs. A cancel can also
+report a pop that already dropped its entry as failed, and `restore-blocked-diff`'s undo then resets
+the only copy away. A killed hook verb leaves half-done state that callers must handle: a fast-forward
+killed in post-merge already landed (`merge-base --is-ancestor`), a killed cherry-pick needs
+`--abort`, a worktree add killed in post-checkout leaves a full worktree that the next launch reads as
+"stranded" — undo it only when the path did not exist before the add.
 
 ## Lock owner file inside a proper-lockfile dir
 

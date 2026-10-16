@@ -92,11 +92,11 @@ external-command runners (`run-cli.ts`, `run-command.ts`, `git-runner.ts`). It i
 copy of the ladder in the AI-provider engine (`_engine/abort-kill.ts` / `idle-watchdog.ts`) because
 `integration/io/` must not import the AI-provider `_engine/` under sibling isolation.
 
-The runners settle their result promise the instant the timeout trips, so a bare
-`child.kill('SIGTERM')` never reaped a wedged git/gh child that ignores SIGTERM — it could hold
-`.git/index.lock` forever. `killWithEscalation` sends SIGTERM, schedules an `unref`'d SIGKILL after the
-grace, and clears it on the child's `exit` so a recycled pid is never signalled. Promise semantics are
-UNCHANGED: the escalation reaps in the background.
+`run-cli` / `run-command` settle their result promise the instant the timeout trips, so a bare
+`child.kill('SIGTERM')` never reaped a wedged gh child that ignores SIGTERM; the git runner instead
+waits for git's exit (see [[seams_process_lifecycle]]). `killWithEscalation` sends SIGTERM, schedules
+an `unref`'d SIGKILL after the grace, and clears it on the child's `exit` so a recycled pid is never
+signalled. The escalation reaps in the background.
 
 **How to apply:** any new external-process runner in `integration/io/` kills via `killWithEscalation`,
 not a bare SIGTERM. Test with `vi.useFakeTimers()` + `advanceTimersByTime(grace)` — grace is injectable.
