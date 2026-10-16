@@ -1,5 +1,5 @@
 import type { Command } from 'commander';
-import { bootstrapCli } from '@src/application/ui/cli/bootstrap.ts';
+import { bootstrapApp } from '@src/application/bootstrap/bootstrap-app.ts';
 import { fail } from '@src/application/ui/cli/report-cli-error.ts';
 import { SKILL_MOUNTING_FLOW_IDS } from '@src/application/ui/shared/launcher.ts';
 import { BUNDLED_SKILLS } from '@src/integration/ai/skills/_engine/registry.ts';
@@ -78,7 +78,7 @@ const formatSkillLine = (
 };
 
 const listSkillsAction = async (): Promise<void> => {
-  const { deps } = await bootstrapCli();
+  const { deps } = await bootstrapApp();
 
   const catalogR = await deps.skillCatalog.list();
   if (!catalogR.ok) {

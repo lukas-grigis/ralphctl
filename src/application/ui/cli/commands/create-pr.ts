@@ -8,7 +8,7 @@ import { createAiProvider } from '@src/application/bootstrap/provider-factory.ts
 import { createSkillsAdapter } from '@src/integration/ai/skills/adapter-factory.ts';
 import { buildComposedSkillSource } from '@src/application/ui/shared/launcher.ts';
 import { checkCli } from '@src/application/ui/shared/launch/check-cli.ts';
-import { bootstrapCli } from '@src/application/ui/cli/bootstrap.ts';
+import { bootstrapApp } from '@src/application/bootstrap/bootstrap-app.ts';
 import { fail } from '@src/application/ui/cli/report-cli-error.ts';
 import { resolveSprintForCli } from '@src/application/ui/cli/resolve-sprint-selection.ts';
 import type { AppDeps } from '@src/application/bootstrap/wire.ts';
@@ -92,7 +92,7 @@ const createPrAction = async (opts: Opts): Promise<void> => {
     return;
   }
 
-  const { deps, storage } = await bootstrapCli();
+  const { deps, storage } = await bootstrapApp();
   // Opening a PR is a write to the upstream — the resolver always disambiguates a pin-derived target.
   const sprintId = await resolveSprintForCli(opts.sprint, storage.stateRoot);
   if (sprintId === undefined) return;

@@ -396,6 +396,7 @@ application/bootstrap/
 ├── storage-paths.ts       ← resolveStoragePaths() + storagePathsFromRoot(absPath);
 │                            StoragePaths carries appRoot / dataRoot / configRoot / stateRoot /
 │                            locksRoot / runsRoot / memoryRoot / operatorSkillsRoot
+├── bootstrap-app.ts       ← bootstrapApp({ providerSpawn? }): shared CLI/TUI pre-flight + wire()
 ├── provider-factory.ts    ← createAiProvider({ harnessConfig, eventBus, spawn? } & ({ flow, ai } | { row }))
 ├── interactive-provider-factory.ts
 └── legacy-layout-detector.ts  ← v0.6.x layout detector (RALPHCTL_SKIP_LEGACY_CHECK bypass)
@@ -774,7 +775,7 @@ All domain errors extend `DomainError` (`src/domain/value/error/domain-error.ts`
 
 The CLI does not centralise exit codes in a constants module. Commands set `0` on success and `1` on any
 validation/execution error via `process.exitCode = 1` (`src/application/ui/cli/cli.ts`) or `process.exit(1)`
-(`src/application/ui/cli/bootstrap.ts` and per-command actions). One exception: `report-cli-error.ts` sets
+(`src/application/bootstrap/bootstrap-app.ts` and per-command actions). One exception: `report-cli-error.ts` sets
 `EXIT_INTERRUPTED = 130` when the top-level catch in `cli.ts` receives an `AbortError` (Ctrl-C).
 
 ## Terminal UI Layer (`src/application/ui/`)

@@ -1,6 +1,6 @@
 /**
  * Contract for `application/bootstrap/run-bundle-integrity-check.ts` — the seam both
- * composition roots (`ui/cli/bootstrap.ts`, `ui/tui/launch.ts`) actually call. The core
+ * composition root (`bootstrap/bootstrap-app.ts`, shared by the CLI and TUI) actually calls. The core
  * `checkBundleIntegrity` probe is mocked (its own dual-mode / manifest-shape behaviour is
  * covered by `tests/integration/system/bundle-integrity.test.ts`) so this suite asserts only the
  * three branches `runBundleIntegrityCheck` adds on top: throw-on-error, warn-on-malformed, and

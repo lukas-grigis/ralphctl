@@ -11,7 +11,7 @@ import { quarantineStashMessage } from '@src/domain/value/quarantine-stash-messa
 import { formatDiffStat } from '@src/domain/value/diff-stat.ts';
 import { probeTaskQuarantine, type QuarantineProbe } from '@src/application/ui/shared/prior-work.ts';
 import { TaskId } from '@src/domain/value/id/task-id.ts';
-import { bootstrapCli } from '@src/application/ui/cli/bootstrap.ts';
+import { bootstrapApp } from '@src/application/bootstrap/bootstrap-app.ts';
 import { fail } from '@src/application/ui/cli/report-cli-error.ts';
 import {
   resolveSprintAndIdForCli,
@@ -27,7 +27,7 @@ import { resolveSprintDir } from '@src/integration/persistence/storage.ts';
 import { messageOf } from '@src/domain/value/error/error-message.ts';
 
 const listTasksAction = async (opts: SprintOpt): Promise<void> => {
-  const { deps, storage } = await bootstrapCli();
+  const { deps, storage } = await bootstrapApp();
   const sprintId = await resolveSprintForCli(opts.sprint, storage.stateRoot);
   if (sprintId === undefined) return;
   const result = await deps.taskRepo.findBySprintId(sprintId);
@@ -45,7 +45,7 @@ const listTasksAction = async (opts: SprintOpt): Promise<void> => {
 };
 
 const showTaskAction = async (rawTaskId: string, opts: SprintOpt): Promise<void> => {
-  const { deps, storage } = await bootstrapCli();
+  const { deps, storage } = await bootstrapApp();
   const ids = await resolveSprintAndIdForCli(opts.sprint, storage.stateRoot, rawTaskId, TaskId.parse, 'task');
   if (ids === undefined) return;
   const { sprintId, id: taskId } = ids;
@@ -62,7 +62,7 @@ const showTaskAction = async (rawTaskId: string, opts: SprintOpt): Promise<void>
  * was written to disk every round and readable by nothing.
  */
 const evaluationTaskAction = async (rawTaskId: string, opts: SprintOpt): Promise<void> => {
-  const { deps, storage } = await bootstrapCli();
+  const { deps, storage } = await bootstrapApp();
   const ids = await resolveSprintAndIdForCli(opts.sprint, storage.stateRoot, rawTaskId, TaskId.parse, 'task');
   if (ids === undefined) return;
   const { sprintId, id: taskId } = ids;
@@ -130,7 +130,7 @@ const defaultReason = (task: Task): string =>
 
 /** Probe the stash and decide what to record. A `todo` task is only probed when the flag asks to change its mind. */
 const planPriorWork = async (
-  deps: Awaited<ReturnType<typeof bootstrapCli>>['deps'],
+  deps: Awaited<ReturnType<typeof bootstrapApp>>['deps'],
   sprintId: Parameters<typeof quarantineStashMessage>[0],
   task: Task,
   flag: PriorWorkChoice | undefined
@@ -165,7 +165,7 @@ const describeChoice = (fact: QuarantinedDiff | undefined): string =>
       : 'restores the rejected diff (no choice recorded)';
 
 const unblockTaskAction = async (rawTaskId: string, opts: UnblockOpts): Promise<void> => {
-  const { deps, storage } = await bootstrapCli();
+  const { deps, storage } = await bootstrapApp();
   const ids = await resolveSprintAndIdForCli(opts.sprint, storage.stateRoot, rawTaskId, TaskId.parse, 'task');
   if (ids === undefined) return;
   const { sprintId, id: taskId } = ids;

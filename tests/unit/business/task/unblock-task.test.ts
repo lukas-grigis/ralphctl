@@ -771,7 +771,7 @@ describe('unblockTaskUseCase', () => {
   });
 
   // The log is the ONLY channel some surfaces have for this outcome (the TUI's Recent-log panel
-  // renders it; `bootstrapCli` attaches no log subscriber at all). A line saying the UNBLOCK was
+  // renders it; `bootstrapApp` attaches no log subscriber at all). A line saying the UNBLOCK was
   // refused would state the opposite of what happened — the task is revived, only the reopen is
   // refused — so the verb has to name the transition, not the command the operator typed.
   it('names the refused reopen — not the unblock — in the conflict log line', async () => {

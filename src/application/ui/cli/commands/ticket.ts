@@ -4,7 +4,7 @@ import { TicketId } from '@src/domain/value/id/ticket-id.ts';
 import { createTicketAddFlow } from '@src/application/flows/add-ticket/flow.ts';
 import { createTicketPublishFlow } from '@src/application/flows/publish-ticket/flow.ts';
 import { createTicketRemoveFlow } from '@src/application/flows/remove-ticket/flow.ts';
-import { bootstrapCli } from '@src/application/ui/cli/bootstrap.ts';
+import { bootstrapApp } from '@src/application/bootstrap/bootstrap-app.ts';
 import { plural } from '@src/application/ui/shared/plural.ts';
 import { confirmDestructive } from '@src/application/ui/cli/confirm-destructive.ts';
 import { fail } from '@src/application/ui/cli/report-cli-error.ts';
@@ -27,7 +27,7 @@ interface AddOpts extends SprintOpt {
 }
 
 const listTicketsAction = async (opts: SprintOpt): Promise<void> => {
-  const { deps, storage } = await bootstrapCli();
+  const { deps, storage } = await bootstrapApp();
   const sprintId = await resolveSprintForCli(opts.sprint, storage.stateRoot);
   if (sprintId === undefined) return;
   const sprint = await deps.sprintRepo.findById(sprintId);
@@ -45,7 +45,7 @@ const listTicketsAction = async (opts: SprintOpt): Promise<void> => {
 };
 
 const showTicketAction = async (rawTicketId: string, opts: SprintOpt): Promise<void> => {
-  const { deps, storage } = await bootstrapCli();
+  const { deps, storage } = await bootstrapApp();
   const ids = await resolveSprintAndIdForCli(opts.sprint, storage.stateRoot, rawTicketId, TicketId.parse, 'ticket');
   if (ids === undefined) return;
   const { sprintId, id: ticketId } = ids;
@@ -63,7 +63,7 @@ const showTicketAction = async (rawTicketId: string, opts: SprintOpt): Promise<v
 };
 
 const addTicketAction = async (opts: AddOpts): Promise<void> => {
-  const { deps, storage } = await bootstrapCli();
+  const { deps, storage } = await bootstrapApp();
   const sprintId = await resolveSprintForCli(opts.sprint, storage.stateRoot);
   if (sprintId === undefined) return;
   const flow = createTicketAddFlow({ sprintRepo: deps.sprintRepo });
@@ -84,7 +84,7 @@ const addTicketAction = async (opts: AddOpts): Promise<void> => {
 };
 
 const removeTicketAction = async (rawTicketId: string, opts: RemoveOpts): Promise<void> => {
-  const { deps, storage } = await bootstrapCli();
+  const { deps, storage } = await bootstrapApp();
   const ids = await resolveSprintAndIdForCli(opts.sprint, storage.stateRoot, rawTicketId, TicketId.parse, 'ticket');
   if (ids === undefined) return;
   const { sprintId, id: ticketId } = ids;
@@ -115,7 +115,7 @@ const removeTicketAction = async (rawTicketId: string, opts: RemoveOpts): Promis
 };
 
 const publishTicketAction = async (rawTicketId: string, opts: SprintOpt): Promise<void> => {
-  const { deps, storage } = await bootstrapCli();
+  const { deps, storage } = await bootstrapApp();
   const ids = await resolveSprintAndIdForCli(opts.sprint, storage.stateRoot, rawTicketId, TicketId.parse, 'ticket');
   if (ids === undefined) return;
   const { sprintId, id: ticketId } = ids;

@@ -4,7 +4,7 @@ import { createBundledAgentDefinitionSource } from '@src/integration/ai/agents/b
 import { createOperatorAgentDefinitionSource } from '@src/integration/ai/agents/operator/source.ts';
 import { warnIfVague } from '@src/integration/ai/agents/_engine/agent-definition-quality.ts';
 import { createSettingsShowFlow } from '@src/application/flows/settings-show/flow.ts';
-import { bootstrapCli } from '@src/application/ui/cli/bootstrap.ts';
+import { bootstrapApp } from '@src/application/bootstrap/bootstrap-app.ts';
 import { fail } from '@src/application/ui/cli/report-cli-error.ts';
 import type { AiImplementRole } from '@src/domain/entity/settings.ts';
 
@@ -16,7 +16,7 @@ interface ListedDefinition {
 }
 
 const listAgentsAction = async (): Promise<void> => {
-  const { deps, storage } = await bootstrapCli();
+  const { deps, storage } = await bootstrapApp();
 
   const bundledSource = createBundledAgentDefinitionSource();
   const operatorSource = createOperatorAgentDefinitionSource({

@@ -5,7 +5,7 @@ import { type CliHome, createCliHome, runCliCaptured } from '@tests/e2e/cli/_har
 import { RALPHCTL_DEBUG_TRACE_ENV } from '@src/application/bootstrap/wire.ts';
 
 /**
- * The CLI's terminal error frame. `bootstrapCli`'s pre-flights (storage paths / roots / settings /
+ * The CLI's terminal error frame. `bootstrapApp`'s pre-flights (storage paths / roots / settings /
  * bundle integrity) throw plain `Error`s, and uncaught they reach Node's crash handler — which on
  * an installed package prints a source excerpt from the bundled `dist/cli-<hash>.mjs`, a full
  * commander stack and a `Node.js v<x>` footer. `doctor` is the command an operator runs BECAUSE

@@ -14,10 +14,8 @@ import React from 'react';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { Settings } from '@src/domain/entity/settings.ts';
 import type { LogEvent } from '@src/business/observability/events.ts';
-import { ensureStorageRoots, resolveStoragePaths } from '@src/application/bootstrap/storage-paths.ts';
-import { detectLegacyLayout, renderLegacyLayoutMessage } from '@src/application/bootstrap/legacy-layout-detector.ts';
-import { createJsonSettingsRepository } from '@src/integration/persistence/settings/json-settings-repository.ts';
-import { type AppDeps, wire } from '@src/application/bootstrap/wire.ts';
+import { bootstrapApp } from '@src/application/bootstrap/bootstrap-app.ts';
+import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import { type BusSink, createBusSink } from '@src/application/ui/tui/runtime/sinks-bus.ts';
 import type { SignalBusEntry } from '@src/application/ui/tui/runtime/sinks-context.tsx';
 import { type CoalescedBuffer, createCoalescedBuffer } from '@src/application/ui/tui/runtime/coalesced-buffer.ts';
@@ -46,7 +44,6 @@ import { startHeapWatchdog } from '@src/integration/observability/heap-watchdog.
 import { writeHeapSnapshotToDir } from '@src/integration/observability/heap-snapshot.ts';
 import { createOsNotificationDispatcher } from '@src/integration/observability/os-notification-dispatcher.ts';
 import { startNotificationSubscriber } from '@src/business/observability/notification-subscriber.ts';
-import { runBundleIntegrityCheck } from '@src/application/bootstrap/run-bundle-integrity-check.ts';
 
 interface Bootstrapped {
   readonly app: Parameters<typeof App>[0];
@@ -327,42 +324,18 @@ const resolveLaunchViewState = async (
 };
 
 const bootstrap = async (options: LaunchTuiOptions = {}): Promise<Bootstrapped> => {
-  const paths = resolveStoragePaths();
-  if (!paths.ok) throw new Error(`storage-paths: ${paths.error.message}`);
-
-  // Legacy-layout check runs BEFORE ensureStorageRoots and BEFORE the Ink mount so
-  // the user sees the recovery message on the regular terminal (alt-screen hasn't
-  // engaged yet). On hit we exit non-zero.
-  const legacy = await detectLegacyLayout(paths.value.appRoot);
-  if (legacy.kind === 'legacy-v0.6') {
-    process.stderr.write(renderLegacyLayoutMessage(legacy));
-    process.exit(1);
-  }
-
-  const ensured = await ensureStorageRoots(paths.value);
-  if (!ensured.ok) throw new Error(`ensure-roots: ${ensured.error.message}`);
-
-  const settingsRepo = createJsonSettingsRepository({ configRoot: paths.value.configRoot });
-  const settings = await settingsRepo.load();
-  if (!settings.ok) throw new Error(`settings: ${settings.error.message}`);
-
-  const deps = wire({
-    storage: paths.value,
-    settings: settings.value,
-    ...(options.providerSpawn !== undefined ? { providerSpawn: options.providerSpawn } : {}),
-  });
-
-  // Runs once per process: `launchTui` is the single bare-`ralphctl` entry point and `bootstrap`
-  // runs exactly once per invocation. A hard failure throws here and is caught by `launchTui`
-  // below, which renders it as a one-line stderr message instead of a raw stack trace. See
-  // run-bundle-integrity-check.ts for the full story.
-  await runBundleIntegrityCheck(deps.logger);
+  // Runs BEFORE the Ink mount so the legacy-layout recovery message lands on the regular terminal. A hard failure
+  // throws and is caught by `launchTui`, which renders it as a one-line stderr message instead of a raw stack trace.
+  const { deps, storage } = await bootstrapApp(
+    options.providerSpawn !== undefined ? { providerSpawn: options.providerSpawn } : {}
+  );
+  const settings = deps.settings;
   // Fallback for the orphan reaper: kill AI CLI process groups that a crashed earlier run left alive.
   void deps.reapInterruptedRuns.execute();
 
   const { harnessBus, logBus, logLevelGate, logForwarder, unsubSignalForward, unsubLogForward } = wireObservability(
     deps.eventBus,
-    settings.value
+    settings
   );
 
   // Session manager is created BEFORE the heap watchdog so the critical handler can reach it to
@@ -387,14 +360,11 @@ const bootstrap = async (options: LaunchTuiOptions = {}): Promise<Bootstrapped> 
   // also clear it the moment real pressure fires. No-op under a production React build.
   const perfTimelineGuard = startPerfTimelineGuard();
 
-  const unsubNotifications = wireOsNotifications(deps, settings.value);
+  const unsubNotifications = wireOsNotifications(deps, settings);
 
   const queue = createPromptQueue();
 
-  const { initialView, initialSelection, lastSelectionStore } = await resolveLaunchViewState(
-    deps,
-    paths.value.stateRoot
-  );
+  const { initialView, initialSelection, lastSelectionStore } = await resolveLaunchViewState(deps, storage.stateRoot);
 
   // Pending-migration pre-flight. Runs AFTER ensureStorageRoots, BEFORE the App mount. The engine
   // is a pure factory; `needsMigration` only reads the marker file (absent ⇒ pending). When pending,
@@ -402,12 +372,12 @@ const bootstrap = async (options: LaunchTuiOptions = {}): Promise<Bootstrapped> 
   // this is always interactive — no separate non-TTY branch is needed here (the CLI bootstrap, which
   // CAN run headless, deliberately skips migration entirely; the TUI owns consent).
   const migrationEngine = createDataMigrationEngine();
-  const migrationPending = await migrationEngine.needsMigration(paths.value.dataRoot);
+  const migrationPending = await migrationEngine.needsMigration(storage.dataRoot);
 
   return {
     app: {
       deps,
-      storage: paths.value,
+      storage,
       buses: { harness: harnessBus, log: logBus },
       sessions,
       queue,
@@ -438,8 +408,8 @@ const bootstrap = async (options: LaunchTuiOptions = {}): Promise<Bootstrapped> 
     migration: {
       pending: migrationPending,
       engine: migrationEngine,
-      dataRoot: paths.value.dataRoot,
-      stateRoot: paths.value.stateRoot,
+      dataRoot: storage.dataRoot,
+      stateRoot: storage.stateRoot,
       now: () => String(deps.clock()),
       writeFile: deps.writeFile,
     },

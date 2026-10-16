@@ -6,7 +6,7 @@ import { createSettingsSetFlow } from '@src/application/flows/settings-set/flow.
 import { createSettingsSetProviderFlow } from '@src/application/flows/settings-set-provider/flow.ts';
 import { createSettingsApplyPresetFlow } from '@src/application/flows/settings-apply-preset/flow.ts';
 import { presetAdaptationLines } from '@src/application/ui/shared/preset-notices.ts';
-import { bootstrapCli } from '@src/application/ui/cli/bootstrap.ts';
+import { bootstrapApp } from '@src/application/bootstrap/bootstrap-app.ts';
 import { fail } from '@src/application/ui/cli/report-cli-error.ts';
 import type { AiImplementRole } from '@src/domain/entity/settings.ts';
 import { AI_PROVIDERS, isAiProvider } from '@src/domain/entity/settings.ts';
@@ -27,7 +27,7 @@ const parseProviderKey = (key: string): { readonly flow: FlowId; readonly role?:
 };
 
 const showSettingsAction = async (): Promise<void> => {
-  const { deps } = await bootstrapCli();
+  const { deps } = await bootstrapApp();
   const flow = createSettingsShowFlow({ settingsRepo: deps.settingsRepo });
   const result = await flow.execute({ input: undefined });
   if (!result.ok) {
@@ -69,7 +69,7 @@ const setProviderKeyAction = async (
 };
 
 const setSettingsAction = async (key: string, value: string): Promise<void> => {
-  const { deps } = await bootstrapCli();
+  const { deps } = await bootstrapApp();
   const providerKey = parseProviderKey(key);
   if (providerKey !== undefined) {
     await setProviderKeyAction(key, value, providerKey.role, providerKey.flow, deps.settingsRepo);
@@ -100,7 +100,7 @@ const applyPresetAction = async (name: string): Promise<void> => {
     fail(`unknown preset '${name}' — expected one of: ${PRESET_NAMES.join(', ')}`);
     return;
   }
-  const { deps } = await bootstrapCli();
+  const { deps } = await bootstrapApp();
   const flow = createSettingsApplyPresetFlow({
     settingsRepo: deps.settingsRepo,
     availableModelsFor: deps.availableModelsFor,

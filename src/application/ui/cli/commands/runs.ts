@@ -1,7 +1,7 @@
 import { promises as fs } from 'node:fs';
 import { createInterface, type Interface } from 'node:readline';
 import type { Command } from 'commander';
-import { bootstrapCli } from '@src/application/ui/cli/bootstrap.ts';
+import { bootstrapApp } from '@src/application/bootstrap/bootstrap-app.ts';
 import { askLine, confirmDestructive, isYes } from '@src/application/ui/cli/confirm-destructive.ts';
 import { plural } from '@src/application/ui/shared/plural.ts';
 import { fail } from '@src/application/ui/cli/report-cli-error.ts';
@@ -67,7 +67,7 @@ export const registerRunsCommand = (program: Command): void => {
 };
 
 const runListCommand = async (opts: ListOpts): Promise<void> => {
-  const { storage } = await bootstrapCli();
+  const { storage } = await bootstrapApp();
   const result = await listRuns(storage.runsRoot);
   if (!result.ok) {
     fail(result.error.message);
@@ -171,7 +171,7 @@ const parsePruneFilters = (opts: PruneOpts): PruneFiltersResult => {
 
 /** List runs, verify the requested `--flow` exists, and group the scoped entries by flow. */
 const resolveScopedRuns = async (flow: string | undefined): Promise<ScopedRunsResult> => {
-  const { storage } = await bootstrapCli();
+  const { storage } = await bootstrapApp();
   const result = await listRuns(storage.runsRoot);
   if (!result.ok) {
     fail(result.error.message);
@@ -230,7 +230,7 @@ const runInteractivePrune = async (): Promise<void> => {
     );
     return;
   }
-  const { storage } = await bootstrapCli();
+  const { storage } = await bootstrapApp();
   const listed = await listRuns(storage.runsRoot);
   if (!listed.ok) {
     fail(listed.error.message);

@@ -461,7 +461,7 @@ See [DESIGN-SYSTEM.md](./DESIGN-SYSTEM.md) for tokens, components, view patterns
       earlier filename check (`import.meta.url.endsWith('/cli.mjs')`) missed that chunk, shipping a bundle
       that silently served empty prompts in 0.15.0. Fixed in 0.15.1 (`resolveTemplatesDir` / `resolveBundledRoot`).
 - [x] **Startup bundle-integrity probe** — `integration/system/bundle-integrity.ts` runs once per process
-      (wired into both `ui/cli/bootstrap.ts` and `ui/tui/launch.ts`, right after `wire()`, via the shared
+      (wired into `bootstrap/bootstrap-app.ts`, shared by the CLI and TUI, right after `wire()`, via
       `run-bundle-integrity-check.ts`). Bundle-mode-only, detected the same filesystem-probe way as the item
       above (a `manifest.json` sitting beside the running module; absent in `tsx` dev, so dev silently skips):
       existence-checks every asset `scripts/build-assets.ts` recorded and cross-checks the manifest's

@@ -146,7 +146,7 @@ export interface UnblockTaskOutput {
    * Set when the sprint stayed closed because another sprint of the same project is already
    * `active` / `review`. The unblock itself succeeded; this is the operator-facing "and the sprint
    * did NOT reopen, because …" half, which would otherwise be visible only in a log line the CLI
-   * never renders (`bootstrapCli` attaches no log subscriber).
+   * never renders (`bootstrapApp` attaches no log subscriber).
    */
   readonly sprintReopenConflict?: ConflictError;
   /** The revived task's quarantined-diff fact as persisted, decision included — for toasts and the CLI. */
