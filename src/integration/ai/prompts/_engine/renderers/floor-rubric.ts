@@ -23,7 +23,7 @@ export const renderFloorRubricSection = (): string => {
 
   const blocks = FLOOR_DIMENSIONS.map(
     (dimension, index) =>
-      `${String(index + 1)}. **${dimension.name}** — ${dimension.description}\n\n   **Verdict:** PASS when every check above holds, each backed by a concrete observation (file path, line, function, tool output, or quoted snippet); FAIL when any check fails, or a PASS claim lacks evidence.`
+      `${String(index + 1)}. **${dimension.name}** — ${dimension.description}\n\n   **Verdict:** PASS when every check above holds, each backed by a concrete observation (file path, line, function, tool output, or quoted snippet); FAIL when any check fails — except a defect the change did not cause, which you record as an observation — or a PASS claim lacks evidence.`
   );
 
   return [preamble, '', blocks.join('\n\n')].join('\n');

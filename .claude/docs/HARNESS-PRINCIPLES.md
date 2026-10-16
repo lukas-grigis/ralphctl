@@ -477,10 +477,10 @@ over-praising."_
   critique format). The earlier Phase 0 checkpoint (a placeholder all-`failed` `signals.json` written before
   verifying) is removed — a session that dies mid-analysis is recovered by the corrective retry, and the
   placeholder risked being graded as a verdict.
-- **Pre-existing carve-out.** A floor-check defect in code the change neither touches nor newly depends on is
-  recorded as `pre-existing` in the dimension's `finding` and does not fail it. A violated criterion or unmet
-  step still fails, and an unclear case counts as the change's own, so the carve-out cannot become a way to
-  wave defects through. Source: the Claude Code review post (RESEARCH-REFERENCES.md).
+- **Pre-existing carve-out.** A floor-check defect the change did not cause — judged by cause, not file
+  location, so an untouched caller the change breaks still fails — is recorded as `pre-existing` in the
+  dimension's `finding` and does not fail it. A violated criterion or unmet step still fails, and an unclear
+  case counts as the change's own, so the carve-out cannot become a way to wave defects through. Source: the Claude Code review post (RESEARCH-REFERENCES.md).
 
 ---
 

@@ -234,8 +234,9 @@ describe('buildEvaluateContinuationPrompt — end-to-end against the real templa
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     const flattened = result.value.replace(/\s+/g, ' ');
-    expect(flattened).toContain('in code the change adds, edits, or newly depends on');
-    expect(flattened).toContain('a defect in code the change neither touches nor newly depends on');
+    expect(flattened).toContain('in existing code the change breaks (an untouched caller, say)');
+    expect(flattened).toContain('a defect the change did not cause (label it "pre-existing"');
+    expect(flattened).not.toContain('neither touches nor newly depends on');
     expect(flattened).toContain('name the pattern and list the other locations you saw');
   });
 

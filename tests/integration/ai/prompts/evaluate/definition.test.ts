@@ -453,9 +453,14 @@ describe('buildEvaluatePrompt — end-to-end against the real template', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     const flattened = result.value.replace(/\s+/g, ' ');
-    expect(flattened).toContain('in code the change adds, edits, or newly depends on');
-    expect(flattened).toContain('a defect in code the change neither touches nor newly depends on');
+    expect(flattened).toContain('that the change causes — in code it adds or edits');
+    expect(flattened).toContain('in existing code the change breaks (an untouched caller, say)');
+    expect(flattened).toContain('a defect the change did not cause (label it "pre-existing"');
     expect(flattened).toContain("if you cannot tell, treat it as the change's own");
+    // Untouched is not the same as not caused: the old code-location test let a broken caller pass as pre-existing.
+    expect(flattened).not.toContain('neither touches nor newly depends on');
+    // The floor verdict line names the same exception, so it cannot be read as "any failing check anywhere".
+    expect(flattened).toContain('FAIL when any check fails — except a defect the change did not cause');
     // The worked PASS example shows the label in use.
     expect(flattened).toContain('pre-existing, not graded:');
     expect(flattened).toContain('name the pattern and list the other locations you saw');
