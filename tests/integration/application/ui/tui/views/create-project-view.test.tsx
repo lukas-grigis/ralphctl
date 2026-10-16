@@ -15,8 +15,50 @@ import { CreateProjectView } from '@src/application/ui/tui/views/create-project-
 import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import type { Project } from '@src/domain/entity/project.ts';
 import type { ProjectRepository } from '@src/domain/repository/project/project-repository.ts';
+import { makeProject } from '@tests/fixtures/domain.ts';
+import { noopLogger } from '@tests/fixtures/noop-logger.ts';
+import { createRealFsApp } from '@tests/helpers/real-fs-app.ts';
 import { CTRL_U, ENTER, tick } from '@tests/integration/application/ui/tui/_keys.ts';
-import { renderView, waitForViewReady } from '@tests/integration/application/ui/tui/_harness.tsx';
+import { renderView, waitForViewReady, type HarnessApi } from '@tests/integration/application/ui/tui/_harness.tsx';
+
+// Types `name`, accepts the default slug, skips the description, enters `repoPath`, accepts the
+// default repo name and confirms.
+const walkWizard = async (result: HarnessApi['result'], name: string, repoPath: string): Promise<void> => {
+  // Match the prompt's literal copy — the view renders "Project display name".
+  await waitForViewReady(result, (f) => f.includes('Project display name'));
+
+  result.stdin.write(name);
+  await tick(60);
+  result.stdin.write(ENTER);
+  await tick(200);
+
+  // Slug — accept the kebab-case default.
+  result.stdin.write(ENTER);
+  await tick(200);
+
+  // Description — skip.
+  result.stdin.write(ENTER);
+  await tick(200);
+
+  // Repo path picker — `t` drops into a text-entry overlay preseeded with the cwd; clear it and
+  // type the path for determinism.
+  result.stdin.write('t');
+  await tick(80);
+  result.stdin.write(CTRL_U);
+  await tick(40);
+  result.stdin.write(repoPath);
+  await tick(40);
+  result.stdin.write(ENTER);
+  await tick(250);
+
+  // Repo name — accept default (basename of path).
+  result.stdin.write(ENTER);
+  await tick(200);
+
+  // Confirm. Default focus is Yes.
+  result.stdin.write(ENTER);
+  await tick(300);
+};
 
 describe('CreateProjectView — wizard e2e', () => {
   let root: string;
@@ -33,49 +75,11 @@ describe('CreateProjectView — wizard e2e', () => {
       void project;
       return Result.ok(undefined);
     });
-    const projectRepo = { save } as unknown as ProjectRepository;
-    const deps: AppDeps = { projectRepo } as unknown as AppDeps;
+    const projectRepo = { save, list: async () => Result.ok([]) } as unknown as ProjectRepository;
+    const deps: AppDeps = { projectRepo, logger: noopLogger } as unknown as AppDeps;
 
     const { result } = renderView(<CreateProjectView />, { deps, initial: { id: 'create-project' } });
-    // Match the prompt's literal copy — the view renders "Project display name" (create-project-view.tsx:207).
-    await waitForViewReady(result, (f) => f.includes('Project display name'));
-
-    // Step 1: display name.
-    result.stdin.write('Mainline');
-    await tick(60);
-    result.stdin.write(ENTER);
-    await tick(200);
-
-    // Step 2: slug — accept the kebab-case default.
-    result.stdin.write(ENTER);
-    await tick(200);
-
-    // Step 3: description — skip.
-    result.stdin.write(ENTER);
-    await tick(200);
-
-    // Step 4: repo path picker — cursor defaults to [Select this directory]. Navigate into
-    // main-repo (down once to skip parent / [Select], then once more to land on main-repo)
-    // then Enter to descend, then Enter to commit.
-    // The harness's initial cwd is process.cwd(); we type instead via `t` to drop into a text
-    // entry overlay for determinism.
-    result.stdin.write('t');
-    await tick(80);
-    // Buffer is preseeded with the picker's cwd — clear and type our path.
-    result.stdin.write(CTRL_U);
-    await tick(40);
-    result.stdin.write(join(root, 'main-repo'));
-    await tick(40);
-    result.stdin.write(ENTER);
-    await tick(250);
-
-    // Step 5: repo name — accept default (basename of path).
-    result.stdin.write(ENTER);
-    await tick(200);
-
-    // Step 6: confirm. Default focus is Yes; press Enter.
-    result.stdin.write(ENTER);
-    await tick(300);
+    await walkWizard(result, 'Mainline', join(root, 'main-repo'));
 
     expect(save).toHaveBeenCalledTimes(1);
     const saved = save.mock.calls[0]?.[0];
@@ -87,5 +91,23 @@ describe('CreateProjectView — wizard e2e', () => {
     expect(String(saved?.repositories[0]?.path)).toContain('main-repo');
 
     result.unmount();
+  });
+
+  it('rejects a slug already held by a stored project and writes nothing', async () => {
+    const app = await createRealFsApp();
+    try {
+      const seeded = await app.deps.projectRepo.save(makeProject({ slug: 'mainline', displayName: 'Mainline' }));
+      expect(seeded.ok).toBe(true);
+
+      const { result } = renderView(<CreateProjectView />, { deps: app.deps, initial: { id: 'create-project' } });
+      await walkWizard(result, 'Mainline', join(root, 'main-repo'));
+
+      expect(result.lastFrame()).toContain("slug 'mainline' is already used by another project");
+      expect(await fs.readdir(app.projectsDir)).toHaveLength(1);
+
+      result.unmount();
+    } finally {
+      await app.cleanup();
+    }
   });
 });

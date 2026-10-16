@@ -7,7 +7,7 @@
  *   3. Project description (optional, blank to skip)
  *   4. First repository path (required, absolute; `~/` is expanded against `os.homedir()`)
  *   5. First repository name (defaults to basename(path))
- *   6. Confirm → save via `projectRepo.save`, stamp the new id as current, then route home.
+ *   6. Confirm → save via `createProjectUseCase` (rejects a taken slug), stamp the new id as current, then route home.
  *
  * Mirrors the welcome-view embedding style: prompts are rendered inline rather than going
  * through the prompt queue, since this view *is* a sequence of prompts and has nothing else
@@ -30,7 +30,7 @@ import { useRouter } from '@src/application/ui/tui/runtime/router.tsx';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
 import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
-import { createProject } from '@src/domain/entity/project.ts';
+import { createProjectUseCase } from '@src/business/project/create-project.ts';
 import { createRepository } from '@src/domain/entity/repository.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { Slug } from '@src/domain/value/slug.ts';
@@ -140,20 +140,18 @@ export const CreateProjectView = (): React.JSX.Element => {
       return;
     }
 
-    const projectResult = createProject({
-      displayName: s.name.trim(),
-      ...(slugInput !== undefined && slugInput.ok ? { slug: slugInput.value } : {}),
-      ...(s.description.trim().length > 0 ? { description: s.description.trim() } : {}),
-      repositories: [repoResult.value],
+    const projectResult = await createProjectUseCase({
+      input: {
+        displayName: s.name.trim(),
+        ...(slugInput !== undefined && slugInput.ok ? { slug: slugInput.value } : {}),
+        ...(s.description.trim().length > 0 ? { description: s.description.trim() } : {}),
+        repositories: [repoResult.value],
+      },
+      projectRepo: deps.projectRepo,
+      logger: deps.logger,
     });
     if (!projectResult.ok) {
       setStep({ kind: 'error', message: projectResult.error.message });
-      return;
-    }
-
-    const saved = await deps.projectRepo.save(projectResult.value);
-    if (!saved.ok) {
-      setStep({ kind: 'error', message: saved.error.message });
       return;
     }
 
