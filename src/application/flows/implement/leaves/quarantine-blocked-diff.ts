@@ -17,6 +17,7 @@ import { quarantineStashMessage } from '@src/domain/value/quarantine-stash-messa
 import type { GitRunner } from '@src/integration/io/git-runner.ts';
 import { renderQuarantineBreadcrumb } from '@src/business/sprint/journal-structure.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
+import type { FoldQueue } from '@src/application/flows/implement/wave-branch.ts';
 
 /**
  * Quarantine the rejected working-tree diff of a task that just settled `blocked` on the SERIAL
@@ -73,6 +74,8 @@ export interface QuarantineBlockedDiffLeafDeps {
   readonly gitRunner: GitRunner;
   readonly taskRepo: UpdateTask;
   readonly appendFile: AppendFile;
+  /** The journal's read-modify-write mutex: a breadcrumb landing inside a sibling branch's rewrite would be lost. */
+  readonly journalMutex: FoldQueue;
   readonly logger: Logger;
 }
 
@@ -184,7 +187,7 @@ export const runQuarantineBlockedDiff = async (
   // Append-only pointer next to the task fact. Shared renderer keeps the breadcrumb in the
   // exact shape the inline cap recognises and pins. Best-effort like everything here.
   const journalLine = renderQuarantineBreadcrumb(recorded.value.name, message);
-  const appended = await deps.appendFile(opts.progressFile, journalLine);
+  const appended = await deps.journalMutex.run(() => deps.appendFile(opts.progressFile, journalLine));
   if (!appended.ok) {
     log.warn('quarantine pointer journal append failed', {
       taskId: String(taskId),

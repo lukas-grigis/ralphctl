@@ -37,6 +37,7 @@ import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import { createFakeProject, type FakeProject } from '@tests/helpers/fake-project.ts';
 import { absolutePath, makeTodoTask } from '@tests/fixtures/domain.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
+import { createFoldQueue } from '@src/application/flows/implement/wave-branch.ts';
 
 const sprintId = ((): SprintId => {
   const r = SprintId.parse('0193ed2b-1234-7abc-8def-0123456789ab');
@@ -103,6 +104,7 @@ describe('quarantine-blocked-diff — real git contamination fence', () => {
           journalAppends.push(text);
           return Result.ok(undefined);
         },
+        journalMutex: createFoldQueue(),
         logger: noopLogger,
       },
       { cwd, progressFile: absolutePath('/tmp/quarantine-progress.md') },

@@ -29,6 +29,7 @@ import {
   createFoldQueue,
   worktreePathFor,
   type BuildWaveBranchesDeps,
+  type FoldQueue,
 } from '@src/application/flows/implement/wave-branch.ts';
 import {
   absolutePath,
@@ -86,7 +87,8 @@ const makeDeps = (
   runner: GitRunner,
   taskRepo: TaskRepository,
   appendFile: AppendFile,
-  eventBus: EventBus = stubBus()
+  eventBus: EventBus = stubBus(),
+  journalMutex: FoldQueue = createFoldQueue()
 ): BuildWaveBranchesDeps => ({
   implement: {
     gitRunner: runner,
@@ -95,7 +97,7 @@ const makeDeps = (
     logger: noopLogger,
     clock: () => FIXED_LATER,
     eventBus,
-    journalMutex: createFoldQueue(),
+    journalMutex,
   } as unknown as ImplementDeps,
   eventBus,
   foldQueue: createFoldQueue(),
@@ -174,6 +176,44 @@ const stashPushed = (calls: Array<{ cwd: string; args: string[] }>): boolean =>
   calls.some((c) => c.args[0] === 'stash' && c.args[1] === 'push');
 
 describe('wave-branch worktree teardown — blocked-task quarantine + branch retention', () => {
+  it('appends the quarantine breadcrumb under the journal mutex (a sibling may be mid read-modify-write)', async () => {
+    const task = makeTodoTask();
+    const wt = worktreePathFor(absolutePath('/data/sprints/s1'), task.id);
+    const git = fakeGitRecordingCwd({ dirty: true });
+    const inner = createFoldQueue();
+    let held = false;
+    const journalMutex: FoldQueue = {
+      run: (fn) =>
+        inner.run(async () => {
+          held = true;
+          try {
+            return await fn();
+          } finally {
+            held = false;
+          }
+        }),
+    };
+    const heldAtAppend: boolean[] = [];
+    const append: AppendFile = async () => {
+      heldAtAppend.push(held);
+      return Result.ok(undefined);
+    };
+    const deps = makeDeps(git.runner, recordingTaskRepo(), append, stubBus(), journalMutex);
+
+    const branch = buildWorktreeBranch(
+      deps,
+      repo,
+      task,
+      wt,
+      'ralphctl/s1/wt-mutex',
+      PROGRESS,
+      selfBlockingSubchain(task.id, 'verify failed', 1)
+    );
+    await runBranch(branch, baseCtx([task]));
+
+    expect(heldAtAppend).toEqual([true]);
+  });
+
   it('own self-block with a dirty worktree: stashes into the WORKTREE, records the pointer, keeps the branch ref', async () => {
     const task = makeTodoTask();
     const ref = 'ralphctl/s1/wt-selfblock';

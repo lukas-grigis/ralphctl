@@ -418,6 +418,7 @@ export const createPerTaskSubchain = (
                     gitRunner: deps.gitRunner,
                     taskRepo: deps.taskRepo,
                     appendFile: deps.appendFile,
+                    journalMutex: deps.journalMutex,
                     logger: deps.logger,
                   },
                   { cwd: repo.path, progressFile: opts.progressFile },

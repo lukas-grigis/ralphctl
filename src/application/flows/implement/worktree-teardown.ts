@@ -237,6 +237,7 @@ const quarantineDiff = async (args: WorktreeTeardownArgs, task: BlockedTask): Pr
       gitRunner: deps.implement.gitRunner,
       taskRepo: deps.implement.taskRepo,
       appendFile: deps.implement.appendFile,
+      journalMutex: deps.implement.journalMutex,
       logger: deps.implement.logger,
     },
     { cwd: args.worktreePath, progressFile: args.progressFile },

@@ -177,6 +177,7 @@ describe('restore-blocked-diff — real git round trip with quarantine', () => {
           journalAppends.push(text);
           return Result.ok(undefined);
         },
+        journalMutex: createFoldQueue(),
         logger: noopLogger,
       },
       { cwd, progressFile: absolutePath('/tmp/restore-round-trip-progress.md') },
@@ -346,6 +347,7 @@ describe('restore-blocked-diff — the operator decision (real git)', () => {
         gitRunner: createGitRunner(),
         taskRepo: captureRepo(),
         appendFile: async () => Result.ok(undefined),
+        journalMutex: createFoldQueue(),
         logger: noopLogger,
       },
       { cwd, progressFile: absolutePath('/tmp/restore-realgit-progress.md') },
