@@ -184,7 +184,6 @@ export const createGeminiProvider = (deps: HeadlessProviderDeps): HeadlessAiProv
           ...base,
           args: built.value,
           session: attemptSession,
-          resolveOn: 'close',
           stdin: attemptSession.prompt,
           rateLimitRe: RATE_LIMIT_RE,
           onStdoutChunk: (chunk) => parser.feed(chunk),
