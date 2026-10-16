@@ -100,6 +100,59 @@ describe('backupDataDir', () => {
     expect(await fs.readdir(existing)).toEqual(['earlier.json']);
   });
 
+  it('leaves sprint worktrees out, so their node_modules links and symlink loops cannot fail or balloon it', async () => {
+    const sprint = join(dataRoot, 'sprints', 'sprint-a');
+    const worktree = join(sprint, 'worktrees', 'wt-task-a');
+    const store = join(worktree, 'node_modules', '.pnpm', 'dep@1.0.0', 'node_modules');
+    await fs.mkdir(join(store, 'dep'), { recursive: true });
+    await fs.writeFile(join(sprint, 'sprint.json'), '{"id":"a"}', 'utf8');
+    await fs.writeFile(join(worktree, 'index.ts'), 'uncommitted', 'utf8');
+    await fs.writeFile(join(store, 'dep', 'index.js'), 'module.exports = 1;', 'utf8');
+    // pnpm layout: a top-level link into the store, and a workspace self-link that cycles back to the root.
+    await fs.symlink('.pnpm/dep@1.0.0/node_modules/dep', join(worktree, 'node_modules', 'dep'));
+    await fs.symlink('../../../..', join(store, 'app'));
+
+    const res = await backupDataDir(absolutePath(dataRoot), 1, '2026-06-19T16:00:00.000Z');
+
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(await fs.readFile(join(res.value, 'sprints', 'sprint-a', 'sprint.json'), 'utf8')).toBe('{"id":"a"}');
+    expect(await fs.readdir(join(res.value, 'sprints', 'sprint-a'))).toEqual(['sprint.json']);
+    // The live worktree is untouched.
+    expect(await fs.readFile(join(worktree, 'index.ts'), 'utf8')).toBe('uncommitted');
+  });
+
+  it('copies any other symlink as a link instead of following it', async () => {
+    const outside = join(appRoot, 'outside');
+    await fs.mkdir(outside, { recursive: true });
+    await fs.writeFile(join(outside, 'big.bin'), 'not ralphctl data', 'utf8');
+    await fs.mkdir(join(dataRoot, 'memory'), { recursive: true });
+    await fs.symlink('loop', join(dataRoot, 'memory', 'loop'));
+    await fs.symlink('../../outside', join(dataRoot, 'projects', 'linked'));
+
+    const res = await backupDataDir(absolutePath(dataRoot), 1, '2026-06-19T17:00:00.000Z');
+
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(await fs.readlink(join(res.value, 'memory', 'loop'))).toBe('loop');
+    // Verbatim target, so the copied link never points back into the live data/ tree.
+    expect(await fs.readlink(join(res.value, 'projects', 'linked'))).toBe('../../outside');
+  });
+
+  it('copies a symlinked data/ by content, not as a link', async () => {
+    const realData = join(appRoot, 'volume', 'data');
+    await fs.mkdir(join(appRoot, 'volume'), { recursive: true });
+    await fs.rename(dataRoot, realData);
+    await fs.symlink(realData, dataRoot);
+
+    const res = await backupDataDir(absolutePath(dataRoot), 1, '2026-06-19T18:00:00.000Z');
+
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect((await fs.lstat(res.value)).isSymbolicLink()).toBe(false);
+    expect(await fs.readFile(join(res.value, 'projects', 'p.json'), 'utf8')).toBe('{"x":1}');
+  });
+
   it('does not copy existing data.backup-* siblings into the new backup', async () => {
     // A leftover backup sibling must NOT be nested into the new one.
     await fs.mkdir(join(appRoot, 'data.backup-v1-old'), { recursive: true });

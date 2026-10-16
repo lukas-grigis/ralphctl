@@ -3,7 +3,8 @@ import { join } from 'node:path';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { isUuidv7 } from '@src/domain/value/uuid7.ts';
 import { Slug } from '@src/domain/value/slug.ts';
-import { listDir, pathExists, pathIsDirectory } from '@src/integration/io/fs.ts';
+import type { StorageError } from '@src/domain/value/error/storage-error.ts';
+import { isNodeErrnoCode, listDir, pathExists, pathIsDirectory } from '@src/integration/io/fs.ts';
 import { buildSluggedName, NAME_SEPARATOR, parseIdFromName } from '@src/integration/persistence/storage.ts';
 import { DATA_VERSION_FILENAME } from '@src/integration/persistence/data-migration/version-marker.ts';
 import type {
@@ -23,6 +24,7 @@ const REASON_ALREADY_MIGRATED = 'already migrated (slugged name)';
 const REASON_MALFORMED_NAME = 'malformed name — not a uuidv7 id';
 const REASON_STAT_FAILED = 'could not stat the entry or its target — left in place';
 const REASON_ORPHAN_MEMORY = 'orphan memory dir — no owning project; left in place (reclaim via housekeeping)';
+const REASON_SYMLINK_LOOP = 'symlink loop — not a real entry; left in place';
 
 /**
  * Mutable accumulators for a single dry-run pass. Returned (frozen) as a {@link DryRunReport}.
@@ -42,8 +44,8 @@ interface Accumulator {
  *
  * Classification:
  *  - PLANNED — a legacy bare-`<id>` entry with a readable slug and a free target name.
- *  - SKIPPED — already-migrated (`<id>--<slug>` form), the version marker, an unrelated file, or an
- *    orphan memory dir whose project no longer exists.
+ *  - SKIPPED — already-migrated (`<id>--<slug>` form), the version marker, an unrelated file, a
+ *    symlink loop, or an orphan memory dir whose project no longer exists.
  *  - PROBLEM — a collision (target exists and differs), a malformed / non-uuid name, a missing /
  *    unreadable slug, or an unwritable backup target.
  *
@@ -101,6 +103,11 @@ const scanFileFamily = async (
       acc.skipped.push({ name, reason: 'not a project .json file' });
       continue;
     }
+    const present = await pathExists(join(parent, name));
+    if (!present.ok) {
+      recordStatFault(acc, name, present.error);
+      continue;
+    }
     const base = name.slice(0, -'.json'.length);
     if (base.includes(NAME_SEPARATOR)) {
       acc.skipped.push({ name, reason: REASON_ALREADY_MIGRATED });
@@ -144,7 +151,7 @@ const scanDirFamily = async (
     const full = join(parent, name);
     const isDir = await pathIsDirectory(full);
     if (!isDir.ok) {
-      acc.problems.push({ name, reason: REASON_STAT_FAILED });
+      recordStatFault(acc, name, isDir.error);
       continue;
     }
     if (!isDir.value) {
@@ -199,7 +206,7 @@ const classifyMemoryEntry = async (
   if (name === DATA_VERSION_FILENAME) return void acc.skipped.push({ name, reason: 'version marker' });
   const full = join(parent, name);
   const isDir = await pathIsDirectory(full);
-  if (!isDir.ok) return void acc.problems.push({ name, reason: REASON_STAT_FAILED });
+  if (!isDir.ok) return recordStatFault(acc, name, isDir.error);
   if (!isDir.value) return void acc.skipped.push({ name, reason: 'not a directory' });
   if (name.includes(NAME_SEPARATOR)) {
     return void acc.skipped.push({ name, reason: REASON_ALREADY_MIGRATED });
@@ -225,6 +232,15 @@ const classifyMemoryEntry = async (
     return void acc.merges.push({ projectId: name, legacyDir: legacy.value, sluggedDir: slugged.value });
   }
   await planRename(parent, name, toName, name, slug, 'memory', acc);
+};
+
+/**
+ * Classify an entry whose own stat failed. A symlink loop resolves to nothing, so there is no data to
+ * migrate or lose — skip it rather than block the whole gate; any other fault stays a problem.
+ */
+const recordStatFault = (acc: Accumulator, name: string, error: StorageError): void => {
+  if (isNodeErrnoCode(error.cause, 'ELOOP')) acc.skipped.push({ name, reason: REASON_SYMLINK_LOOP });
+  else acc.problems.push({ name, reason: REASON_STAT_FAILED });
 };
 
 /**

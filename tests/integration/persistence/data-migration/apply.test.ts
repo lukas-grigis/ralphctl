@@ -510,6 +510,28 @@ describe('apply — backfill guards (OOM + symlink)', () => {
   });
 });
 
+describe('apply — symlinks', () => {
+  it('migrates past a symlink-loop entry and a sprint worktree whose node_modules link cycles', async () => {
+    const sid = freshId();
+    await seedLegacySprint(dataRoot, sid, 'beta');
+    await fs.mkdir(join(dataRoot, 'sprints', sid, 'worktrees', 'wt-task', 'node_modules'), { recursive: true });
+    await fs.symlink('../..', join(dataRoot, 'sprints', sid, 'worktrees', 'wt-task', 'node_modules', 'app'));
+    const loop = freshId();
+    await fs.symlink(loop, join(dataRoot, 'sprints', loop));
+
+    const report = await dryRun(absolutePath(dataRoot));
+    expect(report.problems).toEqual([]);
+    const result = await apply(absolutePath(dataRoot), report, ctx());
+
+    expect(result.kind).toBe('ok');
+    expect((await readDataVersion(absolutePath(dataRoot))).dataVersion).toBe(2);
+    // The worktree moved intact with its sprint dir; the loop stays where it was.
+    const moved = join(dataRoot, 'sprints', `${sid}--beta`, 'worktrees', 'wt-task', 'node_modules', 'app');
+    expect(await fs.readlink(moved)).toBe('../..');
+    expect(await fs.readlink(join(dataRoot, 'sprints', loop))).toBe(loop);
+  });
+});
+
 describe('apply — scope', () => {
   it('config/ and state/ are byte-identical before and after a full apply', async () => {
     await seedLegacySprint(dataRoot, freshId(), 'beta');

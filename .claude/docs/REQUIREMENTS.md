@@ -483,7 +483,8 @@ See [DESIGN-SYSTEM.md](./DESIGN-SYSTEM.md) for tokens, components, view patterns
       run automatically before first use (`data-migration/apply.ts`, with a `dry-run.ts` preview).
 - [x] **One-time consent splash + backup** — the TUI migration gate (`ui/tui/migration/migration-gate.tsx`)
       shows a one-time consent splash and backs up `data/` before renaming existing entries to the slug
-      layout. `config/` is never touched.
+      layout. The backup copies symlinks as links and skips sprint `worktrees/` (repo checkouts the
+      migration never writes into). `config/` is never touched.
 - [x] **Slug-rename with legacy tolerance** — on-disk entries use `<id>--<slug>` (`NAME_SEPARATOR` in
       `integration/persistence/storage.ts`); resolvers still read the legacy bare `<id>` form so un-migrated
       data loads.

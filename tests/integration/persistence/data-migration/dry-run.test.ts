@@ -145,6 +145,21 @@ describe('dryRun', () => {
     expect(report.problems.some((p) => p.name === sid)).toBe(true);
   });
 
+  it('skips a symlink-loop entry in every family instead of blocking the gate', async () => {
+    const sid = freshId();
+    await seedLegacySprint(root, sid, 'beta');
+    const loops = { sprints: freshId(), memory: freshId(), projects: `${freshId()}.json` };
+    for (const [family, name] of Object.entries(loops)) await fs.symlink(name, join(root, family, name));
+
+    const report = await dryRun(dataRoot());
+
+    expect(report.problems).toEqual([]);
+    expect(report.planned.map((p) => p.fromName)).toEqual([sid]);
+    for (const name of Object.values(loops)) {
+      expect(report.skipped).toContainEqual({ name, reason: expect.stringContaining('symlink loop') });
+    }
+  });
+
   it('flags a malformed (non-uuid) directory name', async () => {
     await fs.mkdir(join(root, 'sprints', 'not-a-uuid'), { recursive: true });
     await fs.writeFile(join(root, 'sprints', 'not-a-uuid', 'sprint.json'), '{}', 'utf8');
