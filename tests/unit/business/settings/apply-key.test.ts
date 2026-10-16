@@ -108,6 +108,17 @@ describe('applySettingsKey', () => {
     if (!result.ok) expect(result.error.message).toContain('not a number');
   });
 
+  it.each([
+    ['harness.bestOfNCandidates', ''],
+    ['harness.maxTurns', '   '],
+    ['harness.rateLimitRetries', ''],
+    ['concurrency.maxParallelTasks', ' '],
+  ])('rejects an empty value for %s instead of storing 0', (key, raw) => {
+    const result = applySettingsKey(DEFAULT_SETTINGS, key, raw);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.message).toContain('needs a number');
+  });
+
   it('rejects an unknown key', () => {
     const result = applySettingsKey(DEFAULT_SETTINGS, 'foo.bar', 'baz');
     expect(result.ok).toBe(false);

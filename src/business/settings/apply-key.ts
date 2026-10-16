@@ -252,13 +252,17 @@ const applyEscalationMapKey = (current: Settings, key: string, raw: string): Res
   return Result.ok({ ...current, harness: { ...current.harness, escalationMap: nextMap } });
 };
 
-/** Shared shape for the four numeric `harness.*` keys — same parse-and-error, different field. */
+/** Shared shape for every numeric settings key — same parse-and-error, different field. */
 const applyNumberField = (
   current: Settings,
   key: string,
   raw: string,
   apply: (current: Settings, n: number) => Settings
 ): Result<Settings, ValidationError> => {
+  // `Number('')` is 0, so a cleared field would silently store zero.
+  if (raw.trim().length === 0) {
+    return Result.error(new ValidationError({ field: key, value: raw, message: `'${key}' needs a number` }));
+  }
   const n = Number(raw);
   if (!Number.isFinite(n)) {
     return Result.error(new ValidationError({ field: key, value: raw, message: `'${raw}' is not a number` }));
