@@ -14,10 +14,9 @@ import { repoLockFile } from '@src/integration/io/lock-paths.ts';
  * wrapper never reads the carried ctx — it only passes it through to the inner chain — so every
  * flow that needs the lock uses this ONE helper:
  *
- *   - implement (serial path) and review both wrap their chain here, keyed on the per-sprint
- *     directory, so an implement run and a review run of the SAME sprint mutually exclude.
- *   - the parallel implement path holds the same lock key directly (`parallel-element.ts`) because
- *     it must span prologue + waves + epilogue, which a single-inner wrapper cannot express.
+ *   - implement (both paths) and review wrap their chain here, keyed on the per-sprint directory,
+ *     so an implement run and a review run of the SAME sprint mutually exclude. The parallel path's
+ *     inner element runs prologue + waves + epilogue itself (`parallel-element.ts`).
  *
  * The lock key is a hash of whatever `worktreePath` the caller passes (see `repoLockFile`); both
  * implement and review pass the sprint directory. The lock-compromised signal is merged into the

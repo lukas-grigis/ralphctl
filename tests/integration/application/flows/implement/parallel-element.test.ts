@@ -506,6 +506,19 @@ describe('createParallelImplementElement — lock contention', () => {
     expect(log).toEqual([]);
     expect(buildWaves).not.toHaveBeenCalled();
   });
+
+  it('raises the same warn banner the serial path raises on contention', async () => {
+    const t1 = makeTodoTask({ name: 't1' });
+    const events: AppEvent[] = [];
+    const element = createParallelImplementElement(
+      plan(tagElement('implement-prologue', []), tagElement('implement-epilogue', []), [[t1]]),
+      baseConfig({ buildWaves: () => [] }, failingLocker(), stubBus(events))
+    );
+
+    await element.execute(ctxWith([t1]));
+
+    expect(events).toContainEqual(expect.objectContaining({ type: 'banner-show', tier: 'warn', message: 'contended' }));
+  });
 });
 
 describe('createParallelImplementElement — uses the sprint-dir lock key', () => {

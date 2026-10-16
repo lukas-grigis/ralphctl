@@ -133,9 +133,9 @@ the run lasts — a crashed holder stops heartbeating and is reclaimed once its 
 lost mid-run (`onCompromised`) surfaces a `lock-compromised` warning AND aborts the in-flight run: the
 lock-compromised signal is merged into the chain's abort signal (`combineAbortSignals`), so a lost lock tears
 the run down as an `AbortError` instead of continuing to mutate a resource a competitor may now own. The lock
-is held across the whole run by the implement flow (serial path via `withRepoLock`, parallel path holds the
-key directly) and by the review flow (`withRepoLock`, same sprint-dir key — implement and review of one
-sprint mutually exclude). `withRepoLock` (`flows/_shared/`) is the one ctx-generic wrapper both use.
+is held across the whole run by the implement flow (both paths) and by the review flow, all through
+`withRepoLock` (`flows/_shared/`) on the same sprint-dir key — implement and review of one sprint mutually
+exclude.
 
 **Lock owner.** A lock taken with a `purpose` carries `owner.json` (pid, host, machine id, process start, `ps`
 identity, purpose) inside the lock directory. A lock whose owner pid is dead on this machine is reclaimed at once

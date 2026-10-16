@@ -9,13 +9,12 @@ import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { Element, ElementResult } from '@src/application/chain/element.ts';
 import type { OnStart, OnTrace, TraceEntry } from '@src/application/chain/trace.ts';
 import { createRunner, type Runner } from '@src/application/chain/run/runner.ts';
-import { combineAbortSignals } from '@src/application/chain/run/combine-signals.ts';
 import { runWaves, type WaveBranch } from '@src/application/chain/run/wave-scheduler.ts';
 import { bridgeRunnerToEventBus } from '@src/application/observability/chain-runner-bridge.ts';
 import { rootSessionId } from '@src/application/session/session.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
 import type { FileLocker } from '@src/integration/io/file-locker.ts';
-import { repoLockFile } from '@src/integration/io/lock-paths.ts';
+import { withRepoLock } from '@src/application/flows/_shared/with-repo-lock.ts';
 
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import type { ImplementWavePlan } from '@src/application/flows/implement/flow.ts';
@@ -50,10 +49,9 @@ const WAVES_NODE_NAME = 'implement-waves';
  * prologue / waves / epilogue around it). The launcher runs it on ONE `createRunner` so the TUI
  * subscribes to a single runner, exactly as it does for the serial path.
  *
- * Everything runs under ONE held `fileLocker.withLock(<sprint-dir lock>)` — the lock is
- * hoisted to the launcher for the parallel path; the serial path keeps it inside the flow. The
- * same lock KEY the serial path uses (`repoLockFile(locksRoot, sprintDir)`) so a serial and a
- * parallel run of the same sprint still mutually exclude.
+ * Everything runs under ONE held sprint-dir lock taken through `withRepoLock` — the same wrapper and
+ * key the serial path uses, so a serial and a parallel run of the same sprint mutually exclude and a
+ * contended launch raises the same banner.
  *
  * Sequence inside the lock:
  *
@@ -85,10 +83,24 @@ export const createParallelImplementElement = (
   // Built at most once, and only when first needed: by the run, or by a display walk of `children`.
   let built: ReadonlyArray<ReadonlyArray<WaveBranch<ImplementCtx>>> | undefined;
   const waves = (): ReadonlyArray<ReadonlyArray<WaveBranch<ImplementCtx>>> => (built ??= config.buildWaves());
+  const locked = withRepoLock<ImplementCtx>(
+    {
+      fileLocker: config.fileLocker,
+      locksRoot: config.locksRoot,
+      worktreePath: plan.lockKey,
+      eventBus: config.eventBus,
+      purpose: 'implement',
+    },
+    {
+      name: PARALLEL_ELEMENT_NAME,
+      execute: (ctx, signal, onTrace, onStart) => runUnderLock(plan, config, waves, ctx, signal, onTrace, onStart),
+    }
+  );
+  // Own name and children, not the wrapper's: the plan tree shows the three segments directly.
   return {
     name: PARALLEL_ELEMENT_NAME,
     children: [plan.prologue, wavesDisplayNode(waves), plan.epilogue],
-    execute: (ctx, signal, onTrace, onStart) => executeParallel(plan, config, waves, ctx, signal, onTrace, onStart),
+    execute: locked.execute,
   };
 };
 
@@ -116,51 +128,10 @@ const wavesDisplayNode = (
   },
 });
 
-const executeParallel = async (
-  plan: ImplementWavePlan,
-  config: ParallelImplementConfig,
-  waves: () => ReadonlyArray<ReadonlyArray<WaveBranch<ImplementCtx>>>,
-  ctx: ImplementCtx,
-  signal: AbortSignal | undefined,
-  onTrace: OnTrace | undefined,
-  onStart: OnStart | undefined
-): Promise<ElementResult<ImplementCtx>> => {
-  const lockPath = repoLockFile(config.locksRoot, plan.lockKey);
-  if (!lockPath.ok) {
-    const entry: TraceEntry = {
-      elementName: PARALLEL_ELEMENT_NAME,
-      status: 'failed',
-      durationMs: 0,
-      error: lockPath.error,
-    };
-    onTrace?.(entry);
-    return Result.error({ error: lockPath.error, trace: [entry] });
-  }
-
-  const acquired = await config.fileLocker.withLock(
-    lockPath.value,
-    async (lockSignal) =>
-      runUnderLock(plan, config, waves, ctx, combineAbortSignals(signal, lockSignal), onTrace, onStart),
-    { purpose: 'implement' }
-  );
-  if (!acquired.ok) {
-    // Lock contention — surface verbatim. No waves ran, nothing to persist.
-    const entry: TraceEntry = {
-      elementName: PARALLEL_ELEMENT_NAME,
-      status: 'failed',
-      durationMs: 0,
-      error: acquired.error,
-    };
-    onTrace?.(entry);
-    return Result.error({ error: acquired.error, trace: [entry] });
-  }
-  return acquired.value;
-};
-
 /**
  * The body that runs INSIDE the held lock: prologue → waves → epilogue (always, once the prologue
- * succeeded). Split out so the lock-acquisition branching stays small. The held lock is released by
- * `withLock`'s `finally` only after this resolves — so the epilogue persist completes under the lock.
+ * succeeded). The held lock is released by `withLock`'s `finally` only after this resolves — so the
+ * epilogue persist completes under the lock.
  */
 const runUnderLock = async (
   plan: ImplementWavePlan,
