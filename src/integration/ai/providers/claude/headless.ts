@@ -93,6 +93,9 @@ const RESUME_STALE_RE = /No conversation found with session ID/i;
 
 const PROVIDER_NAME = 'claude-provider';
 
+// Claude Code 2.1.302 turned fork subagents on in `-p`; off keeps cost bounded and the read-only gate unforked.
+const HEADLESS_ENV: Readonly<Record<string, string>> = { CLAUDE_CODE_FORK_SUBAGENT: '0' };
+
 const asString = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined);
 
 /**
@@ -313,6 +316,7 @@ export const createClaudeProvider = (deps: HeadlessProviderDeps): HeadlessAiProv
           ...base,
           args: built.value,
           session: attemptSession,
+          env: HEADLESS_ENV,
           // `cwd` is critical — the Claude Code CLI only auto-discovers `CLAUDE.md`, skills, agents,
           // and `.mcp.json` from the child's `process.cwd()`. Without this, the native context-file
           // pipeline silently misses and the AI runs without project guidance. See CLAUDE.md §Security.

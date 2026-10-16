@@ -30,6 +30,11 @@ Codex can't fine-grained-deny edits on existing repo files. Use topology to cons
 re-declares both as `-c sandbox_mode="workspace-write"` and `-c sandbox_workspace_write.writable_roots=[…]`.
 Spawns don't pass `--ephemeral` (resume needs the rollout), so each one leaves a session under `~/.codex/sessions`.
 
+Claude Code caveat: 2.1.302 turned fork subagents (a subagent that copies the parent's whole
+context) on by default in `claude -p`. Every headless claude spawn sets `CLAUDE_CODE_FORK_SUBAGENT=0`
+— whether a fork inherits `--disallowedTools` is unverified, and each fork re-bills the parent's
+context. Interactive handoffs leave the operator's own setting alone.
+
 OpenCode caveat (stronger): `opencode run` (headless — implement generator/evaluator, review,
 create-pr, readiness, detect-scripts, detect-skills) exposes exactly ONE approval control, `--auto`,
 and omitting it does NOT make the session read-only — a plain `run` still executes write and edit

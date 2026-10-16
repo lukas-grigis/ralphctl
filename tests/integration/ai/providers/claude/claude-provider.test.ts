@@ -74,14 +74,25 @@ interface CapturingSpawnState {
     readonly command: string;
     readonly args: readonly string[];
     readonly cwd?: string;
+    readonly env?: NodeJS.ProcessEnv;
   }>;
 }
 
 const makeSpawn = (scripts: readonly FakeChildScript[]): CapturingSpawnState => {
   let i = 0;
-  const calls: Array<{ command: string; args: readonly string[]; cwd?: string }> = [];
+  const calls: Array<{
+    command: string;
+    args: readonly string[];
+    cwd?: string;
+    env?: NodeJS.ProcessEnv;
+  }> = [];
   const spawn: ProviderSpawn = (command, args, options) => {
-    calls.push({ command, args, ...(options.cwd !== undefined ? { cwd: options.cwd } : {}) });
+    calls.push({
+      command,
+      args,
+      ...(options.cwd !== undefined ? { cwd: options.cwd } : {}),
+      ...(options.env !== undefined ? { env: options.env } : {}),
+    });
     const script = scripts[i] ?? scripts[scripts.length - 1] ?? {};
     i++;
     return makeFakeChild(script);
@@ -168,6 +179,19 @@ describe('createClaudeProvider', () => {
     expect(out.ok).toBe(true);
     expect(calls).toHaveLength(1);
     expect(calls[0]!.cwd).toBe('/tmp/claude-target-repo');
+  });
+
+  it.each([
+    ['read-only', READ_ONLY],
+    ['full-auto', FULL_AUTO],
+  ] as const)('turns fork subagents off on every headless spawn (%s)', async (_label, permissions) => {
+    const resultEvt = JSON.stringify({ type: 'result', subtype: 'success', result: 'ok', session_id: 'sess-env' });
+    const { spawn, calls } = makeSpawn([{ stdoutChunks: [`${resultEvt}\n`], exitCode: 0 }]);
+    const provider = createClaudeProvider({ rateLimitRetries: 0, eventBus: createCapturingBus().bus, spawn });
+    await provider.generate(session({ permissions }));
+    expect(calls[0]!.env?.['CLAUDE_CODE_FORK_SUBAGENT']).toBe('0');
+    // The override rides on the inherited environment rather than replacing it.
+    expect(calls[0]!.env?.['PATH']).toBe(process.env['PATH']);
   });
 
   it('rate-limit: retries up to N times and surfaces RateLimitError when exhausted', async () => {

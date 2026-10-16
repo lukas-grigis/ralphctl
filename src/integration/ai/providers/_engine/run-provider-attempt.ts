@@ -112,6 +112,8 @@ export interface ProviderAttemptInput {
   readonly command: string;
   readonly args: readonly string[];
   readonly session: AiSession;
+  /** Variables overlaid on the inherited environment for this spawn. */
+  readonly env?: Readonly<Record<string, string>>;
   /**
    * Prompt piped to stdin. Omit for providers (Copilot) that pass the prompt as an argv
    * argument — `runHeadlessSpawn` closes stdin immediately when this field is absent.
@@ -370,6 +372,7 @@ export const runProviderAttempt = async (input: ProviderAttemptInput): Promise<A
       stdio: ['pipe', 'pipe', 'pipe'] as const,
       cwd: String(session.cwd),
       detached: true,
+      ...(input.env !== undefined ? { env: { ...process.env, ...input.env } } : {}),
     });
   } catch (cause) {
     return classifySpawnFailure(providerName, cause as NodeJS.ErrnoException, argvBytes);
