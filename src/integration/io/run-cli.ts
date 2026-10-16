@@ -1,6 +1,7 @@
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { Result } from '@src/domain/result.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
+import { messageOf } from '@src/domain/value/error/error-message.ts';
 import type { Spawn } from '@src/integration/io/spawn.ts';
 import { killWithEscalation } from '@src/integration/io/kill-with-escalation.ts';
 
@@ -51,7 +52,8 @@ const trySpawnChild = (
     return Result.error(
       new StorageError({
         subCode: 'io',
-        message: `${command} not installed or failed to spawn`,
+        // Name the cause: a sync throw is as likely an oversized argv (E2BIG) as a missing binary.
+        message: `${command} failed to spawn: ${messageOf(cause)}`,
         cause,
       })
     );

@@ -33,6 +33,8 @@ interface SpawnCall {
   readonly command: string;
   readonly args: readonly string[];
   readonly cwd: string | undefined;
+  /** What the adapter piped to the child's stdin, when anything. */
+  stdin?: string;
 }
 
 interface ScriptedChild {
@@ -43,14 +45,24 @@ interface ScriptedChild {
   readonly throws?: Error;
 }
 
-const makeChild = (stdout: string, stderr: string, exitCode: number): ChildProcessWithoutNullStreams => {
+const makeChild = (
+  stdout: string,
+  stderr: string,
+  exitCode: number,
+  onStdin: (data: string) => void
+): ChildProcessWithoutNullStreams => {
   const child = new EventEmitter() as ChildProcessWithoutNullStreams;
   const stdoutStream = new EventEmitter() as ChildProcessWithoutNullStreams['stdout'];
   const stderrStream = new EventEmitter() as ChildProcessWithoutNullStreams['stderr'];
   Object.assign(child, {
     stdout: stdoutStream,
     stderr: stderrStream,
-    stdin: { on: () => undefined, end(): void {} },
+    stdin: {
+      on: () => undefined,
+      end(data?: string): void {
+        if (data !== undefined) onStdin(data);
+      },
+    },
     kill(): boolean {
       return true;
     },
@@ -63,12 +75,18 @@ const makeChild = (stdout: string, stderr: string, exitCode: number): ChildProce
   return child;
 };
 
-const scriptedSpawn = (scripted: ScriptedChild): { spawn: Spawn; calls: SpawnCall[] } => {
+/** One scripted child per spawn, in order; the last one answers any further spawns. */
+const scriptedSpawn = (script: ScriptedChild | readonly ScriptedChild[]): { spawn: Spawn; calls: SpawnCall[] } => {
+  const children = Array.isArray(script) ? script : [script];
   const calls: SpawnCall[] = [];
   const spawn: Spawn = (command, args, options) => {
-    calls.push({ command, args: [...args], cwd: options.cwd });
+    const call: SpawnCall = { command, args: [...args], cwd: options.cwd };
+    calls.push(call);
+    const scripted: ScriptedChild = children[Math.min(calls.length, children.length) - 1] ?? {};
     if (scripted.throws) throw scripted.throws;
-    return makeChild(scripted.stdout ?? '', scripted.stderr ?? '', scripted.exitCode ?? 0);
+    return makeChild(scripted.stdout ?? '', scripted.stderr ?? '', scripted.exitCode ?? 0, (data) => {
+      call.stdin = data;
+    });
   };
   return { spawn, calls };
 };
@@ -100,7 +118,7 @@ const INPUT: PullRequestCreatorInput = {
 };
 
 describe('createPullRequestCreator — argv', () => {
-  it('GitHub: builds the exact `gh pr create` argv and runs it inside the repo', async () => {
+  it('GitHub: builds the exact `gh pr create` argv, pipes the body on stdin and runs inside the repo', async () => {
     const { gitRunner, calls: gitCalls } = gitRunnerWith(okRemote('https://github.com/x/y.git'));
     const { spawn, calls } = scriptedSpawn({ stdout: 'https://github.com/x/y/pull/7\n' });
 
@@ -122,10 +140,11 @@ describe('createPullRequestCreator — argv', () => {
           'ralphctl/sprint-x',
           '--title',
           'Add the thing',
-          '--body',
-          'Body text\nsecond line',
+          '--body-file',
+          '-',
         ],
         cwd: '/repo',
+        stdin: 'Body text\nsecond line',
       },
     ]);
   });
@@ -141,7 +160,7 @@ describe('createPullRequestCreator — argv', () => {
     expect(calls[0]?.args.at(-1)).toBe('--draft');
   });
 
-  it('GitLab: builds the `glab mr create` argv with target/source-branch and --description', async () => {
+  it('GitLab: builds the `glab mr create` argv with target/source-branch and the description on stdin', async () => {
     const { gitRunner } = gitRunnerWith(okRemote('https://gitlab.com/foo/bar.git'));
     const { spawn, calls } = scriptedSpawn({ stdout: 'https://gitlab.com/foo/bar/-/merge_requests/3\n' });
 
@@ -162,13 +181,30 @@ describe('createPullRequestCreator — argv', () => {
           'ralphctl/sprint-x',
           '--title',
           'Add the thing',
-          '--description',
-          'Body text\nsecond line',
+          '--description-file',
+          '-',
           '--draft',
         ],
         cwd: '/repo',
+        stdin: 'Body text\nsecond line',
       },
     ]);
+  });
+
+  it('GitLab: falls back to an argv description when glab predates --description-file', async () => {
+    const { gitRunner } = gitRunnerWith(okRemote('https://gitlab.com/foo/bar.git'));
+    const { spawn, calls } = scriptedSpawn([
+      { stderr: 'ERROR: unknown flag: --description-file\n', exitCode: 1 },
+      { stdout: 'https://gitlab.com/foo/bar/-/merge_requests/4\n' },
+    ]);
+
+    const create = createPullRequestCreator({ gitRunner, spawn });
+    const r = await create(INPUT);
+
+    expect(r.ok).toBe(true);
+    expect(calls).toHaveLength(2);
+    expect(calls[1]?.args.slice(-2)).toEqual(['--description', 'Body text\nsecond line']);
+    expect(calls[1]?.stdin).toBeUndefined();
   });
 
   it('self-hosted GitLab host still dispatches to glab', async () => {
@@ -285,14 +321,14 @@ describe('createPullRequestCreator — failure paths', () => {
     if (!r.ok) expect(r.error).toBe(transportError);
   });
 
-  it('maps a missing platform CLI (spawn throws) to a StorageError', async () => {
+  it('maps a synchronous spawn throw to a StorageError that names the cause', async () => {
     const { gitRunner } = gitRunnerWith(okRemote('https://github.com/x/y.git'));
-    const { spawn } = scriptedSpawn({ throws: new Error('spawn gh ENOENT') });
+    const { spawn } = scriptedSpawn({ throws: Object.assign(new Error('spawn E2BIG'), { code: 'E2BIG' }) });
 
     const create = createPullRequestCreator({ gitRunner, spawn });
     const r = await create(INPUT);
 
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.error.message).toBe('gh not installed or failed to spawn');
+    if (!r.ok) expect(r.error.message).toBe('gh failed to spawn: spawn E2BIG');
   });
 });

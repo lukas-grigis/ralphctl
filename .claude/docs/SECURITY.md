@@ -231,6 +231,9 @@ earlier answers to this are on the rejected list and must not return: a `bash -l
 wrapper (cannot execute `.cmd` shims, mangles Windows backslash paths, silently dropped the Copilot seed)
 and `shell: true` for binary+args (mis-quotes spaces and `& | % "`). `providers/_engine/argv-budget.ts`
 carries the limits and turns an overflow into a named, non-retryable error instead of a bare errno.
+PR / MR bodies follow the same rule: `gh pr create --body-file -` and `glab mr create --description-file -`
+read them from stdin. The exceptions are glab releases that predate `--description-file` (the adapter
+retries with `--description` when glab rejects the flag) and `glab issue comment`, which has no stdin form.
 
 **`AbortError` is the one error chains propagate transparently.** User-initiated cancellation (Ctrl+C, the
 TUI abort hotkey) flows through every wrapper without being absorbed by guards or fallbacks. Anywhere a guard

@@ -1,7 +1,7 @@
 import { Result } from '@src/domain/result.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import type { GitRunner } from '@src/integration/io/git-runner.ts';
-import { runCli } from '@src/integration/io/run-cli.ts';
+import { runCli, type CliRunResult } from '@src/integration/io/run-cli.ts';
 import type { Spawn } from '@src/integration/io/spawn.ts';
 import {
   detectPullRequestPlatform,
@@ -55,6 +55,7 @@ const getOriginRemoteUrl = async (
   return Result.ok(url);
 };
 
+// The body rides stdin, never argv: argv is capped (32,767 chars on Windows, 128 KiB per arg on Linux).
 const buildGhArgs = (input: PullRequestCreatorInput): readonly string[] => {
   const args = [
     'pr',
@@ -65,14 +66,14 @@ const buildGhArgs = (input: PullRequestCreatorInput): readonly string[] => {
     input.branch,
     '--title',
     input.title,
-    '--body',
-    input.body,
+    '--body-file',
+    '-',
   ];
   if (input.draft) args.push('--draft');
   return args;
 };
 
-const buildGlabArgs = (input: PullRequestCreatorInput): readonly string[] => {
+const buildGlabArgs = (input: PullRequestCreatorInput, bodyInArgv: boolean): readonly string[] => {
   const args = [
     'mr',
     'create',
@@ -82,11 +83,25 @@ const buildGlabArgs = (input: PullRequestCreatorInput): readonly string[] => {
     input.branch,
     '--title',
     input.title,
-    '--description',
-    input.body,
+    ...(bodyInArgv ? ['--description', input.body] : ['--description-file', '-']),
   ];
   if (input.draft) args.push('--draft');
   return args;
+};
+
+// glab releases before `--description-file` reject the flag before making any API call.
+const UNKNOWN_DESCRIPTION_FILE_FLAG_RE = /unknown flag: --description-file/;
+
+const runGlab = async (spawn: Spawn, input: PullRequestCreatorInput): Promise<Result<CliRunResult, StorageError>> => {
+  const cwd = String(input.cwd);
+  const viaStdin = await runCli(spawn, 'glab', buildGlabArgs(input, false), {
+    cwd,
+    stdin: input.body,
+    timeoutMs: CLI_TIMEOUT_MS,
+  });
+  if (!viaStdin.ok || viaStdin.value.exitCode === 0) return viaStdin;
+  if (!UNKNOWN_DESCRIPTION_FILE_FLAG_RE.test(viaStdin.value.stderr)) return viaStdin;
+  return runCli(spawn, 'glab', buildGlabArgs(input, true), { cwd, timeoutMs: CLI_TIMEOUT_MS });
 };
 
 const runPlatformCli = async (
@@ -94,11 +109,15 @@ const runPlatformCli = async (
   platform: PullRequestPlatform,
   input: PullRequestCreatorInput
 ): Promise<Result<PullRequestCreatorOutput, StorageError>> => {
-  const command = platform === 'github' ? 'gh' : 'glab';
-  const args = platform === 'github' ? buildGhArgs(input) : buildGlabArgs(input);
   const noun = platform === 'github' ? 'gh pr create' : 'glab mr create';
-
-  const result = await runCli(spawn, command, args, { cwd: String(input.cwd), timeoutMs: CLI_TIMEOUT_MS });
+  const result =
+    platform === 'github'
+      ? await runCli(spawn, 'gh', buildGhArgs(input), {
+          cwd: String(input.cwd),
+          stdin: input.body,
+          timeoutMs: CLI_TIMEOUT_MS,
+        })
+      : await runGlab(spawn, input);
   if (!result.ok) return Result.error(result.error);
   if (result.value.exitCode !== 0) {
     const stderr = result.value.stderr.trim();

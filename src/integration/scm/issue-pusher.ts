@@ -25,7 +25,7 @@ import { parseGitRemoteUrl, parseIssueUrl } from '@src/integration/scm/issue-fet
  * listed via {@link listGitLabIssueNotes} (`glab api …/notes`) — glab has no note-listing subcommand.
  *
  * Errors:
- *  - CLI not installed → `StorageError(subCode: 'io', message: '<cli> not installed …')`
+ *  - CLI fails to launch → `StorageError(subCode: 'io', message: '<cli> failed to spawn: <cause>')`
  *  - 4xx/5xx → `StorageError(subCode: 'io', message: '<cli> issue …: <stderr>')`
  *  - Timeout → `StorageError(subCode: 'io', message: '<cli> timed out …')`
  */
