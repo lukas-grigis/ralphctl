@@ -729,6 +729,27 @@ describe('buildImplementPrompt — end-to-end against the real template', () => 
     expect(result.value).toContain('audit the claim against a tool result from this session');
   });
 
+  it('ranks the prompt contract above installed skills and lists the stops that are not stops', async () => {
+    const task = makeTaskWith({ name: 'export CSV' });
+    const result = await buildImplementPrompt(deps, {
+      task,
+      projectPath: '/tmp/ralph/main-repo',
+      progressFile: '/tmp/ralph/sprint-1/progress.md',
+      priorProgress: '',
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
+      contractPath: CONTRACT_PATH,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const flattened = result.value.replace(/\s+/g, ' ');
+    expect(flattened).toContain('take precedence over any installed skill or project context file');
+    expect(flattened).toContain('the quoted instruction in a `note` signal');
+    expect(flattened).toContain('a list of decisions none of which blocks the rest of the work');
+    expect(flattened).toContain('retrying after errors and gathering missing information yourself');
+    expect(flattened).toContain('a command or path the harness deliberately denies you');
+    expect(flattened).toContain('check that the evidence supports that specific action');
+  });
+
   it('nudges Phase 1 reconnaissance toward batched, parallel tool calls', async () => {
     const task = makeTaskWith({ name: 'export CSV' });
     const result = await buildImplementPrompt(deps, {
