@@ -11,7 +11,6 @@ import {
 import { createProject } from '@src/domain/entity/project.ts';
 import { createRepository } from '@src/domain/entity/repository.ts';
 import type { Repository, VerifyGate } from '@src/domain/entity/repository.ts';
-import { normalizeVerifyGates } from '@src/business/task/run-verify-script.ts';
 import type { Project } from '@src/domain/entity/project.ts';
 import type { TodoTask, VerificationCriterion } from '@src/domain/entity/task.ts';
 import type { TaskId } from '@src/domain/value/id/task-id.ts';
@@ -293,32 +292,6 @@ describe('checkPlanUseCase — verify-gate-criterion', () => {
     );
     expect(kindsOf([withCriteria([auto(INCIDENT_GATE)])], project)).toEqual([]);
     expect(kindsOf([withCriteria([auto('make check')])], project)).toEqual(['verify-gate-criterion']);
-  });
-
-  // check-plan cannot import `normalizeVerifyGates` (sibling-business fence), so it restates the
-  // gate-precedence rule. Pin the copy to the canonical helper: every command the post-task
-  // verify gate would run is flagged, and nothing else is.
-  it.each<[string, { readonly verifyScript?: string; readonly verifyGates?: readonly VerifyGate[] }]>([
-    ['verifyScript only', { verifyScript: '  make check  ' }],
-    [
-      'verifyGates only',
-      {
-        verifyGates: [
-          { pathPrefix: 'api', command: 'make api' },
-          { pathPrefix: '', command: 'make all' },
-        ],
-      },
-    ],
-    ['both — gates win', { verifyScript: 'make legacy', verifyGates: [{ pathPrefix: '', command: 'make check' }] }],
-    ['neither', {}],
-  ])('flags exactly the commands normalizeVerifyGates yields (%s)', (_label, gate) => {
-    const repo = repoWith(gate);
-    const gateCommands = normalizeVerifyGates(repo.verifyScript, repo.verifyGates).map((g) => g.command);
-    const project = projectWith(repo);
-    for (const command of ['make check', 'make legacy', 'make api', 'make all']) {
-      const flagged = kindsOf([withCriteria([auto(command)])], project).includes('verify-gate-criterion');
-      expect(flagged, command).toBe(gateCommands.includes(command));
-    }
   });
 
   it('stays quiet when the task points at an unknown repository', () => {

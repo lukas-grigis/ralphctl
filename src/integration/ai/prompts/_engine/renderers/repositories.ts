@@ -1,5 +1,5 @@
 import type { Project } from '@src/domain/entity/project.ts';
-import { normalizeVerifyGates } from '@src/business/task/run-verify-script.ts';
+import { normalizeVerifyGates } from '@src/domain/entity/repository.ts';
 
 /**
  * Markdown bullet list of a project's repositories for the plan / ideate prompts. Each repository

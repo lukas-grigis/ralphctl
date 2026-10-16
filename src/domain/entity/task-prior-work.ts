@@ -1,5 +1,5 @@
 import { Result } from '@src/domain/result.ts';
-import type { Attempt, PriorWorkNotRestoredReason, PriorWorkOutcome } from '@src/domain/entity/attempt.ts';
+import type { PriorWorkNotRestoredReason, PriorWorkOutcome } from '@src/domain/entity/attempt.ts';
 import type {
   BlockCause,
   BlockedTask,
@@ -8,7 +8,7 @@ import type {
   Task,
   TodoTask,
 } from '@src/domain/entity/task.ts';
-import { replaceLastAttempt, requireRunningAttempt } from '@src/domain/entity/task-attempts.ts';
+import { latestCritique, replaceLastAttempt, requireRunningAttempt } from '@src/domain/entity/task-attempts.ts';
 import type { DiffStat } from '@src/domain/value/diff-stat.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import type { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
@@ -169,13 +169,10 @@ export const describeNotRestored = (reason: PriorWorkNotRestoredReason, uncommit
   }
 };
 
-const newestCritique = (attempts: readonly Attempt[]): string | undefined =>
-  attempts.findLast((att) => att.critique !== undefined && att.critique.trim().length > 0)?.critique;
-
 /** Newest non-empty critique of the run the last unblock archived — the one that rejected a quarantined diff. */
 export const latestRetiredCritique = (task: Task): string | undefined => {
   const retired = task.retiredAttempts?.at(-1);
-  return retired === undefined ? undefined : newestCritique(retired.attempts);
+  return retired === undefined ? undefined : latestCritique(retired);
 };
 
 /**

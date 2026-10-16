@@ -1,7 +1,8 @@
 import { Result } from '@src/domain/result.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { VerifyRun } from '@src/domain/entity/attempt.ts';
-import { normalizeVerifyGates, runVerifyGatesUseCase } from '@src/business/task/run-verify-script.ts';
+import { runVerifyGatesUseCase } from '@src/business/task/run-verify-script.ts';
+import { normalizeVerifyGates } from '@src/domain/entity/repository.ts';
 import type { RunVerifyScriptOutput } from '@src/business/task/run-verify-script.ts';
 import { appendAttemptVerifyRun, markAttemptBaselineBroken } from '@src/domain/entity/task-attempts.ts';
 import type { InProgressTask } from '@src/domain/entity/task.ts';

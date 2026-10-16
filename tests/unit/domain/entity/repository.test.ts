@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { absolutePath } from '@tests/fixtures/domain.ts';
 import {
   createRepository,
+  normalizeVerifyGates,
   setRepositoryVerifyGates,
   type Repository,
   type VerifyGate,
@@ -80,5 +81,26 @@ describe('setRepositoryVerifyGates', () => {
     const cleared = setRepositoryVerifyGates(repo, undefined);
     if (!cleared.ok) throw new Error(`expected ok: ${cleared.error.message}`);
     expect(cleared.value).not.toHaveProperty('verifyGates');
+  });
+});
+
+describe('normalizeVerifyGates — legacy ⇄ structured precedence', () => {
+  it('structured gates win when present and non-empty', () => {
+    const gates: readonly VerifyGate[] = [{ pathPrefix: 'apps/web', command: 'pnpm --filter web test' }];
+    expect(normalizeVerifyGates('pnpm test', gates)).toBe(gates);
+  });
+
+  it('legacy script becomes a single catch-all gate when no gates configured', () => {
+    expect(normalizeVerifyGates('pnpm test', undefined)).toEqual([{ pathPrefix: '', command: 'pnpm test' }]);
+  });
+
+  it('empty gate list falls back to the legacy script', () => {
+    expect(normalizeVerifyGates('pnpm test', [])).toEqual([{ pathPrefix: '', command: 'pnpm test' }]);
+  });
+
+  it('whitespace-only / absent script with no gates → empty list (skipped run)', () => {
+    expect(normalizeVerifyGates('   ', undefined)).toEqual([]);
+    expect(normalizeVerifyGates(undefined, undefined)).toEqual([]);
+    expect(normalizeVerifyGates(undefined, [])).toEqual([]);
   });
 });

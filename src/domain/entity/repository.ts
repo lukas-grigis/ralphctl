@@ -38,6 +38,21 @@ export const canonicalGatePrefix = (prefix: string): string => {
 };
 
 /**
+ * Collapse the legacy and structured verify inputs into ONE gate list: `verifyGates` wins when
+ * present AND non-empty; otherwise a non-blank `verifyScript` becomes the single catch-all gate
+ * `{ pathPrefix: '', command }`. Neither configured yields `[]`.
+ */
+export const normalizeVerifyGates = (
+  verifyScript: string | undefined,
+  verifyGates: readonly VerifyGate[] | undefined
+): readonly VerifyGate[] => {
+  if (verifyGates !== undefined && verifyGates.length > 0) return verifyGates;
+  const command = verifyScript?.trim() ?? '';
+  if (command.length === 0) return [];
+  return [{ pathPrefix: '', command }];
+};
+
+/**
  * `id` is the stable domain identity (UUIDv7). `slug` is a kebab-case CLI handle (renamable
  * without breaking refs). `path` is a local-machine fact and may differ across environments —
  * never use it as identity. `name` is human-readable display, defaulted from `path` basename

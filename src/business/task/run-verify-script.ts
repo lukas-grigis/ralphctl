@@ -64,7 +64,7 @@ export type VerifyGateMode = 'fail-fast' | 'all-run';
  * Input to the multi-gate executor.
  *
  *  - `cwd` / `phase` — where the gates run and which audit phase (`'pre'` / `'post'`) the row records.
- *  - `gates`     — already-normalised gate list (see {@link normalizeVerifyGates}). When empty,
+ *  - `gates`     — already-normalised gate list (see `normalizeVerifyGates` in the repository entity). When empty,
  *    the run is a no-op recorded as a single `'skipped'` row.
  *  - `scope`     — touched paths (POSIX, repo-root-relative) that filter which gates run. A gate
  *    runs when its `pathPrefix` prefixes ANY scoped path (`''` always matches). `undefined`
@@ -86,23 +86,6 @@ export interface RunVerifyGatesProps {
   readonly runShellScript: RunShellScript;
   readonly logger: Logger;
 }
-
-/**
- * Normalise the two legacy/structured inputs into ONE gate list so the executor has a single code
- * path. Precedence matches the entity-documented rule: `verifyGates` wins when present AND
- * non-empty; otherwise the legacy `verifyScript` becomes a single catch-all gate
- * `{ pathPrefix: '', command: verifyScript }`. A whitespace-only / absent script with no gates
- * yields `[]` (the executor records a `'skipped'` row).
- */
-export const normalizeVerifyGates = (
-  verifyScript: string | undefined,
-  verifyGates: readonly VerifyGate[] | undefined
-): readonly VerifyGate[] => {
-  if (verifyGates !== undefined && verifyGates.length > 0) return verifyGates;
-  const command = verifyScript?.trim() ?? '';
-  if (command.length === 0) return [];
-  return [{ pathPrefix: '', command }];
-};
 
 /**
  * True iff `gate` should run under `scope`. A `''` prefix is the catch-all and always matches.

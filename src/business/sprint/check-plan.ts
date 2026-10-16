@@ -1,6 +1,6 @@
 import { Result } from '@src/domain/result.ts';
 import type { Project } from '@src/domain/entity/project.ts';
-import type { Repository } from '@src/domain/entity/repository.ts';
+import { normalizeVerifyGates, type Repository } from '@src/domain/entity/repository.ts';
 import type { TodoTask, VerificationCriterion } from '@src/domain/entity/task.ts';
 import { renderTaskGraphIssue, validateTaskGraph } from '@src/domain/entity/task-graph.ts';
 import type { RepositoryId } from '@src/domain/value/id/repository-id.ts';
@@ -170,18 +170,6 @@ const isMultiLineCommand = (command: string): boolean => command.includes('\n') 
 const normalizeCommand = (command: string): string => command.trim().replace(/\s+/g, ' ');
 
 /**
- * The commands the post-task verify gate actually runs: structured `verifyGates` win when
- * non-empty, else the legacy `verifyScript`. Mirrors `normalizeVerifyGates` in
- * `business/task/run-verify-script.ts`, which the sibling-business fence keeps out of reach here;
- * a parity test in `check-plan.test.ts` pins the two together.
- */
-const verifyGateCommands = (repo: Repository): readonly string[] => {
-  if (repo.verifyGates !== undefined && repo.verifyGates.length > 0) return repo.verifyGates.map((g) => g.command);
-  const script = repo.verifyScript?.trim() ?? '';
-  return script.length > 0 ? [script] : [];
-};
-
-/**
  * Does `command` repeat one of the repository's post-task verify gates? EXACT equality after
  * whitespace normalisation only — a prefix/substring match would flag `pnpm test:unit` against a
  * `pnpm test` gate, which is precisely the scoped criterion the plan prompt asks for.
@@ -189,7 +177,9 @@ const verifyGateCommands = (repo: Repository): readonly string[] => {
 const repeatsVerifyGate = (command: string, repo: Repository | undefined): boolean => {
   if (repo === undefined) return false;
   const key = normalizeCommand(command);
-  return verifyGateCommands(repo).some((gate) => normalizeCommand(gate) === key);
+  return normalizeVerifyGates(repo.verifyScript, repo.verifyGates).some(
+    (gate) => normalizeCommand(gate.command) === key
+  );
 };
 
 /**
