@@ -1,8 +1,8 @@
 import { EventEmitter } from 'node:events';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import {
@@ -580,6 +580,70 @@ describe('createShellScriptRunner', () => {
         }
       }
     );
+  });
+
+  describe.skipIf(process.platform === 'win32')('settling when leftovers hold the output pipes', () => {
+    const isAlive = (pid: number): boolean => {
+      try {
+        process.kill(pid, 0);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    let dir: string;
+
+    beforeEach(() => {
+      dir = mkdtempSync(join(tmpdir(), 'ralphctl-shell-pipes-'));
+    });
+
+    // Kill whatever a test left running, even when it failed before asserting on it.
+    afterEach(() => {
+      for (const file of readdirSync(dir).filter((f) => f.endsWith('.pid'))) {
+        const pid = readPid(join(dir, file));
+        if (pid > 1 && isAlive(pid)) process.kill(pid, 'SIGKILL');
+      }
+      rmSync(dir, { recursive: true, force: true });
+    });
+
+    const readPid = (file: string): number => Number(readFileSync(file, 'utf8').trim());
+
+    it('passes a script that exited 0 promptly and reaps the background job it left', async () => {
+      const pidFile = join(dir, 'bg.pid');
+      const runner = createShellScriptRunner({ abortKillGraceMs: 200 });
+
+      const started = Date.now();
+      const result = await runner.run(cwd, `sleep 30 & echo $! > '${pidFile}'; echo hi; exit 0`);
+      const elapsed = Date.now() - started;
+
+      if (!result.ok) throw result.error;
+      expect(result.value).toMatchObject({ passed: true, exitCode: 0, timedOut: false });
+      expect(result.value.output).toContain('hi');
+      expect(elapsed).toBeLessThan(5_000);
+      const pid = readPid(pidFile);
+      await vi.waitFor(() => {
+        expect(isAlive(pid)).toBe(false);
+      });
+    });
+
+    it('settles a timeout promptly even when a daemonised grandchild keeps the output pipe open', async () => {
+      const pidFile = join(dir, 'daemon.pid');
+      // `detached` puts the grandchild in its own session, out of reach of the group kill.
+      const daemon = `require('child_process').spawn('sleep', ['30'], { detached: true, stdio: ['ignore', 'ignore', 'inherit'] }).pid`;
+      const runner = createShellScriptRunner({ abortKillGraceMs: 200 });
+
+      const started = Date.now();
+      const result = await runner.run(
+        cwd,
+        `'${process.execPath}' -e "process.stdout.write(String(${daemon}))" > '${pidFile}'; sleep 30`,
+        { timeoutMs: 500, env: { NODE_OPTIONS: '' } }
+      );
+      const elapsed = Date.now() - started;
+
+      if (!result.ok) throw result.error;
+      expect(result.value).toMatchObject({ passed: false, timedOut: true });
+      expect(elapsed).toBeLessThan(5_000);
+    });
   });
 
   describe.skipIf(process.platform === 'win32')('orphan reaper', () => {

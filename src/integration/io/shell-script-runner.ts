@@ -13,6 +13,7 @@ import {
   supportsProcessGroups,
 } from '@src/integration/io/kill-process-tree.ts';
 import type { OrphanReaper } from '@src/integration/io/orphan-reaper.ts';
+import { onChildDone } from '@src/integration/io/child-exit.ts';
 
 /**
  * Run a project-configured shell script. Used by the implement chain leaves:
@@ -63,8 +64,9 @@ export const MAX_OUTPUT_BYTES = 50 * 1024 * 1024;
 /**
  * SIGTERM → SIGKILL grace for every kill (abort, timeout, output cap). A setup/verify script that
  * traps SIGTERM (e.g. a shell wrapper with a `trap` handler) would otherwise outlive the kill and
- * strand the run — the runner only settles on `close`. After the SIGTERM we schedule a hard SIGKILL
- * once this window elapses; the timer is cleared on a clean exit so it never fires a stray kill.
+ * strand the run — the runner only settles once the script exits. After the SIGTERM we schedule a
+ * hard SIGKILL once this window elapses; for a lone child the timer is cleared on settle so it never
+ * fires a stray kill.
  * Mirrors the idle-watchdog's escalation ladder; kept local rather than imported to avoid an
  * integration-layer cross-sibling dependency (`io` → `ai/providers/_engine`).
  */
@@ -225,7 +227,9 @@ interface EscalatingKill {
 /**
  * SIGTERM now, SIGKILL after `graceMs` — shared by the abort, timeout and output-cap triggers so a
  * SIGTERM-trapping script can't hold the run open. Repeat `kill()` calls never schedule a second
- * timer; `cancel()` clears it so a child that exits inside the window never gets a stray SIGKILL.
+ * timer. `cancel()` clears it for a lone child so one that exits inside the window never gets a
+ * stray SIGKILL; a group's SIGKILL still lands (unref'd), because a trapping grandchild can
+ * outlive the leader the run settled on.
  */
 const createEscalatingKill = (child: ChildProcessWithoutNullStreams, graceMs: number): EscalatingKill => {
   let graceTimer: NodeJS.Timeout | null = null;
@@ -238,6 +242,10 @@ const createEscalatingKill = (child: ChildProcessWithoutNullStreams, graceMs: nu
       }, graceMs);
     },
     cancel: () => {
+      if (graceTimer !== null && processGroupOf(child) !== undefined) {
+        graceTimer.unref();
+        return;
+      }
       if (graceTimer !== null) {
         clearTimeout(graceTimer);
         graceTimer = null;
@@ -366,17 +374,21 @@ const runChildProcess = (
     finish(null, `[spawn error: ${err.message}]`);
   });
 
-  child.on('close', (code) => {
-    if (timedOut) {
-      finish(code, `[timeout exceeded after ${String(timeoutMs)}ms]`);
-      return;
-    }
-    if (sink.isCapExceeded()) {
-      finish(code, `[output exceeded ${String(MAX_OUTPUT_BYTES)} byte cap — truncated]`);
-      return;
-    }
-    finish(code);
+  // The script's exit ends its time budget; leftovers still holding the pipes are reaped below.
+  child.once('exit', () => {
+    clearTimeout(timer);
   });
+
+  onChildDone(child, (code, pipesHeld) => {
+    if (pipesHeld) escalator.kill();
+    finish(code, killMarker(timedOut, sink.isCapExceeded(), timeoutMs));
+  });
+};
+
+const killMarker = (timedOut: boolean, capExceeded: boolean, timeoutMs: number): string | undefined => {
+  if (timedOut) return `[timeout exceeded after ${String(timeoutMs)}ms]`;
+  if (capExceeded) return `[output exceeded ${String(MAX_OUTPUT_BYTES)} byte cap — truncated]`;
+  return undefined;
 };
 
 export const createShellScriptRunner = (deps: ShellScriptRunnerDeps = {}): ShellScriptRunner => {
