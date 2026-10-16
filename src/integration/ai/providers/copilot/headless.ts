@@ -14,6 +14,7 @@ import type { HeadlessProviderDeps } from '@src/integration/ai/providers/_engine
 import { appendRoot, resolveWritableRoots } from '@src/integration/ai/providers/_engine/resolve-roots.ts';
 import type { SessionPermissions } from '@src/integration/ai/providers/_engine/session-permissions.ts';
 import type { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
+import type { StorageError } from '@src/domain/value/error/storage-error.ts';
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import { isCopilotModel } from '@src/domain/value/settings-models/copilot.ts';
 import { validateModel } from '@src/integration/ai/providers/_engine/validate-model.ts';
@@ -54,8 +55,8 @@ import {
  * directory, and passes a POINTER at the file in `-p`. Passing the body itself capped every
  * headless run at the platform command line — 32,767 bytes on Windows, which a harness prompt
  * clears easily, and the failure arrives as an opaque `spawn ENAMETOOLONG`. If the file cannot be
- * written the adapter warns and falls back to the inlined body: a large argv is a risk, a session
- * with no prompt at all is a certainty. See `_engine/prompt-pointer.ts` and `_engine/argv-budget.ts`.
+ * written the attempt fails with a `StorageError` — there is no inline fallback. See
+ * `_engine/prompt-pointer.ts` and `_engine/argv-budget.ts`.
  *
  * Read-only permission denies `shell` only — the `write` tool stays open because the
  * audit-[09] contract requires the AI to land `signals.json` in `outputDir` via Copilot's
@@ -114,26 +115,12 @@ const COPILOT_PROMPT_FILENAME = 'copilot-prompt.md';
 /**
  * Put the prompt on disk so argv only has to carry a pointer. Lands next to `signals.json`, which
  * is where the flow's own per-run artifacts live and is inside a mounted root for every caller.
- *
- * Returns `undefined` when the write fails — the caller then inlines the body, so a full disk
- * degrades a run's Windows headroom rather than failing it outright.
  */
-const materializeCopilotPrompt = async (
-  deps: HeadlessProviderDeps,
-  session: AiSession
-): Promise<string | undefined> => {
+const materializeCopilotPrompt = async (session: AiSession): Promise<Result<string, StorageError>> => {
   const path = join(dirname(String(session.signalsFile)), COPILOT_PROMPT_FILENAME);
   const wrote = await writeTextAtomic(path, session.prompt);
-  if (wrote.ok) return path;
-
-  deps.eventBus.publish({
-    type: 'log',
-    level: 'warn',
-    message: `${PROVIDER_NAME}: could not write ${COPILOT_PROMPT_FILENAME} — passing the prompt inline (${String(Buffer.byteLength(session.prompt, 'utf8'))} bytes)`,
-    meta: { path, error: wrote.error.message },
-    at: IsoTimestamp.now(),
-  });
-  return undefined;
+  if (!wrote.ok) return Result.error(wrote.error);
+  return Result.ok(path);
 };
 
 /** Model gate shared by {@link buildCopilotArgs} and the check that precedes the prompt write. */
@@ -146,14 +133,12 @@ const validateCopilotModel = (model: string): Result<void, InvalidStateError> =>
 
 /**
  * Build the argv for one Copilot invocation. Validates `session.model` is a known
- * {@link CopilotModel}; surfaces `InvalidStateError` for unknowns.
- *
- * `promptFile` is the path {@link materializeCopilotPrompt} produced; when it is absent the prompt
- * body goes into argv as it did historically.
+ * {@link CopilotModel}; surfaces `InvalidStateError` for unknowns. `promptFile` is the path
+ * {@link materializeCopilotPrompt} produced.
  */
 export const buildCopilotArgs = (
   session: AiSession,
-  promptFile?: string
+  promptFile: string
 ): Result<readonly string[], InvalidStateError> => {
   // Catalog-valid but temporarily suspended server-side (see suspended-models.ts) — the list is
   // currently empty; the guard stays wired for the next incident.
@@ -201,16 +186,16 @@ export const buildCopilotArgs = (
   // Auto-mount `outputDir` so signals.json can land via the write tool (see resolve-roots.ts), and
   // the prompt file's directory, or the pointer would name a path the read tool may not open. The
   // two are usually the same directory, which `appendRoot` folds out.
-  const promptDir = promptFile === undefined ? undefined : AbsolutePath.parse(dirname(promptFile));
+  const promptDir = AbsolutePath.parse(dirname(promptFile));
   const roots = appendRoot(
     resolveWritableRoots(session),
-    promptDir?.ok === true ? promptDir.value : undefined,
+    promptDir.ok ? promptDir.value : undefined,
     String(session.cwd)
   );
   for (const root of roots) {
     args.push(`--add-dir=${String(root)}`);
   }
-  args.push('-p', promptFile === undefined ? session.prompt : buildPromptPointer(promptFile));
+  args.push('-p', buildPromptPointer(promptFile));
   return Result.ok(args);
 };
 
@@ -316,8 +301,9 @@ const createCopilotAttempt = (deps: HeadlessProviderDeps, base: AttemptBase) => 
     const validated = validateCopilotModel(attemptSession.model);
     if (!validated.ok) return { kind: 'error' as const, error: validated.error };
 
-    const promptFile = await materializeCopilotPrompt(deps, attemptSession);
-    const built = buildCopilotArgs(attemptSession, promptFile);
+    const promptFile = await materializeCopilotPrompt(attemptSession);
+    if (!promptFile.ok) return { kind: 'error' as const, error: promptFile.error };
+    const built = buildCopilotArgs(attemptSession, promptFile.value);
     if (!built.ok) return { kind: 'error' as const, error: built.error };
 
     const parser = createCopilotStreamParser();
