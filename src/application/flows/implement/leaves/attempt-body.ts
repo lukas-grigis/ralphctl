@@ -390,6 +390,7 @@ const attemptSettleLeaves = (
   progressJournalLeaf(
     {
       writeFile: deps.writeFile,
+      appendFile: deps.appendFile,
       clock: deps.clock,
       logger: deps.logger,
       journalMutex: deps.journalMutex,

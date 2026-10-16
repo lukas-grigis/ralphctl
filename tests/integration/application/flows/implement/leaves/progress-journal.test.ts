@@ -35,6 +35,7 @@ import {
 import { makeTmpRoot } from '@tests/fixtures/tmp-root.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import { createAtomicWriteFile } from '@src/integration/io/write-file-atomic.ts';
+import { createAppendFile } from '@src/integration/io/append-file-adapter.ts';
 import { createFoldQueue } from '@src/application/flows/implement/wave-branch.ts';
 import type { WriteFile } from '@src/business/io/write-file.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
@@ -92,6 +93,7 @@ const ctxFor = (tasks: ImplementCtx['tasks'], extra: Partial<ImplementCtx> = {})
 
 const journalDeps = (writeFile: WriteFile, clock = () => FIXED_LATER) => ({
   writeFile,
+  appendFile: createAppendFile(),
   clock,
   logger: noopLogger,
   journalMutex: createFoldQueue(),
@@ -394,6 +396,27 @@ describe('progressJournalLeaf', () => {
     expect(written).toContain(`## Task: lost — Attempt 1 · id:${String(task.id)}`);
     expect(written).toContain('_section for the latest attempt is missing — see signals.json / git log_');
   });
+
+  it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)(
+    'an unreadable journal is appended to, never regenerated over (prior sections survive)',
+    async () => {
+      const t1 = makeDoneTask({ name: 'task-one' });
+      const t2 = makeDoneTask({ name: 'task-two' });
+      const opts = { progressFile, totalRounds: 3 };
+      const writeFile = createAtomicWriteFile();
+      await progressJournalLeaf(journalDeps(writeFile), opts, t1.id).execute(ctxFor([t1, t2]));
+
+      // Write-only: the read fails (EACCES) while an append still lands.
+      await fs.chmod(String(progressFile), 0o200);
+      const result = await progressJournalLeaf(journalDeps(writeFile), opts, t2.id).execute(ctxFor([t1, t2]));
+      await fs.chmod(String(progressFile), 0o644);
+
+      expect(result.ok).toBe(true);
+      const written = await read();
+      expect(written).toContain('## Task: task-one');
+      expect(written.indexOf('## Task: task-two')).toBeGreaterThan(written.indexOf('## Task: task-one'));
+    }
+  );
 
   it('throws InvalidStateError when the task is missing from ctx.tasks (chain-shape contract)', async () => {
     const task = makeDoneTask({ name: 'phantom' });

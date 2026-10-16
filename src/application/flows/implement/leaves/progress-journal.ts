@@ -3,6 +3,8 @@ import { Result } from '@src/domain/result.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
 import type { WriteFile } from '@src/business/io/write-file.ts';
+import type { AppendFile } from '@src/business/io/append-file.ts';
+import { errnoCode } from '@src/integration/io/fs.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { StorageError } from '@src/domain/value/error/storage-error.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
@@ -44,6 +46,7 @@ import { resetSignalAccumulators } from '@src/application/flows/implement/sprint
  * append-only attempt sections, regenerate the header band from canonical data (sprint + tasks +
  * execution), append the new attempt section, and write the whole file atomically. The header band
  * stays an accurate machine-derived snapshot; the attempt sections are never rewritten.
+ * A journal that exists but can't be read is never regenerated over — the section is appended instead.
  *
  * MUTEX-GUARDED read-modify-write: on the parallel wave path, 2+ branches share the SAME sprint
  * `progress.md`. Each branch's read (a bare `fs.readFile`, outside any port) → regenerate-header →
@@ -62,6 +65,8 @@ import { resetSignalAccumulators } from '@src/application/flows/implement/sprint
 export interface ProgressJournalLeafDeps {
   /** Atomic whole-file writer — the regenerated journal is written via temp+rename. */
   readonly writeFile: WriteFile;
+  /** Fallback when the journal exists but can't be read — appending never destroys unread history. */
+  readonly appendFile: AppendFile;
   readonly clock: () => IsoTimestamp;
   readonly logger: Logger;
   /**
@@ -363,13 +368,43 @@ const buildAttemptSection = (input: JournalInput, totalRounds: number, clock: ()
   });
 };
 
-/** Best-effort read of the current journal file — absent / unreadable resolves to the empty string. */
-const readExisting = async (path: AbsolutePath): Promise<string> => {
+type ExistingJournal = { readonly ok: true; readonly text: string } | { readonly ok: false; readonly code: string };
+
+/** Absent journal reads as empty (first write); any other read error is surfaced so nothing is regenerated over it. */
+const readExisting = async (path: AbsolutePath): Promise<ExistingJournal> => {
   try {
-    return await fs.readFile(String(path), 'utf8');
-  } catch {
-    return '';
+    return { ok: true, text: await fs.readFile(String(path), 'utf8') };
+  } catch (cause) {
+    const code = errnoCode(cause) ?? 'unknown';
+    return code === 'ENOENT' ? { ok: true, text: '' } : { ok: false, code };
   }
+};
+
+/** Read failed on an existing file: append the section as-is (header goes stale until the next good read). */
+const appendSectionUnread = async (
+  deps: ProgressJournalLeafDeps,
+  taskId: TaskId,
+  progressFile: AbsolutePath,
+  newSection: string,
+  readCode: string
+): Promise<void> => {
+  const log = deps.logger.named('implement.progress-journal');
+  const appended = await deps.appendFile(progressFile, newSection);
+  if (appended.ok) {
+    log.error(
+      `progress-journal-${String(taskId)} could not read the journal — appended the section without regenerating the header`,
+      {
+        path: String(progressFile),
+        readError: readCode,
+      }
+    );
+    return;
+  }
+  log.error(`progress-journal-${String(taskId)} could not read the journal and the section append failed`, {
+    path: String(progressFile),
+    readError: readCode,
+    appendError: appended.error.message,
+  });
 };
 
 /**
@@ -434,7 +469,12 @@ export const progressJournalLeaf = (
 
           // Regenerate the always-kept header band from canonical state, then append this attempt
           // section. The existing file's append-only sections ride through verbatim.
-          const existing = await readExisting(input.progressFile);
+          const read = await readExisting(input.progressFile);
+          if (!read.ok) {
+            await appendSectionUnread(deps, taskId, input.progressFile, newSection, read.code);
+            return Result.ok(undefined) as Result<void, StorageError | InvalidStateError>;
+          }
+          const existing = read.text;
           const stateHeader = buildStateHeader(input, existing, deps.clock);
           const content = regenerateJournal({ existing, stateHeader, newSection });
 

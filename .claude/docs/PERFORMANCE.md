@@ -284,11 +284,13 @@ implement-style run appends its full trace, bracketed by `=== chain-run <id> <fl
 with drop-newer back-pressure) so it cannot OOM under high event rate. Default factory is no-op so unset
 envs incur zero memory cost.
 
-**`progress.md` is an append-only journal**, not streamed or regenerated. `init-progress-journal`
+**`progress.md` is an append-only journal** of attempt sections under a derived header band. `init-progress-journal`
 writes a one-time sprint header at creation; after each `settle-attempt-<taskId>` the `progress-journal` leaf
-appends one task-attempt section via `renderJournalEntry` (a pure formatter). It reads no log files — the
-canonical state lives in `tasks.json` / `execution.json`. Appends are best-effort: a write failure is logged
-and the next attempt's append heals the file.
+regenerates the header band and appends one task-attempt section via `renderJournalEntry` (a pure formatter),
+writing the whole file atomically. It reads no log files — the canonical state lives in `tasks.json` /
+`execution.json`. Writes are best-effort: a failed write retries once, then leaves a visible gap marker. A
+journal that exists but can't be read is never regenerated over — the section is appended and the header
+goes stale until the next good read.
 
 **Per-round artifacts.** Generator and evaluator prompts land at `rounds/<N>/{generator,evaluator}/prompt.md`
 before each spawn; `settle-attempt-leaf` writes `rounds/<N>/outcome.md` after settlement.
