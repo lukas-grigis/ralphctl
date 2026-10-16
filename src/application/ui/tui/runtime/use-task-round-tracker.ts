@@ -62,8 +62,6 @@ export interface TaskRound {
 
 const isTaskRoundStarted = (e: AppEvent): e is TaskRoundStartedEvent => e.type === 'task-round-started';
 
-// Module-scoped so it stays referentially stable across renders — `useCoalescedMap`'s effect
-// deps include it, and a fresh arrow per render would churn the subscription.
 const keyOfTaskRound = (e: TaskRoundStartedEvent): string => e.taskId;
 
 // Monotonic guard + attempt-relative round derivation. A late/older round returns `undefined`
