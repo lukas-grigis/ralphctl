@@ -1,5 +1,5 @@
 import { join } from 'node:path';
-import { sprintDir } from '@src/integration/persistence/storage.ts';
+import { ensureCanonicalSprintDir } from '@src/integration/persistence/sprint/repository.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { createRunner, type Runner } from '@src/application/chain/run/runner.ts';
 import {
@@ -172,21 +172,24 @@ const buildParallelElement = (
 };
 
 /**
- * Direct-build the canonical `<id>--<slug>/` sprint dir plus its `progress.md` / `events.ndjson` siblings, collapsing
- * the three `AbsolutePath.parse` checks into one `Result` chain.
+ * The canonical `<id>--<slug>/` sprint dir plus its `progress.md` / `events.ndjson` siblings, collapsing the three
+ * `AbsolutePath.parse` checks into one `Result` chain. A legacy dir is moved onto the canonical name first, so the run's
+ * side files, worktrees and lock key all sit in the dir the repositories resolve.
  */
-const resolveImplementSprintPaths = (
+const resolveImplementSprintPaths = async (
   dataRoot: AbsolutePath,
   sprint: Pick<Sprint, 'id' | 'slug'>
-): Result<
-  {
-    readonly sprintDirPath: AbsolutePath;
-    readonly progressPath: AbsolutePath;
-    readonly eventsNdjsonPath: AbsolutePath;
-  },
-  string
+): Promise<
+  Result<
+    {
+      readonly sprintDirPath: AbsolutePath;
+      readonly progressPath: AbsolutePath;
+      readonly eventsNdjsonPath: AbsolutePath;
+    },
+    string
+  >
 > => {
-  const sprintDirPath = AbsolutePath.parse(sprintDir(dataRoot, sprint.id, sprint.slug));
+  const sprintDirPath = AbsolutePath.parse(await ensureCanonicalSprintDir(dataRoot, sprint.id, sprint.slug));
   if (!sprintDirPath.ok) return Result.error(sprintDirPath.error.message);
   const progressPath = AbsolutePath.parse(join(String(sprintDirPath.value), 'progress.md'));
   if (!progressPath.ok) return Result.error(progressPath.error.message);
@@ -394,7 +397,7 @@ export const launchImplement = async (ctx: LaunchContext): Promise<LaunchResult>
   if (!queue.ok) return { ok: false, reason: queue.error };
   const todoTasks = queue.value;
   if (todoTasks.length === 0) return { ok: false, reason: 'No tasks to implement or resume.' };
-  const sprintPaths = resolveImplementSprintPaths(deps.storage.dataRoot, snapshot.sprint);
+  const sprintPaths = await resolveImplementSprintPaths(deps.storage.dataRoot, snapshot.sprint);
   if (!sprintPaths.ok) return { ok: false, reason: sprintPaths.error };
   const { sprintDirPath, progressPath, eventsNdjsonPath } = sprintPaths.value;
 

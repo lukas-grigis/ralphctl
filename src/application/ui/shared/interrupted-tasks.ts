@@ -15,7 +15,7 @@ import { restoredWorkContext } from '@src/domain/entity/task-prior-work.ts';
 import { readLastGeneratorRound } from '@src/application/flows/implement/leaves/round-artifacts.ts';
 import { gitStatusPorcelain } from '@src/integration/io/git-operations.ts';
 import type { GitRunner } from '@src/integration/io/git-runner.ts';
-import { sprintDir } from '@src/integration/persistence/storage.ts';
+import { resolveSprintDir, sprintDir } from '@src/integration/persistence/storage.ts';
 
 export interface InterruptedTask {
   readonly taskId: string;
@@ -75,10 +75,9 @@ const exists = async (path: string): Promise<boolean> => {
 const loadOne = async (
   deps: LoadInterruptedFactsDeps,
   project: Project,
-  sprint: Sprint,
+  sprintPath: string,
   task: Task
 ): Promise<InterruptedFacts> => {
-  const sprintPath = sprintDir(deps.dataRoot, sprint.id, sprint.slug);
   const worktree = join(sprintPath, 'worktrees', `wt-${task.id}`);
   const repo = project.repositories.find((r) => r.id === task.repositoryId);
   const treePath = (await exists(worktree)) ? AbsolutePath.parse(worktree) : undefined;
@@ -104,11 +103,14 @@ export const loadInterruptedFacts = async (
   tasks: readonly Task[],
   interrupted: readonly InterruptedTask[]
 ): Promise<ReadonlyMap<string, InterruptedFacts>> => {
+  // A legacy bare `<id>/` dir that no save has renamed yet still holds the dead run's worktrees and rounds.
+  const sprintPath =
+    (await resolveSprintDir(deps.dataRoot, sprint.id)) ?? sprintDir(deps.dataRoot, sprint.id, sprint.slug);
   const entries = await Promise.all(
     interrupted.flatMap((i) => {
       const task = tasks.find((t) => t.id === i.taskId);
       if (task === undefined) return [];
-      return [loadOne(deps, project, sprint, task).then((facts) => [i.taskId, facts] as const)];
+      return [loadOne(deps, project, sprintPath, task).then((facts) => [i.taskId, facts] as const)];
     })
   );
   return new Map(entries);

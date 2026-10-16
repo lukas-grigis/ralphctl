@@ -112,6 +112,16 @@ export const removeDir = async (path: string): Promise<Result<void, NotFoundErro
   }
 };
 
+/** Delete a directory only when it is empty — `rmdir` refuses a non-empty one, so nothing inside can be lost. */
+export const removeEmptyDir = async (path: string): Promise<Result<void, StorageError>> => {
+  try {
+    await fs.rmdir(path);
+    return Result.ok(undefined);
+  } catch (cause) {
+    return Result.error(new StorageError({ subCode: 'io', message: `rmdir failed: ${path}`, path, cause }));
+  }
+};
+
 /** Atomically rename a path (file or directory) to a new name on the SAME filesystem. */
 export const renamePath = async (from: string, to: string): Promise<Result<void, NotFoundError | StorageError>> => {
   try {

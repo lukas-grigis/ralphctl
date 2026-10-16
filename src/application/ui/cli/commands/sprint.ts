@@ -19,7 +19,7 @@ import { createCloseSprintFlow } from '@src/application/flows/close-sprint/flow.
 import type { CloseSprintCtx } from '@src/application/flows/close-sprint/ctx.ts';
 import { ASSERT_SPRINT_STATUS } from '@src/application/flows/_shared/sprint/assert-status.ts';
 import { createRunner } from '@src/application/chain/run/runner.ts';
-import { sprintDir as buildSprintDir } from '@src/integration/persistence/storage.ts';
+import { ensureCanonicalSprintDir } from '@src/integration/persistence/sprint/repository.ts';
 import { createLastSelectionStore } from '@src/integration/persistence/selection/last-selection-store.ts';
 
 interface RemoveOpts {
@@ -233,7 +233,7 @@ const closeSprintAction = async (raw: string, opts: CloseOpts): Promise<void> =>
   const blockedTasks = await confirmBlockedTasksOrStop(sprint, deps.taskRepo, opts.yes === true);
   if (blockedTasks === undefined) return;
 
-  const sprintDir = buildSprintDir(storage.dataRoot, sprint.id, sprint.slug);
+  const sprintDir = await ensureCanonicalSprintDir(storage.dataRoot, sprint.id, sprint.slug);
   const progressPath = AbsolutePath.parse(join(sprintDir, 'progress.md'));
   if (!progressPath.ok) {
     fail(progressPath.error.message);

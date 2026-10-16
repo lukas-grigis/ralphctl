@@ -74,7 +74,10 @@ a double-hyphen and a kebab handle) — human-readable and still chronologically
 tolerant: `resolveProjectPath`, `resolveSprintDir`, and `resolveMemoryDir` in
 `src/integration/persistence/storage.ts` scan the parent directory and prefer the slugged form over a legacy
 bare `<id>` form, so old data directories continue to work without manual intervention. Write-side path builders
-always produce the canonical `<id>--<slug>` name.
+always produce the canonical `<id>--<slug>` name. Because the readers prefer that name, a launcher that writes sprint
+side files (progress.md, logs, worktrees) gets its dir from `ensureCanonicalSprintDir`, which first moves a legacy dir
+onto it; `SprintRepository.save` does the same. When both dirs already exist, the legacy dir's entries that the
+canonical one lacks move across and a clashing entry stays put — the reconcile never deletes a file.
 
 `Repository` is **nested inside `Project`** as a value object — not its own aggregate. Project carries an array
 of repositories (each with `setupScript`, `verifyScript`, `verifyTimeout`, optional `verifyGates` (`VerifyGate[]` —

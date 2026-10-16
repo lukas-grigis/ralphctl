@@ -244,6 +244,50 @@ describe('createFsSprintRepository', () => {
     expect((await fs.stat(join(legacyDir, 'tasks.json'))).isFile()).toBe(true);
   });
 
+  it('reconcile-on-save: a canonical dir holding only side files absorbs the legacy dir — nothing is deleted', async () => {
+    const repo = createFsSprintRepository({ root });
+    const { sprint } = makeDraftSprintBundle({ slug: 'cool-sprint' });
+    const legacyDir = join(sprintsDir(root), String(sprint.id));
+    await fs.mkdir(legacyDir, { recursive: true });
+    await fs.writeFile(join(legacyDir, 'sprint.json'), JSON.stringify(toJsonForTest(sprint)), 'utf8');
+    await fs.writeFile(join(legacyDir, 'tasks.json'), '{"tasks":[]}', 'utf8');
+    await fs.writeFile(join(legacyDir, 'execution.json'), '{"only-copy":true}', 'utf8');
+    await fs.writeFile(join(legacyDir, 'progress.md'), 'OLD HISTORY\n', 'utf8');
+    // A side-file writer that built the canonical path before any save created it with no state.
+    const canonical = sprintDir(root, sprint.id, sprint.slug);
+    await fs.mkdir(canonical, { recursive: true });
+    await fs.writeFile(join(canonical, 'events.ndjson'), '{}\n', 'utf8');
+    await fs.writeFile(join(canonical, 'progress.md'), 'NEW SECTION\n', 'utf8');
+
+    expect((await repo.save(sprint)).ok).toBe(true);
+
+    expect(await fs.readFile(join(canonical, 'tasks.json'), 'utf8')).toBe('{"tasks":[]}');
+    expect(await fs.readFile(join(canonical, 'execution.json'), 'utf8')).toBe('{"only-copy":true}');
+    expect(await fs.readFile(join(canonical, 'events.ndjson'), 'utf8')).toBe('{}\n');
+    expect(await fs.readFile(join(canonical, 'progress.md'), 'utf8')).toBe('NEW SECTION\n');
+    // The clashing entry has nowhere to go, so the legacy dir is kept with it rather than deleted.
+    expect(await fs.readdir(legacyDir)).toEqual(['progress.md']);
+    expect(await fs.readFile(join(legacyDir, 'progress.md'), 'utf8')).toBe('OLD HISTORY\n');
+    expect((await repo.findById(sprint.id)).ok).toBe(true);
+  });
+
+  it('reconcile-on-save: removes the legacy dir once every entry has moved into the canonical dir', async () => {
+    const repo = createFsSprintRepository({ root });
+    const { sprint } = makeDraftSprintBundle({ slug: 'cool-sprint' });
+    const legacyDir = join(sprintsDir(root), String(sprint.id));
+    await fs.mkdir(legacyDir, { recursive: true });
+    await fs.writeFile(join(legacyDir, 'sprint.json'), JSON.stringify(toJsonForTest(sprint)), 'utf8');
+    await fs.writeFile(join(legacyDir, 'tasks.json'), '{"tasks":[]}', 'utf8');
+    const canonical = sprintDir(root, sprint.id, sprint.slug);
+    await fs.mkdir(canonical, { recursive: true });
+    await fs.writeFile(join(canonical, 'events.ndjson'), '{}\n', 'utf8');
+
+    expect((await repo.save(sprint)).ok).toBe(true);
+
+    expect((await fs.readdir(canonical)).sort()).toEqual(['events.ndjson', 'sprint.json', 'tasks.json']);
+    await expect(fs.stat(legacyDir)).rejects.toThrow();
+  });
+
   it('list dedupes by id when a legacy <id>/ and slugged <id>--<slug>/ transiently coexist', async () => {
     const repo = createFsSprintRepository({ root });
     const { sprint } = makeDraftSprintBundle({ slug: 'cool-sprint' });

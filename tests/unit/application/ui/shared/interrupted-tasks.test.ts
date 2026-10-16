@@ -1,3 +1,5 @@
+import { promises as fs } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { Result } from '@src/domain/result.ts';
 import {
@@ -15,6 +17,7 @@ import {
   makeProject,
   makeTodoTask,
 } from '@tests/fixtures/domain.ts';
+import { makeTmpRoot } from '@tests/fixtures/tmp-root.ts';
 
 describe('interruptedTasksOf', () => {
   it('reports an in-progress task whose last attempt is still running', () => {
@@ -92,5 +95,38 @@ describe('loadInterruptedFacts — restored prior work', () => {
 
   it('is false when the attempt restored nothing', async () => {
     expect((await load(makeInProgressTaskWithRunningAttempt())).restored).toBe(false);
+  });
+});
+
+describe('loadInterruptedFacts — legacy bare sprint dir', () => {
+  it('finds the recorded generator session under a sprint dir that was never renamed to <id>--<slug>', async () => {
+    const tmp = await makeTmpRoot();
+    try {
+      const sprint = makeActiveSprint();
+      const task = makeInProgressTaskWithRunningAttempt();
+      const generatorDir = join(String(tmp.root), 'sprints', String(sprint.id), 'implement', task.id, 'rounds', '1');
+      await fs.mkdir(join(generatorDir, 'generator'), { recursive: true });
+      await fs.writeFile(join(generatorDir, 'generator', 'session-id.txt'), 'sess-1\n', 'utf8');
+      await fs.writeFile(
+        join(generatorDir, 'generator', 'role-meta.json'),
+        JSON.stringify({ attemptN: 1, provider: 'claude-code', model: 'm' }),
+        'utf8'
+      );
+      const noGit: GitRunner = {
+        run: () => Promise.resolve(Result.ok({ stdout: '', stderr: '', exitCode: 0 })),
+      } as unknown as GitRunner;
+
+      const facts = await loadInterruptedFacts(
+        { gitRunner: noGit, dataRoot: tmp.root },
+        makeProject(),
+        sprint,
+        [task],
+        interruptedTasksOf([task], false)
+      );
+
+      expect(facts.get(task.id)?.resumable).toBe(true);
+    } finally {
+      await tmp.cleanup();
+    }
   });
 });
