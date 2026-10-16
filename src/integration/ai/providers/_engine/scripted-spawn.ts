@@ -83,6 +83,9 @@ const createScriptedStream = (): EventEmitter => {
     setEncoding: (): void => {
       // The fabricated chunks are already utf-8 strings.
     },
+    destroy: (): void => {
+      // no-op — the engine drops a pipe still open after exit; nothing holds an OS handle here.
+    },
   });
 };
 

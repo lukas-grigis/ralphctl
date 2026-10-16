@@ -23,6 +23,7 @@
  */
 
 import { Result } from '@src/domain/result.ts';
+import { onChildDone } from '@src/integration/io/child-exit.ts';
 import { pipeSpawn } from '@src/integration/io/cross-platform-spawn.ts';
 import { isNodeErrnoCode } from '@src/integration/io/fs.ts';
 import type { Spawn } from '@src/integration/io/spawn.ts';
@@ -98,7 +99,8 @@ const runHelper = (spawn: Spawn, helper: HelperCommand, text: string): Promise<R
       const code = isNodeErrnoCode(cause, 'ENOENT') ? 'no-helper' : SPAWN_FAILED;
       settle(Result.error({ code, message: `clipboard helper '${helper.cmd}' failed: ${cause.message}` }));
     });
-    child.on('close', (exitCode) => {
+    // Not bare `close`: `wl-copy` forks a daemon to serve the selection, which may keep the pipes open.
+    onChildDone(child, (exitCode) => {
       if (exitCode === 0) {
         settle(Result.ok(undefined));
         return;
@@ -115,7 +117,7 @@ const runHelper = (spawn: Spawn, helper: HelperCommand, text: string): Promise<R
     // closes; the same closes signal `pbcopy` / `xclip` (with `-selection`) and `clip.exe`. The
     // first write therefore needs to be the last write — encode the whole payload at once.
     try {
-      // EPIPE from a helper that exited early is async; the exit code on `close` already reports it.
+      // EPIPE from a helper that exited early is async; the exit code already reports it.
       child.stdin.on('error', () => {});
       child.stdin.end(text, 'utf8');
     } catch (cause) {

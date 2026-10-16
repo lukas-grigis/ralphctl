@@ -4,11 +4,11 @@ import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import { messageOf } from '@src/domain/value/error/error-message.ts';
 import type { Spawn } from '@src/integration/io/spawn.ts';
 import { killWithEscalation } from '@src/integration/io/kill-with-escalation.ts';
+import { onChildDone } from '@src/integration/io/child-exit.ts';
 
 /**
- * Output of a single CLI invocation. `exitCode` is `null` only when the close event never
- * delivered a numeric code (rare — typically the timer path resolves first with an error
- * before the close handler fires).
+ * Output of a single CLI invocation. `exitCode` is `null` only when the child died by a signal
+ * without a numeric code (rare — typically the timer path resolves first with an error).
  *
  * Sibling utility to {@link runCommand} (`run-command.ts`): that one is for one-shot probes
  * via `execFile` with no stdin and no cwd; this one wraps `spawn` so we can pipe stdin
@@ -29,7 +29,7 @@ export interface CliRunOptions {
   readonly cwd?: string;
   /**
    * Hard wall-clock timeout. SCM read paths use 30s; pull-request creation uses 60s because
-   * `gh pr create` blocks on auth + network round-trips. The timer is cleared on close.
+   * `gh pr create` blocks on auth + network round-trips. The timer is cleared once the child exits.
    */
   readonly timeoutMs: number;
 }
@@ -61,9 +61,11 @@ const trySpawnChild = (
 };
 
 /**
- * Wire stdout/stderr buffering plus the `error` / `close` terminal handlers. Both terminal
- * handlers route through `settleOnce`, which the caller has already guarded to fire only once
- * (a `close` racing an already-timed-out `error`, or vice-versa, must not resolve twice).
+ * Wire stdout/stderr buffering plus the `error` / done terminal handlers. Both terminal handlers
+ * route through `settleOnce`, which the caller has already guarded to fire only once (a done
+ * racing an already-timed-out `error`, or vice-versa, must not resolve twice). Done is `close`, or
+ * a short drain after `exit` when a process the CLI left behind still holds its pipes, so a call
+ * that finished is never reported as a timeout.
  */
 const wireChildOutput = (
   child: ChildProcessWithoutNullStreams,
@@ -87,7 +89,10 @@ const wireChildOutput = (
       )
     );
   });
-  child.on('close', (code) => {
+  child.once('exit', () => {
+    clearTimeout(timer);
+  });
+  onChildDone(child, (code) => {
     clearTimeout(timer);
     settleOnce(
       Result.ok({
@@ -99,20 +104,20 @@ const wireChildOutput = (
   });
 };
 
-/** Write (or close) stdin. A write failure is treated the same as a spawn error — the `close` handler still resolves. */
+/** Write (or close) stdin. A write failure is treated the same as a spawn error — the done handler still resolves. */
 const writeStdinBody = (child: ChildProcessWithoutNullStreams, stdin: string | undefined): void => {
   try {
-    // EPIPE from a child that exited early arrives as an async 'error' event; the exit code on `close` reports it.
+    // EPIPE from a child that exited early arrives as an async 'error' event; the exit code reports it.
     child.stdin.on('error', () => {});
     if (stdin !== undefined) child.stdin.end(stdin);
     else child.stdin.end();
   } catch {
-    // ignore — the close handler will resolve regardless
+    // ignore — the done handler will resolve regardless
   }
 };
 
 /**
- * Run a CLI through the injected {@link Spawn}, buffering stdout/stderr until the child closes
+ * Run a CLI through the injected {@link Spawn}, buffering stdout/stderr until the child is done
  * or the timeout trips. Every failure mode (missing binary, spawn error, timeout) surfaces as a
  * `StorageError` with `subCode: 'io'` so callers handle one error shape.
  *

@@ -1,5 +1,6 @@
 import { crossPlatformSpawn } from '@src/integration/io/cross-platform-spawn.ts';
 import { killWithEscalation } from '@src/integration/io/kill-with-escalation.ts';
+import { onChildDone } from '@src/integration/io/child-exit.ts';
 
 /**
  * Result of running an external command. `ok` is true iff the process spawned and exited 0.
@@ -76,7 +77,11 @@ export const runCommand: RunCommand = (name, args, opts = {}) =>
     // ENOENT / EINVAL etc. — the binary couldn't be spawned at all.
     child.on('error', () => settle({ ok: false, code: null, stdout: '', stderr: '' }));
 
-    child.on('close', (code) => {
+    // A probe that exited is done; a process it left holding the pipes must not turn it into a timeout.
+    child.once('exit', () => {
+      clearTimeout(timer);
+    });
+    onChildDone(child, (code) => {
       settle({
         ok: code === 0,
         code,

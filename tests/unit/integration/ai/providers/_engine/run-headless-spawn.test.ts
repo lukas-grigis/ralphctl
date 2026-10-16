@@ -6,7 +6,8 @@
  *  - Listener detach in finally on the success path.
  *  - Listener detach even when the close-await throws (provider-level error after attach).
  *  - Stdin handling: prompt sent when provided, stdin closed when omitted (copilot's argv path).
- *  - Settling on `close`, not `exit`, so the final stdout records are never dropped.
+ *  - Settling on `close`, not `exit`, so the final stdout records are never dropped — but at most a
+ *    drain after `exit`, so a pipe holder no group reap reaches cannot hold the attempt open.
  *  - Watchdog stop is called even when the await rejects.
  */
 
@@ -14,6 +15,7 @@ import { EventEmitter } from 'node:events';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { runHeadlessSpawn } from '@src/integration/ai/providers/_engine/run-headless-spawn.ts';
+import { EXIT_DRAIN_MS } from '@src/integration/io/child-exit.ts';
 
 interface FakeChild {
   readonly child: ChildProcessWithoutNullStreams;
@@ -54,9 +56,9 @@ const makeFakeChild = (opts: MakeFakeChildOpts = {}): FakeChild => {
     stdin,
     kill: vi.fn().mockReturnValue(true),
   });
-  // setEncoding is called by the helper — accept it as a no-op.
-  Object.assign(stdout, { setEncoding: () => undefined });
-  Object.assign(stderr, { setEncoding: () => undefined });
+  // setEncoding is called by the helper — accept it as a no-op; destroy drops a pipe still held after exit.
+  Object.assign(stdout, { setEncoding: () => undefined, destroy: vi.fn() });
+  Object.assign(stderr, { setEncoding: () => undefined, destroy: vi.fn() });
   return {
     child,
     stdoutListeners: () => stdout.listenerCount('data'),
@@ -133,6 +135,26 @@ describe('runHeadlessSpawn', () => {
 
     expect(await p).toEqual({ code: 1, signal: null });
     expect(onStdout).toHaveBeenCalledWith('{"type":"turn.failed"}\n');
+  });
+
+  it('settles a drain after `exit` when `close` never comes (a pipe holder no group reap reached)', async () => {
+    const f = makeFakeChild();
+    const onStdout = vi.fn();
+    let settled = false;
+    const p = runHeadlessSpawn({ child: f.child, onStdout, onStderr: () => undefined, idleMs: 60_000 }).then((exit) => {
+      settled = true;
+      return exit;
+    });
+
+    f.emitExit(0, null);
+    f.emitStdout('{"type":"result"}\n');
+    vi.advanceTimersByTime(EXIT_DRAIN_MS - 1);
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    vi.advanceTimersByTime(1);
+
+    expect(await p).toEqual({ code: 0, signal: null });
+    expect(onStdout).toHaveBeenCalledWith('{"type":"result"}\n');
   });
 
   it('sends prompt via stdin.end when `stdin` is provided', async () => {

@@ -292,7 +292,11 @@ const makeFakeChild = (): ChildProcessWithoutNullStreams => {
   });
   setTimeout(() => {
     stdout.emit('data', '# requirements approved by fake claude\n');
-    setTimeout(() => child.emit('exit', 0, null), 0);
+    setTimeout(() => {
+      // A real child emits `close` once its pipes drain; the headless engine settles on it.
+      child.emit('exit', 0, null);
+      child.emit('close', 0, null);
+    }, 0);
   }, 0);
   return child;
 };

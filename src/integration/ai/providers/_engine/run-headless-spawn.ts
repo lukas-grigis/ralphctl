@@ -1,5 +1,6 @@
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { DEFAULT_IDLE_MS, installIdleWatchdog } from '@src/integration/ai/providers/_engine/idle-watchdog.ts';
+import { onChildDone } from '@src/integration/io/child-exit.ts';
 import { processGroupOf } from '@src/integration/io/kill-process-tree.ts';
 import { createProcessGroupTerminator } from '@src/integration/io/process-liveness.ts';
 
@@ -90,8 +91,9 @@ export const runHeadlessSpawn = async (opts: RunHeadlessSpawnOptions): Promise<S
       };
       child.once('error', (err: NodeJS.ErrnoException) => settle({ code: null, signal: null, spawnError: err }));
       child.once('exit', () => reapGroupOnExit(child));
-      // Not `'exit'`: the final records (an error, a session id) can still be in the pipe then.
-      child.once('close', (code, signal) => settle({ code, signal }));
+      // Not bare `'exit'`: the final records (an error, a session id) can still be in the pipe then.
+      // Bounded after it, for a holder no group reap can reach (Windows, or a setsid escapee).
+      onChildDone(child, (code, _pipesHeld, signal) => settle({ code, signal }));
 
       // stdin: send the prompt (claude/codex) or close immediately (copilot reads from argv).
       // The write goes against a child that may already be dead (raced the spawn `'error'`):

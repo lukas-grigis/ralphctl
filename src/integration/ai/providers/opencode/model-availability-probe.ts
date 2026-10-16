@@ -4,6 +4,7 @@ import type {
   ModelProbeDegradationReason,
   ModelProbeDegradationSink,
 } from '@src/integration/ai/providers/_engine/model-availability-probe.ts';
+import { onChildDone } from '@src/integration/io/child-exit.ts';
 import { crossPlatformSpawn } from '@src/integration/io/cross-platform-spawn.ts';
 import { killWithEscalation } from '@src/integration/io/kill-with-escalation.ts';
 import { messageOf } from '@src/domain/value/error/error-message.ts';
@@ -63,7 +64,8 @@ const defaultListModels = (command: string, signal?: AbortSignal): Promise<reado
         reject(err);
       });
     });
-    child.on('close', (code) => {
+    // Not bare `close`: a process the CLI left holding stdout would run the probe into its timeout.
+    onChildDone(child, (code) => {
       finish(() => {
         if (code !== 0) {
           reject(new Error(`opencode models exited ${String(code)}`));

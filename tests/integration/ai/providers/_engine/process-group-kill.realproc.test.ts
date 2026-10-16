@@ -9,7 +9,7 @@ import { READ_ONLY } from '@src/integration/ai/providers/_engine/session-permiss
 import type { RegisteredChild } from '@src/integration/ai/providers/_engine/child-registry.ts';
 import { absolutePath } from '@tests/fixtures/domain.ts';
 import { createCapturingBus } from '@tests/fixtures/capturing-event-bus.ts';
-import { killQuietly, waitForDeath, writeStubCli } from '@tests/helpers/process-tree.ts';
+import { isAlive, killQuietly, waitForDeath, writeStubCli } from '@tests/helpers/process-tree.ts';
 
 const posix = process.platform !== 'win32';
 const leftovers: number[] = [];
@@ -114,5 +114,25 @@ describe.skipIf(!posix)('headless AI CLI spawns run in their own process group',
     await outcome;
 
     expect(await waitForDeath([grandchild], 3_000)).toBe(true);
+  }, 20_000);
+
+  it('a descendant outside the CLI group still holding stdout does not hold the attempt open', async () => {
+    const dir = await fs.mkdtemp(join(tmpdir(), 'ralphctl-pgescape-'));
+    const stub = await writeStubCli(dir, 'claude', { exitsAfterFork: true, grandchildEscapesGroup: true });
+    const provider = createClaudeProvider({
+      rateLimitRetries: 0,
+      eventBus: createCapturingBus().bus,
+      command: stub.command,
+      // Far past the test timeout: only a bounded wait after the CLI's exit can settle the attempt.
+      idleMs: 60_000,
+    });
+    const outcome = provider.generate(sessionIn(dir));
+    const { child, grandchild } = await stub.pids();
+    leftovers.push(child, grandchild);
+
+    await outcome;
+
+    // No group reap reached it (the Windows case, or a setsid escapee), so the bound did the work.
+    expect(isAlive(grandchild)).toBe(true);
   }, 20_000);
 });

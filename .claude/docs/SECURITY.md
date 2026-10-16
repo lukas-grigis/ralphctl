@@ -178,7 +178,8 @@ so each leads its own process group; interactive spawns keep the terminal. Abort
 whole group (`killProcessTree`, `integration/io/kill-process-tree.ts`, shared with the shell-script runner), so
 tool subprocesses the CLI started die with it. A clean exit does too: once the leader exits, `runHeadlessSpawn`
 SIGTERMs whatever is left in its group (SIGKILL after a grace), so a job the AI backgrounded can't outlive the
-attempt or hold its stdout open. Only children marked as group leaders are group-killed — a test
+attempt or hold its stdout open. Where no group kill reaches the holder (Windows, or a descendant that left the
+group), the attempt still settles 1s after the CLI exits. Only children marked as group leaders are group-killed — a test
 fake with a made-up pid gets a single-pid kill. Spawns announce themselves through the `ChildRegistry` port
 (`providers/_engine/child-registry.ts`, wired in `wire()`): the registry feeds the **orphan reaper**
 (`integration/io/orphan-reaper.ts`), a lazily started detached sidecar that holds a pipe from the harness. When
@@ -221,10 +222,11 @@ the network (commit, push, checkout, merge, cherry-pick, worktree add) get `GIT_
 and whole-tree verbs (stash push/pop, worktree remove) `GIT_BULK_TIMEOUT_MS` (2 min). Every hook verb takes
 the chain's cancel signal, so a cancel kills a hung hook at once: a fast-forward killed in its post-merge hook
 still counts as folded, and what a cancelled `worktree add` created is removed again. Whole-tree verbs take no
-signal, because most of them run on the abort path itself, as cleanup. The git and
-setup/verify runners settle when the child exits, after at most a 1s output drain, so a grandchild still
-holding the pipes can't stall the run; the setup/verify runner also SIGTERMs such leftovers in its
-script's process group.
+signal, because most of them run on the abort path itself, as cleanup. Git, setup/verify, headless AI spawns,
+`run-cli` / `run-command`, the clipboard helper and the OpenCode model probe all settle when the child exits,
+after at most a 1s output drain (`child-exit.ts`), so a grandchild still holding the pipes can't stall the run
+or turn a finished call into a timeout; the setup/verify runner also SIGTERMs such leftovers in its script's
+process group.
 
 **A prompt body never travels in argv.** Every adapter writes the rendered prompt to a file and passes the
 CLI a POINTER at that file (`providers/_engine/prompt-pointer.ts`) — headless claude / codex / opencode pipe

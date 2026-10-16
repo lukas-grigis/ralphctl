@@ -20,7 +20,25 @@ export interface StubCliOptions {
   readonly exitsAfterFork?: boolean;
   /** Point the grandchild's stdio at /dev/null, so it does not hold the CLI's stdout pipe open. */
   readonly quietGrandchild?: boolean;
+  /** Start the grandchild in its own session (setsid), out of reach of a process-group kill, still holding stdout. */
+  readonly grandchildEscapesGroup?: boolean;
 }
+
+/** Shell snippet: background a `sleep` that keeps the caller's stdout/stderr open, recording its pid. */
+export const backgroundPipeHolder = (pidFile: string): string => `sleep 30 & echo $! > '${pidFile}'`;
+
+const forkGrandchild = (dir: string, opts: StubCliOptions): string[] => {
+  const pidFile = join(dir, 'grandchild.pid');
+  if (opts.grandchildEscapesGroup === true) {
+    // `detached` makes node call setsid() for the child; `inherit` hands it the stub's own pipes.
+    const js = `const c=require("node:child_process").spawn("sleep",["300"],{detached:true,stdio:"inherit"});require("node:fs").writeFileSync(process.argv[1],String(c.pid));c.unref()`;
+    return [`NODE_OPTIONS= "${process.execPath}" -e '${js}' "${pidFile}"`];
+  }
+  return [
+    opts.quietGrandchild === true ? 'sleep 300 </dev/null >/dev/null 2>&1 &' : 'sleep 300 &',
+    `echo $! > "${pidFile}"`,
+  ];
+};
 
 /**
  * Write an executable `name` into `dir` that drains stdin, forks `sleep 300`, records
@@ -33,8 +51,7 @@ export const writeStubCli = async (dir: string, name = 'claude', opts: StubCliOp
     '#!/bin/sh',
     'for a in "$@"; do if [ "$a" = "--version" ]; then echo "2.1.0 (Claude Code)"; exit 0; fi; done',
     'cat > /dev/null',
-    opts.quietGrandchild === true ? 'sleep 300 </dev/null >/dev/null 2>&1 &' : 'sleep 300 &',
-    `echo $! > "${join(dir, 'grandchild.pid')}"`,
+    ...forkGrandchild(dir, opts),
     `echo $$ > "${join(dir, 'child.pid')}"`,
     // One stdout line after the pids land, so an idle watchdog counts from here, not from spawn.
     'echo \'{"type":"system","subtype":"stub-ready"}\'',
