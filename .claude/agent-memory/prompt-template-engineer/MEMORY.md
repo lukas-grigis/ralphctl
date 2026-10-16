@@ -8,3 +8,5 @@
 - [project_provider_agnostic_reasoning.md](project_provider_agnostic_reasoning.md) — No `<thinking>`/`<reasoning>` elicitation in shared templates; reasoning depth lives at the effort-adapter seam
 - [feedback_absent_block_tests.md](feedback_absent_block_tests.md) — Assert absent tagged blocks via `'<tag>\n'` or preface text; prose mentions the bare tag
 - [feedback_wrapper_in_template_vs_renderer.md](feedback_wrapper_in_template_vs_renderer.md) — Template-wrapped placeholder => bare-body renderer, not renderTaggedBlock (double tag)
+- [feedback_rewrap_breaks_unflattened_assertions.md](feedback_rewrap_breaks_unflattened_assertions.md) — Reflowing prose can fail tests that assert a phrase on the raw string; grep tests first
+- [project_note_guidance_coupling.md](project_note_guidance_coupling.md) — Shared-partial `note` guidance collides with apply-feedback / create-pr contracts that accept no notes
