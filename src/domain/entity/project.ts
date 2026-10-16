@@ -201,8 +201,8 @@ export const setProjectDisplayName = (project: Project, name: string): Result<Pr
 };
 
 /**
- * Rename the project's CLI handle. Caller is responsible for uniqueness across the
- * project repository — this helper is a pure setter; the persistence layer rejects collisions.
+ * Rename the project's CLI handle. Pure setter: nothing downstream rejects a collision, so the
+ * caller must check uniqueness across the project repository (`findBySlug`) first.
  */
 export const setProjectSlug = (project: Project, slug: Slug): Project => ({
   ...project,
