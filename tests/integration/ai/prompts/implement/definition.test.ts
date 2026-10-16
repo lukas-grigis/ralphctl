@@ -184,6 +184,17 @@ describe('implementPromptDef — completeness', () => {
     expect(template).toContain('stop and report');
   });
 
+  it('sizes new tests like their neighbours, reads an unclear step by its plain meaning, and installs via the project toolchain', async () => {
+    const template = (await fs.readFile(TEMPLATE_PATH, 'utf8')).replace(/\s+/g, ' ');
+    expect(template).toContain('sized like the neighbouring test files, roughly one focused test per stated behaviour');
+    expect(template).toContain("don't turn scratch checks into permanent test files");
+    expect(template).toContain('implement the reading its wording and the surrounding code most directly support');
+    expect(template).toContain('record that assumption in a `decision` signal');
+    expect(template).not.toContain('narrowest plausible interpretation');
+    expect(template).toContain('targeted edits over rewriting a whole file');
+    expect(template).toContain('not via sudo or the system package manager, unless a declared step calls for it');
+  });
+
   it("never hardcodes a single provider's context-file line/heading cap", async () => {
     // implement runs under five different provider CLIs, each with its own native context-file
     // format and its own size convention (see conventions-claude-md.md / conventions-agents-md.md

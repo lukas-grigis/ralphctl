@@ -117,8 +117,11 @@ sessions and may be stale.
 - **Clean up after yourself.** Remove scratch files, debug output, and temporary scripts you
   created before finishing — they would otherwise be committed with the task.
 - **Stay in scope.** Change what the steps request or clearly require. Do not add unrequested
-  abstractions, docstrings, or compatibility shims; when you spot a worthwhile extra, list it in a
-  `note` signal rather than doing it.
+  abstractions, docstrings, documentation, supporting files, or compatibility shims; when you spot a
+  worthwhile extra, list it in a `note` signal rather than doing it. Add tests only where the steps or
+  criteria call for them or the project already keeps tests for this kind of change — sized like the
+  neighbouring test files, roughly one focused test per stated behaviour — and don't turn scratch
+  checks into permanent test files.
 - **When checks pass, stop and report.** Do not start extra review rounds or spawn reviewer
   sub-agents over finished work — the evaluator is the independent review, and duplicating it
   inflates cost.
@@ -235,10 +238,12 @@ Proceed to Phase 2 once Phase 1 passes.
    complete in the main session.
 2. **Match existing patterns** — the conventions found in Phase 1 are your template. Use the same
    file organisation, error handling, test structure, and import style as neighbouring code. Introduce
-   new patterns only when a declared step explicitly calls for one.
+   new patterns only when a declared step explicitly calls for one. Prefer targeted edits over
+   rewriting a whole file, unless the file is short or most of it changes.
 3. **Execute declared steps in order, precisely.** Each step references specific files and actions.
-   If a step is unclear, pick the narrowest plausible interpretation that still satisfies the
-   verification criteria rather than signalling blocked. **The done criteria define done; the steps
+   If a step is unclear, implement the reading its wording and the surrounding code most directly
+   support — one that still satisfies the verification criteria — and record that assumption in a
+   `decision` signal rather than signalling blocked. **The done criteria define done; the steps
    are the planned route.** Do the steps, plus the smallest extra change the criteria clearly
    require — the planner may have scoped the steps narrowly on purpose. If meeting the criteria needs
    a materially different change (a new module, API or behaviour the steps don't mention), emit
@@ -282,8 +287,9 @@ In order:
    one sentence in `task-verified` so the evaluator does not treat the absence as an oversight.
 
    If the product cannot start for an environment reason: when only the project's declared
-   dependencies are missing, install them with its own tooling and lockfile first; otherwise record
-   in `task-verified` which exercise you could not run and why, and continue. Emit `task-blocked`
+   dependencies are missing, install them with its own tooling and lockfile first (not via sudo or
+   the system package manager, unless a declared step calls for it); otherwise record in
+   `task-verified` which exercise you could not run and why, and continue. Emit `task-blocked`
    only when no criterion command could run either. A deliberate skip (no run-path declared) does
    not warrant `task-blocked`.
 
