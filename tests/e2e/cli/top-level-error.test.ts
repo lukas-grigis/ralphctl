@@ -36,7 +36,7 @@ describe('CLI top-level error handling', () => {
     expect(result.exitCode).toBe(1);
     const lines = result.stderr.trimEnd().split('\n');
     expect(lines[0]).toMatch(/^ralphctl: settings: /);
-    expect(lines[0]).toContain('settings.json');
+    expect(lines[0]).toContain('fix or delete settings.json');
     // No stack: no `at <frame>` lines and no Node crash banner.
     expect(result.stderr).not.toMatch(/\n\s+at /);
     expect(result.stderr).not.toContain('Node.js v');

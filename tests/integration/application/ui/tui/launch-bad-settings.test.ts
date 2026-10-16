@@ -40,9 +40,11 @@ describe('launchTui with an invalid settings.json', () => {
     await cli.cleanup();
   });
 
-  it('prints the repair hint and exits non-zero without mounting', async () => {
-    const invalid = JSON.stringify({ schemaVersion: 1, ai: { provider: 12345 } });
-    await fs.writeFile(join(String(cli.paths.configRoot), 'settings.json'), invalid, 'utf8');
+  it.each([
+    ['not valid JSON', '{ "ai":'],
+    ['schema-invalid', JSON.stringify({ schemaVersion: 1, ai: { provider: 12345 } })],
+  ])('prints the repair hint and exits non-zero without mounting (%s)', async (_kind, body) => {
+    await fs.writeFile(join(String(cli.paths.configRoot), 'settings.json'), body, 'utf8');
 
     await launchTui();
 

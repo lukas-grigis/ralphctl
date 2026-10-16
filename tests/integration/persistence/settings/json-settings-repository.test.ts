@@ -201,6 +201,7 @@ describe('JsonSettingsRepository', () => {
     if (!result.ok) {
       expect(result.error).toBeInstanceOf(StorageError);
       expect((result.error as StorageError).subCode).toBe('parse');
+      expect((result.error as StorageError).hint).toMatch(/fix or delete settings\.json/);
     }
   });
 
