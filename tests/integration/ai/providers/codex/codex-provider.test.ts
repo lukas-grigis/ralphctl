@@ -1033,9 +1033,14 @@ describe('buildCodexArgs — AiSession → CLI argv translation', () => {
     expect(args.slice(0, 3)).toEqual(['exec', 'resume', 'sess-abc']);
   });
 
-  it('always emits --ephemeral, --skip-git-repo-check, -o <tmpfile>, --json', () => {
+  it('never emits --ephemeral, fresh or resumed — `exec resume` needs the rollout on disk', () => {
+    const id = 'sess-abc' as unknown as SessionId;
+    expect(unwrapArgs(session())).not.toContain('--ephemeral');
+    expect(unwrapArgs(session({ resume: id }))).not.toContain('--ephemeral');
+  });
+
+  it('always emits --skip-git-repo-check, -o <tmpfile>, --json', () => {
     const args = unwrapArgs(session(), '/tmp/out-x.txt');
-    expect(args).toContain('--ephemeral');
     expect(args).toContain('--skip-git-repo-check');
     expect(args).toContain('--json');
     const oIdx = args.indexOf('-o');
@@ -1060,10 +1065,12 @@ describe('buildCodexArgs — AiSession → CLI argv translation', () => {
     expect(args).not.toContain('-a');
   });
 
-  it('omits -s for resume sessions because `codex exec resume` rejects it', () => {
+  it('carries workspace-write into a resumed session through -c — `exec resume` has no -s and runs read-only otherwise', () => {
     const id = 'sess-abc' as unknown as SessionId;
     const args = unwrapArgs(session({ resume: id, permissions: FULL_AUTO }));
     expect(args).not.toContain('-s');
+    expect(args).toContain('sandbox_mode="workspace-write"');
+    expect(args[args.indexOf('sandbox_mode="workspace-write"') - 1]).toBe('-c');
   });
 
   it('accepts intermediate permission combinations (path scope is the envelope, not the profile)', () => {
@@ -1106,11 +1113,18 @@ describe('buildCodexArgs — AiSession → CLI argv translation', () => {
     ]);
   });
 
-  it('omits --add-dir for resume sessions because `codex exec resume` rejects it', () => {
+  it('mounts the writable roots of a resumed session as a TOML array, since `exec resume` has no --add-dir', () => {
     const id = 'sess-abc' as unknown as SessionId;
-    const a = absolutePath('/tmp/repo-a');
-    const args = unwrapArgs(session({ resume: id, additionalRoots: [a] }));
+    const roots = [absolutePath('/tmp/repo-a'), absolutePath('/tmp/repo "b"')];
+    const args = unwrapArgs(session({ resume: id, additionalRoots: roots }));
     expect(args).not.toContain('--add-dir');
+    expect(args).toContain('sandbox_workspace_write.writable_roots=["/tmp/repo-a","/tmp/repo \\"b\\""]');
+  });
+
+  it('adds no writable_roots override to a resumed session with no roots beyond cwd', () => {
+    const id = 'sess-abc' as unknown as SessionId;
+    const args = unwrapArgs(session({ resume: id }));
+    expect(args.some((a) => a.startsWith('sandbox_workspace_write.writable_roots='))).toBe(false);
   });
 
   it('emits -c model_reasoning_effort=<level> when session.effort is set (sourced from session, not deps)', () => {

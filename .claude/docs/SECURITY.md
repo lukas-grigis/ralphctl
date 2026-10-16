@@ -26,6 +26,9 @@ a path-scoped deny rule instead. To deny writes to a tree, don't mount it.
 Codex caveat: `codex exec` has only two sandbox modes (`read-only` / `workspace-write`), and
 `read-only` blocks every write (incl. signals.json). Every profile maps to `workspace-write`;
 Codex can't fine-grained-deny edits on existing repo files. Use topology to constrain it.
+`codex exec resume` accepts no `-s` / `--add-dir` and comes back read-only, so a resumed spawn
+re-declares both as `-c sandbox_mode="workspace-write"` and `-c sandbox_workspace_write.writable_roots=[…]`.
+Spawns don't pass `--ephemeral` (resume needs the rollout), so each one leaves a session under `~/.codex/sessions`.
 
 OpenCode caveat (stronger): `opencode run` (headless — implement generator/evaluator, review,
 create-pr, readiness, detect-scripts, detect-skills) exposes exactly ONE approval control, `--auto`,
