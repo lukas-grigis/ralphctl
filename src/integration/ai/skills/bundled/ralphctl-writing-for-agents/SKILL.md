@@ -20,7 +20,8 @@ rules win over anything here.
 
 - **Readiness** — the context-file proposal. Every line is loaded into every future session, so each one
   must change behaviour versus the default. Point at what the environment already states instead of
-  restating it.
+  restating it, but keep every exact command the prompt asks for (build and test lines, setup and verify
+  skill bodies).
 - **Refine** — the requirements are read by the planner and every implementing session. Give each
   criterion a checkable completion condition, keep each meaning in one place, and phrase the target
   behaviour positively.
@@ -90,10 +91,12 @@ guardrail you cannot phrase positively, and pair it with the positive target.
 
 - **One meaning, one place.** Duplication costs maintenance and tokens and inflates a meaning's
   prominence. (A leading word repeats a token on purpose, never the meaning.)
-- **The environment is a source of truth.** Manifest scripts, config files, the directory layout, and
-  `--help` output already state themselves; a document that restates them is a cache that goes stale.
-  Write down what the agent cannot find by looking — the unwritten convention, the reason behind a
-  choice, the gotcha no config admits.
+- **The environment is a source of truth.** Config files, the directory layout, `--help` output, and
+  what a manifest script does already state themselves; a document that restates them is a cache that
+  goes stale. Which command to run is different: where the document exists to tell the agent what to run,
+  or the output contract asks for commands, give the exact runnable command, checked against the manifest.
+  Beyond that, write down what the agent cannot find by looking — the unwritten convention, the reason
+  behind a choice, the gotcha no config admits.
 - **Relevance.** A line that never bears on the task, or describes behaviour that has since changed, is
   sediment. Remove it.
 - **No-ops.** An instruction the model already follows by default says nothing. Delete the whole
@@ -104,6 +107,7 @@ guardrail you cannot phrase positively, and pair it with the positive target.
 - [ ] Every always-loaded line changes behaviour versus the default.
 - [ ] Each pointer front-loads its trigger and lists one trigger per branch.
 - [ ] Every step ends on a checkable completion criterion.
-- [ ] Nothing restates what the environment already states.
+- [ ] Nothing restates what the environment already states, and every command the contract asks for is
+      exact and runnable.
 - [ ] Target behaviours are phrased positively.
 - [ ] The prompt's own length and section rules are met.
