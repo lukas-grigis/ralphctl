@@ -7,7 +7,7 @@ import { requireNonEmpty } from '@src/integration/ai/prompts/_engine/validators.
 
 /**
  * Pre-rendered string parameters for the create-pr template. `ticketSummary` is a markdown
- * block; `issueRefs` is a pre-computed list of `Closes #N` lines the AI threads verbatim into
+ * block; `issueRefs` is a pre-computed list of `Closes <ref>` lines the AI threads verbatim into
  * the body. The headless session reads the rendered prompt and writes its answer to
  * `signals.json` per the contract.
  */
@@ -26,9 +26,9 @@ export interface CreatePrPromptParams {
    */
   readonly ticketSummary: string;
   /**
-   * Verbatim block of `Closes <ref>` lines pre-computed from ticket + task `externalRef`s
-   * via `normalizeRefs`. Empty when no refs exist; the prompt instructs the AI to omit the
-   * trailing closes block in that case.
+   * Verbatim block of `Closes <ref>` lines pre-computed by `closingRefs` — only refs whose
+   * tasks are all `done`, so a blocked or never-planned ticket's issue stays open. Empty when
+   * none qualify; the prompt instructs the AI to omit the trailing closes block in that case.
    */
   readonly issueRefs: string;
   /**
@@ -69,7 +69,7 @@ export const createPrPromptDef: PromptDefinition<CreatePrPromptParams> = {
     issueRefs: {
       placeholder: 'ISSUE_REFS',
       description:
-        'Pre-computed `Closes <ref>` lines from ticket + task externalRefs. Empty when no refs exist; the prompt then instructs the AI to omit the trailing closes block.',
+        'Pre-computed `Closes <ref>` lines for the ticket and task externalRefs whose tasks are all done. Empty when none qualify; the prompt then instructs the AI to omit the trailing closes block.',
       optional: true,
     },
     outputContractSection: {
