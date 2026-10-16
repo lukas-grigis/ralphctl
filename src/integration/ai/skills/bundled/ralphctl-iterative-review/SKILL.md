@@ -35,8 +35,9 @@ deployed form — but the same posture also belongs **inside** each phase's work
    each meaningful change. The point is to catch the regression at the seam, not to certify completion.
 2. **Slice risk-first, and stay buildable between slices.** When the work has several parts, take the
    least certain one first — the unproven integration, the unfamiliar API — so a dead end surfaces before
-   anything is built on it; a plan orders its tasks the same way. After each slice the project still
-   builds and its existing checks still pass, so the next slice never starts on a broken tree.
+   anything is built on it; a plan orders its tasks the same way. When your session can run commands,
+   confirm after each slice that the project still builds and its existing checks still pass, so the next
+   slice never starts on a broken tree.
 3. **Re-read your own output once before submitting.** Whether it is criteria, tasks, or a diff, the second
    read catches what the first one missed. Cheap.
 4. **Treat the check gate as a loop, not a finish line.** A failing gate is feedback, not a verdict. Apply
