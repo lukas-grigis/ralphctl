@@ -17,8 +17,6 @@ import type { ChildProcessWithoutNullStreams } from 'node:child_process';
  * stdin / kill signals to the caller's hooks, but records nothing itself. Recording is the
  * caller's concern — the test fixture keeps a per-call log, the demo keeps a transcript cursor —
  * and baking one shape in here would force the other to work around it.
- *
- * @public
  */
 export interface SpawnScript {
   /** utf-8 chunks emitted on stdout, in order, one macrotask after construction. */
@@ -47,12 +45,9 @@ export interface SpawnScript {
  * the response from what the session actually asked for (parse the prompt off stdin, pick the next
  * transcript beat, write the files the AI is contractually meant to write) instead of pinning the
  * whole conversation up front.
- *
- * @public
  */
 export type SpawnScriptSource = SpawnScript | (() => SpawnScript);
 
-/** @public */
 export interface ScriptedChildHooks {
   /** Every utf-8 chunk the adapter writes to the child's stdin, including the final `end()` payload. */
   readonly onStdin?: (chunk: string) => void;
@@ -98,8 +93,6 @@ const createScriptedStream = (): EventEmitter => {
  *
  * A kill that arrives before the script has been resolved ends the child immediately regardless of
  * `trapsSigterm` — a process that has not started cannot trap anything.
- *
- * @public
  */
 export const createScriptedChild = (
   source: SpawnScriptSource,

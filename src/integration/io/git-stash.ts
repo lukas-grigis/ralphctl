@@ -67,7 +67,6 @@ const withStashMutex = <T>(fn: () => Promise<T>): Promise<T> => {
  * with bare equality kept for runners that surface the raw message verbatim (fakes, mainly).
  * Shared by {@link gitStashPop} and every caller that pre-checks existence so all agree on what
  * "this stash exists" means.
- * @public
  */
 export const stashEntryMatchesMessage = (entry: string, message: string): boolean =>
   entry === message || entry.endsWith(`: ${message}`);

@@ -44,8 +44,6 @@ import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens
  *  - `failed-continue` — apply faulted mid-run but the user chose to continue; atomic per-item renames
  *                        + tolerant readers ⇒ a half-migrated tree is still runnable; re-offered next
  *                        launch (idempotent resume finishes the rest).
- *
- * @public
  */
 export type MigrationGateOutcome = 'migrated' | 'skipped' | 'failed-continue';
 
@@ -53,8 +51,6 @@ export type MigrationGateOutcome = 'migrated' | 'skipped' | 'failed-continue';
  * Props for {@link MigrationGate}. The apply-ctx ingredients (`appVersion`, `stateRoot`, `writeFile`)
  * are threaded in rather than reached from a context because the gate mounts before the app's provider
  * stack exists. `renderLearnings` is built internally from the application-layer adapter.
- *
- * @public
  */
 export interface MigrationGateProps {
   readonly engine: DataMigrationEngine;

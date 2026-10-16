@@ -8,8 +8,6 @@ import type { Task } from '@src/domain/entity/task.ts';
  *
  * `'other'` is the explicit fallback — a task whose prose matches no known keyword is not a
  * failure, it just isn't confidently classifiable.
- *
- * @public
  */
 export type TaskKind = 'feature' | 'bugfix' | 'refactor' | 'test' | 'docs' | 'chore' | 'other';
 
@@ -37,8 +35,6 @@ const KEYWORDS: ReadonlyArray<readonly [TaskKind, readonly string[]]> = [
  * for known keywords. Returns `'other'` when nothing matches.
  *
  * Pure — reads only the task's own prose, performs no I/O, mutates nothing.
- *
- * @public
  */
 export const deriveTaskKind = (task: Task): TaskKind => {
   const haystack = `${task.name} ${task.description ?? ''}`.toLowerCase();

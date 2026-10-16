@@ -67,8 +67,6 @@ interface SpawnTarget {
  *
  * The LAST match wins: the output-contract section is appended after the flow's own prose, so a
  * template that ever cites an earlier round's directory as context cannot redirect the write.
- *
- * @public
  */
 export const resolveSpawnTarget = (prompt: string): SpawnTarget | undefined => {
   const matches = [...prompt.matchAll(ROUND_SIGNALS_PATH_RE)];
@@ -132,8 +130,6 @@ const unscriptedScript = (reason: string): SpawnScript => ({
  * Build the demo's {@link ProviderSpawn}. Threaded into `launchTui({ providerSpawn })`, which
  * carries it through `wire()` → `AppDeps.providerSpawn` → the per-launch adapter rebuild, so
  * every AI session in the demo run replays the transcript.
- *
- * @public
  */
 export const createDemoProviderSpawn = (
   transcript: DemoTranscript,

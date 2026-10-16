@@ -170,8 +170,6 @@ export const escalationLadderCyclicFrom = (map: Readonly<Record<string, string>>
  * (see {@link nextEffortRung}): it climbs one tier above the effective level, and the effective
  * level for an unset row depends on the model's own CLI default, so no fixed target fits. Codex
  * uses its own fixed target, {@link CODEX_EFFORT_ESCALATION_TARGET}, not this one.
- *
- * @public
  */
 export const EFFORT_ESCALATION_TARGET = 'high';
 
@@ -182,8 +180,6 @@ export const EFFORT_ESCALATION_TARGET = 'high';
  * spent for every codex preset, which stamps `high` on implement by default. `max` / `ultra` are
  * deliberately NOT the target: they are narrower than the full catalog (5.6-family-only /
  * sol-terra-only, plan-gated) and this rung has no per-model context to know whether they apply.
- *
- * @public
  */
 export const CODEX_EFFORT_ESCALATION_TARGET = 'xhigh';
 
@@ -313,8 +309,6 @@ const claudeEffortRung = (
  *
  * `currentEffort` is the resolved per-flow effort (`resolveEffort`/`resolveEffortForRow`), or
  * `undefined` for the CLI default. Pure; no I/O.
- *
- * @public
  */
 export const nextEffortRung = (
   provider: AiProvider | undefined,

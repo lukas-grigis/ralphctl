@@ -55,13 +55,9 @@ const VIEW_ROUTES: Readonly<Record<string, (snapshot: AppStateSnapshot) => ViewE
   'create-pr': () => ({ id: 'create-pr' }),
 };
 
-/** @public — consumed by the registry reachability fence. */
 export const VIEW_ROUTED_FLOW_IDS: readonly string[] = Object.keys(VIEW_ROUTES);
 
-/**
- * The view a flow opens, or `undefined` when it launches a chain (or needs a sprint and none is selected).
- * @public — exported for the route-shape tests.
- */
+/** The view a flow opens, or `undefined` when it launches a chain (or needs a sprint and none is selected). */
 export const viewRouteFor = (flowId: string, snapshot: AppStateSnapshot): ViewEntry | undefined =>
   VIEW_ROUTES[flowId]?.(snapshot);
 

@@ -42,7 +42,6 @@ export interface PlanReviewTask {
 /**
  * Project the planner's tasks onto the review shape: repository id → repo name, dependency ids → task names (raw id
  * when the target isn't in the proposal), external refs → the ticket ref.
- * @public
  */
 export const toPlanReviewTasks = (
   tasks: readonly TodoTask[],
@@ -115,7 +114,6 @@ export const renderReviewTask = (t: PlanReviewTask, index: number): string => {
 
 /**
  * Render the human-facing plan-approval prompt body (audit §5 human-gate).
- * @public
  */
 export const buildPlanReviewMessage = (
   proposedTasks: readonly PlanReviewTask[],

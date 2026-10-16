@@ -12,8 +12,6 @@ export const BACKUP_DIR_PREFIX = 'data.backup-';
  * Build the backup directory name for a run: `data.backup-v<fromVersion>-<timestamp>`. The timestamp
  * is PASSED IN (never generated here) so the name is deterministic in tests and so the caller owns
  * the single clock read for the whole migration run. Pure.
- *
- * @public
  */
 export const backupDirName = (fromVersion: number, timestamp: string): string =>
   `${BACKUP_DIR_PREFIX}v${String(fromVersion)}-${sanitizeTimestamp(timestamp)}`;
@@ -30,8 +28,6 @@ export const backupDirName = (fromVersion: number, timestamp: string): string =>
  * removes the partial destination so retries don't pile up copies; an already-existing destination
  * is refused up front, so that cleanup can only ever touch a dir this call created. Returns the
  * absolute backup path on success.
- *
- * @public
  */
 export const backupDataDir = async (
   dataRoot: AbsolutePath,

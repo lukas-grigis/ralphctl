@@ -42,7 +42,6 @@ export const buildRepoExecConfigs = (repositories: readonly Repository[]): Map<R
 
 /**
  * Build one `HeadlessAiProvider` per role from the effective implement pair.
- * @public
  */
 export const buildImplementProviders = (
   implementPair: AiImplementSettings,
@@ -134,7 +133,6 @@ export const buildImplementDepsBag = (
 
 /**
  * Assemble the `CreateImplementFlowOpts` bag — pure object-literal assembly, no branching.
- * @public
  */
 export const buildImplementOptsBag = (
   sprint: Pick<Sprint, 'id'>,

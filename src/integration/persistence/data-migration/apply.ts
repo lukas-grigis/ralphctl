@@ -38,8 +38,6 @@ const isTrustedMemoryEntry = (name: string): boolean =>
  * APPLICATION layer (`render-learnings-md.ts`) which the integration layer cannot import, so the
  * orchestrator threads it in here. It takes the raw NDJSON ledger body and returns the rendered
  * markdown, or `undefined` when the body has no renderable records (so the backfill skips the write).
- *
- * @public
  */
 export type LearningsBackfillRenderer = (ndjsonBody: string) => string | undefined;
 
@@ -50,8 +48,6 @@ export type LearningsBackfillRenderer = (ndjsonBody: string) => string | undefin
  * import. The adapter parses both bodies tolerantly (dropping blank / malformed rows), unions by id,
  * and returns the serialized ledger plus its markdown mirror (`md` is `undefined` when the union has
  * no renderable records). Pure — no I/O.
- *
- * @public
  */
 export type LearningsMerger = (
   sluggedBody: string,
@@ -65,8 +61,6 @@ export type ApplyWriteFile = (path: AbsolutePath, content: string) => Promise<Re
  * Inputs the apply step needs beyond the dry-run report: the single clock read for the run (drives
  * both the backup dir name and the marker), the app version to stamp, the state root (for the lock
  * guard), the markdown renderer, and the atomic writer.
- *
- * @public
  */
 export interface ApplyCtx {
   /** ISO timestamp for this run — folded into the backup dir name AND the version marker. */
@@ -101,8 +95,6 @@ export interface AppliedRename {
  *  - `failed`    — a rename threw mid-run (or the backup/stamp failed); the marker was NOT stamped
  *                  (so a re-run resumes safely), and the `backupPath` is carried so the failure
  *                  screen can name the rollback dir.
- *
- * @public
  */
 export type ApplyResult =
   | { readonly kind: 'ok'; readonly backupPath: string; readonly applied: readonly AppliedRename[] }
@@ -137,8 +129,6 @@ export type ApplyResult =
  * Skips and problems from the dry-run never abort the run — only a thrown rename or a failed
  * backup/stamp does. The `problems` list is informational; those entries are left in their legacy
  * form (tolerant readers still serve them).
- *
- * @public
  */
 export const apply = async (dataRoot: AbsolutePath, report: DryRunReport, ctx: ApplyCtx): Promise<ApplyResult> => {
   if (await anyLockHeld(ctx.stateRoot)) {

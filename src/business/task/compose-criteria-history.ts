@@ -17,8 +17,6 @@ import type { CriteriaVerdicts, CriterionStatus, VerificationCriterion } from '@
  * prompt-regression tests stable.
  *
  * Pure. No I/O.
- *
- * @public
  */
 export interface CriteriaHistoryInput {
   /** The task's declared done-criteria — rendered in order so the block mirrors the contract. */

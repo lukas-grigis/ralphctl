@@ -10,8 +10,6 @@
  * through the prompt queue before anything is written.
  *
  * The hook owns no toast copy — post-write concerns (mounted guards, feedback, reloads) stay in the view.
- *
- * @public
  */
 
 import { useCallback, useMemo } from 'react';

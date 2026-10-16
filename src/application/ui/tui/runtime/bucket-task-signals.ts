@@ -149,8 +149,6 @@ export interface AttemptCoords {
  * replay with no incoming events — see `use-bucketed-tasks.ts`'s docstring for why that fallback
  * must stay) and a `maxTurns` cap is known. Returns `undefined` when neither is available — callers
  * then render the bare round with no `/M` denominator and no attempt chip.
- *
- * @public
  */
 export const resolveAttemptCoords = (bucket: {
   readonly genEvalRound: number;
@@ -183,8 +181,6 @@ export const resolveAttemptCoords = (bucket: {
  * NEVER overshoots — the hard invariant this helper exists to guarantee.
  *
  * `maxTurns <= 0` (defensive — Zod clamps it to 1–10 upstream) collapses to `attempt 1 / round 1`.
- *
- * @public
  */
 export const perAttemptRound = (
   genEvalRound: number,
@@ -398,8 +394,6 @@ const resolveStatusFromSubSteps = (
  * `aborted` / `skipped` / `blocked` — sit BEHIND the cursor: the Execute header's active-task
  * readout and the Tasks panel's active-card anchor both scan for the first in-flight bucket, and
  * a task blocked earlier in the list must not hold that cursor while later tasks actually run.
- *
- * @public
  */
 export const isInFlightBucket = (bucket: { readonly status: TaskBucketStatus }): boolean =>
   bucket.status === 'running' || bucket.status === 'pending';
@@ -505,8 +499,6 @@ const reconcileBucket = (
  * That covers no `taskState`, no entity blocked/revived/cascade-cleared, or every bucket already
  * agreeing. A memoized consumer downstream then doesn't re-render on every 3 s baseline-health
  * poll tick.
- *
- * @public
  */
 export const overlayEntityBlockedStatus = (
   bucketed: BucketedExecution,

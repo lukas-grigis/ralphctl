@@ -44,7 +44,6 @@ import { CONTEXT_WIDTH, glyphs, inkColors, spacing } from '@src/application/ui/t
 import type { TokenUsage } from '@src/application/ui/tui/runtime/use-token-usage.ts';
 import { contextWindowLabel } from '@src/domain/value/settings-models/context-window.ts';
 
-/** @public */
 export interface TokenBudgetCardProps {
   readonly sessionId: string;
   readonly usage?: TokenUsage;

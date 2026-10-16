@@ -88,7 +88,6 @@ const foldTaskRound = (existing: TaskRound | undefined, e: TaskRoundStartedEvent
   };
 };
 
-/** @public */
 export interface UseTaskRoundTrackerOptions {
   /** Flush cadence in ms. Test-only escape hatch; production callers use the coalescer default. */
   readonly flushMs?: number;

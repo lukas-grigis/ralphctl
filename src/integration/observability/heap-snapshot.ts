@@ -29,7 +29,6 @@ const snapshotFilename = (timestamp: string): string => `heap-${timestamp.replac
  * near-OOM must not crash the process further. Returns the absolute-or-resolved path on success.
  *
  * @param clock - injected timestamp source for the filename (tests). Defaults to `Date.now`-based ISO.
- * @public
  */
 export const writeHeapSnapshotToDir = (dir: string, clock?: () => string): HeapSnapshotResult => {
   try {

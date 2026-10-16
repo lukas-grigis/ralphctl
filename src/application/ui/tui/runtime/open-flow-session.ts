@@ -13,8 +13,6 @@
  * plus the create-sprint copies folded into {@link useLaunchCreateSprint}) don't each re-stamp
  * the same three-statement tail. Flows-view passes `mode: 'replace'` and runs its own
  * `reload()` afterwards; the reload stays at the call site because it is flows-view-specific.
- *
- * @public
  */
 
 import type { RouterApi, ViewEntry } from '@src/application/ui/tui/runtime/router.tsx';

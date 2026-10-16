@@ -120,8 +120,6 @@ export interface OpencodeModelAvailabilityProbeOptions {
  * best-effort OUTSIDE the chain runtime where the propagate-AbortError rule applies (the codex
  * probe absorbs cancellation the same way), and a cancelled picker must not become a rejected
  * promise. It is no longer silent, which is what the rule is actually protecting against.
- *
- * @public
  */
 export const createOpencodeModelAvailabilityProbe = (
   options: OpencodeModelAvailabilityProbeOptions = {}

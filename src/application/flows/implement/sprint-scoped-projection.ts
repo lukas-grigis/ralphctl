@@ -199,8 +199,6 @@ type SignalAccumKey = {
  * projected here. Because `mergeImplementWave` and `forkCtx` both build their sprint-scoped slice by
  * calling this and only this, neither can drift out of sync with the classification, or with each
  * other.
- *
- * @public
  */
 export const projectSprintScopedFields = (ctx: ImplementCtx): Required<Pick<ImplementCtx, SprintScopedKey>> => ({
   sprintId: ctx.sprintId,
@@ -226,8 +224,6 @@ export const projectSprintScopedFields = (ctx: ImplementCtx): Required<Pick<Impl
  *
  * Takes no `ctx` parameter — the reset always yields the same fixed set of `undefined` values
  * regardless of the attempt's prior state, so there is nothing to read off `ctx`.
- *
- * @public
  */
 export const resetAttemptScratch = (): Required<Pick<ImplementCtx, AttemptResetKey>> => ({
   genEvalTurn: undefined,
@@ -254,8 +250,6 @@ export const resetAttemptScratch = (): Required<Pick<ImplementCtx, AttemptResetK
  * `progress-journal` in the same loop iteration, and `progress-journal` still needs
  * `ctx.currentRoundNum` / `ctx.lastEvaluation` / the rest of the `'reset'` bucket to render this
  * attempt's journal section. Those wait for the next `start-attempt`.
- *
- * @public
  */
 export const resetSettleScratch = (): Required<Pick<ImplementCtx, SettleResetKey>> => ({
   currentTaskId: undefined,
@@ -276,8 +270,6 @@ export const resetSettleScratch = (): Required<Pick<ImplementCtx, SettleResetKey
  * cleared to `undefined`. `progress-journal` spreads this onto its output after rendering the
  * accumulated decisions / changes / learnings / notes / nudge tallies into the attempt's journal
  * section, so the NEXT attempt (or the next task) starts with empty accumulators.
- *
- * @public
  */
 export const resetSignalAccumulators = (): Required<Pick<ImplementCtx, SignalAccumKey>> => ({
   currentAttemptDecisions: undefined,

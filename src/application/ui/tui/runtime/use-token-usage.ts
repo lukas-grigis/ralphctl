@@ -86,7 +86,6 @@ const keyOfTokenUsage = (e: TokenUsageEvent): string => e.chainSessionId ?? e.se
 // Latest event always wins per key — no monotonic guard, so the fold ignores `existing`.
 const foldTokenUsage = (_existing: TokenUsage | undefined, e: TokenUsageEvent): TokenUsage => toUsage(e);
 
-/** @public */
 export interface UseTokenUsageOptions {
   /** Flush cadence in ms. Test-only escape hatch; production callers use the coalescer default. */
   readonly flushMs?: number;

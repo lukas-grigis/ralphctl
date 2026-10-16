@@ -34,7 +34,7 @@ import type { DomainError } from '@src/domain/value/error/domain-error.ts';
  * Pure — no I/O, no clock, no logging. The caller (the `check-plan` leaf) does the logging.
  */
 
-/** Structured location + reason for one plan-critic finding. @public */
+/** Structured location + reason for one plan-critic finding. */
 export type PlanCheckFinding =
   | { readonly kind: 'task-graph'; readonly detail: string }
   | {
@@ -96,17 +96,13 @@ export type PlanCheckFinding =
       readonly criterionId: string;
     };
 
-/** @public */
 export type PlanCheckFindingKind = PlanCheckFinding['kind'];
 
-/** @public */
 export type PlanCheckSeverity = 'error' | 'warning';
 
 /**
  * Severity is a property of the KIND, never of the individual finding — so it is declared once
  * here rather than duplicated onto every constructed finding.
- *
- * @public
  */
 export const SEVERITY_BY_KIND: Readonly<Record<PlanCheckFindingKind, PlanCheckSeverity>> = {
   'task-graph': 'error',
@@ -121,7 +117,6 @@ export const SEVERITY_BY_KIND: Readonly<Record<PlanCheckFindingKind, PlanCheckSe
   'verify-gate-criterion': 'warning',
 };
 
-/** @public */
 export const severityOfFinding = (finding: PlanCheckFinding): PlanCheckSeverity => SEVERITY_BY_KIND[finding.kind];
 
 export interface PlanCheckReport {
@@ -319,8 +314,6 @@ const checkOneCriterion = (
  * because `LeafUseCase.execute` requires it), but there is no error path today — a malformed
  * plan produces `error`-tier FINDINGS, never a `Result.error`. Callers may treat the envelope as
  * always-ok without losing information.
- *
- * @public
  */
 export const checkPlanUseCase = (props: CheckPlanProps): Result<PlanCheckReport, DomainError> => {
   const findings: PlanCheckFinding[] = [];
@@ -347,8 +340,6 @@ export const checkPlanUseCase = (props: CheckPlanProps): Result<PlanCheckReport,
  * Render one finding as a single human-readable line, mirroring the `renderTaskGraphIssue`
  * precedent — the phrasing lives next to the shape it describes so producers (the `check-plan`
  * leaf's log) and consumers (the approval prompt) always say the same thing.
- *
- * @public
  */
 export const renderPlanCheckFinding = (finding: PlanCheckFinding): string =>
   `${SEVERITY_BY_KIND[finding.kind]}: ${locationOf(finding)} — ${finding.detail}`;

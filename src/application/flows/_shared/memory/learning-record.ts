@@ -15,8 +15,6 @@ import type { TaskKind } from '@src/business/task/derive-task-kind.ts';
  *
  * A record with the field ABSENT is a legacy row written before decisions shared the ledger — it is
  * treated as a `learning` (see {@link recordKind}). New writers always stamp it explicitly.
- *
- * @public
  */
 export type MemoryKind = 'learning' | 'decision';
 
@@ -35,8 +33,6 @@ export type MemoryKind = 'learning' | 'decision';
  *
  * Do NOT redefine these fields anywhere else — both leaves depend on the exact shape staying
  * identical so a record round-trips through the ledger untouched.
- *
- * @public
  */
 export interface LearningRecord {
   /** Schema version of the record on disk. Bumped only on a breaking field change. */
@@ -107,8 +103,6 @@ const taskKindSchema = z.enum(['feature', 'bugfix', 'refactor', 'test', 'docs', 
  * surfaces at typecheck (`satisfies` below). `.strict()` is intentionally NOT used — a future
  * record may grow fields, and an older reader should tolerate (ignore) them rather than reject
  * the whole ledger line.
- *
- * @public
  */
 export const learningRecordSchema = z.object({
   v: z.number().int(),
@@ -150,8 +144,6 @@ void _schemaMatchesInterface;
  * Parse one NDJSON line into a {@link LearningRecord}. Blank lines yield `Result.ok(undefined)`
  * (a trailing newline is normal for an append-only ledger). A malformed line yields a
  * `ParseError` carrying the offending line — the caller decides whether to skip or fail.
- *
- * @public
  */
 export const parseLearningLine = (line: string): Result<LearningRecord | undefined, ParseError> => {
   const trimmed = line.trim();
@@ -183,8 +175,6 @@ export const parseLearningLine = (line: string): Result<LearningRecord | undefin
  * Serialize a {@link LearningRecord} to a single NDJSON line (JSON + trailing newline). The
  * inverse of {@link parseLearningLine}. Both sides of the pipeline use this so the on-disk
  * encoding is owned in one place.
- *
- * @public
  */
 export const serializeLearningRecord = (record: LearningRecord): string => `${JSON.stringify(record)}\n`;
 
@@ -212,8 +202,6 @@ const sha1Of = (key: string): string => createHash('sha1').update(key).digest('h
  * identical insight can carry repo- or kind-specific weight at distillation time. The `kind` is
  * deliberately NOT folded in here so a learning keeps the byte-identical id it had before decisions
  * shared the ledger (no dedup drift across the upgrade).
- *
- * @public
  */
 export const deriveLearningId = (repo: string, taskKind: TaskKind, text: string): string =>
   sha1Of(`${repo}|${taskKind}|${normalizeForId(text)}`);
@@ -222,8 +210,6 @@ export const deriveLearningId = (repo: string, taskKind: TaskKind, text: string)
  * Derive the stable dedup id for a DECISION. Same scheme as {@link deriveLearningId} but with a
  * `decision` segment folded into the key, so an identical sentence emitted BOTH as a learning and as
  * a decision keeps two distinct ledger rows (the shared file would otherwise collapse them onto one).
- *
- * @public
  */
 export const deriveDecisionId = (repo: string, taskKind: TaskKind, text: string): string =>
   sha1Of(`${repo}|${taskKind}|decision|${normalizeForId(text)}`);
@@ -231,23 +217,19 @@ export const deriveDecisionId = (repo: string, taskKind: TaskKind, text: string)
 /**
  * The record's {@link MemoryKind}, defaulting a legacy row (no `kind` field) to `learning`. The
  * single place the absent-field default lives, so every consumer agrees on it.
- *
- * @public
  */
 export const recordKind = (record: LearningRecord): MemoryKind => record.kind ?? 'learning';
 
-/** True iff the record is a `learning` (or a legacy row, which defaults to `learning`). @public */
+/** True iff the record is a `learning` (or a legacy row, which defaults to `learning`). */
 export const isLearning = (record: LearningRecord): boolean => recordKind(record) === 'learning';
 
-/** True iff the record is a `decision`. @public */
+/** True iff the record is a `decision`. */
 export const isDecision = (record: LearningRecord): boolean => recordKind(record) === 'decision';
 
 /**
  * True iff the record has been durably RETIRED (the operator declined it at the distill gate). A
  * retired record is excluded from prompt injection and never re-proposed. Tolerates both `null`
  * (explicit "not retired") and absent (legacy row) as live.
- *
- * @public
  */
 export const isRetired = (record: LearningRecord): boolean =>
   record.retiredAt !== undefined && record.retiredAt !== null;

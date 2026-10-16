@@ -262,8 +262,6 @@ const GPT_5_6_LUNA = 'gpt-5.6-luna';
  *    `ling-3.0-flash-fin-free`.
  *
  * Exported only so the lockstep test can assert every target is a live catalog id.
- *
- * @public
  */
 export const RETIRED_MODEL_REMAPS: ReadonlyArray<{
   readonly provider: AiProvider;
@@ -733,8 +731,6 @@ export type AiImplementRole = 'generator' | 'evaluator';
  * Optional per-role agent-definition binding under `settings.ai.implement.agents` — see
  * {@link AiAgentBindingsSchema}. An absent key (or an absent `agents` block) means the role has
  * no bound definition.
- *
- * @public
  */
 export type AiAgentBindings = z.infer<typeof AiAgentBindingsSchema>;
 
@@ -743,8 +739,6 @@ export type AiAgentBindings = z.infer<typeof AiAgentBindingsSchema>;
  * role has no binding (including when the whole `agents` block is absent). The "primary"
  * naming mirrors {@link primaryFlowRow}: a single lookup a caller can use without reaching
  * into the block's shape directly.
- *
- * @public
  */
 export const primaryAgentBinding = (agents: AiAgentBindings | undefined, role: AiImplementRole): string | undefined =>
   agents?.[role];
@@ -753,8 +747,6 @@ export const primaryAgentBinding = (agents: AiAgentBindings | undefined, role: A
  * `Partial<Record<FlowId, { disabled: readonly string[] }>>`. Exposed for the skills launcher
  * resolution seam (#216) and the customize picker, which read a flow's saved `disabled` list to
  * subtract from that flow's bundled defaults at launch.
- *
- * @public
  */
 export type AiSkillsSettings = z.infer<typeof AiSkillsSchema>;
 export type Settings = z.infer<typeof SettingsSchema>;
@@ -780,8 +772,6 @@ export const primaryFlowRow = (ai: AiSettings, flow: FlowId): AiFlowSettings => 
  *
  * Pure over {@link AiSettings} — no I/O — so it lives in the domain entity alongside
  * {@link primaryFlowRow} rather than in any one consuming flow.
- *
- * @public
  */
 export const uniqueProvidersFromAi = (ai: AiSettings): readonly AiProvider[] => {
   const seen = new Set<AiProvider>();
@@ -816,8 +806,6 @@ export const uniqueProvidersFromAi = (ai: AiSettings): readonly AiProvider[] => 
  * implement-role overrides, and the TUI customize picker silently rejecting the new provider while
  * the whole suite stayed green. Every membership check and every "expected one of: …" message
  * MUST read from here rather than re-listing ids.
- *
- * @public
  */
 export const AI_PROVIDERS: readonly AiProvider[] = AiProviderSchema.options;
 

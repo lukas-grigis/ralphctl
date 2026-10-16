@@ -284,8 +284,6 @@ const workProductChanged = (window: readonly PlateauTurnRecord[], current: Plate
  * config value (or a non-finite one from a hand-built config) must not be able to crash or silence
  * the inner loop. THE single source of window size: `computePlateauVerdict` and
  * `composeDimensionTrajectory` size their window from here, so the two can never disagree.
- *
- * @public
  */
 export const plateauWindowSize = (threshold: number): number => {
   if (!Number.isFinite(threshold)) return 2;

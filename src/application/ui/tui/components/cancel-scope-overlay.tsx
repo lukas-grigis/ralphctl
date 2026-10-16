@@ -25,7 +25,6 @@ import { Box, Text, useInput } from 'ink';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { fmtDuration } from '@src/application/ui/tui/theme/duration.ts';
 
-/** @public */
 export interface CancelScopeOverlayProps {
   /** Wall-clock ms elapsed on the active attempt — drives the "estimated waste" line. */
   readonly attemptElapsedMs: number | undefined;

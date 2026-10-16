@@ -30,7 +30,6 @@ import type { Spawn } from '@src/integration/io/spawn.ts';
 /** Sentinel error tag so callers can branch on the cause without parsing strings. */
 export type ClipboardErrorCode = 'no-helper' | 'spawn-failed' | 'helper-nonzero' | 'unsupported-platform';
 
-/** @public */
 export interface ClipboardError {
   readonly code: ClipboardErrorCode;
   readonly message: string;
@@ -129,7 +128,6 @@ const runHelper = (spawn: Spawn, helper: HelperCommand, text: string): Promise<R
     }
   });
 
-/** @public */
 export interface CreateCopyToClipboardOptions {
   /** Override the default `pipeSpawn` in tests. */
   readonly spawn?: Spawn;

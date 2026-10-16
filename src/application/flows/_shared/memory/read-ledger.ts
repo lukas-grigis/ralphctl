@@ -15,8 +15,6 @@ import { messageOf } from '@src/domain/value/error/error-message.ts';
  * non-stamped rows from `raw` (not from a re-serialized `record`) so unknown future fields a newer
  * ralphctl version added survive a round-trip — see {@link parseLearningLine} for why the schema
  * strips unknown keys.
- *
- * @public
  */
 export interface LedgerLine {
   readonly raw: string;
@@ -30,8 +28,6 @@ const ESTIMATED_ROW_BYTES = 300;
 /**
  * Hard cap on total rows retained on disk after compaction (tombstones + pending). Shared with
  * `compactLedger`.
- *
- * @public
  */
 export const LEDGER_MAX_ROWS = 500;
 
@@ -41,8 +37,6 @@ export const LEDGER_MAX_ROWS = 500;
  * is orders of magnitude past anything compaction ever allows; reaching it means the file is
  * corrupt or was never compacted (e.g. produced by a buggy build). Rather than load tens of MB of
  * NDJSON into RAM to process it, {@link readLedgerLines} rotates such a file aside and starts fresh.
- *
- * @public
  */
 export const LEDGER_HARD_CEILING_BYTES = 50 * 1024 * 1024;
 
@@ -73,8 +67,6 @@ const isEnoent = (cause: unknown): boolean => cause instanceof Error && (cause a
  * AbortSignal: an already-aborted signal at entry, or a `stat`/`readFile` that rejects with an
  * abort, re-propagates as the underlying rejection (the caller's `isAbortedRead` guard converts it
  * to `AbortError`). A cancelled read must never collapse into an empty ledger.
- *
- * @public
  */
 export const readLedgerLines = async (
   path: AbsolutePath,
@@ -152,8 +144,6 @@ const rotateIfOverCeiling = async (path: AbsolutePath, log: Logger, signal?: Abo
  *
  * An absent ledger (`ENOENT`) — or any stat failure — returns `false`: there is nothing to
  * compact, and a stat error must never block the surrounding flow.
- *
- * @public
  */
 export const statLedgerExceedsThreshold = async (path: AbsolutePath): Promise<boolean> => {
   try {

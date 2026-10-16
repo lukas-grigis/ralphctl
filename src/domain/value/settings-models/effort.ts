@@ -11,8 +11,6 @@
  * (persisted rows are migrated to `low`); every catalog model accepts `max`, and `ultra` exists
  * only on the non-luna tiers (plan-gated to Plus+) — per-model narrowing is left to the codex CLI
  * at spawn, matching the custom-model policy.
- *
- * @public
  */
 
 import type { AiProvider } from '@src/domain/entity/settings.ts';

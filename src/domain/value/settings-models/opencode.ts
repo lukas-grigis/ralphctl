@@ -67,8 +67,6 @@ export const OPENCODE_MODELS: readonly OpencodeModel[] = [
  * Deliberately NOT an adapter-side gate — see the validation note on {@link OpencodeModel}: the
  * adapters must accept authenticated upstream ids, so their boundary check is the shape-only
  * {@link isOpencodeModelIdShape}.
- *
- * @public
  */
 export const isOpencodeModel = (s: string): s is OpencodeModel => (OPENCODE_MODELS as readonly string[]).includes(s);
 

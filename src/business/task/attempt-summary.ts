@@ -17,8 +17,6 @@ import type { Attempt, AttemptWarning, Attribution, TerminalAttempt } from '@src
  * `Attempt.commitSha` carries only the SHA (the generator's proposed commit subject is a transient
  * signal, never persisted onto the attempt). Both summaries below render only what the entity
  * actually carries — everything else degrades silently rather than guessing.
- *
- * @public
  */
 
 /** Per-line clamp for the critique excerpt folded into one attempt's summary block. */
@@ -55,8 +53,6 @@ const warningLine = (warning: AttemptWarning): string => {
  * order. Absent fields are skipped silently — never a placeholder like "unknown".
  *
  * Pure. No I/O.
- *
- * @public
  */
 export const composeAttemptSummary = (attempt: Attempt): string => {
   const lines: string[] = [`Attempt ${String(attempt.n)}: ${attempt.status}`];
@@ -129,8 +125,6 @@ const qualityScore = (attempt: TerminalAttempt): number => {
  * history, not a leaderboard.
  *
  * Pure. No I/O.
- *
- * @public
  */
 export const selectKBestAttempts = (attempts: readonly Attempt[], k: number): Attempt[] => {
   const settled = attempts.filter(isSettled);
@@ -166,8 +160,6 @@ export interface RenderPriorAttemptsOptions {
  * (settled) prior attempts, so callers can collapse the section cleanly.
  *
  * Pure. No I/O.
- *
- * @public
  */
 export const renderPriorAttemptsSection = (
   attempts: readonly Attempt[],

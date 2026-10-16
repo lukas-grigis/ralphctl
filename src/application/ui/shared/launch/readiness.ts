@@ -34,7 +34,6 @@ type ProviderSelection =
 /**
  * Resolve which provider(s) readiness should set up. Skills / native context files are provider-specific, so the
  * operator usually wants ONE provider per run.
- * @public — exported for direct unit testing of the launch-time provider scoping (the launcher
  */
 export const selectReadinessProviders = async (
   allProviders: readonly AiProvider[],

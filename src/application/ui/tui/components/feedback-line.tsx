@@ -13,8 +13,6 @@
  *
  * Renders nothing when `text` is `undefined`, so callers can unconditionally render
  * `<FeedbackLine … />` without a conditional guard.
- *
- * @public
  */
 
 import React from 'react';
@@ -89,7 +87,5 @@ export const FeedbackLine = ({ text }: FeedbackLineProps): React.JSX.Element | n
 /**
  * Construct a {@link StructuredFeedback} value. Convenience factory so call sites
  * don't inline the literal object shape.
- *
- * @public
  */
 export const feedback = (tone: FeedbackTone, text: string): StructuredFeedback => ({ tone, text });

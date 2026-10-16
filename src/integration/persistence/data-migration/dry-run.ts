@@ -48,8 +48,6 @@ interface Accumulator {
  *    unreadable slug, or an unwritable backup target.
  *
  * Touches NOTHING — callers (tests) assert the tree is byte-identical after a dry-run.
- *
- * @public
  */
 export const dryRun = async (dataRoot: AbsolutePath): Promise<DryRunReport> => {
   const acc: Accumulator = { planned: [], merges: [], skipped: [], problems: [] };

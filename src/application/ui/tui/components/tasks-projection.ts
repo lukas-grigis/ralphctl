@@ -97,8 +97,6 @@ const summariseAttempt = (att: Attempt): TaskProjection['lastAttempt'] => {
 
 /**
  * Project one task into the minimal {@link TaskProjection} the Tasks panel reads.
- *
- * @public
  */
 export const projectTask = (task: Task): TaskProjection => {
   const last = task.attempts[task.attempts.length - 1];

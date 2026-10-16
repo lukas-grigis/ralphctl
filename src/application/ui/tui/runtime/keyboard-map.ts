@@ -57,8 +57,6 @@ export const globalKeys = {
  * pre-mapped to the footer's `{ keys, label }` hint shape (`keys` joined with `/` for
  * multi-variant bindings). Single source of truth for the footer's global hints — the status bar
  * renders this instead of hand-maintaining a parallel list.
- *
- * @public
  */
 export const footerGlobalHints: ReadonlyArray<{ readonly keys: string; readonly label: string }> = (
   Object.values(globalKeys) as KeyBinding[]

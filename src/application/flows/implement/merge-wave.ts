@@ -13,8 +13,6 @@ import { projectSprintScopedFields } from '@src/application/flows/implement/spri
  * to find the task a branch's outcome ctx actually settled. Keeping both directions behind one
  * function makes branch ↔ task ownership a single source of truth instead of two call sites that
  * happen to agree on a string template.
- *
- * @public
  */
 export const implementBranchId = (taskId: TaskId): string => `task-${String(taskId)}`;
 
@@ -24,8 +22,6 @@ export const implementBranchId = (taskId: TaskId): string => `task-${String(task
  * per-task leaves can look up sibling dependencies), but only the branch's own task is ever an
  * authoritative transition — every reader that wants a branch's settled task goes through this
  * function rather than trusting the whole list.
- *
- * @public
  */
 export const ownedTask = (branchId: string, ctx: ImplementCtx): Task | undefined =>
   ctx.tasks?.find((t) => implementBranchId(t.id) === branchId);
@@ -47,8 +43,6 @@ export const ownedTask = (branchId: string, ctx: ImplementCtx): Task | undefined
  *    `done` the merge did not overlay can only be an older disk row, never a fold to trust;
  *  - an in-memory task that is already `'done'` or `'blocked'` is left untouched — it settled
  *    inside THIS run and is authoritative over whatever an older disk row says.
- *
- * @public
  */
 export const adoptPersistedBlocks = (tasks: readonly Task[], persisted: readonly Task[]): readonly Task[] => {
   const unsettled = new Map<TaskId, Task>();
@@ -86,8 +80,6 @@ export const adoptPersistedBlocks = (tasks: readonly Task[], persisted: readonly
  *
  *  - sprint-scoped fields → carried verbatim from `base` via {@link projectSprintScopedFields}.
  *  - per-task + signal-accum fields → reset to `undefined`; they have no meaning between waves.
- *
- * @public
  */
 export const mergeImplementWave = (
   base: ImplementCtx,
@@ -137,8 +129,6 @@ export const mergeImplementWave = (
  *    moot and would fail), so the field is simply cleared like the rest of the per-task class: no
  *    downstream reader can mis-fire on a stale `''`.
  *  - repo path → the task's worktree path on the returned `RepoExecConfig`.
- *
- * @public
  */
 export const forkCtx = (
   base: ImplementCtx,

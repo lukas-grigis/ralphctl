@@ -35,8 +35,6 @@ const parseBody = (ndjsonBody: string): LearningRecord[] => {
  * Build the backfill renderer the migration `ApplyCtx.renderLearnings` expects. Parses the NDJSON
  * body line-by-line (skipping blanks + malformed rows) then renders the markdown mirror. Returns
  * `undefined` when no record parses, so the engine skips writing an empty file.
- *
- * @public
  */
 export const createLearningsBackfillRenderer =
   (): ((ndjsonBody: string) => string | undefined) =>
@@ -55,8 +53,6 @@ export const createLearningsBackfillRenderer =
  * the `learnings.md` mirror. The union preserves on-disk order: slugged rows first (in their original
  * order), then legacy rows whose id was not already present. `md` is `undefined` when the union has no
  * renderable records.
- *
- * @public
  */
 export const createLearningsMerger =
   (): ((sluggedBody: string, legacyBody: string) => { ndjson: string; md: string | undefined }) =>

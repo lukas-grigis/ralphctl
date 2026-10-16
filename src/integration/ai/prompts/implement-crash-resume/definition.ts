@@ -53,7 +53,6 @@ export interface BuildImplementCrashResumePromptInput {
 
 /**
  * Render the crash-resume continuation prompt.
- * @public
  */
 export const buildImplementCrashResumePrompt = async (
   deps: TemplateLoader,

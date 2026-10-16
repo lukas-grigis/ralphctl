@@ -36,8 +36,6 @@ export const DEMO_TARGET_FILE = 'hello.py';
  * evidence quotes. Node rather than python so the demo runs on any machine that can run
  * ralphctl at all — `scripted-run.ts` rewrites the seeded criterion to this exact string so the
  * task contract, the transcript's evidence, and reality all say the same thing.
- *
- * @public
  */
 export const DEMO_CRITERION_COMMAND =
   "node -e \"const s=require('node:fs').readFileSync('hello.py','utf8'); if (!s.includes('Hello, world!')) process.exit(1)\"";
@@ -47,8 +45,6 @@ export const DEMO_CRITERION_COMMAND =
  * task: a red pre-task-verify baseline opens the operator gate ("proceed on a broken tree?"),
  * which is not what a first-run recording should be showing. The acceptance criterion above is
  * where the red → green transition lives.
- *
- * @public
  */
 export const DEMO_VERIFY_SCRIPT =
   "node -e \"const s=require('node:fs').readFileSync('hello.py','utf8'); if (!s.includes('print(')) process.exit(1)\"";
@@ -267,8 +263,6 @@ export const demoTranscript = (now: () => IsoTimestamp = IsoTimestamp.now): Demo
  * returning `undefined`: a corrective nudge re-spawns the same round (exact hit), and a run that
  * somehow claims a third round gets the PASS beat, so the demo always converges instead of
  * looping until the turn budget runs out.
- *
- * @public
  */
 export const beatFor = (transcript: DemoTranscript, role: DemoRole, round: number): DemoBeat | undefined => {
   const forRole = transcript.beats.filter((b) => b.role === role);

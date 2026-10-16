@@ -3,8 +3,6 @@ import { assertCtxField } from '@src/application/flows/_shared/_engine/assert-ct
 
 /**
  * Minimal ctx shape every flow that materialises a per-run sandbox directory already satisfies.
- *
- * @public
  */
 export interface UnitRootCtx {
   readonly currentUnitRoot?: AbsolutePath;
@@ -18,8 +16,6 @@ export interface UnitRootCtx {
  *
  * `leafName` names the consuming leaf in the thrown error, so a chain that forgot to materialise
  * the sandbox first fails at the leaf that actually broke instead of with a generic message.
- *
- * @public
  */
 export const unitRootCwdPicker =
   <TCtx extends UnitRootCtx>(leafName: string) =>

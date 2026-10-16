@@ -8,8 +8,6 @@ import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
  *
  * Rationale: injecting a compact history of prior task outcomes lets a later task avoid
  * re-discovering what an earlier task in the same sprint already solved or got blocked on.
- *
- * @public
  */
 export type TaskEpisode = {
   readonly taskId: string;

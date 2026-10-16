@@ -106,8 +106,6 @@ export const listDir = async (dir: string): Promise<Result<string[], ProbeError>
  * Stat a path without throwing on `ENOENT` — the missing case resolves to `undefined` so
  * callers can branch on existence without try/catch noise. Permission / I/O failures still
  * surface as {@link ProbeError}.
- *
- * @public
  */
 export const statSafely = async (path: string): Promise<Result<Stats | undefined, ProbeError>> => {
   try {

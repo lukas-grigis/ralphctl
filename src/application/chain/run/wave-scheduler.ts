@@ -24,8 +24,6 @@ const clampConcurrency = (n: number): number => {
  * One unit of parallel work inside a wave. The caller supplies a stable `id` (used both as the
  * branch's `runWithSession` scope and as the `chainId = task-<id>` the EventBus bridge keys on)
  * plus the `element` to run on that branch's own {@link Runner}.
- *
- * @public
  */
 export interface WaveBranch<TCtx> {
   /** Stable identifier — the branch's session-scope id and the bus bridge's `chainId`. */
@@ -51,8 +49,6 @@ export interface WaveBranch<TCtx> {
  *
  * Fatal errors (`aborted` / `rate-limit`) never surface as a `BranchOutcome` — they short-circuit
  * the whole wave (see {@link runWaves}).
- *
- * @public
  */
 export interface BranchOutcome<TCtx> {
   readonly id: string;
@@ -64,8 +60,6 @@ export interface BranchOutcome<TCtx> {
 /**
  * Configuration for {@link runWaves}. Everything ctx-specific is injected so the scheduler stays
  * generic — it imports nothing from any flow.
- *
- * @public
  */
 export interface WaveScheduleConfig<TCtx> {
   /** Desired max in-flight branches per wave. Re-clamped to `[1,5]` internally. */
@@ -128,8 +122,6 @@ interface BranchRun<TCtx> {
  *  - **Rate-limit:** an exhausted-retry `rate-limit` in one branch is fatal. The in-flight
  *    siblings drain (finish, so their commits still fold) and the rest of the wave is not
  *    launched; the `rate-limit` error is returned verbatim once everything has settled.
- *
- * @public
  */
 export const runWaves = async <TCtx>(
   waves: ReadonlyArray<ReadonlyArray<WaveBranch<TCtx>>>,

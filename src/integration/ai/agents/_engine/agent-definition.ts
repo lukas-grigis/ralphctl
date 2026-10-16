@@ -22,7 +22,7 @@
 
 import { z } from 'zod';
 
-/** Prefix applied to ralphctl-authored agent definitions so they are namespaced on disk. @public */
+/** Prefix applied to ralphctl-authored agent definitions so they are namespaced on disk. */
 export const RALPHCTL_AGENT_PREFIX = 'ralphctl-';
 
 /**
@@ -32,8 +32,6 @@ export const RALPHCTL_AGENT_PREFIX = 'ralphctl-';
  * prefix again would double it (`ralphctl-ralphctl-<name>`). Every renderer calls this instead
  * of concatenating the prefix directly, so a bare (un-namespaced) name — as used by the
  * renderer unit tests and any future direct caller — still gets prefixed exactly once.
- *
- * @public
  */
 export const namespacedAgentFileBase = (name: string): string =>
   name.startsWith(RALPHCTL_AGENT_PREFIX) ? name : `${RALPHCTL_AGENT_PREFIX}${name}`;

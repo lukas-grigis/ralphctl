@@ -27,8 +27,6 @@ export const resolveWritableRoots = (session: AiSession): readonly AbsolutePath[
  * not know about: copilot headless writes the prompt file the CLI is pointed at, and that
  * directory has to be readable. Keeping the "worth mounting" rule in one place stops each such
  * adapter from open-coding its own copy.
- *
- * @public
  */
 export const appendRoot = (
   roots: readonly AbsolutePath[],

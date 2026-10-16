@@ -197,8 +197,6 @@ const WideLayout = ({
  * At ≥140 cols (`layout.sidebarLayout === true`) it renders [sidebar | main-area]. The
  * HeaderCard + BaselineHealthChip are rendered by `body.tsx` above this compositor at all widths.
  * Below 140 cols it falls back to `ExecuteLayout` unchanged.
- *
- * @public — wired by `body.tsx`.
  */
 export const ImplementLayout = ({
   descriptor,

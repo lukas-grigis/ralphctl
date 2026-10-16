@@ -127,8 +127,6 @@ export const dependencyGateLeaf = (deps: DependencyGateLeafDeps, taskId: TaskId)
  * (`todo`/`in_progress`) — i.e. the {@link dependencyGateLeaf} did NOT just block it. When the
  * gate blocked the task this returns `false`, so the guard synthesises a `skipped` trace entry
  * for the body instead of spawning the generator against an incomplete tree.
- *
- * @public
  */
 export const isTaskRunnable = (ctx: ImplementCtx, taskId: TaskId): boolean => {
   const task = ctx.tasks?.find((t) => t.id === taskId);

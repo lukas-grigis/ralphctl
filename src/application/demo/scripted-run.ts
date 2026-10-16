@@ -91,8 +91,6 @@ const withDemoCriterionCommand = (task: Task): Task => ({
  * Pin the sandbox's settings and rewrite its seeded commands for a scripted run, then build the
  * transcript-replaying spawn. Call AFTER `seedDemoWorkspace` — this function only ever rewrites
  * what the seeder already wrote, it never creates a workspace.
- *
- * @public
  */
 export const prepareScriptedDemo = async (
   input: PrepareScriptedDemoInput

@@ -43,8 +43,6 @@ export const NAME_SEPARATOR = '--';
 /**
  * Build the human-readable on-disk name for an entity: `<id>--<slug>`. Used by every WRITE-side
  * caller that already holds the entity (and therefore its slug). Pure — no I/O.
- *
- * @public
  */
 export const buildSluggedName = (id: string, slug: string): string => `${id}${NAME_SEPARATOR}${slug}`;
 
@@ -52,8 +50,6 @@ export const buildSluggedName = (id: string, slug: string): string => `${id}${NA
  * Recover the leading id from an on-disk entry name. Splits on the FIRST `--` (kebab slugs never
  * contain consecutive hyphens), so `<id>--<slug>` → `<id>` and a legacy bare `<id>` → `<id>`. A
  * trailing `.json` (project files) is stripped first so the same helper serves files and dirs.
- *
- * @public
  */
 export const parseIdFromName = (entry: string): string => {
   const base = entry.endsWith('.json') ? entry.slice(0, -'.json'.length) : entry;
@@ -100,8 +96,6 @@ export const projectsDir = (root: AbsolutePath): string => join(String(root), 'p
 /**
  * WRITE-side builder: the canonical `<id>--<slug>.json` project file path. Use on `save`, where
  * the {@link import('@src/domain/entity/project.ts').Project} (and thus its slug) is in hand.
- *
- * @public
  */
 export const projectFile = (root: AbsolutePath, id: ProjectId, slug: Slug): string =>
   join(projectsDir(root), `${buildSluggedName(String(id), String(slug))}.json`);
@@ -109,8 +103,6 @@ export const projectFile = (root: AbsolutePath, id: ProjectId, slug: Slug): stri
 /**
  * READ-side resolver: the project file for `id`, tolerant of both the new `<id>--<slug>.json`
  * name and the legacy bare `<id>.json`. `undefined` when neither exists.
- *
- * @public
  */
 export const resolveProjectPath = async (root: AbsolutePath, id: ProjectId): Promise<string | undefined> => {
   const name = await resolveEntityName(projectsDir(root), String(id), '.json');
@@ -121,8 +113,6 @@ export const sprintsDir = (root: AbsolutePath): string => join(String(root), 'sp
 
 /**
  * WRITE-side builder: the canonical `<id>--<slug>/` sprint directory path. Use on `save`.
- *
- * @public
  */
 export const sprintDir = (root: AbsolutePath, id: SprintId, slug: Slug): string =>
   join(sprintsDir(root), buildSluggedName(String(id), String(slug)));
@@ -130,8 +120,6 @@ export const sprintDir = (root: AbsolutePath, id: SprintId, slug: Slug): string 
 /**
  * READ-side resolver: the sprint directory for `id`, tolerant of both the new `<id>--<slug>/`
  * name and the legacy bare `<id>/`. `undefined` when neither exists.
- *
- * @public
  */
 export const resolveSprintDir = async (root: AbsolutePath, id: SprintId): Promise<string | undefined> => {
   const name = await resolveEntityName(sprintsDir(root), String(id));
@@ -149,8 +137,6 @@ export const sprintDirOrBare = async (root: AbsolutePath, id: SprintId): Promise
  * READ-side resolver for the per-project memory directory under `<dataRoot>/memory/`, tolerant of
  * both `<projectId>--<projectSlug>/` and the legacy bare `<projectId>/`. `undefined` when neither
  * exists. The slug-aware WRITE-side path is built directly by the memory ledger helpers.
- *
- * @public
  */
 export const resolveMemoryDir = async (memoryRoot: AbsolutePath, projectId: string): Promise<string | undefined> => {
   const name = await resolveEntityName(String(memoryRoot), projectId);

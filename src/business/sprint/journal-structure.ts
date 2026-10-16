@@ -113,8 +113,6 @@ export const renderBreadcrumbBand = (breadcrumbs: readonly string[]): string =>
  * phrase {@link extractLifecycleBreadcrumbs} recognises, so the cap can PIN the pointer into the
  * always-kept header band even when the blocked task's own section is elided from the inline excerpt.
  * The task name is collapsed to one line so it can never break the breadcrumb across lines.
- *
- * @public
  */
 export const renderQuarantineBreadcrumb = (taskName: string, stashMessage: string): string =>
   `\n_Task ${sanitizeInline(taskName)}: rejected diff quarantined to git stash — recover via \`git stash list\` (message: \`${stashMessage}\`)._\n`;

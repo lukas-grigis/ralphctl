@@ -153,8 +153,6 @@ export interface CopilotModelAvailabilityProbeOptions {
  *
  * The `connect` handshake is marked experimental in the Copilot SDK, so protocol drift is the
  * expected failure mode — fail-open keeps that harmless.
- *
- * @public
  */
 export const createCopilotModelAvailabilityProbe = (
   options: CopilotModelAvailabilityProbeOptions = {}

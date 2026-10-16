@@ -30,8 +30,6 @@ const HELD_WITHIN_MS: number = DEFAULT_STALE_AFTER_MS;
  * holder is alive. We treat a lock as held when its mtime is within {@link HELD_WITHIN_MS}; an older
  * entry is a stale crash-leftover and is ignored, as is a fresh one whose `owner.json` names a pid
  * that is dead on this machine. An absent / empty `locks/` dir ⇒ no lock held.
- *
- * @public
  */
 export const anyLockHeld = async (stateRoot: AbsolutePath): Promise<boolean> => {
   const locksDir = join(String(stateRoot), LOCKS_SUBDIR);

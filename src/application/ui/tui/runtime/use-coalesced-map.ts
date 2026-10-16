@@ -20,7 +20,6 @@ import type { AppEvent } from '@src/business/observability/events.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
 import { createCoalescedBuffer } from '@src/application/ui/tui/runtime/coalesced-buffer.ts';
 
-/** @public */
 export interface UseCoalescedMapOptions<E extends AppEvent, V> {
   /** Hard cap on retained Map entries — also doubles as the coalescing buffer's per-window cap. */
   readonly cap: number;

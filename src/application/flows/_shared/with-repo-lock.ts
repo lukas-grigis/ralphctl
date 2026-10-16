@@ -29,8 +29,6 @@ import { repoLockFile } from '@src/integration/io/lock-paths.ts';
  *   - Lock-path construction fails (path validation) → same `StorageError`.
  *   - Inner element returns `Result.error` → the lock is still released (the locker's `withLock`
  *     runs its `finally` even when the wrapped function throws).
- *
- * @public
  */
 
 export interface WithRepoLockOpts {

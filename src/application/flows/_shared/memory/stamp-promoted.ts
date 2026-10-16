@@ -81,8 +81,6 @@ export interface StampPromotedLeafConfig<TCtx> {
  * neither accepted nor declined) is preserved unchanged, so a stamp is idempotent and never
  * back-dates a prior disposition. Non-stamped rows — including compaction winners — are written from
  * their ORIGINAL RAW LINE so unknown future fields round-trip intact.
- *
- * @public
  */
 export const stampPromotedLeaf = <TCtx>(
   deps: StampPromotedLeafDeps,

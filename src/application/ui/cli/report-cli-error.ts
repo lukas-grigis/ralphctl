@@ -13,7 +13,6 @@ const EXIT_INTERRUPTED = 130;
 
 /**
  * Terminal-frame reporter for anything that escapes a command action.
- * @public
  */
 export const reportFatal = (err: unknown): void => {
   if (err instanceof AbortError) {

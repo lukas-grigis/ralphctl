@@ -31,7 +31,6 @@ import { fmtElapsed } from '@src/application/ui/tui/theme/duration.ts';
  */
 const NAV_HINT = `${globalKeys.cycleSession.keys.join('/')} cycle ${glyphs.bullet} ${globalKeys.jumpSession.keys.join('/')} jump`;
 
-/** @public */
 export interface MultiFlowStripProps {
   /** Every session known to the manager — the strip filters to `running` itself. */
   readonly sessions: readonly SessionRecord[];

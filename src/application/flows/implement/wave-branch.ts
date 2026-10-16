@@ -53,8 +53,6 @@ import {
  * (each wave's branches are declared in task order, and a branch only reaches its fold step after
  * its own subchain settled — but the queue's FIFO ordering is what guarantees serialization, not
  * ordering across waves, which the scheduler already enforces).
- *
- * @public
  */
 export interface FoldQueue {
   run<T>(fn: () => Promise<T>): Promise<T>;
@@ -65,8 +63,6 @@ export interface FoldQueue {
  * critical sections never overlap regardless of how many branches call concurrently. A rejecting
  * `fn` does not poison the queue — the tail advances on settle (ok or throw) so a conflicted fold
  * doesn't wedge the siblings behind it.
- *
- * @public
  */
 export const createFoldQueue = (): FoldQueue => {
   let tail: Promise<unknown> = Promise.resolve();
@@ -104,8 +100,6 @@ export const createFoldQueue = (): FoldQueue => {
  * / `AppendLearningsLeafDeps` / `ImplementDeps`. Per-task artefacts (`prompt.md`, `signals.json`)
  * are written to task-scoped paths and never collide, so only these shared files need
  * serialisation.
- *
- * @public
  */
 export const serializeAppendFile = (inner: AppendFile): AppendFile => {
   const queue = createFoldQueue();
@@ -125,8 +119,6 @@ export const serializeAppendFile = (inner: AppendFile): AppendFile => {
  * evaluation/decision/commit signals for parallel-branch tasks) onto the `ai-signal` EventBus
  * event, stamped with THIS branch's taskId so the per-task TUI panel groups it under the right
  * task.
- *
- * @public
  */
 export const perBranchSignalPublisher = (eventBus: EventBus, taskId: TaskId): PublishSignal =>
   createPublishSignal(eventBus, 'implement', String(taskId));
@@ -295,8 +287,6 @@ const withWorktree = (
  * Each branch runs on its own runner (provided by `runWaves`) whose `initialCtx` is the wave's
  * carried base ctx. The branch element forks that carried ctx onto the worktree at EXECUTE time
  * (via `forkCtx`) so it always sees the most recently merged sprint / tasks state.
- *
- * @public
  */
 export const buildWaveBranches = (
   deps: BuildWaveBranchesDeps,
@@ -382,8 +372,6 @@ const holdOwnDoneWrite = (taskRepo: TaskRepository, taskId: TaskId): TaskReposit
  *
  * `policy` is the run's dirty-tree policy, applied by the per-worktree setup check to a change the
  * main checkout's setup never showed (see `worktree-setup-tree.ts`); it defaults like the flow's.
- *
- * @public
  */
 export const buildWorktreeBranch = (
   deps: BuildWaveBranchesDeps,
@@ -449,7 +437,6 @@ export const buildWorktreeBranch = (
 /**
  * Per-task worktree directory: `<sprintDir>/worktrees/wt-<taskId>`. Sprint-scoped + cleaned up per
  * task, so worktrees never leak into the user's repo tree and prune cleanly with the sprint dir.
- * @public
  */
 export const worktreePathFor = (sprintDir: AbsolutePath, taskId: TaskId): AbsolutePath => {
   const path = AbsolutePath.parse(join(String(sprintDir), 'worktrees', `wt-${String(taskId)}`));

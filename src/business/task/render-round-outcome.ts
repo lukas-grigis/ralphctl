@@ -15,8 +15,6 @@ import { formatDuration } from '@src/business/_shared/format-duration.ts';
  * `—` (em-dash) is used for missing optional fields rather than the empty string so the
  * markdown table aligns and the renderer reads as English ("session id: —") rather than
  * "session id: ".
- *
- * @public
  */
 export interface RoundOutcomeInput {
   readonly roundN: number;

@@ -12,8 +12,6 @@ import { capProgressBody, progressCapBudgetForModel } from '@src/application/flo
  * <run-slug>/`, `<sprintDir>/ideate/<run-slug>/`, `<sprintDir>/refinement/<ticket-slug>/`), so the
  * sprint dir is always the parent of the supplied unit root. Best-effort: missing or unreadable
  * degrades to empty string.
- *
- * @public
  */
 export const readCappedSprintProgress = async (unitRoot: AbsolutePath, model: string): Promise<string> => {
   const sprintDir = dirname(String(unitRoot));

@@ -24,8 +24,6 @@ export { LEDGER_MAX_ROWS };
  * candidates the operator hasn't acted on; the oldest are evicted once this many accumulate. The
  * cap is well below {@link LEDGER_MAX_ROWS} so promoted tombstones always have headroom — a
  * project that promotes steadily never starves its own suppression set.
- *
- * @public
  */
 export const LEDGER_MAX_PENDING_ROWS = 200;
 
@@ -79,8 +77,6 @@ interface Candidate {
  *  6. Cap the total at {@link LEDGER_MAX_ROWS}, evicting PENDING first — settled tombstones are
  *     NEVER evicted (invariant: promotion/retirement-suppression survives compaction).
  *  7. Emit survivors in their original relative order.
- *
- * @public
  */
 export const compactLedger = (rows: readonly LedgerRow[]): CompactionResult => {
   // 1. Index every real (non-blank) row with its original position; blanks are dropped silently.

@@ -76,8 +76,6 @@ const pickDemoPreset = (installed: ReadonlySet<AiProvider>): PresetName => {
  *
  * Only the AI section is preset-driven — harness / logging / concurrency / ui stay at the shipped
  * defaults, so the demo still shows the product's real behaviour.
- *
- * @public
  */
 export const seedDemoSettings = async (
   input: SeedDemoSettingsInput

@@ -5,8 +5,6 @@
  *
  * Shared by the memory leaves (`load-learnings`, `stamp-promoted`) so the "a cancelled read must
  * re-propagate `AbortError`, never collapse into an empty ledger" contract is enforced one way.
- *
- * @public
  */
 export const isAbortedRead = (cause: unknown, signal: AbortSignal | undefined): boolean => {
   if (signal?.aborted === true) return true;

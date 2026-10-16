@@ -64,7 +64,6 @@ const applyImplementRoleOverrides = (
 /**
  * The cross-aggregate bundle that lets {@link resolveImplementQueue} run the FULL referential- integrity check
  * instead of the dependency graph alone.
- * @public
  */
 export interface ImplementQueueBundle {
   readonly project: Project;
@@ -74,7 +73,6 @@ export interface ImplementQueueBundle {
 
 /**
  * Resolve the ordered launch queue from a sprint's FULL task set — the pre-launch human gate.
- * @public
  */
 export const resolveImplementQueue = (
   tasks: readonly Task[],
@@ -128,7 +126,6 @@ export const resolveImplementQueue = (
 /**
  * Clamp `settings.concurrency.maxParallelTasks` to `[1,5]` — the parallel cap. `=== 1` selects the serial implement
  * path; `> 1` selects the parallel worktree-fan-out path.
- * @public
  */
 export const clampParallel = (n: number): number => {
   if (!Number.isFinite(n)) return 1;

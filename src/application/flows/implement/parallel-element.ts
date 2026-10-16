@@ -72,8 +72,6 @@ const WAVES_NODE_NAME = 'implement-waves';
  * After the epilogue, the `runWaves` error (AbortError verbatim, or a rate-limit) propagates so the
  * sprint stays runnable — an attempt left `running` is settled by the operator-stop settle or, on
  * the next launch, by `start-attempt`'s resume path.
- *
- * @public
  */
 export const createParallelImplementElement = (
   plan: ImplementWavePlan,

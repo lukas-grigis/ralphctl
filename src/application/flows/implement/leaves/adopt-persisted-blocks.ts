@@ -33,8 +33,6 @@ import { messageOf } from '@src/domain/value/error/error-message.ts';
  *    unchanged.
  *  - the port throws `AbortError` → propagates verbatim (the one exempt case — an in-flight abort
  *    must never be swallowed as a mere read failure).
- *
- * @public
  */
 export interface AdoptPersistedBlocksLeafDeps {
   readonly taskRepo: FindTasksBySprintId;

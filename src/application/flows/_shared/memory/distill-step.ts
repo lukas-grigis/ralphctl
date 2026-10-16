@@ -69,8 +69,6 @@ export interface DistillStepOpts {
  *    session / write / build is logged at `warn` level and the step returns `Result.ok` to let the
  *    host flow CONTINUE to the transition. The fallback that absorbs non-abort errors exempts
  *    `AbortError` (it is re-raised, never swallowed).
- *
- * @public
  */
 export const createDistillStep = <TCtx extends DistillRequestedCtx>(
   deps: DistillLearningsDeps,

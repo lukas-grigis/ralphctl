@@ -155,8 +155,6 @@ export interface CreateImplementFlowOpts {
  * Stash / Reset / Cancel) fires; the business-layer default stays `'cancel'` for non-interactive
  * callers in isolation. One place, because the prologue's checks and every parallel task
  * worktree's setup check must apply the same policy.
- *
- * @public
  */
 export const effectiveDirtyTreePolicy = (opts: Pick<CreateImplementFlowOpts, 'dirtyTreePolicy'>): DirtyTreePolicy =>
   opts.dirtyTreePolicy ?? 'prompt';
@@ -172,8 +170,6 @@ export const effectiveDirtyTreePolicy = (opts: Pick<CreateImplementFlowOpts, 'di
  * once on a dedicated runner under the held lock before fanning the task waves out. The serial
  * `createImplementFlow` executes the same leaf instances spliced flat and only groups them under
  * this wrapper for display — see `groupedForDisplay`.
- *
- * @public
  */
 export const buildImplementPrologue = (deps: ImplementDeps, opts: CreateImplementFlowOpts): Element<ImplementCtx> => {
   // Per-repo derived shapes — unique cwds drive `resolve-branch` and the per-repo preflight fan-out;
@@ -268,8 +264,6 @@ export const buildImplementPrologue = (deps: ImplementDeps, opts: CreateImplemen
  * so no `todo`/`in_progress` remains) AND at least one settled `done`. See the inline notes at
  * the guard site for the two failure modes this guards (premature mid-run flip; all-blocked).
  * Extracted as a pure function so the transition rule is unit-testable independent of the chain.
- *
- * @public
  */
 export const shouldTransitionToReview = (tasks: ImplementCtx['tasks']): boolean => {
   const list = tasks ?? [];
@@ -288,8 +282,6 @@ export const shouldTransitionToReview = (tasks: ImplementCtx['tasks']): boolean 
  * `save-tasks` leaf must still persist the partially-merged ctx so folded commits are durably
  * recorded. The serial `createImplementFlow` executes the same leaf instances spliced flat and only
  * groups them under this wrapper for display — see `groupedForDisplay`.
- *
- * @public
  */
 export const buildImplementEpilogue = (deps: ImplementDeps, opts: CreateImplementFlowOpts): Element<ImplementCtx> =>
   sequential<ImplementCtx>(
@@ -338,8 +330,6 @@ export const buildImplementEpilogue = (deps: ImplementDeps, opts: CreateImplemen
  * {@link buildImplementEpilogue}'s own wrapper is deliberate: this segment is a drop-in replacement
  * for that one in {@link planImplementWaves}, and the parallel launcher's `runSubElement` /
  * TUI rail read the element's own `.name`, never a caller-side label.
- *
- * @public
  */
 export const buildParallelImplementEpilogue = (
   deps: ImplementDeps,
@@ -363,8 +353,6 @@ export const buildParallelImplementEpilogue = (
  * The serial `createImplementFlow` keeps its own internal `withRepoLock`-wrapped chain — the
  * serial `===1` path keeps the lock inside the flow. This plan exists purely so the `>1`
  * parallel path can be wired without re-deriving the segments.
- *
- * @public
  */
 export interface ImplementWavePlan {
   /**
@@ -419,8 +407,6 @@ export interface ImplementWavePlan {
  * surface the issue (mirroring how `resolveImplementQueue` already stops a launch on the same
  * class of issue over the full task set) rather than proceeding with an empty wave list that would
  * run prologue → nothing → epilogue and report `completed` having done no work.
- *
- * @public
  */
 export const planImplementWaves = (
   deps: ImplementDeps,

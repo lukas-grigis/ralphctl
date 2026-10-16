@@ -26,9 +26,7 @@ import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx
 
 export type ImplementMainAreaProps = Omit<TasksPanelHostProps, 'onExpandedCardChange'>;
 
-/**
- * @public — main pane for the redesigned Implement view; wired by `implement-layout.tsx`.
- */
+/** Main pane for the Implement view; wired by `implement-layout.tsx`. */
 export const ImplementMainArea = (props: ImplementMainAreaProps): React.JSX.Element | null => {
   const ui = useUiState();
   const claimEscape = ui.claimEscape;

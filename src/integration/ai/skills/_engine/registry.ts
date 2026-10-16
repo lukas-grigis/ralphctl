@@ -45,8 +45,6 @@ const ALL_FLOWS = FLOW_IDS;
  * One bundled skill and its phase assignments. `name` must match a `bundled/<name>/SKILL.md`
  * folder (and, per the Agent Skills spec, that file's frontmatter `name`); the `ralphctl-`
  * prefix is required.
- *
- * @public
  */
 export interface BundledSkillEntry {
   /** `ralphctl-*` — must match the bundled folder name. */
@@ -59,8 +57,6 @@ export interface BundledSkillEntry {
 
 /**
  * The bundled-skill catalog. Order is significant — see the module doc comment.
- *
- * @public
  */
 export const BUNDLED_SKILLS: readonly BundledSkillEntry[] = [
   // The four skills below descend from v1's global `default/` bundle, so they stay default-ON

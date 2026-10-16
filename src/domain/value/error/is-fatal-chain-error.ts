@@ -12,8 +12,6 @@ import type { DomainError } from '@src/domain/value/error/domain-error.ts';
  *
  * Every other domain error is recoverable at the call site's discretion: the failure is recorded
  * and the surrounding work carries on.
- *
- * @public
  */
 export const isFatalChainError = (err: DomainError): boolean =>
   err.code === ErrorCode.Aborted || err.code === ErrorCode.RateLimit;

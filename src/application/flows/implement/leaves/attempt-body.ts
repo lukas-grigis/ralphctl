@@ -50,8 +50,6 @@ export type AttemptReadConfig = FinalizeGenEvalProps['readConfig'];
  * call sites by hand, and the parallel one was missed for a full wave — the opt-in best-of-N
  * remedy silently never fired on a parallel-launched sprint. One shared builder makes that class
  * of drift impossible: a new field is threaded here once and both launchers pick it up for free.
- *
- * @public
  */
 export const buildAttemptReadConfig = (harness: IterationConfig): AttemptReadConfig => {
   const snapshot = {

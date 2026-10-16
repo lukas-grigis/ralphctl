@@ -42,8 +42,6 @@ const distillConfirmUseCase = async (
 
 /**
  * Build the distill-owned confirm leaf for one tool.
- *
- * @public
  */
 export const distillConfirmLeaf = (deps: DistillConfirmLeafDeps, tool: AssistantTool): Element<DistillLearningsCtx> =>
   leaf<DistillLearningsCtx, DistillConfirmInput, boolean>(`distill-confirm-${tool}`, {

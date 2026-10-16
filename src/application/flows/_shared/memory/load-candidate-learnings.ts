@@ -24,8 +24,6 @@ import { messageOf } from '@src/domain/value/error/error-message.ts';
  * a missing or unreadable ledger must never block interactive planning. (The leaf variant
  * additionally re-propagates a cancelled read as `AbortError`; this path runs inside a prompt-render
  * callback that receives no `AbortSignal`, so there is nothing to honour here.)
- *
- * @public
  */
 export const loadCandidateLearnings = async (
   memoryRoot: AbsolutePath,

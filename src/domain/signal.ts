@@ -103,7 +103,6 @@ export interface TaskVerifiedSignal {
  * side; `BlockCause` describes WHERE in the harness pipeline a block happened (and applies to every
  * block, not only a generator self-block). Set only when the block genuinely is one of these three
  * — an environment / verification failure fits none of them and should leave this unset.
- * @public
  */
 export type TaskBlockerClass = 'missing-information' | 'ambiguous-request' | 'contradictory-information';
 

@@ -17,8 +17,6 @@
  * block is the first `---` … `---` pair starting at the file's first non-whitespace line;
  * everything after the closing fence is the body. Returns the body verbatim when no frontmatter
  * is present — callers then validate frontmatter separately.
- *
- * @public
  */
 export const splitFrontmatter = (raw: string): { readonly frontmatter: string; readonly body: string } => {
   const trimmed = raw.replace(/^\uFEFF/u, ''); // strip UTF-8 BOM
@@ -41,8 +39,6 @@ export const splitFrontmatter = (raw: string): { readonly frontmatter: string; r
  * emits for values a strict YAML parser would reject unquoted), or single-quoted strings
  * without escapes. Frontmatter we control is always this shape, so a full YAML parser is
  * overkill (and adds a dep). Multiline / nested YAML is rejected via schema validation.
- *
- * @public
  */
 export const parseSimpleYaml = (input: string): Record<string, string> => {
   const result: Record<string, string> = {};

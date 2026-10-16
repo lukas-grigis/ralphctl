@@ -639,8 +639,6 @@ const finalize = (acc: Accumulator): OutcomeRollup => ({
  *
  * Same tolerance guarantees as the sprint-level fold: a legacy task with no `attempts` array, a
  * null row, or an unrecognised enum value contributes what it can and never throws.
- *
- * @public
  */
 export const foldTaskRollup = (tasks: readonly Task[]): OutcomeRollup => {
   const acc = emptyAccumulator();

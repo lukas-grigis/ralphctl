@@ -35,7 +35,6 @@ const tierGlyph = (tier: BaselineTier): string => {
   return glyphs.phasePending;
 };
 
-/** @public */
 export interface BaselineHealthChipProps {
   readonly execution?: SprintExecution;
   readonly tasks?: readonly Task[];

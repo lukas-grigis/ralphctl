@@ -265,8 +265,6 @@ const classifyPreExit = ({ session, exit, providerName }: ClassifySpawnExitInput
  * `platform` reaches {@link isArgvOverflow}: on darwin / linux a 40 KiB command line is legal, so a
  * failure at that size is an ordinary `ENOENT` / `EACCES` and MUST stay a retryable
  * `ProcessCrashError` with the PATH hint. Injectable for tests; defaults to the live platform.
- *
- * @public
  */
 export const classifySpawnFailure = (
   providerName: ProviderName,

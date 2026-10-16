@@ -9,8 +9,6 @@
  * conditional-claim effects. Callers pass the exact message JSX (`title`, optional `body`) so
  * wording stays byte-identical per call site; the card owns the layout, the claim, and the
  * `defaultYes={false}` destructive-confirm prompt.
- *
- * @public
  */
 
 import React, { useEffect } from 'react';

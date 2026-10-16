@@ -74,8 +74,6 @@ export const toBestOfNGenEvalOpts = (
  * `business/task/attempt-summary.ts` uses for prior-attempt summaries). A candidate is NOT an
  * `Attempt` — it never settles, is never persisted to `task.attempts` — so this is a sibling
  * record shape, not a reuse of the `Attempt` entity.
- *
- * @public
  */
 export interface BestOfNCandidateRecord {
   /** 1-based candidate number within this attempt's sampling round. */
@@ -109,8 +107,6 @@ export interface BestOfNCandidateRecord {
  * `quarantine-retry-diff.ts`'s `retryStashMessage` shape so `git stash list` reads consistently
  * across every ralphctl-owned stash entry. Never popped for a losing candidate — recoverable via
  * `git stash list` like every other quarantine in this codebase.
- *
- * @public
  */
 export const bestOfNStashMessage = (sprintId: SprintId, taskId: TaskId, attemptN: number, index: number): string =>
   `ralphctl/${String(sprintId)}/${String(taskId)}/attempt-${String(attemptN)}-candidate-${String(index)}`;
@@ -124,8 +120,6 @@ const DIFFSTAT_MAX_FILES = 12;
  * 2508.21433), fed to the pairwise judge tournament as the compact structured substrate the
  * judge compares (arXiv 2604.16529 — judges compare summaries, never raw diffs/transcripts).
  * Pure. No I/O.
- *
- * @public
  */
 export const composeCandidateSummary = (input: {
   readonly hadDiff: boolean;

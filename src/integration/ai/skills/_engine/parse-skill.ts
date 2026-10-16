@@ -22,8 +22,6 @@ import { SkillFrontmatterSchema } from '@src/integration/ai/skills/_engine/skill
  * Parse an already-read SKILL.md body into the canonical {@link Skill} record. Split from the
  * read so a file-required path and an optional-file path can share the frontmatter-validation
  * tail. `label` prefixes the error message (`bundled skill` / `operator skill`).
- *
- * @public
  */
 export const parseSkill = (label: string, path: string, name: string, raw: string): Result<Skill, StorageError> => {
   const { frontmatter, body } = splitFrontmatter(raw);

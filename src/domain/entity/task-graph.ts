@@ -40,8 +40,6 @@ export const nextAvailableTask = (tasks: readonly Task[]): Task | undefined => {
  * prerequisite: the dependency gate re-blocks it on the next run.
  *
  * Pure — does not mutate.
- *
- * @public
  */
 export const upstreamBlockedDependents = (tasks: readonly Task[], rootId: TaskId): readonly TaskId[] => {
   const found = new Set<TaskId>();
@@ -169,8 +167,6 @@ export const validateTaskGraph = (
  * that surface the issue through their own error envelope (e.g. the parser maps it onto a
  * `ParseError` message). Kept here so the wording stays adjacent to the issue shape it
  * describes and both producers and consumers share one phrasing.
- *
- * @public
  */
 export const renderTaskGraphIssue = (issue: TaskGraphIssue): string => {
   switch (issue.kind) {
@@ -237,8 +233,6 @@ const buildGraph = (
  * legitimately empty task list, distinct from the `Result.error` this returns for an
  * unschedulable NON-empty set (cycle / self-edge / a truly unknown dependency); callers must not
  * conflate the two. Pure — no mutation of inputs, no I/O.
- *
- * @public
  */
 export const scheduleIntoWaves = (
   tasks: readonly Task[],

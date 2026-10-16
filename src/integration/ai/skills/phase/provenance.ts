@@ -33,15 +33,13 @@ import type { WriteFile } from '@src/business/io/write-file.ts';
 import { isNodeErrnoCode } from '@src/integration/io/fs.ts';
 import type { SkillInstallStatus } from '@src/integration/ai/skills/_engine/skill-catalog-port.ts';
 
-/** Sidecar filename written inside every catalog-managed skill folder. @public */
+/** Sidecar filename written inside every catalog-managed skill folder. */
 export const PROVENANCE_FILENAME = '.provenance.json';
 
 /**
  * On-disk shape of `.provenance.json`. Only bundled copies are stamped today, so `source` is the
  * literal `'bundled'`; `skill` is the `ralphctl-*` id, `contentHash` the sha256 hex of the copied
  * `SKILL.md` raw bytes, and `copiedAt` an ISO-8601 timestamp of the copy.
- *
- * @public
  */
 export interface ProvenanceStamp {
   readonly source: 'bundled';
@@ -51,7 +49,7 @@ export interface ProvenanceStamp {
   readonly copiedAt: string;
 }
 
-/** sha256 hex of a `SKILL.md`'s raw content. Pure — the canonical hash for every comparison. @public */
+/** sha256 hex of a `SKILL.md`'s raw content. Pure — the canonical hash for every comparison. */
 export const hashSkillContent = (raw: string): string => createHash('sha256').update(raw, 'utf-8').digest('hex');
 
 /**
@@ -63,8 +61,6 @@ export const hashSkillContent = (raw: string): string => createHash('sha256').up
  * BOTH divergences hold (the operator edited their copy AND the bundle moved on) we report the
  * edit. `update`/`updateAll` overwrite, so surfacing `locally-modified` is what keeps a local edit
  * from being silently discarded.
- *
- * @public
  */
 export const deriveStatus = (input: {
   readonly folderSkillMdRaw: string;
@@ -112,13 +108,13 @@ const serializeStamp = (stamp: ProvenanceStamp): string => `${JSON.stringify(sta
 
 const sidecarPathIn = (skillDir: AbsolutePath): string => join(String(skillDir), PROVENANCE_FILENAME);
 
-/** Dependencies for {@link createProvenanceStore}. @public */
+/** Dependencies for {@link createProvenanceStore}. */
 export interface ProvenanceStoreDeps {
   /** Atomic write seam — `createAtomicWriteFile()` in production, a fake in tests. */
   readonly writeFile: WriteFile;
 }
 
-/** Read/write access to skill-folder `.provenance.json` sidecars. @public */
+/** Read/write access to skill-folder `.provenance.json` sidecars. */
 export interface ProvenanceStore {
   /** Atomically write `<skillDir>/.provenance.json` from `stamp`. Overwrites any existing sidecar. */
   writeProvenance(skillDir: AbsolutePath, stamp: ProvenanceStamp): Promise<Result<void, StorageError>>;
@@ -133,8 +129,6 @@ export interface ProvenanceStore {
 
 /**
  * Build a {@link ProvenanceStore} over the injected atomic {@link WriteFile} seam.
- *
- * @public
  */
 export const createProvenanceStore = (deps: ProvenanceStoreDeps): ProvenanceStore => ({
   async writeProvenance(skillDir, stamp) {

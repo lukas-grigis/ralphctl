@@ -21,8 +21,6 @@ import type { StorageError } from '@src/domain/value/error/storage-error.ts';
  * Domain transition (`markTaskBlocked`) only accepts `todo` / `in_progress` — the use case
  * surfaces the resulting `InvalidStateError` verbatim when the task is already `done` or
  * `blocked`. Already-blocked tasks pass through as a no-op so re-pressing the hotkey is safe.
- *
- * @public
  */
 export interface CancelActiveTaskProps {
   readonly task: Task;
@@ -33,7 +31,6 @@ export interface CancelActiveTaskProps {
   readonly clock: () => IsoTimestamp;
 }
 
-/** @public */
 export type CancelActiveTaskOutput = BlockedTask;
 
 const blockCancelledTask = (props: CancelActiveTaskProps): Result<BlockedTask, InvalidStateError> => {

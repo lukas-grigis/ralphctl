@@ -50,8 +50,6 @@ interface RetryQuarantineInput {
 /**
  * Deterministic stash message for one rejected retry diff. Includes the attempt number so
  * successive red retries of the same task produce distinguishable `git stash list` entries.
- *
- * @public
  */
 export const retryStashMessage = (sprintId: SprintId, taskId: TaskId, attemptN: number): string =>
   `ralphctl/${String(sprintId)}/${String(taskId)}/attempt-${String(attemptN)}-rejected-diff`;
@@ -97,8 +95,6 @@ export const quarantineRetryDiffLeaf = (
  * Synchronous guard predicate for the retry-diff quarantine: the composed case only — a granted
  * retry (`lastShouldFailAttempt`) whose attempt ALSO carries a block reason (in practice a red
  * post-task-verify; finalize never sets both itself). Pure; `AbortError` cannot arise here.
- *
- * @public
  */
 export const isRedVerifyRetry = (ctx: ImplementCtx): boolean =>
   ctx.lastShouldFailAttempt === true && ctx.lastBlockReason !== undefined;

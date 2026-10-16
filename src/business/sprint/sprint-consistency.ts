@@ -83,8 +83,6 @@ export const validateSprintConsistency = (
  * human-readable line: a referential-integrity fault carries its own message, a graph fault goes
  * through the canonical {@link renderTaskGraphIssue} phrasing so both producers and consumers of
  * a graph issue keep saying the same thing.
- *
- * @public
  */
 export const renderSprintConsistencyIssue = (issue: ValidationError | TaskGraphIssue): string =>
   issue instanceof ValidationError ? issue.message : renderTaskGraphIssue(issue);

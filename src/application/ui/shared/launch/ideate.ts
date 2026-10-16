@@ -14,7 +14,6 @@ import { checkCli } from '@src/application/ui/shared/launch/check-cli.ts';
 
 /**
  * Ideate's approval prompt.
- * @public
  */
 export const buildIdeateReviewMessage = (
   requirements: string,

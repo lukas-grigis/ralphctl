@@ -15,8 +15,6 @@
  *
  * Returns the same `{ state, reload }` shape as {@link useAsyncLoad} so callers narrow on
  * `state.kind` exactly as before.
- *
- * @public
  */
 
 import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';

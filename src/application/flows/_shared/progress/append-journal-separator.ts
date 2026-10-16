@@ -24,8 +24,6 @@ import type { SprintStatus } from '@src/domain/entity/sprint.ts';
  * same atomic write; without it (or when the file cannot be read) the separator is appended.
  *
  * Best-effort: a write failure is logged and the chain proceeds.
- *
- * @public
  */
 export interface AppendJournalSeparatorDeps {
   readonly appendFile: AppendFile;

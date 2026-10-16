@@ -19,7 +19,6 @@
 import type { Result } from '@src/domain/result.ts';
 import type { StorageError } from '@src/domain/value/error/storage-error.ts';
 
-/** @public */
 export interface BundledSkillRawReader {
   /**
    * Read `<bundledRoot>/<name>/SKILL.md` verbatim (no frontmatter parsing, no re-render). `name`

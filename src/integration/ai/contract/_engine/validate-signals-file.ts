@@ -21,8 +21,6 @@ const SCHEMA_MISMATCH = 'schema-mismatch';
  * 4 MB is ~4000x that upper bound, comfortably above any plausible legitimate output while still small
  * enough to read safely. Over the cap we treat the file as malformed (ParseError → per-task block via
  * turn-error-policy) rather than reading it.
- *
- * @public
  */
 export const SIGNALS_FILE_MAX_BYTES = 4 * 1024 * 1024;
 

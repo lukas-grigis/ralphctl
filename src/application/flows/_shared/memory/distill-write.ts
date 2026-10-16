@@ -78,8 +78,6 @@ const distillWriteUseCase = async (
  * ids onto `ctx.acceptedIds` (deduped) so the terminal stamp leaf promotes them. Candidates are
  * project-scoped — the same curated set folds into every provider's native file — so a successful
  * write for ANY provider marks the whole set ready for promotion.
- *
- * @public
  */
 export const distillWriteLeaf = (deps: DistillWriteLeafDeps, tool: AssistantTool): Element<DistillLearningsCtx> =>
   leaf<DistillLearningsCtx, DistillWriteInput, boolean>(`distill-write-${tool}`, {

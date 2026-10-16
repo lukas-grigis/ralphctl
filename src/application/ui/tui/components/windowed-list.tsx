@@ -238,8 +238,6 @@ export interface WindowedListProps<T> {
  *
  * Views that need a custom row layout consume {@link useListWindow} directly instead; this wrapper
  * is the documented drop-in for the simple homogeneous-list case (DESIGN-SYSTEM §6.4).
- *
- * @public
  */
 export function WindowedList<T>({
   items,

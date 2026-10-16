@@ -452,8 +452,6 @@ const bootstrap = async (options: LaunchTuiOptions = {}): Promise<Bootstrapped> 
  * session — once resolved, a later pause/resume remount renders the App directly so an AI-session
  * pause never re-shows the consent screen. Pure so the launch wiring is unit-testable without a
  * full bootstrap.
- *
- * @public
  */
 export const shouldShowMigrationGate = (pending: boolean, gateResolved: boolean): boolean => pending && !gateResolved;
 

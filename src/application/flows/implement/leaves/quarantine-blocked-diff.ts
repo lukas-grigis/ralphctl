@@ -132,8 +132,6 @@ const measureQuarantine = async (
  * `warn` and swallowed as `Result.ok(undefined)`; see the module docstring above for the best-effort
  * rationale. `AbortError` is a non-concern here: this function performs no signal-aware waiting of
  * its own, and callers that need abort-awareness check `signal?.aborted` before calling it.
- *
- * @public
  */
 export const runQuarantineBlockedDiff = async (
   deps: QuarantineBlockedDiffLeafDeps,
@@ -258,8 +256,6 @@ export const quarantineBlockedDiffLeaf = (
  * one — always leaves that diff untouched in its stash.
  *
  * `AbortError` is irrelevant here (a pure predicate cannot abort); the leaf body handles propagation.
- *
- * @public
  */
 export const isSettledBlocked = (ctx: ImplementCtx, taskId: TaskId): boolean =>
   ctx.tasks?.find((t) => t.id === taskId)?.status === 'blocked' && ctx.genEvalTurn !== undefined;

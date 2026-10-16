@@ -17,8 +17,6 @@ const excerptGoal = (goal: string): string => {
  *
  * Returns an empty string when `episodes` is empty so callers can collapse the section
  * cleanly without a stray heading. Pure function — no I/O.
- *
- * @public
  */
 export const summariseEpisodes = (episodes: readonly TaskEpisode[], maxItems = 5): string => {
   if (episodes.length === 0) return '';

@@ -20,8 +20,6 @@
  * the on-disk log.
  *
  * Pure. Bounds by character length (≈ bytes for the ASCII-dominant verify logs this guards).
- *
- * @public
  */
 
 /** Hard cap on the persisted verify excerpt. 8 KiB comfortably holds the head + the failing
