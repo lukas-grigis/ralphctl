@@ -85,12 +85,10 @@ type UnblockTaskError = InvalidStateError | NotFoundError | StorageError;
  * closed, `ralphctl sprint reopen` followed by another unblock of the (now `todo`) task finishes
  * the job — re-running unblock alone does not, per the short-circuit rule above.
  *
- * **TOCTOU precondition.** The cascade path does an UNLOCKED `findBySprintId` read whose result
- * seeds the (now-locked) `saveAll` rewrite — the read that feeds the rewrite happens before any
- * lock is taken. So this use case MUST NOT run while an Implement run is active on the same sprint:
- * a concurrent run could mutate `tasks.json` between the read and the write, and the rewrite would
- * clobber those changes with stale data. Callers serialise via the sprint-dir repo lock; this is an
- * operator-facing recovery hatch invoked between runs, not during one.
+ * **Serialisation.** The cascade's `findBySprintId` read seeds a whole-list `saveAll`, and
+ * `props.task` is a snapshot, so this use case MUST NOT run while a run holds the sprint. Every UI
+ * caller goes through `unblockTaskLocked` (`application/ui/shared/`), which holds the sprint-dir
+ * lock implement / review / close hold and re-reads the task under it.
  *
  * **Prior work.** A {@link UnblockTaskProps.priorWork} decision is recorded on the revived task's
  * quarantined-diff fact; `restore-blocked-diff` reads it on the next attempt. An already-`todo`

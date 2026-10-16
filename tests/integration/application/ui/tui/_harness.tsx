@@ -37,6 +37,11 @@ import { createPromptQueue, type PromptQueue } from '@src/application/ui/tui/pro
 import { createLogLevelGate } from '@src/business/observability/log-level-filter.ts';
 import type { LogEvent } from '@src/business/observability/events.ts';
 import type { AppDeps } from '@src/application/bootstrap/wire.ts';
+import { Result } from '@src/domain/result.ts';
+import type { TaskRepository } from '@src/domain/repository/task/task-repository.ts';
+import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
+import type { StorageError } from '@src/domain/value/error/storage-error.ts';
+import type { FileLocker } from '@src/integration/io/file-locker.ts';
 import type { StoragePaths } from '@src/application/bootstrap/storage-paths.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 
@@ -102,6 +107,37 @@ const defaultStorage = (): StoragePaths => {
   };
 };
 
+/** Runs `fn` with no lock — stubbed deps have no disk to contend on. */
+const passThroughLocker: FileLocker = {
+  withLock: async <T,>(_path: unknown, fn: (signal: AbortSignal) => Promise<T>) =>
+    Result.ok(await fn(new AbortController().signal)) as Result<T, StorageError>,
+};
+
+/**
+ * Fill what a manual unblock needs (sprint lock, task re-read) into hand-stubbed deps that lack it.
+ * Production-wired deps already carry all three and pass through untouched.
+ */
+const withUnblockSeams = (deps: AppDeps): AppDeps => {
+  const partial = deps as Partial<AppDeps>;
+  const taskRepo = partial.taskRepo as Partial<TaskRepository> | undefined;
+  const findById: TaskRepository['findById'] = async (sprintId, taskId) => {
+    const all = await taskRepo!.findBySprintId!(sprintId);
+    if (!all.ok) return Result.error(all.error);
+    const match = all.value.find((t) => t.id === taskId);
+    return match !== undefined
+      ? Result.ok(match)
+      : Result.error(new NotFoundError({ entity: 'task', id: String(taskId) }));
+  };
+  return {
+    ...deps,
+    fileLocker: partial.fileLocker ?? passThroughLocker,
+    storage: partial.storage ?? defaultStorage(),
+    ...(taskRepo?.findBySprintId !== undefined && taskRepo.findById === undefined
+      ? { taskRepo: { ...(taskRepo as TaskRepository), findById } }
+      : {}),
+  };
+};
+
 export const renderView = (child: React.ReactNode, opts: HarnessOptions): HarnessApi => {
   const sessions = opts.sessions ?? createSessionManager();
   const queue = opts.queue ?? createPromptQueue();
@@ -113,7 +149,7 @@ export const renderView = (child: React.ReactNode, opts: HarnessOptions): Harnes
   const routes: ViewEntry[] = [];
 
   const tree = (
-    <DepsProvider value={opts.deps}>
+    <DepsProvider value={withUnblockSeams(opts.deps)}>
       <StorageProvider value={storage}>
         <BusesProvider value={buses}>
           <SessionsProvider value={sessions}>

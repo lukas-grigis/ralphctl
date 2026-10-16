@@ -135,7 +135,8 @@ lock-compromised signal is merged into the chain's abort signal (`combineAbortSi
 the run down as an `AbortError` instead of continuing to mutate a resource a competitor may now own. The lock
 is held across the whole run by the implement flow (both paths) and by the review flow, all through
 `withRepoLock` (`flows/_shared/`) on the same sprint-dir key — implement and review of one sprint mutually
-exclude.
+exclude. Manual task unblock (CLI and TUI) takes the same sprint-dir key around its write via `unblockTaskLocked`
+(`ui/shared/`) and re-reads the task under it, so it waits out a live run instead of being overwritten by it.
 
 **Lock owner.** A lock taken with a `purpose` carries `owner.json` (pid, host, machine id, process start, `ps`
 identity, purpose) inside the lock directory; every call site passes one, including the per-write `tasks.json.lock`.

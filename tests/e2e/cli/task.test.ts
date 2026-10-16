@@ -160,6 +160,7 @@ describe('ralphctl task', () => {
       const sprint = makeDraftSprint();
       const repo = createFsTaskRepository({ root: cli.paths.dataRoot });
       const todo = makeTodoTask({ name: 'fine' });
+      await createFsSprintRepository({ root: cli.paths.dataRoot }).save(sprint);
       await repo.saveAll(sprint.id, [todo]);
 
       const result = await runCliCaptured(cli, ['task', 'unblock', String(todo.id), '--sprint', String(sprint.id)]);

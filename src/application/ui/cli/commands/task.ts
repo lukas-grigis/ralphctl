@@ -20,7 +20,7 @@ import {
   SPRINT_OPTION_FLAGS,
   type SprintOpt,
 } from '@src/application/ui/cli/resolve-sprint-selection.ts';
-import { unblockTaskUseCase } from '@src/business/task/unblock-task.ts';
+import { unblockTaskLocked } from '@src/application/ui/shared/unblock-task-locked.ts';
 import { evaluationArtifactSprintPath, latestRecordedEvaluation } from '@src/business/task/evaluation-artifact.ts';
 import { DISPLAY_TEXT_MAX_CHARS, sanitizeDisplayText } from '@src/domain/value/display-text.ts';
 import { resolveSprintDir } from '@src/integration/persistence/storage.ts';
@@ -174,14 +174,15 @@ const unblockTaskAction = async (rawTaskId: string, opts: UnblockOpts): Promise<
     fail(loaded.error.message);
     return;
   }
+  const sprint = await deps.sprintRepo.findById(sprintId);
+  if (!sprint.ok) {
+    fail(sprint.error.message);
+    return;
+  }
   const plan = await planPriorWork(deps, sprintId, loaded.value, opts.priorWork);
-  const result = await unblockTaskUseCase({
-    task: loaded.value,
-    sprintId: sprintId,
-    taskRepo: deps.taskRepo,
-    sprintRepo: deps.sprintRepo,
-    clock: deps.clock,
-    logger: deps.logger,
+  const result = await unblockTaskLocked(deps, {
+    sprint: sprint.value,
+    taskId,
     ...(plan.decision !== undefined ? { priorWork: plan.decision } : {}),
   });
   if (!result.ok) {
