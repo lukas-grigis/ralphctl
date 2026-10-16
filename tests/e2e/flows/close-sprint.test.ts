@@ -23,6 +23,7 @@ import { recordingAppendFile } from '@tests/fixtures/recording-append-file.ts';
 import { recordingWriteFile } from '@tests/fixtures/recording-write-file.ts';
 import { DEFAULT_SETTINGS } from '@src/business/settings/defaults.ts';
 import { createAtomicWriteFile } from '@src/integration/io/write-file-atomic.ts';
+import { unlockedSprintLockDeps } from '@tests/fixtures/pass-through-locker.ts';
 
 const NOW = isoTimestamp('2026-05-09T10:00:00.000Z');
 
@@ -75,6 +76,7 @@ describe('createCloseSprintFlow', () => {
 
     const append = recordingAppendFile();
     const flow = createCloseSprintFlow({
+      ...unlockedSprintLockDeps(),
       sprintRepo: sprintRepo.repo,
       clock: () => FIXED_LATER,
       logger: noopLogger,
@@ -115,6 +117,7 @@ describe('createCloseSprintFlow', () => {
 
     const append = recordingAppendFile();
     const flow = createCloseSprintFlow({
+      ...unlockedSprintLockDeps(),
       sprintRepo: sprintRepo.repo,
       clock: () => FIXED_LATER,
       logger: noopLogger,
@@ -156,6 +159,7 @@ describe('createCloseSprintFlow', () => {
 
     const append = recordingAppendFile();
     const flow = createCloseSprintFlow({
+      ...unlockedSprintLockDeps(),
       sprintRepo: sprintRepo.repo,
       clock: () => FIXED_LATER,
       logger: noopLogger,
@@ -190,6 +194,7 @@ describe('createCloseSprintFlow', () => {
 
     const append = recordingAppendFile();
     const flow = createCloseSprintFlow({
+      ...unlockedSprintLockDeps(),
       sprintRepo: sprintRepo.repo,
       clock: () => NOW,
       logger: noopLogger,

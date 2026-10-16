@@ -133,8 +133,8 @@ the run lasts — a crashed holder stops heartbeating and is reclaimed once its 
 lost mid-run (`onCompromised`) surfaces a `lock-compromised` warning AND aborts the in-flight run: the
 lock-compromised signal is merged into the chain's abort signal (`combineAbortSignals`), so a lost lock tears
 the run down as an `AbortError` instead of continuing to mutate a resource a competitor may now own. The lock
-is held across the whole run by the implement flow (both paths) and by the review flow, all through
-`withRepoLock` (`flows/_shared/`) on the same sprint-dir key — implement and review of one sprint mutually
+is held across the whole run by the implement flow (both paths), by the review flow and by close-sprint, all through
+`withRepoLock` (`flows/_shared/`) on the same sprint-dir key — implement, review and close of one sprint mutually
 exclude. Manual task unblock (CLI and TUI) takes the same sprint-dir key around its write via `unblockTaskLocked`
 (`ui/shared/`) and re-reads the task under it, so it waits out a live run instead of being overwritten by it.
 

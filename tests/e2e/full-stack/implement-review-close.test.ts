@@ -479,6 +479,10 @@ function runTests(): void {
 
     const closeFlow = createCloseSprintFlow({
       sprintRepo: fixture.app.deps.sprintRepo,
+      fileLocker: fixture.app.deps.fileLocker,
+      locksRoot: fixture.app.paths.locksRoot,
+      sprintDir: absolutePath(fixture.sprintDir),
+      eventBus: fixture.app.deps.eventBus,
       clock: () => FIXED_LATER,
       logger: noopLogger,
       appendFile: createAppendFile(),

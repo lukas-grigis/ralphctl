@@ -40,8 +40,7 @@ import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import { Result } from '@src/domain/result.ts';
 import type { TaskRepository } from '@src/domain/repository/task/task-repository.ts';
 import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
-import type { StorageError } from '@src/domain/value/error/storage-error.ts';
-import type { FileLocker } from '@src/integration/io/file-locker.ts';
+import { passThroughFileLocker } from '@tests/fixtures/pass-through-locker.ts';
 import type { StoragePaths } from '@src/application/bootstrap/storage-paths.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 
@@ -107,12 +106,6 @@ const defaultStorage = (): StoragePaths => {
   };
 };
 
-/** Runs `fn` with no lock — stubbed deps have no disk to contend on. */
-const passThroughLocker: FileLocker = {
-  withLock: async <T,>(_path: unknown, fn: (signal: AbortSignal) => Promise<T>) =>
-    Result.ok(await fn(new AbortController().signal)) as Result<T, StorageError>,
-};
-
 /**
  * Fill what a manual unblock needs (sprint lock, task re-read) into hand-stubbed deps that lack it.
  * Production-wired deps already carry all three and pass through untouched.
@@ -130,7 +123,7 @@ const withUnblockSeams = (deps: AppDeps): AppDeps => {
   };
   return {
     ...deps,
-    fileLocker: partial.fileLocker ?? passThroughLocker,
+    fileLocker: partial.fileLocker ?? passThroughFileLocker,
     storage: partial.storage ?? defaultStorage(),
     ...(taskRepo?.findBySprintId !== undefined && taskRepo.findById === undefined
       ? { taskRepo: { ...(taskRepo as TaskRepository), findById } }

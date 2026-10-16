@@ -1,4 +1,6 @@
 import type { Logger } from '@src/business/observability/logger.ts';
+import type { EventBus } from '@src/business/observability/event-bus.ts';
+import type { FileLocker } from '@src/integration/io/file-locker.ts';
 import type { SprintRepository } from '@src/domain/repository/sprint/sprint-repository.ts';
 import type { FindTasksBySprintId } from '@src/domain/repository/task/find-tasks-by-sprint-id.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
@@ -12,8 +14,8 @@ import type { DistillStepOpts } from '@src/application/flows/_shared/memory/dist
 /**
  * Narrow dependency contract for the close-sprint chain. The composition root constructs each
  * field from the integration layer and passes the bag to `createCloseSprintFlow`. Smaller than
- * `ReviewDeps` because there's no AI session, no shell script, no template, no file locker —
- * close is pure state machine + persistence.
+ * `ReviewDeps` because there's no AI session, no shell script, no template — close is state
+ * machine + persistence, held under the same sprint-dir lock implement and review hold.
  *
  * `distill` carries the optional pre-transition distill composition: the slim
  * {@link DistillLearningsDeps} plus the static {@link DistillStepOpts} (project + memory root +
@@ -23,6 +25,11 @@ import type { DistillStepOpts } from '@src/application/flows/_shared/memory/dist
  */
 export interface CloseSprintDeps {
   readonly sprintRepo: SprintRepository;
+  readonly fileLocker: FileLocker;
+  readonly locksRoot: AbsolutePath;
+  /** `<sprintDir>` — the lock key implement and review hold for their whole run. */
+  readonly sprintDir: AbsolutePath;
+  readonly eventBus: EventBus;
   readonly clock: () => IsoTimestamp;
   readonly logger: Logger;
   /** Append adapter for the closing separator line on `<sprintDir>/progress.md`. */

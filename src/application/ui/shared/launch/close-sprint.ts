@@ -1,6 +1,8 @@
 import { join } from 'node:path';
 import { ensureCanonicalSprintDir } from '@src/integration/persistence/sprint/repository.ts';
+import { Result } from '@src/domain/result.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
+import type { ValidationError } from '@src/domain/value/error/validation-error.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { createRunner, type Runner } from '@src/application/chain/run/runner.ts';
 import { createCloseSprintFlow } from '@src/application/flows/close-sprint/flow.ts';
@@ -9,6 +11,17 @@ import { closeSprintManifest } from '@src/application/flows/close-sprint/manifes
 import type { LaunchContext } from '@src/application/ui/shared/launch/context.ts';
 import type { LaunchResult } from '@src/application/ui/shared/launcher.ts';
 import { resolveDistillComposition } from '@src/application/ui/shared/launch/distill.ts';
+
+/** The lock key and the journal file, both under the sprint dir. */
+const closePaths = (
+  sprintDir: string
+): Result<{ readonly sprintDir: AbsolutePath; readonly progressFile: AbsolutePath }, ValidationError> => {
+  const dir = AbsolutePath.parse(sprintDir);
+  if (!dir.ok) return Result.error(dir.error);
+  const progressFile = AbsolutePath.parse(join(sprintDir, 'progress.md'));
+  if (!progressFile.ok) return Result.error(progressFile.error);
+  return Result.ok({ sprintDir: dir.value, progressFile: progressFile.value });
+};
 
 export const launchCloseSprint = async (ctx: LaunchContext): Promise<LaunchResult> => {
   const { deps, snapshot, bridge, sessionId } = ctx;
@@ -42,8 +55,8 @@ export const launchCloseSprint = async (ctx: LaunchContext): Promise<LaunchResul
 
   // The canonical `<id>--<slug>/` sprint dir, with any legacy dir moved onto it first.
   const sprintDir = await ensureCanonicalSprintDir(deps.storage.dataRoot, snapshot.sprint.id, snapshot.sprint.slug);
-  const progressPath = AbsolutePath.parse(join(sprintDir, 'progress.md'));
-  if (!progressPath.ok) return { ok: false, reason: progressPath.error.message };
+  const paths = closePaths(sprintDir);
+  if (!paths.ok) return { ok: false, reason: paths.error.message };
 
   const distill = resolveDistillComposition(ctx, sprintDir);
   // Always-on durable narrative-tier refresh: regenerate `learnings.md` from the per-project ledger at close, even
@@ -58,11 +71,15 @@ export const launchCloseSprint = async (ctx: LaunchContext): Promise<LaunchResul
       : undefined;
   const element: Element<CloseSprintCtx> = createCloseSprintFlow({
     sprintRepo: deps.app.sprintRepo,
+    fileLocker: deps.app.fileLocker,
+    locksRoot: deps.storage.locksRoot,
+    sprintDir: paths.value.sprintDir,
+    eventBus: deps.app.eventBus,
     clock: deps.app.clock,
     logger: deps.app.logger,
     appendFile: deps.app.appendFile,
     writeFile: deps.app.writeFile,
-    progressFile: progressPath.value,
+    progressFile: paths.value.progressFile,
     ...(memoryMirror !== undefined ? { memoryMirror } : {}),
     ...(distill !== undefined ? { distill } : {}),
     // The TUI always has an `InteractivePrompt` — wire the in-chain blocked-task gate so a

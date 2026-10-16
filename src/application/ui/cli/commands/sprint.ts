@@ -233,8 +233,12 @@ const closeSprintAction = async (raw: string, opts: CloseOpts): Promise<void> =>
   const blockedTasks = await confirmBlockedTasksOrStop(sprint, deps.taskRepo, opts.yes === true);
   if (blockedTasks === undefined) return;
 
-  const sprintDir = await ensureCanonicalSprintDir(storage.dataRoot, sprint.id, sprint.slug);
-  const progressPath = AbsolutePath.parse(join(sprintDir, 'progress.md'));
+  const sprintDir = AbsolutePath.parse(await ensureCanonicalSprintDir(storage.dataRoot, sprint.id, sprint.slug));
+  if (!sprintDir.ok) {
+    fail(sprintDir.error.message);
+    return;
+  }
+  const progressPath = AbsolutePath.parse(join(String(sprintDir.value), 'progress.md'));
   if (!progressPath.ok) {
     fail(progressPath.error.message);
     return;
@@ -249,6 +253,10 @@ const closeSprintAction = async (raw: string, opts: CloseOpts): Promise<void> =>
 
   const element = createCloseSprintFlow({
     sprintRepo: deps.sprintRepo,
+    fileLocker: deps.fileLocker,
+    locksRoot: storage.locksRoot,
+    sprintDir: sprintDir.value,
+    eventBus: deps.eventBus,
     clock: deps.clock,
     logger: deps.logger,
     appendFile: deps.appendFile,

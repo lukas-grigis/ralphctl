@@ -67,6 +67,7 @@ import {
 import { recordingAppendFile } from '@tests/fixtures/recording-append-file.ts';
 import { buildSluggedName } from '@src/integration/persistence/storage.ts';
 import { okGit } from '@tests/fixtures/git-result.ts';
+import { unlockedSprintLockDeps } from '@tests/fixtures/pass-through-locker.ts';
 
 const FIXED_NOW = isoTimestamp('2026-05-30T10:00:00.000Z');
 const PROJECT_ID = projectId('01900000-0000-7000-8000-0000000000aa');
@@ -232,6 +233,7 @@ describe('createDistillStep composed into the close paths', () => {
     const calls: InteractiveAiProviderInput[] = [];
     const append = recordingAppendFile();
     const flow = createCloseSprintFlow({
+      ...unlockedSprintLockDeps(),
       sprintRepo: sprintRepo.repo,
       clock: () => FIXED_LATER,
       logger: recordingLogger().logger,
@@ -259,6 +261,7 @@ describe('createDistillStep composed into the close paths', () => {
     const calls: InteractiveAiProviderInput[] = [];
     const append = recordingAppendFile();
     const flow = createCloseSprintFlow({
+      ...unlockedSprintLockDeps(),
       sprintRepo: sprintRepo.repo,
       clock: () => FIXED_LATER,
       logger: recordingLogger().logger,
@@ -299,6 +302,7 @@ describe('createDistillStep composed into the close paths', () => {
     const calls: InteractiveAiProviderInput[] = [];
     const append = recordingAppendFile();
     const flow = createCloseSprintFlow({
+      ...unlockedSprintLockDeps(),
       sprintRepo: sprintRepo.repo,
       clock: () => FIXED_LATER,
       logger: recordingLogger().logger,
@@ -347,6 +351,7 @@ describe('createDistillStep composed into the close paths', () => {
     const log = recordingLogger();
     const append = recordingAppendFile();
     const flow = createCloseSprintFlow({
+      ...unlockedSprintLockDeps(),
       sprintRepo: sprintRepo.repo,
       clock: () => FIXED_LATER,
       logger: recordingLogger().logger,
