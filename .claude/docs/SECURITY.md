@@ -309,7 +309,9 @@ copy is left untouched, UNLESS that folder itself carries a `.ralphctl-install.j
 killed or crashed between install and uninstall — in which case it's deleted and rewritten with the
 current skill instead of shadowing it forever, logged at info naming the folder, the skill, and the dead
 pid the marker blamed (or, when the marker's JSON can't be parsed, the replacement without a pid); a
-marker naming a still-live process is left alone. No content comparison against the rendered skill is
+marker naming a still-live process is left alone. A recycled pid doesn't count as live: the marker also
+stamps a per-process boot id and the `ps` start identity, and a live pid whose identity no longer matches
+is a leftover (an unidentifiable one still counts as live). No content comparison against the rendered skill is
 made before replacing — version drift between the leftover and the current bundle is normal and not
 itself a signal. The skills adapter (`src/integration/ai/skills/adapter-factory.ts`) tracks only what it
 installed; uninstall removes only those entries. Every bundled `SKILL.md` is validated by

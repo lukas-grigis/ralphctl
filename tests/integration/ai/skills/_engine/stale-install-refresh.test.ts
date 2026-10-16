@@ -8,6 +8,9 @@ import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { Skill } from '@src/integration/ai/skills/_engine/skill.ts';
 import { createFilesystemSkillsAdapter } from '@src/integration/ai/skills/_engine/filesystem-skills-adapter.ts';
 import { INSTALL_MARKER_FILENAME } from '@src/integration/ai/skills/_engine/skill-install-marker.ts';
+import { createProcessLiveness } from '@src/integration/io/process-liveness.ts';
+
+const posix = process.platform !== 'win32';
 
 /** INT32_MAX sits above every platform's pid ceiling, so no live process ever has it. */
 const DEAD_PID = 2_147_483_647;
@@ -84,7 +87,8 @@ describe('createFilesystemSkillsAdapter — install ownership marker', () => {
 
     expect((await adapter.install(session, [skill('# A')])).ok).toBe(true);
     const marker = await readMarker(skillDir(session));
-    expect(marker).toMatchObject({ skill: NAME, pid: process.pid });
+    expect(marker).toMatchObject({ skill: NAME, pid: process.pid, bootId: expect.any(String) });
+    if (posix) expect(marker['identity']).toEqual(await createProcessLiveness().identify(process.pid));
 
     expect((await adapter.uninstall(session)).ok).toBe(true);
     expect(existsSync(skillDir(session))).toBe(false);
@@ -143,6 +147,46 @@ describe('createFilesystemSkillsAdapter — install ownership marker', () => {
     // Not tracked, so this run's uninstall leaves the other run's copy in place.
     await adapter.uninstall(session);
     expect(existsSync(join(dst, 'SKILL.md'))).toBe(true);
+  });
+
+  it.each([
+    ['a marker from before boot ids were stamped', { pid: process.pid }],
+    ['another boot id', { pid: process.pid, bootId: 'an-earlier-process' }],
+  ])('refreshes a folder naming this pid with %s — an earlier process that had the same pid', async (_label, held) => {
+    const session = await makeSession();
+    const dst = await plantFolder(session, {
+      body: '# v1 from a crashed run',
+      marker: JSON.stringify({ installedBy: 'ralphctl', skill: NAME, ...held }),
+    });
+
+    expect((await newAdapter().install(session, [skill('# v2 current')])).ok).toBe(true);
+    expect(await readFile(join(dst, 'SKILL.md'), 'utf-8')).toContain('# v2 current');
+  });
+
+  it.skipIf(!posix)('refreshes a folder whose live pid now belongs to a different process', async () => {
+    const session = await makeSession();
+    const current = await createProcessLiveness().identify(process.ppid);
+    if (current === undefined) throw new Error('ps could not identify the parent process');
+    const recycled = { startedAt: 'Thu Jan 1 00:00:00 1970', command: current.command };
+    const dst = await plantFolder(session, {
+      body: '# v1 from a crashed run',
+      marker: JSON.stringify({ installedBy: 'ralphctl', skill: NAME, pid: process.ppid, identity: recycled }),
+    });
+
+    expect((await newAdapter().install(session, [skill('# v2 current')])).ok).toBe(true);
+    expect(await readFile(join(dst, 'SKILL.md'), 'utf-8')).toContain('# v2 current');
+  });
+
+  it.skipIf(!posix)('leaves a folder alone while its live pid still matches the stamped identity', async () => {
+    const session = await makeSession();
+    const identity = await createProcessLiveness().identify(process.ppid);
+    const dst = await plantFolder(session, {
+      body: '# held by a live run',
+      marker: JSON.stringify({ installedBy: 'ralphctl', skill: NAME, pid: process.ppid, identity }),
+    });
+
+    expect((await newAdapter().install(session, [skill('# would clobber')])).ok).toBe(true);
+    expect(await readFile(join(dst, 'SKILL.md'), 'utf-8')).toBe('# held by a live run');
   });
 
   it('does not clobber a concurrent launch in the same process, and only the installer removes it', async () => {
