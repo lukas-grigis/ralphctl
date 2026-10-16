@@ -60,13 +60,14 @@ export interface MigrationProblem {
  * for projects / sprints is a blocking collision. After Wave-2 write-side hardening the writer never
  * creates a second dir, so this state can only originate from an INTERRUPTED prior migration; apply
  * must still resolve it cleanly: union the legacy ledger records into the slugged ledger (dedup by
- * `id`), regenerate `learnings.md`, then remove the legacy dir.
+ * `id`), regenerate `learnings.md`, move any other legacy entries across, then remove the emptied
+ * legacy dir.
  *
  * @public
  */
 export interface MemoryMergePlan {
   readonly projectId: string;
-  /** The legacy bare `<projectId>/` dir — removed after its records are merged in. */
+  /** The legacy bare `<projectId>/` dir — drained into the slugged dir, then removed. */
   readonly legacyDir: AbsolutePath;
   /** The canonical `<projectId>--<projectSlug>/` dir whose ledger absorbs the legacy records. */
   readonly sluggedDir: AbsolutePath;

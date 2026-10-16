@@ -4,7 +4,7 @@ import { Result } from '@src/domain/result.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import { isUuidv7 } from '@src/domain/value/uuid7.ts';
-import { listDir, removeDir, renamePath } from '@src/integration/io/fs.ts';
+import { isNodeErrnoCode, listDir, pathExists, removeFile, renamePath } from '@src/integration/io/fs.ts';
 import { parseIdFromName, NAME_SEPARATOR } from '@src/integration/persistence/storage.ts';
 import { CURRENT_DATA_VERSION, writeDataVersion } from '@src/integration/persistence/data-migration/version-marker.ts';
 import { backupDataDir } from '@src/integration/persistence/data-migration/backup.ts';
@@ -126,8 +126,9 @@ export type ApplyResult =
  *     THROWS a real I/O fault STOPS the run: return `failed` carrying the backup path WITHOUT
  *     stamping the marker, so the next launch resumes cleanly (already-done renames skip).
  *  4. MERGES — for every memory both-dirs case, union the legacy ledger into the slugged one
- *     (dedup by record `id`), regenerate `learnings.md`, then remove the legacy dir. Like renames,
- *     a real I/O fault STOPS before the stamp (re-run resumes — the union is idempotent).
+ *     (dedup by record `id`), regenerate `learnings.md`, move any other legacy entries across, then
+ *     remove the emptied legacy dir. Like renames, a real I/O fault STOPS before the stamp (re-run
+ *     resumes — the union is idempotent).
  *  5. BACKFILL — for every memory dir with a `learnings.ndjson` but no `learnings.md`, render and
  *     write the mirror. Best-effort: a backfill miss never fails the run.
  *  6. STAMP — write the version marker to {@link CURRENT_DATA_VERSION} with `lastWrittenByAppVersion`.
@@ -161,7 +162,7 @@ export const apply = async (dataRoot: AbsolutePath, report: DryRunReport, ctx: A
   }
 
   // Memory both-dirs merges: union each legacy ledger into its slugged sibling (dedup by id), then
-  // remove the legacy dir. Idempotent (an already-merged legacy dir is simply gone next run) and
+  // drain the legacy dir. Idempotent (an already-merged legacy dir is simply gone next run) and
   // gating like renames — a real I/O fault STOPS before the stamp so a re-run resumes safely.
   for (const merge of report.merges) {
     const outcome = await mergeOne(merge, ctx);
@@ -220,26 +221,27 @@ const skipped = (plan: RenamePlan): AppliedRename => ({
 /**
  * Resolve ONE memory both-dirs merge idempotently. Reads the legacy `learnings.ndjson` and the
  * slugged one, unions them (dedup by record `id`, via the injected {@link LearningsMerger}), writes
- * the merged ledger + regenerated `learnings.md` into the slugged dir, then removes the legacy dir.
+ * the merged ledger + regenerated `learnings.md` into the slugged dir, then drains the legacy dir
+ * (see {@link drainLegacyDir}) — nothing but the two merged files is ever deleted.
  *
- * Idempotent: if the legacy dir is already gone (a prior run finished this merge), it is a no-op
- * success. A genuine I/O fault on the slugged write surfaces as a `StorageError` that stops the run
- * BEFORE the stamp; the legacy dir is removed only AFTER the merged ledger is durably written, so a
- * crash between the two leaves the legacy records still on disk and the next run re-merges them.
+ * Idempotent: a legacy dir with no ledger left (a prior run merged it) is only drained. Any I/O fault
+ * other than an absent ledger — on a stat, either read, the slugged write, or the drain — surfaces as
+ * a `StorageError` that stops the run BEFORE the stamp; the legacy ledger is removed only AFTER the
+ * merged one is durably written, so a crash in between just re-merges next run.
  */
 const mergeOne = async (merge: MemoryMergePlan, ctx: ApplyCtx): Promise<Result<void, StorageError>> => {
   const legacyLedger = join(String(merge.legacyDir), LEARNINGS_NDJSON);
-  if (!(await pathPresent(legacyLedger))) {
-    // Legacy dir/ledger already gone (idempotent re-run) — nothing to merge. Drop any empty leftover.
-    await removeDir(String(merge.legacyDir));
-    return Result.ok(undefined) as Result<void, StorageError>;
-  }
+  const legacyPresent = await pathExists(legacyLedger);
+  if (!legacyPresent.ok) return Result.error(legacyPresent.error);
+  if (!legacyPresent.value) return drainLegacyDir(merge, []);
 
-  const legacyBody = await readTextOrEmpty(legacyLedger);
+  const legacyBody = await readLedger(legacyLedger);
+  if (!legacyBody.ok) return Result.error(legacyBody.error);
   const sluggedLedger = join(String(merge.sluggedDir), LEARNINGS_NDJSON);
-  const sluggedBody = await readTextOrEmpty(sluggedLedger);
+  const sluggedBody = await readLedger(sluggedLedger);
+  if (!sluggedBody.ok) return Result.error(sluggedBody.error);
 
-  const { ndjson, md } = ctx.mergeLearnings(sluggedBody, legacyBody);
+  const { ndjson, md } = ctx.mergeLearnings(sluggedBody.value, legacyBody.value);
 
   const sluggedLedgerPath = AbsolutePath.parse(sluggedLedger);
   if (!sluggedLedgerPath.ok) {
@@ -253,18 +255,78 @@ const mergeOne = async (merge: MemoryMergePlan, ctx: ApplyCtx): Promise<Result<v
     if (mdPath.ok) await ctx.writeFile(mdPath.value, md); // best-effort mirror; never blocks the merge
   }
 
-  // Only NOW remove the legacy dir — the merged ledger is durably written, so a crash here just
+  // Only NOW drop the legacy ledger — the merged one is durably written, so a crash here just
   // re-merges (the union is idempotent: dedup by id collapses the re-added rows).
-  const removed = await removeDir(String(merge.legacyDir));
-  if (!removed.ok && removed.error instanceof StorageError) return Result.error(removed.error);
+  return drainLegacyDir(merge, [LEARNINGS_NDJSON, LEARNINGS_MD]);
+};
+
+/** Read a ledger body; an absent ledger is empty, any other fault must stop the merge. */
+const readLedger = async (path: string): Promise<Result<string, StorageError>> => {
+  try {
+    return Result.ok(await fs.readFile(path, 'utf8')) as Result<string, StorageError>;
+  } catch (cause) {
+    if (isNodeErrnoCode(cause, 'ENOENT')) return Result.ok('') as Result<string, StorageError>;
+    return Result.error(new StorageError({ subCode: 'io', message: `ledger read failed: ${path}`, path, cause }));
+  }
+};
+
+/**
+ * Empty the legacy memory dir, then remove it. The `merged` names (already unioned into the slugged
+ * dir) are deleted; every other entry — e.g. a size-rotated `learnings.ndjson.bak` — is moved into the
+ * slugged dir, under a `.legacy` / `.legacy-<n>` suffix when the name is taken. The final `rmdir` is
+ * non-recursive, so an entry this loop failed to move can never be deleted with it.
+ */
+const drainLegacyDir = async (
+  merge: MemoryMergePlan,
+  merged: readonly string[]
+): Promise<Result<void, StorageError>> => {
+  const legacyDir = String(merge.legacyDir);
+  const entries = await listDir(legacyDir);
+  if (!entries.ok) return Result.error(entries.error);
+
+  for (const name of entries.value) {
+    const drained = await drainEntry(merge, name, merged.includes(name));
+    if (!drained.ok) return drained;
+  }
+
+  try {
+    await fs.rmdir(legacyDir);
+  } catch (cause) {
+    if (!isNodeErrnoCode(cause, 'ENOENT')) {
+      return Result.error(
+        new StorageError({ subCode: 'io', message: `rmdir failed: ${legacyDir}`, path: legacyDir, cause })
+      );
+    }
+  }
   return Result.ok(undefined) as Result<void, StorageError>;
 };
 
-const readTextOrEmpty = async (path: string): Promise<string> => {
-  try {
-    return await fs.readFile(path, 'utf8');
-  } catch {
-    return '';
+/** Delete one already-merged legacy entry, or move any other into the slugged dir under a free name. */
+const drainEntry = async (
+  merge: MemoryMergePlan,
+  name: string,
+  isMerged: boolean
+): Promise<Result<void, StorageError>> => {
+  const from = join(String(merge.legacyDir), name);
+  if (isMerged) {
+    const removed = await removeFile(from);
+    if (!removed.ok && removed.error instanceof StorageError) return Result.error(removed.error);
+    return Result.ok(undefined) as Result<void, StorageError>;
+  }
+  const target = await freeTargetPath(String(merge.sluggedDir), name);
+  if (!target.ok) return Result.error(target.error);
+  const moved = await renamePath(from, target.value);
+  if (!moved.ok && moved.error instanceof StorageError) return Result.error(moved.error);
+  return Result.ok(undefined) as Result<void, StorageError>;
+};
+
+/** First of `<name>`, `<name>.legacy`, `<name>.legacy-2`, … not yet present in `dir`. */
+const freeTargetPath = async (dir: string, name: string): Promise<Result<string, StorageError>> => {
+  for (let n = 0; ; n += 1) {
+    const candidate = join(dir, n === 0 ? name : n === 1 ? `${name}.legacy` : `${name}.legacy-${String(n)}`);
+    const taken = await pathExists(candidate);
+    if (!taken.ok) return Result.error(taken.error);
+    if (!taken.value) return Result.ok(candidate) as Result<string, StorageError>;
   }
 };
 

@@ -199,6 +199,86 @@ describe('apply — memory both-dirs merge (never blocks)', () => {
     expect((await readDataVersion(absolutePath(dataRoot))).dataVersion).toBe(2);
   });
 
+  it.each(['legacy', 'slugged'] as const)(
+    'an unreadable %s ledger stops the run before the stamp and drops nothing',
+    async (which) => {
+      const pid = freshId();
+      await seedLegacyProject(dataRoot, pid, 'alpha');
+      await seedNewMemory(dataRoot, pid, 'alpha', row('a', 'A'));
+      await seedLegacyMemory(dataRoot, pid, row('c', 'C'));
+      // A directory where the ledger file should be: the read fails with EISDIR, not ENOENT.
+      const dir = which === 'legacy' ? pid : `${pid}--alpha`;
+      const ledger = join(dataRoot, 'memory', dir, 'learnings.ndjson');
+      await fs.rm(ledger);
+      await fs.mkdir(ledger);
+
+      const result = await runFull();
+
+      expect(result.kind).toBe('failed');
+      expect((await readDataVersion(absolutePath(dataRoot))).dataVersion).toBe(1);
+      expect(writer.read(absolutePath(join(dataRoot, 'memory', `${pid}--alpha`, 'learnings.ndjson')))).toBeUndefined();
+      await expect(fs.stat(join(dataRoot, 'memory', pid, 'learnings.ndjson'))).resolves.toBeTruthy();
+    }
+  );
+
+  it('a stat fault on the legacy ledger stops the run instead of reading it as absent', async () => {
+    const pid = freshId();
+    await seedLegacyProject(dataRoot, pid, 'alpha');
+    await seedNewMemory(dataRoot, pid, 'alpha', row('a', 'A'));
+    await seedLegacyMemory(dataRoot, pid, row('c', 'C'));
+    const report = await dryRun(absolutePath(dataRoot));
+    const legacyLedger = join(dataRoot, 'memory', pid, 'learnings.ndjson');
+
+    const realStat = fs.stat.bind(fs);
+    const statSpy = vi.spyOn(fs, 'stat').mockImplementation((async (path: string, opts?: unknown) => {
+      if (String(path) === legacyLedger) throw Object.assign(new Error('simulated EIO'), { code: 'EIO' });
+      return realStat(path, opts as undefined);
+    }) as typeof fs.stat);
+    const result = await apply(absolutePath(dataRoot), report, ctx());
+    statSpy.mockRestore();
+
+    expect(result.kind).toBe('failed');
+    await expect(fs.readFile(legacyLedger, 'utf8')).resolves.toContain('"c"');
+  });
+
+  it('moves every non-ledger entry of the legacy dir into the slugged dir, suffixing name clashes', async () => {
+    const pid = freshId();
+    await seedLegacyProject(dataRoot, pid, 'alpha');
+    await seedNewMemory(dataRoot, pid, 'alpha', row('a', 'A'));
+    await seedLegacyMemory(dataRoot, pid, row('c', 'C'));
+    const legacyDir = join(dataRoot, 'memory', pid);
+    const sluggedDir = join(dataRoot, 'memory', `${pid}--alpha`);
+    // A ledger rotated aside for size lives next to the live ledger in both dirs.
+    await fs.writeFile(join(legacyDir, 'learnings.ndjson.bak'), 'legacy-bak', 'utf8');
+    await fs.writeFile(join(legacyDir, 'notes.txt'), 'legacy-notes', 'utf8');
+    await fs.writeFile(join(sluggedDir, 'learnings.ndjson.bak'), 'slugged-bak', 'utf8');
+
+    const result = await runFull();
+
+    expect(result.kind).toBe('ok');
+    await expect(fs.stat(legacyDir)).rejects.toThrow();
+    expect(await fs.readFile(join(sluggedDir, 'learnings.ndjson.bak'), 'utf8')).toBe('slugged-bak');
+    expect(await fs.readFile(join(sluggedDir, 'learnings.ndjson.bak.legacy'), 'utf8')).toBe('legacy-bak');
+    expect(await fs.readFile(join(sluggedDir, 'notes.txt'), 'utf8')).toBe('legacy-notes');
+  });
+
+  it('a legacy dir holding only a rotated ledger is drained into the slugged dir, not deleted', async () => {
+    const pid = freshId();
+    await seedLegacyProject(dataRoot, pid, 'alpha');
+    await seedNewMemory(dataRoot, pid, 'alpha', row('a', 'A'));
+    const legacyDir = join(dataRoot, 'memory', pid);
+    await fs.mkdir(legacyDir, { recursive: true });
+    await fs.writeFile(join(legacyDir, 'learnings.ndjson.bak'), 'legacy-bak', 'utf8');
+
+    const result = await runFull();
+
+    expect(result.kind).toBe('ok');
+    await expect(fs.stat(legacyDir)).rejects.toThrow();
+    expect(await fs.readFile(join(dataRoot, 'memory', `${pid}--alpha`, 'learnings.ndjson.bak'), 'utf8')).toBe(
+      'legacy-bak'
+    );
+  });
+
   it('is idempotent: a re-run after the legacy dir is gone is a clean no-op merge', async () => {
     const pid = freshId();
     await seedLegacyProject(dataRoot, pid, 'alpha');
