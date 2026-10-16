@@ -115,6 +115,17 @@ describe('ralphctl runs', () => {
       expect(surviving).not.toContain(midA);
     });
 
+    it.each(['', ' ', '0x10', '1e2', '-1', '1.5'])('rejects --keep-last %j and deletes nothing', async (keepLast) => {
+      const run = await seedRun('detect-scripts', 5 * HOUR);
+
+      const result = await runCliCaptured(cli, ['runs', 'prune', '--yes', '--keep-last', keepLast]);
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain('--keep-last must be a non-negative integer');
+      const surviving = await fs.readdir(join(String(cli.paths.runsRoot), 'detect-scripts'));
+      expect(surviving).toEqual([run]);
+    });
+
     it('--flow <missing> exits non-zero with a "no such flow" message', async () => {
       await seedRun('detect-scripts', 5 * HOUR);
       const result = await runCliCaptured(cli, [

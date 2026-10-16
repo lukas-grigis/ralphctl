@@ -144,6 +144,9 @@ const runPruneCommand = async (opts: PruneOpts): Promise<void> => {
   await performPrune(candidates);
 };
 
+/** Digits only: `Number()` alone accepts '' / ' ' (0), '0x10' and '1e2', and 0 selects every run for pruning. */
+const parseKeepLast = (raw: string): number | undefined => (/^\d+$/u.test(raw.trim()) ? Number(raw.trim()) : undefined);
+
 /** Validate `--older-than` / `--keep-last`, reporting + exiting on the first malformed value. */
 const parsePruneFilters = (opts: PruneOpts): PruneFiltersResult => {
   let olderThanMs: number | undefined;
@@ -158,12 +161,11 @@ const parsePruneFilters = (opts: PruneOpts): PruneFiltersResult => {
 
   let keepLast: number | undefined;
   if (opts.keepLast !== undefined) {
-    const parsed = Number(opts.keepLast);
-    if (!Number.isInteger(parsed) || parsed < 0) {
+    keepLast = parseKeepLast(opts.keepLast);
+    if (keepLast === undefined) {
       fail('--keep-last must be a non-negative integer');
       return { ok: false };
     }
-    keepLast = parsed;
   }
 
   return { ok: true, olderThanMs, keepLast };
@@ -202,7 +204,7 @@ const computeAndAnnouncePruneCandidates = (
   const { candidates, unknownStampWarnings } = selectCandidates(grouped, filters);
 
   for (const warning of unknownStampWarnings) {
-    process.stdout.write(`warning: skipping run with non-conforming dir name (no timestamp): ${warning}\n`);
+    process.stderr.write(`warning: skipping run with non-conforming dir name (no timestamp): ${warning}\n`);
   }
 
   if (candidates.length === 0) {
@@ -309,12 +311,12 @@ const promptPruneFilterChoice = async (rl: Interface): Promise<PruneFiltersResul
   if (criterion === '2') {
     const n = (await askLine(rl, 'keep last N runs per flow: '))?.trim();
     if (n === undefined) return reportPromptAborted();
-    const parsed = Number(n);
-    if (!Number.isInteger(parsed) || parsed < 0) {
+    const keepLast = parseKeepLast(n);
+    if (keepLast === undefined) {
       fail('keep-last must be a non-negative integer');
       return { ok: false };
     }
-    return { ok: true, olderThanMs: undefined, keepLast: parsed };
+    return { ok: true, olderThanMs: undefined, keepLast };
   }
   fail(`unrecognised choice '${criterion}' — expected 1 or 2`);
   return { ok: false };
