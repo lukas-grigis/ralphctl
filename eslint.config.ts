@@ -510,8 +510,8 @@ const chainKernelRule: Linter.RuleEntry = mergeRestrictedImports(restrictImports
 /**
  * Ban direct `fs.appendFile` / `fs.promises.appendFile` calls outside `integration/io/`. The
  * harness routes every append-stream write through the `AppendFile` port; a
- * stray `fs.appendFile` would silently bypass the atomicity + structured-error guarantees
- * the port adds. Matches both `fs.appendFile(...)` and `fs.promises.appendFile(...)` shapes.
+ * stray `fs.appendFile` would bypass the port's mkdir + structured-error handling and the
+ * recording fake tests rely on. Matches both `fs.appendFile(...)` and `fs.promises.appendFile(...)` shapes.
  */
 const noFsAppendFile: Linter.RuleEntry = [
   'error',
