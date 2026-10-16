@@ -51,6 +51,25 @@ export const renderWarningsSection = (tasks: readonly Task[]): string => {
 };
 
 /**
+ * The refs a sprint's PR may auto-close, ticket refs first then task refs, deduped. A ref
+ * qualifies only when at least one task carries it — directly or through its ticket — and every
+ * such task is `done`, so a blocked or never-planned ticket's issue stays open. Shared by the
+ * template body and the AI-authored prompt so both paths close the same issues.
+ */
+export const closingRefs = (sprint: Sprint, tasks: readonly Task[]): readonly string[] => {
+  const ticketRefs = new Map(sprint.tickets.map((t) => [t.id, t.externalRef ?? '']));
+  const allDone = new Map<string, boolean>();
+  for (const task of tasks) {
+    for (const ref of normalizeRefs([ticketRefs.get(task.ticketId) ?? '', ...(task.externalRefs ?? [])])) {
+      allDone.set(ref, (allDone.get(ref) ?? true) && task.status === 'done');
+    }
+  }
+  return normalizeRefs([...ticketRefs.values(), ...tasks.flatMap((t) => t.externalRefs ?? [])]).filter(
+    (ref) => allDone.get(ref) === true
+  );
+};
+
+/**
  * Pure helper — produce sensible default title + body for a sprint's PR / MR.
  *
  * The CLI / TUI is the seam where the user can edit these before the chain launches; this
@@ -72,16 +91,13 @@ export const renderWarningsSection = (tasks: readonly Task[]): string => {
  *   - <task name> — <warning detail>
  *   - …
  *
- *   ## Related issues  (omitted when neither tickets nor tasks carry external refs)
+ *   ## Related issues  (omitted when no ref qualifies — see {@link closingRefs})
  *   - Closes #123
  *   - Closes !456
  *
  * "Related issues" bullets use the `Closes <ref>` form GitHub and GitLab both recognise for
- * auto-close on merge. Refs are gathered from both `Ticket.externalRef` (singular, set at
- * ticket-creation time) and `Task.externalRefs[]` (plural, inherited from the originating
- * ticket at plan time) — the merged list is trimmed and deduped via `normalizeRefs` so a ref
- * that appears on both a ticket and its derived task does not show twice. The PR body is
- * deliberately ralphctl-agnostic: no sprint id, no harness footer.
+ * auto-close on merge. The PR body is deliberately ralphctl-agnostic: no sprint id, no harness
+ * footer.
  */
 export const derivePrContent = (sprint: Sprint, tasks: readonly Task[]): DerivedPrContent => {
   const sections: string[] = [`# ${sprint.name}`];
@@ -102,10 +118,7 @@ export const derivePrContent = (sprint: Sprint, tasks: readonly Task[]): Derived
   const warnings = renderWarningsSection(tasks);
   if (warnings.length > 0) sections.push(warnings);
 
-  const orderedRefs = normalizeRefs([
-    ...sprint.tickets.map((t) => t.externalRef ?? ''),
-    ...tasks.flatMap((t) => t.externalRefs ?? []),
-  ]);
+  const orderedRefs = closingRefs(sprint, tasks);
   if (orderedRefs.length > 0) {
     const refLines = orderedRefs.map((r) => `- Closes ${r}`).join('\n');
     sections.push(`## Related issues\n${refLines}`);
