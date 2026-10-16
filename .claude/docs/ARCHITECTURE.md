@@ -142,10 +142,10 @@ the worktree's own removal). The stash family (`gitStashPush` / `gitStashList` /
 lives in `integration/io/git-stash.ts`, behind one in-process mutex; `git-ref-rescue.ts` holds the rescue-ref
 helpers. The PARALLEL epilogue (`buildParallelImplementEpilogue`) runs one extra leaf,
 `adopt-persisted-blocks`, before its `saveTasksLeaf`: it re-reads `tasks.json` and substitutes the persisted
-row for any in-memory `todo` / `in_progress` task whose disk row is not `done` — recovering a block (and a
-quarantined diff's stash pointer) or an opened attempt that a non-`completed` branch had already saved to
-disk right before erroring or aborting, which the disjoint fan-in above drops from ctx. It never adopts a
-persisted `done`, and it exempts `AbortError`. A branch holds its own task's `done` write back until the
+row for any in-memory `todo` / `in_progress` task — recovering a block (and a quarantined diff's stash
+pointer), an opened attempt, or a landed fold's `done` that a non-`completed` branch had already saved to
+disk right before erroring or aborting, which the disjoint fan-in above drops from ctx. It exempts
+`AbortError`. A branch holds its own task's `done` write back until the
 fold has landed the commit on the sprint branch (`holdOwnDoneWrite`, `wave-branch.ts`); the fold step then
 persists it, and a fold conflict persists its block before announcing it — so `tasks.json` never says `done`
 for work that exists only on a worktree ref, even across a crash. `restore-blocked-diff.ts` pops that

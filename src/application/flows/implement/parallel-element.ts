@@ -62,8 +62,8 @@ const WAVES_NODE_NAME = 'implement-waves';
  *      the single fold queue.
  *   3. epilogue runner — ALWAYS runs, on the partially-merged ctx, even when `runWaves` returned an
  *      abort / fatal error (THE B4 durability gate). Its FIRST leaf, `adopt-persisted-blocks`,
- *      re-reads `tasks.json` and pulls back every non-`done` row a non-`completed` branch already
- *      persisted (a block, or an attempt it opened) before `saveTasksLeaf` runs —
+ *      re-reads `tasks.json` and pulls back every row a non-`completed` branch already persisted
+ *      (a block, an attempt it opened, or a landed fold's `done`) before `saveTasksLeaf` runs —
  *      `mergeImplementWave` skips a non-`completed` branch entirely, so without this the epilogue
  *      would clobber those writes with the branch's pre-wave copy. `saveTasksLeaf` then persists
  *      every task whose commit was folded before the failure, so those commits are recorded in

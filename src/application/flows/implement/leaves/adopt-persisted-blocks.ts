@@ -18,8 +18,8 @@ import { messageOf } from '@src/domain/value/error/error-message.ts';
  * for why the parallel fan-in has one).
  *
  * Re-reads `tasks.json` and, for every in-memory task still `todo`/`in_progress`, substitutes the
- * persisted row unless that row is `done` — recovering a block (and, for a quarantined diff, its
- * stash pointer) or an opened attempt a non-`completed` branch already wrote to disk before
+ * persisted row — recovering a block (and, for a quarantined diff, its stash pointer), an opened
+ * attempt, or a landed fold's `done` that a non-`completed` branch already wrote to disk before
  * `mergeImplementWave` dropped its ctx on the floor. Runs BEFORE `saveTasksLeaf` so that leaf's
  * whole-list write never clobbers the very rows this leaf just pulled back, and before the
  * review-transition guard so it sees the reconciled set too.

@@ -301,13 +301,13 @@ describe('adoptPersistedBlocks', () => {
     expect(result[0]).toBe(blocked);
   });
 
-  it('never adopts a persisted done over an in-memory in_progress task (an unfolded commit must re-run)', () => {
+  it('adopts a persisted done over an in-memory in_progress task (its fold landed before the branch failed)', () => {
     const inProgress = makeInProgressTaskWithRunningAttempt();
     const persistedDone: Task = { ...makeDoneTask(), id: inProgress.id };
 
     const result = adoptPersistedBlocks([inProgress], [persistedDone]);
 
-    expect(result[0]).toBe(inProgress);
+    expect(result[0]).toBe(persistedDone);
   });
 
   it('leaves a task unchanged when it has no persisted row at all', () => {

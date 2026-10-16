@@ -846,6 +846,58 @@ describe('createParallelImplementElement — durable blocks survive the epilogue
     expect(persistedTask?.attempts.map((a) => a.status)).toEqual(['running']);
   });
 
+  it('a done the fold already persisted survives its branch failing in teardown, so the task never re-runs', async () => {
+    const sprint = makePlannedSprint();
+    const task = makeTodoTask();
+    const taskRepo = recordingTaskRepo([task]);
+    const bus = stubBus([]);
+    const inner = fakeGitRecordingCwd().runner;
+    const git: GitRunner = {
+      run: async (cwd, args, runOpts) => {
+        if (args[0] === 'worktree' && args[1] === 'remove') throw new Error('worktree remove crashed');
+        return inner.run(cwd, args, runOpts);
+      },
+    };
+    const deps = branchDeps(git, taskRepo, bus);
+    const done: Task = { ...makeDoneTask({ name: task.name }), id: task.id };
+    const settlesDone: Element<ImplementCtx> = {
+      name: 'fake-task',
+      async execute(ctx) {
+        return Result.ok({
+          ctx: { ...ctx, tasks: (ctx.tasks ?? []).map((t) => (t.id === task.id ? done : t)) },
+          trace: [],
+        });
+      },
+    };
+    const branch = buildWorktreeBranch(
+      deps,
+      repo,
+      task,
+      worktreePathFor(SPRINT_DIR, task.id),
+      'ralphctl/s1/wt-folded',
+      PROGRESS,
+      () => settlesDone
+    );
+    const element = createParallelImplementElement(
+      plan(tagElement('implement-prologue', []), realEpilogue(taskRepo), [[task]]),
+      baseConfig(
+        { buildWaves: () => [[{ id: implementBranchId(task.id), element: branch }]] },
+        recordingLocker([]),
+        bus
+      )
+    );
+    const quiet = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    await element.execute({ sprintId: sprint.id, sprint, tasks: [task] });
+    quiet.mockRestore();
+
+    expect(taskRepo.saved.map((t) => t.status)).toEqual(['done']);
+    const persisted = await taskRepo.findBySprintId(sprint.id);
+    if (!persisted.ok) throw persisted.error;
+    // The commit is on the sprint branch; rewriting the pre-wave todo would run the task a second time.
+    expect(persisted.value.find((t) => t.id === task.id)?.status).toBe('done');
+  });
+
   it('a dependent of a prerequisite whose branch failed without settling stays todo, never blocked upstream', async () => {
     const sprint = makePlannedSprint();
     const prerequisite = makeTodoTask({ name: 'prerequisite' });

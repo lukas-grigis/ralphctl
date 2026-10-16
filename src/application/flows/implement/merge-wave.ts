@@ -28,30 +28,27 @@ export const ownedTask = (branchId: string, ctx: ImplementCtx): Task | undefined
 
 /**
  * Reconcile the in-memory (post-merge) task list against what is DURABLY persisted on disk, for
- * every task the run left unsettled in memory (`todo` / `in_progress`): the persisted row wins
- * unless it is `done`. A non-completed branch writes its own task as it goes — `start-attempt`'s
- * fresh `running` attempt, `settle-attempt`'s block or retry, the dependency gate's
- * `blocked upstream`, a quarantine's stash pointer — and THEN errors or aborts before its runner
+ * every task the run left unsettled in memory (`todo` / `in_progress`): the persisted row wins.
+ * A non-completed branch writes its own task as it goes — `start-attempt`'s fresh `running`
+ * attempt, `settle-attempt`'s block or retry, the dependency gate's `blocked upstream`, a
+ * quarantine's stash pointer, the fold step's `done` — and THEN errors or aborts before its runner
  * reaches `completed`. `mergeImplementWave` skips that outcome, so the in-memory copy is the
  * wave's pre-branch base. Without this step the epilogue's `saveTasksLeaf` overwrites those
- * writes: a block re-enters and re-notifies on every launch, and an opened attempt vanishes, so
- * neither the operator-stop settle nor the free-attempt streak cap ever sees it.
+ * writes: a block re-enters and re-notifies on every launch, an opened attempt vanishes (so
+ * neither the operator-stop settle nor the free-attempt streak cap ever sees it), and a task whose
+ * fold already landed runs a second time.
  *
- * Deliberately narrow, in both directions:
- *  - a persisted `'done'` is NEVER pulled in over an in-memory `todo`/`in_progress`. A branch holds
- *    its `done` back until its fold lands (`holdOwnDoneWrite`, `wave-branch.ts`), so a persisted
- *    `done` the merge did not overlay can only be an older disk row, never a fold to trust;
- *  - an in-memory task that is already `'done'` or `'blocked'` is left untouched — it settled
- *    inside THIS run and is authoritative over whatever an older disk row says.
+ * A persisted `done` is safe to adopt: a branch holds its own `done` back until its fold lands
+ * (`holdOwnDoneWrite`, `wave-branch.ts`), so one written during this run always names a commit
+ * already on the sprint branch, and a `done` on disk at launch was loaded as `done` in memory.
+ * An in-memory task that is already `'done'` or `'blocked'` is left untouched — it settled inside
+ * THIS run and is authoritative over whatever an older disk row says.
  */
 export const adoptPersistedBlocks = (tasks: readonly Task[], persisted: readonly Task[]): readonly Task[] => {
-  const unsettled = new Map<TaskId, Task>();
-  for (const task of persisted) {
-    if (task.status !== 'done') unsettled.set(task.id, task);
-  }
+  const byId = new Map<TaskId, Task>(persisted.map((task) => [task.id, task]));
   return tasks.map((task) => {
     if (task.status !== 'todo' && task.status !== 'in_progress') return task;
-    return unsettled.get(task.id) ?? task;
+    return byId.get(task.id) ?? task;
   });
 };
 

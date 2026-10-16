@@ -290,7 +290,7 @@ only as a SHA — and where depends on the reason for the keep. A blocked task's
 either way: whether the branch's own runner reached `completed` (a fold conflict — the fold step
 persists the block itself) or it errored / aborted right after a leaf had already saved the block to
 disk (a settle-then-abort) — the epilogue's `adopt-persisted-blocks` step re-reads every persisted
-non-`done` row, stash pointer included, before `saveTasksLeaf` writes the run's task list, so a
+row, stash pointer included, before `saveTasksLeaf` writes the run's task list, so a
 non-`completed` branch's block or opened attempt is recovered rather than overwritten with its pre-wave
 copy (an unblock still archives the attempts into `retiredAttempts` rather than deleting them). It's also
 on `progress.md`'s `- Commit: <sha>` line. An interrupted fold's SHA stays in `tasks.json` too, on the
