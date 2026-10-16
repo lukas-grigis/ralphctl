@@ -14,7 +14,12 @@ import {
   gitRevParseHead,
   gitStatusPorcelain,
 } from '@src/integration/io/git-operations.ts';
-import type { GitRunner, GitRunResult } from '@src/integration/io/git-runner.ts';
+import {
+  GIT_HOOK_TIMEOUT_MS,
+  type GitRunner,
+  type GitRunOptions,
+  type GitRunResult,
+} from '@src/integration/io/git-runner.ts';
 
 const cwd = ((): AbsolutePath => {
   const r = AbsolutePath.parse('/tmp');
@@ -27,12 +32,14 @@ interface ScriptedCall {
   readonly result: Result<GitRunResult, StorageError>;
 }
 
-const scriptRunner = (calls: ScriptedCall[]): { runner: GitRunner; received: Array<{ args: readonly string[] }> } => {
-  const received: Array<{ args: readonly string[] }> = [];
+const scriptRunner = (
+  calls: ScriptedCall[]
+): { runner: GitRunner; received: Array<{ args: readonly string[]; opts: GitRunOptions | undefined }> } => {
+  const received: Array<{ args: readonly string[]; opts: GitRunOptions | undefined }> = [];
   let i = 0;
   const runner: GitRunner = {
-    async run(_, args) {
-      received.push({ args });
+    async run(_, args, opts) {
+      received.push({ args, opts });
       const next = calls[i++];
       if (next === undefined) {
         throw new Error(`unscripted git call: ${args.join(' ')}`);
@@ -303,6 +310,18 @@ describe('gitCreateAndCheckoutBranch', () => {
     const result = await gitCreateAndCheckoutBranch(runner, cwd, 'ralphctl/abc');
     expect(result.ok).toBe(true);
     expect(received[2]?.args).toEqual(['checkout', '-b', 'ralphctl/abc']);
+  });
+
+  it('runs the checkout on the hook budget, cancellable by the caller', async () => {
+    const { runner, received } = scriptRunner([
+      { args: ['rev-parse', '--abbrev-ref', 'HEAD'], result: ok('main\n') },
+      { args: ['show-ref', '--verify', '--quiet', 'refs/heads/ralphctl/abc'], result: ok() },
+      { args: ['checkout', 'ralphctl/abc'], result: ok() },
+    ]);
+    const controller = new AbortController();
+    const result = await gitCreateAndCheckoutBranch(runner, cwd, 'ralphctl/abc', controller.signal);
+    expect(result.ok).toBe(true);
+    expect(received[2]?.opts).toEqual({ timeoutMs: GIT_HOOK_TIMEOUT_MS, signal: controller.signal });
   });
 
   it('surfaces checkout failure as StorageError', async () => {

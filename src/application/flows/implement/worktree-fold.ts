@@ -162,7 +162,7 @@ export const foldStep = (
     }
 
     const start = performance.now();
-    const folded = await deps.foldQueue.run(() => gitFoldBranch(deps.implement.gitRunner, repoRoot, branchRef));
+    const folded = await deps.foldQueue.run(() => gitFoldBranch(deps.implement.gitRunner, repoRoot, branchRef, signal));
     const durationMs = performance.now() - start;
 
     if (folded.ok) {

@@ -9,7 +9,13 @@ import type { ElementResult } from '@src/application/chain/element.ts';
 import type { OnStart, OnTrace, TraceEntry } from '@src/application/chain/trace.ts';
 import type { DirtyTreePolicy } from '@src/business/task/preflight-task.ts';
 import { publishTaskBlocked } from '@src/business/task/publish-task-blocked.ts';
-import { gitWorktreeAdd, gitWorktreePrune, legacyGitWorktreeRef } from '@src/integration/io/git-operations.ts';
+import {
+  gitDeleteBranch,
+  gitWorktreeAdd,
+  gitWorktreePrune,
+  gitWorktreeRemove,
+  legacyGitWorktreeRef,
+} from '@src/integration/io/git-operations.ts';
 import { gitRenameBranch } from '@src/integration/io/git-ref-rescue.ts';
 import { gitWorktreeList, type GitWorktreeEntry } from '@src/integration/io/git-worktree-list.ts';
 import { pathExists } from '@src/integration/io/fs.ts';
@@ -247,15 +253,32 @@ const resolveStrandedWorktree = async (
   return 'adopted';
 };
 
+/** True only when nothing is at `path` yet, so whatever a cancelled `worktree add` leaves there is its own. */
+const nothingAt = async (path: AbsolutePath): Promise<boolean> => {
+  const exists = await pathExists(String(path));
+  return exists.ok && !exists.value;
+};
+
+/** Undo a cancelled `worktree add` — the worktree, if it got that far, and the ref `-b` created. Best-effort. */
+const discardCancelledAdd = async (deps: BuildWaveBranchesDeps, target: WorktreeTarget): Promise<void> => {
+  const { gitRunner } = deps.implement;
+  await gitWorktreeRemove(gitRunner, target.repoRoot, target.worktreePath);
+  await gitDeleteBranch(gitRunner, target.repoRoot, target.branchRef);
+};
+
 /**
  * Create the worktree. Returns `undefined` on success or adoption (the subchain advances ctx), a
  * narrowed `Result.ok` when a stranded worktree blocks the task, or a failed {@link ElementResult}
  * on any other `worktree add` failure so the branch fails without materialising a worktree.
+ *
+ * `signal` kills an add stuck in a post-checkout hook. A cancelled add is aborted, never read as a
+ * stranded worktree, and what it created is removed so the next launch adds a fresh one.
  */
 export const setupWorktree = async (
   deps: BuildWaveBranchesDeps,
   ctx: ImplementCtx,
   target: WorktreeTarget,
+  signal: AbortSignal | undefined,
   onTrace: OnTrace | undefined,
   onStart: OnStart | undefined
 ): Promise<ElementResult<ImplementCtx> | undefined> => {
@@ -286,8 +309,13 @@ export const setupWorktree = async (
           cause: listed.error,
         })
       );
-  const added = cleared.ok ? await gitWorktreeAdd(gitRunner, repoRoot, worktreePath, branchRef) : cleared;
+  const fresh = cleared.ok && (await nothingAt(worktreePath));
+  const added = cleared.ok ? await gitWorktreeAdd(gitRunner, repoRoot, worktreePath, branchRef, signal) : cleared;
   const durationMs = performance.now() - start;
+  if (!added.ok && signal?.aborted === true) {
+    if (fresh) await discardCancelledAdd(deps, target);
+    return abortedStep(name, durationMs, onTrace);
+  }
   if (!added.ok) {
     const stranded = cleared.ok
       ? await resolveStrandedWorktree(deps, ctx, target, name, durationMs, onTrace)

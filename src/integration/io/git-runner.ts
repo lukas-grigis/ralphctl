@@ -31,10 +31,13 @@ import { onChildDone } from '@src/integration/io/child-exit.ts';
 
 export const DEFAULT_GIT_TIMEOUT_MS = 30_000;
 
-/** Verbs that run user hooks or touch the network (commit, push, checkout, merge, cherry-pick, worktree add). */
+/** Verbs that run user hooks or touch the network (commit, push, checkout, merge, cherry-pick, worktree add); callers pass the cancel signal. */
 export const GIT_HOOK_TIMEOUT_MS = 10 * 60_000;
 
-/** Verbs that walk or delete a whole working tree but run no hooks (stash push -u, worktree remove --force). */
+/**
+ * Verbs that walk or delete a whole working tree but run no hooks (stash push -u / pop, worktree
+ * remove --force). They take no cancel signal: most run on the abort path itself, as cleanup.
+ */
 export const GIT_BULK_TIMEOUT_MS = 2 * 60_000;
 
 /**
@@ -55,7 +58,7 @@ export interface GitRunResult {
 export interface GitRunOptions {
   readonly timeoutMs?: number;
   /** Kills git and its hooks and settles with an error, so a long hook budget never blocks a cancel. */
-  readonly signal?: AbortSignal;
+  readonly signal?: AbortSignal | undefined;
 }
 
 export interface GitRunner {

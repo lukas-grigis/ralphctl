@@ -218,7 +218,10 @@ with no controlling terminal a missing HTTPS credential, SSH passphrase or unkno
 instead of prompting over the TUI (on Windows only the HTTPS prompt is covered). Credentials have to come
 from a credential helper or an SSH agent. Probe verbs keep the 30s default; verbs that run hooks or touch
 the network (commit, push, checkout, merge, cherry-pick, worktree add) get `GIT_HOOK_TIMEOUT_MS` (10 min),
-and whole-tree verbs (stash push/pop, worktree remove) `GIT_BULK_TIMEOUT_MS` (2 min). The git and
+and whole-tree verbs (stash push/pop, worktree remove) `GIT_BULK_TIMEOUT_MS` (2 min). Every hook verb takes
+the chain's cancel signal, so a cancel kills a hung hook at once: a fast-forward killed in its post-merge hook
+still counts as folded, and what a cancelled `worktree add` created is removed again. Whole-tree verbs take no
+signal, because most of them run on the abort path itself, as cleanup. The git and
 setup/verify runners settle when the child exits, after at most a 1s output drain, so a grandchild still
 holding the pipes can't stall the run; the setup/verify runner also SIGTERMs such leftovers in its
 script's process group.

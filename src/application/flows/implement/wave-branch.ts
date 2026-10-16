@@ -205,7 +205,7 @@ const withWorktree = (
     async execute(ctx, signal, onTrace, onStart): Promise<ElementResult<ImplementCtx>> {
       const quarantinedAtStart = await snapshotQuarantinedDiff(deps, repoRoot, ctx.sprintId, taskId);
       const target = { repoRoot, worktreePath, branchRef, taskId, progressFile };
-      const setupError = await setupWorktree(deps, ctx, target, onTrace, onStart);
+      const setupError = await setupWorktree(deps, ctx, target, signal, onTrace, onStart);
       if (setupError !== undefined) {
         // A worktree that never got created has nothing to clean up — return the setup failure as-is
         // (non-fatal → the wave reducer leaves this task untouched so it resets/re-runs).

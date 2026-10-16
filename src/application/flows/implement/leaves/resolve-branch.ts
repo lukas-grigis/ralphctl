@@ -126,7 +126,7 @@ const resolveFirstRun = async (deps: ResolveBranchLeafDeps, sprintId: string): P
 export const resolveBranchLeaf = (deps: ResolveBranchLeafDeps, opts: ResolveBranchLeafOpts): Element<ImplementCtx> =>
   leaf<ImplementCtx, ResolveBranchInput, ResolveBranchOutput>(RESOLVE_BRANCH, {
     useCase: {
-      execute: async (input) => {
+      execute: async (input, signal) => {
         const log = deps.logger.named('branch.resolve');
         let execution = input.execution;
 
@@ -165,7 +165,7 @@ export const resolveBranchLeaf = (deps: ResolveBranchLeafDeps, opts: ResolveBran
         }
 
         for (const cwd of opts.cwds) {
-          const checkout = await gitCreateAndCheckoutBranch(deps.gitRunner, cwd, branch);
+          const checkout = await gitCreateAndCheckoutBranch(deps.gitRunner, cwd, branch, signal);
           if (!checkout.ok) return Result.error(checkout.error);
           log.info(`checked out '${branch}' at ${String(cwd)}`);
         }

@@ -107,12 +107,20 @@ const fakeGit = (over?: {
   foldConflict?: boolean;
   removeFails?: boolean;
   listFails?: boolean;
-}): { runner: GitRunner; calls: string[][] } => {
+  /** `worktree add` stands in for a hook the user cancels: it aborts this controller and is killed. */
+  cancelDuringAdd?: AbortController;
+}): { runner: GitRunner; calls: string[][]; signals: Map<string, AbortSignal | undefined> } => {
   const calls: string[][] = [];
+  const signals = new Map<string, AbortSignal | undefined>();
   const runner: GitRunner = {
-    async run(_cwd, args) {
+    async run(_cwd, args, opts) {
       calls.push([...args]);
       const [a, b] = args;
+      signals.set(`${String(a)} ${String(b)}`, opts?.signal);
+      if (a === 'worktree' && b === 'add' && over?.cancelDuringAdd !== undefined) {
+        over.cancelDuringAdd.abort();
+        return Result.error(new StorageError({ subCode: 'io', message: `git aborted: git ${args.join(' ')}` }));
+      }
       if (a === 'worktree' && b === 'list' && over?.listFails === true) return ok('', 128, 'fatal: index.lock');
       if (a === 'worktree' && b === 'remove') return over?.removeFails === true ? conflict() : ok();
       if (a === 'merge' && b === '--ff-only') return over?.foldConflict === true ? ok('not ff', 1) : ok();
@@ -122,7 +130,7 @@ const fakeGit = (over?: {
       return ok(); // worktree add / prune / etc.
     },
   };
-  return { runner, calls };
+  return { runner, calls, signals };
 };
 
 const stubBus = (events: AppEvent[]): EventBus => ({
@@ -472,6 +480,49 @@ describe('buildWorktreeBranch — abort runs cleanup', () => {
     expect(calls.some((c) => c[0] === 'worktree' && c[1] === 'remove')).toBe(true);
     expect(calls.some((c) => c[0] === 'merge')).toBe(false);
     expect(calls.some((c) => c[0] === 'stash' && c[1] === 'push')).toBe(false);
+  });
+});
+
+describe('buildWorktreeBranch — cancelling a hook-running git verb', () => {
+  it('hands the chain signal to worktree add and the fold, so a hung hook dies on cancel', async () => {
+    const task = makeTodoTask();
+    const done: Task = { ...makeDoneTask(), id: task.id };
+    const { runner, signals } = fakeGit();
+    const deps = makeBranchDeps(runner, stubBus([]));
+    const wt = worktreePathFor(absolutePath('/data/sprints/s1'), task.id);
+    const controller = new AbortController();
+
+    const branch = buildWorktreeBranch(deps, repo, task, wt, 'ref', PROGRESS, settlingSubchain(task.id, done));
+    const out = await branch.execute(baseCtx([task]), controller.signal);
+
+    expect(out.ok).toBe(true);
+    expect(signals.get('worktree add')).toBe(controller.signal);
+    expect(signals.get('merge --ff-only')).toBe(controller.signal);
+    // Cleanup must still run after a cancel, so it never takes the signal.
+    expect(signals.get('worktree remove')).toBeUndefined();
+  });
+
+  it('a cancel that kills worktree add ends the branch aborted, removes the half-made worktree and blocks nothing', async () => {
+    const task = makeTodoTask();
+    const controller = new AbortController();
+    const { runner, calls } = fakeGit({ cancelDuringAdd: controller });
+    const events: AppEvent[] = [];
+    const deps = makeBranchDeps(runner, stubBus(events));
+    const wt = worktreePathFor(absolutePath('/data/sprints/s1'), task.id);
+
+    const branch = buildWorktreeBranch(deps, repo, task, wt, 'ref', PROGRESS, () => {
+      throw new Error('the body must not run after a cancelled setup');
+    });
+    const out = await branch.execute(baseCtx([task]), controller.signal);
+
+    expect(out.ok).toBe(false);
+    if (!out.ok) expect(out.error.error).toBeInstanceOf(AbortError);
+    const afterAdd = calls.slice(calls.findIndex((c) => c[0] === 'worktree' && c[1] === 'add') + 1);
+    expect(afterAdd).toContainEqual(['worktree', 'remove', '--force', String(wt)]);
+    expect(afterAdd).toContainEqual(['branch', '-D', 'ref']);
+    // Not mistaken for a worktree an earlier run stranded.
+    expect(afterAdd.some((c) => c[0] === 'worktree' && c[1] === 'list')).toBe(false);
+    expect(taskBlockedEvents(events)).toHaveLength(0);
   });
 });
 

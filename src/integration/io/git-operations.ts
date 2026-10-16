@@ -31,6 +31,7 @@ import { withWorktreeMutex } from '@src/integration/io/git-worktree-mutex.ts';
  */
 
 const HEX_SHA_RE = /^[0-9a-f]{7,64}$/i;
+const MERGE_BASE = 'merge-base';
 // No byte cap on commit messages: audit-[03] mandates "no caps anywhere" on AI signal
 // bodies, and `git commit -m <msg>` passes via argv which has ARG_MAX headroom in the
 // hundreds of KB. The AI's validated `commit-message` signal is projected verbatim onto
@@ -231,7 +232,8 @@ export const gitBranchExists = async (
 export const gitCreateAndCheckoutBranch = async (
   runner: GitRunner,
   cwd: AbsolutePath,
-  name: string
+  name: string,
+  signal?: AbortSignal
 ): Promise<Result<void, StorageError>> => {
   const current = await gitGetCurrentBranch(runner, cwd);
   if (!current.ok) return Result.error(current.error);
@@ -241,7 +243,7 @@ export const gitCreateAndCheckoutBranch = async (
   if (!exists.ok) return Result.error(exists.error);
 
   const argv = exists.value ? ['checkout', name] : ['checkout', '-b', name];
-  const checkout = await runGitChecked(runner, cwd, argv, 'checkout', { timeoutMs: GIT_HOOK_TIMEOUT_MS });
+  const checkout = await runGitChecked(runner, cwd, argv, 'checkout', { timeoutMs: GIT_HOOK_TIMEOUT_MS, signal });
   if (!checkout.ok) return Result.error(checkout.error);
   return Result.ok(undefined);
 };
@@ -276,11 +278,13 @@ export const gitWorktreeAdd = async (
   runner: GitRunner,
   repoRoot: AbsolutePath,
   worktreePath: AbsolutePath,
-  branchName: string
+  branchName: string,
+  signal?: AbortSignal
 ): Promise<Result<void, StorageError>> => {
   const result = await withWorktreeMutex(repoRoot, () =>
     runGitChecked(runner, repoRoot, ['worktree', 'add', '-b', branchName, String(worktreePath)], 'worktree add', {
       timeoutMs: GIT_HOOK_TIMEOUT_MS,
+      signal,
     })
   );
   if (!result.ok) return Result.error(result.error);
@@ -362,19 +366,23 @@ export const gitWorktreePrune = async (
  *
  * Folds must be serialised by the caller (one held lock, `base.tasks` order); this function does
  * not lock — concurrent folds onto the same branch would corrupt the merge state.
+ *
+ * `signal` kills the merge or cherry-pick (and a hung hook with it). A fast-forward killed after it
+ * moved the branch — in a post-merge hook — still counts as folded.
  */
 export const gitFoldBranch = async (
   runner: GitRunner,
   repoRoot: AbsolutePath,
-  branchName: string
+  branchName: string,
+  signal?: AbortSignal
 ): Promise<Result<void, StorageError>> => {
-  const ff = await runner.run(repoRoot, ['merge', '--ff-only', branchName], { timeoutMs: GIT_HOOK_TIMEOUT_MS });
-  if (!ff.ok) return Result.error(ff.error);
+  const ff = await runner.run(repoRoot, ['merge', '--ff-only', branchName], { timeoutMs: GIT_HOOK_TIMEOUT_MS, signal });
+  if (!ff.ok) return (await branchLanded(runner, repoRoot, branchName)) ? Result.ok(undefined) : Result.error(ff.error);
   if (ff.value.exitCode === 0) return Result.ok(undefined);
 
   // Not fast-forwardable — the sprint branch advanced under us. Replay the branch's unique
   // commits via cherry-pick of `<merge-base>..<branch>`.
-  const base = await runGitChecked(runner, repoRoot, ['merge-base', 'HEAD', branchName], 'merge-base');
+  const base = await runGitChecked(runner, repoRoot, [MERGE_BASE, 'HEAD', branchName], MERGE_BASE);
   if (!base.ok) return Result.error(base.error);
   const mergeBase = base.value.stdout.trim();
   if (!HEX_SHA_RE.test(mergeBase)) {
@@ -385,19 +393,24 @@ export const gitFoldBranch = async (
 
   const pick = await runner.run(repoRoot, ['cherry-pick', `${mergeBase}..${branchName}`], {
     timeoutMs: GIT_HOOK_TIMEOUT_MS,
+    signal,
   });
+  if (pick.ok && pick.value.exitCode === 0) return Result.ok(undefined);
+  // A conflict, or a pick the runner killed mid-sequence. Abort so the sprint branch is left clean —
+  // folded siblings stay landed; only this task is blocked. Best-effort and never cancelled (it is
+  // the cleanup): surface the original failure regardless of whether the abort itself errored.
+  await runner.run(repoRoot, ['cherry-pick', '--abort']);
   if (!pick.ok) return Result.error(pick.error);
-  if (pick.value.exitCode !== 0) {
-    // Conflict (or any cherry-pick failure). Abort so the sprint branch is left clean — folded
-    // siblings stay landed; only this task is blocked. Abort is best-effort: surface the original
-    // cherry-pick failure regardless of whether the abort itself errored.
-    await runner.run(repoRoot, ['cherry-pick', '--abort']);
-    return Result.error(
-      new StorageError({
-        subCode: 'io',
-        message: `git cherry-pick failed (conflict folding ${branchName}): ${(pick.value.stderr || pick.value.stdout).trim()}`,
-      })
-    );
-  }
-  return Result.ok(undefined);
+  return Result.error(
+    new StorageError({
+      subCode: 'io',
+      message: `git cherry-pick failed (conflict folding ${branchName}): ${(pick.value.stderr || pick.value.stdout).trim()}`,
+    })
+  );
+};
+
+/** True when `branchName` is already contained in `HEAD` — nothing of it is left to fold. */
+const branchLanded = async (runner: GitRunner, repoRoot: AbsolutePath, branchName: string): Promise<boolean> => {
+  const ancestor = await runner.run(repoRoot, [MERGE_BASE, '--is-ancestor', branchName, 'HEAD']);
+  return ancestor.ok && ancestor.value.exitCode === 0;
 };
