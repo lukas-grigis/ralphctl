@@ -174,13 +174,6 @@ const PRESETS: Readonly<
 };
 
 /**
- * The AI section a preset stamps — read-only, for surfaces that describe a preset before it is applied.
- *
- * @public
- */
-export const presetAiSettings = (name: PresetName): Settings['ai'] => PRESETS[name].ai;
-
-/**
  * Stamp a preset onto `current`. The AI section is replaced with the preset's matrix, except the
  * operator preferences no matrix carries — `ai.skills` and `ai.implement.agents` — which survive;
  * `harness.escalateOnPlateau` is overwritten with the preset's flag (fast family OFF, all others

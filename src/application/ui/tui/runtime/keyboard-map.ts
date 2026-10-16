@@ -196,19 +196,6 @@ export const tasksPanelKeys = {
   unblock: { keys: ['u'], label: contextualKeys.unblockTask.label },
 } as const satisfies Record<string, KeyBinding>;
 
-/**
- * The canonical `↑/↓ → move` hint for list views. Include this as the first entry in every
- * list view's `useViewHints` so the footer consistently teaches arrow navigation. Per the
- * windowed-list contract (DESIGN-SYSTEM §6.4), arrows are primary; `j`/`k` are documented in
- * the help overlay's Lists section only and must not be repeated per-view.
- *
- * @public
- */
-export const listMoveHint: { readonly keys: string; readonly label: string } = {
-  keys: '↑/↓',
-  label: 'move',
-};
-
 /** Key labels grouped by area — consumed by the help overlay. */
 export interface KeySection {
   readonly title: string;

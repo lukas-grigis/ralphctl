@@ -32,14 +32,8 @@ export interface ApprovedTicket extends TicketBase {
   readonly requirements: string;
 }
 
+/** Lifecycle: starts `pending`, transitions once to `approved` after refinement. */
 export type Ticket = PendingTicket | ApprovedTicket;
-
-/**
- * Derived from `Ticket` — adding a new variant flows here automatically.
- * Lifecycle: starts `pending`, transitions once to `approved` after refinement.
- * @public
- */
-export type TicketStatus = Ticket['status'];
 
 export interface TicketCreateInput {
   readonly id?: TicketId;
