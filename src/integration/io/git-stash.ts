@@ -2,7 +2,7 @@ import { Result } from '@src/domain/result.ts';
 import type { StorageError } from '@src/domain/value/error/storage-error.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { DiffStat } from '@src/domain/value/diff-stat.ts';
-import { runGitChecked, type GitRunner } from '@src/integration/io/git-runner.ts';
+import { GIT_BULK_TIMEOUT_MS, runGitChecked, type GitRunner } from '@src/integration/io/git-runner.ts';
 import { gitHasUncommittedChanges } from '@src/integration/io/git-operations.ts';
 
 /**
@@ -95,7 +95,9 @@ export const gitStashPush = (
     if (!dirty.ok) return Result.error(dirty.error);
     if (!dirty.value) return Result.ok({ stashed: false });
 
-    const stash = await runGitChecked(runner, cwd, ['stash', 'push', '-u', '-m', message], 'stash push');
+    const stash = await runGitChecked(runner, cwd, ['stash', 'push', '-u', '-m', message], 'stash push', {
+      timeoutMs: GIT_BULK_TIMEOUT_MS,
+    });
     if (!stash.ok) return Result.error(stash.error);
     return Result.ok({ stashed: true });
   });
@@ -133,7 +135,9 @@ export const gitStashPop = (
     const index = list.value.findIndex((entry) => stashEntryMatchesMessage(entry, message));
     if (index === -1) return Result.ok({ popped: false });
 
-    const pop = await runGitChecked(runner, cwd, ['stash', 'pop', `stash@{${String(index)}}`], 'stash pop');
+    const pop = await runGitChecked(runner, cwd, ['stash', 'pop', `stash@{${String(index)}}`], 'stash pop', {
+      timeoutMs: GIT_BULK_TIMEOUT_MS,
+    });
     if (!pop.ok) return Result.error(pop.error);
     return Result.ok({ popped: true });
   });

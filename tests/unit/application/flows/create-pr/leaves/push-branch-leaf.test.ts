@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { Result } from '@src/domain/result.ts';
-import type { GitRunner, GitRunResult } from '@src/integration/io/git-runner.ts';
+import {
+  GIT_HOOK_TIMEOUT_MS,
+  type GitRunner,
+  type GitRunOptions,
+  type GitRunResult,
+} from '@src/integration/io/git-runner.ts';
 import type { SprintExecution } from '@src/domain/entity/sprint-execution.ts';
 import { createSprintExecution, setExecutionBranch } from '@src/domain/entity/sprint-execution.ts';
 import type { SprintExecutionRepository } from '@src/domain/repository/sprint/sprint-execution-repository.ts';
@@ -222,5 +227,45 @@ describe('push-branch-leaf', () => {
     if (out.ok) return;
     expect(out.error.error).toBeInstanceOf(StorageError);
     expect(out.error.error.message).toContain('failed to spawn git');
+  });
+
+  it('gives the push a hook-length budget and the chain abort signal', async () => {
+    const seen: Array<GitRunOptions | undefined> = [];
+    const runner: GitRunner = {
+      async run(_cwd, args, opts) {
+        if (args[0] === 'push') seen.push(opts);
+        return Result.ok({ stdout: args[0] === 'rev-parse' ? `${BRANCH}\n` : '', stderr: '', exitCode: 0 });
+      },
+    };
+    const controller = new AbortController();
+    const leaf = createPushBranchLeaf(stubCreatePrDeps({ runner }));
+
+    const out = await leaf.execute(baseCtx, controller.signal);
+
+    expect(out.ok).toBe(true);
+    expect(seen).toEqual([{ timeoutMs: GIT_HOOK_TIMEOUT_MS, signal: controller.signal }]);
+  });
+
+  it('names the credential-helper remedy only when the push failed for lack of credentials', async () => {
+    const pushFailing = (stderr: string): GitRunner =>
+      scriptedGitRunner([
+        {
+          args: ['rev-parse', '--abbrev-ref', 'HEAD'],
+          result: Result.ok({ stdout: `${BRANCH}\n`, stderr: '', exitCode: 0 }),
+        },
+        { args: ['push', '-u', 'origin', BRANCH], result: Result.ok({ stdout: '', stderr, exitCode: 128 }) },
+      ]).runner;
+
+    const auth = await createPushBranchLeaf(
+      stubCreatePrDeps({
+        runner: pushFailing("fatal: could not read Username for 'https://github.com': terminal prompts disabled\n"),
+      })
+    ).execute(baseCtx);
+    const other = await createPushBranchLeaf(
+      stubCreatePrDeps({ runner: pushFailing('fatal: unable to access remote: Could not resolve host\n') })
+    ).execute(baseCtx);
+
+    expect(!auth.ok && auth.error.error.message).toContain('credential helper');
+    expect(!other.ok && other.error.error.message).not.toContain('credential helper');
   });
 });

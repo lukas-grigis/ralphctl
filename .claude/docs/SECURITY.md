@@ -202,6 +202,17 @@ reject-on-nonzero semantics against `osascript` / `notify-send` / `which`. An ES
 importing `node:child_process`'s spawn functions directly, so the two-exception list above is
 enforced at lint time, not by convention.
 
+**Git never prompts.** `git-runner.ts` spawns every git call with `GIT_TERMINAL_PROMPT=0` and, on POSIX, as
+the leader of its own session and process group. A timeout or abort therefore reaps the hooks git runs, and
+with no controlling terminal a missing HTTPS credential, SSH passphrase or unknown host key fails the call
+instead of prompting over the TUI (on Windows only the HTTPS prompt is covered). Credentials have to come
+from a credential helper or an SSH agent. Probe verbs keep the 30s default; verbs that run hooks or touch
+the network (commit, push, checkout, merge, cherry-pick, worktree add) get `GIT_HOOK_TIMEOUT_MS` (10 min),
+and whole-tree verbs (stash push/pop, worktree remove) `GIT_BULK_TIMEOUT_MS` (2 min). The git and
+setup/verify runners settle when the child exits, after at most a 1s output drain, so a grandchild still
+holding the pipes can't stall the run; the setup/verify runner also SIGTERMs such leftovers in its
+script's process group.
+
 **A prompt body never travels in argv.** Every adapter writes the rendered prompt to a file and passes the
 CLI a POINTER at that file (`providers/_engine/prompt-pointer.ts`) — headless claude / codex / opencode pipe
 it through stdin instead, which is equivalent for this purpose; headless grok uses `--prompt-file`

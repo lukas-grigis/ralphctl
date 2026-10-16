@@ -400,7 +400,7 @@ const buildRoundCallbacks = (
       // against the sprint branch in `commitCwd`. Multi-repo commit/verify is out of
       // scope for this fix.
       const message = renderReviewCommitMessage(round);
-      const commit = await gitCommitWithMessage(deps.gitRunner, opts.commitCwd, message);
+      const commit = await gitCommitWithMessage(deps.gitRunner, opts.commitCwd, message, signal);
       if (!commit.ok) return Result.error(commit.error) as Result<{ readonly committed: boolean }, DomainError>;
       return Result.ok({ committed: commit.value.committed });
     },

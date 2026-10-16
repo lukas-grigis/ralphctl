@@ -3,12 +3,22 @@ import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import { gitGetCurrentBranch } from '@src/integration/io/git-operations.ts';
+import { GIT_HOOK_TIMEOUT_MS } from '@src/integration/io/git-runner.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
 
 import type { CreatePrCtx } from '@src/application/flows/create-pr/ctx.ts';
 import type { CreatePrDeps } from '@src/application/flows/create-pr/deps.ts';
 import { assertSprintEligible } from '@src/application/flows/create-pr/eligibility.ts';
+
+// git runs without a terminal to prompt on, so missing credentials must come from a helper or agent.
+const AUTH_FAILURE_RE =
+  /terminal prompts disabled|could not read (?:username|password)|authentication failed|permission denied|host key verification failed/i;
+const AUTH_HINT =
+  ' — configure a git credential helper (e.g. `gh auth setup-git`) or load your key into an SSH agent; ralphctl cannot answer a credential prompt';
+
+const pushFailureMessage = (output: string): string =>
+  `git push failed: ${output}${AUTH_FAILURE_RE.test(output) ? AUTH_HINT : ''}`;
 
 interface PushBranchInput {
   readonly sprintId: CreatePrCtx['input']['sprintId'];
@@ -35,7 +45,7 @@ interface PushBranchInput {
 export const createPushBranchLeaf = (deps: CreatePrDeps): Element<CreatePrCtx> =>
   leaf<CreatePrCtx, PushBranchInput, void>('push-branch', {
     useCase: {
-      async execute(input) {
+      async execute(input, signal) {
         // Gate before any remote side effect or AI spend.
         const sprint = await deps.sprintRepo.findById(input.sprintId);
         if (!sprint.ok) return Result.error(sprint.error);
@@ -73,13 +83,16 @@ export const createPushBranchLeaf = (deps: CreatePrDeps): Element<CreatePrCtx> =
           at: deps.clock(),
         });
 
-        const pushed = await deps.gitRunner.run(input.cwd, ['push', '-u', 'origin', branch]);
+        const pushed = await deps.gitRunner.run(input.cwd, ['push', '-u', 'origin', branch], {
+          timeoutMs: GIT_HOOK_TIMEOUT_MS,
+          ...(signal !== undefined ? { signal } : {}),
+        });
         if (!pushed.ok) return Result.error(pushed.error);
         if (pushed.value.exitCode !== 0) {
           return Result.error(
             new StorageError({
               subCode: 'io',
-              message: `git push failed: ${(pushed.value.stderr || pushed.value.stdout).trim()}`,
+              message: pushFailureMessage((pushed.value.stderr || pushed.value.stdout).trim()),
             })
           );
         }
