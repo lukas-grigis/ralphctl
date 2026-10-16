@@ -48,8 +48,8 @@ each status group. A `dependency-gate` leaf at the head of every per-task subcha
 prerequisite contract at run time: if a `dependsOn` task is `blocked`, the dependent transitions to
 `blocked` with `blockKind: 'upstream'` and the subchain body is skipped — no AI spawn wasted. A prerequisite
 that is merely unsettled (a parallel branch that failed before settling) leaves the dependent `todo` for a
-later launch instead, since no unblock would ever re-arm that block. `BlockedTask.blockKind: 'upstream' | 'own'` is the structural discriminant; `isUpstreamBlocked`
-reads it — never the reason-string prefix. Legacy `tasks.json` entries without `blockKind` are migrated at
+later launch instead, since no unblock would ever re-arm that block. `BlockedTask.blockKind: 'upstream' |
+'own'` is the structural discriminant; `isUpstreamBlocked` reads it — never the reason-string prefix. Legacy `tasks.json` entries without `blockKind` are migrated at
 read time. The gate is status-only and works in both the serial and parallel paths. Block is transitive by
 construction (A → B → C cascades automatically). Unblocking the root prerequisite cascade-unblocks the
 entire upstream-blocked subtree in one action (`unblockTaskUseCase` calls `upstreamBlockedDependents` and
@@ -82,7 +82,10 @@ operator stops an implement run (quit confirm, Runs `c`, the run view's cancel p
 attempts that run opened as `aborted` / `user-cancel` once it unwinds (`settle-abandoned-attempts.ts`), so the next
 launch does not report them as a crash. Free attempts are capped: `budgetedAttemptCount` lets at most
 `MAX_CONSECUTIVE_FREE_ATTEMPTS` (3) in a row go free, and every further one in the streak counts, so a task that
-keeps getting interrupted still runs out of budget. In-process crashes (`process-crash`) always count. The run view
+keeps getting interrupted still runs out of budget. When settling the leftover attempt is what exhausts the budget,
+the `resume-budget-gate` leaf (right after `dependency-gate`) persists and announces the block before the task body
+runs, so the task is skipped like any blocked task and the run continues with the next one. In-process crashes
+(`process-crash`) always count. The run view
 and Work show the attempt as the budget counts it (`attempt 1/3 · resumed` after a free resume). The only path that
 resets a task to `todo` is `task unblock`.
 

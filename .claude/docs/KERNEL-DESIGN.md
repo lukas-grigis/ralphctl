@@ -336,8 +336,8 @@ sequential('refine', [
 ### implementFlow (per-task gen-eval loop)
 
 > Simplified for readability. The live topology in
-> `src/application/flows/implement/leaves/per-task-subchain.ts` additionally wraps the task body in a
-> dependency-gate `guard` and adds restore / quarantine diff leaves. This sketch shows the loop / guard
+> `src/application/flows/implement/leaves/per-task-subchain.ts` additionally runs the dependency and
+> resume-budget gates ahead of a `guard` around the task body, and adds restore / quarantine diff leaves. This sketch shows the loop / guard
 > skeleton, not every leaf.
 
 ```ts

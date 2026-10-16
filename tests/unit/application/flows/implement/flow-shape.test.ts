@@ -445,6 +445,13 @@ describe('createPerTaskSubchain — quarantine-blocked-diff placement (serial-pa
     return body?.children ?? [];
   };
 
+  it('runs both gates ahead of the runnable guard on either path, so a gated task never reaches the body', () => {
+    for (const serial of [true, false]) {
+      const heads = (buildSubchain(serial).children ?? []).map((c) => c.name.replace(/-[0-9a-f-]{36}$/, ''));
+      expect(heads).toStrictEqual(['dependency-gate', 'resume-budget-gate', 'task-runnable']);
+    }
+  });
+
   it('keeps the terminal uninstall-skills leaf as the LAST element on the serial path', () => {
     const children = taskBodyChildren(buildSubchain(true));
     const last = children[children.length - 1];

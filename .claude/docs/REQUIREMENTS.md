@@ -217,7 +217,9 @@ and `done → review` — that keep `done` from being a genuine dead end for the
 - [x] **Resume of aborted runs** — tasks left in `in_progress` from a prior crash stay `in_progress` and
       are queued FIRST on relaunch; `start-attempt` settles the leftover `running` attempt as `aborted`
       (cause `harness-interrupted`, free against `maxAttempts`; kept in `attempts[]`) then opens a fresh attempt,
-      resuming the generator's provider session when provider, model and cwd match. Manual `task unblock` is
+      resuming the generator's provider session when provider, model and cwd match. A resume that would
+      exhaust the budget blocks the task before its body runs (`resume-budget-gate`), and the run continues
+      with the next task. Manual `task unblock` is
       the only reset-to-`todo` path. The resume-from-aborted header surfaces in the TUI as
       "attempt N · resumed from aborted M at HH:MM (cause)" using the `AbortCause` discriminated union.
 - [x] **Rate-limit retry** — adapter-side escalating backoff on `RateLimitError`; capped by
