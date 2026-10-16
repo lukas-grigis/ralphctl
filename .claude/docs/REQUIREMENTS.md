@@ -283,11 +283,15 @@ and `done → review` — that keep `done` from being a genuine dead end for the
 - [x] **Bundled skills** — `installSkillsLeaf` / `uninstallSkillsLeaf` bracket every AI session that benefits
       from defaults. Skills are copied into `<repo>/<parentDir>/skills/ralphctl-<name>/` and git-excluded via a
       single `ralphctl-*` wildcard appended to `.git/info/exclude`. Project skills always win over bundled ones.
-      Fifteen bundled skills ship (`ralphctl-abstraction-first`, `ralphctl-alignment`, `ralphctl-iterative-review`,
+      Twenty-five bundled skills ship (`ralphctl-abstraction-first`, `ralphctl-alignment`, `ralphctl-iterative-review`,
       `ralphctl-minimal-scaffolding`, `ralphctl-debugging-and-error-recovery`, `ralphctl-code-review-and-quality`,
       `ralphctl-test-driven-development`, `ralphctl-surgical-simplicity`, `ralphctl-ponytail`,
       `ralphctl-karpathy-guidelines`, `ralphctl-cherny-workflow`, `ralphctl-idea-refinement`,
-      `ralphctl-domain-driven-design`, `ralphctl-security-and-hardening`, `ralphctl-spec-driven-development` — per-skill default/recommended phases in `_engine/registry.ts`'s
+      `ralphctl-domain-driven-design`, `ralphctl-security-and-hardening`, `ralphctl-spec-driven-development`,
+      `ralphctl-api-and-interface-design`, `ralphctl-performance-optimization`, `ralphctl-frontend-ui-engineering`,
+      `ralphctl-deprecation-and-migration`, `ralphctl-code-simplification`, `ralphctl-source-driven-development`,
+      `ralphctl-observability-and-instrumentation`, `ralphctl-codebase-design`, `ralphctl-writing-for-agents`,
+      `ralphctl-humanizer` — per-skill default/recommended phases in `_engine/registry.ts`'s
       `BUNDLED_SKILLS`). Each is validated by `skill-contract-checker.ts` (hard-fail on contract violation)
       before it can ship. Operator drop-in skills (`~/.ralphctl/skills/{claude,copilot,codex,opencode,grok}/…`) install
       through the same path; violations are warnings only.

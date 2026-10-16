@@ -24,6 +24,14 @@ to [Semantic Versioning](https://semver.org/).
   for refine and ideate. It helps turn a vague ticket or idea into sharper requirements — a clear objective, explicit
   scope, testable criteria and named open questions — without adding files or approval steps of its own. It is off
   by default.
+- **Ten more bundled skills.** API and interface design, performance optimisation, frontend UI engineering,
+  deprecation and migration, code simplification, source-driven development, observability, codebase design,
+  writing for agents, and a humanizer for PR descriptions and requirements prose. Each is a Skills catalog
+  suggestion for the phases where it fits and stays off until you enable it, except `ralphctl-writing-for-agents`,
+  which loads by default for readiness because every later AI session reads the context file readiness drafts.
+  Several existing skills also picked up upstream improvements: debugging builds a fast reproduction loop and ranks
+  hypotheses before fixing, test-driven development warns about tests that recompute their own expected value, and
+  code review asks every bug finding to name a concrete failing case.
 - **The README opens with a recording of the loop.** A ~10-second capture shows one task going through it: the
   evaluator fails round 1 with a critique, the generator applies it, and round 2 passes and commits.
   `ralphctl demo --script` replays the same run with no AI CLI and no tokens.

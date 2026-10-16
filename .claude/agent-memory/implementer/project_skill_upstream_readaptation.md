@@ -24,3 +24,9 @@ metadata:
 - Never port upstream artifact files or turn-ending approval gates (SPEC.md, tasks/plan.md, "STOP YOUR
   TURN"): refine/ideate own the single output signal and the operator approval gate, and ideate runs
   Phase 1 → Phase 2 in ONE session, so a stop-after-spec rule would break it.
+- Prettier pads a markdown table to its widest cell, so one long new row in a bundled SKILL.md table
+  rewrites every row of it. Fit new cells inside the existing column widths and move examples to a
+  bullet, or the harvest diff buries the one real change.
+- The flow-signal / evaluator mention scans demote any mention whose own sentence contains "not" or
+  "never" ("say what was not verified in a `note` signal"), so that passage is never checked at all.
+  Use the literal gate phrase anyway; the scan will not catch an ungated variant in such a sentence.

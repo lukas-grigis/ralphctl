@@ -18,11 +18,13 @@
  * `FLOW_SKILLS`; the curated additions below them are promoted into the phases where their
  * discipline is strongest (rationale inline per row). Overlap between skills is deliberate —
  * skill bodies are lightweight and the per-run / per-flow opt-out (`settings.ai.skills`,
- * customize-picker skills step) lets an operator trim any of it. Two curated skills stay
+ * customize-picker skills step) lets an operator trim any of it. Some curated skills stay
  * default-OFF: `ralphctl-cherny-workflow`, because the harness itself already enforces its core
  * loop (plan gate, check gate, evaluator), and `ralphctl-spec-driven-development`, because the
  * refine / ideate prompts already own the requirements output and its approval gate — both are
- * opt-in reinforcements.
+ * opt-in reinforcements. The topic-specific skills at the end of the table are catalog-only too:
+ * each fits only some tasks, and every default costs context on every session of its phase
+ * (implement already loads ten).
  *
  * `FlowId` is re-exported from `domain/value/flow-id.ts` so this module, the settings schema,
  * the skill sources, and the launcher all read one definition of the flow set. The registry
@@ -149,6 +151,69 @@ export const BUNDLED_SKILLS: readonly BundledSkillEntry[] = [
     name: 'ralphctl-spec-driven-development',
     defaultFor: [],
     recommendedFor: ['refine', 'ideate'],
+  },
+  // Topic-specific catalog additions — default-OFF (see the module doc comment); each suggests
+  // only the phases where its topic gets decided or written.
+  {
+    // Interface contracts get shaped when work is split (plan) and written (implement).
+    name: 'ralphctl-api-and-interface-design',
+    defaultFor: [],
+    recommendedFor: ['plan', 'implement'],
+  },
+  {
+    // Measuring needs a shell, which only implement has.
+    name: 'ralphctl-performance-optimization',
+    defaultFor: [],
+    recommendedFor: ['implement'],
+  },
+  {
+    // UI states and accessibility land in the code itself — implement only.
+    name: 'ralphctl-frontend-ui-engineering',
+    defaultFor: [],
+    recommendedFor: ['implement'],
+  },
+  {
+    // Migration phases are sequenced in plan and carried out one per task in implement.
+    name: 'ralphctl-deprecation-and-migration',
+    defaultFor: [],
+    recommendedFor: ['plan', 'implement'],
+  },
+  {
+    // Behaviour-preserving refactoring needs the test loop, so implement only.
+    name: 'ralphctl-code-simplification',
+    defaultFor: [],
+    recommendedFor: ['implement'],
+  },
+  {
+    // Version-grounded API use matters when code is written, and when plan names the pattern.
+    name: 'ralphctl-source-driven-development',
+    defaultFor: [],
+    recommendedFor: ['implement', 'plan'],
+  },
+  {
+    // Telemetry is written with the feature (implement) and belongs in task steps (plan).
+    name: 'ralphctl-observability-and-instrumentation',
+    defaultFor: [],
+    recommendedFor: ['implement', 'plan'],
+  },
+  {
+    // Module depth and seam placement are decided when work is split and when code is written.
+    name: 'ralphctl-codebase-design',
+    defaultFor: [],
+    recommendedFor: ['plan', 'implement'],
+  },
+  {
+    // Default for readiness: its whole output is a context file every future session loads, so
+    // pruning discipline pays there every run. Refine's requirements are agent-read too.
+    name: 'ralphctl-writing-for-agents',
+    defaultFor: ['readiness'],
+    recommendedFor: ['refine'],
+  },
+  {
+    // Human-facing prose: the PR body (createPr) and the requirements text (refine).
+    name: 'ralphctl-humanizer',
+    defaultFor: [],
+    recommendedFor: ['createPr', 'refine'],
   },
 ];
 

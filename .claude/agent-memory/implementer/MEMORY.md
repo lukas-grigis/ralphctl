@@ -26,10 +26,11 @@
 - [project_settings_default_flip_surfaces.md](project_settings_default_flip_surfaces.md) — Every surface that restates a `settings.harness` default, plus the preset-pin seam
 - [project_slugged_data_layout_resolver.md](project_slugged_data_layout_resolver.md) — Slugged data layout, tolerant resolvers, never-delete sprint reconcile, launchers converge first
 - [project_migration_consent_gate_wiring.md](project_migration_consent_gate_wiring.md) — The data-migration consent splash + backup gate and how it is wired
-- [project_skill_upstream_readaptation.md](project_skill_upstream_readaptation.md) — Porting upstream skill drift: diff noise, read-only evaluator trap, what never ports
+- [project_skill_upstream_readaptation.md](project_skill_upstream_readaptation.md) — Porting upstream skill drift: diff noise, table padding, read-only evaluator trap, what never ports
 - [project_skill_selection_resolution_seam.md](project_skill_selection_resolution_seam.md) — Skill selection → `createResolvedSkillSource` resolution path
 - [project_flows_view_soft_repo_default.md](project_flows_view_soft_repo_default.md) — Flows-view repo selection and its soft default
 - [project_doctor_probes_and_escape_keys.md](project_doctor_probes_and_escape_keys.md) — Doctor probes return unknown not fail, useViewKeys can't match Escape, demo seeder marker rule
 - [feedback_concurrent_agent_writes.md](feedback_concurrent_agent_writes.md) — Parallel-agent collisions; zsh no-word-split trap in swap-to-HEAD loops
 - [feedback_worktree_isolation_command_filter.md](feedback_worktree_isolation_command_filter.md) — Isolated runs refuse heredocs/pipelines mentioning git; script via scratchpad files
 - [feedback_concurrent_agent_writes.md](feedback_concurrent_agent_writes.md) — Parallel-agent collisions; zsh no-word-split trap; worktree guard refusing commands that name git twice
+- [feedback_concurrent_agent_writes.md](feedback_concurrent_agent_writes.md) — Parallel-agent collisions; zsh no-word-split trap; worktree Bash guard false positive
