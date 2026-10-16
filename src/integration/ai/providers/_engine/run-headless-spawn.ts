@@ -1,5 +1,7 @@
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { DEFAULT_IDLE_MS, installIdleWatchdog } from '@src/integration/ai/providers/_engine/idle-watchdog.ts';
+import { processGroupOf } from '@src/integration/io/kill-process-tree.ts';
+import { createProcessGroupTerminator } from '@src/integration/io/process-liveness.ts';
 
 /**
  * Shared lifecycle scaffold for headless AI provider spawns. The adapters (claude / codex /
@@ -13,9 +15,9 @@ import { DEFAULT_IDLE_MS, installIdleWatchdog } from '@src/integration/ai/provid
  *  - which exit event to wait on (`'exit'` vs `'close'`)
  *
  * Everything else — listener attach/detach, watchdog install/stop, abort handling, idle
- * warning emission — lives here. Listeners are detached in a `finally` that wraps everything
- * after attach so a throw in `stdin.end` or `installIdleWatchdog` can't leave buffer closures
- * pinned to the child's stream EventEmitters.
+ * warning emission, reaping the leader's process group once it exits — lives here. Listeners are
+ * detached in a `finally` that wraps everything after attach so a throw in `stdin.end` or
+ * `installIdleWatchdog` can't leave buffer closures pinned to the child's stream EventEmitters.
  */
 
 export interface RunHeadlessSpawnOptions {
@@ -57,6 +59,14 @@ export interface SpawnExit {
   readonly spawnError?: NodeJS.ErrnoException;
 }
 
+const groupTerminator = createProcessGroupTerminator();
+
+// A job the CLI backgrounded would outlive the attempt untracked and could hold stdout open past `'close'`.
+const reapGroupOnExit = (child: ChildProcessWithoutNullStreams): void => {
+  const pgid = processGroupOf(child);
+  if (pgid !== undefined) groupTerminator.terminateGroup(pgid);
+};
+
 export const runHeadlessSpawn = async (opts: RunHeadlessSpawnOptions): Promise<SpawnExit> => {
   const { child, onStdout, onStderr, stdin, resolveOn, abortSignal, onIdle } = opts;
   const idleMs = opts.idleMs ?? DEFAULT_IDLE_MS;
@@ -86,6 +96,7 @@ export const runHeadlessSpawn = async (opts: RunHeadlessSpawnOptions): Promise<S
         resolve(exit);
       };
       child.once('error', (err: NodeJS.ErrnoException) => settle({ code: null, signal: null, spawnError: err }));
+      child.once('exit', () => reapGroupOnExit(child));
       child.once(resolveOn, (code, signal) => settle({ code, signal }));
 
       // stdin: send the prompt (claude/codex) or close immediately (copilot reads from argv).

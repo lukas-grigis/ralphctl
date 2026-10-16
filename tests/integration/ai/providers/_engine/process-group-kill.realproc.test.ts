@@ -78,4 +78,41 @@ describe.skipIf(!posix)('headless AI CLI spawns run in their own process group',
 
     expect(await waitForDeath([child, grandchild], 3_000)).toBe(true);
   }, 20_000);
+
+  it('a clean CLI exit reaps a background job it left in its group', async () => {
+    const dir = await fs.mkdtemp(join(tmpdir(), 'ralphctl-pgexit-'));
+    const stub = await writeStubCli(dir, 'claude', { exitsAfterFork: true, quietGrandchild: true });
+    const provider = createClaudeProvider({
+      rateLimitRetries: 0,
+      eventBus: createCapturingBus().bus,
+      command: stub.command,
+      idleMs: 60_000,
+    });
+    const outcome = provider.generate(sessionIn(dir));
+    const { child, grandchild } = await stub.pids();
+    leftovers.push(child, grandchild);
+
+    await outcome;
+
+    expect(await waitForDeath([grandchild], 3_000)).toBe(true);
+  }, 20_000);
+
+  it('a background job still holding the CLI stdout does not hold the attempt open after the CLI exits', async () => {
+    const dir = await fs.mkdtemp(join(tmpdir(), 'ralphctl-pgpipe-'));
+    const stub = await writeStubCli(dir, 'claude', { exitsAfterFork: true });
+    const provider = createClaudeProvider({
+      rateLimitRetries: 0,
+      eventBus: createCapturingBus().bus,
+      command: stub.command,
+      // Far past the test timeout: only the exit-time reap can let the attempt settle in time.
+      idleMs: 60_000,
+    });
+    const outcome = provider.generate(sessionIn(dir));
+    const { child, grandchild } = await stub.pids();
+    leftovers.push(child, grandchild);
+
+    await outcome;
+
+    expect(await waitForDeath([grandchild], 3_000)).toBe(true);
+  }, 20_000);
 });

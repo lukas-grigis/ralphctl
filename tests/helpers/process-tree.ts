@@ -15,23 +15,30 @@ export interface StubCli {
   pids(timeoutMs?: number): Promise<{ readonly child: number; readonly grandchild: number }>;
 }
 
+export interface StubCliOptions {
+  /** Exit cleanly right after forking, leaving the grandchild behind as a background job. */
+  readonly exitsAfterFork?: boolean;
+  /** Point the grandchild's stdio at /dev/null, so it does not hold the CLI's stdout pipe open. */
+  readonly quietGrandchild?: boolean;
+}
+
 /**
  * Write an executable `name` into `dir` that drains stdin, forks `sleep 300`, records
  * `<dir>/child.pid` + `<dir>/grandchild.pid`, and waits — answering `--version` like the retest stub.
  */
-export const writeStubCli = async (dir: string, name = 'claude'): Promise<StubCli> => {
+export const writeStubCli = async (dir: string, name = 'claude', opts: StubCliOptions = {}): Promise<StubCli> => {
   await fs.mkdir(dir, { recursive: true });
   const command = join(dir, name);
   const script = [
     '#!/bin/sh',
     'for a in "$@"; do if [ "$a" = "--version" ]; then echo "2.1.0 (Claude Code)"; exit 0; fi; done',
     'cat > /dev/null',
-    'sleep 300 &',
+    opts.quietGrandchild === true ? 'sleep 300 </dev/null >/dev/null 2>&1 &' : 'sleep 300 &',
     `echo $! > "${join(dir, 'grandchild.pid')}"`,
     `echo $$ > "${join(dir, 'child.pid')}"`,
     // One stdout line after the pids land, so an idle watchdog counts from here, not from spawn.
     'echo \'{"type":"system","subtype":"stub-ready"}\'',
-    'wait',
+    opts.exitsAfterFork === true ? 'exit 0' : 'wait',
     '',
   ].join('\n');
   await fs.writeFile(command, script, { mode: 0o755 });

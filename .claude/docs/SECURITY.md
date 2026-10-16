@@ -168,7 +168,9 @@ While that check is pending or fails, Work hides the interrupted rows and re-che
 **Process groups and the orphan reaper.** Headless AI CLI children are spawned `detached: true` on non-Windows,
 so each leads its own process group; interactive spawns keep the terminal. Abort and the idle watchdog kill the
 whole group (`killProcessTree`, `integration/io/kill-process-tree.ts`, shared with the shell-script runner), so
-tool subprocesses the CLI started die with it. Only children marked as group leaders are group-killed — a test
+tool subprocesses the CLI started die with it. A clean exit does too: once the leader exits, `runHeadlessSpawn`
+SIGTERMs whatever is left in its group (SIGKILL after a grace), so a job the AI backgrounded can't outlive the
+attempt or hold its stdout open. Only children marked as group leaders are group-killed — a test
 fake with a made-up pid gets a single-pid kill. Spawns announce themselves through the `ChildRegistry` port
 (`providers/_engine/child-registry.ts`, wired in `wire()`): the registry feeds the **orphan reaper**
 (`integration/io/orphan-reaper.ts`), a lazily started detached sidecar that holds a pipe from the harness. When
