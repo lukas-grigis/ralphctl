@@ -122,10 +122,10 @@ verdict-less attempt's neighbour. The evaluator reads its iterations from `loop-
   fold, nothing rescues a `done` task's ref (rescue runs only when a task relaunches), so a crash in
   between stranded the commit for good. Fakes of `BuildWaveBranchesDeps` therefore need a `taskRepo`
   even when the test never thinks about tasks — the fold writes.
-- **`adopt-persisted-blocks` adopts every persisted non-`done` row, never a `done`.** The name is
+- **`adopt-persisted-blocks` adopts every persisted `todo` / `in_progress` row, including a landed fold's `done`.** The name is
   older than that scope (kept so the trace / flow-shape fences don't churn). Saving the branch's
   pre-wave copy erased opened attempts, so the operator-stop settle and the free-attempt streak cap
-  never saw them. Refusing `done` is safe only BECAUSE of the hold above — loosen one and the other breaks.
+  never saw them. Adopting a `done` is safe only because a task is recorded done after its fold lands — loosen that and an unfolded task is adopted as done.
 - **The dependency gate must not block on an unsettled prerequisite.** Nothing re-arms that block (the
   unblock cascade starts from a blocked root), so it returns a non-fatal error and the dependent stays
   `todo`. On the serial path a failed prerequisite has already ended the run, so the error surfaces

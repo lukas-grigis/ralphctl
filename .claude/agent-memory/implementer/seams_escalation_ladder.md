@@ -119,7 +119,7 @@ attempt costs no budget either. Only in-process settles (`failed` + `crashed` wa
 primitive in disguise (banned). The honest placement is above the chain — the operator-stop settle
 (`settle-abandoned-attempts.ts`, after the runner's terminal) already does this for `user-cancel`; it
 only sees a parallel attempt because the epilogue's `adopt-persisted-blocks` keeps every persisted
-non-`done` row instead of saving the branch's pre-wave copy over it.
+`todo` / `in_progress` row instead of saving the branch's pre-wave copy over it.
 
 **How to apply:** before adding a new `AbortCause` member or claiming a cause is "recorded", check which
 settle transition actually produces `aborted`.

@@ -33,7 +33,7 @@ re-running the test with the fix reverted.
 
 5. **The 100-column stub hides every WIDE-layout regression on the Execute view.** `ImplementLayout` is
    a two-branch compositor: at ≥140 cols (`layout.sidebarLayout`) it builds its OWN `TasksPanelHost`
-   inside `ImplementMainArea`; below 140 it renders the caller's pre-built `tasksPanel` node via
+   inline; below 140 it renders the caller's pre-built `tasksPanel` node via
    `ExecuteLayout`. A handler threaded only into the pre-built node is a silent no-op on any real wide
    terminal while the width-independent footer keeps advertising it — and every Execute-view test runs
    at the default 100 cols. **When adding a prop to the tasks panel, thread BOTH branches and A/B the
