@@ -7,6 +7,12 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Breaking
+
+- **OpenCode 2 is refused.** Reinstall OpenCode 1 (see Added).
+- **Saved settings are rewritten on load.** Grok `none` / `minimal` effort loads as `low`, and Copilot Opus 4.5, 4.6
+  and 4.7 rows load as Opus 5.5.
+
 ### Added
 
 - **Claude Haiku 5.5.** Claude Code gains `claude-haiku-5-5` (needs Claude Code 2.1.293 or later): $0.10/$0.50 per
@@ -73,6 +79,68 @@ to [Semantic Versioning](https://semver.org/).
   `none` and `minimal`, so they are no longer offered; saved Grok rows using them load as `low`. When the Grok CLI
   does reject an effort, the task stops once with a message naming the setting to change instead of retrying.
 
+**Data safety**
+
+- **Legacy sprint folders are no longer split or deleted at launch.** Existing bare-id sprint directories are merged
+  into their slugged folder before any side file is written, and a reconcile never deletes one. A failed rename keeps
+  the sprint's data together, and git worktree links are repaired after a sprint folder moves.
+- **Migration is harder to block and safer to run.** Orphan memory dirs no longer stop the gate, unreadable ledgers
+  and rotated files are kept in the memory merge, a stale `learnings.md` in a drained legacy dir is dropped, a failed
+  backup removes its partial copy, and symlinks are backed up as links with worktrees skipped. The gate copy no
+  longer promises a full backup.
+- **A journal that can't be read is never overwritten.** `progress.md` is not regenerated over an unreadable
+  journal, and the quarantine breadcrumb is written under the journal lock.
+- **Concurrent edits survive.** `tasks.json` writes carry a lock owner, `plan` / `ideate` keep another session's plan
+  when they commit and refuse when the sprint changed mid-session, and long sessions no longer clobber ticket edits.
+
+**Implement runs**
+
+- **Parallel runs record only what landed.** A task is marked done after its branch is folded, a landed fold keeps
+  its done when a later step fails, attempts survive an abort, and what failed branches persisted is kept.
+- **Dependents are no longer stranded** when a prerequisite is unsettled.
+- **A resume that would exhaust its budget** is blocked before the task body runs and no longer stops a serial run.
+- **Locking.** Manual unblock, close-sprint and sprint updates take the sprint lock, and unblock waits out a live run.
+  Done transitions apply to the sprint as it is on disk, and unblock keys on the sprint's current directory.
+
+**Git**
+
+- **Long hooks are no longer killed at 30 seconds.** Hook-running git verbs are bounded separately from network
+  verbs, a cancel reaches them, their processes are reaped when ralphctl exits, and git never prompts for
+  credentials inside the TUI. The credential hint appears only for SSH key rejections.
+- **PR and MR bodies go over stdin** instead of argv, and the repo path is shell-quoted in the create-pr commands.
+  The PR body closes only issues whose tasks all landed done.
+
+**Providers**
+
+- **Final error records are no longer lost.** Headless spawns settle on `close`, so the last stdout records land;
+  setup and verify scripts settle on exit, a CLI's process group is reaped when it exits cleanly, and a recycled pid
+  no longer keeps a stale skill install alive.
+- **Codex session resume works again.**
+- **Claude Code effort follows the model.** The level is narrowed to what the chosen model accepts.
+
+**Settings and domain**
+
+- Verify-gate prefixes match a leading `./` or `/`; an empty plan is rejected instead of stranding a planned sprint;
+  absolute paths containing `~` or `$` are accepted; applying a preset keeps skill opt-outs and agent bindings.
+- Empty values for numeric settings keys are rejected, `settings set` refuses a retired effort or model, an
+  unexpanded `RALPHCTL_HOME` is refused, and an invalid `settings.json` gets a repair hint.
+- Pre-release users are told when the stable release ships.
+
+**TUI**
+
+- The Execute tasks panel no longer freezes when its buffer slides and shows attempt, commit and ETA chips. Esc
+  collapses the narrow layout before popping, and leaves the create-project error step.
+- Ink owns bracketed paste, so the terminal's paste mode is restored on every exit.
+- `runs prune` rejects an empty or non-decimal `--keep-last`; the create-project wizard rejects duplicate slugs.
+
+**Prompts**
+
+- The prompt contract outranks skills and context files, with a tighter stop list for autonomous runs. One-shot
+  sessions keep going until the signals file is written. The evaluator records pre-existing defects instead of
+  failing a round for them and names recurring patterns. Implement sizes its tests, records assumptions and edits
+  surgically. PR descriptions ask for literal prose. Inventory also reads Grok and Claude rules directories, and the
+  bundled generator takes the most directly supported reading of an ambiguous requirement.
+
 ### Removed
 
 - **Retired Codex and Copilot models.** Codex retired `gpt-5.5` on 2026-10-14 and Copilot retired `gpt-5.5`, `gpt-5.4`,
@@ -81,6 +149,8 @@ to [Semantic Versioning](https://semver.org/).
   Copilot's `gpt-5.4`, `gpt-5.6-luna` for `gpt-5.4-mini` and `gpt-5-mini`, `gemini-3.8-flash` and `grok-4.6`. Codex
   rows on `gpt-5.2` or `gpt-5.3-codex` now switch to `gpt-5.6-sol` too. `grok-4.5` stays available on the Grok
   provider.
+- **Copilot prompt inlining.** A Copilot attempt no longer falls back to inlining the prompt when its file can't be
+  written; it fails with the reason.
 
 ## [0.26.0] - 2026-10-08
 
