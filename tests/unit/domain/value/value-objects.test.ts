@@ -87,6 +87,8 @@ describe('AbsolutePath', () => {
     '/home/u/proj~v2',
     '/tmp/RUNNER~1/x',
     '/srv/$build',
+    // A real repo dir may carry a literal `${...}`; the unexpanded-env guard lives on RALPHCTL_HOME only.
+    '/srv/${x}/y',
   ])('accepts an absolute path with "~" or "$" past the root: %s', (input) => {
     expect(AbsolutePath.parse(input).ok).toBe(true);
   });

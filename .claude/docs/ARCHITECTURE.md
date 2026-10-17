@@ -609,7 +609,8 @@ subtree in [diagrams/02-sprint-lifecycle.md § On-disk shape](./diagrams/02-spri
 mirrors it and should stay in sync.
 
 The `RALPHCTL_HOME` env var, when set to an absolute path, replaces the entire `<home>/.ralphctl` prefix.
-Used by integration tests that spawn real subprocesses, and by users who want a non-default data location.
+A value still carrying an unexpanded `${VAR}` or `$(cmd)` is refused at boot rather than created as a
+literal directory; a bare `$name` is a legal directory name and passes. Used by integration tests that spawn real subprocesses, and by users who want a non-default data location.
 
 ## Data Models
 

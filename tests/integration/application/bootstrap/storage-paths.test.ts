@@ -86,6 +86,16 @@ describe('resolveStoragePaths', () => {
     expect(fromEnv.ok && String(fromEnv.value.appRoot)).toBe('/srv/$build');
   });
 
+  // Bare `$name` stays legal (`/srv/$build`); braced and command-substitution forms only come from an unexpanded export.
+  it.each(['/srv/${TEAM}/ralph', '/a/$(whoami)/b'])('refuses an unexpanded RALPHCTL_HOME: %s', (override) => {
+    const result = resolveStoragePaths({ homedir: () => '/home/alice', env: { [RALPHCTL_HOME_ENV]: override } });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.field).toBe(RALPHCTL_HOME_ENV);
+    expect(result.error.value).toBe(override);
+    expect(result.error.message).toContain('looks unexpanded');
+  });
+
   it('returns ValidationError when RALPHCTL_HOME is set to a relative path', () => {
     const result = resolveStoragePaths({
       homedir: () => '/home/alice',
