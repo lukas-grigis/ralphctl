@@ -22,5 +22,10 @@ list — it must also re-declare `typeRoots` (absolute, to the repo's `node_modu
 values, because both resolve relative to the extending config's directory and silently break otherwise. Prefer this
 over `baseUrl` (TS 6 deprecation error).
 
+Scratchpad files handed over by a workflow (e.g. a `known-decisions.md`) can fail to `Read` at `/private/tmp/...` with
+"does not exist" while `find / -name <file>` shows them under `/System/Volumes/Data/private/tmp/...`. Retry the Read at
+that prefix before concluding the file is missing, and read it before listing findings so deliberate decisions are not
+re-reported. Also: `grep --include=*.ts` unquoted dies in zsh with "no matches found"; quote it.
+
 The Bash shell is zsh: `F="a.ts b.ts"; npx eslint $F` passes ONE path (no word-splitting) and eslint/prettier fail with
 "no files matching" / ENAMETOOLONG. Write the list to a scratchpad file and pipe it through `xargs`.

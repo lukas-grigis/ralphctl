@@ -26,3 +26,16 @@
 - [lesson_group_kill_gate_must_exclude_injected_fakes.md](lesson_group_kill_gate_must_exclude_injected_fakes.md) — Group-leader marking at a spawn site also marks injected fakes; hostname as same-host test is unstable
 - [lesson_unscoped_bus_event_to_os_notification.md](lesson_unscoped_bus_event_to_os_notification.md) — Shared enqueue point publishes for foreground prompts too; require a negative test; run full suite for timer tests
 - [lesson_memoized_clock_and_unmount_cleanup.md](lesson_memoized_clock_and_unmount_cleanup.md) — Tick state not in useMemo deps freezes elapsed text; unmount cleanup that drops a pending banner-clear leaves it sticky
+- [lesson_reworded_skill_claim_needs_ngram_probe.md](lesson_reworded_skill_claim_needs_ngram_probe.md) — "Written fresh" skill claims: 5-gram overlap probe vs the vendored raw copy
+- [lesson_budget_raised_without_signal_threading.md](lesson_budget_raised_without_signal_threading.md) — Longer timeout + optional signal: grep every site of the new budget for a signal, not just the named verbs
+- [lesson_engine_option_removal_and_close_only_settle.md](lesson_engine_option_removal_and_close_only_settle.md) — Option removal leaves stale public docs/ snippets; close-only settle unbounded on Windows / setsid escapees
+- [lesson_nonfatal_error_is_path_dependent.md](lesson_nonfatal_error_is_path_dependent.md) — Non-fatal leaf error: wave scheduler absorbs it, serial sequential halts; check both paths
+- [lesson_compare_then_write_guard_must_cover_every_write.md](lesson_compare_then_write_guard_must_cover_every_write.md) — Ticket-only guard before save-tasks leaves status + reject path open; tsx probe of the tail leaves
+- [lesson_new_lock_holder_checklist.md](lesson_new_lock_holder_checklist.md) — New holder of the sprint-dir lock or new lock file: hidden readers, prompts under lock, optional locker degrade
+- [lesson_parse_time_migration_coerces_on_save.md](lesson_parse_time_migration_coerces_on_save.md) — Zod-preprocess migration also fires in save(); `settings set` echoes one value, persists another
+- [lesson_relaxed_validator_consumer_audit.md](lesson_relaxed_validator_consumer_audit.md) — Loosened AbsolutePath: audit shell/regex/replace consumers; a narrower rule keeps the `${VAR}` typo guard
+- [lesson_tui_error_step_dead_end_probe.md](lesson_tui_error_step_dead_end_probe.md) — Wizard claiming prompt for its whole life has no Esc on error step; probe via useGlobalKeys + scratchpad vitest config
+- [lesson_detached_spawn_needs_reaper_registration.md](lesson_detached_spawn_needs_reaper_registration.md) — `detached: true` drops terminal-hangup propagation; check OrphanReaper wiring, killpg-SIGHUP probe recipe
+- [lesson_ensure_helper_must_return_resolvable_path.md](lesson_ensure_helper_must_return_resolvable_path.md) — Best-effort "ensure dir" returning the target after a failed move splits data from side files; `chflags uchg` probe
+- [lesson_verify_cli_claims_from_published_package.md](lesson_verify_cli_claims_from_published_package.md) — Sandbox reaches npm: `npm view` dist-tags, `npm pack` + `strings` to confirm external CLI env vars/flags
+- [lesson_prompt_shell_quoting_is_shell_specific.md](lesson_prompt_shell_quoting_is_shell_specific.md) — POSIX single-quoting in prompt templates is untested on cmd/PowerShell; the sh round-trip test can't see it
