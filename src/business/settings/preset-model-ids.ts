@@ -13,7 +13,8 @@
  * both catalogs for pinned rows.
  *
  * `COPILOT_OPUS` is `claude-opus-5.5`: GitHub gates Opus 4.8, 5 and 5.5 to the same plans (Pro+ and
- * up), and 5.5 is cheaper. Opus 4.8 stays for pinned rows and as its first stand-in.
+ * up), and 5.5 is cheaper. Opus 4.8 stays for pinned rows only until it retires on 2026-11-16; it is
+ * not a stand-in, so an unavailable Opus 5.5 steps to Sonnet 5.5.
  *
  * `HAIKU` (`claude-haiku-5-5`) runs only the fast / economic Claude presets' light flows; implement
  * stays on Sonnet or above. No Copilot Haiku constant — that id is unverified.
