@@ -1,11 +1,13 @@
-/** Fail-fast PATH check used by every launcher that opens an AI session. */
+/** Fail-fast PATH + CLI-version check used by every launcher that opens an AI session. */
 
 import {
   detectInstalledProviders,
   primaryInstallCommand,
+  probeUnsupportedVersion,
   PROVIDER_BINARY,
   PROVIDER_INSTALL_GUIDANCE,
 } from '@src/integration/system/detect-cli.ts';
+import type { ProbeProviderVersion, UnsupportedProviderVersion } from '@src/integration/system/_engine/detect-cli.ts';
 import { type AiProvider, primaryFlowRow, type Settings } from '@src/domain/entity/settings.ts';
 import type { FlowId } from '@src/domain/value/flow-id.ts';
 import type { LaunchExtras, LaunchResult } from '@src/application/ui/shared/launcher.ts';
@@ -20,6 +22,8 @@ export interface CheckCliOptions {
    * Per-launch implement-role overrides (from the TUI customize picker or the bare-`ralphctl` CLI flags).
    */
   readonly implementRoleOverrides?: LaunchExtras['implementRoleOverrides'];
+  /** Test seam — defaults to the production `probeUnsupportedVersion`. */
+  readonly probeVersion?: ProbeProviderVersion;
 }
 
 /** One row's expectation under the launch-time probe. */
@@ -71,18 +75,45 @@ const rowExpectationsFor = (
   ];
 };
 
+const roleSuffixOf = (m: RowExpectation): string => (m.role !== undefined ? ` (${m.role})` : '');
+
+// Per-run overrides come from the customize picker / CLI flag — the saved settings key is unchanged.
+const sourceOf = (m: RowExpectation): string =>
+  m.fromOverride ? `per-run override (${m.settingsKey} unchanged)` : m.settingsKey;
+
 const renderMissing = (missing: readonly RowExpectation[], aiFlow: FlowId): string => {
   const formatOne = (m: RowExpectation): string => {
     const binary = PROVIDER_BINARY[m.provider];
     const installHint = primaryInstallCommand(m.provider);
     const docsUrl = PROVIDER_INSTALL_GUIDANCE[m.provider].docsUrl;
-    const roleSuffix = m.role !== undefined ? ` (${m.role})` : '';
-    // Per-run overrides come from the customize picker / CLI flag — the operator picked this provider transiently and
-    // the saved settings key is unchanged.
-    const source = m.fromOverride ? `per-run override (${m.settingsKey} unchanged)` : m.settingsKey;
-    return `CLI ${binary} not on PATH for flow ${aiFlow}${roleSuffix}. Change ${source} or install with: ${installHint} (alternatives: ${docsUrl}).`;
+    return `CLI ${binary} not on PATH for flow ${aiFlow}${roleSuffixOf(m)}. Change ${sourceOf(m)} or install with: ${installHint} (alternatives: ${docsUrl}).`;
   };
   return missing.map(formatOne).join(' ');
+};
+
+const renderUnsupported = (
+  rows: ReadonlyArray<{ readonly row: RowExpectation; readonly issue: UnsupportedProviderVersion }>,
+  aiFlow: FlowId
+): string =>
+  rows
+    .map(({ row, issue }) => {
+      const binary = PROVIDER_BINARY[row.provider];
+      const line = `${String(issue.supportedMajor)}.x`;
+      return `${binary} ${issue.version} is not supported for flow ${aiFlow}${roleSuffixOf(row)} — ralphctl needs ${binary} ${line}. Change ${sourceOf(row)} or install ${line} with: ${issue.installHint}.`;
+    })
+    .join(' ');
+
+/** One `--version` read per distinct provider; rows sharing a provider share its answer. */
+const findUnsupportedVersions = async (
+  expectations: readonly RowExpectation[],
+  probe: ProbeProviderVersion
+): Promise<ReadonlyArray<{ readonly row: RowExpectation; readonly issue: UnsupportedProviderVersion }>> => {
+  const providers = [...new Set(expectations.map((e) => e.provider))];
+  const answers = new Map(await Promise.all(providers.map(async (p) => [p, await probe(p)] as const)));
+  return expectations.flatMap((row) => {
+    const issue = answers.get(row.provider);
+    return issue === undefined ? [] : [{ row, issue }];
+  });
 };
 
 export const checkCli = async (
@@ -98,6 +129,8 @@ export const checkCli = async (
   // Dedupe by provider+role — when implement's two roles target the same provider, a single missing binary surfaces
   // once per role, which is fine (the operator wants to know both roles are blocked).
   const missing = expectations.filter((e) => !installed.has(e.provider));
-  if (missing.length === 0) return undefined;
-  return { ok: false, reason: renderMissing(missing, aiFlow) };
+  if (missing.length > 0) return { ok: false, reason: renderMissing(missing, aiFlow) };
+  const unsupported = await findUnsupportedVersions(expectations, options.probeVersion ?? probeUnsupportedVersion);
+  if (unsupported.length === 0) return undefined;
+  return { ok: false, reason: renderUnsupported(unsupported, aiFlow) };
 };

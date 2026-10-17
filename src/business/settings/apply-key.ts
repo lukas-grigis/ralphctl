@@ -7,8 +7,9 @@ import type {
   AiSettings,
   Settings,
 } from '@src/domain/entity/settings.ts';
-import { AI_PROVIDERS, isAiProvider } from '@src/domain/entity/settings.ts';
+import { AI_PROVIDERS, isAiProvider, remapRetiredModel } from '@src/domain/entity/settings.ts';
 import { FLOW_IDS, type FlowId } from '@src/domain/value/flow-id.ts';
+import { PROVIDER_EFFORT_LEVELS } from '@src/domain/value/settings-models/effort.ts';
 
 /**
  * Apply a single dotted-path change to a {@link Settings} record. Pure — does not touch
@@ -16,8 +17,10 @@ import { FLOW_IDS, type FlowId } from '@src/domain/value/flow-id.ts';
  * through this function so the supported key vocabulary is one truth.
  *
  * Final domain validation (numeric ranges, enum membership, provider/model coherence) happens
- * at the persistence boundary via `SettingsSchema`, so this only fails loud on shape errors:
- * unknown keys, non-numeric values where a number was required.
+ * at the persistence boundary via `SettingsSchema`, so this only fails loud on shape errors
+ * (unknown keys, non-numeric values where a number was required) and on row values the schema's
+ * load-time migration would silently rewrite instead of reject: a retired model id, and an effort
+ * outside the row provider's vocabulary (checked whole, so a retired level is refused, not `low`).
  *
  * Note: `ai.provider` and `ai.models.<flow>` (the v1 grammar) are rejected as unknown keys
  * here — switching a flow's provider goes through the dedicated `settings-set-provider` flow
@@ -65,16 +68,38 @@ const updateFlowRow = (
     return Result.ok({ ...row, provider: raw } as AiFlowSettings);
   }
   if (field === 'model') {
+    // Save would silently remap a retired id, so refuse it here and name the successor instead.
+    const successor = remapRetiredModel(row.provider, raw);
+    if (successor !== raw) {
+      return Result.error(
+        new ValidationError({
+          field: fieldKey,
+          value: raw,
+          message: `'${raw}' is retired on ${row.provider}`,
+          hint: `use '${successor}'`,
+        })
+      );
+    }
     return Result.ok({ ...row, model: raw } as AiFlowSettings);
   }
-  // effort: trim + store; persistence schema validates the value against the provider's
-  // native effort enum (`ClaudeEffortSchema`, `CopilotEffortSchema`, `CodexEffortSchema`).
   const trimmed = raw.trim();
   if (trimmed.length === 0) {
     // Empty input clears the per-flow effort (falls back to global effort, then the flow's shipped default).
     const { effort: _drop, ...rowWithoutEffort } = row;
     void _drop;
     return Result.ok(rowWithoutEffort as AiFlowSettings);
+  }
+  // Checked here, not left to the schema: save's load-time migration would rewrite a retired level to `low`.
+  const levels: readonly string[] = PROVIDER_EFFORT_LEVELS[row.provider];
+  if (!levels.includes(trimmed)) {
+    return Result.error(
+      new ValidationError({
+        field: fieldKey,
+        value: trimmed,
+        message: `'${trimmed}' is not a valid effort for ${row.provider}`,
+        hint: `expected one of: ${levels.join(', ')}`,
+      })
+    );
   }
   return Result.ok({ ...row, effort: trimmed } as AiFlowSettings);
 };
@@ -252,13 +277,17 @@ const applyEscalationMapKey = (current: Settings, key: string, raw: string): Res
   return Result.ok({ ...current, harness: { ...current.harness, escalationMap: nextMap } });
 };
 
-/** Shared shape for the four numeric `harness.*` keys — same parse-and-error, different field. */
+/** Shared shape for every numeric settings key — same parse-and-error, different field. */
 const applyNumberField = (
   current: Settings,
   key: string,
   raw: string,
   apply: (current: Settings, n: number) => Settings
 ): Result<Settings, ValidationError> => {
+  // `Number('')` is 0, so a cleared field would silently store zero.
+  if (raw.trim().length === 0) {
+    return Result.error(new ValidationError({ field: key, value: raw, message: `'${key}' needs a number` }));
+  }
   const n = Number(raw);
   if (!Number.isFinite(n)) {
     return Result.error(new ValidationError({ field: key, value: raw, message: `'${raw}' is not a number` }));

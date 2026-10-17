@@ -21,12 +21,13 @@ export const GROK_MODELS: readonly GrokModel[] = ['grok-4.7', 'grok-4.7-build-fa
 export const isGrokModel = (s: string): s is GrokModel => (GROK_MODELS as readonly string[]).includes(s);
 
 /**
- * Effort levels each Grok model accepts — the CLI takes `none..max`, the models cap lower (models.dev
- * xai data, not live-probed). `none` / `minimal` stay so a pinned `minimal` row isn't raised to `low`;
+ * Effort levels each Grok model accepts — the model menus shipped in Grok Build CLI 1.0.62
+ * (`grok-4.6` / `grok-4.7` low..xhigh, `grok-4.5` low..high). The CLI refuses a level the menu
+ * doesn't list, so `none` / `minimal` are gone; saved rows carrying them load as `low`.
  * `grok-4.7-build-fast` has no published data, so it passes through.
  */
 export const GROK_MODEL_EFFORT_LEVELS: Readonly<Partial<Record<GrokModel, readonly string[]>>> = {
-  'grok-4.7': ['none', 'minimal', 'low', 'medium', 'high', 'xhigh'],
-  'grok-4.6': ['none', 'minimal', 'low', 'medium', 'high', 'xhigh'],
-  'grok-4.5': ['none', 'minimal', 'low', 'medium', 'high'],
+  'grok-4.7': ['low', 'medium', 'high', 'xhigh'],
+  'grok-4.6': ['low', 'medium', 'high', 'xhigh'],
+  'grok-4.5': ['low', 'medium', 'high'],
 };

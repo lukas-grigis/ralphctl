@@ -64,4 +64,20 @@ describe('useTaskRoundVerdicts', () => {
     expect(last.size).toBe(1);
     r.unmount();
   });
+
+  it('keeps one bus subscription across re-renders', () => {
+    const real = createInMemoryEventBus();
+    let subscribes = 0;
+    const bus: typeof real = {
+      ...real,
+      subscribe: (listener) => {
+        subscribes += 1;
+        return real.subscribe(listener);
+      },
+    };
+    const r = render(<Probe bus={bus} onState={() => undefined} />);
+    for (let i = 0; i < 4; i++) r.rerender(<Probe bus={bus} onState={() => undefined} />);
+    expect(subscribes).toBe(1);
+    r.unmount();
+  });
 });

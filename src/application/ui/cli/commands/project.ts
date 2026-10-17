@@ -1,7 +1,7 @@
 import type { Command } from 'commander';
 import type { Project } from '@src/domain/entity/project.ts';
 import { ProjectId } from '@src/domain/value/id/project-id.ts';
-import { bootstrapCli } from '@src/application/ui/cli/bootstrap.ts';
+import { bootstrapApp } from '@src/application/bootstrap/bootstrap-app.ts';
 import { plural } from '@src/application/ui/shared/plural.ts';
 import { confirmDestructive } from '@src/application/ui/cli/confirm-destructive.ts';
 import { fail } from '@src/application/ui/cli/report-cli-error.ts';
@@ -12,7 +12,7 @@ interface RemoveOpts {
 }
 
 const listProjectsAction = async (): Promise<void> => {
-  const { deps } = await bootstrapCli();
+  const { deps } = await bootstrapApp();
   const result = await deps.projectRepo.list();
   if (!result.ok) {
     fail(result.error.message);
@@ -28,7 +28,7 @@ const listProjectsAction = async (): Promise<void> => {
 };
 
 const showProjectAction = async (raw?: string): Promise<void> => {
-  const { deps, storage } = await bootstrapCli();
+  const { deps, storage } = await bootstrapApp();
   // Fall back to the pinned selection when no id is given.
   let effectiveRaw = raw;
   if (effectiveRaw === undefined) {
@@ -68,7 +68,7 @@ const removeProjectAction = async (raw: string, opts: RemoveOpts): Promise<void>
   });
   if (!confirmed) return;
 
-  const { deps, storage } = await bootstrapCli();
+  const { deps, storage } = await bootstrapApp();
   const result = await deps.projectRepo.remove(id.value);
   if (!result.ok) {
     fail(result.error.message);

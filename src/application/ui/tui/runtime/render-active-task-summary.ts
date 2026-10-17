@@ -87,7 +87,6 @@ const lastVerdict = (task: TaskBucket): string | undefined => {
   return last?.status;
 };
 
-/** @public */
 export interface ActiveTaskSummaryInput {
   readonly task: TaskBucket;
   readonly displayName: string;

@@ -1,6 +1,8 @@
 import { Result } from '@src/domain/result.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
+import { attachTicketLink } from '@src/domain/entity/sprint.ts';
 import {
+  createdLink,
   publishSaveFailedError,
   publishTicketToTracker,
   type PublishTicketToTrackerOutput,
@@ -14,7 +16,7 @@ import type { TicketPublishDeps } from '@src/application/flows/publish-ticket/de
 /**
  * Create a tracker issue for a ticket, or post an idempotent refinement comment on an
  * existing link. Linear: load sprint → load its project → publish against the first
- * repository path → save the returned sprint. Origin is always that first repo; the
+ * repository path → write a created issue's link onto the fresh sprint (locked `update`). Origin is always that first repo; the
  * project's `defaultIssueOrigin` is not consulted.
  */
 export const createTicketPublishFlow = (deps: TicketPublishDeps): Element<TicketPublishCtx> =>
@@ -45,8 +47,13 @@ export const createTicketPublishFlow = (deps: TicketPublishDeps): Element<Ticket
         });
         if (!published.ok) return Result.error(published.error);
 
-        const saved = await deps.sprintRepo.save(published.value.sprint);
-        if (!saved.ok) return Result.error(publishSaveFailedError(published.value, input.ticketId, saved.error));
+        const link = createdLink(published.value, input.ticketId);
+        if (link !== undefined) {
+          const saved = await deps.sprintRepo.update(input.sprintId, (fresh) =>
+            attachTicketLink(fresh, input.ticketId, link)
+          );
+          if (!saved.ok) return Result.error(publishSaveFailedError(published.value, input.ticketId, saved.error));
+        }
 
         return Result.ok(published.value);
       },

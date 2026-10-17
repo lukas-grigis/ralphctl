@@ -334,7 +334,6 @@ const findViolationsInLine = (line: string, lineNumber: number, rules: readonly 
  * @param skillName folder / frontmatter name, echoed back for caller correlation.
  * @param content   raw SKILL.md body (frontmatter or not — frontmatter lines are harmless prose).
  * @returns a {@link SkillContractReport}; `pass` is true iff no rule tripped.
- * @public
  */
 export const checkSkillContract = (skillName: string, content: string): SkillContractReport => {
   const violations: SkillViolation[] = [];
@@ -366,8 +365,6 @@ export const checkSkillContract = (skillName: string, content: string): SkillCon
  * Operator-skill warn path: log one warn-level line per contract violation. Never throws — a
  * malformed operator skill should degrade to a warning, not crash the flow. Bundled skills are
  * gated by the contract test instead, so this fires only for user-authored skills at install time.
- *
- * @public
  */
 export const warnIfContractViolated = (logger: Logger, skillName: string, content: string): void => {
   const report = checkSkillContract(skillName, content);

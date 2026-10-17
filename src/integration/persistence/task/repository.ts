@@ -12,6 +12,9 @@ import { sprintDirOrBare } from '@src/integration/persistence/storage.ts';
 import { decode } from '@src/integration/persistence/shared/decode.ts';
 import type { FileLocker } from '@src/integration/io/file-locker.ts';
 
+// Stamps the lock owner so a lock left by a killed writer is reclaimed at once; reads as "is running <purpose>".
+const TASKS_LOCK = { purpose: 'a tasks.json write' } as const;
+
 export interface FsTaskRepositoryDeps {
   /** Root of the on-disk layout. Each sprint's task set lives at `<root>/sprints/<id>--<slug>/tasks.json`. */
   readonly root: AbsolutePath;
@@ -94,7 +97,7 @@ export const createFsTaskRepository = (deps: FsTaskRepositoryDeps): TaskReposito
       // Take the same per-file lock as `update()` so a wholesale rewrite (e.g. the cascade-unblock
       // read-modify-writeAll in `unblock-task`) can't interleave with a concurrent `update()` and
       // clobber its write. The lock path is built identically to `update()`.
-      const locked = await deps.fileLocker.withLock(lockPath.value, doWriteAll);
+      const locked = await deps.fileLocker.withLock(lockPath.value, doWriteAll, TASKS_LOCK);
       if (!locked.ok) return Result.error(locked.error);
       return locked.value;
     },
@@ -125,7 +128,7 @@ export const createFsTaskRepository = (deps: FsTaskRepositoryDeps): TaskReposito
       // The lock serialises read-modify-write so a concurrent writer can't slip in between our
       // `readAll` and `writeAll`. Note we hold the lock only for the update itself; reads
       // remain unlocked because they're safe on an atomically-written file.
-      const locked = await deps.fileLocker.withLock(lockPath.value, doUpdate);
+      const locked = await deps.fileLocker.withLock(lockPath.value, doUpdate, TASKS_LOCK);
       if (!locked.ok) return Result.error(locked.error);
       return locked.value;
     },

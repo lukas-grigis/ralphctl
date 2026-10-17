@@ -52,7 +52,6 @@ export const STDOUT_LINE_PARSE_CAP = 524_288;
  */
 export const FORENSIC_BODY_TAIL_CAP = 262_144;
 
-/** @public */
 export interface BoundedTail {
   /** Append a chunk, trimming the retained window back to the cap when it overflows. */
   append(chunk: string): void;
@@ -60,7 +59,6 @@ export interface BoundedTail {
   value(): string;
 }
 
-/** @public */
 export const createBoundedTail = (capBytes: number): BoundedTail => {
   let buf = '';
   return {
@@ -82,8 +80,6 @@ export const createBoundedTail = (capBytes: number): BoundedTail => {
  * warning fires exactly ONCE per parser so a pathologically long unterminated line does not
  * itself spam one warning per chunk. Unified here from byte-identical local copies (they
  * differed only in the `[<stream>]` warn prefix) so the siblings can't drift.
- *
- * @public
  */
 export const createCappedAppend = (streamLabel: string): ((buffer: string, chunk: string) => string) => {
   let overflowWarned = false;

@@ -20,7 +20,6 @@ import { resolveSprintDir } from '@src/integration/persistence/storage.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 
-/** @public */
 export type MarkdownExportRunState =
   | { readonly kind: 'idle' }
   | { readonly kind: 'running' }

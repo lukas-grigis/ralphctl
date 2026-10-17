@@ -18,6 +18,8 @@ import type { TokenUsageEvent } from '@src/business/observability/events.ts';
 
 interface FakeChildScript {
   readonly stdoutChunks?: readonly string[];
+  /** Delivered after `exit` and before `close`, the order a real child's final pipe data can take. */
+  readonly stdoutAfterExit?: readonly string[];
   readonly stderrChunks?: readonly string[];
   readonly exitCode?: number | null;
   readonly exitSignal?: NodeJS.Signals | null;
@@ -45,7 +47,10 @@ const makeFakeChild = (script: FakeChildScript): ChildProcessWithoutNullStreams 
     stdin,
     kill(): boolean {
       child._killed = true;
-      setTimeout(() => child.emit('exit', null, 'SIGTERM'), 0);
+      setTimeout(() => {
+        child.emit('exit', null, 'SIGTERM');
+        setTimeout(() => child.emit('close', null, 'SIGTERM'), 0);
+      }, 0);
       return true;
     },
     _killed: false,
@@ -54,7 +59,15 @@ const makeFakeChild = (script: FakeChildScript): ChildProcessWithoutNullStreams 
     for (const chunk of script.stdoutChunks ?? []) stdout.emit('data', chunk);
     for (const chunk of script.stderrChunks ?? []) stderr.emit('data', chunk);
     if (script.hang === true) return;
-    setTimeout(() => child.emit('exit', script.exitCode ?? 0, script.exitSignal ?? null), 0);
+    setTimeout(() => {
+      const code = script.exitCode ?? 0;
+      const signal = script.exitSignal ?? null;
+      child.emit('exit', code, signal);
+      setTimeout(() => {
+        for (const chunk of script.stdoutAfterExit ?? []) stdout.emit('data', chunk);
+        child.emit('close', code, signal);
+      }, 0);
+    }, 0);
   }, 0);
   return child;
 };
@@ -643,6 +656,39 @@ describe('createCodexProvider', () => {
     expect(out.error.message).not.toContain('rmcp');
   });
 
+  it('reads the final error record even when it reaches stdout after the exit event', async () => {
+    // Node may deliver a child's last pipe data after `exit`; only `close` guarantees it drained.
+    const apiError = JSON.stringify({
+      type: 'error',
+      error: { type: 'invalid_request_error', message: "Unsupported value: 'ultra'", param: 'reasoning.effort' },
+      status: 400,
+    });
+    const cap = createCapturingBus();
+    const { spawn, calls } = makeSpawn([
+      {
+        stdoutChunks: ['{"type":"thread.started","thread_id":"t-late"}\n'],
+        stdoutAfterExit: [`${JSON.stringify({ type: 'turn.failed', error: { message: apiError } })}\n`],
+        exitCode: 1,
+      },
+    ]);
+    const fsStub = stubFs('unused');
+    const provider = createCodexProvider({
+      rateLimitRetries: 2,
+      eventBus: cap.bus,
+      spawn,
+      readFile: fsStub.readFile,
+      unlink: fsStub.unlink,
+      mkTempPath: fsStub.mkTempPath,
+    });
+
+    const out = await provider.generate({ ...session(), model: 'gpt-5.6-luna', effort: 'ultra' });
+    expect(calls).toHaveLength(1);
+    expect(out.ok).toBe(false);
+    if (out.ok) return;
+    expect(out.error.code).toBe('invalid-state');
+    expect(out.error.message).toContain("Unsupported value: 'ultra'");
+  });
+
   it('cleans up the output tempfile even when the call errors', async () => {
     const cap = createCapturingBus();
     const { spawn } = makeSpawn([{ stderrChunks: ['some failure\n'], exitCode: 7 }]);
@@ -987,9 +1033,14 @@ describe('buildCodexArgs — AiSession → CLI argv translation', () => {
     expect(args.slice(0, 3)).toEqual(['exec', 'resume', 'sess-abc']);
   });
 
-  it('always emits --ephemeral, --skip-git-repo-check, -o <tmpfile>, --json', () => {
+  it('never emits --ephemeral, fresh or resumed — `exec resume` needs the rollout on disk', () => {
+    const id = 'sess-abc' as unknown as SessionId;
+    expect(unwrapArgs(session())).not.toContain('--ephemeral');
+    expect(unwrapArgs(session({ resume: id }))).not.toContain('--ephemeral');
+  });
+
+  it('always emits --skip-git-repo-check, -o <tmpfile>, --json', () => {
     const args = unwrapArgs(session(), '/tmp/out-x.txt');
-    expect(args).toContain('--ephemeral');
     expect(args).toContain('--skip-git-repo-check');
     expect(args).toContain('--json');
     const oIdx = args.indexOf('-o');
@@ -1014,10 +1065,12 @@ describe('buildCodexArgs — AiSession → CLI argv translation', () => {
     expect(args).not.toContain('-a');
   });
 
-  it('omits -s for resume sessions because `codex exec resume` rejects it', () => {
+  it('carries workspace-write into a resumed session through -c — `exec resume` has no -s and runs read-only otherwise', () => {
     const id = 'sess-abc' as unknown as SessionId;
     const args = unwrapArgs(session({ resume: id, permissions: FULL_AUTO }));
     expect(args).not.toContain('-s');
+    expect(args).toContain('sandbox_mode="workspace-write"');
+    expect(args[args.indexOf('sandbox_mode="workspace-write"') - 1]).toBe('-c');
   });
 
   it('accepts intermediate permission combinations (path scope is the envelope, not the profile)', () => {
@@ -1060,11 +1113,18 @@ describe('buildCodexArgs — AiSession → CLI argv translation', () => {
     ]);
   });
 
-  it('omits --add-dir for resume sessions because `codex exec resume` rejects it', () => {
+  it('mounts the writable roots of a resumed session as a TOML array, since `exec resume` has no --add-dir', () => {
     const id = 'sess-abc' as unknown as SessionId;
-    const a = absolutePath('/tmp/repo-a');
-    const args = unwrapArgs(session({ resume: id, additionalRoots: [a] }));
+    const roots = [absolutePath('/tmp/repo-a'), absolutePath('/tmp/repo "b"')];
+    const args = unwrapArgs(session({ resume: id, additionalRoots: roots }));
     expect(args).not.toContain('--add-dir');
+    expect(args).toContain('sandbox_workspace_write.writable_roots=["/tmp/repo-a","/tmp/repo \\"b\\""]');
+  });
+
+  it('adds no writable_roots override to a resumed session with no roots beyond cwd', () => {
+    const id = 'sess-abc' as unknown as SessionId;
+    const args = unwrapArgs(session({ resume: id }));
+    expect(args.some((a) => a.startsWith('sandbox_workspace_write.writable_roots='))).toBe(false);
   });
 
   it('emits -c model_reasoning_effort=<level> when session.effort is set (sourced from session, not deps)', () => {

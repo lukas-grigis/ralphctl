@@ -5,12 +5,12 @@ import { Slug } from '@src/domain/value/slug.ts';
 import { toKebabCase } from '@src/domain/value/kebab-case.ts';
 import { type Element, withDisplay } from '@src/application/chain/element.ts';
 import { sequential } from '@src/application/chain/build/sequential.ts';
-import { saveSprintLeaf } from '@src/application/flows/_shared/sprint/save.ts';
 import { loadAndAssertSprintSubChain } from '@src/application/flows/_shared/sprint/load-and-assert-sprint.ts';
 import type { RefineCtx } from '@src/application/flows/refine/ctx.ts';
 import type { RefineDeps } from '@src/application/flows/refine/deps.ts';
 import { fetchIssueContextLeaf } from '@src/application/flows/refine/leaves/fetch-issue-context.ts';
 import { refineTicketInteractiveLeaf } from '@src/application/flows/refine/leaves/refine-ticket-interactive.ts';
+import { saveRefinedTicketLeaf } from '@src/application/flows/refine/leaves/save-refined-ticket.ts';
 import { buildRefinePrompt } from '@src/integration/ai/prompts/refine/definition.ts';
 import { readCappedSprintProgress } from '@src/application/flows/_shared/progress/read-sprint-progress.ts';
 import { renderContractSectionFor } from '@src/integration/ai/contract/_engine/render-contract-section.ts';
@@ -53,7 +53,7 @@ export interface CreateRefineFlowOpts {
  *         stamp-meta-refine-<id>,           // <unit-root>/meta.json — provider/model attribution
  *         refine-ticket-<id>,               // hand TTY to Claude, await, read requirements.md back
  *         uninstall-skills-<id>,            // remove them again
- *         save-after-<id>,                  // persist sprint with the approved ticket
+ *         save-after-<id>,                  // locked write of the approved ticket onto the fresh sprint
  *       ]),
  *       …,
  *     ]),
@@ -132,9 +132,7 @@ export const createRefineFlow = (deps: RefineDeps, opts: CreateRefineFlowOpts): 
         ticket
       ),
       ...aiUnitEpilogue<RefineCtx>({ skillsAdapter: deps.skillsAdapter }, unitOpts),
-      withDisplay(saveSprintLeaf<RefineCtx>({ sprintRepo: deps.sprintRepo }, `save-after-${ticketId}`), {
-        label: 'Save ticket',
-      }),
+      withDisplay(saveRefinedTicketLeaf({ sprintRepo: deps.sprintRepo }, ticket), { label: 'Save ticket' }),
     ]);
     return withDisplay(unit, { label: ticket.title, workItem: { kind: 'ticket', id: ticketId } });
   });

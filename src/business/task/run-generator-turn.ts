@@ -89,8 +89,6 @@ const findTaskBlocked = (signals: readonly HarnessSignal[]): TaskBlockedSignal |
  * question it needs answered, and what would unblock it. Named so the carry can be threaded whole
  * (chain ctx → settle → persisted task → operator surfaces) instead of three fields being spread by
  * hand at each hop, which is how the triage came to be collected and then dropped once already.
- *
- * @public
  */
 export type BlockTriageCarry = Pick<GeneratorTurnExit, 'blockerClass' | 'question' | 'whatUnblocksMe'>;
 

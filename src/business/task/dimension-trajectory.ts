@@ -21,8 +21,6 @@ import { failedDimensions, type PlateauTurnRecord, plateauWindowSize } from '@sr
  * The line carries no round counts or caps: the loop budget is not exposed to the generator.
  *
  * Pure. No I/O. Deterministic for a given history (vital for prompt-regression test stability).
- *
- * @public
  */
 
 /** Hard ceiling on dimension lines per class so a many-round attempt can't balloon the prompt. */

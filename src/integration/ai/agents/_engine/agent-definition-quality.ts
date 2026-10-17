@@ -85,8 +85,6 @@ const CHECKERS: readonly Checker[] = [
 
 /**
  * Scan `definition` against the quality checkers.
- *
- * @public
  */
 export const checkAgentDefinitionQuality = (definition: AgentDefinition): AgentDefinitionQualityReport => {
   const concerns = CHECKERS.filter((checker) => checker.flags(definition)).map((checker) => ({
@@ -99,8 +97,6 @@ export const checkAgentDefinitionQuality = (definition: AgentDefinition): AgentD
 /**
  * Operator-definition warn path: log one warn-level line per quality concern. Never throws — a
  * vague operator definition should degrade to a warning, not block install.
- *
- * @public
  */
 export const warnIfVague = (logger: Logger, definition: AgentDefinition): void => {
   const report = checkAgentDefinitionQuality(definition);

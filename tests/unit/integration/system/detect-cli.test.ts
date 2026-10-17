@@ -2,12 +2,14 @@ import { describe, expect, it } from 'vitest';
 import {
   detectInstalledProviders,
   primaryInstallCommand,
+  probeUnsupportedVersion,
   PROVIDER_BINARY,
   PROVIDER_INSTALL_GUIDANCE,
   renderProviderInstallGuidance,
   resolveInstallPlatform,
 } from '@src/integration/system/detect-cli.ts';
 import type { WhichFn } from '@src/integration/system/_engine/detect-cli.ts';
+import type { RunCommand } from '@src/integration/io/run-command.ts';
 
 const whichFor =
   (present: ReadonlySet<string>): WhichFn =>
@@ -129,5 +131,52 @@ describe('renderProviderInstallGuidance', () => {
         'Docs: https://docs.github.com/en/copilot/how-tos/copilot-cli/set-up-copilot-cli/install-copilot-cli',
       ].join('\n')
     );
+  });
+
+  it('pins the OpenCode npm install to the 1.x line', () => {
+    expect(PROVIDER_INSTALL_GUIDANCE.opencode.commandsByPlatform.win32[0]).toBe('npm install -g opencode-ai@1');
+  });
+});
+
+describe('probeUnsupportedVersion', () => {
+  const versionReply =
+    (stdout: string, ok = true): RunCommand =>
+    async () => ({ ok, code: ok ? 0 : 1, stdout, stderr: '' });
+
+  it('flags OpenCode 2 with the version it read and the 1.x installers', async () => {
+    const issue = await probeUnsupportedVersion('opencode', versionReply('2.0.1\n'));
+    expect(issue).toMatchObject({ provider: 'opencode', version: '2.0.1', supportedMajor: 1 });
+    expect(issue?.installHint).toContain('brew install sst/tap/opencode');
+    expect(issue?.installHint).toContain('npm install -g opencode-ai@1');
+  });
+
+  it('passes OpenCode 1.x, including a decorated version line', async () => {
+    expect(await probeUnsupportedVersion('opencode', versionReply('1.18.35\n'))).toBeUndefined();
+    expect(await probeUnsupportedVersion('opencode', versionReply('opencode v1.19.3\n'))).toBeUndefined();
+  });
+
+  it('fails open when the version cannot be read', async () => {
+    expect(await probeUnsupportedVersion('opencode', versionReply('', false))).toBeUndefined();
+    expect(await probeUnsupportedVersion('opencode', versionReply('dev build\n'))).toBeUndefined();
+  });
+
+  it('spawns nothing for a provider without a version gate', async () => {
+    const calls: string[] = [];
+    const run: RunCommand = async (name) => {
+      calls.push(name);
+      return { ok: true, code: 0, stdout: '9.0.0', stderr: '' };
+    };
+    expect(await probeUnsupportedVersion('claude-code', run)).toBeUndefined();
+    expect(calls).toEqual([]);
+  });
+
+  it('asks the provider binary for --version', async () => {
+    const calls: Array<{ name: string; args: readonly string[] }> = [];
+    const run: RunCommand = async (name, args) => {
+      calls.push({ name, args });
+      return { ok: true, code: 0, stdout: '1.18.35', stderr: '' };
+    };
+    await probeUnsupportedVersion('opencode', run);
+    expect(calls).toEqual([{ name: 'opencode', args: ['--version'] }]);
   });
 });

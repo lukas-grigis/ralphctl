@@ -2,7 +2,7 @@ import { join } from 'node:path';
 import { Result } from '@src/domain/result.ts';
 import type { VerifyRunOutcome } from '@src/domain/entity/attempt.ts';
 import type { InProgressTask } from '@src/domain/entity/task.ts';
-import { latestCritique } from '@src/domain/entity/task-graph.ts';
+import { latestCritique } from '@src/domain/entity/task-attempts.ts';
 import type { TaskId } from '@src/domain/value/id/task-id.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
@@ -34,7 +34,8 @@ import {
   resolveProjectToolingCarry,
 } from '@src/application/flows/implement/leaves/_shared/run-role-turn.ts';
 import { runPathsFor } from '@src/application/flows/_shared/allocate-run-dir.ts';
-import { attributeVerify, normalizeVerifyGates, runVerifyGatesUseCase } from '@src/business/task/run-verify-script.ts';
+import { attributeVerify, runVerifyGatesUseCase } from '@src/business/task/run-verify-script.ts';
+import { normalizeVerifyGates } from '@src/domain/entity/repository.ts';
 import { runVerifyShell } from '@src/application/flows/implement/leaves/pre-task-verify.ts';
 import { gitDiffFootprint } from '@src/integration/io/git-operations.ts';
 import { gitStashPush } from '@src/integration/io/git-stash.ts';

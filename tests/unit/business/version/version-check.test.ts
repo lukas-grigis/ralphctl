@@ -16,9 +16,17 @@ describe('compareVersions', () => {
   it('returns 0 when equal', () => {
     expect(compareVersions('0.1.0', '0.1.0')).toBe(0);
   });
-  it('strips pre-release suffixes before comparing', () => {
-    // 1.2.3 == 1.2.3-alpha for our purposes (registry `latest` is always a stable release).
-    expect(compareVersions('1.2.3', '1.2.3-alpha')).toBe(0);
+  it('sorts a pre-release below the stable release of the same numbers', () => {
+    expect(compareVersions('1.2.3', '1.2.3-alpha')).toBe(1);
+    expect(compareVersions('1.2.3-rc.1', '1.2.3')).toBe(-1);
+    expect(compareVersions('1.2.4-rc.1', '1.2.3')).toBe(1);
+  });
+  it('does not order pre-release identifiers against each other', () => {
+    expect(compareVersions('1.2.3-rc.1', '1.2.3-rc.2')).toBe(0);
+  });
+  it('ignores build metadata', () => {
+    expect(compareVersions('1.2.3+build.5', '1.2.3')).toBe(0);
+    expect(compareVersions('1.2.3+build-5', '1.2.3')).toBe(0);
   });
   it('treats missing trailing segments as zero', () => {
     expect(compareVersions('1.2', '1.2.0')).toBe(0);
@@ -69,6 +77,11 @@ describe('buildVersionCheck', () => {
     expect(result.current).toBe('1.0.0');
     expect(result.latest).toBe('1.0.1');
     expect(result.checkedAt).toBe('2026-01-15T12:00:00.000Z');
+  });
+
+  it('marks an update when the installed pre-release has since shipped as stable', () => {
+    const result = buildVersionCheck('0.26.0-rc.1', '0.26.0', new Date('2026-01-15T12:00:00Z'));
+    expect(result.updateAvailable).toBe(true);
   });
 
   it('does not mark an update when versions are equal', () => {

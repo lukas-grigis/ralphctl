@@ -16,6 +16,7 @@ import { quarantineStashMessage } from '@src/domain/value/quarantine-stash-messa
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import { absolutePath, makeTodoTask } from '@tests/fixtures/domain.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
+import { createFoldQueue } from '@src/application/flows/implement/wave-branch.ts';
 
 const CWD = absolutePath('/tmp/repo');
 const PROGRESS = absolutePath('/tmp/sprint/progress.md');
@@ -133,7 +134,13 @@ describe('quarantineBlockedDiffLeaf', () => {
     const ctx: ImplementCtx = { sprintId, tasks: [blocked] };
 
     const res = await quarantineBlockedDiffLeaf(
-      { gitRunner: runner, taskRepo: repo, appendFile: capturingAppend().fn, logger: noopLogger },
+      {
+        gitRunner: runner,
+        taskRepo: repo,
+        appendFile: capturingAppend().fn,
+        journalMutex: createFoldQueue(),
+        logger: noopLogger,
+      },
       { cwd: CWD, progressFile: PROGRESS },
       blocked.id
     ).execute(ctx);
@@ -164,7 +171,13 @@ describe('quarantineBlockedDiffLeaf', () => {
     const repo = recordingRepo();
 
     const res = await quarantineBlockedDiffLeaf(
-      { gitRunner: runner, taskRepo: repo, appendFile: capturingAppend().fn, logger: noopLogger },
+      {
+        gitRunner: runner,
+        taskRepo: repo,
+        appendFile: capturingAppend().fn,
+        journalMutex: createFoldQueue(),
+        logger: noopLogger,
+      },
       { cwd: CWD, progressFile: PROGRESS },
       blocked.id
     ).execute({ sprintId, tasks: [blocked] });
@@ -183,7 +196,13 @@ describe('quarantineBlockedDiffLeaf', () => {
     const ctx: ImplementCtx = { sprintId, tasks: [blocked] };
 
     const res = await quarantineBlockedDiffLeaf(
-      { gitRunner: runner, taskRepo: repo, appendFile: capturingAppend().fn, logger: noopLogger },
+      {
+        gitRunner: runner,
+        taskRepo: repo,
+        appendFile: capturingAppend().fn,
+        journalMutex: createFoldQueue(),
+        logger: noopLogger,
+      },
       { cwd: CWD, progressFile: PROGRESS },
       blocked.id
     ).execute(ctx);
@@ -211,7 +230,13 @@ describe('quarantineBlockedDiffLeaf', () => {
     const ctx: ImplementCtx = { sprintId, tasks: [blocked] };
 
     const res = await quarantineBlockedDiffLeaf(
-      { gitRunner: runner, taskRepo: repo, appendFile: capturingAppend().fn, logger: noopLogger },
+      {
+        gitRunner: runner,
+        taskRepo: repo,
+        appendFile: capturingAppend().fn,
+        journalMutex: createFoldQueue(),
+        logger: noopLogger,
+      },
       { cwd: CWD, progressFile: PROGRESS },
       blocked.id
     ).execute(ctx);
@@ -231,7 +256,13 @@ describe('quarantineBlockedDiffLeaf', () => {
     const ctx: ImplementCtx = { sprintId, tasks: [blocked] };
 
     const res = await quarantineBlockedDiffLeaf(
-      { gitRunner: runner, taskRepo: repo, appendFile: capturingAppend().fn, logger: noopLogger },
+      {
+        gitRunner: runner,
+        taskRepo: repo,
+        appendFile: capturingAppend().fn,
+        journalMutex: createFoldQueue(),
+        logger: noopLogger,
+      },
       { cwd: CWD, progressFile: PROGRESS },
       blocked.id
     ).execute(ctx);

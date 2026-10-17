@@ -15,6 +15,7 @@ import {
   FIXED_LATER,
   makeActiveSprint,
   makeApprovedTicket,
+  makeBlockedTask,
   makeDoneTask,
   makeReviewSprint,
   makeTodoTask,
@@ -205,13 +206,13 @@ describe('create-pr flow — happy path', () => {
   });
 
   it('loads tasks from the repo and emits `## Tasks` + `## Related issues` (with `- Closes <ref>`) in the body', async () => {
-    const sprint = makeReviewSprint({
-      tickets: [
-        makeApprovedTicket({ title: 'first', externalRef: '#123' }),
-        makeApprovedTicket({ title: 'second', externalRef: '!456' }),
-      ],
-    });
-    const done = makeDoneTask({ name: 'shipped task' });
+    const first = makeApprovedTicket({ title: 'first', externalRef: '#123' });
+    const second = makeApprovedTicket({ title: 'second', externalRef: '!456' });
+    const third = makeApprovedTicket({ title: 'third', externalRef: '#789' });
+    const sprint = makeReviewSprint({ tickets: [first, second, third] });
+    const done = makeDoneTask({ name: 'shipped task', ticketId: first.id });
+    const doneSecond = makeDoneTask({ name: 'second shipped task', ticketId: second.id });
+    const blocked = makeBlockedTask({ ticketId: third.id });
     const todo = makeTodoTask({ name: 'still-pending' });
     const exec = setExecutionBranch(createSprintExecution({ sprintId: sprint.id }), 'feature/x');
     const pr = recordingPullRequestCreator('https://github.com/o/r/pull/77');
@@ -220,7 +221,7 @@ describe('create-pr flow — happy path', () => {
       {
         sprintRepo: fakeSprintRepo(sprint),
         sprintExecutionRepo: inMemoryExecutionRepo(exec).repo,
-        taskRepo: recordingTaskRepo([done, todo]),
+        taskRepo: recordingTaskRepo([done, doneSecond, blocked, todo]),
         pullRequestCreator: pr.creator,
         gitRunner: recordingGitRunner('feature/x').runner,
         eventBus: createInMemoryEventBus(),
@@ -248,6 +249,8 @@ describe('create-pr flow — happy path', () => {
     expect(body).toContain('## Related issues');
     expect(body).toContain('- Closes #123');
     expect(body).toContain('- Closes !456');
+    // A blocked ticket's issue must stay open.
+    expect(body).not.toContain('#789');
   });
 
   it('honours user-supplied title and body overrides', async () => {

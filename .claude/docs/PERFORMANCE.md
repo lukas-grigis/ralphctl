@@ -36,18 +36,20 @@ scheduling time. The sprint lock (`repoLockFile(locksRoot, sprintDir)`) spans pr
 epilogue using the same lock key as the serial path, so a serial and a parallel run of the same
 sprint mutually exclude. The wave fan-in updates only the one task each branch actually settled, so a
 branch that fails or aborts mid-wave can neither revert itself nor an already-`done` sibling the same
-wave already completed; a block that branch had already saved to disk right before failing is picked
-back up by the epilogue's `adopt-persisted-blocks` step ahead of its task-list write. Commits durably
-folded before an abort are preserved by the epilogue and never re-executed on relaunch. Concurrent appends
+wave already completed; a block or attempt that branch had already saved to disk right before failing is
+picked back up by the epilogue's `adopt-persisted-blocks` step ahead of its task-list write. A task is
+recorded `done` only once its fold landed the commit, so commits durably folded before an abort (or a
+crash) are never re-executed on relaunch, and an unfolded one is never recorded as done. Concurrent appends
 to `progress.md` and the learnings ledger are serialised through one in-process mutex (no torn lines
 under fan-out). Launch then applies a
 status-only stable override: `in_progress` tasks first (so a resumed sprint picks up the previously
 aborted task before any fresh work), then `todo`; V8's stable sort preserves dependency order within
 each status group. A `dependency-gate` leaf at the head of every per-task subchain enforces the
-prerequisite contract at run time: if any `dependsOn` task is not `done` (blocked or still unsettled),
-the dependent transitions to `blocked` with `blockKind: 'upstream'` and the subchain body is skipped — no AI
-spawn wasted. `BlockedTask.blockKind: 'upstream' | 'own'` is the structural discriminant; `isUpstreamBlocked`
-reads it — never the reason-string prefix. Legacy `tasks.json` entries without `blockKind` are migrated at
+prerequisite contract at run time: if a `dependsOn` task is `blocked`, the dependent transitions to
+`blocked` with `blockKind: 'upstream'` and the subchain body is skipped — no AI spawn wasted. A prerequisite
+that is merely unsettled (a parallel branch that failed before settling) leaves the dependent `todo` for a
+later launch instead, since no unblock would ever re-arm that block. `BlockedTask.blockKind: 'upstream' |
+'own'` is the structural discriminant; `isUpstreamBlocked` reads it — never the reason-string prefix. Legacy `tasks.json` entries without `blockKind` are migrated at
 read time. The gate is status-only and works in both the serial and parallel paths. Block is transitive by
 construction (A → B → C cascades automatically). Unblocking the root prerequisite cascade-unblocks the
 entire upstream-blocked subtree in one action (`unblockTaskUseCase` calls `upstreamBlockedDependents` and
@@ -80,7 +82,10 @@ operator stops an implement run (quit confirm, Runs `c`, the run view's cancel p
 attempts that run opened as `aborted` / `user-cancel` once it unwinds (`settle-abandoned-attempts.ts`), so the next
 launch does not report them as a crash. Free attempts are capped: `budgetedAttemptCount` lets at most
 `MAX_CONSECUTIVE_FREE_ATTEMPTS` (3) in a row go free, and every further one in the streak counts, so a task that
-keeps getting interrupted still runs out of budget. In-process crashes (`process-crash`) always count. The run view
+keeps getting interrupted still runs out of budget. When settling the leftover attempt is what exhausts the budget,
+the `resume-budget-gate` leaf (right after `dependency-gate`) persists and announces the block before the task body
+runs, so the task is skipped like any blocked task and the run continues with the next one. In-process crashes
+(`process-crash`) always count. The run view
 and Work show the attempt as the budget counts it (`attempt 1/3 · resumed` after a free resume). The only path that
 resets a task to `todo` is `task unblock`.
 
@@ -147,9 +152,10 @@ spent cheapest-first across successive plateau or budget-exhausted exits:
 `settings.harness.escalationMap` override: **claude-code** climbs Haiku 5.5 → Sonnet 5.5 → Opus 5.5, with
 the legacy Haiku 4.5 / Sonnet 4.6 / Opus 4.8 generation chaining through its own tier and Opus 5 and a
 pinned Sonnet 5 stepping straight across,
-all converging at the same flagship; **github-copilot** climbs Haiku 4.5 → Sonnet 5.5 → Opus 5.5 (Sonnet 5,
+all converging at the same flagship; **github-copilot** climbs Haiku 5.5 / Haiku 4.5 → Sonnet 5.5 → Opus 5.5 (Sonnet 5,
 Opus 4.8 and Opus 5 also step to 5.5 — GitHub gates all three Opus ids identically), and its
-GPT tiers climb `gpt-5.6-luna → gpt-5.6-terra → gpt-5.6-sol` (the GPT-6 ids are not rungs; rows on the
+GPT tiers climb `gpt-5.6-luna → gpt-5.6-sol`, skipping `gpt-5.6-terra` ahead of its 2026-11-16 retirement (a pinned terra
+row still steps to sol; the GPT-6 ids are not rungs; rows on the
 retired GPT-5 ids are remapped onto those tiers at parse time); **openai-codex** climbs
 `gpt-6-luna → gpt-6.1-sol` directly (a pinned `gpt-6-sol` also steps to it), with the pinned 5.6 generation chaining through its own tier and
 then `gpt-5.6-sol → gpt-6.1-sol`; **xai-grok** climbs `grok-4.5 → grok-4.6 → grok-4.7`; **opencode** has no
@@ -253,7 +259,7 @@ times per task (harness pre + post + generator in-turn + evaluator in-turn). The
 - **`Repository.verifyGates`** (`VerifyGate[]` — `{ pathPrefix, command, timeoutMs? }`) enables per-module gate
   scoping: pre-task verify runs ALL gates (complete attribution baseline); post-task verify runs only the gates
   whose `pathPrefix` matches the attempt's diff footprint (`git diff --name-only HEAD` + untracked), fail-fast.
-  A footprint probe failure or an empty footprint falls back to running all gates — a gate is never silently
+  A leading `./` or `/` on a prefix is ignored (`/`, `./` and `.` mean the repo root). A footprint probe failure or an empty footprint falls back to running all gates — a gate is never silently
   skipped. A monorepo task touching one module no longer pays every other module's suite on every verify pass.
   The legacy single `verifyScript` normalises to one catch-all `pathPrefix: ''` gate — non-gated repos are
   byte-for-byte the prior behaviour. A diff-scoped green post does NOT license the next task's carry-baseline
@@ -279,11 +285,13 @@ implement-style run appends its full trace, bracketed by `=== chain-run <id> <fl
 with drop-newer back-pressure) so it cannot OOM under high event rate. Default factory is no-op so unset
 envs incur zero memory cost.
 
-**`progress.md` is an append-only journal**, not streamed or regenerated. `init-progress-journal`
+**`progress.md` is an append-only journal** of attempt sections under a derived header band. `init-progress-journal`
 writes a one-time sprint header at creation; after each `settle-attempt-<taskId>` the `progress-journal` leaf
-appends one task-attempt section via `renderJournalEntry` (a pure formatter). It reads no log files — the
-canonical state lives in `tasks.json` / `execution.json`. Appends are best-effort: a write failure is logged
-and the next attempt's append heals the file.
+regenerates the header band and appends one task-attempt section via `renderJournalEntry` (a pure formatter),
+writing the whole file atomically. It reads no log files — the canonical state lives in `tasks.json` /
+`execution.json`. Writes are best-effort: a failed write retries once, then leaves a visible gap marker. A
+journal that exists but can't be read is never regenerated over — the section is appended and the header
+goes stale until the next good read.
 
 **Per-round artifacts.** Generator and evaluator prompts land at `rounds/<N>/{generator,evaluator}/prompt.md`
 before each spawn; `settle-attempt-leaf` writes `rounds/<N>/outcome.md` after settlement.

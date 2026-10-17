@@ -32,6 +32,13 @@
  * `-terra` / `-luna`, `gpt-5.3-codex`, `mai-code-1.1-flash`, `grok-4.6`, `grok-4.7`. The remaining entries are convention-derived slugs
  * from the doc's display names, not validated against the live CLI.
  *
+ * `claude-haiku-5.5` (changelog 2026-10-07) needs Copilot CLI 1.0.94 or later; its effort list is
+ * not yet confirmed by `listModels()`.
+ *
+ * Scheduled to retire 2026-11-16 (changelog 2026-10-15): `claude-opus-4.8` and `claude-opus-5`
+ * (→ `claude-opus-5.5`) and `gpt-5.6-terra` (→ `gpt-6.1-sol` / `gpt-6-luna`). They stay listed until
+ * that date; the ladder and preset fallbacks already avoid them.
+ *
  * Claude slugs with no dot or date — `claude-sonnet-5`, `claude-opus-5`, `claude-fable-5` — are
  * the same string on the Copilot and Claude-Code catalogs. The escalation ladder is scoped per
  * provider (`escalation-map.ts`), so the collision no longer constrains either ladder.
@@ -49,6 +56,7 @@ export type CopilotModel =
   | 'gpt-6-luna'
   // Anthropic
   | 'claude-haiku-4.5'
+  | 'claude-haiku-5.5'
   | 'claude-opus-4.8'
   | 'claude-opus-4.8-fast'
   | 'claude-opus-5'
@@ -80,6 +88,7 @@ export const COPILOT_MODELS: readonly CopilotModel[] = [
   'gpt-6-luna',
   // Anthropic
   'claude-haiku-4.5',
+  'claude-haiku-5.5',
   'claude-opus-4.8',
   'claude-opus-4.8-fast',
   'claude-opus-5',
@@ -121,6 +130,8 @@ export const COPILOT_MODEL_EFFORT_LEVELS: Readonly<Partial<Record<CopilotModel, 
   'gpt-6-luna': ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
   'gpt-6.1-sol': ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
   'claude-haiku-4.5': [],
+  // Unverified against listModels() — mirrors Claude Code's Haiku 5.5 facts.
+  'claude-haiku-5.5': ['low', 'medium', 'high', 'xhigh', 'max'],
   'claude-opus-4.8': ['low', 'medium', 'high', 'xhigh', 'max'],
   'claude-opus-5': ['low', 'medium', 'high', 'xhigh', 'max'],
   'claude-opus-5.5': ['low', 'medium', 'high', 'xhigh', 'max'],

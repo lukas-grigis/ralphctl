@@ -70,8 +70,6 @@ export const contextWindowFor = (model: string | undefined): number | undefined 
  * sized to never fire below the largest legitimate window-scaled output) must stay pinned to.
  * Recomputed from the table itself so a new catalog entry with a bigger window is picked up
  * automatically rather than requiring a second hand-maintained constant.
- *
- * @public
  */
 export const MAX_CONTEXT_WINDOW = Math.max(...Object.values(CONTEXT_WINDOW));
 

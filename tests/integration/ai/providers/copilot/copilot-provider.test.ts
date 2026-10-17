@@ -30,6 +30,12 @@ const makeStream = (): EventEmitter & { setEncoding: (e: string) => void } => {
   return ee;
 };
 
+/** A real child emits `close` once its pipes drain, after `exit`; the adapter waits on `close`. */
+const exitThenClose = (child: EventEmitter, code: number | null, signal: NodeJS.Signals | null): void => {
+  child.emit('exit', code, signal);
+  setTimeout(() => child.emit('close', code, signal), 0);
+};
+
 const makeFakeChild = (script: FakeChildScript): ChildProcessWithoutNullStreams => {
   const child = new EventEmitter() as ChildProcessWithoutNullStreams & { _killed: boolean };
   const stdout = makeStream();
@@ -45,7 +51,7 @@ const makeFakeChild = (script: FakeChildScript): ChildProcessWithoutNullStreams 
     stdin,
     kill(): boolean {
       child._killed = true;
-      setTimeout(() => child.emit('exit', null, 'SIGTERM'), 0);
+      setTimeout(() => exitThenClose(child, null, 'SIGTERM'), 0);
       return true;
     },
     _killed: false,
@@ -54,7 +60,7 @@ const makeFakeChild = (script: FakeChildScript): ChildProcessWithoutNullStreams 
     for (const chunk of script.stdoutChunks ?? []) stdout.emit('data', chunk);
     for (const chunk of script.stderrChunks ?? []) stderr.emit('data', chunk);
     if (script.hang === true) return;
-    setTimeout(() => child.emit('exit', script.exitCode ?? 0, script.exitSignal ?? null), 0);
+    setTimeout(() => exitThenClose(child, script.exitCode ?? 0, script.exitSignal ?? null), 0);
   }, 0);
   return child;
 };
@@ -106,8 +112,11 @@ const session = (overrides: Partial<AiSession> = {}): AiSession => ({
   ...overrides,
 });
 
+// Inside cwd, so the prompt file's directory adds no `--add-dir` of its own to the argv under test.
+const PROMPT_FILE_IN_CWD = join(String(CWD), 'copilot-prompt.md');
+
 const unwrapArgs = (s: AiSession): readonly string[] => {
-  const r = buildCopilotArgs(s);
+  const r = buildCopilotArgs(s, PROMPT_FILE_IN_CWD);
   if (!r.ok) throw new Error(`buildCopilotArgs failed: ${r.error.message}`);
   return r.value;
 };
@@ -613,7 +622,7 @@ describe('buildCopilotArgs — AiSession → CLI flag translation', () => {
   });
 
   it('rejects an unknown model with InvalidStateError', () => {
-    const r = buildCopilotArgs(session({ model: 'claude-haiku-4-5' }));
+    const r = buildCopilotArgs(session({ model: 'claude-haiku-4-5' }), PROMPT_FILE_IN_CWD);
     expect(r.ok).toBe(false);
     if (r.ok) return;
     expect(r.error.code).toBe('invalid-state');
@@ -707,11 +716,19 @@ describe('buildCopilotArgs — AiSession → CLI flag translation', () => {
     expect(out.error.message).toContain('not in argv');
   });
 
-  it('inlines the prompt on -p only when no prompt file could be written', () => {
-    const args = unwrapArgs(session());
-    const idx = args.indexOf('-p');
-    expect(idx).toBeGreaterThanOrEqual(0);
-    expect(args[idx + 1]).toBe(PROMPT as unknown as string);
+  it('fails the attempt with a StorageError and spawns nothing when the prompt file cannot be written', async () => {
+    // The body never rides argv, so an unwritable prompt file is a failed attempt, not an inline fallback.
+    const blocker = join(tmpdir(), `ralphctl-copilot-blocker-${String(process.pid)}-${String(Date.now())}`);
+    await fs.writeFile(blocker, 'a file where a directory is needed', 'utf8');
+    const { spawn, calls } = makeSpawn([{ exitCode: 0 }]);
+    const provider = createCopilotProvider({ rateLimitRetries: 0, eventBus: createCapturingBus().bus, spawn });
+
+    const out = await provider.generate(session({ signalsFile: absolutePath(join(blocker, 'signals.json')) }));
+
+    expect(calls).toHaveLength(0);
+    expect(out.ok).toBe(false);
+    if (out.ok) return;
+    expect(out.error.code).toBe('storage-error');
   });
 
   it('writes the prompt to disk and passes -p a pointer at it, mounting its directory', async () => {

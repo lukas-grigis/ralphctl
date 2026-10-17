@@ -15,6 +15,7 @@ import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import { ErrorCode } from '@src/domain/value/error/error-code.ts';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { SprintRepository } from '@src/domain/repository/sprint/sprint-repository.ts';
+import { withUpdate } from '@tests/fixtures/sprint-repo-update.ts';
 import type { FindTasksBySprintId } from '@src/domain/repository/task/find-tasks-by-sprint-id.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
@@ -29,6 +30,7 @@ import { createCloseSprintFlow } from '@src/application/flows/close-sprint/flow.
 import type { CloseSprintCtx } from '@src/application/flows/close-sprint/ctx.ts';
 import type { CloseSprintDeps } from '@src/application/flows/close-sprint/deps.ts';
 import { createAtomicWriteFile } from '@src/integration/io/write-file-atomic.ts';
+import { unlockedSprintLockDeps } from '@tests/fixtures/pass-through-locker.ts';
 
 const unwrap = <T, E>(r: Result<T, E>): T => {
   if (!r.ok) {
@@ -44,7 +46,7 @@ const blockedTask = (name: string): Task =>
 
 const inMemorySprintRepo = (initial: Sprint): { readonly repo: SprintRepository; readonly current: () => Sprint } => {
   let current = initial;
-  const repo: SprintRepository = {
+  const repo = withUpdate({
     async findById(id: SprintId) {
       if (current.id === id) return Result.ok(current);
       return Result.error(new NotFoundError({ entity: 'sprint', id: String(id) }));
@@ -53,7 +55,7 @@ const inMemorySprintRepo = (initial: Sprint): { readonly repo: SprintRepository;
       current = sprint;
       return Result.ok(undefined);
     },
-  } as SprintRepository;
+  }) as unknown as SprintRepository;
   return { repo, current: () => current };
 };
 
@@ -90,6 +92,7 @@ const baseDeps = (
   sprintRepo: SprintRepository,
   append: ReturnType<typeof recordingAppendFile>
 ): Omit<CloseSprintDeps, 'blockedTasksGate'> => ({
+  ...unlockedSprintLockDeps(),
   sprintRepo,
   clock: () => FIXED_LATER,
   logger: noopLogger,
@@ -106,6 +109,7 @@ describe('createCloseSprintFlow — blocked-task gate', () => {
     const interactive = scriptedInteractive([]);
 
     const flow = createCloseSprintFlow({
+      ...unlockedSprintLockDeps(),
       ...baseDeps(sprintRepo.repo, append),
       blockedTasksGate: {
         taskRepo: staticTaskRepo([makeTodoTask({ name: 'still-open' })]),
@@ -142,6 +146,7 @@ describe('createCloseSprintFlow — blocked-task gate', () => {
     const tasks = [blockedTask('fix-the-thing'), makeTodoTask({ name: 'unrelated-and-not-blocked' })];
 
     const flow = createCloseSprintFlow({
+      ...unlockedSprintLockDeps(),
       ...baseDeps(sprintRepo.repo, append),
       blockedTasksGate: { taskRepo: staticTaskRepo(tasks), interactive: interactive.prompt },
     });
@@ -176,6 +181,7 @@ describe('createCloseSprintFlow — blocked-task gate', () => {
     const tasks = [blockedTask('fix-the-thing')];
 
     const flow = createCloseSprintFlow({
+      ...unlockedSprintLockDeps(),
       ...baseDeps(sprintRepo.repo, append),
       blockedTasksGate: { taskRepo: staticTaskRepo(tasks), interactive: interactive.prompt },
     });
@@ -217,6 +223,7 @@ describe('createCloseSprintFlow — blocked-task gate', () => {
     const tasks = Array.from({ length: 8 }, (_unused, i) => blockedTask(`task-${String(i)}`));
 
     const flow = createCloseSprintFlow({
+      ...unlockedSprintLockDeps(),
       ...baseDeps(sprintRepo.repo, append),
       blockedTasksGate: { taskRepo: staticTaskRepo(tasks), interactive: interactive.prompt },
     });

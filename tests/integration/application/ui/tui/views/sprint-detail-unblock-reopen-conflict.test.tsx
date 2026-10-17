@@ -47,8 +47,9 @@ const blockedTask = (): Task => {
   return r.value;
 };
 
-const stubDeps = (updated: Task[], sprints: readonly Sprint[] = [CLOSED, PEER]): AppDeps =>
-  ({
+const stubDeps = (updated: Task[], sprints: readonly Sprint[] = [CLOSED, PEER]): AppDeps => {
+  const seeded = blockedTask();
+  return {
     sprintRepo: {
       async findById(id: SprintId) {
         return Result.ok(id === PEER_ID ? PEER : CLOSED);
@@ -62,7 +63,7 @@ const stubDeps = (updated: Task[], sprints: readonly Sprint[] = [CLOSED, PEER]):
     } as unknown as SprintRepository,
     taskRepo: {
       async findBySprintId() {
-        return Result.ok(updated.length > 0 ? [...updated] : [blockedTask()]);
+        return Result.ok(updated.length > 0 ? [...updated] : [seeded]);
       },
       async update(_sprintId: SprintId, task: Task) {
         updated.push(task);
@@ -74,7 +75,8 @@ const stubDeps = (updated: Task[], sprints: readonly Sprint[] = [CLOSED, PEER]):
     settingsRepo: {} as never,
     clock: () => IsoTimestamp.now(),
     logger: noopLogger,
-  }) as unknown as AppDeps;
+  } as unknown as AppDeps;
+};
 
 const initial: ViewEntry = { id: 'sprint-detail', props: { sprintId: CLOSED_ID } };
 

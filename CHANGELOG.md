@@ -7,13 +7,25 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Breaking
+
+- **OpenCode 2 is refused.** Reinstall OpenCode 1 (see Added).
+- **Saved settings are rewritten on load.** Grok `none` / `minimal` effort loads as `low`, and Copilot Opus 4.5, 4.6
+  and 4.7 rows load as Opus 5.5.
+
 ### Added
 
 - **Claude Haiku 5.5.** Claude Code gains `claude-haiku-5-5` (needs Claude Code 2.1.293 or later): $0.10/$0.50 per
-  MTok, a 1M context window and all five effort levels. `claude-fast` and `claude-economic` now run refine,
+  MTok ($0.50/$2.50 for prompts over 100K tokens), a 1M context window and all five effort levels. `claude-fast` and `claude-economic` now run refine,
   readiness and PR drafting on it at `low`; plan, implement and ideate stay on Sonnet 5.5. It is also the new
   bottom step of the Claude Code escalation ladder (Haiku 5.5 → Sonnet 5.5 → Opus 5.5). An older Claude Code CLI
   fails the spawn on it — upgrade, or set those rows to Sonnet 5.5. Haiku 4.5 still works for saved settings.
+- **Claude Haiku 5.5 on Copilot.** `claude-haiku-5.5` is selectable for Copilot rows (needs Copilot CLI 1.0.94 or
+  later) and escalates to Sonnet 5.5. No preset uses it.
+- **OpenCode 2 is detected at launch.** OpenCode 2 installs as the same `opencode` command but changed the flags
+  ralphctl uses, so a flow on OpenCode 2 now stops before it starts and says how to get OpenCode 1 back:
+  `brew install sst/tap/opencode` (Homebrew's own `opencode` formula is now 2.x), the install script, or
+  `npm install -g opencode-ai@1`. Install suggestions for OpenCode now pin the 1.x line.
 - **Security skill for implement.** The new bundled `ralphctl-security-and-hardening` skill loads by default for
   implement: threat-model first, validate untrusted input, keep secrets out of code and logs, check authorization,
   guard destructive file operations, review new dependencies and treat model output as untrusted. Sensitive changes
@@ -24,6 +36,14 @@ to [Semantic Versioning](https://semver.org/).
   for refine and ideate. It helps turn a vague ticket or idea into sharper requirements — a clear objective, explicit
   scope, testable criteria and named open questions — without adding files or approval steps of its own. It is off
   by default.
+- **Ten more bundled skills.** API and interface design, performance optimisation, frontend UI engineering,
+  deprecation and migration, code simplification, source-driven development, observability, codebase design,
+  writing for agents, and a humanizer for PR descriptions and requirements prose. Each is a Skills catalog
+  suggestion for the phases where it fits and stays off until you enable it, except `ralphctl-writing-for-agents`,
+  which loads by default for readiness because every later AI session reads the context file readiness drafts.
+  Several existing skills also picked up upstream improvements: debugging builds a fast reproduction loop and ranks
+  hypotheses before fixing, test-driven development warns about tests that recompute their own expected value, and
+  code review asks every bug finding to name a concrete failing case.
 - **The README opens with a recording of the loop.** A ~10-second capture shows one task going through it: the
   evaluator fails round 1 with a critique, the generator applies it, and round 2 passes and commits.
   `ralphctl demo --script` replays the same run with no AI CLI and no tokens.
@@ -33,7 +53,18 @@ to [Semantic Versioning](https://semver.org/).
 - **Copilot presets use Opus 5.5.** GitHub gives Opus 4.8, 5 and 5.5 to the same Copilot plans, so the Copilot
   presets, the Copilot defaults and the top of the Copilot escalation ladder move from `claude-opus-4.8` to the
   cheaper `claude-opus-5.5` ($4/$20 vs $5/$25 per MTok). Saved settings on Opus 4.8 or Opus 5 keep working and now
-  escalate to 5.5. Applying a preset on an account without 5.5 falls back to Opus 4.8, then Sonnet 5.5.
+  escalate to 5.5. Applying a preset on an account without 5.5 falls back to Sonnet 5.5.
+- **Copilot gets ready for the 2026-11-16 retirements.** GitHub retires `claude-opus-4.8`, `claude-opus-5` and
+  `gpt-5.6-terra` on Copilot on 2026-11-16. They stay selectable until then, but ralphctl no longer steers anything
+  onto them: escalation from `gpt-5.6-luna` goes straight to `gpt-5.6-sol`, and saved settings on the older retired
+  Opus ids (4.5, 4.6, 4.7) now load as `claude-opus-5.5` instead of 4.8.
+- **Claude Code runs without fork subagents.** Claude Code 2.1.302 turned fork subagents on by default for
+  headless runs. ralphctl turns them off for the sessions it starts, which keeps a run's cost the same as before
+  and keeps read-only sessions from handing work to a copy whose tool limits aren't confirmed.
+- **OpenCode free models refreshed.** The free tier now lists `exo-free`, `ling-3.1-flash-free`,
+  `longcat-2.5-preview-free`, `mimo-v2.6-flash-free`, `muse-spark-1.3-contributor-free`, `space-bunny-free` and
+  `step-5-preview-free`. `hy3-free`, `mimo-v2.5-free` and `muse-spark-1.2-contributor-free` are gone; saved
+  settings on the last two switch to `mimo-v2.6-flash-free` and `muse-spark-1.3-contributor-free`.
 - **`ralphctl-karpathy-guidelines` now loads by default for plan only.** On implement it overlapped the
   `ralphctl-surgical-simplicity` and `ralphctl-ponytail` skills that already load there, so it moves to a Skills
   catalog suggestion for implement. Enable it from the catalog to keep the old behaviour.
@@ -44,8 +75,71 @@ to [Semantic Versioning](https://semver.org/).
   `grok-4.7` up to `xhigh`; none takes `max`. ralphctl now lowers a higher level to the model's highest, the same way
   it already does for Copilot and Codex, so a saved `max` runs at `xhigh` on `grok-4.7` instead of risking a rejected
   spawn. `grok-frontier` now uses `xhigh` on plan, implement and ideate, and `xhigh` as its global effort. When
-  escalating effort on `grok-4.5`, ralphctl now raises it to `high` instead of `xhigh`. `none` and `minimal` are
-  unchanged.
+  escalating effort on `grok-4.5`, ralphctl now raises it to `high` instead of `xhigh`. The Grok CLI also refuses
+  `none` and `minimal`, so they are no longer offered; saved Grok rows using them load as `low`. When the Grok CLI
+  does reject an effort, the task stops once with a message naming the setting to change instead of retrying.
+
+**Data safety**
+
+- **Legacy sprint folders are no longer split or deleted at launch.** Existing bare-id sprint directories are merged
+  into their slugged folder before any side file is written, and a reconcile never deletes one. A failed rename keeps
+  the sprint's data together, and git worktree links are repaired after a sprint folder moves.
+- **Migration is harder to block and safer to run.** Orphan memory dirs no longer stop the gate, unreadable ledgers
+  and rotated files are kept in the memory merge, a stale `learnings.md` in a drained legacy dir is dropped, a failed
+  backup removes its partial copy, and symlinks are backed up as links with worktrees skipped. The gate copy no
+  longer promises a full backup.
+- **A journal that can't be read is never overwritten.** `progress.md` is not regenerated over an unreadable
+  journal, and the quarantine breadcrumb is written under the journal lock.
+- **Concurrent edits survive.** `tasks.json` writes carry a lock owner, `plan` / `ideate` keep another session's plan
+  when they commit and refuse when the sprint changed mid-session, and long sessions no longer clobber ticket edits.
+
+**Implement runs**
+
+- **Parallel runs record only what landed.** A task is marked done after its branch is folded, a landed fold keeps
+  its done when a later step fails, attempts survive an abort, and what failed branches persisted is kept.
+- **Dependents are no longer stranded** when a prerequisite is unsettled.
+- **A resume that would exhaust its budget** is blocked before the task body runs and no longer stops a serial run.
+- **Locking.** Manual unblock, close-sprint and sprint updates take the sprint lock, and unblock waits out a live run.
+  Done transitions apply to the sprint as it is on disk, and unblock keys on the sprint's current directory.
+
+**Git**
+
+- **Long hooks are no longer killed at 30 seconds.** Hook-running git verbs are bounded separately from network
+  verbs, a cancel reaches them, their processes are reaped when ralphctl exits, and git never prompts for
+  credentials inside the TUI. The credential hint appears only for SSH key rejections.
+- **PR and MR bodies go over stdin** instead of argv, and the repo path is shell-quoted in the create-pr commands.
+  The PR body closes only issues whose tasks all landed done.
+
+**Providers**
+
+- **Final error records are no longer lost.** Headless spawns settle on `close`, so the last stdout records land;
+  setup and verify scripts settle on exit, a CLI's process group is reaped when it exits cleanly, and a recycled pid
+  no longer keeps a stale skill install alive.
+- **Codex session resume works again.**
+- **Claude Code effort follows the model.** The level is narrowed to what the chosen model accepts.
+
+**Settings and domain**
+
+- Verify-gate prefixes match a leading `./` or `/`; an empty plan is rejected instead of stranding a planned sprint;
+  absolute paths containing `~` or `$` are accepted; applying a preset keeps skill opt-outs and agent bindings.
+- Empty values for numeric settings keys are rejected, `settings set` refuses a retired effort or model, an
+  unexpanded `RALPHCTL_HOME` is refused, and an invalid `settings.json` gets a repair hint.
+- Pre-release users are told when the stable release ships.
+
+**TUI**
+
+- The Execute tasks panel no longer freezes when its buffer slides and shows attempt, commit and ETA chips. Esc
+  collapses the narrow layout before popping, and leaves the create-project error step.
+- Ink owns bracketed paste, so the terminal's paste mode is restored on every exit.
+- `runs prune` rejects an empty or non-decimal `--keep-last`; the create-project wizard rejects duplicate slugs.
+
+**Prompts**
+
+- The prompt contract outranks skills and context files, with a tighter stop list for autonomous runs. One-shot
+  sessions keep going until the signals file is written. The evaluator records pre-existing defects instead of
+  failing a round for them and names recurring patterns. Implement sizes its tests, records assumptions and edits
+  surgically. PR descriptions ask for literal prose. Inventory also reads Grok and Claude rules directories, and the
+  bundled generator takes the most directly supported reading of an ambiguous requirement.
 
 ### Removed
 
@@ -55,6 +149,8 @@ to [Semantic Versioning](https://semver.org/).
   Copilot's `gpt-5.4`, `gpt-5.6-luna` for `gpt-5.4-mini` and `gpt-5-mini`, `gemini-3.8-flash` and `grok-4.6`. Codex
   rows on `gpt-5.2` or `gpt-5.3-codex` now switch to `gpt-5.6-sol` too. `grok-4.5` stays available on the Grok
   provider.
+- **Copilot prompt inlining.** A Copilot attempt no longer falls back to inlining the prompt when its file can't be
+  written; it fails with the reason.
 
 ## [0.26.0] - 2026-10-08
 

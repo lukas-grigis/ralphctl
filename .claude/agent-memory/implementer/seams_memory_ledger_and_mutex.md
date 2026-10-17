@@ -92,6 +92,13 @@ in `journal-structure.ts` in the same change, and the append should go through
 be lost). An e2e that reads `progress.md` after a full run is the fence; a leaf test with a capturing
 `appendFile` can't see the erasure.
 
+## An unreadable progress.md must never be regenerated over
+
+The atomic writer's temp+rename only needs directory write permission, so it happily replaces a file
+the process can't read — a read that degrades to `''` silently wipes every prior section. Only ENOENT
+means "empty journal"; any other read error falls back to a plain append. **Test trick:** chmod the
+journal `0o200` (write-only), not `0o000` — the read fails while the fallback append still lands.
+
 ## Testing an RMW race deterministically
 
 Inject a `WriteFile` that PARKS its first call on a promise gate and signals when parked. Start branch

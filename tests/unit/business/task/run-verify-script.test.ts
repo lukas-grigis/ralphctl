@@ -5,11 +5,10 @@ import { absolutePath, FIXED_NOW } from '@tests/fixtures/domain.ts';
 import {
   attributeVerify,
   type ConfirmFailedGate,
-  normalizeVerifyGates,
   runVerifyGatesUseCase,
   type RunShellScript,
 } from '@src/business/task/run-verify-script.ts';
-import type { VerifyGate } from '@src/domain/entity/repository.ts';
+import { normalizeVerifyGates, type VerifyGate } from '@src/domain/entity/repository.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
 
 /** Local scale constant used to build deliberately large output fixtures (audit-[03]: no
@@ -161,27 +160,6 @@ describe('attributeVerify — truth table', () => {
     expect(attributeVerify('skipped', 'failed')).toBeUndefined();
     expect(attributeVerify('success', 'skipped')).toBeUndefined();
     expect(attributeVerify('failed', 'skipped')).toBeUndefined();
-  });
-});
-
-describe('normalizeVerifyGates — legacy ⇄ structured precedence', () => {
-  it('structured gates win when present and non-empty', () => {
-    const gates: readonly VerifyGate[] = [{ pathPrefix: 'apps/web', command: 'pnpm --filter web test' }];
-    expect(normalizeVerifyGates('pnpm test', gates)).toBe(gates);
-  });
-
-  it('legacy script becomes a single catch-all gate when no gates configured', () => {
-    expect(normalizeVerifyGates('pnpm test', undefined)).toEqual([{ pathPrefix: '', command: 'pnpm test' }]);
-  });
-
-  it('empty gate list falls back to the legacy script', () => {
-    expect(normalizeVerifyGates('pnpm test', [])).toEqual([{ pathPrefix: '', command: 'pnpm test' }]);
-  });
-
-  it('whitespace-only / absent script with no gates → empty list (skipped run)', () => {
-    expect(normalizeVerifyGates('   ', undefined)).toEqual([]);
-    expect(normalizeVerifyGates(undefined, undefined)).toEqual([]);
-    expect(normalizeVerifyGates(undefined, [])).toEqual([]);
   });
 });
 
@@ -392,6 +370,30 @@ describe('runVerifyGatesUseCase — multi-gate execution (T10)', () => {
       runShellScript: shell,
     });
     expect(ran()).toEqual(['gate-app']);
+  });
+
+  // git emits bare repo-relative paths, so a stored './x' or '/x' prefix would otherwise never match
+  // and a failing gate would be recorded as skipped. '/', './' and '.' mean the repo root.
+  it.each([
+    ['./packages/api', ['packages/api/src/a.ts']],
+    ['/packages/api', ['packages/api/src/a.ts']],
+    ['.//packages/api/', ['packages/api/src/a.ts']],
+    ['/', ['docs/readme.md']],
+    ['./', ['docs/readme.md']],
+    ['.', ['docs/readme.md']],
+  ])('a leading "./" or "/" on prefix %j is ignored when matching scope', async (pathPrefix, scope) => {
+    const gates: readonly VerifyGate[] = [{ pathPrefix, command: 'gate-red' }];
+    const { shell, ran } = scriptedShell({ 'gate-red': { passed: false, exitCode: 1, output: 'boom' } });
+    const { run } = await runVerifyGatesUseCase({
+      ...base,
+      phase: 'post',
+      gates,
+      scope,
+      mode: 'fail-fast',
+      runShellScript: shell,
+    });
+    expect(ran()).toEqual(['gate-red']);
+    expect(run.outcome).toBe('failed');
   });
 
   it('per-gate timeoutMs is threaded; falls back to defaultTimeoutMs when absent', async () => {

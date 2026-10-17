@@ -128,7 +128,6 @@ export interface LauncherDeps {
 
 /**
  * The subset of {@link LauncherDeps} that skill-source composition actually reads.
- * @public
  */
 export type SkillCompositionDeps = Pick<LauncherDeps, 'app' | 'storage'>;
 
@@ -176,7 +175,6 @@ export const sessionHintsFromLaunchResult = (result: LaunchOk): Pick<LaunchOk, (
 /**
  * Flows whose AI session actually gets a composed skill source installed — the only flows where a per-run skills
  * customization has any effect.
- * @public
  */
 export const flowMountsSkills = (flowId: string): boolean =>
   flowId === 'refine' ||
@@ -189,7 +187,6 @@ export const flowMountsSkills = (flowId: string): boolean =>
 /**
  * Every {@link FlowId} whose launch context actually mounts a skill source, derived from {@link flowMountsSkills}
  * (the single source of truth) keyed back to `FlowId` via {@link PHASE_FLOW_DIR}.
- * @public
  */
 export const SKILL_MOUNTING_FLOW_IDS: readonly FlowId[] = FLOW_IDS.filter((flowId) =>
   flowMountsSkills(PHASE_FLOW_DIR[flowId])
@@ -302,7 +299,6 @@ const buildSkillSourceQuad = (
 /**
  * Compose the four {@link buildSkillSourceQuad} sources into one union, then wrap it in the single skill-selection
  * resolution seam ({@link createResolvedSkillSource}).
- * @public
  */
 export const buildComposedSkillSource = (
   deps: SkillCompositionDeps,
@@ -353,7 +349,6 @@ export interface SkillCandidatesResult {
 
 /**
  * Pre-subtraction candidate list for a flow's skills customize step.
- * @public
  */
 export const buildSkillCandidates = async (
   deps: SkillCompositionDeps,

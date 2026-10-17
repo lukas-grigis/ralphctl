@@ -5,8 +5,12 @@
  * whole spawn via the `listModels` seam, so no binary is required.
  */
 
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { createOpencodeModelAvailabilityProbe } from '@src/integration/ai/providers/opencode/model-availability-probe.ts';
+import { backgroundPipeHolder, killQuietly } from '@tests/helpers/process-tree.ts';
 import type { ModelProbeDegradation } from '@src/integration/ai/providers/_engine/model-availability-probe.ts';
 import { OPENCODE_MODELS } from '@src/domain/value/settings-models/opencode.ts';
 
@@ -24,6 +28,29 @@ const probeRecordingDegradation = (
   });
   return { probe, degradations };
 };
+
+describe.skipIf(process.platform === 'win32')('createOpencodeModelAvailabilityProbe with a real CLI', () => {
+  it('reads the list once the CLI exits, even when a process it left keeps stdout open', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ralphctl-ocprobe-'));
+    const pidFile = join(dir, 'server.pid');
+    const command = join(dir, 'opencode');
+    writeFileSync(command, `#!/bin/sh\n${backgroundPipeHolder(pidFile)}\necho openrouter/vendor/model\n`, {
+      mode: 0o755,
+    });
+    const degradations: ModelProbeDegradation[] = [];
+    const probe = createOpencodeModelAvailabilityProbe({ command, onDegraded: (d) => degradations.push(d) });
+    try {
+      // Without a bound after exit this waits out the probe timeout and falls open to the catalog.
+      const models = await probe.availableModels(OPENCODE_MODELS);
+
+      expect(models).toEqual(['openrouter/vendor/model']);
+      expect(degradations).toEqual([]);
+    } finally {
+      killQuietly([Number(readFileSync(pidFile, 'utf8').trim())]);
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 20_000);
+});
 
 describe('createOpencodeModelAvailabilityProbe', () => {
   it('keeps multi-segment aggregator ids and drops whitespace-bearing junk lines', async () => {

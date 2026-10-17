@@ -79,8 +79,11 @@ export const TaskImportSpecSchema = z
 
 export type TaskImportSpec = z.infer<typeof TaskImportSpecSchema>;
 
-/** Bare task array — used when the AI writes only tasks (plan-interactive happy path). */
-export const TaskImportListSchema = z.array(TaskImportSpecSchema);
+/**
+ * Bare task array — used when the AI writes only tasks (plan-interactive happy path). Non-empty:
+ * a planner that cannot plan emits `{ blocked }`, and an empty plan would strand a planned sprint.
+ */
+export const TaskImportListSchema = z.array(TaskImportSpecSchema).min(1, 'tasks missing or empty');
 
 /**
  * Top-level shape the ideate session writes: requirements text plus the tasks generated from
@@ -90,7 +93,7 @@ export const TaskImportListSchema = z.array(TaskImportSpecSchema);
 export const IdeateOutputSchema = z
   .object({
     requirements: z.string().min(1, 'requirements missing or empty'),
-    tasks: TaskImportListSchema.min(1, 'tasks missing or empty'),
+    tasks: TaskImportListSchema,
   })
   .strict();
 

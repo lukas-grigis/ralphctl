@@ -11,7 +11,7 @@ import { join } from 'node:path';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { bootstrapCli } from '@src/application/ui/cli/bootstrap.ts';
+import { bootstrapApp } from '@src/application/bootstrap/bootstrap-app.ts';
 import { DATA_VERSION_FILENAME } from '@src/integration/persistence/data-migration/version-marker.ts';
 import { RALPHCTL_HOME_ENV } from '@src/application/bootstrap/storage-paths.ts';
 
@@ -43,7 +43,7 @@ describe('cli bootstrap — no migration path', () => {
   });
 
   it('leaves the version marker absent and the legacy tree unrenamed', async () => {
-    const boot = await bootstrapCli();
+    const boot = await bootstrapApp();
     expect(boot.deps).toBeDefined();
 
     const markerPath = join(home, 'data', DATA_VERSION_FILENAME);

@@ -266,10 +266,8 @@ describe('ExecuteBody — wide layout redesign at 180×50', () => {
     // "now" is (BASE_MS + 3 min) so the label's `Date.now()` seed is deterministic; restored
     // immediately after the synchronous render + frame capture.
     vi.useFakeTimers({ now: BASE_MS + 180_000 });
-    // ImplementMainArea (mounted by ExecuteBody's wide-layout path) reads `useUiState()` to
-    // claim `esc` while an expanded card is focused — needs a UiStateProvider ancestor.
-    // TasksPanelHost (also mounted by the wide path) reads `useDeps()` to build the `u`-chord
-    // unblock handler — needs a DepsProvider ancestor too (see `stubDeps` above).
+    // TasksPanelHost (mounted by ExecuteBody's wide-layout path) reads `useDeps()` to build the
+    // `u`-chord unblock handler — needs a DepsProvider ancestor (see `stubDeps` above).
     const { lastFrame, unmount } = render(
       React.createElement(DepsProvider, {
         value: stubDeps(),
@@ -367,8 +365,8 @@ describe('ExecuteBody — wide layout redesign at 220×60', () => {
     // See the 180×50 describe block above — HeaderCard's elapsed text ticks via its own
     // internal `useLiveClock`, so the system clock is frozen for the render + frame capture.
     vi.useFakeTimers({ now: BASE_MS + 180_000 });
-    // See the 180×50 describe block above — ImplementMainArea needs a UiStateProvider ancestor,
-    // and TasksPanelHost needs a DepsProvider ancestor for its `u`-chord unblock handler.
+    // See the 180×50 describe block above — TasksPanelHost needs a DepsProvider ancestor for its
+    // `u`-chord unblock handler.
     const { lastFrame, unmount } = render(
       React.createElement(DepsProvider, {
         value: stubDeps(),

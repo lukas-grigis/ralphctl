@@ -5,7 +5,7 @@ import type { Sprint } from '@src/domain/entity/sprint.ts';
 import { ProjectId } from '@src/domain/value/id/project-id.ts';
 import { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { AppDeps } from '@src/application/bootstrap/wire.ts';
-import { bootstrapCli } from '@src/application/ui/cli/bootstrap.ts';
+import { bootstrapApp } from '@src/application/bootstrap/bootstrap-app.ts';
 import { fail } from '@src/application/ui/cli/report-cli-error.ts';
 import { renderOutcomeStats } from '@src/application/ui/cli/commands/runs-stats-report.ts';
 import { foldOutcomeStats, type SprintWithTasks } from '@src/business/runs/outcome-stats.ts';
@@ -49,7 +49,7 @@ const runStatsCommand = async (opts: StatsOpts): Promise<void> => {
   const since = parseSince(opts.since);
   if (!since.ok) return;
 
-  const { deps } = await bootstrapCli();
+  const { deps } = await bootstrapApp();
   const scoped = await resolveScopedSprints(deps, opts);
   if (!scoped.ok) return;
 

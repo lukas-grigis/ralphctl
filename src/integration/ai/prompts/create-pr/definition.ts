@@ -7,7 +7,7 @@ import { requireNonEmpty } from '@src/integration/ai/prompts/_engine/validators.
 
 /**
  * Pre-rendered string parameters for the create-pr template. `ticketSummary` is a markdown
- * block; `issueRefs` is a pre-computed list of `Closes #N` lines the AI threads verbatim into
+ * block; `issueRefs` is a pre-computed list of `Closes <ref>` lines the AI threads verbatim into
  * the body. The headless session reads the rendered prompt and writes its answer to
  * `signals.json` per the contract.
  */
@@ -26,9 +26,9 @@ export interface CreatePrPromptParams {
    */
   readonly ticketSummary: string;
   /**
-   * Verbatim block of `Closes <ref>` lines pre-computed from ticket + task `externalRef`s
-   * via `normalizeRefs`. Empty when no refs exist; the prompt instructs the AI to omit the
-   * trailing closes block in that case.
+   * Verbatim block of `Closes <ref>` lines pre-computed by `closingRefs` — only refs whose
+   * tasks are all `done`, so a blocked or never-planned ticket's issue stays open. Empty when
+   * none qualify; the prompt instructs the AI to omit the trailing closes block in that case.
    */
   readonly issueRefs: string;
   /**
@@ -39,7 +39,16 @@ export interface CreatePrPromptParams {
   readonly outputContractSection: string;
 }
 
-export const createPrPromptDef: PromptDefinition<CreatePrPromptParams> = {
+/** What the template substitutes: the caller's params plus values the builder derives from them. */
+interface CreatePrTemplateParams extends CreatePrPromptParams {
+  /** `repositoryPath` as one POSIX single-quoted shell word for the `git -C` commands. */
+  readonly repositoryPathArg: string;
+}
+
+// Single quotes keep `$`, backticks and `"` literal; an embedded `'` closes, escapes and reopens.
+const toShellWord = (value: string): string => `'${value.replaceAll("'", `'\\''`)}'`;
+
+export const createPrPromptDef: PromptDefinition<CreatePrTemplateParams> = {
   templateName: 'create-pr',
   description:
     'Headless authoring of one pull-request title + body from the actual git diff against the base branch. The AI runs `git log` / `git diff` itself and writes its proposal to signals.json per the signals.json contract.',
@@ -56,8 +65,14 @@ export const createPrPromptDef: PromptDefinition<CreatePrPromptParams> = {
     },
     repositoryPath: {
       placeholder: 'REPOSITORY_PATH',
-      description: 'Absolute path of the repository, passed to every git command via `git -C`.',
+      description: 'Absolute path of the repository, named in the prose that introduces the git commands.',
       validate: requireNonEmpty('repositoryPath', 'repositoryPath must not be empty'),
+    },
+    repositoryPathArg: {
+      placeholder: 'REPOSITORY_PATH_ARG',
+      description:
+        'The repository path as one single-quoted shell word, passed to every git command via `git -C`. Derived from `repositoryPath` by the builder.',
+      validate: requireNonEmpty('repositoryPathArg', 'repositoryPathArg must not be empty'),
     },
     ticketSummary: {
       placeholder: 'TICKET_SUMMARY',
@@ -69,7 +84,7 @@ export const createPrPromptDef: PromptDefinition<CreatePrPromptParams> = {
     issueRefs: {
       placeholder: 'ISSUE_REFS',
       description:
-        'Pre-computed `Closes <ref>` lines from ticket + task externalRefs. Empty when no refs exist; the prompt then instructs the AI to omit the trailing closes block.',
+        'Pre-computed `Closes <ref>` lines for the ticket and task externalRefs whose tasks are all done. Empty when none qualify; the prompt then instructs the AI to omit the trailing closes block.',
       optional: true,
     },
     outputContractSection: {
@@ -79,7 +94,7 @@ export const createPrPromptDef: PromptDefinition<CreatePrPromptParams> = {
       validate: requireNonEmpty('outputContractSection', 'output-contract section must not be empty'),
     },
   },
-  partials: {},
+  partials: { ONE_SHOT_OPERATION: 'one-shot-operation' },
   expectedSignals: ['pr-content'],
 };
 
@@ -106,8 +121,9 @@ export const renderIssueRefs = (refs: readonly string[]): string => {
   return refs.map((r) => `Closes ${r}`).join('\n');
 };
 
-/** Top-level builder — accepts pre-rendered params and runs the generic builder. */
+/** Top-level builder — accepts pre-rendered params, derives the shell-quoted path, runs the generic builder. */
 export const buildCreatePrPrompt = async (
   deps: TemplateLoader,
   input: CreatePrPromptParams
-): Promise<Result<Prompt, BuildPromptError>> => buildPrompt(deps, createPrPromptDef, input);
+): Promise<Result<Prompt, BuildPromptError>> =>
+  buildPrompt(deps, createPrPromptDef, { ...input, repositoryPathArg: toShellWord(input.repositoryPath) });

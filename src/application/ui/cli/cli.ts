@@ -95,7 +95,7 @@ export const runCli = async (argv: readonly string[]): Promise<void> => {
   registerSkillsCommand(program);
   registerPromptsCommand(program);
 
-  // Terminal frame for the whole CLI: every `bootstrapCli` pre-flight throws a plain `Error`, and command actions can
+  // Terminal frame for the whole CLI: every `bootstrapApp` pre-flight throws a plain `Error`, and command actions can
   // throw too.
   try {
     await program.parseAsync([...argv]);

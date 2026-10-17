@@ -1,7 +1,12 @@
 import { Result } from '@src/domain/result.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
-import { runGitChecked, type GitRunner } from '@src/integration/io/git-runner.ts';
+import {
+  GIT_BULK_TIMEOUT_MS,
+  GIT_HOOK_TIMEOUT_MS,
+  runGitChecked,
+  type GitRunner,
+} from '@src/integration/io/git-runner.ts';
 import { withWorktreeMutex } from '@src/integration/io/git-worktree-mutex.ts';
 
 /**
@@ -26,6 +31,7 @@ import { withWorktreeMutex } from '@src/integration/io/git-worktree-mutex.ts';
  */
 
 const HEX_SHA_RE = /^[0-9a-f]{7,64}$/i;
+const MERGE_BASE = 'merge-base';
 // No byte cap on commit messages: audit-[03] mandates "no caps anywhere" on AI signal
 // bodies, and `git commit -m <msg>` passes via argv which has ARG_MAX headroom in the
 // hundreds of KB. The AI's validated `commit-message` signal is projected verbatim onto
@@ -150,7 +156,8 @@ export const gitAddAll = async (runner: GitRunner, cwd: AbsolutePath): Promise<R
 export const gitCommitWithMessage = async (
   runner: GitRunner,
   cwd: AbsolutePath,
-  message: string
+  message: string,
+  signal?: AbortSignal
 ): Promise<Result<CommitOutcome, StorageError>> => {
   if (message.length === 0) {
     return Result.error(new StorageError({ subCode: 'io', message: 'commit message must not be empty' }));
@@ -170,7 +177,10 @@ export const gitCommitWithMessage = async (
   if (!afterStage.ok) return Result.error(afterStage.error);
   if (!afterStage.value) return Result.ok({ committed: false });
 
-  const commit = await runGitChecked(runner, cwd, ['commit', '-m', message], 'commit');
+  const commit = await runGitChecked(runner, cwd, ['commit', '-m', message], 'commit', {
+    timeoutMs: GIT_HOOK_TIMEOUT_MS,
+    ...(signal !== undefined ? { signal } : {}),
+  });
   if (!commit.ok) return Result.error(commit.error);
   const head = await gitRevParseHead(runner, cwd);
   if (!head.ok) return Result.error(head.error);
@@ -222,7 +232,8 @@ export const gitBranchExists = async (
 export const gitCreateAndCheckoutBranch = async (
   runner: GitRunner,
   cwd: AbsolutePath,
-  name: string
+  name: string,
+  signal?: AbortSignal
 ): Promise<Result<void, StorageError>> => {
   const current = await gitGetCurrentBranch(runner, cwd);
   if (!current.ok) return Result.error(current.error);
@@ -232,17 +243,10 @@ export const gitCreateAndCheckoutBranch = async (
   if (!exists.ok) return Result.error(exists.error);
 
   const argv = exists.value ? ['checkout', name] : ['checkout', '-b', name];
-  const checkout = await runGitChecked(runner, cwd, argv, 'checkout');
+  const checkout = await runGitChecked(runner, cwd, argv, 'checkout', { timeoutMs: GIT_HOOK_TIMEOUT_MS, signal });
   if (!checkout.ok) return Result.error(checkout.error);
   return Result.ok(undefined);
 };
-
-// `git worktree add` can be slow: it materialises a full checkout (and may need to populate the
-// index from a large tree). The default 30s runner ceiling is comfortable for status / commit /
-// rev-parse but tight for a fresh worktree on a big repo, so add gets a roomier budget. The other
-// worktree verbs (remove / prune / fold) are bounded by index work, not a full checkout, and keep
-// the runner default.
-const WORKTREE_ADD_TIMEOUT_MS = 120_000;
 
 /**
  * Canonical worktree branch ref for one parallel task: `ralphctl-wt/<sprintId>/<taskId>`.
@@ -267,17 +271,20 @@ export const legacyGitWorktreeRef = (sprintId: string, taskId: string): string =
  * behaviour we want: a stale ref from a crashed prior run must be pruned first, never silently
  * reused.
  *
- * Roomier timeout than the runner default — a fresh checkout can outlast 30s on a large repo.
+ * Hook-length timeout: a fresh checkout on a large repo, LFS smudging and the post-checkout hook
+ * can all outlast the runner default.
  */
 export const gitWorktreeAdd = async (
   runner: GitRunner,
   repoRoot: AbsolutePath,
   worktreePath: AbsolutePath,
-  branchName: string
+  branchName: string,
+  signal?: AbortSignal
 ): Promise<Result<void, StorageError>> => {
   const result = await withWorktreeMutex(repoRoot, () =>
     runGitChecked(runner, repoRoot, ['worktree', 'add', '-b', branchName, String(worktreePath)], 'worktree add', {
-      timeoutMs: WORKTREE_ADD_TIMEOUT_MS,
+      timeoutMs: GIT_HOOK_TIMEOUT_MS,
+      signal,
     })
   );
   if (!result.ok) return Result.error(result.error);
@@ -297,7 +304,9 @@ export const gitWorktreeRemove = async (
   worktreePath: AbsolutePath
 ): Promise<Result<void, StorageError>> => {
   const result = await withWorktreeMutex(repoRoot, () =>
-    runGitChecked(runner, repoRoot, ['worktree', 'remove', '--force', String(worktreePath)], 'worktree remove')
+    runGitChecked(runner, repoRoot, ['worktree', 'remove', '--force', String(worktreePath)], 'worktree remove', {
+      timeoutMs: GIT_BULK_TIMEOUT_MS,
+    })
   );
   if (!result.ok) return Result.error(result.error);
   return Result.ok(undefined);
@@ -319,6 +328,19 @@ export const gitDeleteBranch = async (
   const result = await withWorktreeMutex(cwd, () =>
     runGitChecked(runner, cwd, ['branch', '-D', branchName], 'branch -D')
   );
+  if (!result.ok) return Result.error(result.error);
+  return Result.ok(undefined);
+};
+
+/**
+ * Re-point git's record of the linked worktree at `worktreePath` after its directory was moved — else the
+ * next `worktree prune` drops it. Runs inside the worktree, so it reaches whichever repository owns it.
+ */
+export const gitWorktreeRepairHere = async (
+  runner: GitRunner,
+  worktreePath: AbsolutePath
+): Promise<Result<void, StorageError>> => {
+  const result = await runGitChecked(runner, worktreePath, ['worktree', 'repair'], 'worktree repair');
   if (!result.ok) return Result.error(result.error);
   return Result.ok(undefined);
 };
@@ -357,19 +379,23 @@ export const gitWorktreePrune = async (
  *
  * Folds must be serialised by the caller (one held lock, `base.tasks` order); this function does
  * not lock — concurrent folds onto the same branch would corrupt the merge state.
+ *
+ * `signal` kills the merge or cherry-pick (and a hung hook with it). A fast-forward killed after it
+ * moved the branch — in a post-merge hook — still counts as folded.
  */
 export const gitFoldBranch = async (
   runner: GitRunner,
   repoRoot: AbsolutePath,
-  branchName: string
+  branchName: string,
+  signal?: AbortSignal
 ): Promise<Result<void, StorageError>> => {
-  const ff = await runner.run(repoRoot, ['merge', '--ff-only', branchName]);
-  if (!ff.ok) return Result.error(ff.error);
+  const ff = await runner.run(repoRoot, ['merge', '--ff-only', branchName], { timeoutMs: GIT_HOOK_TIMEOUT_MS, signal });
+  if (!ff.ok) return (await branchLanded(runner, repoRoot, branchName)) ? Result.ok(undefined) : Result.error(ff.error);
   if (ff.value.exitCode === 0) return Result.ok(undefined);
 
   // Not fast-forwardable — the sprint branch advanced under us. Replay the branch's unique
   // commits via cherry-pick of `<merge-base>..<branch>`.
-  const base = await runGitChecked(runner, repoRoot, ['merge-base', 'HEAD', branchName], 'merge-base');
+  const base = await runGitChecked(runner, repoRoot, [MERGE_BASE, 'HEAD', branchName], MERGE_BASE);
   if (!base.ok) return Result.error(base.error);
   const mergeBase = base.value.stdout.trim();
   if (!HEX_SHA_RE.test(mergeBase)) {
@@ -378,19 +404,26 @@ export const gitFoldBranch = async (
     );
   }
 
-  const pick = await runner.run(repoRoot, ['cherry-pick', `${mergeBase}..${branchName}`]);
+  const pick = await runner.run(repoRoot, ['cherry-pick', `${mergeBase}..${branchName}`], {
+    timeoutMs: GIT_HOOK_TIMEOUT_MS,
+    signal,
+  });
+  if (pick.ok && pick.value.exitCode === 0) return Result.ok(undefined);
+  // A conflict, or a pick the runner killed mid-sequence. Abort so the sprint branch is left clean —
+  // folded siblings stay landed; only this task is blocked. Best-effort and never cancelled (it is
+  // the cleanup): surface the original failure regardless of whether the abort itself errored.
+  await runner.run(repoRoot, ['cherry-pick', '--abort']);
   if (!pick.ok) return Result.error(pick.error);
-  if (pick.value.exitCode !== 0) {
-    // Conflict (or any cherry-pick failure). Abort so the sprint branch is left clean — folded
-    // siblings stay landed; only this task is blocked. Abort is best-effort: surface the original
-    // cherry-pick failure regardless of whether the abort itself errored.
-    await runner.run(repoRoot, ['cherry-pick', '--abort']);
-    return Result.error(
-      new StorageError({
-        subCode: 'io',
-        message: `git cherry-pick failed (conflict folding ${branchName}): ${(pick.value.stderr || pick.value.stdout).trim()}`,
-      })
-    );
-  }
-  return Result.ok(undefined);
+  return Result.error(
+    new StorageError({
+      subCode: 'io',
+      message: `git cherry-pick failed (conflict folding ${branchName}): ${(pick.value.stderr || pick.value.stdout).trim()}`,
+    })
+  );
+};
+
+/** True when `branchName` is already contained in `HEAD` — nothing of it is left to fold. */
+const branchLanded = async (runner: GitRunner, repoRoot: AbsolutePath, branchName: string): Promise<boolean> => {
+  const ancestor = await runner.run(repoRoot, [MERGE_BASE, '--is-ancestor', branchName, 'HEAD']);
+  return ancestor.ok && ancestor.value.exitCode === 0;
 };

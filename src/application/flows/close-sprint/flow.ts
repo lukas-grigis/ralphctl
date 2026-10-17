@@ -1,6 +1,7 @@
 import type { Element } from '@src/application/chain/element.ts';
 import { sequential } from '@src/application/chain/build/sequential.ts';
 import { guard } from '@src/application/chain/build/guard.ts';
+import { withRepoLock } from '@src/application/flows/_shared/with-repo-lock.ts';
 import { loadAndAssertSprintSubChain } from '@src/application/flows/_shared/sprint/load-and-assert-sprint.ts';
 import { transitionSprintToDoneLeaf } from '@src/application/flows/_shared/sprint/transition-to-done.ts';
 import { appendJournalSeparatorLeaf } from '@src/application/flows/_shared/progress/append-journal-separator.ts';
@@ -15,14 +16,14 @@ import type { CloseSprintDeps } from '@src/application/flows/close-sprint/deps.t
  * Build the close-sprint chain — the explicit one-shot path for marking a sprint `done` after
  * implement + PR.
  *
- *   sequential('close-sprint', [
+ *   with-repo-lock(sequential('close-sprint', [   // sprint-dir lock, same key as implement / review
  *     load-and-assert-sprint(['review']),     // refuses any other status
  *     load-tasks,                             // opt-in; feeds the blocked-task gate below
  *     guard(has-blocked-task, confirm-blocked-tasks),  // opt-in; names blocked tasks, confirms
  *     refresh-memory-mirror,                  // always-on; durable narrative-tier (learnings.md) refresh
  *     distill-learnings-step,                 // opt-in; runs while sprint still `review`
  *     transition-sprint-to-done,              // review → done; persists internally
- *   ])
+ *   ]))
  *
  * Pairs with the review flow — the user picks whichever fits the moment:
  *  - `review` for iterative feedback rounds; transitions to `done` automatically when the
@@ -32,6 +33,11 @@ import type { CloseSprintDeps } from '@src/application/flows/close-sprint/deps.t
  * The `loadAndAssertSprintSubChain` whitelist rejects sprints not in `review`, so a stray
  * close on a `planned` / `active` sprint fails fast with `InvalidStateError`. Persistence
  * is internal to `transitionSprintToDoneUseCase`; no separate save leaf is needed downstream.
+ *
+ * The whole chain runs under the sprint-dir lock implement, review and unblock hold, so the `review`
+ * assert re-reads the sprint after any live run has released it and none of those writes it
+ * meanwhile. Ticket writers (publish / link) take only the sprint's update lock, so the transition
+ * is a locked update of the on-disk sprint and their edits survive the close.
  *
  * `sprintId` enters via the runner's `initialCtx` (matching how `remove-ticket` is launched);
  * no opts bag is needed at the factory boundary.
@@ -48,7 +54,7 @@ import type { CloseSprintDeps } from '@src/application/flows/close-sprint/deps.t
  * `deps.blockedTasksGate` / `deps.distill` / `deps.memoryMirror` are absent the respective
  * step is omitted entirely (the CLI close path omits `blockedTasksGate` — see `deps.ts`).
  */
-export const createCloseSprintFlow = (deps: CloseSprintDeps): Element<CloseSprintCtx> =>
+const closeSprintChain = (deps: CloseSprintDeps): Element<CloseSprintCtx> =>
   sequential<CloseSprintCtx>('close-sprint', [
     loadAndAssertSprintSubChain<CloseSprintCtx>({ sprintRepo: deps.sprintRepo }, ['review']),
     ...(deps.blockedTasksGate !== undefined
@@ -76,3 +82,15 @@ export const createCloseSprintFlow = (deps: CloseSprintDeps): Element<CloseSprin
       { progressFile: deps.progressFile, status: 'closed', name: 'progress-journal-close' }
     ),
   ]);
+
+export const createCloseSprintFlow = (deps: CloseSprintDeps): Element<CloseSprintCtx> =>
+  withRepoLock<CloseSprintCtx>(
+    {
+      fileLocker: deps.fileLocker,
+      locksRoot: deps.locksRoot,
+      worktreePath: deps.sprintDir,
+      eventBus: deps.eventBus,
+      purpose: 'close-sprint',
+    },
+    closeSprintChain(deps)
+  );

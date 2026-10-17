@@ -4,20 +4,20 @@
  * argument once, so a view supplies only what it knows (the task(s), the sprint, the project).
  *
  * Manual unblock has no registered flow — it is a repository write with no chain and no trace, so a
- * runtime hook is the sanctioned shape (DESIGN-SYSTEM §9). The one thing it adds is the prior-work
- * question: when git holds the task's quarantined rejected diff, the operator decides what the next
- * attempt does with it, asked through the prompt queue before anything is written.
+ * runtime hook is the sanctioned shape (DESIGN-SYSTEM §9). The write goes through `unblockTaskLocked`,
+ * so it waits out a live run on the sprint. It also adds the prior-work question: when git holds the
+ * task's quarantined rejected diff, the operator decides what the next attempt does with it, asked
+ * through the prompt queue before anything is written.
  *
  * The hook owns no toast copy — post-write concerns (mounted guards, feedback, reloads) stay in the view.
- *
- * @public
  */
 
 import { useCallback, useMemo } from 'react';
 import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { useOptionalPromptQueue } from '@src/application/ui/tui/prompts/prompt-context.tsx';
 import { createInkInteractivePrompt } from '@src/application/ui/tui/prompts/ink-interactive-prompt.ts';
-import { unblockTaskUseCase, type UnblockTaskOutput } from '@src/business/task/unblock-task.ts';
+import type { UnblockTaskOutput } from '@src/business/task/unblock-task.ts';
+import { unblockTaskLocked } from '@src/application/ui/shared/unblock-task-locked.ts';
 import {
   askBulkPriorWork,
   askPriorWork,
@@ -75,13 +75,9 @@ export const useUnblockTask = (): UnblockTasks => {
       probe: QuarantineProbe,
       priorWork?: PriorWorkDecision
     ): Promise<UnblockOneResult> => {
-      const r = await unblockTaskUseCase({
-        task,
-        sprintId: sprint.id,
-        taskRepo: deps.taskRepo,
-        sprintRepo: deps.sprintRepo,
-        clock: deps.clock,
-        logger: deps.logger,
+      const r = await unblockTaskLocked(deps, {
+        sprint,
+        taskId: task.id,
         ...(priorWork !== undefined ? { priorWork } : {}),
       });
       return r.ok ? { kind: 'unblocked', output: r.value, probe } : { kind: 'failed', error: r.error };

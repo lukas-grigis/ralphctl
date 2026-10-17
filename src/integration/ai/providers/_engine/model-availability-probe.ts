@@ -20,8 +20,6 @@ import type { AiProvider } from '@src/domain/entity/settings.ts';
  * every model the operator actually pays for. Such a probe MAY return ids absent from `catalog`,
  * provided it still fails open to `catalog` on every error path. The return value is always "the
  * models to offer in the picker" — for aggregators that is the CLI's own live answer.
- *
- * @public
  */
 export interface ModelAvailabilityProbe {
   /**
@@ -38,12 +36,10 @@ export interface ModelAvailabilityProbe {
  *    exit (usually "not authenticated"), spawn error, or the wall-clock cap tripping.
  *  - `probe-aborted` — the caller's signal fired before the source answered.
  *  - `empty-answer` — the source answered, but nothing in it survived id-shape filtering.
- *
- * @public
  */
 export type ModelProbeDegradationReason = 'probe-failed' | 'probe-aborted' | 'empty-answer';
 
-/** One fail-open event: which provider degraded, why, and the raw detail worth logging. @public */
+/** One fail-open event: which provider degraded, why, and the raw detail worth logging. */
 export interface ModelProbeDegradation {
   readonly provider: AiProvider;
   readonly reason: ModelProbeDegradationReason;
@@ -60,15 +56,11 @@ export interface ModelProbeDegradation {
  *
  * Implementations MUST NOT throw — the probe contract ("never rejects") holds through this
  * callback. The composition root wires it to `Logger.warn`.
- *
- * @public
  */
 export type ModelProbeDegradationSink = (degradation: ModelProbeDegradation) => void;
 
 /**
  * Registry of {@link ModelAvailabilityProbe}s keyed by {@link AiProvider}. Total over the provider
  * union — every provider supplies a probe (passthrough where no real source exists yet).
- *
- * @public
  */
 export type ModelAvailabilityProbeRegistry = Readonly<Record<AiProvider, ModelAvailabilityProbe>>;

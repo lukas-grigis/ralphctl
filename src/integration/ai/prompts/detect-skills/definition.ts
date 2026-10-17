@@ -55,7 +55,7 @@ export const detectSkillsPromptDef: PromptDefinition<DetectSkillsPromptParams> =
       validate: requireNonEmpty('outputContractSection', 'output-contract section must not be empty'),
     },
   },
-  partials: { SKILL_BODY_RULES: 'skill-body' },
+  partials: { SKILL_BODY_RULES: 'skill-body', ONE_SHOT_OPERATION: 'one-shot-operation' },
   expectedSignals: ['setup-skill-proposal', 'verify-skill-proposal', 'note'],
 };
 

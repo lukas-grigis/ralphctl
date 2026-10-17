@@ -12,7 +12,7 @@ This page is the detailed reference. The [README](../README.md#providers) has th
 | **Claude Code** (`claude-code`)           | `claude`   | `npm i -g @anthropic-ai/claude-code` | Anthropic account          | `CLAUDE.md`                       | `.claude/`       |
 | **GitHub Copilot CLI** (`github-copilot`) | `copilot`  | `npm i -g @github/copilot`           | GitHub Copilot seat        | `.github/copilot-instructions.md` | `.github/`       |
 | **OpenAI Codex CLI** (`openai-codex`)     | `codex`    | `npm i -g @openai/codex`             | ChatGPT / OpenAI           | `AGENTS.md`                       | `.agents/`       |
-| **OpenCode** (`opencode`)                 | `opencode` | `npm i -g opencode-ai`               | your own key, or none      | `AGENTS.md`                       | `.opencode/`     |
+| **OpenCode** (`opencode`)                 | `opencode` | `npm i -g opencode-ai@1`             | your own key, or none      | `AGENTS.md`                       | `.opencode/`     |
 | **Grok Build CLI** (`xai-grok`)           | `grok`     | `npm i -g @xai-official/grok`        | xAI account (`grok login`) | `AGENTS.md`                       | `.grok/`         |
 
 Bundled skill injection and `bodyFile` forensic capture work on all five. Parallel execution is
@@ -113,7 +113,7 @@ CLI that fronts **75+ model providers** (via [Models.dev](https://models.dev/)) 
 bring-your-own-key model.
 
 ```bash
-npm i -g opencode-ai
+npm i -g opencode-ai@1
 opencode providers login  # connect Anthropic / OpenAI / Ollama / … with your own keys
 opencode providers list   # see what is currently connected
 opencode models           # list every id now reachable

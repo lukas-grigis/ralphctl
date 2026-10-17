@@ -9,8 +9,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { Box, Text } from 'ink';
-import { homedir as osHomedir } from 'node:os';
-import { basename, join } from 'node:path';
+import { basename } from 'node:path';
 import { ViewShell } from '@src/application/ui/tui/components/view-shell.tsx';
 import { Card } from '@src/application/ui/tui/components/card.tsx';
 import { FieldList } from '@src/application/ui/tui/components/field-list.tsx';
@@ -19,6 +18,7 @@ import { TextPrompt } from '@src/application/ui/tui/prompts/text-prompt.tsx';
 import { ConfirmPrompt } from '@src/application/ui/tui/prompts/confirm-prompt.tsx';
 import { PathPickerPrompt } from '@src/application/ui/tui/prompts/path-picker-prompt.tsx';
 import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
+import { expandHome } from '@src/application/ui/tui/runtime/expand-home.ts';
 import { useRouter, useViewProps } from '@src/application/ui/tui/runtime/router.tsx';
 import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
@@ -37,12 +37,6 @@ type Step =
   | { readonly kind: 'confirm'; readonly path: string; readonly name: string }
   | { readonly kind: 'saving' }
   | { readonly kind: 'error'; readonly message: string };
-
-const expandHome = (input: string): string => {
-  if (input === '~') return osHomedir();
-  if (input.startsWith('~/')) return join(osHomedir(), input.slice(2));
-  return input;
-};
 
 const backStep = (step: Step): Step | undefined => {
   switch (step.kind) {

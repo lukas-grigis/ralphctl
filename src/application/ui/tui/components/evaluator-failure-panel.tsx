@@ -128,8 +128,6 @@ export const projectEvaluationLines = (parsed: ParsedEvaluation): readonly Evalu
  * can never paint across two terminal rows and desync a row-count viewport. The overlay pairs it
  * with a pre-wrap (`wrap-document-rows.ts`) so nothing is actually lost; a caller that renders
  * the whole projection (the panel below) leaves it off and lets Ink reflow the prose.
- *
- * @public
  */
 export const EvaluationLines = ({
   lines,

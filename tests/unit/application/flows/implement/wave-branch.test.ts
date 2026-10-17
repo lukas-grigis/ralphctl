@@ -34,7 +34,12 @@ import { createEventBusLogger } from '@src/business/observability/event-bus-logg
 
 import { absolutePath, FIXED_LATER, makeDoneTask, makePlannedSprint, makeTodoTask } from '@tests/fixtures/domain.ts';
 import { createCapturingBus } from '@tests/fixtures/capturing-event-bus.ts';
-import { scriptedWorktreeTree, type ScriptedWorktreeTreeOpts } from '@tests/fixtures/implement-parallel.ts';
+import {
+  recordingTaskRepo,
+  scriptedWorktreeTree,
+  type ScriptedWorktreeTreeOpts,
+} from '@tests/fixtures/implement-parallel.ts';
+import type { TaskRepository } from '@src/domain/repository/task/task-repository.ts';
 
 // ── createFoldQueue ─────────────────────────────────────────────────────────────────────────
 
@@ -102,12 +107,20 @@ const fakeGit = (over?: {
   foldConflict?: boolean;
   removeFails?: boolean;
   listFails?: boolean;
-}): { runner: GitRunner; calls: string[][] } => {
+  /** `worktree add` stands in for a hook the user cancels: it aborts this controller and is killed. */
+  cancelDuringAdd?: AbortController;
+}): { runner: GitRunner; calls: string[][]; signals: Map<string, AbortSignal | undefined> } => {
   const calls: string[][] = [];
+  const signals = new Map<string, AbortSignal | undefined>();
   const runner: GitRunner = {
-    async run(_cwd, args) {
+    async run(_cwd, args, opts) {
       calls.push([...args]);
       const [a, b] = args;
+      signals.set(`${String(a)} ${String(b)}`, opts?.signal);
+      if (a === 'worktree' && b === 'add' && over?.cancelDuringAdd !== undefined) {
+        over.cancelDuringAdd.abort();
+        return Result.error(new StorageError({ subCode: 'io', message: `git aborted: git ${args.join(' ')}` }));
+      }
       if (a === 'worktree' && b === 'list' && over?.listFails === true) return ok('', 128, 'fatal: index.lock');
       if (a === 'worktree' && b === 'remove') return over?.removeFails === true ? conflict() : ok();
       if (a === 'merge' && b === '--ff-only') return over?.foldConflict === true ? ok('not ff', 1) : ok();
@@ -117,7 +130,7 @@ const fakeGit = (over?: {
       return ok(); // worktree add / prune / etc.
     },
   };
-  return { runner, calls };
+  return { runner, calls, signals };
 };
 
 const stubBus = (events: AppEvent[]): EventBus => ({
@@ -128,10 +141,12 @@ const stubBus = (events: AppEvent[]): EventBus => ({
 const makeBranchDeps = (
   runner: GitRunner,
   eventBus: EventBus,
-  shellScriptRunner?: ShellScriptRunner
+  shellScriptRunner?: ShellScriptRunner,
+  taskRepo: TaskRepository = recordingTaskRepo()
 ): BuildWaveBranchesDeps => ({
   implement: {
     gitRunner: runner,
+    taskRepo,
     logger: noopLogger,
     clock: () => FIXED_LATER,
     ...(shellScriptRunner !== undefined ? { shellScriptRunner } : {}),
@@ -223,6 +238,25 @@ describe('buildWorktreeBranch — happy path', () => {
     expect(calls.some((c) => c[0] === 'worktree' && c[1] === 'remove' && c[2] === '--force')).toBe(true);
   });
 
+  it('fails the branch, keeping its ref, when the landed task cannot be recorded done', async () => {
+    const task = makeTodoTask();
+    const done: Task = { ...makeDoneTask(), id: task.id };
+    const { runner, calls } = fakeGit();
+    const writeFails: TaskRepository = {
+      ...recordingTaskRepo(),
+      update: async () => Result.error(new StorageError({ subCode: 'io', message: 'disk full' })),
+    };
+    const deps = makeBranchDeps(runner, stubBus([]), undefined, writeFails);
+    const wt = worktreePathFor(absolutePath('/data/sprints/s1'), task.id);
+
+    const branch = buildWorktreeBranch(deps, repo, task, wt, 'ref', PROGRESS, settlingSubchain(task.id, done));
+    const { status } = await runBranch(branch, baseCtx([task]));
+
+    expect(status).toBe('failed');
+    // Only the pre-add defensive delete ran; the ref outlives the branch for the next launch.
+    expect(calls.filter((c) => c[0] === 'branch' && c[1] === '-D' && c[2] === 'ref')).toHaveLength(1);
+  });
+
   it('never stashes the main repo', async () => {
     const task = makeTodoTask();
     const { runner, calls } = fakeGit();
@@ -305,6 +339,27 @@ describe('buildWorktreeBranch — fold conflict → blocked', () => {
         at: FIXED_LATER,
       },
     ]);
+  });
+
+  it('persists the conflict block before announcing it, so a crash after the fold never leaves the task done', async () => {
+    const task = makeTodoTask();
+    const done: Task = { ...makeDoneTask(), id: task.id };
+    const taskRepo = recordingTaskRepo([done]);
+    const persistedWhenAnnounced: string[] = [];
+    const bus: EventBus = {
+      publish: (e) => {
+        if (e.type === 'task-blocked') persistedWhenAnnounced.push(taskRepo.saved.at(-1)?.status ?? 'none');
+      },
+      subscribe: () => () => {},
+    };
+    const deps = makeBranchDeps(fakeGit({ foldConflict: true }).runner, bus, undefined, taskRepo);
+    const wt = worktreePathFor(absolutePath('/data/sprints/s1'), task.id);
+
+    const branch = buildWorktreeBranch(deps, repo, task, wt, 'ref', PROGRESS, settlingSubchain(task.id, done));
+    await runBranch(branch, baseCtx([task]));
+
+    expect(taskRepo.saved.at(-1)).toMatchObject({ id: task.id, status: 'blocked', blockCause: 'fold-conflict' });
+    expect(persistedWhenAnnounced).toEqual(['blocked']);
   });
 
   it('announces nothing when the fold lands cleanly', async () => {
@@ -425,6 +480,49 @@ describe('buildWorktreeBranch — abort runs cleanup', () => {
     expect(calls.some((c) => c[0] === 'worktree' && c[1] === 'remove')).toBe(true);
     expect(calls.some((c) => c[0] === 'merge')).toBe(false);
     expect(calls.some((c) => c[0] === 'stash' && c[1] === 'push')).toBe(false);
+  });
+});
+
+describe('buildWorktreeBranch — cancelling a hook-running git verb', () => {
+  it('hands the chain signal to worktree add and the fold, so a hung hook dies on cancel', async () => {
+    const task = makeTodoTask();
+    const done: Task = { ...makeDoneTask(), id: task.id };
+    const { runner, signals } = fakeGit();
+    const deps = makeBranchDeps(runner, stubBus([]));
+    const wt = worktreePathFor(absolutePath('/data/sprints/s1'), task.id);
+    const controller = new AbortController();
+
+    const branch = buildWorktreeBranch(deps, repo, task, wt, 'ref', PROGRESS, settlingSubchain(task.id, done));
+    const out = await branch.execute(baseCtx([task]), controller.signal);
+
+    expect(out.ok).toBe(true);
+    expect(signals.get('worktree add')).toBe(controller.signal);
+    expect(signals.get('merge --ff-only')).toBe(controller.signal);
+    // Cleanup must still run after a cancel, so it never takes the signal.
+    expect(signals.get('worktree remove')).toBeUndefined();
+  });
+
+  it('a cancel that kills worktree add ends the branch aborted, removes the half-made worktree and blocks nothing', async () => {
+    const task = makeTodoTask();
+    const controller = new AbortController();
+    const { runner, calls } = fakeGit({ cancelDuringAdd: controller });
+    const events: AppEvent[] = [];
+    const deps = makeBranchDeps(runner, stubBus(events));
+    const wt = worktreePathFor(absolutePath('/data/sprints/s1'), task.id);
+
+    const branch = buildWorktreeBranch(deps, repo, task, wt, 'ref', PROGRESS, () => {
+      throw new Error('the body must not run after a cancelled setup');
+    });
+    const out = await branch.execute(baseCtx([task]), controller.signal);
+
+    expect(out.ok).toBe(false);
+    if (!out.ok) expect(out.error.error).toBeInstanceOf(AbortError);
+    const afterAdd = calls.slice(calls.findIndex((c) => c[0] === 'worktree' && c[1] === 'add') + 1);
+    expect(afterAdd).toContainEqual(['worktree', 'remove', '--force', String(wt)]);
+    expect(afterAdd).toContainEqual(['branch', '-D', 'ref']);
+    // Not mistaken for a worktree an earlier run stranded.
+    expect(afterAdd.some((c) => c[0] === 'worktree' && c[1] === 'list')).toBe(false);
+    expect(taskBlockedEvents(events)).toHaveLength(0);
   });
 });
 
@@ -596,6 +694,7 @@ describe('buildWorktreeBranch — per-worktree setup working-tree check', () => 
     const deps: BuildWaveBranchesDeps = {
       implement: {
         gitRunner: tree.runner,
+        taskRepo: recordingTaskRepo(),
         logger,
         clock: () => FIXED_LATER,
         shellScriptRunner: shell,

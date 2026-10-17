@@ -61,8 +61,6 @@ import { loadSkillFolders, type SkillContractWarner } from '@src/integration/ai/
  * The values here MUST stay disjoint from {@link OPERATOR_PROVIDER_DIR}'s values — both sets of
  * directory names share the `<appRoot>/skills` parent (see the module doc). `source.test.ts` guards
  * the invariant against future edits to either mapping.
- *
- * @public
  */
 export const PHASE_FLOW_DIR: Record<FlowId, string> = {
   refine: 'refine',
@@ -77,8 +75,6 @@ export const PHASE_FLOW_DIR: Record<FlowId, string> = {
 /**
  * Factory input for {@link createPhaseSkillSource}. Mirrors the operator source's deps minus the
  * provider dimension — phase skills are flow-scoped, not provider-scoped.
- *
- * @public
  */
 export interface PhaseSkillSourceDeps {
   /** `<appRoot>/skills` — the same global root the operator source reads (from `StoragePaths`). */
@@ -104,7 +100,6 @@ const loadFlowSkills = (deps: PhaseSkillSourceDeps, flowId: FlowId): Promise<rea
     warnIfContractViolated: deps.warnIfContractViolated,
   });
 
-/** @public */
 export const createPhaseSkillSource = (deps: PhaseSkillSourceDeps): SkillSource => ({
   async getForFlow(flowId: FlowId): Promise<Result<readonly Skill[], StorageError>> {
     return Result.ok(await loadFlowSkills(deps, flowId));

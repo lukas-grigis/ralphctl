@@ -28,6 +28,7 @@ import { makeDraftSprint, makeProject } from '@tests/fixtures/domain.ts';
 import { ENTER, ESC } from '@tests/integration/application/ui/tui/_keys.ts';
 import { waitFor, waitForPredicate } from '@tests/integration/application/ui/tui/_wait.ts';
 import { renderView } from '@tests/integration/application/ui/tui/_harness.tsx';
+import { withUpdate } from '@tests/fixtures/sprint-repo-update.ts';
 
 describe('AddTicketView — wizard e2e', () => {
   it('manual entry: skip link → enter title → enter description → confirm appends the ticket', async () => {
@@ -36,12 +37,12 @@ describe('AddTicketView — wizard e2e', () => {
       void s;
       return Result.ok(undefined);
     });
-    const sprintRepo: SprintRepository = {
+    const sprintRepo: SprintRepository = withUpdate({
       async findById() {
         return Result.ok(sprint);
       },
       save,
-    } as unknown as SprintRepository;
+    }) as unknown as SprintRepository;
     const deps: AppDeps = { sprintRepo } as unknown as AppDeps;
 
     const { result } = renderView(<AddTicketView />, {
@@ -87,12 +88,12 @@ describe('AddTicketView — wizard e2e', () => {
       void s;
       return Result.ok(undefined);
     });
-    const sprintRepo: SprintRepository = {
+    const sprintRepo: SprintRepository = withUpdate({
       async findById() {
         return Result.ok(sprint);
       },
       save,
-    } as unknown as SprintRepository;
+    }) as unknown as SprintRepository;
     const deps: AppDeps = { sprintRepo } as unknown as AppDeps;
 
     const { result } = renderView(<AddTicketView />, {
@@ -125,12 +126,12 @@ describe('AddTicketView — wizard e2e', () => {
       void s;
       return Result.ok(undefined);
     });
-    const sprintRepo: SprintRepository = {
+    const sprintRepo: SprintRepository = withUpdate({
       async findById() {
         return Result.ok(sprint);
       },
       save,
-    } as unknown as SprintRepository;
+    }) as unknown as SprintRepository;
     const fetched: ExternalIssue = {
       url: 'https://github.com/acme/repo/issues/42',
       title: 'Caching layer is missing',
@@ -217,13 +218,13 @@ describe('AddTicketView — failure steps always have an exit', () => {
       comment: async () => Result.ok(undefined),
     };
     return {
-      sprintRepo: {
+      sprintRepo: withUpdate({
         findById: async () => Result.ok(stored),
         save: async (next: Sprint) => {
           stored = next;
           return Result.ok(undefined);
         },
-      } as unknown as SprintRepository,
+      }) as unknown as SprintRepository,
       projectRepo: { findById: async () => Result.ok(makeProject()) } as unknown as ProjectRepository,
       issuePusher,
     } as unknown as AppDeps;
@@ -263,10 +264,10 @@ describe('AddTicketView — failure steps always have an exit', () => {
   it('error step (save failed) offers a way out instead of a dead end', async () => {
     const sprint = makeDraftSprint();
     const deps = {
-      sprintRepo: {
+      sprintRepo: withUpdate({
         findById: async () => Result.ok(sprint),
         save: async () => Result.error(new StorageError({ subCode: 'io', message: 'disk full' })),
-      } as unknown as SprintRepository,
+      }) as unknown as SprintRepository,
     } as unknown as AppDeps;
     const { result, routeIds } = renderView(<PushedAddTicket sprintId={sprint.id} />, {
       deps,
@@ -284,13 +285,13 @@ describe('AddTicketView — session count', () => {
   it('counts consecutive added tickets (1, then 2) on the added step', async () => {
     let stored: Sprint = makeDraftSprint();
     const deps = {
-      sprintRepo: {
+      sprintRepo: withUpdate({
         findById: async () => Result.ok(stored),
         save: async (next: Sprint) => {
           stored = next;
           return Result.ok(undefined);
         },
-      } as unknown as SprintRepository,
+      }) as unknown as SprintRepository,
     } as unknown as AppDeps;
     const { result } = renderView(<AddTicketView />, {
       deps,

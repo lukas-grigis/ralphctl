@@ -1,5 +1,5 @@
 import { join } from 'node:path';
-import { sprintDir as buildSprintDir } from '@src/integration/persistence/storage.ts';
+import { ensureCanonicalSprintDir } from '@src/integration/persistence/sprint/repository.ts';
 import { type PlanCheckFinding, renderPlanCheckFinding, severityOfFinding } from '@src/business/sprint/check-plan.ts';
 import type { DraftSprint } from '@src/domain/entity/sprint.ts';
 import type { TodoTask } from '@src/domain/entity/task.ts';
@@ -42,7 +42,6 @@ export interface PlanReviewTask {
 /**
  * Project the planner's tasks onto the review shape: repository id → repo name, dependency ids → task names (raw id
  * when the target isn't in the proposal), external refs → the ticket ref.
- * @public
  */
 export const toPlanReviewTasks = (
   tasks: readonly TodoTask[],
@@ -115,7 +114,6 @@ export const renderReviewTask = (t: PlanReviewTask, index: number): string => {
 
 /**
  * Render the human-facing plan-approval prompt body (audit §5 human-gate).
- * @public
  */
 export const buildPlanReviewMessage = (
   proposedTasks: readonly PlanReviewTask[],
@@ -134,7 +132,7 @@ export const launchPlan = async (ctx: LaunchContext): Promise<LaunchResult> => {
   // No `cwd` pre-flight: plan's AI session is rooted at the per-sprint plan unit root
   // (`<sprintDir>/plan/<run-slug>/`), and every project repository is mounted as an equal `--add-dir` source.
   const planRoot = AbsolutePath.parse(
-    join(buildSprintDir(deps.storage.dataRoot, snapshot.sprint.id, snapshot.sprint.slug), 'plan')
+    join(await ensureCanonicalSprintDir(deps.storage.dataRoot, snapshot.sprint.id, snapshot.sprint.slug), 'plan')
   );
   if (!planRoot.ok) return { ok: false, reason: planRoot.error.message };
   // HITL approval — same shape as refine: the AI's proposed task list is summarised, the user accepts/rejects via an

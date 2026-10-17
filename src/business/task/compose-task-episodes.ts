@@ -74,8 +74,6 @@ const blockedEpisode = (task: BlockedTask, sprintId: SprintId): TaskEpisode => (
  *
  * Pure: no I/O, no clock. All fields are derived from real entity data (see
  * {@link lastAttemptTimestamp} for the no-fabrication timestamp rule).
- *
- * @public
  */
 export const composeTaskEpisodes = (
   tasks: readonly Task[],

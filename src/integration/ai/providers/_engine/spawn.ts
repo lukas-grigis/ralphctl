@@ -17,6 +17,9 @@ import { markProcessGroupLeader, supportsProcessGroups } from '@src/integration/
  *
  * `detached` asks for the child to lead its own process group (POSIX only) so an abort or the
  * idle watchdog can kill the tool subprocesses it forks, and the orphan reaper can find them.
+ *
+ * `env` is the child's whole environment, as in `node:child_process.spawn` (absent = inherit), so a
+ * general-purpose `Spawn` stays assignable here.
  */
 export type ProviderSpawn = (
   command: string,
@@ -25,6 +28,7 @@ export type ProviderSpawn = (
     readonly stdio: readonly ['pipe', 'pipe', 'pipe'];
     readonly cwd?: string;
     readonly detached?: boolean;
+    readonly env?: NodeJS.ProcessEnv;
   }
 ) => ChildProcessWithoutNullStreams;
 
@@ -39,6 +43,7 @@ export const defaultProviderSpawn: ProviderSpawn = (command, args, options) => {
   const child = crossPlatformSpawn(command, args, {
     stdio: [...options.stdio],
     ...(options.cwd !== undefined ? { cwd: options.cwd } : {}),
+    ...(options.env !== undefined ? { env: options.env } : {}),
     ...(detached ? { detached } : {}),
   }) as ChildProcessWithoutNullStreams;
   if (detached) markProcessGroupLeader(child);

@@ -488,7 +488,7 @@ describe('createIssueFetcher', () => {
     expect(out.ok).toBe(false);
     if (!out.ok) {
       expect(out.error.subCode).toBe('io');
-      expect(out.error.message).toContain('gh not installed');
+      expect(out.error.message).toBe('gh failed to spawn: command not found');
     }
   });
 });

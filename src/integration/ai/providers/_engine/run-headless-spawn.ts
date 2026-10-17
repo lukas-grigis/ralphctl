@@ -1,5 +1,8 @@
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { DEFAULT_IDLE_MS, installIdleWatchdog } from '@src/integration/ai/providers/_engine/idle-watchdog.ts';
+import { onChildDone } from '@src/integration/io/child-exit.ts';
+import { processGroupOf } from '@src/integration/io/kill-process-tree.ts';
+import { createProcessGroupTerminator } from '@src/integration/io/process-liveness.ts';
 
 /**
  * Shared lifecycle scaffold for headless AI provider spawns. The adapters (claude / codex /
@@ -10,12 +13,11 @@ import { DEFAULT_IDLE_MS, installIdleWatchdog } from '@src/integration/ai/provid
  *
  *  - what to do with each stdout chunk (raw accumulate, line-parse, session-id extract …)
  *  - whether to send a prompt down stdin (and which one)
- *  - which exit event to wait on (`'exit'` vs `'close'`)
  *
  * Everything else — listener attach/detach, watchdog install/stop, abort handling, idle
- * warning emission — lives here. Listeners are detached in a `finally` that wraps everything
- * after attach so a throw in `stdin.end` or `installIdleWatchdog` can't leave buffer closures
- * pinned to the child's stream EventEmitters.
+ * warning emission, reaping the leader's process group once it exits — lives here. Listeners are
+ * detached in a `finally` that wraps everything after attach so a throw in `stdin.end` or
+ * `installIdleWatchdog` can't leave buffer closures pinned to the child's stream EventEmitters.
  */
 
 export interface RunHeadlessSpawnOptions {
@@ -30,12 +32,6 @@ export interface RunHeadlessSpawnOptions {
    * doesn't hang waiting for input.
    */
   readonly stdin?: string;
-  /**
-   * Which child exit event to await. `'close'` waits for streams to flush (claude needs this
-   * so the final stdout chunk is captured); `'exit'` is sufficient for copilot/codex which
-   * stream their tokens incrementally to the on-stdout handler.
-   */
-  readonly resolveOn: 'exit' | 'close';
   /** Stdio-silence cap before SIGTERM. Defaults to `DEFAULT_IDLE_MS`. */
   readonly idleMs?: number;
   /** Caller-controlled abort (Ctrl-C / TUI cancel). Threaded into the watchdog kill ladder. */
@@ -57,8 +53,16 @@ export interface SpawnExit {
   readonly spawnError?: NodeJS.ErrnoException;
 }
 
+const groupTerminator = createProcessGroupTerminator();
+
+// A job the CLI backgrounded would outlive the attempt untracked and could hold stdout open past `'close'`.
+const reapGroupOnExit = (child: ChildProcessWithoutNullStreams): void => {
+  const pgid = processGroupOf(child);
+  if (pgid !== undefined) groupTerminator.terminateGroup(pgid);
+};
+
 export const runHeadlessSpawn = async (opts: RunHeadlessSpawnOptions): Promise<SpawnExit> => {
-  const { child, onStdout, onStderr, stdin, resolveOn, abortSignal, onIdle } = opts;
+  const { child, onStdout, onStderr, stdin, abortSignal, onIdle } = opts;
   const idleMs = opts.idleMs ?? DEFAULT_IDLE_MS;
 
   child.stdout.setEncoding('utf8');
@@ -86,7 +90,10 @@ export const runHeadlessSpawn = async (opts: RunHeadlessSpawnOptions): Promise<S
         resolve(exit);
       };
       child.once('error', (err: NodeJS.ErrnoException) => settle({ code: null, signal: null, spawnError: err }));
-      child.once(resolveOn, (code, signal) => settle({ code, signal }));
+      child.once('exit', () => reapGroupOnExit(child));
+      // Not bare `'exit'`: the final records (an error, a session id) can still be in the pipe then.
+      // Bounded after it, for a holder no group reap can reach (Windows, or a setsid escapee).
+      onChildDone(child, (code, _pipesHeld, signal) => settle({ code, signal }));
 
       // stdin: send the prompt (claude/codex) or close immediately (copilot reads from argv).
       // The write goes against a child that may already be dead (raced the spawn `'error'`):

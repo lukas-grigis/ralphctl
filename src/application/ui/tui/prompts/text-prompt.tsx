@@ -12,9 +12,8 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Box, Text, type Key } from 'ink';
-import { usePromptInput } from '@src/application/ui/tui/prompts/use-prompt-input.ts';
+import { usePromptInput, usePromptPaste } from '@src/application/ui/tui/prompts/use-prompt-input.ts';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
-import { stripPasteMarkers, usePaste } from '@src/application/ui/tui/prompts/use-paste.ts';
 
 /**
  * Flatten a pasted payload for a single-line field: collapse every run of whitespace (including
@@ -133,17 +132,16 @@ const handleEditingKey = (key: Key, input: string, updateBufAndCursor: UpdateBuf
 /** Printable-character insertion, including the shift+letter and pasted-chunk fallbacks. */
 const handleInsertionKey = (key: Key, input: string, insertAtCursor: InsertAtCursor): void => {
   // Printable characters (including pasted multi-char input): insert at cursor. Fallback for
-  // terminals that don't honour mode 2004 — a single-chunk paste arrives here. Strip stray paste
-  // markers; if the result still carries newlines (a multi-line paste), flatten it to keep the
-  // field single-line. A plain keystroke (incl. a lone space) is inserted verbatim.
+  // terminals that don't honour mode 2004 — a single-chunk paste arrives here, so flatten it if it
+  // carries newlines to keep the field single-line. A plain keystroke (incl. a lone space) is
+  // inserted verbatim.
   if (input.length > 0 && !key.meta && !key.ctrl && !key.tab) {
-    const stripped = stripPasteMarkers(input);
-    insertAtCursor(/[\r\n]/u.test(stripped) ? flattenToSingleLine(stripped) : stripped);
+    insertAtCursor(/[\r\n]/u.test(input) ? flattenToSingleLine(input) : input);
     return;
   }
   if (input.length > 0 && key.shift) {
     // shift+letter still produces a printable
-    insertAtCursor(stripPasteMarkers(input));
+    insertAtCursor(input);
   }
 };
 
@@ -176,7 +174,7 @@ export const TextPrompt = ({
 
   // Bracketed-paste channel. A single-line field flattens the payload: runs of whitespace and the
   // newlines of a multi-line paste collapse to one space so the field stays single-line.
-  const paste = usePaste((payload) => insertAtCursor(flattenToSingleLine(payload)));
+  usePromptPaste((payload) => insertAtCursor(flattenToSingleLine(payload)));
 
   // Half-second blink. The cleanup keeps the timer from leaking across remounts of the
   // wizards that key TextPrompts per step.
@@ -191,9 +189,6 @@ export const TextPrompt = ({
   const validation = useMemo(() => validate?.(buf), [buf, validate]);
 
   usePromptInput((input, key) => {
-    // Bracketed paste first — consumed before any key dispatch so marker bytes and embedded
-    // newlines never submit or land verbatim in the buffer.
-    if (paste.consume(input)) return;
     if (key.escape) {
       onCancel();
       return;

@@ -87,8 +87,6 @@ const ScrollAnchorContext = createContext<ScrollAnchorRegistry | undefined>(unde
  * before the parent's, so registering here lands before the region's measure-and-reveal pass in
  * the SAME commit as the cursor move. Registering in a plain `useEffect` runs after that pass,
  * which left the region revealing the previous anchor — one keypress behind, forever.
- *
- * @public
  */
 export const useScrollAnchor = (active: boolean): React.RefObject<DOMElement | null> => {
   const ref = useRef<DOMElement | null>(null);

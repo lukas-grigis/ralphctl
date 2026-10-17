@@ -4,26 +4,6 @@ import type { TaskId } from '@src/domain/value/id/task-id.ts';
 import { isUpstreamBlocked } from '@src/domain/entity/task-lifecycle.ts';
 
 /**
- * Walk the attempt history (newest → oldest) and return the most recent non-empty `critique`.
- *
- * Within a single attempt the loop's most recent evaluator turn stamps `critique` on the
- * running attempt; this query returns immediately on a match there. Across attempts (after a
- * crash + resume where `start-attempt` settles the prior running attempt as `aborted` and
- * opens a fresh one) the walk-back surfaces the prior aborted attempt's critique so the new
- * attempt's first generator turn starts with full context instead of cold.
- *
- * Returns `undefined` when no attempt has a non-empty critique — e.g. a brand-new task on its
- * very first turn, or a chain that crashed before any evaluator turn ran.
- */
-export const latestCritique = (task: Task): string | undefined => {
-  for (let i = task.attempts.length - 1; i >= 0; i--) {
-    const att = task.attempts[i];
-    if (att?.critique !== undefined && att.critique.trim().length > 0) return att.critique;
-  }
-  return undefined;
-};
-
-/**
  * Return the next task ready to execute: `todo` status, all `dependsOn` are `done`, picked by
  * lowest `order` to break ties deterministically. Returns `undefined` when nothing is ready
  * (either everything's done, or remaining todos are gated by unfinished deps / blocks).
@@ -60,8 +40,6 @@ export const nextAvailableTask = (tasks: readonly Task[]): Task | undefined => {
  * prerequisite: the dependency gate re-blocks it on the next run.
  *
  * Pure — does not mutate.
- *
- * @public
  */
 export const upstreamBlockedDependents = (tasks: readonly Task[], rootId: TaskId): readonly TaskId[] => {
   const found = new Set<TaskId>();
@@ -189,8 +167,6 @@ export const validateTaskGraph = (
  * that surface the issue through their own error envelope (e.g. the parser maps it onto a
  * `ParseError` message). Kept here so the wording stays adjacent to the issue shape it
  * describes and both producers and consumers share one phrasing.
- *
- * @public
  */
 export const renderTaskGraphIssue = (issue: TaskGraphIssue): string => {
   switch (issue.kind) {
@@ -257,8 +233,6 @@ const buildGraph = (
  * legitimately empty task list, distinct from the `Result.error` this returns for an
  * unschedulable NON-empty set (cycle / self-edge / a truly unknown dependency); callers must not
  * conflate the two. Pure — no mutation of inputs, no I/O.
- *
- * @public
  */
 export const scheduleIntoWaves = (
   tasks: readonly Task[],

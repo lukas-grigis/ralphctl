@@ -18,11 +18,11 @@ import { messageOf } from '@src/domain/value/error/error-message.ts';
  * for why the parallel fan-in has one).
  *
  * Re-reads `tasks.json` and, for every in-memory task still `todo`/`in_progress`, substitutes the
- * persisted row whenever that row is `blocked` — recovering a block (and, for a quarantined diff,
- * its stash pointer) a non-`completed` branch already wrote to disk before `mergeImplementWave`
- * dropped its ctx on the floor. Runs BEFORE `saveTasksLeaf` so that leaf's whole-list write never
- * clobbers the very block this leaf just pulled back, and before the review-transition guard so it
- * sees the reconciled set too.
+ * persisted row — recovering a block (and, for a quarantined diff, its stash pointer), an opened
+ * attempt, or a landed fold's `done` that a non-`completed` branch already wrote to disk before
+ * `mergeImplementWave` dropped its ctx on the floor. Runs BEFORE `saveTasksLeaf` so that leaf's
+ * whole-list write never clobbers the very rows this leaf just pulled back, and before the
+ * review-transition guard so it sees the reconciled set too.
  *
  * Never fails the epilogue — this read is a best-effort reconciliation, not a precondition, and the
  * epilogue's whole point (THE B4 durability gate) is to persist whatever the run produced even on
@@ -33,8 +33,6 @@ import { messageOf } from '@src/domain/value/error/error-message.ts';
  *    unchanged.
  *  - the port throws `AbortError` → propagates verbatim (the one exempt case — an in-flight abort
  *    must never be swallowed as a mere read failure).
- *
- * @public
  */
 export interface AdoptPersistedBlocksLeafDeps {
   readonly taskRepo: FindTasksBySprintId;
@@ -80,6 +78,6 @@ export const adoptPersistedBlocksLeaf = (deps: AdoptPersistedBlocksLeafDeps): El
     },
     input: (ctx) => ({ sprintId: ctx.sprintId, tasks: ctx.tasks }),
     output: (ctx, out) => (out.tasks === ctx.tasks ? ctx : { ...ctx, tasks: out.tasks }),
-    label: 'Reconcile blocks',
+    label: 'Reconcile tasks',
     internal: true,
   });

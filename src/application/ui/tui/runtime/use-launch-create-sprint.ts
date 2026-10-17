@@ -13,8 +13,6 @@
  *
  * The returned function is `useCallback`-stable so home-view can list it in a `useMemo`
  * dependency array (the menu builder closes over it) without re-running the memo every render.
- *
- * @public
  */
 
 import { useCallback } from 'react';

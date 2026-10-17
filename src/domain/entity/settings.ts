@@ -221,7 +221,8 @@ const seedLegacyCreatePrRow = (ai: unknown): unknown => {
 };
 
 const COPILOT_GEMINI_SUCCESSOR = 'gemini-3.8-flash';
-const COPILOT_OPUS_SUCCESSOR = 'claude-opus-4.8';
+// GitHub's named successor for Opus 4.8 / 5, which retire on Copilot 2026-11-16.
+const COPILOT_OPUS_SUCCESSOR = 'claude-opus-5.5';
 const COPILOT_SMALL_CODE_SUCCESSOR = 'mai-code-1.1-flash';
 // GitHub's named successors for the 2026-10-19 GPT deprecations; also Codex's `gpt-5.5` successor.
 const GPT_5_6_SOL = 'gpt-5.6-sol';
@@ -239,7 +240,7 @@ const GPT_5_6_LUNA = 'gpt-5.6-luna';
  * Retirements, by provider:
  *  - claude-code — `claude-opus-4-7` retired for `claude-opus-4-8`.
  *  - github-copilot — the 2026-09-01 deprecation removed `claude-opus-4.5` / `claude-opus-4.6`
- *    (→ `claude-opus-4.8`, their nearest live successor), `claude-sonnet-4.5` /
+ *    (→ `claude-opus-5.5`, since 4.8 itself retires 2026-11-16), `claude-sonnet-4.5` /
  *    `claude-sonnet-4.6` (→ `claude-sonnet-5`), `gemini-3.1-pro` (→ `gemini-3.8-flash`, the
  *    newest Gemini left on Copilot), and `raptor-mini` (→ `mai-code-1.1-flash`, the remaining
  *    small code model); `mai-code-1-flash` was superseded by `mai-code-1.1-flash`. Earlier
@@ -247,8 +248,8 @@ const GPT_5_6_LUNA = 'gpt-5.6-luna';
  *    `claude-opus-4.8-fast`, `gemini-3.1-pro-preview` and `gemini-2.5-pro` → `gemini-3.8-flash`,
  *    `raptor-mini-preview` → `mai-code-1.1-flash`. The 2026-10-02 deprecation removed
  *    `gemini-3.5-flash` / `gemini-3.6-flash` (and the older `gemini-3-flash`) → `gemini-3.8-flash`,
- *    `kimi-k2.7-code` → `kimi-k3`, and `claude-opus-4.7` → `claude-opus-4.8` (the nearest
- *    live successor; GitHub suggests Opus 5.5, which the default ladder climbs to on plateau).
+ *    `kimi-k2.7-code` → `kimi-k3`, and `claude-opus-4.7` → `claude-opus-5.5` (GitHub's
+ *    suggested successor).
  *    The 2026-10-19 deprecation removed `gpt-5.5` / `gpt-5.4` (→ `gpt-5.6-sol`), `gpt-5.4-mini` /
  *    `gpt-5-mini` (→ `gpt-5.6-luna`), `gemini-3.7-flash` (→ `gemini-3.8-flash`) and `grok-4.5`
  *    (→ `grok-4.6`) — GitHub's named successors. `grok-4.5` is retired on Copilot only; it stays a
@@ -259,11 +260,10 @@ const GPT_5_6_LUNA = 'gpt-5.6-luna';
  *    (they pointed at `gpt-5.5`; chain-collapsed onto `gpt-5.6-sol` when it retired).
  *  - opencode — free-tier ids that left `opencode models` with a clear successor:
  *    `deepseek-v4-flash-free` → `nemotron-3.5-lightning-free`, `ling-3.0-tiny-free` →
- *    `ling-3.0-flash-fin-free`.
+ *    `ling-3.0-flash-fin-free`, `mimo-v2.5-free` → `mimo-v2.6-flash-free`, and
+ *    `muse-spark-1.2-contributor-free` → `muse-spark-1.3-contributor-free`.
  *
  * Exported only so the lockstep test can assert every target is a live catalog id.
- *
- * @public
  */
 export const RETIRED_MODEL_REMAPS: ReadonlyArray<{
   readonly provider: AiProvider;
@@ -301,6 +301,12 @@ export const RETIRED_MODEL_REMAPS: ReadonlyArray<{
   { provider: PROVIDER_OPENAI_CODEX, from: 'gpt-5.3-codex-spark', to: GPT_5_6_SOL },
   { provider: PROVIDER_OPENCODE, from: 'opencode/deepseek-v4-flash-free', to: 'opencode/nemotron-3.5-lightning-free' },
   { provider: PROVIDER_OPENCODE, from: 'opencode/ling-3.0-tiny-free', to: 'opencode/ling-3.0-flash-fin-free' },
+  { provider: PROVIDER_OPENCODE, from: 'opencode/mimo-v2.5-free', to: 'opencode/mimo-v2.6-flash-free' },
+  {
+    provider: PROVIDER_OPENCODE,
+    from: 'opencode/muse-spark-1.2-contributor-free',
+    to: 'opencode/muse-spark-1.3-contributor-free',
+  },
 ];
 
 /**
@@ -344,8 +350,14 @@ export const unambiguousRetiredSuccessor = (model: string): string | undefined =
 
 /** Codex retired the 'minimal' reasoning-effort level (codex CLI >= 0.145); 'low' succeeds it. */
 const RETIRED_CODEX_EFFORT = 'minimal';
+/** Levels the Grok CLI refuses on every catalog model; 'low' is the nearest it accepts. */
+const RETIRED_GROK_EFFORTS: ReadonlySet<unknown> = new Set(['none', RETIRED_CODEX_EFFORT]);
 
-/** Rewrite one row: retired-model remap by (provider, model), then codex 'minimal' -> 'low'. */
+const isRetiredEffort = (provider: unknown, effort: unknown): boolean =>
+  (provider === PROVIDER_OPENAI_CODEX && effort === RETIRED_CODEX_EFFORT) ||
+  (provider === PROVIDER_XAI_GROK && RETIRED_GROK_EFFORTS.has(effort));
+
+/** Rewrite one row: retired-model remap by (provider, model), then retired effort levels -> 'low'. */
 const migrateStaleRow = (row: unknown): unknown => {
   if (typeof row !== 'object' || row === null) return row;
   let next = row as Record<string, unknown>;
@@ -355,7 +367,7 @@ const migrateStaleRow = (row: unknown): unknown => {
     const remapped = remapRetiredModel(provider, model);
     if (remapped !== model) next = { ...next, model: remapped };
   }
-  if (next['provider'] === PROVIDER_OPENAI_CODEX && next['effort'] === RETIRED_CODEX_EFFORT) {
+  if (isRetiredEffort(next['provider'], next['effort'])) {
     next = { ...next, effort: 'low' };
   }
   return next;
@@ -363,7 +375,8 @@ const migrateStaleRow = (row: unknown): unknown => {
 
 /**
  * Rewrite any AI row pinned to a retired model slug (see {@link RETIRED_MODEL_REMAPS}) to its
- * catalog successor, and any codex row carrying the retired `minimal` effort level to `low`.
+ * catalog successor, and any codex row carrying the retired `minimal` effort level (or grok row
+ * carrying `none` / `minimal`) to `low`.
  * The settings schema accepts off-catalog model strings, so a persisted retired-model row LOADS
  * fine — but the adapter rejects non-catalog models at spawn time with `InvalidStateError`.
  * Rewriting at parse time keeps existing users on a working model/effort across the catalog
@@ -733,8 +746,6 @@ export type AiImplementRole = 'generator' | 'evaluator';
  * Optional per-role agent-definition binding under `settings.ai.implement.agents` — see
  * {@link AiAgentBindingsSchema}. An absent key (or an absent `agents` block) means the role has
  * no bound definition.
- *
- * @public
  */
 export type AiAgentBindings = z.infer<typeof AiAgentBindingsSchema>;
 
@@ -743,8 +754,6 @@ export type AiAgentBindings = z.infer<typeof AiAgentBindingsSchema>;
  * role has no binding (including when the whole `agents` block is absent). The "primary"
  * naming mirrors {@link primaryFlowRow}: a single lookup a caller can use without reaching
  * into the block's shape directly.
- *
- * @public
  */
 export const primaryAgentBinding = (agents: AiAgentBindings | undefined, role: AiImplementRole): string | undefined =>
   agents?.[role];
@@ -753,8 +762,6 @@ export const primaryAgentBinding = (agents: AiAgentBindings | undefined, role: A
  * `Partial<Record<FlowId, { disabled: readonly string[] }>>`. Exposed for the skills launcher
  * resolution seam (#216) and the customize picker, which read a flow's saved `disabled` list to
  * subtract from that flow's bundled defaults at launch.
- *
- * @public
  */
 export type AiSkillsSettings = z.infer<typeof AiSkillsSchema>;
 export type Settings = z.infer<typeof SettingsSchema>;
@@ -780,8 +787,6 @@ export const primaryFlowRow = (ai: AiSettings, flow: FlowId): AiFlowSettings => 
  *
  * Pure over {@link AiSettings} — no I/O — so it lives in the domain entity alongside
  * {@link primaryFlowRow} rather than in any one consuming flow.
- *
- * @public
  */
 export const uniqueProvidersFromAi = (ai: AiSettings): readonly AiProvider[] => {
   const seen = new Set<AiProvider>();
@@ -816,8 +821,6 @@ export const uniqueProvidersFromAi = (ai: AiSettings): readonly AiProvider[] => 
  * implement-role overrides, and the TUI customize picker silently rejecting the new provider while
  * the whole suite stayed green. Every membership check and every "expected one of: …" message
  * MUST read from here rather than re-listing ids.
- *
- * @public
  */
 export const AI_PROVIDERS: readonly AiProvider[] = AiProviderSchema.options;
 

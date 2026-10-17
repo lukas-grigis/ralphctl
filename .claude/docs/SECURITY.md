@@ -26,6 +26,14 @@ a path-scoped deny rule instead. To deny writes to a tree, don't mount it.
 Codex caveat: `codex exec` has only two sandbox modes (`read-only` / `workspace-write`), and
 `read-only` blocks every write (incl. signals.json). Every profile maps to `workspace-write`;
 Codex can't fine-grained-deny edits on existing repo files. Use topology to constrain it.
+`codex exec resume` accepts no `-s` / `--add-dir` and comes back read-only, so a resumed spawn
+re-declares both as `-c sandbox_mode="workspace-write"` and `-c sandbox_workspace_write.writable_roots=[…]`.
+Spawns don't pass `--ephemeral` (resume needs the rollout), so each one leaves a session under `~/.codex/sessions`.
+
+Claude Code caveat: 2.1.302 turned fork subagents (a subagent that copies the parent's whole
+context) on by default in `claude -p`. Every headless claude spawn sets `CLAUDE_CODE_FORK_SUBAGENT=0`
+— whether a fork inherits `--disallowedTools` is unverified, and each fork re-bills the parent's
+context. Interactive handoffs leave the operator's own setting alone.
 
 OpenCode caveat (stronger): `opencode run` (headless — implement generator/evaluator, review,
 create-pr, readiness, detect-scripts, detect-skills) exposes exactly ONE approval control, `--auto`,
@@ -133,12 +141,19 @@ the run lasts — a crashed holder stops heartbeating and is reclaimed once its 
 lost mid-run (`onCompromised`) surfaces a `lock-compromised` warning AND aborts the in-flight run: the
 lock-compromised signal is merged into the chain's abort signal (`combineAbortSignals`), so a lost lock tears
 the run down as an `AbortError` instead of continuing to mutate a resource a competitor may now own. The lock
-is held across the whole run by the implement flow (serial path via `withRepoLock`, parallel path holds the
-key directly) and by the review flow (`withRepoLock`, same sprint-dir key — implement and review of one
-sprint mutually exclude). `withRepoLock` (`flows/_shared/`) is the one ctx-generic wrapper both use.
+is held across the whole run by the implement flow (both paths), by the review flow and by close-sprint, all through
+`withRepoLock` (`flows/_shared/`) on the same sprint-dir key — implement, review and close of one sprint mutually
+exclude. Manual task unblock (CLI and TUI) takes the same sprint-dir key around its write via `unblockTaskLocked`
+(`ui/shared/`) and re-reads the task under it, so it waits out a live run instead of being overwritten by it.
+Close-sprint holds the lock across its blocked-task confirm prompt and its distill step too, so while the
+operator answers or the AI distills, other writers (unblock, purge, migration) wait or refuse. Ticket writers
+(`ticket add` / `remove` / `publish`) take only the sprint's `update` lock, not this one, so close and review
+apply their final `review → done` transition through that same locked `update` and a link published meanwhile
+survives.
 
 **Lock owner.** A lock taken with a `purpose` carries `owner.json` (pid, host, machine id, process start, `ps`
-identity, purpose) inside the lock directory. A lock whose owner pid is dead on this machine is reclaimed at once
+identity, purpose) inside the lock directory; every current call site passes one, including the per-write `tasks.json.lock`.
+A lock whose owner pid is dead on this machine is reclaimed at once
 rather than after `staleAfterMs`; a live or other-machine owner still waits for the heartbeat to go stale. The same
 dead-owner check keeps `anyLockHeld` (`integration/io/lock-guard.ts`, the purge / removal / migration guard) from
 counting a crash leftover as held for the rest of its stale window. Contention names the holder
@@ -166,12 +181,18 @@ While that check is pending or fails, Work hides the interrupted rows and re-che
 **Process groups and the orphan reaper.** Headless AI CLI children are spawned `detached: true` on non-Windows,
 so each leads its own process group; interactive spawns keep the terminal. Abort and the idle watchdog kill the
 whole group (`killProcessTree`, `integration/io/kill-process-tree.ts`, shared with the shell-script runner), so
-tool subprocesses the CLI started die with it. Only children marked as group leaders are group-killed — a test
+tool subprocesses the CLI started die with it. A clean exit does too: once the leader exits, `runHeadlessSpawn`
+SIGTERMs whatever is left in its group (SIGKILL after a grace), so a job the AI backgrounded can't outlive the
+attempt or hold its stdout open. Where no group kill reaches the holder (Windows, or a descendant that left the
+group), the attempt still settles 1s after the CLI exits. Only children marked as group leaders are group-killed — a test
 fake with a made-up pid gets a single-pid kill. Spawns announce themselves through the `ChildRegistry` port
 (`providers/_engine/child-registry.ts`, wired in `wire()`): the registry feeds the **orphan reaper**
 (`integration/io/orphan-reaper.ts`), a lazily started detached sidecar that holds a pipe from the harness. When
 the pipe closes — the harness exited, crashed or was SIGKILLed — it SIGTERMs every registered group, waits a
-grace period, then SIGKILLs. POSIX only. Windows and reaper failure fall back to the boot-time reap
+grace period, then SIGKILLs. The setup/verify runner and the git runner register their groups with the same
+reaper; git does so only for calls that can run hooks (a hook budget or a cancel signal), because a group in its
+own session is out of reach of a terminal hangup, and it unwatches on settle rather than killing what a hook
+backgrounded. POSIX only. Windows and reaper failure fall back to the boot-time reap
 (`reapInterruptedRuns`): it walks dead runs' live-run records and signals recorded groups only after
 `ProcessLiveness` confirms the group is still ours (a live leader must match the recorded `ps` start time and
 command, so a recycled pid is never signalled).
@@ -200,6 +221,21 @@ reject-on-nonzero semantics against `osascript` / `notify-send` / `which`. An ES
 importing `node:child_process`'s spawn functions directly, so the two-exception list above is
 enforced at lint time, not by convention.
 
+**Git never prompts.** `git-runner.ts` spawns every git call with `GIT_TERMINAL_PROMPT=0` and, on POSIX, as
+the leader of its own session and process group. A timeout or abort therefore reaps the hooks git runs, and
+with no controlling terminal a missing HTTPS credential, SSH passphrase or unknown host key fails the call
+instead of prompting over the TUI (on Windows only the HTTPS prompt is covered). Credentials have to come
+from a credential helper or an SSH agent. Probe verbs keep the 30s default; verbs that run hooks or touch
+the network (commit, push, checkout, merge, cherry-pick, worktree add) get `GIT_HOOK_TIMEOUT_MS` (10 min),
+and whole-tree verbs (stash push/pop, worktree remove) `GIT_BULK_TIMEOUT_MS` (2 min). Every hook verb takes
+the chain's cancel signal, so a cancel kills a hung hook at once: a fast-forward killed in its post-merge hook
+still counts as folded, and what a cancelled `worktree add` created is removed again. Whole-tree verbs take no
+signal, because most of them run on the abort path itself, as cleanup. Git, setup/verify, headless AI spawns,
+`run-cli` / `run-command`, the clipboard helper and the OpenCode model probe all settle when the child exits,
+after at most a 1s output drain (`child-exit.ts`), so a grandchild still holding the pipes can't stall the run
+or turn a finished call into a timeout; the setup/verify runner also SIGTERMs such leftovers in its script's
+process group.
+
 **A prompt body never travels in argv.** Every adapter writes the rendered prompt to a file and passes the
 CLI a POINTER at that file (`providers/_engine/prompt-pointer.ts`) — headless claude / codex / opencode pipe
 it through stdin instead, which is equivalent for this purpose; headless grok uses `--prompt-file`
@@ -218,6 +254,9 @@ earlier answers to this are on the rejected list and must not return: a `bash -l
 wrapper (cannot execute `.cmd` shims, mangles Windows backslash paths, silently dropped the Copilot seed)
 and `shell: true` for binary+args (mis-quotes spaces and `& | % "`). `providers/_engine/argv-budget.ts`
 carries the limits and turns an overflow into a named, non-retryable error instead of a bare errno.
+PR / MR bodies follow the same rule: `gh pr create --body-file -` and `glab mr create --description-file -`
+read them from stdin. The exceptions are glab releases that predate `--description-file` (the adapter
+retries with `--description` when glab rejects the flag) and `glab issue comment`, which has no stdin form.
 
 **`AbortError` is the one error chains propagate transparently.** User-initiated cancellation (Ctrl+C, the
 TUI abort hotkey) flows through every wrapper without being absorbed by guards or fallbacks. Anywhere a guard
@@ -281,14 +320,16 @@ already has a link; comments use the ticket link, not the create origin.
 
 `Project.defaultIssueOrigin` survives as a persisted field but these writes do not consult it.
 
-**Bundled skills (15 total) always lose to project skills — unless the folder is a leftover of ralphctl's
+**Bundled skills (25 total) always lose to project skills — unless the folder is a leftover of ralphctl's
 own.** When `<cwd>/.claude/skills/<name>/` already exists, the bundled copy is skipped and the project
 copy is left untouched, UNLESS that folder itself carries a `.ralphctl-install.json` ownership marker
 (`skill-install-marker.ts`) naming a process that is no longer running — a leftover from a run that was
 killed or crashed between install and uninstall — in which case it's deleted and rewritten with the
 current skill instead of shadowing it forever, logged at info naming the folder, the skill, and the dead
 pid the marker blamed (or, when the marker's JSON can't be parsed, the replacement without a pid); a
-marker naming a still-live process is left alone. No content comparison against the rendered skill is
+marker naming a still-live process is left alone. A recycled pid doesn't count as live: the marker also
+stamps a per-process boot id and the `ps` start identity, and a live pid whose identity no longer matches
+is a leftover (an unidentifiable one still counts as live). No content comparison against the rendered skill is
 made before replacing — version drift between the leftover and the current bundle is normal and not
 itself a signal. The skills adapter (`src/integration/ai/skills/adapter-factory.ts`) tracks only what it
 installed; uninstall removes only those entries. Every bundled `SKILL.md` is validated by

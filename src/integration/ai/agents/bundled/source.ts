@@ -39,8 +39,6 @@ import { isNodeErrnoCode } from '@src/integration/io/fs.ts';
  *   Dev (tsx): this module lives at src/integration/ai/agents/bundled/source.ts — `.md` files
  *     sit next to it.
  *   Build (tsup): `scripts/build-assets.ts` copies the `.md` files to `<dist>/agent-definitions/`.
- *
- * @public
  */
 export const resolveBundledRoot = (moduleUrl: string, exists: (path: string) => boolean = existsSync): string => {
   const here = dirname(fileURLToPath(moduleUrl));

@@ -43,8 +43,6 @@ import { unitRootCwdPicker } from '@src/application/flows/_shared/unit-root-cwd-
  * `currentUnitRoot` / `currentPromptFile` today — it is still structurally compatible because
  * `currentOutputFile` is optional, and after this bracket runs its ctx carries the field at
  * runtime even though `CreatePrCtx` does not name it yet.
- *
- * @public
  */
 export interface AiUnitCtx {
   readonly currentUnitRoot?: AbsolutePath;

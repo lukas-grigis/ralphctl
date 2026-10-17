@@ -21,8 +21,8 @@ export interface TaskProjection {
     readonly startedAt: IsoTimestamp;
     readonly finishedAt?: IsoTimestamp;
   };
-  /** Median of every settled attempt's `finishedAt - startedAt`; undefined when no settled attempt has a duration. */
-  readonly medianRoundDurationMs?: number;
+  /** Median of every settled attempt's `finishedAt - startedAt`; undefined when no attempt has settled. */
+  readonly medianAttemptDurationMs?: number;
 }
 
 export interface SprintState {
@@ -67,7 +67,7 @@ export interface TaskOverlay {
   readonly taskEvaluation?: TaskEvaluation;
   /** The task's step tree (work-item root) from the flow-progress projection. */
   readonly stepTree?: StepView;
-  /** Attempt count / latest commit sha / median round duration for the header chips + ETA. */
+  /** Attempt count / latest commit sha / median attempt duration for the header chips + ETA. */
   readonly taskProjection?: TaskProjection;
 }
 
@@ -95,12 +95,8 @@ const summariseAttempt = (att: Attempt): TaskProjection['lastAttempt'] => {
   };
 };
 
-/**
- * Project one task into the minimal {@link TaskProjection} the Tasks panel reads.
- *
- * @public
- */
-export const projectTask = (task: Task): TaskProjection => {
+/** Project one task into the minimal {@link TaskProjection} the Tasks panel reads. */
+const projectTask = (task: Task): TaskProjection => {
   const last = task.attempts[task.attempts.length - 1];
   const lastAttempt = last !== undefined ? summariseAttempt(last) : undefined;
   const median = medianSettledDurationMs(task.attempts);
@@ -108,15 +104,11 @@ export const projectTask = (task: Task): TaskProjection => {
     id: String(task.id),
     attemptsCount: task.attempts.length,
     ...(lastAttempt !== undefined ? { lastAttempt } : {}),
-    ...(median !== undefined ? { medianRoundDurationMs: median } : {}),
+    ...(median !== undefined ? { medianAttemptDurationMs: median } : {}),
   };
 };
 
-/**
- * Project every task into the TUI sprint-state shape.
- *
- * @public
- */
+/** Project every task into the TUI sprint-state shape. */
 export const projectTasksSprintState = (tasks: readonly Task[]): SprintState => ({
   tasks: tasks.map(projectTask),
 });

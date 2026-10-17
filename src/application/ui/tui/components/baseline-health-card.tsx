@@ -53,7 +53,6 @@ type Tier = 'ok' | 'warning' | 'error' | 'pending';
 /** Shared `outcome` discriminant for setup + verify runs that spawn a child process. */
 const SPAWN_ERROR_OUTCOME = 'spawn-error';
 
-/** @public */
 export interface BaselineHealthCardProps {
   readonly execution?: SprintExecution;
   readonly tasks?: readonly Task[];

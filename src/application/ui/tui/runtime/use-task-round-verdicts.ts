@@ -29,7 +29,6 @@ const isAttributedVerdict = (e: AppEvent): e is AttributedEvent =>
 /** Map key for one task within one run. */
 export const runTaskKey = (sessionId: string, taskId: string): string => `${sessionId}\u0000${taskId}`;
 
-/** @public */
 export const foldRoundVerdict = (existing: TaskVerdicts | undefined, e: TaskRoundEvaluatedEvent): TaskVerdicts => {
   if (e.iteration === undefined) return existing ?? new Map();
   const { attempt, round } = e.iteration;
@@ -50,7 +49,6 @@ export const roundVerdictLookup =
   ({ taskId, attemptN, roundN }) =>
     byRunTask.get(runTaskKey(sessionId, taskId))?.get(attemptN)?.get(roundN);
 
-/** @public */
 export interface UseTaskRoundVerdictsOptions {
   /** Flush cadence in ms. Test-only escape hatch. */
   readonly flushMs?: number;

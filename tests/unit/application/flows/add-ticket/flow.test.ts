@@ -7,6 +7,7 @@ import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import type { PublishTracker } from '@src/business/ticket/publish-to-tracker.ts';
 import { createTicketAddFlow } from '@src/application/flows/add-ticket/flow.ts';
 import { makeDraftSprint, makeProject } from '@tests/fixtures/domain.ts';
+import { withUpdate } from '@tests/fixtures/sprint-repo-update.ts';
 
 const ISSUE_URL = 'https://github.com/x/y/issues/42';
 
@@ -14,7 +15,7 @@ describe('createTicketAddFlow — tracker issue', () => {
   it('reports the created URL when saving the link fails after a successful create', async () => {
     let current: Sprint = makeDraftSprint({ tickets: [] });
     let saves = 0;
-    const sprintRepo = {
+    const sprintRepo = withUpdate({
       findById: async () => Result.ok(current),
       save: async (sprint: Sprint) => {
         saves += 1;
@@ -23,7 +24,7 @@ describe('createTicketAddFlow — tracker issue', () => {
         current = sprint;
         return Result.ok(undefined);
       },
-    } as unknown as SprintRepository;
+    }) as unknown as SprintRepository;
     const projectRepo = { findById: async () => Result.ok(makeProject()) } as unknown as ProjectRepository;
     let creates = 0;
     const tracker: PublishTracker = {

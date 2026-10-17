@@ -29,7 +29,6 @@ const STALE_MS = 30 * 60 * 1000;
 
 export type BaselineTier = 'green' | 'amber' | 'red' | 'unknown';
 
-/** @public */
 export interface BaselineHealth {
   readonly tier: BaselineTier;
   readonly label: string;
@@ -97,7 +96,6 @@ const anySetupRed = (execution: SprintExecution | undefined): boolean => {
   return false;
 };
 
-/** @public */
 export interface SynthesiseBaselineHealthInput {
   readonly execution?: SprintExecution;
   readonly tasks?: readonly Task[];

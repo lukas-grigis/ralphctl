@@ -2,8 +2,6 @@
  * Shared NDJSON plumbing for the five stdout stream parsers: the capped `feed`/`flush`
  * line-splitting loop ({@link createCappedLineFeed}) plus the JSON-object line parser the
  * codex / grok / opencode emitters share ({@link parseJsonObjectLine}, {@link emitJsonObjectLine}).
- *
- * @public
  */
 
 import { createCappedAppend } from '@src/integration/ai/providers/_engine/bounded-tail.ts';

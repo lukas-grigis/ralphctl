@@ -10,7 +10,7 @@
 import { promises as fs } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { absolutePath } from '@tests/fixtures/domain.ts';
 import { dryRun } from '@src/integration/persistence/data-migration/dry-run.ts';
 import {
@@ -101,6 +101,63 @@ describe('dryRun', () => {
     expect(report.merges[0]?.projectId).toBe(pid);
     expect(String(report.merges[0]?.legacyDir)).toContain(`/memory/${pid}`);
     expect(String(report.merges[0]?.sluggedDir)).toContain(`/memory/${pid}--alpha`);
+  });
+
+  it('skips an orphan memory dir (no owning project) instead of blocking the migration', async () => {
+    const pid = freshId();
+    const orphan = freshId();
+    await seedLegacyProject(root, pid, 'alpha');
+    // A removed project leaves its memory dir behind unless the opt-in cascade ran.
+    await seedLegacyMemory(root, orphan, '{"id":"a"}\n');
+
+    const report = await dryRun(dataRoot());
+
+    expect(report.problems).toEqual([]);
+    expect(report.planned.map((p) => p.fromName)).toEqual([`${pid}.json`]);
+    expect(report.skipped.some((s) => s.name === orphan && s.reason.includes('orphan'))).toBe(true);
+  });
+
+  it('still flags a memory dir whose owning project has an unreadable slug', async () => {
+    const pid = freshId();
+    await fs.writeFile(join(root, 'projects', `${pid}--alpha.json`), '{ not json', 'utf8');
+    await seedLegacyMemory(root, pid);
+
+    const report = await dryRun(dataRoot());
+
+    expect(report.planned).toEqual([]);
+    expect(report.problems.some((p) => p.name === pid && p.reason.includes('slug'))).toBe(true);
+  });
+
+  it('a stat fault on a rename target is a problem, not a planned rename', async () => {
+    const sid = freshId();
+    await seedLegacySprint(root, sid, 'beta');
+    const target = join(root, 'sprints', `${sid}--beta`);
+    const realStat = fs.stat.bind(fs);
+    const statSpy = vi.spyOn(fs, 'stat').mockImplementation((async (path: string, opts?: unknown) => {
+      if (String(path) === target) throw Object.assign(new Error('simulated EIO'), { code: 'EIO' });
+      return realStat(path, opts as undefined);
+    }) as typeof fs.stat);
+
+    const report = await dryRun(dataRoot());
+    statSpy.mockRestore();
+
+    expect(report.planned).toEqual([]);
+    expect(report.problems.some((p) => p.name === sid)).toBe(true);
+  });
+
+  it('skips a symlink-loop entry in every family instead of blocking the gate', async () => {
+    const sid = freshId();
+    await seedLegacySprint(root, sid, 'beta');
+    const loops = { sprints: freshId(), memory: freshId(), projects: `${freshId()}.json` };
+    for (const [family, name] of Object.entries(loops)) await fs.symlink(name, join(root, family, name));
+
+    const report = await dryRun(dataRoot());
+
+    expect(report.problems).toEqual([]);
+    expect(report.planned.map((p) => p.fromName)).toEqual([sid]);
+    for (const name of Object.values(loops)) {
+      expect(report.skipped).toContainEqual({ name, reason: expect.stringContaining('symlink loop') });
+    }
   });
 
   it('flags a malformed (non-uuid) directory name', async () => {

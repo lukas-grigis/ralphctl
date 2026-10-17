@@ -35,8 +35,6 @@ export interface CodexModelAvailabilityProbeOptions {
  * unexpected shape, or AbortError — every error path returns the full `catalog` unchanged. Also
  * fails open when the filtered result is empty (no slug intersects, or every entry is hidden): an
  * empty list is a probe miss, so the full catalog is returned rather than zero models.
- *
- * @public
  */
 export const createCodexModelAvailabilityProbe = (
   options: CodexModelAvailabilityProbeOptions = {}
@@ -65,5 +63,5 @@ export const createCodexModelAvailabilityProbe = (
   },
 });
 
-/** Production probe bound to the real home directory. @public */
+/** Production probe bound to the real home directory. */
 export const codexModelAvailabilityProbe: ModelAvailabilityProbe = createCodexModelAvailabilityProbe();

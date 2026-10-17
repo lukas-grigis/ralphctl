@@ -22,8 +22,6 @@ const LEARNINGS_MD = 'learnings.md';
 
 /**
  * Compute the `learnings.md` mirror path next to a `learnings.ndjson` ledger path. Pure.
- *
- * @public
  */
 export const learningsMdPath = (ledgerPath: AbsolutePath): AbsolutePath | undefined => {
   const parsed = AbsolutePathCtor.parse(join(dirname(String(ledgerPath)), LEARNINGS_MD));
@@ -41,8 +39,6 @@ export const learningsMdPath = (ledgerPath: AbsolutePath): AbsolutePath | undefi
  * pays the O(n) read+reparse+rewrite the mirror used to cost. The two callers that DO regenerate it
  * are natural checkpoints a human is about to browse the file: the distill flow (`stampPromotedLeaf`)
  * and sprint close (`refreshMemoryMirrorLeaf`).
- *
- * @public
  */
 export const mirrorLearningsMd = async (
   ledgerPath: AbsolutePath,
@@ -76,8 +72,6 @@ export const mirrorLearningsMd = async (
  * authoritative either way — an over-threshold file that fails to compact is merely larger than ideal,
  * never lost, and the next append retries the bound. Non-stamped rows are re-emitted from their
  * BYTE-FOR-BYTE raw line so unknown future fields survive the rewrite.
- *
- * @public
  */
 export const boundLedgerIfNeeded = async (
   ledgerPath: AbsolutePath,
@@ -143,8 +137,6 @@ export const boundLedgerIfNeeded = async (
  * ledger path (every parallel implement branch shares one project ledger) must run this whole call
  * inside a shared mutex or an append landing mid-rewrite is clobbered. `append-learnings-<taskId>`
  * does exactly that via `AppendLearningsLeafDeps.ledgerMutex`; single-writer callers need nothing.
- *
- * @public
  */
 export const appendMemoryRecords = async (
   ledgerPath: AbsolutePath,

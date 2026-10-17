@@ -1,4 +1,4 @@
-import { type CommitTaskProps, commitTaskUseCase } from '@src/business/task/commit-task.ts';
+import { commitTaskUseCase } from '@src/business/task/commit-task.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { UpdateTask } from '@src/domain/repository/task/update-task.ts';
@@ -77,15 +77,13 @@ export const commitTaskLeaf = (
   opts: CommitTaskLeafOpts,
   taskId: TaskId
 ): Element<ImplementCtx> => {
-  const gitCommit: CommitTaskProps['gitCommit'] = (cwd, message) => gitCommitWithMessage(deps.gitRunner, cwd, message);
-
   return leaf<ImplementCtx, CommitInput, CommitOutput>(`commit-task-${String(taskId)}`, {
     useCase: {
-      execute: async (input) =>
+      execute: async (input, signal) =>
         commitTaskUseCase({
           ...input,
           cwd: opts.cwd,
-          gitCommit,
+          gitCommit: (cwd, message) => gitCommitWithMessage(deps.gitRunner, cwd, message, signal),
           taskRepo: deps.taskRepo,
           logger: deps.logger,
         }),

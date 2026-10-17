@@ -3,7 +3,12 @@ import { Result } from '@src/domain/result.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { type StorageError } from '@src/domain/value/error/storage-error.ts';
 import { gitStashInspect, gitStashList, gitStashPop, gitStashPush } from '@src/integration/io/git-stash.ts';
-import type { GitRunner, GitRunResult } from '@src/integration/io/git-runner.ts';
+import {
+  GIT_BULK_TIMEOUT_MS,
+  type GitRunner,
+  type GitRunOptions,
+  type GitRunResult,
+} from '@src/integration/io/git-runner.ts';
 
 const cwd = ((): AbsolutePath => {
   const r = AbsolutePath.parse('/tmp');
@@ -16,12 +21,14 @@ interface ScriptedCall {
   readonly result: Result<GitRunResult, StorageError>;
 }
 
-const scriptRunner = (calls: ScriptedCall[]): { runner: GitRunner; received: Array<{ args: readonly string[] }> } => {
-  const received: Array<{ args: readonly string[] }> = [];
+const scriptRunner = (
+  calls: ScriptedCall[]
+): { runner: GitRunner; received: Array<{ args: readonly string[]; opts: GitRunOptions | undefined }> } => {
+  const received: Array<{ args: readonly string[]; opts: GitRunOptions | undefined }> = [];
   let i = 0;
   const runner: GitRunner = {
-    async run(_, args) {
-      received.push({ args });
+    async run(_, args, opts) {
+      received.push({ args, opts });
       const next = calls[i++];
       if (next === undefined) {
         throw new Error(`unscripted git call: ${args.join(' ')}`);
@@ -46,14 +53,15 @@ describe('gitStashPush', () => {
     if (result.ok) expect(result.value.stashed).toBe(false);
   });
 
-  it('stashes when dirty', async () => {
-    const { runner } = scriptRunner([
+  it('stashes when dirty, on the bulk budget', async () => {
+    const { runner, received } = scriptRunner([
       { args: ['status', '--porcelain', '--untracked-files=normal'], result: ok(' M file\n') },
       { args: ['stash', 'push', '-u', '-m', 'preflight-stash'], result: ok() },
     ]);
     const result = await gitStashPush(runner, cwd, 'preflight-stash');
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.value.stashed).toBe(true);
+    expect(received[1]?.opts).toEqual({ timeoutMs: GIT_BULK_TIMEOUT_MS });
   });
 });
 
@@ -94,7 +102,7 @@ describe('gitStashPop', () => {
     expect(received).toHaveLength(1);
   });
 
-  it('pops the entry at index 0', async () => {
+  it('pops the entry at index 0, on the bulk budget', async () => {
     const { runner, received } = scriptRunner([
       { args: ['stash', 'list', '--format=%s'], result: ok('ralphctl-blocked-diff\nother\n') },
       { args: ['stash', 'pop', 'stash@{0}'], result: ok() },
@@ -103,6 +111,7 @@ describe('gitStashPop', () => {
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.value.popped).toBe(true);
     expect(received[1]?.args).toEqual(['stash', 'pop', 'stash@{0}']);
+    expect(received[1]?.opts).toEqual({ timeoutMs: GIT_BULK_TIMEOUT_MS });
   });
 
   it('pops the entry at index 2 (third stash entry)', async () => {

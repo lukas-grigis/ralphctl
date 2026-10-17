@@ -100,7 +100,7 @@ interface TaskOverlaySources {
   readonly stepTreeByTaskId?: ReadonlyMap<string, StepView>;
   /**
    * Optional projected sprint state. When supplied the per-task header appends an ETA derived
-   * from `state.tasks[i].medianRoundDurationMs * (max - currentRound)`. Absent ⇒ ETA is
+   * from `state.tasks[i].medianAttemptDurationMs * (max - currentRound) / max`. Absent ⇒ ETA is
    * silently omitted (the existing `round N/M` rendering is unchanged). The view is the source
    * of truth for whether to project: tests render TasksPanel in isolation without a projection,
    * and the live dashboard threads it once `taskState` is polled.
@@ -171,8 +171,8 @@ export interface TasksPanelProps extends TaskOverlaySources {
   readonly onFocusedCardChange?: (taskId: string | undefined) => void;
   /**
    * Optional callback fired when the focused card's expansion state changes (deduplicated —
-   * only called when the boolean value differs from the previous call). The wide-layout
-   * `ImplementMainArea` uses this to claim the `esc` keystroke (via `useUiState().claimEscape()`)
+   * only called when the boolean value differs from the previous call). The
+   * `TasksPanelHost` uses this to claim the `esc` keystroke (via `claimEscape()`)
    * while an expanded card is focused, so pressing Esc collapses the card instead of popping the
    * route. Absent ⇒ the panel is fully self-contained (existing callers are unaffected).
    */

@@ -6,6 +6,13 @@ import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { Spawn } from '@src/integration/io/spawn.ts';
 import { pipeSpawn } from '@src/integration/io/cross-platform-spawn.ts';
 import { killWithEscalation } from '@src/integration/io/kill-with-escalation.ts';
+import {
+  markProcessGroupLeader,
+  processGroupOf,
+  supportsProcessGroups,
+} from '@src/integration/io/kill-process-tree.ts';
+import { onChildDone } from '@src/integration/io/child-exit.ts';
+import type { OrphanReaper } from '@src/integration/io/orphan-reaper.ts';
 
 /**
  * Async wrapper around `git` invocations. Pure transport: no shell expansion, no
@@ -21,9 +28,24 @@ import { killWithEscalation } from '@src/integration/io/kill-with-escalation.ts'
  *
  * No shell — args go through argv, so quotes / `$` / backticks / newlines are preserved
  * verbatim without expansion.
+ *
+ * Every git child leads its own process group (POSIX), so a timeout or abort also reaps the hooks
+ * it runs, and it has no controlling terminal — together with `GIT_TERMINAL_PROMPT=0` that makes a
+ * missing credential or an SSH passphrase fail fast instead of prompting on the TUI's terminal.
+ * Leaving the terminal's session also means a hangup no longer reaches git, so a call that can run
+ * hooks registers its group with the orphan reaper for as long as git runs.
  */
 
 export const DEFAULT_GIT_TIMEOUT_MS = 30_000;
+
+/** Verbs that run user hooks or touch the network (commit, push, checkout, merge, cherry-pick, worktree add); callers pass the cancel signal. */
+export const GIT_HOOK_TIMEOUT_MS = 10 * 60_000;
+
+/**
+ * Verbs that walk or delete a whole working tree but run no hooks (stash push -u / pop, worktree
+ * remove --force). They take no cancel signal: most run on the abort path itself, as cleanup.
+ */
+export const GIT_BULK_TIMEOUT_MS = 2 * 60_000;
 
 /**
  * Hard cap on buffered git command output. Git command output — notably `git diff HEAD` for the
@@ -42,6 +64,8 @@ export interface GitRunResult {
 
 export interface GitRunOptions {
   readonly timeoutMs?: number;
+  /** Kills git and its hooks and settles with an error, so a long hook budget never blocks a cancel. */
+  readonly signal?: AbortSignal | undefined;
 }
 
 export interface GitRunner {
@@ -56,10 +80,23 @@ export interface GitRunnerDeps {
    * tiny cap instead of generating 50 MB of fake stdout.
    */
   readonly maxOutputBytes?: number;
+  /** Kills a still-running hook verb's group if the harness dies. */
+  readonly reaper?: Pick<OrphanReaper, 'watch' | 'unwatch'>;
 }
 
+/** Hook verbs carry a longer budget or a cancel signal; probe reads stay out so they never fork the sidecar. */
+const reapsHooks = (timeoutMs: number, signal: AbortSignal | undefined): boolean =>
+  signal !== undefined || timeoutMs > DEFAULT_GIT_TIMEOUT_MS;
+
+// Only the real spawn marks its child: an injected fake's made-up pid must never be group-killed.
+const defaultSpawn: Spawn = (command, args, options) => {
+  const child = pipeSpawn(command, args, options);
+  if (options.detached === true) markProcessGroupLeader(child);
+  return child;
+};
+
 export const createGitRunner = (deps: GitRunnerDeps = {}): GitRunner => {
-  const spawn = deps.spawn ?? pipeSpawn;
+  const spawn = deps.spawn ?? defaultSpawn;
   const defaultTimeoutMs = deps.defaultTimeoutMs ?? DEFAULT_GIT_TIMEOUT_MS;
   const maxOutputBytes = deps.maxOutputBytes ?? GIT_MAX_OUTPUT_BYTES;
 
@@ -67,8 +104,11 @@ export const createGitRunner = (deps: GitRunnerDeps = {}): GitRunner => {
     cwd: AbsolutePath,
     args: readonly string[],
     opts: GitRunOptions = {}
-  ): Promise<Result<GitRunResult, StorageError>> =>
-    runGitOnce(spawn, cwd, args, opts.timeoutMs ?? defaultTimeoutMs, maxOutputBytes);
+  ): Promise<Result<GitRunResult, StorageError>> => {
+    const timeoutMs = opts.timeoutMs ?? defaultTimeoutMs;
+    const reaper = reapsHooks(timeoutMs, opts.signal) ? deps.reaper : undefined;
+    return runGitOnce({ spawn, maxOutputBytes, reaper }, cwd, args, timeoutMs, opts.signal);
+  };
 
   return { run };
 };
@@ -84,6 +124,8 @@ const spawnGitChild = (
       spawn('git', args, {
         stdio: ['pipe', 'pipe', 'pipe'],
         cwd: String(cwd),
+        detached: supportsProcessGroups(),
+        env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
       })
     );
   } catch (cause) {
@@ -147,28 +189,22 @@ const createOutputCollector = (maxOutputBytes: number): OutputCollector => {
 };
 
 /**
- * Translates a `close` event into the final `Result`. Timeout takes precedence (cap-kills are
- * tracked separately via `collector.isTruncated()` so they never masquerade as a timeout).
- * Materializing stdout can throw `ERR_STRING_TOO_LONG` when output exceeds V8's max string
- * length (~512MiB — e.g. a `git diff HEAD` over enormous generated artifacts); this runs outside
- * any caller try/catch, so the throw is caught here and mapped to a `StorageError` instead of
- * killing the process.
+ * Translates git's exit into the final `Result`. A timeout / abort kill (`killedBy`) takes
+ * precedence (cap-kills are tracked separately via `collector.isTruncated()` so they never
+ * masquerade as a timeout). Materializing stdout can throw `ERR_STRING_TOO_LONG` when output
+ * exceeds V8's max string length (~512MiB — e.g. a `git diff HEAD` over enormous generated
+ * artifacts); this runs outside any caller try/catch, so the throw is caught here and mapped to a
+ * `StorageError` instead of killing the process.
  */
 const buildCloseResult = (
   collector: OutputCollector,
-  timedOut: boolean,
+  killedBy: string | undefined,
   code: number | null,
-  timeoutMs: number,
   args: readonly string[],
   maxOutputBytes: number
 ): Result<GitRunResult, StorageError> => {
-  if (timedOut) {
-    return Result.error(
-      new StorageError({
-        subCode: 'io',
-        message: `git timed out after ${String(timeoutMs)}ms: git ${args.join(' ')}`,
-      })
-    );
+  if (killedBy !== undefined) {
+    return Result.error(new StorageError({ subCode: 'io', message: `git ${killedBy}: git ${args.join(' ')}` }));
   }
   try {
     const base = collector.stdoutText();
@@ -214,49 +250,76 @@ export const runGitChecked = async (
   return result;
 };
 
+const abortedError = (args: readonly string[]): StorageError =>
+  new StorageError({ subCode: 'io', message: `git aborted: git ${args.join(' ')}` });
+
+interface RunGitOnceDeps {
+  readonly spawn: Spawn;
+  readonly maxOutputBytes: number;
+  readonly reaper: GitRunnerDeps['reaper'];
+}
+
 const runGitOnce = (
-  spawn: Spawn,
+  { spawn, maxOutputBytes, reaper }: RunGitOnceDeps,
   cwd: AbsolutePath,
   args: readonly string[],
   timeoutMs: number,
-  maxOutputBytes: number
+  signal: AbortSignal | undefined
 ): Promise<Result<GitRunResult, StorageError>> =>
   new Promise((resolve) => {
+    if (signal?.aborted === true) {
+      resolve(Result.error(abortedError(args)));
+      return;
+    }
     const spawnResult = spawnGitChild(spawn, cwd, args);
     if (!spawnResult.ok) {
       resolve(Result.error(spawnResult.error));
       return;
     }
     const child = spawnResult.value;
+    const pgid = processGroupOf(child);
+    if (pgid !== undefined) reaper?.watch(pgid);
 
     const collector = createOutputCollector(maxOutputBytes);
-    let timedOut = false;
+    let killedBy: string | undefined;
+    let exited = false;
     let settled = false;
 
-    // SIGTERM → grace → SIGKILL. Both callers (byte-cap overflow + timeout) settle immediately;
-    // a wedged git child that ignores SIGTERM is still reaped so it can't hold `.git/index.lock`
-    // open forever. Resolution is not delayed — this only guarantees the child eventually dies.
-    const killChild = (): void => {
+    // SIGTERM → grace → SIGKILL to git's whole group, so a hook dies with it and a wedged git can't
+    // hold `.git/index.lock` forever. The run settles once git has exited, never before.
+    const kill = (reason?: string): void => {
+      if (exited) return;
+      killedBy ??= reason;
       killWithEscalation(child);
     };
 
     // Drop further chunks once the cap is hit and kill the child so git stops producing more
-    // (mirrors shell-script-runner). The kill drives `close`, which the handler below reports
-    // as cap-truncation rather than a timeout.
+    // (mirrors shell-script-runner); the exit is reported as cap-truncation, not a timeout.
     child.stdout.on('data', (c: Buffer) => {
-      if (collector.appendStdout(c)) killChild();
+      if (collector.appendStdout(c)) kill();
     });
     child.stderr.on('data', (c: Buffer) => collector.appendStderr(c));
 
     const timer = setTimeout(() => {
-      timedOut = true;
-      killChild();
+      kill(`timed out after ${String(timeoutMs)}ms`);
     }, timeoutMs);
+    const onAbort = (): void => {
+      kill('aborted');
+    };
+    signal?.addEventListener('abort', onAbort, { once: true });
+    // Once git has exited its work is done; a timer firing during the output drain is no timeout.
+    child.once('exit', () => {
+      exited = true;
+      clearTimeout(timer);
+    });
 
+    // Unwatch, don't kill: a hook's background job (a post-commit indexer) may outlive git on purpose.
     const finish = (result: Result<GitRunResult, StorageError>): void => {
       if (settled) return;
       settled = true;
+      if (pgid !== undefined) reaper?.unwatch(pgid);
       clearTimeout(timer);
+      signal?.removeEventListener('abort', onAbort);
       resolve(result);
     };
 
@@ -272,7 +335,7 @@ const runGitOnce = (
       );
     });
 
-    child.on('close', (code) => {
-      finish(buildCloseResult(collector, timedOut, code, timeoutMs, args, maxOutputBytes));
+    onChildDone(child, (code) => {
+      finish(buildCloseResult(collector, killedBy, code, args, maxOutputBytes));
     });
   });

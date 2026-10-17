@@ -68,8 +68,6 @@ const confirmBlockedTasksUseCase = async (
  * reuse this leaf instead of each close-to-`done` path growing its own divergent confirm. Close
  * sprint and review both splice `loadTasksLeaf` + `guard(hasBlockedTask, confirmBlockedTasksLeaf)`
  * ahead of their respective `transitionSprintToDoneLeaf` for exactly this reason.
- *
- * @public
  */
 export const confirmBlockedTasksLeaf = <TCtx extends ConfirmBlockedTasksCtx>(
   deps: ConfirmBlockedTasksLeafDeps,

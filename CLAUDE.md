@@ -106,7 +106,7 @@ ESLint-fenced; `pnpm lint` catches them, so they are not restated here. What the
   Throws are reserved for programmer errors (ctx-shape violations inside leaf projections).
 - **`AbortError` propagates transparently** — any guard / fallback that catches errors MUST exempt it.
 - **`@public`-tag** any export you intentionally keep after dead-code cleanup (`knip.json` whitelists it;
-  `pnpm deadcode` exits 0 on a clean tree).
+  `pnpm deadcode` exits 0 on a clean tree). Tag only what knip flags — test and same-file uses already count.
 
 Repository seams — reach for these rather than rolling your own:
 

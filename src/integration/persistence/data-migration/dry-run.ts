@@ -3,8 +3,9 @@ import { join } from 'node:path';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { isUuidv7 } from '@src/domain/value/uuid7.ts';
 import { Slug } from '@src/domain/value/slug.ts';
-import { listDir } from '@src/integration/io/fs.ts';
-import { buildSluggedName, NAME_SEPARATOR } from '@src/integration/persistence/storage.ts';
+import type { StorageError } from '@src/domain/value/error/storage-error.ts';
+import { isNodeErrnoCode, listDir, pathExists, pathIsDirectory } from '@src/integration/io/fs.ts';
+import { buildSluggedName, NAME_SEPARATOR, parseIdFromName } from '@src/integration/persistence/storage.ts';
 import { DATA_VERSION_FILENAME } from '@src/integration/persistence/data-migration/version-marker.ts';
 import type {
   DryRunReport,
@@ -21,6 +22,9 @@ const MEMORY_DIR = 'memory';
 const SPRINT_JSON = 'sprint.json';
 const REASON_ALREADY_MIGRATED = 'already migrated (slugged name)';
 const REASON_MALFORMED_NAME = 'malformed name — not a uuidv7 id';
+const REASON_STAT_FAILED = 'could not stat the entry or its target — left in place';
+const REASON_ORPHAN_MEMORY = 'orphan memory dir — no owning project; left in place (reclaim via housekeeping)';
+const REASON_SYMLINK_LOOP = 'symlink loop — not a real entry; left in place';
 
 /**
  * Mutable accumulators for a single dry-run pass. Returned (frozen) as a {@link DryRunReport}.
@@ -40,13 +44,12 @@ interface Accumulator {
  *
  * Classification:
  *  - PLANNED — a legacy bare-`<id>` entry with a readable slug and a free target name.
- *  - SKIPPED — already-migrated (`<id>--<slug>` form), the version marker, or an unrelated file.
+ *  - SKIPPED — already-migrated (`<id>--<slug>` form), the version marker, an unrelated file, a
+ *    symlink loop, or an orphan memory dir whose project no longer exists.
  *  - PROBLEM — a collision (target exists and differs), a malformed / non-uuid name, a missing /
  *    unreadable slug, or an unwritable backup target.
  *
  * Touches NOTHING — callers (tests) assert the tree is byte-identical after a dry-run.
- *
- * @public
  */
 export const dryRun = async (dataRoot: AbsolutePath): Promise<DryRunReport> => {
   const acc: Accumulator = { planned: [], merges: [], skipped: [], problems: [] };
@@ -100,6 +103,11 @@ const scanFileFamily = async (
       acc.skipped.push({ name, reason: 'not a project .json file' });
       continue;
     }
+    const present = await pathExists(join(parent, name));
+    if (!present.ok) {
+      recordStatFault(acc, name, present.error);
+      continue;
+    }
     const base = name.slice(0, -'.json'.length);
     if (base.includes(NAME_SEPARATOR)) {
       acc.skipped.push({ name, reason: REASON_ALREADY_MIGRATED });
@@ -141,8 +149,12 @@ const scanDirFamily = async (
       continue;
     }
     const full = join(parent, name);
-    const isDir = await isDirectory(full);
-    if (!isDir) {
+    const isDir = await pathIsDirectory(full);
+    if (!isDir.ok) {
+      recordStatFault(acc, name, isDir.error);
+      continue;
+    }
+    if (!isDir.value) {
       acc.skipped.push({ name, reason: 'not a directory' });
       continue;
     }
@@ -193,18 +205,24 @@ const classifyMemoryEntry = async (
 ): Promise<void> => {
   if (name === DATA_VERSION_FILENAME) return void acc.skipped.push({ name, reason: 'version marker' });
   const full = join(parent, name);
-  if (!(await isDirectory(full))) return void acc.skipped.push({ name, reason: 'not a directory' });
+  const isDir = await pathIsDirectory(full);
+  if (!isDir.ok) return recordStatFault(acc, name, isDir.error);
+  if (!isDir.value) return void acc.skipped.push({ name, reason: 'not a directory' });
   if (name.includes(NAME_SEPARATOR)) {
     return void acc.skipped.push({ name, reason: REASON_ALREADY_MIGRATED });
   }
   if (!isUuidv7(name)) return void acc.problems.push({ name, reason: REASON_MALFORMED_NAME });
 
-  const slug = await readProjectSlugForId(dataRoot, name);
-  if (slug === undefined) return void acc.problems.push({ name, reason: 'missing or unreadable slug' });
+  const owner = await readProjectSlugForId(dataRoot, name);
+  if (owner.kind === 'no-project') return void acc.skipped.push({ name, reason: REASON_ORPHAN_MEMORY });
+  if (owner.kind === 'unreadable') return void acc.problems.push({ name, reason: 'missing or unreadable slug' });
+  const { slug } = owner;
 
   const toName = buildSluggedName(name, slug);
   const toFull = join(parent, toName);
-  if (await pathPresent(toFull)) {
+  const sluggedPresent = await pathExists(toFull);
+  if (!sluggedPresent.ok) return void acc.problems.push({ name, reason: REASON_STAT_FAILED });
+  if (sluggedPresent.value) {
     // Both dirs present → MERGE the legacy ledger into the slugged one (apply unions + dedups by id).
     const legacy = AbsolutePath.parse(full);
     const slugged = AbsolutePath.parse(toFull);
@@ -214,6 +232,15 @@ const classifyMemoryEntry = async (
     return void acc.merges.push({ projectId: name, legacyDir: legacy.value, sluggedDir: slugged.value });
   }
   await planRename(parent, name, toName, name, slug, 'memory', acc);
+};
+
+/**
+ * Classify an entry whose own stat failed. A symlink loop resolves to nothing, so there is no data to
+ * migrate or lose — skip it rather than block the whole gate; any other fault stays a problem.
+ */
+const recordStatFault = (acc: Accumulator, name: string, error: StorageError): void => {
+  if (isNodeErrnoCode(error.cause, 'ELOOP')) acc.skipped.push({ name, reason: REASON_SYMLINK_LOOP });
+  else acc.problems.push({ name, reason: REASON_STAT_FAILED });
 };
 
 /**
@@ -236,7 +263,12 @@ const planRename = async (
     return;
   }
   const toFull = join(parent, toName);
-  if (await pathPresent(toFull)) {
+  const taken = await pathExists(toFull);
+  if (!taken.ok) {
+    acc.problems.push({ name: fromName, reason: REASON_STAT_FAILED });
+    return;
+  }
+  if (taken.value) {
     acc.problems.push({
       name: fromName,
       reason: `collision — target ${toName} already exists; leaving legacy entry in place`,
@@ -252,23 +284,6 @@ const planRename = async (
   acc.planned.push({ kind, id, slug, fromName, toName, from: from.value, to: to.value });
 };
 
-const pathPresent = async (path: string): Promise<boolean> => {
-  try {
-    await fs.stat(path);
-    return true;
-  } catch {
-    return false;
-  }
-};
-
-const isDirectory = async (path: string): Promise<boolean> => {
-  try {
-    return (await fs.stat(path)).isDirectory();
-  } catch {
-    return false;
-  }
-};
-
 /** Read the top-level `slug` from a project `.json` file; `undefined` when missing/invalid. */
 const readProjectSlug = async (filePath: string): Promise<string | undefined> => readSlugField(filePath);
 
@@ -276,24 +291,23 @@ const readProjectSlug = async (filePath: string): Promise<string | undefined> =>
 const readSprintSlug = async (sprintDir: string): Promise<string | undefined> =>
   readSlugField(join(sprintDir, SPRINT_JSON));
 
+type OwningProjectSlug =
+  { readonly kind: 'slug'; readonly slug: string } | { readonly kind: 'no-project' } | { readonly kind: 'unreadable' };
+
 /**
  * Resolve the OWNING PROJECT's slug for a memory directory named `<projectId>`. The slug is NOT in
  * the memory dir — it lives in `projects/<projectId>--<slug>.json` (or the legacy bare
- * `<projectId>.json`). Scans the projects dir for the file whose leading id matches, then reads its
- * `slug`. `undefined` when no matching project file exists or its slug is unreadable.
+ * `<projectId>.json`). `no-project` when no project file carries that id (an orphan left by a
+ * removal without the memory cascade); `unreadable` when the projects dir or the file's slug can't be read.
  */
-const readProjectSlugForId = async (dataRoot: AbsolutePath, projectId: string): Promise<string | undefined> => {
+const readProjectSlugForId = async (dataRoot: AbsolutePath, projectId: string): Promise<OwningProjectSlug> => {
   const projects = join(String(dataRoot), PROJECTS_DIR);
   const entries = await listDir(projects);
-  if (!entries.ok) return undefined;
-  const match = entries.value.find((n) => {
-    if (!n.endsWith('.json')) return false;
-    const base = n.slice(0, -'.json'.length);
-    const sep = base.indexOf(NAME_SEPARATOR);
-    return (sep === -1 ? base : base.slice(0, sep)) === projectId;
-  });
-  if (match === undefined) return undefined;
-  return readSlugField(join(projects, match));
+  if (!entries.ok) return { kind: 'unreadable' };
+  const match = entries.value.find((n) => n.endsWith('.json') && parseIdFromName(n) === projectId);
+  if (match === undefined) return { kind: 'no-project' };
+  const slug = await readSlugField(join(projects, match));
+  return slug === undefined ? { kind: 'unreadable' } : { kind: 'slug', slug };
 };
 
 /**

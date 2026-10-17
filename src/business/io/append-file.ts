@@ -10,10 +10,10 @@ import type { StorageError } from '@src/domain/value/error/storage-error.ts';
  * Implementations create parent directories as needed and create the file if absent
  * (so a journal-style appender doesn't have to pre-touch the path).
  *
- * Why a port, not `fs.appendFile` directly: POSIX `fs.appendFile` is atomic only up to
- * PIPE_BUF (~4 KiB). A journal section with long critique easily exceeds that, so the
- * adapter combines an atomic read-concat-rewrite for the journal use case. Owning it as a
- * port also makes leaf-level tests assert against a recording fake — no filesystem I/O.
+ * Why a port, not `fs.appendFile` directly: it keeps business code off `node:fs` and lets
+ * leaf-level tests assert against a recording fake. The adapter is a plain `fs.appendFile`,
+ * which is NOT atomic past PIPE_BUF (~4 KiB) — single-writer safety comes from the per-sprint
+ * cross-process lock, plus `serializeAppendFile` for in-process parallel waves.
  *
  * ESLint fences direct `fs.appendFile` outside `integration/io/`; business + application code
  * goes through this port.

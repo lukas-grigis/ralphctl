@@ -167,6 +167,35 @@ describe('buildReadinessPrompt — end-to-end against the real template', () => 
     expect(body).not.toMatch(/\{\{[A-Z_]+\}\}/);
   });
 
+  it('keeps the one-shot session going until the signals file is written', async () => {
+    expect(readinessPromptDef.partials).toMatchObject({ ONE_SHOT_OPERATION: 'one-shot-operation' });
+    const result = await buildReadinessPrompt(deps, {
+      repositoryPath: '/repo/main',
+      currentTool: 'claude-code',
+      probedState: absentState(FIXED_NOW),
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const flattened = result.value.replace(/\s+/g, ' ');
+    expect(flattened.split('<one-shot-operation>')).toHaveLength(2);
+    expect(flattened).toContain('keep going until `signals.json` is written at the path the output contract names');
+    expect(flattened).toContain('only when nothing can proceed without the operator');
+  });
+
+  it('also reads the rules directories other tools keep next to their context files', async () => {
+    const result = await buildReadinessPrompt(deps, {
+      repositoryPath: '/repo/main',
+      currentTool: 'claude-code',
+      probedState: absentState(FIXED_NOW),
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value).toContain('`.grok/rules/`');
+    expect(result.value).toContain('`.claude/rules/`');
+  });
+
   it('threads an existing context body verbatim into the rendered prompt', async () => {
     const existing = '# Acme API\n\n## Build & Run\n- `pnpm install`';
     const result = await buildReadinessPrompt(deps, {

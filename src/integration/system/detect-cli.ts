@@ -1,10 +1,12 @@
 import { commandExists } from '@src/integration/io/command-exists.ts';
+import { type RunCommand, runCommand } from '@src/integration/io/run-command.ts';
 import type { AiProvider } from '@src/domain/entity/settings.ts';
 import { PROVIDER_TRAITS } from '@src/integration/ai/providers/_engine/provider-traits.ts';
 import type {
   DetectInstalledProvidersOptions,
   InstallPlatform,
   ProviderInstallGuidance,
+  UnsupportedProviderVersion,
   WhichFn,
 } from '@src/integration/system/_engine/detect-cli.ts';
 
@@ -104,6 +106,28 @@ export const renderProviderInstallGuidance = (
  * Resolution policy: on PATH → true; absent or spawn error → false. No version / auth probe.
  */
 const defaultWhich: WhichFn = commandExists;
+
+// First `major.minor.patch` in the reply; tolerates a `v` prefix or a leading product name.
+const SEMVER_RE = /(?<![\d.])(\d+)\.\d+\.\d+/;
+
+/**
+ * Read `<binary> --version` for a provider whose traits declare a `versionGate` and report a
+ * major other than the supported one. Fails open: no gate, a failed run or an unparseable reply
+ * resolves `undefined`, so a CLI that changes its version output never blocks a launch.
+ */
+export const probeUnsupportedVersion = async (
+  provider: AiProvider,
+  run: RunCommand = runCommand
+): Promise<UnsupportedProviderVersion | undefined> => {
+  const gate = PROVIDER_TRAITS[provider].versionGate;
+  if (gate === undefined) return undefined;
+  const result = await run(PROVIDER_BINARY[provider], ['--version']);
+  if (!result.ok) return undefined;
+  const match = SEMVER_RE.exec(result.stdout);
+  if (match?.[1] === undefined) return undefined;
+  if (Number(match[1]) === gate.supportedMajor) return undefined;
+  return { provider, version: match[0], supportedMajor: gate.supportedMajor, installHint: gate.installHint };
+};
 
 /**
  * Probe PATH for every supported provider's CLI binary; return the set of providers whose

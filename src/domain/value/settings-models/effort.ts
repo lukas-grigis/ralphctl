@@ -11,11 +11,10 @@
  * (persisted rows are migrated to `low`); every catalog model accepts `max`, and `ultra` exists
  * only on the non-luna tiers (plan-gated to Plus+) — per-model narrowing is left to the codex CLI
  * at spawn, matching the custom-model policy.
- *
- * @public
  */
 
 import type { AiProvider } from '@src/domain/entity/settings.ts';
+import { CLAUDE_MODEL_EFFORT_LEVELS, isClaudeModel } from '@src/domain/value/settings-models/claude.ts';
 import { CODEX_MODEL_EFFORT_LEVELS, isCodexModel } from '@src/domain/value/settings-models/codex.ts';
 import { COPILOT_MODEL_EFFORT_LEVELS, isCopilotModel } from '@src/domain/value/settings-models/copilot.ts';
 import { GROK_MODEL_EFFORT_LEVELS, isGrokModel } from '@src/domain/value/settings-models/grok.ts';
@@ -28,17 +27,18 @@ export const PROVIDER_EFFORT_LEVELS = {
   // provider behind the selected `provider/model` id — so this is a permissive superset and the
   // CLI narrows per model at spawn, same posture as the codex row above.
   opencode: ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'],
-  // The Grok CLI's own superset; the catalog models cap lower (`GROK_MODEL_EFFORT_LEVELS`), so
-  // `max` only reaches an uncatalogued model such as `grok-4.7-build-fast`.
-  'xai-grok': ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'],
+  // The catalog models cap lower (`GROK_MODEL_EFFORT_LEVELS`), so `max` only reaches an
+  // uncatalogued model such as `grok-4.7-build-fast`; `none` / `minimal` are refused by every menu.
+  'xai-grok': ['low', 'medium', 'high', 'xhigh', 'max'],
 } as const satisfies Record<AiProvider, readonly [string, ...string[]]>;
 
 /**
- * Effort levels one catalog model accepts, or `undefined` when unknown (custom id, or a provider
- * with no per-model table) — the caller then leaves the provider CLI to arbitrate. `[]` means the
+ * Effort levels one catalog model accepts, or `undefined` when unknown (custom id, or opencode,
+ * which has no per-model table) — the caller then leaves the provider CLI to arbitrate. `[]` means the
  * model has no effort dimension at all.
  */
 export const modelEffortLevels = (provider: AiProvider, model: string): readonly string[] | undefined => {
+  if (provider === 'claude-code') return isClaudeModel(model) ? CLAUDE_MODEL_EFFORT_LEVELS[model] : undefined;
   if (provider === 'github-copilot') return isCopilotModel(model) ? COPILOT_MODEL_EFFORT_LEVELS[model] : undefined;
   if (provider === 'openai-codex') return isCodexModel(model) ? CODEX_MODEL_EFFORT_LEVELS[model] : undefined;
   if (provider === 'xai-grok') return isGrokModel(model) ? GROK_MODEL_EFFORT_LEVELS[model] : undefined;

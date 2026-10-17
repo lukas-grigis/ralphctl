@@ -75,8 +75,6 @@ const tryRead = async (path: string): Promise<ReadOutcome> => {
  * code-splitting (see tsup.config.ts) rewrites `import.meta.url` to a hashed `cli-<hash>.mjs` chunk,
  * and a check against `cli.mjs` (or any fixed extension) silently misses it. That mismatch shipped
  * in 0.15.0 and made the published bundle resolve templates to the package root.
- *
- * @public
  */
 export const resolveTemplatesDir = (moduleUrl: string, exists: (path: string) => boolean = existsSync): string => {
   const here = dirname(fileURLToPath(moduleUrl));

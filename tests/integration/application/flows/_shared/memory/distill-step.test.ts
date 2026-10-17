@@ -29,6 +29,7 @@ import type { AiSettings } from '@src/domain/entity/settings.ts';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { SprintRepository } from '@src/domain/repository/sprint/sprint-repository.ts';
+import { withUpdate } from '@tests/fixtures/sprint-repo-update.ts';
 import type {
   InteractiveAiProvider,
   InteractiveAiProviderInput,
@@ -67,6 +68,7 @@ import {
 import { recordingAppendFile } from '@tests/fixtures/recording-append-file.ts';
 import { buildSluggedName } from '@src/integration/persistence/storage.ts';
 import { okGit } from '@tests/fixtures/git-result.ts';
+import { unlockedSprintLockDeps } from '@tests/fixtures/pass-through-locker.ts';
 
 const FIXED_NOW = isoTimestamp('2026-05-30T10:00:00.000Z');
 const PROJECT_ID = projectId('01900000-0000-7000-8000-0000000000aa');
@@ -161,7 +163,7 @@ const recordingLogger = (): { logger: Logger; warns: () => readonly string[] } =
 const inMemorySprintRepo = (initial: Sprint): { repo: SprintRepository; current: () => Sprint } => {
   let current = initial;
   return {
-    repo: {
+    repo: withUpdate({
       async findById(id: SprintId) {
         if (current.id === id) return Result.ok(current);
         return Result.error(new NotFoundError({ entity: 'sprint', id: String(id) }));
@@ -170,7 +172,7 @@ const inMemorySprintRepo = (initial: Sprint): { repo: SprintRepository; current:
         current = sprint;
         return Result.ok(undefined);
       },
-    } as SprintRepository,
+    }) as unknown as SprintRepository,
     current: () => current,
   };
 };
@@ -232,6 +234,7 @@ describe('createDistillStep composed into the close paths', () => {
     const calls: InteractiveAiProviderInput[] = [];
     const append = recordingAppendFile();
     const flow = createCloseSprintFlow({
+      ...unlockedSprintLockDeps(),
       sprintRepo: sprintRepo.repo,
       clock: () => FIXED_LATER,
       logger: recordingLogger().logger,
@@ -259,6 +262,7 @@ describe('createDistillStep composed into the close paths', () => {
     const calls: InteractiveAiProviderInput[] = [];
     const append = recordingAppendFile();
     const flow = createCloseSprintFlow({
+      ...unlockedSprintLockDeps(),
       sprintRepo: sprintRepo.repo,
       clock: () => FIXED_LATER,
       logger: recordingLogger().logger,
@@ -299,6 +303,7 @@ describe('createDistillStep composed into the close paths', () => {
     const calls: InteractiveAiProviderInput[] = [];
     const append = recordingAppendFile();
     const flow = createCloseSprintFlow({
+      ...unlockedSprintLockDeps(),
       sprintRepo: sprintRepo.repo,
       clock: () => FIXED_LATER,
       logger: recordingLogger().logger,
@@ -347,6 +352,7 @@ describe('createDistillStep composed into the close paths', () => {
     const log = recordingLogger();
     const append = recordingAppendFile();
     const flow = createCloseSprintFlow({
+      ...unlockedSprintLockDeps(),
       sprintRepo: sprintRepo.repo,
       clock: () => FIXED_LATER,
       logger: recordingLogger().logger,

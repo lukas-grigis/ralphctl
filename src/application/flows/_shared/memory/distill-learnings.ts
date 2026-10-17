@@ -167,8 +167,6 @@ const buildPerProviderSegment = (
  *  - `stamp-promoted` runs LAST. An `AbortError` mid-distill forwards verbatim through the
  *    sequential sub-chain, which then skips the stamp — so a cancelled distill leaves the ledger
  *    UN-stamped and the learnings re-runnable.
- *
- * @public
  */
 export const createDistillLearningsSubChain = async (
   deps: DistillLearningsDeps,

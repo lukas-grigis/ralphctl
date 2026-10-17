@@ -996,6 +996,76 @@ describe('createImplementFlow — gen-eval loop', () => {
     expect(startEntries[1]).toContain(String(f.tasks[1]?.id));
   });
 
+  it('a resumed task whose interrupted attempt exhausts its budget blocks without a spawn, and the run continues to task 2', async () => {
+    const f = await buildFixture(2);
+    tracking(f);
+    const [first, second] = f.tasks as [Task, Task];
+    // One counted failed attempt, plus the attempt a crash left running, under a cap since lowered
+    // to 1: settling the leftover as interrupted leaves no budget for a fresh attempt.
+    const opened = startNextAttempt(first, FIXED_NOW);
+    if (!opened.ok) throw opened.error;
+    const failed = failCurrentAttempt(opened.value, FIXED_NOW, 'failed');
+    if (!failed.ok) throw failed.error;
+    const leftover = startNextAttempt(failed.value, FIXED_NOW);
+    if (!leftover.ok) throw leftover.error;
+    const tasks = [{ ...leftover.value, maxAttempts: 1 }, second];
+    const sprintRepo = inMemorySprintRepo(f.sprint);
+    const taskRepo = inMemoryTaskRepo(tasks);
+    const eventBus = createInMemoryEventBus();
+    const blockedEvents: string[] = [];
+    eventBus.subscribe((e) => {
+      if (e.type === 'task-blocked') blockedEvents.push(e.taskId);
+    });
+    let implCalls = 0;
+    const provider = createFakeAiProvider({
+      signals: {
+        implement: () => {
+          implCalls += 1;
+          return [taskVerified('second task complete')];
+        },
+        evaluate: [evaluationPassed()],
+      },
+    });
+
+    const flow = createImplementFlow(
+      {
+        ...buildDeps(sprintRepo.repo, inMemoryExecutionRepo(f.execution).repo, taskRepo.repo, provider, f.dir),
+        eventBus,
+      },
+      {
+        sprintId: f.sprint.id,
+        todoTasks: tasks,
+        repositories: FAKE_REPOSITORIES,
+        generatorProviderId: 'claude-code',
+        generatorModel: 'claude-opus-4-8',
+        evaluatorProviderId: 'claude-code',
+        evaluatorModel: 'claude-opus-4-8',
+        progressFile: absolutePath(f.progressFile),
+        sprintDir: absolutePath(f.dir),
+        memoryRoot: FAKE_MEMORY_ROOT,
+        projectId: FAKE_PROJECT_ID,
+        projectSlug: FAKE_PROJECT_SLUG,
+      }
+    );
+    const runner = createRunner({
+      id: 'r-impl-resume-over-budget',
+      element: flow,
+      initialCtx: { sprintId: f.sprint.id } satisfies ImplementCtx,
+    });
+    await runner.start();
+
+    expect(runner.status).toBe('completed');
+    const [persistedFirst, persistedSecond] = taskRepo.tasks();
+    expect(persistedFirst).toMatchObject({
+      status: 'blocked',
+      blockedReason: 'attempt budget exhausted (maxAttempts=1)',
+    });
+    expect(persistedFirst?.attempts.map((a) => a.status)).toEqual(['failed', 'aborted']);
+    expect(persistedSecond?.status).toBe('done');
+    expect(implCalls).toBe(1);
+    expect(blockedEvents).toEqual([String(first.id)]);
+  });
+
   it('evaluator signals-contract failure on task 1 blocks task 1 but the run continues to task 2', async () => {
     // Regression: a non-Claude evaluator that fails to produce a usable signals.json (wrong
     // shape, wrong place, non-zero spawn exit) used to abort the WHOLE implement run via the

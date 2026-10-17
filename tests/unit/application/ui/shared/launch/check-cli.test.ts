@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { AiProvider, Settings } from '@src/domain/entity/settings.ts';
 import { DEFAULT_SETTINGS, defaultAiSettingsForProvider } from '@src/business/settings/defaults.ts';
 import { checkCli } from '@src/application/ui/shared/launch/check-cli.ts';
+import type { UnsupportedProviderVersion } from '@src/integration/system/_engine/detect-cli.ts';
 
 const detectFor = (installed: readonly AiProvider[]) => async (): Promise<ReadonlySet<AiProvider>> =>
   new Set(installed);
@@ -160,6 +161,64 @@ describe('checkCli', () => {
     if (result === undefined || result.ok) return;
     expect(result.reason).toMatch(/install with: \S/);
     expect(result.reason).toContain('https://github.com/openai/codex');
+  });
+
+  describe('unsupported CLI major version', () => {
+    const opencode2: UnsupportedProviderVersion = {
+      provider: 'opencode',
+      version: '2.0.1',
+      supportedMajor: 1,
+      installHint: 'brew install sst/tap/opencode, or npm install -g opencode-ai@1',
+    };
+    const probeFor =
+      (issues: readonly UnsupportedProviderVersion[], calls: AiProvider[] = []) =>
+      async (provider: AiProvider): Promise<UnsupportedProviderVersion | undefined> => {
+        calls.push(provider);
+        return issues.find((i) => i.provider === provider);
+      };
+
+    it('fails a launch on OpenCode 2 with a one-line, actionable reason', async () => {
+      const settings = withFlowProvider('refine', 'opencode');
+      const result = await checkCli('refine', settings, {
+        detect: detectFor(['opencode']),
+        probeVersion: probeFor([opencode2]),
+      });
+      expect(result?.ok).toBe(false);
+      if (result === undefined || result.ok) return;
+      expect(result.reason).not.toContain('\n');
+      expect(result.reason).toContain('opencode 2.0.1');
+      expect(result.reason).toContain('needs opencode 1.x');
+      expect(result.reason).toContain('Change ai.refine.provider');
+      expect(result.reason).toContain('npm install -g opencode-ai@1');
+    });
+
+    it('probes each distinct installed provider once, after the PATH check passes', async () => {
+      const settings: Settings = {
+        ...DEFAULT_SETTINGS,
+        ai: {
+          ...DEFAULT_SETTINGS.ai,
+          implement: {
+            generator: defaultAiSettingsForProvider('opencode').implement.generator,
+            evaluator: defaultAiSettingsForProvider('opencode').implement.evaluator,
+          },
+        },
+      };
+      const calls: AiProvider[] = [];
+      const result = await checkCli('implement', settings, {
+        detect: detectFor(['opencode']),
+        probeVersion: probeFor([], calls),
+      });
+      expect(result).toBeUndefined();
+      expect(calls).toEqual(['opencode']);
+    });
+
+    it('reports a missing binary without probing versions', async () => {
+      const calls: AiProvider[] = [];
+      const settings = withFlowProvider('refine', 'opencode');
+      const result = await checkCli('refine', settings, { detect: detectFor([]), probeVersion: probeFor([], calls) });
+      expect(result?.ok).toBe(false);
+      expect(calls).toEqual([]);
+    });
   });
 
   describe('per-run override source identification', () => {

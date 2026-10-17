@@ -1,4 +1,4 @@
-// Verified against the live CLI (`opencode models`, opencode-ai v1.18.32, 2026-09-22).
+// Verified against the live CLI (`opencode models opencode`, opencode-ai v1.18.35, 2026-10-17).
 // Docs: https://opencode.ai/docs/cli/
 
 /**
@@ -36,24 +36,36 @@
  * `north-mini-code-free` — and added four. The two with a clear successor are remapped at parse
  * time (`RETIRED_MODEL_REMAPS` in `domain/entity/settings.ts`); the rest are left for the CLI to
  * reject, since the adapter forwards OpenCode ids verbatim.
+ *
+ * The 2026-10-17 refresh (opencode-ai v1.18.35) dropped `hy3-free`, `mimo-v2.5-free` and
+ * `muse-spark-1.2-contributor-free` and added seven; the two with a same-family successor are
+ * remapped. The new ids are listed, not health-probed.
  */
 export type OpencodeModel =
   | 'opencode/big-pickle'
-  | 'opencode/hy3-free'
+  | 'opencode/exo-free'
   | 'opencode/ling-3.0-flash-fin-free'
-  | 'opencode/mimo-v2.5-free'
-  | 'opencode/muse-spark-1.2-contributor-free'
+  | 'opencode/ling-3.1-flash-free'
+  | 'opencode/longcat-2.5-preview-free'
+  | 'opencode/mimo-v2.6-flash-free'
+  | 'opencode/muse-spark-1.3-contributor-free'
   | 'opencode/nemotron-3-ultra-free'
-  | 'opencode/nemotron-3.5-lightning-free';
+  | 'opencode/nemotron-3.5-lightning-free'
+  | 'opencode/space-bunny-free'
+  | 'opencode/step-5-preview-free';
 
 export const OPENCODE_MODELS: readonly OpencodeModel[] = [
   'opencode/big-pickle',
-  'opencode/hy3-free',
+  'opencode/exo-free',
   'opencode/ling-3.0-flash-fin-free',
-  'opencode/mimo-v2.5-free',
-  'opencode/muse-spark-1.2-contributor-free',
+  'opencode/ling-3.1-flash-free',
+  'opencode/longcat-2.5-preview-free',
+  'opencode/mimo-v2.6-flash-free',
+  'opencode/muse-spark-1.3-contributor-free',
   'opencode/nemotron-3-ultra-free',
   'opencode/nemotron-3.5-lightning-free',
+  'opencode/space-bunny-free',
+  'opencode/step-5-preview-free',
 ] as const;
 
 /**
@@ -67,8 +79,6 @@ export const OPENCODE_MODELS: readonly OpencodeModel[] = [
  * Deliberately NOT an adapter-side gate — see the validation note on {@link OpencodeModel}: the
  * adapters must accept authenticated upstream ids, so their boundary check is the shape-only
  * {@link isOpencodeModelIdShape}.
- *
- * @public
  */
 export const isOpencodeModel = (s: string): s is OpencodeModel => (OPENCODE_MODELS as readonly string[]).includes(s);
 

@@ -353,7 +353,7 @@ original project selection must be unchanged on the breadcrumb.
 
 ## Scenario 15 — OpenCode backend, zero-auth free tier
 
-**Setup:** `opencode` CLI installed (`npm i -g opencode-ai`), no credentials configured. Stamp the whole `ai`
+**Setup:** `opencode` CLI installed (`npm i -g opencode-ai@1`), no credentials configured. Stamp the whole `ai`
 section onto OpenCode's free tier first:
 
 ```bash

@@ -44,8 +44,6 @@ import type { BundledSkillRawReader } from '@src/integration/ai/skills/_engine/b
  * (see tsup.config.ts) rewrites `import.meta.url` to a hashed `cli-<hash>.mjs` chunk, and a check
  * against `cli.mjs` (or any fixed extension) silently misses it. That mismatch shipped in 0.15.0 and
  * made the published bundle look for SKILL.md folders one directory too shallow.
- *
- * @public
  */
 export const resolveBundledRoot = (moduleUrl: string, exists: (path: string) => boolean = existsSync): string => {
   const here = dirname(fileURLToPath(moduleUrl));
@@ -148,8 +146,6 @@ export const createBundledSkillSource = (deps: BundledSkillSourceDeps = {}): Ski
  * A tiny per-name cache mirrors `createBundledSkillSource`'s `loadOne` cache: the catalog reads
  * the same bundled skill repeatedly within one `list()` / `updateAll()` call, and the file never
  * changes mid-process.
- *
- * @public
  */
 export const createBundledSkillRawReader = (deps: BundledSkillSourceDeps = {}): BundledSkillRawReader => {
   const root = deps.bundledRoot ?? defaultBundledRoot;

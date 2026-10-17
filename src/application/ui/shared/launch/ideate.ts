@@ -1,5 +1,5 @@
 import { join } from 'node:path';
-import { sprintDir as buildSprintDir } from '@src/integration/persistence/storage.ts';
+import { ensureCanonicalSprintDir } from '@src/integration/persistence/sprint/repository.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { createRunner, type Runner } from '@src/application/chain/run/runner.ts';
 import { createIdeateFlow } from '@src/application/flows/ideate/flow.ts';
@@ -14,7 +14,6 @@ import { checkCli } from '@src/application/ui/shared/launch/check-cli.ts';
 
 /**
  * Ideate's approval prompt.
- * @public
  */
 export const buildIdeateReviewMessage = (
   requirements: string,
@@ -39,9 +38,9 @@ export const launchIdeate = async (ctx: LaunchContext): Promise<LaunchResult> =>
   if (!titleAns.ok) return { ok: false, reason: titleAns.error.message };
   const bodyAns = await deps.interactive.askText('Idea description (paste or type)');
   if (!bodyAns.ok) return { ok: false, reason: bodyAns.error.message };
-  // Subpath of the canonical `<id>--<slug>/` sprint dir, direct-built from the sprint entity.
+  // Subpath of the canonical `<id>--<slug>/` sprint dir, with any legacy dir moved onto it first.
   const ideateRoot = AbsolutePath.parse(
-    join(buildSprintDir(deps.storage.dataRoot, snapshot.sprint.id, snapshot.sprint.slug), 'ideate')
+    join(await ensureCanonicalSprintDir(deps.storage.dataRoot, snapshot.sprint.id, snapshot.sprint.slug), 'ideate')
   );
   if (!ideateRoot.ok) return { ok: false, reason: ideateRoot.error.message };
   // HITL approval — cancel = reject; the chain then leaves the sprint unchanged.

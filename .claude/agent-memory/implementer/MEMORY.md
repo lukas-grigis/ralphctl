@@ -9,24 +9,32 @@
 - [seams_memory_ledger_and_mutex.md](seams_memory_ledger_and_mutex.md) — Raw-line preservation, dedup asymmetry, shared-file + git stash/worktree mutexes, journal pinning, RMW-race + load-flake repro
 - [seams_implement_prologue_gates.md](seams_implement_prologue_gates.md) — Dirty-tree menu + post-setup check; e2e porcelain counters; restore after pre-verify; bugfix relaunch; worktree discard + resume gate; stale-ref rescue
 - [seams_verify_gates.md](seams_verify_gates.md) — Per-module verify gates: precedence, multi-gate representation, diff-footprint scoping + coverage flag, fresh-setup skip, detect-scripts emission, confirm-on-red re-run
-- [seams_provider_engine_streaming.md](seams_provider_engine_streaming.md) — One shared rate-limit retry loop, empirical stream field names, stdout OOM caps, kill escalation
+- [seams_provider_engine_streaming.md](seams_provider_engine_streaming.md) — One shared rate-limit retry loop, codex resume/sandbox trap, stream field names, stdout OOM caps, kill escalation
 - [seams_provider_conformance_and_demo.md](seams_provider_conformance_and_demo.md) — The src-side scripted-spawn builder shared by conformance suites, `demo --script` and the README recorder (pacing, VHS traps); buildEnv / effortForwarding contracts
 - [seams_chain_runner_core.md](seams_chain_runner_core.md) — createRunner containment, aborted-with-error, listener-leak seams, onStart, display-only grouping vs nesting
-- [seams_parallel_runner_architecture.md](seams_parallel_runner_architecture.md) — runWaves above the chain, nested-runner adapter, rootSessionId, ALS fence, forwarded-entry/parentChainId bus rules
+- [seams_parallel_runner_architecture.md](seams_parallel_runner_architecture.md) — runWaves above the chain, nested-runner adapter, rootSessionId, ALS fence, bus rules, done-held-until-fold + adopt predicates
 - [seams_tui_architecture_patterns.md](seams_tui_architecture_patterns.md) — Modal overlays, global hotkeys over view-local data, clip markers, one hint source, the commit-storm coalescer, cancel-vs-abort
 - [seams_tui_test_gotchas.md](seams_tui_test_gotchas.md) — Test setups that pass for the wrong reason (batched stdin, 100x24 stub, spinner flap, vacuous scroll); known resize-listener warning noise
 - [seams_model_catalog_refresh.md](seams_model_catalog_refresh.md) — Catalog-refresh checklist: fingerprint gate, remap tests, CLI-vs-API effort default, eval/TUI tests pinning preset ids and catalog order, Copilot gating, settings.ts lint hazard
-- [seams_process_lifecycle.md](seams_process_lifecycle.md) — Group-kill only marked leaders, lock owner file, reaper test shape, pid-0 fakes, crash-resume lookup + free budget
+- [seams_process_lifecycle.md](seams_process_lifecycle.md) — Group-kill only marked leaders, exit+drain settle, exit-time reap bounds 'close', which git verbs take a cancel signal, skill-marker boot id, lock owner file, reaper tests, crash resume
+- [seams_process_lifecycle.md](seams_process_lifecycle.md) — Group-kill only marked leaders, exit+drain settle, git cancel-signal verbs + reaper scope, skill-marker boot id, lock owner file, reaper tests, crash resume
+- [seams_model_catalog_refresh.md](seams_model_catalog_refresh.md) — Catalog-refresh checklist: fingerprint gate, remap tests, save-path row migration, CLI-vs-API effort default, eval/TUI tests pinning preset ids and catalog order, Copilot gating, settings.ts lint hazard
+- [seams_process_lifecycle.md](seams_process_lifecycle.md) — Group-kill only marked leaders, exit+drain settle everywhere, which git verbs take a cancel signal, skill-marker boot id, lock owner file, reaper tests, crash resume
+- [seams_process_lifecycle.md](seams_process_lifecycle.md) — Group-kill only marked leaders, exit+drain settle, lock owner file, reaper test shape, pid-0 fakes, crash-resume lookup
+- [seams_process_lifecycle.md](seams_process_lifecycle.md) — Group-kill only marked leaders, exit-time reap bounds 'close', skill-marker boot id, lock owner file, reaper tests, crash resume
+- [seams_migration_backup_and_dry_run.md](seams_migration_backup_and_dry_run.md) — Backup never dereferences + skips worktrees; the dry-run loop-skip depends on it; fs.cp root/verbatim traps
+- [seams_sprint_write_locks.md](seams_sprint_write_locks.md) — Sprint-dir lock vs update lock don't exclude; long-held flows end in update(); plan/ideate commit predicate; withUpdate stub trap
 - [seams_eval_harness.md](seams_eval_harness.md) — Prompt-eval harness: budget under-counts (no cache tokens), private-constant duplicates, fixture tooling exclusions, protectedPaths granularity
 
 ## Standalone
 
 - [project_release_gate_seams.md](project_release_gate_seams.md) — Release/CI seams: color pin, npm-pack prefix trap, CLI error frame, prompts-list gate, pre-release tag/dist-tag pairing
 - [project_settings_default_flip_surfaces.md](project_settings_default_flip_surfaces.md) — Every surface that restates a `settings.harness` default, plus the preset-pin seam
-- [project_slugged_data_layout_resolver.md](project_slugged_data_layout_resolver.md) — The slugged on-disk data layout and its tolerant resolvers
+- [project_slugged_data_layout_resolver.md](project_slugged_data_layout_resolver.md) — Slugged data layout, tolerant resolvers, never-delete reconcile, failed-rename fallback dir, worktree repair on moves
 - [project_migration_consent_gate_wiring.md](project_migration_consent_gate_wiring.md) — The data-migration consent splash + backup gate and how it is wired
-- [project_skill_upstream_readaptation.md](project_skill_upstream_readaptation.md) — Porting upstream skill drift: diff noise, read-only evaluator trap, what never ports
+- [project_skill_upstream_readaptation.md](project_skill_upstream_readaptation.md) — Porting upstream skill drift: diff noise, table padding, read-only evaluator trap, what never ports
 - [project_skill_selection_resolution_seam.md](project_skill_selection_resolution_seam.md) — Skill selection → `createResolvedSkillSource` resolution path
 - [project_flows_view_soft_repo_default.md](project_flows_view_soft_repo_default.md) — Flows-view repo selection and its soft default
 - [project_doctor_probes_and_escape_keys.md](project_doctor_probes_and_escape_keys.md) — Doctor probes return unknown not fail, useViewKeys can't match Escape, demo seeder marker rule
-- [feedback_concurrent_agent_writes.md](feedback_concurrent_agent_writes.md) — Parallel-agent collisions; zsh no-word-split trap in swap-to-HEAD loops
+- [feedback_concurrent_agent_writes.md](feedback_concurrent_agent_writes.md) — Parallel-agent collisions; zsh no-word-split trap; worktree Bash guard false positive
+- [feedback_worktree_isolation_command_filter.md](feedback_worktree_isolation_command_filter.md) — Isolated runs refuse every heredoc and git-mentioning chains; use Edit + single commands

@@ -84,6 +84,24 @@ describe('buildApplyFeedbackPrompt — end-to-end against the real template', ()
     );
   });
 
+  it('overrides every note the autonomous-operation block asks for with the two-signal rule', async () => {
+    const result = await buildApplyFeedbackPrompt(loader, {
+      repositories: '- `/tmp/proj-a` (proj-a)',
+      sprintContext: 'sprint ABC',
+      feedbackLog: '',
+      latestRound: 'Rename the helper.',
+      progress: '',
+      outputContractSection: '## Output contract\n\nWrite signals.json to /tmp/out.',
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const flattened = result.value.replace(/\s+/g, ' ');
+    expect(flattened).toContain('in a `note` signal instead of pausing');
+    // The contract drops non-terminal entries before validating, so the prompt must say "discarded", not "fails".
+    expect(flattened).toContain('or any `note`) is discarded');
+    expect(flattened).not.toContain('fails validation');
+  });
+
   it('rejects an empty latestRound via the spec validator', async () => {
     const result = await buildApplyFeedbackPrompt(loader, {
       repositories: '- `/tmp/proj` (proj)',

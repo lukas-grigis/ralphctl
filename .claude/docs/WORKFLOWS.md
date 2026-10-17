@@ -37,7 +37,8 @@ stops the chain before the transition leaf runs, leaving the sprint `review` and
 blocked task is named before AND during the close. The CLI has no `InteractivePrompt` to drive the
 in-chain gate, so `sprint close <id>` runs an equivalent confirm of its own (`-y`/`--yes` to skip
 it) and, once the close lands, prints which tasks stayed blocked regardless of whether `--yes`
-skipped the prompt.
+skipped the prompt. The whole `close-sprint` chain runs inside `with-repo-lock(close-sprint)` (the sprint-dir lock
+implement and review hold), so a close cannot interleave with a live run.
 
 ‡`done` is not a dead end: unblocking a task on a closed sprint means there is runnable work again,
 and the implement gate only re-arms for `planned` / `active`. `reopenDoneSprint`
@@ -140,10 +141,10 @@ itself stores no repo list; AI generates `tasks.json` atomically and the sprint 
 does before anything is saved: `check-plan` (shared leaf, advisory findings) then a harness-owned
 `review-ideate` gate that shows the requirements body, then the findings and task list (built by the same
 `buildPlanReviewMessage` plan uses). Reject or cancel restores the pre-ideate sprint and tasks and sets
-`ctx.ideateRejected`; `transition-to-planned` then skips, so the saves write back the unchanged draft
-(no ticket or tasks land). With no reviewer wired (tests, headless) the gate auto-accepts. Full chain:
-`… ideate-and-plan → uninstall-skills → check-plan → review-ideate → transition-to-planned → save-tasks →
-save-sprint` (fenced by `tests/unit/application/flows/ideate/flow-shape.test.ts`).
+`ctx.ideateRejected`; `transition-to-planned` then skips, so no ticket or tasks land and `sprint.json` is
+not written. With no reviewer wired (tests, headless) the gate auto-accepts. Full chain:
+`… ideate-and-plan → uninstall-skills → check-plan → review-ideate → transition-to-planned →
+assert-tickets-unchanged → save-tasks → save-sprint` (fenced by `tests/unit/application/flows/ideate/flow-shape.test.ts`).
 
 **Plan's approval gate is split from the AI hand-off.** `call-planner-interactive` stops at the proposal
 (`ctx.proposedTasks`) — it no longer runs the `draft → planned` transition itself. A zero-token,
@@ -153,11 +154,28 @@ proposal that catches task-graph faults, an unknown repository, missing verifica
 that repeats the repository's post-task verify gate (`verify-gate-criterion` — exact match after whitespace
 normalisation, so a scoped `pnpm test:unit` never trips a `pnpm test` gate), tiered `error` / `warning`. Findings are advisory — they never fail the chain, and are rendered above the "Approve plan?"
 prompt for the operator to read before deciding. `apply-plan` then owns the HITL `reviewBeforeApprove`
-gate (now takes the findings as a third argument) and the `draft → planned` transition. Both new leaves sit
+gate (now takes the findings as a third argument) and the `draft → planned` transition. An empty task list
+fails `call-planner-interactive` (the task-import schema requires at least one task; a planner that cannot
+plan emits `{ "blocked": … }`), and `apply-plan` rejects an empty proposal before the gate as a backstop, so
+the sprint stays `draft` and re-plannable. There is no corrective retry on the interactive plan and ideate
+sessions; the operator re-runs the flow. Both new leaves sit
 AFTER `uninstall-skills`, so the skills sandbox is torn down before a potentially long human pause at the
 gate. Full chain: `… render-prompt-to-file → install-skills → stamp-meta-plan → call-planner-interactive →
-uninstall-skills → check-plan → apply-plan → save-tasks → save-sprint` (fenced by
+uninstall-skills → check-plan → apply-plan → assert-tickets-unchanged → save-tasks → save-sprint` (fenced by
 `tests/unit/application/flows/plan/flow-shape.test.ts`).
+
+**Long sessions never write a stale sprint.** Plan, ideate and refine hold the sprint they loaded across an
+interactive AI session, while `ticket add` / `remove` / `publish` may edit `sprint.json` from another terminal.
+So their writes go through the sprint repository's locked `update(id, mutate)` (`<locksRoot>/sprint-<id>.lock`),
+which hands `mutate` the sprint as it is on disk now. Refine applies each approved ticket onto that fresh copy,
+and fails for a ticket that was removed or edited meanwhile. Plan and ideate compare the fresh tickets with the
+ones the session planned against and refuse a sprint another session already moved off `draft`, both before
+`save-tasks` (`assert-tickets-unchanged`) and under the lock in `save-sprint`. Either difference fails the run
+with a `ConflictError` before `tasks.json` is touched. A rejected plan writes neither file. The task write itself
+runs outside the sprint lock, so two sessions committing within the same few milliseconds can still interleave.
+The ticket flows use the same `update`, so every ticket writer serialises on one lock. Close and review hold
+their sprint across prompts, the distill step and feedback rounds, so their final `review → done` transition goes
+through `update` too and applies to the sprint as it is on disk.
 
 **Task-sizing heuristics for ralphctl work** (when breaking a change into tasks):
 
@@ -267,23 +285,22 @@ worktree's branch ref is also kept rather than deleted on cleanup whenever the t
 OR the branch never completed its fold (an abort — or a throw — landing between the subchain settling
 `done` and the fold step): a fold-conflict block means the worktree's commits are real and landed on
 that ref and nowhere else, and an interrupted fold leaves already-verified commits equally ref-only
-while the epilogue rewrites the task back to its pre-wave status, so removing the ref would strand
-that work in the reflog until GC. An own-failure block's ref may hold nothing of value, but keeping
+while the task stays resumable (its `done` reaches `tasks.json` only once the fold lands), so removing
+the ref would strand that work in the reflog until GC. An own-failure block's ref may hold nothing of value, but keeping
 it uniformly is cheap. The keep is a recovery WINDOW, not permanence, and the window is one launch
 wide: `setupWorktree` settles the ref the next time THAT task starts — for a blocked task, the first
 relaunch after the operator unblocks it — deleting it when the sprint branch already has its commits and
 moving it under `ralphctl-rescue/` otherwise (see below). Past a delete the commit survives
 only as a SHA — and where depends on the reason for the keep. A blocked task's SHA is in `tasks.json`
-either way: whether the branch's own runner reached `completed` (a fold conflict — `captureDurableFold`
-records the settled task directly) or it errored / aborted right after a leaf had already saved the
-block to disk (a resume-budget exhaustion, or a settle-then-abort) — the epilogue's
-`adopt-persisted-blocks` step re-reads that persisted row, stash pointer included, before
-`saveTasksLeaf` writes the run's task list, so a non-`completed` branch's block is recovered rather than
-overwritten with its pre-wave copy (an unblock still archives the attempts into `retiredAttempts` rather
-than deleting them). It's also on `progress.md`'s `- Commit: <sha>` line. An interrupted fold's SHA is on
-`progress.md` ONLY: an aborted branch never emits `completed`, so `captureDurableFold` skips it and the
-epilogue's `saveTasksLeaf` rewrites the task back to its pre-wave copy, clobbering the attempt row that
-held `commitSha`. Either still feeds a manual `git cherry-pick` until gc prunes the object.
+either way: whether the branch's own runner reached `completed` (a fold conflict — the fold step
+persists the block itself) or it errored / aborted right after a leaf had already saved the block to
+disk (a settle-then-abort) — the epilogue's `adopt-persisted-blocks` step re-reads every persisted
+row, stash pointer included, before `saveTasksLeaf` writes the run's task list, so a
+non-`completed` branch's block or opened attempt is recovered rather than overwritten with its pre-wave
+copy (an unblock still archives the attempts into `retiredAttempts` rather than deleting them). It's also
+on `progress.md`'s `- Commit: <sha>` line. An interrupted fold's SHA stays in `tasks.json` too, on the
+`in_progress` task's attempt row the same step recovers. Either still feeds a manual `git cherry-pick`
+until gc prunes the object.
 Intermediate commits from earlier green-verify attempts of a later-blocked task remain on the sprint
 branch by design — each passed its own verify; only the final blocked attempt's uncommitted diff moves
 to the stash. The wave's fan-in itself only ever updates the ONE task a branch actually settled (never a

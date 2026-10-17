@@ -27,12 +27,13 @@ import { modelEffortLevels } from '@src/domain/value/settings-models/effort.ts';
  *    Sonnet 5 escalate), Sonnet 4.6 → Opus 4.8 → Opus 5.5, and Opus 5 → Opus 5.5 (cheaper and
  *    stronger). Fable is never a default rung — it costs 2.5x Opus 5.5 and needs a non-ZDR org;
  *    opt in via `escalationMap` (`'claude-opus-5-5': 'claude-fable-5-1'`).
- *  - **github-copilot** — Haiku 4.5 → Sonnet 5.5 → Opus 5.5 (top); rows pinned to Sonnet 5,
- *    Opus 4.8 or Opus 5 also climb to Opus 5.5. GitHub gates Opus 4.8 / 5 / 5.5 identically (Pro+
- *    and up), so topping out on 5.5 reaches no fewer accounts than 4.8 did, at a lower price. GPT:
- *    luna → terra → sol within 5.6 (rows pinned to the 2026-10-19-retired GPT-5 ids are remapped
- *    onto those tiers at parse time). The GPT-6 ids are not rungs — `gpt-6-sol` / `gpt-6.1-sol`
- *    are Pro+ only.
+ *  - **github-copilot** — Haiku 5.5 / Haiku 4.5 → Sonnet 5.5 → Opus 5.5 (top); rows pinned to
+ *    Sonnet 5, Opus 4.8 or Opus 5 also climb to Opus 5.5. GitHub gates Opus 4.8 / 5 / 5.5
+ *    identically (Pro+ and up), so topping out on 5.5 reaches no fewer accounts than 4.8 did, at a
+ *    lower price. GPT: luna → sol within 5.6, skipping terra (it retires 2026-11-16; pinned terra
+ *    rows still climb to sol). Rows pinned to the 2026-10-19-retired GPT-5 ids are remapped onto
+ *    those tiers at parse time. The GPT-6 ids are not rungs — `gpt-6-sol` / `gpt-6.1-sol` are Pro+
+ *    only.
  *  - **openai-codex** — `gpt-6-luna` → `gpt-6.1-sol` (top). `gpt-6-astra` is opt-in premium (5x the
  *    sol price), never a default rung. Pinned older tiers converge on `gpt-6.1-sol`: `gpt-6-sol` →
  *    `gpt-6.1-sol` (same price, the cache's current workhorse), luna → terra → sol within 5.6,
@@ -66,12 +67,13 @@ export const DEFAULT_ESCALATION_LADDERS: Readonly<Record<AiProvider, Readonly<Re
     'claude-opus-5': CLAUDE_OPUS_5_5,
   },
   'github-copilot': {
+    'claude-haiku-5.5': COPILOT_SONNET_5_5,
     'claude-haiku-4.5': COPILOT_SONNET_5_5,
     [COPILOT_SONNET_5_5]: COPILOT_OPUS_5_5,
     'claude-sonnet-5': COPILOT_OPUS_5_5,
     'claude-opus-4.8': COPILOT_OPUS_5_5,
     'claude-opus-5': COPILOT_OPUS_5_5,
-    [GPT_5_6_LUNA]: 'gpt-5.6-terra',
+    [GPT_5_6_LUNA]: GPT_5_6_SOL,
     'gpt-5.6-terra': GPT_5_6_SOL,
   },
   'openai-codex': {
@@ -170,8 +172,6 @@ export const escalationLadderCyclicFrom = (map: Readonly<Record<string, string>>
  * (see {@link nextEffortRung}): it climbs one tier above the effective level, and the effective
  * level for an unset row depends on the model's own CLI default, so no fixed target fits. Codex
  * uses its own fixed target, {@link CODEX_EFFORT_ESCALATION_TARGET}, not this one.
- *
- * @public
  */
 export const EFFORT_ESCALATION_TARGET = 'high';
 
@@ -182,8 +182,6 @@ export const EFFORT_ESCALATION_TARGET = 'high';
  * spent for every codex preset, which stamps `high` on implement by default. `max` / `ultra` are
  * deliberately NOT the target: they are narrower than the full catalog (5.6-family-only /
  * sol-terra-only, plan-gated) and this rung has no per-model context to know whether they apply.
- *
- * @public
  */
 export const CODEX_EFFORT_ESCALATION_TARGET = 'xhigh';
 
@@ -232,23 +230,6 @@ const CLAUDE_EFFORT_LADDER = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
 type ClaudeEffort = (typeof CLAUDE_EFFORT_LADDER)[number];
 
 /**
- * Claude models with NO reasoning-effort dimension — the CLI ignores an effort flag for them, so
- * the rung is skipped (returns `undefined`) rather than stamping a level the model does not honour.
- * Currently just Haiku 4.5 (Haiku 5.5 has all five levels). Both the dash-form (Claude-Code
- * catalog) and dot-form ids are listed so the classification is robust even if a dot-form id ever
- * reaches the Claude path.
- */
-const CLAUDE_EFFORTLESS_MODELS: ReadonlySet<string> = new Set(['claude-haiku-4-5', 'claude-haiku-4.5']);
-
-/**
- * Effort-capable Claude models WITHOUT the `xhigh` tier. Sonnet 4.6 is the only such model in the
- * Claude-Code catalog; its ladder skips straight from `high` to `max`. Every other effort-capable
- * Claude model (Haiku 5.5, Sonnet 5/5.5, Opus 4.7/4.8/5/5.5, Fable 5/5.1, and — by default — any
- * future frontier id not listed here) is treated as xhigh-capable.
- */
-const CLAUDE_NO_XHIGH_MODELS: ReadonlySet<string> = new Set(['claude-sonnet-4-6', 'claude-sonnet-4.6']);
-
-/**
  * Claude Code's built-in effort when no `--effort` is passed, for models whose default is NOT
  * `high` (code.claude.com/docs/en/model-config, checked 2026-09-30; Haiku 5.5 from the platform
  * overview, 2026-10-11): Opus 5.5, Sonnet 5.5 and Haiku 5.5 default to `medium`. Every other
@@ -271,7 +252,8 @@ const isClaudeEffort = (s: string): s is ClaudeEffort => (CLAUDE_EFFORT_LADDER a
 /**
  * Model-aware Claude effort rung — one tier above the effective effort:
  *
- *   - Haiku (no effort dimension) → `undefined`; the rung is skipped gracefully.
+ *   - A model with no effort dimension (`claude-haiku-4-5`) → `undefined`; the rung is skipped.
+ *     The model's levels come from `CLAUDE_MODEL_EFFORT_LEVELS`; a custom id gets the full ladder.
  *   - The `effective` current effort is the explicit level, or — when unset — the model's CLI
  *     default ({@link CLAUDE_CLI_DEFAULT_EFFORT}: `medium` on Opus / Sonnet 5.5, `high` elsewhere).
  *   - The target is the next tier strictly above `effective` on the model's own ladder
@@ -282,17 +264,21 @@ const isClaudeEffort = (s: string): s is ClaudeEffort => (CLAUDE_EFFORT_LADDER a
  * would be a no-op attempt. ralphctl stamps an explicit effort on effort-capable rows, so the
  * unset path is a fallback, but it stays correct.
  */
-const claudeEffortRung = (model: string, currentEffort: string | undefined): string | undefined => {
-  if (CLAUDE_EFFORTLESS_MODELS.has(model)) return undefined;
+const claudeEffortRung = (
+  model: string,
+  modelLevels: readonly string[] | undefined,
+  currentEffort: string | undefined
+): string | undefined => {
+  const levels = modelLevels ?? CLAUDE_EFFORT_LADDER;
+  if (levels.length === 0) return undefined;
   const effective = currentEffort ?? CLAUDE_CLI_DEFAULT_EFFORT[model] ?? CLAUDE_FALLBACK_CLI_DEFAULT_EFFORT;
   // An effort string outside the Claude ladder (never expected from a validated row) — skip rather
   // than stamp a level we can't reason about.
   if (!isClaudeEffort(effective)) return undefined;
   const effectiveIndex = CLAUDE_EFFORT_LADDER.indexOf(effective);
-  const modelLadder = CLAUDE_NO_XHIGH_MODELS.has(model)
-    ? CLAUDE_EFFORT_LADDER.filter((level) => level !== 'xhigh')
-    : CLAUDE_EFFORT_LADDER;
-  return modelLadder.find((level) => CLAUDE_EFFORT_LADDER.indexOf(level) > effectiveIndex);
+  return CLAUDE_EFFORT_LADDER.find(
+    (level) => levels.includes(level) && CLAUDE_EFFORT_LADDER.indexOf(level) > effectiveIndex
+  );
 };
 
 /**
@@ -303,7 +289,7 @@ const claudeEffortRung = (model: string, currentEffort: string | undefined): str
  *
  *   - the provider has no effort dimension the caller could resolve (`undefined` provider, or a
  *     future provider outside {@link EFFORT_CAPABLE_PROVIDERS}); or
- *   - the model has no effort dimension (Claude Haiku on either catalog) or its catalog effort
+ *   - the model has no effort dimension (Haiku 4.5 on either catalog) or its catalog effort
  *     list lacks the target; or
  *   - the generator has no headroom left (already at the ceiling for its provider/model).
  *
@@ -325,8 +311,6 @@ const claudeEffortRung = (model: string, currentEffort: string | undefined): str
  *
  * `currentEffort` is the resolved per-flow effort (`resolveEffort`/`resolveEffortForRow`), or
  * `undefined` for the CLI default. Pure; no I/O.
- *
- * @public
  */
 export const nextEffortRung = (
   provider: AiProvider | undefined,
@@ -334,10 +318,10 @@ export const nextEffortRung = (
   currentEffort: string | undefined
 ): string | undefined => {
   if (provider === undefined || !EFFORT_CAPABLE_PROVIDERS.has(provider)) return undefined;
-  if (provider === 'claude-code') return claudeEffortRung(model, currentEffort);
+  const levels = modelEffortLevels(provider, model);
+  if (provider === 'claude-code') return claudeEffortRung(model, levels, currentEffort);
   // A catalog model whose effort list lacks the target (e.g. Copilot `claude-haiku-4.5`, no effort
   // at all) would hard-fail the CLI — skip the rung rather than escalate into a spawn error.
-  const levels = modelEffortLevels(provider, model);
   const supports = (target: string): boolean => levels === undefined || levels.includes(target);
   if (provider === 'github-copilot') {
     if (currentEffort !== undefined && EFFORT_AT_OR_ABOVE_TARGET.has(currentEffort)) return undefined;

@@ -14,28 +14,38 @@
  *   - marker whose process is gone, or a   → a stale leftover: the adapter deletes and rewrites it
  *     marker it can't parse                 (logging the dead pid first — see `deadPid` below)
  *
+ * "Still alive" means the same process, not just the same pid: this process's own pid must carry
+ * its per-process `bootId`, and another live pid must still match the `ps` identity stamped beside
+ * it. A pid with no stamped identity, or one `ps` can't identify (Windows), counts as alive, which
+ * errs toward deleting nothing.
+ *
  * It follows the dotfile-sidecar convention of the skill catalog's `.provenance.json`
  * (`phase/provenance.ts`) but is a separate file: that stamp lives under `<appRoot>/skills/<flow>/`
  * and never reaches a session dir, while this one sits next to the `SKILL.md` the provider CLI
  * discovers. The Agent Skills layout allows extra files in a skill folder, and OpenCode lists them
  * (hidden files included) to the model when it loads a skill, so the body is plain data with no
  * instructions in it.
- *
- * A reused pid makes a dead holder look alive. The folder is then left alone until that process
- * exits, which errs toward deleting nothing.
  */
 
+import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { processGone } from '@src/business/runs/detect-interrupted-runs.ts';
+import type { ProcessIdentity } from '@src/business/runs/live-run.ts';
 import { isNodeErrnoCode } from '@src/integration/io/fs.ts';
-import { isProcessAlive } from '@src/integration/io/process-liveness.ts';
+import { createProcessLiveness, currentProcessIdentity } from '@src/integration/io/process-liveness.ts';
 
 /** Sidecar written next to every `SKILL.md` the filesystem skills adapter installs. */
 export const INSTALL_MARKER_FILENAME = '.ralphctl-install.json';
 
 /** `process.kill` only accepts int32 pids, so nothing above this can name a real process. */
 const MAX_PID = 2_147_483_647;
+
+// Tells this process's markers from a crashed earlier process that had the same pid (a container's pid 1).
+const BOOT_ID = randomUUID();
+
+const liveness = createProcessLiveness();
 
 /** Who owns an existing skill folder, as far as the install marker can tell. */
 export type SkillFolderOwnership = 'absent' | 'project-owned' | 'live-install' | 'stale-install';
@@ -50,7 +60,21 @@ export interface SkillFolderClassification {
   readonly deadPid?: number;
 }
 
-const holderPid = (raw: string): number | undefined => {
+interface MarkerHolder {
+  readonly pid: number;
+  readonly bootId?: string;
+  readonly identity?: ProcessIdentity;
+}
+
+const isIdentity = (value: unknown): value is ProcessIdentity =>
+  typeof value === 'object' &&
+  value !== null &&
+  'startedAt' in value &&
+  typeof value.startedAt === 'string' &&
+  'command' in value &&
+  typeof value.command === 'string';
+
+const markerHolder = (raw: string): MarkerHolder | undefined => {
   let data: unknown;
   try {
     data = JSON.parse(raw);
@@ -59,8 +83,15 @@ const holderPid = (raw: string): number | undefined => {
   }
   if (typeof data !== 'object' || data === null || !('pid' in data)) return undefined;
   const { pid } = data;
-  return typeof pid === 'number' && Number.isInteger(pid) && pid > 0 && pid <= MAX_PID ? pid : undefined;
+  if (typeof pid !== 'number' || !Number.isInteger(pid) || pid <= 0 || pid > MAX_PID) return undefined;
+  const bootId = 'bootId' in data && typeof data.bootId === 'string' ? data.bootId : undefined;
+  const identity = 'identity' in data && isIdentity(data.identity) ? data.identity : undefined;
+  return { pid, ...(bootId !== undefined ? { bootId } : {}), ...(identity !== undefined ? { identity } : {}) };
 };
+
+// This process's own pid is only ours if this process wrote the marker.
+const holderGone = (holder: MarkerHolder): Promise<boolean> =>
+  holder.pid === process.pid ? Promise.resolve(holder.bootId !== BOOT_ID) : processGone(holder, liveness);
 
 /** Classify the folder at `dst` by its install marker. Never throws. */
 export const classifySkillFolder = async (dst: string): Promise<SkillFolderClassification> => {
@@ -73,13 +104,22 @@ export const classifySkillFolder = async (dst: string): Promise<SkillFolderClass
     // permissions) proves nothing about ownership, so leave the folder alone like a live install.
     return { ownership: isNodeErrnoCode(cause, 'ENOENT') ? 'project-owned' : 'live-install' };
   }
-  const pid = holderPid(raw);
-  if (pid !== undefined && isProcessAlive(pid)) return { ownership: 'live-install' };
-  return { ownership: 'stale-install', ...(pid !== undefined ? { deadPid: pid } : {}) };
+  const holder = markerHolder(raw);
+  if (holder === undefined) return { ownership: 'stale-install' };
+  if (!(await holderGone(holder))) return { ownership: 'live-install' };
+  return { ownership: 'stale-install', deadPid: holder.pid };
 };
 
 /** Stamp `dst` as installed by this process. `dst` must already exist. */
 export const writeInstallMarker = async (dst: string, skillName: string): Promise<void> => {
-  const marker = { installedBy: 'ralphctl', skill: skillName, pid: process.pid, installedAt: new Date().toISOString() };
+  const identity = await currentProcessIdentity();
+  const marker = {
+    installedBy: 'ralphctl',
+    skill: skillName,
+    pid: process.pid,
+    bootId: BOOT_ID,
+    ...(identity !== undefined ? { identity } : {}),
+    installedAt: new Date().toISOString(),
+  };
   await writeFile(join(dst, INSTALL_MARKER_FILENAME), `${JSON.stringify(marker, null, 2)}\n`, 'utf-8');
 };

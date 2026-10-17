@@ -96,10 +96,17 @@ on economic / strong-gate) and silently raises spend.
 
 Touchpoints that usually need NO change on a pure catalog add: `escalation-map.ts` ladders (but a new
 effort-capable Claude id whose CLI default is not `high` MUST go into `CLAUDE_CLI_DEFAULT_EFFORT`, else the
-unset-effort rung skips a tier — and an effort-less one into `CLAUDE_EFFORTLESS_MODELS`),
+unset-effort rung skips a tier; `CLAUDE_MODEL_EFFORT_LEVELS` is total over `ClaudeModel`, so typecheck forces its row),
 `context-window.ts` (Copilot/Codex windows are deliberately omitted — the CLIs don't surface them),
 `suspended-models.ts` (empty by design, kept as a kill-switch mechanism), `effort.ts`,
 `validate-model.ts` (generic), and `business/settings/{defaults,presets}.ts`.
+
+## Grok effort facts come from the model menus, not the CLI reference
+
+The Grok CLI reference (and `--help`) still lists canonical levels `none..max`, but each model only
+accepts what its menu advertises, and the menus (in the binary's embedded catalog: `strings` over
+`@xai-official/grok-<platform>`) start at `low`. Trusting the reference is what kept `none` / `minimal`
+in `GROK_MODEL_EFFORT_LEVELS` too long. Re-derive per-model levels from the menu on each Grok bump.
 
 ## Catalog ORDER is pinned by a TUI test
 
@@ -127,6 +134,16 @@ tables, row-shape guards — rather than adding raw occurrences.
 fails the gate, even in a file whose existing complexity warnings have nothing to do with your change.
 Re-run lint before landing and treat a new warning in a touched file as yours to fix by
 constant-hoisting — check `git diff <file>` for the literal before assuming it predates you.
+
+## The ai-row migration runs on SAVE too
+
+`JsonSettingsRepository.save()` re-parses through `SettingsSchema`, so `migrateStaleRow` rewrites a
+retired effort / model on the write path as well — the schema never rejects it, it coerces it. That is
+why `apply-key.ts` checks row effort against `PROVIDER_EFFORT_LEVELS` and refuses `remapRetiredModel`
+hits itself; don't "simplify" those back to schema-only validation, and don't drop the migration to fix
+a write-path coercion (old files still need it). Retiring a level = drop it from `PROVIDER_EFFORT_LEVELS`
+and add it to `isRetiredEffort`; `settings-set-round-trip.test.ts` fences that every accepted level
+survives save + load unchanged.
 
 Related: [[project_release_gate_seams]], [[seams_escalation_ladder]],
 [[seams_provider_conformance_and_demo]].

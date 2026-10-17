@@ -24,8 +24,6 @@ import { parseSimpleYaml, splitFrontmatter } from '@src/integration/ai/skills/_e
  * record. Split from the read so a file-required path and an optional-file path can share the
  * frontmatter-validation tail. `label` prefixes the error message (`bundled agent` / `operator
  * agent`).
- *
- * @public
  */
 export const parseAgentDefinition = (
   label: string,

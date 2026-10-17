@@ -1,5 +1,5 @@
 import type { Command } from 'commander';
-import { bootstrapCli } from '@src/application/ui/cli/bootstrap.ts';
+import { bootstrapApp } from '@src/application/bootstrap/bootstrap-app.ts';
 import { fail } from '@src/application/ui/cli/report-cli-error.ts';
 import {
   BUNDLED_PROMPT_PARTIALS,
@@ -19,7 +19,7 @@ const formatPromptLine = (loaded: LoadedPrompt): string =>
 
 /** Load every bundled prompt asset through the wired `TemplateLoader` and print one line each. */
 const listPromptsAction = async (): Promise<void> => {
-  const { deps } = await bootstrapCli();
+  const { deps } = await bootstrapApp();
 
   const requested: readonly LoadedPrompt[] = [
     ...BUNDLED_PROMPT_TEMPLATES.map((name) => ({ name, kind: 'template' as const, bytes: 0 })),

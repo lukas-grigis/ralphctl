@@ -53,8 +53,6 @@ export interface LoadLearningsLeafConfig<TCtx> {
  *
  * Malformed individual lines are skipped (logged warn) rather than failing the whole load — one
  * corrupt row should not orphan every other learning in the ledger.
- *
- * @public
  */
 export const loadLearningsLeaf = <TCtx>(
   deps: LoadLearningsLeafDeps,

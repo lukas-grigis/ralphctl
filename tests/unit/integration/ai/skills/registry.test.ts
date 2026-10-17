@@ -62,11 +62,29 @@ describe('skillsForFlow', () => {
   });
 
   it('never loads the opt-in-only skills by default in any flow', () => {
-    // These ride on flows that already own their loop / output + approval gate; the maintainer
-    // keeps them catalog suggestions only.
+    // The first two ride on flows that already own their loop / output + approval gate; the rest
+    // are topic-specific, and every default costs context on every session of its phase.
+    const optInOnly = [
+      'ralphctl-spec-driven-development',
+      'ralphctl-cherny-workflow',
+      'ralphctl-api-and-interface-design',
+      'ralphctl-performance-optimization',
+      'ralphctl-frontend-ui-engineering',
+      'ralphctl-deprecation-and-migration',
+      'ralphctl-code-simplification',
+      'ralphctl-source-driven-development',
+      'ralphctl-observability-and-instrumentation',
+      'ralphctl-codebase-design',
+      'ralphctl-humanizer',
+    ];
     for (const flowId of FLOW_IDS) {
-      expect(skillsForFlow(flowId)).not.toContain('ralphctl-spec-driven-development');
-      expect(skillsForFlow(flowId)).not.toContain('ralphctl-cherny-workflow');
+      for (const name of optInOnly) expect(skillsForFlow(flowId)).not.toContain(name);
+    }
+  });
+
+  it('loads ralphctl-writing-for-agents by default for readiness only', () => {
+    for (const flowId of FLOW_IDS) {
+      expect(skillsForFlow(flowId).includes('ralphctl-writing-for-agents')).toBe(flowId === 'readiness');
     }
   });
 

@@ -98,14 +98,14 @@ export const clampEffortToProvider = (effort: string, provider: AiProvider): str
 /**
  * Narrow an effort to what the row's MODEL accepts, using the catalog's per-model effort list
  * (`modelEffortLevels`). The provider CLIs hard-fail on a level the model doesn't support (Copilot
- * on any level for `claude-haiku-4.5`; Codex `ultra` on the luna tiers), so this applies to an explicit
- * row effort too:
+ * on any level for `claude-haiku-4.5`; Codex `ultra` on the luna tiers) or ignore it (Claude Code on
+ * `claude-haiku-4-5`), so this applies to an explicit row effort too:
  *
  * - model has no effort dimension → `undefined` (no flag is sent);
  * - level supported → unchanged;
  * - level unsupported → the strongest supported level below it, else the weakest supported one
  *   (Grok `max` → `xhigh` on `grok-4.7`, `high` on `grok-4.5`);
- * - model or level unknown (custom id, `grok-4.7-build-fast`; opencode / claude rows) → unchanged,
+ * - model or level unknown (custom id, `grok-4.7-build-fast`; opencode rows) → unchanged,
  *   the CLI arbitrates.
  */
 export const clampEffortToModel = (effort: string, provider: AiProvider, model: string): string | undefined => {

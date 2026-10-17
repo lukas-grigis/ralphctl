@@ -7,7 +7,8 @@
  *   3. Project description (optional, blank to skip)
  *   4. First repository path (required, absolute; `~/` is expanded against `os.homedir()`)
  *   5. First repository name (defaults to basename(path))
- *   6. Confirm → save via `projectRepo.save`, stamp the new id as current, then route home.
+ *   6. Confirm → save via `createProjectUseCase` (rejects a taken slug), stamp the new id as current, then route home.
+ *      On a failure, esc returns to the step the error points at (confirm for storage), answers kept.
  *
  * Mirrors the welcome-view embedding style: prompts are rendered inline rather than going
  * through the prompt queue, since this view *is* a sequence of prompts and has nothing else
@@ -16,86 +17,100 @@
 
 import React, { useEffect, useState } from 'react';
 import { Box, Text } from 'ink';
-import { homedir as osHomedir } from 'node:os';
-import { basename, join } from 'node:path';
+import { basename } from 'node:path';
 import { ViewShell } from '@src/application/ui/tui/components/view-shell.tsx';
 import { Card } from '@src/application/ui/tui/components/card.tsx';
 import { FieldList } from '@src/application/ui/tui/components/field-list.tsx';
 import { Spinner } from '@src/application/ui/tui/components/spinner.tsx';
+import { usePromptInput } from '@src/application/ui/tui/prompts/use-prompt-input.ts';
 import { TextPrompt } from '@src/application/ui/tui/prompts/text-prompt.tsx';
 import { ConfirmPrompt } from '@src/application/ui/tui/prompts/confirm-prompt.tsx';
 import { PathPickerPrompt } from '@src/application/ui/tui/prompts/path-picker-prompt.tsx';
+import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
+import { expandHome } from '@src/application/ui/tui/runtime/expand-home.ts';
 import { useRouter } from '@src/application/ui/tui/runtime/router.tsx';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
 import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
-import { createProject } from '@src/domain/entity/project.ts';
+import { createProjectUseCase } from '@src/business/project/create-project.ts';
+import type { Project } from '@src/domain/entity/project.ts';
 import { createRepository } from '@src/domain/entity/repository.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
+import { ConflictError } from '@src/domain/value/error/conflict-error.ts';
 import { Slug } from '@src/domain/value/slug.ts';
 import { toKebabCase } from '@src/domain/value/kebab-case.ts';
 
+/** Every answer the wizard collects — the confirm step's payload. */
+interface Draft {
+  readonly name: string;
+  readonly slug: string;
+  readonly description: string;
+  readonly repoPath: string;
+  readonly repoName: string;
+}
+
+/** `prefill` holds answers from a later step the user stepped back from, used as prompt defaults. */
+interface Prefill {
+  readonly prefill?: Draft;
+}
+
 type Step =
   | { readonly kind: 'name' }
-  | { readonly kind: 'slug'; readonly name: string }
-  | { readonly kind: 'description'; readonly name: string; readonly slug: string }
-  | {
+  | ({ readonly kind: 'slug'; readonly name: string } & Prefill)
+  | ({ readonly kind: 'description'; readonly name: string; readonly slug: string } & Prefill)
+  | ({
       readonly kind: 'repo-path';
       readonly name: string;
       readonly slug: string;
       readonly description: string;
-    }
-  | {
+    } & Prefill)
+  | ({
       readonly kind: 'repo-name';
       readonly name: string;
       readonly slug: string;
       readonly description: string;
       readonly repoPath: string;
-    }
-  | {
-      readonly kind: 'confirm';
-      readonly name: string;
-      readonly slug: string;
-      readonly description: string;
-      readonly repoPath: string;
-      readonly repoName: string;
-    }
+    } & Prefill)
+  | ({ readonly kind: 'confirm' } & Draft)
   | { readonly kind: 'saving' }
-  | { readonly kind: 'error'; readonly message: string };
+  | { readonly kind: 'error'; readonly message: string; readonly back: Step };
 
-/**
- * Lightweight `~` expansion: only the leading `~` followed by `/` or end-of-string is treated
- * as the home directory. Embedded `~` in the middle of a path is left alone so the
- * AbsolutePath validator can surface it.
- */
-const expandHome = (input: string): string => {
-  if (input === '~') return osHomedir();
-  if (input.startsWith('~/')) return join(osHomedir(), input.slice(2));
-  return input;
-};
+type ConfirmStep = Extract<Step, { kind: 'confirm' }>;
+
+const carry = (prefill: Draft | undefined): Prefill => (prefill !== undefined ? { prefill } : {});
+
+const draftOf = (s: ConfirmStep): Draft => ({
+  name: s.name,
+  slug: s.slug,
+  description: s.description,
+  repoPath: s.repoPath,
+  repoName: s.repoName,
+});
 
 /**
  * Previous step for the current one. Used as the `esc` target so the user can fix a typo
  * without starting the wizard over. Returns `undefined` on the first step (esc cancels the
- * wizard entirely) and on the terminal states.
+ * wizard entirely) and while saving.
  */
 const backStep = (step: Step): Step | undefined => {
   switch (step.kind) {
     case 'name':
       return undefined;
     case 'slug':
+      // A new name re-derives the slug default, so kept answers stop here.
       return { kind: 'name' };
     case 'description':
-      return { kind: 'slug', name: step.name };
+      return { kind: 'slug', name: step.name, ...carry(step.prefill) };
     case 'repo-path':
-      return { kind: 'description', name: step.name, slug: step.slug };
+      return { kind: 'description', name: step.name, slug: step.slug, ...carry(step.prefill) };
     case 'repo-name':
       return {
         kind: 'repo-path',
         name: step.name,
         slug: step.slug,
         description: step.description,
+        ...carry(step.prefill),
       };
     case 'confirm':
       return {
@@ -104,11 +119,76 @@ const backStep = (step: Step): Step | undefined => {
         slug: step.slug,
         description: step.description,
         repoPath: step.repoPath,
+        prefill: draftOf(step),
       };
     case 'saving':
-    case 'error':
       return undefined;
+    case 'error':
+      return step.back;
   }
+};
+
+type ErrorStep = Extract<Step, { kind: 'error' }>;
+
+/** Validates the confirmed answers and persists them; a failure names the step esc returns to. */
+const saveProject = async (
+  deps: Pick<AppDeps, 'projectRepo' | 'logger'>,
+  s: ConfirmStep
+): Promise<{ readonly kind: 'saved'; readonly project: Project } | ErrorStep> => {
+  const prefill = draftOf(s);
+  const atSlug: Step = { kind: 'slug', name: s.name, prefill };
+
+  const pathResult = AbsolutePath.parse(expandHome(s.repoPath.trim()));
+  if (!pathResult.ok) {
+    return {
+      kind: 'error',
+      message: `repo path: ${pathResult.error.message}`,
+      back: { kind: 'repo-path', name: s.name, slug: s.slug, description: s.description, prefill },
+    };
+  }
+
+  const repoNameTrim = s.repoName.trim();
+  const repoResult = createRepository({
+    path: pathResult.value,
+    ...(repoNameTrim.length > 0 ? { name: repoNameTrim } : {}),
+  });
+  if (!repoResult.ok) {
+    return {
+      kind: 'error',
+      message: `repo: ${repoResult.error.message}`,
+      back: {
+        kind: 'repo-name',
+        name: s.name,
+        slug: s.slug,
+        description: s.description,
+        repoPath: s.repoPath,
+        prefill,
+      },
+    };
+  }
+
+  const slugInput = s.slug.trim().length > 0 ? Slug.parse(s.slug.trim()) : undefined;
+  if (slugInput !== undefined && !slugInput.ok) {
+    return { kind: 'error', message: `slug: ${slugInput.error.message}`, back: atSlug };
+  }
+
+  const projectResult = await createProjectUseCase({
+    input: {
+      displayName: s.name.trim(),
+      ...(slugInput !== undefined && slugInput.ok ? { slug: slugInput.value } : {}),
+      ...(s.description.trim().length > 0 ? { description: s.description.trim() } : {}),
+      repositories: [repoResult.value],
+    },
+    projectRepo: deps.projectRepo,
+    logger: deps.logger,
+  });
+  if (!projectResult.ok) {
+    const error = projectResult.error;
+    const slugTaken = error instanceof ConflictError && error.field === 'slug';
+    // A failure tied to no single answer (storage) returns to confirm, so a retry is one key.
+    return { kind: 'error', message: error.message, back: slugTaken ? atSlug : s };
+  }
+  return { kind: 'saved', project: projectResult.value };
 };
 
 export const CreateProjectView = (): React.JSX.Element => {
@@ -125,50 +205,14 @@ export const CreateProjectView = (): React.JSX.Element => {
 
   const cancel = (): void => router.pop();
 
-  const submit = async (s: Extract<Step, { kind: 'confirm' }>): Promise<void> => {
+  const submit = async (s: ConfirmStep): Promise<void> => {
     setStep({ kind: 'saving' });
-
-    const expandedPath = expandHome(s.repoPath.trim());
-    const pathResult = AbsolutePath.parse(expandedPath);
-    if (!pathResult.ok) {
-      setStep({ kind: 'error', message: `repo path: ${pathResult.error.message}` });
+    const outcome = await saveProject(deps, s);
+    if (outcome.kind === 'error') {
+      setStep(outcome);
       return;
     }
-
-    const repoNameTrim = s.repoName.trim();
-    const repoResult = createRepository({
-      path: pathResult.value,
-      ...(repoNameTrim.length > 0 ? { name: repoNameTrim } : {}),
-    });
-    if (!repoResult.ok) {
-      setStep({ kind: 'error', message: `repo: ${repoResult.error.message}` });
-      return;
-    }
-
-    const slugInput = s.slug.trim().length > 0 ? Slug.parse(s.slug.trim()) : undefined;
-    if (slugInput !== undefined && !slugInput.ok) {
-      setStep({ kind: 'error', message: `slug: ${slugInput.error.message}` });
-      return;
-    }
-
-    const projectResult = createProject({
-      displayName: s.name.trim(),
-      ...(slugInput !== undefined && slugInput.ok ? { slug: slugInput.value } : {}),
-      ...(s.description.trim().length > 0 ? { description: s.description.trim() } : {}),
-      repositories: [repoResult.value],
-    });
-    if (!projectResult.ok) {
-      setStep({ kind: 'error', message: projectResult.error.message });
-      return;
-    }
-
-    const saved = await deps.projectRepo.save(projectResult.value);
-    if (!saved.ok) {
-      setStep({ kind: 'error', message: saved.error.message });
-      return;
-    }
-
-    selection.setProject(projectResult.value.id, projectResult.value.displayName);
+    selection.setProject(outcome.project.id, outcome.project.displayName);
     router.reset({ id: 'home' });
   };
 
@@ -198,7 +242,7 @@ interface StepViewProps {
   readonly step: Step;
   readonly onChange: (next: Step) => void;
   readonly onCancel: () => void;
-  readonly onSubmit: (s: Extract<Step, { kind: 'confirm' }>) => Promise<void>;
+  readonly onSubmit: (s: ConfirmStep) => Promise<void>;
 }
 
 const renderNameStep = (onChange: StepViewProps['onChange'], cancelOrBack: () => void): React.JSX.Element => (
@@ -222,8 +266,8 @@ const renderSlugStep = (
   <TextPrompt
     key="slug"
     message="Project slug (kebab-case, blank for default)"
-    initial={toKebabCase(step.name)}
-    onSubmit={(value) => onChange({ kind: 'description', name: step.name, slug: value })}
+    initial={(step.prefill?.slug.trim() ?? '') || toKebabCase(step.name)}
+    onSubmit={(value) => onChange({ kind: 'description', name: step.name, slug: value, ...carry(step.prefill) })}
     onCancel={cancelOrBack}
   />
 );
@@ -236,7 +280,10 @@ const renderDescriptionStep = (
   <TextPrompt
     key="description"
     message="Description (optional, Enter to skip)"
-    onSubmit={(value) => onChange({ kind: 'repo-path', name: step.name, slug: step.slug, description: value })}
+    initial={step.prefill?.description ?? ''}
+    onSubmit={(value) =>
+      onChange({ kind: 'repo-path', name: step.name, slug: step.slug, description: value, ...carry(step.prefill) })
+    }
     onCancel={cancelOrBack}
   />
 );
@@ -249,6 +296,7 @@ const renderRepoPathStep = (
   <PathPickerPrompt
     key="repo-path"
     message="Repository directory"
+    {...(step.prefill !== undefined ? { initial: step.prefill.repoPath } : {})}
     onSubmit={(value) =>
       onChange({
         kind: 'repo-name',
@@ -256,6 +304,7 @@ const renderRepoPathStep = (
         slug: step.slug,
         description: step.description,
         repoPath: value,
+        ...carry(step.prefill),
       })
     }
     onCancel={cancelOrBack}
@@ -267,7 +316,9 @@ const renderRepoNameStep = (
   onChange: StepViewProps['onChange'],
   cancelOrBack: () => void
 ): React.JSX.Element => {
-  const fallback = basename(expandHome(step.repoPath));
+  // A kept repo name only applies to the directory it was typed for.
+  const kept = step.prefill?.repoPath === step.repoPath ? step.prefill.repoName.trim() : '';
+  const fallback = kept || basename(expandHome(step.repoPath));
   return (
     <TextPrompt
       key="repo-name"
@@ -289,7 +340,7 @@ const renderRepoNameStep = (
 };
 
 const renderConfirmStep = (
-  step: Extract<Step, { kind: 'confirm' }>,
+  step: ConfirmStep,
   onSubmit: StepViewProps['onSubmit'],
   cancelOrBack: () => void
 ): React.JSX.Element => (
@@ -319,14 +370,25 @@ const renderConfirmStep = (
   </Box>
 );
 
-const renderErrorStep = (step: Extract<Step, { kind: 'error' }>): React.JSX.Element => (
-  <Box flexDirection="column" paddingX={spacing.indent}>
-    <Text color={inkColors.error}>
-      {glyphs.cross} {step.message}
-    </Text>
-    <Text dimColor>Press esc to go back.</Text>
-  </Box>
-);
+interface ErrorNoticeProps {
+  readonly message: string;
+  readonly onBack: () => void;
+}
+
+// The view's prompt claim mutes the global esc, so the error step answers it itself.
+const ErrorNotice = ({ message, onBack }: ErrorNoticeProps): React.JSX.Element => {
+  usePromptInput((_input, key) => {
+    if (key.escape) onBack();
+  });
+  return (
+    <Box flexDirection="column" paddingX={spacing.indent}>
+      <Text color={inkColors.error}>
+        {glyphs.cross} {message}
+      </Text>
+      <Text dimColor>Press esc to go back.</Text>
+    </Box>
+  );
+};
 
 const StepView = ({ step, onChange, onCancel, onSubmit }: StepViewProps): React.JSX.Element => {
   // Per-step `key` so each TextPrompt is a fresh instance — otherwise React's reconciliation
@@ -353,6 +415,6 @@ const StepView = ({ step, onChange, onCancel, onSubmit }: StepViewProps): React.
     case 'saving':
       return <Spinner label="saving project…" />;
     case 'error':
-      return renderErrorStep(step);
+      return <ErrorNotice message={step.message} onBack={cancelOrBack} />;
   }
 };

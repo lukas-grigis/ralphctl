@@ -34,7 +34,6 @@ export interface VerificationCriterion {
 /**
  * Durable per-criterion verdict the HARNESS owns. `unknown` is the slot for a criterion that has
  * a place on the checklist but no graded verdict yet (never evaluated, or not graded this round).
- * @public
  */
 export type CriterionStatus = 'passed' | 'failed' | 'unknown';
 
@@ -43,7 +42,6 @@ export type CriterionStatus = 'passed' | 'failed' | 'unknown';
  * time from the evaluator's structured `criteria` signal (`domain/signal.ts`) — NEVER derived from
  * agent prose. Lets a task with many criteria resume against a k-of-N checklist instead of
  * collapsing to one binary status. Absent until the first evaluator round folds a verdict on.
- * @public
  */
 export type CriteriaVerdicts = Readonly<Record<string, CriterionStatus>>;
 
@@ -53,7 +51,6 @@ export type CriteriaVerdicts = Readonly<Record<string, CriterionStatus>>;
  * resets the budget for a clean restart. Recorded here instead of deleted, so the forensic record
  * (what happened before the operator intervened) survives even though the live attempt ledger and
  * verdict checklist start fresh. See {@link TaskBase.retiredAttempts}.
- * @public
  */
 export interface RetiredRun {
   readonly attempts: readonly Attempt[];
@@ -67,7 +64,6 @@ export interface RetiredRun {
 /**
  * Rejected diff a block quarantined to git stash, and what the next attempt does with it. Keyed by
  * the deterministic stash message, never a positional `stash@{N}` ref — see `quarantineStashMessage`.
- * @public
  */
 export interface QuarantinedDiff {
   readonly stashMessage: string;
@@ -305,7 +301,6 @@ export interface BlockedTask extends TaskBase {
  * Closed set of harness-recognised block causes — see {@link BlockedTask.blockCause}. `unknown` is
  * the tolerant-read fallback member, mirroring {@link CriterionStatus}'s `unknown` slot — never a
  * deliberate choice by new code.
- * @public
  */
 export type BlockCause =
   | 'upstream-dependency'
@@ -321,7 +316,6 @@ export type BlockCause =
 /**
  * Closed set of "where the repair belongs" attributions — see {@link BlockedTask.faultSide}.
  * `unknown` is the tolerant-read fallback member, same rationale as {@link BlockCause}'s.
- * @public
  */
 export type FaultSide = 'model' | 'harness' | 'environment' | 'grader' | 'unknown';
 
@@ -329,7 +323,6 @@ export type Task = TodoTask | InProgressTask | DoneTask | BlockedTask;
 
 /**
  * Derived from `Task` — adding a new variant flows here automatically.
- * @public
  */
 export type TaskStatus = Task['status'];
 

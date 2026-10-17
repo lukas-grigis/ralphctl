@@ -1,18 +1,20 @@
 import { promises as fs } from 'node:fs';
-import { basename, dirname, join } from 'node:path';
+import { basename, dirname, join, relative, sep } from 'node:path';
 import { Result } from '@src/domain/result.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
+import { pathExists, removeDir } from '@src/integration/io/fs.ts';
 
 /** Prefix every backup directory name shares — used to exclude prior backups from a fresh copy. */
 export const BACKUP_DIR_PREFIX = 'data.backup-';
+
+const SPRINTS_DIR = 'sprints';
+const WORKTREES_DIR = 'worktrees';
 
 /**
  * Build the backup directory name for a run: `data.backup-v<fromVersion>-<timestamp>`. The timestamp
  * is PASSED IN (never generated here) so the name is deterministic in tests and so the caller owns
  * the single clock read for the whole migration run. Pure.
- *
- * @public
  */
 export const backupDirName = (fromVersion: number, timestamp: string): string =>
   `${BACKUP_DIR_PREFIX}v${String(fromVersion)}-${sanitizeTimestamp(timestamp)}`;
@@ -22,13 +24,14 @@ export const backupDirName = (fromVersion: number, timestamp: string): string =>
  * `data.backup-v<from>-<timestamp>/` BEFORE any rename runs. Each run gets a distinct name so a
  * crash-then-retry never overwrites the first run's backup (the user was burned by a past migration;
  * keeping every backup is the safety net). Any existing `data.backup-*` siblings are EXCLUDED from
- * the copy so backups never nest inside backups.
+ * the copy so backups never nest inside backups, and so are sprint `worktrees/` dirs (see
+ * {@link isExcluded}). Symlinks inside `data/` are copied as links, never followed.
  *
  * The copy is VERIFIED to exist (a `stat` of the destination) before returning — a silent partial
- * copy must not let the apply step proceed believing the data is safe. Returns the absolute backup
- * path on success.
- *
- * @public
+ * copy must not let the apply step proceed believing the data is safe. A failed copy or verify
+ * removes the partial destination so retries don't pile up copies; an already-existing destination
+ * is refused up front, so that cleanup can only ever touch a dir this call created. Returns the
+ * absolute backup path on success.
  */
 export const backupDataDir = async (
   dataRoot: AbsolutePath,
@@ -38,22 +41,33 @@ export const backupDataDir = async (
   const src = String(dataRoot);
   const dest = join(dirname(src), backupDirName(fromVersion, timestamp));
 
+  const taken = await pathExists(dest);
+  if (!taken.ok) return Result.error(taken.error);
+  if (taken.value) {
+    return Result.error(
+      new StorageError({ subCode: 'io', message: `backup target already exists: ${dest}`, path: dest })
+    );
+  }
+
+  const copied = await copyAndVerify(src, dest);
+  if (!copied.ok) {
+    await removeDir(dest); // best-effort; the copy error is the one worth reporting
+    return Result.error(copied.error);
+  }
+  return Result.ok(dest);
+};
+
+const copyAndVerify = async (src: string, dest: string): Promise<Result<void, StorageError>> => {
   try {
-    await fs.cp(src, dest, {
+    // Resolved first so a symlinked data/ itself is still copied by content.
+    const root = await fs.realpath(src);
+    await fs.cp(root, dest, {
       recursive: true,
-      // Follow symlinks so the backup captures their real CONTENT, not a dangling node. The default
-      // (`dereference: false`) copies a symlink as a link, which would leave the backup incomplete for
-      // any symlinked file in data/ — defeating the "full backup" safety contract. The filter below
-      // still keys on `basename(source)`, which dereference does not change, so the backup-sibling
-      // exclusion is unaffected.
-      dereference: true,
-      // Skip any nested backup dir (defensive — backups live as SIBLINGS of data/, not inside it,
-      // but a misplaced one must never be recursively re-copied) and the destination itself.
-      filter: (source) => {
-        const name = basename(source);
-        if (name.startsWith(BACKUP_DIR_PREFIX)) return false;
-        return source !== dest;
-      },
+      // ralphctl never links inside data/; following a foreign link can loop, dangle or pull an outside tree in.
+      dereference: false,
+      // Keeps a relative target relative, so the copied link never points back into the live tree.
+      verbatimSymlinks: true,
+      filter: (source) => source !== dest && !isExcluded(root, source),
     });
   } catch (cause) {
     return Result.error(
@@ -84,10 +98,7 @@ export const backupDataDir = async (
   // is partial. Compare the top-level entry counts (excluding the backup siblings the filter dropped
   // from the source): the destination must have at LEAST as many entries as the source did, or the
   // copy is incomplete and a rename on top of the originals would be unsafe. Abort BEFORE any rename.
-  const verified = await verifyEntryCount(src, dest);
-  if (!verified.ok) return Result.error(verified.error);
-
-  return Result.ok(dest);
+  return verifyEntryCount(src, dest);
 };
 
 /**
@@ -116,6 +127,16 @@ const verifyEntryCount = async (src: string, dest: string): Promise<Result<void,
       new StorageError({ subCode: 'io', message: `backup verify failed: could not read ${dest}`, path: dest, cause })
     );
   }
+};
+
+/**
+ * Skips a nested `data.backup-*` dir and every `sprints/<dir>/worktrees/` — repo checkouts, often with
+ * installed dependencies, that the migration never writes into (a sprint-dir rename moves them intact).
+ */
+const isExcluded = (root: string, source: string): boolean => {
+  if (basename(source).startsWith(BACKUP_DIR_PREFIX)) return true;
+  const parts = relative(root, source).split(sep);
+  return parts.length === 3 && parts[0] === SPRINTS_DIR && parts[2] === WORKTREES_DIR;
 };
 
 /** Replace filesystem-hostile characters (`:`) in an ISO timestamp so the dir name is portable. */

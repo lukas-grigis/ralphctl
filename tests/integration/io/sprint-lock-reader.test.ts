@@ -39,8 +39,12 @@ const reader = () => createSprintLockReader({ dataRoot: absolutePath(dataRoot), 
 /** The key both launchers hand implement (`opts.sprintDir` → `plan.lockKey`) and review (`opts.sprintDir`). */
 const launcherSprintDir = () => absolutePath(sprintDir(absolutePath(dataRoot), SPRINT.id, SPRINT.slug));
 
-const plantLock = async (owner: Record<string, unknown> | undefined, ageMs = 0): Promise<void> => {
-  const lock = repoLockFile(absolutePath(locksRoot), launcherSprintDir());
+const plantLock = async (
+  owner: Record<string, unknown> | undefined,
+  ageMs = 0,
+  keyDir = launcherSprintDir()
+): Promise<void> => {
+  const lock = repoLockFile(absolutePath(locksRoot), keyDir);
   if (!lock.ok) throw new Error('test setup: bad lock path');
   await fs.mkdir(String(lock.value), { recursive: true });
   if (owner !== undefined) await fs.writeFile(join(String(lock.value), 'owner.json'), JSON.stringify(owner));
@@ -92,6 +96,13 @@ describe('createSprintLockReader', () => {
     const identity = { startedAt: 'Fri Oct 2 07:40:35 2026', command: 'node' };
     await plantLock({ pid: livePid(), host: hostname(), startedAt: 'x', acquiredAt: 'y', identity });
     expect(await reader().holderOf(SPRINT)).toEqual({ pid: livePid(), host: hostname(), identity });
+  });
+
+  it('keys on the legacy dir a run had to stay in when it could not be renamed', async () => {
+    const legacyDir = join(dataRoot, 'sprints', String(SPRINT.id));
+    await fs.mkdir(legacyDir, { recursive: true });
+    await plantLock({ pid: livePid(), host: hostname(), startedAt: 'x', acquiredAt: 'y' }, 0, absolutePath(legacyDir));
+    expect(await reader().holderOf(SPRINT)).toEqual({ pid: livePid(), host: hostname() });
   });
 
   it('ignores a lock whose heartbeat is older than the stale window, even when the pid is alive', async () => {

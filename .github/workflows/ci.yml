@@ -59,10 +59,10 @@ jobs:
       - name: Verify dist works from arbitrary cwd
         run: cd /tmp && node $GITHUB_WORKSPACE/dist/cli.mjs --version
 
-      # `--version` is answered by commander before `bootstrapCli` ever runs, so it never
+      # `--version` is answered by commander before `bootstrapApp` ever runs, so it never
       # reaches `runBundleIntegrityCheck` and never touches a single bundled asset — the
       # 0.15.0 fresh-install failure walked straight past that gate. `skills list` /
-      # `agents list` boot the real composition root (bootstrapCli → wire →
+      # `agents list` boot the real composition root (bootstrapApp → wire →
       # runBundleIntegrityCheck) and then read every bundled SKILL.md / agent .md back
       # through `resolveBundledRoot`, which is the resolver that actually broke. No AI CLI
       # and no network are involved; every write is confined to RALPHCTL_HOME.

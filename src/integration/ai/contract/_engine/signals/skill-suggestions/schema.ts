@@ -9,8 +9,6 @@ import { SkillNameSchema } from '@src/integration/ai/skills/_engine/skill.ts';
  * one blocking confirm prompt in the readiness offer leaf, so an unbounded list is a way for a
  * runaway (or hostile) model to wall the operator in with prompts. A realistic round suggests a
  * handful; 20 is far above that and still bounded.
- *
- * @public
  */
 export const MAX_SKILL_SUGGESTIONS = 20;
 

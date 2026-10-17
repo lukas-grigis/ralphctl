@@ -22,7 +22,7 @@ export interface CreateProjectProps {
   readonly logger: Logger;
 }
 
-/** Message for a slug already held by a stored project — shared by the use case and inline validators. */
+/** Message for a slug already held by a stored project. */
 export const projectSlugTakenMessage = (slug: string): string => `slug '${slug}' is already used by another project`;
 
 export const createProjectUseCase = async (

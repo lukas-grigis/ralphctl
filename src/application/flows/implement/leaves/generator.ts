@@ -9,7 +9,6 @@ import { projectBlockCarry } from '@src/application/flows/implement/leaves/_shar
 import type { EventBus } from '@src/business/observability/event-bus.ts';
 import type { GenEvalExit } from '@src/business/task/gen-eval-exit.ts';
 import type { InProgressTask } from '@src/domain/entity/task.ts';
-import { latestCritique } from '@src/domain/entity/task-graph.ts';
 import { restoredWorkContext } from '@src/domain/entity/task-prior-work.ts';
 import type { TaskId } from '@src/domain/value/id/task-id.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
@@ -54,7 +53,7 @@ import type { LogTailReader } from '@src/business/io/log-tail-reader.ts';
 import { createFsLogTailReader } from '@src/integration/io/read-log-tail.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import { verifyLogPath } from '@src/application/flows/implement/leaves/verify-log.ts';
-import { budgetedAttemptCount, resumesFreeAttempt } from '@src/domain/entity/task-attempts.ts';
+import { budgetedAttemptCount, latestCritique, resumesFreeAttempt } from '@src/domain/entity/task-attempts.ts';
 
 /**
  * Chain leaf — one generator turn of the gen-eval loop. Wires the integration ports

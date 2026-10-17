@@ -48,8 +48,6 @@ export interface RefreshMemoryMirrorLeafOpts {
  * Malformed individual lines are skipped (the mirror is a derived view; one bad row must not orphan
  * the rest). Runs BEFORE the gated distill step so the mirror reflects the pre-distill ledger; the
  * distill's own stamp leaf re-renders it afterwards if any promotion landed.
- *
- * @public
  */
 export const refreshMemoryMirrorLeaf = <TCtx>(
   deps: RefreshMemoryMirrorLeafDeps,

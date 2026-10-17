@@ -5,7 +5,7 @@ import { type CliHome, createCliHome, runCliCaptured } from '@tests/e2e/cli/_har
 import { RALPHCTL_DEBUG_TRACE_ENV } from '@src/application/bootstrap/wire.ts';
 
 /**
- * The CLI's terminal error frame. `bootstrapCli`'s pre-flights (storage paths / roots / settings /
+ * The CLI's terminal error frame. `bootstrapApp`'s pre-flights (storage paths / roots / settings /
  * bundle integrity) throw plain `Error`s, and uncaught they reach Node's crash handler — which on
  * an installed package prints a source excerpt from the bundled `dist/cli-<hash>.mjs`, a full
  * commander stack and a `Node.js v<x>` footer. `doctor` is the command an operator runs BECAUSE
@@ -36,7 +36,7 @@ describe('CLI top-level error handling', () => {
     expect(result.exitCode).toBe(1);
     const lines = result.stderr.trimEnd().split('\n');
     expect(lines[0]).toMatch(/^ralphctl: settings: /);
-    expect(lines[0]).toContain('settings.json');
+    expect(lines[0]).toContain('fix or delete settings.json');
     // No stack: no `at <frame>` lines and no Node crash banner.
     expect(result.stderr).not.toMatch(/\n\s+at /);
     expect(result.stderr).not.toContain('Node.js v');

@@ -78,15 +78,12 @@ const toUsage = (e: TokenUsageEvent): TokenUsage => ({
 // than a `task-<taskId>` key nothing looks up.
 // Provider adapters stamp `sessionId` with the AI CLI's own uuid (a disjoint id space), so keying
 // on it alone guarantees a miss. Legacy / one-shot events without a runner id fall back to
-// `sessionId` so they still resolve. Module-scoped so it stays referentially stable across
-// renders — `useCoalescedMap`'s effect deps include it, and a fresh arrow per render would churn
-// the subscription.
+// `sessionId` so they still resolve.
 const keyOfTokenUsage = (e: TokenUsageEvent): string => e.chainSessionId ?? e.sessionId;
 
 // Latest event always wins per key — no monotonic guard, so the fold ignores `existing`.
 const foldTokenUsage = (_existing: TokenUsage | undefined, e: TokenUsageEvent): TokenUsage => toUsage(e);
 
-/** @public */
 export interface UseTokenUsageOptions {
   /** Flush cadence in ms. Test-only escape hatch; production callers use the coalescer default. */
   readonly flushMs?: number;

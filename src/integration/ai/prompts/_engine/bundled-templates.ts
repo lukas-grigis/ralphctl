@@ -49,6 +49,7 @@ export const BUNDLED_PROMPT_PARTIALS: readonly string[] = [
   'evidence-bound',
   'git-boundary',
   'harness-context',
+  'one-shot-operation',
   'parallel-tool-calls',
   'question-format',
   'skill-body',

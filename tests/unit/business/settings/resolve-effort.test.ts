@@ -237,7 +237,7 @@ describe('clampEffortToModel', () => {
   it('keeps a supported level and passes unknown models / levels through for the CLI to arbitrate', () => {
     expect(clampEffortToModel('max', 'github-copilot', 'claude-sonnet-5')).toBe('max');
     expect(clampEffortToModel('max', 'openai-codex', 'my-custom-model')).toBe('max');
-    expect(clampEffortToModel('xhigh', 'claude-code', 'claude-haiku-4-5')).toBe('xhigh');
+    expect(clampEffortToModel('xhigh', 'claude-code', 'claude-custom-preview')).toBe('xhigh');
     expect(clampEffortToModel('ultra-mega', 'openai-codex', 'gpt-6-luna')).toBe('ultra-mega');
   });
 
@@ -249,9 +249,9 @@ describe('clampEffortToModel', () => {
     expect(clampEffortToModel('xhigh', 'xai-grok', 'grok-4.7')).toBe('xhigh');
   });
 
-  it('keeps Grok none / minimal verbatim and passes grok-4.7-build-fast (no effort data) through', () => {
-    expect(clampEffortToModel('none', 'xai-grok', 'grok-4.5')).toBe('none');
-    expect(clampEffortToModel('minimal', 'xai-grok', 'grok-4.7')).toBe('minimal');
+  it('lifts Grok none / minimal to low and passes grok-4.7-build-fast (no effort data) through', () => {
+    expect(clampEffortToModel('none', 'xai-grok', 'grok-4.5')).toBe('low');
+    expect(clampEffortToModel('minimal', 'xai-grok', 'grok-4.7')).toBe('low');
     expect(clampEffortToModel('max', 'xai-grok', 'grok-4.7-build-fast')).toBe('max');
   });
 });
@@ -275,6 +275,14 @@ describe('resolveEffortForRow — per-model effort', () => {
     ).toBeUndefined();
     expect(resolveEffortForRow(row('github-copilot', 'claude-haiku-4.5'), 'max', 'implement')).toBeUndefined();
     expect(resolveEffortForRow(row('github-copilot', 'claude-haiku-4.5'), undefined, 'implement')).toBeUndefined();
+  });
+
+  it('narrows Claude Code rows to the model — no effort on haiku-4-5, xhigh → high on sonnet-4-6', () => {
+    expect(resolveEffortForRow(row('claude-code', 'claude-haiku-4-5', 'high'), undefined, 'implement')).toBeUndefined();
+    expect(resolveEffortForRow(row('claude-code', 'claude-haiku-4-5'), undefined, 'implement')).toBeUndefined();
+    expect(resolveEffortForRow(row('claude-code', 'claude-sonnet-4-6', 'xhigh'), undefined, 'implement')).toBe('high');
+    expect(resolveEffortForRow(row('claude-code', 'claude-sonnet-4-6'), 'xhigh', 'plan')).toBe('high');
+    expect(resolveEffortForRow(row('claude-code', 'claude-opus-5-5'), 'xhigh', 'plan')).toBe('xhigh');
   });
 
   it('narrows an explicit row effort the model rejects, but keeps it verbatim on a custom model', () => {

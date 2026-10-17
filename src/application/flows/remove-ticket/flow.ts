@@ -11,8 +11,8 @@ import type {
 import type { TicketRemoveDeps } from '@src/application/flows/remove-ticket/deps.ts';
 
 /**
- * Drop a ticket from a sprint. Linear: load sprint → removeTicket guard (refuses non-draft
- * sprints) → save the updated sprint. The domain helper silently no-ops on unknown ticket
+ * Drop a ticket from a sprint: the removeTicket guard (refuses non-draft sprints) applied to the
+ * fresh sprint under the repository's locked `update`. The domain helper silently no-ops on unknown ticket
  * ids; this flow surfaces that as `removed: false` so the caller can decide whether to treat
  * it as an error (CLI exit 1) or a soft success (idempotent script).
  */
@@ -20,19 +20,16 @@ export const createTicketRemoveFlow = (deps: TicketRemoveDeps): Element<TicketRe
   leaf<TicketRemoveCtx, TicketRemoveInput, TicketRemoveOutput>('remove-ticket', {
     useCase: {
       async execute(input) {
-        const sprint = await deps.sprintRepo.findById(input.sprintId);
-        if (!sprint.ok) return Result.error(sprint.error);
-
-        const before = sprint.value.tickets.length;
-        const updated = removeTicket(sprint.value, input.ticketId);
-        if (!updated.ok) return Result.error(updated.error);
-
-        const saved = await deps.sprintRepo.save(updated.value);
+        let before = 0;
+        const saved = await deps.sprintRepo.update(input.sprintId, (fresh) => {
+          before = fresh.tickets.length;
+          return removeTicket(fresh, input.ticketId);
+        });
         if (!saved.ok) return Result.error(saved.error);
 
         return Result.ok({
-          removed: updated.value.tickets.length < before,
-          remainingTickets: updated.value.tickets.length,
+          removed: saved.value.tickets.length < before,
+          remainingTickets: saved.value.tickets.length,
         });
       },
     },

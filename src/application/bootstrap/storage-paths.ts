@@ -3,7 +3,7 @@ import { homedir as osHomedir } from 'node:os';
 import { join } from 'node:path';
 import { Result } from '@src/domain/result.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
-import type { ValidationError } from '@src/domain/value/error/validation-error.ts';
+import { ValidationError } from '@src/domain/value/error/validation-error.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
 
 /**
@@ -27,7 +27,8 @@ import { StorageError } from '@src/domain/value/error/storage-error.ts';
  * threaded into the harness chains for lock acquisition.
  *
  * Home override: `RALPHCTL_HOME` env var, when set to an absolute path, replaces the entire
- * `<home>/.ralphctl` prefix. Useful for integration tests that spawn real subprocesses.
+ * `<home>/.ralphctl` prefix (an unexpanded `${VAR}` / `$(cmd)` in it is refused). Useful for
+ * integration tests that spawn real subprocesses.
  */
 
 export const APP_ROOT_DIR = '.ralphctl';
@@ -40,6 +41,9 @@ export const MEMORY_SUBDIR = 'memory';
 export const SKILLS_SUBDIR = 'skills';
 export const AGENTS_SUBDIR = 'agents';
 export const RALPHCTL_HOME_ENV = 'RALPHCTL_HOME';
+
+/** `${VAR}` / `$(cmd)` left by a single-quoted export or `.env` loader; bare `$name` stays legal (`/srv/$build`). */
+const UNEXPANDED_SHELL_REGEX = /\$\{[^}]*\}|\$\(/;
 
 export interface StoragePaths {
   /** `<home>/.ralphctl` (or `$RALPHCTL_HOME`) — top-level app directory. */
@@ -114,6 +118,17 @@ export const resolveStoragePaths = (deps: ResolveStoragePathsDeps = {}): Result<
   const env = deps.env ?? process.env;
   const override = env[RALPHCTL_HOME_ENV];
   if (typeof override === 'string' && override.length > 0) {
+    // Checked here, not in AbsolutePath: a repo dir may legally contain `${...}`, but this value creates the tree.
+    if (UNEXPANDED_SHELL_REGEX.test(override)) {
+      return Result.error(
+        new ValidationError({
+          field: RALPHCTL_HOME_ENV,
+          value: override,
+          message: `${RALPHCTL_HOME_ENV} looks unexpanded: '${override}'`,
+          hint: 'expand ${VAR} / $(cmd) in your shell or .env loader before launching',
+        })
+      );
+    }
     const appRoot = AbsolutePath.parse(override);
     if (!appRoot.ok) return Result.error(appRoot.error);
     return storagePathsFromRoot(appRoot.value);

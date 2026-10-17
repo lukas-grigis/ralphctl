@@ -32,15 +32,15 @@ const sprintStateWithMedian = (taskId: string, medianMs: number | undefined): Sp
   const task: TaskProjection = {
     id: taskId,
     attemptsCount: 1,
-    ...(medianMs !== undefined ? { medianRoundDurationMs: medianMs } : {}),
+    ...(medianMs !== undefined ? { medianAttemptDurationMs: medianMs } : {}),
   };
   return { tasks: [task] };
 };
 
 describe('TasksPanel ETA chip', () => {
-  it('renders a "~Xm Ys remaining" chip from medianRoundDurationMs', () => {
-    // Median 30 s × (5 - 2) = 90 s = 1m 30s
-    const state = sprintStateWithMedian('task-1', 30_000);
+  it('renders a "~Xm Ys remaining" chip from medianAttemptDurationMs', () => {
+    // Median attempt 150 s × (5 - 2) / 5 = 90 s = 1m 30s
+    const state = sprintStateWithMedian('task-1', 150_000);
     const r = render(<TasksPanel bucketed={baseBucket()} running={true} sprintState={state} />);
     const frame = r.lastFrame() ?? '';
 
@@ -93,7 +93,7 @@ describe('TasksPanel ETA chip', () => {
       ],
       orphanSignals: [],
     };
-    const state = sprintStateWithMedian('task-1', 30_000);
+    const state = sprintStateWithMedian('task-1', 150_000);
     const r = render(<TasksPanel bucketed={bucketed} running={true} sprintState={state} />);
     const frame = r.lastFrame() ?? '';
 
@@ -103,9 +103,9 @@ describe('TasksPanel ETA chip', () => {
   });
 
   it('measures remaining rounds within the current attempt, not the task-wide round', () => {
-    // Task-wide round 7 with a 5-round cap is attempt 2, round 2 — 30 s × (5 - 2) = 1m 30s.
+    // Task-wide round 7 with a 5-round cap is attempt 2, round 2 — 150 s × (5 - 2) / 5 = 1m 30s.
     const bucketed = baseBucket({ genEvalRound: 7, genEvalMaxRounds: 5 });
-    const state = sprintStateWithMedian('task-1', 30_000);
+    const state = sprintStateWithMedian('task-1', 150_000);
     const r = render(<TasksPanel bucketed={bucketed} running={true} sprintState={state} />);
     const frame = r.lastFrame() ?? '';
 
@@ -116,7 +116,7 @@ describe('TasksPanel ETA chip', () => {
 
   it('omits ETA when the gen-eval cap has already been reached', () => {
     const bucketed = baseBucket({ genEvalRound: 5, genEvalMaxRounds: 5 });
-    const state = sprintStateWithMedian('task-1', 30_000);
+    const state = sprintStateWithMedian('task-1', 150_000);
     const r = render(<TasksPanel bucketed={bucketed} running={true} sprintState={state} />);
     const frame = r.lastFrame() ?? '';
 

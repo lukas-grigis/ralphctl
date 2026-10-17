@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { derivePrContent, renderWarningsSection } from '@src/business/sprint/views/pr-content.ts';
+import { closingRefs, derivePrContent, renderWarningsSection } from '@src/business/sprint/views/pr-content.ts';
 import {
   makeApprovedTicket,
+  makeBlockedTask,
   makeDoneTaskWithWarning,
   makeDoneTask,
   makeDraftSprint,
@@ -49,14 +50,11 @@ describe('derivePrContent', () => {
     expect(out.body).not.toContain('still-pending');
   });
 
-  it('includes the Related issues section with `Closes <ref>` bullets for each ticket externalRef', () => {
-    const sprint = makeDraftSprint({
-      tickets: [
-        makeApprovedTicket({ title: 'first', externalRef: '#123' }),
-        makeApprovedTicket({ title: 'second', externalRef: '!456' }),
-      ],
-    });
-    const out = derivePrContent(sprint, []);
+  it('includes the Related issues section with `Closes <ref>` bullets for each implemented ticket externalRef', () => {
+    const first = makeApprovedTicket({ title: 'first', externalRef: '#123' });
+    const second = makeApprovedTicket({ title: 'second', externalRef: '!456' });
+    const sprint = makeDraftSprint({ tickets: [first, second] });
+    const out = derivePrContent(sprint, [makeDoneTask({ ticketId: first.id }), makeDoneTask({ ticketId: second.id })]);
     expect(out.body).toContain('## Related issues');
     expect(out.body).toContain('- Closes #123');
     expect(out.body).toContain('- Closes !456');
@@ -71,14 +69,16 @@ describe('derivePrContent', () => {
   });
 
   it('dedupes repeated externalRefs across tickets', () => {
-    const sprint = makeDraftSprint({
-      tickets: [
-        makeApprovedTicket({ title: 'a', externalRef: '#123' }),
-        makeApprovedTicket({ title: 'b', externalRef: '#123' }),
-        makeApprovedTicket({ title: 'c', externalRef: '!456' }),
-      ],
-    });
-    const out = derivePrContent(sprint, []);
+    const tickets = [
+      makeApprovedTicket({ title: 'a', externalRef: '#123' }),
+      makeApprovedTicket({ title: 'b', externalRef: '#123' }),
+      makeApprovedTicket({ title: 'c', externalRef: '!456' }),
+    ];
+    const sprint = makeDraftSprint({ tickets });
+    const out = derivePrContent(
+      sprint,
+      tickets.map((t) => makeDoneTask({ ticketId: t.id }))
+    );
     // First-seen wins; the duplicate `- Closes #123` line must not appear twice.
     const hits = out.body.match(/- Closes #123/g) ?? [];
     expect(hits).toHaveLength(1);
@@ -132,5 +132,28 @@ describe('derivePrContent', () => {
     const sharedHits = out.body.match(/- Closes #123/g) ?? [];
     expect(sharedHits).toHaveLength(1);
     expect(out.body).toContain('- Closes #999');
+  });
+});
+
+describe('closingRefs', () => {
+  it('closes a ref only when every task carrying it — directly or through its ticket — is done', () => {
+    const shipped = makeApprovedTicket({ title: 'shipped', externalRef: '#1' });
+    const stalled = makeApprovedTicket({ title: 'stalled', externalRef: '#2' });
+    const partial = makeApprovedTicket({ title: 'partial', externalRef: '#3' });
+    const unplanned = makeApprovedTicket({ title: 'unplanned', externalRef: '#4' });
+    const sprint = makeDraftSprint({ tickets: [shipped, stalled, partial, unplanned] });
+    const tasks = [
+      makeDoneTask({ ticketId: shipped.id, externalRefs: ['#1'] }),
+      makeBlockedTask({ ticketId: stalled.id, externalRefs: ['#2'] }),
+      makeDoneTask({ ticketId: partial.id, externalRefs: ['#3'] }),
+      makeBlockedTask({ ticketId: partial.id, externalRefs: ['#3'] }),
+      makeDoneTask({ externalRefs: ['#5'] }),
+      makeBlockedTask({ externalRefs: ['#6'] }),
+    ];
+    expect(closingRefs(sprint, tasks)).toEqual(['#1', '#5']);
+    const body = derivePrContent(sprint, tasks).body;
+    expect(body).toContain('- Closes #1');
+    expect(body).toContain('- Closes #5');
+    for (const ref of ['#2', '#3', '#4', '#6']) expect(body).not.toContain(`Closes ${ref}`);
   });
 });

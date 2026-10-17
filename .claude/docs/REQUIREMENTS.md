@@ -172,8 +172,8 @@ and `done → review` — that keep `done` from being a genuine dead end for the
       peer, when another sprint of the project already holds it). Blocked work is counted on
       every orientation surface (Home card, Sprints list, sprint picker, sprint-detail, settled-run
       summary, next-steps) and cannot be windowed off-screen in the Tasks panel. On the parallel path, a
-      block a task already persisted to disk survives even when its own branch then errors or aborts
-      (`adopt-persisted-blocks` re-reads it ahead of the run's task-list write, and the fan-in itself only
+      block or an opened attempt a task already persisted to disk survives even when its own branch then
+      errors or aborts (`adopt-persisted-blocks` re-reads it ahead of the run's task-list write, and the fan-in itself only
       ever updates the one task each branch settled, never a sibling's), and a diff `restore-blocked-diff`
       had already popped back into a worktree is re-quarantined if that branch is interrupted before it
       commits — even when an older, already-quarantined entry for that same task is still sitting in the
@@ -217,7 +217,9 @@ and `done → review` — that keep `done` from being a genuine dead end for the
 - [x] **Resume of aborted runs** — tasks left in `in_progress` from a prior crash stay `in_progress` and
       are queued FIRST on relaunch; `start-attempt` settles the leftover `running` attempt as `aborted`
       (cause `harness-interrupted`, free against `maxAttempts`; kept in `attempts[]`) then opens a fresh attempt,
-      resuming the generator's provider session when provider, model and cwd match. Manual `task unblock` is
+      resuming the generator's provider session when provider, model and cwd match. A resume that would
+      exhaust the budget blocks the task before its body runs (`resume-budget-gate`), and the run continues
+      with the next task. Manual `task unblock` is
       the only reset-to-`todo` path. The resume-from-aborted header surfaces in the TUI as
       "attempt N · resumed from aborted M at HH:MM (cause)" using the `AbortCause` discriminated union.
 - [x] **Rate-limit retry** — adapter-side escalating backoff on `RateLimitError`; capped by
@@ -281,11 +283,15 @@ and `done → review` — that keep `done` from being a genuine dead end for the
 - [x] **Bundled skills** — `installSkillsLeaf` / `uninstallSkillsLeaf` bracket every AI session that benefits
       from defaults. Skills are copied into `<repo>/<parentDir>/skills/ralphctl-<name>/` and git-excluded via a
       single `ralphctl-*` wildcard appended to `.git/info/exclude`. Project skills always win over bundled ones.
-      Fifteen bundled skills ship (`ralphctl-abstraction-first`, `ralphctl-alignment`, `ralphctl-iterative-review`,
+      Twenty-five bundled skills ship (`ralphctl-abstraction-first`, `ralphctl-alignment`, `ralphctl-iterative-review`,
       `ralphctl-minimal-scaffolding`, `ralphctl-debugging-and-error-recovery`, `ralphctl-code-review-and-quality`,
       `ralphctl-test-driven-development`, `ralphctl-surgical-simplicity`, `ralphctl-ponytail`,
       `ralphctl-karpathy-guidelines`, `ralphctl-cherny-workflow`, `ralphctl-idea-refinement`,
-      `ralphctl-domain-driven-design`, `ralphctl-security-and-hardening`, `ralphctl-spec-driven-development` — per-skill default/recommended phases in `_engine/registry.ts`'s
+      `ralphctl-domain-driven-design`, `ralphctl-security-and-hardening`, `ralphctl-spec-driven-development`,
+      `ralphctl-api-and-interface-design`, `ralphctl-performance-optimization`, `ralphctl-frontend-ui-engineering`,
+      `ralphctl-deprecation-and-migration`, `ralphctl-code-simplification`, `ralphctl-source-driven-development`,
+      `ralphctl-observability-and-instrumentation`, `ralphctl-codebase-design`, `ralphctl-writing-for-agents`,
+      `ralphctl-humanizer` — per-skill default/recommended phases in `_engine/registry.ts`'s
       `BUNDLED_SKILLS`). Each is validated by `skill-contract-checker.ts` (hard-fail on contract violation)
       before it can ship. Operator drop-in skills (`~/.ralphctl/skills/{claude,copilot,codex,opencode,grok}/…`) install
       through the same path; violations are warnings only.
@@ -459,7 +465,7 @@ See [DESIGN-SYSTEM.md](./DESIGN-SYSTEM.md) for tokens, components, view patterns
       earlier filename check (`import.meta.url.endsWith('/cli.mjs')`) missed that chunk, shipping a bundle
       that silently served empty prompts in 0.15.0. Fixed in 0.15.1 (`resolveTemplatesDir` / `resolveBundledRoot`).
 - [x] **Startup bundle-integrity probe** — `integration/system/bundle-integrity.ts` runs once per process
-      (wired into both `ui/cli/bootstrap.ts` and `ui/tui/launch.ts`, right after `wire()`, via the shared
+      (wired into `bootstrap/bootstrap-app.ts`, shared by the CLI and TUI, right after `wire()`, via
       `run-bundle-integrity-check.ts`). Bundle-mode-only, detected the same filesystem-probe way as the item
       above (a `manifest.json` sitting beside the running module; absent in `tsx` dev, so dev silently skips):
       existence-checks every asset `scripts/build-assets.ts` recorded and cross-checks the manifest's
@@ -477,7 +483,8 @@ See [DESIGN-SYSTEM.md](./DESIGN-SYSTEM.md) for tokens, components, view patterns
       run automatically before first use (`data-migration/apply.ts`, with a `dry-run.ts` preview).
 - [x] **One-time consent splash + backup** — the TUI migration gate (`ui/tui/migration/migration-gate.tsx`)
       shows a one-time consent splash and backs up `data/` before renaming existing entries to the slug
-      layout. `config/` is never touched.
+      layout. The backup copies symlinks as links and skips sprint `worktrees/` (repo checkouts the
+      migration never writes into). `config/` is never touched.
 - [x] **Slug-rename with legacy tolerance** — on-disk entries use `<id>--<slug>` (`NAME_SEPARATOR` in
       `integration/persistence/storage.ts`); resolvers still read the legacy bare `<id>` form so un-migrated
       data loads.

@@ -1,6 +1,7 @@
 import { Result } from '@src/domain/result.ts';
 import type { Task } from '@src/domain/entity/task.ts';
 import type { TaskId } from '@src/domain/value/id/task-id.ts';
+import type { TaskRepository } from '@src/domain/repository/task/task-repository.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { join } from 'node:path';
 
@@ -52,8 +53,6 @@ import {
  * (each wave's branches are declared in task order, and a branch only reaches its fold step after
  * its own subchain settled — but the queue's FIFO ordering is what guarantees serialization, not
  * ordering across waves, which the scheduler already enforces).
- *
- * @public
  */
 export interface FoldQueue {
   run<T>(fn: () => Promise<T>): Promise<T>;
@@ -64,8 +63,6 @@ export interface FoldQueue {
  * critical sections never overlap regardless of how many branches call concurrently. A rejecting
  * `fn` does not poison the queue — the tail advances on settle (ok or throw) so a conflicted fold
  * doesn't wedge the siblings behind it.
- *
- * @public
  */
 export const createFoldQueue = (): FoldQueue => {
   let tail: Promise<unknown> = Promise.resolve();
@@ -103,8 +100,6 @@ export const createFoldQueue = (): FoldQueue => {
  * / `AppendLearningsLeafDeps` / `ImplementDeps`. Per-task artefacts (`prompt.md`, `signals.json`)
  * are written to task-scoped paths and never collide, so only these shared files need
  * serialisation.
- *
- * @public
  */
 export const serializeAppendFile = (inner: AppendFile): AppendFile => {
   const queue = createFoldQueue();
@@ -124,8 +119,6 @@ export const serializeAppendFile = (inner: AppendFile): AppendFile => {
  * evaluation/decision/commit signals for parallel-branch tasks) onto the `ai-signal` EventBus
  * event, stamped with THIS branch's taskId so the per-task TUI panel groups it under the right
  * task.
- *
- * @public
  */
 export const perBranchSignalPublisher = (eventBus: EventBus, taskId: TaskId): PublishSignal =>
   createPublishSignal(eventBus, 'implement', String(taskId));
@@ -212,7 +205,7 @@ const withWorktree = (
     async execute(ctx, signal, onTrace, onStart): Promise<ElementResult<ImplementCtx>> {
       const quarantinedAtStart = await snapshotQuarantinedDiff(deps, repoRoot, ctx.sprintId, taskId);
       const target = { repoRoot, worktreePath, branchRef, taskId, progressFile };
-      const setupError = await setupWorktree(deps, ctx, target, onTrace, onStart);
+      const setupError = await setupWorktree(deps, ctx, target, signal, onTrace, onStart);
       if (setupError !== undefined) {
         // A worktree that never got created has nothing to clean up — return the setup failure as-is
         // (non-fatal → the wave reducer leaves this task untouched so it resets/re-runs).
@@ -294,8 +287,6 @@ const withWorktree = (
  * Each branch runs on its own runner (provided by `runWaves`) whose `initialCtx` is the wave's
  * carried base ctx. The branch element forks that carried ctx onto the worktree at EXECUTE time
  * (via `forkCtx`) so it always sees the most recently merged sprint / tasks state.
- *
- * @public
  */
 export const buildWaveBranches = (
   deps: BuildWaveBranchesDeps,
@@ -315,12 +306,13 @@ const buildOneBranch = (
   const worktreePath = worktreePathFor(opts.sprintDir, task.id);
   const branchRef = gitWorktreeRef(String(opts.sprintId), String(task.id));
 
-  // Per-branch deps clone — only the signal publisher differs (keyed on this task's id so
-  // concurrent branches don't cross-attribute their signals). Everything else, including the
-  // run's shared `journalMutex` / `ledgerMutex`, is inherited from `deps.implement`.
+  // Per-branch deps clone — the signal publisher is keyed on this task's id so concurrent branches
+  // don't cross-attribute their signals, and the task's own `done` write waits for the fold.
+  // Everything else, including the run's shared `journalMutex` / `ledgerMutex`, is inherited.
   const branchDeps: ImplementDeps = {
     ...deps.implement,
     publishSignal: perBranchSignalPublisher(deps.eventBus, task.id),
+    taskRepo: holdOwnDoneWrite(deps.implement.taskRepo, task.id),
   };
 
   const subchainOpts: PerTaskSubchainOpts = { ...perTaskSubchainOpts(opts), includeBranchPreflight: false };
@@ -346,6 +338,21 @@ const buildOneBranch = (
 };
 
 /**
+ * The branch's task repository, minus one write: settling its own task `done`. A branch commits on
+ * its worktree ref, and that commit reaches the sprint branch only at the fold, so `done` on disk
+ * before the fold would let a crash in between strand the commit on the ref behind a task that never
+ * re-runs. `foldStep` persists the row once the fold has landed. Every other write passes through,
+ * so a block or a retry stays durable the moment it is decided.
+ */
+const holdOwnDoneWrite = (taskRepo: TaskRepository, taskId: TaskId): TaskRepository => ({
+  findById: (sprintId, id) => taskRepo.findById(sprintId, id),
+  findBySprintId: (sprintId) => taskRepo.findBySprintId(sprintId),
+  saveAll: (sprintId, tasks) => taskRepo.saveAll(sprintId, tasks),
+  update: async (sprintId, updated) =>
+    updated.id === taskId && updated.status === 'done' ? Result.ok(undefined) : taskRepo.update(sprintId, updated),
+});
+
+/**
  * Assemble the worktree-wrapped branch element from a subchain FACTORY. The factory receives the
  * worktree-pointed {@link RepoExecConfig} and returns the per-task body element to run inside the
  * worktree. Exposed (not inlined) so tests can substitute a fake subchain — the worktree
@@ -365,8 +372,6 @@ const buildOneBranch = (
  *
  * `policy` is the run's dirty-tree policy, applied by the per-worktree setup check to a change the
  * main checkout's setup never showed (see `worktree-setup-tree.ts`); it defaults like the flow's.
- *
- * @public
  */
 export const buildWorktreeBranch = (
   deps: BuildWaveBranchesDeps,
@@ -432,7 +437,6 @@ export const buildWorktreeBranch = (
 /**
  * Per-task worktree directory: `<sprintDir>/worktrees/wt-<taskId>`. Sprint-scoped + cleaned up per
  * task, so worktrees never leak into the user's repo tree and prune cleanly with the sprint dir.
- * @public
  */
 export const worktreePathFor = (sprintDir: AbsolutePath, taskId: TaskId): AbsolutePath => {
   const path = AbsolutePath.parse(join(String(sprintDir), 'worktrees', `wt-${String(taskId)}`));

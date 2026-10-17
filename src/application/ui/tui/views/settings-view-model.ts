@@ -19,8 +19,6 @@ import { PROVIDER_TRAITS } from '@src/integration/ai/providers/_engine/provider-
  * Provider options offered by the Settings view. Re-exported from the domain list so the picker
  * can never drift from the {@link AiProvider} union — a hand-written copy here silently omitted
  * OpenCode from the Settings view when it shipped.
- *
- * @public
  */
 export const AI_PROVIDERS: readonly AiProvider[] = DOMAIN_AI_PROVIDERS;
 

@@ -121,8 +121,6 @@ export const App = ({
  *
  * Exported for the off-Home quit-hint suppression test, which mounts it directly under the
  * provider stack with a probe child rather than the full view registry.
- *
- * @public
  */
 export const Layout = ({ children }: { readonly children: React.ReactNode }): React.JSX.Element => {
   const ui = useUiState();

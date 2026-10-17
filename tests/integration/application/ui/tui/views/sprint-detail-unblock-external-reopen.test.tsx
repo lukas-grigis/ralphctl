@@ -70,6 +70,7 @@ describe('SprintDetailView — u after an out-of-process `ralphctl sprint reopen
     let onDisk: Sprint = CLOSED;
     let peers: readonly Sprint[] = [CLOSED, PEER];
     const savedSprints: Sprint[] = [];
+    const seeded = blockedTask();
     const deps = {
       sprintRepo: {
         async findById() {
@@ -86,7 +87,7 @@ describe('SprintDetailView — u after an out-of-process `ralphctl sprint reopen
       } as unknown as SprintRepository,
       taskRepo: {
         async findBySprintId() {
-          return Result.ok(updated.length > 0 ? [...updated] : [blockedTask()]);
+          return Result.ok(updated.length > 0 ? [...updated] : [seeded]);
         },
         async update(_sprintId: SprintId, task: Task) {
           updated.push(task);

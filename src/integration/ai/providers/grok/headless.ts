@@ -284,9 +284,6 @@ const runGrokAttempt = async (
     ...base,
     args: built.value,
     session: attemptSession,
-    // `end` is last and is the only record that carries `sessionId`. Node can fire `exit`
-    // before that chunk is delivered; `close` waits for the stdout pipe to drain.
-    resolveOn: 'close',
     rateLimitRe: DEFAULT_RATE_LIMIT_RE,
     onStdoutChunk: (chunk) => tracker.consumeChunk(chunk),
     flush: () => tracker.flush(),

@@ -53,7 +53,6 @@ import {
   type ProvenanceStore,
 } from '@src/integration/ai/skills/phase/provenance.ts';
 
-/** @public */
 export interface SkillCatalogDeps {
   /** `<appRoot>/skills` — the same global root `createPhaseSkillSource` reads. */
   readonly operatorSkillsRoot: AbsolutePath;

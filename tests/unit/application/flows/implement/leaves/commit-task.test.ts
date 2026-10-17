@@ -6,7 +6,12 @@ import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import { absolutePath, isoTimestamp, makeInProgressTaskWithRunningAttempt } from '@tests/fixtures/domain.ts';
 import { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import { commitTaskLeaf } from '@src/application/flows/implement/leaves/commit-task.ts';
-import type { GitRunner, GitRunResult } from '@src/integration/io/git-runner.ts';
+import {
+  GIT_HOOK_TIMEOUT_MS,
+  type GitRunner,
+  type GitRunOptions,
+  type GitRunResult,
+} from '@src/integration/io/git-runner.ts';
 import type { UpdateTask } from '@src/domain/repository/task/update-task.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import type { StorageError } from '@src/domain/value/error/storage-error.ts';
@@ -125,6 +130,25 @@ describe('commitTaskLeaf', () => {
     expect(eventLog.some((e) => e.level === 'error' && e.message.includes('halting chain'))).toBe(true);
     // The task was not persisted — settle won't run, the task stays in_progress.
     expect(repo.calls).toBe(0);
+  });
+
+  it('runs the commit with a hook-length budget and the chain abort signal', async () => {
+    const task = makeInProgressTaskWithRunningAttempt();
+    const seen: Array<GitRunOptions | undefined> = [];
+    const runner: GitRunner = {
+      async run(_, args, opts) {
+        if (args[0] === 'commit') seen.push(opts);
+        if (args[0] === 'status') return ok(' M file\n');
+        if (args[0] === 'rev-parse') return ok(`${'f'.repeat(40)}\n`);
+        return ok();
+      },
+    };
+    const controller = new AbortController();
+    const leaf = commitTaskLeaf({ gitRunner: runner, taskRepo: fakeRepo(), logger: noopLogger }, { cwd: CWD }, task.id);
+
+    await leaf.execute(baseCtx(task), controller.signal);
+
+    expect(seen).toEqual([{ timeoutMs: GIT_HOOK_TIMEOUT_MS, signal: controller.signal }]);
   });
 
   it('uses proposedCommitMessage from ctx in preference to the task-name fallback', async () => {

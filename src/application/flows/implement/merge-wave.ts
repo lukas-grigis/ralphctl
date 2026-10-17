@@ -13,8 +13,6 @@ import { projectSprintScopedFields } from '@src/application/flows/implement/spri
  * to find the task a branch's outcome ctx actually settled. Keeping both directions behind one
  * function makes branch ↔ task ownership a single source of truth instead of two call sites that
  * happen to agree on a string template.
- *
- * @public
  */
 export const implementBranchId = (taskId: TaskId): string => `task-${String(taskId)}`;
 
@@ -24,46 +22,33 @@ export const implementBranchId = (taskId: TaskId): string => `task-${String(task
  * per-task leaves can look up sibling dependencies), but only the branch's own task is ever an
  * authoritative transition — every reader that wants a branch's settled task goes through this
  * function rather than trusting the whole list.
- *
- * @public
  */
 export const ownedTask = (branchId: string, ctx: ImplementCtx): Task | undefined =>
   ctx.tasks?.find((t) => implementBranchId(t.id) === branchId);
 
 /**
  * Reconcile the in-memory (post-merge) task list against what is DURABLY persisted on disk, for
- * exactly one class of divergence: a task a non-completed branch left `todo` / `in_progress` in
- * memory, whose persisted row is `blocked`. That divergence is not a race — it is the documented
- * shape of a branch whose chain persisted a block (`start-attempt`'s resume-budget exhaustion,
- * `settle-attempt`'s block, the dependency gate's `blocked upstream` write) and THEN errored or
- * aborted before its runner reached `completed`: `mergeImplementWave` skips a non-`completed`
- * outcome entirely, so the in-memory copy reverts to the wave's pre-branch base while the leaf's
- * own write already landed the block (and, for a quarantined diff, its stash pointer) on disk.
- * Without this step the epilogue's `saveTasksLeaf` overwrites that persisted block with the stale
- * in-memory copy, and the next launch re-enters the same task, re-blocks, and re-notifies forever.
+ * every task the run left unsettled in memory (`todo` / `in_progress`): the persisted row wins.
+ * A non-completed branch writes its own task as it goes — `start-attempt`'s fresh `running`
+ * attempt, `settle-attempt`'s block or retry, the dependency gate's `blocked upstream`, a
+ * quarantine's stash pointer, the fold step's `done` — and THEN errors or aborts before its runner
+ * reaches `completed`. `mergeImplementWave` skips that outcome, so the in-memory copy is the
+ * wave's pre-branch base. Without this step the epilogue's `saveTasksLeaf` overwrites those
+ * writes: a block re-enters and re-notifies on every launch, an opened attempt vanishes (so
+ * neither the operator-stop settle nor the free-attempt streak cap ever sees it), and a task whose
+ * fold already landed runs a second time.
  *
- * A fold-conflict block is not one of these. `conflictFold` (`worktree-fold.ts`) writes nothing to
- * the task repository and lets the branch complete, so that block lives only in the completed
- * branch's ctx and reaches disk through the {@link mergeImplementWave} overlay and `saveTasksLeaf`.
- *
- * Deliberately narrow, in both directions:
- *  - only a persisted `'blocked'` row is ever adopted — a persisted `'done'` is NEVER pulled in
- *    over an in-memory `todo`/`in_progress`, because that would let an unfolded commit skip
- *    re-running instead of retrying (the same "only a `completed` branch's fold is durable"
- *    contract `worktree-teardown.ts` relies on for `keepBranchRefReason`);
- *  - an in-memory task that is already `'done'` or `'blocked'` is left untouched — it settled
- *    inside THIS run and is authoritative over whatever an older disk row says.
- *
- * @public
+ * A persisted `done` is safe to adopt: a branch holds its own `done` back until its fold lands
+ * (`holdOwnDoneWrite`, `wave-branch.ts`), so one written during this run always names a commit
+ * already on the sprint branch, and a `done` on disk at launch was loaded as `done` in memory.
+ * An in-memory task that is already `'done'` or `'blocked'` is left untouched — it settled inside
+ * THIS run and is authoritative over whatever an older disk row says.
  */
 export const adoptPersistedBlocks = (tasks: readonly Task[], persisted: readonly Task[]): readonly Task[] => {
-  const persistedBlocked = new Map<TaskId, Task>();
-  for (const task of persisted) {
-    if (task.status === 'blocked') persistedBlocked.set(task.id, task);
-  }
+  const byId = new Map<TaskId, Task>(persisted.map((task) => [task.id, task]));
   return tasks.map((task) => {
     if (task.status !== 'todo' && task.status !== 'in_progress') return task;
-    return persistedBlocked.get(task.id) ?? task;
+    return byId.get(task.id) ?? task;
   });
 };
 
@@ -83,7 +68,7 @@ export const adoptPersistedBlocks = (tasks: readonly Task[], persisted: readonly
  *    task to its pre-wave status and — because `initialCtx` carries the FULL base task list, not
  *    just this branch's own task — would ALSO revert every sibling the branch's ctx happens to
  *    still be carrying, including one that another branch in the SAME wave already completed. A
- *    `failed` branch therefore contributes NOTHING; a leaf that persisted a block before the branch
+ *    `failed` branch therefore contributes NOTHING; whatever its leaves persisted before the branch
  *    errored is picked back up by `adoptPersistedBlocksLeaf` in the epilogue, not here.
  *
  * This overlay-only-`completed` rule is exactly what makes the merge disjoint and commutative:
@@ -92,8 +77,6 @@ export const adoptPersistedBlocks = (tasks: readonly Task[], persisted: readonly
  *
  *  - sprint-scoped fields → carried verbatim from `base` via {@link projectSprintScopedFields}.
  *  - per-task + signal-accum fields → reset to `undefined`; they have no meaning between waves.
- *
- * @public
  */
 export const mergeImplementWave = (
   base: ImplementCtx,
@@ -143,8 +126,6 @@ export const mergeImplementWave = (
  *    moot and would fail), so the field is simply cleared like the rest of the per-task class: no
  *    downstream reader can mis-fire on a stale `''`.
  *  - repo path → the task's worktree path on the returned `RepoExecConfig`.
- *
- * @public
  */
 export const forkCtx = (
   base: ImplementCtx,

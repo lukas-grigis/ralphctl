@@ -38,8 +38,6 @@ import type { TaskKind } from '@src/business/task/derive-task-kind.ts';
  * Returns '' when there are no records so the `{{PRIOR_LEARNINGS}}` placeholder collapses cleanly.
  *
  * Pure. No I/O. Deterministic for a given input (vital for prompt-regression test stability).
- *
- * @public
  */
 
 /** Max rows rendered PER KIND — the most relevant N (repo/taskKind-weighted, recency-filled). */
@@ -50,8 +48,6 @@ export const PRIOR_LEARNINGS_MAX = 15;
  * fields are optional: a caller that can resolve none of them gets recency-only selection (the
  * pre-relevance-weighting behaviour), and a caller that omits `taskText` never trips the abstain
  * gate (see module doc) — the plan/ideate callers rely on exactly that.
- *
- * @public
  */
 export interface PriorLearningsContext {
   /** Absolute path of the repo the current task runs in — records with a matching `repo` rank first. */

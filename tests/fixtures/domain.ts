@@ -21,7 +21,8 @@ import {
 import { createSprintExecution, type SprintExecution } from '@src/domain/entity/sprint-execution.ts';
 import { createProject, type Project } from '@src/domain/entity/project.ts';
 import { createRepository, type Repository } from '@src/domain/entity/repository.ts';
-import type { DoneTask, InProgressTask, TodoTask } from '@src/domain/entity/task.ts';
+import type { BlockedTask, DoneTask, InProgressTask, TodoTask } from '@src/domain/entity/task.ts';
+import { markTaskBlocked } from '@src/domain/entity/task-lifecycle.ts';
 import type { AttemptWarning } from '@src/domain/entity/attempt.ts';
 import { createTask } from '@src/domain/entity/task-factory.ts';
 import {
@@ -196,15 +197,23 @@ export const makeInProgressTaskWithRunningAttempt = (overrides?: { maxAttempts?:
   return unwrap(startNextAttempt(todo, FIXED_NOW, 'session-1'));
 };
 
-export const makeDoneTask = (overrides?: { name?: string; externalRefs?: readonly string[] }): DoneTask => {
+export const makeDoneTask = (overrides?: {
+  name?: string;
+  externalRefs?: readonly string[];
+  ticketId?: TicketId;
+}): DoneTask => {
   const todoOverrides: Parameters<typeof makeTodoTask>[0] = {};
   if (overrides?.name !== undefined) todoOverrides.name = overrides.name;
+  if (overrides?.ticketId !== undefined) todoOverrides.ticketId = overrides.ticketId;
   if (overrides?.externalRefs !== undefined) todoOverrides.externalRefs = overrides.externalRefs;
   const todo = makeTodoTask(todoOverrides);
   const inProgress = unwrap(startNextAttempt(todo, FIXED_NOW, 'session-1'));
   const verified = unwrap(recordRunningAttemptVerification(inProgress));
   return unwrap(markTaskDone(verified, FIXED_LATER));
 };
+
+export const makeBlockedTask = (overrides?: { externalRefs?: readonly string[]; ticketId?: TicketId }): BlockedTask =>
+  unwrap(markTaskBlocked(makeTodoTask(overrides ?? {}), 'attempt budget exhausted', 'own'));
 
 /**
  * A done task whose final (verified) attempt carries an {@link AttemptWarning} — the

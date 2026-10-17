@@ -74,7 +74,15 @@ a double-hyphen and a kebab handle) — human-readable and still chronologically
 tolerant: `resolveProjectPath`, `resolveSprintDir`, and `resolveMemoryDir` in
 `src/integration/persistence/storage.ts` scan the parent directory and prefer the slugged form over a legacy
 bare `<id>` form, so old data directories continue to work without manual intervention. Write-side path builders
-always produce the canonical `<id>--<slug>` name.
+always produce the canonical `<id>--<slug>` name. Because the readers prefer that name, a launcher that writes sprint
+side files (progress.md, logs, worktrees) gets its dir from `ensureCanonicalSprintDir`, which first moves a legacy dir
+onto it; `SprintRepository.save` does the same. When both dirs already exist, the legacy dir's entries that the
+canonical one lacks move across and a clashing entry stays put — the reconcile never deletes a file. When the move
+fails and no canonical dir exists (a Windows handle open inside the legacy dir), both return the legacy dir instead
+(`currentSprintDir`), so sprint.json and the side files stay beside tasks.json and the next save retries the move;
+the sprint lock reader keys on the same dir. A move that carries task worktrees re-points git's record of each one
+(`git worktree repair`, run inside the worktree) — the data migration does the same — or the next `worktree prune`
+would drop them.
 
 `Repository` is **nested inside `Project`** as a value object — not its own aggregate. Project carries an array
 of repositories (each with `setupScript`, `verifyScript`, `verifyTimeout`, optional `verifyGates` (`VerifyGate[]` —
@@ -138,11 +146,14 @@ quarantines the rejected working-tree diff, via the same deterministic `git stas
 the worktree's own removal). The stash family (`gitStashPush` / `gitStashList` / `gitStashPop` / `gitStashInspect`)
 lives in `integration/io/git-stash.ts`, behind one in-process mutex; `git-ref-rescue.ts` holds the rescue-ref
 helpers. The PARALLEL epilogue (`buildParallelImplementEpilogue`) runs one extra leaf,
-`adopt-persisted-blocks`, before its `saveTasksLeaf`: it re-reads `tasks.json` and substitutes the persisted
-row for any in-memory `todo` / `in_progress` task whose disk row is `blocked` — recovering a block (and a
-quarantined diff's stash pointer) that a non-`completed` branch had already saved to disk right before
-erroring or aborting, which the disjoint fan-in above now drops from ctx. It never adopts a persisted `done`
-(an unfolded commit must still re-run), and it exempts `AbortError`. `restore-blocked-diff.ts` pops that
+`adopt-persisted-blocks` (shown as "Reconcile tasks" in the step tree), before its `saveTasksLeaf`: it re-reads `tasks.json` and substitutes the persisted
+row for any in-memory `todo` / `in_progress` task — recovering a block (and a quarantined diff's stash
+pointer), an opened attempt, or a landed fold's `done` that a non-`completed` branch had already saved to
+disk right before erroring or aborting, which the disjoint fan-in above drops from ctx. It exempts
+`AbortError`. A branch holds its own task's `done` write back until the
+fold has landed the commit on the sprint branch (`holdOwnDoneWrite`, `wave-branch.ts`); the fold step then
+persists it, and a fold conflict persists its block before announcing it — so `tasks.json` never says `done`
+for work that exists only on a worktree ref, even across a crash. `restore-blocked-diff.ts` pops that
 same-keyed stash back in, after `pre-task-verify`, only when a generator turn is guaranteed to follow and the
 operator's recorded prior-work decision (`Task.quarantinedDiff.nextAttempt`) isn't `fresh` —
 matched by the message key, never by stash index, so a sibling branch's concurrent push can't shift the
@@ -197,20 +208,19 @@ Layout (one module per business sub-domain, sibling-isolated):
 
 ```
 business/
-├── project/           ← createProject, listProjects, addRepository, …
-├── sprint/            ← createSprint, planSprint, checkPlan (deterministic plan critic), transitionToReview,
-│                       transitionToDone, …
+├── project/           ← createProject, deleteProject
+├── sprint/            ← createSprint, planSprint, activateSprint, checkPlan (deterministic plan critic),
+│                       transitionSprintToReview, transitionSprintToDone, reopenSprint, progress-journal rendering, …
 ├── sprint/views/      ← read-only views: sprint progress, requirements export, context export
-├── ticket/            ← addTicket, refineTicket, removeTicket, …
-├── task/              ← createTasks, updateTask, markBlocked, recordEvaluation,
+├── ticket/            ← addApprovedTicket, refineTicket, publishToTracker
+├── task/              ← startAttempt, settleAttempt, commitTask, unblockTask, run-generator/evaluator/verify turns,
 │                       escalation-policy (decideEscalation / applyEscalation), crash-resume (decideCrashResume),
 │                       composeTaskEpisodes, summariseEpisodes, …
-├── runs/              ← live-run records + recovery: detectInterruptedRuns, reapInterruptedRuns,
-│                       dismissInterruptedRuns, outcome stats
-├── feedback/          ← applyFeedback (review flow body)
+├── runs/              ← live-run records + recovery: detect / reap / dismiss interrupted runs, outcome stats
+├── feedback/          ← applyFeedback, runReviewRoundUseCase (review flow body)
 ├── context-file/      ← splice-section: `spliceOwnedSection` / `appendSections` — code-side merge of an AI-written delta
 │                       into a provider-native context file (distill, readiness)
-├── settings/          ← loadSettings, updateSettings
+├── settings/          ← presets + per-provider matrices, resolveEffort, applySettingsKey, adaptAiToAvailableModels, migrations
 ├── version/           ← cli-metadata, version-check, version-checker (npm poll)
 ├── scm/               ← issue-fetcher / issue-pusher / pull-request-creator ports
 ├── interactive/       ← interactive prompt port + InteractiveQueue
@@ -376,6 +386,9 @@ A use case declares `Deps = { sprints: FindById<SprintId, Sprint> & Save<Sprint>
 the composite `SprintRepository` (which already satisfies both sub-interfaces) as that prop. ESLint blocks
 business code from importing composite `*Repository` types.
 
+Aggregate-specific capabilities sit beside their composite: `task/update-task.ts` and `sprint/update-sprint.ts`
+(`update(id, mutate)`, a read-modify-write locked per sprint, for writers that hold a sprint across a long session).
+
 Sibling-isolation: each aggregate's repository folder (`sprint/`, `task/`, `project/`, `settings/`) is independent;
 shared abstractions live under `_base/`.
 
@@ -387,6 +400,7 @@ application/bootstrap/
 ├── storage-paths.ts       ← resolveStoragePaths() + storagePathsFromRoot(absPath);
 │                            StoragePaths carries appRoot / dataRoot / configRoot / stateRoot /
 │                            locksRoot / runsRoot / memoryRoot / operatorSkillsRoot
+├── bootstrap-app.ts       ← bootstrapApp({ providerSpawn? }): shared CLI/TUI pre-flight + wire()
 ├── provider-factory.ts    ← createAiProvider({ harnessConfig, eventBus, spawn? } & ({ flow, ai } | { row }))
 ├── interactive-provider-factory.ts
 └── legacy-layout-detector.ts  ← v0.6.x layout detector (RALPHCTL_SKIP_LEGACY_CHECK bypass)
@@ -594,7 +608,8 @@ subtree in [diagrams/02-sprint-lifecycle.md § On-disk shape](./diagrams/02-spri
 mirrors it and should stay in sync.
 
 The `RALPHCTL_HOME` env var, when set to an absolute path, replaces the entire `<home>/.ralphctl` prefix.
-Used by integration tests that spawn real subprocesses, and by users who want a non-default data location.
+A value still carrying an unexpanded `${VAR}` or `$(cmd)` is refused at boot rather than created as a
+literal directory; a bare `$name` is a legal directory name and passes. Used by integration tests that spawn real subprocesses, and by users who want a non-default data location.
 
 ## Data Models
 
@@ -765,7 +780,7 @@ All domain errors extend `DomainError` (`src/domain/value/error/domain-error.ts`
 
 The CLI does not centralise exit codes in a constants module. Commands set `0` on success and `1` on any
 validation/execution error via `process.exitCode = 1` (`src/application/ui/cli/cli.ts`) or `process.exit(1)`
-(`src/application/ui/cli/bootstrap.ts` and per-command actions). One exception: `report-cli-error.ts` sets
+(`src/application/bootstrap/bootstrap-app.ts` and per-command actions). One exception: `report-cli-error.ts` sets
 `EXIT_INTERRUPTED = 130` when the top-level catch in `cli.ts` receives an `AbortError` (Ctrl-C).
 
 ## Terminal UI Layer (`src/application/ui/`)

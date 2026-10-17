@@ -29,12 +29,10 @@ import type { FlowId } from '@src/domain/value/flow-id.ts';
  *  - `broken`           — the folder exists but has no readable `SKILL.md` (e.g. an interrupted
  *                         copy). It loads nothing and would otherwise be invisible; `disable`
  *                         removes it, and `update` on a bundled name repairs it.
- *
- * @public
  */
 export type SkillInstallStatus = 'manual' | 'in-sync' | 'update-available' | 'locally-modified' | 'broken';
 
-/** One flow where a catalog skill is installed, plus that copy's sync status. @public */
+/** One flow where a catalog skill is installed, plus that copy's sync status. */
 export interface SkillCatalogInstall {
   readonly flow: FlowId;
   readonly status: SkillInstallStatus;
@@ -44,8 +42,6 @@ export interface SkillCatalogInstall {
  * A row in the catalog view: one bundled skill, its registry-derived default/recommended phases,
  * and where it is currently installed on disk. `installs` is empty when the skill is enabled
  * nowhere.
- *
- * @public
  */
 export interface SkillCatalogEntry {
   /** `ralphctl-*` id — matches the bundled folder name. */
@@ -63,8 +59,6 @@ export interface SkillCatalogEntry {
 /**
  * Output port backing the TUI skill catalog. All operations are `Result`-returning and idempotent
  * where the filesystem allows it.
- *
- * @public
  */
 export interface SkillCatalogPort {
   /**

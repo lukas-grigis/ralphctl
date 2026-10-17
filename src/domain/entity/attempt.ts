@@ -138,19 +138,6 @@ export interface RecoveryContext {
   readonly abortedAt: IsoTimestamp;
 }
 
-/**
- * Lifecycle of a single generator–evaluator iteration:
- *
- *   start ─► running ─►   verified            ◄── markTaskDone consumes this
- *                    └─►  failed | malformed  ◄── failCurrentAttempt records this
- *                    └─►  aborted             ◄── harness gave up before settling
- *
- * Terminal states stamp `finishedAt`. `verified` additionally requires `verification` to be
- * present — the structural invariant that powers `DoneTask`.
- * @public
- */
-export type AttemptStatus = 'running' | 'verified' | 'failed' | 'malformed' | 'aborted';
-
 /** Outcome bucket for one harness-side verify-script attempt. Mirrors {@link SetupRunOutcome}. */
 export type VerifyRunOutcome =
   /** Script ran and exited 0. */
@@ -330,6 +317,17 @@ export interface FailedAttempt extends AttemptBase {
 }
 
 export type TerminalAttempt = VerifiedAttempt | FailedAttempt;
+
+/**
+ * Lifecycle of a single generator–evaluator iteration:
+ *
+ *   start ─► running ─►   verified            ◄── markTaskDone consumes this
+ *                    └─►  failed | malformed  ◄── failCurrentAttempt records this
+ *                    └─►  aborted             ◄── harness gave up before settling
+ *
+ * Terminal states stamp `finishedAt`. `verified` additionally requires `verification` to be
+ * present — the structural invariant that powers `DoneTask`.
+ */
 export type Attempt = RunningAttempt | TerminalAttempt;
 
 export interface StartAttemptInput {

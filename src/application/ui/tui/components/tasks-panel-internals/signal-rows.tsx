@@ -31,8 +31,6 @@ import {
  * Single source of truth for signal-label colours: consumed by the inline-kinds bar in this
  * file AND by the help overlay's `Signals` reference section. Adding a new signal kind means
  * one edit here plus an entry in `keySections.signalReference`.
- *
- * @public
  */
 export const SIGNAL_LABEL_COLOR: Readonly<Record<string, string>> = {
   change: inkColors.info,

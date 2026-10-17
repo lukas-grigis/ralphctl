@@ -20,8 +20,8 @@ const FIELD_REPOSITORY_NAME = 'repository.name';
  *
  *  - `pathPrefix` — POSIX-style path prefix relative to the repo root that scopes the gate.
  *    `''` (empty string) matches everything — the catch-all gate a legacy `verifyScript`
- *    normalises to.
- *  - `command`    — the verbatim shell line to run for this module.
+ *    normalises to. A leading `./` or `/` is ignored (see {@link canonicalGatePrefix}).
+ *  - `command`   — the verbatim shell line to run for this module.
  *  - `timeoutMs`  — optional per-gate wall-clock cap. Falls back to the repo's `verifyTimeout`
  *    (then the shell runner default) when absent.
  */
@@ -30,6 +30,27 @@ export interface VerifyGate {
   readonly command: string;
   readonly timeoutMs?: number;
 }
+
+/** Strip leading `./` and `/` so a prefix compares against git's bare repo-relative paths; `.` is the root. */
+export const canonicalGatePrefix = (prefix: string): string => {
+  const stripped = prefix.replace(/^(?:\.\/|\/)+/, '');
+  return stripped === '.' ? '' : stripped;
+};
+
+/**
+ * Collapse the legacy and structured verify inputs into ONE gate list: `verifyGates` wins when
+ * present AND non-empty; otherwise a non-blank `verifyScript` becomes the single catch-all gate
+ * `{ pathPrefix: '', command }`. Neither configured yields `[]`.
+ */
+export const normalizeVerifyGates = (
+  verifyScript: string | undefined,
+  verifyGates: readonly VerifyGate[] | undefined
+): readonly VerifyGate[] => {
+  if (verifyGates !== undefined && verifyGates.length > 0) return verifyGates;
+  const command = verifyScript?.trim() ?? '';
+  if (command.length === 0) return [];
+  return [{ pathPrefix: '', command }];
+};
 
 /**
  * `id` is the stable domain identity (UUIDv7). `slug` is a kebab-case CLI handle (renamable
@@ -303,8 +324,8 @@ const suggestedSkillsPart = (
 /**
  * Normalise a single verify gate: trim the command, validate the optional timeoutMs.
  * Returns undefined when the command is blank (the gate is skipped). Returns an error
- * if the gate has a non-positive timeoutMs. The pathPrefix is NOT trimmed — prefixes
- * are matched verbatim against POSIX paths, so whitespace is significant.
+ * if the gate has a non-positive timeoutMs. The pathPrefix loses only a leading `./` or `/`
+ * ({@link canonicalGatePrefix}); it is NOT trimmed, since whitespace in a POSIX path is significant.
  */
 const normalizeVerifyGate = (gate: VerifyGate): Result<VerifyGate | undefined, ValidationError> => {
   const command = typeof gate.command === 'string' ? gate.command.trim() : '';
@@ -318,7 +339,7 @@ const normalizeVerifyGate = (gate: VerifyGate): Result<VerifyGate | undefined, V
   }
 
   return Result.ok({
-    pathPrefix: typeof gate.pathPrefix === 'string' ? gate.pathPrefix : '',
+    pathPrefix: typeof gate.pathPrefix === 'string' ? canonicalGatePrefix(gate.pathPrefix) : '',
     command,
     ...(timeoutMs !== undefined ? { timeoutMs } : {}),
   });

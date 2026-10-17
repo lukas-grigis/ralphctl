@@ -81,8 +81,8 @@ export const applyPlanLeaf = (deps: ApplyPlanLeafDeps): Element<PlanCtx> =>
     },
     output: (ctx, out) => {
       // On reject, leave ctx.sprint as the original DraftSprint (the use case returns the
-      // input sprint unchanged) and don't stamp `plannedTasks` — downstream `save-tasks` and
-      // `save-sprint` then write the unchanged sprint + existing task list (no-op).
+      // input sprint unchanged) and don't stamp `plannedTasks` — a draft ctx sprint makes the
+      // downstream `save-tasks` and `save-sprint` write nothing.
       if (!out.accepted) return { ...ctx, sprint: out.sprint, tasks: out.tasks };
       return { ...ctx, sprint: out.sprint, tasks: out.tasks, plannedTasks: out.tasks as readonly TodoTask[] };
     },

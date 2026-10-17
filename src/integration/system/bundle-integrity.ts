@@ -63,8 +63,6 @@ export interface CheckBundleIntegrityDeps {
  * there. Deliberately NOT a filename check for the same reason the sibling resolvers aren't:
  * tsup code-splitting rewrites `import.meta.url` to a hashed `cli-<hash>.mjs` chunk, and a check
  * against a fixed filename would silently miss it.
- *
- * @public
  */
 export const resolveManifestPath = (
   moduleUrl: string,

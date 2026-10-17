@@ -50,8 +50,6 @@ const MIN_RECENT_BUDGET_TOKENS = 1_500;
 /**
  * Token budget for the recent OTHER-task sibling excerpt, scaled to a model's resolved context
  * window. Unknown / unset models fall back to the 200K tier — a sane, bounded default.
- *
- * @public
  */
 export const progressCapBudgetForModel = (model: string | undefined): number => {
   const window = contextWindowFor(model) ?? DEFAULT_CONTEXT_WINDOW;
@@ -132,8 +130,6 @@ const reassemble = (headerBand: string, sections: readonly string[], keep: (i: n
  * string. A body already within the cap is returned unchanged. Each elided run of sections is replaced
  * in place by a one-line note naming the omitted count, and any lifecycle / recovery breadcrumb in a
  * dropped section is pinned into the header band.
- *
- * @public
  */
 export const capProgressBody = (body: string, options: CapProgressOptions = {}): string => {
   if (body.trim().length === 0) return '';

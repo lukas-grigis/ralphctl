@@ -9,8 +9,6 @@
  * `LoadErrorRow` takes the failure `message` and an optional `color` — the sprint picker tints
  * its failure line with `inkColors.error` while the other views leave it default-weight, so the
  * colour is passed through to keep each call site byte-identical.
- *
- * @public
  */
 
 import React from 'react';

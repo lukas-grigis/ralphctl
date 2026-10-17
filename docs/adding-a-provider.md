@@ -184,7 +184,6 @@ export const createGeminiProvider = (deps: HeadlessProviderDeps): HeadlessAiProv
           ...base,
           args: built.value,
           session: attemptSession,
-          resolveOn: 'close',
           stdin: attemptSession.prompt,
           rateLimitRe: RATE_LIMIT_RE,
           onStdoutChunk: (chunk) => parser.feed(chunk),
@@ -211,6 +210,9 @@ underneath it (study `claude/headless.ts` for the full shape):
 - `runHeadlessSpawn(…)` — owns the spawn lifecycle, the idle-stdout watchdog (SIGTERMs a wedged
   child after `idleMs` of silence), stdin delivery, and abort propagation. There is **no**
   wall-clock timeout; implement sessions can run for hours.
+  It settles on `'close'` (not `'exit'`) so your CLI's final stdout records, such as an error or a
+  session id, are not lost, and reaps the child's process group once it exits so a backgrounded job
+  cannot outlive the attempt.
 - `runWithRateLimitRetry(…)` — called by `createHeadlessProvider`; owns the retry loop, backoff
   schedule, banners, abort-during-backoff, and the resume rebuild. You supply `rateLimitRe` (via
   the attempt) and `resumeStaleRe`.
@@ -343,7 +345,10 @@ bottom.
   needs its key. `PROVIDER_AUTH_CHECK` (`flows/doctor/provider-auth.ts`) is the doctor's auth
   probe — when your CLI exposes no non-interactive auth verb use `kind: 'none'` with a `reason`,
   which reports as `unknown` rather than guessing. Two `PROVIDER_LABEL` tables
-  (`flows/doctor/probe-helpers.ts`, `ui/shared/launch/readiness.ts`) carry the display name.
+  (`flows/doctor/probe-helpers.ts`, `ui/shared/launch/readiness.ts`) carry the display name. Add a
+  `versionGate` (`supportedMajor` + `installHint`) to your traits row only when another major of your
+  CLI breaks the argv you build: the launch check then refuses that major, and doctor reports it as a
+  failing row.
 
 - **Settings TUI** — the picker reads the `AiProvider` union, so your provider appears once the
   schema includes it. `PRESET_FOR_PROVIDER` (`ui/tui/views/welcome-view.tsx`) maps it to the

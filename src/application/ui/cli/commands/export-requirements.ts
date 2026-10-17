@@ -1,7 +1,7 @@
 import type { Command } from 'commander';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { createExportRequirementsFlow } from '@src/application/flows/export-requirements/flow.ts';
-import { bootstrapCli } from '@src/application/ui/cli/bootstrap.ts';
+import { bootstrapApp } from '@src/application/bootstrap/bootstrap-app.ts';
 import { fail } from '@src/application/ui/cli/report-cli-error.ts';
 import { resolveSprintForCli } from '@src/application/ui/cli/resolve-sprint-selection.ts';
 
@@ -17,7 +17,7 @@ const exportRequirementsAction = async (opts: Opts): Promise<void> => {
     return;
   }
 
-  const { deps, storage } = await bootstrapCli();
+  const { deps, storage } = await bootstrapApp();
   const sprintId = await resolveSprintForCli(opts.sprint, storage.stateRoot);
   if (sprintId === undefined) return;
   const flow = createExportRequirementsFlow({

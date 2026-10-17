@@ -37,8 +37,6 @@ const fmtLocalAbsolute = (iso: string): string => {
  *
  * Pure — no I/O, deterministic for a given record set + local timezone. Pin `TZ` in tests for a
  * stable timestamp column.
- *
- * @public
  */
 export const renderLearningsMd = (records: readonly LearningRecord[]): string => {
   const lines: string[] = ['# Learnings', ''];

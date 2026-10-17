@@ -11,7 +11,6 @@ import type { LauncherDeps } from '@src/application/ui/shared/launcher.ts';
 /**
  * Resolve one implement role's agent-definition binding into the concrete {@link AgentDefinition}, or `undefined`
  * when the role has no binding at all.
- * @public
  */
 export const resolveRoleAgentBinding = async (
   source: AgentDefinitionSource,
@@ -42,7 +41,6 @@ export const resolveRoleAgentBinding = async (
 
 /**
  * Build the per-role "## Agent Definition" prompt section for a resolved binding.
- * @public
  */
 export const buildAgentDefinitionSection = (definition: AgentDefinition, adapter: AgentDefinitionAdapter): string =>
   [
@@ -60,7 +58,6 @@ export interface RoleAgentBinding {
 /**
  * Resolve both implement roles' agent-definition bindings against the composed bundled+operator source, and build a
  * role-scoped {@link AgentDefinitionAdapter} for each.
- * @public
  */
 export const resolveImplementAgentBindings = async (
   deps: LauncherDeps,

@@ -341,7 +341,13 @@ describe('appendLearningsLeaf', () => {
       task.id
     );
     const journalLeaf = progressJournalLeaf(
-      { writeFile: journalWrite.fn, clock: () => FIXED_NOW, logger: noopLogger, journalMutex: createFoldQueue() },
+      {
+        writeFile: journalWrite.fn,
+        appendFile: createAppendFile(),
+        clock: () => FIXED_NOW,
+        logger: noopLogger,
+        journalMutex: createFoldQueue(),
+      },
       { progressFile: PROGRESS_FILE, totalRounds: 5 },
       task.id
     );

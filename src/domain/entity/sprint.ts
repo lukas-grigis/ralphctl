@@ -356,8 +356,8 @@ export const renameSprint = (
 };
 
 /**
- * Rename the sprint's CLI handle. Rejected once `done`. Uniqueness is project-scoped — the
- * persistence layer rejects collisions; this helper is the pure setter.
+ * Rename the sprint's CLI handle. Rejected once `done`. Pure setter: nothing downstream rejects a
+ * collision, so the caller must check project-scoped uniqueness (`findBySlug`) first.
  */
 export const setSprintSlug = (sprint: Sprint, slug: Slug): Result<OpenSprint, InvalidStateError> => {
   const guard = requireStatus(

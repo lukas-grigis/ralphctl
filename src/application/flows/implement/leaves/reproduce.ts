@@ -116,8 +116,6 @@ export interface ReproduceLeafOpts {
  * `observedFailure` is the HARNESS's own bounded re-run capture, not the session's self-report —
  * the field that was just verified is the one that rides forward. `checksum` is a content hash of
  * `testPath` at validation time, recorded so a later unexplained edit is detectable as tampering.
- *
- * @public
  */
 export interface ReproductionArtifact {
   readonly testPath: string;
@@ -142,8 +140,6 @@ interface ReproduceOutput {
  * evaluator prompt builders accept as `reproduction` — they wrap it in the `<reproduction>` tag
  * with their own role-specific framing, so this stays unwrapped, structural content only. Shared
  * by `generator.ts` and `evaluator.ts` so both roles describe the same artifact identically.
- *
- * @public
  */
 export const renderReproductionBody = (artifact: ReproductionArtifact): string =>
   [
@@ -164,8 +160,6 @@ export const renderReproductionBody = (artifact: ReproductionArtifact): string =
  * Read-side convenience for `generator.ts` / `evaluator.ts`'s `input` projections — both compose
  * their `reproduction` prompt field from the SAME `ctx.reproductionArtifact` this leaf validated,
  * so the one-line read lives here instead of being duplicated at each call site.
- *
- * @public
  */
 export const readReproductionSection = (ctx: ImplementCtx): string | undefined =>
   ctx.reproductionArtifact !== undefined ? renderReproductionBody(ctx.reproductionArtifact) : undefined;
@@ -176,8 +170,6 @@ export const readReproductionSection = (ctx: ImplementCtx): string | undefined =
  * `dependency-gate.ts`'s `isTaskRunnable`. A task classified anything other than `'bugfix'` by
  * {@link deriveTaskKind} skips silently — the guard primitive records a `skipped` trace entry,
  * no AI spawn happens, `ctx.reproductionArtifact` stays undefined.
- *
- * @public
  */
 export const isDefectShapedTask = (ctx: ImplementCtx, taskId: TaskId): boolean => {
   const task = ctx.tasks?.find((t) => t.id === taskId);
@@ -284,8 +276,6 @@ const checksumTestFile = async (cwd: AbsolutePath, testPath: string): Promise<st
  * — i.e. the test file was edited (or deleted) since this leaf validated it. Folded into the SAME
  * `<reproduction>` section the tampering-detection rule in `evaluate/template.md` already audits,
  * rather than a separate signal — one tampering vocabulary, one place the evaluator looks.
- *
- * @public
  */
 export const REPRODUCTION_TAMPER_NOTE =
   'TAMPERING CHECK: the reproduction test file no longer matches the content hashed when it was ' +
@@ -297,8 +287,6 @@ export const REPRODUCTION_TAMPER_NOTE =
  * mismatch — INCLUDING a file that is now missing or unreadable, which is at least as suspicious
  * as an edit (`checksumTestFile` returns `undefined` in that case, which never equals a real
  * hash). Never throws.
- *
- * @public
  */
 export const reproductionTestTampered = async (cwd: AbsolutePath, artifact: ReproductionArtifact): Promise<boolean> => {
   const current = await checksumTestFile(cwd, artifact.testPath);
@@ -311,8 +299,6 @@ export const reproductionTestTampered = async (cwd: AbsolutePath, artifact: Repr
  * `generator.ts` keeps using the plain (pure, sync) `readReproductionSection` — only the evaluator
  * re-checks, once per turn, since detecting an unexplained edit during the gen-eval loop is its
  * job, not the generator's.
- *
- * @public
  */
 export const buildEvaluatorReproductionSection = async (
   cwd: AbsolutePath,

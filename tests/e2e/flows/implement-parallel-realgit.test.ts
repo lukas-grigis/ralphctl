@@ -55,7 +55,7 @@ import { writeJsonAtomic } from '@src/integration/io/fs.ts';
 import { gitWorktreeRef, legacyGitWorktreeRef } from '@src/integration/io/git-operations.ts';
 import { gitRescueRef } from '@src/integration/io/git-ref-rescue.ts';
 import { generateBranchName } from '@src/integration/io/branch-name.ts';
-import { createGitRunner } from '@src/integration/io/git-runner.ts';
+import { createGitRunner, type GitRunner } from '@src/integration/io/git-runner.ts';
 import type { ShellScriptRunner } from '@src/integration/io/shell-script-runner.ts';
 import { createFileLocker } from '@src/integration/io/file-locker.ts';
 import { createFsTemplateLoader, defaultTemplatesDir } from '@src/integration/ai/prompts/_engine/fs-template-loader.ts';
@@ -757,6 +757,77 @@ function runTests(): void {
       }).trim();
       expect(mergeCommits).toBe('');
     }, 120_000); // This test involves real git operations (worktree add × 3) — give it generous headroom.
+
+    it('a branch records its task done only after the fold landed the commit on the sprint branch', async () => {
+      const fixture = await buildParallelFixture();
+      cleanupFns.push(() => fixture.cleanup());
+      const ticket = makeApprovedTicket({ title: 'fold-order-ticket' });
+      const sprint = makeE2eSprint({ tickets: [ticket] });
+      const execution = setExecutionBranch(createSprintExecution({ sprintId: sprint.id }), SPRINT_BRANCH);
+      const task = makeTodoTask({
+        name: 'fold-order',
+        order: 1,
+        ticketId: ticket.id,
+        repositoryId: FIXED_REPOSITORY_ID,
+      });
+      const taskStore = inMemoryTaskRepo([task]);
+      const locksRoot = join(fixture.ralphctlRoot, 'locks');
+      await fs.mkdir(locksRoot, { recursive: true });
+      const deps = buildRealGitDeps(
+        inMemorySprintRepo(sprint).repo,
+        inMemoryExecutionRepo(execution).repo,
+        taskStore.repo,
+        createRealFileWritingProvider('fold-order-output'),
+        locksRoot
+      );
+      // What tasks.json says at the instant the fold starts — all a crash right there would leave.
+      const statusAtFold: string[] = [];
+      const foldRef = gitWorktreeRef(String(sprint.id), String(task.id));
+      const gitRunner: GitRunner = {
+        run: (cwd, args, runOpts) => {
+          if (args[0] === 'merge' && args.at(-1) === foldRef) {
+            statusAtFold.push(taskStore.tasks().find((t) => t.id === task.id)?.status ?? 'missing');
+          }
+          return deps.gitRunner.run(cwd, args, runOpts);
+        },
+      };
+      const opts = {
+        sprintId: sprint.id,
+        todoTasks: [task],
+        repositories: new Map([
+          [FIXED_REPOSITORY_ID, { path: ap(fixture.repo.path), name: 'test-repo' } as RepoExecConfig],
+        ]),
+        progressFile: ap(fixture.progressFile),
+        sprintDir: ap(fixture.sprintDir),
+        generatorProviderId: 'claude-code',
+        generatorModel: 'claude-opus-4-8',
+        evaluatorProviderId: 'claude-code',
+        evaluatorModel: 'claude-opus-4-8',
+        memoryRoot: ap(fixture.memoryRoot),
+        projectId: FAKE_PROJECT_ID,
+        projectSlug: FAKE_PROJECT_SLUG,
+        dirtyTreePolicy: 'cancel' as const,
+      };
+      const readConfig = () =>
+        Promise.resolve({ maxTurns: 5, escalateOnPlateau: false, escalationMap: {}, maxAttempts: 1 });
+      const branchDeps = {
+        implement: { ...deps, gitRunner },
+        eventBus: createInMemoryEventBus(),
+        foldQueue: createFoldQueue(),
+      };
+      const branch = buildWaveBranches(branchDeps, opts, [[task]], readConfig)[0]![0]!;
+      const runner = createRunner<ImplementCtx>({
+        id: `r-${branch.id}`,
+        element: branch.element,
+        initialCtx: { sprintId: sprint.id, sprint, execution, tasks: [task] },
+      });
+
+      await runner.start();
+
+      expect(runner.status, describeTrace(runner.trace)).toBe('completed');
+      expect(statusAtFold).toEqual(['in_progress']);
+      expect(taskStore.tasks().find((t) => t.id === task.id)?.status).toBe('done');
+    }, 60_000);
 
     it('abort mid-run: worktrees are cleaned up and sprint stays runnable (tasks reset to todo)', async () => {
       const fixture = await buildParallelFixture();

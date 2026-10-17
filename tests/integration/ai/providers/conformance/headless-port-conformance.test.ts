@@ -312,11 +312,9 @@ describe('HeadlessAiProvider conformance coverage', () => {
     expect(ROWS.map((r) => r.provider).sort()).toEqual(Object.keys(PROVIDER_TRAITS).sort());
   });
 
-  it('documents codex resume as the one exemption from the per-root mount rule', async () => {
-    // `codex/headless.ts` emits `-C` / `-s` / `--add-dir` only on a COLD spawn: a resumed rollout
-    // inherits the sandbox it was created with, so re-declaring roots there would be inert at best.
-    // The rows above exercise the cold path; this asserts the exemption is real rather than a gap
-    // the suite quietly walks around.
+  it('mounts every root on a codex resume too, through sandbox config instead of --add-dir', async () => {
+    // `exec resume` takes no `-s` / `--add-dir` and does not restore the original sandbox (it runs
+    // read-only), so the rows above only cover the cold path; this covers the resumed one.
     const cap = createCapturingBus();
     const fake = makeProviderSpawn([{ exitCode: 0 }]);
     const provider = createCodexProvider({
@@ -339,7 +337,10 @@ describe('HeadlessAiProvider conformance coverage', () => {
       resume: 'rollout-abc' as SessionId,
     });
 
-    expect(fake.calls[0]!.args).toContain('resume');
-    expect(fake.calls[0]!.args).not.toContain('--add-dir');
+    const args = fake.calls[0]!.args;
+    expect(args).toContain('resume');
+    expect(args).not.toContain('--add-dir');
+    expect(args).toContain('sandbox_mode="workspace-write"');
+    expect(args).toContain(`sandbox_workspace_write.writable_roots=${JSON.stringify([String(SIBLING)])}`);
   });
 });

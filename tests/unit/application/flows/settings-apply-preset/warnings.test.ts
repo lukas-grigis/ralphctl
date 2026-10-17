@@ -121,3 +121,27 @@ describe('settings-apply-preset — model availability', () => {
     expect(saved.value?.ai.readiness.model).toBe('gpt-6-luna');
   });
 });
+
+describe('settings-apply-preset — operator preferences', () => {
+  it('keeps the skills opt-out and the implement agent bindings across the stamp and the availability swap', async () => {
+    const current: Settings = {
+      ...DEFAULT_SETTINGS,
+      ai: {
+        ...DEFAULT_SETTINGS.ai,
+        skills: { implement: { disabled: ['ralphctl-x'] } },
+        implement: { ...DEFAULT_SETTINGS.ai.implement, agents: { generator: 'my-agent' } },
+      },
+    };
+    const { repo, saved } = repoFor(current);
+    const flow = createSettingsApplyPresetFlow({
+      settingsRepo: repo,
+      detectInstalledProviders: detectFor([]),
+      availableModelsFor: async () => ['claude-opus-5.5', 'claude-sonnet-5.5', 'gpt-5.6-luna'],
+    });
+    const result = await flow.execute({ input: { preset: 'copilot-only' } });
+    expect(result.ok).toBe(true);
+    expect(saved.value?.ai.skills).toEqual({ implement: { disabled: ['ralphctl-x'] } });
+    expect(saved.value?.ai.implement.agents).toEqual({ generator: 'my-agent' });
+    expect(saved.value?.ai.implement.generator.provider).toBe('github-copilot');
+  });
+});

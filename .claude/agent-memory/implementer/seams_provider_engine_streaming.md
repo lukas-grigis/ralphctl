@@ -26,6 +26,11 @@ cold-started instead of resuming the interrupted session.
   It drops `resume` for ONE cold respawn (latched) and re-runs the SAME attempt index, so it does NOT
   consume a rate-limit slot. Each adapter passes its own regex; codex keeps
   `/no rollout found|thread\/resume failed|code -32600/i`.
+- **A cold fallback that fires every time hides a dead resume path.** Codex passed `--ephemeral`
+  (writes no rollout), so every `exec resume` failed stale and the fallback quietly made codex cold
+  forever. Verified live (codex-cli 0.162.0): `exec resume` also does NOT restore the original
+  sandbox — it runs read-only, so signals.json can't land — unless re-declared via
+  `-c sandbox_mode=…` + `-c sandbox_workspace_write.writable_roots=[…]`. Re-check both on a codex bump.
 - **Rate-limit detection scans stderr PLUS a per-adapter `stdoutTail`** fed to `classifySpawnExit` —
   providers report quota on stdout, not stderr. The regexes are broader than bare `/rate.?limit/i`
   (claude adds `usage limit reached|5-hour limit|overloaded_error|429`; others add `quota|429`).
@@ -87,11 +92,11 @@ external-command runners (`run-cli.ts`, `run-command.ts`, `git-runner.ts`). It i
 copy of the ladder in the AI-provider engine (`_engine/abort-kill.ts` / `idle-watchdog.ts`) because
 `integration/io/` must not import the AI-provider `_engine/` under sibling isolation.
 
-The runners settle their result promise the instant the timeout trips, so a bare
-`child.kill('SIGTERM')` never reaped a wedged git/gh child that ignores SIGTERM — it could hold
-`.git/index.lock` forever. `killWithEscalation` sends SIGTERM, schedules an `unref`'d SIGKILL after the
-grace, and clears it on the child's `exit` so a recycled pid is never signalled. Promise semantics are
-UNCHANGED: the escalation reaps in the background.
+`run-cli` / `run-command` settle their result promise the instant the timeout trips, so a bare
+`child.kill('SIGTERM')` never reaped a wedged gh child that ignores SIGTERM; the git runner instead
+waits for git's exit (see [[seams_process_lifecycle]]). `killWithEscalation` sends SIGTERM, schedules
+an `unref`'d SIGKILL after the grace, and clears it on the child's `exit` so a recycled pid is never
+signalled. The escalation reaps in the background.
 
 **How to apply:** any new external-process runner in `integration/io/` kills via `killWithEscalation`,
 not a bare SIGTERM. Test with `vi.useFakeTimers()` + `advanceTimersByTime(grace)` — grace is injectable.
@@ -108,6 +113,15 @@ SIGTERM'd cancel surfaces `AbortError`, not `InvalidStateError`.
 `max-lines-per-function` cap, and `sonarjs/no-duplicate-string` trips at 3 identical bare string
 literals. Reuse the module-level `const PROVIDER = 'interactive-<x>'` for both `entity` and
 `elementName` rather than re-typing the literal.
+
+## Headless spawn env: full env on the port, overlay on the attempt
+
+`ProviderSpawn.options.env` carries the child's WHOLE environment (node semantics), and the overlay
+merge (`{ ...process.env, ...input.env }`) happens in `runProviderAttempt`. Don't move the merge into
+`defaultProviderSpawn` and make the port an overlay: `wire()` falls back `opts.providerSpawn ??
+opts.spawn`, so a general `Spawn` (whose `env` replaces) must stay assignable — with overlay semantics
+it would type-fail, and a real `Spawn` passed there would start the CLI with only the overlay (no PATH).
+Fake spawns in tests therefore see the full env; assert the key, not `toEqual` on the object.
 
 Related: [[seams_provider_conformance_and_demo]], [[seams_chain_runner_core]],
 [[seams_model_catalog_refresh]].

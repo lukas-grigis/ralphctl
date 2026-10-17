@@ -44,8 +44,6 @@ import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens
  *  - `failed-continue` — apply faulted mid-run but the user chose to continue; atomic per-item renames
  *                        + tolerant readers ⇒ a half-migrated tree is still runnable; re-offered next
  *                        launch (idempotent resume finishes the rest).
- *
- * @public
  */
 export type MigrationGateOutcome = 'migrated' | 'skipped' | 'failed-continue';
 
@@ -53,8 +51,6 @@ export type MigrationGateOutcome = 'migrated' | 'skipped' | 'failed-continue';
  * Props for {@link MigrationGate}. The apply-ctx ingredients (`appVersion`, `stateRoot`, `writeFile`)
  * are threaded in rather than reached from a context because the gate mounts before the app's provider
  * stack exists. `renderLearnings` is built internally from the application-layer adapter.
- *
- * @public
  */
 export interface MigrationGateProps {
   readonly engine: DataMigrationEngine;
@@ -342,7 +338,7 @@ const ConsentBody = ({
         <Text dimColor>
           {glyphs.bullet} {renamedLine}
         </Text>
-        <Text dimColor>{glyphs.bullet} a full backup is taken first</Text>
+        <Text dimColor>{glyphs.bullet} a backup is taken first</Text>
         <Text dimColor>{glyphs.bullet} fully reversible</Text>
       </Box>
       <Box marginTop={spacing.actionBreak}>
@@ -392,16 +388,22 @@ const FailureBody = ({
     {backupPath !== undefined && (
       <Box marginTop={spacing.section}>
         <Text>
-          A full backup is at <Text bold>{backupPath}</Text>
+          A backup is at <Text bold>{backupPath}</Text>
         </Text>
       </Box>
     )}
     <Box flexDirection="column" marginTop={spacing.section}>
       <Text dimColor>You can keep using ralphctl as-is. If you&apos;d rather roll back:</Text>
       {backupPath !== undefined ? (
-        <Text dimColor>
-          {glyphs.bullet} move <Text bold>{backupPath}</Text> back to your <Text bold>data/</Text> folder
-        </Text>
+        <Box flexDirection="column">
+          <Text dimColor>
+            {glyphs.bullet} copy <Text bold>{backupPath}</Text> back into your <Text bold>data/</Text> folder
+          </Text>
+          <Text dimColor>
+            {'  '}except <Text bold>sprints/*/worktrees/</Text> — keep those from your current data/ (the backup skips
+            them)
+          </Text>
+        </Box>
       ) : (
         <Text dimColor>{glyphs.bullet} your data folder was not modified</Text>
       )}

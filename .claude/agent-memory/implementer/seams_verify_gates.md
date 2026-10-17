@@ -94,8 +94,8 @@ deterministic regression into a flake, because the confirm re-run is green. Key 
 `opts.env.RALPHCTL_LIFECYCLE_EVENT === 'post-task'` and make a regression red on BOTH post calls.
 
 The full-stack e2e fixture must use the slugged sprint dir (`resolveSprintDir`): artifacts written
-under the helper's bare `<id>/` path (progress.md, verify logs) get wiped mid-run, so assertions on
-them there pass vacuously or fail.
+under the helper's bare `<id>/` path (progress.md, verify logs) get moved into the canonical dir by the
+next sprint save's reconcile, so assertions on the bare path pass vacuously or fail.
 
 ## detect-scripts emission
 

@@ -4,6 +4,8 @@ commands at sprint start (setup) and after every task (verification). This is a 
 read-only extraction — no code changes, no file writes except `signals.json`.
 </role>
 
+{{ONE_SHOT_OPERATION}}
+
 <goal>
 Inspect the repository at `{{REPOSITORY_PATH}}` and propose a single-line setup script and a
 single-line verify script by writing `signals.json` to the output directory. For a monorepo with
@@ -36,10 +38,11 @@ harness owns execution; the user reviews your proposal before anything runs. Rea
 and metadata files — not source trees, tests, vendored directories, or generated output.
 
 **Coding-agent context files are the strongest evidence.** Before any manifest, look for
-`CLAUDE.md`, `AGENTS.md`, `.cursor/rules/*.mdc`, `.github/copilot-instructions.md`, and human
-onboarding docs (`README.md`, `CONTRIBUTING.md`). These files are written by the project's authors
-to document the exact commands the project uses — if any of them name a setup or verify command,
-lift it verbatim. Prefer this over any inference from manifest scripts.
+`CLAUDE.md`, `AGENTS.md`, `.cursor/rules/*.mdc`, `.grok/rules/*.md`, `.claude/rules/`,
+`.github/copilot-instructions.md`, and human onboarding docs (`README.md`, `CONTRIBUTING.md`). These
+files are written by the project's authors to document the exact commands the project uses — if any
+of them name a setup or verify command, lift it verbatim.
+Prefer this over any inference from manifest scripts.
 
 **Read manifests and metadata next.** Beyond context files, read configuration and metadata files
 (manifests, lockfiles, build descriptors, tool-version pins, CI workflows, top-level `scripts/`

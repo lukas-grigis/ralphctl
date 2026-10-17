@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createBundledSkillSource, resolveBundledRoot } from '@src/integration/ai/skills/bundled/source.ts';
-import { skillsForFlow } from '@src/integration/ai/skills/_engine/registry.ts';
+import { BUNDLED_SKILLS, skillsForFlow } from '@src/integration/ai/skills/_engine/registry.ts';
 
 describe('resolveBundledRoot', () => {
   it('resolves the co-located skills/ dir when the build copied SKILL.md folders beside the bundle', () => {
@@ -62,6 +62,25 @@ describe('createBundledSkillSource (production root)', () => {
     if (!result.ok) return;
     expect(result.value?.name).toBe('ralphctl-alignment');
     expect(result.value?.content).toContain('# Alignment');
+  });
+
+  it('loads ralphctl-writing-for-agents into the readiness flow', async () => {
+    const result = await source.getForFlow('readiness');
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.map((s) => s.name)).toContain('ralphctl-writing-for-agents');
+  });
+
+  it('parses every catalog row, including the opt-in-only skills no flow loads by default', async () => {
+    // getForFlow never touches a default-OFF skill, so a broken one would surface only when an
+    // operator enables it from the catalog.
+    for (const { name } of BUNDLED_SKILLS) {
+      const result = await source.getByName(name);
+      expect(result.ok, `${name} failed to parse`).toBe(true);
+      if (!result.ok) return;
+      expect(result.value?.name).toBe(name);
+      expect(result.value?.description.length).toBeGreaterThan(0);
+    }
   });
 
   it('getByName returns ok(undefined) for an unknown name (not an error)', async () => {

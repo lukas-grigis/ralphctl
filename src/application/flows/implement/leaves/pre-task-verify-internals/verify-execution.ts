@@ -1,7 +1,8 @@
 import { Result } from '@src/domain/result.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { VerifyRun } from '@src/domain/entity/attempt.ts';
-import { normalizeVerifyGates, runVerifyGatesUseCase } from '@src/business/task/run-verify-script.ts';
+import { runVerifyGatesUseCase } from '@src/business/task/run-verify-script.ts';
+import { normalizeVerifyGates } from '@src/domain/entity/repository.ts';
 import type { RunVerifyScriptOutput } from '@src/business/task/run-verify-script.ts';
 import { appendAttemptVerifyRun, markAttemptBaselineBroken } from '@src/domain/entity/task-attempts.ts';
 import type { InProgressTask } from '@src/domain/entity/task.ts';
@@ -166,8 +167,6 @@ export const runPreVerifyGate = (
  * Created and popped synchronously within one pre-task-verify call, but a stable per-task message
  * keeps a failed pop recoverable via `git stash list` — mirrors every other quarantine message in
  * this chain (`quarantineStashMessage`, `retryStashMessage`).
- *
- * @public
  */
 export const reproductionExcludeStashMessage = (sprintId: SprintId, taskId: TaskId): string =>
   `ralphctl/${String(sprintId)}/${String(taskId)}/reproduction-baseline-exclude`;
@@ -213,8 +212,6 @@ const isPathDirty = async (runner: GitRunner, cwd: AbsolutePath, path: string): 
  * recoverable via `git stash list`, named in the message) rather than failing the leaf — turning a
  * forensic-recovery situation into a hard chain failure over one file would be a worse outcome than
  * the operator restoring it by hand.
- *
- * @public
  */
 export const withReproductionTestExcluded = async <T>(
   deps: Pick<PreTaskVerifyLeafDeps, 'gitRunner' | 'logger'>,
@@ -440,8 +437,6 @@ const emitBaselineRedBanner = (deps: Pick<PreTaskVerifyLeafDeps, 'eventBus' | 'c
  * the leaf re-derives the real cancellation from `signal.aborted` immediately after the call and
  * surfaces a verbatim `AbortError`, before the folded spawn-error row is ever acted on. Shared by
  * the pre- and post-task verify leaves so both thread the signal identically.
- *
- * @public
  */
 export const runVerifyShell = async (
   runner: ShellScriptRunner,

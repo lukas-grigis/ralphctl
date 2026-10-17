@@ -6,8 +6,9 @@ license: MIT
 
 # Debugging and Error Recovery
 
-> Adapted from [addyosmani/agent-skills](https://github.com/addyosmani/agent-skills) (MIT).
-> Adapted for ralphctl's harness contract.
+> Adapted from [addyosmani/agent-skills](https://github.com/addyosmani/agent-skills) (MIT), with the
+> feedback-loop, ranked-hypothesis, and tagged-log practices drawn from
+> [mattpocock/skills](https://github.com/mattpocock/skills) (MIT). Adapted for ralphctl's harness contract.
 
 Systematic debugging with structured triage. When something breaks, stop adding features, preserve
 evidence, and follow a structured process to find and fix the root cause. Guessing wastes time. The
@@ -41,6 +42,15 @@ Work through these steps in order. Do not skip steps.
 ### Step 1: Reproduce
 
 Make the failure happen reliably. If you cannot reproduce it, you cannot fix it with confidence.
+
+**Build a tight, red-capable loop before forming any theory.** When your session can run commands, the
+first deliverable is one command you have already run that drives the real code path and asserts the
+exact reported symptom — a failing test at the seam that reaches the bug, a script with a fixture input, a
+captured payload replayed through the code, the same input run through the old and new versions. Tight
+means fast (seconds) and deterministic, or for a flaky bug a pinned, high reproduction rate. Reading code
+to build a theory before that command exists is the failure this step prevents. When no loop can be built
+in this session, list what you tried and what would make it possible rather than guessing — in a `note`
+signal when the prompt's output-contract section lists it, otherwise in the required signal's own fields.
 
 When a bug is non-reproducible, work through these branches:
 
@@ -79,7 +89,12 @@ Create the minimal failing case:
 
 A minimal reproduction makes the root cause obvious and prevents fixing symptoms instead of causes.
 
-### Step 4: Fix the Root Cause
+### Step 4: Hypothesise, then Fix the Root Cause
+
+Before testing any explanation, write down three to five ranked hypotheses — a single one anchors on the
+first plausible idea. Each must be falsifiable: "if X is the cause, changing Y makes the symptom disappear".
+A hypothesis with no prediction is a hunch; sharpen it or drop it. Test them in rank order against the
+loop, changing one variable at a time.
 
 Fix the underlying issue, not the symptom.
 
@@ -149,6 +164,9 @@ when the prompt's output-contract section lists it, otherwise in the required si
 
 Add logging only when it helps. Remove it when done.
 
+- **Tag temporary logs** with one unique prefix (for example `[DEBUG-a4f2]`), so removal is a single
+  search. Untagged temporary logs survive into the diff; search for the prefix and remove every hit
+  before you signal the work complete.
 - **When to add** — you cannot localize the failure to a specific line; the issue is intermittent; the fix involves multiple interacting components.
 - **When to remove** — the bug is fixed and a regression test guards against recurrence; the log is only useful during development.
 - **Permanent instrumentation (keep)** — error boundaries with error reporting; API error logging with request context; performance metrics at key user flows.

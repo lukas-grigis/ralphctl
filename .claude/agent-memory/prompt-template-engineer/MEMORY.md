@@ -8,3 +8,8 @@
 - [project_provider_agnostic_reasoning.md](project_provider_agnostic_reasoning.md) — No `<thinking>`/`<reasoning>` elicitation in shared templates; reasoning depth lives at the effort-adapter seam
 - [feedback_absent_block_tests.md](feedback_absent_block_tests.md) — Assert absent tagged blocks via `'<tag>\n'` or preface text; prose mentions the bare tag
 - [feedback_wrapper_in_template_vs_renderer.md](feedback_wrapper_in_template_vs_renderer.md) — Template-wrapped placeholder => bare-body renderer, not renderTaggedBlock (double tag)
+- [feedback_rewrap_breaks_unflattened_assertions.md](feedback_rewrap_breaks_unflattened_assertions.md) — Reflowing prose can fail tests that assert a phrase on the raw string; grep tests first
+- [project_note_guidance_coupling.md](project_note_guidance_coupling.md) — Shared-partial `note` guidance collides with apply-feedback / create-pr contracts that accept no notes
+- [feedback_prompt_claims_vs_contract_code.md](feedback_prompt_claims_vs_contract_code.md) — Check harness-behaviour claims in prompts against the contract code; pin the true verb in tests
+- [feedback_evaluator_exemptions_by_cause.md](feedback_evaluator_exemptions_by_cause.md) — "Pre-existing" carve-out keys on cause, not code location; FAIL scope and exemption must be complements
+- [feedback_checkout_free_branch_move.md](feedback_checkout_free_branch_move.md) — Fresh clean worktree: ff-merge + branch -m replaces a delegated `git checkout -b <sha>`

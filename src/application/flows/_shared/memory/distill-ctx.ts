@@ -37,8 +37,6 @@ export interface DistillProviderEntry {
  *  - `entries` — per-tool proposal / confirm / write state, keyed by {@link AssistantTool}.
  *  - `acceptedIds` — ids the operator confirmed for promotion across all providers; the terminal
  *    stamp leaf flips these `promotedAt` after every write succeeds.
- *
- * @public
  */
 export interface DistillLearningsCtx {
   /** Opt-in gate. `true` → run the distill body; `false` → the guard skips it entirely. */

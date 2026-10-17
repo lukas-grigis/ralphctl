@@ -44,7 +44,7 @@ export const detectScriptsPromptDef: PromptDefinition<DetectScriptsPromptParams>
       validate: requireNonEmpty('outputContractSection', 'output-contract section must not be empty'),
     },
   },
-  partials: {},
+  partials: { ONE_SHOT_OPERATION: 'one-shot-operation' },
   expectedSignals: ['setup-script', 'verify-script', 'verify-gates', 'note'],
 };
 

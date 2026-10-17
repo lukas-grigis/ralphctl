@@ -65,8 +65,6 @@ export const currentSessionId = (): string | undefined => storage.getStore()?.se
  * `token-usage` event stamped with a branch id (`task-<taskId>`) can never be looked up.
  *
  * On the serial path — one runner, no nesting — this equals `currentSessionId()`.
- *
- * @public
  */
 export const rootSessionId = (): string | undefined => storage.getStore()?.rootSessionId;
 

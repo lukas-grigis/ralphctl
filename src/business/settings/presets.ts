@@ -174,14 +174,8 @@ const PRESETS: Readonly<
 };
 
 /**
- * The AI section a preset stamps — read-only, for surfaces that describe a preset before it is applied.
- *
- * @public
- */
-export const presetAiSettings = (name: PresetName): Settings['ai'] => PRESETS[name].ai;
-
-/**
- * Stamp a preset onto `current`. The AI section is replaced wholesale with the preset's matrix,
+ * Stamp a preset onto `current`. The AI section is replaced with the preset's matrix, except the
+ * operator preferences no matrix carries — `ai.skills` and `ai.implement.agents` — which survive;
  * `harness.escalateOnPlateau` is overwritten with the preset's flag (fast family OFF, all others
  * ON), and `harness.bestOfNCandidates` is overwritten ONLY by the presets that declare one (the
  * economic family, which pins `0`). The REST of `harness` (maxTurns, escalationMap,
@@ -195,7 +189,14 @@ export const applyPreset = (name: PresetName, current: Settings): Settings => {
   const preset = PRESETS[name];
   return {
     ...current,
-    ai: preset.ai,
+    ai: {
+      ...preset.ai,
+      ...(current.ai.skills !== undefined ? { skills: current.ai.skills } : {}),
+      implement: {
+        ...preset.ai.implement,
+        ...(current.ai.implement.agents !== undefined ? { agents: current.ai.implement.agents } : {}),
+      },
+    },
     harness: {
       ...current.harness,
       escalateOnPlateau: preset.escalateOnPlateau,

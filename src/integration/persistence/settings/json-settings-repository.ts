@@ -3,7 +3,7 @@ import type { ZodError } from 'zod';
 import { Result } from '@src/domain/result.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { ParseError } from '@src/domain/value/error/parse-error.ts';
-import type { StorageError } from '@src/domain/value/error/storage-error.ts';
+import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import { pathExists, readJson, writeJsonAtomic } from '@src/integration/io/fs.ts';
 import type { Settings } from '@src/domain/entity/settings.ts';
 import { CURRENT_SCHEMA_VERSION, SettingsSchema } from '@src/domain/entity/settings.ts';
@@ -15,11 +15,11 @@ const SETTINGS_FILE = 'settings.json';
 const SCHEMA_MISMATCH = 'schema-mismatch';
 
 /**
- * Re-run hint attached to every read-path `ParseError` — the CLI surfaces `.hint` in parentheses
- * after the message (see `application/ui/cli/commands/settings.ts`). A corrupt / un-migratable
- * `settings.json` blocks the read-modify-write `settings set` path too (it loads first), so the
- * actionable repair is to fix or remove the on-disk file and let the next launch fall back to
- * defaults — not to re-run a mutating command.
+ * Re-run hint attached to every read-path parse failure (invalid JSON, schema, migration) — the CLI
+ * and the TUI launch print `.hint` in parentheses after the message (see `bootstrap-app.ts`). A
+ * corrupt / un-migratable `settings.json` blocks the read-modify-write `settings set` path too (it
+ * loads first), so the actionable repair is to fix or remove the on-disk file and let the next
+ * launch fall back to defaults — not to re-run a mutating command.
  */
 const REPAIR_HINT = 'fix or delete settings.json and re-run; a missing file falls back to defaults';
 
@@ -69,6 +69,10 @@ export const createJsonSettingsRepository = (deps: JsonSettingsRepositoryDeps): 
       if (!json.ok) {
         if (json.error.code === 'not-found') {
           return Result.ok(DEFAULT_SETTINGS) as Result<Settings, ParseError | StorageError>;
+        }
+        if (json.error.subCode === 'parse') {
+          const { message, cause } = json.error;
+          return Result.error(new StorageError({ subCode: 'parse', message, path, cause, hint: REPAIR_HINT }));
         }
         return Result.error(json.error);
       }

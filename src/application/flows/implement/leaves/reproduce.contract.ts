@@ -64,7 +64,6 @@ const reproduceExampleSignals: readonly ReproduceSignal[] = [
 /**
  * Bounded not-reproduced outcome — empty test fields, `reproduced: false` and a `reason`. The contract
  * renders one example array, so this one is pinned by a round-trip test only.
- * @public
  */
 export const notReproducedExampleSignals: readonly ReproduceSignal[] = [
   {

@@ -35,6 +35,7 @@ import { startNextAttempt } from '@src/domain/entity/task-attempts.ts';
 import { startAttemptLeaf } from '@src/application/flows/implement/leaves/start-attempt.ts';
 import { settleAttemptLeaf } from '@src/application/flows/implement/leaves/settle-attempt.ts';
 import { adoptPersistedBlocksLeaf } from '@src/application/flows/implement/leaves/adopt-persisted-blocks.ts';
+import { dependencyGateLeaf } from '@src/application/flows/implement/leaves/dependency-gate.ts';
 import { quarantineStashMessage } from '@src/domain/value/quarantine-stash-message.ts';
 import { saveTasksLeaf } from '@src/application/flows/_shared/task/save.ts';
 
@@ -506,6 +507,19 @@ describe('createParallelImplementElement — lock contention', () => {
     expect(log).toEqual([]);
     expect(buildWaves).not.toHaveBeenCalled();
   });
+
+  it('raises the same warn banner the serial path raises on contention', async () => {
+    const t1 = makeTodoTask({ name: 't1' });
+    const events: AppEvent[] = [];
+    const element = createParallelImplementElement(
+      plan(tagElement('implement-prologue', []), tagElement('implement-epilogue', []), [[t1]]),
+      baseConfig({ buildWaves: () => [] }, failingLocker(), stubBus(events))
+    );
+
+    await element.execute(ctxWith([t1]));
+
+    expect(events).toContainEqual(expect.objectContaining({ type: 'banner-show', tier: 'warn', message: 'contended' }));
+  });
 });
 
 describe('createParallelImplementElement — uses the sprint-dir lock key', () => {
@@ -789,6 +803,147 @@ describe('createParallelImplementElement — durable blocks survive the epilogue
 
     // Exactly one notification for the resume block — no duplicate re-block/re-notify.
     expect(events.filter((e) => e.type === 'task-blocked')).toHaveLength(1);
+  });
+
+  it('an abort mid-attempt keeps the attempt the branch opened, so the stopped run can still settle it', async () => {
+    const sprint = makePlannedSprint();
+    const task = makeTodoTask();
+    const taskRepo = recordingTaskRepo([task]);
+    const bus = stubBus([]);
+    const controller = new AbortController();
+    const deps = branchDeps(fakeGitRecordingCwd().runner, taskRepo, bus);
+
+    const branch = buildWorktreeBranch(
+      deps,
+      repo,
+      task,
+      worktreePathFor(SPRINT_DIR, task.id),
+      'ralphctl/s1/wt-mid-attempt',
+      PROGRESS,
+      () =>
+        sequential<ImplementCtx>('task', [
+          startAttemptLeaf({ taskRepo, clock: () => FIXED_LATER, logger: noopLogger, eventBus: bus }, task.id),
+          abortLandsIn(`generator-${String(task.id)}`, controller),
+        ])
+    );
+    const element = createParallelImplementElement(
+      plan(tagElement('implement-prologue', []), realEpilogue(taskRepo), [[task]]),
+      baseConfig(
+        { buildWaves: () => [[{ id: implementBranchId(task.id), element: branch }]] },
+        recordingLocker([]),
+        bus
+      )
+    );
+
+    const result = await element.execute({ sprintId: sprint.id, sprint, tasks: [task] }, controller.signal);
+
+    expect(result.ok).toBe(false);
+    const persisted = await taskRepo.findBySprintId(sprint.id);
+    if (!persisted.ok) throw persisted.error;
+    const persistedTask = persisted.value.find((t) => t.id === task.id);
+    // Rewriting the pre-wave copy here erased the attempt, so the operator-stop settle found nothing.
+    expect(persistedTask?.status).toBe('in_progress');
+    expect(persistedTask?.attempts.map((a) => a.status)).toEqual(['running']);
+  });
+
+  it('a done the fold already persisted survives its branch failing in teardown, so the task never re-runs', async () => {
+    const sprint = makePlannedSprint();
+    const task = makeTodoTask();
+    const taskRepo = recordingTaskRepo([task]);
+    const bus = stubBus([]);
+    const inner = fakeGitRecordingCwd().runner;
+    const git: GitRunner = {
+      run: async (cwd, args, runOpts) => {
+        if (args[0] === 'worktree' && args[1] === 'remove') throw new Error('worktree remove crashed');
+        return inner.run(cwd, args, runOpts);
+      },
+    };
+    const deps = branchDeps(git, taskRepo, bus);
+    const done: Task = { ...makeDoneTask({ name: task.name }), id: task.id };
+    const settlesDone: Element<ImplementCtx> = {
+      name: 'fake-task',
+      async execute(ctx) {
+        return Result.ok({
+          ctx: { ...ctx, tasks: (ctx.tasks ?? []).map((t) => (t.id === task.id ? done : t)) },
+          trace: [],
+        });
+      },
+    };
+    const branch = buildWorktreeBranch(
+      deps,
+      repo,
+      task,
+      worktreePathFor(SPRINT_DIR, task.id),
+      'ralphctl/s1/wt-folded',
+      PROGRESS,
+      () => settlesDone
+    );
+    const element = createParallelImplementElement(
+      plan(tagElement('implement-prologue', []), realEpilogue(taskRepo), [[task]]),
+      baseConfig(
+        { buildWaves: () => [[{ id: implementBranchId(task.id), element: branch }]] },
+        recordingLocker([]),
+        bus
+      )
+    );
+    const quiet = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    await element.execute({ sprintId: sprint.id, sprint, tasks: [task] });
+    quiet.mockRestore();
+
+    expect(taskRepo.saved.map((t) => t.status)).toEqual(['done']);
+    const persisted = await taskRepo.findBySprintId(sprint.id);
+    if (!persisted.ok) throw persisted.error;
+    // The commit is on the sprint branch; rewriting the pre-wave todo would run the task a second time.
+    expect(persisted.value.find((t) => t.id === task.id)?.status).toBe('done');
+  });
+
+  it('a dependent of a prerequisite whose branch failed without settling stays todo, never blocked upstream', async () => {
+    const sprint = makePlannedSprint();
+    const prerequisite = makeTodoTask({ name: 'prerequisite' });
+    const dependent = makeTodoTask({ name: 'dependent', dependsOn: [prerequisite.id] });
+    const taskRepo = recordingTaskRepo([prerequisite, dependent]);
+    const bus = stubBus([]);
+    const deps = branchDeps(fakeGitRecordingCwd().runner, taskRepo, bus);
+
+    // A non-fatal failure before the prerequisite settles — e.g. its worktree could not be set up.
+    const failedPrerequisite: WaveBranch<ImplementCtx> = {
+      id: implementBranchId(prerequisite.id),
+      element: {
+        name: `branch-${String(prerequisite.id)}`,
+        async execute(): Promise<ElementResult<ImplementCtx>> {
+          const error = new StorageError({ subCode: 'io', message: 'worktree add failed' });
+          return Result.error({
+            error,
+            trace: [{ elementName: 'worktree-setup', status: 'failed', durationMs: 0, error }],
+          });
+        },
+      },
+    };
+    const gatedDependent: WaveBranch<ImplementCtx> = {
+      id: implementBranchId(dependent.id),
+      element: buildWorktreeBranch(
+        deps,
+        repo,
+        dependent,
+        worktreePathFor(SPRINT_DIR, dependent.id),
+        'ralphctl/s1/wt-dependent',
+        PROGRESS,
+        () => sequential<ImplementCtx>('task', [dependencyGateLeaf({ taskRepo, logger: noopLogger }, dependent.id)])
+      ),
+    };
+
+    const element = createParallelImplementElement(
+      plan(tagElement('implement-prologue', []), realEpilogue(taskRepo), [[prerequisite], [dependent]]),
+      baseConfig({ buildWaves: () => [[failedPrerequisite], [gatedDependent]] }, recordingLocker([]), bus)
+    );
+
+    await element.execute({ sprintId: sprint.id, sprint, tasks: [prerequisite, dependent] });
+
+    const persisted = await taskRepo.findBySprintId(sprint.id);
+    if (!persisted.ok) throw persisted.error;
+    // A block here would strand the dependent: the prerequisite never blocks, so nothing re-arms it.
+    expect(persisted.value.find((t) => t.id === dependent.id)?.status).toBe('todo');
   });
 
   it('an abort landing after settle already persisted a block keeps the block AND its stash pointer', async () => {

@@ -4,7 +4,7 @@ import type { ProcessIdentity } from '@src/business/runs/live-run.ts';
 import type { SprintLockReader } from '@src/business/runs/find-live-sprint-owner.ts';
 import { DEFAULT_STALE_AFTER_MS, readLockOwner } from '@src/integration/io/file-locker.ts';
 import { repoLockFile } from '@src/integration/io/lock-paths.ts';
-import { sprintDir } from '@src/integration/persistence/storage.ts';
+import { currentSprintDir } from '@src/integration/persistence/storage.ts';
 
 export interface SprintLockReaderDeps {
   readonly dataRoot: AbsolutePath;
@@ -27,10 +27,10 @@ const heartbeatFresh = async (lockDir: string, now: number): Promise<boolean> =>
   }
 };
 
-/** Same key implement and review lock on: the sprint directory. */
+/** Same key implement and review lock on: the sprint directory their launcher resolved. */
 export const createSprintLockReader = (deps: SprintLockReaderDeps): SprintLockReader => ({
   async holderOf(sprint) {
-    const dir = AbsolutePath.parse(sprintDir(deps.dataRoot, sprint.id, sprint.slug));
+    const dir = AbsolutePath.parse(await currentSprintDir(deps.dataRoot, sprint.id, sprint.slug));
     if (!dir.ok) return undefined;
     const lock = repoLockFile(deps.locksRoot, dir.value);
     if (!lock.ok) return undefined;

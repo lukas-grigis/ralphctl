@@ -9,13 +9,12 @@ import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { Element, ElementResult } from '@src/application/chain/element.ts';
 import type { OnStart, OnTrace, TraceEntry } from '@src/application/chain/trace.ts';
 import { createRunner, type Runner } from '@src/application/chain/run/runner.ts';
-import { combineAbortSignals } from '@src/application/chain/run/combine-signals.ts';
 import { runWaves, type WaveBranch } from '@src/application/chain/run/wave-scheduler.ts';
 import { bridgeRunnerToEventBus } from '@src/application/observability/chain-runner-bridge.ts';
 import { rootSessionId } from '@src/application/session/session.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
 import type { FileLocker } from '@src/integration/io/file-locker.ts';
-import { repoLockFile } from '@src/integration/io/lock-paths.ts';
+import { withRepoLock } from '@src/application/flows/_shared/with-repo-lock.ts';
 
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import type { ImplementWavePlan } from '@src/application/flows/implement/flow.ts';
@@ -50,10 +49,9 @@ const WAVES_NODE_NAME = 'implement-waves';
  * prologue / waves / epilogue around it). The launcher runs it on ONE `createRunner` so the TUI
  * subscribes to a single runner, exactly as it does for the serial path.
  *
- * Everything runs under ONE held `fileLocker.withLock(<sprint-dir lock>)` — the lock is
- * hoisted to the launcher for the parallel path; the serial path keeps it inside the flow. The
- * same lock KEY the serial path uses (`repoLockFile(locksRoot, sprintDir)`) so a serial and a
- * parallel run of the same sprint still mutually exclude.
+ * Everything runs under ONE held sprint-dir lock taken through `withRepoLock` — the same wrapper and
+ * key the serial path uses, so a serial and a parallel run of the same sprint mutually exclude and a
+ * contended launch raises the same banner.
  *
  * Sequence inside the lock:
  *
@@ -64,19 +62,16 @@ const WAVES_NODE_NAME = 'implement-waves';
  *      the single fold queue.
  *   3. epilogue runner — ALWAYS runs, on the partially-merged ctx, even when `runWaves` returned an
  *      abort / fatal error (THE B4 durability gate). Its FIRST leaf, `adopt-persisted-blocks`,
- *      re-reads `tasks.json` and pulls back any `blocked` row a non-`completed` branch already
- *      persisted (a resume-budget exhaustion, a settle-then-abort, a dependency-gate block) before
- *      `saveTasksLeaf` runs — `mergeImplementWave` skips a non-`completed` branch entirely, so
- *      without this the epilogue would clobber that persisted block with the branch's pre-wave
- *      copy and the next launch would re-enter, re-block, and re-notify forever. `saveTasksLeaf`
- *      then persists every task whose commit was folded before the failure, so those commits are
- *      recorded in `tasks.json` and never re-execute as duplicates on relaunch.
+ *      re-reads `tasks.json` and pulls back every row a non-`completed` branch already persisted
+ *      (a block, an attempt it opened, or a landed fold's `done`) before `saveTasksLeaf` runs —
+ *      `mergeImplementWave` skips a non-`completed` branch entirely, so without this the epilogue
+ *      would clobber those writes with the branch's pre-wave copy. `saveTasksLeaf` then persists
+ *      every task whose commit was folded before the failure, so those commits are recorded in
+ *      `tasks.json` and never re-execute as duplicates on relaunch.
  *
  * After the epilogue, the `runWaves` error (AbortError verbatim, or a rate-limit) propagates so the
- * sprint stays runnable — in-progress / un-settled tasks reset to `todo` on the next launch via the
- * existing resume logic.
- *
- * @public
+ * sprint stays runnable — an attempt left `running` is settled by the operator-stop settle or, on
+ * the next launch, by `start-attempt`'s resume path.
  */
 export const createParallelImplementElement = (
   plan: ImplementWavePlan,
@@ -85,10 +80,24 @@ export const createParallelImplementElement = (
   // Built at most once, and only when first needed: by the run, or by a display walk of `children`.
   let built: ReadonlyArray<ReadonlyArray<WaveBranch<ImplementCtx>>> | undefined;
   const waves = (): ReadonlyArray<ReadonlyArray<WaveBranch<ImplementCtx>>> => (built ??= config.buildWaves());
+  const locked = withRepoLock<ImplementCtx>(
+    {
+      fileLocker: config.fileLocker,
+      locksRoot: config.locksRoot,
+      worktreePath: plan.lockKey,
+      eventBus: config.eventBus,
+      purpose: 'implement',
+    },
+    {
+      name: PARALLEL_ELEMENT_NAME,
+      execute: (ctx, signal, onTrace, onStart) => runUnderLock(plan, config, waves, ctx, signal, onTrace, onStart),
+    }
+  );
+  // Own name and children, not the wrapper's: the plan tree shows the three segments directly.
   return {
     name: PARALLEL_ELEMENT_NAME,
     children: [plan.prologue, wavesDisplayNode(waves), plan.epilogue],
-    execute: (ctx, signal, onTrace, onStart) => executeParallel(plan, config, waves, ctx, signal, onTrace, onStart),
+    execute: locked.execute,
   };
 };
 
@@ -116,51 +125,10 @@ const wavesDisplayNode = (
   },
 });
 
-const executeParallel = async (
-  plan: ImplementWavePlan,
-  config: ParallelImplementConfig,
-  waves: () => ReadonlyArray<ReadonlyArray<WaveBranch<ImplementCtx>>>,
-  ctx: ImplementCtx,
-  signal: AbortSignal | undefined,
-  onTrace: OnTrace | undefined,
-  onStart: OnStart | undefined
-): Promise<ElementResult<ImplementCtx>> => {
-  const lockPath = repoLockFile(config.locksRoot, plan.lockKey);
-  if (!lockPath.ok) {
-    const entry: TraceEntry = {
-      elementName: PARALLEL_ELEMENT_NAME,
-      status: 'failed',
-      durationMs: 0,
-      error: lockPath.error,
-    };
-    onTrace?.(entry);
-    return Result.error({ error: lockPath.error, trace: [entry] });
-  }
-
-  const acquired = await config.fileLocker.withLock(
-    lockPath.value,
-    async (lockSignal) =>
-      runUnderLock(plan, config, waves, ctx, combineAbortSignals(signal, lockSignal), onTrace, onStart),
-    { purpose: 'implement' }
-  );
-  if (!acquired.ok) {
-    // Lock contention — surface verbatim. No waves ran, nothing to persist.
-    const entry: TraceEntry = {
-      elementName: PARALLEL_ELEMENT_NAME,
-      status: 'failed',
-      durationMs: 0,
-      error: acquired.error,
-    };
-    onTrace?.(entry);
-    return Result.error({ error: acquired.error, trace: [entry] });
-  }
-  return acquired.value;
-};
-
 /**
  * The body that runs INSIDE the held lock: prologue → waves → epilogue (always, once the prologue
- * succeeded). Split out so the lock-acquisition branching stays small. The held lock is released by
- * `withLock`'s `finally` only after this resolves — so the epilogue persist completes under the lock.
+ * succeeded). The held lock is released by `withLock`'s `finally` only after this resolves — so the
+ * epilogue persist completes under the lock.
  */
 const runUnderLock = async (
   plan: ImplementWavePlan,
@@ -266,7 +234,7 @@ const forwardBranchSteps = (
  * once it reaches a terminal state. ONLY a runner that `completed` is captured: a `completed`
  * branch ran its fold step to the end, so its task either folded (`done`) or fold-conflicted
  * (`blocked`) — either way the transition is durable. An `aborted` / `failed` branch is skipped so
- * its task falls back to `base` (resets to `todo` and re-runs).
+ * its task falls back to `base`, and the epilogue's `adopt-persisted-blocks` restores what it wrote.
  *
  * Captures ONLY the task the branch OWNS (via {@link ownedTask}, keyed off the branch's stable
  * `id`) — never the whole `event.ctx.tasks` list. A branch's ctx nominally carries every task
@@ -295,7 +263,7 @@ const captureDurableFold = (runner: Runner<ImplementCtx>, branchId: string, into
 /**
  * Overlay the durably-folded task copies onto a base ctx's `tasks` by id — the abort-path epilogue
  * ctx. `folded` holds only tasks OWNED by a branch that reached `completed` (see
- * {@link captureDurableFold}), so this can only ever advance a task, never revert one; any block a
+ * {@link captureDurableFold}), so this can only ever advance a task, never revert one; whatever a
  * non-`completed` branch persisted to disk (and is therefore NOT in `folded`) is picked back up
  * separately by the epilogue's `adopt-persisted-blocks` leaf, not here.
  */

@@ -9,6 +9,7 @@ import { createCappedLineFeed, emitJsonObjectLine } from '@src/integration/ai/pr
 import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session.ts';
 import type { CodexProviderDeps } from '@src/integration/ai/providers/_engine/headless-provider-deps.ts';
 import { resolveWritableRoots } from '@src/integration/ai/providers/_engine/resolve-roots.ts';
+import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { AbortError } from '@src/domain/value/error/abort-error.ts';
 import type { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
@@ -40,11 +41,13 @@ import { messageOf } from '@src/domain/value/error/error-message.ts';
  *   | --------------------------------- | --------------------------------------------------------------- |
  *   | fresh session                     | `exec`                                                          |
  *   | resume: <SessionId>               | `exec resume <id>`                                              |
- *   | (always)                          | `--ephemeral --skip-git-repo-check -o <tmpfile> --json`        |
+ *   | (always)                          | `--skip-git-repo-check -o <tmpfile> --json`                     |
  *   | model: <CodexModel>               | `-m <model>`                                                    |
- *   | cwd                               | `-C <cwd>` (fresh only; `exec resume` does not accept it)      |
- *   | additionalRoots: [a, b]           | `--add-dir a --add-dir b` (fresh only; `exec resume` does not) |
- *   | permissions (any profile)         | `-s workspace-write` (fresh only)                               |
+ *   | cwd                               | `-C <cwd>` (fresh); resume runs in the spawn cwd               |
+ *   | additionalRoots: [a, b]           | `--add-dir a --add-dir b` (fresh)                               |
+ *   |                                   | `-c sandbox_workspace_write.writable_roots=["a","b"]` (resume) |
+ *   | permissions (any profile)         | `-s workspace-write` (fresh)                                    |
+ *   |                                   | `-c sandbox_mode="workspace-write"` (resume)                    |
  *   | effort: <level>                   | `-c model_reasoning_effort=<level>`                             |
  *   | (always, trailing)                | `-` (read prompt from stdin)                                    |
  *   | prompt                            | piped to stdin                                                  |
@@ -130,6 +133,10 @@ interface BuildCodexArgsOpts {
   readonly outputFile: string;
 }
 
+// JSON string escapes are valid TOML basic-string escapes, so this is a TOML array literal.
+const tomlStringArray = (values: readonly AbsolutePath[]): string =>
+  `[${values.map((v) => JSON.stringify(String(v))).join(',')}]`;
+
 /**
  * Build the argv for one Codex invocation. Validates `session.model` against
  * {@link CodexModel}; surfaces `InvalidStateError` for unknowns.
@@ -150,12 +157,18 @@ export const buildCodexArgs = (
   if (isResume) {
     args.push('resume', String(session.resume));
   }
-  args.push('--ephemeral', '--skip-git-repo-check', '-o', opts.outputFile, '--json', '-m', session.model);
-  if (!isResume) {
+  // No `--ephemeral`: it skips writing the rollout, so every later `exec resume` found nothing.
+  args.push('--skip-git-repo-check', '-o', opts.outputFile, '--json', '-m', session.model);
+  // Auto-mount `outputDir` so signals.json can land inside the workspace-write sandbox.
+  // See resolve-roots.ts for the dedup rules.
+  const roots = resolveWritableRoots(session);
+  if (isResume) {
+    // `exec resume` has no -C / -s / --add-dir and runs read-only unless the sandbox is re-declared.
+    args.push('-c', `sandbox_mode="${CODEX_SANDBOX}"`);
+    if (roots.length > 0) args.push('-c', `sandbox_workspace_write.writable_roots=${tomlStringArray(roots)}`);
+  } else {
     args.push('-C', String(session.cwd), '-s', CODEX_SANDBOX);
-    // Auto-mount `outputDir` so signals.json can land inside the workspace-write sandbox.
-    // See resolve-roots.ts for the dedup rules.
-    for (const root of resolveWritableRoots(session)) {
+    for (const root of roots) {
       args.push('--add-dir', String(root));
     }
   }
@@ -436,7 +449,6 @@ const runCodexAttempt = (
     ...base,
     args: built.value,
     session: attemptSession,
-    resolveOn: 'exit',
     // `cwd` is set in addition to codex's argv `-C` so context-file autoload works on
     // `exec resume` (which does not accept `-C`) and is consistent with the other adapters.
     // See CLAUDE.md §Security.

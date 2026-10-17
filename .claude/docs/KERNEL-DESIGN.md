@@ -326,7 +326,7 @@ sequential('refine', [
         stampSessionMetaLeaf,
         refineTicketInteractiveLeaf, // reads <unit-root>/signals.json (refine contract), updates ticket
         uninstallSkillsLeaf({ name: `uninstall-skills-${t.id}` }),
-        saveSprintLeaf,
+        saveRefinedTicketLeaf, // locked update: approved ticket onto the sprint as it is on disk now
       ])
     )
   ),
@@ -336,8 +336,8 @@ sequential('refine', [
 ### implementFlow (per-task gen-eval loop)
 
 > Simplified for readability. The live topology in
-> `src/application/flows/implement/leaves/per-task-subchain.ts` additionally wraps the task body in a
-> dependency-gate `guard` and adds restore / quarantine diff leaves. This sketch shows the loop / guard
+> `src/application/flows/implement/leaves/per-task-subchain.ts` additionally runs the dependency and
+> resume-budget gates ahead of a `guard` around the task body, and adds restore / quarantine diff leaves. This sketch shows the loop / guard
 > skeleton, not every leaf.
 
 ```ts
@@ -394,9 +394,9 @@ const perTask = sequential('task-<id>', [
 const orderedTasks = [...tasks].sort((a, b) => (a.status === b.status ? 0 : a.status === 'in_progress' ? -1 : 1));
 
 // The whole run is wrapped in `withRepoLock(...)` (src/application/flows/_shared/with-repo-lock.ts),
-// a ctx-generic helper keyed on the sprint dir — shared by both implement (serial path) and review,
-// so an implement run and a review run of the same sprint mutually exclude. The parallel implement
-// path holds the same lock key directly in parallel-element.ts (spanning prologue + waves + epilogue).
+// a ctx-generic helper keyed on the sprint dir — shared by both implement paths and review, so an
+// implement run and a review run of the same sprint mutually exclude. The parallel implement path
+// wraps its own prologue + waves + epilogue runner in it (parallel-element.ts).
 sequential('implement', [
   withRepoLock(
     {/* sprint-dir lock */},

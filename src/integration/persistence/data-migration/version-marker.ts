@@ -9,8 +9,6 @@ import { StorageError } from '@src/domain/value/error/storage-error.ts';
  * The current on-disk `data/` layout version this build understands. Bumped each time the layout
  * changes in a way that needs a one-time migration. v1 = legacy bare `<id>` names; v2 = the
  * human-readable `<id>--<slug>` names introduced in Wave 1.
- *
- * @public
  */
 export const CURRENT_DATA_VERSION = 2;
 
@@ -21,8 +19,6 @@ export const DATA_VERSION_FILENAME = '.ralphctl-data-version.json';
  * The persisted marker shape. `dataVersion` is the layout the data was last stamped at;
  * `lastWrittenByAppVersion` records the ralphctl version that stamped it, so a future failure
  * screen can name the exact version to downgrade to if a later migration goes wrong.
- *
- * @public
  */
 export interface DataVersionMarker {
   readonly dataVersion: number;
@@ -36,8 +32,6 @@ const markerSchema = z.object({
 
 /**
  * Absolute path of the version marker for a given `data/` root. Pure — no I/O.
- *
- * @public
  */
 export const versionMarkerPath = (dataRoot: AbsolutePath): string => join(String(dataRoot), DATA_VERSION_FILENAME);
 
@@ -50,8 +44,6 @@ export const versionMarkerPath = (dataRoot: AbsolutePath): string => join(String
  *
  * Never throws — the worst case (a marker that exists but is garbage) degrades to v1, which is the
  * safe direction (re-offer the migration; tolerant readers cover the gap until it runs).
- *
- * @public
  */
 export const readDataVersion = async (dataRoot: AbsolutePath): Promise<DataVersionMarker> => {
   let bytes: string;
@@ -80,8 +72,6 @@ export const readDataVersion = async (dataRoot: AbsolutePath): Promise<DataVersi
  * version) and the migration re-runs idempotently next launch. The write is NOT atomic-via-rename
  * here — a torn marker write just reads back as v1 (see {@link readDataVersion}), which re-offers
  * the migration rather than corrupting anything.
- *
- * @public
  */
 export const writeDataVersion = async (
   dataRoot: AbsolutePath,
@@ -104,8 +94,6 @@ export const writeDataVersion = async (
  * GREATER than current (a newer ralphctl wrote this tree, then the user downgraded) ⇒ ALSO not
  * pending — we never downgrade data, the tolerant readers of the newer layout are forward-compatible
  * enough for the older binary to keep running.
- *
- * @public
  */
 export const needsMigration = async (dataRoot: AbsolutePath): Promise<boolean> => {
   const { dataVersion } = await readDataVersion(dataRoot);

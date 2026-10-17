@@ -98,7 +98,8 @@ describe('MigrationGate', () => {
     const frame = r.lastFrame() ?? '';
     expect(frame).toContain('2 sprints');
     expect(frame).toContain('1 project');
-    expect(frame).toContain('a full backup is taken first');
+    expect(frame).toContain('a backup is taken first');
+    expect(frame).not.toContain('full backup');
     r.unmount();
   });
 
@@ -166,6 +167,10 @@ describe('MigrationGate', () => {
     expect(frame).toContain('/home/me/.ralphctl/data.backup-v1-2026');
     expect(frame).toContain('npm install -g ralphctl@0.11.4');
     expect(frame).toContain('your current version still reads');
+    // The backup skips sprint worktrees, so the rollback copy must not promise a wholesale replace.
+    expect(frame).not.toContain('full backup');
+    expect(frame).toContain('except sprints/*/worktrees/');
+    expect(frame).toContain('keep those from your current data/');
     // Continue (Enter) → proceed into the app on the tolerant readers.
     r.stdin.write(ENTER);
     await waitForPredicate(() => h.resolved.length > 0);

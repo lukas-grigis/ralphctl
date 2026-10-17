@@ -29,7 +29,7 @@ non-consent outcome.
   ensureStorageRoots; `renderElement` thunk calls `shouldShowMigrationGate(pending, gateResolved)`
   (exported pure helper — the testable seam) to choose `MigrationRoute` vs `App`. appVersion =
   `CLI_METADATA.currentVersion`, now = `() => String(deps.clock())`.
-- cli/bootstrap.ts: NO splash, NO auto-migrate (one-shots run headless on tolerant readers); a comment
+- bootstrap/bootstrap-app.ts (shared CLI + TUI pre-flight): NO splash, NO auto-migrate (one-shots run headless on tolerant readers); a comment
   states the TUI owns consent.
 - Failure screen reads the prior version post-failure via `engine.readMarker(dataRoot)`; the marker is
   unstamped on an apply failure (stamped ONLY on full success, so the CURRENT version still reads the

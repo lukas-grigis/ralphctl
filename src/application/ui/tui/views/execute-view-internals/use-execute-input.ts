@@ -7,10 +7,10 @@
  *   - not running                         : `↵ home · r re-run · g progress · u unblock`
  *
  * `u` (unblock) is advertised ONLY in the settled set: the Tasks panel's own `u` chord is a
- * no-op while a run is live (`TasksPanelHost` empties `blockedTaskIds` mid-run — see its
- * docstring for the TOCTOU precondition that forces this), so hinting it during a run would
- * advertise a key whose handler rejects every press, which is the exact thing DESIGN-SYSTEM's
- * hint-strip invariant forbids.
+ * no-op while a run is live (`TasksPanelHost` empties `blockedTaskIds` mid-run because
+ * `unblockTaskLocked` would stall on the sprint-dir lock the run holds — see its docstring), so
+ * hinting it during a run would advertise a key whose handler rejects every press, which is the
+ * exact thing DESIGN-SYSTEM's hint-strip invariant forbids.
  *
  * Key handling:
  *   - help / prompt overlays own the keyboard — early-return when active.

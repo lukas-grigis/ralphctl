@@ -31,8 +31,6 @@ import type { DryRunReport } from '@src/integration/persistence/data-migration/t
  * The TUI launch pre-flight (`launchTui`) drives this engine behind the consent splash. There is
  * no top-level side effect here; the engine never runs without that explicit consent (or the
  * no-op `stampCurrent` fast-path).
- *
- * @public
  */
 export interface DataMigrationEngine {
   readonly needsMigration: (dataRoot: AbsolutePath) => Promise<boolean>;
@@ -56,8 +54,6 @@ export interface DataMigrationEngine {
 /**
  * Build the data-migration engine. A factory (not a module-level singleton) so callers can wire a
  * test double, and so the engine carries no hidden global state. Pure construction — no I/O.
- *
- * @public
  */
 export const createDataMigrationEngine = (): DataMigrationEngine => ({
   needsMigration: markerNeedsMigration,

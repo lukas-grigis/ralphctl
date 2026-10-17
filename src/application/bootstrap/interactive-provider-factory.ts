@@ -28,8 +28,6 @@ const INTERACTIVE_FACTORIES: Readonly<Record<AiProvider, (deps: InteractiveProvi
  * provider-keyed seam (vs. the flow-keyed {@link createInteractiveAiProvider}) — used by the
  * distill sub-chain's per-distinct-provider fan-out, where the provider set is derived directly
  * (not via a flow row).
- *
- * @public
  */
 export const createInteractiveAiProviderFor = (provider: AiProvider, eventBus: EventBus): InteractiveAiProvider =>
   INTERACTIVE_FACTORIES[provider]({ eventBus });

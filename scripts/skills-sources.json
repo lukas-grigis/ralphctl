@@ -3,7 +3,8 @@
   "$cleanRoom": [
     "ralphctl-surgical-simplicity is clean-room (authored in-repo, no upstream) \u2014 intentionally omitted from `skills` below; `pnpm skills:update` does not manage it.",
     "ralphctl-karpathy-guidelines is clean-room (distilled from Andrej Karpathy's public X post https://x.com/karpathy/status/2015883857489522876 \u2014 concepts only, no upstream SKILL.md) \u2014 not sync-managed.",
-    "ralphctl-cherny-workflow is clean-room (distilled from Boris Cherny's public X thread https://x.com/bcherny/status/2007179832300581177 \u2014 concepts only, no upstream SKILL.md) \u2014 not sync-managed."
+    "ralphctl-cherny-workflow is clean-room (distilled from Boris Cherny's public X thread https://x.com/bcherny/status/2007179832300581177 \u2014 concepts only, no upstream SKILL.md) \u2014 not sync-managed.",
+    "ralphctl-humanizer IS sync-managed below, but for drift review only: its pattern catalogue is paraphrased, never copied, because upstream derives it from Wikipedia's CC BY-SA \"Signs of AI writing\" page. Re-word any new upstream pattern in your own words."
   ],
   "skills": [
     {
@@ -69,6 +70,86 @@
       "ref": "main",
       "license": "MIT",
       "upstreamUrl": "https://github.com/addyosmani/agent-skills"
+    },
+    {
+      "name": "ralphctl-api-and-interface-design",
+      "repo": "addyosmani/agent-skills",
+      "path": "skills/api-and-interface-design/SKILL.md",
+      "ref": "main",
+      "license": "MIT",
+      "upstreamUrl": "https://github.com/addyosmani/agent-skills"
+    },
+    {
+      "name": "ralphctl-performance-optimization",
+      "repo": "addyosmani/agent-skills",
+      "path": "skills/performance-optimization/SKILL.md",
+      "ref": "main",
+      "license": "MIT",
+      "upstreamUrl": "https://github.com/addyosmani/agent-skills"
+    },
+    {
+      "name": "ralphctl-frontend-ui-engineering",
+      "repo": "addyosmani/agent-skills",
+      "path": "skills/frontend-ui-engineering/SKILL.md",
+      "ref": "main",
+      "license": "MIT",
+      "upstreamUrl": "https://github.com/addyosmani/agent-skills"
+    },
+    {
+      "name": "ralphctl-deprecation-and-migration",
+      "repo": "addyosmani/agent-skills",
+      "path": "skills/deprecation-and-migration/SKILL.md",
+      "ref": "main",
+      "license": "MIT",
+      "upstreamUrl": "https://github.com/addyosmani/agent-skills"
+    },
+    {
+      "name": "ralphctl-code-simplification",
+      "repo": "addyosmani/agent-skills",
+      "path": "skills/code-simplification/SKILL.md",
+      "ref": "main",
+      "license": "MIT",
+      "upstreamUrl": "https://github.com/addyosmani/agent-skills"
+    },
+    {
+      "name": "ralphctl-source-driven-development",
+      "repo": "addyosmani/agent-skills",
+      "path": "skills/source-driven-development/SKILL.md",
+      "ref": "main",
+      "license": "MIT",
+      "upstreamUrl": "https://github.com/addyosmani/agent-skills"
+    },
+    {
+      "name": "ralphctl-observability-and-instrumentation",
+      "repo": "addyosmani/agent-skills",
+      "path": "skills/observability-and-instrumentation/SKILL.md",
+      "ref": "main",
+      "license": "MIT",
+      "upstreamUrl": "https://github.com/addyosmani/agent-skills"
+    },
+    {
+      "name": "ralphctl-codebase-design",
+      "repo": "mattpocock/skills",
+      "path": "skills/engineering/codebase-design/SKILL.md",
+      "ref": "main",
+      "license": "MIT",
+      "upstreamUrl": "https://github.com/mattpocock/skills"
+    },
+    {
+      "name": "ralphctl-writing-for-agents",
+      "repo": "mattpocock/skills",
+      "path": "skills/productivity/writing-for-agents/SKILL.md",
+      "ref": "main",
+      "license": "MIT",
+      "upstreamUrl": "https://github.com/mattpocock/skills"
+    },
+    {
+      "name": "ralphctl-humanizer",
+      "repo": "blader/humanizer",
+      "path": "SKILL.md",
+      "ref": "main",
+      "license": "MIT",
+      "upstreamUrl": "https://github.com/blader/humanizer"
     }
   ]
 }

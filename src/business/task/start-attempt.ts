@@ -108,18 +108,16 @@ const findResumableSession = async (
 /**
  * Settling the leftover attempt pushed the task over `maxAttempts`, so the domain blocked it.
  *
- * Persist the blocked transition BEFORE surfacing the error. Without this the leftover running
- * attempt stays on disk: the next launch re-enters this same resume path, re-settles it to blocked,
- * re-errors — an infinite stuck loop where the task is never reported blocked and never leaves the
- * queue. Persisting makes the block durable, so the launch queue filters it out (blocked is not
- * resumable) and the operator can `unblock` it. A persist failure is surfaced in preference to the
- * blocked-state error (it's the more actionable system fault).
+ * Persist the blocked transition. Without this the leftover running attempt stays on disk: the next
+ * launch re-enters this same resume path, re-settles it to blocked — an infinite stuck loop where
+ * the task is never reported blocked and never leaves the queue. Persisting makes the block durable,
+ * so the launch queue filters it out (blocked is not resumable) and the operator can `unblock` it.
  */
 const persistBlockedAfterResume = async (
-  props: StartAttemptProps,
+  props: Pick<StartAttemptProps, 'sprintId' | 'taskRepo'>,
   blocked: BlockedTask,
   log: Logger
-): Promise<Result<never, InvalidStateError | NotFoundError | StorageError>> => {
+): Promise<Result<BlockedTask, NotFoundError | StorageError>> => {
   log.warn('task blocked after settling aborted attempt (attempt budget exhausted)', {
     taskId: blocked.id,
     blockedReason: blocked.blockedReason,
@@ -132,25 +130,18 @@ const persistBlockedAfterResume = async (
     });
     return Result.error(persisted.error);
   }
-  return Result.error(
-    new InvalidStateError({
-      entity: 'task',
-      currentState: 'blocked',
-      attemptedAction: 'start-attempt-after-resume',
-      message: `task '${String(blocked.id)}' is blocked: ${blocked.blockedReason ?? 'unknown reason'}`,
-    })
-  );
+  return Result.ok(blocked);
 };
 
-/**
- * Re-read the task, refuse to proceed on divergence, then settle the leftover `running` attempt as
- * `aborted` so the domain invariant ("only one running attempt at a time") holds before a fresh
- * attempt is appended.
- */
-const resumeFromLeftoverAttempt = async (
-  props: StartAttemptProps,
+/** Settle a leftover `running` attempt the way a resume does: aborted, harness-interrupted, free. */
+const settleInterrupted = (task: Task, at: IsoTimestamp) =>
+  failCurrentAttempt(task, at, 'aborted', { abortCause: INTERRUPTED_CAUSE });
+
+/** Re-read the task and refuse when the in-memory copy no longer matches disk. */
+const requireFreshCopy = async (
+  props: Pick<StartAttemptProps, 'task' | 'sprintId' | 'taskRepo'>,
   log: Logger
-): Promise<Result<ResumeOutcome, InvalidStateError | NotFoundError | StorageError | ValidationError>> => {
+): Promise<Result<void, InvalidStateError | NotFoundError | StorageError>> => {
   const fresh = await props.taskRepo.findById(props.sprintId, props.task.id);
   if (!fresh.ok) {
     log.warn('resume: could not re-read task for divergence check', {
@@ -160,25 +151,38 @@ const resumeFromLeftoverAttempt = async (
     return Result.error(fresh.error);
   }
   const persisted = fresh.value;
-  if (detectDivergence(props.task, persisted)) {
-    log.warn('resume: in-memory task diverges from persisted state — refusing to overwrite', {
-      taskId: props.task.id,
-      inMemoryStatus: props.task.status,
-      persistedStatus: persisted.status,
-      inMemoryAttempts: props.task.attempts.length,
-      persistedAttempts: persisted.attempts.length,
-      inMemoryLastStartedAt: props.task.attempts.at(-1)?.startedAt,
-      persistedLastStartedAt: persisted.attempts.at(-1)?.startedAt,
-    });
-    return Result.error(
-      new InvalidStateError({
-        entity: 'task',
-        currentState: persisted.status,
-        attemptedAction: 'resume-from-stale-cache',
-        message: `task '${String(props.task.id)}' diverges between in-memory (${props.task.status}, ${String(props.task.attempts.length)} attempts) and persisted state (${persisted.status}, ${String(persisted.attempts.length)} attempts). Reload tasks and retry.`,
-      })
-    );
-  }
+  if (!detectDivergence(props.task, persisted)) return Result.ok(undefined);
+  log.warn('resume: in-memory task diverges from persisted state — refusing to overwrite', {
+    taskId: props.task.id,
+    inMemoryStatus: props.task.status,
+    persistedStatus: persisted.status,
+    inMemoryAttempts: props.task.attempts.length,
+    persistedAttempts: persisted.attempts.length,
+    inMemoryLastStartedAt: props.task.attempts.at(-1)?.startedAt,
+    persistedLastStartedAt: persisted.attempts.at(-1)?.startedAt,
+  });
+  return Result.error(
+    new InvalidStateError({
+      entity: 'task',
+      currentState: persisted.status,
+      attemptedAction: 'resume-from-stale-cache',
+      message: `task '${String(props.task.id)}' diverges between in-memory (${props.task.status}, ${String(props.task.attempts.length)} attempts) and persisted state (${persisted.status}, ${String(persisted.attempts.length)} attempts). Reload tasks and retry.`,
+    })
+  );
+};
+
+/**
+ * Re-read the task, refuse to proceed on divergence, then settle the leftover `running` attempt as
+ * `aborted` so the domain invariant ("only one running attempt at a time") holds before a fresh
+ * attempt is appended. When that settle blocks the task, the block is persisted and surfaced as an
+ * error — {@link blockExhaustedResumeUseCase} normally takes that path first, so this is a backstop.
+ */
+const resumeFromLeftoverAttempt = async (
+  props: StartAttemptProps,
+  log: Logger
+): Promise<Result<ResumeOutcome, InvalidStateError | NotFoundError | StorageError | ValidationError>> => {
+  const fresh = await requireFreshCopy(props, log);
+  if (!fresh.ok) return Result.error(fresh.error);
 
   const priorAttemptN = props.task.attempts.length;
   const abortedAt = props.clock();
@@ -187,7 +191,7 @@ const resumeFromLeftoverAttempt = async (
     priorAttemptN,
     cause: INTERRUPTED_CAUSE,
   });
-  const aborted = failCurrentAttempt(props.task, abortedAt, 'aborted', { abortCause: INTERRUPTED_CAUSE });
+  const aborted = settleInterrupted(props.task, abortedAt);
   if (!aborted.ok) {
     log.warn('failed to settle prior running attempt during resume', {
       taskId: props.task.id,
@@ -196,7 +200,16 @@ const resumeFromLeftoverAttempt = async (
     return Result.error(aborted.error);
   }
   if (aborted.value.status === 'blocked') {
-    return persistBlockedAfterResume(props, aborted.value, log);
+    const persisted = await persistBlockedAfterResume(props, aborted.value, log);
+    if (!persisted.ok) return Result.error(persisted.error);
+    return Result.error(
+      new InvalidStateError({
+        entity: 'task',
+        currentState: 'blocked',
+        attemptedAction: 'start-attempt-after-resume',
+        message: `task '${String(persisted.value.id)}' is blocked: ${persisted.value.blockedReason}`,
+      })
+    );
   }
   const resumeSessionId = await findResumableSession(props, priorAttemptN, log);
   return Result.ok({
@@ -204,6 +217,26 @@ const resumeFromLeftoverAttempt = async (
     recovering: { fromAttemptN: priorAttemptN, cause: INTERRUPTED_CAUSE, abortedAt },
     ...(resumeSessionId !== undefined ? { resumeSessionId } : {}),
   });
+};
+
+/**
+ * Resume budget check, run before the task's body builds a workspace or installs skills: when
+ * settling the leftover `running` attempt would push the task past its attempt budget, persist that
+ * block and return it, so the chain sees a blocked task it can skip rather than an error that ends
+ * the run. `undefined` — nothing written — when the task has no leftover attempt or the settle
+ * leaves budget; `start-attempt` then resumes as usual.
+ */
+export const blockExhaustedResumeUseCase = async (
+  props: Omit<StartAttemptProps, 'crashResume'>
+): Promise<Result<BlockedTask | undefined, InvalidStateError | NotFoundError | StorageError>> => {
+  if (!hasRunningAttempt(props.task)) return Result.ok(undefined);
+  const settled = settleInterrupted(props.task, props.clock());
+  // A settle that fails or keeps budget is `start-attempt`'s to handle, with its own logging.
+  if (!settled.ok || settled.value.status !== 'blocked') return Result.ok(undefined);
+  const log = props.logger.named('task.start-attempt');
+  const fresh = await requireFreshCopy(props, log);
+  if (!fresh.ok) return Result.error(fresh.error);
+  return persistBlockedAfterResume(props, settled.value, log);
 };
 
 export const startAttemptUseCase = async (

@@ -4,8 +4,8 @@
  * `tasksPanelKeys.unblock`, which never otherwise reaches `useViewHints`). Gated on
  * `hasBlockedTask` (mirroring `v evaluation`'s `hasEvaluation` gate) and shown ONLY in the settled
  * set — the Tasks panel forces the `u` chord inert while a run is live (see
- * `tasks-panel-host.tsx`'s TOCTOU note), so hinting it during a run would advertise a key whose
- * handler rejects every press.
+ * `tasks-panel-host.tsx`'s sprint-dir lock note), so hinting it during a run would advertise a
+ * key whose handler rejects every press.
  */
 
 import React from 'react';

@@ -252,7 +252,6 @@ const renderBySprint = (bySprint: readonly SprintOutcomeRollup[]): readonly stri
 /**
  * The full report. Sections are separated by a blank line; the trailing newline is included so callers can
  * `process.stdout.write(render(...))` directly.
- * @public
  */
 export const renderOutcomeStats = (stats: OutcomeStats): string => {
   const sections: ReadonlyArray<readonly string[]> = [

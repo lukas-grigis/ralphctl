@@ -12,6 +12,7 @@ import { buildAttemptBody, type AttemptReadConfig } from '@src/application/flows
 import { branchPreflightLeaf } from '@src/application/flows/implement/leaves/branch-preflight.ts';
 import { buildTaskWorkspaceLeaf } from '@src/application/flows/implement/leaves/build-task-workspace.ts';
 import { dependencyGateLeaf, isTaskRunnable } from '@src/application/flows/implement/leaves/dependency-gate.ts';
+import { resumeBudgetGateLeaf } from '@src/application/flows/implement/leaves/resume-budget-gate.ts';
 import type { GenEvalLoopRoleConfig } from '@src/application/flows/implement/leaves/gen-eval-loop.ts';
 import {
   isSettledBlocked,
@@ -33,10 +34,11 @@ import type { AgentDefinition } from '@src/integration/ai/agents/_engine/agent-d
  * Per-task subchain factory. Returns the `sequential('task-<id>', [...])` element that runs the
  * complete lifecycle for ONE task.
  *
- * The shape is a dependency gate + a guarded body (once-per-task prologue + inner attempt loop +
+ * The shape is two gates + a guarded body (once-per-task prologue + inner attempt loop +
  * once-per-task epilogue):
  *
- *   dependency-gate →                                                // block-upstream-if prereq ≠ done
+ *   dependency-gate →                                                // block-upstream-if prereq blocked
+ *   resume-budget-gate →                                             // block if the resume exhausts budget
  *   guard('task-runnable-<id>', sequential('task-body-<id>', [       // body runs only when runnable
  *     branch-preflight → workspace build → install-skills →          // once per task
  *     reset-reproduction → guard('reproduce-guard-<id>', reproduce)  // once per task, defect-shaped only
@@ -48,8 +50,8 @@ import type { AgentDefinition } from '@src/integration/ai/agents/_engine/agent-d
  *
  * `buildAttemptBody` (see `attempt-body.ts`) is the per-attempt segment the loop re-enters.
  *
- * The leading `dependency-gate` is the blocked-dependency dead-end fix: if any `dependsOn` task
- * is not `done`, it transitions this task to `blocked upstream …` and the `task-runnable` guard
+ * The leading `dependency-gate` is the blocked-dependency dead-end fix: if a `dependsOn` task is
+ * `blocked`, it transitions this task to `blocked upstream …` and the `task-runnable` guard
  * skips the entire body — so a dependent never spawns the generator against a tree missing its
  * prerequisite's work (which used to self-block and ship the sprint partial).
  *
@@ -281,6 +283,23 @@ const buildAgentDefinitionUninstallLeaves = (
 };
 
 /**
+ * The per-task preconditions, run before the `task-runnable` guard so a task either gate blocks
+ * never reaches its body:
+ *  - dependency gate (blocked-dependency dead-end fix): a `blocked` prerequisite blocks this task
+ *    `blocked upstream …`, so a dependent never spawns the generator against a tree missing its
+ *    prerequisite's work. Transitive by construction (A blocks → B → C …).
+ *  - resume budget gate: a resume that would exhaust the attempt budget blocks here instead of
+ *    failing `start-attempt`, which on the serial path would end the run.
+ */
+const buildTaskGates = (deps: ImplementDeps, taskId: TaskId): Array<Element<ImplementCtx>> => [
+  dependencyGateLeaf({ taskRepo: deps.taskRepo, logger: deps.logger }, taskId),
+  resumeBudgetGateLeaf(
+    { taskRepo: deps.taskRepo, clock: deps.clock, logger: deps.logger, eventBus: deps.eventBus },
+    taskId
+  ),
+];
+
+/**
  * Pure predicate read by the attempt loop's `shouldStop`. Looks up the task in `ctx.tasks` (the
  * settled copy `settle-attempt` writes back after each attempt) and reports whether it reached a
  * terminal status — `done` or `blocked`. A task left `in_progress` (escalation retry) or `todo`
@@ -315,11 +334,7 @@ export const createPerTaskSubchain = (
   // disagree about which attempt the budget runs out on.
   const effectiveMaxAttempts = task.maxAttempts ?? deps.config.harness.maxAttempts;
   const subchain = sequential<ImplementCtx>(`task-${String(taskId)}`, [
-    // Dependency gate (blocked-dependency dead-end fix). Runs FIRST: if any `dependsOn` task is
-    // not `done`, it transitions this task straight to `blocked upstream …` and the body guard
-    // below skips the whole lifecycle — so a dependent never spawns the generator against a tree
-    // missing its prerequisite's work. Transitive by construction (A blocks → B → C …).
-    dependencyGateLeaf({ taskRepo: deps.taskRepo, logger: deps.logger }, taskId),
+    ...buildTaskGates(deps, taskId),
     guard<ImplementCtx>(
       `task-runnable-${String(taskId)}`,
       (ctx) => isTaskRunnable(ctx, taskId),
@@ -403,6 +418,7 @@ export const createPerTaskSubchain = (
                     gitRunner: deps.gitRunner,
                     taskRepo: deps.taskRepo,
                     appendFile: deps.appendFile,
+                    journalMutex: deps.journalMutex,
                     logger: deps.logger,
                   },
                   { cwd: repo.path, progressFile: opts.progressFile },

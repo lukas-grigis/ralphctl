@@ -6,14 +6,11 @@
  *
  * The hook re-derives on every SIGWINCH (resize) via the underlying terminal-size subscription,
  * so layouts react cleanly as the user resizes mid-flight.
- *
- * @public
  */
 
 import { useTerminalSize } from '@src/application/ui/tui/runtime/use-terminal-size.ts';
 import { type Breakpoint, breakpointFor } from '@src/application/ui/tui/theme/tokens.ts';
 
-/** @public */
 export interface BreakpointState {
   readonly breakpoint: Breakpoint;
   readonly columns: number;

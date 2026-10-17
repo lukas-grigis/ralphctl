@@ -96,6 +96,14 @@ describe('detect-scripts template — detection guidance', () => {
     return r.value as unknown as string;
   };
 
+  it('keeps the one-shot session going until the signals file is written', async () => {
+    expect(detectScriptsPromptDef.partials).toMatchObject({ ONE_SHOT_OPERATION: 'one-shot-operation' });
+    const flattened = (await renderedBody()).replace(/\s+/g, ' ');
+    expect(flattened.split('<one-shot-operation>')).toHaveLength(2);
+    expect(flattened).toContain('keep going until `signals.json` is written at the path the output contract names');
+    expect(flattened).toContain('only when nothing can proceed without the operator');
+  });
+
   it('instructs the AI to read coding-agent context files first', async () => {
     const body = await renderedBody();
     // The constraint block must explicitly position coding-agent context files as the primary
@@ -104,6 +112,12 @@ describe('detect-scripts template — detection guidance', () => {
     // The two canonical coding-agent context filenames must be named explicitly.
     expect(body).toMatch(/CLAUDE\.md/);
     expect(body).toMatch(/AGENTS\.md/);
+  });
+
+  it('also looks in the rules directories other tools read next to their context files', async () => {
+    const body = await renderedBody();
+    expect(body).toContain('`.grok/rules/*.md`');
+    expect(body).toContain('`.claude/rules/`');
   });
 
   it('treats a coding-agent context file as valid standalone evidence', async () => {

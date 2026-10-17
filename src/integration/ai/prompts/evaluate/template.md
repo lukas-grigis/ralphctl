@@ -252,7 +252,9 @@ Phase 4 dimensions:
 - Correctness — PASS — C1 exited 0 (12/12 green); C2 returns 400 at `src/routes/exports.ts:42`.
 - Completeness — PASS — schema, controller, and tests all implemented per steps; one TODO comment unrelated
   to this task's criteria.
-- Safety — PASS — input validated via shared validation schema at `src/routes/exports.ts:12` before DB access.
+- Safety — PASS — input validated via shared validation schema at `src/routes/exports.ts:12` before DB access;
+  pre-existing, not graded: `src/routes/reports.ts:31` skips the same validation, and this change neither
+  touches nor calls it.
 - Consistency — PASS — follows existing endpoint patterns in `src/routes/`; uses the shared error format.
 - Robustness — N/A — the change only adds input validation with a standard 400 response; it introduces no
   error/failure-recovery path (retries, rollback, degradation) beyond what Correctness already covers.
@@ -283,7 +285,7 @@ Signals:
         {
           "dimension": "safety",
           "passed": true,
-          "finding": "input validated via shared validation schema at src/routes/exports.ts:12 before DB access"
+          "finding": "input validated via shared validation schema at src/routes/exports.ts:12 before DB access; pre-existing, not graded: src/routes/reports.ts:31 skips the same validation and this change neither touches nor calls it"
         },
         {
           "dimension": "consistency",

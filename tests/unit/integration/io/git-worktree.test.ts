@@ -10,7 +10,13 @@ import {
   gitWorktreeRef,
   gitWorktreeRemove,
 } from '@src/integration/io/git-operations.ts';
-import type { GitRunner, GitRunOptions, GitRunResult } from '@src/integration/io/git-runner.ts';
+import {
+  GIT_BULK_TIMEOUT_MS,
+  GIT_HOOK_TIMEOUT_MS,
+  type GitRunner,
+  type GitRunOptions,
+  type GitRunResult,
+} from '@src/integration/io/git-runner.ts';
 
 const abs = (p: string): AbsolutePath => {
   const r = AbsolutePath.parse(p);
@@ -58,16 +64,16 @@ const ok = (stdout = '', exitCode = 0, stderr = ''): Result<GitRunResult, Storag
   Result.ok({ stdout, stderr, exitCode });
 
 describe('gitWorktreeAdd', () => {
-  it('runs `worktree add -b <branch> <path>` with a bumped timeout', async () => {
+  it('runs `worktree add -b <branch> <path>` on the hook budget, cancellable by the caller', async () => {
     const branch = gitWorktreeRef('s1', 't1');
     const { runner, received } = scriptRunner([
       { args: ['worktree', 'add', '-b', branch, String(worktreePath)], result: ok() },
     ]);
-    const result = await gitWorktreeAdd(runner, repoRoot, worktreePath, branch);
+    const controller = new AbortController();
+    const result = await gitWorktreeAdd(runner, repoRoot, worktreePath, branch, controller.signal);
     expect(result.ok).toBe(true);
     expect(received[0]?.args).toEqual(['worktree', 'add', '-b', branch, String(worktreePath)]);
-    // The add verb must raise the per-call timeout above the runner default.
-    expect(received[0]?.opts?.timeoutMs).toBeGreaterThan(30_000);
+    expect(received[0]?.opts).toEqual({ timeoutMs: GIT_HOOK_TIMEOUT_MS, signal: controller.signal });
   });
 
   it('surfaces a non-zero exit as StorageError', async () => {
@@ -105,6 +111,7 @@ describe('gitWorktreeRemove', () => {
     const result = await gitWorktreeRemove(runner, repoRoot, worktreePath);
     expect(result.ok).toBe(true);
     expect(received[0]?.args).toEqual(['worktree', 'remove', '--force', String(worktreePath)]);
+    expect(received[0]?.opts).toEqual({ timeoutMs: GIT_BULK_TIMEOUT_MS });
   });
 
   it('surfaces a non-zero exit as StorageError', async () => {
@@ -201,6 +208,67 @@ describe('gitFoldBranch', () => {
     }
     // The conflict must trigger an abort so siblings stay landed.
     expect(received.map((c) => c.args)).toContainEqual(['cherry-pick', '--abort']);
+  });
+
+  it('runs the merge and the cherry-pick on the hook budget, cancellable by the caller', async () => {
+    const mergeBase = 'a1b2c3d4e5f6a7b8c9d0';
+    const { runner, received } = scriptRunner([
+      { args: ['merge', '--ff-only', branch], result: ok('', 1, 'not ff') },
+      { args: ['merge-base', 'HEAD', branch], result: ok(`${mergeBase}\n`) },
+      { args: ['cherry-pick', `${mergeBase}..${branch}`], result: ok() },
+    ]);
+    const controller = new AbortController();
+    const result = await gitFoldBranch(runner, repoRoot, branch, controller.signal);
+    expect(result.ok).toBe(true);
+    const budget = { timeoutMs: GIT_HOOK_TIMEOUT_MS, signal: controller.signal };
+    expect(received[0]?.opts).toEqual(budget);
+    expect(received[2]?.opts).toEqual(budget);
+  });
+
+  it('counts a fast-forward the runner killed as folded when the branch already landed', async () => {
+    // A post-merge hook that hangs is killed after the merge moved the sprint branch.
+    const { runner, received } = scriptRunner([
+      {
+        args: ['merge', '--ff-only', branch],
+        result: Result.error(new StorageError({ subCode: 'io', message: 'git aborted: git merge' })),
+      },
+      { args: ['merge-base', '--is-ancestor', branch, 'HEAD'], result: ok() },
+    ]);
+    const result = await gitFoldBranch(runner, repoRoot, branch);
+    expect(result.ok).toBe(true);
+    expect(received).toHaveLength(2);
+  });
+
+  it('keeps a killed fast-forward a failure when the branch did not land', async () => {
+    const { runner } = scriptRunner([
+      {
+        args: ['merge', '--ff-only', branch],
+        result: Result.error(new StorageError({ subCode: 'io', message: 'git aborted: git merge' })),
+      },
+      { args: ['merge-base', '--is-ancestor', branch, 'HEAD'], result: ok('', 1) },
+    ]);
+    const result = await gitFoldBranch(runner, repoRoot, branch);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.message).toContain('git aborted');
+  });
+
+  it('aborts a cherry-pick the runner killed, so the sprint branch is not left mid-pick', async () => {
+    const mergeBase = 'a1b2c3d4e5f6a7b8c9d0';
+    const { runner, received } = scriptRunner([
+      { args: ['merge', '--ff-only', branch], result: ok('', 1, 'not ff') },
+      { args: ['merge-base', 'HEAD', branch], result: ok(`${mergeBase}\n`) },
+      {
+        args: ['cherry-pick', `${mergeBase}..${branch}`],
+        result: Result.error(new StorageError({ subCode: 'io', message: 'git aborted: git cherry-pick' })),
+      },
+      { args: ['cherry-pick', '--abort'], result: ok() },
+    ]);
+    const result = await gitFoldBranch(runner, repoRoot, branch);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.message).toContain('git aborted');
+    expect(received.map((c) => c.args)).toContainEqual(['cherry-pick', '--abort']);
+    // The cleanup must run even though the caller's signal is already aborted.
+    expect(received.at(-1)?.opts?.signal).toBeUndefined();
   });
 
   it('rejects a non-SHA merge-base output', async () => {

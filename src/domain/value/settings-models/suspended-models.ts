@@ -17,31 +17,23 @@
  * one-line revert (empty the array, as done here for Fable 5).
  *
  * Domain layer — pure, no I/O.
- *
- * @public
  */
 export const SUSPENDED_MODELS: readonly string[] = [] as const;
 
 /**
  * `true` when `s` names a temporarily-suspended model (see {@link SUSPENDED_MODELS}).
- *
- * @public
  */
 export const isSuspendedModel = (s: string): boolean => SUSPENDED_MODELS.includes(s);
 
 /**
  * Short suffix tag appended to a suspended model's label in the pickers (the value stays the bare
  * id so a pre-pinned choice still round-trips).
- *
- * @public
  */
 export const SUSPENSION_NOTE = 'suspended';
 
 /**
  * The launch-time rejection message for a suspended model — surfaced via `InvalidStateError` at the
  * adapter boundary so the user gets actionable context rather than an opaque CLI failure.
- *
- * @public
  */
 export const suspendedModelMessage = (model: string): string =>
   `'${model}' is temporarily suspended by its provider — pick another model until access is restored`;

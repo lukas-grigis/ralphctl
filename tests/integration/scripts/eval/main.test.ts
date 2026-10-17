@@ -43,7 +43,11 @@ const lastRun = async (): Promise<{ dir: string; results: ResultsFile }> => {
   return { dir, results: JSON.parse(await fs.readFile(join(dir, 'results.json'), 'utf8')) as ResultsFile };
 };
 
-describe('pnpm eval check', () => {
+// main() spawns real git/shell work; the 15s default trips under full-suite contention and the
+// abandoned run then races afterEach's rm of its tree.
+const E2E = { timeout: 60_000 };
+
+describe('pnpm eval check', E2E, () => {
   it('proves every fixture and exits 0', async () => {
     expect(await main(['check', ...base()])).toBe(0);
     expect(stdout.join('\n')).toContain('4/4 fixtures proven');
@@ -58,7 +62,7 @@ describe('pnpm eval check', () => {
   });
 });
 
-describe('pnpm eval run --dry-run', () => {
+describe('pnpm eval run --dry-run', E2E, () => {
   it('runs every flow end to end against a scripted provider and writes the results', async () => {
     expect(await main(['run', '--dry-run', '--max-tokens', '100000', '-k', '1', ...base()])).toBe(0);
     const { dir, results } = await lastRun();
@@ -101,7 +105,7 @@ describe('pnpm eval run --dry-run', () => {
   });
 });
 
-describe('pnpm eval compare / report', () => {
+describe('pnpm eval compare / report', E2E, () => {
   it('compares two arms and writes a paired comparison', async () => {
     expect(
       await main([

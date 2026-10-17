@@ -15,12 +15,11 @@
  * for all of them), `prev` is returned unchanged and no re-render happens.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { AppEvent } from '@src/business/observability/events.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
 import { createCoalescedBuffer } from '@src/application/ui/tui/runtime/coalesced-buffer.ts';
 
-/** @public */
 export interface UseCoalescedMapOptions<E extends AppEvent, V> {
   /** Hard cap on retained Map entries — also doubles as the coalescing buffer's per-window cap. */
   readonly cap: number;
@@ -49,7 +48,10 @@ export const useCoalescedMap = <E extends AppEvent, V>(
   bus: EventBus,
   opts: UseCoalescedMapOptions<E, V>
 ): ReadonlyMap<string, V> => {
-  const { cap, flushMs, accept, keyOf, fold } = opts;
+  const { cap, flushMs } = opts;
+  // Callbacks live in a ref so an inline arrow per render does not tear down the subscription.
+  const callbacksRef = useRef(opts);
+  callbacksRef.current = opts;
   const [state, setState] = useState<ReadonlyMap<string, V>>(() => new Map());
 
   useEffect(() => {
@@ -60,6 +62,7 @@ export const useCoalescedMap = <E extends AppEvent, V>(
       onFlush: (batch) => {
         setState((prev) => {
           let next: Map<string, V> | undefined;
+          const { keyOf, fold } = callbacksRef.current;
           for (const event of batch) {
             const key = keyOf(event);
             const existing = (next ?? prev).get(key);
@@ -84,7 +87,7 @@ export const useCoalescedMap = <E extends AppEvent, V>(
       },
     });
     const unsub = bus.subscribe((event) => {
-      if (accept(event)) buf.push(event);
+      if (callbacksRef.current.accept(event)) buf.push(event);
     });
     // Order matters: unsub first so no push can race the drain, flushNow to land in-flight events,
     // stop last to tear down the timer (no flush-after-stop on single-threaded JS).
@@ -93,7 +96,7 @@ export const useCoalescedMap = <E extends AppEvent, V>(
       buf.flushNow();
       buf.stop();
     };
-  }, [bus, cap, flushMs, accept, keyOf, fold]);
+  }, [bus, cap, flushMs]);
 
   return state;
 };

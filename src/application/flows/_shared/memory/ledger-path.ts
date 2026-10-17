@@ -18,8 +18,6 @@ export const LEARNINGS_LEDGER_FILE = 'learnings.ndjson';
  *
  * Both the WRITE side (the appender) and the READ side (the loader) resolve the path through this
  * one helper so the layout cannot drift between them.
- *
- * @public
  */
 export const resolveLearningsLedgerPath = async (
   memoryRoot: AbsolutePath,
@@ -46,8 +44,6 @@ export const resolveLearningsLedgerPath = async (
  * The consented migration is the only thing that renames a legacy dir onto the slugged name; until
  * then the writer never splits. Async because it scans the memory root — these leaves are already
  * async, so the scan is free. Use this on the WRITE side in place of the old pure direct-build.
- *
- * @public
  */
 export const resolveWritableLearningsLedgerPath = async (
   memoryRoot: AbsolutePath,

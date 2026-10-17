@@ -1,6 +1,6 @@
 import { Result } from '@src/domain/result.ts';
 import type { Project } from '@src/domain/entity/project.ts';
-import type { Repository } from '@src/domain/entity/repository.ts';
+import { normalizeVerifyGates, type Repository } from '@src/domain/entity/repository.ts';
 import type { TodoTask, VerificationCriterion } from '@src/domain/entity/task.ts';
 import { renderTaskGraphIssue, validateTaskGraph } from '@src/domain/entity/task-graph.ts';
 import type { RepositoryId } from '@src/domain/value/id/repository-id.ts';
@@ -34,7 +34,7 @@ import type { DomainError } from '@src/domain/value/error/domain-error.ts';
  * Pure — no I/O, no clock, no logging. The caller (the `check-plan` leaf) does the logging.
  */
 
-/** Structured location + reason for one plan-critic finding. @public */
+/** Structured location + reason for one plan-critic finding. */
 export type PlanCheckFinding =
   | { readonly kind: 'task-graph'; readonly detail: string }
   | {
@@ -96,17 +96,13 @@ export type PlanCheckFinding =
       readonly criterionId: string;
     };
 
-/** @public */
 export type PlanCheckFindingKind = PlanCheckFinding['kind'];
 
-/** @public */
 export type PlanCheckSeverity = 'error' | 'warning';
 
 /**
  * Severity is a property of the KIND, never of the individual finding — so it is declared once
  * here rather than duplicated onto every constructed finding.
- *
- * @public
  */
 export const SEVERITY_BY_KIND: Readonly<Record<PlanCheckFindingKind, PlanCheckSeverity>> = {
   'task-graph': 'error',
@@ -121,7 +117,6 @@ export const SEVERITY_BY_KIND: Readonly<Record<PlanCheckFindingKind, PlanCheckSe
   'verify-gate-criterion': 'warning',
 };
 
-/** @public */
 export const severityOfFinding = (finding: PlanCheckFinding): PlanCheckSeverity => SEVERITY_BY_KIND[finding.kind];
 
 export interface PlanCheckReport {
@@ -170,18 +165,6 @@ const isMultiLineCommand = (command: string): boolean => command.includes('\n') 
 const normalizeCommand = (command: string): string => command.trim().replace(/\s+/g, ' ');
 
 /**
- * The commands the post-task verify gate actually runs: structured `verifyGates` win when
- * non-empty, else the legacy `verifyScript`. Mirrors `normalizeVerifyGates` in
- * `business/task/run-verify-script.ts`, which the sibling-business fence keeps out of reach here;
- * a parity test in `check-plan.test.ts` pins the two together.
- */
-const verifyGateCommands = (repo: Repository): readonly string[] => {
-  if (repo.verifyGates !== undefined && repo.verifyGates.length > 0) return repo.verifyGates.map((g) => g.command);
-  const script = repo.verifyScript?.trim() ?? '';
-  return script.length > 0 ? [script] : [];
-};
-
-/**
  * Does `command` repeat one of the repository's post-task verify gates? EXACT equality after
  * whitespace normalisation only — a prefix/substring match would flag `pnpm test:unit` against a
  * `pnpm test` gate, which is precisely the scoped criterion the plan prompt asks for.
@@ -189,7 +172,9 @@ const verifyGateCommands = (repo: Repository): readonly string[] => {
 const repeatsVerifyGate = (command: string, repo: Repository | undefined): boolean => {
   if (repo === undefined) return false;
   const key = normalizeCommand(command);
-  return verifyGateCommands(repo).some((gate) => normalizeCommand(gate) === key);
+  return normalizeVerifyGates(repo.verifyScript, repo.verifyGates).some(
+    (gate) => normalizeCommand(gate.command) === key
+  );
 };
 
 /**
@@ -329,8 +314,6 @@ const checkOneCriterion = (
  * because `LeafUseCase.execute` requires it), but there is no error path today — a malformed
  * plan produces `error`-tier FINDINGS, never a `Result.error`. Callers may treat the envelope as
  * always-ok without losing information.
- *
- * @public
  */
 export const checkPlanUseCase = (props: CheckPlanProps): Result<PlanCheckReport, DomainError> => {
   const findings: PlanCheckFinding[] = [];
@@ -357,8 +340,6 @@ export const checkPlanUseCase = (props: CheckPlanProps): Result<PlanCheckReport,
  * Render one finding as a single human-readable line, mirroring the `renderTaskGraphIssue`
  * precedent — the phrasing lives next to the shape it describes so producers (the `check-plan`
  * leaf's log) and consumers (the approval prompt) always say the same thing.
- *
- * @public
  */
 export const renderPlanCheckFinding = (finding: PlanCheckFinding): string =>
   `${SEVERITY_BY_KIND[finding.kind]}: ${locationOf(finding)} — ${finding.detail}`;

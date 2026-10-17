@@ -254,8 +254,6 @@ const safeReadText = async (path: string): Promise<string | undefined> => {
 /**
  * Build the distill-owned propose leaf for one tool. Reads the loaded candidates + repository from
  * the distill-local ctx, spawns the AI, projects the full-file proposal onto the per-tool entry.
- *
- * @public
  */
 export const distillProposeLeaf = (deps: DistillProposeLeafDeps, tool: AssistantTool): Element<DistillLearningsCtx> =>
   leaf<DistillLearningsCtx, DistillProposeInput, DistillProposeOutput>(`distill-propose-${tool}`, {

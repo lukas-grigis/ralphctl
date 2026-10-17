@@ -43,7 +43,8 @@ export const PRESET_MODEL_FALLBACKS: Readonly<Record<AiProvider, Readonly<Record
     [HAIKU]: [SONNET, 'claude-haiku-4-5'],
   },
   'github-copilot': {
-    [COPILOT_OPUS]: ['claude-opus-4.8', COPILOT_SONNET, SONNET_5],
+    // Opus 4.8 / 5 retire 2026-11-16 and are plan-gated like 5.5, so the stand-in is Sonnet.
+    [COPILOT_OPUS]: [COPILOT_SONNET, SONNET_5],
     [COPILOT_SONNET]: [SONNET_5],
     [COPILOT_LUNA]: ['gpt-5.6-luna'],
   },
@@ -123,6 +124,7 @@ export const adaptAiToAvailableModels = (
       next = {
         ...next,
         implement: {
+          ...next.implement,
           generator: adaptRow(next.implement.generator, { flow, role: 'generator' }),
           evaluator: adaptRow(next.implement.evaluator, { flow, role: 'evaluator' }),
         },

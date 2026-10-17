@@ -75,9 +75,9 @@ export const conventionsPartialName = (tool: AssistantTool): string =>
 /**
  * Readiness prompt definition.
  *
- * Partial choice: only `skill-body` (the shared skill-body rules) is wired. The per-provider target-file
- * conventions are not a partial slot — they arrive as the `{{TARGET_FILE_CONVENTIONS}}` parameter, loaded
- * via `conventionsPartialName`; the output contract arrives as `{{OUTPUT_CONTRACT_SECTION}}`.
+ * Partial choice: `skill-body` (the shared skill-body rules) and `one-shot-operation`. The per-provider
+ * target-file conventions are not a partial slot — they arrive as the `{{TARGET_FILE_CONVENTIONS}}`
+ * parameter, loaded via `conventionsPartialName`; the output contract arrives as `{{OUTPUT_CONTRACT_SECTION}}`.
  *
  * Expected signals: every kind the readiness contract accepts. The chain leaf reads them from
  * `signals.json` — see `proposeReadinessLeaf`.
@@ -121,7 +121,7 @@ export const readinessPromptDef: PromptDefinition<ReadinessPromptParams> = {
       validate: requireNonEmpty('outputContractSection', 'output-contract section must not be empty'),
     },
   },
-  partials: { SKILL_BODY_RULES: 'skill-body' },
+  partials: { SKILL_BODY_RULES: 'skill-body', ONE_SHOT_OPERATION: 'one-shot-operation' },
   expectedSignals: [
     'agents-md-proposal',
     'setup-skill-proposal',

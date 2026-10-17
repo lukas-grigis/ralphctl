@@ -4,7 +4,7 @@ import type { SprintExecutionRepository } from '@src/domain/repository/sprint/sp
 import { type AiProvider, uniqueProvidersFromAi } from '@src/domain/entity/settings.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { RunCommand } from '@src/integration/io/run-command.ts';
-import { PROVIDER_BINARY } from '@src/integration/system/detect-cli.ts';
+import { PROVIDER_BINARY, probeUnsupportedVersion } from '@src/integration/system/detect-cli.ts';
 import { pathIsDirectory, pathIsWritable } from '@src/integration/io/fs.ts';
 
 import {
@@ -290,10 +290,29 @@ export const probeAiProvidersGroup = async (deps: DoctorDeps): Promise<readonly 
 
   for (const provider of Object.keys(PROVIDER_BINARY) as readonly AiProvider[]) {
     if (!configuredProviders.has(provider) || installedByProvider.get(provider) !== true) continue;
-    probes.push(await probeProviderAuth(provider, deps.runCommand));
+    const version = await probeSupportedVersion(provider, deps.runCommand);
+    // An unsupported major's auth verb may not even exist, and every launch is refused anyway.
+    if (version !== undefined) probes.push(version);
+    else probes.push(await probeProviderAuth(provider, deps.runCommand));
   }
 
   return probes;
+};
+
+/** The launch check's version gate as a doctor row: `fail` for a major ralphctl refuses, else nothing (fails open). */
+const probeSupportedVersion = async (provider: AiProvider, run: RunCommand): Promise<ProbeResult | undefined> => {
+  const issue = await probeUnsupportedVersion(provider, run);
+  if (issue === undefined) return undefined;
+  const binary = PROVIDER_BINARY[provider];
+  const line = `${String(issue.supportedMajor)}.x`;
+  return mkProbe(
+    `ai-${provider}-version`,
+    `${PROVIDER_LABEL[provider]} version`,
+    'fail',
+    `${binary} ${issue.version} is not supported — ralphctl needs ${binary} ${line}`,
+    'ai',
+    `install ${line} with: ${issue.installHint}`
+  );
 };
 
 const probeProjectRepoPaths = async (projects: readonly Project[]): Promise<readonly ProbeResult[]> => {

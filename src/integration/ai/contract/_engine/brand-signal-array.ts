@@ -10,8 +10,6 @@ import type { z } from 'zod';
  *
  * Centralised so the cast lives in exactly one place instead of fanning out across
  * every per-leaf `*.contract.ts` file.
- *
- * @public
  */
 export const brandSignalArray = <S>(raw: z.ZodTypeAny): z.ZodType<readonly S[]> =>
   raw as unknown as z.ZodType<readonly S[]>;

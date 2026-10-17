@@ -17,8 +17,8 @@ import type { SettingsApplyPresetDeps } from '@src/application/flows/settings-ap
 
 /**
  * Stamp a preset onto the current Settings. Loads the current record, replaces the AI
- * section with the preset's matrix (preserving harness / logging / concurrency / ui /
- * developer verbatim), and persists. No preset identity is stored — a subsequent edit to
+ * rows with the preset's matrix (preserving `ai.skills`, `ai.implement.agents`, harness /
+ * logging / concurrency / ui / developer verbatim), and persists. No preset identity is stored — a subsequent edit to
  * any per-flow row sticks across reloads.
  *
  * After persistence succeeds, probe PATH for the binaries of every provider stamped into the

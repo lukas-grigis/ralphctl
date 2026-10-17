@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Result } from '@src/domain/result.ts';
-import { startAttemptUseCase } from '@src/business/task/start-attempt.ts';
+import { blockExhaustedResumeUseCase, startAttemptUseCase } from '@src/business/task/start-attempt.ts';
 import type { FindTaskById } from '@src/domain/repository/task/find-task-by-id.ts';
 import type { UpdateTask } from '@src/domain/repository/task/update-task.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
@@ -221,5 +221,51 @@ describe('startAttemptUseCase — resume from crashed running attempt', () => {
     expect(next.attempts.some((a) => a.status === 'aborted')).toBe(false);
 
     expect(writes).toHaveLength(1);
+  });
+});
+
+describe('blockExhaustedResumeUseCase', () => {
+  /** In progress, one counted failed attempt and a leftover running one, under the given cap. */
+  const resumedAt = (maxAttempts: number): Task => {
+    const failed = unwrap(failCurrentAttempt(makeInProgressTaskWithRunningAttempt(), FIXED_LATER, 'failed'));
+    return { ...unwrap(startNextAttempt(failed, FIXED_LATER)), maxAttempts };
+  };
+  const run = (task: Task, repo: UpdateTask & FindTaskById) =>
+    blockExhaustedResumeUseCase({
+      task,
+      sprintId: SPRINT_ID,
+      taskRepo: repo,
+      clock: () => FIXED_LATER,
+      logger: noopLogger,
+    });
+
+  it('persists and returns the block when settling the leftover attempt exhausts the budget', async () => {
+    const task = resumedAt(1);
+    const { repo, writes } = fakeTaskRepo(new Map([[String(task.id), task]]));
+
+    const result = await run(task, repo);
+
+    expect(result.ok && result.value?.status).toBe('blocked');
+    expect(writes.map((t) => t.status)).toEqual(['blocked']);
+  });
+
+  it('writes nothing while the resume leaves budget, so start-attempt resumes as usual', async () => {
+    const task = resumedAt(3);
+    const { repo, writes } = fakeTaskRepo(new Map([[String(task.id), task]]));
+
+    const result = await run(task, repo);
+
+    expect(result.ok && result.value).toBeUndefined();
+    expect(writes).toHaveLength(0);
+  });
+
+  it('refuses to write over a persisted copy that has moved on', async () => {
+    const task = resumedAt(1);
+    const { repo, writes } = fakeTaskRepo(new Map([[String(task.id), makeTodoTask()]]));
+
+    const result = await run(task, repo);
+
+    expect(result.ok).toBe(false);
+    expect(writes).toHaveLength(0);
   });
 });

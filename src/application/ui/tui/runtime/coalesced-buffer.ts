@@ -17,7 +17,6 @@ const MIN_FLUSH_MS = 16;
 /** Default flush cadence — ≈16fps, comfortably under Ink's ~30fps stdout-write throttle. */
 const DEFAULT_FLUSH_MS = 60;
 
-/** @public */
 export interface CoalescedBufferOptions<T> {
   /** Trailing-window cap. The window handed to `onFlush` never exceeds this length. */
   readonly limit: number;
@@ -39,7 +38,6 @@ export interface CoalescedBufferOptions<T> {
   readonly clearOnFlush?: boolean;
 }
 
-/** @public */
 export interface CoalescedBuffer<T> {
   /** Accumulate a value into the trailing window. Does not flush; the timer does. */
   push(value: T): void;
@@ -59,8 +57,6 @@ export interface CoalescedBuffer<T> {
  * Build a trailing-window coalescer. Accumulates pushes, applies the `limit` cap once per flush
  * or overflow, and delivers a copy of the window to `onFlush` at most once per `flushMs` — only
  * when there is something new to deliver.
- *
- * @public
  */
 export const createCoalescedBuffer = <T>(opts: CoalescedBufferOptions<T>): CoalescedBuffer<T> => {
   const limit = opts.limit;

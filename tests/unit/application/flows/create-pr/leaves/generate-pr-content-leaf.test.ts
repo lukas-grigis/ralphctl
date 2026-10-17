@@ -10,7 +10,14 @@ import type { AiSignalEvent, AppEvent } from '@src/business/observability/events
 import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import { makeTmpRoot } from '@tests/fixtures/tmp-root.ts';
-import { absolutePath, FIXED_LATER, makeReviewSprint } from '@tests/fixtures/domain.ts';
+import {
+  absolutePath,
+  FIXED_LATER,
+  makeApprovedTicket,
+  makeBlockedTask,
+  makeDoneTask,
+  makeReviewSprint,
+} from '@tests/fixtures/domain.ts';
 import type { HeadlessAiProvider, ProviderOutput } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import { createFsTemplateLoader, defaultTemplatesDir } from '@src/integration/ai/prompts/_engine/fs-template-loader.ts';
@@ -225,5 +232,31 @@ describe('generatePrContentLeaf', () => {
     if (result.ok) return;
     expect(result.error.error).toBeInstanceOf(AbortError);
     expect(result.error.error.code).toBe(ErrorCode.Aborted);
+  });
+
+  it('hands the AI a `Closes` line only for refs whose every task landed done', async () => {
+    let prompt = '';
+    const provider: HeadlessAiProvider = {
+      async generate(session) {
+        prompt = session.prompt;
+        return Result.error(new StorageError({ subCode: 'io', message: 'prompt captured' }));
+      },
+    };
+    const shipped = makeApprovedTicket({ title: 'shipped', externalRef: '#1' });
+    const stalled = makeApprovedTicket({ title: 'stalled', externalRef: '#2' });
+    const sprint = makeReviewSprint({ tickets: [shipped, stalled] });
+    const ctx: CreatePrCtx = {
+      ...buildCtx(unitRoot, promptFile),
+      sprint,
+      tasks: [
+        makeDoneTask({ ticketId: shipped.id, externalRefs: ['#1'] }),
+        makeBlockedTask({ ticketId: stalled.id, externalRefs: ['#2'] }),
+      ],
+    };
+
+    await generatePrContentLeaf(buildDeps(provider)).execute(ctx);
+
+    expect(prompt).toContain('Closes #1');
+    expect(prompt).not.toContain('Closes #2');
   });
 });

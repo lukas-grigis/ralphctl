@@ -29,6 +29,7 @@ import {
   createFoldQueue,
   worktreePathFor,
   type BuildWaveBranchesDeps,
+  type FoldQueue,
 } from '@src/application/flows/implement/wave-branch.ts';
 import {
   absolutePath,
@@ -86,7 +87,8 @@ const makeDeps = (
   runner: GitRunner,
   taskRepo: TaskRepository,
   appendFile: AppendFile,
-  eventBus: EventBus = stubBus()
+  eventBus: EventBus = stubBus(),
+  journalMutex: FoldQueue = createFoldQueue()
 ): BuildWaveBranchesDeps => ({
   implement: {
     gitRunner: runner,
@@ -95,7 +97,7 @@ const makeDeps = (
     logger: noopLogger,
     clock: () => FIXED_LATER,
     eventBus,
-    journalMutex: createFoldQueue(),
+    journalMutex,
   } as unknown as ImplementDeps,
   eventBus,
   foldQueue: createFoldQueue(),
@@ -174,6 +176,44 @@ const stashPushed = (calls: Array<{ cwd: string; args: string[] }>): boolean =>
   calls.some((c) => c.args[0] === 'stash' && c.args[1] === 'push');
 
 describe('wave-branch worktree teardown — blocked-task quarantine + branch retention', () => {
+  it('appends the quarantine breadcrumb under the journal mutex (a sibling may be mid read-modify-write)', async () => {
+    const task = makeTodoTask();
+    const wt = worktreePathFor(absolutePath('/data/sprints/s1'), task.id);
+    const git = fakeGitRecordingCwd({ dirty: true });
+    const inner = createFoldQueue();
+    let held = false;
+    const journalMutex: FoldQueue = {
+      run: (fn) =>
+        inner.run(async () => {
+          held = true;
+          try {
+            return await fn();
+          } finally {
+            held = false;
+          }
+        }),
+    };
+    const heldAtAppend: boolean[] = [];
+    const append: AppendFile = async () => {
+      heldAtAppend.push(held);
+      return Result.ok(undefined);
+    };
+    const deps = makeDeps(git.runner, recordingTaskRepo(), append, stubBus(), journalMutex);
+
+    const branch = buildWorktreeBranch(
+      deps,
+      repo,
+      task,
+      wt,
+      'ralphctl/s1/wt-mutex',
+      PROGRESS,
+      selfBlockingSubchain(task.id, 'verify failed', 1)
+    );
+    await runBranch(branch, baseCtx([task]));
+
+    expect(heldAtAppend).toEqual([true]);
+  });
+
   it('own self-block with a dirty worktree: stashes into the WORKTREE, records the pointer, keeps the branch ref', async () => {
     const task = makeTodoTask();
     const ref = 'ralphctl/s1/wt-selfblock';
@@ -288,7 +328,9 @@ describe('wave-branch worktree teardown — blocked-task quarantine + branch ret
 
     expect(git.calls.some((c) => c.args[0] === 'status')).toBe(true); // the dirty-tree check ran…
     expect(stashPushed(git.calls)).toBe(false); // …but found nothing to stash.
-    expect(taskRepo.calls).toBe(0);
+    // The fold records its own block; no quarantine pointer follows it.
+    expect(taskRepo.saved.map((t) => t.status)).toEqual(['blocked']);
+    expect(taskRepo.saved[0]?.quarantinedDiff).toBeUndefined();
     expect(append.appended).toHaveLength(0);
 
     expect(git.calls.some((c) => c.args[0] === 'worktree' && c.args[1] === 'remove')).toBe(true);
@@ -311,7 +353,8 @@ describe('wave-branch worktree teardown — blocked-task quarantine + branch ret
     expect(status).toBe('completed');
     expect(ctx.tasks?.find((t) => t.id === task.id)?.status).toBe('done');
     expect(stashPushed(git.calls)).toBe(false);
-    expect(taskRepo.calls).toBe(0);
+    // The only write is the fold recording the landed task.
+    expect(taskRepo.saved.map((t) => t.status)).toEqual(['done']);
     // Pre-add defensive delete AND the post-cleanup delete both ran — regression guard: a normal,
     // non-blocked task's branch cleanup is completely unaffected by this fix.
     expect(branchDeleteCount(git.calls, ref)).toBe(2);
@@ -656,7 +699,9 @@ describe('wave-branch worktree teardown — abort inside the subchain, after the
   it('a block this branch reached without opening an attempt is not quarantined', async () => {
     // The dependency gate blocks before any attempt starts, so nothing in this worktree is AI work —
     // a dirty tree here is setup-script output, not a rejected diff.
-    const prerequisite = makeTodoTask({ name: 'prerequisite' });
+    const blockedPrerequisite = markTaskBlocked(makeTodoTask({ name: 'prerequisite' }), 'verify red', 'own');
+    if (!blockedPrerequisite.ok) throw blockedPrerequisite.error;
+    const prerequisite = blockedPrerequisite.value;
     const task = makeTodoTask({ name: 'dependent', dependsOn: [prerequisite.id] });
     const ref = 'ralphctl/s1/wt-abort-upstream';
     const wt = worktreePathFor(absolutePath('/data/sprints/s1'), task.id);

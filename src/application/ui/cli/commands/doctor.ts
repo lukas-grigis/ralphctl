@@ -3,7 +3,7 @@ import { createDoctorFlow } from '@src/application/flows/doctor/flow.ts';
 import type { ProbeResult, ProbeStatus } from '@src/application/flows/doctor/ctx.ts';
 import { commandExists } from '@src/integration/io/command-exists.ts';
 import { runCommand } from '@src/integration/io/run-command.ts';
-import { bootstrapCli } from '@src/application/ui/cli/bootstrap.ts';
+import { bootstrapApp } from '@src/application/bootstrap/bootstrap-app.ts';
 import { fail } from '@src/application/ui/cli/report-cli-error.ts';
 
 /** Fixed-width tag prefixing each probe line — every value is 4 characters for column alignment. */
@@ -18,7 +18,7 @@ const printProbe = (probe: ProbeResult): void => {
 };
 
 const doctorAction = async (): Promise<void> => {
-  const { deps, storage } = await bootstrapCli();
+  const { deps, storage } = await bootstrapApp();
   const flow = createDoctorFlow({
     projectRepo: deps.projectRepo,
     sprintRepo: deps.sprintRepo,

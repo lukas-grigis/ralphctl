@@ -141,6 +141,16 @@ describe('parsePlanOutput', () => {
     expect(out.ok).toBe(false);
   });
 
+  it('rejects an empty task array — a planner that cannot plan emits the blocked object', () => {
+    const { sprint } = draftWith(1);
+    const out = parsePlanOutput('[]', { project, sprint });
+    expect(out.ok).toBe(false);
+    if (!out.ok) {
+      expect(out.error).toMatchObject({ subCode: 'schema-mismatch' });
+      expect(out.error.message).toContain('tasks missing or empty');
+    }
+  });
+
   it('rejects when ticketRef is not in the sprint', () => {
     const { sprint } = draftWith(1);
     const json = JSON.stringify([

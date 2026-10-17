@@ -45,6 +45,14 @@ export const budgetedAttemptCount = (task: Pick<Task, 'attempts'>): number => {
   return counted;
 };
 
+/**
+ * Newest non-blank `critique` across `holder.attempts` — a live task's history or a retired run.
+ * Walking back past the running attempt lets a resumed attempt's first generator turn start from the
+ * aborted attempt's critique instead of cold. `undefined` when no attempt carries one.
+ */
+export const latestCritique = (holder: { readonly attempts: readonly Attempt[] }): string | undefined =>
+  holder.attempts.findLast((att) => att.critique !== undefined && att.critique.trim().length > 0)?.critique;
+
 export const resumesFreeAttempt = (task: Pick<Task, 'attempts'>): boolean => {
   const previous = task.attempts.at(-2);
   return previous !== undefined && isFreeAttempt(previous);

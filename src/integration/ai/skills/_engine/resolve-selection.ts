@@ -57,8 +57,6 @@ const dedupeByNameLastWins = (skills: readonly Skill[]): readonly Skill[] => {
 
 /**
  * Factory input for {@link createResolvedSkillSource}.
- *
- * @public
  */
 export interface ResolvedSkillSourceDeps {
   /** The composed union source (bundled + project + operator + phase folder, in that order). */
@@ -76,8 +74,6 @@ export interface ResolvedSkillSourceDeps {
 /**
  * Wrap a composed {@link SkillSource} in the resolution seam. See the module doc for the full
  * contract (dedupe last-wins on `getForFlow`, disabled-name subtraction, unfiltered `getByName`).
- *
- * @public
  */
 export const createResolvedSkillSource = ({ inner, flowDisabled }: ResolvedSkillSourceDeps): SkillSource => ({
   async getForFlow(flowId: FlowId): Promise<Result<readonly Skill[], StorageError>> {

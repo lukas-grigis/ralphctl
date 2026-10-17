@@ -2,7 +2,7 @@
  * `v` (open evaluation) must work in BOTH Implement width regimes.
  *
  * `ImplementLayout` is a two-branch compositor: at ≥140 cols (`layout.sidebarLayout`) it renders
- * its own `TasksPanelHost` inside `ImplementMainArea`, and below that it hands the caller's
+ * its own `TasksPanelHost`, and below that it hands the caller's
  * PRE-BUILT `tasksPanel` node to `ExecuteLayout`. Only the narrow branch used to carry
  * `onOpenEvaluation` — so the chord was a silent no-op on any wide terminal while the footer kept
  * advertising `v evaluation`. Every other Execute-view test renders at ink-testing-library's

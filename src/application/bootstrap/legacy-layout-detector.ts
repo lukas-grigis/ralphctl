@@ -19,8 +19,6 @@
  * Used by tests that exercise the boot path against tmp dirs they fully control, and by
  * power users who knowingly want to run 0.7.0 alongside legacy data (e.g. on a
  * `RALPHCTL_HOME=/tmp/...` override).
- *
- * @public
  */
 
 import { promises as fs } from 'node:fs';

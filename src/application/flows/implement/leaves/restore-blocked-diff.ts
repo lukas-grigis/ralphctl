@@ -265,8 +265,6 @@ const undoFailedPop = async (
  * retry (`quarantine-retry-diff`), or blocks with `genEvalTurn ≥ 1`, which `isSettledBlocked`
  * quarantines again. An interrupted attempt (abort, error, throw) never settles; the parallel
  * worktree teardown re-stashes a restored diff nothing consumed before it removes the worktree.
- *
- * @public
  */
 export const restoreBeforeFirstTurn = (ctx: ImplementCtx): boolean => ctx.lastExit === undefined;
 

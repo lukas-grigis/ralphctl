@@ -20,8 +20,6 @@
  *
  * Sibling of `business/sprint/journal-sanitize.ts`, which guards the progress journal's MARKDOWN
  * structure against the same class of text; this one guards the TERMINAL. Pure — no I/O.
- *
- * @public
  */
 
 /**

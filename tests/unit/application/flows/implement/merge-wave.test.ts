@@ -276,6 +276,15 @@ describe('adoptPersistedBlocks', () => {
     expect(result[0]).toBe(persistedBlocked);
   });
 
+  it('substitutes the persisted row when a branch opened an attempt on an in-memory todo task', () => {
+    const inMemory = makeTodoTask();
+    const persistedRunning: Task = { ...makeInProgressTaskWithRunningAttempt(), id: inMemory.id };
+
+    const result = adoptPersistedBlocks([inMemory], [persistedRunning]);
+
+    expect(result[0]).toBe(persistedRunning);
+  });
+
   it('leaves a todo task unchanged when its persisted row is also todo', () => {
     const t = makeTodoTask();
     const result = adoptPersistedBlocks([t], [t]);
@@ -292,13 +301,13 @@ describe('adoptPersistedBlocks', () => {
     expect(result[0]).toBe(blocked);
   });
 
-  it('never adopts a persisted done over an in-memory in_progress task (an unfolded commit must re-run)', () => {
+  it('adopts a persisted done over an in-memory in_progress task (its fold landed before the branch failed)', () => {
     const inProgress = makeInProgressTaskWithRunningAttempt();
     const persistedDone: Task = { ...makeDoneTask(), id: inProgress.id };
 
     const result = adoptPersistedBlocks([inProgress], [persistedDone]);
 
-    expect(result[0]).toBe(inProgress);
+    expect(result[0]).toBe(persistedDone);
   });
 
   it('leaves a task unchanged when it has no persisted row at all', () => {

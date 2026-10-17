@@ -2,6 +2,8 @@
  * Adapter that wires the live bucketed-task derivation into the shared `TasksPanel`. Folds
  * five concerns the orchestrator would otherwise carry inline:
  *
+ *   - Projects each entity's attempt count / latest commit / median attempt time (`sprintState`) for
+ *     the header chips and ETA.
  *   - Translates the `Task.verificationCriteria` array into per-task bullet strings (the
  *     panel renders one criterion per line; audit-[05] says `Task.verificationCriteria`
  *     is the canonical source — never read `done-criteria.md`).
@@ -14,24 +16,25 @@
  *   - Wires the `u` unblock affordance: derives `blockedTaskIds` from the same polled entities as
  *     `blockedReasonById`, and builds the `onUnblock` handler over `useUnblockTask` + the run's
  *     own pinned sprint (`descriptor.pinnedSprintId`) so the panel never has to know the use case.
- *     Both are suppressed WHILE THE RUN IS LIVE: `unblockTaskUseCase`'s own docblock states its
- *     cascade path is unsafe to run concurrently with an active Implement run (an unlocked read
- *     feeds a locked rewrite), and the implement epilogue's `saveTasksLeaf` rewrites `tasks.json`
- *     wholesale from its own stale in-memory snapshot at the end of every run — either would
- *     silently clobber a mid-run unblock. The chord re-arms the instant the run settles.
+ *     Both are suppressed WHILE THE RUN IS LIVE: the unblock goes through `unblockTaskLocked`, which
+ *     takes the sprint-dir lock the run holds for its whole length, so a mid-run press would only
+ *     stall ~5s and then fail on contention. The chord re-arms the instant the run settles.
+ *   - Claims `esc` while the focused card is expanded so the global `router.pop()` stands down and
+ *     the panel's own handler collapses the card (`handleEscapeCollapse` in `keymap.ts`).
  *   - Returns `null` when no bucket has been produced yet (early descriptor / no session),
  *     keeping the orchestrator's JSX a single expression.
  */
 
 import { priorWorkNotice, type PriorWorkNotice } from '@src/application/ui/shared/prior-work-copy.ts';
-import React, { useCallback, useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { TasksPanel, type TasksPanelProps } from '@src/application/ui/tui/components/tasks-panel.tsx';
 import type { BucketedExecution } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
 import { overlayEntityBlockedStatus } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
 import type { FlowProgress } from '@src/application/ui/tui/runtime/flow-progress.ts';
 import type { SessionDescriptor } from '@src/application/ui/tui/runtime/session-manager.ts';
 import type { TaskEvaluation } from '@src/application/ui/tui/components/tasks-panel-internals/evaluation-row.tsx';
-import type { BlockedTriage } from '@src/application/ui/tui/components/tasks-projection.ts';
+import { type BlockedTriage, projectTasksSprintState } from '@src/application/ui/tui/components/tasks-projection.ts';
+import { useOptionalOverlayState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { useUnblockTask } from '@src/application/ui/tui/runtime/use-unblock-task.ts';
 import type { AttemptWarning } from '@src/domain/entity/attempt.ts';
 import type { Task } from '@src/domain/entity/task.ts';
@@ -170,6 +173,7 @@ type EntityPanelProps = Pick<
   | 'warningSummaryById'
   | 'priorWorkById'
   | 'taskEvaluationById'
+  | 'sprintState'
 >;
 
 /** Every entity-sourced map, with absent ones left out so the panel's prop diff stays clean. */
@@ -181,6 +185,7 @@ const entityPanelProps = (taskState: readonly Task[], isRunning: boolean): Entit
   const taskEvaluationById = evaluationsByTaskId(taskState);
   return {
     taskCriteriaById: criteriaBulletsByTaskId(taskState),
+    sprintState: projectTasksSprintState(taskState),
     ...(blockedReasonById !== undefined ? { blockedReasonById } : {}),
     ...(blockedTriageById !== undefined ? { blockedTriageById } : {}),
     ...(warningSummaryById !== undefined ? { warningSummaryById } : {}),
@@ -211,14 +216,10 @@ interface UnblockAffordance {
  * reflects the dependency-gate case) — the `u` chord's gate, so it also reaches a task stuck on
  * its own failure (maxAttempts exhausted / verify failed), not only a dependency block.
  *
- * Forced empty WHILE RUNNING: `unblockTaskUseCase`'s own docblock names an explicit TOCTOU
- * precondition — its cascade path does an unlocked read that feeds a locked rewrite, so it "MUST
- * NOT run while an Implement run is active on the same sprint". Even the non-cascade path would
- * lose to the implement epilogue's `saveTasksLeaf`, which rewrites `tasks.json` wholesale from its
- * own in-memory snapshot at the end of every run — a mid-run unblock would be silently overwritten
- * the moment the run settles, reading as the harness re-blocking the operator's own fix. Emptying
- * the set here (rather than only guarding `onUnblock`) also keeps the footer/hint contract honest:
- * nothing downstream can treat a live card as unblockable.
+ * Forced empty WHILE RUNNING: `unblockTaskLocked` waits on the sprint-dir lock the live run holds,
+ * so a mid-run unblock cannot clobber the run's writes but would stall and then fail on contention.
+ * Emptying the set here (rather than only guarding `onUnblock`) also keeps the footer/hint contract
+ * honest: nothing downstream can treat a live card as unblockable.
  */
 const useUnblockAffordance = ({
   isRunning,
@@ -233,8 +234,8 @@ const useUnblockAffordance = ({
   const { unblockInSprint } = useUnblockTask();
   const onUnblock = useCallback(
     (taskId: string): void => {
-      // Defense in depth — see the TOCTOU note above. `TasksPanel` already can't reach this
-      // callback for a live run (the set it gates on is empty), but a future caller of
+      // Defense in depth — see the sprint-dir lock note above. `TasksPanel` already can't reach
+      // this callback for a live run (the set it gates on is empty), but a future caller of
       // `onUnblock` must not be able to bypass the precondition just by not checking.
       if (isRunning || sprintId === undefined) return;
       const target = taskState?.find((t) => String(t.id) === taskId);
@@ -264,8 +265,6 @@ export interface TasksPanelHostProps {
   readonly taskState: readonly Task[] | undefined;
   /** Optional callback — fired (deduped) when the focused card id changes. See `TasksPanel`. */
   readonly onFocusedCardChange?: (taskId: string | undefined) => void;
-  /** Optional callback — fired (deduped) when the focused card's expansion state changes. See `TasksPanel`. */
-  readonly onExpandedCardChange?: (expanded: boolean) => void;
   /** Optional `v` handler — opens the evaluation overlay for a card that has a recorded verdict. */
   readonly onOpenEvaluation?: (taskId: string) => void;
 }
@@ -282,7 +281,6 @@ const TasksPanelHostImpl = ({
   now,
   taskState,
   onFocusedCardChange,
-  onExpandedCardChange,
   onOpenEvaluation,
 }: TasksPanelHostProps): React.JSX.Element | null => {
   const entityProps = useMemo(
@@ -307,6 +305,12 @@ const TasksPanelHostImpl = ({
     () => (bucketed !== undefined ? overlayEntityBlockedStatus(bucketed, taskState, isRunning) : undefined),
     [bucketed, taskState, isRunning]
   );
+  // Esc collapses an expanded card instead of popping the route, in every layout; optional so
+  // isolated renders without a provider still work.
+  const claimEscape = useOptionalOverlayState()?.claimEscape;
+  const [cardExpanded, setCardExpanded] = useState(false);
+  const claimsEscape = cardExpanded && correctedBucketed !== undefined;
+  useEffect(() => (claimsEscape && claimEscape !== undefined ? claimEscape() : undefined), [claimsEscape, claimEscape]);
   if (correctedBucketed === undefined) return null;
 
   return (
@@ -320,7 +324,7 @@ const TasksPanelHostImpl = ({
       blockedTaskIds={blockedTaskIds}
       onUnblock={onUnblock}
       {...(onFocusedCardChange !== undefined ? { onFocusedCardChange } : {})}
-      {...(onExpandedCardChange !== undefined ? { onExpandedCardChange } : {})}
+      onExpandedCardChange={setCardExpanded}
       {...(onOpenEvaluation !== undefined ? { onOpenEvaluation } : {})}
       {...(descriptor.taskNames !== undefined ? { nameById: descriptor.taskNames } : {})}
       {...(descriptor.taskRecovering !== undefined ? { recoveringByTaskId: descriptor.taskRecovering } : {})}

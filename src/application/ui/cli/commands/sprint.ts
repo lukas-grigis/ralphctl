@@ -8,7 +8,7 @@ import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { DISPLAY_TEXT_MAX_CHARS, sanitizeDisplayText } from '@src/domain/value/display-text.ts';
 import { nameBlockedTasks } from '@src/business/sprint/name-blocked-tasks.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
-import { bootstrapCli } from '@src/application/ui/cli/bootstrap.ts';
+import { bootstrapApp } from '@src/application/bootstrap/bootstrap-app.ts';
 import { plural } from '@src/application/ui/shared/plural.ts';
 import { confirmDestructive } from '@src/application/ui/cli/confirm-destructive.ts';
 import { fail } from '@src/application/ui/cli/report-cli-error.ts';
@@ -19,7 +19,7 @@ import { createCloseSprintFlow } from '@src/application/flows/close-sprint/flow.
 import type { CloseSprintCtx } from '@src/application/flows/close-sprint/ctx.ts';
 import { ASSERT_SPRINT_STATUS } from '@src/application/flows/_shared/sprint/assert-status.ts';
 import { createRunner } from '@src/application/chain/run/runner.ts';
-import { sprintDir as buildSprintDir } from '@src/integration/persistence/storage.ts';
+import { ensureCanonicalSprintDir } from '@src/integration/persistence/sprint/repository.ts';
 import { createLastSelectionStore } from '@src/integration/persistence/selection/last-selection-store.ts';
 
 interface RemoveOpts {
@@ -37,7 +37,7 @@ interface CloseOpts {
 const showName = (name: string): string => sanitizeDisplayText(name, DISPLAY_TEXT_MAX_CHARS);
 
 const listSprintsAction = async (): Promise<void> => {
-  const { deps } = await bootstrapCli();
+  const { deps } = await bootstrapApp();
   const result = await deps.sprintRepo.list();
   if (!result.ok) {
     fail(result.error.message);
@@ -53,7 +53,7 @@ const listSprintsAction = async (): Promise<void> => {
 };
 
 const showSprintAction = async (raw?: string): Promise<void> => {
-  const { deps, storage } = await bootstrapCli();
+  const { deps, storage } = await bootstrapApp();
   const id = await resolveSprintId(raw, storage.stateRoot, {
     missingMessage: 'no current sprint pinned — run `ralphctl sprint set-current <id>` or pass an id',
   });
@@ -85,7 +85,7 @@ const removeSprintAction = async (raw: string, opts: RemoveOpts): Promise<void> 
   });
   if (!confirmed) return;
 
-  const { deps, storage } = await bootstrapCli();
+  const { deps, storage } = await bootstrapApp();
   const result = await deps.sprintRemoval.remove(id.value);
   if (!result.ok) {
     fail(result.error.message);
@@ -109,7 +109,7 @@ const activateSprintAction = async (raw: string): Promise<void> => {
     fail(`invalid sprint id: ${id.error.message}`);
     return;
   }
-  const { deps } = await bootstrapCli();
+  const { deps } = await bootstrapApp();
   const loaded = await deps.sprintRepo.findById(id.value);
   if (!loaded.ok) {
     fail(loaded.error.message);
@@ -138,7 +138,7 @@ const reopenSprintAction = async (raw: string): Promise<void> => {
     fail(`invalid sprint id: ${id.error.message}`);
     return;
   }
-  const { deps } = await bootstrapCli();
+  const { deps } = await bootstrapApp();
   const loaded = await deps.sprintRepo.findById(id.value);
   if (!loaded.ok) {
     fail(loaded.error.message);
@@ -215,7 +215,7 @@ const closeSprintAction = async (raw: string, opts: CloseOpts): Promise<void> =>
     fail(`invalid sprint id: ${id.error.message}`);
     return;
   }
-  const { deps, storage } = await bootstrapCli();
+  const { deps, storage } = await bootstrapApp();
   const loaded = await deps.sprintRepo.findById(id.value);
   if (!loaded.ok) {
     fail(loaded.error.message);
@@ -233,8 +233,12 @@ const closeSprintAction = async (raw: string, opts: CloseOpts): Promise<void> =>
   const blockedTasks = await confirmBlockedTasksOrStop(sprint, deps.taskRepo, opts.yes === true);
   if (blockedTasks === undefined) return;
 
-  const sprintDir = buildSprintDir(storage.dataRoot, sprint.id, sprint.slug);
-  const progressPath = AbsolutePath.parse(join(sprintDir, 'progress.md'));
+  const sprintDir = AbsolutePath.parse(await ensureCanonicalSprintDir(storage.dataRoot, sprint.id, sprint.slug));
+  if (!sprintDir.ok) {
+    fail(sprintDir.error.message);
+    return;
+  }
+  const progressPath = AbsolutePath.parse(join(String(sprintDir.value), 'progress.md'));
   if (!progressPath.ok) {
     fail(progressPath.error.message);
     return;
@@ -249,6 +253,10 @@ const closeSprintAction = async (raw: string, opts: CloseOpts): Promise<void> =>
 
   const element = createCloseSprintFlow({
     sprintRepo: deps.sprintRepo,
+    fileLocker: deps.fileLocker,
+    locksRoot: storage.locksRoot,
+    sprintDir: sprintDir.value,
+    eventBus: deps.eventBus,
     clock: deps.clock,
     logger: deps.logger,
     appendFile: deps.appendFile,
@@ -298,7 +306,7 @@ const setCurrentSprintAction = async (raw: string): Promise<void> => {
     fail(`invalid sprint id: ${id.error.message}`);
     return;
   }
-  const { deps, storage } = await bootstrapCli();
+  const { deps, storage } = await bootstrapApp();
   const sprint = await deps.sprintRepo.findById(id.value);
   if (!sprint.ok) {
     fail(sprint.error.message);
@@ -322,7 +330,7 @@ const setCurrentSprintAction = async (raw: string): Promise<void> => {
 };
 
 const progressSprintAction = async (raw?: string): Promise<void> => {
-  const { deps, storage } = await bootstrapCli();
+  const { deps, storage } = await bootstrapApp();
   const resolved = await resolveSprintId(raw, storage.stateRoot, {
     missingMessage: 'no current sprint pinned — run `ralphctl sprint set-current <id>` or pass an id',
   });

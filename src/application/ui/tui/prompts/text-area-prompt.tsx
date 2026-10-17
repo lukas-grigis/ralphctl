@@ -30,10 +30,12 @@
 
 import React, { useEffect, useRef, useState, type MutableRefObject } from 'react';
 import { Box, Text, type Key } from 'ink';
-import { usePromptInput } from '@src/application/ui/tui/prompts/use-prompt-input.ts';
+import { usePromptInput, usePromptPaste } from '@src/application/ui/tui/prompts/use-prompt-input.ts';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { useTerminalSize } from '@src/application/ui/tui/runtime/use-terminal-size.ts';
-import { normalizePasteNewlines, stripPasteMarkers, usePaste } from '@src/application/ui/tui/prompts/use-paste.ts';
+
+/** Normalize pasted line endings to `\n` so the textarea's `\n`-split cursor math holds. */
+const normalizePasteNewlines = (text: string): string => text.replace(/\r\n?/gu, '\n');
 
 export interface TextAreaPromptProps {
   readonly message: string;
@@ -307,11 +309,10 @@ const handleTextEditing = (input: string, key: Key, ctx: TextAreaKeyCtx): void =
   }
   // Printable characters incl. pasted text. Mouse SGR reports are rejected — the field is
   // keyboard-only and a leaked wheel event must not type stray bytes. Fallback for terminals
-  // that don't honour mode 2004: a single-chunk paste lands here, so strip any stray paste
-  // markers and normalize `\r\n`/`\r` → `\n` before inserting (kept multi-line, never submit).
+  // that don't honour mode 2004: a single-chunk paste lands here, so normalize `\r\n`/`\r` → `\n`
+  // before inserting (kept multi-line, never submit).
   if (input.length > 0 && !key.meta && !key.ctrl && !key.tab && !isMouseReport(input)) {
-    const ins = normalizePasteNewlines(stripPasteMarkers(input));
-    ctx.insertAtCursor(ins);
+    ctx.insertAtCursor(normalizePasteNewlines(input));
   }
 };
 
@@ -344,13 +345,9 @@ const useTextAreaViewport = (
   return state;
 };
 
-/**
- * Wire the three key-dispatch groups into Ink's `useInput`. Bracketed paste is consumed first so
- * its bytes and embedded line breaks never reach the dispatch groups — no premature submit.
- */
-const useTextAreaKeyHandler = (ctx: TextAreaKeyCtx, consumePaste: (input: string) => boolean): void => {
+/** Wire the three key-dispatch groups into Ink's `useInput`. */
+const useTextAreaKeyHandler = (ctx: TextAreaKeyCtx): void => {
   usePromptInput((input, key) => {
-    if (consumePaste(input)) return;
     if (handleControlKeys(input, key, ctx)) return;
     if (handleCursorMovement(input, key, ctx)) return;
     handleTextEditing(input, key, ctx);
@@ -509,9 +506,8 @@ export const TextAreaPrompt = ({
     desiredColRef.current = null;
   };
 
-  // Bracketed-paste channel: the controller buffers chunks across keystrokes and delivers the
-  // whole payload here once the closing marker arrives (markers stripped, newlines normalized).
-  const paste = usePaste(insertAtCursor);
+  // Bracketed-paste channel: Ink delivers the whole payload once the closing marker arrives.
+  usePromptPaste((payload) => insertAtCursor(normalizePasteNewlines(payload)));
 
   useCaretBlink(setCaretOn);
 
@@ -523,20 +519,17 @@ export const TextAreaPrompt = ({
     setFirstVisible
   );
 
-  useTextAreaKeyHandler(
-    {
-      bufRef,
-      cursorRef,
-      desiredColRef,
-      viewport,
-      updateCursor,
-      updateBufAndCursor,
-      insertAtCursor,
-      onSubmit,
-      onCancel,
-    },
-    paste.consume
-  );
+  useTextAreaKeyHandler({
+    bufRef,
+    cursorRef,
+    desiredColRef,
+    viewport,
+    updateCursor,
+    updateBufAndCursor,
+    insertAtCursor,
+    onSubmit,
+    onCancel,
+  });
 
   return (
     <TextAreaFrame

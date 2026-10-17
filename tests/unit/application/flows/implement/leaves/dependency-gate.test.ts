@@ -5,7 +5,8 @@ import { markTaskBlocked } from '@src/domain/entity/task-lifecycle.ts';
 import type { BlockedTask } from '@src/domain/entity/task.ts';
 import type { UpdateTask } from '@src/domain/repository/task/update-task.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
-import { makeDoneTask, makeTodoTask } from '@tests/fixtures/domain.ts';
+import { makeDoneTask, makeInProgressTaskWithRunningAttempt, makeTodoTask } from '@tests/fixtures/domain.ts';
+import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import { dependencyGateLeaf, isTaskRunnable } from '@src/application/flows/implement/leaves/dependency-gate.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 
@@ -69,6 +70,41 @@ describe('dependencyGateLeaf', () => {
     expect(afterC.ok).toBe(true);
     if (!afterC.ok) return;
     expect(afterC.value.ctx.tasks?.find((t) => t.id === c.id)?.status).toBe('blocked');
+  });
+
+  it('defers without writing when every unmet prerequisite is still todo or in progress', async () => {
+    const a = makeTodoTask({ name: 'A' });
+    const b = makeInProgressTaskWithRunningAttempt();
+    const c = makeTodoTask({ name: 'C', dependsOn: [a.id, b.id] });
+    const repo = fakeRepo();
+
+    const res = await dependencyGateLeaf({ taskRepo: repo, logger: noopLogger }, c.id).execute({
+      sprintId,
+      tasks: [a, b, c],
+    });
+
+    expect(res.ok).toBe(false);
+    if (res.ok) return;
+    expect(res.error.error).toBeInstanceOf(InvalidStateError);
+    expect((res.error.error as InvalidStateError).attemptedAction).toBe(`dependency-gate-${String(c.id)}`);
+    expect(repo.calls).toBe(0);
+  });
+
+  it('still blocks upstream when one unmet prerequisite is blocked and another is unsettled', async () => {
+    const a = blockedTask('A');
+    const b = makeTodoTask({ name: 'B' });
+    const c = makeTodoTask({ name: 'C', dependsOn: [a.id, b.id] });
+    const repo = fakeRepo();
+
+    const res = await dependencyGateLeaf({ taskRepo: repo, logger: noopLogger }, c.id).execute({
+      sprintId,
+      tasks: [a, b, c],
+    });
+
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.value.ctx.tasks?.find((t) => t.id === c.id)?.status).toBe('blocked');
+    expect(repo.calls).toBe(1);
   });
 
   it('is a no-op when every prerequisite is done (task stays runnable)', async () => {

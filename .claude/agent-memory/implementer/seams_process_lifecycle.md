@@ -1,6 +1,6 @@
 ---
 name: seams_process_lifecycle
-description: Process groups, the orphan reaper sidecar, live-run records, the lock owner file and crash resume — the traps behind each and how the tests must be shaped
+description: Process groups, the exit+drain settle rule, which git verbs may take a cancel signal, the orphan reaper sidecar, live-run records, the lock owner file and crash resume — the traps behind each and how the tests must be shaped
 metadata:
   type: project
 ---
@@ -19,10 +19,55 @@ process the user owns. Unit tests that want the group path must `vi.spyOn(proces
 
 ## Why group kill also fixes an abort hang
 
-Claude resolves on `'close'`, which waits for EVERY holder of the stdout pipe. A tool subprocess the
-CLI forked inherits that pipe, so a single-pid SIGTERM left the attempt hanging until the grandchild
-exited. The watchdog's `stop()` deliberately lets a pending group SIGKILL land (unref'd) after the
-leader exits; only a lone child's escalation is cancelled (pid-reuse guard).
+Every headless spawn settles on `'close'` (settling at bare `'exit'` dropped final records under load
+on Linux), which waits for EVERY holder of the stdout pipe. A tool subprocess the CLI forked inherits
+that pipe, so a single-pid SIGTERM left the attempt hanging until the grandchild exited. The
+watchdog's `stop()` deliberately lets a pending group SIGKILL land (unref'd) after the leader exits;
+only a lone child's escalation is cancelled (pid-reuse guard).
+
+**The `'exit'`-time group reap keeps `'close'` prompt; `onChildDone`'s 1s drain is the backstop** for a
+holder no group kill reaches (Windows has no pgid; a setsid escapee). Don't drop either: the watchdog
+can't bound it, since a job writing to the inherited stdout resets the idle timer forever. A real
+escapee for tests: `writeStubCli(..., { grandchildEscapesGroup: true })` (node `detached` = setsid;
+macOS has no `setsid` binary).
+
+## Skill install marker: own pid uses a boot id, not `ps`
+
+`classifySkillFolder` checks a marker naming `process.pid` against a per-process random boot id
+rather than `ps` identity: slim containers have no `ps` and give ralphctl the same pid every start,
+so an identity-only check left crash leftovers "live" forever there. Other pids use `processGone`.
+
+## Every piped-output runner settles on exit + drain, not on close alone
+
+`onChildDone` (`integration/io/child-exit.ts`) settles on `close`, or 1s after `exit` with the pipes
+destroyed — git, shell, headless engine, run-cli, run-command, clipboard, opencode probe all use it.
+**Why git doesn't settle at timer-fire** (run-cli still does on timeout): the next git op would race
+the dying git's `.git/index.lock`. **Why not wait for `close`:** a hook's or script's background job
+holds the pipe, so a commit that landed was reported as a timeout. Clear the timeout timer on `exit`
+so a drain never reads as one. The drain calls `stdout.destroy()`: a fake child that emits `exit`
+without `close` needs a `destroy` on its streams or the timer throws. Git children are `detached` (own
+session → no controlling tty, so ssh prompts fail fast); git leftovers are NOT killed on a normal exit
+(a post-commit hook's background job is legitimate), shell-script leftovers are.
+
+Own session also means a terminal hangup no longer reaches git, so the git runner registers its group
+with the orphan reaper — but only for calls with a budget above `DEFAULT_GIT_TIMEOUT_MS` or a signal
+(hook verbs), so probe reads never fork the lazy sidecar. It unwatches on settle and must stay that way:
+keeping a finished leader's group watched means a later harness exit can signal a recycled pgid.
+Git-runner tests with a MARKED fake child must not drive the abort/timeout kill unless timers are
+faked: `killWithEscalation` never cancels a group's SIGKILL timer, so it fires `process.kill(-12345)`
+for real after `vi.restoreAllMocks()`.
+
+## Which git verbs take the cancel signal
+
+Only hook verbs (checkout, worktree add, merge, cherry-pick, commit, push). Stash push/pop and worktree
+remove must NOT: they mostly run on the abort path as cleanup (worktree teardown, best-of-N baseline
+restore, the pre-verify exclude pop in a `finally`), and the runner refuses to spawn on an
+already-aborted signal — the cleanup would silently skip and strand worktrees/diffs. A cancel can also
+report a pop that already dropped its entry as failed, and `restore-blocked-diff`'s undo then resets
+the only copy away. A killed hook verb leaves half-done state that callers must handle: a fast-forward
+killed in post-merge already landed (`merge-base --is-ancestor`), a killed cherry-pick needs
+`--abort`, a worktree add killed in post-checkout leaves a full worktree that the next launch reads as
+"stranded" — undo it only when the path did not exist before the add.
 
 ## Lock owner file inside a proper-lockfile dir
 

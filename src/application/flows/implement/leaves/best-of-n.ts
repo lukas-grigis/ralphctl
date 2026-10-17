@@ -57,8 +57,6 @@ import { bestOfNSelectionLeaf } from '@src/application/flows/implement/leaves/be
  * Only safe as the FIRST of the two `attempt-body.ts` outer guards — see
  * {@link hasBestOfNCompositeRun} for why the SECOND one reads a different, stable signal instead
  * of `!isBestOfNGranted`.
- *
- * @public
  */
 export const isBestOfNGranted = (ctx: ImplementCtx): boolean => ctx.currentTask?.bestOfNGrantedCandidates !== undefined;
 
@@ -77,8 +75,6 @@ export const isBestOfNGranted = (ctx: ImplementCtx): boolean => ctx.currentTask?
  * normal loop, doubling the attempt's turn budget. Reading this composite-scoped counter's
  * definedness instead survives that mutation: it is stamped the instant the composite starts and
  * stays defined for the rest of the attempt, regardless of what the selection leaf clears.
- *
- * @public
  */
 export const hasBestOfNCompositeRun = (ctx: ImplementCtx): boolean => ctx.bestOfNLoopTurn !== undefined;
 
@@ -188,8 +184,6 @@ const buildRound1Substitute = (deps: ImplementDeps, opts: BestOfNGenEvalOpts, ta
  * swaps ONLY round 1's generator step for {@link buildRound1Substitute}; round 2+ (only reached
  * if round 1's evaluator did not set a terminal `lastExit`) runs the normal generator + evaluator
  * turn, byte-for-byte the same leaves the non-granted path spawns.
- *
- * @public
  */
 export const buildBestOfNGenEvalLoop = (
   deps: ImplementDeps,

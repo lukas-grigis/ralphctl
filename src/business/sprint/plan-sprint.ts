@@ -3,7 +3,7 @@ import type { Logger } from '@src/business/observability/logger.ts';
 import type { PlanCheckFinding } from '@src/business/sprint/check-plan.ts';
 import { type DraftSprint, planSprint, type Sprint } from '@src/domain/entity/sprint.ts';
 import type { Task, TodoTask } from '@src/domain/entity/task.ts';
-import type { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
+import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 
 /**
@@ -19,6 +19,8 @@ import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
  * so tests can pin the planning timestamp.
  *
  * Rejection modes:
+ *  - an empty proposal is an `InvalidStateError` before the reviewer is asked — no transition
+ *    leads back to `draft`, so a planned sprint with no tasks could never be re-planned.
  *  - `reviewBeforeApprove` returned `accept: false` → sprint stays `draft`, no task replacement,
  *    output's `accepted` flag is `false`. The chain leaf reads this flag and skips the
  *    persistence side-effects (no `plannedTasks` on ctx; downstream save leaves no-op).
@@ -67,6 +69,20 @@ export const planSprintUseCase = async (
 ): Promise<Result<PlanSprintOutput, InvalidStateError>> => {
   const log = props.logger.named('sprint.plan');
   log.debug('planning sprint', { sprintId: props.sprint.id, taskCount: props.tasks.length });
+
+  // Nothing re-plans a non-draft sprint, so accepting zero tasks would strand it as planned-but-empty.
+  if (props.tasks.length === 0) {
+    log.warn('planner proposed no tasks — leaving sprint draft', { sprintId: props.sprint.id });
+    return Result.error(
+      new InvalidStateError({
+        entity: 'sprint',
+        currentState: props.sprint.status,
+        attemptedAction: 'plan',
+        message: `cannot plan sprint '${props.sprint.slug}': the planner proposed no tasks`,
+        hint: 'Re-run Plan; a planner that cannot plan should emit { "blocked": "<reason>" }.',
+      })
+    );
+  }
 
   if (props.reviewBeforeApprove !== undefined) {
     const decision = await props.reviewBeforeApprove(props.tasks, props.sprint, props.checkFindings ?? []);

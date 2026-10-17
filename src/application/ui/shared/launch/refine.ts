@@ -1,5 +1,5 @@
 import { join } from 'node:path';
-import { sprintDir as buildSprintDir } from '@src/integration/persistence/storage.ts';
+import { ensureCanonicalSprintDir } from '@src/integration/persistence/sprint/repository.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { createRunner, type Runner } from '@src/application/chain/run/runner.ts';
 import { createRefineFlow } from '@src/application/flows/refine/flow.ts';
@@ -96,9 +96,9 @@ export const launchRefine = async (ctx: LaunchContext): Promise<LaunchResult> =>
   // Refine intentionally does not require a repo path — the AI session is rooted at the per-ticket unit folder
   // (`<sprintDir>/refinement/<ticket-slug>/`), not the repo.
   const pending = snapshot.sprint.tickets.filter((t) => t.status === 'pending');
-  // Subpath of the canonical `<id>--<slug>/` sprint dir, direct-built from the sprint entity.
+  // Subpath of the canonical `<id>--<slug>/` sprint dir, with any legacy dir moved onto it first.
   const refinementRoot = AbsolutePath.parse(
-    join(buildSprintDir(deps.storage.dataRoot, snapshot.sprint.id, snapshot.sprint.slug), 'refinement')
+    join(await ensureCanonicalSprintDir(deps.storage.dataRoot, snapshot.sprint.id, snapshot.sprint.slug), 'refinement')
   );
   if (!refinementRoot.ok) return { ok: false, reason: refinementRoot.error.message };
   // The refine flow only ever posts the refined requirements as a comment on the ticket's existing linked issue — it

@@ -12,7 +12,7 @@ metadata:
 - **`token-budget-card.tsx` keeps a bare `'?'`** for a missing token count: a placeholder for an absent number, not a
   status glyph, so it is intentionally not `unknownGlyph`.
 - **Hint strips advertise `↑/↓` only** (DESIGN-SYSTEM §6.4). `useViewKeys` sites take `keys: ['↑', '↓']`,
-  `useViewHints` sites take `keys: '↑/↓'`. Do not spread `listMoveHint` into either: `useViewKeys`'s `keys` holds
+  `useViewHints` sites take `keys: '↑/↓'`. Don't share one constant between them: `useViewKeys`'s `keys` holds
   literal input strings the dispatcher matches.
 - **`outcome-card.tsx` `joinCounts` emits `label N · label N`**, matching every sibling line in that card.
 
