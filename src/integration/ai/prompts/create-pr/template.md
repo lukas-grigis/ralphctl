@@ -42,12 +42,12 @@ When `<ticket_summary>` is empty, no specific tickets are recorded for this bran
 <constraints>
 Gather context by running shell commands before writing anything. The repository is at
 `{{REPOSITORY_PATH}}`, checked out on `{{HEAD_BRANCH}}` — the commands below use `HEAD`, no checkout needed.
-Your working directory is not the repository, so pass the path to every git command:
+Your working directory is not the repository, so pass the path to every git command, quoted exactly as shown:
 
-- Inspect the commit history: `git -C "{{REPOSITORY_PATH}}" log {{BASE_BRANCH}}..HEAD`
-- Inspect the file-level change summary: `git -C "{{REPOSITORY_PATH}}" diff {{BASE_BRANCH}}...HEAD --stat`
+- Inspect the commit history: `git -C {{REPOSITORY_PATH_ARG}} log {{BASE_BRANCH}}..HEAD`
+- Inspect the file-level change summary: `git -C {{REPOSITORY_PATH_ARG}} diff {{BASE_BRANCH}}...HEAD --stat`
 - Inspect the full diff for any section the commit messages do not explain:
-  `git -C "{{REPOSITORY_PATH}}" diff {{BASE_BRANCH}}...HEAD`
+  `git -C {{REPOSITORY_PATH_ARG}} diff {{BASE_BRANCH}}...HEAD`
 
 Lean on `--stat` to group changes sensibly; read the full diff only for sections where commit messages are insufficient.
 
@@ -55,7 +55,7 @@ Title rules:
 
 - One line, ≤70 characters.
 - Match the style of recent commit subjects on `{{BASE_BRANCH}}`
-  (`git -C "{{REPOSITORY_PATH}}" log -10 --format=%s {{BASE_BRANCH}}`): keep a type prefix such as `feat:` when they
+  (`git -C {{REPOSITORY_PATH_ARG}} log -10 --format=%s {{BASE_BRANCH}}`): keep a type prefix such as `feat:` when they
   use one; leave out branch names and internal ticket ids. Without a clear convention, write an imperative
   present-tense line.
 - Examples: "Add CSV export for transactions", "Fix race in session locking".

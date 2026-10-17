@@ -39,7 +39,16 @@ export interface CreatePrPromptParams {
   readonly outputContractSection: string;
 }
 
-export const createPrPromptDef: PromptDefinition<CreatePrPromptParams> = {
+/** What the template substitutes: the caller's params plus values the builder derives from them. */
+interface CreatePrTemplateParams extends CreatePrPromptParams {
+  /** `repositoryPath` as one POSIX single-quoted shell word for the `git -C` commands. */
+  readonly repositoryPathArg: string;
+}
+
+// Single quotes keep `$`, backticks and `"` literal; an embedded `'` closes, escapes and reopens.
+const toShellWord = (value: string): string => `'${value.replaceAll("'", `'\\''`)}'`;
+
+export const createPrPromptDef: PromptDefinition<CreatePrTemplateParams> = {
   templateName: 'create-pr',
   description:
     'Headless authoring of one pull-request title + body from the actual git diff against the base branch. The AI runs `git log` / `git diff` itself and writes its proposal to signals.json per the signals.json contract.',
@@ -56,8 +65,14 @@ export const createPrPromptDef: PromptDefinition<CreatePrPromptParams> = {
     },
     repositoryPath: {
       placeholder: 'REPOSITORY_PATH',
-      description: 'Absolute path of the repository, passed to every git command via `git -C`.',
+      description: 'Absolute path of the repository, named in the prose that introduces the git commands.',
       validate: requireNonEmpty('repositoryPath', 'repositoryPath must not be empty'),
+    },
+    repositoryPathArg: {
+      placeholder: 'REPOSITORY_PATH_ARG',
+      description:
+        'The repository path as one single-quoted shell word, passed to every git command via `git -C`. Derived from `repositoryPath` by the builder.',
+      validate: requireNonEmpty('repositoryPathArg', 'repositoryPathArg must not be empty'),
     },
     ticketSummary: {
       placeholder: 'TICKET_SUMMARY',
@@ -106,8 +121,9 @@ export const renderIssueRefs = (refs: readonly string[]): string => {
   return refs.map((r) => `Closes ${r}`).join('\n');
 };
 
-/** Top-level builder — accepts pre-rendered params and runs the generic builder. */
+/** Top-level builder — accepts pre-rendered params, derives the shell-quoted path, runs the generic builder. */
 export const buildCreatePrPrompt = async (
   deps: TemplateLoader,
   input: CreatePrPromptParams
-): Promise<Result<Prompt, BuildPromptError>> => buildPrompt(deps, createPrPromptDef, input);
+): Promise<Result<Prompt, BuildPromptError>> =>
+  buildPrompt(deps, createPrPromptDef, { ...input, repositoryPathArg: toShellWord(input.repositoryPath) });
