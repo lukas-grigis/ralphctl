@@ -9,7 +9,7 @@ import type { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import { unblockTaskUseCase, type UnblockTaskOutput } from '@src/business/task/unblock-task.ts';
 import { repoLockFile } from '@src/integration/io/lock-paths.ts';
-import { sprintDir } from '@src/integration/persistence/storage.ts';
+import { currentSprintDir } from '@src/integration/persistence/storage.ts';
 
 export type UnblockTaskLockedDeps = Pick<
   AppDeps,
@@ -30,7 +30,8 @@ export const unblockTaskLocked = async (
   deps: UnblockTaskLockedDeps,
   input: UnblockTaskLockedInput
 ): Promise<Result<UnblockTaskOutput, InvalidStateError | NotFoundError | StorageError>> => {
-  const dir = AbsolutePath.parse(sprintDir(deps.storage.dataRoot, input.sprint.id, input.sprint.slug));
+  // Same dir the launchers lock: the legacy dir while a failed rename keeps the sprint there.
+  const dir = AbsolutePath.parse(await currentSprintDir(deps.storage.dataRoot, input.sprint.id, input.sprint.slug));
   const lockPath = dir.ok ? repoLockFile(deps.storage.locksRoot, dir.value) : dir;
   if (!lockPath.ok) return Result.error(new StorageError({ subCode: 'lock', message: lockPath.error.message }));
 
