@@ -10,9 +10,9 @@ import { loadTasksLeaf } from '@src/application/flows/_shared/task/load.ts';
 import {
   assertTicketsUnchangedLeaf,
   savePlannedSprintLeaf,
+  savePlannedTasksLeaf,
   type TicketBasis,
 } from '@src/application/flows/_shared/sprint/commit-planned.ts';
-import { saveTasksLeaf } from '@src/application/flows/_shared/task/save.ts';
 import { buildPlanPrompt } from '@src/integration/ai/prompts/plan/definition.ts';
 import { readCappedSprintProgress } from '@src/application/flows/_shared/progress/read-sprint-progress.ts';
 import { composePriorLearnings } from '@src/application/flows/_shared/memory/compose-prior-learnings.ts';
@@ -167,7 +167,7 @@ export const createPlanFlow = (deps: PlanDeps, opts: CreatePlanFlowOpts): Elemen
       ...(deps.reviewBeforeApprove !== undefined ? { reviewBeforeApprove: deps.reviewBeforeApprove } : {}),
     }),
     assertTicketsUnchangedLeaf<PlanCtx>({ sprintRepo: deps.sprintRepo }, ticketBasis),
-    saveTasksLeaf<PlanCtx>({ taskRepo: deps.taskRepo }),
+    savePlannedTasksLeaf<PlanCtx>({ taskRepo: deps.taskRepo }),
     savePlannedSprintLeaf<PlanCtx>({ sprintRepo: deps.sprintRepo, clock: deps.clock }, ticketBasis),
   ]);
 };

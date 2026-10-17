@@ -9,7 +9,9 @@ import type { ProjectRepository } from '@src/domain/repository/project/project-r
 import type { SprintRepository } from '@src/domain/repository/sprint/sprint-repository.ts';
 import type { SprintExecutionRepository } from '@src/domain/repository/sprint/sprint-execution-repository.ts';
 import type { TaskRepository } from '@src/domain/repository/task/task-repository.ts';
-import { addTicket, type Sprint } from '@src/domain/entity/sprint.ts';
+import { addTicket, planSprint, type Sprint } from '@src/domain/entity/sprint.ts';
+import { ConflictError } from '@src/domain/value/error/conflict-error.ts';
+import type { PlanCtx } from '@src/application/flows/plan/ctx.ts';
 import { approveTicketRequirements } from '@src/domain/entity/ticket.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { Task } from '@src/domain/entity/task.ts';
@@ -31,7 +33,7 @@ import {
   makeTodoTask,
 } from '@tests/fixtures/domain.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
-import { createRunner } from '@src/application/chain/run/runner.ts';
+import { createRunner, type Runner } from '@src/application/chain/run/runner.ts';
 import { createFsTemplateLoader, defaultTemplatesDir } from '@src/integration/ai/prompts/_engine/fs-template-loader.ts';
 import { createAtomicWriteFile } from '@src/integration/io/write-file-atomic.ts';
 import { passthroughRunInTerminal } from '@src/application/ui/shared/run-in-terminal.ts';
@@ -71,8 +73,11 @@ const inMemoryExecutionRepo = (execution: SprintExecution): SprintExecutionRepos
     },
   }) as SprintExecutionRepository;
 
-const inMemoryTaskRepo = (initial: readonly Task[]): { repo: TaskRepository; tasks: () => readonly Task[] } => {
+const inMemoryTaskRepo = (
+  initial: readonly Task[]
+): { repo: TaskRepository; tasks: () => readonly Task[]; writes: () => ReadonlyArray<readonly Task[]> } => {
   let store: Task[] = [...initial];
+  const writes: Array<readonly Task[]> = [];
   const repo = {
     async findBySprintId() {
       return Result.ok(store);
@@ -89,11 +94,12 @@ const inMemoryTaskRepo = (initial: readonly Task[]): { repo: TaskRepository; tas
       return Result.ok(undefined);
     },
     async saveAll(_: SprintId, tasks: readonly Task[]) {
+      writes.push(tasks);
       store = [...tasks];
       return Result.ok(undefined);
     },
   } as TaskRepository;
-  return { repo, tasks: () => store };
+  return { repo, tasks: () => store, writes: () => writes };
 };
 
 const fakeInteractiveAi = (
@@ -488,6 +494,89 @@ describe('createPlanFlow — interactive', () => {
     expect(sprintRepo.current().status).toBe('draft');
     expect(sprintRepo.current().tickets.map((t) => t.title)).toContain('added-meanwhile');
     expect(taskRepo.tasks()).toHaveLength(0);
+  });
+
+  describe('another session plans the sprint while this one is planning', () => {
+    const setup = (): {
+      project: Project;
+      sprint: Sprint;
+      sprintRepo: ReturnType<typeof inMemorySprintRepo>;
+      taskRepo: ReturnType<typeof inMemoryTaskRepo>;
+      theirs: Task;
+      session: InteractiveAiProvider;
+    } => {
+      const project = makeProject();
+      const { sprint, ticketIds } = draftWithApproved(1);
+      const sprintRepo = inMemorySprintRepo(sprint);
+      const taskRepo = inMemoryTaskRepo([]);
+      const theirs = makeTodoTask({ name: 'planned by the other session' });
+      const fake = fakeInteractiveAi(() => {
+        // The other terminal's plan commits — tasks first, then the sprint — while this planner is open.
+        const planned = planSprint(sprintRepo.current(), FIXED_LATER);
+        if (!planned.ok) throw new Error(planned.error.message);
+        void taskRepo.repo.saveAll(sprint.id, [theirs]);
+        void sprintRepo.repo.save(planned.value);
+        return JSON.stringify([
+          {
+            id: 'T1',
+            name: 'this session’s task',
+            ticketRef: ticketIds[0],
+            projectPath: String(project.repositories[0]?.path),
+            steps: ['do it'],
+            verificationCriteria: [{ id: 'C1', assertion: 'done', check: 'manual' }],
+          },
+        ]);
+      });
+      return { project, sprint, sprintRepo, taskRepo, theirs, session: fake.session };
+    };
+
+    const run = async (
+      s: ReturnType<typeof setup>,
+      reviewBeforeApprove?: () => Promise<{ readonly accept: boolean }>
+    ): Promise<Runner<PlanCtx>> => {
+      const deps = buildDeps(s.sprintRepo.repo, s.project, s.sprint, s.taskRepo.repo, s.session);
+      const flow = createPlanFlow(reviewBeforeApprove !== undefined ? { ...deps, reviewBeforeApprove } : deps, {
+        sprintId: s.sprint.id,
+        projectId: s.project.id,
+        providerId: 'claude-code',
+        model: 'claude-opus-4-8',
+        maxAttempts: 3,
+        planRoot: planRoot(),
+      });
+      const runner = createRunner<PlanCtx>({
+        id: 'r-plan-concurrent-plan',
+        element: flow,
+        initialCtx: { sprintId: s.sprint.id, projectId: s.project.id },
+      });
+      await runner.start();
+      return runner;
+    };
+
+    it('accepted: refuses before the task write — the other plan survives', async () => {
+      const s = setup();
+      const runner = await run(s);
+
+      expect(runner.status).toBe('failed');
+      const assertEntry = runner.trace.find((e) => e.elementName === 'assert-tickets-unchanged');
+      expect(assertEntry?.status).toBe('failed');
+      expect(assertEntry?.error).toBeInstanceOf(ConflictError);
+      for (const name of ['save-tasks', 'save-sprint']) {
+        expect(runner.trace.find((e) => e.elementName === name)?.status).toBe('skipped');
+      }
+      expect(s.sprintRepo.current().status).toBe('planned');
+      expect(s.taskRepo.writes()).toEqual([[s.theirs]]);
+      expect(s.taskRepo.tasks()).toEqual([s.theirs]);
+    });
+
+    it('rejected: writes neither file — the other plan survives', async () => {
+      const s = setup();
+      const runner = await run(s, async () => ({ accept: false }));
+
+      expect(runner.status).toBe('completed');
+      expect(s.sprintRepo.current().status).toBe('planned');
+      expect(s.taskRepo.writes()).toEqual([[s.theirs]]);
+      expect(s.taskRepo.tasks()).toEqual([s.theirs]);
+    });
   });
 
   it('halts when AI emits an empty task list — sprint stays draft, existing tasks kept', async () => {

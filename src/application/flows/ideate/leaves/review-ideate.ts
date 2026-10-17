@@ -32,7 +32,7 @@ interface ReviewIdeateInput {
  * The harness review gate between the in-session ideate approval and persistence, mirroring
  * `apply-plan`. On reject (or a cancelled prompt — the launcher maps cancel to reject) the ctx
  * sprint + tasks are restored to their pre-ideate values and `ideateRejected` is stamped, so
- * `transition-to-planned` skips and the downstream saves rewrite the unchanged sprint.
+ * `transition-to-planned` skips and the downstream saves write nothing.
  */
 export const reviewIdeateLeaf = (deps: ReviewIdeateLeafDeps): Element<IdeateCtx> =>
   leaf<IdeateCtx, ReviewIdeateInput, { readonly accept: boolean }>(LEAF_NAME, {

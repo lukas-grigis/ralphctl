@@ -168,9 +168,11 @@ interactive AI session, while `ticket add` / `remove` / `publish` may edit `spri
 So their writes go through the sprint repository's locked `update(id, mutate)` (`<locksRoot>/sprint-<id>.lock`),
 which hands `mutate` the sprint as it is on disk now. Refine applies each approved ticket onto that fresh copy,
 and fails for a ticket that was removed or edited meanwhile. Plan and ideate compare the fresh tickets with the
-ones the session planned against, both before `save-tasks` (`assert-tickets-unchanged`) and under the lock in
-`save-sprint`. Any difference fails the run with a `ConflictError` and nothing is planned. The ticket flows use
-the same `update`, so every ticket writer serialises on one lock.
+ones the session planned against and refuse a sprint another session already moved off `draft`, both before
+`save-tasks` (`assert-tickets-unchanged`) and under the lock in `save-sprint`. Either difference fails the run
+with a `ConflictError` before `tasks.json` is touched. A rejected plan writes neither file. The task write itself
+runs outside the sprint lock, so two sessions committing within the same few milliseconds can still interleave.
+The ticket flows use the same `update`, so every ticket writer serialises on one lock.
 
 **Task-sizing heuristics for ralphctl work** (when breaking a change into tasks):
 

@@ -12,9 +12,9 @@ import { loadTasksLeaf } from '@src/application/flows/_shared/task/load.ts';
 import {
   assertTicketsUnchangedLeaf,
   savePlannedSprintLeaf,
+  savePlannedTasksLeaf,
   type TicketBasis,
 } from '@src/application/flows/_shared/sprint/commit-planned.ts';
-import { saveTasksLeaf } from '@src/application/flows/_shared/task/save.ts';
 import { buildIdeatePrompt } from '@src/integration/ai/prompts/ideate/definition.ts';
 import { readCappedSprintProgress } from '@src/application/flows/_shared/progress/read-sprint-progress.ts';
 import { composePriorLearnings } from '@src/application/flows/_shared/memory/compose-prior-learnings.ts';
@@ -191,7 +191,7 @@ export const createIdeateFlow = (deps: IdeateDeps, opts: CreateIdeateFlowOpts): 
     }),
     transitionToPlannedLeaf({ clock: deps.clock }),
     assertTicketsUnchangedLeaf<IdeateCtx>({ sprintRepo: deps.sprintRepo }, ticketBasis),
-    saveTasksLeaf<IdeateCtx>({ taskRepo: deps.taskRepo }),
+    savePlannedTasksLeaf<IdeateCtx>({ taskRepo: deps.taskRepo }),
     savePlannedSprintLeaf<IdeateCtx>({ sprintRepo: deps.sprintRepo, clock: deps.clock }, ticketBasis),
   ]);
 };
