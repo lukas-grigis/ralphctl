@@ -135,5 +135,15 @@ fails the gate, even in a file whose existing complexity warnings have nothing t
 Re-run lint before landing and treat a new warning in a touched file as yours to fix by
 constant-hoisting — check `git diff <file>` for the literal before assuming it predates you.
 
+## The ai-row migration runs on SAVE too
+
+`JsonSettingsRepository.save()` re-parses through `SettingsSchema`, so `migrateStaleRow` rewrites a
+retired effort / model on the write path as well — the schema never rejects it, it coerces it. That is
+why `apply-key.ts` checks row effort against `PROVIDER_EFFORT_LEVELS` and refuses `remapRetiredModel`
+hits itself; don't "simplify" those back to schema-only validation, and don't drop the migration to fix
+a write-path coercion (old files still need it). Retiring a level = drop it from `PROVIDER_EFFORT_LEVELS`
+and add it to `isRetiredEffort`; `settings-set-round-trip.test.ts` fences that every accepted level
+survives save + load unchanged.
+
 Related: [[project_release_gate_seams]], [[seams_escalation_ladder]],
 [[seams_provider_conformance_and_demo]].

@@ -60,7 +60,9 @@ that starts or stops forwarding effort without updating its row fails at `pnpm t
 `clampEffortToProvider`), but the models cap lower: `grok-4.5` takes `low..high`, `grok-4.6` / `grok-4.7`
 `low..xhigh`, and none takes `max` — so a row or global `max` resolves to `xhigh` on `grok-4.7`. The CLI
 refuses any level a model's menu doesn't list, which rules out `none` / `minimal` everywhere: persisted
-grok rows carrying either migrate to `low` at parse time, like Codex `minimal`. A Grok rejection
+grok rows carrying either migrate to `low` at parse time, like Codex `minimal`. That migration is for
+loading old files only: `settings set` refuses any row effort outside the provider's list (and a retired
+model id, naming its successor) rather than letting the save rewrite it. A Grok rejection
 (`Couldn't apply reasoning effort` / `unknown effort level`) classifies as the same `ProviderConfigRejection`
 as Copilot's and Codex's. `grok-4.7-build-fast` has no published effort
 data and passes through. Grok is in `EFFORT_CAPABLE_PROVIDERS`. The implement generator's

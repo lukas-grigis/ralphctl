@@ -18,6 +18,10 @@
 - [seams_model_catalog_refresh.md](seams_model_catalog_refresh.md) — Catalog-refresh checklist: fingerprint gate, remap tests, CLI-vs-API effort default, eval/TUI tests pinning preset ids and catalog order, Copilot gating, settings.ts lint hazard
 - [seams_process_lifecycle.md](seams_process_lifecycle.md) — Group-kill only marked leaders, exit+drain settle, exit-time reap bounds 'close', which git verbs take a cancel signal, skill-marker boot id, lock owner file, reaper tests, crash resume
 - [seams_process_lifecycle.md](seams_process_lifecycle.md) — Group-kill only marked leaders, exit+drain settle, git cancel-signal verbs + reaper scope, skill-marker boot id, lock owner file, reaper tests, crash resume
+- [seams_model_catalog_refresh.md](seams_model_catalog_refresh.md) — Catalog-refresh checklist: fingerprint gate, remap tests, save-path row migration, CLI-vs-API effort default, eval/TUI tests pinning preset ids and catalog order, Copilot gating, settings.ts lint hazard
+- [seams_process_lifecycle.md](seams_process_lifecycle.md) — Group-kill only marked leaders, exit+drain settle everywhere, which git verbs take a cancel signal, skill-marker boot id, lock owner file, reaper tests, crash resume
+- [seams_process_lifecycle.md](seams_process_lifecycle.md) — Group-kill only marked leaders, exit+drain settle, lock owner file, reaper test shape, pid-0 fakes, crash-resume lookup
+- [seams_process_lifecycle.md](seams_process_lifecycle.md) — Group-kill only marked leaders, exit-time reap bounds 'close', skill-marker boot id, lock owner file, reaper tests, crash resume
 - [seams_migration_backup_and_dry_run.md](seams_migration_backup_and_dry_run.md) — Backup never dereferences + skips worktrees; the dry-run loop-skip depends on it; fs.cp root/verbatim traps
 - [seams_sprint_write_locks.md](seams_sprint_write_locks.md) — Sprint-dir lock vs update lock don't exclude; long-held flows end in update(); plan/ideate commit predicate; withUpdate stub trap
 - [seams_eval_harness.md](seams_eval_harness.md) — Prompt-eval harness: budget under-counts (no cache tokens), private-constant duplicates, fixture tooling exclusions, protectedPaths granularity

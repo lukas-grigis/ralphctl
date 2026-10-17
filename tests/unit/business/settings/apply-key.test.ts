@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { ValidationError } from '@src/domain/value/error/validation-error.ts';
-import { DEFAULT_SETTINGS } from '@src/business/settings/defaults.ts';
+import { AI_PROVIDERS, type AiProvider, type Settings } from '@src/domain/entity/settings.ts';
+import { PROVIDER_EFFORT_LEVELS } from '@src/domain/value/settings-models/effort.ts';
+import { DEFAULT_SETTINGS, defaultAiSettingsForProvider } from '@src/business/settings/defaults.ts';
 import { applySettingsKey, parseSettingsKvSyntax } from '@src/business/settings/apply-key.ts';
 
 describe('applySettingsKey', () => {
@@ -201,6 +203,53 @@ describe('applySettingsKey', () => {
       expect(result.error).toBeInstanceOf(ValidationError);
       expect(result.error.message).toContain('not supported for agent-definition binding in this release');
     }
+  });
+});
+
+describe("applySettingsKey — values the row's provider does not accept", () => {
+  const onProvider = (provider: AiProvider): Settings => ({
+    ...DEFAULT_SETTINGS,
+    ai: defaultAiSettingsForProvider(provider),
+  });
+
+  it.each([
+    ['xai-grok', 'ai.refine.effort', 'none'],
+    ['xai-grok', 'ai.refine.effort', 'minimal'],
+    ['xai-grok', 'ai.implement.generator.effort', 'none'],
+    ['xai-grok', 'ai.refine.effort', 'bogus'],
+    ['openai-codex', 'ai.plan.effort', 'minimal'],
+    ['openai-codex', 'ai.implement.evaluator.effort', 'minimal'],
+    ['claude-code', 'ai.plan.effort', 'none'],
+  ] as const)('refuses %s effort %s=%s and names the accepted levels', (provider, key, value) => {
+    const result = applySettingsKey(onProvider(provider), key, value);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toBeInstanceOf(ValidationError);
+    expect(result.error.field).toBe(key);
+    expect(result.error.message).toContain(provider);
+    expect(result.error.hint).toBe(`expected one of: ${PROVIDER_EFFORT_LEVELS[provider].join(', ')}`);
+  });
+
+  it('accepts every level the provider lists, trimmed', () => {
+    for (const provider of AI_PROVIDERS) {
+      for (const level of PROVIDER_EFFORT_LEVELS[provider]) {
+        const result = applySettingsKey(onProvider(provider), 'ai.refine.effort', ` ${level} `);
+        expect(result.ok && result.value.ai.refine.effort).toBe(level);
+      }
+    }
+  });
+
+  it('refuses a retired model id and names its successor', () => {
+    const result = applySettingsKey(onProvider('claude-code'), 'ai.plan.model', 'claude-opus-4-7');
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.field).toBe('ai.plan.model');
+    expect(result.error.hint).toContain('claude-opus-4-8');
+  });
+
+  it('keeps a slug retired on another backend when the row still lists it', () => {
+    const result = applySettingsKey(onProvider('xai-grok'), 'ai.plan.model', 'grok-4.5');
+    expect(result.ok && result.value.ai.plan.model).toBe('grok-4.5');
   });
 });
 
