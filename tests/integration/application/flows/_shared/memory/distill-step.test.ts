@@ -29,6 +29,7 @@ import type { AiSettings } from '@src/domain/entity/settings.ts';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { SprintRepository } from '@src/domain/repository/sprint/sprint-repository.ts';
+import { withUpdate } from '@tests/fixtures/sprint-repo-update.ts';
 import type {
   InteractiveAiProvider,
   InteractiveAiProviderInput,
@@ -162,7 +163,7 @@ const recordingLogger = (): { logger: Logger; warns: () => readonly string[] } =
 const inMemorySprintRepo = (initial: Sprint): { repo: SprintRepository; current: () => Sprint } => {
   let current = initial;
   return {
-    repo: {
+    repo: withUpdate({
       async findById(id: SprintId) {
         if (current.id === id) return Result.ok(current);
         return Result.error(new NotFoundError({ entity: 'sprint', id: String(id) }));
@@ -171,7 +172,7 @@ const inMemorySprintRepo = (initial: Sprint): { repo: SprintRepository; current:
         current = sprint;
         return Result.ok(undefined);
       },
-    } as SprintRepository,
+    }) as unknown as SprintRepository,
     current: () => current,
   };
 };

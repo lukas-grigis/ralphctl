@@ -2,7 +2,7 @@ import {
   type TransitionSprintToDoneProps,
   transitionSprintToDoneUseCase,
 } from '@src/business/sprint/transition-sprint-to-done.ts';
-import type { DoneSprint, Sprint } from '@src/domain/entity/sprint.ts';
+import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
 import { assertCtxField } from '@src/application/flows/_shared/_engine/assert-ctx-field.ts';
@@ -20,7 +20,8 @@ export interface TransitionSprintToDoneCtx {
 /**
  * Reusable leaf — adapts `ctx.{sprint, aborted}` → `transitionSprintToDoneUseCase` → updated
  * ctx. Business policy (review → done transition; idempotent skip when aborted; sprint persisted
- * inside the use case) lives in `@src/business/sprint/transition-sprint-to-done.ts`.
+ * inside the use case as a locked update of the on-disk copy) lives in
+ * `@src/business/sprint/transition-sprint-to-done.ts`.
  *
  * Generic over `<TCtx extends TransitionSprintToDoneCtx>` so any flow whose context carries
  * `sprint` + `aborted` can compose it (the review flow's full chain; the close-sprint flow's
@@ -33,7 +34,7 @@ export const transitionSprintToDoneLeaf = <TCtx extends TransitionSprintToDoneCt
   deps: TransitionSprintToDoneLeafDeps,
   name = 'transition-sprint-to-done'
 ): Element<TCtx> =>
-  leaf<TCtx, { readonly sprint: Sprint; readonly aborted: boolean }, DoneSprint | undefined>(name, {
+  leaf<TCtx, { readonly sprint: Sprint; readonly aborted: boolean }, Sprint | undefined>(name, {
     useCase: {
       execute: async ({ sprint, aborted }) => transitionSprintToDoneUseCase({ ...deps, sprint, aborted }),
     },

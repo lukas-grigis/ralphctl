@@ -34,8 +34,10 @@ import type { CloseSprintDeps } from '@src/application/flows/close-sprint/deps.t
  * close on a `planned` / `active` sprint fails fast with `InvalidStateError`. Persistence
  * is internal to `transitionSprintToDoneUseCase`; no separate save leaf is needed downstream.
  *
- * The whole chain runs under the sprint-dir lock implement and review hold, so the `review` assert
- * re-reads the sprint after any live run has released it, and nothing writes the sprint meanwhile.
+ * The whole chain runs under the sprint-dir lock implement, review and unblock hold, so the `review`
+ * assert re-reads the sprint after any live run has released it and none of those writes it
+ * meanwhile. Ticket writers (publish / link) take only the sprint's update lock, so the transition
+ * is a locked update of the on-disk sprint and their edits survive the close.
  *
  * `sprintId` enters via the runner's `initialCtx` (matching how `remove-ticket` is launched);
  * no opts bag is needed at the factory boundary.

@@ -15,6 +15,7 @@ import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import { ErrorCode } from '@src/domain/value/error/error-code.ts';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { SprintRepository } from '@src/domain/repository/sprint/sprint-repository.ts';
+import { withUpdate } from '@tests/fixtures/sprint-repo-update.ts';
 import type { FindTasksBySprintId } from '@src/domain/repository/task/find-tasks-by-sprint-id.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
@@ -45,7 +46,7 @@ const blockedTask = (name: string): Task =>
 
 const inMemorySprintRepo = (initial: Sprint): { readonly repo: SprintRepository; readonly current: () => Sprint } => {
   let current = initial;
-  const repo: SprintRepository = {
+  const repo = withUpdate({
     async findById(id: SprintId) {
       if (current.id === id) return Result.ok(current);
       return Result.error(new NotFoundError({ entity: 'sprint', id: String(id) }));
@@ -54,7 +55,7 @@ const inMemorySprintRepo = (initial: Sprint): { readonly repo: SprintRepository;
       current = sprint;
       return Result.ok(undefined);
     },
-  } as SprintRepository;
+  }) as unknown as SprintRepository;
   return { repo, current: () => current };
 };
 

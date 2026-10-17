@@ -9,6 +9,7 @@ import type { AppEvent } from '@src/business/observability/events.ts';
 import type { HeadlessAiProvider } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
 import type { ReviewSprint, Sprint } from '@src/domain/entity/sprint.ts';
 import type { SprintRepository } from '@src/domain/repository/sprint/sprint-repository.ts';
+import { withUpdate } from '@tests/fixtures/sprint-repo-update.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { TaskRepository } from '@src/domain/repository/task/task-repository.ts';
 import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
@@ -47,7 +48,7 @@ const NOW = isoTimestamp('2026-05-09T10:00:00.000Z');
 const inMemorySprintRepo = (initial: Sprint): { repo: SprintRepository; current: () => Sprint } => {
   let current: Sprint = initial;
   return {
-    repo: {
+    repo: withUpdate({
       async findById(id: SprintId) {
         if (current.id === id) return Result.ok(current);
         return Result.error(new NotFoundError({ entity: 'sprint', id: String(id) }));
@@ -56,7 +57,7 @@ const inMemorySprintRepo = (initial: Sprint): { repo: SprintRepository; current:
         current = sprint;
         return Result.ok(undefined);
       },
-    } as SprintRepository,
+    }) as unknown as SprintRepository,
     current: () => current,
   };
 };

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Result } from '@src/domain/result.ts';
-import type { DoneSprint, Sprint } from '@src/domain/entity/sprint.ts';
+import { attachTicketLink, type DoneSprint, type Sprint } from '@src/domain/entity/sprint.ts';
 import type { SprintRepository } from '@src/domain/repository/sprint/sprint-repository.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
@@ -13,6 +13,7 @@ import {
   makePlannedSprint,
   makeRepository,
   makeReviewSprint,
+  makeTodoTask,
 } from '@tests/fixtures/domain.ts';
 import { createRunner } from '@src/application/chain/run/runner.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
@@ -24,6 +25,10 @@ import { recordingWriteFile } from '@tests/fixtures/recording-write-file.ts';
 import { DEFAULT_SETTINGS } from '@src/business/settings/defaults.ts';
 import { createAtomicWriteFile } from '@src/integration/io/write-file-atomic.ts';
 import { unlockedSprintLockDeps } from '@tests/fixtures/pass-through-locker.ts';
+import { withUpdate } from '@tests/fixtures/sprint-repo-update.ts';
+import { markTaskBlocked } from '@src/domain/entity/task-lifecycle.ts';
+import type { Task } from '@src/domain/entity/task.ts';
+import type { InteractivePrompt } from '@src/business/interactive/prompt.ts';
 
 const NOW = isoTimestamp('2026-05-09T10:00:00.000Z');
 
@@ -56,7 +61,7 @@ const stubDistill = (): NonNullable<CloseSprintDeps['distill']> => ({
 
 const inMemorySprintRepo = (initial: Sprint): { readonly repo: SprintRepository; readonly current: () => Sprint } => {
   let current = initial;
-  const repo: SprintRepository = {
+  const repo = withUpdate({
     async findById(id: SprintId) {
       if (current.id === id) return Result.ok(current);
       return Result.error(new NotFoundError({ entity: 'sprint', id: String(id) }));
@@ -65,7 +70,7 @@ const inMemorySprintRepo = (initial: Sprint): { readonly repo: SprintRepository;
       current = sprint;
       return Result.ok(undefined);
     },
-  } as SprintRepository;
+  }) as unknown as SprintRepository;
   return { repo, current: () => current };
 };
 
@@ -212,5 +217,46 @@ describe('createCloseSprintFlow', () => {
     expect(runner.status).toBe('failed');
     // Sprint stays in `planned` — no partial transition lands on disk.
     expect(sprintRepo.current().status).toBe('planned');
+  });
+
+  it('keeps a ticket link published from another terminal while the close waits on its confirm', async () => {
+    const sprint = makeReviewSprint();
+    const ticket = sprint.tickets[0];
+    if (ticket === undefined) throw new Error('fixture has no ticket');
+    const sprintRepo = inMemorySprintRepo(sprint);
+    const blocked = markTaskBlocked(makeTodoTask({ name: 'stuck' }), 'ran out of attempts', 'own');
+    if (!blocked.ok) throw new Error(blocked.error.message);
+    const tasks: readonly Task[] = [blocked.value];
+    const url = 'https://github.com/acme/repo/issues/42';
+    const interactive = {
+      async askConfirm() {
+        // `ralphctl ticket publish` lands while the operator reads the blocked-task prompt.
+        const linked = await sprintRepo.repo.update(sprint.id, (fresh) => attachTicketLink(fresh, ticket.id, url));
+        if (!linked.ok) throw new Error(linked.error.message);
+        return Result.ok(true);
+      },
+    } as unknown as InteractivePrompt;
+
+    const flow = createCloseSprintFlow({
+      ...unlockedSprintLockDeps(),
+      sprintRepo: sprintRepo.repo,
+      clock: () => FIXED_LATER,
+      logger: noopLogger,
+      appendFile: recordingAppendFile().fn,
+      writeFile: createAtomicWriteFile(),
+      progressFile: absolutePath('/tmp/progress.md'),
+      blockedTasksGate: { taskRepo: { findBySprintId: async () => Result.ok(tasks) }, interactive },
+    });
+    const runner = createRunner<CloseSprintCtx>({
+      id: 'r-close-concurrent-link',
+      element: flow,
+      initialCtx: { sprintId: sprint.id, distillRequested: false },
+    });
+    await runner.start();
+
+    expect(runner.status).toBe('completed');
+    const final = sprintRepo.current();
+    expect(final.status).toBe('done');
+    expect(final.tickets[0]?.link).toBe(url);
   });
 });
