@@ -368,7 +368,7 @@ const buildLiveRunServices = (
   const liveness = createProcessLiveness();
   const now = (): string => String(IsoTimestamp.now());
   const recorder = createLiveRunRecorder({ store, liveness, now, logger });
-  // One sidecar for both AI CLI groups and setup/verify script groups (the shell runner gets it too).
+  // One sidecar for AI CLI, setup/verify script and git hook groups.
   const reaper = createOrphanReaper();
   const childRegistry = createRunChildRegistry({ reaper, recorder, runIdOf: rootSessionId });
   const detectInterruptedRuns = createDetectInterruptedRuns({ store, liveness });
@@ -482,10 +482,10 @@ export const wire = (opts: WireOptions): AppDeps => {
   // Hoisted so the skill catalog's provenance-stamp writes share the exact same atomic-write
   // seam as `AppDeps.writeFile` (one factory call, two consumers).
   const atomicWriteFile = createAtomicWriteFile();
-  // One GitRunner shared by AppDeps, IssuePusher and PullRequestCreator.
-  const gitRunner = createGitRunner();
   const taskRepo = createFsTaskRepository({ root: opts.storage.dataRoot, fileLocker });
   const { liveRunActivity, reaper, ...liveRuns } = buildLiveRunServices(opts.storage, logger, taskRepo);
+  // One GitRunner shared by AppDeps, IssuePusher and PullRequestCreator.
+  const gitRunner = createGitRunner({ reaper });
   return {
     storage: opts.storage,
     ...liveRuns,

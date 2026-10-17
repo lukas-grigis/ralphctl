@@ -333,6 +333,19 @@ export const gitDeleteBranch = async (
 };
 
 /**
+ * Re-point git's record of the linked worktree at `worktreePath` after its directory was moved — else the
+ * next `worktree prune` drops it. Runs inside the worktree, so it reaches whichever repository owns it.
+ */
+export const gitWorktreeRepairHere = async (
+  runner: GitRunner,
+  worktreePath: AbsolutePath
+): Promise<Result<void, StorageError>> => {
+  const result = await runGitChecked(runner, worktreePath, ['worktree', 'repair'], 'worktree repair');
+  if (!result.ok) return Result.error(result.error);
+  return Result.ok(undefined);
+};
+
+/**
  * Prune worktree administrative bookkeeping for worktrees whose directory has already vanished.
  * `git worktree prune` is idempotent and cheap — it only touches `.git/worktrees/<name>` records,
  * the same pointer-file machinery `git-exclude.ts` resolves through. Safe to call defensively

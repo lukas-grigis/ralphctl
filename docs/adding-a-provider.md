@@ -342,7 +342,10 @@ bottom.
   needs its key. `PROVIDER_AUTH_CHECK` (`flows/doctor/provider-auth.ts`) is the doctor's auth
   probe — when your CLI exposes no non-interactive auth verb use `kind: 'none'` with a `reason`,
   which reports as `unknown` rather than guessing. Two `PROVIDER_LABEL` tables
-  (`flows/doctor/probe-helpers.ts`, `ui/shared/launch/readiness.ts`) carry the display name.
+  (`flows/doctor/probe-helpers.ts`, `ui/shared/launch/readiness.ts`) carry the display name. Add a
+  `versionGate` (`supportedMajor` + `installHint`) to your traits row only when another major of your
+  CLI breaks the argv you build: the launch check then refuses that major, and doctor reports it as a
+  failing row.
 
 - **Settings TUI** — the picker reads the `AiProvider` union, so your provider appears once the
   schema includes it. `PRESET_FOR_PROVIDER` (`ui/tui/views/welcome-view.tsx`) maps it to the

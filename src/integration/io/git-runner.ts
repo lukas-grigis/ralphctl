@@ -6,8 +6,13 @@ import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { Spawn } from '@src/integration/io/spawn.ts';
 import { pipeSpawn } from '@src/integration/io/cross-platform-spawn.ts';
 import { killWithEscalation } from '@src/integration/io/kill-with-escalation.ts';
-import { markProcessGroupLeader, supportsProcessGroups } from '@src/integration/io/kill-process-tree.ts';
+import {
+  markProcessGroupLeader,
+  processGroupOf,
+  supportsProcessGroups,
+} from '@src/integration/io/kill-process-tree.ts';
 import { onChildDone } from '@src/integration/io/child-exit.ts';
+import type { OrphanReaper } from '@src/integration/io/orphan-reaper.ts';
 
 /**
  * Async wrapper around `git` invocations. Pure transport: no shell expansion, no
@@ -27,6 +32,8 @@ import { onChildDone } from '@src/integration/io/child-exit.ts';
  * Every git child leads its own process group (POSIX), so a timeout or abort also reaps the hooks
  * it runs, and it has no controlling terminal — together with `GIT_TERMINAL_PROMPT=0` that makes a
  * missing credential or an SSH passphrase fail fast instead of prompting on the TUI's terminal.
+ * Leaving the terminal's session also means a hangup no longer reaches git, so a call that can run
+ * hooks registers its group with the orphan reaper for as long as git runs.
  */
 
 export const DEFAULT_GIT_TIMEOUT_MS = 30_000;
@@ -73,7 +80,13 @@ export interface GitRunnerDeps {
    * tiny cap instead of generating 50 MB of fake stdout.
    */
   readonly maxOutputBytes?: number;
+  /** Kills a still-running hook verb's group if the harness dies. */
+  readonly reaper?: Pick<OrphanReaper, 'watch' | 'unwatch'>;
 }
+
+/** Hook verbs carry a longer budget or a cancel signal; probe reads stay out so they never fork the sidecar. */
+const reapsHooks = (timeoutMs: number, signal: AbortSignal | undefined): boolean =>
+  signal !== undefined || timeoutMs > DEFAULT_GIT_TIMEOUT_MS;
 
 // Only the real spawn marks its child: an injected fake's made-up pid must never be group-killed.
 const defaultSpawn: Spawn = (command, args, options) => {
@@ -91,8 +104,11 @@ export const createGitRunner = (deps: GitRunnerDeps = {}): GitRunner => {
     cwd: AbsolutePath,
     args: readonly string[],
     opts: GitRunOptions = {}
-  ): Promise<Result<GitRunResult, StorageError>> =>
-    runGitOnce(spawn, cwd, args, opts.timeoutMs ?? defaultTimeoutMs, maxOutputBytes, opts.signal);
+  ): Promise<Result<GitRunResult, StorageError>> => {
+    const timeoutMs = opts.timeoutMs ?? defaultTimeoutMs;
+    const reaper = reapsHooks(timeoutMs, opts.signal) ? deps.reaper : undefined;
+    return runGitOnce({ spawn, maxOutputBytes, reaper }, cwd, args, timeoutMs, opts.signal);
+  };
 
   return { run };
 };
@@ -237,12 +253,17 @@ export const runGitChecked = async (
 const abortedError = (args: readonly string[]): StorageError =>
   new StorageError({ subCode: 'io', message: `git aborted: git ${args.join(' ')}` });
 
+interface RunGitOnceDeps {
+  readonly spawn: Spawn;
+  readonly maxOutputBytes: number;
+  readonly reaper: GitRunnerDeps['reaper'];
+}
+
 const runGitOnce = (
-  spawn: Spawn,
+  { spawn, maxOutputBytes, reaper }: RunGitOnceDeps,
   cwd: AbsolutePath,
   args: readonly string[],
   timeoutMs: number,
-  maxOutputBytes: number,
   signal: AbortSignal | undefined
 ): Promise<Result<GitRunResult, StorageError>> =>
   new Promise((resolve) => {
@@ -256,6 +277,8 @@ const runGitOnce = (
       return;
     }
     const child = spawnResult.value;
+    const pgid = processGroupOf(child);
+    if (pgid !== undefined) reaper?.watch(pgid);
 
     const collector = createOutputCollector(maxOutputBytes);
     let killedBy: string | undefined;
@@ -290,9 +313,11 @@ const runGitOnce = (
       clearTimeout(timer);
     });
 
+    // Unwatch, don't kill: a hook's background job (a post-commit indexer) may outlive git on purpose.
     const finish = (result: Result<GitRunResult, StorageError>): void => {
       if (settled) return;
       settled = true;
+      if (pgid !== undefined) reaper?.unwatch(pgid);
       clearTimeout(timer);
       signal?.removeEventListener('abort', onAbort);
       resolve(result);

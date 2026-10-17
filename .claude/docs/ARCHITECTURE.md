@@ -77,7 +77,12 @@ bare `<id>` form, so old data directories continue to work without manual interv
 always produce the canonical `<id>--<slug>` name. Because the readers prefer that name, a launcher that writes sprint
 side files (progress.md, logs, worktrees) gets its dir from `ensureCanonicalSprintDir`, which first moves a legacy dir
 onto it; `SprintRepository.save` does the same. When both dirs already exist, the legacy dir's entries that the
-canonical one lacks move across and a clashing entry stays put — the reconcile never deletes a file.
+canonical one lacks move across and a clashing entry stays put — the reconcile never deletes a file. When the move
+fails and no canonical dir exists (a Windows handle open inside the legacy dir), both return the legacy dir instead
+(`currentSprintDir`), so sprint.json and the side files stay beside tasks.json and the next save retries the move;
+the sprint lock reader keys on the same dir. A move that carries task worktrees re-points git's record of each one
+(`git worktree repair`, run inside the worktree) — the data migration does the same — or the next `worktree prune`
+would drop them.
 
 `Repository` is **nested inside `Project`** as a value object — not its own aggregate. Project carries an array
 of repositories (each with `setupScript`, `verifyScript`, `verifyTimeout`, optional `verifyGates` (`VerifyGate[]` —

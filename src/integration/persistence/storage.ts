@@ -3,7 +3,7 @@ import type { ProjectId } from '@src/domain/value/id/project-id.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { Slug } from '@src/domain/value/slug.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
-import { listDir } from '@src/integration/io/fs.ts';
+import { listDir, pathExists } from '@src/integration/io/fs.ts';
 
 /**
  * On-disk layout (rooted at `<root>`):
@@ -128,6 +128,17 @@ export const resolveSprintDir = async (root: AbsolutePath, id: SprintId): Promis
 
 export const sprintFile = (root: AbsolutePath, id: SprintId, slug: Slug): string =>
   join(sprintDir(root, id, slug), 'sprint.json');
+
+/**
+ * Where the sprint's files are now: the canonical dir once it exists, else a dir no rename has moved yet, else
+ * the canonical path for a first write. Writers and lock keys use it so neither splits off from the data.
+ */
+export const currentSprintDir = async (root: AbsolutePath, id: SprintId, slug: Slug): Promise<string> => {
+  const canonical = sprintDir(root, id, slug);
+  const exists = await pathExists(canonical);
+  if (exists.ok && exists.value) return canonical;
+  return (await resolveSprintDir(root, id)) ?? canonical;
+};
 
 /** The existing sprint dir, falling back to the bare `<id>/` path for first writes by slug-less aggregates. */
 export const sprintDirOrBare = async (root: AbsolutePath, id: SprintId): Promise<string> =>

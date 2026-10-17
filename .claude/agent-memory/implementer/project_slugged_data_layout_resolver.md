@@ -40,7 +40,19 @@ files, sprint dirs, memory dirs). `--` is the separator; kebab slugs never conta
   first), NOT the pure `sprintDir` builder: readers prefer `<id>--*`, so a side file under a not-yet-
   renamed legacy sprint makes `findById`/tasks read the empty canonical dir. Pointing launchers at the
   bare dir instead is also wrong — the next save renames it out from under worktrees and the lock key
-  (`sprint-lock-reader` always keys the canonical path) splits.
+  splits.
+- Failed rename with no canonical dir: `ensureCanonicalSprintDir` and `save` fall back to `currentSprintDir`
+  (canonical if it exists, else the stale dir). Returning the non-existent canonical path made the first
+  side-file `mkdir -p` create it, and readers then preferred an empty dir (findById NotFound). The run's lock
+  key then hashes the stale dir: `sprint-lock-reader` resolves the same way, `unblock-task-locked` (ui/shared)
+  still keys the pure builder. Residual: a mid-run save can still win the retried rename and move the pinned
+  dir away.
+- A move that carries `worktrees/` must re-point each worktree (`git worktree repair` run INSIDE the worktree,
+  so multi-repo sprints need no repo lookup; only entries whose `.git` is a file, else git climbs into an
+  enclosing repo). Repair at the rename site (reconcile + migration apply, also on a migration skip for crash
+  resume), not lazily in `setupWorktree`: its `worktree prune` is repo-wide and would drop other tasks' and
+  other sprints' moved records first. Refusing the rename instead was rejected — it pins legacy dirs and
+  makes the tail-of-run rename (worktrees torn down → next save renames) move the dir mid-run.
 
 **Memory ledger**: `learningsLedgerPath` was REPLACED by two functions in
 `flows/_shared/memory/ledger-path.ts`: `resolveLearningsLedgerPath(memoryRoot, projectId)` (async,

@@ -8,6 +8,7 @@ import { isNodeErrnoCode, listDir, pathExists, removeFile, renamePath } from '@s
 import { parseIdFromName, NAME_SEPARATOR } from '@src/integration/persistence/storage.ts';
 import { CURRENT_DATA_VERSION, writeDataVersion } from '@src/integration/persistence/data-migration/version-marker.ts';
 import { backupDataDir } from '@src/integration/persistence/data-migration/backup.ts';
+import { repairSprintWorktrees } from '@src/integration/persistence/sprint/sprint-worktrees.ts';
 import { anyLockHeld } from '@src/integration/io/lock-guard.ts';
 import type { DryRunReport, MemoryMergePlan, RenamePlan } from '@src/integration/persistence/data-migration/types.ts';
 
@@ -116,7 +117,8 @@ export type ApplyResult =
  *  3. RENAMES — one atomic `renamePath(from, to)` per PLANNED item, IDEMPOTENTLY: if the target
  *     already exists or the source is already gone, record `skipped` and continue. A rename that
  *     THROWS a real I/O fault STOPS the run: return `failed` carrying the backup path WITHOUT
- *     stamping the marker, so the next launch resumes cleanly (already-done renames skip).
+ *     stamping the marker, so the next launch resumes cleanly (already-done renames skip). A sprint
+ *     dir's leftover task worktrees get their links re-pointed at the new path (best-effort).
  *  4. MERGES — for every memory both-dirs case, union the legacy ledger into the slugged one
  *     (dedup by record `id`), regenerate `learnings.md`, move any other legacy entries across, then
  *     remove the emptied legacy dir. Like renames, a real I/O fault STOPS before the stamp (re-run
@@ -149,6 +151,8 @@ export const apply = async (dataRoot: AbsolutePath, report: DryRunReport, ctx: A
       return { kind: 'failed', backupPath, error: outcome.error, applied };
     }
     applied.push(outcome.value);
+    // Also on a skip: a crashed run may have renamed the dir without re-pointing its worktrees.
+    if (plan.kind === 'sprint') await repairSprintWorktrees(String(plan.to));
   }
 
   // Memory both-dirs merges: union each legacy ledger into its slugged sibling (dedup by id), then

@@ -414,5 +414,7 @@ Once every binary is present, a provider whose traits declare a `versionGate`
 `<binary> --version` read once per launch (`probeUnsupportedVersion`); any other major fails the launch
 with a one-line reason naming the version, the settings key, and the installers that still ship 1.x
 (`brew install sst/tap/opencode` — Homebrew core's `opencode` formula tracks 2.x — the install script,
-or `npm install -g opencode-ai@1`). An unreadable version fails open. `apply-preset` emits non-fatal warnings for any preset row whose CLI is missing at apply time, and the
+or `npm install -g opencode-ai@1`). An unreadable version fails open. `ralphctl doctor` runs the same check
+for each configured, installed provider: an unsupported major is a `fail` row (`ai-<provider>-version`) with the
+install hint, in place of that provider's auth row. `apply-preset` emits non-fatal warnings for any preset row whose CLI is missing at apply time, and the
 welcome view silently auto-seeds a preset on fresh install based on what it detects on PATH.

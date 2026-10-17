@@ -49,6 +49,14 @@ without `close` needs a `destroy` on its streams or the timer throws. Git childr
 session → no controlling tty, so ssh prompts fail fast); git leftovers are NOT killed on a normal exit
 (a post-commit hook's background job is legitimate), shell-script leftovers are.
 
+Own session also means a terminal hangup no longer reaches git, so the git runner registers its group
+with the orphan reaper — but only for calls with a budget above `DEFAULT_GIT_TIMEOUT_MS` or a signal
+(hook verbs), so probe reads never fork the lazy sidecar. It unwatches on settle and must stay that way:
+keeping a finished leader's group watched means a later harness exit can signal a recycled pgid.
+Git-runner tests with a MARKED fake child must not drive the abort/timeout kill unless timers are
+faked: `killWithEscalation` never cancels a group's SIGKILL timer, so it fires `process.kill(-12345)`
+for real after `vi.restoreAllMocks()`.
+
 ## Which git verbs take the cancel signal
 
 Only hook verbs (checkout, worktree add, merge, cherry-pick, commit, push). Stash push/pop and worktree

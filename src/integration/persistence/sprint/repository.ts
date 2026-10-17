@@ -21,13 +21,14 @@ import {
   writeJsonAtomic,
 } from '@src/integration/io/fs.ts';
 import {
+  currentSprintDir,
   parseIdFromName,
   resolveSprintDir,
   sprintDir,
-  sprintFile,
   sprintsDir,
 } from '@src/integration/persistence/storage.ts';
 import { decodeDeduped, readEntity } from '@src/integration/persistence/shared/read-entities.ts';
+import { repairSprintWorktrees, SPRINT_WORKTREES_DIR } from '@src/integration/persistence/sprint/sprint-worktrees.ts';
 
 export interface FsSprintRepositoryDeps {
   /** Root of the on-disk layout. Per the path resolver, sprints land under `<root>/sprints/`. */
@@ -46,7 +47,7 @@ export interface FsSprintRepositoryDeps {
  *
  * Reads resolve both the slugged dir and the legacy bare `<id>/` dir via {@link resolveSprintDir}
  * (tolerant reader). `save` first brings any other dir for the id onto the canonical `<id>--<slug>/`
- * name via {@link ensureCanonicalSprintDir}, THEN writes `sprint.json` into it.
+ * name via {@link ensureCanonicalSprintDir}, THEN writes `sprint.json` into the dir that now holds the sprint.
  *
  * Listing scans `<root>/sprints/`, treating each subdirectory as one sprint. `SprintId` is
  * UUIDv7, so the canonical lex sort of the leading id (parsed off the `--`) yields chronological
@@ -60,23 +61,31 @@ export interface FsSprintRepositoryDeps {
  */
 const reconciledDirs = new Set<string>();
 
-/** Move each entry the canonical dir lacks out of `staleDir`; a clashing entry stays put, so `rmdir` keeps the dir. */
-const mergeIntoCanonical = async (staleDir: string, canonicalDir: string): Promise<void> => {
+const SPRINT_FILE = 'sprint.json';
+
+/**
+ * Move each entry the canonical dir lacks out of `staleDir`; a clashing entry stays put, so `rmdir` keeps the dir.
+ * Returns whether the worktrees dir was among the moved entries.
+ */
+const mergeIntoCanonical = async (staleDir: string, canonicalDir: string): Promise<boolean> => {
   const children = await listDir(staleDir);
-  if (!children.ok) return;
+  if (!children.ok) return false;
+  let movedWorktrees = false;
   for (const child of children.value) {
     const target = join(canonicalDir, child);
     const taken = await pathExists(target);
     if (!taken.ok || taken.value) continue;
-    await renamePath(join(staleDir, child), target);
+    const moved = await renamePath(join(staleDir, child), target);
+    if (moved.ok && child === SPRINT_WORKTREES_DIR) movedWorktrees = true;
   }
   await removeEmptyDir(staleDir);
+  return movedWorktrees;
 };
 
 /**
  * Bring every other dir for `id` (the legacy bare `<id>/` or a leftover `<id>--*`) onto the canonical name. An absent
  * canonical dir takes it by one atomic rename; an existing one absorbs its missing entries. Never deletes a file —
- * a failed move is left for the tolerant reader.
+ * a failed move is left for the tolerant reader. Moved worktrees get their links re-pointed at the new path.
  */
 const reconcileSprintDir = async (root: AbsolutePath, id: string, canonicalDir: string): Promise<void> => {
   const memoKey = `${id}::${canonicalDir}`;
@@ -90,7 +99,8 @@ const reconcileSprintDir = async (root: AbsolutePath, id: string, canonicalDir: 
     if (fullPath === canonicalDir || parseIdFromName(entry) !== id) continue;
     foundStale = true;
     const renamed = await renamePath(fullPath, canonicalDir);
-    if (!renamed.ok) await mergeIntoCanonical(fullPath, canonicalDir);
+    const movedWorktrees = renamed.ok || (await mergeIntoCanonical(fullPath, canonicalDir));
+    if (movedWorktrees) await repairSprintWorktrees(canonicalDir);
   }
   if (foundStale) return; // re-verified by the next save, which then finds a settled tree
   const canonicalExists = await pathExists(canonicalDir);
@@ -98,13 +108,13 @@ const reconcileSprintDir = async (root: AbsolutePath, id: string, canonicalDir: 
 };
 
 /**
- * The canonical `<id>--<slug>/` dir, after moving any legacy dir for the sprint onto it. Callers about to write side
- * files (progress.md, logs, worktrees) use this so those files land in the dir the readers resolve.
+ * The sprint's dir after moving any legacy dir for it onto the canonical `<id>--<slug>/` name — or, when that move
+ * failed, the dir still holding the data. Callers about to write side files (progress.md, logs, worktrees) use this
+ * so those files land in the dir the readers resolve.
  */
 export const ensureCanonicalSprintDir = async (root: AbsolutePath, id: SprintId, slug: Slug): Promise<string> => {
-  const canonicalDir = sprintDir(root, id, slug);
-  await reconcileSprintDir(root, String(id), canonicalDir);
-  return canonicalDir;
+  await reconcileSprintDir(root, String(id), sprintDir(root, id, slug));
+  return currentSprintDir(root, id, slug);
 };
 
 /**
@@ -125,7 +135,7 @@ const listSprints = async (root: AbsolutePath): Promise<Result<readonly Sprint[]
   // chronological order established above survives untouched.
   const reads = await Promise.all(
     sortedEntries.map(async (name) => {
-      const path = join(dir, name, 'sprint.json');
+      const path = join(dir, name, SPRINT_FILE);
       return { name, path, json: await readJson(path) };
     })
   );
@@ -139,13 +149,13 @@ export const createFsSprintRepository = (deps: FsSprintRepositoryDeps): SprintRe
 
   const findById: SprintRepository['findById'] = async (id) => {
     const dir = await resolveSprintDir(deps.root, id);
-    return readEntity(dir === undefined ? undefined : join(dir, 'sprint.json'), fromJsonSprint, 'sprint', String(id));
+    return readEntity(dir === undefined ? undefined : join(dir, SPRINT_FILE), fromJsonSprint, 'sprint', String(id));
   };
 
   const save: SprintRepository['save'] = async (sprint) => {
-    // Reconcile first so a legacy dir's execution.json + tasks.json end up beside the new sprint.json.
-    await ensureCanonicalSprintDir(deps.root, sprint.id, sprint.slug);
-    return writeJsonAtomic(sprintFile(deps.root, sprint.id, sprint.slug), toJsonSprint(sprint));
+    // Write where execution.json + tasks.json ended up, so a failed rename never splits sprint.json off them.
+    const dir = await ensureCanonicalSprintDir(deps.root, sprint.id, sprint.slug);
+    return writeJsonAtomic(join(dir, SPRINT_FILE), toJsonSprint(sprint));
   };
 
   const update: SprintRepository['update'] = async (id, mutate) => {

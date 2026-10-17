@@ -17,6 +17,7 @@
 - [seams_tui_test_gotchas.md](seams_tui_test_gotchas.md) — Test setups that pass for the wrong reason (batched stdin, 100x24 stub, spinner flap, vacuous scroll); known resize-listener warning noise
 - [seams_model_catalog_refresh.md](seams_model_catalog_refresh.md) — Catalog-refresh checklist: fingerprint gate, remap tests, CLI-vs-API effort default, eval/TUI tests pinning preset ids and catalog order, Copilot gating, settings.ts lint hazard
 - [seams_process_lifecycle.md](seams_process_lifecycle.md) — Group-kill only marked leaders, exit+drain settle, exit-time reap bounds 'close', which git verbs take a cancel signal, skill-marker boot id, lock owner file, reaper tests, crash resume
+- [seams_process_lifecycle.md](seams_process_lifecycle.md) — Group-kill only marked leaders, exit+drain settle, git cancel-signal verbs + reaper scope, skill-marker boot id, lock owner file, reaper tests, crash resume
 - [seams_migration_backup_and_dry_run.md](seams_migration_backup_and_dry_run.md) — Backup never dereferences + skips worktrees; the dry-run loop-skip depends on it; fs.cp root/verbatim traps
 - [seams_sprint_write_locks.md](seams_sprint_write_locks.md) — Sprint-dir lock vs update lock don't exclude; long-held flows end in update(); plan/ideate commit predicate; withUpdate stub trap
 - [seams_eval_harness.md](seams_eval_harness.md) — Prompt-eval harness: budget under-counts (no cache tokens), private-constant duplicates, fixture tooling exclusions, protectedPaths granularity
@@ -25,7 +26,7 @@
 
 - [project_release_gate_seams.md](project_release_gate_seams.md) — Release/CI seams: color pin, npm-pack prefix trap, CLI error frame, prompts-list gate, pre-release tag/dist-tag pairing
 - [project_settings_default_flip_surfaces.md](project_settings_default_flip_surfaces.md) — Every surface that restates a `settings.harness` default, plus the preset-pin seam
-- [project_slugged_data_layout_resolver.md](project_slugged_data_layout_resolver.md) — Slugged data layout, tolerant resolvers, never-delete sprint reconcile, launchers converge first
+- [project_slugged_data_layout_resolver.md](project_slugged_data_layout_resolver.md) — Slugged data layout, tolerant resolvers, never-delete reconcile, failed-rename fallback dir, worktree repair on moves
 - [project_migration_consent_gate_wiring.md](project_migration_consent_gate_wiring.md) — The data-migration consent splash + backup gate and how it is wired
 - [project_skill_upstream_readaptation.md](project_skill_upstream_readaptation.md) — Porting upstream skill drift: diff noise, table padding, read-only evaluator trap, what never ports
 - [project_skill_selection_resolution_seam.md](project_skill_selection_resolution_seam.md) — Skill selection → `createResolvedSkillSource` resolution path

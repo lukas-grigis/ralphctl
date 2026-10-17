@@ -12,10 +12,12 @@ import type { LiveRunRecord } from '@src/business/runs/live-run.ts';
 import { absolutePath } from '@tests/fixtures/domain.ts';
 import { isAlive, killQuietly, waitForDeath, writeStubCli } from '@tests/helpers/process-tree.ts';
 import { DEFAULT_REAPER_GRACE_MS } from '@src/integration/io/orphan-reaper.ts';
+import { createFakeProject } from '@tests/helpers/fake-project.ts';
 
 const posix = process.platform !== 'win32';
 const REPO_ROOT = resolve(import.meta.dirname, '../../../..');
 const HARNESS = join(REPO_ROOT, 'tests/fixtures/process-lifecycle-harness.ts');
+const GIT_HOOK_HARNESS = join(REPO_ROOT, 'tests/fixtures/git-hook-harness.ts');
 const leftovers: number[] = [];
 const leftoverGroups: number[] = [];
 const harnesses: ChildProcess[] = [];
@@ -98,6 +100,44 @@ describe.skipIf(!posix)('orphan reaper', () => {
     const reaped = await deps.reapInterruptedRuns.execute();
     expect(reaped.ok && reaped.value).toEqual({ runIds: ['r-reaper-test'], reapedGroups: [] });
     expect((await readRecord(appRoot, 'r-reaper-test'))?.reapedAt).toBeDefined();
+  }, 40_000);
+
+  it('kills a running git hook when the harness dies mid-commit', async () => {
+    // Git leads its own group (no controlling tty), so a terminal hangup no longer reaches its hooks.
+    const root = await fs.mkdtemp(join(tmpdir(), 'ralphctl-reaper-git-'));
+    const appRoot = join(root, 'app');
+    const project = await createFakeProject({ seed: { 'a.txt': 'one\n' } });
+    const hooksDir = join(root, 'hooks');
+    const pidFile = join(hooksDir, 'hook.pid');
+    await fs.mkdir(hooksDir, { recursive: true });
+    await fs.writeFile(join(hooksDir, 'pre-commit'), `#!/bin/sh\necho $$ > '${pidFile}'\nsleep 30\n`, {
+      mode: 0o755,
+    });
+    await project.git('config', 'core.hooksPath', hooksDir);
+    await project.writeFile('a.txt', 'two\n');
+
+    try {
+      const harness = nodeSpawn(process.execPath, ['--import', 'tsx', GIT_HOOK_HARNESS, appRoot, project.path], {
+        cwd: REPO_ROOT,
+        stdio: ['ignore', 'ignore', 'inherit'],
+        env: { ...process.env, NODE_OPTIONS: '' },
+      });
+      harnesses.push(harness);
+      const hookPid = await waitFor(async () => {
+        const raw = await fs.readFile(pidFile, 'utf8').catch(() => '');
+        const pid = Number(raw.trim());
+        return Number.isInteger(pid) && pid > 0 ? pid : undefined;
+      }, 20_000);
+      leftovers.push(hookPid);
+
+      harness.kill('SIGKILL');
+      await new Promise((r) => harness.once('exit', r));
+
+      expect(await waitForDeath([hookPid], DEFAULT_REAPER_GRACE_MS + 2_000)).toBe(true);
+    } finally {
+      await project.cleanup();
+      await fs.rm(root, { recursive: true, force: true });
+    }
   }, 40_000);
 
   it('the boot-time reap kills a group an interrupted run left alive, and spares a recycled pid', async () => {

@@ -2,7 +2,8 @@ import { EventEmitter } from 'node:events';
 import { describe, expect, it, vi } from 'vitest';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
-import { createGitRunner } from '@src/integration/io/git-runner.ts';
+import { createGitRunner, GIT_HOOK_TIMEOUT_MS } from '@src/integration/io/git-runner.ts';
+import { markProcessGroupLeader } from '@src/integration/io/kill-process-tree.ts';
 import type { Spawn, SpawnOptions } from '@src/integration/io/spawn.ts';
 
 const cwd = ((): AbsolutePath => {
@@ -218,5 +219,71 @@ describe('createGitRunner', () => {
     await runner.run(cwd, ['commit', '-m', message]);
 
     expect(calls[0]?.args[2]).toBe(message);
+  });
+
+  describe.skipIf(process.platform === 'win32')('orphan reaper', () => {
+    const fakeReaper = () => ({ watch: vi.fn<(pgid: number) => void>(), unwatch: vi.fn<(pgid: number) => void>() });
+
+    // Marked like the real spawn's child so processGroupOf sees a group leader.
+    const markedSpawn = (script: FakeChildScript): Spawn => {
+      const { spawn } = fakeSpawn(script);
+      return (command, args, options) => {
+        const child = spawn(command, args, options);
+        markProcessGroupLeader(child);
+        return child;
+      };
+    };
+
+    it('watches a hook-budget call’s group on spawn and unwatches it once on settle', async () => {
+      const reaper = fakeReaper();
+      const runner = createGitRunner({ spawn: markedSpawn({ exitCode: 0 }), reaper });
+
+      const result = await runner.run(cwd, ['commit', '-m', 'msg'], { timeoutMs: GIT_HOOK_TIMEOUT_MS });
+
+      expect(result.ok).toBe(true);
+      expect(reaper.watch.mock.calls).toEqual([[12345]]);
+      expect(reaper.unwatch.mock.calls).toEqual([[12345]]);
+    });
+
+    it('watches a call that carries a cancel signal', async () => {
+      const reaper = fakeReaper();
+      const runner = createGitRunner({ spawn: markedSpawn({ exitCode: 0 }), reaper });
+
+      await runner.run(cwd, ['push'], { signal: new AbortController().signal });
+
+      expect(reaper.watch.mock.calls).toEqual([[12345]]);
+      expect(reaper.unwatch.mock.calls).toEqual([[12345]]);
+    });
+
+    it('unwatches once when the child errors', async () => {
+      const reaper = fakeReaper();
+      const runner = createGitRunner({ spawn: markedSpawn({ emitErrorMessage: 'gone' }), reaper });
+
+      await runner.run(cwd, ['commit', '-m', 'msg'], { timeoutMs: GIT_HOOK_TIMEOUT_MS });
+
+      expect(reaper.watch).toHaveBeenCalledTimes(1);
+      expect(reaper.unwatch.mock.calls).toEqual([[12345]]);
+    });
+
+    it('leaves a probe-budget call alone, so a read never starts the sidecar', async () => {
+      const reaper = fakeReaper();
+      const runner = createGitRunner({ spawn: markedSpawn({ stdout: ['main\n'], exitCode: 0 }), reaper });
+
+      await runner.run(cwd, ['rev-parse', '--abbrev-ref', 'HEAD']);
+
+      expect(reaper.watch).not.toHaveBeenCalled();
+      expect(reaper.unwatch).not.toHaveBeenCalled();
+    });
+
+    it('never watches an unmarked fake child', async () => {
+      const reaper = fakeReaper();
+      const { spawn } = fakeSpawn({ exitCode: 0 });
+      const runner = createGitRunner({ spawn, reaper });
+
+      await runner.run(cwd, ['commit', '-m', 'msg'], { timeoutMs: GIT_HOOK_TIMEOUT_MS });
+
+      expect(reaper.watch).not.toHaveBeenCalled();
+      expect(reaper.unwatch).not.toHaveBeenCalled();
+    });
   });
 });

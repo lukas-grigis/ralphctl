@@ -189,7 +189,10 @@ fake with a made-up pid gets a single-pid kill. Spawns announce themselves throu
 (`providers/_engine/child-registry.ts`, wired in `wire()`): the registry feeds the **orphan reaper**
 (`integration/io/orphan-reaper.ts`), a lazily started detached sidecar that holds a pipe from the harness. When
 the pipe closes — the harness exited, crashed or was SIGKILLed — it SIGTERMs every registered group, waits a
-grace period, then SIGKILLs. POSIX only. Windows and reaper failure fall back to the boot-time reap
+grace period, then SIGKILLs. The setup/verify runner and the git runner register their groups with the same
+reaper; git does so only for calls that can run hooks (a hook budget or a cancel signal), because a group in its
+own session is out of reach of a terminal hangup, and it unwatches on settle rather than killing what a hook
+backgrounded. POSIX only. Windows and reaper failure fall back to the boot-time reap
 (`reapInterruptedRuns`): it walks dead runs' live-run records and signals recorded groups only after
 `ProcessLiveness` confirms the group is still ours (a live leader must match the recorded `ps` start time and
 command, so a recycled pid is never signalled).
