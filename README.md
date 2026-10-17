@@ -87,7 +87,7 @@ Otherwise, install one of the supported CLIs and authenticate it:
 | [Claude Code](https://docs.anthropic.com/en/docs/claude-code)                      | `npm i -g @anthropic-ai/claude-code` | Anthropic account          |
 | [GitHub Copilot CLI](https://docs.github.com/en/copilot/github-copilot-in-the-cli) | `npm i -g @github/copilot`           | GitHub Copilot seat        |
 | [OpenAI Codex CLI](https://github.com/openai/codex)                                | `npm i -g @openai/codex`             | ChatGPT / OpenAI           |
-| [OpenCode](https://opencode.ai/)                                                   | `npm i -g opencode-ai`               | your own key, or none      |
+| [OpenCode](https://opencode.ai/)                                                   | `npm i -g opencode-ai@1`             | your own key, or none      |
 | [Grok Build CLI](https://docs.x.ai/build/overview)                                 | `npm i -g @xai-official/grok`        | xAI account (`grok login`) |
 
 Then confirm ralphctl can see it:
@@ -260,7 +260,7 @@ per-row settings.
 | **Claude Code** (`claude-code`)           | `claude`   | `npm i -g @anthropic-ai/claude-code` | Anthropic account          | `CLAUDE.md`                       |
 | **GitHub Copilot CLI** (`github-copilot`) | `copilot`  | `npm i -g @github/copilot`           | GitHub Copilot seat        | `.github/copilot-instructions.md` |
 | **OpenAI Codex CLI** (`openai-codex`)     | `codex`    | `npm i -g @openai/codex`             | ChatGPT / OpenAI           | `AGENTS.md`                       |
-| **OpenCode** (`opencode`)                 | `opencode` | `npm i -g opencode-ai`               | your own key, or none      | `AGENTS.md`                       |
+| **OpenCode** (`opencode`)                 | `opencode` | `npm i -g opencode-ai@1`             | your own key, or none      | `AGENTS.md`                       |
 | **Grok Build CLI** (`xai-grok`)           | `grok`     | `npm i -g @xai-official/grok`        | xAI account (`grok login`) | `AGENTS.md`                       |
 
 Codex, OpenCode, and Grok share one repo-root `AGENTS.md`. Readiness for more than one of them writes

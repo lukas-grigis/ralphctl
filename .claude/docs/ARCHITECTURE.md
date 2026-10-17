@@ -146,7 +146,7 @@ quarantines the rejected working-tree diff, via the same deterministic `git stas
 the worktree's own removal). The stash family (`gitStashPush` / `gitStashList` / `gitStashPop` / `gitStashInspect`)
 lives in `integration/io/git-stash.ts`, behind one in-process mutex; `git-ref-rescue.ts` holds the rescue-ref
 helpers. The PARALLEL epilogue (`buildParallelImplementEpilogue`) runs one extra leaf,
-`adopt-persisted-blocks`, before its `saveTasksLeaf`: it re-reads `tasks.json` and substitutes the persisted
+`adopt-persisted-blocks` (shown as "Reconcile tasks" in the step tree), before its `saveTasksLeaf`: it re-reads `tasks.json` and substitutes the persisted
 row for any in-memory `todo` / `in_progress` task — recovering a block (and a quarantined diff's stash
 pointer), an opened attempt, or a landed fold's `done` that a non-`completed` branch had already saved to
 disk right before erroring or aborting, which the disjoint fan-in above drops from ctx. It exempts
@@ -208,20 +208,19 @@ Layout (one module per business sub-domain, sibling-isolated):
 
 ```
 business/
-├── project/           ← createProject, listProjects, addRepository, …
-├── sprint/            ← createSprint, planSprint, checkPlan (deterministic plan critic), transitionToReview,
-│                       transitionToDone, …
+├── project/           ← createProject, deleteProject
+├── sprint/            ← createSprint, planSprint, activateSprint, checkPlan (deterministic plan critic),
+│                       transitionSprintToReview, transitionSprintToDone, reopenSprint, progress-journal rendering, …
 ├── sprint/views/      ← read-only views: sprint progress, requirements export, context export
-├── ticket/            ← addTicket, refineTicket, removeTicket, …
-├── task/              ← createTasks, updateTask, markBlocked, recordEvaluation,
+├── ticket/            ← addApprovedTicket, refineTicket, publishToTracker
+├── task/              ← startAttempt, settleAttempt, commitTask, unblockTask, run-generator/evaluator/verify turns,
 │                       escalation-policy (decideEscalation / applyEscalation), crash-resume (decideCrashResume),
 │                       composeTaskEpisodes, summariseEpisodes, …
-├── runs/              ← live-run records + recovery: detectInterruptedRuns, reapInterruptedRuns,
-│                       dismissInterruptedRuns, outcome stats
-├── feedback/          ← applyFeedback (review flow body)
+├── runs/              ← live-run records + recovery: detect / reap / dismiss interrupted runs, outcome stats
+├── feedback/          ← applyFeedback, runReviewRoundUseCase (review flow body)
 ├── context-file/      ← splice-section: `spliceOwnedSection` / `appendSections` — code-side merge of an AI-written delta
 │                       into a provider-native context file (distill, readiness)
-├── settings/          ← loadSettings, updateSettings
+├── settings/          ← presets + per-provider matrices, resolveEffort, applySettingsKey, adaptAiToAvailableModels, migrations
 ├── version/           ← cli-metadata, version-check, version-checker (npm poll)
 ├── scm/               ← issue-fetcher / issue-pusher / pull-request-creator ports
 ├── interactive/       ← interactive prompt port + InteractiveQueue

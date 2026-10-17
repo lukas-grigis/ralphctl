@@ -210,6 +210,9 @@ underneath it (study `claude/headless.ts` for the full shape):
 - `runHeadlessSpawn(…)` — owns the spawn lifecycle, the idle-stdout watchdog (SIGTERMs a wedged
   child after `idleMs` of silence), stdin delivery, and abort propagation. There is **no**
   wall-clock timeout; implement sessions can run for hours.
+  It settles on `'close'` (not `'exit'`) so your CLI's final stdout records, such as an error or a
+  session id, are not lost, and reaps the child's process group once it exits so a backgrounded job
+  cannot outlive the attempt.
 - `runWithRateLimitRetry(…)` — called by `createHeadlessProvider`; owns the retry loop, backoff
   schedule, banners, abort-during-backoff, and the resume rebuild. You supply `rateLimitRe` (via
   the attempt) and `resumeStaleRe`.

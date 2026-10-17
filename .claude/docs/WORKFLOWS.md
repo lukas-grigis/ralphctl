@@ -37,7 +37,8 @@ stops the chain before the transition leaf runs, leaving the sprint `review` and
 blocked task is named before AND during the close. The CLI has no `InteractivePrompt` to drive the
 in-chain gate, so `sprint close <id>` runs an equivalent confirm of its own (`-y`/`--yes` to skip
 it) and, once the close lands, prints which tasks stayed blocked regardless of whether `--yes`
-skipped the prompt.
+skipped the prompt. The whole `close-sprint` chain runs inside `with-repo-lock(close-sprint)` (the sprint-dir lock
+implement and review hold), so a close cannot interleave with a live run.
 
 ‡`done` is not a dead end: unblocking a task on a closed sprint means there is runnable work again,
 and the implement gate only re-arms for `planned` / `active`. `reopenDoneSprint`
