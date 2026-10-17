@@ -234,8 +234,8 @@ const useUnblockAffordance = ({
   const { unblockInSprint } = useUnblockTask();
   const onUnblock = useCallback(
     (taskId: string): void => {
-      // Defense in depth — see the TOCTOU note above. `TasksPanel` already can't reach this
-      // callback for a live run (the set it gates on is empty), but a future caller of
+      // Defense in depth — see the sprint-dir lock note above. `TasksPanel` already can't reach
+      // this callback for a live run (the set it gates on is empty), but a future caller of
       // `onUnblock` must not be able to bypass the precondition just by not checking.
       if (isRunning || sprintId === undefined) return;
       const target = taskState?.find((t) => String(t.id) === taskId);

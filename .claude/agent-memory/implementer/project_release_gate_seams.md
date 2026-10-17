@@ -28,7 +28,7 @@ publish.
 at the prefix npm walks up and installs into the repo tree.
 
 **3. `runCli` owns the CLI's terminal error frame** (`reportFatal` in `report-cli-error.ts`).
-**Why:** `bootstrapCli`'s pre-flights throw plain `Error`s; uncaught they print a source excerpt
+**Why:** `bootstrapApp`'s pre-flights throw plain `Error`s; uncaught they print a source excerpt
 from the bundled `dist/cli-<hash>.mjs` plus a stack — worst on `doctor`, the command you run
 because something is already broken. `AbortError` is HANDLED there (exit 130), deliberately not
 re-thrown: the propagation rule targets mid-chain guards, and this is the last frame.
