@@ -12,8 +12,8 @@ without tool-specific knowledge.
 - Use H2 sections to group related rules — `## Build`, `## Testing`, `## Architecture`, etc.
 - Keep sections short and scannable; avoid walls of prose. Bullets work well.
 - No depth limit on headings, but rarely need more than `##`/`###`.
-- Target under ~150 lines — longer files dilute the signal-to-noise ratio for models with a limited
-  context window.
+- Target under ~150 lines — the file loads into every agent session, and the rules that matter get
+  lost in a long one.
 
 **Tone and framing:**
 

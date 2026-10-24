@@ -69,7 +69,7 @@ Body rules:
   bullet is one short sentence.
 - **`## Test plan`** — markdown checklist of how a reviewer verifies the branch. Name concrete actions, not
   abstractions. Include both manual checks and automated coverage when applicable.
-- Body length: ≤80 lines. Prefer fewer lines over more — reviewers skim.
+- Body length: scale it to the change — reviewers skim, so every line should help them review it.
 - Tone: clear technical prose matching the project's existing commit messages, readable in 60 seconds. Say things
   literally — plain verbs, no metaphor, no stock phrases, and no unprompted "X, not Y" contrasts.
 

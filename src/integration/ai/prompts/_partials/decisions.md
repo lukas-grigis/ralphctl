@@ -11,7 +11,6 @@ Output contract shows its shape) so the harness can record it in the sprint's de
   convention). Obvious changes do not need a decision entry.
 - **One sentence per decision** — lead with the choice, then the rationale: "Used X over Y because Z." Use
   two sentences only when the rationale genuinely cannot be compressed without losing the key tradeoff.
-- Keep `text` under roughly 500 characters.
 - The harness attaches the task id automatically — do not include it yourself.
 - Emit one signal per decision rather than packing several choices into one `text` body.
 

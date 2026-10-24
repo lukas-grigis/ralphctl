@@ -244,8 +244,8 @@ Field names differ by kind — match the `signals.json` shape below exactly:
 - `note` (OPTIONAL) — narrative annotation in its `text` field; use sparingly for facts worth surfacing to the operator.
 - `learning` (OPTIONAL) — a non-obvious finding about the ticket, in its `text` field, worth recording in the sprint
   log.
-- `decision` (OPTIONAL) — a scope or design decision made during the interview, in its `text` field (keep it
-  concise — roughly 500 characters).
+- `decision` (OPTIONAL) — a scope or design decision made during the interview, in its `text` field (one or two
+  sentences).
 
 **Failure mode.** If, after the interview, the ticket cannot be refined as stated — due to
 contradictory requirements or information you cannot extract from the user — emit the `refined-ticket`
