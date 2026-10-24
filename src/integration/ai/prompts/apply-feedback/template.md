@@ -99,8 +99,7 @@ script — the harness owns those steps (see the role note above).
 
 ### Phase 1 — Reconnaissance
 
-Before editing, work through what the latest round is asking, which files you expect to touch, and any
-constraints from the feedback log or progress. Then:
+Before editing:
 
 1. Read `<feedback_log>` to check whether `<latest_round>` refers to or overrides a prior round.
 2. If `<feedback_log>` is empty, this is round 1 — there is no prior context to reconcile; proceed directly

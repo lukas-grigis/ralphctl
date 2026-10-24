@@ -312,8 +312,7 @@ Read the repositories mounted under `<repositories>` to:
 5. Extract verification commands (build, test, lint, typecheck), how to run the test runner
    against one file, name, or tag, and which subset CI gates on when CI filters (e.g. a tag or grep).
 
-Remember: you are in the per-sprint plan unit root, not inside any repository. Use the
-repository paths from `<repositories>` as the roots for all file reads and searches.
+Use the repository paths from `<repositories>` as the roots for all file reads and searches.
 
 ### Step 2 — Map tickets to tasks
 
@@ -377,8 +376,8 @@ dependency exists:
 - ... (check type, command)
 ```
 
-The approval question goes last, as a structured multiple-choice question — do not ask in prose ("does
-this look right?"). Prose answers are ambiguous and the harness cannot act on them.
+The approval question goes last, as a structured multiple-choice question (or the numbered-list fallback
+in `<approval-gate>`) — not an open prose question like "does this look right?", whose answer is ambiguous.
 
 - **Question:** "Does this task breakdown look correct?"
 - **Options:**

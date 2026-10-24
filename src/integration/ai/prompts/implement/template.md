@@ -171,13 +171,10 @@ create files under the project path.
 
 ### Phase 1 — Reconnaissance
 
-Before the checks below, work through the prior critique (if any), the declared steps, the
-verification criteria, and risks you can already see (file conflicts, ambiguous scope, edges the
-steps do not cover). Work in this order: the `<retry_feedback>` regression first, then the
-`<prior_critique>` dimensions, then the remaining unmet criteria. Proceed directly for routine file
-edits and command runs.
+When earlier work exists, take it in this order: the `<retry_feedback>` regression first, then the
+`<prior_critique>` dimensions, then the remaining unmet criteria.
 
-Then perform these checks before writing any code. The goal is to steer the implementation correctly
+Perform these checks before writing any code. The goal is to steer the implementation correctly
 on the first attempt, not to discover problems after the fact.
 
 {{PARALLEL_TOOL_CALLS}}
