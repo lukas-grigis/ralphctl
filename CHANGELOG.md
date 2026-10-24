@@ -7,6 +7,8 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.27.0] - 2026-10-25
+
 ### Breaking
 
 - **OpenCode 2 is refused.** Reinstall OpenCode 1 (see Added).
@@ -139,7 +141,9 @@ to [Semantic Versioning](https://semver.org/).
   sessions keep going until the signals file is written. The evaluator records pre-existing defects instead of
   failing a round for them and names recurring patterns. Implement sizes its tests, records assumptions and edits
   surgically. PR descriptions ask for literal prose. Inventory also reads Grok and Claude rules directories, and the
-  bundled generator takes the most directly supported reading of an ambiguous requirement.
+  bundled generator takes the most directly supported reading of an ambiguous requirement. The plan approval
+  question may fall back to a numbered list when the AI CLI has no structured question tool, and prompts drop length
+  caps nothing enforced (an 80-line PR body, ~500-character decisions) along with planning preambles.
 
 ### Removed
 
