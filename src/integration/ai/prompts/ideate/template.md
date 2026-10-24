@@ -92,8 +92,7 @@ Focus: clarify WHAT needs to be built. Implementation-agnostic — no repo explo
 
 ### Step 1.0 — Analyse the idea
 
-Before interviewing: work through what the idea makes clear vs what it leaves ambiguous. Cover these
-dimensions before formulating questions:
+The interview covers these dimensions:
 
 - Problem statement and affected users
 - Functional behaviour observable as user-visible outcomes

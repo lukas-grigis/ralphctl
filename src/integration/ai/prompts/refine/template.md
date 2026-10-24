@@ -57,10 +57,7 @@ If the `<context>` block above is empty or absent, no upstream issue body was av
 
 ### Step 1 — Analyse the ticket
 
-Before producing any output, work through what is clear, what is ambiguous, and what edge cases the
-ticket omits.
-
-Then identify, in order:
+Before asking anything, identify, in order:
 
 1. What is already clear and doesn't need clarification.
 2. What is ambiguous, missing, or underspecified.
