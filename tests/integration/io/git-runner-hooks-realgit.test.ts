@@ -84,12 +84,13 @@ describe.skipIf(process.platform === 'win32')('git runner with real hooks', () =
     const runner = createGitRunner();
 
     const started = Date.now();
-    const result = await runner.run(cwd, ['commit', '-m', 'msg'], { timeoutMs: 500 });
+    // Headroom for git to reach the hook under suite load: a timeout before the hook starts leaves nothing to reap.
+    const result = await runner.run(cwd, ['commit', '-m', 'msg'], { timeoutMs: 2_000 });
     const elapsed = Date.now() - started;
 
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.message).toContain('timed out');
-    expect(elapsed).toBeLessThan(5_000);
+    expect(elapsed).toBeLessThan(6_500);
     const pid = readPid(pidFile);
     await vi.waitFor(() => {
       expect(isAlive(pid)).toBe(false);
