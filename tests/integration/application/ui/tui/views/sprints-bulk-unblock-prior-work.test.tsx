@@ -15,7 +15,7 @@ import { quarantineStashMessage } from '@src/domain/value/quarantine-stash-messa
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import { ENTER, ESC } from '@tests/integration/application/ui/tui/_keys.ts';
-import { waitForPredicate } from '@tests/integration/application/ui/tui/_wait.ts';
+import { waitFor, waitForPredicate } from '@tests/integration/application/ui/tui/_wait.ts';
 import { renderView, waitForViewReady } from '@tests/integration/application/ui/tui/_harness.tsx';
 import { makeActiveSprint, makeProject, makeTodoTask } from '@tests/fixtures/domain.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
@@ -92,14 +92,16 @@ describe('SprintsView — bulk u with rejected diffs in git stash', () => {
     const { result, updated, asked, budget } = setup();
     await openQuestion(result);
     result.stdin.write(ENTER);
-    await waitForPredicate(() => /unblocked 2 tasks/.test(result.lastFrame() ?? ''));
+    // The list reload after an unblock hides the toast behind its loading frame, so wait for the whole toast.
+    await waitFor(() => {
+      const frame = flat(result.lastFrame() ?? '');
+      expect(frame).toContain('unblocked 2 tasks');
+      expect(frame).toContain('1 continues from its rejected diff, 1 starts fresh (diff kept in git stash)');
+    });
 
     const byId = new Map(updated.map((t) => [String(t.id), t]));
     expect(byId.get(String(asked.id))?.quarantinedDiff?.nextAttempt).toBe('continue');
     expect(byId.get(String(budget.id))?.quarantinedDiff?.nextAttempt).toBe('fresh');
-    expect(flat(result.lastFrame() ?? '')).toContain(
-      '1 continues from its rejected diff, 1 starts fresh (diff kept in git stash)'
-    );
   });
 
   it('esc unblocks nothing', async () => {
