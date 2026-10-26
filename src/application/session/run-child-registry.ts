@@ -62,6 +62,7 @@ export const createRunChildRegistry = (deps: RunChildRegistryDeps): RunChildRegi
   };
 
   return {
+    beforeSpawn: () => deps.reaper.arm(),
     register,
     liveChildren: () => running.size,
     whenNoChildren: () => (running.size === 0 ? Promise.resolve() : new Promise((resolve) => waiters.push(resolve))),

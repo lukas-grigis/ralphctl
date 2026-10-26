@@ -9,12 +9,16 @@ import { supportsProcessGroups } from '@src/integration/io/kill-process-tree.ts'
  * harness exited, crashed, or was SIGKILLed; the kernel closes the fd either way — the sidecar
  * SIGTERMs every group still registered, waits `graceMs`, SIGKILLs them, and exits.
  *
- * The sidecar is started lazily on the first `watch`, so a process that never spawns a headless
- * AI CLI never forks it. It is `unref`'d (process and pipe) so it never keeps the harness alive.
+ * The sidecar is started lazily on the first `arm` or `watch`, so a process that never spawns a
+ * headless AI CLI never forks it. Callers `arm` before the spawn they will `watch`: a sidecar forked
+ * after it leaves the new group running unregistered for the whole fork. It is `unref`'d (process
+ * and pipe) so it never keeps the harness alive.
  * POSIX only — Windows has no process groups; there the boot-time reap of dead runs' records is
  * the only cleanup.
  */
 export interface OrphanReaper {
+  /** Starts the sidecar now, so the `watch` after a spawn is a pipe write rather than a fork. */
+  arm(): void;
   watch(pgid: number): void;
   unwatch(pgid: number): void;
 }
@@ -72,7 +76,7 @@ const defaultStartSidecar = (graceMs: number): ChildProcess =>
   });
 
 /** A reaper that does nothing — Windows, or after the sidecar failed to start. */
-const NOOP_REAPER: OrphanReaper = { watch: () => {}, unwatch: () => {} };
+const NOOP_REAPER: OrphanReaper = { arm: () => {}, watch: () => {}, unwatch: () => {} };
 
 export const createOrphanReaper = (deps: OrphanReaperDeps = {}): OrphanReaper => {
   if (!supportsProcessGroups()) return NOOP_REAPER;
@@ -113,6 +117,9 @@ export const createOrphanReaper = (deps: OrphanReaperDeps = {}): OrphanReaper =>
   };
 
   return {
+    arm: () => {
+      ensureSidecar();
+    },
     watch: (pgid) => send(`+${String(pgid)}`),
     unwatch: (pgid) => {
       if (sidecar !== undefined) send(`-${String(pgid)}`);

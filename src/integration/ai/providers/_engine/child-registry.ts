@@ -25,6 +25,8 @@ export interface RegisteredChildHandle {
  * {@link NOOP_CHILD_REGISTRY}.
  */
 export interface ChildRegistry {
+  /** Called just before the spawn, so reaping is ready the instant the child exists. */
+  beforeSpawn(): void;
   register(child: RegisteredChild): RegisteredChildHandle;
 }
 
@@ -33,4 +35,4 @@ const NOOP_HANDLE: RegisteredChildHandle = {
   release: () => {},
 };
 
-export const NOOP_CHILD_REGISTRY: ChildRegistry = { register: () => NOOP_HANDLE };
+export const NOOP_CHILD_REGISTRY: ChildRegistry = { beforeSpawn: () => {}, register: () => NOOP_HANDLE };

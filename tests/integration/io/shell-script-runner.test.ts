@@ -651,7 +651,11 @@ describe('createShellScriptRunner', () => {
       vi.restoreAllMocks();
     });
 
-    const fakeReaper = () => ({ watch: vi.fn<(pgid: number) => void>(), unwatch: vi.fn<(pgid: number) => void>() });
+    const fakeReaper = () => ({
+      arm: vi.fn<() => void>(),
+      watch: vi.fn<(pgid: number) => void>(),
+      unwatch: vi.fn<(pgid: number) => void>(),
+    });
 
     // Marked like the real spawn's child so processGroupOf sees a group leader.
     const markedSpawn = (script: FakeChildScript): Spawn => {
@@ -672,6 +676,18 @@ describe('createShellScriptRunner', () => {
       expect(result.ok).toBe(true);
       expect(reaper.watch.mock.calls).toEqual([[12345]]);
       expect(reaper.unwatch.mock.calls).toEqual([[12345]]);
+    });
+
+    it('arms the sidecar before the spawn and watches after it', async () => {
+      const reaper = fakeReaper();
+      const spawn = vi.fn(markedSpawn({ exitCode: 0 }));
+      const runner = createShellScriptRunner({ spawn, reaper });
+
+      await runner.run(cwd, 'true');
+
+      const spawnedAt = spawn.mock.invocationCallOrder[0]!;
+      expect(reaper.arm.mock.invocationCallOrder[0]).toBeLessThan(spawnedAt);
+      expect(reaper.watch.mock.invocationCallOrder[0]).toBeGreaterThan(spawnedAt);
     });
 
     it('unwatches once when the child errors', async () => {

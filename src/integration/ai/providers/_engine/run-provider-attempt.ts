@@ -362,6 +362,7 @@ export const runProviderAttempt = async (input: ProviderAttemptInput): Promise<A
   // Read BEFORE the spawn so the recorded duration covers the child's whole life, including the
   // synchronous-throw path's absence of one.
   const startedAtMs = Date.now();
+  (input.childRegistry ?? NOOP_CHILD_REGISTRY).beforeSpawn();
 
   // `crossPlatformSpawn` throws synchronously for a command line the OS refuses outright — an
   // oversized argv on Windows arrives this way, not as an `'error'` event — so an uncaught call

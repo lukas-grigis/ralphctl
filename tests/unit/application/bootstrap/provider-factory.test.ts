@@ -136,18 +136,24 @@ describe('createAiProvider', () => {
 });
 
 describe('createAiProvider — child registry wiring', () => {
-  it('announces every spawned child to the injected registry and releases it on exit', async () => {
+  it('readies the registry before the spawn, announces the child after it, and releases it on exit', async () => {
     const fake = makeProviderSpawn([{}]);
     const registered: RegisteredChild[] = [];
+    const order: string[] = [];
     let released = 0;
     const provider = createAiProvider({
       flow: 'implement',
       ai: claudeConfig,
       harnessConfig,
       eventBus: createInMemoryEventBus(),
-      spawn: (command, args, options) => Object.assign(fake.spawn(command, args, options), { pid: 777 }),
+      spawn: (command, args, options) => {
+        order.push('spawn');
+        return Object.assign(fake.spawn(command, args, options), { pid: 777 });
+      },
       childRegistry: {
+        beforeSpawn: () => order.push('beforeSpawn'),
         register: (child) => {
+          order.push('register');
           registered.push(child);
           return { noteSessionId: () => {}, release: () => (released += 1) };
         },
@@ -167,6 +173,7 @@ describe('createAiProvider — child registry wiring', () => {
       expect.objectContaining({ pid: 777, provider: 'claude-code', cwd: '/repo', role: 'evaluator' }),
     ]);
     expect(registered[0]?.pgid).toBeUndefined();
+    expect(order).toEqual(['beforeSpawn', 'spawn', 'register']);
     expect(released).toBe(1);
   });
 });

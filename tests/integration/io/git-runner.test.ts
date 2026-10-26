@@ -222,7 +222,11 @@ describe('createGitRunner', () => {
   });
 
   describe.skipIf(process.platform === 'win32')('orphan reaper', () => {
-    const fakeReaper = () => ({ watch: vi.fn<(pgid: number) => void>(), unwatch: vi.fn<(pgid: number) => void>() });
+    const fakeReaper = () => ({
+      arm: vi.fn<() => void>(),
+      watch: vi.fn<(pgid: number) => void>(),
+      unwatch: vi.fn<(pgid: number) => void>(),
+    });
 
     // Marked like the real spawn's child so processGroupOf sees a group leader.
     const markedSpawn = (script: FakeChildScript): Spawn => {
@@ -243,6 +247,18 @@ describe('createGitRunner', () => {
       expect(result.ok).toBe(true);
       expect(reaper.watch.mock.calls).toEqual([[12345]]);
       expect(reaper.unwatch.mock.calls).toEqual([[12345]]);
+    });
+
+    it('arms the sidecar before the spawn and watches after it', async () => {
+      const reaper = fakeReaper();
+      const spawn = vi.fn(markedSpawn({ exitCode: 0 }));
+      const runner = createGitRunner({ spawn, reaper });
+
+      await runner.run(cwd, ['commit', '-m', 'msg'], { timeoutMs: GIT_HOOK_TIMEOUT_MS });
+
+      const spawnedAt = spawn.mock.invocationCallOrder[0]!;
+      expect(reaper.arm.mock.invocationCallOrder[0]).toBeLessThan(spawnedAt);
+      expect(reaper.watch.mock.invocationCallOrder[0]).toBeGreaterThan(spawnedAt);
     });
 
     it('watches a call that carries a cancel signal', async () => {
@@ -271,6 +287,7 @@ describe('createGitRunner', () => {
 
       await runner.run(cwd, ['rev-parse', '--abbrev-ref', 'HEAD']);
 
+      expect(reaper.arm).not.toHaveBeenCalled();
       expect(reaper.watch).not.toHaveBeenCalled();
       expect(reaper.unwatch).not.toHaveBeenCalled();
     });
