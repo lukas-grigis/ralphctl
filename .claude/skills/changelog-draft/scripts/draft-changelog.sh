@@ -47,8 +47,8 @@ echo "- (scan the Changed/Fixed lines above for anything that REMOVED a feature/
 echo
 
 echo "## Internal — usually omit from a user-facing changelog (verify none are user-visible)"
-printf '%s' "$commits" | tr '\036' '\n' \
-  | grep -iE '^(chore|docs|test|ci|style|build|deps)(\([a-z0-9 -]+\))?:' 2>/dev/null \
-  | sed -E 's/^/  /' | sed -E 's/\t.*//' | head -40
+printf '%s\n' "$subjects" \
+  | grep -iE '^(chore|docs|test|ci|style|build|deps)(\([a-z0-9 -]+\))?!?:' 2>/dev/null \
+  | sed -E 's/^/  /' | head -40
 echo
 echo "# Done. Rewrite each kept line for a user reading release notes — not the commit author."
