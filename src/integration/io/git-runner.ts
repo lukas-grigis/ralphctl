@@ -81,7 +81,7 @@ export interface GitRunnerDeps {
    */
   readonly maxOutputBytes?: number;
   /** Kills a still-running hook verb's group if the harness dies. */
-  readonly reaper?: Pick<OrphanReaper, 'watch' | 'unwatch'>;
+  readonly reaper?: OrphanReaper;
 }
 
 /** Hook verbs carry a longer budget or a cancel signal; probe reads stay out so they never fork the sidecar. */
@@ -271,6 +271,7 @@ const runGitOnce = (
       resolve(Result.error(abortedError(args)));
       return;
     }
+    reaper?.arm();
     const spawnResult = spawnGitChild(spawn, cwd, args);
     if (!spawnResult.ok) {
       resolve(Result.error(spawnResult.error));

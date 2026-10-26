@@ -102,7 +102,7 @@ export interface ShellScriptRunnerDeps {
    */
   readonly abortKillGraceMs?: number;
   /** Kills the script's detached group if the harness dies before the script does. */
-  readonly reaper?: Pick<OrphanReaper, 'watch' | 'unwatch'>;
+  readonly reaper?: OrphanReaper;
 }
 
 const abortResult = (): Result<ShellScriptResult, StorageError | AbortError> =>
@@ -216,7 +216,7 @@ interface RunChildProcessDeps {
   readonly defaultTimeoutMs: number;
   readonly now: () => number;
   readonly abortKillGraceMs: number;
-  readonly reaper: Pick<OrphanReaper, 'watch' | 'unwatch'> | undefined;
+  readonly reaper: OrphanReaper | undefined;
 }
 
 interface EscalatingKill {
@@ -308,6 +308,7 @@ const runChildProcess = (
     return;
   }
 
+  deps.reaper?.arm();
   const spawnAttempt = trySpawnChild(spawn, cwd, script, buildChildEnv(opts.env));
   if (!spawnAttempt.ok) {
     resolve(Result.error(spawnAttempt.error));

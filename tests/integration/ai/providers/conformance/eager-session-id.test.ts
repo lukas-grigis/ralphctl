@@ -73,6 +73,7 @@ describe.each(ROWS)('eager session-id persistence — $provider', (row) => {
     const noted: string[] = [];
     const registered: RegisteredChild[] = [];
     const childRegistry: ChildRegistry = {
+      beforeSpawn: () => {},
       register: (child) => {
         registered.push(child);
         return { noteSessionId: (id) => noted.push(id), release: () => {} };

@@ -39,6 +39,7 @@ describe.skipIf(!posix)('headless AI CLI spawns run in their own process group',
       eventBus: createCapturingBus().bus,
       command: stub.command,
       childRegistry: {
+        beforeSpawn: () => {},
         register: (child) => {
           registered.push(child);
           return { noteSessionId: () => {}, release: () => (released += 1) };

@@ -187,8 +187,9 @@ attempt or hold its stdout open. Where no group kill reaches the holder (Windows
 group), the attempt still settles 1s after the CLI exits. Only children marked as group leaders are group-killed — a test
 fake with a made-up pid gets a single-pid kill. Spawns announce themselves through the `ChildRegistry` port
 (`providers/_engine/child-registry.ts`, wired in `wire()`): the registry feeds the **orphan reaper**
-(`integration/io/orphan-reaper.ts`), a lazily started detached sidecar that holds a pipe from the harness. When
-the pipe closes — the harness exited, crashed or was SIGKILLed — it SIGTERMs every registered group, waits a
+(`integration/io/orphan-reaper.ts`), a lazily started detached sidecar that holds a pipe from the harness. Every
+caller arms it before its spawn (`ChildRegistry.beforeSpawn`, `OrphanReaper.arm`), so a new group is never alive
+and unregistered while the sidecar forks. When the pipe closes — the harness exited, crashed or was SIGKILLed — it SIGTERMs every registered group, waits a
 grace period, then SIGKILLs. The setup/verify runner and the git runner register their groups with the same
 reaper; git does so only for calls that can run hooks (a hook budget or a cancel signal), because a group in its
 own session is out of reach of a terminal hangup, and it unwatches on settle rather than killing what a hook

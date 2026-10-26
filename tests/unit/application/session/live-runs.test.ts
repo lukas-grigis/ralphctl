@@ -48,7 +48,11 @@ describe('live-run records', () => {
       logger: noopLogger,
     });
     const children = createRunChildRegistry({
-      reaper: { watch: (g) => watched.push(`+${String(g)}`), unwatch: (g) => watched.push(`-${String(g)}`) },
+      reaper: {
+        arm: () => watched.push('arm'),
+        watch: (g) => watched.push(`+${String(g)}`),
+        unwatch: (g) => watched.push(`-${String(g)}`),
+      },
       recorder,
       runIdOf: rootSessionId,
     });
@@ -148,7 +152,7 @@ describe('live-run records', () => {
     const recorder = createLiveRunRecorder({ store, liveness, now: () => 'now', logger: noopLogger });
     const killed: Array<number | undefined> = [];
     const children = createRunChildRegistry({
-      reaper: { watch: () => undefined, unwatch: () => undefined },
+      reaper: { arm: () => undefined, watch: () => undefined, unwatch: () => undefined },
       recorder,
       runIdOf: rootSessionId,
       kill: (child) => {
@@ -212,11 +216,12 @@ describe('live-run records', () => {
 
   it('a spawn outside any tracked run is still handed to the reaper but touches no record', async () => {
     const { children, recorder } = build();
+    children.beforeSpawn();
     const handle = children.register(CHILD);
     handle.release();
     await recorder.idle();
 
-    expect(watched).toEqual(['+4242', '-4242']);
+    expect(watched).toEqual(['arm', '+4242', '-4242']);
     await expect(fs.readdir(liveRunsDir(absolutePath(stateRoot)))).rejects.toThrow();
   });
 });
