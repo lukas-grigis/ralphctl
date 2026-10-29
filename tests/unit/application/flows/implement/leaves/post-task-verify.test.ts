@@ -118,7 +118,7 @@ const fixture = (
       eventBus: bus.bus,
       logger: noopLogger,
     },
-    { cwd: CWD, ...(opts.verifyScript !== undefined ? { verifyScript: opts.verifyScript } : {}) },
+    { cwd: CWD, maxAttempts: 1, ...(opts.verifyScript !== undefined ? { verifyScript: opts.verifyScript } : {}) },
     task.id
   );
   return { ctx, leaf };
@@ -272,7 +272,7 @@ describe('postTaskVerifyLeaf', () => {
           eventBus: createCapturingBus().bus,
           logger: noopLogger,
         },
-        { cwd: CWD, verifyScript: 'pnpm test' },
+        { cwd: CWD, verifyScript: 'pnpm test', maxAttempts: 1 },
         taskId
       );
 
@@ -376,7 +376,7 @@ describe('postTaskVerifyLeaf', () => {
           eventBus: createCapturingBus().bus,
           logger: noopLogger,
         },
-        { cwd: CWD, verifyGates: GATES },
+        { cwd: CWD, verifyGates: GATES, maxAttempts: 1 },
         task.id
       );
       const out = await leaf.execute(ctx);
@@ -468,7 +468,7 @@ describe('postTaskVerifyLeaf', () => {
         eventBus: bus.bus,
         logger: noopLogger,
       },
-      { cwd: CWD, verifyScript: 'pnpm test' },
+      { cwd: CWD, verifyScript: 'pnpm test', maxAttempts: 1 },
       task.id
     );
     const out = await leaf.execute(ctx);
@@ -488,7 +488,7 @@ describe('postTaskVerifyLeaf', () => {
   // attempt (the loop re-enters); the commit guard still skips on the block reason, so the red
   // work never lands. On budget exhaustion the flag is withheld → block only (today's behaviour).
   // Other attributions are untouched: only `'regressed'` ever arms the retry.
-  describe('T6 red-post-verify bounded retry', () => {
+  describe('red-post-verify bounded retry', () => {
     const runRegressed = async (attemptN: number, maxAttempts: number) => {
       const task = makeTaskOnAttempt(attemptN, maxAttempts);
       const ctx: ImplementCtx = {
@@ -541,34 +541,6 @@ describe('postTaskVerifyLeaf', () => {
       const ctx = await runRegressed(1, 1);
       expect(ctx.lastBlockReason).toContain('regressed baseline');
       expect(ctx.lastShouldFailAttempt).toBeUndefined();
-    });
-
-    it('no maxAttempts wired (legacy caller) → block only, NO retry (pre-T6 behaviour preserved)', async () => {
-      const task = makeInProgressTaskWithRunningAttempt();
-      const ctx: ImplementCtx = {
-        sprintId: SPRINT_ID,
-        currentTask: task,
-        currentTaskId: task.id,
-        tasks: [task],
-        lastPreVerifyOutcome: 'success',
-      };
-      const { repo } = fakeTaskRepo();
-      const leaf = postTaskVerifyLeaf(
-        {
-          shellScriptRunner: fakeRunner({ passed: false, exitCode: 1, output: 'broke it' }),
-          taskRepo: repo,
-          gitRunner: fakeGitRunner(),
-          clock: () => FIXED_NOW,
-          eventBus: createCapturingBus().bus,
-          logger: noopLogger,
-        },
-        { cwd: CWD, verifyScript: 'pnpm test' }, // no maxAttempts
-        task.id
-      );
-      const out = await leaf.execute(ctx);
-      if (!out.ok) throw new Error(`expected ok: ${out.error.error.message}`);
-      expect(out.value.ctx.lastBlockReason).toContain('regressed baseline');
-      expect(out.value.ctx.lastShouldFailAttempt).toBeUndefined();
     });
 
     const runWithPre = async (preOutcome: VerifyRunOutcome, postPassed: boolean) => {
