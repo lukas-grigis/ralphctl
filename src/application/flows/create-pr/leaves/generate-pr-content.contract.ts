@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { AiSignal, PrContentSignal } from '@src/domain/signal.ts';
+import type { PrContentSignal } from '@src/domain/signal.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import { prContentSignalSchema } from '@src/integration/ai/contract/_engine/signals/pr-content/schema.ts';
 import { brandSignalArray } from '@src/integration/ai/contract/_engine/brand-signal-array.ts';
@@ -93,6 +93,3 @@ export const generatePrContentOutputContract: AiOutputContract<CreatePrSignal> =
   migrations: {},
   exampleSignals: createPrExampleSignals,
 };
-
-const _signalCheck: CreatePrSignal extends AiSignal ? true : false = true;
-void _signalCheck;

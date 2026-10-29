@@ -1,7 +1,6 @@
 import { z } from 'zod';
 import type {
   AgentsMdProposalSignal,
-  AiSignal,
   LearningSignal,
   NoteSignal,
   SetupSkillProposalSignal,
@@ -167,6 +166,3 @@ export const readinessOutputContract: AiOutputContract<ReadinessSignal> = {
   },
   exampleSignals: readinessExampleSignals,
 };
-
-const _signalCheck: ReadinessSignal extends AiSignal ? true : false = true;
-void _signalCheck;

@@ -1,6 +1,5 @@
 import { z } from 'zod';
 import type {
-  AiSignal,
   ChangeSignal,
   CommitMessageSignal,
   DecisionSignal,
@@ -175,6 +174,3 @@ const renderCommitMessage = (signal: CommitMessageSignal): string => {
   if (body !== undefined && body.length > 0) return `${subject}\n\n${body}\n`;
   return `${subject}\n`;
 };
-
-const _signalCheck: GeneratorSignal extends AiSignal ? true : false = true;
-void _signalCheck;

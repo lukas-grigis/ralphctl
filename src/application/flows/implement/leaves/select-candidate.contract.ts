@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { AiSignal, CandidateSelectionSignal } from '@src/domain/signal.ts';
+import type { CandidateSelectionSignal } from '@src/domain/signal.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import { candidateSelectionSignalSchema } from '@src/integration/ai/contract/_engine/signals/candidate-selection/schema.ts';
 import { brandSignalArray } from '@src/integration/ai/contract/_engine/brand-signal-array.ts';
@@ -78,6 +78,3 @@ export const selectCandidateOutputContract: AiOutputContract<SelectCandidateSign
   migrations: {},
   exampleSignals: selectCandidateExampleSignals,
 };
-
-const _signalCheck: SelectCandidateSignal extends AiSignal ? true : false = true;
-void _signalCheck;

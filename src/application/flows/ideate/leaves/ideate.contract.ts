@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { AiSignal, DecisionSignal, IdeatedTicketsSignal, LearningSignal, NoteSignal } from '@src/domain/signal.ts';
+import type { DecisionSignal, IdeatedTicketsSignal, LearningSignal, NoteSignal } from '@src/domain/signal.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import { decisionSignalSchema } from '@src/integration/ai/contract/_engine/signals/decision/schema.ts';
 import { ideatedTicketsSignalSchema } from '@src/integration/ai/contract/_engine/signals/ideated-tickets/schema.ts';
@@ -95,6 +95,3 @@ export const ideateOutputContract: AiOutputContract<IdeateSignal> = {
   },
   exampleSignals: ideateExampleSignals,
 };
-
-const _signalCheck: IdeateSignal extends AiSignal ? true : false = true;
-void _signalCheck;

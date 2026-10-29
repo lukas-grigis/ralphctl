@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { AiSignal, DecisionSignal, LearningSignal, NoteSignal, TaskPlanSignal } from '@src/domain/signal.ts';
+import type { DecisionSignal, LearningSignal, NoteSignal, TaskPlanSignal } from '@src/domain/signal.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import { decisionSignalSchema } from '@src/integration/ai/contract/_engine/signals/decision/schema.ts';
 import { learningSignalSchema } from '@src/integration/ai/contract/_engine/signals/learning/schema.ts';
@@ -96,6 +96,3 @@ export const planOutputContract: AiOutputContract<PlanSignal> = {
   },
   exampleSignals: planExampleSignals,
 };
-
-const _signalCheck: PlanSignal extends AiSignal ? true : false = true;
-void _signalCheck;
