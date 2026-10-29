@@ -444,11 +444,10 @@ opt-in phase folder: `e` enable, `d` disable, `u` update one, `U` update every o
 reload — the filesystem under `<appRoot>/skills/<flow>/` is the source of truth (see `ARCHITECTURE.md`
 § Skills subsystem).
 
-Execute view: three-column at `xl` (≥180), two-column at `lg` (≥140), compact (no rail column) at `md` (100–139),
+Execute view: sidebar layout at `lg`+ (≥140), compact (no rail column) at `md` (100–139),
 single-column below `md`. The header carries a main-step strip at every width; a flow without task work items
-(plan, refine, review, …) shows a Steps tree where the Tasks panel would be (`DESIGN-SYSTEM.md` § 7.8). The
-sidebar rail grows fluidly 36→56 cols at `xl`+ via `resolveRailWidth`. Named breakpoints
-(`sm 80 / md 100 / lg 140 / xl 180 / xxl 220`) are canonical — use `breakpointFor`, `fluid`
+(plan, refine, review, …) shows a Steps tree where the Tasks panel would be (`DESIGN-SYSTEM.md` § 7.8). Named breakpoints
+(`sm 80 / md 100 / lg 140 / xl 180 / xxl 220`) are canonical — use `breakpointFor`
 from `theme/tokens.ts` and `useBreakpoint` from `runtime/use-breakpoint.ts`; no hardcoded column literals.
 Global keys: `g` progress, `S` / `P` pick sprint / project;
 `b` banner toggle is global, `y` yank is Execute-local. Execute-view: `j`/`k` nav, `e` verification-criteria, `c` cancel-scope.

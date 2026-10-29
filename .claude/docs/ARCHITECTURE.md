@@ -823,9 +823,9 @@ contract) and are not restated here:
   type. Edits save immediately.
 - **Doctor view** — calls the shared `useSystemStatus` provider's `refreshDoctor()`
   (`runtime/system-status-context.tsx`) on mount and on refresh; renders per-check rows + an aggregate card.
-- **Execute view is responsive** — flow-steps rail / tasks-stream / context columns collapse from three to one as
-  the terminal narrows. Every width decision goes through the named breakpoints and `resolveRailWidth` in
-  `theme/tokens.ts` — no hardcoded column literals. The step tree renders `Element.label` when present,
+- **Execute view is responsive** — sidebar + tasks collapse to a single column as
+  the terminal narrows. Every width decision goes through the named breakpoints in
+  `theme/tokens.ts` and `resolveResponsiveLayout` — no hardcoded column literals. The step tree renders `Element.label` when present,
   truncated to its column budget.
 - **Overlays snapshot on open** — `ProgressOverlay` reads `progress.md` and `EvaluationOverlay` reads
   `<sprintDir>/implement/<task-id>/<Attempt.evaluation.file>` from disk when opened; there is no live tail or

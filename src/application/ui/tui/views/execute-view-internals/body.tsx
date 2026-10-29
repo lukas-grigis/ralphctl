@@ -26,7 +26,7 @@ import { ExecuteLayout } from '@src/application/ui/tui/views/execute-view-intern
 import { ImplementLayout } from '@src/application/ui/tui/views/execute-view-internals/implement-layout.tsx';
 import { LogPanel } from '@src/application/ui/tui/views/execute-view-internals/log-panel.tsx';
 import { ResultFooter } from '@src/application/ui/tui/views/execute-view-internals/result-footer.tsx';
-import type { ResponsiveLayout } from '@src/application/ui/tui/views/execute-view-internals/use-responsive-layout.ts';
+import type { ResponsiveLayout } from '@src/application/ui/tui/views/execute-view-internals/responsive-layout.ts';
 import type { BucketedExecution } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
 import type { LogEvent } from '@src/business/observability/events.ts';
 import type { NextSteps } from '@src/application/ui/shared/next-steps.ts';
@@ -42,8 +42,6 @@ export interface ExecuteBodyProps {
   readonly elapsed: string;
   readonly layout: ResponsiveLayout;
   readonly termColumns: number;
-  /** Raw terminal row count — needed by the wide sidebar (ImplementLayout) path. */
-  readonly termRows: number;
   /** Bucketed task execution state — feeds the sidebar task-nav list + main area. */
   readonly bucketed: BucketedExecution | undefined;
   readonly executionState: SprintExecution | undefined;
@@ -56,11 +54,7 @@ export interface ExecuteBodyProps {
   readonly currentTaskName: string | undefined;
   readonly currentSubStep: string | undefined;
   readonly tasksPanel: React.ReactNode;
-  /**
-   * `v` handler for the task cards. The narrow layout gets it baked into `tasksPanel`; the wide
-   * sidebar layout builds its own panel, so it needs the handler threaded separately — see
-   * `ImplementLayoutProps.onOpenEvaluation`.
-   */
+  /** `v` handler for the wide layout, which builds its own panel; the narrow `tasksPanel` has it baked in. */
   readonly onOpenEvaluation: (taskId: string) => void;
   readonly logEntries: readonly LogEvent[];
   readonly cancelScopeOpen: boolean;
@@ -71,28 +65,19 @@ export interface ExecuteBodyProps {
   readonly onCancelAttempt: () => void;
   readonly onCancelFlow: () => void;
   readonly onDismissCancelScope: () => void;
-  /** When true the run's pinned sprint is no longer available — baseline-health surfaces are dropped. */
-  readonly pinnedSprintStale: boolean;
   /** Settled-run "what next" + post-mortem paths, forwarded verbatim to the {@link ResultFooter}. */
   readonly nextSteps: NextSteps;
   /** Runs blocked on a prompt → waiting since (epoch ms). */
   readonly awaiting?: ReadonlyMap<string, number>;
 }
 
-/**
- * The rail / tasks / context region between the header card and the log panel. Which composition
- * renders is a width decision: at ≥140 cols the sidebar layout owns the region, below that the
- * column-switching `ExecuteLayout` does. Both take the same already-derived data, so the choice is
- * the only thing this component adds.
- */
+/** At ≥140 cols the sidebar layout owns the rail / tasks region below the header; narrower falls back to `ExecuteLayout`. */
 const MainRegion = ({
   layout,
   descriptor,
   progress,
   isRunning,
-  sessionId,
   termColumns,
-  termRows,
   bucketed,
   tasksInputActive,
   tasksPanel,
@@ -101,64 +86,30 @@ const MainRegion = ({
   taskState,
   now,
   tokenUsage,
-  pinnedSprintStale,
-}: Pick<
-  ExecuteBodyProps,
-  | 'layout'
-  | 'descriptor'
-  | 'progress'
-  | 'isRunning'
-  | 'sessionId'
-  | 'termColumns'
-  | 'termRows'
-  | 'bucketed'
-  | 'tasksInputActive'
-  | 'tasksPanel'
-  | 'onOpenEvaluation'
-  | 'executionState'
-  | 'taskState'
-  | 'now'
-  | 'tokenUsage'
-  | 'pinnedSprintStale'
->): React.JSX.Element =>
+}: ExecuteBodyProps): React.JSX.Element =>
   layout.sidebarLayout ? (
     <ImplementLayout
       layout={layout}
       bucketed={bucketed}
-      termRows={termRows}
       inputActive={tasksInputActive}
       descriptor={descriptor}
       progress={progress}
       isRunning={isRunning}
-      sessionId={sessionId}
       termColumns={termColumns}
-      tasksPanel={tasksPanel}
       onOpenEvaluation={onOpenEvaluation}
       executionState={executionState}
       taskState={taskState}
       now={now}
       tokenUsage={tokenUsage}
-      pinnedSprintStale={pinnedSprintStale}
     />
   ) : (
     <ExecuteLayout
       progress={progress}
       isRunning={isRunning}
-      sessionId={sessionId}
       termColumns={termColumns}
       flowStepsRows={layout.flowStepsRows}
-      threeColRailWidth={layout.threeColRailWidth}
-      labelledRailWidth={layout.labelledRailWidth}
-      contextWidth={layout.contextWidth}
-      threeColumn={layout.threeColumn}
-      twoColumn={layout.twoColumn}
       compactTwoColumn={layout.compactTwoColumn}
       tasksPanel={tasksPanel}
-      executionState={executionState}
-      taskState={taskState}
-      now={now}
-      tokenUsage={tokenUsage}
-      pinnedSprintStale={pinnedSprintStale}
     />
   );
 

@@ -22,11 +22,10 @@
  *   - `use-run-sprint-context.ts`    — the three pin-derived hooks in one call
  *   - `use-run-forensics.ts`         — existence-checked post-mortem paths for a failed run
  *   - `use-settled-next-steps.ts`    — session data → `buildNextSteps` input bag
- *   - `use-responsive-layout.ts`     — width-regime + row-cap derivation
+ *   - `responsive-layout.ts`     — width-regime + row-cap derivation
  *
  * Layout regimes (driven by terminal width):
- *  - ≥180 cols (xl+): three-column — fluid-width rail, flex Tasks, fixed context column.
- *  - 140–179 cols   : two-column — fixed RAIL_WIDTH rail + flex Tasks. No context column.
+ *  - ≥140 cols      : sidebar layout (`ImplementLayout`) — task/steps sidebar + Tasks main area.
  *  - 100–139 cols   : compact — full-width Tasks (or Steps, for flows without task work items).
  *  - <100 cols      : single-column stack.
  *
@@ -39,10 +38,10 @@
  * ↑ / ↓ (and j / k, PgUp / PgDn, g / G) belong to the Tasks panel cursor, not to the page: the
  * ViewShell passes `suppressScrollArrows`, so the page ScrollRegion yields every scroll key. The
  * page still scrolls by mouse wheel, and every section is row-capped so nothing hides below the
- * fold — see `use-responsive-layout.ts` and `result-footer.tsx`.
+ * fold — see `responsive-layout.ts` and `result-footer.tsx`.
  */
 
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Box, Text } from 'ink';
 import { ViewShell } from '@src/application/ui/tui/components/view-shell.tsx';
 import { runnerStatusKind, StatusChip } from '@src/application/ui/tui/components/status-chip.tsx';
@@ -75,7 +74,7 @@ import type { TokenUsage } from '@src/application/ui/tui/runtime/use-token-usage
 import type { LogEvent } from '@src/business/observability/events.ts';
 import type { SprintExecution } from '@src/domain/entity/sprint-execution.ts';
 import type { Task } from '@src/domain/entity/task.ts';
-import type { ResponsiveLayout } from '@src/application/ui/tui/views/execute-view-internals/use-responsive-layout.ts';
+import type { ResponsiveLayout } from '@src/application/ui/tui/views/execute-view-internals/responsive-layout.ts';
 import type { BucketedDerivation } from '@src/application/ui/tui/views/execute-view-internals/use-bucketed-tasks.ts';
 import type { CancelHandlers } from '@src/application/ui/tui/views/execute-view-internals/use-cancel-handlers.ts';
 import type { NextSteps } from '@src/application/ui/shared/next-steps.ts';
@@ -86,7 +85,7 @@ import { ExecuteBody } from '@src/application/ui/tui/views/execute-view-internal
 import { LOG_TAIL_LIMIT } from '@src/application/ui/tui/views/execute-view-internals/log-panel.tsx';
 import { TasksPanelHost } from '@src/application/ui/tui/views/execute-view-internals/tasks-panel-host.tsx';
 import { useActiveTaskSummary } from '@src/application/ui/tui/views/execute-view-internals/use-active-task-summary.ts';
-import { useResponsiveLayout } from '@src/application/ui/tui/views/execute-view-internals/use-responsive-layout.ts';
+import { resolveResponsiveLayout } from '@src/application/ui/tui/views/execute-view-internals/responsive-layout.ts';
 import { useExecuteInput } from '@src/application/ui/tui/views/execute-view-internals/use-execute-input.ts';
 import { useLiveClock } from '@src/application/ui/tui/views/execute-view-internals/use-live-clock.ts';
 import {
@@ -334,7 +333,6 @@ interface ExecuteViewFrameProps {
   readonly attemptElapsedMs: number | undefined;
   readonly remainingTaskCount: number;
   readonly cancelHandlers: CancelHandlers;
-  readonly pinnedSprintStale: boolean;
   readonly nextSteps: NextSteps;
 }
 
@@ -359,7 +357,6 @@ const ExecuteViewFrame = ({
   attemptElapsedMs,
   remainingTaskCount,
   cancelHandlers,
-  pinnedSprintStale,
   nextSteps,
 }: ExecuteViewFrameProps): React.JSX.Element => {
   // Wall-clock elapsed since the run started — a display string for the header / footer.
@@ -377,7 +374,7 @@ const ExecuteViewFrame = ({
       // The Tasks panel owns ↑/↓ (and j/k) as its card / row cursor — without this the page
       // ScrollRegion moved the whole viewport on the same keypress that moved the cursor. Every
       // section on this page is row-capped against the terminal height (see
-      // `use-responsive-layout.ts` for the rail / tasks / log budgets and `result-footer.tsx`
+      // `responsive-layout.ts` for the rail / tasks / log budgets and `result-footer.tsx`
       // for the settled card), so yielding the paging keys costs no reachable content; the
       // mouse wheel still scrolls the page regardless of this flag.
       suppressScrollArrows
@@ -396,7 +393,6 @@ const ExecuteViewFrame = ({
           elapsed={elapsed}
           layout={layout}
           termColumns={term.columns}
-          termRows={term.rows}
           tokenUsage={tokenUsage}
           logEntries={logEntries}
           cancelScopeOpen={runControls.cancelScopeOpen}
@@ -405,7 +401,6 @@ const ExecuteViewFrame = ({
           onCancelAttempt={cancelHandlers.onCancelAttempt}
           onCancelFlow={cancelHandlers.onCancelFlow}
           onDismissCancelScope={cancelHandlers.onDismiss}
-          pinnedSprintStale={pinnedSprintStale}
           nextSteps={nextSteps}
           awaiting={flow.awaiting}
           {...bucketedTasks}
@@ -474,7 +469,10 @@ export const ExecuteView = (): React.JSX.Element => {
     setCancelScopeOpen: runControls.setCancelScopeOpen,
   });
 
-  const layout = useResponsiveLayout({ columns: term.columns, rows: term.rows, isRunning: runControls.isRunning });
+  const layout = useMemo(
+    () => resolveResponsiveLayout({ columns: term.columns, rows: term.rows, isRunning: runControls.isRunning }),
+    [term.columns, term.rows, runControls.isRunning]
+  );
 
   // Early-return for "no session in registry" must come AFTER every hook above so the Hook
   // call order is identical across renders. Hooks below this line do not exist — every Hook
@@ -515,7 +513,6 @@ export const ExecuteView = (): React.JSX.Element => {
       attemptElapsedMs={computeAttemptElapsedMs(cancel.stats.attemptStartedAt, runControls.now)}
       remainingTaskCount={cancel.stats.remainingTaskCount}
       cancelHandlers={cancel.handlers}
-      pinnedSprintStale={pinnedSprintStale}
       nextSteps={nextSteps}
     />
   );

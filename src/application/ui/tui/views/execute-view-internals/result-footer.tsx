@@ -8,7 +8,7 @@
  * Row budget: the Execute page yields the page-scroll keys to the Tasks cursor
  * (`ViewShell suppressScrollArrows`), so a section that outgrows the viewport is unreachable by
  * keyboard. Every other section on the page is already capped against terminal rows
- * (`use-responsive-layout.ts`); this one caps here, at the display boundary only — the full
+ * (`responsive-layout.ts`); this one caps here, at the display boundary only — the full
  * error text stays in the chain log and the post-mortem artifacts the card points at.
  */
 

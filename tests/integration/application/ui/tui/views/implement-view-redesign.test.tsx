@@ -11,7 +11,7 @@
  *   Ask #4: Active task shows its step tree (done steps, then pending ◇ ones).
  *
  * Uses the ImplementSidebar + ExecuteBody directly so the fixtures are deterministic (no
- * live EventBus wiring needed). Height invariants use useResponsiveLayout directly, which
+ * live EventBus wiring needed). Height invariants use resolveResponsiveLayout directly, which
  * is a pure function (no React hook state).
  */
 
@@ -23,7 +23,7 @@ import { taskFlowProgress } from '@tests/fixtures/flow-progress.ts';
 import { ExecuteBody } from '@src/application/ui/tui/views/execute-view-internals/body.tsx';
 import { UiStateProvider } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { DepsProvider } from '@src/application/ui/tui/runtime/deps-context.tsx';
-import { useResponsiveLayout } from '@src/application/ui/tui/views/execute-view-internals/use-responsive-layout.ts';
+import { resolveResponsiveLayout } from '@src/application/ui/tui/views/execute-view-internals/responsive-layout.ts';
 import type { PlanNode } from '@src/application/chain/plan-tree.ts';
 import type { SessionDescriptor } from '@src/application/ui/tui/runtime/session-manager.ts';
 import type { BucketedExecution, TaskBucket } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
@@ -167,7 +167,7 @@ describe('ImplementSidebar — Ask #2: TokenBudgetCard at bottom', () => {
   it('renders TokenBudgetCard at the bottom of the sidebar (cumulative data)', () => {
     const descriptor = makeDescriptor();
     const bucketed = makeBucketed();
-    const layout = useResponsiveLayout({ columns: 180, rows: 50, isRunning: true });
+    const layout = resolveResponsiveLayout({ columns: 180, rows: 50, isRunning: true });
 
     const { lastFrame, unmount } = render(
       React.createElement(ImplementSidebar, {
@@ -198,7 +198,7 @@ describe('ImplementSidebar — Ask #2: TokenBudgetCard at bottom', () => {
 
   it('renders empty-state placeholder when no tokenUsage provided', () => {
     const descriptor = makeDescriptor();
-    const layout = useResponsiveLayout({ columns: 180, rows: 50, isRunning: true });
+    const layout = resolveResponsiveLayout({ columns: 180, rows: 50, isRunning: true });
 
     const { lastFrame, unmount } = render(
       React.createElement(ImplementSidebar, {
@@ -222,7 +222,7 @@ describe('ImplementSidebar — Ask #2: TokenBudgetCard at bottom', () => {
   it('task minimap displays both tasks', () => {
     const descriptor = makeDescriptor();
     const bucketed = makeBucketed();
-    const layout = useResponsiveLayout({ columns: 180, rows: 50, isRunning: true });
+    const layout = resolveResponsiveLayout({ columns: 180, rows: 50, isRunning: true });
 
     const { lastFrame, unmount } = render(
       React.createElement(ImplementSidebar, {
@@ -255,7 +255,7 @@ describe('ExecuteBody — wide layout redesign at 180×50', () => {
   const renderBodyAt180 = (): { frame: string; unmount: () => void } => {
     const cols = 180;
     const rows = 50;
-    const layout = useResponsiveLayout({ columns: cols, rows, isRunning: true });
+    const layout = resolveResponsiveLayout({ columns: cols, rows, isRunning: true });
     const descriptor = makeDescriptor();
     const bucketed = makeBucketed();
     const task = bucketed.tasks[0]!;
@@ -286,7 +286,6 @@ describe('ExecuteBody — wide layout redesign at 180×50', () => {
             elapsed: '3m00s',
             layout,
             termColumns: cols,
-            termRows: rows,
             bucketed,
             executionState: undefined,
             taskState: undefined,
@@ -307,7 +306,6 @@ describe('ExecuteBody — wide layout redesign at 180×50', () => {
             onCancelAttempt: vi.fn(),
             onCancelFlow: vi.fn(),
             onDismissCancelScope: vi.fn(),
-            pinnedSprintStale: false,
             nextSteps: { steps: [], forensics: [] },
           })
         ),
@@ -357,7 +355,7 @@ describe('ExecuteBody — wide layout redesign at 220×60', () => {
   const renderBodyAt220 = (): { frame: string; unmount: () => void } => {
     const cols = 220;
     const rows = 60;
-    const layout = useResponsiveLayout({ columns: cols, rows, isRunning: true });
+    const layout = resolveResponsiveLayout({ columns: cols, rows, isRunning: true });
     const descriptor = makeDescriptor();
     const bucketed = makeBucketed();
     const task = bucketed.tasks[0]!;
@@ -385,7 +383,6 @@ describe('ExecuteBody — wide layout redesign at 220×60', () => {
             elapsed: '3m00s',
             layout,
             termColumns: cols,
-            termRows: rows,
             bucketed,
             executionState: undefined,
             taskState: undefined,
@@ -406,7 +403,6 @@ describe('ExecuteBody — wide layout redesign at 220×60', () => {
             onCancelAttempt: vi.fn(),
             onCancelFlow: vi.fn(),
             onDismissCancelScope: vi.fn(),
-            pinnedSprintStale: false,
             nextSteps: { steps: [], forensics: [] },
           })
         ),
@@ -451,14 +447,14 @@ describe('ExecuteBody — wide layout redesign at 220×60', () => {
 // Height budget invariant (pure function — no render needed)
 // ---------------------------------------------------------------------------
 
-describe('useResponsiveLayout — sidebar height budget never exceeds terminal rows', () => {
+describe('resolveResponsiveLayout — sidebar height budget never exceeds terminal rows', () => {
   it.each([
     [180, 50],
     [220, 60],
     [140, 35],
     [240, 50],
   ] as const)('sidebar sections fit at %d×%d', (cols, rows) => {
-    const layout = useResponsiveLayout({ columns: cols, rows, isRunning: true });
+    const layout = resolveResponsiveLayout({ columns: cols, rows, isRunning: true });
 
     expect(layout.sidebarLayout).toBe(true);
     // PAGE_CHROME_ROWS(10) + SIDEBAR_CHROME_ROWS(20) + logRows: on tighter terminals

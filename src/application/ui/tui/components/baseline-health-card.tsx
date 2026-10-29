@@ -58,10 +58,7 @@ export interface BaselineHealthCardProps {
   readonly tasks?: readonly Task[];
   /** Required for the "Xm ago" labels — falls back to `Date.now()` if absent. */
   readonly now?: number;
-  /**
-   * Card width in columns. Defaults to `CONTEXT_WIDTH` (28). Callers at `xxl` breakpoints may
-   * pass a fluid value (e.g. `fluid(columns, { min: 28, max: 36, ratio: 0.14 })`).
-   */
+  /** Card width in columns. Defaults to `CONTEXT_WIDTH`. */
   readonly width?: number;
 }
 

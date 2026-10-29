@@ -256,13 +256,12 @@ leaves whose `name` contains an absolute repo path).
 3. **Expected:** the step display shows short labels (e.g. `Check working tree · my-repo`) — NOT the raw
    element name that embeds the absolute path (`preflight-task-1-/Users/...`). Path-jammed names must not
    appear in the Steps tree or the header strip.
-4. Resize the terminal narrower (below `xl`, i.e. < 180 cols) so the three-column layout collapses
-5. **Expected:** the sidebar rail shrinks to the fixed 28-col `RAIL_WIDTH`; at the `md` 100–139 breakpoint there
-   is no rail column and the header strip alone names the steps. Labels that exceed the budget are clipped with
-   `…` rather than wrapping mid-word or overflowing into the adjacent column.
-6. Resize back to ≥ 180 cols
-7. **Expected:** rail grows fluidly (from 36 up to ~56 cols at wide widths) and the labels breathe without any
-   layout jitter.
+4. Resize the terminal narrower (below `lg`, i.e. < 140 cols) so the sidebar layout collapses
+5. **Expected:** at the `md` 100–139 breakpoint there is no rail column and the header strip alone names the
+   steps. Labels that exceed the budget are clipped with `…` rather than wrapping mid-word or overflowing into
+   the adjacent column.
+6. Resize back to ≥ 140 cols
+7. **Expected:** the sidebar returns and the labels breathe without any layout jitter.
 
 ---
 
