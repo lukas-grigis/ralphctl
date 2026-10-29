@@ -1,4 +1,4 @@
-import { passthroughRunInTerminal, type RunInTerminal } from '@src/application/ui/shared/run-in-terminal.ts';
+import { passthroughRunInTerminal, type RunInTerminal } from '@src/integration/io/run-in-terminal.ts';
 
 /**
  * Module-level holder for the active `runInTerminal`. The TUI bootstrap (`launchTui`) swaps

@@ -41,7 +41,7 @@ import type { ProjectId } from '@src/domain/value/id/project-id.ts';
 import type { Settings } from '@src/domain/entity/settings.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { DEFAULT_SETTINGS } from '@src/business/settings/defaults.ts';
-import { passthroughRunInTerminal } from '@src/application/ui/shared/run-in-terminal.ts';
+import { passthroughRunInTerminal } from '@src/integration/io/run-in-terminal.ts';
 import { createBundledSkillSource } from '@src/integration/ai/skills/bundled/source.ts';
 import { skillsForFlow } from '@src/integration/ai/skills/_engine/registry.ts';
 import type { Skill } from '@src/integration/ai/skills/_engine/skill.ts';

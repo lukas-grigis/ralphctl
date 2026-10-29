@@ -17,7 +17,7 @@ import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { AiProvider } from '@src/domain/entity/settings.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { DEFAULT_SETTINGS } from '@src/business/settings/defaults.ts';
-import { passthroughRunInTerminal } from '@src/application/ui/shared/run-in-terminal.ts';
+import { passthroughRunInTerminal } from '@src/integration/io/run-in-terminal.ts';
 import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
 import type * as DetectCliModule from '@src/integration/system/detect-cli.ts';
 

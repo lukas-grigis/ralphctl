@@ -5,7 +5,7 @@ import type { DraftSprint } from '@src/domain/entity/sprint.ts';
 import type { TodoTask } from '@src/domain/entity/task.ts';
 import type { Repository } from '@src/domain/entity/repository.ts';
 import type { Element } from '@src/application/chain/element.ts';
-import { createRunner, type Runner } from '@src/application/chain/run/runner.ts';
+import { createRunner } from '@src/application/chain/run/runner.ts';
 import { createPlanFlow } from '@src/application/flows/plan/flow.ts';
 import type { PlanCtx } from '@src/application/flows/plan/ctx.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
@@ -186,5 +186,5 @@ export const launchPlan = async (ctx: LaunchContext): Promise<LaunchResult> => {
     element,
     initialCtx: { sprintId: snapshot.sprint.id, projectId: snapshot.project.id },
   });
-  return { ok: true, runner: bridge(runner) as Runner<unknown>, title: `Plan — ${snapshot.sprint.name}` };
+  return { ok: true, runner: bridge(runner), title: `Plan — ${snapshot.sprint.name}` };
 };

@@ -9,18 +9,10 @@ import { PRESET_NAMES, type PresetName } from '@src/business/settings/presets.ts
 import { mergeEscalationMap } from '@src/business/task/escalation-map.ts';
 import { glyphs } from '@src/application/ui/tui/theme/tokens.ts';
 import { NO_PRESET_NOTICES, type PresetNotices } from '@src/application/flows/settings-apply-preset/ctx.ts';
-import type { AiFlowSettings, AiProvider, Settings } from '@src/domain/entity/settings.ts';
-import { AI_PROVIDERS as DOMAIN_AI_PROVIDERS } from '@src/domain/entity/settings.ts';
+import { AI_PROVIDERS, type AiFlowSettings, type AiProvider, type Settings } from '@src/domain/entity/settings.ts';
 import type { FlowId } from '@src/domain/value/flow-id.ts';
 import { PROVIDER_EFFORT_LEVELS } from '@src/domain/value/settings-models/effort.ts';
 import { PROVIDER_TRAITS } from '@src/integration/ai/providers/_engine/provider-traits.ts';
-
-/**
- * Provider options offered by the Settings view. Re-exported from the domain list so the picker
- * can never drift from the {@link AiProvider} union — a hand-written copy here silently omitted
- * OpenCode from the Settings view when it shipped.
- */
-export const AI_PROVIDERS: readonly AiProvider[] = DOMAIN_AI_PROVIDERS;
 
 export type EditableField =
   | {

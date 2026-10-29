@@ -39,8 +39,6 @@ import { OrphanSignals } from '@src/application/ui/tui/components/tasks-panel-in
 import { buildFlatFocusKeys } from '@src/application/ui/tui/components/tasks-panel-internals/focus-keys.ts';
 import { useTasksPanelInput } from '@src/application/ui/tui/components/tasks-panel-internals/keymap.ts';
 
-export { SIGNAL_LABEL_COLOR } from '@src/application/ui/tui/components/tasks-panel-internals/signal-rows.tsx';
-
 /**
  * The per-task extras the host view supplies as parallel id-keyed maps. They arrive separately
  * because each is derived from a different source (the session descriptor, the polled task

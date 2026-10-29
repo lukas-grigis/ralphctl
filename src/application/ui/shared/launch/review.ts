@@ -1,7 +1,7 @@
 import { join } from 'node:path';
 import { ensureCanonicalSprintDir } from '@src/integration/persistence/sprint/repository.ts';
 import type { Element } from '@src/application/chain/element.ts';
-import { createRunner, type Runner } from '@src/application/chain/run/runner.ts';
+import { createRunner } from '@src/application/chain/run/runner.ts';
 import { createReviewFlow } from '@src/application/flows/review/flow.ts';
 import type { ReviewCtx } from '@src/application/flows/review/ctx.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
@@ -115,5 +115,5 @@ export const launchReview = async (ctx: LaunchContext): Promise<LaunchResult> =>
     element,
     initialCtx: { sprintId: snapshot.sprint.id, distillRequested },
   });
-  return { ok: true, runner: bridge(runner) as Runner<unknown>, title: `Review — ${snapshot.sprint.name}` };
+  return { ok: true, runner: bridge(runner), title: `Review — ${snapshot.sprint.name}` };
 };

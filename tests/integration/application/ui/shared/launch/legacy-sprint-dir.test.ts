@@ -11,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { InteractivePrompt } from '@src/business/interactive/prompt.ts';
 import { launchFlow, type LauncherDeps } from '@src/application/ui/shared/launcher.ts';
 import { loadAppStateSnapshot } from '@src/application/ui/shared/state-snapshot.ts';
-import { passthroughRunInTerminal } from '@src/application/ui/shared/run-in-terminal.ts';
+import { passthroughRunInTerminal } from '@src/integration/io/run-in-terminal.ts';
 import { toJsonSprint } from '@src/integration/persistence/sprint/sprint.schema.ts';
 import { resolveSprintDir, sprintDir } from '@src/integration/persistence/storage.ts';
 import { createRealFsApp, type RealFsApp } from '@tests/helpers/real-fs-app.ts';
