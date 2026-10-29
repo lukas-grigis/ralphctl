@@ -65,33 +65,15 @@ export interface Runner<TCtx> {
 }
 
 /**
- * Cap on retained `runner.trace` entries — a ring buffer past this point. Long implement runs
- * (7+ tasks × multi-round × ~12 leaves each) can emit thousands of entries; live subscribers
- * still see every event (the trace cap only bounds the snapshot late subscribers replay from).
- *
- * Sized at ~1 MB worst case (each entry is ~200 bytes → 5000 × 200 B ≈ 1 MB). The durable
- * `<sprintDir>/chain.log` sink captures the full trace on disk, so post-mortem analysis can
- * always recover the full history outside of the in-memory snapshot. The execute view's
- * per-task round counter (in execute-view.tsx) holds a monotonic high-water mark in a ref so
- * the displayed `round N/M` survives eviction here. Other downstream consumers that scan
- * `runner.trace` directly (StepTrace's plan-merge, sprint-detail's attempt history) see only
- * what the trace currently holds — if a regression around truncated tails surfaces in one of
- * those views, the fix is to fall back to `chain.log` on disk rather than raising this cap.
+ * Ring-buffer cap on `runner.trace` (~1 MB): it bounds only the snapshot late subscribers replay;
+ * live subscribers see every event and chain.log holds the full trace. A view that needs an
+ * evicted entry should read chain.log, not raise this cap.
  */
 const MAX_TRACE_ENTRIES = 5_000;
 
-/**
- * The runner body is one long closure on purpose: status, ctx, trace, the start promise, the
- * failure error and the abort flag are a single state machine, and every helper below mutates it.
- * Splitting them into free functions would mean threading a mutable state object through each one
- * — more surface, no fewer moving parts, and the invariants (never emit `started` after an
- * `abort()`; exactly one terminal event) would stop being locally checkable. Deliberate, not an
- * oversight; see "The runner" in `.claude/docs/KERNEL-DESIGN.md`.
- */
-// Scoped rather than fixed: the docstring above and KERNEL-DESIGN.md both record the single long
-// closure as a deliberate design decision. A targeted disable is what lets the lint budget sit at
-// `--max-warnings 0`, so the next warning is a real one instead of noise under a raised cap.
-// eslint-disable-next-line max-lines-per-function -- deliberate; see above
+// One closure on purpose: status, ctx, trace and the abort flag are one state machine whose
+// invariants (no `started` after `abort()`, exactly one terminal event) stay locally checkable.
+// eslint-disable-next-line max-lines-per-function -- deliberate; see KERNEL-DESIGN.md "The runner"
 export const createRunner = <TCtx>(opts: RunnerOptions<TCtx>): Runner<TCtx> => {
   const abortController = new AbortController();
   const listeners = new Set<RunnerListener<TCtx>>();
