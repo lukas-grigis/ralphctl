@@ -83,15 +83,11 @@ export const finalizeGenEvalLeaf = (deps: FinalizeGenEvalLeafDeps, taskId: TaskI
           eventBus: deps.eventBus,
           clock: deps.clock,
           generatorModel: input.generatorModel,
-          ...(deps.configuredGeneratorProvider !== undefined
-            ? { generatorProvider: deps.configuredGeneratorProvider }
-            : {}),
-          ...(input.generatorEffort !== undefined ? { generatorEffort: input.generatorEffort } : {}),
-          ...(deps.configuredEvaluatorProvider !== undefined
-            ? { evaluatorProvider: deps.configuredEvaluatorProvider }
-            : {}),
-          ...(deps.configuredEvaluatorModel !== undefined ? { evaluatorModel: deps.configuredEvaluatorModel } : {}),
-          ...(input.evaluatorEffort !== undefined ? { evaluatorEffort: input.evaluatorEffort } : {}),
+          generatorProvider: deps.configuredGeneratorProvider,
+          generatorEffort: input.generatorEffort,
+          evaluatorProvider: deps.configuredEvaluatorProvider,
+          evaluatorModel: deps.configuredEvaluatorModel,
+          evaluatorEffort: input.evaluatorEffort,
         }),
     },
     input: (ctx) => {

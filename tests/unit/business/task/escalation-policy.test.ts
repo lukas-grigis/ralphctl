@@ -678,8 +678,8 @@ describe('applyEscalation', () => {
 
     expect(applied.ok).toBe(true);
     if (!applied.ok) return;
-    expect(applied.value.task.escalatedFromModel).toBe('claude-sonnet-4-6');
-    expect(applied.value.task.escalatedToModel).toBe('claude-opus-4-8');
+    expect(applied.value.escalatedFromModel).toBe('claude-sonnet-4-6');
+    expect(applied.value.escalatedToModel).toBe('claude-opus-4-8');
 
     const escalated = events.find(
       (e): e is Extract<AppEvent, { type: 'model-escalated' }> => e.type === 'model-escalated'
@@ -759,10 +759,10 @@ describe('applyEscalation', () => {
     if (!applied.ok) return;
     // The model is unchanged, so the escalation model fields stay untouched (the same-model
     // change-of-approach marker is reserved for the LATER nudge).
-    expect(applied.value.task.escalatedFromModel).toBeUndefined();
-    expect(applied.value.task.escalatedToModel).toBeUndefined();
-    expect(applied.value.task.escalatedToEffort).toBe(EFFORT_ESCALATION_TARGET);
-    expect(applied.value.task.escalatedToEvaluatorEffort).toBeUndefined();
+    expect(applied.value.escalatedFromModel).toBeUndefined();
+    expect(applied.value.escalatedToModel).toBeUndefined();
+    expect(applied.value.escalatedToEffort).toBe(EFFORT_ESCALATION_TARGET);
+    expect(applied.value.escalatedToEvaluatorEffort).toBeUndefined();
     expect(events.some((e) => e.type === 'model-escalated')).toBe(false);
     const banner = events.find((e): e is Extract<AppEvent, { type: 'banner-show' }> => e.type === 'banner-show');
     expect(banner?.tier).toBe('info');
@@ -785,8 +785,8 @@ describe('applyEscalation', () => {
     if (!applied.ok) return;
     // Stamped from===to so the next plateau detects the top-of-ladder nudge (topped-out); the
     // generator reads escalatedFromModel === escalatedToModel to arm the change-of-approach directive.
-    expect(applied.value.task.escalatedFromModel).toBe('claude-opus-4-8');
-    expect(applied.value.task.escalatedToModel).toBe('claude-opus-4-8');
+    expect(applied.value.escalatedFromModel).toBe('claude-opus-4-8');
+    expect(applied.value.escalatedToModel).toBe('claude-opus-4-8');
     expect(events.some((e) => e.type === 'model-escalated')).toBe(false);
     const banner = events.find((e): e is Extract<AppEvent, { type: 'banner-show' }> => e.type === 'banner-show');
     expect(banner?.tier).toBe('info');
@@ -833,8 +833,8 @@ describe('applyEscalation', () => {
     });
     expect(applied.ok).toBe(true);
     if (!applied.ok) return;
-    expect(applied.value.task.escalatedFromModel).toBe('claude-sonnet-4-6');
-    expect(applied.value.task.escalatedToModel).toBe('claude-opus-4-8');
+    expect(applied.value.escalatedFromModel).toBe('claude-sonnet-4-6');
+    expect(applied.value.escalatedToModel).toBe('claude-opus-4-8');
   });
 
   it('on escalate with trigger=budget-exhausted: event reason + banner cause name the budget exit, not plateau', () => {
@@ -873,7 +873,7 @@ describe('applyEscalation', () => {
     });
     expect(applied.ok).toBe(true);
     if (!applied.ok) return;
-    expect(applied.value.task.escalatedToModel).toBeUndefined();
+    expect(applied.value.escalatedToModel).toBeUndefined();
     const banner = events.find((e): e is Extract<AppEvent, { type: 'banner-show' }> => e.type === 'banner-show');
     expect(banner?.tier).toBe('warn');
     expect(banner?.message).toMatch(/budget exhausted/);
@@ -893,7 +893,7 @@ describe('applyEscalation', () => {
     });
     expect(applied.ok).toBe(true);
     if (!applied.ok) return;
-    expect(applied.value.task.escalatedToModel).toBeUndefined();
+    expect(applied.value.escalatedToModel).toBeUndefined();
     expect(events.length).toBe(0);
   });
 
@@ -910,9 +910,9 @@ describe('applyEscalation', () => {
     });
     expect(applied.ok).toBe(true);
     if (!applied.ok) return;
-    expect(applied.value.task.bestOfNGranted).toBe(true);
-    expect(applied.value.task.bestOfNGrantedCandidates).toBe(3);
-    expect(applied.value.task.escalatedToModel).toBeUndefined();
+    expect(applied.value.bestOfNGranted).toBe(true);
+    expect(applied.value.bestOfNGrantedCandidates).toBe(3);
+    expect(applied.value.escalatedToModel).toBeUndefined();
     expect(events.some((e) => e.type === 'model-escalated')).toBe(false);
     const banner = events.find((e): e is Extract<AppEvent, { type: 'banner-show' }> => e.type === 'banner-show');
     expect(banner?.tier).toBe('info');
@@ -939,9 +939,9 @@ describe('applyEscalation — evaluator lockstep effort', () => {
     });
     expect(applied.ok).toBe(true);
     if (!applied.ok) return;
-    expect(applied.value.task.escalatedToModel).toBe('claude-opus-4-8');
-    expect(applied.value.task.escalatedToEvaluatorEffort).toBe(EFFORT_ESCALATION_TARGET);
-    expect(applied.value.task.escalatedToEffort).toBeUndefined();
+    expect(applied.value.escalatedToModel).toBe('claude-opus-4-8');
+    expect(applied.value.escalatedToEvaluatorEffort).toBe(EFFORT_ESCALATION_TARGET);
+    expect(applied.value.escalatedToEffort).toBeUndefined();
   });
 
   it('on escalate-effort with an evaluator bump: stamps both efforts', () => {
@@ -962,8 +962,8 @@ describe('applyEscalation — evaluator lockstep effort', () => {
     });
     expect(applied.ok).toBe(true);
     if (!applied.ok) return;
-    expect(applied.value.task.escalatedToEffort).toBe(EFFORT_ESCALATION_TARGET);
-    expect(applied.value.task.escalatedToEvaluatorEffort).toBe(EFFORT_ESCALATION_TARGET);
+    expect(applied.value.escalatedToEffort).toBe(EFFORT_ESCALATION_TARGET);
+    expect(applied.value.escalatedToEvaluatorEffort).toBe(EFFORT_ESCALATION_TARGET);
   });
 
   it('a failed stamp emits nothing', () => {
