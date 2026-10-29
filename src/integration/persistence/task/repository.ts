@@ -53,8 +53,7 @@ export const createFsTaskRepository = (deps: FsTaskRepositoryDeps): TaskReposito
     const path = await tasksPathFor(sprintId);
     const json = await readJson(path);
     if (!json.ok) {
-      if (json.error instanceof NotFoundError)
-        return Result.ok([] as readonly Task[]) as Result<readonly Task[], StorageError>;
+      if (json.error instanceof NotFoundError) return Result.ok([] as readonly Task[]);
       return Result.error(json.error);
     }
     return decode((input) => fromJsonTasksFile(input, path), json.value, { entity: 'task', path });

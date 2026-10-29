@@ -101,7 +101,7 @@ export const assertTemplateKeysFilled = (
   where: string
 ): Result<Prompt, ParseError> => {
   const missing = extractPlaceholders(template).filter((key) => values[key] === undefined);
-  if (missing.length === 0) return Result.ok(rendered as Prompt) as Result<Prompt, ParseError>;
+  if (missing.length === 0) return Result.ok(rendered as Prompt);
   return Result.error(
     new ParseError({
       subCode: 'schema-mismatch',
