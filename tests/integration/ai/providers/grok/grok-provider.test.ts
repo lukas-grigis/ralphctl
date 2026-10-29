@@ -1,9 +1,7 @@
-import { EventEmitter } from 'node:events';
 import { promises as fs } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session.ts';
 import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts';
 import type { SessionId } from '@src/integration/ai/providers/_engine/session-id.ts';
@@ -14,83 +12,8 @@ import { GROK_MODELS } from '@src/domain/value/settings-models/grok.ts';
 import { buildGrokArgs, createGrokProvider } from '@src/integration/ai/providers/grok/headless.ts';
 import type { ProviderSpawn } from '@src/integration/ai/providers/_engine/spawn.ts';
 import type { TokenUsageEvent } from '@src/business/observability/events.ts';
-
-interface FakeChildScript {
-  readonly stdoutChunks?: readonly string[];
-  /** Emitted after `exit` and before `close` — proves the adapter keeps a late `end`. */
-  readonly stdoutAfterExit?: readonly string[];
-  readonly stderrChunks?: readonly string[];
-  readonly exitCode?: number | null;
-  readonly exitSignal?: NodeJS.Signals | null;
-  readonly hang?: boolean;
-}
-
-const makeStream = (): EventEmitter & { setEncoding: (e: string) => void } => {
-  const ee = new EventEmitter() as EventEmitter & { setEncoding: (e: string) => void };
-  ee.setEncoding = (): void => {};
-  return ee;
-};
-
-const makeFakeChild = (script: FakeChildScript): ChildProcessWithoutNullStreams => {
-  const child = new EventEmitter() as ChildProcessWithoutNullStreams & { _killed: boolean };
-  const stdout = makeStream();
-  const stderr = makeStream();
-  const stdin = {
-    end(_data?: unknown): void {
-      void _data;
-    },
-  };
-  Object.assign(child, {
-    stdout,
-    stderr,
-    stdin,
-    kill(): boolean {
-      child._killed = true;
-      setTimeout(() => {
-        child.emit('exit', null, 'SIGTERM');
-        setTimeout(() => child.emit('close', null, 'SIGTERM'), 0);
-      }, 0);
-      return true;
-    },
-    _killed: false,
-  });
-  setTimeout(() => {
-    for (const chunk of script.stdoutChunks ?? []) stdout.emit('data', chunk);
-    for (const chunk of script.stderrChunks ?? []) stderr.emit('data', chunk);
-    if (script.hang === true) return;
-    setTimeout(() => {
-      const code = script.exitCode ?? 0;
-      const signal = script.exitSignal ?? null;
-      child.emit('exit', code, signal);
-      setTimeout(() => {
-        for (const chunk of script.stdoutAfterExit ?? []) stdout.emit('data', chunk);
-        child.emit('close', code, signal);
-      }, 0);
-    }, 0);
-  }, 0);
-  return child;
-};
-
-interface CapturingSpawnState {
-  readonly spawn: ProviderSpawn;
-  readonly calls: ReadonlyArray<{
-    readonly command: string;
-    readonly args: readonly string[];
-    readonly cwd?: string;
-  }>;
-}
-
-const makeSpawn = (scripts: readonly FakeChildScript[]): CapturingSpawnState => {
-  let i = 0;
-  const calls: Array<{ command: string; args: readonly string[]; cwd?: string }> = [];
-  const spawn: ProviderSpawn = (command, args, options) => {
-    calls.push({ command, args, ...(options.cwd !== undefined ? { cwd: options.cwd } : {}) });
-    const script = scripts[i] ?? scripts[scripts.length - 1] ?? {};
-    i++;
-    return makeFakeChild(script);
-  };
-  return { spawn, calls };
-};
+import { makeProviderSpawn } from '@tests/fixtures/provider-spawn-fake.ts';
+import { createScriptedChild } from '@src/integration/ai/providers/_engine/scripted-spawn.ts';
 
 const PROMPT = 'rendered prompt body' as unknown as Prompt;
 const CWD = absolutePath('/tmp/grok-provider-test');
@@ -140,7 +63,7 @@ describe('createGrokProvider', () => {
   it('writes grok-prompt.md, passes --prompt-file, and keeps the body out of argv', async () => {
     const cap = createCapturingBus();
     const sess = session();
-    const { spawn, calls } = makeSpawn([{ stdoutChunks: [`${END_LINE}\n`], exitCode: 0 }]);
+    const { spawn, calls } = makeProviderSpawn([{ stdoutChunks: [`${END_LINE}\n`], exitCode: 0 }]);
     const provider = createGrokProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
     const out = await provider.generate(sess);
     expect(out.ok).toBe(true);
@@ -170,7 +93,7 @@ describe('createGrokProvider', () => {
   it('captures session id from the end.sessionId line', async () => {
     const cap = createCapturingBus();
     const sess = session();
-    const { spawn } = makeSpawn([
+    const { spawn } = makeProviderSpawn([
       {
         stdoutChunks: ['{"type":"text","data":"ping"}\n', `${END_LINE}\n`],
         exitCode: 0,
@@ -186,7 +109,7 @@ describe('createGrokProvider', () => {
   it('waits for close so a late end.sessionId after exit is kept', async () => {
     const cap = createCapturingBus();
     const sess = session();
-    const { spawn } = makeSpawn([
+    const { spawn } = makeProviderSpawn([
       {
         stdoutChunks: ['{"type":"text","data":"ping"}\n'],
         stdoutAfterExit: [`${END_LINE}\n`],
@@ -205,7 +128,7 @@ describe('createGrokProvider', () => {
     // happens would leave a stray grok-prompt.md on every attempt of a row pinned off-catalog.
     const cap = createCapturingBus();
     const sess = session({ model: 'grok-3' });
-    const { spawn, calls } = makeSpawn([{ exitCode: 0, stdoutChunks: [`${END_LINE}\n`] }]);
+    const { spawn, calls } = makeProviderSpawn([{ exitCode: 0, stdoutChunks: [`${END_LINE}\n`] }]);
     const provider = createGrokProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
 
     const out = await provider.generate(sess);
@@ -225,7 +148,7 @@ describe('createGrokProvider', () => {
       signalsFile: absolutePath(join(repo, '.ralphctl', 'signals.json')),
       permissions: READ_ONLY,
     });
-    const { spawn, calls } = makeSpawn([{ stdoutChunks: [`${END_LINE}\n`], exitCode: 0 }]);
+    const { spawn, calls } = makeProviderSpawn([{ stdoutChunks: [`${END_LINE}\n`], exitCode: 0 }]);
     const provider = createGrokProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
     const out = await provider.generate(sess);
     expect(out.ok).toBe(true);
@@ -238,7 +161,7 @@ describe('createGrokProvider', () => {
 
   it('logs no such warning when the envelope sits outside --cwd (the default topology)', async () => {
     const cap = createCapturingBus();
-    const { spawn } = makeSpawn([{ stdoutChunks: [`${END_LINE}\n`], exitCode: 0 }]);
+    const { spawn } = makeProviderSpawn([{ stdoutChunks: [`${END_LINE}\n`], exitCode: 0 }]);
     const provider = createGrokProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
     const out = await provider.generate(session({ permissions: READ_ONLY }));
     expect(out.ok).toBe(true);
@@ -247,7 +170,7 @@ describe('createGrokProvider', () => {
 
   it('fails the spawn when grok-prompt.md cannot be written — never inlines -p', async () => {
     const cap = createCapturingBus();
-    const { spawn, calls } = makeSpawn([{ exitCode: 0, stdoutChunks: [`${END_LINE}\n`] }]);
+    const { spawn, calls } = makeProviderSpawn([{ exitCode: 0, stdoutChunks: [`${END_LINE}\n`] }]);
     const provider = createGrokProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
     const blocker = join(tmpdir(), `ralphctl-grok-not-a-dir-${String(process.pid)}-${String(Date.now())}`);
     await fs.writeFile(blocker, 'not a directory');
@@ -417,7 +340,7 @@ describe('createGrokProvider — TokenUsageEvent emission', () => {
         cache_creation_input_tokens: 12,
       },
     });
-    const { spawn } = makeSpawn([{ stdoutChunks: [`${end}\n`], exitCode: 0 }]);
+    const { spawn } = makeProviderSpawn([{ stdoutChunks: [`${end}\n`], exitCode: 0 }]);
     const provider = createGrokProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
     const out = await provider.generate(sess);
     expect(out.ok).toBe(true);
@@ -443,7 +366,7 @@ describe('createGrokProvider — TokenUsageEvent emission', () => {
 
   it('does NOT emit a TokenUsageEvent on spawn failure (non-zero exit)', async () => {
     const cap = createCapturingBus();
-    const { spawn } = makeSpawn([{ stdoutChunks: [`${END_LINE}\n`], stderrChunks: ['boom\n'], exitCode: 2 }]);
+    const { spawn } = makeProviderSpawn([{ stdoutChunks: [`${END_LINE}\n`], stderrChunks: ['boom\n'], exitCode: 2 }]);
     const provider = createGrokProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
     const out = await provider.generate(session());
     expect(out.ok).toBe(false);
@@ -454,7 +377,7 @@ describe('createGrokProvider — TokenUsageEvent emission', () => {
 describe('createGrokProvider — retry and stream errors', () => {
   it('rate-limit on a stdout error record (empty stderr) retries via -r <id>', async () => {
     const cap = createCapturingBus();
-    const { spawn, calls } = makeSpawn([
+    const { spawn, calls } = makeProviderSpawn([
       {
         stdoutChunks: [`{"type":"error","message":"rate limit exceeded"}\n`, `${END_LINE}\n`],
         exitCode: 1,
@@ -483,7 +406,7 @@ describe('createGrokProvider — retry and stream errors', () => {
     const spawn: ProviderSpawn = () => {
       n += 1;
       setTimeout(() => controller.abort(), 5);
-      return makeFakeChild({ stderrChunks: ['Error: rate limit exceeded\n'], exitCode: 1 });
+      return createScriptedChild({ stderrChunks: ['Error: rate limit exceeded\n'], exitCode: 1 });
     };
     const provider = createGrokProvider({
       rateLimitRetries: 2,
@@ -504,7 +427,7 @@ describe('createGrokProvider — retry and stream errors', () => {
     const sess = session();
     await fs.mkdir(dirname(String(sess.signalsFile)), { recursive: true });
     await fs.writeFile(String(sess.signalsFile), '{"signals":[]}', 'utf8');
-    const { spawn } = makeSpawn([{ exitCode: 143 }]);
+    const { spawn } = makeProviderSpawn([{ exitCode: 143 }]);
     const provider = createGrokProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
     const out = await provider.generate(sess);
     expect(out.ok).toBe(true);
@@ -516,7 +439,7 @@ describe('createGrokProvider — retry and stream errors', () => {
 
   it('rate-limit on attempt 1, success on attempt 2 → resumes via -r <id>', async () => {
     const cap = createCapturingBus();
-    const { spawn, calls } = makeSpawn([
+    const { spawn, calls } = makeProviderSpawn([
       {
         stdoutChunks: [`${END_LINE}\n`],
         stderrChunks: ['Error: rate limit exceeded\n'],
@@ -541,7 +464,7 @@ describe('createGrokProvider — retry and stream errors', () => {
 
   it('surfaces the stdout error record in the failure message when stderr is empty', async () => {
     const cap = createCapturingBus();
-    const { spawn } = makeSpawn([
+    const { spawn } = makeProviderSpawn([
       {
         stdoutChunks: ['{"type":"error","message":"Session not found locally"}\n'],
         exitCode: 1,
@@ -558,7 +481,7 @@ describe('createGrokProvider — retry and stream errors', () => {
 
   it('falls back to a cold spawn when the resume id is stale', async () => {
     const cap = createCapturingBus();
-    const { spawn, calls } = makeSpawn([
+    const { spawn, calls } = makeProviderSpawn([
       {
         stdoutChunks: ['{"type":"error","message":"Session \\"gone-id\\" not found locally"}\n'],
         exitCode: 1,
@@ -578,7 +501,7 @@ describe('createGrokProvider — retry and stream errors', () => {
 
   it('falls back to a cold spawn when restore fails with session get failed: 404', async () => {
     const cap = createCapturingBus();
-    const { spawn, calls } = makeSpawn([
+    const { spawn, calls } = makeProviderSpawn([
       {
         stdoutChunks: [
           '{"type":"error","message":"Failed to restore session from remote: fetching session record: session get failed: 404"}\n',
@@ -597,7 +520,7 @@ describe('createGrokProvider — retry and stream errors', () => {
 
   it('does not cold-retry when the only error record is the informational "restoring from remote" line', async () => {
     const cap = createCapturingBus();
-    const { spawn, calls } = makeSpawn([
+    const { spawn, calls } = makeProviderSpawn([
       {
         stdoutChunks: [
           '{"type":"error","message":"Session \\"gone-id\\" not found locally, restoring conversation from remote..."}\n',
@@ -614,7 +537,7 @@ describe('createGrokProvider — retry and stream errors', () => {
 
   it('does not cold-retry a session-not-found crash when resume is unset', async () => {
     const cap = createCapturingBus();
-    const { spawn, calls } = makeSpawn([
+    const { spawn, calls } = makeProviderSpawn([
       {
         stdoutChunks: ['{"type":"error","message":"Session not found locally"}\n'],
         exitCode: 1,
