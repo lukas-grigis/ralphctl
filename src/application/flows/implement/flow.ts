@@ -43,12 +43,8 @@ import type { AgentDefinition } from '@src/integration/ai/agents/_engine/agent-d
 export type { RepoExecConfig };
 
 /**
- * Per-task subchain's terminal leaf — the leaf that marks "this task is fully settled" for the
- * Tasks-panel bucketing in the TUI. Exported so the launcher can hand it to `SessionDescriptor.
- * terminalSubstepName` instead of duplicating the string literal, and so a rename of the leaf
- * is a single edit that propagates to both the flow definition and the UI's task-completion
- * detection. Keep this in sync with the actual final element name produced by
- * `createPerTaskSubchain` (see `per-task-subchain.ts`).
+ * Per-task subchain's terminal leaf — the TUI's task bucketing reads it as "this task is fully
+ * settled". Keep in sync with the final element produced by `createPerTaskSubchain`.
  */
 export const IMPLEMENT_TASK_TERMINAL_LEAF = 'uninstall-skills';
 

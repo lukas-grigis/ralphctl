@@ -202,16 +202,6 @@ describe('bucketTaskSignals — status derivation', () => {
     expect(result.tasks[0]?.status).toBe('completed');
   });
 
-  it('respects a custom terminalSubstepName when the flow uses a different terminal leaf', () => {
-    const trace: Trace = [
-      { elementName: `generator-${TASK}`, status: 'completed', durationMs: 1 },
-      { elementName: `uninstall-skills-${TASK}`, status: 'completed', durationMs: 1 },
-      { elementName: `custom-final-${TASK}`, status: 'completed', durationMs: 1 },
-    ];
-    const result = bucketTaskSignals(trace, [], [], { terminalSubstepName: 'custom-final' });
-    expect(result.tasks[0]?.status).toBe('completed');
-  });
-
   it('stays running when only partial substeps are recorded', () => {
     const trace: Trace = [{ elementName: `generator-${TASK}`, status: 'completed', durationMs: 1 }];
     const result = bucketTaskSignals(trace, [], []);

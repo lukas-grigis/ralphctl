@@ -1,53 +1,37 @@
 /**
- * Bucket the Implement chain's live state into a per-task view. Three inputs collide here:
+ * Bucket the Implement chain's live state into a per-task view from three inputs:
  *
  *  - `trace` — every leaf invocation with status + durationMs (no timestamps).
- *  - `chainEvents` — the chain-step-completed / -failed events with ISO `at` timestamps (the
- *    caller's buffer filters out `chain-step-started`; live starts feed the step display instead).
- *  - `signals` — harness-signal bus entries (change/learning/decision/evaluation/…), each
- *    carrying the underlying signal's ISO timestamp plus an OPTIONAL explicit `taskId`.
+ *  - `chainEvents` — chain-step-completed / -failed events with ISO `at` timestamps.
+ *  - `signals` — harness-signal bus entries, each with the signal's ISO timestamp plus an
+ *    OPTIONAL explicit `taskId`.
  *
- * Per-task element names follow `<leaf>-<taskId>` (uuid v7 36-char). Inner leaves attribute
- * trivially by suffix. Signal attribution is PRIMARY-then-FALLBACK: an entry's explicit `taskId`
- * (stamped only by the implement flow's parallel per-branch publisher) wins when present;
- * otherwise a signal belongs to the task whose first-substep-to-last-substep window contains its
- * timestamp. Signals attributed to neither are returned as `orphanSignals`.
+ * Per-task element names follow `<leaf>-<taskId>` (uuid v7), so inner leaves attribute by suffix.
+ * Signal attribution is PRIMARY-then-FALLBACK: an explicit `taskId` (stamped only by the implement
+ * flow's parallel per-branch publisher) wins; otherwise a signal belongs to the task whose
+ * first-to-last-substep window contains its timestamp. Unattributed signals are `orphanSignals`.
  *
- * Task status derivation: per-task composites (`sequential('task-<id>', …)`) do NOT emit a
- * self-trace entry — only leaves do, and this bucketing reads no `chain-step-started` events
- * (in-flight starts live in the session's `live` map). So status is derived from the per-task
- * substep trace alone:
+ * Status comes from the per-task substep trace alone (per-task composites emit no self-trace
+ * entry, and in-flight starts live in the session's `live` map):
  *
- *  - any substep failed/aborted (terminally) → that status (last-wins for failed-vs-aborted)
- *  - the guarded body composite (`task-body-<id>`) recorded as `skipped` → `blocked`
- *    (the dependency gate blocked the task upstream, so nothing inside the body ever ran —
- *    this is a DISTINCT bucket status from the per-substep `skipped`, which just means one
- *    inner guard skipped routinely while the rest of the body still ran)
- *  - last expected substep (`uninstall-skills-<id>`) recorded as `completed` → `completed`
- *  - any substep recorded, but not yet `uninstall-skills` → `running`
- *  - no substeps recorded → `pending`
+ *  - any substep failed/aborted → that status (aborted wins)
+ *  - the guarded body composite (`task-body-<id>`) recorded `skipped` → `blocked` (the dependency
+ *    gate blocked the task upstream; distinct from a routinely skipped inner guard)
+ *  - terminal leaf (`uninstall-skills-<id>`) recorded `completed` → `completed`
+ *  - any other substep recorded → `running`; none → `pending`
  *
- * KNOWN BLIND SPOTS — two shapes the trace alone cannot resolve, both corrected by callers via
- * {@link overlayEntityBlockedStatus}, applied wherever a `BucketedExecution` is about to drive a
- * status-sensitive surface (a card glyph, a done/total count, the sidebar minimap):
+ * KNOWN BLIND SPOTS the trace cannot resolve, corrected by {@link overlayEntityBlockedStatus}
+ * wherever a `BucketedExecution` drives a status-sensitive surface (card glyph, done/total count,
+ * sidebar minimap):
  *
- *  - a task blocked on its OWN merits (budget exhausted, a red post-task-verify, a generator
- *    self-block) runs its ENTIRE subchain to the terminal `uninstall-skills` leaf with no
- *    failed/aborted/skipped substep anywhere: `settleAttemptUseCase` records the block on the task
- *    ENTITY and returns `Result.ok` so the chain can continue to the next task. The trace alone
- *    cannot distinguish that from a genuine `done` — both look identical here.
- *  - a CASCADE dependent — blocked only because its prerequisite never finished — traces to
- *    `blocked` correctly (the dependency-gate case below), but once the operator unblocks its
- *    root task, `unblockTaskUseCase`'s cascade clears the dependent too, back to `todo`. That
- *    entity transition alone is indistinguishable from the gate's own in-flight, not-yet-polled
- *    block, so the trace's frozen `blocked` verdict must keep winning while the run is live and
- *    only defer to the entity once it has settled.
+ *  - a task blocked on its OWN merits (budget exhausted, red post-task-verify, generator
+ *    self-block) runs its whole subchain to the terminal leaf: `settleAttemptUseCase` records the
+ *    block on the task ENTITY and returns ok so the chain continues — identical to a genuine pass.
+ *  - a CASCADE dependent traces to `blocked` correctly, but once the operator unblocks its root,
+ *    `unblockTaskUseCase` clears it to `todo`; while the run is live that is indistinguishable from
+ *    the gate's own not-yet-polled block, so the trace verdict wins until the run settles.
  *
- * `bucketTaskSignals` stays trace-only and pure (it has no entity access) for both.
- *
- * The function is pure and total — empty inputs yield `{ tasks: [], orphanSignals: [] }`.
- * The execute view re-runs it on every render; that's fine because the cost is linear and the
- * inputs are bounded (trace ≤ flow length, chainEvents capped by the hook buffer).
+ * `bucketTaskSignals` stays pure and trace-only; empty inputs yield `{ tasks: [], orphanSignals: [] }`.
  */
 
 import type { Trace, TraceStatus } from '@src/application/chain/trace.ts';
@@ -55,36 +39,22 @@ import type { AppEvent } from '@src/business/observability/events.ts';
 import type { EvaluationSignal, HarnessSignal } from '@src/domain/signal.ts';
 import type { Task } from '@src/domain/entity/task.ts';
 import type { SignalBusEntry } from '@src/application/ui/tui/runtime/sinks-context.tsx';
+import { IMPLEMENT_TASK_TERMINAL_LEAF } from '@src/application/flows/implement/flow.ts';
 
 /** UUIDv7 suffix on a per-task leaf name (`<leaf>-<36-char-uuid>`). */
 export const UUID_SUFFIX_REGEX = /-([0-9a-fA-F-]{36})$/;
 export const TOP_LEVEL_TASK_REGEX = /^task-[0-9a-fA-F-]{36}$/;
 
 /**
- * Default per-task subchain terminal substep — when this leaf appears for a task id, the task's
- * overall status flips to `completed`. Matches the implement flow. Flows with a different
- * terminal leaf override via {@link BucketOptions.terminalSubstepName}.
+ * The per-task guarded BODY composite. `guard` emits one synthetic `skipped` entry named after its
+ * body, so `task-body-<id>` `skipped` is the one unambiguous marker that a task never ran (guards
+ * nested inside the body skip routinely on the happy path).
  */
-const DEFAULT_TERMINAL_SUBSTEP = 'uninstall-skills';
+const BODY_SUBSTEP = 'task-body';
 
 /**
- * Default name of the per-task subchain's GUARDED BODY composite. `guard` emits exactly one
- * synthetic `skipped` trace entry named after its body, so `task-body-<taskId>` with status
- * `skipped` is the single unambiguous marker that a task never ran at all (today: the dependency
- * gate blocked it upstream). Guards nested INSIDE the body (`reproduce-guard`,
- * `quarantine-blocked-diff-guard`) skip routinely on the happy path — only this one means the
- * whole task was passed over. Flows whose body composite is named differently override via
- * {@link BucketOptions.bodySubstepName}.
- */
-const DEFAULT_BODY_SUBSTEP = 'task-body';
-
-/**
- * `blocked` is a WHOLE-TASK bucket status, distinct from the per-substep `skipped` carried by
- * {@link TraceStatus} (a task can have several routinely-skipped inner sub-steps — e.g. the
- * `reproduce` / `quarantine-blocked-diff` guards on the happy path — and still complete
- * normally). It is emitted ONLY when the guarded body composite itself was skipped, meaning the
- * dependency gate blocked the task before any of its work ran. See
- * {@link resolveStatusFromSubSteps}.
+ * `blocked` is a WHOLE-TASK status, distinct from the per-substep `skipped` in {@link TraceStatus}:
+ * emitted only when the guarded body composite itself was skipped (see {@link resolveStatusFromSubSteps}).
  */
 export type TaskBucketStatus = TraceStatus | 'running' | 'pending' | 'blocked';
 
@@ -203,7 +173,7 @@ export interface BucketedExecution {
 
 interface TaskWindow {
   readonly startedAt: string;
-  endedAt?: string;
+  endedAt: string;
 }
 
 const taskIdFromInner = (name: string): string | undefined => {
@@ -218,29 +188,22 @@ const stripTaskSuffix = (name: string, taskId: string): string => {
 };
 
 /**
- * Build per-task time windows from chain-step-completed events. The chain bridge emits one
- * `chain-step-completed` per leaf with the leaf's element name + ISO timestamp; we treat the
- * earliest substep timestamp for a task as the window start and the latest as the window end.
- * This is approximate — a signal emitted between two substeps may attribute to either — but
- * good enough for the UI bucketing where the alternative is "no window, everything orphans."
+ * Per-task time windows from chain-step-completed events: earliest substep timestamp = start,
+ * latest = end. Approximate (a signal between two substeps may attribute to either) but better
+ * than orphaning everything. Insertion order is first-seen order.
  */
-const buildTaskWindows = (events: readonly AppEvent[]): { order: readonly string[]; byId: Map<string, TaskWindow> } => {
-  const byId = new Map<string, TaskWindow>();
-  const order: string[] = [];
+const buildTaskWindows = (events: readonly AppEvent[]): Map<string, TaskWindow> => {
+  const windows = new Map<string, TaskWindow>();
   for (const e of events) {
     if (e.type !== 'chain-step-completed' && e.type !== 'chain-step-failed') continue;
     const id = taskIdFromInner(e.elementName);
     if (id === undefined) continue;
     const at = String(e.at);
-    const existing = byId.get(id);
-    if (existing === undefined) {
-      byId.set(id, { startedAt: at, endedAt: at });
-      order.push(id);
-    } else {
-      existing.endedAt = at;
-    }
+    const existing = windows.get(id);
+    if (existing === undefined) windows.set(id, { startedAt: at, endedAt: at });
+    else existing.endedAt = at;
   }
-  return { order, byId };
+  return windows;
 };
 
 const collectSubSteps = (trace: Trace): Map<string, TaskSubStep[]> => {
@@ -254,185 +217,88 @@ const collectSubSteps = (trace: Trace): Map<string, TaskSubStep[]> => {
       durationMs: entry.durationMs,
       ...(entry.error !== undefined ? { errorMessage: entry.error.message } : {}),
     };
-    const list = byTask.get(taskId) ?? [];
-    list.push(sub);
-    byTask.set(taskId, list);
+    const list = byTask.get(taskId);
+    if (list) list.push(sub);
+    else byTask.set(taskId, [sub]);
   }
   return byTask;
 };
 
 /**
- * Per-task time-window for the signal-attribution binary-search. Compared to {@link TaskWindow}
- * this carries the taskId inline (so we don't need a parallel Map lookup) and is captured in
- * an array sorted by `startedAt`. Tasks run sequentially in the implement chain so windows
- * don't overlap — that's what lets the search find at most one candidate per signal.
+ * Group signal entries by owning taskId (`undefined` key = orphans). An entry's explicit `taskId`
+ * is PRIMARY; the timestamp-window heuristic is the FALLBACK for every entry without one (the
+ * implement serial path and every other flow). Tasks run sequentially so windows never overlap:
+ * sort once by start and binary-search the latest window starting at or before each timestamp.
  */
-interface WindowEntry {
-  readonly taskId: string;
-  readonly startedAt: string;
-  readonly endedAt?: string;
-}
-
-/**
- * Binary-search the latest window with `startedAt <= ts`. Returns the index, or -1 when ts
- * predates every window. Sorted-input precondition; matches the standard "lower_bound from
- * the right" pattern.
- */
-const findOwningWindow = (sortedWindows: readonly WindowEntry[], ts: string): number => {
-  let lo = 0;
-  let hi = sortedWindows.length;
-  while (lo < hi) {
-    const mid = (lo + hi) >>> 1;
-    if (sortedWindows[mid]!.startedAt <= ts) lo = mid + 1;
-    else hi = mid;
-  }
-  return lo - 1;
-};
-
-/**
- * Resolve a signal's owning taskId by the timestamp-window heuristic — the FALLBACK path, used
- * only when the bus entry carries no explicit `taskId` (see {@link bucketSignals}).
- */
-const attributeByWindow = (ts: string, sortedWindows: readonly WindowEntry[]): string | undefined => {
-  const idx = findOwningWindow(sortedWindows, ts);
-  const candidate = idx >= 0 ? sortedWindows[idx] : undefined;
-  return candidate !== undefined && (candidate.endedAt === undefined || ts <= candidate.endedAt)
-    ? candidate.taskId
-    : undefined;
-};
-
-/**
- * O(signals + windows log windows) bucketing — replaced the original O(signals × windows) inner
- * loop because long-running sessions with high signal volume (1000+) made per-render bucketing
- * a hot spot in the TUI. Tasks run sequentially in the implement chain so windows never
- * overlap; that invariant lets us sort by startedAt once and binary-search per signal.
- *
- * Attribution precedence: a bus entry's explicit `taskId` (stamped only by the implement flow's
- * parallel per-branch publisher — see `wave-branch.ts`'s `perBranchSignalPublisher`) is
- * PRIMARY and always wins when present. The timestamp-window heuristic is the FALLBACK for every
- * entry that carries no `taskId` — the implement serial path and every other flow (review,
- * detect-scripts, detect-skills, refine, plan, readiness, create-pr).
- */
-const bucketSignals = (
+const groupSignalsByOwner = (
   entries: readonly SignalBusEntry[],
-  windows: Map<string, TaskWindow>
-): {
-  signalsByTask: Map<string, HarnessSignal[]>;
-  evaluationsByTask: Map<string, EvaluationSignal[]>;
-  orphans: HarnessSignal[];
-} => {
-  const signalsByTask = new Map<string, HarnessSignal[]>();
-  const evaluationsByTask = new Map<string, EvaluationSignal[]>();
-  const orphans: HarnessSignal[] = [];
+  windows: ReadonlyMap<string, TaskWindow>
+): Map<string | undefined, SignalBusEntry[]> => {
+  const sorted = [...windows]
+    .map(([taskId, w]) => ({ taskId, ...w }))
+    .sort((a, b) => (a.startedAt < b.startedAt ? -1 : a.startedAt > b.startedAt ? 1 : 0));
 
-  const sortedWindows: WindowEntry[] = [];
-  for (const [taskId, w] of windows) {
-    sortedWindows.push(
-      w.endedAt !== undefined
-        ? { taskId, startedAt: w.startedAt, endedAt: w.endedAt }
-        : { taskId, startedAt: w.startedAt }
-    );
-  }
-  sortedWindows.sort((a, b) => (a.startedAt < b.startedAt ? -1 : a.startedAt > b.startedAt ? 1 : 0));
-
-  for (const entry of entries) {
-    const sig = entry.signal;
-    const owner = entry.taskId ?? attributeByWindow(String(sig.timestamp), sortedWindows);
-
-    if (owner === undefined) {
-      orphans.push(sig);
-      continue;
+  const ownerByWindow = (ts: string): string | undefined => {
+    let lo = 0;
+    let hi = sorted.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >>> 1;
+      if (sorted[mid]!.startedAt <= ts) lo = mid + 1;
+      else hi = mid;
     }
-    if (sig.type === 'evaluation') {
-      const list = evaluationsByTask.get(owner) ?? [];
-      list.push(sig);
-      evaluationsByTask.set(owner, list);
-    } else {
-      const list = signalsByTask.get(owner) ?? [];
-      list.push(sig);
-      signalsByTask.set(owner, list);
-    }
-  }
-  return { signalsByTask, evaluationsByTask, orphans };
+    const candidate = sorted[lo - 1];
+    return candidate !== undefined && ts <= candidate.endedAt ? candidate.taskId : undefined;
+  };
+
+  return Map.groupBy(entries, (entry) => entry.taskId ?? ownerByWindow(String(entry.signal.timestamp)));
 };
 
 /**
- * Derive the task-level status from its substep trace. See module docstring for the algorithm.
- * `failed` / `aborted` win over later `completed` substeps (the task subchain short-circuits
- * on the first failure via `sequential`'s contract).
- *
- * A `skipped` BODY composite is checked next: the dependency gate blocks a task by transitioning
- * it to `blocked upstream …` and letting the body guard skip the whole lifecycle, which leaves
- * no failed/aborted entry and no terminal leaf. Without this branch the task read `running`
- * forever and pinned the Execute header's active-task cursor for the rest of the run. This
- * resolves to the dedicated `blocked` bucket status (NOT `skipped`) so the operator-visible
- * surfaces (task card, sidebar minimap) render it with the same error-level treatment as the
- * entity's real `blocked` status, instead of the same muted grey as a merely-pending task.
- *
- * The terminal check requires the terminal leaf to have COMPLETED — a skipped terminal entry
- * (were `guard` ever changed to synthesise one entry per flattened leaf) must never read as a
- * finished task.
+ * Derive the task-level status from its substep trace (see module doc). `failed` / `aborted` win
+ * over later `completed` substeps. A `skipped` body composite resolves to `blocked`: the dependency
+ * gate leaves no failed entry and no terminal leaf, so without this the task read `running` forever
+ * and pinned the header's active-task cursor. The terminal leaf must have COMPLETED — a skipped one
+ * never reads as finished.
  */
-const resolveStatusFromSubSteps = (
-  subSteps: readonly TaskSubStep[],
-  terminalSubstepName: string,
-  bodySubstepName: string
-): TaskBucketStatus => {
+const resolveStatusFromSubSteps = (subSteps: readonly TaskSubStep[]): TaskBucketStatus => {
   if (subSteps.length === 0) return 'pending';
   for (const sub of subSteps) {
     if (sub.status === 'aborted') return 'aborted';
     if (sub.status === 'failed') return 'failed';
   }
-  if (subSteps.some((s) => s.leafName === bodySubstepName && s.status === 'skipped')) return 'blocked';
-  const lastSeen = subSteps.some((s) => s.leafName === terminalSubstepName && s.status === 'completed');
-  return lastSeen ? 'completed' : 'running';
+  if (subSteps.some((s) => s.leafName === BODY_SUBSTEP && s.status === 'skipped')) return 'blocked';
+  const finished = subSteps.some((s) => s.leafName === IMPLEMENT_TASK_TERMINAL_LEAF && s.status === 'completed');
+  return finished ? 'completed' : 'running';
 };
 
 /**
- * Is this bucket the one the operator is watching? `running` mid-task, `pending` in the brief
- * transition window between tasks. Settled buckets — `completed`, but equally `failed` /
- * `aborted` / `skipped` / `blocked` — sit BEHIND the cursor: the Execute header's active-task
- * readout and the Tasks panel's active-card anchor both scan for the first in-flight bucket, and
- * a task blocked earlier in the list must not hold that cursor while later tasks actually run.
+ * Is this bucket the one the operator is watching? `running` mid-task, `pending` between tasks.
+ * Settled buckets (including `blocked`) sit BEHIND the cursor, so a task blocked earlier in the list
+ * never holds the header / Tasks-panel anchor while later tasks run.
  */
 export const isInFlightBucket = (bucket: { readonly status: TaskBucketStatus }): boolean =>
   bucket.status === 'running' || bucket.status === 'pending';
 
 /**
- * The shape `unblockTask` (`domain/entity/task-lifecycle.ts`) leaves on a task that has already
- * run: back on `todo` with an empty live attempt ledger and the run it just cleared archived
- * under `retiredAttempts`. A task that traced all the way to its terminal leaf always started
- * at least one attempt, so its unblock always archives one.
- *
- * `todo` alone is not enough. A task fast enough to run start to finish between two polls (the
- * scripted demo has no pacing) can finish while the snapshot still holds its pre-run `todo`.
- * That snapshot has no retired run, unless an earlier session already unblocked the task. That
- * leftover case only shows `pending` for one poll interval.
+ * The shape `unblockTask` leaves on a task that already ran: `todo`, empty live attempts, the
+ * cleared run archived under `retiredAttempts`. `todo` alone is not enough — a task fast enough to
+ * finish between two polls can still show its pre-run `todo` (no retired run).
  */
 const isRevivedAfterRun = (task: Task): boolean =>
   task.status === 'todo' && task.attempts.length === 0 && (task.retiredAttempts?.length ?? 0) > 0;
 
 /**
- * The shape `unblockTask` leaves on a CASCADE dependent — a task blocked only because its
- * prerequisite never finished, not on its own merits. `unblockTaskUseCase`'s cascade calls
- * `unblockTask` on every upstream-blocked dependent it finds, but a pure dependent never ran an
- * attempt of its own, so `hasArchivableState` (`task-lifecycle.ts`) never archives a
- * `RetiredRun` for it — it lands on `todo` with an empty `attempts` AND an empty/unchanged
- * `retiredAttempts`. That is the SAME shape {@link isRevivedAfterRun} requires, minus the
- * archived-run half — checking for it is safe ONLY once the producing run has settled: while
- * still running, a `todo`+empty-attempts snapshot is indistinguishable from the dependency
- * gate's own in-flight block not yet having reached the next poll (see {@link reconcileBucket}).
+ * The shape the unblock cascade leaves on a dependent that never ran: `todo` with empty attempts and
+ * no archived run (so {@link isRevivedAfterRun} misses it). Safe to act on only once the run has
+ * settled — while running it is indistinguishable from the dependency gate's not-yet-polled block.
  */
 const isCascadeClearedTodo = (task: Task): boolean => task.status === 'todo' && task.attempts.length === 0;
 
 /**
- * Reconcile one trace-derived bucket with the polled entity sets. The trace's own settled
- * verdicts win outright: a chain-level `failed`/`aborted` (an abort landing mid-subchain outranks
- * a settle that happened to complete after it). The dependency gate's `blocked` trace verdict wins
- * too, UNLESS the run has since settled and the entity confirms a cascade-clear (`cascadeClearedIds`)
- * — while running, the gate decides in milliseconds, far inside the poll lag, so a `todo` snapshot
- * there is usually stale; once settled, that same frozen verdict is stale HISTORY instead, and the
- * polled entity is the only truth left.
+ * Reconcile one trace-derived bucket with the polled entity sets. Trace `failed`/`aborted` win
+ * outright. Trace `blocked` wins too, unless the run has settled and the entity confirms a
+ * cascade-clear — while running the gate decides far inside the poll lag, so a `todo` snapshot is
+ * stale; once settled the frozen verdict is stale history and the entity is the only truth left.
  */
 const reconcileBucket = (
   task: TaskBucket,
@@ -455,50 +321,22 @@ const reconcileBucket = (
 };
 
 /**
- * Correct the trace-only blind spot the module docstring names: a task blocked on its own merits
- * (budget exhausted, red post-task-verify, generator self-block) leaves an all-`completed` trace
- * indistinguishable from a genuine pass, because `settleAttemptUseCase` records the block on the
- * task ENTITY, not on the chain. This overlays that entity truth back onto the bucket.
+ * Overlay polled task-entity truth onto trace-derived buckets (the blind spots in the module doc).
+ * For a bucket the trace says `completed`:
  *
- * For a bucket the trace says is `completed`, the polled entity status overrides it like this:
+ *  - entity `blocked` → `blocked` (also applied to a `running`/`pending` bucket)
+ *  - entity `todo` after an unblock ({@link isRevivedAfterRun}) → `pending`
+ *  - entity `in_progress` → trace wins; the poll lags the trace by up to 3 s and `unblockTask`
+ *    never produces `in_progress`
+ *  - entity `done` → trace wins
  *
- *  - `blocked`     → `blocked`. The own-failure block above. The same stamp applies to a
- *    `running`/`pending` bucket whose entity already reads blocked.
- *  - `todo` after an unblock (see {@link isRevivedAfterRun}) → `pending`. The operator pressed `u`
- *    after the run settled, so the task is waiting for a re-run. Left on the trace's verdict,
- *    the card, the done/total count and the sidebar minimap would all count it as done.
- *  - `in_progress` → trace wins (`completed`). The poll lags the trace by up to 3 s:
- *    `start-attempt` persists `in_progress` and `settle-attempt` persists the final status
- *    before the terminal leaf runs. So a task that just finished can read `in_progress` for one
- *    poll. `unblockTask` never produces `in_progress`, so this is always that lag.
- *  - `done`        → trace wins (`completed`). The entity agrees.
+ * A trace-`blocked` bucket reconciles to `pending` only once `isRunning` is false and the entity
+ * shows a cascade-clear ({@link isCascadeClearedTodo}); right after a run settles a gate-blocked
+ * task with a stale pre-run `todo` snapshot briefly renders `pending` too — the same accepted
+ * window as {@link isRevivedAfterRun}. Trace `failed`/`aborted` are never touched.
  *
- * A bucket the trace settled as `blocked` (the dependency-gate case) gets a SECOND, narrower
- * reconciliation once the producing run is no longer live (`isRunning` is `false`): if the entity
- * now reads `todo` with an empty attempt ledger (see {@link isCascadeClearedTodo}) — the shape
- * `unblockTaskUseCase`'s cascade leaves on a dependent that never ran an attempt of its own, so its
- * unblock never archives a `RetiredRun` and `isRevivedAfterRun` can never catch it — the bucket
- * reconciles to `pending`, the same as an own-failure-unblocked root. While `isRunning` is `true`
- * this arm is skipped: a `todo`+empty-attempts snapshot there is indistinguishable from the
- * dependency gate's own in-flight block not yet having reached the next poll. One residual window:
- * right after a run settles, a dependency-gate-blocked task whose most recent (up to 3 s stale)
- * snapshot still reads its pre-run `todo` briefly renders `pending` too — the same class of window
- * {@link isRevivedAfterRun} already documents and accepts.
- *
- * Buckets the trace already settled as `failed`/`aborted` are never touched, and `blocked` is
- * touched only by the cascade-clear arm above (see {@link reconcileBucket}).
- *
- * Callers apply this at every boundary where a trace-derived `BucketedExecution` meets the polled
- * task list, right before the result drives a status-sensitive surface — a card's glyph/status
- * word, a done/total count, the sidebar minimap. `bucketTaskSignals` itself stays pure and
- * trace-only (see the module docstring); it has no entity access to do this correction itself.
- * `isRunning` is already threaded to every one of these call sites for other reasons, so this adds
- * no new plumbing.
- *
- * Pure and reference-stable: returns the SAME `BucketedExecution` when no task needed correcting.
- * That covers no `taskState`, no entity blocked/revived/cascade-cleared, or every bucket already
- * agreeing. A memoized consumer downstream then doesn't re-render on every 3 s baseline-health
- * poll tick.
+ * Pure and reference-stable: returns the SAME object when nothing needed correcting, so memoized
+ * consumers don't re-render on every baseline-health poll tick.
  */
 export const overlayEntityBlockedStatus = (
   bucketed: BucketedExecution,
@@ -525,53 +363,21 @@ export const overlayEntityBlockedStatus = (
   return changed ? { ...bucketed, tasks } : bucketed;
 };
 
-const firstFailureMessage = (subSteps: readonly TaskSubStep[]): string | undefined => {
-  for (const sub of subSteps) {
-    if ((sub.status === 'failed' || sub.status === 'aborted') && sub.errorMessage !== undefined) {
-      return sub.errorMessage;
-    }
-  }
-  return undefined;
-};
+const firstFailureMessage = (subSteps: readonly TaskSubStep[]): string | undefined =>
+  subSteps.find((s) => (s.status === 'failed' || s.status === 'aborted') && s.errorMessage !== undefined)?.errorMessage;
 
 const totalDurationMs = (subSteps: readonly TaskSubStep[]): number =>
   subSteps.reduce((sum, sub) => sum + (Number.isFinite(sub.durationMs) ? sub.durationMs : 0), 0);
 
-const countGeneratorTurns = (subSteps: readonly TaskSubStep[]): number =>
-  subSteps.reduce((n, sub) => (sub.leafName === 'generator' ? n + 1 : n), 0);
-
 export interface BucketOptions {
   /** Configured cap on gen-eval-loop iterations per attempt (`config.harness.maxTurns`). */
   readonly maxTurns?: number;
-  /**
-   * Configured cap on attempts per task (`config.harness.maxAttempts`). Surfaced on each bucket as
-   * `genEvalMaxAttempts` so the header / task-row can render `attempt A/X`. Static config — unlike
-   * the round counter it is not derived from the trace, so the round overlay in `use-bucketed-tasks`
-   * preserves it untouched.
-   */
+  /** Configured cap on attempts per task, surfaced as `genEvalMaxAttempts`; static config the round overlay leaves untouched. */
   readonly maxAttempts?: number;
   /**
-   * Name of the per-task subchain's final leaf — when it appears in the trace the task flips to
-   * `completed`. Defaults to `'uninstall-skills'` (the implement flow's terminal leaf). Decoupling
-   * this from a hard-coded constant means a flow that renames its terminal leaf can override
-   * via the launcher without breaking the UI.
-   */
-  readonly terminalSubstepName?: string;
-  /**
-   * Name of the per-task subchain's guarded BODY composite — when it appears in the trace with
-   * status `skipped` the task never ran and flips to `skipped`. Defaults to
-   * {@link DEFAULT_BODY_SUBSTEP} (`'task-body'`, the implement flow's composite). Same decoupling
-   * rationale as {@link terminalSubstepName}.
-   */
-  readonly bodySubstepName?: string;
-  /**
-   * Tasks the launcher knows about up front (e.g. from `tasks.json`) — used to synthesise
-   * `pending` buckets for ids that have NO trace entries yet. Without this hint, a chain that
-   * fails before any per-task leaf runs (e.g. `setup-script-runner` aborts the chain) leaves
-   * `bucketed.tasks` empty and the Tasks panel renders its "panel empty · Run plan" empty
-   * state — which is misleading when tasks DO exist in the sprint, they just haven't started.
-   * Listed ids appear in input order at the END of the bucket list so already-traced tasks
-   * keep their event-order position.
+   * Tasks known up front (e.g. from `tasks.json`): ids with no trace entries get `pending` buckets,
+   * appended after traced tasks, so a chain failing before any per-task leaf (setup-script abort)
+   * doesn't render the misleading "panel empty" state.
    */
   readonly knownTaskIds?: readonly string[];
 }
@@ -582,57 +388,34 @@ export const bucketTaskSignals = (
   signals: readonly SignalBusEntry[],
   opts: BucketOptions = {}
 ): BucketedExecution => {
-  const terminalSubstepName = opts.terminalSubstepName ?? DEFAULT_TERMINAL_SUBSTEP;
-  const bodySubstepName = opts.bodySubstepName ?? DEFAULT_BODY_SUBSTEP;
-  const { order, byId: windows } = buildTaskWindows(chainEvents);
+  const windows = buildTaskWindows(chainEvents);
   const subStepsByTask = collectSubSteps(trace);
-  const { signalsByTask, evaluationsByTask, orphans } = bucketSignals(signals, windows);
+  const signalsByOwner = groupSignalsByOwner(signals, windows);
+  const signalsOf = (owner: string | undefined): HarnessSignal[] =>
+    (signalsByOwner.get(owner) ?? []).map((entry) => entry.signal);
 
-  const seen = new Set<string>();
-  const ids: string[] = [];
-  for (const id of order) {
-    if (seen.has(id)) continue;
-    seen.add(id);
-    ids.push(id);
-  }
-  for (const id of subStepsByTask.keys()) {
-    if (!seen.has(id)) {
-      seen.add(id);
-      ids.push(id);
-    }
-  }
-  // Append any known task ids that haven't traced yet so the panel shows pending rows instead
-  // of collapsing to the "panel empty" state when a chain fails before per-task work starts.
-  // These get an empty substep list → `resolveStatusFromSubSteps` returns 'pending'.
-  if (opts.knownTaskIds !== undefined) {
-    for (const id of opts.knownTaskIds) {
-      if (!seen.has(id)) {
-        seen.add(id);
-        ids.push(id);
-      }
-    }
-  }
+  const ids = [...new Set([...windows.keys(), ...subStepsByTask.keys(), ...(opts.knownTaskIds ?? [])])];
 
-  const tasks: TaskBucket[] = ids.map((id) => {
+  const tasks = ids.map((id): TaskBucket => {
     const subSteps = subStepsByTask.get(id) ?? [];
-    const status = resolveStatusFromSubSteps(subSteps, terminalSubstepName, bodySubstepName);
+    const status = resolveStatusFromSubSteps(subSteps);
     const errorMessage = firstFailureMessage(subSteps);
-    const duration =
-      status === 'completed' || status === 'failed' || status === 'aborted' ? totalDurationMs(subSteps) : undefined;
-    const genEvalRound = countGeneratorTurns(subSteps);
+    const owned = signalsOf(id);
     return {
       id,
       status,
-      ...(duration !== undefined ? { durationMs: duration } : {}),
+      ...(status === 'completed' || status === 'failed' || status === 'aborted'
+        ? { durationMs: totalDurationMs(subSteps) }
+        : {}),
       ...(errorMessage !== undefined ? { errorMessage } : {}),
       subSteps,
-      evaluations: evaluationsByTask.get(id) ?? [],
-      signals: signalsByTask.get(id) ?? [],
-      genEvalRound,
+      evaluations: owned.filter((sig): sig is EvaluationSignal => sig.type === 'evaluation'),
+      signals: owned.filter((sig) => sig.type !== 'evaluation'),
+      genEvalRound: subSteps.filter((sub) => sub.leafName === 'generator').length,
       ...(opts.maxTurns !== undefined ? { genEvalMaxRounds: opts.maxTurns } : {}),
       ...(opts.maxAttempts !== undefined ? { genEvalMaxAttempts: opts.maxAttempts } : {}),
     };
   });
 
-  return { tasks, orphanSignals: orphans };
+  return { tasks, orphanSignals: signalsOf(undefined) };
 };
