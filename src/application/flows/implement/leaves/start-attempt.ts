@@ -104,21 +104,12 @@ export const startAttemptLeaf = (
         ...(ctx.taskWorkspaceRoot !== undefined ? { workspaceRoot: ctx.taskWorkspaceRoot } : {}),
       };
     },
-    // Start-attempt is the per-ATTEMPT boundary leaf. Under the outer attempt loop the same ctx
-    // flows from one attempt into the next within a single launch, so the gen-eval turn counter,
-    // plateau window, round pointer, latest evaluation, proposed commit message, generator /
-    // evaluator session ids MUST reset here — otherwise
-    // attempt 2's inner loop would inherit attempt 1's `plateauHistory` (plateau-on-first-eval), a
-    // climbing `genEvalTurn`, a stale commit message, or a cross-attempt session resume that mixes
-    // two unrelated bodies of work into one conversational thread. `resetAttemptScratch` is the
-    // single, type-derived reset set for this boundary (see `sprint-scoped-projection.ts`) —
-    // resetting realises the per-attempt semantics the ctx docs already describe ("a fresh
-    // currentTask starts with an empty array"). `currentRoundNum` is recomputed by
-    // `resolve-round-num` from max-on-disk so prior rounds are never overwritten even though the
-    // in-memory pointer clears.
+    // The per-attempt boundary: without the reset attempt 2 would inherit attempt 1's plateau
+    // window, turn counter, commit message and session ids (a resume mixing two bodies of work).
+    // `currentRoundNum` is recomputed from max-on-disk, so prior rounds are never overwritten.
     output: (ctx, inProgress) => ({
       ...ctx,
-      ...resetAttemptScratch(),
+      ...resetAttemptScratch,
       ...crashResumeSeed(inProgress),
       currentTaskId: inProgress.id,
       currentTask: inProgress,
