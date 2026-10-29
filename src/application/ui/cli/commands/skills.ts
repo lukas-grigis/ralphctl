@@ -1,6 +1,6 @@
 import type { Command } from 'commander';
 import { bootstrapApp } from '@src/application/bootstrap/bootstrap-app.ts';
-import { fail } from '@src/application/ui/cli/report-cli-error.ts';
+import { okOrFail } from '@src/application/ui/cli/report-cli-error.ts';
 import { SKILL_MOUNTING_FLOW_IDS } from '@src/application/ui/shared/launcher.ts';
 import { BUNDLED_SKILLS } from '@src/integration/ai/skills/_engine/registry.ts';
 import type { SkillCatalogEntry, SkillInstallStatus } from '@src/integration/ai/skills/_engine/skill-catalog-port.ts';
@@ -81,10 +81,7 @@ const listSkillsAction = async (): Promise<void> => {
   const { deps } = await bootstrapApp();
 
   const catalogR = await deps.skillCatalog.list();
-  if (!catalogR.ok) {
-    fail(catalogR.error.message);
-    return;
-  }
+  if (!okOrFail(catalogR)) return;
 
   if (catalogR.value.length === 0) {
     process.stdout.write('(no skills bundled)\n');

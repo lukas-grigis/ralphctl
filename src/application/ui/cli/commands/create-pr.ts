@@ -9,7 +9,7 @@ import { createSkillsAdapter } from '@src/integration/ai/skills/adapter-factory.
 import { buildComposedSkillSource } from '@src/application/ui/shared/launcher.ts';
 import { checkCli } from '@src/application/ui/shared/launch/check-cli.ts';
 import { bootstrapApp } from '@src/application/bootstrap/bootstrap-app.ts';
-import { fail } from '@src/application/ui/cli/report-cli-error.ts';
+import { fail, okOrFail } from '@src/application/ui/cli/report-cli-error.ts';
 import { resolveSprintForCli } from '@src/application/ui/cli/resolve-sprint-selection.ts';
 import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import type { StoragePaths } from '@src/application/bootstrap/storage-paths.ts';
@@ -87,10 +87,7 @@ const buildCreatePrFlow = (deps: AppDeps, storage: StoragePaths, useAi: boolean)
 const createPrAction = async (opts: Opts): Promise<void> => {
   const cwdInput = opts.cwd ?? process.cwd();
   const cwd = AbsolutePath.parse(cwdInput);
-  if (!cwd.ok) {
-    fail(`--cwd: ${cwd.error.message}`);
-    return;
-  }
+  if (!okOrFail(cwd, '--cwd: ')) return;
 
   const { deps, storage } = await bootstrapApp();
   // Opening a PR is a write to the upstream — the resolver always disambiguates a pin-derived target.
@@ -113,10 +110,7 @@ const createPrAction = async (opts: Opts): Promise<void> => {
     return;
   }
   const sprintDir = AbsolutePath.parse(resolvedDir);
-  if (!sprintDir.ok) {
-    fail(`sprint dir: ${sprintDir.error.message}`);
-    return;
-  }
+  if (!okOrFail(sprintDir, 'sprint dir: ')) return;
   const flow = buildCreatePrFlow(deps, storage, opts.ai);
   const result = await flow.execute({
     input: {

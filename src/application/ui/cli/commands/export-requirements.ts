@@ -2,7 +2,7 @@ import type { Command } from 'commander';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { createExportRequirementsFlow } from '@src/application/flows/export-requirements/flow.ts';
 import { bootstrapApp } from '@src/application/bootstrap/bootstrap-app.ts';
-import { fail } from '@src/application/ui/cli/report-cli-error.ts';
+import { fail, okOrFail } from '@src/application/ui/cli/report-cli-error.ts';
 import { resolveSprintForCli } from '@src/application/ui/cli/resolve-sprint-selection.ts';
 
 interface Opts {
@@ -12,10 +12,7 @@ interface Opts {
 
 const exportRequirementsAction = async (opts: Opts): Promise<void> => {
   const outputPath = AbsolutePath.parse(opts.output);
-  if (!outputPath.ok) {
-    fail(`--output: ${outputPath.error.message}`);
-    return;
-  }
+  if (!okOrFail(outputPath, '--output: ')) return;
 
   const { deps, storage } = await bootstrapApp();
   const sprintId = await resolveSprintForCli(opts.sprint, storage.stateRoot);

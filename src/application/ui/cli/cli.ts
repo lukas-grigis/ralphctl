@@ -19,6 +19,14 @@ import { registerSkillsCommand } from '@src/application/ui/cli/commands/skills.t
 import { registerPromptsCommand } from '@src/application/ui/cli/commands/prompts.ts';
 import { CLI_METADATA } from '@src/business/version/cli-metadata.ts';
 
+/** The root command's parsed options: commander yields each flag as a string, or leaves it undefined. */
+interface ImplementRoleFlagOpts {
+  readonly implementGeneratorProvider?: string;
+  readonly implementGeneratorModel?: string;
+  readonly implementEvaluatorProvider?: string;
+  readonly implementEvaluatorModel?: string;
+}
+
 /** Build and run the CLI. */
 export const runCli = async (argv: readonly string[]): Promise<void> => {
   const program = new Command();
@@ -47,7 +55,7 @@ export const runCli = async (argv: readonly string[]): Promise<void> => {
       '--implement-evaluator-model <model>',
       'override settings.ai.implement.evaluator.model for this launch (requires --implement-evaluator-provider)'
     )
-    .action(async (opts: Record<string, unknown>, command: Command) => {
+    .action(async (opts: ImplementRoleFlagOpts, command: Command) => {
       // An unrecognized first operand lands here (the root action) because there is no matching subcommand.
       const verb = command.args[0];
       if (verb !== undefined) {
@@ -61,14 +69,10 @@ export const runCli = async (argv: readonly string[]): Promise<void> => {
       }
 
       const parsed = parseImplementRoleOverrides({
-        ...(typeof opts.implementGeneratorProvider === 'string'
-          ? { generatorProvider: opts.implementGeneratorProvider }
-          : {}),
-        ...(typeof opts.implementGeneratorModel === 'string' ? { generatorModel: opts.implementGeneratorModel } : {}),
-        ...(typeof opts.implementEvaluatorProvider === 'string'
-          ? { evaluatorProvider: opts.implementEvaluatorProvider }
-          : {}),
-        ...(typeof opts.implementEvaluatorModel === 'string' ? { evaluatorModel: opts.implementEvaluatorModel } : {}),
+        generatorProvider: opts.implementGeneratorProvider,
+        generatorModel: opts.implementGeneratorModel,
+        evaluatorProvider: opts.implementEvaluatorProvider,
+        evaluatorModel: opts.implementEvaluatorModel,
       });
       if (!parsed.ok) {
         process.stderr.write(`ralphctl: ${parsed.error}\n`);

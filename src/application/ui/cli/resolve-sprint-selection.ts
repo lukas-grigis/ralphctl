@@ -5,7 +5,7 @@ import { Result } from '@src/domain/result.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import { ValidationError } from '@src/domain/value/error/validation-error.ts';
 import { SprintId } from '@src/domain/value/id/sprint-id.ts';
-import { fail } from '@src/application/ui/cli/report-cli-error.ts';
+import { fail, okOrFail } from '@src/application/ui/cli/report-cli-error.ts';
 import { createLastSelectionStore } from '@src/integration/persistence/selection/last-selection-store.ts';
 
 export interface ResolvedSprintId {
@@ -75,10 +75,7 @@ export const resolveSprintForCli = async (
   stateRoot: AbsolutePath
 ): Promise<SprintId | undefined> => {
   const resolved = await resolveSprintId(raw, stateRoot);
-  if (!resolved.ok) {
-    fail(resolved.error.message);
-    return undefined;
-  }
+  if (!okOrFail(resolved)) return undefined;
   if (resolved.value.fromPin) process.stderr.write(pinFallbackNotice(resolved.value.sprintId));
   return resolved.value.sprintId;
 };
@@ -94,10 +91,7 @@ export const resolveSprintAndIdForCli = async <T>(
   label: 'task' | 'ticket'
 ): Promise<{ readonly sprintId: SprintId; readonly id: T } | undefined> => {
   const resolved = await resolveSprintId(rawSprint, stateRoot);
-  if (!resolved.ok) {
-    fail(resolved.error.message);
-    return undefined;
-  }
+  if (!okOrFail(resolved)) return undefined;
   const id = parse(rawId);
   if (!id.ok) {
     fail(`invalid ${label} id: ${id.error.message}`);
