@@ -66,21 +66,17 @@ const isTerminal = (event: RunnerEvent<unknown>): boolean =>
 /** A caller-driven abort carries no error; an abort the chain raised itself does. */
 const stoppedByCaller = (event: RunnerEvent<unknown>): boolean => event.type === 'aborted' && event.error === undefined;
 
-const withinTimeout = (work: Promise<void>, timeoutMs: number): Promise<boolean> =>
-  new Promise((resolve) => {
-    const timer = setTimeout(() => resolve(false), timeoutMs);
-    timer.unref();
-    void work.then(
-      () => {
-        clearTimeout(timer);
-        resolve(true);
-      },
-      () => {
-        clearTimeout(timer);
-        resolve(true);
-      }
-    );
-  });
+const withinTimeout = (work: Promise<void>, timeoutMs: number): Promise<boolean> => {
+  const { promise, resolve } = Promise.withResolvers<boolean>();
+  const timer = setTimeout(resolve, timeoutMs, false);
+  timer.unref();
+  const done = (): void => {
+    clearTimeout(timer);
+    resolve(true);
+  };
+  void work.then(done, done);
+  return promise;
+};
 
 export const createInProcessRuns = (deps: InProcessRunsDeps = {}): InProcessRuns => {
   const active = new Map<TrackedRunner, ActiveRun>();
@@ -99,12 +95,12 @@ export const createInProcessRuns = (deps: InProcessRunsDeps = {}): InProcessRuns
       if (isSettled(runner.status) || active.has(runner)) return;
       const since = now();
       deps.recorder?.begin(runner.id, meta);
-      let settle!: () => void;
-      active.set(runner, { meta, settled: new Promise<void>((resolve) => (settle = resolve)) });
+      const settled = Promise.withResolvers<void>();
+      active.set(runner, { meta, settled: settled.promise });
       const close = (): void => {
         active.delete(runner);
         deps.recorder?.end(runner.id);
-        settle();
+        settled.resolve();
       };
       const unsubscribe = runner.subscribe((event) => {
         if (!isTerminal(event)) return;
