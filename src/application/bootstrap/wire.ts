@@ -269,9 +269,6 @@ const NOOP_CHAIN_LOG_SINK: FileLogSink = {
   },
 };
 
-const isTruthyEnvFlag = (value: string | undefined): boolean => typeof value === 'string' && value.length > 0;
-
-/** Build the wired dependency graph. Pure — does not touch the filesystem or `os`. */
 /**
  * Default `Spawn` for general shell use (issue fetcher, interactive Claude binary). Falls through to
  * `node:child_process.spawn`.
@@ -282,7 +279,7 @@ const defaultPipeSpawn: Spawn = (command, args, options) =>
     stdio: [...options.stdio],
   }) as ReturnType<Spawn>;
 
-/** Built once per `wire()` call. */
+/** Static readiness probes, shared by every `wire()` call. */
 const PROBES: ReadinessProbeRegistry = {
   'claude-code': claudeProbe,
   copilot: copilotProbe,
@@ -319,10 +316,6 @@ const noopNotificationDispatcher: NotificationDispatcher = {
   },
 };
 
-/** Wire-time seed adapter, keyed on the generator role's provider — see `AppDeps.agentDefinitionAdapter`. */
-const buildWireAgentDefinitionAdapter = (settings: Settings, logger: Logger): AgentDefinitionAdapter =>
-  createAgentDefinitionAdapter({ provider: settings.ai.implement.generator.provider, logger });
-
 /** Composed bundled + operator agent-definition source — see `AppDeps.agentDefinitionSource`. */
 const buildWireAgentDefinitionSource = (storage: StoragePaths, logger: Logger): AgentDefinitionSource =>
   composeAgentDefinitionSources(
@@ -334,7 +327,11 @@ const buildWireAgentDefinitionSource = (storage: StoragePaths, logger: Logger): 
     })
   );
 
-/** Wire-time seed provider. */
+/** Wire-time seed adapter, keyed on the generator role's provider — see `AppDeps.agentDefinitionAdapter`. */
+const buildWireAgentDefinitionAdapter = (settings: Settings, logger: Logger): AgentDefinitionAdapter =>
+  createAgentDefinitionAdapter({ provider: settings.ai.implement.generator.provider, logger });
+
+/** Wire-time seed provider; launchers build per-flow providers. Kept out of `wire()` for its line budget. */
 const buildWireProvider = (
   opts: WireOptions,
   eventBus: EventBus,
@@ -435,33 +432,26 @@ const buildDataServices = (
   };
 };
 
+/** Build the wired dependency graph. Pure — does not touch the filesystem or `os`. */
 export const wire = (opts: WireOptions): AppDeps => {
   const spawn: Spawn = opts.spawn ?? defaultPipeSpawn;
-  // AI adapters prefer the dedicated override, then fall back to the general seam so existing
-  // callers that pass only `spawn` keep faking the provider exactly as before.
+  // Callers that pass only `spawn` fake the AI provider with it too.
   const providerSpawn: ProviderSpawn | undefined = opts.providerSpawn ?? opts.spawn;
-  // Env-gated chain.log writes.
   const env = opts.env ?? process.env;
-  const debugTrace = isTruthyEnvFlag(env[RALPHCTL_DEBUG_TRACE_ENV]);
+  const debugTrace = Boolean(env[RALPHCTL_DEBUG_TRACE_ENV]);
   const appendFile = createAppendFile();
-  // Bind `appendFile` at wire-time so the launcher factory keeps the same `{ file, bus }`
-  // call shape regardless of whether the real sink or the no-op stub is in play.
   const chainLogSink: (deps: ChainLogSinkLaunchDeps) => FileLogSink = debugTrace
     ? (launchDeps) => startFileLogSink({ ...launchDeps, appendFile })
     : () => NOOP_CHAIN_LOG_SINK;
   // One bus per `wire()` call — bus state isolates between concurrent app instances.
   const eventBus = createInMemoryEventBus();
   const logger = createEventBusLogger({ eventBus, clock: IsoTimestamp.now });
-  // Settings-load-time validation that emits, but does not reject: self-loop escalation-map entries (`'foo' → 'foo'`)
-  // parse cleanly through the schema but have no runtime effect.
+  // Warn, never reject: these escalation-map entries parse but have no runtime effect.
   warnEscalationMapSelfLoops(opts.settings.harness.escalationMap, logger);
   warnEscalationMapRetiredValues(opts.settings.harness.escalationMap, logger);
-  // OS-attention notifier slot.
   const notificationDispatcher = opts.notificationDispatcher ?? noopNotificationDispatcher;
-  // Hoisted so taskRepo can share the same locker for its per-file read-modify-write guard.
-  // One locker instance per app means stale-takeover semantics agree across every caller.
+  // One locker per app (taskRepo shares it), so stale-takeover semantics agree across callers.
   const fileLocker = createFileLocker({
-    // Surface stale `.lock` files via the application logger.
     onWarning: ({ kind, path, cause }) => {
       logger.warn(`file-locker: ${kind}`, {
         path,
@@ -479,8 +469,6 @@ export const wire = (opts: WireOptions): AppDeps => {
     availableModelsInFlight.set(provider, pending);
     return pending;
   };
-  // Hoisted so the skill catalog's provenance-stamp writes share the exact same atomic-write
-  // seam as `AppDeps.writeFile` (one factory call, two consumers).
   const atomicWriteFile = createAtomicWriteFile();
   const taskRepo = createFsTaskRepository({ root: opts.storage.dataRoot, fileLocker });
   const { liveRunActivity, reaper, ...liveRuns } = buildLiveRunServices(opts.storage, logger, taskRepo);
