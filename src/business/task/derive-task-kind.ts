@@ -30,14 +30,9 @@ const KEYWORDS: ReadonlyArray<readonly [TaskKind, readonly string[]]> = [
   ['feature', ['feature', 'add', 'implement', 'introduce', 'support', 'new', 'create', 'build']],
 ];
 
-/**
- * Classify a {@link Task} into a {@link TaskKind} by scanning its `name` and `description`
- * for known keywords. Returns `'other'` when nothing matches.
- *
- * Pure — reads only the task's own prose, performs no I/O, mutates nothing.
- */
-export const deriveTaskKind = (task: Task): TaskKind => {
-  const haystack = `${task.name} ${task.description ?? ''}`.toLowerCase();
+/** Keyword scan shared by both classifiers — first matching bucket in table order wins. */
+const classifyProse = (prose: string): TaskKind => {
+  const haystack = prose.toLowerCase();
 
   for (const [kind, words] of KEYWORDS) {
     for (const word of words) {
@@ -47,4 +42,25 @@ export const deriveTaskKind = (task: Task): TaskKind => {
   }
 
   return 'other';
+};
+
+/**
+ * Classify a {@link Task} into a {@link TaskKind} by scanning its `name` and `description`
+ * for known keywords. Returns `'other'` when nothing matches.
+ *
+ * Pure — reads only the task's own prose, performs no I/O, mutates nothing.
+ */
+export const deriveTaskKind = (task: Task): TaskKind => classifyProse(`${task.name} ${task.description ?? ''}`);
+
+/**
+ * Headline-first variant of {@link deriveTaskKind}: classify the task's `name` alone, and fall
+ * back to the full `name + description` scan only when the name matches no keyword. The name
+ * states the operator's intent; the description routinely mentions "fix" / "broken" in passing
+ * ("…and fix any lint errors"), which the full scan's bugfix-first precedence turns into a
+ * bugfix verdict. Used where a false `'bugfix'` costs a whole AI spawn (the reproduce gate);
+ * learning-ledger bucketing keeps {@link deriveTaskKind}, whose verdict is hashed into record ids.
+ */
+export const deriveHeadlineTaskKind = (task: Task): TaskKind => {
+  const fromName = classifyProse(task.name);
+  return fromName !== 'other' ? fromName : deriveTaskKind(task);
 };

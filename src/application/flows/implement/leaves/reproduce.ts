@@ -25,7 +25,7 @@ import type { GitRunner } from '@src/integration/io/git-runner.ts';
 import type { WriteFile } from '@src/business/io/write-file.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import { rootSessionId } from '@src/application/session/session.ts';
-import { deriveTaskKind } from '@src/business/task/derive-task-kind.ts';
+import { deriveHeadlineTaskKind } from '@src/business/task/derive-task-kind.ts';
 import { buildReproducePrompt } from '@src/integration/ai/prompts/reproduce/definition.ts';
 import { renderContractSectionFor } from '@src/integration/ai/contract/_engine/render-contract-section.ts';
 import { validateSignalsFile } from '@src/integration/ai/contract/_engine/validate-signals-file.ts';
@@ -168,12 +168,13 @@ export const readReproductionSection = (ctx: ImplementCtx): string | undefined =
  * Gate predicate for the guard wrapping this leaf — defect-shaped tasks only. Reads `ctx.tasks`
  * (the leaf runs BEFORE `start-attempt`, so `ctx.currentTask` is not set yet), mirroring
  * `dependency-gate.ts`'s `isTaskRunnable`. A task classified anything other than `'bugfix'` by
- * {@link deriveTaskKind} skips silently — the guard primitive records a `skipped` trace entry,
+ * {@link deriveHeadlineTaskKind} (name first, so a passing "fix" in a feature's description does
+ * not buy a whole extra AI spawn) skips silently — the guard primitive records a `skipped` trace entry,
  * no AI spawn happens, `ctx.reproductionArtifact` stays undefined.
  */
 export const isDefectShapedTask = (ctx: ImplementCtx, taskId: TaskId): boolean => {
   const task = ctx.tasks?.find((t) => t.id === taskId);
-  return task !== undefined && deriveTaskKind(task) === 'bugfix';
+  return task !== undefined && deriveHeadlineTaskKind(task) === 'bugfix';
 };
 
 const LOG_SCOPE = 'implement.reproduce';

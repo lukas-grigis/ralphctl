@@ -189,8 +189,9 @@ through `update` too and applies to the sprint as it is on disk.
   `<sprintDir>/chain.log`.
 
 **Reproduction-first leaf.** Before the attempt loop, `per-task-subchain.ts` runs an unconditional reset
-(`clearReproductionArtifactLeaf`) followed by a guard testing `isDefectShapedTask` (task kind `bugfix`,
-once per task, not per attempt). When it fires, `reproduceLeaf` spawns a one-shot headless session that
+(`clearReproductionArtifactLeaf`) followed by a guard testing `isDefectShapedTask` (task kind `bugfix` by
+`deriveHeadlineTaskKind` — the task name decides when it matches a keyword, so a passing "fix" in a
+feature's description does not buy the extra spawn; once per task, not per attempt). When it fires, `reproduceLeaf` spawns a one-shot headless session that
 writes and runs one failing test demonstrating the reported defect; the harness re-runs the claimed
 command itself and only accepts the artifact (`ctx.reproductionArtifact`) when that re-run actually
 fails — a reproduction that passes proves nothing. The validated test path, run command, and the

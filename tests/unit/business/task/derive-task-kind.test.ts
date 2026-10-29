@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Task } from '@src/domain/entity/task.ts';
-import { deriveTaskKind, type TaskKind } from '@src/business/task/derive-task-kind.ts';
+import { deriveHeadlineTaskKind, deriveTaskKind, type TaskKind } from '@src/business/task/derive-task-kind.ts';
 
 /**
  * `deriveTaskKind` reads only `name` + `description`; the rest of the Task shape is irrelevant
@@ -43,5 +43,21 @@ const cases: ReadonlyArray<{ name: string; description?: string; expected: TaskK
 describe('deriveTaskKind', () => {
   it.each(cases)('classifies "$name" / "$description" as $expected', ({ name, description, expected }) => {
     expect(deriveTaskKind(task(name, description))).toBe(expected);
+  });
+});
+
+describe('deriveHeadlineTaskKind', () => {
+  const headlineCases: ReadonlyArray<{ name: string; description?: string; expected: TaskKind }> = [
+    // the name decides when it matches — a passing "fix" in the description does not make it a bugfix
+    { name: 'Add the export button', description: 'wire it up and fix any lint errors', expected: 'feature' },
+    { name: 'Refactor the launcher', description: 'the old one was broken in places', expected: 'refactor' },
+    { name: 'Fix the crash on startup', description: 'add a guard', expected: 'bugfix' },
+    // a keyword-less name falls back to the full name + description scan
+    { name: 'Investigate', description: 'a nasty bug in the scheduler', expected: 'bugfix' },
+    { name: 'Wibble the frobnicator', expected: 'other' },
+  ];
+
+  it.each(headlineCases)('classifies "$name" / "$description" as $expected', ({ name, description, expected }) => {
+    expect(deriveHeadlineTaskKind(task(name, description))).toBe(expected);
   });
 });
