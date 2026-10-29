@@ -100,9 +100,7 @@ and in-process there is exactly ONE such settle: the `blockedReason` branch of `
 Wired:
 
 - block path default → `self-blocked`. Adding a member means touching `attempt.schema.ts`,
-  `zeroAbortCause`, `ABORT_ORDER`, `abortCauseLabel`, **and the duplicated inline union in
-  `business/sprint/render-journal-entry.ts`** — that copy is not derived from the domain type and breaks
-  typecheck if you forget it.
+  `zeroAbortCause`, `ABORT_ORDER` and `abortCauseLabel` (the journal renderer now imports the domain type).
 - crash-driven block → `watchdog-killed` / `process-crash` + `signalOrExitCode`. Path:
   `classify-spawn-exit` builds `ProcessCrashError{signalOrExitCode, watchdogKilled}` →
   `abortCauseFromError` → the `crashed` GenEvalExit variant → `ctx.lastExit` → the settle leaf's
