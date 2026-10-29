@@ -42,7 +42,6 @@ import {
   buildParallelImplementEpilogue,
   type CreateImplementFlowOpts,
   createImplementFlow,
-  IMPLEMENT_TASK_TERMINAL_LEAF,
   planImplementWaves,
   type RepoExecConfig,
 } from '@src/application/flows/implement/flow.ts';
@@ -172,7 +171,6 @@ const reconstructPreRefactorSerialFlow = (
       {
         sprintDir: opts.sprintDir,
         progressFile: opts.progressFile,
-        terminalLeafName: IMPLEMENT_TASK_TERMINAL_LEAF,
         generator: {
           providerId: opts.generatorProviderId,
           model: opts.generatorModel,
@@ -410,7 +408,7 @@ describe('createPerTaskSubchain — quarantine-blocked-diff placement (serial-pa
   const readConfig = () =>
     Promise.resolve({ maxTurns: 5, escalateOnPlateau: false, escalationMap: {}, maxAttempts: 3 });
 
-  const buildSubchain = (includeBranchPreflight: boolean): ShapeNode => {
+  const buildSubchain = (worktree: boolean): ShapeNode => {
     const task = makeTodoTask({ name: 'do-work' });
     const opts = makeOpts([task]);
     const subchain = createPerTaskSubchain(
@@ -418,13 +416,12 @@ describe('createPerTaskSubchain — quarantine-blocked-diff placement (serial-pa
       {
         sprintDir: opts.sprintDir,
         progressFile: opts.progressFile,
-        terminalLeafName: IMPLEMENT_TASK_TERMINAL_LEAF,
         generator: { providerId: opts.generatorProviderId, model: opts.generatorModel },
         evaluator: { providerId: opts.evaluatorProviderId, model: opts.evaluatorModel },
         memoryRoot: opts.memoryRoot,
         projectId: opts.projectId,
         projectSlug: opts.projectSlug,
-        includeBranchPreflight,
+        worktree,
       },
       task,
       resolveRepoOrThrow(opts.repositories, task),
@@ -453,13 +450,13 @@ describe('createPerTaskSubchain — quarantine-blocked-diff placement (serial-pa
   });
 
   it('keeps the terminal uninstall-skills leaf as the LAST element on the serial path', () => {
-    const children = taskBodyChildren(buildSubchain(true));
+    const children = taskBodyChildren(buildSubchain(false));
     const last = children[children.length - 1];
     expect(last?.name).toMatch(/^uninstall-skills-/);
   });
 
   it('splices the quarantine guard immediately BEFORE the terminal leaf on the serial path', () => {
-    const children = taskBodyChildren(buildSubchain(true));
+    const children = taskBodyChildren(buildSubchain(false));
     const allNames = children.map((c) => c.name);
     const quarantineIdx = allNames.findIndex((n) => n.startsWith('quarantine-blocked-diff-guard-'));
     const terminalIdx = allNames.findIndex((n) => n.startsWith('uninstall-skills-'));
@@ -474,8 +471,8 @@ describe('createPerTaskSubchain — quarantine-blocked-diff placement (serial-pa
     // Order is load-bearing: a pre-verify block must never find the quarantined diff already popped
     // (the zero-turn block would skip re-quarantine and the diff would be lost), and the baseline
     // must measure HEAD, not HEAD plus previously rejected work.
-    for (const serial of [true, false]) {
-      const body = attemptBodyChildren(buildSubchain(serial));
+    for (const worktree of [false, true]) {
+      const body = attemptBodyChildren(buildSubchain(worktree));
       expect(body[0]?.name).toMatch(/^start-attempt-/);
       expect(body[1]?.name).toMatch(/^pre-task-verify-/);
       expect(body[2]?.name).toMatch(/^restore-blocked-diff-guard-/);
@@ -484,11 +481,11 @@ describe('createPerTaskSubchain — quarantine-blocked-diff placement (serial-pa
     }
   });
 
-  it('OMITS the quarantine leaf on the parallel path (includeBranchPreflight === false)', () => {
-    const allNames = names(buildSubchain(false));
+  it('OMITS the quarantine leaf on the parallel path (worktree: true)', () => {
+    const allNames = names(buildSubchain(true));
     expect(allNames.some((n) => n.startsWith('quarantine-blocked-diff'))).toBe(false);
     // The terminal leaf is still the last body element on the parallel path.
-    const children = taskBodyChildren(buildSubchain(false));
+    const children = taskBodyChildren(buildSubchain(true));
     expect(children[children.length - 1]?.name).toMatch(/^uninstall-skills-/);
   });
 });
@@ -504,7 +501,6 @@ describe('createPerTaskSubchain — reproduce placement (serial-path fence)', ()
       {
         sprintDir: opts.sprintDir,
         progressFile: opts.progressFile,
-        terminalLeafName: IMPLEMENT_TASK_TERMINAL_LEAF,
         generator: { providerId: opts.generatorProviderId, model: opts.generatorModel },
         evaluator: { providerId: opts.evaluatorProviderId, model: opts.evaluatorModel },
         memoryRoot: opts.memoryRoot,
@@ -579,13 +575,11 @@ describe('createPerTaskSubchain — agent-definition install/uninstall splicing'
       {
         sprintDir: opts.sprintDir,
         progressFile: opts.progressFile,
-        terminalLeafName: IMPLEMENT_TASK_TERMINAL_LEAF,
         generator: { providerId: opts.generatorProviderId, model: opts.generatorModel },
         evaluator: { providerId: opts.evaluatorProviderId, model: opts.evaluatorModel },
         memoryRoot: opts.memoryRoot,
         projectId: opts.projectId,
         projectSlug: opts.projectSlug,
-        includeBranchPreflight: true,
         ...bindings,
       },
       task,
@@ -680,7 +674,6 @@ describe('createPerTaskSubchain — best-of-N gen-eval segment (construction-tim
       {
         sprintDir: opts.sprintDir,
         progressFile: opts.progressFile,
-        terminalLeafName: IMPLEMENT_TASK_TERMINAL_LEAF,
         generator: { providerId: opts.generatorProviderId, model: opts.generatorModel },
         evaluator: { providerId: opts.evaluatorProviderId, model: opts.evaluatorModel },
         memoryRoot: opts.memoryRoot,
@@ -920,7 +913,6 @@ describe('buildAttemptBody — settle-attempt wiring (eventBus reaches the real 
     const opts = {
       sprintDir: absolutePath('/sprints/s1'),
       progressFile: absolutePath('/sprints/s1/progress.md'),
-      terminalLeafName: IMPLEMENT_TASK_TERMINAL_LEAF,
       generator: { providerId: 'claude-code', model: 'claude-opus-4-8' },
       evaluator: { providerId: 'openai-codex', model: 'gpt-5.5' },
       memoryRoot: absolutePath('/data/memory'),

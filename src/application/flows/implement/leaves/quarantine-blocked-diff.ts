@@ -53,7 +53,7 @@ import type { FoldQueue } from '@src/application/flows/implement/wave-branch.ts'
  * stays the subchain's last element (the TUI's task-completion detector keys on it). Gated by a
  * SYNCHRONOUS chain guard at the call site: it runs only when the settled task (read from
  * `ctx.tasks` — `settle-attempt` clears `ctx.currentTask`) is `blocked`, and only on the serial
- * path (the call site gates the splice on `includeBranchPreflight === true`). The guard does NOT
+ * path (the call site splices it only when `worktree` is unset). The guard does NOT
  * probe the tree — the leaf's own `gitStashPush` no-ops on a clean tree, so the dirty-tree check is
  * an effect of the operation, not a precondition.
  *

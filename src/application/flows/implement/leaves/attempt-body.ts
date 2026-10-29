@@ -64,7 +64,7 @@ export const buildAttemptReadConfig = (harness: IterationConfig): AttemptReadCon
 
 /**
  * Fold a role's already-resolved bound agent-definition NAME onto its `GenEvalLoopRoleConfig` —
- * the same `AgentDefinition` {@link buildAgentDefinitionInstallLeaves} installs, read again here
+ * the same `AgentDefinition` the per-task subchain installs, read again here
  * so the FULL prompt's `{{PROJECT_TOOLING}}` catalog can name the same binding
  * `agentDefinitionSection` already announces in prose. A no-op (returns `role` unchanged) when
  * the role has no binding. Split out of `createPerTaskSubchain` so this call site's extra branch
