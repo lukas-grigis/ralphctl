@@ -69,7 +69,8 @@ describe.skipIf(!posix)('headless AI CLI spawns run in their own process group',
       rateLimitRetries: 0,
       eventBus: createCapturingBus().bus,
       command: stub.command,
-      idleMs: 2_000,
+      // Headroom for the stub to fork before going quiet; any longer just slows the suite.
+      idleMs: 500,
     });
     const outcome = provider.generate(sessionIn(dir));
     const { child, grandchild } = await stub.pids();
