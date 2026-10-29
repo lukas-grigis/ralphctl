@@ -2,11 +2,8 @@
  * `useViewKeys` — one declaration of "what local keys mean on this screen", feeding BOTH the
  * `useInput` dispatcher and the status-bar hint strip from the same array.
  *
- * Views used to declare their keys twice: once as a `useViewHints([...])` array and once as a
- * chain of `if (input === 'x')` branches. The two drifted — a key could be advertised as live
- * while its handler rejected it (or vice versa), and any gate that mattered to both had to be
- * written out twice. Here a binding carries its own gate, so the hint and the handler cannot
- * disagree by construction.
+ * A binding carries its own gate, so a key can never be advertised while its handler rejects it
+ * (or vice versa).
  *
  * Binding fields:
  *
@@ -21,7 +18,7 @@
  *
  * The optional `active` flag mutes the whole dispatcher — the view-wide equivalent of Ink's own
  * `isActive`, for when a modal / confirm overlay owns the keyboard. Hints are untouched by it:
- * the strip keeps describing the screen underneath the overlay, exactly as it did before.
+ * the strip keeps describing the screen underneath the overlay.
  */
 
 import { useInput, type Key } from 'ink';

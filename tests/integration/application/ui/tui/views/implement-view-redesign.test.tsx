@@ -260,7 +260,7 @@ describe('ExecuteBody — wide layout redesign at 180×50', () => {
     const bucketed = makeBucketed();
     const task = bucketed.tasks[0]!;
 
-    // HeaderCard's elapsed text now ticks via its own internal `useLiveClock` (leaf-isolated
+    // HeaderCard's elapsed text now ticks via its own internal `useTickingClock` (leaf-isolated
     // render hygiene — see execute-view-internals/elapsed-label.tsx) rather than reading a
     // precomputed `elapsed` prop. Freeze the system clock at the instant this fixture claims
     // "now" is (BASE_MS + 3 min) so the label's `Date.now()` seed is deterministic; restored
@@ -361,7 +361,7 @@ describe('ExecuteBody — wide layout redesign at 220×60', () => {
     const task = bucketed.tasks[0]!;
 
     // See the 180×50 describe block above — HeaderCard's elapsed text ticks via its own
-    // internal `useLiveClock`, so the system clock is frozen for the render + frame capture.
+    // internal `useTickingClock`, so the system clock is frozen for the render + frame capture.
     vi.useFakeTimers({ now: BASE_MS + 180_000 });
     // See the 180×50 describe block above — TasksPanelHost needs a DepsProvider ancestor for its
     // `u`-chord unblock handler.
