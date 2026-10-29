@@ -9,6 +9,7 @@ import type { SkillsAdapter } from '@src/integration/ai/skills/_engine/skills-po
 import type { SkillSource } from '@src/integration/ai/skills/_engine/skill-source.ts';
 import type { AppStateSnapshot } from '@src/application/ui/shared/state-snapshot.ts';
 import type { LauncherDeps, LaunchExtras } from '@src/application/ui/shared/launcher.ts';
+import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 
 export interface LaunchContext {
   readonly deps: LauncherDeps;
@@ -29,3 +30,11 @@ export interface LaunchContext {
    */
   readonly effort?: string;
 }
+
+/** The wiring every per-launch `createAiProvider` call shares, including the wire-time spawn seam. */
+export const providerBaseArgs = (app: AppDeps, settings: Pick<Settings, 'harness'>) => ({
+  harnessConfig: settings.harness,
+  eventBus: app.eventBus,
+  childRegistry: app.childRegistry,
+  ...(app.providerSpawn !== undefined ? { spawn: app.providerSpawn } : {}),
+});

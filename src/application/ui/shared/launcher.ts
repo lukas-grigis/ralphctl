@@ -28,7 +28,7 @@ import { type AiProvider, primaryFlowRow, type Settings } from '@src/domain/enti
 import { FLOW_IDS, type FlowId } from '@src/domain/value/flow-id.ts';
 import { resolveEffort } from '@src/business/settings/resolve-effort.ts';
 import type { RunInTerminal } from '@src/integration/io/run-in-terminal.ts';
-import type { LaunchContext } from '@src/application/ui/shared/launch/context.ts';
+import { type LaunchContext, providerBaseArgs } from '@src/application/ui/shared/launch/context.ts';
 import { aiFlowIdFor, mergeFlowRow } from '@src/application/ui/shared/launch/ai-flow-id.ts';
 import { launchCreateSprint } from '@src/application/ui/shared/launch/create-sprint.ts';
 import { launchRefine } from '@src/application/ui/shared/launch/refine.ts';
@@ -201,11 +201,7 @@ const buildLaunchAdapters = (deps: LauncherDeps, flowId: string, settings: Setti
   const provider = createAiProvider({
     flow: adapterFlow,
     ai: settings.ai,
-    harnessConfig: settings.harness,
-    eventBus: deps.app.eventBus,
-    childRegistry: deps.app.childRegistry,
-    // Carry the wire-time spawn seam across the rebuild.
-    ...(deps.app.providerSpawn !== undefined ? { spawn: deps.app.providerSpawn } : {}),
+    ...providerBaseArgs(deps.app, settings),
   });
   const interactiveAi = createInteractiveAiProvider({
     flow: adapterFlow,
