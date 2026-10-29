@@ -10,39 +10,20 @@ import type {
   WhichFn,
 } from '@src/integration/system/_engine/detect-cli.ts';
 
-/**
- * Map provider id → the binary the user must have on PATH for that provider to function.
- * All five are standalone CLIs: `claude`, `codex`, `copilot` (the GitHub Copilot CLI,
- * `copilot` v1.0.12+ — `npm install -g @github/copilot`), `opencode`, and `grok`. This MUST match the binary each
- * provider adapter actually spawns (`providers/<tool>/{headless,interactive}.ts`); probing
- * `gh` here while the adapter spawns `copilot` would let the launch fail-fast pass and then
- * the real spawn fail (`gh` is a separate SCM dependency for create-pr / issue sync, not the
- * Copilot AI backend).
- *
- * Derived from {@link PROVIDER_TRAITS} — used by `detectInstalledProviders`, the apply-preset
- * warning surface, and the fail-fast launch helper.
- */
-export const PROVIDER_BINARY: Readonly<Record<AiProvider, string>> = {
-  'claude-code': PROVIDER_TRAITS['claude-code'].binary,
-  'github-copilot': PROVIDER_TRAITS['github-copilot'].binary,
-  'openai-codex': PROVIDER_TRAITS['openai-codex'].binary,
-  opencode: PROVIDER_TRAITS.opencode.binary,
-  'xai-grok': PROVIDER_TRAITS['xai-grok'].binary,
-};
+const PROVIDERS = Object.keys(PROVIDER_TRAITS) as readonly AiProvider[];
+
+const traitMap = <T>(pick: (p: AiProvider) => T): Readonly<Record<AiProvider, T>> =>
+  Object.fromEntries(PROVIDERS.map((p) => [p, pick(p)])) as Record<AiProvider, T>;
 
 /**
- * Per-vendor install guidance entries, derived from {@link PROVIDER_TRAITS}. Adding a new
- * provider means one row in `provider-traits.ts` — this map and {@link PROVIDER_BINARY} pick
- * it up automatically. Port-shaped types ({@link ProviderInstallGuidance}) live in
- * `_engine/detect-cli.ts`.
+ * The binary each provider's adapters spawn, read from {@link PROVIDER_TRAITS} — so the PATH
+ * probe and the spawn cannot disagree (`copilot` is the AI backend; `gh` is only the SCM CLI).
  */
-export const PROVIDER_INSTALL_GUIDANCE: Readonly<Record<AiProvider, ProviderInstallGuidance>> = {
-  'claude-code': PROVIDER_TRAITS['claude-code'].installGuidance,
-  'github-copilot': PROVIDER_TRAITS['github-copilot'].installGuidance,
-  'openai-codex': PROVIDER_TRAITS['openai-codex'].installGuidance,
-  opencode: PROVIDER_TRAITS.opencode.installGuidance,
-  'xai-grok': PROVIDER_TRAITS['xai-grok'].installGuidance,
-};
+export const PROVIDER_BINARY = traitMap((p) => PROVIDER_TRAITS[p].binary);
+
+export const PROVIDER_INSTALL_GUIDANCE: Readonly<Record<AiProvider, ProviderInstallGuidance>> = traitMap(
+  (p) => PROVIDER_TRAITS[p].installGuidance
+);
 
 /**
  * Collapse Node's `process.platform` onto the three OS families we publish guidance for.
@@ -96,17 +77,6 @@ export const renderProviderInstallGuidance = (
   return `${header}\nInstall options (${os}):\n${bullets}\nDocs: ${guidance.docsUrl}`;
 };
 
-/**
- * Default `which`-equivalent — delegates to the shared cross-platform {@link commandExists}
- * probe (`where` on Windows, `command -v` on POSIX). Routing provider detection and the
- * doctor's PATH checks through one mechanism guarantees they can never disagree — notably on
- * Windows, where the POSIX `command -v` builtin is absent from `cmd.exe` and a bare spawn
- * cannot launch the `.cmd` / `.ps1` shims that npm / winget install.
- *
- * Resolution policy: on PATH → true; absent or spawn error → false. No version / auth probe.
- */
-const defaultWhich: WhichFn = commandExists;
-
 // First `major.minor.patch` in the reply; tolerates a `v` prefix or a leading product name.
 const SEMVER_RE = /(?<![\d.])(\d+)\.\d+\.\d+/;
 
@@ -130,27 +100,14 @@ export const probeUnsupportedVersion = async (
 };
 
 /**
- * Probe PATH for every supported provider's CLI binary; return the set of providers whose
- * binary resolves. Pure (no logging, no side effects beyond the `which` calls). Probes run in
- * parallel — three lightweight PATH lookups land well under any user-perceptible threshold.
- *
- * Used at three sites:
- *   - fresh-install seeding (welcome view) — pick a preset from the single / zero / 2+ result
- *   - preset-apply warning surface — flag providers configured but not installed
- *   - launch-time fail-fast — abort before spawning a missing binary
- *
- * Editing a single per-flow row never triggers this probe; detection is only invoked at the
- * three sites named above.
+ * The providers whose binary resolves on PATH, probed in parallel. The default probe is the shared
+ * {@link commandExists}, so this and the doctor's PATH checks can never disagree (on Windows a bare
+ * spawn cannot launch the npm / winget `.cmd` shims).
  */
 export const detectInstalledProviders = async (
   options: DetectInstalledProvidersOptions = {}
 ): Promise<ReadonlySet<AiProvider>> => {
-  const which = options.which ?? defaultWhich;
-  const providers = Object.keys(PROVIDER_BINARY) as readonly AiProvider[];
-  const results = await Promise.all(providers.map(async (p) => [p, await which(PROVIDER_BINARY[p])] as const));
-  const installed = new Set<AiProvider>();
-  for (const [provider, present] of results) {
-    if (present) installed.add(provider);
-  }
-  return installed;
+  const which: WhichFn = options.which ?? commandExists;
+  const present = await Promise.all(PROVIDERS.map((p) => which(PROVIDER_BINARY[p])));
+  return new Set(PROVIDERS.filter((_, i) => present[i]));
 };
