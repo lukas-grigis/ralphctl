@@ -20,6 +20,8 @@ export interface ProviderSpawnCall {
   readonly command: string;
   readonly args: readonly string[];
   readonly cwd?: string;
+  /** The child's full environment, when the adapter passed one. */
+  readonly env?: NodeJS.ProcessEnv;
   /** Everything written to the child's stdin, concatenated. Empty when the adapter piped nothing. */
   readonly stdin: string;
   /** Signals sent to this child, in order. */
@@ -64,6 +66,7 @@ export const makeProviderSpawn = (scripts: ProviderSpawnScripts = [{}]): Recordi
     command: string;
     args: readonly string[];
     cwd?: string;
+    env?: NodeJS.ProcessEnv;
     stdin: string;
     kills: NodeJS.Signals[];
   }> = [];
@@ -79,6 +82,7 @@ export const makeProviderSpawn = (scripts: ProviderSpawnScripts = [{}]): Recordi
       command,
       args,
       ...(options.cwd !== undefined ? { cwd: options.cwd } : {}),
+      ...(options.env !== undefined ? { env: options.env } : {}),
       stdin: '',
       kills: [] as NodeJS.Signals[],
     };

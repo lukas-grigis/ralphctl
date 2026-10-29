@@ -1,9 +1,7 @@
-import { EventEmitter } from 'node:events';
 import { promises as fs } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session.ts';
 import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts';
 import type { SessionId } from '@src/integration/ai/providers/_engine/session-id.ts';
@@ -13,66 +11,7 @@ import { createCapturingBus } from '@tests/fixtures/capturing-event-bus.ts';
 import { buildOpencodeArgs, createOpencodeProvider } from '@src/integration/ai/providers/opencode/headless.ts';
 import type { ProviderSpawn } from '@src/integration/ai/providers/_engine/spawn.ts';
 import type { LogEvent, TokenUsageEvent } from '@src/business/observability/events.ts';
-
-interface FakeChildScript {
-  readonly stdoutChunks?: readonly string[];
-  readonly stderrChunks?: readonly string[];
-  readonly exitCode?: number | null;
-}
-
-const makeStream = (): EventEmitter & { setEncoding: (e: string) => void } => {
-  const ee = new EventEmitter() as EventEmitter & { setEncoding: (e: string) => void };
-  ee.setEncoding = (): void => {};
-  return ee;
-};
-
-/** A real child emits `close` once its pipes drain, after `exit`; the adapter waits on `close`. */
-const exitThenClose = (child: EventEmitter, code: number | null, signal: NodeJS.Signals | null): void => {
-  child.emit('exit', code, signal);
-  setTimeout(() => child.emit('close', code, signal), 0);
-};
-
-const makeFakeChild = (script: FakeChildScript): ChildProcessWithoutNullStreams => {
-  const child = new EventEmitter() as ChildProcessWithoutNullStreams;
-  const stdout = makeStream();
-  const stderr = makeStream();
-  Object.assign(child, {
-    stdout,
-    stderr,
-    stdin: {
-      end(_data?: unknown): void {
-        void _data;
-      },
-    },
-    kill(): boolean {
-      setTimeout(() => exitThenClose(child, null, 'SIGTERM'), 0);
-      return true;
-    },
-  });
-  setTimeout(() => {
-    for (const chunk of script.stdoutChunks ?? []) stdout.emit('data', chunk);
-    for (const chunk of script.stderrChunks ?? []) stderr.emit('data', chunk);
-    setTimeout(() => exitThenClose(child, script.exitCode ?? 0, null), 0);
-  }, 0);
-  return child;
-};
-
-interface CapturingSpawnState {
-  readonly spawn: ProviderSpawn;
-  readonly calls: ReadonlyArray<{ readonly command: string; readonly args: readonly string[] }>;
-}
-
-const makeSpawn = (scripts: readonly FakeChildScript[]): CapturingSpawnState => {
-  let i = 0;
-  const calls: Array<{ command: string; args: readonly string[] }> = [];
-  const spawn: ProviderSpawn = (command, args) => {
-    calls.push({ command, args });
-    const script = scripts[i] ?? scripts[scripts.length - 1] ?? {};
-    i++;
-    return makeFakeChild(script);
-  };
-  return { spawn, calls };
-};
+import { makeProviderSpawn } from '@tests/fixtures/provider-spawn-fake.ts';
 
 const PROMPT = 'rendered prompt body' as unknown as Prompt;
 const CWD = absolutePath('/tmp/opencode-provider-test');
@@ -190,7 +129,7 @@ describe('buildOpencodeArgs', () => {
 describe('createOpencodeProvider', () => {
   it('captures the session id off the stream and returns the accumulated body', async () => {
     const sid = 'ses_01fc2cbe1ffeXgUcoySQcdO14d';
-    const { spawn, calls } = makeSpawn([
+    const { spawn, calls } = makeProviderSpawn([
       { stdoutChunks: [stepStart(sid), textLine(sid, 'first'), textLine(sid, 'second'), stepFinish(sid, 10, 5)] },
     ]);
     const bus = createCapturingBus();
@@ -211,7 +150,7 @@ describe('createOpencodeProvider', () => {
     const sid = 'ses_sum';
     // Two steps of 10/5 each. `total` on each record says 999 — reading it would be wrong;
     // the adapter must report 20 input / 10 output.
-    const { spawn } = makeSpawn([
+    const { spawn } = makeProviderSpawn([
       {
         stdoutChunks: [
           stepStart(sid),
@@ -237,7 +176,7 @@ describe('createOpencodeProvider', () => {
   it('falls back to a cold spawn when the resume id is stale', async () => {
     const sid = 'ses_fresh';
     const s = session({ resume: 'ses_gone' as unknown as SessionId });
-    const inner = makeSpawn([
+    const inner = makeProviderSpawn([
       { stderrChunks: ['Error: Session not found\n'], exitCode: 1 },
       { stdoutChunks: [stepStart(sid), textLine(sid, 'recovered'), stepFinish(sid, 1, 1)] },
     ]);
@@ -268,7 +207,7 @@ describe('createOpencodeProvider', () => {
     // an operator cannot act on, repeated for every attempt in the budget.
     const errorLine =
       '{"type":"error","error":{"name":"UnknownError","data":{"message":"Unexpected server error. Please try again."}}}\n';
-    const { spawn } = makeSpawn([{ stdoutChunks: [errorLine], exitCode: 1 }]);
+    const { spawn } = makeProviderSpawn([{ stdoutChunks: [errorLine], exitCode: 1 }]);
     const bus = createCapturingBus();
     // No signals.json — the CLI never got far enough to land one.
     const result = await createOpencodeProvider({ rateLimitRetries: 0, eventBus: bus.bus, spawn }).generate(session());
@@ -285,7 +224,7 @@ describe('createOpencodeProvider', () => {
 
   it('tolerates non-JSON banner lines interleaved with the stream', async () => {
     const sid = 'ses_noise';
-    const { spawn } = makeSpawn([
+    const { spawn } = makeProviderSpawn([
       { stdoutChunks: ['[91mwarning: something[0m\n', stepStart(sid), textLine(sid, 'body'), stepFinish(sid, 1, 1)] },
     ]);
     const bus = createCapturingBus();
@@ -306,7 +245,7 @@ describe('createOpencodeProvider', () => {
     // `tool_use` line has to produce both halves of the debug trace, and a non-`completed`
     // status has to surface as `status: 'error'`.
     const sid = 'ses_tools';
-    const { spawn } = makeSpawn([
+    const { spawn } = makeProviderSpawn([
       {
         stdoutChunks: [
           stepStart(sid),
@@ -350,7 +289,7 @@ describe('createOpencodeProvider', () => {
   it('flushes a trailing record that arrives without a newline', async () => {
     const sid = 'ses_tail';
     const noNewline = textLine(sid, 'tail').trimEnd();
-    const { spawn } = makeSpawn([{ stdoutChunks: [stepStart(sid), noNewline] }]);
+    const { spawn } = makeProviderSpawn([{ stdoutChunks: [stepStart(sid), noNewline] }]);
     const bus = createCapturingBus();
     const bodyFile = tempBodyFile();
     const s = session({ bodyFile });

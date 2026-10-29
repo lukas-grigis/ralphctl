@@ -1,9 +1,7 @@
-import { EventEmitter } from 'node:events';
 import { promises as fs } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session.ts';
 import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts';
 import type { SessionId } from '@src/integration/ai/providers/_engine/session-id.ts';
@@ -15,90 +13,8 @@ import { isSuspendedModel } from '@src/domain/value/settings-models/suspended-mo
 import { buildClaudeArgs, createClaudeProvider } from '@src/integration/ai/providers/claude/headless.ts';
 import type { ProviderSpawn } from '@src/integration/ai/providers/_engine/spawn.ts';
 import type { TokenUsageEvent } from '@src/business/observability/events.ts';
-
-interface FakeChildScript {
-  readonly stdoutChunks?: readonly string[];
-  readonly stderrChunks?: readonly string[];
-  readonly exitCode?: number | null;
-  readonly exitSignal?: NodeJS.Signals | null;
-  readonly exitDelayMs?: number;
-  readonly hang?: boolean;
-}
-
-const makeStream = (): EventEmitter & { setEncoding: (e: string) => void } => {
-  const ee = new EventEmitter() as EventEmitter & { setEncoding: (e: string) => void };
-  ee.setEncoding = (): void => {
-    // no-op for tests
-  };
-  return ee;
-};
-
-const makeFakeChild = (script: FakeChildScript): ChildProcessWithoutNullStreams => {
-  const child = new EventEmitter() as ChildProcessWithoutNullStreams & { _killed: boolean };
-  const stdout = makeStream();
-  const stderr = makeStream();
-  const stdin = {
-    end(_data: unknown): void {
-      void _data;
-    },
-  };
-  const finish = (code: number | null, signal: NodeJS.Signals | null): void => {
-    child.emit('exit', code, signal);
-    setTimeout(() => child.emit('close', code, signal), 0);
-  };
-  Object.assign(child, {
-    stdout,
-    stderr,
-    stdin,
-    kill(): boolean {
-      child._killed = true;
-      setTimeout(() => finish(null, 'SIGTERM'), 0);
-      return true;
-    },
-    _killed: false,
-  });
-
-  setTimeout(() => {
-    for (const chunk of script.stdoutChunks ?? []) stdout.emit('data', chunk);
-    for (const chunk of script.stderrChunks ?? []) stderr.emit('data', chunk);
-    if (script.hang === true) return;
-    setTimeout(() => finish(script.exitCode ?? 0, script.exitSignal ?? null), script.exitDelayMs ?? 0);
-  }, 0);
-
-  return child;
-};
-
-interface CapturingSpawnState {
-  readonly spawn: ProviderSpawn;
-  readonly calls: ReadonlyArray<{
-    readonly command: string;
-    readonly args: readonly string[];
-    readonly cwd?: string;
-    readonly env?: NodeJS.ProcessEnv;
-  }>;
-}
-
-const makeSpawn = (scripts: readonly FakeChildScript[]): CapturingSpawnState => {
-  let i = 0;
-  const calls: Array<{
-    command: string;
-    args: readonly string[];
-    cwd?: string;
-    env?: NodeJS.ProcessEnv;
-  }> = [];
-  const spawn: ProviderSpawn = (command, args, options) => {
-    calls.push({
-      command,
-      args,
-      ...(options.cwd !== undefined ? { cwd: options.cwd } : {}),
-      ...(options.env !== undefined ? { env: options.env } : {}),
-    });
-    const script = scripts[i] ?? scripts[scripts.length - 1] ?? {};
-    i++;
-    return makeFakeChild(script);
-  };
-  return { spawn, calls };
-};
+import { makeProviderSpawn } from '@tests/fixtures/provider-spawn-fake.ts';
+import { type SpawnScript, createScriptedChild } from '@src/integration/ai/providers/_engine/scripted-spawn.ts';
 
 const PROMPT = 'rendered prompt body' as unknown as Prompt;
 const CWD = absolutePath('/tmp/claude-provider-test');
@@ -147,7 +63,7 @@ describe('createClaudeProvider', () => {
       session_id: 'sess-1',
       num_turns: 4,
     });
-    const { spawn } = makeSpawn([{ stdoutChunks: [`${init}\n${resultEvt}\n`], exitCode: 0 }]);
+    const { spawn } = makeProviderSpawn([{ stdoutChunks: [`${init}\n${resultEvt}\n`], exitCode: 0 }]);
 
     const provider = createClaudeProvider({
       rateLimitRetries: 2,
@@ -172,7 +88,7 @@ describe('createClaudeProvider', () => {
     const sess = session({ cwd });
     const init = JSON.stringify({ type: 'system', subtype: 'init', session_id: 'sess-cwd', model: 'sonnet' });
     const resultEvt = JSON.stringify({ type: 'result', subtype: 'success', result: 'ok', session_id: 'sess-cwd' });
-    const { spawn, calls } = makeSpawn([{ stdoutChunks: [`${init}\n${resultEvt}\n`], exitCode: 0 }]);
+    const { spawn, calls } = makeProviderSpawn([{ stdoutChunks: [`${init}\n${resultEvt}\n`], exitCode: 0 }]);
 
     const provider = createClaudeProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
     const out = await provider.generate(sess);
@@ -186,7 +102,7 @@ describe('createClaudeProvider', () => {
     ['full-auto', FULL_AUTO],
   ] as const)('turns fork subagents off on every headless spawn (%s)', async (_label, permissions) => {
     const resultEvt = JSON.stringify({ type: 'result', subtype: 'success', result: 'ok', session_id: 'sess-env' });
-    const { spawn, calls } = makeSpawn([{ stdoutChunks: [`${resultEvt}\n`], exitCode: 0 }]);
+    const { spawn, calls } = makeProviderSpawn([{ stdoutChunks: [`${resultEvt}\n`], exitCode: 0 }]);
     const provider = createClaudeProvider({ rateLimitRetries: 0, eventBus: createCapturingBus().bus, spawn });
     await provider.generate(session({ permissions }));
     expect(calls[0]!.env?.['CLAUDE_CODE_FORK_SUBAGENT']).toBe('0');
@@ -196,11 +112,11 @@ describe('createClaudeProvider', () => {
 
   it('rate-limit: retries up to N times and surfaces RateLimitError when exhausted', async () => {
     const cap = createCapturingBus();
-    const rateLimitScript: FakeChildScript = {
+    const rateLimitScript: SpawnScript = {
       stderrChunks: ['Error: rate limit exceeded; please retry later\n'],
       exitCode: 1,
     };
-    const { spawn } = makeSpawn([rateLimitScript, rateLimitScript, rateLimitScript]);
+    const { spawn } = makeProviderSpawn([rateLimitScript, rateLimitScript, rateLimitScript]);
 
     const provider = createClaudeProvider({
       rateLimitRetries: 2,
@@ -232,7 +148,7 @@ describe('createClaudeProvider', () => {
     });
     const okInit = JSON.stringify({ type: 'system', subtype: 'init', session_id: 'sess-q', model: 'sonnet' });
     const okResult = JSON.stringify({ type: 'result', result: '<task-complete/>', session_id: 'sess-q' });
-    const { spawn } = makeSpawn([
+    const { spawn } = makeProviderSpawn([
       // No stderr at all — the throttle is only in the stdout result body.
       { stdoutChunks: [`${init}\n${quotaResult}\n`], exitCode: 1 },
       { stdoutChunks: [`${okInit}\n${okResult}\n`], exitCode: 0 },
@@ -263,7 +179,7 @@ describe('createClaudeProvider', () => {
       session_id: 'sess-resume',
     });
     const okResult = JSON.stringify({ type: 'result', result: '<task-complete/>', session_id: 'sess-resume' });
-    const { spawn, calls } = makeSpawn([
+    const { spawn, calls } = makeProviderSpawn([
       // Attempt 1: captures sess-resume, then 429.
       { stdoutChunks: [`${init}\n${rateResult}\n`], exitCode: 1 },
       // Attempt 2: clean success.
@@ -300,7 +216,7 @@ describe('createClaudeProvider', () => {
       result: '<task-complete/>',
       session_id: 'sess-2',
     });
-    const { spawn } = makeSpawn([
+    const { spawn } = makeProviderSpawn([
       { stderrChunks: ['rate-limit hit\n'], exitCode: 1 },
       { stdoutChunks: [`${init}\n${okResult}\n`], exitCode: 0 },
     ]);
@@ -326,7 +242,7 @@ describe('createClaudeProvider', () => {
     const sess = session();
     const init = JSON.stringify({ type: 'system', subtype: 'init', session_id: 'sess-persist', model: 'sonnet' });
     const resultEvt = JSON.stringify({ type: 'result', result: '<task-complete/>', session_id: 'sess-persist' });
-    const { spawn } = makeSpawn([{ stdoutChunks: [`${init}\n${resultEvt}\n`], exitCode: 0 }]);
+    const { spawn } = makeProviderSpawn([{ stdoutChunks: [`${init}\n${resultEvt}\n`], exitCode: 0 }]);
 
     const provider = createClaudeProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
     const out = await provider.generate(sess);
@@ -344,7 +260,7 @@ describe('createClaudeProvider', () => {
     const sess = session();
     // result event WITHOUT session_id — Claude can omit it on early-exit / malformed init.
     const resultEvt = JSON.stringify({ type: 'result', result: '<task-complete/>' });
-    const { spawn } = makeSpawn([{ stdoutChunks: [`${resultEvt}\n`], exitCode: 0 }]);
+    const { spawn } = makeProviderSpawn([{ stdoutChunks: [`${resultEvt}\n`], exitCode: 0 }]);
 
     const provider = createClaudeProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
     const out = await provider.generate(sess);
@@ -360,7 +276,7 @@ describe('createClaudeProvider', () => {
     const cap = createCapturingBus();
     const sess = session();
     const init = JSON.stringify({ type: 'system', subtype: 'init', session_id: 'sess-doomed', model: 'sonnet' });
-    const { spawn } = makeSpawn([{ stdoutChunks: [`${init}\n`], stderrChunks: ['boom\n'], exitCode: 2 }]);
+    const { spawn } = makeProviderSpawn([{ stdoutChunks: [`${init}\n`], stderrChunks: ['boom\n'], exitCode: 2 }]);
 
     const provider = createClaudeProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
     const out = await provider.generate(sess);
@@ -377,7 +293,7 @@ describe('createClaudeProvider', () => {
     const calls = { n: 0 };
     const spawn: ProviderSpawn = () => {
       calls.n++;
-      return makeFakeChild({ stderrChunks: ['fatal: model not found\n'], exitCode: 2 });
+      return createScriptedChild({ stderrChunks: ['fatal: model not found\n'], exitCode: 2 });
     };
 
     const provider = createClaudeProvider({
@@ -398,7 +314,7 @@ describe('createClaudeProvider', () => {
     const calls = { n: 0 };
     const spawn: ProviderSpawn = () => {
       calls.n++;
-      return makeFakeChild({ stderrChunks: ['at cli.js:14290:7\n'], exitCode: 1 });
+      return createScriptedChild({ stderrChunks: ['at cli.js:14290:7\n'], exitCode: 1 });
     };
 
     const provider = createClaudeProvider({
@@ -417,8 +333,8 @@ describe('createClaudeProvider', () => {
 
   it('a bare 429 token in stderr still classifies as a rate limit', async () => {
     const cap = createCapturingBus();
-    const script: FakeChildScript = { stderrChunks: ['API Error: 429 Too Many Requests\n'], exitCode: 1 };
-    const { spawn } = makeSpawn([script, script, script]);
+    const script: SpawnScript = { stderrChunks: ['API Error: 429 Too Many Requests\n'], exitCode: 1 };
+    const { spawn } = makeProviderSpawn([script, script, script]);
 
     const provider = createClaudeProvider({
       rateLimitRetries: 2,
@@ -446,7 +362,7 @@ describe('createClaudeProvider', () => {
       // generous backoff sleep below — never before exit classification (which checks abort
       // first and would short-circuit the attempt itself).
       setTimeout(() => controller.abort(), 5);
-      return makeFakeChild({ stderrChunks: ['rate limit exceeded; please retry later\n'], exitCode: 1 });
+      return createScriptedChild({ stderrChunks: ['rate limit exceeded; please retry later\n'], exitCode: 1 });
     };
 
     const provider = createClaudeProvider({
@@ -489,7 +405,7 @@ describe('createClaudeProvider — TokenUsageEvent emission', () => {
         cache_creation_input_tokens: 12,
       },
     });
-    const { spawn } = makeSpawn([{ stdoutChunks: [`${init}\n${resultEvt}\n`], exitCode: 0 }]);
+    const { spawn } = makeProviderSpawn([{ stdoutChunks: [`${init}\n${resultEvt}\n`], exitCode: 0 }]);
 
     const provider = createClaudeProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
     const out = await provider.generate(sess);
@@ -552,7 +468,9 @@ describe('createClaudeProvider — TokenUsageEvent emission', () => {
         cache_creation_input_tokens: 1400,
       },
     });
-    const { spawn } = makeSpawn([{ stdoutChunks: [`${init}\n${turn1}\n${turn2}\n${resultEvt}\n`], exitCode: 0 }]);
+    const { spawn } = makeProviderSpawn([
+      { stdoutChunks: [`${init}\n${turn1}\n${turn2}\n${resultEvt}\n`], exitCode: 0 },
+    ]);
 
     const provider = createClaudeProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
     const out = await provider.generate(sess);
@@ -581,7 +499,7 @@ describe('createClaudeProvider — TokenUsageEvent emission', () => {
       session_id: 'sess-nl',
       usage: { input_tokens: 100, output_tokens: 50 },
     });
-    const { spawn } = makeSpawn([{ stdoutChunks: [`${init}\n${delta}\n${resultEvt}\n`], exitCode: 0 }]);
+    const { spawn } = makeProviderSpawn([{ stdoutChunks: [`${init}\n${delta}\n${resultEvt}\n`], exitCode: 0 }]);
 
     const provider = createClaudeProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
     await provider.generate(sess);
@@ -606,7 +524,7 @@ describe('createClaudeProvider — TokenUsageEvent emission', () => {
       session_id: 'sess-mu',
       usage: { input_tokens: 100, output_tokens: 50 },
     });
-    const { spawn } = makeSpawn([{ stdoutChunks: [`${init}\n${resultEvt}\n`], exitCode: 0 }]);
+    const { spawn } = makeProviderSpawn([{ stdoutChunks: [`${init}\n${resultEvt}\n`], exitCode: 0 }]);
 
     const provider = createClaudeProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
     const out = await provider.generate(sess);
@@ -623,7 +541,7 @@ describe('createClaudeProvider — TokenUsageEvent emission', () => {
     const cap = createCapturingBus();
     const sess = session();
     const init = JSON.stringify({ type: 'system', subtype: 'init', session_id: 'sess-fail', model: 'claude-opus-4-8' });
-    const { spawn } = makeSpawn([{ stdoutChunks: [`${init}\n`], stderrChunks: ['boom\n'], exitCode: 2 }]);
+    const { spawn } = makeProviderSpawn([{ stdoutChunks: [`${init}\n`], stderrChunks: ['boom\n'], exitCode: 2 }]);
 
     const provider = createClaudeProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
     const out = await provider.generate(sess);
@@ -643,7 +561,7 @@ describe('createClaudeProvider — TokenUsageEvent emission', () => {
       session_id: 'sess-role',
       usage: { input_tokens: 10, output_tokens: 5 },
     });
-    const { spawn } = makeSpawn([{ stdoutChunks: [`${init}\n${resultEvt}\n`], exitCode: 0 }]);
+    const { spawn } = makeProviderSpawn([{ stdoutChunks: [`${init}\n${resultEvt}\n`], exitCode: 0 }]);
 
     const provider = createClaudeProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
     const out = await provider.generate(sess);
@@ -664,7 +582,7 @@ describe('createClaudeProvider — TokenUsageEvent emission', () => {
       model: 'claude-opus-4-8',
     });
     const resultEvt = JSON.stringify({ type: 'result', result: '<task-complete/>', session_id: 'sess-norole' });
-    const { spawn } = makeSpawn([{ stdoutChunks: [`${init}\n${resultEvt}\n`], exitCode: 0 }]);
+    const { spawn } = makeProviderSpawn([{ stdoutChunks: [`${init}\n${resultEvt}\n`], exitCode: 0 }]);
 
     const provider = createClaudeProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
     await provider.generate(sess);
@@ -686,7 +604,7 @@ describe('createClaudeProvider — TokenUsageEvent emission', () => {
       session_id: 'sess-cs',
       usage: { input_tokens: 10, output_tokens: 5 },
     });
-    const { spawn } = makeSpawn([{ stdoutChunks: [`${init}\n${resultEvt}\n`], exitCode: 0 }]);
+    const { spawn } = makeProviderSpawn([{ stdoutChunks: [`${init}\n${resultEvt}\n`], exitCode: 0 }]);
 
     const provider = createClaudeProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
     const out = await provider.generate(sess);
@@ -708,7 +626,7 @@ describe('createClaudeProvider — TokenUsageEvent emission', () => {
       model: 'claude-sonnet-4-6',
     });
     const resultEvt = JSON.stringify({ type: 'result', result: '<task-complete/>', session_id: 'sess-nou' });
-    const { spawn } = makeSpawn([{ stdoutChunks: [`${init}\n${resultEvt}\n`], exitCode: 0 }]);
+    const { spawn } = makeProviderSpawn([{ stdoutChunks: [`${init}\n${resultEvt}\n`], exitCode: 0 }]);
 
     const provider = createClaudeProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
     const out = await provider.generate(sess);
@@ -866,7 +784,7 @@ describe('buildClaudeArgs — AiSession → CLI flag translation', () => {
     const cap = createCapturingBus();
     const init = JSON.stringify({ type: 'system', subtype: 'init', session_id: 'sess-e2e', model: 'claude-opus-4-8' });
     const resultEvt = JSON.stringify({ type: 'result', result: 'ok', session_id: 'sess-e2e' });
-    const captured = makeSpawn([{ stdoutChunks: [`${init}\n${resultEvt}\n`], exitCode: 0 }]);
+    const captured = makeProviderSpawn([{ stdoutChunks: [`${init}\n${resultEvt}\n`], exitCode: 0 }]);
 
     const provider = createClaudeProvider({
       rateLimitRetries: 0,
@@ -919,7 +837,7 @@ describe('buildClaudeArgs — AiSession → CLI flag translation', () => {
     const malformed = '{not-json-at-all';
     const resultEvt = JSON.stringify({ type: 'result', subtype: 'success', result: 'done', session_id: 'sess-debug' });
 
-    const { spawn } = makeSpawn([
+    const { spawn } = makeProviderSpawn([
       {
         stdoutChunks: [
           `${systemLine}\n${assistantText}\n${assistantToolUse}\n${userToolResult}\n${malformed}\n${resultEvt}\n`,
@@ -961,7 +879,7 @@ describe('buildClaudeArgs — AiSession → CLI flag translation', () => {
     const sess = session();
     await fs.mkdir(dirname(String(sess.signalsFile)), { recursive: true });
     await fs.writeFile(String(sess.signalsFile), '{"signals":[]}', 'utf8');
-    const { spawn } = makeSpawn([{ exitCode: 143 }]);
+    const { spawn } = makeProviderSpawn([{ exitCode: 143 }]);
 
     const provider = createClaudeProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
     const out = await provider.generate(sess);
