@@ -177,7 +177,7 @@ describe('createDetectScriptsFlow', () => {
       runsRoot
     );
 
-    const flow = createDetectScriptsFlow(deps, { projectId: project.id, model: 'claude-sonnet-4-6' });
+    const flow = createDetectScriptsFlow(deps, { model: 'claude-sonnet-4-6' });
     const runner = createRunner({ id: 'r-detect-1', element: flow, initialCtx: { projectId: project.id } });
     await runner.start();
 
@@ -236,7 +236,7 @@ describe('createDetectScriptsFlow', () => {
       runsRoot
     );
 
-    const flow = createDetectScriptsFlow(deps, { projectId: project.id, model: 'claude-sonnet-4-6' });
+    const flow = createDetectScriptsFlow(deps, { model: 'claude-sonnet-4-6' });
     const runner = createRunner({ id: 'r-detect-gates', element: flow, initialCtx: { projectId: project.id } });
     await runner.start();
 
@@ -268,7 +268,7 @@ describe('createDetectScriptsFlow', () => {
       runsRoot
     );
 
-    const flow = createDetectScriptsFlow(deps, { projectId: project.id, model: 'claude-sonnet-4-6' });
+    const flow = createDetectScriptsFlow(deps, { model: 'claude-sonnet-4-6' });
     const runner = createRunner({ id: 'r-detect-single', element: flow, initialCtx: { projectId: project.id } });
     await runner.start();
 
@@ -291,7 +291,7 @@ describe('createDetectScriptsFlow', () => {
       runsRoot
     );
 
-    const flow = createDetectScriptsFlow(deps, { projectId: project.id, model: 'claude-sonnet-4-6' });
+    const flow = createDetectScriptsFlow(deps, { model: 'claude-sonnet-4-6' });
     const runner = createRunner({ id: 'r-detect-2', element: flow, initialCtx: { projectId: project.id } });
     await runner.start();
 
@@ -311,7 +311,7 @@ describe('createDetectScriptsFlow', () => {
       runsRoot
     );
 
-    const flow = createDetectScriptsFlow(deps, { projectId: project.id, model: 'claude-sonnet-4-6' });
+    const flow = createDetectScriptsFlow(deps, { model: 'claude-sonnet-4-6' });
     const runner = createRunner({ id: 'r-detect-3', element: flow, initialCtx: { projectId: project.id } });
     await runner.start();
 
@@ -340,7 +340,7 @@ describe('createDetectScriptsFlow', () => {
     };
 
     const { deps } = buildDeps(project, { rawBody: permissionAskBody }, recordingInteractive, runsRoot);
-    const flow = createDetectScriptsFlow(deps, { projectId: project.id, model: 'claude-sonnet-4-6' });
+    const flow = createDetectScriptsFlow(deps, { model: 'claude-sonnet-4-6' });
     const runner = createRunner({ id: 'r-detect-failsafe', element: flow, initialCtx: { projectId: project.id } });
     await runner.start();
 
@@ -367,7 +367,7 @@ describe('createDetectScriptsFlow', () => {
       runsRoot
     );
 
-    const flow = createDetectScriptsFlow(deps, { projectId: project.id, model: 'claude-sonnet-4-6' });
+    const flow = createDetectScriptsFlow(deps, { model: 'claude-sonnet-4-6' });
     const runner = createRunner({ id: 'r-detect-manual', element: flow, initialCtx: { projectId: project.id } });
     await runner.start();
 
@@ -394,7 +394,7 @@ describe('createDetectScriptsFlow', () => {
       runsRoot
     );
 
-    const flow = createDetectScriptsFlow(deps, { projectId: project.id, model: 'claude-sonnet-4-6' });
+    const flow = createDetectScriptsFlow(deps, { model: 'claude-sonnet-4-6' });
     const runner = createRunner({ id: 'r-detect-4', element: flow, initialCtx: { projectId: project.id } });
     await runner.start();
 
@@ -412,11 +412,7 @@ describe('createDetectScriptsFlow', () => {
     const interactive = scriptedInteractive({ choices: ['approve'] });
     const { deps, saves } = buildDeps(project, { signals: [setupScript('pnpm install')] }, interactive, runsRoot);
 
-    const flow = createDetectScriptsFlow(deps, {
-      projectId: project.id,
-      repositoryId: repository.id,
-      model: 'claude-sonnet-4-6',
-    });
+    const flow = createDetectScriptsFlow(deps, { model: 'claude-sonnet-4-6' });
     const runner = createRunner({
       id: 'r-detect-5',
       element: flow,
@@ -444,7 +440,7 @@ describe('createDetectScriptsFlow', () => {
       runsRoot
     );
 
-    const flow = createDetectScriptsFlow(deps, { projectId: project.id, model: 'claude-sonnet-4-6' });
+    const flow = createDetectScriptsFlow(deps, { model: 'claude-sonnet-4-6' });
     const runner = createRunner({ id: 'r-detect-edit', element: flow, initialCtx: { projectId: project.id } });
     await runner.start();
 
@@ -524,7 +520,7 @@ describe('createDetectScriptsFlow — real on-disk persistence', () => {
       runsRoot,
     };
 
-    const flow = createDetectScriptsFlow(deps, { projectId: project.id, model: 'claude-sonnet-4-6' });
+    const flow = createDetectScriptsFlow(deps, { model: 'claude-sonnet-4-6' });
     const runner = createRunner({ id: 'r-detect-realfs', element: flow, initialCtx: { projectId: project.id } });
     await runner.start();
     expect(runner.status).toBe('completed');

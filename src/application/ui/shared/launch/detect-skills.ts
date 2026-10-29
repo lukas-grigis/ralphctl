@@ -24,11 +24,9 @@ export const launchDetectSkills = async (ctx: LaunchContext): Promise<LaunchResu
       runsRoot: deps.storage.runsRoot,
     },
     {
-      projectId: snapshot.project.id,
       // Reuse the readiness row — same read-only inventory shape.
       model: settings.ai.readiness.model,
       ...(effort !== undefined ? { effort } : {}),
-      ...(extras.repositoryId !== undefined ? { repositoryId: extras.repositoryId } : {}),
     }
   );
   const runner = createRunner<DetectSkillsCtx>({

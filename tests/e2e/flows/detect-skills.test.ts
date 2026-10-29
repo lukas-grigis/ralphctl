@@ -159,7 +159,7 @@ describe('createDetectSkillsFlow', () => {
       runsRoot
     );
 
-    const flow = createDetectSkillsFlow(deps, { projectId: project.id, model: 'claude-sonnet-4-6' });
+    const flow = createDetectSkillsFlow(deps, { model: 'claude-sonnet-4-6' });
     const runner = createRunner({ id: 'r-skills-1', element: flow, initialCtx: { projectId: project.id } });
     await runner.start();
 
@@ -203,7 +203,7 @@ describe('createDetectSkillsFlow', () => {
     const interactive = scriptedInteractive({ choices: ['reject'] });
     const { deps, saves } = buildDeps(project, { signals: [setupSkillProposal(SETUP_BODY)] }, interactive, runsRoot);
 
-    const flow = createDetectSkillsFlow(deps, { projectId: project.id, model: 'claude-sonnet-4-6' });
+    const flow = createDetectSkillsFlow(deps, { model: 'claude-sonnet-4-6' });
     const runner = createRunner({ id: 'r-skills-2', element: flow, initialCtx: { projectId: project.id } });
     await runner.start();
 
@@ -228,7 +228,7 @@ describe('createDetectSkillsFlow', () => {
       runsRoot
     );
 
-    const flow = createDetectSkillsFlow(deps, { projectId: project.id, model: 'claude-sonnet-4-6' });
+    const flow = createDetectSkillsFlow(deps, { model: 'claude-sonnet-4-6' });
     const runner = createRunner({ id: 'r-skills-3', element: flow, initialCtx: { projectId: project.id } });
     await runner.start();
 
@@ -253,7 +253,7 @@ describe('createDetectSkillsFlow', () => {
     };
     const { deps } = buildDeps(project, { rawBody: permissionAskBody }, recordingInteractive, runsRoot);
 
-    const flow = createDetectSkillsFlow(deps, { projectId: project.id, model: 'claude-sonnet-4-6' });
+    const flow = createDetectSkillsFlow(deps, { model: 'claude-sonnet-4-6' });
     const runner = createRunner({ id: 'r-skills-failsafe', element: flow, initialCtx: { projectId: project.id } });
     await runner.start();
 
@@ -271,7 +271,7 @@ describe('createDetectSkillsFlow', () => {
     const interactive = scriptedInteractive({ choices: ['approve'] });
     const { deps, saves } = buildDeps(project, { signals: [verifySkillProposal(VERIFY_BODY)] }, interactive, runsRoot);
 
-    const flow = createDetectSkillsFlow(deps, { projectId: project.id, model: 'claude-sonnet-4-6' });
+    const flow = createDetectSkillsFlow(deps, { model: 'claude-sonnet-4-6' });
     const runner = createRunner({ id: 'r-skills-4', element: flow, initialCtx: { projectId: project.id } });
     await runner.start();
 
@@ -289,11 +289,7 @@ describe('createDetectSkillsFlow', () => {
     const interactive = scriptedInteractive({ choices: ['approve'] });
     const { deps, saves } = buildDeps(project, { signals: [setupSkillProposal(SETUP_BODY)] }, interactive, runsRoot);
 
-    const flow = createDetectSkillsFlow(deps, {
-      projectId: project.id,
-      repositoryId: repository.id,
-      model: 'claude-sonnet-4-6',
-    });
+    const flow = createDetectSkillsFlow(deps, { model: 'claude-sonnet-4-6' });
     const runner = createRunner({
       id: 'r-skills-5',
       element: flow,
