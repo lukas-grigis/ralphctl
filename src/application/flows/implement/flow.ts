@@ -45,77 +45,39 @@ export type { RepoExecConfig };
 export interface CreateImplementFlowOpts {
   readonly sprintId: SprintId;
   /**
-   * Tasks to run, in processing order. The caller passes the resumable set —
-   * `status === 'todo'` for fresh tasks and `status === 'in_progress'` for tasks that a
-   * prior aborted chain started but didn't finish. The per-task sub-chain handles both
-   * uniformly: the `start-attempt` use case settles any leftover `running` attempt as
-   * `aborted` before opening a new one, so resume works without operator intervention.
-   *
-   * Sort by `Task.order` ASC, respecting `dependsOn` if applicable. The chain unrolls
-   * per-task sub-chains at construction time so the trace names every task.
+   * The resumable tasks (`todo` + `in_progress`) in processing order. `start-attempt` settles a
+   * leftover `running` attempt as `aborted` before opening a new one, so resume needs no operator.
    */
   readonly todoTasks: readonly Task[];
   /**
-   * Ids of tasks OUTSIDE `todoTasks` that already satisfy a dependency — in practice, the sprint's
-   * `done` (and `blocked`, since the per-task `dependency-gate` leaf — not the scheduler — is what
-   * parks a dependent behind a blocked prerequisite at run time) tasks. `planImplementWaves`
-   * threads this straight through to `scheduleIntoWaves`'s own `satisfiedDependencyIds` — see that
-   * function for the full contract.
-   *
-   * Without it, a resumed run's `todoTasks` (the `todo`/`in_progress` subset only) makes any
-   * dependency on an already-settled prerequisite look like a dangling reference once the graph is
-   * narrowed to that subset alone — the prerequisite genuinely exists, just not in `todoTasks` —
-   * and `scheduleIntoWaves` fails the whole schedule closed instead of scheduling the dependent.
-   * Defaults to empty when omitted, which keeps that closed-failure behaviour (loud, not silent —
-   * see `planImplementWaves`) rather than silently tolerating every absent id.
+   * Ids outside `todoTasks` that already satisfy a dependency (the sprint's `done` and `blocked`
+   * tasks — `dependency-gate` parks a dependent behind a blocked one at run time). Without it a
+   * resumed run's dependency on a settled task looks dangling and `scheduleIntoWaves` fails closed.
    */
   readonly satisfiedDependencyIds?: ReadonlySet<TaskId>;
-  /**
-   * Project repositories keyed by id. Every `Task.repositoryId` must resolve through this map;
-   * the per-task sub-chain pulls the cwd / verify-script / setup-script from the entry for the
-   * task's repo so the implement chain works correctly on multi-repo projects.
-   */
+  /** Project repositories keyed by id; every `Task.repositoryId` must resolve through it. */
   readonly repositories: ReadonlyMap<RepositoryId, RepoExecConfig>;
   /** Absolute path to `<sprintDir>/progress.md`, derived by the launcher and passed in as opts. */
   readonly progressFile: AbsolutePath;
-  /**
-   * Absolute path to `<sprintDir>` — the sprint's persisted-state folder. Used by
-   * `buildTaskWorkspaceLeaf` to root the per-task `implement/<task-id>/` audit tree, and as
-   * the lock key for the sprint-wide repo lock (a single implement run at a time across all
-   * repos the sprint touches).
-   */
+  /** `<sprintDir>` — roots the per-task `implement/<task-id>/` tree and keys the sprint-wide lock. */
   readonly sprintDir: AbsolutePath;
-  /**
-   * Generator-role provider id — `settings.ai.implement.generator.provider`. Stamped into
-   * per-spawn `meta.json` (generic shared sidecar) and `role-meta.json` (implement-specific
-   * sidecar) for attribution.
-   */
+  /** `settings.ai.implement.generator.provider` — stamped into `meta.json` / `role-meta.json`. */
   readonly generatorProviderId: string;
   /** Generator-role model — `settings.ai.implement.generator.model`. */
   readonly generatorModel: string;
   /** Generator-role effort / reasoning level — threaded into the generator AiSession. */
   readonly generatorEffort?: string;
-  /**
-   * Evaluator-role provider id — `settings.ai.implement.evaluator.provider`. Stamped into
-   * per-spawn `meta.json` (generic shared sidecar) and `role-meta.json` (implement-specific
-   * sidecar) for attribution.
-   */
+  /** `settings.ai.implement.evaluator.provider` — stamped into `meta.json` / `role-meta.json`. */
   readonly evaluatorProviderId: string;
   /** Evaluator-role model — `settings.ai.implement.evaluator.model`. */
   readonly evaluatorModel: string;
   /** Evaluator-role effort / reasoning level — threaded into the evaluator AiSession. */
   readonly evaluatorEffort?: string;
-  /**
-   * Generator-role's bound agent definition, resolved once at launch by the launcher —
-   * `undefined` when the role has no binding (or the bound name didn't resolve, AC2). Threaded
-   * into the per-task subchain's install/uninstall leaves.
-   */
+  /** Generator-role's bound agent definition; `undefined` when unbound or unresolved. */
   readonly generatorAgentDefinition?: AgentDefinition;
   /**
-   * Pre-composed "## Agent Definition" prompt section for the generator role — announces the
-   * native file the launcher installed (or, for a provider with no native discovery format,
-   * the raw definition body). Threaded into every gen-eval turn's generator prompt (round 1 of
-   * a session thread only — a resumed continuation already carries it in-conversation).
+   * Pre-composed "## Agent Definition" prompt section for the generator; rides only the full prompt
+   * (a resumed continuation already carries it).
    */
   readonly generatorAgentDefinitionSection?: string;
   /** Evaluator-role's bound agent definition — see {@link generatorAgentDefinition}. */
@@ -128,11 +90,7 @@ export interface CreateImplementFlowOpts {
    * explicitly pass `'cancel'` or `'continue'`.
    */
   readonly dirtyTreePolicy?: DirtyTreePolicy;
-  /**
-   * `<dataRoot>/memory` — durable, project-scoped learnings root. Threaded into each
-   * per-task sub-chain's `append-learnings` leaf so `<learning>` signals persist to
-   * `<memoryRoot>/<projectId>/learnings.ndjson`.
-   */
+  /** `<dataRoot>/memory` — root of the per-project learnings ledger. */
   readonly memoryRoot: AbsolutePath;
   /** Owning project's id — selects the per-project learnings ledger subdirectory. */
   readonly projectId: string;
@@ -150,21 +108,10 @@ export const effectiveDirtyTreePolicy = (opts: Pick<CreateImplementFlowOpts, 'di
   opts.dirtyTreePolicy ?? 'prompt';
 
 /**
- * Build the prologue segment — everything from `load-and-assert-sprint` through `setup-script-runner`,
- * the once-per-run setup that runs BEFORE any task executes:
- *
- *   load-and-assert-sprint → activate → load-execution → load-tasks → load-learnings →
- *   resolve-branch → preflight-tasks → progress-journal-activate → setup-script-runner
- *
- * Returned as `sequential('implement-prologue', [...])` so the parallel launcher can run it
- * once on a dedicated runner under the held lock before fanning the task waves out. The serial
- * `createImplementFlow` executes the same leaf instances spliced flat and only groups them under
- * this wrapper for display — see `groupedForDisplay`.
+ * The once-per-run setup before any task runs. The parallel launcher runs this segment on its own
+ * runner; the serial flow executes the same leaves spliced flat (see `groupedForDisplay`).
  */
 export const buildImplementPrologue = (deps: ImplementDeps, opts: CreateImplementFlowOpts): Element<ImplementCtx> => {
-  // Per-repo derived shapes — unique cwds drive `resolve-branch` and the per-repo preflight fan-out;
-  // the setup-script entries are repo + setupScript pairs scoped to the tasks the sprint actually
-  // runs. See `sprint-repo-plan.ts` for the rationale.
   const uniqueRepoCwds = uniqueRepoCwdsForTasks(opts.repositories, opts.todoTasks);
   const setupRepoEntries = setupRepoEntriesForTasks(opts.repositories, opts.todoTasks);
 
@@ -189,20 +136,14 @@ export const buildImplementPrologue = (deps: ImplementDeps, opts: CreateImplemen
       activateSprintLeaf({ sprintRepo: deps.sprintRepo, clock: deps.clock, logger: deps.logger }),
       loadSprintExecutionLeaf<ImplementCtx>({ sprintExecutionRepo: deps.sprintExecutionRepo }),
       loadTasksLeaf<ImplementCtx>({ taskRepo: deps.taskRepo }),
-      // Cross-sprint procedural memory (principle 3, read side). Load this project's not-yet-promoted
-      // learnings ONCE here so every per-task generator can orient on what prior sprints earned —
-      // without touching the human-gated distill flow (which stays the only write-back path). A
-      // missing ledger resolves to an empty list inside the leaf, so the block degrades cleanly.
+      // Prior sprints' not-yet-promoted learnings, read once for every generator; a missing ledger is empty.
       loadLearningsLeaf<ImplementCtx>(
         { logger: deps.logger },
         {
-          // Tolerant READ resolver — prefers the slugged `<id>--<slug>/` dir, falls back to the
-          // legacy bare `<id>/` dir, so a user who declined the migration still reads the learnings
-          // their prior sprints earned (no stranding). Async; the leaf awaits it at execute time.
+          // Tolerates the legacy bare `<id>/` dir, so a user who declined the migration keeps their learnings.
           path: async () => {
             const resolved = await resolveLearningsLedgerPath(opts.memoryRoot, opts.projectId);
-            // The projectId is validated upstream (resolveImplementQueue); a resolve failure is a
-            // programmer error, so re-throw it as the leaf's projection contract requires.
+            // projectId is validated upstream, so a failure here is a programmer error.
             if (!resolved.ok) throw resolved.error;
             return resolved.value;
           },
@@ -218,20 +159,13 @@ export const buildImplementPrologue = (deps: ImplementDeps, opts: CreateImplemen
         },
         { cwds: uniqueRepoCwds }
       ),
-      // Dirty-tree resolution runs BEFORE setup: one interactive menu per repo, and the operator's
-      // answer settles the tree the setup script is about to run against. See the placement
-      // rationale on `createImplementFlow`.
+      // Before setup, so the script runs against a tree the operator already settled.
       sequential<ImplementCtx>('preflight-tasks', preflightLeaves),
-      // Record sprint activation in the journal — fires after the implement chain activated the
-      // sprint (or noop'd because it was already active). The separator gives the operator + AI
-      // a chronological marker between "before this run" and "first task of this run."
       appendJournalSeparatorLeaf<ImplementCtx>(
         { appendFile: deps.appendFile, writeFile: deps.writeFile, clock: deps.clock, logger: deps.logger },
         { progressFile: opts.progressFile, status: 'activated', name: 'progress-journal-activate' }
       ),
-      // Brackets every script that spawns with a porcelain snapshot, and re-offers the dirty-tree
-      // choice only for what the script itself changed. See the placement rationale on
-      // `createImplementFlow`.
+      // Re-offers the dirty-tree choice only for what a setup script itself changed.
       setupScriptRunnerLeaf(
         {
           shellScriptRunner: deps.shellScriptRunner,
@@ -249,11 +183,8 @@ export const buildImplementPrologue = (deps: ImplementDeps, opts: CreateImplemen
 };
 
 /**
- * Predicate for the active→review transition at the end of an implement run. The sprint flips
- * to review only when the run has genuinely finished: every task has settled (`done`/`blocked`,
- * so no `todo`/`in_progress` remains) AND at least one settled `done`. See the inline notes at
- * the guard site for the two failure modes this guards (premature mid-run flip; all-blocked).
- * Extracted as a pure function so the transition rule is unit-testable independent of the chain.
+ * The sprint moves to review only once no task is runnable AND at least one is `done`: never
+ * mid-run, and never for an all-blocked run (fix the blocker and re-run without backing out).
  */
 export const shouldTransitionToReview = (tasks: ImplementCtx['tasks']): boolean => {
   const list = tasks ?? [];
@@ -263,34 +194,14 @@ export const shouldTransitionToReview = (tasks: ImplementCtx['tasks']): boolean 
 };
 
 /**
- * Build the epilogue segment — the once-per-run teardown that runs AFTER every task has settled:
- *
- *   save-tasks → transition-sprint-to-review(when every task settled AND ≥1 done)
- *
- * Returned as `sequential('implement-epilogue', [...])` so the parallel launcher can run it
- * once on a dedicated runner under the held lock — including on the abort/fatal path, where the
- * `save-tasks` leaf must still persist the partially-merged ctx so folded commits are durably
- * recorded. The serial `createImplementFlow` executes the same leaf instances spliced flat and only
- * groups them under this wrapper for display — see `groupedForDisplay`.
+ * The once-per-run teardown after every task settled. The parallel launcher runs it even on the
+ * abort/fatal path so folded commits are recorded.
  */
 export const buildImplementEpilogue = (deps: ImplementDeps, opts: CreateImplementFlowOpts): Element<ImplementCtx> =>
   sequential<ImplementCtx>(
     'implement-epilogue',
     [
       saveTasksLeaf<ImplementCtx>({ taskRepo: deps.taskRepo }),
-      // Transition to review only when the run has genuinely finished — every task settled
-      // (`done` or `blocked`) AND at least one task settled `done`. Two failure modes this guards:
-      //   1. Premature flip: the prior `some(done)` predicate flipped to review the instant ONE
-      //      task finished, even while other tasks were still `todo` / `in_progress` — silently
-      //      shipping a partial sprint mid-run. Requiring "no runnable work left" keeps the sprint
-      //      `active` until every task has actually settled, so the operator never sees a sprint in
-      //      review with work still pending.
-      //   2. All-blocked: if nothing settled `done` (e.g. a foundational task blocked and cascaded
-      //      to its dependents), there's nothing to review — staying `active` lets the operator fix
-      //      the blocker and re-run implement without first backing the sprint out of review.
-      // A mixed end state (some done, some blocked) still transitions: the run is complete and the
-      // blocked tasks are surfaced in review for a deliberate close decision — no longer a silent
-      // mid-run partial ship.
       guard<ImplementCtx>(
         'transition-sprint-to-review-when-settled',
         (ctx) => shouldTransitionToReview(ctx.tasks),
@@ -307,19 +218,10 @@ export const buildImplementEpilogue = (deps: ImplementDeps, opts: CreateImplemen
   );
 
 /**
- * The PARALLEL launcher's epilogue — {@link buildImplementEpilogue}'s leaves, prefixed with
- * `adopt-persisted-blocks`. The serial `createImplementFlow` never needs this: its per-task
- * sub-chains run against the SAME `ctx.tasks` the epilogue later saves, one task at a time inside
- * one flat `sequential`, so a task's own persisted transition is never trampled by a sibling's
- * outcome. The parallel path's `mergeImplementWave` fan-in has no such guarantee — a branch that
- * errors or aborts AFTER persisting its task (a block, an opened attempt) is skipped by the merge
- * entirely, so without this leaf `saveTasksLeaf` below would overwrite that write with the branch's
- * pre-wave copy. See `adopt-persisted-blocks.ts` and `merge-wave.ts` for the full contract.
- *
- * Only ever wrapped in `sequential('implement-epilogue', …)` here — reusing the SAME name as
- * {@link buildImplementEpilogue}'s own wrapper is deliberate: this segment is a drop-in replacement
- * for that one in {@link planImplementWaves}, and the parallel launcher's `runSubElement` /
- * TUI rail read the element's own `.name`, never a caller-side label.
+ * The parallel epilogue: {@link buildImplementEpilogue} prefixed with `adopt-persisted-blocks`.
+ * `mergeImplementWave` skips a branch that failed after persisting its task (a block, an opened
+ * attempt), so without the adopt step `save-tasks` would overwrite that write with the pre-wave
+ * copy. The serial path never needs it: its tasks share one `ctx.tasks`. Same segment name on purpose.
  */
 export const buildParallelImplementEpilogue = (
   deps: ImplementDeps,
@@ -334,69 +236,21 @@ export const buildParallelImplementEpilogue = (
     { label: 'Finish' }
   );
 
-/**
- * The decomposed implement run — prologue / per-task waves / epilogue as separate elements plus
- * the sprint-wide lock key. Produced by {@link planImplementWaves}; consumed by the parallel
- * launcher to run the prologue, then `runWaves` over the per-task waves, then the epilogue,
- * all under ONE held `fileLocker.withLock(lockKey)`.
- *
- * The serial `createImplementFlow` keeps its own internal `withRepoLock`-wrapped chain — the
- * serial `===1` path keeps the lock inside the flow. This plan exists purely so the `>1`
- * parallel path can be wired without re-deriving the segments.
- */
+/** The parallel run's segments, all run under ONE held lock on `lockKey`. */
 export interface ImplementWavePlan {
-  /**
-   * `sequential('implement-prologue', [...])` — the once-per-run setup (load → preflight → setup).
-   * Run once on its own runner before the waves.
-   */
   readonly prologue: Element<ImplementCtx>;
-  /**
-   * Dependency layers from `scheduleIntoWaves(opts.todoTasks)` — each inner array is a set of
-   * tasks with no intra-wave dependency, safe to run concurrently. The parallel path forks one
-   * branch per task in a wave and hands the wave to `runWaves`. Waves are strictly ordered: every dependency of a
-   * task in wave `k` was scheduled in some wave `< k`.
-   */
+  /** Dependency layers: no intra-wave dependency, and every dependency sits in an earlier wave. */
   readonly waves: ReadonlyArray<readonly Task[]>;
-  /**
-   * `sequential('implement-epilogue', [...])` — the once-per-run teardown, built by
-   * {@link buildParallelImplementEpilogue} as `adopt-persisted-blocks` (reconcile) followed by
-   * every leaf {@link buildImplementEpilogue} produces (save → transition). Run once on its own
-   * runner after the waves (including on the abort/fatal path, so folded commits AND whatever a
-   * non-completed branch already persisted are both durably recorded).
-   */
+  /** {@link buildParallelImplementEpilogue} — runs after the waves, on the abort/fatal path too. */
   readonly epilogue: Element<ImplementCtx>;
-  /**
-   * Sprint-wide lock key — the sprint dir. The parallel launcher hoists ONE held lock on this
-   * key across prologue + waves + epilogue — the lock is hoisted for the `>1` path. Mirrors
-   * the `worktreePath` the serial path's internal `withRepoLock` uses.
-   */
+  /** The sprint dir — the same key the serial path's `withRepoLock` uses. */
   readonly lockKey: AbsolutePath;
 }
 
 /**
- * Decompose an implement run into its reusable segments for the parallel launcher.
- *
- * Returns the extracted {@link buildImplementPrologue} / {@link buildParallelImplementEpilogue}
- * segments, the dependency-scheduled task waves (`scheduleIntoWaves(opts.todoTasks, opts.satisfiedDependencyIds)`),
- * and the sprint-wide lock key — wrapped in a `Result` so an unschedulable task set is a loud,
- * distinguishable failure rather than a silent empty plan. Lands NO parallel behaviour itself — it
- * only computes the plan; the parallel launcher is the consumer that runs the prologue, fans the
- * waves out via `runWaves`, and runs the epilogue under one held lock.
- *
- * `opts.todoTasks` is the RESUMABLE subset of a sprint's tasks (`todo` + `in_progress` —
- * see `CreateImplementFlowOpts.todoTasks`), not the full set. A dependent whose prerequisite
- * already settled `done` (or `blocked`) has a `dependsOn` id that does not resolve inside that
- * subset even though the graph as a whole is perfectly sound — `opts.satisfiedDependencyIds` is
- * the caller's declaration of exactly which outside ids are like that, so `scheduleIntoWaves`
- * can tell "satisfied elsewhere" apart from "genuinely dangling" instead of collapsing both to
- * `unknown-dependency`.
- *
- * On an unschedulable task set (cycle / self-edge / a dependency id that resolves to nothing —
- * neither `todoTasks` nor `satisfiedDependencyIds`) this returns `Result.error(issue)` and builds
- * NEITHER the prologue nor the epilogue: a caller that gets an error here must stop the launch and
- * surface the issue (mirroring how `resolveImplementQueue` already stops a launch on the same
- * class of issue over the full task set) rather than proceeding with an empty wave list that would
- * run prologue → nothing → epilogue and report `completed` having done no work.
+ * Plan the parallel run. An unschedulable task set (cycle, self-edge, a dependency in neither
+ * `todoTasks` nor `satisfiedDependencyIds`) is an error the launcher must surface — never an empty
+ * plan that would report `completed` having done no work.
  */
 export const planImplementWaves = (
   deps: ImplementDeps,
@@ -450,150 +304,26 @@ const groupedForDisplay = (
 ): Element<ImplementCtx> => ({ ...flat, children: groups });
 
 /**
- * Build the implement chain. One invocation runs up to `task.maxAttempts` attempts per task —
- * the per-task sub-chain wraps the attempt segment in an inner `loop` that re-enters until the
- * task settles `done`/`blocked` or the cap fires — and transitions the sprint into `review` once
- * every todo task has settled.
+ * The serial implement chain: `implement → with-repo-lock → implement-locked`, whose children are
+ * the prologue, one `task-<id>` subchain per todo task (see `per-task-subchain.ts`), and the
+ * epilogue. A blocked task never halts the chain; infrastructure failures do.
  *
- * Shape:
- *
- *   sequential('implement', [
- *     with-repo-lock(
- *       sequential('implement-locked', [
- *         implement-prologue: [            // display grouping only — executed spliced flat
- *           load-and-assert-sprint(['planned', 'active']),
- *           activate-sprint,
- *           load-sprint-execution,
- *           load-tasks,
- *           load-learnings,                // cross-sprint procedural memory (read side) → ctx.priorLearnings
- *           resolve-branch,                // assigns ralphctl/<id> on first run, persists, checks out
- *           preflight-tasks,               // interactive dirty-tree menu — one per repo, one-shot
- *           progress-journal-activate,     // separator line in progress.md
- *           setup-script-runner,           // runs only after branch + preflight are settled;
- *                                          // re-asks only about dirt a script itself created
- *         ],
- *         implement-tasks,                 // sequential task-<id> sub-chains
- *         implement-epilogue: [            // display grouping only — executed spliced flat
- *           save-tasks,
- *           transition-sprint-to-review(when every task settled AND ≥1 done)
- *         ],
- *       ])
- *     ),
- *   ])
- *
- * The prologue leaves (`load-and-assert-sprint` … `setup-script-runner`) and epilogue leaves
- * (`save-tasks`, the review-transition guard) are sourced from {@link buildImplementPrologue} /
- * {@link buildImplementEpilogue}. `implement-locked` executes them spliced flat, so its trace —
- * skip and abort entries included — names each leaf exactly as before, while its `children` group
- * them under the two segment wrappers for the step display. `planImplementWaves` hands the SAME prologue leaves to the
- * parallel launcher, but wraps its epilogue leaves in one extra `adopt-persisted-blocks` leaf (see
- * {@link buildParallelImplementEpilogue}) that this serial tree has no need for — the per-task
- * sub-chains below run against one shared `ctx.tasks` in a single flat `sequential`, so no sibling
- * branch can ever drop a persisted transition the way the parallel fan-in can.
- *
- * See `per-task-subchain.ts` for the per-task body and `gen-eval-loop.ts` for the inner
- * generator-evaluator loop.
- *
- * Skills are linked into the user's repo at `<repo>/<parentDir>/skills/ralphctl-<name>/` — the
- * provider-native conventions (`.claude/skills`, `.github/skills`, `.agents/skills`) only
- * auto-discover from cwd, so the AI session uses the repo as its `cwd` and the per-task
- * workspace as `--add-dir`. The `ralphctl-` prefix combined with one wildcard line in
- * `.git/info/exclude` keeps `git status` clean of harness-managed context.
- *
- * Preflight rationale: the dirty-tree check is a precondition for the whole invocation, not for
- * each task. The tree the first task sees is exactly what the operator settled — the up-front menu
- * for what was there before the run, the post-setup check (below) for anything the setup script
- * added. Between tasks the tree is kept clean — a `done` task is committed by `commit-task`,
- * and a `blocked` task's rejected diff (which `settle-attempt`'s guardrail deliberately leaves in
- * the shared serial tree for inspection) is moved aside by the per-task `quarantine-blocked-diff`
- * leaf into a recoverable stash. So a per-task preflight would just re-assert what's already known.
- * Running preflight ONCE at the outer level also lets `install-skills` materialise its files
- * afterwards without tripping the check.
- *
- * Pre-setup placement rationale: `preflight-tasks` sits directly after `resolve-branch` and
- * BEFORE `setup-script-runner`. A dirty tree always ASKS (Keep / Stash / Reset / Cancel); there
- * is no stricter hard gate ahead of it. There used to be one — a `working-tree-clean-check` that
- * aborted the launch outright and exempted only the "resume" signature (an `in_progress` task
- * whose last attempt is still `running`). Any dirt outside that narrow signature — a run the
- * operator cancelled, or a task they unblocked, which archives the very attempts the signature
- * keyed on — killed the launch before the recovery menu the operator needed ever fired. Asking
- * up front also preserves the "answer once, then walk away" property: branch and dirty tree are
- * the only two questions a well-behaved run has, both are asked before the multi-minute setup
- * script, and setup then runs against a tree the operator has already resolved — setup commands
- * typically assume a "ready" tree (`pnpm install --frozen-lockfile`, schema migrations, …) and
- * fail in confusing ways against a dirty repo.
- *
- * Post-setup check: asking first means the menu cannot see dirt the setup script itself creates
- * (a rewritten lockfile, generated files that aren't ignored). Left alone, that dirt would be
- * swept into the first task's commit by `git add -A`, or turn its pre-task verify red and be
- * written off as a broken baseline, without the operator ever hearing of it. So
- * `setup-script-runner` brackets every script that actually spawns with a `git status` snapshot
- * (`setup-tree-guard.ts`) and, only when the script introduced entries that weren't there before,
- * re-offers the same keep / stash / reset / cancel choice for that repo, naming the script as the
- * cause (non-interactive policies: `continue` logs and proceeds, `cancel` fails the run). Dirt the
- * operator already chose to keep is never asked about again, and a setup that leaves the tree
- * alone adds no prompt. The check lives inside the setup leaf rather than as its own step so the
- * snapshot is taken immediately before the spawn and a resume-skipped or unconfigured script
- * costs no git call. Its answer — the outcome plus the paths the operator has seen — is recorded
- * on the `SetupRun` row and on `ctx.setupTreeRecords`: a relaunch resume-skips setup only when
- * that answer is on record, and each parallel task worktree matches its own setup output against
- * it (`worktree-setup-tree.ts`).
- *
- * Branch preflight rationale: the dirty-tree check is one-shot but the branch can drift mid-run
- * (an AI generator turn with shell access could `git checkout` away). `resolve-branch` pins the
- * tree once at the outer level; `branch-preflight` re-asserts at the start of every per-task
- * sub-chain so a wrong-branch commit never lands.
- *
- * ## Continue-on-blocked
- *
- * Tasks that settle to `blocked` (self-block reason) do NOT halt the chain — the next task's
- * sub-chain runs unconditionally. Infrastructure failures (preflight rejection, repository
- * write errors) DO halt: those are not domain decisions.
- *
- * ## Review transition is conditional
- *
- * The sprint only transitions `active → review` when at least one task settled `done`. An
- * all-blocked run keeps the sprint in `active`, so re-running implement after the user fixes
- * the blocker just retries the blocked tasks — no manual sprint state-back-out. Mixed runs
- * (some done + some blocked) still transition: the completed work is real and reviewable.
- *
- * ## Per-attempt vs per-task budgets
- *
- * - `config.harness.maxTurns` bounds the gen-eval inner loop (turns per attempt).
- * - `task.maxAttempts` bounds attempts per task. A single launch now runs up to `maxAttempts`
- *   attempts: the per-task sub-chain's inner `loop('task-attempts-<id>', …)` re-enters the
- *   start-attempt → … → settle segment until the task settles `done`/`blocked` or the cap
- *   fires (the domain transitions a budget-exhausted task to `blocked`, never silently drops
- *   it). When `maxAttempts === 1` the loop runs exactly once — byte-for-byte with the prior
- *   single-attempt-per-launch behaviour. A task left `in_progress` after the loop (e.g. the
- *   launch ended before the cap because the operator aborted) is still picked up by re-running
- *   the chain.
+ * Tree gates: the dirty-tree menu runs once per run, before setup, so branch and tree are the only
+ * questions and are asked before the long setup script. `setup-script-runner` re-asks only about
+ * dirt the script itself created (WORKFLOWS.md, "setupScript vs verifyScript"). Between tasks the
+ * tree stays clean (commit, or the blocked-diff quarantine), so no per-task tree check is needed,
+ * but `branch-preflight` re-asserts the branch per task because a generator turn can `git checkout`.
  */
 export const createImplementFlow = (deps: ImplementDeps, opts: CreateImplementFlowOpts): Element<ImplementCtx> => {
-  // Promise-shaped accessor read by `finalize-gen-eval` and the gen-eval loop's `shouldContinue`
-  // predicate. It reflects the harness slice frozen at launch — `deps.config` is a plain snapshot
-  // built once per launch in the launcher, and nothing mutates it, so a mid-run settings edit does
-  // NOT take effect until the next launch. The accessor stays Promise-shaped only because its
-  // consumers `await` it (a live settings re-read would slot in here without touching them), but it
-  // must not claim a mid-run reload the wiring does not provide. Built via the shared
-  // `buildAttemptReadConfig` (see `attempt-body.ts`) so this serial launcher and the parallel
-  // launcher's own `readConfig` (`ui/shared/launch/implement.ts`) can never drift onto different
-  // field sets.
+  // The harness slice frozen at launch: a mid-run settings edit takes effect on the next launch.
   const readConfig = buildAttemptReadConfig(deps.config.harness);
 
-  // The serial path is a single caller — no other branch ever contends with it — so the run's
-  // `deps.journalMutex` / `deps.ledgerMutex` act as effective no-ops for the
-  // `progress-journal-<taskId>` and `append-learnings-<taskId>` critical sections (both always run
-  // inside their mutex, whether or not there is contention).
   const subchainOpts = perTaskSubchainOpts(opts);
   const perTaskChains = opts.todoTasks.map((task) =>
     createPerTaskSubchain(deps, subchainOpts, task, resolveRepoOrThrow(opts.repositories, task), readConfig)
   );
 
-  // Serial path: the lock stays inside the flow. `implement-locked` EXECUTES the prologue and epilogue
-  // children spliced flat, so every trace name — including the skip/abort entries a failure
-  // synthesises for the remaining siblings — is what it has always been. Only its `children` group
-  // them under `implement-prologue` / `implement-epilogue`, the same segments the parallel path runs.
+  // Executed flat so a failure's skip entries name each leaf; grouped only for display.
   const prologue = buildImplementPrologue(deps, opts);
   const tasks = sequential<ImplementCtx>('implement-tasks', perTaskChains, { label: 'Run tasks' });
   const epilogue = buildImplementEpilogue(deps, opts);
@@ -602,10 +332,7 @@ export const createImplementFlow = (deps: ImplementDeps, opts: CreateImplementFl
     [prologue, tasks, epilogue]
   );
 
-  // Lock key: the sprint dir. One implement run at a time per sprint — across all repos the
-  // sprint touches — rather than per-repo, since the chain owns sprint-scoped state
-  // (`tasks.json`, `progress.md`, `execution.json`) that would race under concurrent runs
-  // even when the underlying repos differ.
+  // Keyed on the sprint dir, not per repo: the chain owns sprint-scoped files that would race.
   return sequential<ImplementCtx>('implement', [
     withRepoLock(
       {
