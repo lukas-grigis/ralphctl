@@ -667,6 +667,12 @@ describe('isDefectShapedTask — guard predicate', () => {
     expect(isDefectShapedTask(ctx, task.id)).toBe(false);
   });
 
+  it('false for a feature-shaped name whose description only mentions a fix in passing', () => {
+    const task = { ...makeTodoTask({ name: 'add a new widget' }), description: 'and fix any lint errors it trips' };
+    const ctx = { tasks: [task] } as unknown as ImplementCtx;
+    expect(isDefectShapedTask(ctx, task.id)).toBe(false);
+  });
+
   it('false when the task is absent from ctx.tasks', () => {
     const task = makeTodoTask({ name: 'fix the null pointer' });
     const ctx = { tasks: [] } as unknown as ImplementCtx;

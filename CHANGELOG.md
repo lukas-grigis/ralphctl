@@ -7,6 +7,16 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- **CLI commands start about twice as fast.** `ralphctl --version`, `sprint list`, `settings show` and the other
+  one-shot commands no longer load the TUI (Ink and React), taking roughly 0.25 s instead of 0.55 s. Bare
+  `ralphctl` is unchanged.
+- **`ralphctl doctor` runs its checks concurrently**, roughly halving its run time. The report order is unchanged.
+- **Fewer needless reproduction runs.** Implement decides whether a task is a bug fix from its name first, and reads
+  the description only when the name gives no hint. Before, a feature task whose description merely mentioned
+  "fix" or "broken" got an extra AI session that tried to write a failing test before any work started.
+
 ## [0.27.0] - 2026-10-25
 
 ### Breaking
