@@ -1,9 +1,5 @@
-/**
- * Severity ordering used by sinks to filter on a floor level. The order below is the canonical
- * least → most severe (the `'silent'` option is a synthetic floor, never set on a concrete
- * `LogEvent` — its `level` is narrowed to `Exclude<LogLevel, 'silent'>`).
- *
- * Lives in domain because the `Settings` entity persists a user-chosen `logLevel`. The
- * observability ports that consume log events live in `business/observability`.
- */
+/** The persisted log floor, least → most severe. In domain because `Settings` persists it. */
 export type LogLevel = 'silent' | 'debug' | 'info' | 'warn' | 'error';
+
+/** A concrete event's level — `silent` is a floor only, never an event's severity. */
+export type EventLogLevel = Exclude<LogLevel, 'silent'>;
