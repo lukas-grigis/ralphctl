@@ -17,7 +17,6 @@
  *   - `use-cancel-handlers.ts`       — cancel-attempt / cancel-flow handlers
  *   - `use-cancel-scope-stats.ts`    — attempt-elapsed + remaining-task stats
  *   - `use-execute-input.ts`         — keyboard + view-hint registration
- *   - `use-live-clock.ts`            — 1-Hz tick while running
  *   - `use-pinned-sprint-context.ts` — pin availability probe, focused-run context, selection converge
  *   - `use-run-sprint-context.ts`    — the three pin-derived hooks in one call
  *   - `use-run-forensics.ts`         — existence-checked post-mortem paths for a failed run
@@ -87,7 +86,7 @@ import { TasksPanelHost } from '@src/application/ui/tui/views/execute-view-inter
 import { useActiveTaskSummary } from '@src/application/ui/tui/views/execute-view-internals/use-active-task-summary.ts';
 import { resolveResponsiveLayout } from '@src/application/ui/tui/views/execute-view-internals/responsive-layout.ts';
 import { useExecuteInput } from '@src/application/ui/tui/views/execute-view-internals/use-execute-input.ts';
-import { useLiveClock } from '@src/application/ui/tui/views/execute-view-internals/use-live-clock.ts';
+import { useTickingClock } from '@src/application/ui/tui/runtime/use-ticking-clock.ts';
 import {
   useExecuteCancel,
   useExecuteProgress,
@@ -238,13 +237,7 @@ const SessionNotFoundNotice = (): React.JSX.Element => (
   </ViewShell>
 );
 
-/**
- * Not derived inside `useCancelScopeStats` itself so the O(chainEvents) scan that produces
- * `attemptStartedAt` does not re-run on every 1 Hz `useLiveClock` tick — only this cheap
- * subtraction does. `Math.max` guards the initial render: `now` (`useLiveClock`'s `Date.now()`
- * seed) can be fractionally behind an attempt timestamp parsed in the same tick, yielding a
- * small negative delta we clamp to 0.
- */
+/** Clamped at 0: the clock seed can sit fractionally behind an attempt timestamp parsed in the same tick. */
 const computeAttemptElapsedMs = (attemptStartedAt: number | undefined, now: number): number | undefined =>
   attemptStartedAt !== undefined ? Math.max(0, now - attemptStartedAt) : undefined;
 
@@ -309,7 +302,7 @@ const useExecuteRunControls = ({
     hasBlockedTask,
   });
 
-  const now = useLiveClock(isRunning);
+  const now = useTickingClock(isRunning);
 
   return { isRunning, cancelScopeOpen, setCancelScopeOpen, now };
 };
