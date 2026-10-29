@@ -209,33 +209,12 @@ const buildPerToolSubchain = (
 };
 
 /**
- * Build the readiness chain — fans out to `opts.providers` when supplied, otherwise to every
- * uniquely referenced provider in `settings.ai`.
- *
- * Shape:
- *
- *   sequential('readiness', [
- *     load-project,
- *     pick-repository,                       // interactive (auto-selects single-repo projects)
- *     // one per-tool sub-chain per unique provider in settings.ai (order follows FLOW_IDS), each
- *     // wrapped in a continue-on-error guard so a provider-specific infra failure skips that
- *     // provider while the fan-out carries on:
- *     continue-on-error(sequential('tool-claude-code', [ probe → install-skills → propose →
- *                                       uninstall-skills → confirm → write →
- *                                       offer-skill-suggestions → install-readiness-skills ])),
- *     continue-on-error(sequential('tool-copilot',    [ … ])),
- *     continue-on-error(sequential('tool-codex',      [ … ])),
- *     persist-suggested-skills,             // one save: union of every tool's suggestions
- *   ])
- *
- * Each per-tool sub-chain uses provider-specific headless / skills adapters resolved via
- * `deps.providerFor` and `deps.skillsAdapterFor`. The model and effort for each sub-chain come
- * from the per-flow row whose provider matches (readiness row preferred when it does).
+ * Readiness setup, fanned out per provider (`opts.providers`, else every provider `settings.ai`
+ * references): a provider-specific infra failure skips that provider and the fan-out carries on,
+ * and one final save persists the union of every provider's skill suggestions. Each provider's
+ * model / effort come from its matching flow row, the readiness row first.
  */
 export const createReadinessFlow = (deps: SetupReadinessDeps, opts: CreateReadinessFlowOpts): Element<ReadinessCtx> => {
-  // Default to every uniquely-referenced provider (historical behavior); a launcher-supplied
-  // `providers` list scopes the fan-out to the operator's pick. Per-provider model resolution
-  // still reads the full `opts.ai`, so any provider in the list resolves correctly.
   const providers = opts.providers ?? uniqueProvidersFromAi(opts.ai);
   const perToolSubchains = providers.map((provider) =>
     wrapProviderContinue(deps.eventBus, provider, buildPerToolSubchain(deps, opts, provider, toolForProvider(provider)))
