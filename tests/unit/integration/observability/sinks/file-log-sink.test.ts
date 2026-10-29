@@ -37,6 +37,7 @@ import { createInMemoryEventBus } from '@src/integration/observability/in-memory
 import { startFileLogSink } from '@src/integration/observability/sinks/file-log-sink.ts';
 import { createAppendFile } from '@src/integration/io/append-file-adapter.ts';
 import { ConflictError } from '@src/domain/value/error/conflict-error.ts';
+import { Result } from '@src/domain/result.ts';
 
 const makeLog = (i: number): LogEvent => ({
   type: 'log',
@@ -125,6 +126,30 @@ describe('startFileLogSink', () => {
     expect(lines).toHaveLength(50);
     expect(JSON.parse(lines[0] ?? '{}')).toMatchObject({ type: 'log', message: 'event-0' });
     expect(JSON.parse(lines[49] ?? '{}')).toMatchObject({ type: 'log', message: 'event-49' });
+  });
+
+  it('burst drain — lines queued behind an in-flight write land in one append, in order', async () => {
+    const file = await makeFilePath();
+    const bus = createInMemoryEventBus();
+    const writes: string[] = [];
+    const sink = startFileLogSink({
+      file,
+      bus,
+      appendFile: (_path, text) => {
+        writes.push(text);
+        return Promise.resolve(Result.ok(undefined));
+      },
+    });
+    // The first publish starts a write; the next 99 queue behind it and drain as one batch.
+    for (let i = 0; i < 100; i++) bus.publish(makeLog(i));
+    await sink.flush();
+    sink.stop();
+
+    expect(writes).toHaveLength(2);
+    const lines = writes.join('').trim().split('\n');
+    expect(lines.map((l) => (JSON.parse(l) as LogEvent).message)).toEqual(
+      Array.from({ length: 100 }, (_, i) => `event-${i}`)
+    );
   });
 
   it('queue cap — drops newest and emits exactly one queue-full degradation', async () => {
