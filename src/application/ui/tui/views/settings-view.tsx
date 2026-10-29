@@ -39,7 +39,7 @@ import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { useStorage } from '@src/application/ui/tui/runtime/storage-context.tsx';
 import { useLogLevel } from '@src/application/ui/tui/runtime/log-level-context.tsx';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
-import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
+import { useOverlayState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { useViewHints } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
 import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx';
 import { createSettingsShowFlow } from '@src/application/flows/settings-show/flow.ts';
@@ -435,7 +435,7 @@ const SettingsViewBody = ({
 export const SettingsView = (): React.JSX.Element => {
   const deps = useDeps();
   const storage = useStorage();
-  const ui = useUiState();
+  const ui = useOverlayState();
   const logLevel = useLogLevel();
 
   const [editingField, setEditingField] = useState<EditableField | undefined>(undefined);

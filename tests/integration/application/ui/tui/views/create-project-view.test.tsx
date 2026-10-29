@@ -15,7 +15,7 @@ import { join } from 'node:path';
 import { Result } from '@src/domain/result.ts';
 import { CreateProjectView } from '@src/application/ui/tui/views/create-project-view.tsx';
 import { useRouter } from '@src/application/ui/tui/runtime/router.tsx';
-import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
+import { useOverlayState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { useGlobalKeys } from '@src/application/ui/tui/runtime/use-global-keys.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import type { AppDeps } from '@src/application/bootstrap/wire.ts';
@@ -122,7 +122,7 @@ describe('CreateProjectView — wizard e2e', () => {
 // Mounts the wizard the way App does: pushed over home, under the real global key handler.
 const PushedCreateProject = (): React.JSX.Element => {
   const router = useRouter();
-  const ui = useUiState();
+  const ui = useOverlayState();
   useGlobalKeys({ disabled: ui.promptActive });
   const [pushed, setPushed] = useState(false);
   useEffect(() => {

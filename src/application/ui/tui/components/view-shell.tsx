@@ -47,7 +47,7 @@ import { FeedbackLine, type StructuredFeedback } from '@src/application/ui/tui/c
 import { ScrollRegion } from '@src/application/ui/tui/components/scroll-region.tsx';
 import { PromptHost } from '@src/application/ui/tui/prompts/prompt-host.tsx';
 import { usePromptQueue } from '@src/application/ui/tui/prompts/prompt-context.tsx';
-import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
+import { useOverlayState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 
 export interface ViewShellProps {
   readonly title: string;
@@ -93,7 +93,7 @@ export const ViewShell = ({
   feedback,
   children,
 }: ViewShellProps): React.JSX.Element => {
-  const ui = useUiState();
+  const ui = useOverlayState();
   const queue = usePromptQueue();
   // Precedence: user toggle (`bannerCompact`) wins over the view's `compactBanner` prop, which
   // wins over `Banner`'s internal width-based auto-switch. When neither is set we pass

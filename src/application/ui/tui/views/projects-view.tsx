@@ -28,7 +28,7 @@ import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { useAsyncLoad, type AsyncLoadState } from '@src/application/ui/tui/runtime/use-async-load.ts';
 import { useRouter } from '@src/application/ui/tui/runtime/router.tsx';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
-import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
+import { useOverlayState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { useViewKeys, type ViewKeyBinding } from '@src/application/ui/tui/runtime/use-view-keys.ts';
 import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx';
 import { useBreakpoint } from '@src/application/ui/tui/runtime/use-breakpoint.ts';
@@ -352,7 +352,7 @@ const projectsKeyBindings = ({
 export const ProjectsView = (): React.JSX.Element => {
   const router = useRouter();
   const selection = useSelection();
-  const ui = useUiState();
+  const ui = useOverlayState();
   const { rows } = useBreakpoint();
   const edit = useEditField();
   const deps = useDeps();

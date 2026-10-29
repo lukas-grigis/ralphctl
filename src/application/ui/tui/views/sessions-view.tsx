@@ -26,7 +26,7 @@ import { useRouter } from '@src/application/ui/tui/runtime/router.tsx';
 import { useAwaitingSessions } from '@src/application/ui/tui/runtime/use-awaiting-sessions.ts';
 import { useInterruptedRuns } from '@src/application/ui/tui/runtime/use-interrupted-runs.ts';
 import { useSessionManager, useSessions } from '@src/application/ui/tui/runtime/sessions-context.tsx';
-import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
+import { useOverlayState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { useViewKeys } from '@src/application/ui/tui/runtime/use-view-keys.ts';
 import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx';
 import type { SessionRecord } from '@src/application/ui/tui/runtime/session-manager.ts';
@@ -264,7 +264,7 @@ export const SessionsView = (): React.JSX.Element => {
   const sessions = useSessions();
   const awaiting = useAwaitingSessions();
   const manager = useSessionManager();
-  const ui = useUiState();
+  const ui = useOverlayState();
   const { rows } = useBreakpoint();
   const interrupted = useInterruptedRuns();
 

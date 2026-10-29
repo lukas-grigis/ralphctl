@@ -6,7 +6,7 @@ import { ViewShell } from '@src/application/ui/tui/components/view-shell.tsx';
 import { StatusChip } from '@src/application/ui/tui/components/status-chip.tsx';
 import { Spinner } from '@src/application/ui/tui/components/spinner.tsx';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
-import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
+import { useOverlayState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx';
 import { useSystemStatus } from '@src/application/ui/tui/runtime/system-status-context.tsx';
 import { fitLineWithPath } from '@src/application/ui/tui/components/format.ts';
@@ -59,7 +59,7 @@ const bucketProbes = (results: readonly ProbeResult[]): readonly GroupBucket[] =
   }).sort((a, b) => a.worst - b.worst);
 
 export const DoctorView = (): React.JSX.Element => {
-  const ui = useUiState();
+  const ui = useOverlayState();
   const system = useSystemStatus();
   const results = system.doctor?.probes;
   const [showPassed, setShowPassed] = useState(false);

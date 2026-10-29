@@ -16,7 +16,7 @@ import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { ProjectId } from '@src/domain/value/id/project-id.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
-import type { FocusedRunCtx } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
+import { type FocusedRunCtx, useFocusedRun } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 
 /**
  * Tri-state so callers can tell "not yet known" apart from "confirmed available" — convergence
@@ -147,7 +147,6 @@ export interface UsePinnedSprintContextInput {
   readonly pinnedSprintId: SprintId | undefined;
   readonly pinnedSprintLabel: string | undefined;
   readonly sprintRepo: AppDeps['sprintRepo'];
-  readonly setFocusedRunContext: (ctx: FocusedRunCtx | undefined) => void;
   readonly selectionSprintId: SprintId | undefined;
   readonly followFocusedRun: (
     projectId: ProjectId,
@@ -170,10 +169,10 @@ export const usePinnedSprintContext = ({
   pinnedSprintId,
   pinnedSprintLabel,
   sprintRepo,
-  setFocusedRunContext,
   selectionSprintId,
   followFocusedRun,
 }: UsePinnedSprintContextInput): UsePinnedSprintContextResult => {
+  const { setFocusedRunContext } = useFocusedRun();
   const { probe: pinnedSprintProbe, sprint: pinnedSprint } = usePinnedSprintProbe({ pinnedSprintId, sprintRepo });
 
   React.useEffect(() => {

@@ -25,7 +25,7 @@ import { Box } from 'ink';
 import { ViewShell } from '@src/application/ui/tui/components/view-shell.tsx';
 import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { useRouter, useViewProps } from '@src/application/ui/tui/runtime/router.tsx';
-import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
+import { useOverlayState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import { createTicketAddFlow } from '@src/application/flows/add-ticket/flow.ts';
@@ -106,7 +106,7 @@ const persistTicket = async (deps: AppDeps, sprintId: SprintId, draft: TicketDra
 export const AddTicketView = (): React.JSX.Element => {
   const deps = useDeps();
   const router = useRouter();
-  const ui = useUiState();
+  const ui = useOverlayState();
   const { sprintId } = useViewProps<AddTicketProps>();
   const [step, setStep] = useState<Step>({ kind: 'link' });
   // Tickets successfully appended during this view session. Drives the success-line counter and

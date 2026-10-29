@@ -22,7 +22,7 @@ import { AbortError } from '@src/domain/value/error/abort-error.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import type { PendingPromptInput, PromptQueue } from '@src/application/ui/tui/prompts/prompt-queue.ts';
 import { usePromptQueue } from '@src/application/ui/tui/prompts/prompt-context.tsx';
-import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
+import { useOverlayState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { useIsMounted } from '@src/application/ui/tui/runtime/use-is-mounted.ts';
 import { glyphs } from '@src/application/ui/tui/theme/tokens.ts';
 
@@ -68,7 +68,7 @@ const enqueueText = (queue: PromptQueue, title: string, kind: EditFieldKind, ini
 
 export const useEditField = (): UseEditFieldState => {
   const queue = usePromptQueue();
-  const ui = useUiState();
+  const ui = useOverlayState();
   // Pin the stable callback so the useCallback dep list can reference it without re-firing on
   // every unrelated UI-state change (helpOpen, claims counter, …).
   const claimPrompt = ui.claimPrompt;

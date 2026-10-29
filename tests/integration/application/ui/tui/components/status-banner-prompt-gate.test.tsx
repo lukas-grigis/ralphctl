@@ -15,7 +15,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { render } from 'ink-testing-library';
 import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import { DepsProvider } from '@src/application/ui/tui/runtime/deps-context.tsx';
-import { UiStateProvider, useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
+import { UiStateProvider, useOverlayState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { StatusBanner } from '@src/application/ui/tui/components/status-banner.tsx';
 import { TextPrompt } from '@src/application/ui/tui/prompts/text-prompt.tsx';
 import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
@@ -33,7 +33,7 @@ const publishBanner = (bus: Bus): void => {
 
 /** Holds a `claimPrompt()` token for as long as it is mounted — exactly what PromptHost does. */
 const ClaimingPrompt = ({ onSubmit }: { readonly onSubmit: (value: string) => void }): React.JSX.Element => {
-  const ui = useUiState();
+  const ui = useOverlayState();
   useEffect(() => ui.claimPrompt(), [ui.claimPrompt]);
   return <TextPrompt message="name" onSubmit={onSubmit} onCancel={() => undefined} />;
 };

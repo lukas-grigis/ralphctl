@@ -23,7 +23,7 @@ import type { Ticket } from '@src/domain/entity/ticket.ts';
 import { latestRecordedEvaluation } from '@src/business/task/evaluation-artifact.ts';
 import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { useRouter, useViewProps } from '@src/application/ui/tui/runtime/router.tsx';
-import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
+import { useOverlayState, type OverlayApi } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { useViewHints, type ViewHint } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
 import { useUnblockTask } from '@src/application/ui/tui/runtime/use-unblock-task.ts';
@@ -256,7 +256,7 @@ export interface UseSprintDetailBodyResult {
 interface SprintDetailData {
   readonly deps: AppDeps;
   readonly router: ReturnType<typeof useRouter>;
-  readonly ui: ReturnType<typeof useUiState>;
+  readonly ui: OverlayApi;
   readonly selection: ReturnType<typeof useSelection>;
   readonly state: AsyncLoadState<SprintBundle, unknown>;
   readonly project: Project | undefined;
@@ -275,7 +275,7 @@ interface SprintDetailData {
 const useSprintDetailData = (): SprintDetailData => {
   const deps = useDeps();
   const router = useRouter();
-  const ui = useUiState();
+  const ui = useOverlayState();
   const { sprintId } = useViewProps<SprintDetailProps>();
   const selection = useSelection();
 
@@ -318,7 +318,7 @@ const useSprintDetailData = (): SprintDetailData => {
 
 interface BuildSprintDetailResultArgs {
   readonly state: AsyncLoadState<SprintBundle, unknown>;
-  readonly ui: ReturnType<typeof useUiState>;
+  readonly ui: OverlayApi;
   readonly confirmRemove: Ticket | undefined;
   readonly setConfirmRemove: (ticket: Ticket | undefined) => void;
   readonly project: Project | undefined;

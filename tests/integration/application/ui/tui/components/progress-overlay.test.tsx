@@ -22,7 +22,7 @@ import { DepsProvider } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { SessionsProvider } from '@src/application/ui/tui/runtime/sessions-context.tsx';
 import type { SessionManager } from '@src/application/ui/tui/runtime/session-manager.ts';
 import { StorageProvider } from '@src/application/ui/tui/runtime/storage-context.tsx';
-import { UiStateProvider, useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
+import { UiStateProvider, useFocusedRun, useOverlayState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { SelectionProvider, useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
 import { RouterProvider } from '@src/application/ui/tui/runtime/router.tsx';
 import { useGlobalKeys } from '@src/application/ui/tui/runtime/use-global-keys.ts';
@@ -70,7 +70,7 @@ const SeedSelection = ({
   readonly withFocusedRun?: boolean | undefined;
 }): React.JSX.Element => {
   const selection = useSelection();
-  const ui = useUiState();
+  const ui = useFocusedRun();
   const setSprintRef = React.useRef(selection.setSprint);
   setSprintRef.current = selection.setSprint;
   const setFocusedRunRef = React.useRef(ui.setFocusedRunContext);
@@ -96,7 +96,7 @@ const SeedSelection = ({
 };
 
 const GlobalHarness = ({ children }: { readonly children: React.ReactNode }): React.JSX.Element => {
-  const ui = useUiState();
+  const ui = useOverlayState();
   useGlobalKeys({ disabled: ui.promptActive });
   // Mirror the App.tsx Layout strategy: keep children mounted (display:none when overlay is open)
   // so list cursors, expanded cards, and scroll offsets are preserved across open/close cycles.
@@ -332,7 +332,7 @@ describe('ProgressOverlay — scrolling', () => {
  * overlay is open is a no-op — the hidden view stays inert.
  */
 const CursorChild = (): React.JSX.Element => {
-  const ui = useUiState();
+  const ui = useOverlayState();
   const ITEMS = 5;
   const [cursor, setCursor] = React.useState(0);
   useInput(

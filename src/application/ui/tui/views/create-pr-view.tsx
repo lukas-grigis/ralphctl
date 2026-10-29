@@ -16,7 +16,7 @@ import { Spinner } from '@src/application/ui/tui/components/spinner.tsx';
 import { Card } from '@src/application/ui/tui/components/card.tsx';
 import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
-import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
+import { useOverlayState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { useViewHints } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
 import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
@@ -50,7 +50,7 @@ type RunState =
 export const CreatePrView = (): React.JSX.Element => {
   const deps = useDeps();
   const selection = useSelection();
-  const ui = useUiState();
+  const ui = useOverlayState();
   const [prep, setPrep] = useState<PrepState>({ kind: 'loading' });
   const [run, setRun] = useState<RunState>({ kind: 'idle' });
   const [useAi, setUseAi] = useState<boolean>(true);

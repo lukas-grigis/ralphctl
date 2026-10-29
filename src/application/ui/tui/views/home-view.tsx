@@ -20,7 +20,7 @@ import { Box, Text, useInput } from 'ink';
 import { ViewShell } from '@src/application/ui/tui/components/view-shell.tsx';
 import { ActionMenu } from '@src/application/ui/tui/components/action-menu.tsx';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
-import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
+import { useOverlayState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { useRouter } from '@src/application/ui/tui/runtime/router.tsx';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
 import { useAppStateSnapshot } from '@src/application/ui/tui/runtime/use-app-state-snapshot.ts';
@@ -323,7 +323,7 @@ const initialMenuIndexFor = (
 
 export const HomeView = (): React.JSX.Element => {
   const router = useRouter();
-  const ui = useUiState();
+  const ui = useOverlayState();
   const selection = useSelection();
 
   const { state, reload } = useAppStateSnapshot();

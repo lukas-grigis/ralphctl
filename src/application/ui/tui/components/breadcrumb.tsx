@@ -13,7 +13,7 @@ import { Box, Text } from 'ink';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { useRouter } from '@src/application/ui/tui/runtime/router.tsx';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
-import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
+import { useFocusedRun } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { StatusChip, sprintStatusKind } from '@src/application/ui/tui/components/status-chip.tsx';
 import { useTerminalSize } from '@src/application/ui/tui/runtime/use-terminal-size.ts';
 import { chipCellsFor, fitBreadcrumbRight, type FitResult } from '@src/application/ui/tui/components/breadcrumb-fit.ts';
@@ -87,7 +87,7 @@ const RightSide = ({
 export const Breadcrumb = (): React.JSX.Element => {
   const router = useRouter();
   const selection = useSelection();
-  const ui = useUiState();
+  const ui = useFocusedRun();
   const { atLeast } = useBreakpoint();
   const short = useShortTerminal();
   const { columns } = useTerminalSize();

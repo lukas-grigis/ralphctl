@@ -23,7 +23,7 @@ import { DepsProvider } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { SessionsProvider } from '@src/application/ui/tui/runtime/sessions-context.tsx';
 import type { SessionManager } from '@src/application/ui/tui/runtime/session-manager.ts';
 import { StorageProvider } from '@src/application/ui/tui/runtime/storage-context.tsx';
-import { UiStateProvider, useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
+import { UiStateProvider, useOverlayState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { SelectionProvider } from '@src/application/ui/tui/runtime/selection-context.tsx';
 import { RouterProvider } from '@src/application/ui/tui/runtime/router.tsx';
 import { useGlobalKeys } from '@src/application/ui/tui/runtime/use-global-keys.ts';
@@ -84,7 +84,7 @@ const target = (overrides: Partial<EvaluationTarget> = {}): EvaluationTarget => 
  * `modalOpen` exactly as both production surfaces are. Closing is left to the global handler.
  */
 const OpenerChild = ({ evaluationTarget }: { readonly evaluationTarget: EvaluationTarget }): React.JSX.Element => {
-  const ui = useUiState();
+  const ui = useOverlayState();
   useInput(
     (input) => {
       if (ui.modalOpen) return;
@@ -99,7 +99,7 @@ const emptyManager = (): SessionManager =>
   ({ list: () => [], get: () => undefined, subscribe: () => () => undefined }) as unknown as SessionManager;
 
 const GlobalHarness = ({ children }: { readonly children: React.ReactNode }): React.JSX.Element => {
-  const ui = useUiState();
+  const ui = useOverlayState();
   useGlobalKeys({ disabled: ui.promptActive });
   const open = ui.evaluationTarget !== undefined;
   return (
