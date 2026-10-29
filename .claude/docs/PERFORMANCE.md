@@ -172,8 +172,7 @@ Claude Code CLI default (`medium` on Opus 5.5 and Sonnet 5.5, `high` on every ot
 model). Each
 firing climbs exactly one tier on `low → medium → high → xhigh → max` (the few models without an `xhigh`
 tier, e.g. Sonnet 4.6, go `high → max`), capping at `max`. Copilot
-keeps the fixed target `EFFORT_ESCALATION_TARGET`
-(`high`); Codex and Grok keep the same fixed target `CODEX_EFFORT_ESCALATION_TARGET` (`xhigh`) —
+keeps the fixed target `high`; Codex and Grok keep the fixed target `xhigh` (`FIXED_EFFORT_RUNG`) —
 `xhigh` is accepted by every codex catalog model and by `grok-4.6` / `grok-4.7` (on `grok-4.5`, which caps
 at `high`, the Grok target is capped to that ceiling), unlike the old shared
 `high` target, which every codex preset already stamped on implement and so left the rung permanently
@@ -184,7 +183,7 @@ the first plateau, `xhigh → max` on the second — see **Default posture** bel
 generally — the stamped effort climbs monotonically to the terminal
 `max`, from which the rung is spent and falls through to the nudge. Skipped gracefully — straight to the
 nudge — when the provider/model has no effort knob (e.g. Claude Haiku) or the generator is already at its
-ceiling. `opencode` is excluded from both rungs by design (`EFFORT_CAPABLE_PROVIDERS` in
+ceiling. `opencode` is excluded from both rungs by design (no `FIXED_EFFORT_RUNG` entry in
 `escalation-map.ts`) — it aggregates upstream providers, so there is no `--variant` level this ladder
 could stamp that is known valid for the row's model; an OpenCode generator on a plateau falls straight to
 the change-of-approach nudge. Grok is included in that set (`xai-grok`); its model ladder is

@@ -20,9 +20,7 @@ import { GROK_MODELS } from '@src/domain/value/settings-models/grok.ts';
 import { OPENCODE_MODELS } from '@src/domain/value/settings-models/opencode.ts';
 import { AI_PROVIDERS, type AiProvider } from '@src/domain/entity/settings.ts';
 import {
-  CODEX_EFFORT_ESCALATION_TARGET,
   DEFAULT_ESCALATION_LADDERS,
-  EFFORT_ESCALATION_TARGET,
   escalationLadderCyclicFrom,
   mergeEscalationMap,
   nextEffortRung,
@@ -397,8 +395,8 @@ describe('nextEffortRung', () => {
   // ── Copilot keeps the fixed-`high` target; the model only matters when its effort list lacks it. ──
 
   it('copilot escalates a fresh or below-target row to the fixed target `high`', () => {
-    expect(nextEffortRung('github-copilot', 'gpt-5.6-sol', undefined)).toBe(EFFORT_ESCALATION_TARGET);
-    expect(nextEffortRung('github-copilot', 'gpt-5.6-sol', 'low')).toBe(EFFORT_ESCALATION_TARGET);
+    expect(nextEffortRung('github-copilot', 'gpt-5.6-sol', undefined)).toBe('high');
+    expect(nextEffortRung('github-copilot', 'gpt-5.6-sol', 'low')).toBe('high');
   });
 
   it('copilot returns undefined when already at/above the fixed target (no headroom)', () => {
@@ -415,9 +413,9 @@ describe('nextEffortRung', () => {
   //    vocabulary change, so every codex preset (which stamps `high`) has a live rung. ──
 
   it('codex escalates a fresh, below-target, or legacy `minimal` row to the fixed target `xhigh`', () => {
-    expect(nextEffortRung('openai-codex', 'gpt-5.6-sol', undefined)).toBe(CODEX_EFFORT_ESCALATION_TARGET);
-    expect(nextEffortRung('openai-codex', 'gpt-6-luna', 'high')).toBe(CODEX_EFFORT_ESCALATION_TARGET);
-    expect(nextEffortRung('openai-codex', 'gpt-6-luna', 'minimal')).toBe(CODEX_EFFORT_ESCALATION_TARGET);
+    expect(nextEffortRung('openai-codex', 'gpt-5.6-sol', undefined)).toBe('xhigh');
+    expect(nextEffortRung('openai-codex', 'gpt-6-luna', 'high')).toBe('xhigh');
+    expect(nextEffortRung('openai-codex', 'gpt-6-luna', 'minimal')).toBe('xhigh');
   });
 
   it('codex returns undefined when already at/above the fixed target (no headroom)', () => {
@@ -429,9 +427,9 @@ describe('nextEffortRung', () => {
   // ── Grok targets `xhigh`, capped to the model's own ceiling — grok-4.5 tops out at `high`. ──
 
   it('grok escalates a fresh, below-target, or `minimal` row to `xhigh` on grok-4.6 / grok-4.7', () => {
-    expect(nextEffortRung('xai-grok', 'grok-4.6', undefined)).toBe(CODEX_EFFORT_ESCALATION_TARGET);
-    expect(nextEffortRung('xai-grok', 'grok-4.7', 'high')).toBe(CODEX_EFFORT_ESCALATION_TARGET);
-    expect(nextEffortRung('xai-grok', 'grok-4.6', 'minimal')).toBe(CODEX_EFFORT_ESCALATION_TARGET);
+    expect(nextEffortRung('xai-grok', 'grok-4.6', undefined)).toBe('xhigh');
+    expect(nextEffortRung('xai-grok', 'grok-4.7', 'high')).toBe('xhigh');
+    expect(nextEffortRung('xai-grok', 'grok-4.6', 'minimal')).toBe('xhigh');
   });
 
   it('grok returns undefined when already at/above the target (no headroom)', () => {
@@ -448,8 +446,8 @@ describe('nextEffortRung', () => {
   });
 
   it('grok passes a model without effort data (grok-4.7-build-fast, custom ids) to the fixed `xhigh`', () => {
-    expect(nextEffortRung('xai-grok', 'grok-4.7-build-fast', 'high')).toBe(CODEX_EFFORT_ESCALATION_TARGET);
-    expect(nextEffortRung('xai-grok', 'grok-9-custom', undefined)).toBe(CODEX_EFFORT_ESCALATION_TARGET);
+    expect(nextEffortRung('xai-grok', 'grok-4.7-build-fast', 'high')).toBe('xhigh');
+    expect(nextEffortRung('xai-grok', 'grok-9-custom', undefined)).toBe('xhigh');
   });
 
   it('returns undefined when no provider is resolvable (skips the rung gracefully)', () => {

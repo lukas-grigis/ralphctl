@@ -49,7 +49,7 @@ rows migrate to `low` at parse time. OpenCode accepts `minimal | low | medium | 
 model — OpenCode aggregates other vendors, and the accepted `--variant` levels belong to whichever vendor
 sits behind the `provider/model` id. Two deliberate carve-outs follow from that: the shipped per-flow
 default is NOT stamped on an opencode row (`resolve-effort.ts`), matching
-`EFFORT_CAPABLE_PROVIDERS` in `escalation-map.ts`, because a level the upstream model never supported
+its absence from `FIXED_EFFORT_RUNG` in `escalation-map.ts`, because a level the upstream model never supported
 would turn a working spawn into a hard failure; and `--variant` exists only on the `run` subcommand, so
 the interactive TUI path (`opencode <cwd> --model …`) forwards no effort at all. This headless/interactive
 asymmetry is declared per provider as `ProviderTraits.effortForwarding.{headless,interactive}`
@@ -65,7 +65,7 @@ loading old files only: `settings set` refuses any row effort outside the provid
 model id, naming its successor) rather than letting the save rewrite it. A Grok rejection
 (`Couldn't apply reasoning effort` / `unknown effort level`) classifies as the same `ProviderConfigRejection`
 as Copilot's and Codex's. `grok-4.7-build-fast` has no published effort
-data and passes through. Grok is in `EFFORT_CAPABLE_PROVIDERS`. The implement generator's
+data and passes through. Grok has a `FIXED_EFFORT_RUNG` entry. The implement generator's
 resolved effort also feeds the escalation policy's same-model effort rung,
 whose target is provider- and model-aware: a Claude generator at the top of the model ladder climbs one
 tier above its EFFECTIVE effort — the explicit level, or, only when genuinely unset, the model's own
