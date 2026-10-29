@@ -19,11 +19,11 @@ export interface BreakpointState {
   readonly atLeast: (target: Breakpoint) => boolean;
 }
 
-const ORDER: readonly Breakpoint[] = ['sm', 'md', 'lg', 'xl', 'xxl'];
+const RANK: Readonly<Record<Breakpoint, number>> = { sm: 0, md: 1, lg: 2, xl: 3, xxl: 4 };
 
 export const useBreakpoint = (): BreakpointState => {
   const size = useTerminalSize();
   const breakpoint = breakpointFor(size.columns);
-  const atLeast = (target: Breakpoint): boolean => ORDER.indexOf(breakpoint) >= ORDER.indexOf(target);
+  const atLeast = (target: Breakpoint): boolean => RANK[breakpoint] >= RANK[target];
   return { breakpoint, columns: size.columns, rows: size.rows, atLeast };
 };
