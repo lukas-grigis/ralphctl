@@ -5,7 +5,8 @@ import { buildDetectScriptsPrompt } from '@src/integration/ai/prompts/detect-scr
 import { renderContractSectionFor } from '@src/integration/ai/contract/_engine/render-contract-section.ts';
 import { writeTextAtomic } from '@src/integration/io/fs.ts';
 import { detectScriptsOutputContract } from '@src/application/flows/detect-scripts/leaves/propose.contract.ts';
-import { readOnlySignalsSession } from '@src/application/flows/_shared/signals-session.ts';
+import { signalsSession } from '@src/application/flows/_shared/signals-session.ts';
+import { READ_ONLY } from '@src/integration/ai/providers/_engine/session-permissions.ts';
 import { runPathsFor } from '@src/application/flows/_shared/allocate-run-dir.ts';
 import { gradeDetectScripts } from '../grade.ts';
 import { materialize } from '../workspace.ts';
@@ -13,7 +14,7 @@ import { type FlowAdapter, type GradeToolbox, validateWith } from './adapter.ts'
 import { absPath, asFlow } from './narrow.ts';
 
 /**
- * detect-scripts — one read-only repo inventory (`readOnlySignalsSession`, as production). Graded by
+ * detect-scripts — one read-only repo inventory (a READ_ONLY `signalsSession`, as production). Graded by
  * OUTCOME: the proposed `verify-script` must exit 0 on a fresh clean copy and non-zero on a fresh
  * copy with the fixture's `broken.patch` applied. Running the command instead of string-matching it
  * follows "grade what the agent produced, not the path it took" (Anthropic, Demystifying evals).
@@ -67,15 +68,16 @@ export const detectScriptsAdapter: FlowAdapter = {
     });
     if (!prompt.ok) return Result.error(prompt.error);
     return Result.ok({
-      session: readOnlySignalsSession({
+      session: signalsSession({
         cwd: ctx.workspace.repo,
         prompt: prompt.value,
         model: ctx.row.model,
+        permissions: READ_ONLY,
         signalsFile: paths.value.signalsFile,
         outputDir: runDir.value,
         bodyFile: paths.value.bodyFile,
-        ...(ctx.row.effort !== undefined ? { effort: ctx.row.effort } : {}),
-        ...(ctx.abortSignal !== undefined ? { abortSignal: ctx.abortSignal } : {}),
+        effort: ctx.row.effort,
+        abortSignal: ctx.abortSignal,
       }),
       outputDir: runDir.value,
       selfContainedContext: `Repository under inspection: \`${String(ctx.workspace.repo)}\`\n\n${outputContractSection}`,

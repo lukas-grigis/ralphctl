@@ -117,8 +117,6 @@ export const createGenEvalLoop = (
     // the atomic-write port. The leaves never write these files directly.
     writeFile: deps.writeFile,
     cwd: opts.cwd,
-    // Threaded into `implementSession()` as a second `--add-dir` so the AI can read
-    // sprint-wide artifacts (`progress.md`) that live outside the per-task sandbox.
     sprintDir: opts.sprintDir,
     progressFile: opts.progressFile,
     clock: deps.clock,

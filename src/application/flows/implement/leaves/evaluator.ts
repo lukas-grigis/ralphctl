@@ -103,7 +103,7 @@ interface EvaluatorInput {
   readonly roundNum: number;
   /**
    * Captured Claude `session_id` from the prior round's evaluator turn for this task. Forwarded
-   * to `implementSession({ resume })` so the reviewer continues a single conversational thread
+   * to the spawn's `resume` so the reviewer continues a single conversational thread
    * across rounds. `undefined` on round 1 (or when the prior spawn failed before reporting an
    * id) → fresh session.
    */

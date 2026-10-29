@@ -90,7 +90,7 @@ export const roundCorrectiveBodyPath = (
  * reported an id — process crash, malformed stream-json, …) or empty.
  *
  * Used by the generator / evaluator leaves to thread the prior round's session into
- * `implementSession({ resume })`, keeping each role on a single conversational thread across
+ * the spawn's `resume`, keeping each role on a single conversational thread across
  * the gen-eval loop. One disk read per round — negligible overhead, and the file-based
  * provider contract is the canonical source of truth for captured ids.
  */

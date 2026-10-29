@@ -21,14 +21,12 @@ import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
 import { ValidationError } from '@src/domain/value/error/validation-error.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
-import { absolutePath, isoTimestamp, makeProject, makeRepository } from '@tests/fixtures/domain.ts';
+import { isoTimestamp, makeProject, makeRepository } from '@tests/fixtures/domain.ts';
 import { createRunner } from '@src/application/chain/run/runner.ts';
 import { createFsTemplateLoader, defaultTemplatesDir } from '@src/integration/ai/prompts/_engine/fs-template-loader.ts';
 import { createFakeAiProvider } from '@tests/fixtures/fake-ai-provider.ts';
 import { createEventBusLogger } from '@src/business/observability/event-bus-logger.ts';
 import { createDetectScriptsFlow } from '@src/application/flows/detect-scripts/flow.ts';
-import { readOnlySignalsSession } from '@src/application/flows/_shared/signals-session.ts';
-import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts';
 import { createFsProjectRepository } from '@src/integration/persistence/project/repository.ts';
 import { projectFile } from '@src/integration/persistence/storage.ts';
 
@@ -200,6 +198,11 @@ describe('createDetectScriptsFlow', () => {
     expect(saves).toHaveLength(1);
     const saved = saves[0]!.repositories[0]!;
     expect(saved.setupScript).toBe('pnpm install');
+    // The AI session runs read-only (no edits, no shell, no auto-approve) with the configured model.
+    const [session] = deps.provider.recordedSessions;
+    expect(session?.model).toBe('claude-sonnet-4-6');
+    expect(session?.cwd).toBe(repository.path);
+    expect(session?.permissions).toMatchObject({ canModifyRepoFiles: false, canRunShell: false, autoApprove: false });
     expect(saved.verifyScript).toBe('pnpm typecheck && pnpm lint && pnpm test');
 
     // Forensic artifact: rendered prompt persisted under `<runsRoot>/detect-scripts/<run-id>/`.
@@ -454,26 +457,6 @@ describe('createDetectScriptsFlow', () => {
     expect(saved.setupScript).toBe('pnpm install --frozen-lockfile');
     // Verify-script was dropped during editing — verifyScript should not be touched.
     expect(saved.verifyScript).toBeUndefined();
-  });
-
-  it('AiSession profile — runs read-only with the configured model', () => {
-    const repository = makeRepository();
-    const signalsFile = absolutePath('/tmp/runs/detect-scripts/r1/signals.json');
-    const outputDir = absolutePath('/tmp/runs/detect-scripts/r1');
-    const session = readOnlySignalsSession({
-      cwd: repository.path,
-      prompt: '#prompt' as unknown as Prompt,
-      model: 'claude-sonnet-4-6',
-      signalsFile,
-      outputDir,
-    });
-    expect(session.model).toBe('claude-sonnet-4-6');
-    expect(session.permissions.canModifyRepoFiles).toBe(false);
-    expect(session.permissions.canRunShell).toBe(false);
-    expect(session.permissions.canAccessNetwork).toBe(true);
-    expect(session.cwd).toBe(repository.path);
-    expect(session.signalsFile).toBe(signalsFile);
-    expect(session.outputDir).toBe(outputDir);
   });
 });
 

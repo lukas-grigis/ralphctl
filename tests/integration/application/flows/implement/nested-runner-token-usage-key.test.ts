@@ -14,14 +14,13 @@ import { describe, expect, it } from 'vitest';
 import { Result } from '@src/domain/result.ts';
 import { createRunner } from '@src/application/chain/run/runner.ts';
 import type { Element, ElementResult } from '@src/application/chain/element.ts';
-import { implementSession } from '@src/application/flows/implement/leaves/implement-session.ts';
+import { signalsSession } from '@src/application/flows/_shared/signals-session.ts';
+import { FULL_AUTO } from '@src/integration/ai/providers/_engine/session-permissions.ts';
 import { absolutePath } from '@tests/fixtures/domain.ts';
 import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts';
 
 const PROMPT = 'nested-runner prompt' as unknown as Prompt;
-const SANDBOX = absolutePath('/tmp/sandbox');
 const REPO = absolutePath('/tmp/repo');
-const SPRINT_DIR = absolutePath('/tmp/sprint');
 const SIGNALS = absolutePath('/tmp/sandbox/rounds/1/generator/signals.json');
 
 const TASKS = ['01933fbb-1111-7000-8000-000000000001', '01933fbb-2222-7000-8000-000000000002'] as const;
@@ -30,7 +29,14 @@ const TASKS = ['01933fbb-1111-7000-8000-000000000001', '01933fbb-2222-7000-8000-
 const spawnLeaf = (record: (chainSessionId: string | undefined) => void): Element<undefined> => ({
   name: 'generator',
   async execute(): Promise<ElementResult<undefined>> {
-    const session = implementSession(SANDBOX, REPO, SPRINT_DIR, PROMPT, 'claude-opus-4-8', SIGNALS, 'generator');
+    const session = signalsSession({
+      prompt: PROMPT,
+      cwd: REPO,
+      model: 'claude-opus-4-8',
+      permissions: FULL_AUTO,
+      signalsFile: SIGNALS,
+      outputDir: absolutePath('/tmp/sandbox/rounds/1/generator'),
+    });
     record(session.chainSessionId);
     return Result.ok({ ctx: undefined, trace: [] });
   },

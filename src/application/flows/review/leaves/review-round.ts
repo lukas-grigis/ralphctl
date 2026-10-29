@@ -29,7 +29,7 @@ import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.t
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
-import { currentSessionId } from '@src/application/session/session.ts';
+import { signalsSession } from '@src/application/flows/_shared/signals-session.ts';
 import { buildApplyFeedbackPrompt } from '@src/integration/ai/prompts/apply-feedback/definition.ts';
 import { renderContractSectionFor } from '@src/integration/ai/contract/_engine/render-contract-section.ts';
 import { validateSignalsFile } from '@src/integration/ai/contract/_engine/validate-signals-file.ts';
@@ -317,25 +317,19 @@ const callApplyFeedbackPhase =
     // spawn so a crash mid-spawn still leaves the prompt that triggered it on disk.
     const promptWrote = await writeTextAtomic(String(paths.promptFile), String(prompt));
     if (!promptWrote.ok) return Result.error(promptWrote.error);
-    // `currentSessionId()` is read in the leaf's `execute(...)` scope (wrapped by the
-    // runner's `runWithSession`) and threaded onto the session as DATA so the headless
-    // adapter can key the token-usage event by the runner id without importing the
-    // application session helper across the layer boundary.
-    const chainSessionId = currentSessionId();
-    const spawn = await deps.provider.generate({
-      prompt,
-      cwd: paths.outputDir,
-      additionalRoots: opts.additionalRoots,
-      model: deps.model,
-      ...(deps.effort !== undefined ? { effort: deps.effort } : {}),
-      permissions: FULL_AUTO,
-      signalsFile: paths.signalsFile,
-      outputDir: paths.outputDir,
-      ...(chainSessionId !== undefined ? { chainSessionId } : {}),
-      // Thread the chain's abort signal so a TUI cancel mid-spawn kills the child via
-      // the provider's SIGTERM ladder instead of letting it run to completion.
-      ...(signal !== undefined ? { abortSignal: signal } : {}),
-    });
+    const spawn = await deps.provider.generate(
+      signalsSession({
+        prompt,
+        cwd: paths.outputDir,
+        additionalRoots: opts.additionalRoots,
+        model: deps.model,
+        effort: deps.effort,
+        permissions: FULL_AUTO,
+        signalsFile: paths.signalsFile,
+        outputDir: paths.outputDir,
+        abortSignal: signal,
+      })
+    );
     if (!spawn.ok) return Result.error(spawn.error);
     const validated = await validateSignalsFile(paths.outputDir, reviewRoundOutputContract);
     if (!validated.ok) return Result.error(validated.error);
