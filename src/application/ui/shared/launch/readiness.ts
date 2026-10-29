@@ -1,5 +1,5 @@
 import type { Element } from '@src/application/chain/element.ts';
-import { createRunner, type Runner } from '@src/application/chain/run/runner.ts';
+import { createRunner } from '@src/application/chain/run/runner.ts';
 import { createReadinessFlow } from '@src/application/flows/readiness/flow.ts';
 import type { ReadinessCtx } from '@src/application/flows/readiness/ctx.ts';
 import { type AiProvider, primaryFlowRow, uniqueProvidersFromAi } from '@src/domain/entity/settings.ts';
@@ -174,7 +174,7 @@ export const launchReadiness = async (ctx: LaunchContext): Promise<LaunchResult>
   });
   return {
     ok: true,
-    runner: bridge(runner) as Runner<unknown>,
+    runner: bridge(runner),
     title: `Readiness — ${snapshot.project.displayName}`,
   };
 };

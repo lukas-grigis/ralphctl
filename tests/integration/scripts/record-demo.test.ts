@@ -26,7 +26,7 @@ import { DEMO_MARKER_FILENAME } from '@src/application/demo/seed.ts';
 import { DEMO_TARGET_FILE } from '@src/application/demo/transcript.ts';
 import { launchFlow } from '@src/application/ui/shared/launcher.ts';
 import { loadAppStateSnapshot } from '@src/application/ui/shared/state-snapshot.ts';
-import { passthroughRunInTerminal } from '@src/application/ui/shared/run-in-terminal.ts';
+import { passthroughRunInTerminal } from '@src/integration/io/run-in-terminal.ts';
 import { runCommand } from '@src/integration/io/run-command.ts';
 import { createFsProjectRepository } from '@src/integration/persistence/project/repository.ts';
 import { createFsSprintRepository } from '@src/integration/persistence/sprint/repository.ts';

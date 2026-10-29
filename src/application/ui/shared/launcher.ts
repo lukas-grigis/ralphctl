@@ -27,7 +27,7 @@ import { warnIfContractViolated as checkContract } from '@src/integration/ai/ski
 import { type AiProvider, primaryFlowRow, type Settings } from '@src/domain/entity/settings.ts';
 import { FLOW_IDS, type FlowId } from '@src/domain/value/flow-id.ts';
 import { resolveEffort } from '@src/business/settings/resolve-effort.ts';
-import type { RunInTerminal } from '@src/application/ui/shared/run-in-terminal.ts';
+import type { RunInTerminal } from '@src/integration/io/run-in-terminal.ts';
 import type { LaunchContext } from '@src/application/ui/shared/launch/context.ts';
 import { aiFlowIdFor, mergeFlowRow } from '@src/application/ui/shared/launch/ai-flow-id.ts';
 import { launchCreateSprint } from '@src/application/ui/shared/launch/create-sprint.ts';
@@ -125,13 +125,16 @@ const sessionId = (): string => `r-${Math.random().toString(36).slice(2, 10)}-${
  * Flows whose AI session actually gets a composed skill source installed — the only flows where a per-run skills
  * customization has any effect.
  */
-export const flowMountsSkills = (flowId: string): boolean =>
-  flowId === 'refine' ||
-  flowId === 'plan' ||
-  flowId === 'implement' ||
-  flowId === 'readiness' ||
-  flowId === 'ideate' ||
-  flowId === 'create-pr';
+const SKILL_MOUNTING_FLOWS: ReadonlySet<string> = new Set([
+  'refine',
+  'plan',
+  'implement',
+  'readiness',
+  'ideate',
+  'create-pr',
+]);
+
+export const flowMountsSkills = (flowId: string): boolean => SKILL_MOUNTING_FLOWS.has(flowId);
 
 /**
  * Every {@link FlowId} whose launch context actually mounts a skill source, derived from {@link flowMountsSkills}
@@ -329,12 +332,14 @@ export const buildSkillCandidates = async (
     return r.value.map((skill) => ({ name: skill.name, description: skill.description, origin }));
   };
 
-  const merged = [
-    ...(await tagged(bundled, 'bundled-default')),
-    ...(await tagged(project, 'project')),
-    ...(await tagged(operator, 'operator')),
-    ...(await tagged(phase, 'phase-folder')),
-  ];
+  const merged = (
+    await Promise.all([
+      tagged(bundled, 'bundled-default'),
+      tagged(project, 'project'),
+      tagged(operator, 'operator'),
+      tagged(phase, 'phase-folder'),
+    ])
+  ).flat();
   // Last-wins by name, mirroring the resolution seam's dedupe (`resolve-selection.ts`) so a
   // phase-folder / operator copy of a bundled name shows its ACTUAL shadowing origin.
   const lastIndexByName = new Map<string, number>();
@@ -362,6 +367,19 @@ const pinLaunchResult = (dispatchResult: LaunchResult, snapshot: AppStateSnapsho
   };
 };
 
+const LAUNCHERS: Readonly<Record<string, (ctx: LaunchContext) => LaunchResult | Promise<LaunchResult>>> = {
+  'create-sprint': launchCreateSprint,
+  refine: launchRefine,
+  plan: launchPlan,
+  implement: launchImplement,
+  review: launchReview,
+  'close-sprint': launchCloseSprint,
+  readiness: launchReadiness,
+  'detect-skills': launchDetectSkills,
+  'detect-scripts': launchDetectScripts,
+  ideate: launchIdeate,
+};
+
 export const launchFlow = async (
   deps: LauncherDeps,
   flowId: string,
@@ -378,12 +396,10 @@ export const launchFlow = async (
 
   // Every launched runner gets bridged to the event bus so subscribers (TUI panels, progress files, future webhooks)
   // see chain progress without per-flow emission wiring.
-  const bridge = <T>(runner: Runner<T>): Runner<T> => {
-    bridgeRunnerToEventBus(runner as Runner<unknown>, deps.app.eventBus, {
-      flowId,
-      clock: deps.app.clock,
-    });
-    return runner;
+  const bridge = <T>(runner: Runner<T>): Runner<unknown> => {
+    const erased = runner as Runner<unknown>;
+    bridgeRunnerToEventBus(erased, deps.app.eventBus, { flowId, clock: deps.app.clock });
+    return erased;
   };
 
   const ctx: LaunchContext = {
@@ -401,32 +417,8 @@ export const launchFlow = async (
     ...(effort !== undefined ? { effort } : {}),
   };
 
-  const dispatchResult = await (async (): Promise<LaunchResult> => {
-    switch (flowId) {
-      case 'create-sprint':
-        return launchCreateSprint(ctx);
-      case 'refine':
-        return launchRefine(ctx);
-      case 'plan':
-        return launchPlan(ctx);
-      case 'implement':
-        return launchImplement(ctx);
-      case 'review':
-        return launchReview(ctx);
-      case 'close-sprint':
-        return launchCloseSprint(ctx);
-      case 'readiness':
-        return launchReadiness(ctx);
-      case 'detect-skills':
-        return launchDetectSkills(ctx);
-      case 'detect-scripts':
-        return launchDetectScripts(ctx);
-      case 'ideate':
-        return launchIdeate(ctx);
-      default:
-        return { ok: false, reason: `Unknown flow: ${flowId}` };
-    }
-  })();
+  const launch = LAUNCHERS[flowId];
+  const dispatchResult: LaunchResult = launch ? await launch(ctx) : { ok: false, reason: `Unknown flow: ${flowId}` };
 
   return pinLaunchResult(dispatchResult, snapshot, flowId);
 };

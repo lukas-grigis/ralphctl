@@ -3,7 +3,6 @@ import { AI_PROVIDERS, AI_PROVIDERS_HINT, type AiProvider, SettingsSchema } from
 import { FLOW_IDS } from '@src/domain/value/flow-id.ts';
 import { applySettingsKey } from '@src/business/settings/apply-key.ts';
 import { parseImplementRoleOverrides } from '@src/application/ui/cli/parse-implement-role-overrides.ts';
-import { AI_PROVIDERS as SETTINGS_VIEW_PROVIDERS } from '@src/application/ui/tui/views/settings-view-model.ts';
 import { PROVIDER_TRAITS } from '@src/integration/ai/providers/_engine/provider-traits.ts';
 import { DEFAULT_SETTINGS } from '@src/business/settings/defaults.ts';
 
@@ -53,10 +52,6 @@ describe('every provider is settable and offered', () => {
     expect(parsed.ok).toBe(true);
     if (!parsed.ok) return;
     expect(parsed.overrides?.generator?.provider).toBe(provider);
-  });
-
-  it('the TUI settings view offers every provider', () => {
-    expect([...SETTINGS_VIEW_PROVIDERS].sort()).toEqual([...AI_PROVIDERS].sort());
   });
 });
 

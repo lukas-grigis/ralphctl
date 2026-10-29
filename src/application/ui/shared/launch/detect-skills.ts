@@ -1,5 +1,5 @@
 import type { Element } from '@src/application/chain/element.ts';
-import { createRunner, type Runner } from '@src/application/chain/run/runner.ts';
+import { createRunner } from '@src/application/chain/run/runner.ts';
 import { createDetectSkillsFlow } from '@src/application/flows/detect-skills/flow.ts';
 import type { DetectSkillsCtx } from '@src/application/flows/detect-skills/ctx.ts';
 import type { LaunchContext } from '@src/application/ui/shared/launch/context.ts';
@@ -41,7 +41,7 @@ export const launchDetectSkills = async (ctx: LaunchContext): Promise<LaunchResu
   });
   return {
     ok: true,
-    runner: bridge(runner) as Runner<unknown>,
+    runner: bridge(runner),
     title: `Detect skills — ${snapshot.project.displayName}`,
   };
 };

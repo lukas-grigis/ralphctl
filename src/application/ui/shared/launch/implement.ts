@@ -434,7 +434,7 @@ export const launchImplement = async (ctx: LaunchContext): Promise<LaunchResult>
   const evaluatorProviderId = implementPair.evaluator.provider;
   return {
     ok: true,
-    runner: bridge(runner) as Runner<unknown>,
+    runner: bridge(runner),
     title: `Implement — ${snapshot.sprint.name}`,
     taskNames,
     maxTurns: settings.harness.maxTurns,

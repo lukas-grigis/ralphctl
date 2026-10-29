@@ -4,7 +4,7 @@ import { Result } from '@src/domain/result.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { ValidationError } from '@src/domain/value/error/validation-error.ts';
 import type { Element } from '@src/application/chain/element.ts';
-import { createRunner, type Runner } from '@src/application/chain/run/runner.ts';
+import { createRunner } from '@src/application/chain/run/runner.ts';
 import { createCloseSprintFlow } from '@src/application/flows/close-sprint/flow.ts';
 import type { CloseSprintCtx } from '@src/application/flows/close-sprint/ctx.ts';
 import { closeSprintManifest } from '@src/application/flows/close-sprint/manifest.ts';
@@ -93,7 +93,7 @@ export const launchCloseSprint = async (ctx: LaunchContext): Promise<LaunchResul
   });
   return {
     ok: true,
-    runner: bridge(runner) as Runner<unknown>,
+    runner: bridge(runner),
     title: `Close sprint — ${snapshot.sprint.name}`,
   };
 };

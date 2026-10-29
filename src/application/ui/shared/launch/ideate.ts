@@ -1,7 +1,7 @@
 import { join } from 'node:path';
 import { ensureCanonicalSprintDir } from '@src/integration/persistence/sprint/repository.ts';
 import type { Element } from '@src/application/chain/element.ts';
-import { createRunner, type Runner } from '@src/application/chain/run/runner.ts';
+import { createRunner } from '@src/application/chain/run/runner.ts';
 import { createIdeateFlow } from '@src/application/flows/ideate/flow.ts';
 import type { IdeateCtx } from '@src/application/flows/ideate/ctx.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
@@ -98,5 +98,5 @@ export const launchIdeate = async (ctx: LaunchContext): Promise<LaunchResult> =>
       cwd,
     },
   });
-  return { ok: true, runner: bridge(runner) as Runner<unknown>, title: `Ideate — ${snapshot.sprint.name}` };
+  return { ok: true, runner: bridge(runner), title: `Ideate — ${snapshot.sprint.name}` };
 };
