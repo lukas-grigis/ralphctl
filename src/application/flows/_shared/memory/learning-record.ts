@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { hash } from 'node:crypto';
 import { z } from 'zod';
 import { Result } from '@src/domain/result.ts';
 import { ParseError } from '@src/domain/value/error/parse-error.ts';
@@ -18,127 +18,40 @@ import type { TaskKind } from '@src/business/task/derive-task-kind.ts';
  */
 export type MemoryKind = 'learning' | 'decision';
 
-/**
- * One durable per-project memory record — a `<learning>` OR a `<decision>` — persisted to the
- * project's append-only NDJSON ledger at `<memoryRoot>/<projectId>/learnings.ndjson`, discriminated
- * by {@link kind}.
- *
- * This is the SINGLE source of truth for the record shape. Both sides of the procedural-memory
- * pipeline import it:
- *  - the WRITE side (`appendLearningsLeaf`) constructs one record per `<learning>` / `<decision>`
- *    signal and appends it with `promotedAt: null` (and the matching `kind`);
- *  - the READ side (`loadLearningsLeaf` / `stampPromotedLeaf`) parses every line, proposes
- *    the not-yet-promoted, not-retired ones to the operator, then stamps the accepted ids
- *    `promotedAt` and the explicitly-declined ones `retiredAt`.
- *
- * Do NOT redefine these fields anywhere else — both leaves depend on the exact shape staying
- * identical so a record round-trips through the ledger untouched.
- */
-export interface LearningRecord {
-  /** Schema version of the record on disk. Bumped only on a breaking field change. */
-  readonly v: number;
-  /**
-   * Stable dedup key — `sha1(repo|taskKind|[kind|]normalize(text))[:16]` (computed by the write
-   * side). The read side dedups proposals by this id and stamps `promotedAt` keyed on it, so a
-   * record re-emitted by a later task collapses onto the same ledger row rather than duplicating.
-   * The `kind` segment is folded in for decisions only (see {@link deriveDecisionId}) so a learning
-   * keeps its byte-identical legacy id while an identical sentence emitted as a decision stays
-   * distinct.
-   */
-  readonly id: string;
-  /**
-   * Discriminator — `learning` or `decision`. OPTIONAL on disk for forward/backward-compat: a
-   * legacy row written before decisions shared the ledger omits it and is read as a `learning`
-   * (see {@link recordKind}). New writers always set it.
-   */
-  readonly kind?: MemoryKind | undefined;
-  /** The memory prose itself — the `<learning>` / `<decision>` signal body (the Insight), verbatim. */
-  readonly text: string;
-  /** Optional Context — when / why the insight arose. Absent on legacy (v1) and decision rows. */
-  readonly context?: string | undefined;
-  /** Optional Applies-to — where it applies (repo area, task kind, subsystem). Absent on legacy / decision rows. */
-  readonly appliesTo?: string | undefined;
-  /** Absolute path of the repository the record was produced in. */
-  readonly repo: string;
-  /** Human-friendly repository name (the repo's `name`, not its path). */
-  readonly repoName: string;
-  /** Coarse classification of the producing task — buckets records at distillation time. */
-  readonly taskKind: TaskKind;
-  /** Id of the sprint whose implement run produced the record. */
-  readonly sprintId: string;
-  /** Id of the task that produced the record. */
-  readonly taskId: string;
-  /** ISO-8601 timestamp the record was appended to the ledger. */
-  readonly timestamp: string;
-  /**
-   * ISO-8601 timestamp the learning was folded into a project context file by the distill flow,
-   * or `null` while it is still a pending proposal. `loadLearningsLeaf` filters to `null`;
-   * `stampPromotedLeaf` flips it to the distillation timestamp for accepted ids. Decisions are never
-   * distilled, so a decision row stays `null` here for its whole life.
-   */
-  readonly promotedAt: string | null;
-  /**
-   * ISO-8601 timestamp the record was durably RETIRED, or absent/`null` while it is still live.
-   * A retired record permanently leaves the prompt-injection candidate pool and is never re-proposed
-   * — the durable rejection state for a learning the operator declined at the distill gate. Mirrors
-   * {@link promotedAt}; OPTIONAL on disk so legacy rows (which never carried it) round-trip as "not
-   * retired" (see {@link isRetired}).
-   */
-  readonly retiredAt?: string | null | undefined;
-  /**
-   * Ids of ledger rows this row REPLACES — stamped when `compactLedger` merges near-duplicate
-   * (paraphrase-drift) rows into this one (see `compact-ledger.ts`). Absent on every row that has
-   * never absorbed a duplicate, including all legacy rows written before merging existed. Additive
-   * provenance, never destructive: an incremental delta on top of the existing id rather than a
-   * rewrite, so a merge cannot silently collapse context the way a lossy rewrite would (arXiv
-   * 2510.04618).
-   */
-  readonly supersedes?: readonly string[] | undefined;
-}
-
 const taskKindSchema = z.enum(['feature', 'bugfix', 'refactor', 'test', 'docs', 'chore', 'other']);
 
 /**
- * Zod schema for a single NDJSON line. Co-located with the interface so a drift between the two
- * surfaces at typecheck (`satisfies` below). `.strict()` is intentionally NOT used — a future
- * record may grow fields, and an older reader should tolerate (ignore) them rather than reject
- * the whole ledger line.
+ * One line of the project's append-only `learnings.ndjson` ledger — a `<learning>` or `<decision>`
+ * — shared by the write side (`appendLearningsLeaf`) and the read side (`loadLearningsLeaf` /
+ * `stampPromotedLeaf`). Not `.strict()`: an older reader ignores fields a newer one adds.
  */
 export const learningRecordSchema = z.object({
+  /** Schema version; bumped only on a breaking field change. */
   v: z.number().int(),
+  /** Stable dedup key — see {@link deriveLearningId} / {@link deriveDecisionId}. */
   id: z.string().min(1),
-  // OPTIONAL on disk: a legacy row omits it and reads as a `learning` (see `recordKind`).
+  /** Absent on legacy rows written before decisions shared the ledger; read as `learning`. */
   kind: z.enum(['learning', 'decision']).optional(),
-  // `text` is the required Insight. Reject empty / whitespace-only prose — a degenerate ledger
-  // row carries no signal and only pollutes the distill candidate list. A `.refine` (NOT a
-  // `.transform`) keeps the stored value byte-for-byte: surrounding whitespace round-trips
-  // unchanged, only the presence of at least one non-whitespace character is enforced.
+  /** The signal body, verbatim. `.refine` (not `.transform`) rejects blank prose without rewriting it. */
   text: z.string().refine((t) => t.trim().length > 0, { message: 'learning text must not be empty' }),
   context: z.string().optional(),
   appliesTo: z.string().optional(),
+  /** Absolute repo path; `repoName` is the repo's display name. */
   repo: z.string(),
   repoName: z.string(),
   taskKind: taskKindSchema,
   sprintId: z.string(),
   taskId: z.string(),
   timestamp: z.string(),
+  /** Set when distill folds the learning into a context file; `null` while pending. Decisions stay `null`. */
   promotedAt: z.string().nullable(),
-  // OPTIONAL + nullable: legacy rows omit it (→ "not retired"); a retired row carries the ISO stamp.
+  /** Set when the operator declines it at the distill gate; absent on legacy rows (→ not retired). */
   retiredAt: z.string().nullable().optional(),
-  // OPTIONAL: absent on every row that has never absorbed a merged duplicate (see `compactLedger`).
+  /** Ids of near-duplicate rows `compactLedger` merged into this one — additive provenance. */
   supersedes: z.array(z.string()).readonly().optional(),
 });
 
-// Compile-time guard: the schema's inferred output must exactly match the interface. A field
-// added to one but not the other fails typecheck here, so the two cannot silently drift.
-type _SchemaMatchesInterface =
-  z.infer<typeof learningRecordSchema> extends LearningRecord
-    ? LearningRecord extends z.infer<typeof learningRecordSchema>
-      ? true
-      : never
-    : never;
-const _schemaMatchesInterface: _SchemaMatchesInterface = true;
-void _schemaMatchesInterface;
+export type LearningRecord = Readonly<z.infer<typeof learningRecordSchema>>;
 
 /**
  * Parse one NDJSON line into a {@link LearningRecord}. Blank lines yield `Result.ok(undefined)`
@@ -187,7 +100,7 @@ export const serializeLearningRecord = (record: LearningRecord): string => `${JS
  */
 const normalizeForId = (text: string): string => text.trim().toLowerCase().replace(/\s+/g, ' ');
 
-const sha1Of = (key: string): string => createHash('sha1').update(key).digest('hex').slice(0, 16);
+const sha1Of = (key: string): string => hash('sha1', key).slice(0, 16);
 
 /**
  * Derive the stable dedup id for a LEARNING — `sha1(repo|taskKind|normalize(text))` truncated to
