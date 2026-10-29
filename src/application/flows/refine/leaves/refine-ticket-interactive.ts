@@ -26,11 +26,11 @@ import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 
 /**
  * Chain leaf — drives the user-in-the-loop AI session for one ticket. Integration work
- * (terminal hand-off, validate signals.json against the audit-[09] refine contract) lives
+ * (terminal hand-off, validate signals.json against the refine contract) lives
  * here; the business decision to approve the ticket and replace it on the sprint lives in
  * {@link refineTicketUseCase}.
  *
- * audit-[09] flow (post-Wave-6):
+ * flow:
  *   provider.run → AI writes `signals.json` directly per the contract section in the
  *   prompt → `validateSignalsFile(refineOutputContract)` → fan-out validated signals to the
  *   bus → `renderSidecars` (no-op, empty rules) → extract the `refined-ticket` body and
@@ -49,7 +49,7 @@ export interface RefineTicketInteractiveDeps {
   readonly runInTerminal: RunInTerminal;
   readonly logger: Logger;
   /**
-   * Output port used to write `signals.json` and any sidecars under the audit-[09] contract.
+   * Output port used to write `signals.json` and any sidecars under the signals contract.
    * Refine has no sidecars (the refined body projects onto the Ticket entity), but the leaf
    * still threads `writeFile` so the contract's render path stays uniform with generator /
    * evaluator / readiness.
@@ -250,7 +250,7 @@ const runInteractiveSession = async (
   if (!session.ok) return Result.error(session.error);
 
   // Resolve the outputDir from outputFile — `<sprintDir>/refinement/<ticket-slug>/`.
-  // The audit-[09] contract has the AI write `signals.json` here directly.
+  // The signals contract has the AI write `signals.json` here directly.
   const outputDirRaw = dirname(String(input.outputFile));
   return AbsolutePath.parse(outputDirRaw);
 };

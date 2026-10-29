@@ -327,11 +327,11 @@ const readVerifyLogTail = async (
 };
 
 /**
- * Compose the two harness-verify prompt blocks for this turn (T4):
+ * Compose the two harness-verify prompt blocks for this turn:
  *  - `preVerifyOutput`  — the running attempt's `phase: 'pre'` verify run + the tail of
  *    `<sprintDir>/logs/verify/<taskId>/pre-attempt-<runningAttempt.n>.log`.
  *  - `retryFeedback`    — the prior settled attempt's FAILING `phase: 'post'` verify run + the
- *    tail of `post-attempt-<priorAttempt.n>.log` (T4 stub for T6's retry policy).
+ *    tail of `post-attempt-<priorAttempt.n>.log`.
  *
  * Every step is best-effort: a missing attempt, a missing verify row, or an unreadable log
  * degrades to '' (block disappears) or to the structured metadata alone. Never throws, never
@@ -441,7 +441,7 @@ const makeGeneratorCallImplement =
     const outputContractSection = renderContractSectionFor(generatorOutputContract, args.outputDir);
 
     const buildTurnPrompt = async (forceFull: boolean): Promise<Result<Prompt, BuildPromptError>> => {
-      // T4: pre-task verify result + prior attempt's failing post-verify; best-effort — see helper.
+      // Pre-task verify result + prior attempt's failing post-verify; best-effort — see helper.
       const verify = await composeVerifyBlocks(args.logTailReader, deps.sprintDir, taskId, task);
       return buildGeneratorPrompt(deps, { task, input: args.input, outputContractSection, ...verify, forceFull });
     };
@@ -570,7 +570,7 @@ const makeGeneratorInput =
 /**
  * Merge one generator turn's output into ctx — task/tasks list, round bookkeeping, latest
  * proposed commit message, captured session id, per-attempt signal accumulators, and the
- * per-turn action-kind distribution (R2).
+ * per-turn action-kind distribution.
  */
 const generatorOutput = (ctx: ImplementCtx, out: GeneratorOutput): ImplementCtx => {
   const tasks = (ctx.tasks ?? []).map((t) => (t.id === out.task.id ? out.task : t));

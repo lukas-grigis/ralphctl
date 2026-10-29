@@ -53,7 +53,7 @@ export interface SetupScriptRunnerLeafOpts {
   readonly timeoutMs?: number;
   /**
    * Per-sprint state directory. When set, the leaf writes the full untruncated setup-script output to
-   * `<sprintDir>/logs/setup/<repo-id>.log` per audit [01] / [03].
+   * `<sprintDir>/logs/setup/<repo-id>.log`.
    */
   readonly sprintDir?: AbsolutePath;
 }

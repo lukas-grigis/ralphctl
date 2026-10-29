@@ -2,7 +2,7 @@ import type { EventBus } from '@src/business/observability/event-bus.ts';
 import type { HarnessSignal } from '@src/domain/signal.ts';
 
 /**
- * Fan-out seam every AI-spawning leaf calls once per validated signal, under the audit-[09]
+ * Fan-out seam every AI-spawning leaf calls once per validated signal, under the
  * contract. This is the ONE harness-signal channel — collapses the legacy `HarnessSignalSink` +
  * typed `ai-signal` EventBus dual-emit into a single publish. Every validated signal kind flows
  * through here, not just the text-bearing subset the old sink mirror filtered to.

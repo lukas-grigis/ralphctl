@@ -33,7 +33,7 @@ export interface ProposeReadinessLeafDeps {
   readonly templateLoader: TemplateLoader;
   /**
    * Output port used to write any harness-owned sidecars (`agents-md-proposal.md`,
-   * `setup-skill.md`, `verify-skill.md`) post-spawn under audit-[09]. The AI itself writes
+   * `setup-skill.md`, `verify-skill.md`) post-spawn. The AI itself writes
    * `signals.json` directly into `outputDir`; the leaf only validates that file and
    * renders sidecars from the validated signals.
    */
@@ -109,7 +109,7 @@ const missingProposal = (
 };
 
 /**
- * Build the readiness prompt, call the AI, validate the audit-[09] `signals.json` it wrote
+ * Build the readiness prompt, call the AI, validate the `signals.json` it wrote
  * into the per-run dir, fan validated signals out to the bus, render harness-owned
  * sidecars, then project the proposal bodies onto ctx for downstream leaves.
  *
@@ -171,7 +171,7 @@ const proposeReadinessUseCase = async (
   if (!engineResult.ok) return Result.error(engineResult.error);
   const engineOut = engineResult.value;
 
-  // audit-[09]: the AI wrote `signals.json` into the per-run dir directly. Validate against
+  // The AI wrote `signals.json` into the per-run dir directly. Validate against
   // the readiness contract (signals-missing / invalid-json / schema-mismatch surface as
   // domain errors with precise hints).
   const validated = await validateSignalsFile(engineOut.runDir, readinessOutputContract);

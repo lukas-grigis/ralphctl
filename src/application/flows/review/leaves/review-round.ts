@@ -55,7 +55,7 @@ import { assertCtxField } from '@src/application/flows/_shared/_engine/assert-ct
  * writes the typed body underneath the current round's marker comment so the rest of the
  * pipeline (`parseFeedbackMd`, `apply-feedback`, …) keeps reading from the same on-disk format.
  *
- * AI session contract (audit-[09]): the leaf materialises one per-round forensic directory
+ * AI session contract: the leaf materialises one per-round forensic directory
  * `<sprintDir>/review/round-<N>/`, writes the rendered prompt there, then drives the spawn.
  * The AI session is rooted at the per-round dir (no repo enjoys cwd privilege) and every
  * sprint-affected repo is mounted as an `additionalRoot` — mirrors plan's symmetric

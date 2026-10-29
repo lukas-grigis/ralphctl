@@ -15,13 +15,9 @@ import type { RecordedGeneratorRound } from '@src/business/task/crash-resume.ts'
  *     (caller-supplied `session.signalsFile = roundSignalsPath(...)` on each `generate(...)`
  *     call). This is the canonical artifact.
  *   - `evaluation.md` — rendered evaluator verdict, written by `renderSidecars` against the
- *     evaluator leaf's audit-[09] contract (`evaluatorOutputContract.sidecars`). The leaf
+ *     evaluator leaf's contract (`evaluatorOutputContract.sidecars`). The leaf
  *     itself never writes the file; the harness derives it post-validation from the single
  *     `evaluation` signal in `signals.json`.
- *
- * The pre-refactor `session.md` (raw AI prose) is gone — the prose is no longer a first-class
- * artifact (REQ-6). If postmortem debugging needs it, the provider could grow a `--keep-prose`
- * opt-in later.
  *
  * Round numbering: `nextRoundNum` returns `max(existing-rounds-on-disk) + 1`. On a fresh task
  * this collapses to `1, 2, 3, …` and matches `ctx.genEvalTurn`; on a resumed run (the ctx turn

@@ -34,9 +34,8 @@ import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
  * the task was edited between runs, the on-disk audit must reflect the new framing. Existing
  * `rounds/<N>/` subtrees are NEVER touched here.
  *
- * Audit [05] deletion: a separate `done-criteria.md` no longer ships. The criteria live on
- * `Task.verificationCriteria` (canonical), inside the per-round `prompt.md` (target), and the
- * persisted `contract.md` sidecar (audit / human-readable form).
+ * The criteria live on `Task.verificationCriteria` (canonical), inside the per-round `prompt.md`,
+ * and in the persisted `contract.md` sidecar (human-readable form).
  */
 
 export interface BuildTaskWorkspaceLeafDeps {

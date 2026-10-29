@@ -76,7 +76,7 @@ interface ProposeOutput {
 }
 
 /**
- * Build the detect-scripts prompt, run the AI, validate the audit-[09] `signals.json` it
+ * Build the detect-scripts prompt, run the AI, validate the `signals.json` it
  * wrote, fan validated signals out to the bus + sink, project the proposed script lines onto
  * the leaf output.
  *

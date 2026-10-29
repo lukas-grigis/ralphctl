@@ -9,7 +9,7 @@ import type { AiOutputContract, SidecarRule } from '@src/integration/ai/contract
 import { wrapLegacySignalArray } from '@src/integration/ai/contract/_engine/legacy-array-migration.ts';
 
 /**
- * Per-leaf I/O contract for the detect-skills one-shot session — audit-[09]. The session may
+ * Per-leaf I/O contract for the detect-skills one-shot session. The session may
  * emit at most one of each:
  *
  *   - `setup-skill-proposal` — multi-paragraph markdown body for the sprint-setup skill (optional).

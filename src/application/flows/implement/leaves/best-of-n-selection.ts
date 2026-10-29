@@ -306,7 +306,7 @@ const selectionUseCase = async (
  * `ctx.bestOfNCandidates`, applies the winner's diff (or none), stamps the running attempt's
  * verification marker, clears the once-consumed grant, merges the winner's narrative signals onto
  * the SAME per-attempt accumulators the real generator leaf feeds — so the evaluator's
- * `<generator_hints>` block (T5) and the progress journal see this round exactly like any other —
+ * `<generator_hints>` block and the progress journal see this round exactly like any other —
  * and stamps `ctx.bestOfNSummary` so the journal's `### Continuation state` block can record that
  * N sessions were spent even though the rest of the attempt looks like a single-turn one.
  * `ctx.bestOfNCandidates` itself is left for `start-attempt` to clear on the next attempt (its

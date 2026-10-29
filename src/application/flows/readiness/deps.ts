@@ -24,7 +24,7 @@ import type { AiProvider } from '@src/domain/entity/settings.ts';
  *  - `skillsAdapterFor` — per-provider skills adapter factory. Each provider's
  *    `<parentDir>/skills/` convention differs (`.claude/skills/`, `.github/skills/`,
  *    `.agents/skills/`); the factory selects the matching adapter.
- *  - `templateLoader` / `logger` — standard AI-call trio (audit-[09]: the AI writes
+ *  - `templateLoader` / `logger` — standard AI-call trio (the AI writes
  *    signals.json directly; no signal sink is needed on this layer).
  *  - `interactive` — port for the pick-repository step (the pick-tool step is gone — the
  *    tool set is derived from settings.ai).

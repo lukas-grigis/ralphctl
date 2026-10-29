@@ -177,10 +177,8 @@ export const runQuarantineBlockedDiff = async (
     });
     return Result.ok(undefined);
   }
-  // Elevated to `warn` (not `debug`/`info`): a rejected diff was just quarantined — on the parallel
-  // path this is the fix for the highest-severity finding (verified, committed-then-rejected work
-  // used to be destroyed silently on worktree teardown with nothing logged at all). An operator
-  // watching logs should see every capture on either path, not just the persisted pointer.
+  // `warn`, not `info`: an operator watching logs should see every captured rejected diff on
+  // either path, not just the persisted pointer.
   log.warn('blocked task rejected diff quarantined to git stash', { taskId: String(taskId), stashMessage: message });
   // Append-only pointer next to the task fact. Shared renderer keeps the breadcrumb in the
   // exact shape the inline cap recognises and pins. Best-effort like everything here.

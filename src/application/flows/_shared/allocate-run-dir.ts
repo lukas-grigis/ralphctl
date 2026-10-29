@@ -57,7 +57,7 @@ export interface RunPaths {
 /**
  * Derive the three well-known artifact paths inside a per-run forensic directory —
  * `prompt.md` (rendered template), `body.txt` (raw AI response, provider-dependent), and
- * `signals.json` (the audit-[09] contract envelope). Shared by every one-shot AI flow's
+ * `signals.json` (the contract envelope). Shared by every one-shot AI flow's
  * propose leaf so the file-naming convention lives in one place.
  */
 export const runPathsFor = (runDir: AbsolutePath): Result<RunPaths, DomainError> => {

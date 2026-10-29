@@ -111,7 +111,7 @@ const pickModelEffortForProvider = (
  * Build one distinct provider's distill segment: a SEQUENTIAL sub-chain
  * `propose → confirm → write` over the shared distill-local ctx. Each segment writes exactly one
  * native context file for the provider's tool (`CLAUDE.md` / `.github/copilot-instructions.md` /
- * `AGENTS.md`) — one real file per provider, never a symlink (§10).
+ * `AGENTS.md`) — one real file per provider, never a symlink.
  */
 const buildPerProviderSegment = (
   deps: DistillLearningsDeps,
@@ -140,7 +140,7 @@ const buildPerProviderSegment = (
 
 /**
  * Build the SELF-CONTAINED distill sub-chain — a reusable factory composed
- * from `sequential` + `guard` + `leaf` ONLY (§14 five-primitive rule — no `retry` around the AI
+ * from `sequential` + `guard` + `leaf` ONLY (the five-primitive rule — no `retry` around the AI
  * spawn; retry-on-429 is an adapter concern). It runs over its OWN {@link DistillLearningsCtx} and
  * uses its OWN propose / confirm / write leaves, so composing it into the close-sprint and review
  * flows widens only their ctxs with a single `distillRequested` flag — the readiness leaf
@@ -162,7 +162,7 @@ const buildPerProviderSegment = (
  *  - `distill-gate` SKIPS the entire body when `distillRequested === false` — no ledger read, no
  *    AI session, no file touch. The guard emits a single `skipped` trace entry for the body.
  *  - Per-provider fan-out is a SEQUENTIAL list of per-tool segments (NOT a parallel fan-out — the
- *    rejected pattern). One native context file is written per distinct provider (§10), AI
+ *    rejected pattern). One native context file is written per distinct provider, AI
  *    proposes → operator confirms → harness writes with a `.bak.<iso>` backup.
  *  - `stamp-promoted` runs LAST. An `AbortError` mid-distill forwards verbatim through the
  *    sequential sub-chain, which then skips the stamp — so a cancelled distill leaves the ledger

@@ -31,9 +31,8 @@ export interface RefreshMemoryMirrorLeafOpts {
  * the project's append-only ledger and regenerates the human-browsable `learnings.md` mirror — the
  * durable narrative of everything the project's sprints have learned AND decided.
  *
- * This is the lazy-render checkpoint that pairs with the audit's hot-path change: the per-attempt
- * append no longer regenerates the mirror (that O(n) read+reparse+rewrite left the gen-eval critical
- * path), so the mirror is rendered at the natural moments a human is about to read it — distill, and
+ * This is a lazy-render checkpoint: the per-attempt append does not regenerate the mirror (an O(n)
+ * read+reparse+rewrite kept off the gen-eval critical path), so the mirror is rendered at the natural moments a human is about to read it — distill, and
  * here at close. It runs INDEPENDENT of the heavyweight, human-gated distill (which curates the
  * authoritative provider-native context file): a user who closes WITHOUT distilling still gets a
  * fresh narrative mirror.

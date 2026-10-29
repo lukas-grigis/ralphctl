@@ -398,13 +398,8 @@ export const buildWorktreeBranch = (
       const fold = foldStep(deps, repo.path, branchRef, task.id);
       const foldResult = await fold.execute(subchainResult.value.ctx, signal, onTrace, onStart);
       if (!foldResult.ok) return foldResult;
-      // Narrow this branch's outcome ctx to carry ONLY its OWN task. `forkCtx` seeds `tasks` with the
-      // full base list (so the subchain leaves can look up sibling deps), but the subchain only
-      // settles THIS task; the others remain at their pre-wave status. Belt-and-braces: ownership is
-      // now enforced by the merge itself (`mergeImplementWave` / `captureDurableFold` both read only
-      // `ownedTask(branch.id, ctx)`), so a wider ctx here can no longer let a later-processed branch
-      // overwrite an earlier branch's settled task — but narrowing at the source keeps that
-      // guarantee structural in two places instead of relying on the reader alone.
+      // Carry ONLY this branch's own task: the forked ctx still holds every sibling at its pre-wave
+      // status. The merge also reads only `ownedTask(…)`; narrowing here keeps that structural twice.
       const own = foldResult.value.ctx.tasks?.find((t) => t.id === task.id);
       const narrowed: ImplementCtx = { ...foldResult.value.ctx, ...(own !== undefined ? { tasks: [own] } : {}) };
       return Result.ok({
