@@ -95,14 +95,13 @@ interface BranchRun<TCtx> {
  * Above-the-chain async orchestrator that drives N independent {@link Runner} instances — one per
  * {@link WaveBranch} — bounded by `maxConcurrency` (re-clamped `[1,5]`), wave by wave.
  *
- * **§14 — NOT an `Element`.** `runWaves` deliberately does not implement the `Element` interface
+ * **NOT an `Element`.** `runWaves` deliberately does not implement the `Element` interface
  * and must never be `.children`-walked or composed into a `sequential`/`loop`/`guard`. It sits
  * ABOVE the five chain primitives, sequencing whole sub-chains; the primitives stay untouched.
  *
  * Scheduling contract:
- *  - **Bounded fan-out.** Within a wave, at most `maxConcurrency` branches are in flight. A
- *    hand-rolled Map of in-flight settle promises keyed by run + `Promise.race` drains the pool: launch up to the cap, race for
- *    the next settle, refill, repeat.
+ *  - **Bounded fan-out.** Within a wave, at most `maxConcurrency` branches are in flight: that many
+ *    workers each launch the next pending branch as soon as their previous one settles.
  *  - **Strictly sequential waves.** Wave `k+1` does not begin until EVERY branch of wave `k` has
  *    settled AND `config.merge` has folded them into the carried ctx.
  *  - **Deterministic trace.** The combined trace is assembled in branch-DECLARATION order across
@@ -164,10 +163,6 @@ interface WaveResult<TCtx> {
 /**
  * Run one wave with bounded fan-out. Returns the wave's settled outcomes + traces in declaration
  * order plus any fatal error that aborts the whole schedule.
- *
- * Pool drain: maintain a Map of in-flight settle promises keyed by run (each resolves to its
- * owning run). Launch up to `cap`, `Promise.race` for the next settle, remove it, inspect for
- * a fatal error, then refill from the pending queue — until everything settled or a stop fired.
  */
 const runOneWave = async <TCtx>(
   wave: ReadonlyArray<WaveBranch<TCtx>>,
@@ -181,111 +176,53 @@ const runOneWave = async <TCtx>(
     return { outcomes: [], traces: [], fatal: new AbortError({ elementName: 'wave-scheduler' }) };
   }
 
-  const pool = createWavePool(wave, base, cap, config);
-
-  // Forward an outer-signal abort into every in-flight branch. Abort always kills immediately;
-  // `settled` promises still resolve, so the drain below awaits every branch's own cleanup before returning.
-  const onAbort = (): void => pool.abortAll(new AbortError({ elementName: 'wave-scheduler' }));
-  signal?.addEventListener('abort', onAbort, { once: true });
-
-  pool.fill();
-  while (pool.inFlightCount() > 0) {
-    // The drain is inherently sequential — one settle at a time, then refill.
-    const settledRun = await pool.next();
-    pool.classify(settledRun);
-    pool.fill();
-  }
-
-  signal?.removeEventListener('abort', onAbort);
-  return pool.assemble();
-};
-
-/**
- * Encapsulates one wave's launch / drain state machine. Mutable by design (a pool of in-flight
- * promises is inherently stateful); kept out of `runOneWave` to keep that function's branching
- * within the cognitive-complexity budget.
- */
-const createWavePool = <TCtx>(
-  wave: ReadonlyArray<WaveBranch<TCtx>>,
-  base: TCtx,
-  cap: number,
-  config: WaveScheduleConfig<TCtx>
-) => {
-  // Per-index slots → outcomes + traces assembled in declaration order regardless of completion
-  // order. `undefined` = branch never started (drained / killed before launch).
-  const runs: Array<BranchRun<TCtx> | undefined> = new Array(wave.length).fill(undefined);
-  const inFlight = new Map<BranchRun<TCtx>, Promise<BranchRun<TCtx>>>();
-  let nextIndex = 0;
-  let fatal: DomainError | null = null;
-  let stopLaunching = false;
-
-  const launch = (index: number): void => {
-    const { run, settled } = startBranchRun(wave[index]!, base, config.onBranchRunner);
-    runs[index] = run;
-    inFlight.set(run, settled);
+  // Per-index slots, so outcomes + traces assemble in declaration order. A hole = never started.
+  const runs: Array<BranchRun<TCtx> | undefined> = new Array(wave.length);
+  let next = 0;
+  // Typed via `as` so TS doesn't narrow it to `null`: the closures below assign it.
+  let fatal = null as DomainError | null;
+  let stop = false;
+  const killAll = (reason: string): void => {
+    for (const run of runs) run?.runner.abort(reason);
   };
 
+  // Record the first fatal (`aborted` / `rate-limit`) and stop launching; every other error is
+  // absorbed into the branch's outcome.
+  const classify = (run: BranchRun<TCtx>): void => {
+    const err = run.capturedError;
+    if (err === null || !isFatalChainError(err)) return;
+    fatal ??= err;
+    stop = true;
+    // aborted kills at once; rate-limit drains so in-flight siblings finish and their commits still fold.
+    if (err.code === 'aborted') killAll('fatal-sibling');
+  };
+
+  // An outer abort kills every branch now; their `settled` promises still resolve, so the
+  // workers below await each branch's own cleanup before the wave returns.
+  const onAbort = (): void => {
+    stop = true;
+    fatal ??= new AbortError({ elementName: 'wave-scheduler' });
+    killAll('outer-signal-aborted');
+  };
+  signal?.addEventListener('abort', onAbort, { once: true });
+
+  const worker = async (): Promise<void> => {
+    while (!stop && next < wave.length) {
+      const i = next++;
+      const { run, settled } = startBranchRun(wave[i]!, base, config.onBranchRunner);
+      runs[i] = run;
+      classify(await settled);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(cap, wave.length) }, worker));
+  signal?.removeEventListener('abort', onAbort);
+
+  const started = runs.filter((run) => run !== undefined);
   return {
-    inFlightCount: (): number => inFlight.size,
-
-    /** Launch branches up to the cap, unless a stop (fatal / abort) has fired. */
-    fill: (): void => {
-      while (nextIndex < wave.length && inFlight.size < cap && !stopLaunching) launch(nextIndex++);
-    },
-
-    /** Await the next settled branch and drop it from the in-flight set. */
-    next: async (): Promise<BranchRun<TCtx>> => {
-      const settledRun = await Promise.race(inFlight.values());
-      inFlight.delete(settledRun);
-      return settledRun;
-    },
-
-    /**
-     * Classify a settled branch: record the first fatal (`aborted` / `rate-limit`), stop launching,
-     * kill siblings if needed. Every other error is absorbed into the branch's outcome.
-     */
-    classify: (settledRun: BranchRun<TCtx>): void => {
-      const err = settledRun.capturedError;
-      if (err === null || !isFatalChainError(err)) return;
-      if (fatal === null) fatal = err; // first fatal wins
-      stopLaunching = true;
-      // aborted kills at once; rate-limit drains so in-flight siblings finish and their commits still fold.
-      if (err.code === 'aborted') {
-        for (const run of runs) run?.runner.abort('fatal-sibling');
-      }
-    },
-
-    /** Forward an outer-signal abort: record AbortError, stop launching, kill every branch now. */
-    abortAll: (abortErr: AbortError): void => {
-      stopLaunching = true;
-      if (fatal === null) fatal = abortErr;
-      for (const run of runs) run?.runner.abort('outer-signal-aborted');
-    },
-
-    /** Assemble outcomes + traces in declaration order once the wave has fully drained. */
-    assemble: (): WaveResult<TCtx> => {
-      const outcomes: Array<BranchOutcome<TCtx>> = [];
-      const traces: Trace[] = [];
-      // On an abort short-circuit we never fold branch outcomes — the AbortError returns verbatim.
-      const abortedFatal = fatal !== null && fatal.code === 'aborted';
-      for (let i = 0; i < runs.length; i += 1) {
-        const run = runs[i];
-        if (run === undefined) continue;
-        // Extract everything the caller needs from this completed branch runner FIRST: its trace
-        // ring and its terminal outcome (which reads `runner.ctx`).
-        traces.push(run.runner.trace);
-        if (!abortedFatal) outcomes.push(toOutcome(run));
-        // Then drop the slot's reference to the runner. A completed branch runner pins its forked
-        // ctx + trace ring; without this null the whole `runs[]` array (every settled branch of
-        // this wave) survives until the entire `runWaves` call returns — i.e. across EVERY later
-        // wave. Nulling here makes each settled branch runner GC-eligible the moment its wave
-        // drains. Note: `run.runner.trace` above hands the caller the SAME array instance the
-        // runner held, so the trace itself is retained by the returned `WaveResult` exactly as
-        // long as the caller keeps it — only the runner wrapper (+ its forked ctx) is freed.
-        runs[i] = undefined;
-      }
-      return { outcomes, traces, fatal };
-    },
+    // On an abort short-circuit we never fold branch outcomes — the AbortError returns verbatim.
+    outcomes: fatal?.code === 'aborted' ? [] : started.map(toOutcome),
+    traces: started.map((run) => run.runner.trace),
+    fatal,
   };
 };
 
@@ -316,8 +253,7 @@ const startBranchRun = <TCtx>(
     else if (event.type === 'aborted' && event.error !== undefined) run.capturedError = event.error;
   });
 
-  // start() resolves when the run reaches a terminal state; detach the listener then, resolve to
-  // the run so the pool drain can identify the race winner and read its captured error.
+  // start() resolves when the run reaches a terminal state; detach the listener then.
   return {
     run,
     settled: runner
