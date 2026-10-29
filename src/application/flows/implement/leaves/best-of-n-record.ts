@@ -8,6 +8,7 @@ import type { SessionId } from '@src/integration/ai/providers/_engine/session-id
 import type { LogTailReader } from '@src/business/io/log-tail-reader.ts';
 import type { RepoExecConfig } from '@src/application/flows/implement/leaves/resolve-repo.ts';
 import type { GenEvalLoopRoleConfig } from '@src/application/flows/implement/leaves/_shared/role-spawn.ts';
+import { signalTexts } from '@src/application/flows/implement/leaves/_shared/signal-texts.ts';
 
 /**
  * Pure record shapes + composers shared by the candidate loop (`best-of-n-candidate.ts`) and the
@@ -157,29 +158,6 @@ export const findSignal = <K extends AiSignal['type']>(
 ): Extract<AiSignal, { readonly type: K }> | undefined =>
   signals.find((s): s is Extract<AiSignal, { readonly type: K }> => s.type === type);
 
-/** Fan a generator-shaped session's narrative signals into the record's accumulators. */
-/** Narrative-signal accumulators mutated in place by {@link accumulateSignalText} — one bucket
- * per kind, mirroring `generator.ts`'s own per-turn accumulator shape. */
-interface SignalTextBuckets {
-  readonly decisionsEmitted: string[];
-  readonly changesEmitted: string[];
-  readonly learningsEmitted: LearningEntry[];
-  readonly notesEmitted: string[];
-}
-
-/** Route one signal into its matching bucket; a signal kind outside the narrative four is a no-op. */
-const accumulateSignalText = (buckets: SignalTextBuckets, sig: AiSignal): void => {
-  if (sig.type === 'decision') buckets.decisionsEmitted.push(sig.text);
-  else if (sig.type === 'change') buckets.changesEmitted.push(sig.text);
-  else if (sig.type === 'learning') {
-    buckets.learningsEmitted.push({
-      text: sig.text,
-      ...(sig.context !== undefined ? { context: sig.context } : {}),
-      ...(sig.appliesTo !== undefined ? { appliesTo: sig.appliesTo } : {}),
-    });
-  } else if (sig.type === 'note') buckets.notesEmitted.push(sig.text);
-};
-
 /** Extract the (at most one) `commit-message` signal into the record's plain subject/body shape. */
 const extractCommitMessage = (
   signals: readonly AiSignal[]
@@ -191,19 +169,13 @@ const extractCommitMessage = (
     : { subject: commitSignal.subject };
 };
 
-export const signalTexts = (
+/** A candidate's narrative signal texts plus its `commit-message`, in the record's shape. */
+export const candidateSignalTexts = (
   signals: readonly AiSignal[]
 ): Pick<
   BestOfNCandidateRecord,
   'decisionsEmitted' | 'changesEmitted' | 'learningsEmitted' | 'notesEmitted' | 'proposedCommitMessage'
 > => {
-  const buckets: SignalTextBuckets = {
-    decisionsEmitted: [],
-    changesEmitted: [],
-    learningsEmitted: [],
-    notesEmitted: [],
-  };
-  for (const sig of signals) accumulateSignalText(buckets, sig);
   const proposedCommitMessage = extractCommitMessage(signals);
-  return { ...buckets, ...(proposedCommitMessage !== undefined ? { proposedCommitMessage } : {}) };
+  return { ...signalTexts(signals), ...(proposedCommitMessage !== undefined ? { proposedCommitMessage } : {}) };
 };
