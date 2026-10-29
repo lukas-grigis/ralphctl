@@ -46,6 +46,7 @@ describe('runWithRateLimitRetry backoff jitter', () => {
       eventBus: cap.bus,
       providerSlug: 'claude',
       providerName: 'claude-test',
+      resumeStaleRe: /gone/,
       random: () => 1,
       attempt: attemptOnceThenSucceed(),
     });
@@ -64,6 +65,7 @@ describe('runWithRateLimitRetry backoff jitter', () => {
       eventBus: cap.bus,
       providerSlug: 'claude',
       providerName: 'claude-test',
+      resumeStaleRe: /gone/,
       random: () => 0,
       attempt: attemptOnceThenSucceed(),
     });
@@ -80,6 +82,7 @@ describe('runWithRateLimitRetry backoff jitter', () => {
       eventBus: cap.bus,
       providerSlug: 'claude',
       providerName: 'claude-test',
+      resumeStaleRe: /gone/,
       random: () => 1,
       attempt: attemptOnceThenSucceed(),
     });

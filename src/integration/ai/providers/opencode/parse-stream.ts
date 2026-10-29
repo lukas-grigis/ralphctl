@@ -2,8 +2,10 @@ import type { EventBus } from '@src/business/observability/event-bus.ts';
 import {
   FORENSIC_BODY_TAIL_CAP,
   RATE_LIMIT_SCAN_TAIL_CAP,
+  createBoundedTail,
 } from '@src/integration/ai/providers/_engine/bounded-tail.ts';
-import { isRecord, numberField, stringField } from '@src/integration/ai/providers/_engine/json-field.ts';
+import { numberField, recordField, stringField } from '@src/integration/ai/providers/_engine/json-field.ts';
+import type { ProviderTokenUsage } from '@src/integration/ai/providers/_engine/run-provider-attempt.ts';
 import { createCappedLineFeed, emitJsonObjectLine } from '@src/integration/ai/providers/_engine/line-feed.ts';
 import {
   publishAssistantEvent,
@@ -54,25 +56,17 @@ export interface OpencodeMetaUpdate {
   readonly outputTokens?: number;
 }
 
-/** `part` sub-object of a record, when present and shaped as an object. */
-const partOf = (obj: Record<string, unknown>): Record<string, unknown> | undefined => {
-  const part = obj['part'];
-  return isRecord(part) ? part : undefined;
-};
-
 /**
  * Pull session id + per-step token usage out of one record. `sessionID` is read from the record
  * root first and the `part` second — both carry it, and preferring the root keeps the read
  * working if a future build drops the duplicate.
  */
 export const extractOpencodeMetaUpdate = (obj: Record<string, unknown>): OpencodeMetaUpdate | undefined => {
-  const part = partOf(obj);
-  const id =
-    stringField(obj, 'sessionID', 'sessionId') ?? (part !== undefined ? stringField(part, 'sessionID') : undefined);
-  const tokensObj = part?.['tokens'];
-  const tokens = isRecord(tokensObj) ? tokensObj : undefined;
-  const i = tokens !== undefined ? numberField(tokens, 'input') : undefined;
-  const o = tokens !== undefined ? numberField(tokens, 'output') : undefined;
+  const part = recordField(obj, 'part');
+  const id = stringField(obj, 'sessionID', 'sessionId') ?? stringField(part, 'sessionID');
+  const tokens = recordField(part, 'tokens');
+  const i = numberField(tokens, 'input');
+  const o = numberField(tokens, 'output');
   if (id === undefined && i === undefined && o === undefined) return undefined;
   return {
     ...(id !== undefined ? { sessionId: id } : {}),
@@ -84,8 +78,7 @@ export const extractOpencodeMetaUpdate = (obj: Record<string, unknown>): Opencod
 /** Assistant prose for a `text` record — also the body source and rate-limit haystack. */
 export const assistantText = (obj: Record<string, unknown>): string | undefined => {
   if (stringField(obj, 'type') !== 'text') return undefined;
-  const part = partOf(obj);
-  return part !== undefined ? stringField(part, 'text') : undefined;
+  return stringField(recordField(obj, 'part'), 'text');
 };
 
 /**
@@ -98,12 +91,8 @@ export const assistantText = (obj: Record<string, unknown>): string | undefined 
  */
 const streamErrorText = (obj: Record<string, unknown>): string | undefined => {
   if (stringField(obj, 'type') !== 'error') return undefined;
-  const errObj = obj['error'];
-  const err = isRecord(errObj) ? errObj : undefined;
-  if (err === undefined) return undefined;
-  const dataObj = err['data'];
-  const data = isRecord(dataObj) ? dataObj : undefined;
-  const parts = [stringField(err, 'name'), data !== undefined ? stringField(data, 'message') : undefined].filter(
+  const err = recordField(obj, 'error');
+  const parts = [stringField(err, 'name'), stringField(recordField(err, 'data'), 'message')].filter(
     (p): p is string => p !== undefined && p.length > 0
   );
   return parts.length > 0 ? parts.join(': ') : undefined;
@@ -116,8 +105,7 @@ const streamErrorText = (obj: Record<string, unknown>): string | undefined => {
  */
 const publishToolEvents = (eventBus: EventBus, part: Record<string, unknown>): void => {
   const tool = stringField(part, 'tool') ?? stringField(part, 'callID') ?? '';
-  const stateObj = part['state'];
-  const state = isRecord(stateObj) ? stateObj : undefined;
+  const state = recordField(part, 'state');
   publishToolUseEvent(eventBus, PROVIDER_NAME, tool, previewJson(state?.['input']));
   if (state === undefined) return;
   const status = stringField(state, 'status');
@@ -148,33 +136,23 @@ export const publishOpencodeStreamLineEvents = (eventBus: EventBus, obj: Record<
     return;
   }
   if (type !== 'tool_use') return;
-  const part = partOf(obj);
+  const part = recordField(obj, 'part');
   if (part !== undefined) publishToolEvents(eventBus, part);
 };
 
 /**
- * Mutable per-attempt accumulator over the JSONL stream. One fresh instance per `attempt()`
- * call, mirroring the sibling adapters' trackers.
- *
- * Unlike codex, OpenCode has no `-o <tempfile>` forensic sink — the assistant body exists only
- * on the stream — so this tracker is also the body source via {@link getBody}.
+ * Per-attempt accumulator over the JSONL stream. OpenCode has no `-o <tempfile>`, so this is also
+ * the body source.
  */
 export interface OpencodeAttemptTracker {
   readonly consumeChunk: (chunk: string) => void;
   /** Flush a partial trailing line once the child exits without a final newline. */
   readonly flush: () => void;
   readonly getSessionId: () => string | undefined;
-  readonly getInputTokens: () => number | undefined;
-  readonly getOutputTokens: () => number | undefined;
-  /** Full accumulated assistant prose — the audit-[09] forensic body. */
+  readonly getUsage: () => ProviderTokenUsage;
   readonly getBody: () => string;
-  /** Bounded assistant tail used as the rate-limit classifier's haystack. */
   readonly getStdoutTail: () => string | undefined;
-  /**
-   * Text of the last `error` record — the CLI's own structured explanation for an exit that
-   * carries nothing on stderr. Kept apart from {@link getStdoutTail} so the classifier can trust
-   * it (it is not model output) without trusting the assistant tail.
-   */
+  /** Last `error` record — kept apart from the assistant tail so the classifier can trust it. */
   readonly getStreamError: () => string | undefined;
 }
 
@@ -182,8 +160,8 @@ export const createOpencodeAttemptTracker = (eventBus: EventBus): OpencodeAttemp
   let sessionId: string | undefined;
   let inputTokens: number | undefined;
   let outputTokens: number | undefined;
-  let body = '';
-  let assistantTail = '';
+  // The rate-limit tail is this body's last bytes, so one accumulator serves both.
+  const body = createBoundedTail(FORENSIC_BODY_TAIL_CAP);
   let streamError: string | undefined;
   const lineFeed = createCappedLineFeed<Record<string, unknown>>('opencode-stream', emitJsonObjectLine);
 
@@ -205,15 +183,9 @@ export const createOpencodeAttemptTracker = (eventBus: EventBus): OpencodeAttemp
     const errorText = streamErrorText(obj);
     if (errorText !== undefined) streamError = errorText;
     const text = assistantText(obj) ?? errorText;
-    if (text === undefined) return;
-    // Both accumulators are capped — an hours-long chatty session must not grow either without
-    // bound (same OOM class the line-parse cap guards).
-    body = `${body}${body.length > 0 ? '\n' : ''}${text}`.slice(-FORENSIC_BODY_TAIL_CAP);
-    assistantTail = `${assistantTail}${assistantTail.length > 0 ? '\n' : ''}${text}`.slice(-RATE_LIMIT_SCAN_TAIL_CAP);
+    if (text !== undefined) body.append(body.value().length > 0 ? `\n${text}` : text);
   };
 
-  // Ordering is load-bearing: `onLine` (debug events + body) runs before `onMeta` (session id +
-  // usage), matching the pre-shared-feed dispatch order.
   const dispatch = (obj: Record<string, unknown>): void => {
     onLine(obj);
     const update = extractOpencodeMetaUpdate(obj);
@@ -228,10 +200,12 @@ export const createOpencodeAttemptTracker = (eventBus: EventBus): OpencodeAttemp
       lineFeed.flush(dispatch);
     },
     getSessionId: () => sessionId,
-    getInputTokens: () => inputTokens,
-    getOutputTokens: () => outputTokens,
-    getBody: () => body,
-    getStdoutTail: () => (assistantTail.length > 0 ? assistantTail : undefined),
+    getUsage: () => ({
+      ...(inputTokens !== undefined ? { inputTokens } : {}),
+      ...(outputTokens !== undefined ? { outputTokens } : {}),
+    }),
+    getBody: body.value,
+    getStdoutTail: () => body.value().slice(-RATE_LIMIT_SCAN_TAIL_CAP) || undefined,
     getStreamError: () => streamError,
   };
 };

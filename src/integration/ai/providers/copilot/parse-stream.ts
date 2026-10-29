@@ -1,13 +1,7 @@
 /**
- * Line-oriented parser for `copilot --output-format json` (JSONL). Mirrors the shape of
- * `parse-claude-stream.ts` so the Copilot adapter can drive the same accumulation pattern.
- *
- * The Copilot CLI emits one JSON object per line; non-JSON lines (rare; usually banner /
- * status) pass through as raw text. We parse metadata (session/model/usage) and conservatively
- * extract assistant body text from known event shapes.
- *
- * Port-shaped types (`CopilotStreamLine`, `CopilotStreamParser`, `CopilotUsage`) live in
- * `_engine/copilot-stream.ts`; this file holds the factory only.
+ * Line-oriented parser for `copilot --output-format json` (JSONL). JSON records yield session id,
+ * model, usage and — for known event shapes only — assistant body text; non-JSON lines (banner /
+ * status) pass through raw.
  */
 
 import type {
@@ -15,119 +9,69 @@ import type {
   CopilotStreamParser,
   CopilotUsage,
 } from '@src/integration/ai/providers/_engine/copilot-stream.ts';
-import { createCappedLineFeed } from '@src/integration/ai/providers/_engine/line-feed.ts';
-import { isRecord, numberField, stringField } from '@src/integration/ai/providers/_engine/json-field.ts';
+import { createCappedLineFeed, parseJsonObjectLine } from '@src/integration/ai/providers/_engine/line-feed.ts';
+import { numberField, recordField, stringField } from '@src/integration/ai/providers/_engine/json-field.ts';
 
+// CLI versions report counts either top-level or nested under `usage`; the top level wins.
 const extractUsage = (json: Record<string, unknown>): CopilotUsage | undefined => {
-  // Two shapes seen in the wild across CLI versions: top-level `input_tokens` / `output_tokens`,
-  // or nested under a `usage` object. Try both; honest about reporting only what is present.
-  const ti = numberField(json, 'input_tokens', 'inputTokens', 'prompt_tokens');
-  const to = numberField(json, 'output_tokens', 'outputTokens', 'completion_tokens');
-  if (ti !== undefined || to !== undefined) {
-    return {
-      ...(ti !== undefined ? { inputTokens: ti } : {}),
-      ...(to !== undefined ? { outputTokens: to } : {}),
-    };
-  }
-  const u = json['usage'];
-  if (!isRecord(u)) return undefined;
-  const ni = numberField(u, 'input_tokens', 'inputTokens', 'prompt_tokens');
-  const no = numberField(u, 'output_tokens', 'outputTokens', 'completion_tokens');
-  if (ni === undefined && no === undefined) return undefined;
-  return {
-    ...(ni !== undefined ? { inputTokens: ni } : {}),
-    ...(no !== undefined ? { outputTokens: no } : {}),
-  };
-};
-
-/**
- * Conservative best-effort extraction of assistant-emitted text from a single Copilot JSONL
- * event. Recognised shapes today:
- *
- *   - `{ type: 'assistant.message_delta', data: { deltaContent: string } }` — observed Copilot CLI
- *   - `{ type: 'assistant.message',       data: { content: string } }`      — observed Copilot CLI
- *   - `{ type: 'response.output_text.delta', delta: string }`               — OpenAI Responses API
- *   - `{ type: 'content_block_delta',     delta: { text: string } }`        — Anthropic SSE protocol
- *   - `{ type: 'message',                 content: string }`                — generic shape
- *
- * A "fall back on any top-level `content`/`text` string" branch was considered and rejected —
- * tool-call payloads and debug-echo events sometimes carry those keys without being assistant
- * body, so blindly accepting them would corrupt signal parsing. Every branch above matches its
- * protocol's `type` discriminator AND structure precisely; we never blindly stringify unknown
- * JSON. Returns `undefined` when no branch matches; the adapter then pushes the raw line into
- * the body buffer so nothing is silently dropped from the forensic body.txt capture.
- *
- * Until we capture a real `copilot --output-format=json` stream, the speculative branches are
- * inert (no Copilot release emits them today). Their value is the forensic safety net + a
- * cheap typecheck-friendly broadening when we do see them.
- */
-const extractBodyText = (json: Record<string, unknown>): string | undefined => {
-  const eventType = stringField(json, 'type');
-  const data = json['data'];
-
-  // 1. Copilot CLI v1 assistant delta — `{ type, data: { deltaContent } }`
-  if (eventType === 'assistant.message_delta' && isRecord(data)) {
-    return stringField(data, 'deltaContent');
-  }
-  // 2. Copilot CLI v1 assistant final — `{ type, data: { content } }`
-  if (eventType === 'assistant.message' && isRecord(data)) {
-    return stringField(data, 'content');
-  }
-  // 3. OpenAI Responses API — `{ type: 'response.output_text.delta', delta: '<text>' }`
-  if (eventType === 'response.output_text.delta') {
-    return stringField(json, 'delta');
-  }
-  // 4. Anthropic streaming SSE — `{ type: 'content_block_delta', delta: { text: '<text>' } }`
-  if (eventType === 'content_block_delta') {
-    const delta = json['delta'];
-    if (isRecord(delta)) return stringField(delta, 'text');
-  }
-  // 5. Generic message envelope — `{ type: 'message', content: '<text>' }`
-  if (eventType === 'message') {
-    const c = stringField(json, 'content');
-    if (c !== undefined) return c;
+  for (const src of [json, recordField(json, 'usage')]) {
+    const inputTokens = numberField(src, 'input_tokens', 'inputTokens', 'prompt_tokens');
+    const outputTokens = numberField(src, 'output_tokens', 'outputTokens', 'completion_tokens');
+    if (inputTokens !== undefined || outputTokens !== undefined) {
+      return {
+        ...(inputTokens !== undefined ? { inputTokens } : {}),
+        ...(outputTokens !== undefined ? { outputTokens } : {}),
+      };
+    }
   }
   return undefined;
 };
 
-export const createCopilotStreamParser = (): CopilotStreamParser => {
-  // The `{`-prefix check is only a cheap pre-filter for banner / plain-text lines —
-  // `JSON.parse`'s throw is the authoritative rejection. Deliberately NOT gated on a closing `}`:
-  // a single stray suffix byte (a `\r` that outran the line-feed normaliser, trailing whitespace)
-  // would push every well-formed record into the plain-text branch and silently drop session-id,
-  // body and usage. `raw` is emitted untouched — the debug fan-out consumes it.
-  const emit = (raw: string, onLine: (line: CopilotStreamLine) => void): void => {
-    if (raw.length === 0) return;
-    const text = raw.trim();
-    if (text.startsWith('{')) {
-      try {
-        // Why: stdout-stream records arrive at high volume — extractors below
-        // (`stringField`, `extractUsage`, `extractBodyText`) narrowly type-check
-        // every field they consume; unknown keys are ignored.
-        const json = JSON.parse(text) as Record<string, unknown>;
-        const sessionId = stringField(json, 'session_id', 'sessionId');
-        const model = stringField(json, 'model');
-        const usage = extractUsage(json);
-        const bodyText = extractBodyText(json);
-        const line: CopilotStreamLine = {
-          raw,
-          json,
-          ...(sessionId !== undefined ? { sessionId } : {}),
-          ...(model !== undefined ? { model } : {}),
-          ...(usage !== undefined ? { usage } : {}),
-          ...(bodyText !== undefined ? { bodyText } : {}),
-        };
-        onLine(line);
-        return;
-      } catch {
-        // fall through — emit as plain text
-      }
-    }
-    onLine({ raw });
-  };
-  const lineFeed = createCappedLineFeed<CopilotStreamLine>('copilot-stream', emit);
-  return {
-    feed: lineFeed.feed,
-    flush: lineFeed.flush,
-  };
+/**
+ * Assistant text from a known event shape: Copilot CLI `assistant.message_delta` /
+ * `assistant.message` (observed), plus the OpenAI Responses `response.output_text.delta`, Anthropic
+ * SSE `content_block_delta` and a generic `message` (speculative; no release emits them yet). Each
+ * branch matches its `type` AND structure — never a blind top-level `content` / `text`, which
+ * tool-call and echo events also carry and which would corrupt signal parsing.
+ */
+const extractBodyText = (json: Record<string, unknown>): string | undefined => {
+  const data = recordField(json, 'data');
+  switch (stringField(json, 'type')) {
+    case 'assistant.message_delta':
+      return stringField(data, 'deltaContent');
+    case 'assistant.message':
+      return stringField(data, 'content');
+    case 'response.output_text.delta':
+      return stringField(json, 'delta');
+    case 'content_block_delta':
+      return stringField(recordField(json, 'delta'), 'text');
+    case 'message':
+      return stringField(json, 'content');
+    default:
+      return undefined;
+  }
 };
+
+const emitLine = (raw: string, onLine: (line: CopilotStreamLine) => void): void => {
+  if (raw.length === 0) return;
+  const json = parseJsonObjectLine(raw);
+  if (json === undefined) {
+    onLine({ raw });
+    return;
+  }
+  const sessionId = stringField(json, 'session_id', 'sessionId');
+  const model = stringField(json, 'model');
+  const usage = extractUsage(json);
+  const bodyText = extractBodyText(json);
+  onLine({
+    raw,
+    json,
+    ...(sessionId !== undefined ? { sessionId } : {}),
+    ...(model !== undefined ? { model } : {}),
+    ...(usage !== undefined ? { usage } : {}),
+    ...(bodyText !== undefined ? { bodyText } : {}),
+  });
+};
+
+export const createCopilotStreamParser = (): CopilotStreamParser =>
+  createCappedLineFeed<CopilotStreamLine>('copilot-stream', emitLine);

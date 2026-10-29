@@ -1,4 +1,3 @@
-import { AbortError } from '@src/domain/value/error/abort-error.ts';
 import { InvalidStateError, ProviderConfigRejection } from '@src/domain/value/error/invalid-state-error.ts';
 import { ProcessCrashError } from '@src/domain/value/error/process-crash-error.ts';
 import { RateLimitError } from '@src/domain/value/error/rate-limit-error.ts';
@@ -7,114 +6,46 @@ import type { EventBus } from '@src/business/observability/event-bus.ts';
 import { pathExists } from '@src/integration/io/fs.ts';
 import { argvOverflowHint, errnoOf, isArgvOverflow } from '@src/integration/ai/providers/_engine/argv-budget.ts';
 import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session.ts';
-import type { AttemptOutcome } from '@src/integration/ai/providers/_engine/attempt-outcome.ts';
+import { type AttemptOutcome, abortedByCaller } from '@src/integration/ai/providers/_engine/attempt-outcome.ts';
 
 /**
- * Default rate-limit / quota detection pattern shared by the copilot + codex adapters. Broadened
- * past a bare `/rate.?limit/i` to also catch "quota" and a bare `429` — both CLIs surface a
- * throttle as "quota exceeded" / an HTTP 429 in their result text, neither of which contains the
- * literal "rate limit". The haystack is stderr PLUS the stdout body tail the adapter feeds via
- * `stdoutTail`. (claude keeps its own override — its wording differs: "usage limit reached", the
- * 5-hour window, `overloaded_error`.)
+ * Broad rate-limit pattern for the CLI's own diagnostics (stderr, `processErrorText`): "quota" and a
+ * bare `429` there really are throttles. Claude keeps its own pattern for its different wording.
  */
 export const DEFAULT_RATE_LIMIT_RE = /rate.?limit|quota|\b429\b/i;
 
 /**
- * NARROW rate-limit pattern, applied to `stdoutTail` ONLY — never to stderr, which keeps the
- * adapter's own broad {@link DEFAULT_RATE_LIMIT_RE}-style pattern.
- *
- * Why two tiers: `stdoutTail` is ASSISTANT-GENERATED task output (claude's stream-json `result`
- * body, codex's `agent_message` tail, copilot's body tail, opencode's `text` records). The broad
- * pattern matches ordinary prose — "Implemented the rate limiter in src/throttle.ts", "retry logic
- * for HTTP 429 responses", "increased the disk quota" — so any non-zero exit on a task ABOUT
- * throttling (an idle-watchdog SIGTERM, say) was classified as a throttle, skipping the
- * signals.json recovery branch and sleeping through the whole backoff schedule before failing.
- *
- * This tier matches only the vendors' actual throttle sentences, so a false positive needs the
- * assistant to quote one verbatim. Bare `429`, bare `quota` and bare `rate limiter` are
- * deliberately absent. Real shapes still covered: claude's "usage limit reached" / 5-hour window /
- * `overloaded_error`, the API's `rate_limit_error`, and a JSON-quoted `"status": 429`.
+ * Narrow rate-limit pattern for `stdoutTail`, which is ASSISTANT prose: the broad pattern matches
+ * ordinary answers ("implemented the rate limiter", "retry on HTTP 429"), so any non-zero exit on a
+ * task about throttling read as a throttle and slept through the backoff instead of recovering
+ * `signals.json`. Only the vendors' real throttle sentences match here; bare `429` / `quota` do not.
  */
 const STDOUT_RATE_LIMIT_RE =
   /usage limit reached|rate.?limit exceeded|rate_limit_error|overloaded_error|\b5-hour limit\b|"status"\s*:\s*429/i;
 
 /**
- * Shared post-spawn classifier for the five headless AI provider adapters
- * (claude / codex / copilot / opencode / grok). Inspects the child's exit, the abort signal, stderr, and the
- * presence of `signals.json`, and decides whether the attempt is a success, a rate-limit
- * retry, an aborted operation, or a hard failure.
+ * Post-spawn classifier shared by the five headless adapters: success, rate-limit retry, abort, or
+ * hard failure. The precedence ladder is documented on {@link classifySpawnExit}.
  *
- * Why centralise: the same decision tree was implicit (and partially wrong) in every adapter.
- * Two bugs surfaced that this helper fixes:
- *
- *  1. **Audit-[09] violation.** The contract says `signals.json` is authoritative — the AI
- *     writes it directly via its `Write` tool, the harness validates it post-spawn. The
- *     adapters were hard-failing on `signal === 'SIGTERM'` even when the AI had completed
- *     its work; an evaluator that wrote a passing verdict at +8 min and then hung until the
- *     idle-stdout watchdog SIGTERMed it at +13 min lost the passing verdict. The recovery
- *     branch here honours the contract: signals.json present ⇒ the work landed.
- *
- *  2. **CLAUDE.md §267 violation.** User-initiated cancel (Ctrl-C / TUI abort) was returning
- *     `InvalidStateError` ("process terminated via SIGTERM") instead of `AbortError`. Guards
- *     and fallbacks downstream catch the InvalidStateError shape and continue execution,
- *     violating "AbortError is the one error chains propagate transparently." Abort is
- *     classified first now so the right error type surfaces.
- *
- * **Exit code vs signal:** macOS Node surfaces an idle-watchdog SIGTERM as either
- * `{ code: null, signal: 'SIGTERM' }` OR `{ code: 143, signal: null }` depending on timing.
- * The recovery branch fires for both — it only looks at whether `signals.json` is on disk,
- * not at the exit shape.
- *
- * **Truncated / malformed signals.json is intentionally not validated here.** The adapter
- * only checks existence (via `pathExists`); the downstream validator in
- * `src/integration/ai/contract/_engine/validate-signals-file.ts` parses + schema-checks the
- * file and surfaces a `ParseError` when it's empty / truncated / malformed. Splitting it
- * this way keeps the adapter ignorant of the contract schema (which lives in its own
- * sibling-isolated directory) and lets the downstream validator's existing error path
- * handle the bad-content cases uniformly with the case where the AI just never wrote
- * signals.json at all.
- *
- * **Rate-limit on STDERR (and `processErrorText`) wins over recovery; on STDOUT it does not.** A
- * throttle reported on stderr — or on the CLI's structured stdout `error` record, which grok /
- * opencode emit with empty stderr — surfaces `rate-limit` even if a partial `signals.json` from a
- * previous attempt happens to be on disk (per-round outputDir means it shouldn't be, but the
- * precedence keeps the semantics safe under reuse). A match found only in `stdoutTail` is weaker
- * evidence — that haystack is assistant prose — so a landed `signals.json` beats it: the envelope
- * is proof the turn did its work, and discarding it to sleep through the backoff schedule is the
- * worse error.
- *
- * **Retryable crash vs. non-retryable config error.** Two failure branches surface a
- * `ProcessCrashError` (a TRANSIENT process death worth retrying within the attempt budget):
- * spawn-failed (the child never ran) and non-zero exit with no signals.json (the idle-stdout
- * watchdog SIGTERM shape). Both let the harness re-run the generator and only block once
- * `maxAttempts` is exhausted. Model-unavailable and effort-unsupported deliberately stay an
- * `InvalidStateError` (stamped with a {@link ProviderConfigRejection} state): both are CONFIG
- * errors, so retrying just burns the whole budget on the same misconfiguration — they must keep
- * blocking after one attempt.
+ * - `signals.json` is authoritative: a non-zero exit (an idle-watchdog SIGTERM shows up as either
+ *   `signal: 'SIGTERM'` or `code: 143`) with the envelope on disk still counts as landed work. Only
+ *   existence is checked; `contract/_engine/validate-signals-file.ts` rejects bad content.
+ * - Abort is classified first, so a cancel surfaces `AbortError` rather than an `InvalidStateError`
+ *   a downstream guard could swallow.
+ * - Crashes (spawn failed, non-zero exit with no envelope) are a retryable `ProcessCrashError`;
+ *   model-unavailable and effort-unsupported are config errors (`InvalidStateError`) that must block
+ *   after one attempt instead of burning the budget.
  */
 export type ProviderSlug = 'claude' | 'codex' | 'copilot' | 'opencode' | 'grok';
 
 export type ProviderName = `${ProviderSlug}-provider`;
 
 /**
- * Matches the provider-CLI "the selected model isn't available" failure across the backends that
- * report it on stderr. Real-world wordings observed:
- *  - copilot:  `Error: Model "gpt-5.4-nano" from --model flag is not available.`
- *  - codex:    `model not found`
- *  - claude:   `unknown model`
- *  - opencode: reports fatal CLI errors on a stdout `{"type":"error"}` record with EMPTY stderr,
- *    so the adapter feeds that record's text as {@link ClassifySpawnExitInput.processErrorText}
- *    and this regex scans it alongside stderr. Caveat: the wording observed for an unreachable
- *    `provider/model` id on v1.18.15 is `UnknownError: Unexpected server error. …`, which carries
- *    no `model` token and therefore still falls through to the retryable ProcessCrash branch —
- *    now at least WITH that text in the message instead of `<empty stderr>`. The durable fix for
- *    that case is a pre-flight check of the configured id against `opencode models`, not a looser
- *    regex: the same generic wording is also what a transient upstream outage produces, so
- *    treating it as a config error would convert a retryable blip into an immediate block.
- * Broad enough to catch phrasing drift (`model ... is not available`, `model not found`,
- * `unknown model`, `unsupported model`) yet anchored on the word `model` so it can't trip on
- * unrelated "not available" lines. Abort is classified first, so this regex never sees an
- * abort message even though it couldn't match one anyway.
+ * The CLI's "selected model isn't available" failure, anchored on the word `model`. Observed:
+ * copilot `Model "x" from --model flag is not available.`, codex `model not found`, claude
+ * `unknown model`. OpenCode's unreachable-id wording (`UnknownError: Unexpected server error.`) has
+ * no `model` token and deliberately stays a retryable crash — a transient upstream outage reads the
+ * same, so loosening this regex would turn a blip into a block.
  */
 const MODEL_UNAVAILABLE_RE =
   /\bmodel\b[^\n]*\b(?:is\s+not\s+available|not\s+available|not\s+found)|\b(?:unknown|unsupported|invalid)\s+model\b/i;
@@ -141,132 +72,51 @@ export interface ClassifySpawnExitInput {
   readonly exit: {
     readonly code: number | null;
     readonly signal: string | null;
-    /**
-     * Set when the spawn raised an `'error'` event (binary missing / non-executable, or the
-     * child died before stdin drained). Surfaces as an `InvalidStateError` before any exit-code
-     * branch — a spawn error means the child never ran, so `code` / `signal` carry no signal.
-     */
+    /** The child never ran (missing binary, EACCES, died before stdin drained); code/signal mean nothing. */
     readonly spawnError?: NodeJS.ErrnoException;
-    /**
-     * Size of the command line that was attempted, when the caller measured it. Lets the spawn-
-     * error branch recognise an argv overflow whose errno is unhelpful — the same condition has
-     * been seen surfacing as `ERROR_INVALID_PARAMETER` rather than `ENAMETOOLONG`.
-     */
+    /** Attempted argv size — an overflow sometimes arrives as `ERROR_INVALID_PARAMETER`, not `ENAMETOOLONG`. */
     readonly argvBytes?: number;
   };
   readonly stderr: string;
-  /**
-   * Matched against `stderr` ONLY to detect a 429 / quota throttle. Producer of the regex is the
-   * adapter (per-provider wording differs), and it can be broad because stderr carries the CLI's
-   * own diagnostics rather than model output. The stdout side uses the shared, narrow
-   * {@link STDOUT_RATE_LIMIT_RE} instead — see `stdoutTail`.
-   */
+  /** Adapter's broad throttle pattern, applied to stderr and `processErrorText` only. */
   readonly rateLimitRe: RegExp;
-  /**
-   * Provider-parsed stdout body tail, scanned with {@link STDOUT_RATE_LIMIT_RE} after `stderr`.
-   * Lets a provider that surfaces quota messages in its stdout JSON envelope (claude stream-json
-   * `result`, copilot/codex result records) still trip the overnight backoff. Optional — adapters
-   * whose throttle wording always lands on stderr omit it.
-   *
-   * This is ASSISTANT-GENERATED text, so it is used for exactly one thing (the narrow rate-limit
-   * tier) and never for the model-unavailable branch. Structured CLI error records belong in
-   * `processErrorText`, not here.
-   */
+  /** Assistant-generated stdout tail: scanned only with {@link STDOUT_RATE_LIMIT_RE}, never for config errors. */
   readonly stdoutTail?: string;
   /**
-   * The CLI's own STRUCTURED error record, parsed off stdout by adapters whose fatal errors never
-   * reach stderr (opencode's `{"type":"error","error":{"name","data":{"message"}}}`). Used as the
-   * stderr fallback in the failure message — otherwise the only explanation the CLI produced is
-   * parsed and then dropped, leaving `process exited with code 1: <empty stderr>` — and scanned by
-   * the model-unavailable branch, which is safe here precisely because this is a CLI error record
-   * rather than model output.
+   * The CLI's structured stdout error record, for CLIs whose fatal errors never reach stderr
+   * (opencode, grok). Trusted like stderr: the message fallback and a config-error haystack.
    */
   readonly processErrorText?: string;
   /** Provider's best-effort captured session id, attached to `RateLimitError` when present. */
   readonly capturedSessionId?: string;
   readonly providerName: ProviderName;
   readonly eventBus: EventBus;
-  /**
-   * The banner id the adapter's `onIdle` callback used when publishing the watchdog
-   * "killed stuck process" banner. The recovery branch publishes a `banner-clear` against
-   * this exact id so the operator doesn't see a stuck-process warning beside a successful
-   * outcome.
-   */
+  /** Watchdog banner the recovery branch clears, so a stuck-process warning never sits beside a success. */
   readonly watchdogBannerId: string;
-  /**
-   * `true` when the idle-stdout watchdog fired for this attempt (its `onIdle` callback ran, so
-   * the SIGTERM the child died from was OURS). Threaded from the shared spawn scaffold because
-   * a watchdog kill and an external SIGTERM are indistinguishable from the exit shape alone.
-   * Rides onto the `ProcessCrashError` so the attempt record can say `watchdog-killed` rather
-   * than the generic `process-crash`.
-   */
+  /** The watchdog's own SIGTERM killed the child — indistinguishable from an external kill by exit shape. */
   readonly watchdogKilled?: boolean;
-  /**
-   * Per-provider success block — emits token-usage, persists session-id.txt, mirrors
-   * bodyFile, and returns `{ kind: 'success', output: ProviderOutput }`. Invoked on
-   * `code === 0` AND on the recovery branch. When recovery fired, the helper splices
-   * `recoveredFromExit` into the returned `output` so the caller can tell the two apart.
-   */
+  /** Runs on a clean exit and on signals-recovery (which then splices in `recoveredFromExit`). */
   readonly onSuccess: () => AttemptOutcome | Promise<AttemptOutcome>;
 }
 
-/**
- * Shared `code=N (signal=S): <stderr tail>` prefix used by both non-zero-exit failure shapes.
- * Falls back to the provider-parsed `processErrorText` when the CLI wrote nothing to stderr —
- * opencode puts its whole explanation on a stdout error record, so without the fallback the
- * operator sees `<empty stderr>` and nothing else.
- */
+/** Falls back to `processErrorText` when stderr is empty, so opencode's only explanation survives. */
 const exitSummary = ({ exit, stderr, processErrorText }: ClassifySpawnExitInput): string => {
   const detail = stderr.trim() || processErrorText?.trim() || '<empty stderr>';
   return `process exited with code ${String(exit.code)}${exit.signal !== null ? ` (signal=${exit.signal})` : ''}: ${detail}`;
 };
 
-/**
- * The two branches that are decided BEFORE the exit code is even looked at. Returns `undefined`
- * when neither applies and the ladder should continue. Pure and synchronous.
- *
- *  - **Abort.** A user cancel that races a clean exit still surfaces as `AbortError` so the
- *    chain runner can propagate it transparently per the AbortError rule.
- *  - **Spawn error.** The child never ran — a missing / non-executable binary (ENOENT / EACCES)
- *    or a death before stdin drained. Without this the unhandled `'error'` event would have
- *    killed the whole process; `runHeadlessSpawn` captured it so a typed, actionable failure
- *    surfaces instead. Classified as a RETRYABLE `ProcessCrash` (distinct from the
- *    model-unavailable config error): a spawn that died transiently is worth re-running within
- *    the attempt budget rather than blocking after one attempt.
- */
+/** Abort, then spawn error — both decided before the exit code is looked at. */
 const classifyPreExit = ({ session, exit, providerName }: ClassifySpawnExitInput): AttemptOutcome | undefined => {
-  if (session.abortSignal?.aborted === true) {
-    return {
-      kind: 'error',
-      error: new AbortError({
-        elementName: providerName,
-        reason: `${providerName}: aborted by caller`,
-      }),
-    };
-  }
-
-  if (exit.spawnError !== undefined) {
-    return classifySpawnFailure(providerName, exit.spawnError, exit.argvBytes);
-  }
-
+  if (session.abortSignal?.aborted === true) return { kind: 'error', error: abortedByCaller(providerName) };
+  if (exit.spawnError !== undefined) return classifySpawnFailure(providerName, exit.spawnError, exit.argvBytes);
   return undefined;
 };
 
 /**
- * Turn a spawn-level failure into an outcome. Shared by the pre-exit branch above and by the
- * synchronous-throw path in `runProviderAttempt` — `cross-spawn` raises an oversized command line
- * synchronously on Windows, so a classifier that only handled the async `'error'` event would let
- * exactly this bug escape as an unhandled exception.
- *
- * An argv overflow is NOT transient: the same command line is assembled on every attempt, so a
- * retryable `ProcessCrash` would burn the whole budget re-spawning something that can never fit.
- * It is also not a PATH problem, so the default hint would send an operator looking in the wrong
- * place. Non-retryable config error instead, carrying the measured size.
- *
- * That verdict is only safe when the size really did break the platform's ceiling, which is why
- * `platform` reaches {@link isArgvOverflow}: on darwin / linux a 40 KiB command line is legal, so a
- * failure at that size is an ordinary `ENOENT` / `EACCES` and MUST stay a retryable
- * `ProcessCrashError` with the PATH hint. Injectable for tests; defaults to the live platform.
+ * Spawn-level failure, from the async `'error'` event or the synchronous throw `cross-spawn` raises
+ * for an oversized Windows command line. An argv overflow is a non-retryable config error (the same
+ * argv is rebuilt every attempt); `platform` keeps a 40 KiB argv on darwin / linux, where it is
+ * legal, a retryable crash with the PATH hint.
  */
 export const classifySpawnFailure = (
   providerName: ProviderName,
@@ -299,24 +149,9 @@ export const classifySpawnFailure = (
   };
 };
 
-/**
- * Which stream carried the rate-limit evidence — the two are NOT equally trustworthy, so the
- * ladder treats them differently (stderr beats signals-recovery, stdout does not).
- */
+/** stderr-class evidence beats signals-recovery; stdout-only evidence does not. */
 type RateLimitSource = 'stderr' | 'stdout';
 
-/**
- * Rate-limit detection, two-tiered by haystack trustworthiness:
- *
- *  - **stderr** and **processErrorText** get the adapter's own broad pattern — both are the CLI's
- *    diagnostic channel (stderr for claude / codex / copilot; a structured stdout `error` record
- *    for grok / opencode). "quota" / a bare `429` there really is a throttle. A `processErrorText`
- *    hit is stderr-class so it still beats signals-recovery.
- *  - **stdoutTail** gets the shared, narrow {@link STDOUT_RATE_LIMIT_RE} — it is assistant prose,
- *    where those same tokens appear in ordinary answers about throttling code.
- *
- * Returns the matching source, or `undefined` when neither tier matches.
- */
 const detectRateLimit = ({
   stderr,
   rateLimitRe,
@@ -331,11 +166,7 @@ const detectRateLimit = ({
   return undefined;
 };
 
-/**
- * The rate-limit outcome. The message names the stream that matched: a `rate-limit` classification
- * costs the operator the whole backoff schedule, so which haystack triggered it has to be
- * readable from the log without re-running anything.
- */
+/** Names the matching stream: a rate-limit verdict costs the whole backoff schedule. */
 const rateLimitOutcome = (
   { exit, capturedSessionId, providerName }: ClassifySpawnExitInput,
   source: RateLimitSource
@@ -349,17 +180,9 @@ const rateLimitOutcome = (
 });
 
 /**
- * **Model unavailable** is a configuration failure, not recoverable work. It wins over recovery
- * because a model-not-available exit means the run never produced valid work for this model; a
- * stale signals.json must not mask the real cause. The actionable hint is folded into `.message`
- * (not just the separate `.hint` field) so it survives unchanged through `run-generator-turn`'s
- * blockedReason string and into the TUI without touching the render layer.
- *
- * **Scans stderr + `processErrorText`, never `stdoutTail`.** Both of the former are the CLI's own
- * diagnostics (claude / codex / copilot use stderr; opencode uses a structured stdout error
- * record). `stdoutTail` is assistant-generated task output, where benign phrases like "the model
- * is not available in TensorFlow" or "the model checkpoint was not found" appear in NORMAL
- * responses and would be misclassified as a config failure.
+ * Config failure that beats recovery, so a stale envelope cannot mask it. The hint is folded into
+ * `.message` so it reaches the TUI through `blockedReason` untouched. Never scans `stdoutTail`:
+ * "the model is not available in TensorFlow" is ordinary assistant prose.
  */
 const classifyModelUnavailable = (input: ClassifySpawnExitInput): AttemptOutcome | undefined => {
   const { stderr, processErrorText, providerName } = input;
@@ -379,12 +202,8 @@ const classifyModelUnavailable = (input: ClassifySpawnExitInput): AttemptOutcome
 };
 
 /**
- * **Effort unsupported** — the CLI rejected the reasoning-effort level for this model. Same
- * non-retryable posture as {@link classifyModelUnavailable}: every retry would send the identical
- * flag, so it surfaces an `InvalidStateError` naming the model and level instead of a crash. The
- * catalog clamp (`clampEffortToModel`) keeps known models from getting here; this catches custom
- * and unverified ids. The message quotes the CLI's own line rather than the full stderr, which can
- * carry unrelated noise (codex logs MCP auth failures there).
+ * The CLI rejected the effort level for this model — non-retryable like model-unavailable. Catches
+ * custom ids the catalog clamp cannot; quotes the CLI's own line, not the whole (noisy) stderr.
  */
 const classifyEffortUnsupported = (input: ClassifySpawnExitInput): AttemptOutcome | undefined => {
   const { session, stderr, processErrorText, providerName } = input;
@@ -407,15 +226,9 @@ const classifyEffortUnsupported = (input: ClassifySpawnExitInput): AttemptOutcom
   };
 };
 
-/**
- * Non-zero exit with no signals.json — the watchdog-SIGTERM-before-signals shape (idle-stdout kill
- * of a wedged child). A TRANSIENT process death worth retrying, so it surfaces a RETRYABLE
- * `ProcessCrash` (distinct from the non-retryable model-unavailable config error). The message
- * text keeps the historical per-adapter exit-N shape so logs / progress read the same.
- */
+/** Non-zero exit with no envelope: a retryable crash. */
 const crashOutcome = (input: ClassifySpawnExitInput): AttemptOutcome => {
-  // Prefer the POSIX signal name when Node reported one — `SIGTERM` is more legible in the
-  // attempt record than the `143` the same kill surfaces as under different timing.
+  // `SIGTERM` reads better in the attempt record than the `143` the same kill can surface as.
   const signalOrExitCode = input.exit.signal ?? input.exit.code ?? undefined;
   return {
     kind: 'error',
@@ -429,15 +242,7 @@ const crashOutcome = (input: ClassifySpawnExitInput): AttemptOutcome => {
   };
 };
 
-/**
- * The only branch that touches the filesystem. `signals.json` is authoritative, so a non-zero exit
- * with the envelope on disk preserves the work: the watchdog banner is cleared, the adapter's own
- * success block runs, and `recoveredFromExit` is spliced in so the caller can tell it apart from a
- * clean exit. Existence-check only; the downstream validator catches malformed content.
- *
- * Returns `undefined` when nothing landed, so the ladder can decide between the weaker
- * (stdout-only) rate-limit evidence and a plain crash.
- */
+/** Signals-recovery: `undefined` when no envelope landed. */
 const recoverIfSignalsLanded = async ({
   session,
   exit,

@@ -65,7 +65,7 @@ export const createInteractiveGrokProvider = (deps: InteractiveProviderDeps): In
   createInteractiveProvider(
     {
       providerName: 'interactive-grok',
-      defaultCommand: 'grok',
+      provider: 'xai-grok',
       modelCatalogLabel: 'Grok',
       isKnownModel: isGrokModel,
       supportsSessionId: true,

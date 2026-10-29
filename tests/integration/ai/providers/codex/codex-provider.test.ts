@@ -11,7 +11,7 @@ import { FULL_AUTO, READ_ONLY } from '@src/integration/ai/providers/_engine/sess
 import { absolutePath } from '@tests/fixtures/domain.ts';
 import { createCapturingBus } from '@tests/fixtures/capturing-event-bus.ts';
 import { CODEX_MODELS } from '@src/domain/value/settings-models/codex.ts';
-import { STDOUT_LINE_PARSE_CAP } from '@src/integration/ai/providers/_engine/bounded-tail.ts';
+import { STDOUT_LINE_PARSE_CAP } from '@src/integration/ai/providers/_engine/line-feed.ts';
 import { buildCodexArgs, createCodexProvider } from '@src/integration/ai/providers/codex/headless.ts';
 import type { ProviderSpawn } from '@src/integration/ai/providers/_engine/spawn.ts';
 import type { TokenUsageEvent } from '@src/business/observability/events.ts';

@@ -3,8 +3,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Result } from '@src/domain/result.ts';
 import type { HeadlessAiProvider } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
-import { RATE_LIMIT_SCAN_TAIL_CAP } from '@src/integration/ai/providers/_engine/bounded-tail.ts';
-import { isRecord, numberField, stringField } from '@src/integration/ai/providers/_engine/json-field.ts';
+import { RATE_LIMIT_SCAN_TAIL_CAP, createBoundedTail } from '@src/integration/ai/providers/_engine/bounded-tail.ts';
+import { isRecord, numberField, recordField, stringField } from '@src/integration/ai/providers/_engine/json-field.ts';
 import { createCappedLineFeed, emitJsonObjectLine } from '@src/integration/ai/providers/_engine/line-feed.ts';
 import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session.ts';
 import type { CodexProviderDeps } from '@src/integration/ai/providers/_engine/headless-provider-deps.ts';
@@ -27,106 +27,38 @@ import type { EventBus } from '@src/business/observability/event-bus.ts';
 import {
   type AttemptBase,
   createHeadlessProvider,
-  emitTokenUsage,
   runProviderAttempt,
 } from '@src/integration/ai/providers/_engine/run-provider-attempt.ts';
 import { messageOf } from '@src/domain/value/error/error-message.ts';
 
 /**
- * {@link HeadlessAiProvider} backed by the OpenAI Codex CLI (`codex` v0.130.0+).
+ * {@link HeadlessAiProvider} backed by the OpenAI Codex CLI (`codex` v0.130.0+). Permission and
+ * resume-sandbox rationale lives in `.claude/docs/SECURITY.md`.
  *
- * Translation table (intent → Codex CLI argv):
+ *   | AiSession field         | Codex argv                                                       |
+ *   | ----------------------- | ---------------------------------------------------------------- |
+ *   | fresh session           | `exec`                                                           |
+ *   | resume: <SessionId>     | `exec resume <id>`                                               |
+ *   | (always)                | `--skip-git-repo-check -o <tmpfile> --json`                      |
+ *   | model                   | `-m <model>`                                                     |
+ *   | cwd                     | `-C <cwd>` (fresh); resume runs in the spawn cwd                 |
+ *   | additionalRoots         | `--add-dir <root>` (fresh)                                       |
+ *   |                         | `-c sandbox_workspace_write.writable_roots=[…]` (resume)         |
+ *   | permissions (any)       | `-s workspace-write` (fresh) / `-c sandbox_mode=…` (resume)      |
+ *   | effort: <level>         | `-c model_reasoning_effort=<level>`                              |
+ *   | prompt                  | piped to stdin, with a trailing `-`                              |
  *
- *   | AiSession field                   | Codex argv                                                      |
- *   | --------------------------------- | --------------------------------------------------------------- |
- *   | fresh session                     | `exec`                                                          |
- *   | resume: <SessionId>               | `exec resume <id>`                                              |
- *   | (always)                          | `--skip-git-repo-check -o <tmpfile> --json`                     |
- *   | model: <CodexModel>               | `-m <model>`                                                    |
- *   | cwd                               | `-C <cwd>` (fresh); resume runs in the spawn cwd               |
- *   | additionalRoots: [a, b]           | `--add-dir a --add-dir b` (fresh)                               |
- *   |                                   | `-c sandbox_workspace_write.writable_roots=["a","b"]` (resume) |
- *   | permissions (any profile)         | `-s workspace-write` (fresh)                                    |
- *   |                                   | `-c sandbox_mode="workspace-write"` (resume)                    |
- *   | effort: <level>                   | `-c model_reasoning_effort=<level>`                             |
- *   | (always, trailing)                | `-` (read prompt from stdin)                                    |
- *   | prompt                            | piped to stdin                                                  |
+ * The body is read back from the `-o` tempfile. The session id is `thread_id` on the leading
+ * `thread.started` record and is what `exec resume <id>` accepts. `exec` has no `--search`, so
+ * `canAccessNetwork` cannot be translated. Debug events map `item.completed` records: agent_message
+ * → assistant, command_execution / function_call → tool_use, function_call_output → tool_result.
  *
- * The trailing `-` is codex's documented sentinel for "the prompt is on stdin." Without it,
- * codex would treat the piped data as side context and wait for a positional prompt arg —
- * causing the call to hang. See https://github.com/openai/codex/blob/main/docs/exec.md.
- *
- * Output handling — audit-[09] contract: codex's `-o <tmpfile>` writes the final assistant
- * message to a tempfile; after exit the adapter reads it for forensic body capture. The AI
- * writes `signals.json` directly via its Write tool into `session.outputDir`; the harness
- * validates it post-spawn — the provider never touches signals.json. When `session.bodyFile`
- * is set, the adapter mirrors the raw body there for diagnostic capture (best-effort).
- *
- * Session id capture: codex emits JSONL meta events on stdout. On codex-cli 0.130.x the id
- * arrives as `thread_id` on the leading `{type:"thread.started"}` record (legacy `session_id` /
- * `sessionId` are still recognised). The adapter line-buffers stdout, picks the first id out,
- * and discards the rest of the stream (the body is read from the tempfile). The captured id is
- * what `codex exec resume <id>` accepts, so it round-trips through `session.resume`.
- *
- * Permissions: every profile maps to `-s workspace-write` (see `CODEX_SANDBOX` for why the
- * read-only sandbox cannot be used). Codex `exec` on v0.130.0 does not expose a `--search`
- * flag, so the headless adapter cannot currently translate `canAccessNetwork`; sessions run
- * without the native live-web-search tool even though the shared permission model keeps the
- * bit for cross-provider parity.
- *
- * Per-line debug events: the headless adapter publishes one
- * `{ type: 'log', level: 'debug', message: 'codex-provider: assistant' | 'tool_use' | 'tool_result' }`
- * event per recognised `item.completed` record on codex's JSONL stream. The mapping (best-effort
- * on codex-cli 0.130.x — re-audit on vendor bumps):
- *
- *   - `item.completed` with `item.type === 'agent_message'` → `assistant` event (`meta.text`
- *     pulled from `item.text`).
- *   - `item.completed` with `item.type === 'command_execution'` → `tool_use` event
- *     (`meta.tool = 'command_execution'`, `meta.args = item.command`).
- *   - `item.completed` with `item.type === 'function_call'` → `tool_use` event
- *     (`meta.tool = item.name`, `meta.args = item.arguments`).
- *   - `item.completed` with `item.type === 'function_call_output'` → `tool_result` event
- *     (`meta.tool = item.name | item.call_id`, `meta.status = 'ok' | 'error'`,
- *     `meta.preview = item.output`).
- *   - `thread.started`, `turn.started`, `turn.completed`, unknown / malformed lines: silently
- *     skipped — they are accounted for by the session-id / token-usage telemetry above.
- *
- * These events publish at `debug` level, so they stay invisible at the TUI's default `info`
- * log-level floor and only surface when the operator lowers the floor in the settings view;
- * the `RALPHCTL_DEBUG_TRACE`-gated chain.log captures them regardless of the floor.
- *
- * Test seam: `spawn` is overridable so tests script stdout / stderr / exit code without
- * launching the real `codex` binary. `readFile` / `unlink` are also injectable for unit
- * tests that exercise the body-capture path without disk I/O.
- *
- * Docs:
- *   - https://developers.openai.com/codex/cli/reference (top-level + `exec` flags)
- *   - https://developers.openai.com/codex/noninteractive (`-o`, `--json`, stdin sentinel)
- *
- * Composition-root inputs ({@link CodexProviderDeps}) live in `_engine/` so the contract is
- * a port, not an implementation detail of this file.
+ * Docs: https://developers.openai.com/codex/cli/reference, https://developers.openai.com/codex/noninteractive
  */
 
 const PROVIDER_NAME = 'codex-provider';
 
-/**
- * Codex's `-s/--sandbox` value for every `SessionPermissions` profile.
- *
- * Codex `exec` has only two non-interactive sandbox modes:
- *
- *   - `read-only`        — blocks every write, including signals.json. Incompatible with
- *                          the audit-[09] contract (the AI MUST write the envelope).
- *   - `workspace-write`  — allows writes inside `cwd + --add-dir` paths.
- *
- * Every profile therefore maps to `workspace-write`. Path scope (cwd + `additionalRoots`
- * + `outputDir`) is the safety envelope, not the sandbox flag. This is more permissive
- * than Claude/Copilot — Codex cannot deny `Edit` on existing repo files while still
- * allowing `Write` on signals.json. Document this in CLAUDE.md and let the topology
- * decide what's reachable.
- *
- * The interactive `codex` command keeps `-a/--ask-for-approval`; that path is handled in
- * `interactive.ts`.
- */
+// `read-only` would block signals.json too, so every profile runs `workspace-write`; topology is the envelope.
 const CODEX_SANDBOX = 'workspace-write';
 
 interface BuildCodexArgsOpts {
@@ -137,10 +69,7 @@ interface BuildCodexArgsOpts {
 const tomlStringArray = (values: readonly AbsolutePath[]): string =>
   `[${values.map((v) => JSON.stringify(String(v))).join(',')}]`;
 
-/**
- * Build the argv for one Codex invocation. Validates `session.model` against
- * {@link CodexModel}; surfaces `InvalidStateError` for unknowns.
- */
+/** Build the argv for one Codex invocation; an unknown model is an `InvalidStateError`. */
 export const buildCodexArgs = (
   session: AiSession,
   opts: BuildCodexArgsOpts
@@ -159,8 +88,6 @@ export const buildCodexArgs = (
   }
   // No `--ephemeral`: it skips writing the rollout, so every later `exec resume` found nothing.
   args.push('--skip-git-repo-check', '-o', opts.outputFile, '--json', '-m', session.model);
-  // Auto-mount `outputDir` so signals.json can land inside the workspace-write sandbox.
-  // See resolve-roots.ts for the dedup rules.
   const roots = resolveWritableRoots(session);
   if (isResume) {
     // `exec resume` has no -C / -s / --add-dir and runs read-only unless the sandbox is re-declared.
@@ -172,36 +99,19 @@ export const buildCodexArgs = (
       args.push('--add-dir', String(root));
     }
   }
-  // Forward `session.effort` verbatim via `-c model_reasoning_effort=<value>`. Codex's
-  // documented levels are low | medium | high | xhigh | max | ultra; the launcher only floors
-  // a global `max` to `xhigh` in `resolveEffort` before reaching the adapter — an explicit
-  // per-row `max` (5.6 / GPT-6 families only) or `ultra` (not on luna, plan-gated) arrives here
-  // verbatim, with the codex CLI as final arbiter. Codex itself rejects unknown or
-  // model-incompatible levels — let it speak rather than re-validate here (mirrors the
-  // custom-model arm policy).
+  // Forwarded verbatim; codex rejects unknown or model-incompatible levels itself.
   if (session.effort !== undefined) {
     args.push('-c', `model_reasoning_effort=${session.effort}`);
   }
-  // Trailing `-` tells codex to read the prompt from stdin. Required when no positional
-  // prompt arg is given — without it, codex hangs waiting for the arg.
+  // Without the trailing `-`, codex treats stdin as side context and hangs waiting for a prompt arg.
   args.push('-');
   return Result.ok(args);
 };
 
 /**
- * Stale-resume detection. Codex persists each session as a "rollout"; after a crash / abort /
- * expiry the rollout can vanish, so a subsequent `codex exec resume <id>` exits non-zero with
- * "thread/resume failed: no rollout found for thread id … (code -32600)". The gen-eval loop
- * threads the prior round's session id as `session.resume`, so a lost rollout would otherwise
- * block the task on an evaluator/generator turn that never ran. We detect that exact failure
- * and fall back to a cold spawn instead.
- *
- * The two textual alternatives match the canonical message verbatim; `code -32600` is an
- * intentionally broad backstop (it is the generic JSON-RPC "Invalid Request" code, not unique to a
- * lost rollout). A spurious match only ever triggers ONE benign cold respawn — the prompt is
- * self-contained, so the cost is losing the in-thread conversation memory, never correctness — and
- * the `coldRetried` latch bounds it. Kept broad on purpose so a future codex build that drops the
- * textual wording but keeps the code still self-heals.
+ * A lost rollout fails `exec resume` with "thread/resume failed: no rollout found … (code -32600)".
+ * `code -32600` is a deliberately broad backstop: a spurious match costs one cold respawn, never
+ * correctness.
  */
 const RESUME_STALE_RE = /no rollout found|thread\/resume failed|code -32600/i;
 
@@ -209,101 +119,6 @@ let tempCounter = 0;
 const defaultMkTempPath = (): string => {
   tempCounter += 1;
   return join(tmpdir(), `ralphctl-codex-${String(process.pid)}-${String(Date.now())}-${String(tempCounter)}.txt`);
-};
-
-interface CodexMetaUpdate {
-  readonly sessionId?: string;
-  readonly model?: string;
-  readonly inputTokens?: number;
-  readonly outputTokens?: number;
-}
-
-/**
- * Pull the session-id / `model` / token-usage fields out of one already-parsed stdout record.
- * Returns `undefined` when the record carries none of them (caller skips the `onMeta` call).
- */
-const extractCodexMetaUpdate = (obj: Record<string, unknown>): CodexMetaUpdate | undefined => {
-  // `thread_id` is the 0.130.x field (on the `thread.started` record); `session_id` /
-  // `sessionId` cover legacy / forward-compat builds. First non-empty id wins (deduped by
-  // the caller), so listing `thread_id` first matches the stream order.
-  const id = stringField(obj, 'thread_id', 'session_id', 'sessionId');
-  const model = stringField(obj, 'model');
-  const usageObj = obj['usage'];
-  const source = isRecord(usageObj) ? usageObj : obj;
-  const i = numberField(source, 'input_tokens', 'inputTokens', 'prompt_tokens');
-  const o = numberField(source, 'output_tokens', 'outputTokens', 'completion_tokens');
-  if (id === undefined && model === undefined && i === undefined && o === undefined) return undefined;
-  return {
-    ...(id !== undefined ? { sessionId: id } : {}),
-    ...(model !== undefined ? { model } : {}),
-    ...(i !== undefined ? { inputTokens: i } : {}),
-    ...(o !== undefined ? { outputTokens: o } : {}),
-  };
-};
-
-/** `item.completed` / `item.type === 'agent_message'` → one `assistant` debug event. */
-const publishAgentMessageEvent = (eventBus: EventBus, item: Record<string, unknown>): void => {
-  publishAssistantEvent(eventBus, PROVIDER_NAME, stringField(item, 'text'));
-};
-
-/** `item.completed` / `item.type === 'command_execution'` → one `tool_use` debug event. */
-const publishCommandExecutionEvent = (eventBus: EventBus, item: Record<string, unknown>): void => {
-  publishToolUseEvent(eventBus, PROVIDER_NAME, 'command_execution', stringField(item, 'command'));
-};
-
-/** `item.completed` / `item.type === 'function_call'` → one `tool_use` debug event. */
-const publishFunctionCallEvent = (eventBus: EventBus, item: Record<string, unknown>): void => {
-  const rawArgs = item['arguments'];
-  const argsPreview = typeof rawArgs === 'string' ? rawArgs : previewJson(rawArgs);
-  publishToolUseEvent(eventBus, PROVIDER_NAME, stringField(item, 'name') ?? '', argsPreview);
-};
-
-/** `item.completed` / `item.type === 'function_call_output'` → one `tool_result` debug event. */
-const publishFunctionCallOutputEvent = (eventBus: EventBus, item: Record<string, unknown>): void => {
-  const tool = stringField(item, 'name') ?? stringField(item, 'call_id') ?? '';
-  const status = item['is_error'] === true || stringField(item, 'status') === 'error' ? 'error' : 'ok';
-  publishToolResultEvent(eventBus, PROVIDER_NAME, tool, status, stringField(item, 'output'));
-};
-
-/**
- * Emit one structured debug event per recognised codex `item.completed` record. See the
- * module-level comment for the shape mapping. Returns early when the JSON record is not an
- * `item.completed` envelope — `thread.started` / `turn.started` / `turn.completed` (and any
- * unknown line type) intentionally produce no event because they have no assistant / tool
- * payload to surface.
- */
-const publishCodexStreamLineEvents = (eventBus: EventBus, obj: Record<string, unknown>): void => {
-  if (stringField(obj, 'type') !== 'item.completed') return;
-  const item = obj['item'];
-  if (!isRecord(item)) return;
-  const itemType = stringField(item, 'type');
-  if (itemType === 'agent_message') return publishAgentMessageEvent(eventBus, item);
-  if (itemType === 'command_execution') return publishCommandExecutionEvent(eventBus, item);
-  if (itemType === 'function_call') return publishFunctionCallEvent(eventBus, item);
-  if (itemType === 'function_call_output') return publishFunctionCallOutputEvent(eventBus, item);
-};
-
-/** Best-effort debug log when the codex forensic body tempfile can't be read (audit-[09]). */
-const publishUnreadableBody = (eventBus: EventBus, err: unknown): void => {
-  eventBus.publish({
-    type: 'log',
-    level: 'debug',
-    message: 'codex-provider: forensic body tempfile unreadable',
-    meta: { error: messageOf(err) },
-    at: IsoTimestamp.now(),
-  });
-};
-
-/**
- * Pull the assistant text out of a codex `{type:"item.completed", item:{type:"agent_message"}}`
- * record. Used to feed the rate-limit classifier's haystack — codex prints a quota throttle in
- * the agent_message body. Returns undefined for any other record shape.
- */
-const agentMessageText = (obj: Record<string, unknown>): string | undefined => {
-  if (stringField(obj, 'type') !== 'item.completed') return undefined;
-  const item = obj['item'];
-  if (!isRecord(item) || stringField(item, 'type') !== 'agent_message') return undefined;
-  return stringField(item, 'text');
 };
 
 /**
@@ -317,15 +132,15 @@ const codexStreamErrorText = (obj: Record<string, unknown>): string | undefined 
   const raw =
     type === 'error'
       ? stringField(obj, 'message')
-      : type === 'turn.failed' && isRecord(obj['error'])
-        ? stringField(obj['error'], 'message')
+      : type === 'turn.failed'
+        ? stringField(recordField(obj, 'error'), 'message')
         : undefined;
   if (raw === undefined) return undefined;
   try {
     const parsed: unknown = JSON.parse(raw);
-    const inner = isRecord(parsed) && isRecord(parsed['error']) ? parsed['error'] : undefined;
-    const message = inner !== undefined ? stringField(inner, 'message') : undefined;
-    if (inner === undefined || message === undefined) return raw;
+    const inner = isRecord(parsed) ? recordField(parsed, 'error') : undefined;
+    const message = stringField(inner, 'message');
+    if (message === undefined) return raw;
     const param = stringField(inner, 'param');
     return param !== undefined ? `${message} (param: ${param})` : message;
   } catch {
@@ -333,112 +148,91 @@ const codexStreamErrorText = (obj: Record<string, unknown>): string | undefined 
   }
 };
 
-/**
- * Mutable per-attempt accumulator for codex's JSONL stdout stream: session id / model / token
- * usage (first-wins for id/model, last-wins for usage) plus the bounded `agent_message` tail used
- * as the rate-limit haystack.
- * One fresh instance per `attempt()` call — mirrors the sibling `createClaudeStreamParser`
- * pattern in claude/headless.ts, kept file-local since codex's JSONL-meta-line shape has no
- * natural shared port with Claude's `result`-envelope shape.
- */
-interface CodexAttemptTracker {
-  /** Feed one raw stdout chunk through the capped line feed. */
-  readonly consumeChunk: (chunk: string) => void;
-  /** Flush any partial trailing line once the child has exited (no trailing newline). */
-  readonly flush: () => void;
-  readonly getSessionId: () => string | undefined;
-  readonly getModel: () => string | undefined;
-  readonly getInputTokens: () => number | undefined;
-  readonly getOutputTokens: () => number | undefined;
-  /** Bounded `agent_message` tail for the rate-limit classifier's haystack. */
-  readonly getStdoutTail: () => string | undefined;
-  /** Last fatal `error` / `turn.failed` record — the classifier's `processErrorText`. */
-  readonly getStreamError: () => string | undefined;
-}
+/** Debug events for one `item.completed` record; every other record type has no payload to surface. */
+const publishCodexStreamLineEvents = (eventBus: EventBus, obj: Record<string, unknown>): void => {
+  if (stringField(obj, 'type') !== 'item.completed') return;
+  const item = recordField(obj, 'item');
+  switch (stringField(item, 'type')) {
+    case 'agent_message':
+      publishAssistantEvent(eventBus, PROVIDER_NAME, stringField(item, 'text'));
+      break;
+    case 'command_execution':
+      publishToolUseEvent(eventBus, PROVIDER_NAME, 'command_execution', stringField(item, 'command'));
+      break;
+    case 'function_call': {
+      const rawArgs = item?.['arguments'];
+      const argsPreview = typeof rawArgs === 'string' ? rawArgs : previewJson(rawArgs);
+      publishToolUseEvent(eventBus, PROVIDER_NAME, stringField(item, 'name') ?? '', argsPreview);
+      break;
+    }
+    case 'function_call_output': {
+      const tool = stringField(item, 'name') ?? stringField(item, 'call_id') ?? '';
+      const status = item?.['is_error'] === true || stringField(item, 'status') === 'error' ? 'error' : 'ok';
+      publishToolResultEvent(eventBus, PROVIDER_NAME, tool, status, stringField(item, 'output'));
+      break;
+    }
+  }
+};
 
-const createCodexAttemptTracker = (eventBus: EventBus): CodexAttemptTracker => {
+/** Assistant text of an `agent_message` item — codex reports a quota throttle there, not always on stderr. */
+const agentMessageText = (obj: Record<string, unknown>): string | undefined => {
+  if (stringField(obj, 'type') !== 'item.completed') return undefined;
+  const item = recordField(obj, 'item');
+  return stringField(item, 'type') === 'agent_message' ? stringField(item, 'text') : undefined;
+};
+
+/** Per-attempt accumulator over codex's JSONL stdout. One fresh instance per `attempt()`. */
+const createCodexAttemptTracker = (eventBus: EventBus) => {
   let sessionId: string | undefined;
   let model: string | undefined;
   let inputTokens: number | undefined;
   let outputTokens: number | undefined;
-  // Accumulate codex's `agent_message` text so the rate-limit classifier can scan it
-  // alongside stderr — codex surfaces a quota throttle in the agent_message body,
-  // not always on stderr. Capped to bound memory on a long session.
-  let agentMessageTail = '';
+  const agentMessageTail = createBoundedTail(RATE_LIMIT_SCAN_TAIL_CAP);
   let streamError: string | undefined;
-  // Shared capped NDJSON feed — the in-flight line accumulator is bounded at
-  // STDOUT_LINE_PARSE_CAP (drop-oldest, one-shot warn). Codex can stream a single record embedding
-  // a huge file-read / bash tool result, and a child that never terminates the line would
-  // otherwise grow this buffer without bound (OOM class). Same helper, same cap semantics as the
-  // claude / copilot / opencode / grok parsers, so all five behave identically on the same input.
   const lineFeed = createCappedLineFeed<Record<string, unknown>>('codex-stream', emitJsonObjectLine);
 
-  const onMeta = (update: CodexMetaUpdate): void => {
-    if (update.sessionId !== undefined && sessionId === undefined) {
-      sessionId = update.sessionId;
-    }
-    if (update.model !== undefined && model === undefined) {
-      model = update.model;
-    }
-    // Last-write-wins on usage — codex's `turn.completed` record carries the cumulative
-    // figure; earlier records (thread.started / streaming chunks) report partials or nothing.
-    if (update.inputTokens !== undefined) inputTokens = update.inputTokens;
-    if (update.outputTokens !== undefined) outputTokens = update.outputTokens;
-  };
-  const onLine = (obj: Record<string, unknown>): void => {
+  const dispatch = (obj: Record<string, unknown>): void => {
     publishCodexStreamLineEvents(eventBus, obj);
     streamError = codexStreamErrorText(obj) ?? streamError;
     const text = agentMessageText(obj);
-    if (text !== undefined) {
-      agentMessageTail = `${agentMessageTail}${agentMessageTail.length > 0 ? '\n' : ''}${text}`.slice(
-        -RATE_LIMIT_SCAN_TAIL_CAP
-      );
-    }
-  };
+    if (text !== undefined) agentMessageTail.append(agentMessageTail.value().length > 0 ? `\n${text}` : text);
 
-  // Ordering is load-bearing: the per-line debug fan-out (assistant / tool_use / tool_result)
-  // runs BEFORE the meta extractors, so a single `item.completed` record both updates the meta
-  // accumulators (when applicable) and surfaces as one debug event in chain.log.
-  const dispatch = (obj: Record<string, unknown>): void => {
-    onLine(obj);
-    const update = extractCodexMetaUpdate(obj);
-    if (update !== undefined) onMeta(update);
+    // 0.130.x sends `thread_id` on `thread.started`; `session_id` / `sessionId` cover other builds.
+    sessionId ??= stringField(obj, 'thread_id', 'session_id', 'sessionId');
+    model ??= stringField(obj, 'model');
+    // Last write wins: `turn.completed` carries the cumulative figure.
+    const source = recordField(obj, 'usage') ?? obj;
+    inputTokens = numberField(source, 'input_tokens', 'inputTokens', 'prompt_tokens') ?? inputTokens;
+    outputTokens = numberField(source, 'output_tokens', 'outputTokens', 'completion_tokens') ?? outputTokens;
   };
 
   return {
-    consumeChunk: (chunk) => {
+    consumeChunk: (chunk: string) => {
       lineFeed.feed(chunk, dispatch);
     },
-    // Flush any partial line remaining in the buffer — codex may terminate without a
-    // trailing newline, so the trailing partial still goes through the parser.
     flush: () => {
       lineFeed.flush(dispatch);
     },
     getSessionId: () => sessionId,
-    getModel: () => model,
-    getInputTokens: () => inputTokens,
-    getOutputTokens: () => outputTokens,
-    getStdoutTail: () => (agentMessageTail.length > 0 ? agentMessageTail : undefined),
+    getUsage: () => ({
+      ...(model !== undefined ? { model } : {}),
+      ...(inputTokens !== undefined ? { inputTokens } : {}),
+      ...(outputTokens !== undefined ? { outputTokens } : {}),
+    }),
+    getStdoutTail: () => agentMessageTail.value() || undefined,
     getStreamError: () => streamError,
   };
 };
 
-interface RunCodexAttemptOpts {
-  readonly outputFile: string;
-  readonly base: AttemptBase;
-  readonly readFile: (path: string) => Promise<string>;
-}
-
 /**
- * Run one codex spawn attempt: validates argv, wires a fresh {@link CodexAttemptTracker} into
- * `runProviderAttempt`'s stdout hooks, and reads back the forensic body tempfile. `outputFile` is
- * minted fresh per attempt by `createGenerateContext` below (which tracks every path for cleanup),
- * so a killed later attempt never reads back the prior attempt's stale body; the tracker's mutable
- * state is likewise fresh per `attempt()` call.
+ * One codex spawn. `outputFile` is minted fresh per attempt, so a killed later attempt never reads
+ * back the prior attempt's body.
  */
 const runCodexAttempt = (
   attemptSession: AiSession,
-  { outputFile, base, readFile }: RunCodexAttemptOpts
+  outputFile: string,
+  base: AttemptBase,
+  readFile: (path: string) => Promise<string>
 ): Promise<AttemptOutcome> => {
   const built = buildCodexArgs(attemptSession, { outputFile });
   if (!built.ok) return Promise.resolve({ kind: 'error', error: built.error });
@@ -449,76 +243,52 @@ const runCodexAttempt = (
     ...base,
     args: built.value,
     session: attemptSession,
-    // `cwd` is set in addition to codex's argv `-C` so context-file autoload works on
-    // `exec resume` (which does not accept `-C`) and is consistent with the other adapters.
-    // See CLAUDE.md §Security.
     stdin: attemptSession.prompt,
     rateLimitRe: DEFAULT_RATE_LIMIT_RE,
-    onStdoutChunk: (chunk) => tracker.consumeChunk(chunk),
-    flush: () => tracker.flush(),
-    getSessionId: () => tracker.getSessionId(),
-    // Codex reports a quota throttle in the agent_message body, not always on stderr.
-    // Feed the accumulated tail into the rate-limit haystack so it trips the backoff.
-    getStdoutTail: () => tracker.getStdoutTail(),
-    getProcessErrorText: () => tracker.getStreamError(),
-    // Single-shot read of the codex output tempfile (may be partial/empty on SIGTERM
-    // recovery). audit-[09]: a missing/unreadable tempfile must NOT hard-error — `onSuccess`
-    // also runs on the recovery branch (non-zero exit + signals.json present), and
-    // signals.json is the authoritative gate. Best-effort, like claude/copilot's getBody.
+    onStdoutChunk: tracker.consumeChunk,
+    flush: tracker.flush,
+    getSessionId: tracker.getSessionId,
+    getStdoutTail: tracker.getStdoutTail,
+    getProcessErrorText: tracker.getStreamError,
+    // The tempfile may be missing or partial after a SIGTERM; `onSuccess` also runs on signals-recovery,
+    // so an unreadable body is logged and mirrored as empty rather than failing the attempt.
     getBody: async () => {
       try {
         return Result.ok(await readFile(outputFile));
       } catch (err) {
         if (err instanceof AbortError) throw err;
-        publishUnreadableBody(base.eventBus, err);
+        base.eventBus.publish({
+          type: 'log',
+          level: 'debug',
+          message: 'codex-provider: forensic body tempfile unreadable',
+          meta: { error: messageOf(err) },
+          at: IsoTimestamp.now(),
+        });
         return Result.ok('');
       }
     },
-    emitProviderTokenUsage: (sessionId_) => {
-      // Codex commonly omits token counts from the JSONL records on v0.130.x; the event
-      // still fires so subscribers can correlate sessionId → provider without inferring
-      // success from token-field absence.
-      const model = tracker.getModel();
-      const inputTokens = tracker.getInputTokens();
-      const outputTokens = tracker.getOutputTokens();
-      return emitTokenUsage(base.eventBus, attemptSession, sessionId_, {
-        provider: 'openai-codex',
-        ...(model !== undefined ? { model } : {}),
-        ...(inputTokens !== undefined ? { inputTokens } : {}),
-        ...(outputTokens !== undefined ? { outputTokens } : {}),
-      });
-    },
+    getUsage: tracker.getUsage,
   });
 };
 
 export const createCodexProvider = (deps: CodexProviderDeps): HeadlessAiProvider => {
   const readFile = deps.readFile ?? ((path) => fs.readFile(path, 'utf8'));
-  const unlink =
-    deps.unlink ??
-    (async (path: string): Promise<void> => {
-      await fs.unlink(path).catch(() => {
-        // best-effort cleanup; orphan tempfiles are bounded by os.tmpdir() rotation
-      });
-    });
+  // Best-effort: orphan tempfiles are bounded by os.tmpdir() rotation.
+  const unlink = deps.unlink ?? ((path: string) => fs.unlink(path).catch(() => undefined));
   const mkTempPath = deps.mkTempPath ?? defaultMkTempPath;
 
   return createHeadlessProvider({
     providerSlug: 'codex',
     deps,
-    defaultCommand: 'codex',
     resumeStaleRe: RESUME_STALE_RE,
     createGenerateContext: (base) => {
-      // A FRESH output tempfile per attempt. Sharing one `-o` path across retries let a killed
-      // later attempt (rate-limit / stale-resume respawn SIGTERMed before it wrote the tempfile)
-      // read back the PRIOR attempt's body as its own forensic `body.txt` — a stale-diagnostic
-      // hazard. Each attempt mints its own path; every minted path is tracked so cleanup() unlinks
-      // all of them (no orphans), which is why the tempfile is not created once up front.
+      // A fresh tempfile per attempt (see runCodexAttempt); every minted path is unlinked on cleanup.
       const outputFiles: string[] = [];
       return {
         attempt: (attemptSession) => {
           const outputFile = mkTempPath();
           outputFiles.push(outputFile);
-          return runCodexAttempt(attemptSession, { outputFile, base, readFile });
+          return runCodexAttempt(attemptSession, outputFile, base, readFile);
         },
         cleanup: async () => {
           for (const outputFile of outputFiles) await unlink(outputFile);

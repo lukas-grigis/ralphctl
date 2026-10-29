@@ -171,9 +171,9 @@ describe('createClaudeStreamParser', () => {
 
     // Live = LAST assistant turn (turn2), not turn1 and not the cumulative result.
     expect(envelope.liveUsage).toEqual({
-      inputTokens: 1500,
-      cacheReadTokens: 53000,
-      cacheCreationTokens: 500,
+      liveInputTokens: 1500,
+      liveCacheReadTokens: 53000,
+      liveCacheCreationTokens: 500,
     });
     // Cumulative result.usage captured separately and untouched by the live path.
     expect(envelope.usage).toEqual({
@@ -196,7 +196,7 @@ describe('createClaudeStreamParser', () => {
     const resultEvt = JSON.stringify({ type: 'result', result: 'ok', session_id: 'sess-clob' });
     const { envelope } = drive([`${init}\n${withUsage}\n${noUsage}\n${resultEvt}\n`]);
 
-    expect(envelope.liveUsage).toEqual({ inputTokens: 700, cacheReadTokens: 30000 });
+    expect(envelope.liveUsage).toEqual({ liveInputTokens: 700, liveCacheReadTokens: 30000 });
   });
 
   it('parses a CRLF-terminated stream — session-id, body and usage all survive the \\r', () => {
