@@ -81,11 +81,9 @@ it done; when a behaviour regresses, untick it.
       same array.
 - [x] **Trigger predicates** — each `FlowManifest.triggers` declares pre-launch readiness conditions
       (`requiresProject`, `currentSprintStatus`, `minPendingTickets`, `minApprovedTickets`,
-      `minResumableTasks`). TUI menu disables and explains unmet triggers. `maxBlockedTasks` /
-      `maxBlockedTasksHint` are the one field pair on `FlowTriggers` that is NOT an enablement gate —
-      closing a sprint with blocked work is a confirm, never a refusal, so `evaluateTriggers` never
-      consumes them; `close-sprint`'s own launcher reads the threshold off its manifest to decide when
-      to name blocked tasks explicitly. The `minResumableTasks` failure sentence also branches on an
+      `minResumableTasks`). TUI menu disables and explains unmet triggers. Blocked tasks never gate
+      `close-sprint` — closing with blocked work is a confirm, never a refusal, and its launcher names
+      the blocked tasks in that confirm. The `minResumableTasks` failure sentence also branches on an
       optional `blockedTaskCount` input — "every remaining task is blocked, unblock one" instead of the
       generic "run Plan first" when that is why the count is zero.
 

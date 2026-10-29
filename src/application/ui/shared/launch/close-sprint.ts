@@ -7,7 +7,6 @@ import type { Element } from '@src/application/chain/element.ts';
 import { createRunner, type Runner } from '@src/application/chain/run/runner.ts';
 import { createCloseSprintFlow } from '@src/application/flows/close-sprint/flow.ts';
 import type { CloseSprintCtx } from '@src/application/flows/close-sprint/ctx.ts';
-import { closeSprintManifest } from '@src/application/flows/close-sprint/manifest.ts';
 import type { LaunchContext } from '@src/application/ui/shared/launch/context.ts';
 import type { LaunchResult } from '@src/application/ui/shared/launcher.ts';
 import { resolveDistillComposition } from '@src/application/ui/shared/launch/distill.ts';
@@ -28,17 +27,17 @@ export const launchCloseSprint = async (ctx: LaunchContext): Promise<LaunchResul
   if (!snapshot.sprint) return { ok: false, reason: 'No sprint selected.' };
   // Pre-flow HITL: closing a sprint is terminal — a stray `n → close-sprint → Enter` would otherwise flip a sprint to
   // `done` by accident. Cancel aborts the launch entirely.
-  const { maxBlockedTasks = 0, maxBlockedTasksHint } = closeSprintManifest.triggers;
   const blockedTaskCount = snapshot.tasks.filter((t) => t.status === 'blocked').length;
   const todoTaskCount = snapshot.tasks.filter((t) => t.status === 'todo').length;
-  const exceedsBlockedThreshold = blockedTaskCount > maxBlockedTasks;
   const unfinishedParts = [
-    ...(exceedsBlockedThreshold ? [`${String(blockedTaskCount)} blocked`] : []),
+    ...(blockedTaskCount > 0 ? [`${String(blockedTaskCount)} blocked`] : []),
     ...(todoTaskCount > 0 ? [`${String(todoTaskCount)} todo`] : []),
   ];
   const unfinishedNote =
     unfinishedParts.length > 0 ? ` ${unfinishedParts.join(' and ')} task(s) remain unfinished.` : '';
-  const blockedHintNote = exceedsBlockedThreshold && maxBlockedTasksHint !== undefined ? ` ${maxBlockedTasksHint}` : '';
+  // Blocked tasks never refuse the close: an operator descoping the remainder is a legitimate call.
+  const blockedHintNote =
+    blockedTaskCount > 0 ? ' Blocked tasks are named in the close confirmation instead of blocking the close.' : '';
   const message = `Close sprint "${snapshot.sprint.name}"? It moves to done and stops accepting new work.${unfinishedNote}${blockedHintNote}`;
   const confirmed = await deps.interactive.askConfirm({ message });
   if (!confirmed.ok || confirmed.value !== true) {

@@ -1,13 +1,4 @@
-/**
- * `launchCloseSprint`'s pre-flight confirm reads its blocked-task threshold and explanatory hint
- * straight off `closeSprintManifest.triggers` (`maxBlockedTasks` / `maxBlockedTasksHint`) instead
- * of a hardcoded `blockedTaskCount > 0` literal — proves the trigger fields are load-bearing,
- * matching `FlowTriggers`'s own doc comment in `registry.ts` ("close-sprint's own launcher reads
- * it off this manifest"). Asserting against the REAL manifest's hint text (never a copy retyped
- * in this file) is what makes this a wiring test rather than a message-content test: it would
- * fail if the launcher stopped reading the manifest, and it would also fail (usefully) if the
- * manifest's hint text ever changed without the launcher noticing.
- */
+/** `launchCloseSprint`'s pre-flight confirm explains, only when tasks are blocked, that they do not block the close. */
 import { describe, expect, it } from 'vitest';
 import { Result } from '@src/domain/result.ts';
 import { AbortError } from '@src/domain/value/error/abort-error.ts';
@@ -16,7 +7,6 @@ import type { AskConfirmInput, InteractivePrompt } from '@src/business/interacti
 import { markTaskBlocked } from '@src/domain/entity/task-lifecycle.ts';
 import type { Task } from '@src/domain/entity/task.ts';
 import { launchCloseSprint } from '@src/application/ui/shared/launch/close-sprint.ts';
-import { closeSprintManifest } from '@src/application/flows/close-sprint/manifest.ts';
 import type { LaunchContext } from '@src/application/ui/shared/launch/context.ts';
 import type { AppStateSnapshot } from '@src/application/ui/shared/state-snapshot.ts';
 import { makeReviewSprint, makeTodoTask } from '@tests/fixtures/domain.ts';
@@ -87,29 +77,27 @@ const buildCtx = (interactive: InteractivePrompt, tasks: readonly Task[]): Launc
   } as unknown as LaunchContext;
 };
 
-describe('launchCloseSprint — blocked-task threshold reads the manifest, not a hardcoded literal', () => {
-  it("appends the manifest's maxBlockedTasksHint when the blocked count exceeds maxBlockedTasks", async () => {
-    const hint = closeSprintManifest.triggers.maxBlockedTasksHint;
-    expect(hint).toBeDefined();
-    if (hint === undefined) return;
+const BLOCKED_HINT = 'Blocked tasks are named in the close confirmation instead of blocking the close.';
 
+describe('launchCloseSprint — blocked-task hint', () => {
+  it('names the blocked count and appends the hint when a task is blocked', async () => {
     const messages: string[] = [];
     const ctx = buildCtx(recordFirstMessageThenAbort(messages), [blockedTask('fix-the-thing')]);
 
     await launchCloseSprint(ctx);
 
     expect(messages).toHaveLength(1);
-    expect(messages[0]).toContain(hint);
+    expect(messages[0]).toContain('1 blocked');
+    expect(messages[0]).toContain(BLOCKED_HINT);
   });
 
-  it('omits the hint when the blocked count does not exceed the threshold (no blocked tasks)', async () => {
+  it('omits the hint when no task is blocked', async () => {
     const messages: string[] = [];
     const ctx = buildCtx(recordFirstMessageThenAbort(messages), [makeTodoTask({ name: 'still-open' })]);
 
     await launchCloseSprint(ctx);
 
     expect(messages).toHaveLength(1);
-    const hint = closeSprintManifest.triggers.maxBlockedTasksHint;
-    if (hint !== undefined) expect(messages[0]).not.toContain(hint);
+    expect(messages[0]).not.toContain(BLOCKED_HINT);
   });
 });
