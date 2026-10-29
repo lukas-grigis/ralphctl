@@ -147,7 +147,7 @@ const renderTasksLines = (tasks: readonly Task[]): string[] => {
     return lines;
   }
 
-  const sortedTasks = [...tasks].sort((a, b) => a.order - b.order);
+  const sortedTasks = tasks.toSorted((a, b) => a.order - b.order);
   for (const task of sortedTasks) {
     lines.push(...renderTaskLines(task));
   }
