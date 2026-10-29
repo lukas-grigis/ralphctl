@@ -1,6 +1,5 @@
 import { z } from 'zod';
 import type {
-  AiSignal,
   ChangeSignal,
   EvaluationSignal,
   LearningSignal,
@@ -153,6 +152,3 @@ export const evaluatorOutputContract: AiOutputContract<EvaluatorSignal> = {
   },
   exampleSignals: evaluatorExampleSignals,
 };
-
-const _signalCheck: EvaluatorSignal extends AiSignal ? true : false = true;
-void _signalCheck;

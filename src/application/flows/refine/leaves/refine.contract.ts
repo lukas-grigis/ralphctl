@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { AiSignal, DecisionSignal, LearningSignal, NoteSignal, RefinedTicketSignal } from '@src/domain/signal.ts';
+import type { DecisionSignal, LearningSignal, NoteSignal, RefinedTicketSignal } from '@src/domain/signal.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import { decisionSignalSchema } from '@src/integration/ai/contract/_engine/signals/decision/schema.ts';
 import { learningSignalSchema } from '@src/integration/ai/contract/_engine/signals/learning/schema.ts';
@@ -163,6 +163,3 @@ export const refineOutputContract: AiOutputContract<RefineSignal> = {
   },
   exampleSignals: refineExampleSignals,
 };
-
-const _signalCheck: RefineSignal extends AiSignal ? true : false = true;
-void _signalCheck;
