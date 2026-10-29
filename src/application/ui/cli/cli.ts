@@ -1,6 +1,5 @@
 import { Command } from 'commander';
 import { flowRegistry } from '@src/application/registry.ts';
-import { launchTui } from '@src/application/ui/tui/launch.ts';
 import { parseImplementRoleOverrides } from '@src/application/ui/cli/parse-implement-role-overrides.ts';
 import { reportFatal } from '@src/application/ui/cli/report-cli-error.ts';
 import { registerExportRequirementsCommand } from '@src/application/ui/cli/commands/export-requirements.ts';
@@ -76,6 +75,8 @@ export const runCli = async (argv: readonly string[]): Promise<void> => {
         process.exitCode = 1;
         return;
       }
+      // Lazy: Ink costs ~300 ms to load, so only the bare-`ralphctl` path pays it (ESLint fences a static import).
+      const { launchTui } = await import('@src/application/ui/tui/launch.ts');
       await launchTui({ ...(parsed.overrides !== undefined ? { implementRoleOverrides: parsed.overrides } : {}) });
     });
 

@@ -14,7 +14,6 @@ import { DEMO_MARKER_FILENAME, type SeedDemoSummary, seedDemoWorkspace } from '@
 import { seedDemoSettings, type SeededDemoSettings } from '@src/application/demo/seed-settings.ts';
 import { runCommand } from '@src/integration/io/run-command.ts';
 import { createAtomicWriteFile } from '@src/integration/io/write-file-atomic.ts';
-import { launchTui } from '@src/application/ui/tui/launch.ts';
 import { fail } from '@src/application/ui/cli/report-cli-error.ts';
 import { prepareScriptedDemo } from '@src/application/demo/scripted-run.ts';
 import type { ProviderSpawn } from '@src/integration/ai/providers/_engine/spawn.ts';
@@ -153,6 +152,8 @@ const demoAction = async (opts: DemoOptions): Promise<void> => {
   // `resolveStoragePaths()` (inside `launchTui`) reads `RALPHCTL_HOME` per call — setting the
   // env var here is enough to redirect the launch, no child process needed.
   process.env[RALPHCTL_HOME_ENV] = homeDirStr;
+  // Lazy for the same reason as `cli.ts`: Ink stays off every other command's startup path.
+  const { launchTui } = await import('@src/application/ui/tui/launch.ts');
   await launchTui({ ...(providerSpawn !== undefined ? { providerSpawn } : {}) });
 };
 
