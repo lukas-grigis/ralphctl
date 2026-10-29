@@ -2,8 +2,7 @@
  * `openFlowSession` — the register + start + route tail shared by every TUI call site that
  * launches a flow runner. Given a successful {@link LaunchResult}, it:
  *
- *   1. Registers the runner with the {@link SessionManager}, projecting the launch result's
- *      optional UI hints via {@link sessionHintsFromLaunchResult}.
+ *   1. Registers the runner with the {@link SessionManager} together with the launch result's UI hints.
  *   2. Fires `runner.start()` (fire-and-forget — events flow into the session manager via the
  *      manager's own subscription, established during `register`).
  *   3. Routes to the Execute view for the new runner's session id — pushing a new frame by
@@ -17,7 +16,7 @@
 
 import type { RouterApi, ViewEntry } from '@src/application/ui/tui/runtime/router.tsx';
 import type { SessionManager } from '@src/application/ui/tui/runtime/session-manager.ts';
-import { type LaunchResult, sessionHintsFromLaunchResult } from '@src/application/ui/shared/launcher.ts';
+import type { LaunchResult } from '@src/application/ui/shared/launcher.ts';
 
 export interface OpenFlowSessionDeps {
   readonly sessions: SessionManager;
@@ -39,16 +38,13 @@ export const openFlowSession = (
   flowId: string,
   opts: OpenFlowSessionOpts = {}
 ): void => {
-  deps.sessions.register({
-    runner: result.runner,
-    flowId,
-    title: result.title,
-    ...sessionHintsFromLaunchResult(result),
-  });
+  const { ok: _ok, runner, title, ...hints } = result;
+  void _ok;
+  deps.sessions.register({ runner, flowId, title, ...hints });
   // Fire-and-forget — the session manager already subscribed during register(), so progress
   // events land there without further wiring here.
-  void result.runner.start();
-  const entry: ViewEntry = { id: 'execute', props: { sessionId: result.runner.id } };
+  void runner.start();
+  const entry: ViewEntry = { id: 'execute', props: { sessionId: runner.id } };
   if (opts.mode === 'replace') deps.router.replace(entry);
   else deps.router.push(entry);
 };

@@ -7,7 +7,6 @@ import {
   planImplementWaves,
   type CreateImplementFlowOpts,
 } from '@src/application/flows/implement/flow.ts';
-import { IMPLEMENT_TASK_TERMINAL_LEAF } from '@src/application/flows/implement/leaves/per-task-subchain.ts';
 import type { ImplementDeps } from '@src/application/flows/implement/deps.ts';
 import {
   buildWaveBranches,
@@ -439,7 +438,6 @@ export const launchImplement = async (ctx: LaunchContext): Promise<LaunchResult>
     taskNames,
     maxTurns: settings.harness.maxTurns,
     maxAttempts: settings.harness.maxAttempts,
-    terminalSubstepName: IMPLEMENT_TASK_TERMINAL_LEAF,
     ...(taskRecovering.size > 0 ? { taskRecovering } : {}),
     generatorModel,
     evaluatorModel,

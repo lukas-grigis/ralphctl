@@ -41,44 +41,32 @@ import { launchDetectSkills } from '@src/application/ui/shared/launch/detect-ski
 import { launchDetectScripts } from '@src/application/ui/shared/launch/detect-scripts.ts';
 import { launchIdeate } from '@src/application/ui/shared/launch/ideate.ts';
 
+/** Optional per-run UI hints a launcher hands to the session manager; they land on the `SessionDescriptor`. */
+export interface SessionHints {
+  /** `taskId → displayName` for runs that operate on a fixed task set. */
+  readonly taskNames?: ReadonlyMap<string, string>;
+  /** Configured `maxTurns` for the gen-eval loop, surfaced as `round N/M`. */
+  readonly maxTurns?: number;
+  /** Configured `maxAttempts` per task, surfaced as the `/X` in `attempt N/X`. */
+  readonly maxAttempts?: number;
+  /** Tasks the launcher detected as resuming a prior aborted attempt. */
+  readonly taskRecovering?: ReadonlyMap<string, RecoveryContext>;
+  /** Implement gen-eval models, providers and efforts, rendered on the active-attempt rail and header. */
+  readonly generatorModel?: string;
+  readonly evaluatorModel?: string;
+  readonly generatorProvider?: AiProvider;
+  readonly evaluatorProvider?: AiProvider;
+  readonly generatorEffort?: string;
+  readonly evaluatorEffort?: string;
+  /** Project and sprint the run was launched against, pinned for the run's lifetime. */
+  readonly pinnedProjectId?: ProjectId;
+  readonly pinnedProjectLabel?: string;
+  readonly pinnedSprintId?: SprintId;
+  readonly pinnedSprintLabel?: string;
+}
+
 export type LaunchResult =
-  | {
-      readonly ok: true;
-      readonly runner: Runner<unknown>;
-      readonly title: string;
-      /** Optional `taskId → displayName` map for runs that operate on a fixed task set. */
-      readonly taskNames?: ReadonlyMap<string, string>;
-      /** Configured `maxTurns` for the run's gen-eval loop, surfaced as `round N/M` in the panel. */
-      readonly maxTurns?: number;
-      /** Configured `maxAttempts` per task, surfaced as the `/X` in `attempt N/X` in the panel. */
-      readonly maxAttempts?: number;
-      /**
-       * Name of the per-task subchain's final leaf — when this name (with the task uuid suffix stripped) appears in
-       * the trace for a task, the UI flips that task to `completed`.
-       */
-      readonly terminalSubstepName?: string;
-      /**
-       * Map of `taskId → RecoveryContext` for tasks the launcher detected as resuming a prior aborted attempt.
-       */
-      readonly taskRecovering?: ReadonlyMap<string, RecoveryContext>;
-      /**
-       * Implement-flow gen-eval models, projected onto the SessionDescriptor so the execute view can render
-       * `<gen-model> → <eval-model> (eval)` on the active-attempt rail when the two roles point at different models.
-       */
-      readonly generatorModel?: string;
-      readonly evaluatorModel?: string;
-      /** Provider id backing each implement role (`claude-code` / `github-copilot` / `openai-codex`). */
-      readonly generatorProvider?: AiProvider;
-      readonly evaluatorProvider?: AiProvider;
-      /** Resolved effort strings for each implement role (`low|medium|high|xhigh|max`). */
-      readonly generatorEffort?: string;
-      readonly evaluatorEffort?: string;
-      /** Project and sprint the run was launched against, pinned at launch time for the run's lifetime. */
-      readonly pinnedProjectId?: ProjectId;
-      readonly pinnedProjectLabel?: string;
-      readonly pinnedSprintId?: SprintId;
-      readonly pinnedSprintLabel?: string;
-    }
+  | ({ readonly ok: true; readonly runner: Runner<unknown>; readonly title: string } & SessionHints)
   | { readonly ok: false; readonly reason: string };
 
 /** Optional per-launch overrides supplied by the caller. */
@@ -132,45 +120,6 @@ export interface LauncherDeps {
 export type SkillCompositionDeps = Pick<LauncherDeps, 'app' | 'storage'>;
 
 const sessionId = (): string => `r-${Math.random().toString(36).slice(2, 10)}-${String(Date.now())}`;
-
-/** The `ok: true` branch of {@link LaunchResult} — the shape {@link sessionHintsFromLaunchResult} reads. */
-type LaunchOk = Extract<LaunchResult, { readonly ok: true }>;
-
-/** Optional UI-hint field names projected by {@link sessionHintsFromLaunchResult}. */
-const HINT_KEYS = [
-  'taskNames',
-  'maxTurns',
-  'maxAttempts',
-  'terminalSubstepName',
-  'taskRecovering',
-  'generatorModel',
-  'evaluatorModel',
-  'generatorProvider',
-  'evaluatorProvider',
-  'generatorEffort',
-  'evaluatorEffort',
-  'pinnedProjectId',
-  'pinnedProjectLabel',
-  'pinnedSprintId',
-  'pinnedSprintLabel',
-] as const satisfies ReadonlyArray<keyof LaunchOk>;
-
-/** Copy the subset of `keys` whose value on `obj` is not `undefined` into a fresh object. */
-const pickDefined = <T extends object, K extends keyof T>(obj: T, keys: readonly K[]): Pick<T, K> => {
-  const picked = {} as Pick<T, K>;
-  for (const key of keys) {
-    const value = obj[key];
-    if (value !== undefined) picked[key] = value;
-  }
-  return picked;
-};
-
-/**
- * Project the optional UI-hint fields from a successful {@link LaunchResult} into the shape `SessionManager.register`
- * accepts.
- */
-export const sessionHintsFromLaunchResult = (result: LaunchOk): Pick<LaunchOk, (typeof HINT_KEYS)[number]> =>
-  pickDefined(result, HINT_KEYS);
 
 /**
  * Flows whose AI session actually gets a composed skill source installed — the only flows where a per-run skills

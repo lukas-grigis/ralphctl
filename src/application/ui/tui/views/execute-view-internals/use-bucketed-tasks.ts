@@ -110,9 +110,6 @@ export const useBucketedTasks = ({
         ? bucketTaskSignals(descriptor.trace, chainEvents, signals, {
             ...(descriptor.maxTurns !== undefined ? { maxTurns: descriptor.maxTurns } : {}),
             ...(descriptor.maxAttempts !== undefined ? { maxAttempts: descriptor.maxAttempts } : {}),
-            ...(descriptor.terminalSubstepName !== undefined
-              ? { terminalSubstepName: descriptor.terminalSubstepName }
-              : {}),
             // taskNames carries every task the launcher knew about — surfacing the ids here
             // makes pending rows appear in the panel even when the chain failed before per-task
             // work started (e.g. setup-script-runner abort). Without this, a sprint with real
