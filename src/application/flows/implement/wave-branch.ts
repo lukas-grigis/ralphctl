@@ -315,7 +315,7 @@ const buildOneBranch = (
     taskRepo: holdOwnDoneWrite(deps.implement.taskRepo, task.id),
   };
 
-  const subchainOpts: PerTaskSubchainOpts = { ...perTaskSubchainOpts(opts), includeBranchPreflight: false };
+  const subchainOpts: PerTaskSubchainOpts = { ...perTaskSubchainOpts(opts), worktree: true };
 
   // The per-task subchain is built fresh on the FORKED ctx + worktree repo each time the branch
   // executes (so a re-merged wave ctx flows in). `buildSubchain` captures everything needed.
