@@ -39,7 +39,7 @@ const MODEL = 'known-model';
 /** Minimal stand-in CLI so the shared skeleton is exercised without a real provider catalog. */
 const spec = (overrides: Partial<InteractiveProviderSpec> = {}): InteractiveProviderSpec => ({
   providerName: 'interactive-stub',
-  defaultCommand: 'stub-cli',
+  provider: 'claude-code',
   modelCatalogLabel: 'Stub',
   isKnownModel: (m) => m === MODEL || m === 'suspended-model',
   supportsSessionId: true,

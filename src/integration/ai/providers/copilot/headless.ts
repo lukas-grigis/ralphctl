@@ -14,7 +14,6 @@ import type { HeadlessProviderDeps } from '@src/integration/ai/providers/_engine
 import { appendRoot, resolveWritableRoots } from '@src/integration/ai/providers/_engine/resolve-roots.ts';
 import type { SessionPermissions } from '@src/integration/ai/providers/_engine/session-permissions.ts';
 import type { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
-import type { StorageError } from '@src/domain/value/error/storage-error.ts';
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import { isCopilotModel } from '@src/domain/value/settings-models/copilot.ts';
 import { validateModel } from '@src/integration/ai/providers/_engine/validate-model.ts';
@@ -26,134 +25,63 @@ import { truncateField } from '@src/integration/ai/providers/_engine/truncate-de
 import {
   type AttemptBase,
   createHeadlessProvider,
-  emitTokenUsage,
   runProviderAttempt,
 } from '@src/integration/ai/providers/_engine/run-provider-attempt.ts';
+import type { AttemptOutcome } from '@src/integration/ai/providers/_engine/attempt-outcome.ts';
+import type { EventBus } from '@src/business/observability/event-bus.ts';
 
 /**
- * {@link HeadlessAiProvider} backed by the GitHub Copilot CLI (`copilot`, v1.0.12+).
+ * {@link HeadlessAiProvider} backed by the GitHub Copilot CLI (`copilot`, v1.0.12+). Permission
+ * rationale lives in `.claude/docs/SECURITY.md`.
  *
- * Translation table (intent → Copilot CLI flag):
+ *   | AiSession field                | Copilot flag                                       |
+ *   | ------------------------------ | -------------------------------------------------- |
+ *   | (always)                       | `--output-format=json --silent --no-ask-user`      |
+ *   | model                          | `--model=<model>`                                  |
+ *   | additionalRoots + prompt dir   | `--add-dir=<root>` per root                        |
+ *   | permissions full-auto          | `--allow-all`                                      |
+ *   | permissions otherwise          | `--allow-all-tools --deny-tool=shell`              |
+ *   | resume: <id>                   | `--resume=<id>`                                    |
+ *   | effort: <level>                | `--effort=<level>`                                 |
+ *   | prompt                         | file + argv: `-p <pointer at that file>`           |
  *
- *   | AiSession field                                       | Copilot flag                                       |
- *   | (always)                                              | `--output-format=json --silent --no-ask-user`      |
- *   | model: <CopilotModel>                                 | `--model=<model>`                                  |
- *   | additionalRoots: [a, b]                               | `--add-dir=a --add-dir=b`                          |
- *   | permissions {autoApprove,canModifyRepoFiles,canRunShell}    | `--allow-all`                                      |
- *   | permissions read-only (no edit, no shell)             | `--allow-all-tools --deny-tool=shell`              |
- *   | resume: <id>                                          | `--resume=<id>`                                    |
- *   | effort: <level>                                       | `--effort=<level>`                                 |
- *   | prompt                                                | file + argv: `-p <pointer at that file>`           |
+ * Copilot has no stdin prompt path and `--prompt-file` is unimplemented upstream (copilot-cli#3398),
+ * so the prompt is written next to `signals.json` and `-p` carries a pointer at it — the body
+ * itself blew the 32,767-byte Windows command line. There is no inline fallback.
  *
- * Resume note: current Copilot CLI accepts `--resume[=VALUE]` with `-p` / `--prompt`.
- * The adapter forwards {@link AiSession.resume} when present so headless runs can re-attach
- * to a prior session id.
+ * As of 1.0.51 the JSON stream has no recognisable tool_use / tool_result records (tool calls are
+ * flattened into `assistant.message` text), so only `assistant` debug events are published.
  *
- * Copilot and grok are the two CLIs of the five with no stdin prompt path — the other sibling
- * adapters pipe the body in, and `--prompt-file` is an open, unimplemented request upstream
- * (copilot-cli#3398). So the adapter writes the prompt to `copilot-prompt.md` next to `signals.json`, mounts that
- * directory, and passes a POINTER at the file in `-p`. Passing the body itself capped every
- * headless run at the platform command line — 32,767 bytes on Windows, which a harness prompt
- * clears easily, and the failure arrives as an opaque `spawn ENAMETOOLONG`. If the file cannot be
- * written the attempt fails with a `StorageError` — there is no inline fallback. See
- * `_engine/prompt-pointer.ts` and `_engine/argv-budget.ts`.
- *
- * Read-only permission denies `shell` only — the `write` tool stays open because the
- * audit-[09] contract requires the AI to land `signals.json` in `outputDir` via Copilot's
- * write tool. Copilot has no fine-grained "may write new files but not edit existing ones"
- * gate (the `write` kind covers all file mutations), so path scope (cwd + --add-dir) carries
- * the responsibility of keeping the AI inside its sandbox.
- *
- * Output handling — audit-[09] contract: stdout JSONL is consumed by
- * {@link createCopilotStreamParser}. Plain-text lines accumulate into a transient body buffer;
- * JSON records expose the `session_id` (logged + returned). The AI writes `signals.json`
- * directly via its Write tool into `session.outputDir`; the harness validates it post-spawn —
- * the provider never touches signals.json. When `session.bodyFile` is set, the raw accumulated
- * body is mirrored there for forensic capture — best-effort, a write failure here is logged
- * but does not fail the spawn.
- *
- * Per-line debug events: the headless adapter publishes one
- * `{ type: 'log', level: 'debug', message: 'copilot-provider: assistant' }` event per
- * recognised assistant body line (driven off `CopilotStreamLine.bodyText`, which the parser
- * extracts from `assistant.message_delta` / `assistant.message` and the speculative SSE shapes
- * in `parse-stream.ts`). The Copilot CLI's `--output-format=json` stream as of 1.0.51 does
- * NOT surface `tool_use` / `tool_result` records in any shape the adapter can recognise — tool
- * invocations are flattened into the `assistant.message` text body. The adapter therefore
- * emits the assistant analogue only; the tool_use / tool_result analogues described in the
- * shared per-line debug contract simply have no source in Copilot's stream JSON. Re-audit when
- * a future Copilot release surfaces structured tool records (compare against
- * `_engine/copilot-stream.ts` and `parse-stream.ts`).
- *
- * Test seam: `spawn` is a {@link ProviderSpawn} override so tests script stdout / stderr /
- * exit code without launching the real binary.
- *
- * Docs:
- *   - https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference
- *   - https://docs.github.com/en/copilot/how-tos/copilot-cli/allowing-tools (tool-kind syntax)
- *
- * Composition-root inputs ({@link HeadlessProviderDeps}) live in `_engine/` so the contract is
- * a port shared with the sibling adapters, not an implementation detail of this file.
+ * Docs: https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference
  */
 
-/**
- * Cold-start fallback trigger: Copilot rejects a `--resume <id>` whose session it no longer has.
- * The CLI's exact wording for an unknown resume id is not formally documented, so this is kept
- * conservative — it matches a "session/conversation … not found" phrasing only. The shared retry
- * seam drops `--resume` for one cold respawn (latched) rather than hard-failing the round.
- */
+// The CLI's wording for an unknown resume id is undocumented, so this stays conservative.
 const RESUME_STALE_RE = /(session|conversation)[^\n]*not found|no (session|conversation) found/i;
 
 const isFullAuto = (p: SessionPermissions): boolean => p.autoApprove && p.canModifyRepoFiles && p.canRunShell;
 
 const PROVIDER_NAME = 'copilot-provider';
 
-/** Filename the adapter writes the prompt to. Distinct from the flow-written `prompt.md` in the
- * same directory, which stays the record of what the round was asked to do — this one tracks what
- * THIS spawn was handed, and a corrective re-invocation legitimately overwrites it. */
+/**
+ * Distinct from the flow-written `prompt.md` beside it: that one records what the round was asked,
+ * this one what THIS spawn was handed (a corrective re-invocation overwrites it).
+ */
 const COPILOT_PROMPT_FILENAME = 'copilot-prompt.md';
 
-/**
- * Put the prompt on disk so argv only has to carry a pointer. Lands next to `signals.json`, which
- * is where the flow's own per-run artifacts live and is inside a mounted root for every caller.
- */
-const materializeCopilotPrompt = async (session: AiSession): Promise<Result<string, StorageError>> => {
-  const path = join(dirname(String(session.signalsFile)), COPILOT_PROMPT_FILENAME);
-  const wrote = await writeTextAtomic(path, session.prompt);
-  if (!wrote.ok) return Result.error(wrote.error);
-  return Result.ok(path);
-};
-
-/** Model gate shared by {@link buildCopilotArgs} and the check that precedes the prompt write. */
-const validateCopilotModel = (model: string): Result<void, InvalidStateError> =>
-  validateModel(model, isCopilotModel, {
-    entity: PROVIDER_NAME,
-    attemptedAction: 'build argv',
-    notKnownMessage: `copilot-provider: '${model}' is not a known Copilot model`,
-  });
-
-/**
- * Build the argv for one Copilot invocation. Validates `session.model` is a known
- * {@link CopilotModel}; surfaces `InvalidStateError` for unknowns. `promptFile` is the path
- * {@link materializeCopilotPrompt} produced.
- */
+/** Build the argv for one Copilot invocation; an unknown model is an `InvalidStateError`. */
 export const buildCopilotArgs = (
   session: AiSession,
   promptFile: string
 ): Result<readonly string[], InvalidStateError> => {
-  // Catalog-valid but temporarily suspended server-side (see suspended-models.ts) — the list is
-  // currently empty; the guard stays wired for the next incident.
-  const validated = validateCopilotModel(session.model);
+  const validated = validateModel(session.model, isCopilotModel, {
+    entity: PROVIDER_NAME,
+    attemptedAction: 'build argv',
+    notKnownMessage: `copilot-provider: '${session.model}' is not a known Copilot model`,
+  });
   if (!validated.ok) return Result.error(validated.error);
-  // `--autopilot` is required for autonomous continuation; without it Copilot may pause
-  // between actions in non-interactive mode and never finish the turn. v1's working headless
-  // adapter sets this flag too — keeping the patterns aligned across versions.
-  //
-  // `--max-autopilot-continues=200` is a runaway cap. Copilot CLI 1.0.91 defaults to 5, which
-  // truncates an implement generator's 10+ tool calls before `task-complete` lands; the current CLI
-  // reference documents unlimited, which never stops a looping session. 200 leaves headroom
-  // for the largest realistic per-task action graph either way. Bump if long tasks hit it.
-  //
-  // We use `--model=<value>` / `--add-dir=<value>` for deterministic argv construction.
+  // Without `--autopilot` Copilot may pause between actions and never finish the turn.
+  // `--max-autopilot-continues=200` is a runaway cap: 1.0.91 defaulted to 5, which cut an implement
+  // generator off before `task-complete`, and the current default (unlimited) never stops a loop.
   const args: string[] = [
     '--output-format=json',
     '--autopilot',
@@ -165,20 +93,15 @@ export const buildCopilotArgs = (
   if (session.resume !== undefined) {
     args.push(`--resume=${String(session.resume)}`);
   }
-  // Forward `session.effort` verbatim using the `=` form to match the rest of copilot's
-  // argv style. The Copilot CLI's `--effort` flag rejects unknown levels — let it speak for
-  // itself rather than re-validate here. Compatible with `--autopilot`.
+  // Forwarded verbatim; the CLI rejects unknown levels itself.
   if (session.effort !== undefined) {
     args.push(`--effort=${session.effort}`);
   }
   if (isFullAuto(session.permissions)) {
     args.push('--allow-all');
   } else {
-    // Read-only / partial permissions → allow all tool kinds, then deny shell only. Write
-    // tool stays open because the contract envelope (signals.json) lands via that tool;
-    // path scope (cwd + --add-dir) is what keeps it pointed at outputDir. Without the
-    // explicit allow, non-denied tools (read, search, write) would hit per-call confirmation
-    // prompts which `--no-ask-user` turns into refusals.
+    // Write stays open for signals.json. Without the explicit allow, every non-denied tool would
+    // hit a confirmation prompt that `--no-ask-user` turns into a refusal.
     args.push('--allow-all-tools', '--deny-tool=shell');
   }
   // Auto-mount `outputDir` so signals.json can land via the write tool (see resolve-roots.ts), and
@@ -197,60 +120,10 @@ export const buildCopilotArgs = (
   return Result.ok(args);
 };
 
-/** Handle returned by {@link createBoundedTail} — aliased so helpers below don't need a type import. */
-type BoundedTailHandle = ReturnType<typeof createBoundedTail>;
-
-/**
- * Mutable per-attempt state captured while parsing one Copilot stdout stream. A single plain
- * object (rather than three separate closured `let`s) so the `onLine` helpers below can read and
- * mutate it by reference without each capturing its own slice of the attempt closure.
- */
-interface CopilotAttemptState {
-  sessionId: string | undefined;
-  model: string | undefined;
-  usage: CopilotUsage;
-}
-
-const createCopilotAttemptState = (): CopilotAttemptState => ({
-  sessionId: undefined,
-  model: undefined,
-  usage: {},
-});
-
-/**
- * Appends one line to both bounded tails in stream order — the forensic tail backs body.txt and
- * the rate-limit tail is the classifier's scan haystack. Both drop their oldest bytes once full,
- * so per-spawn stdout footprint is pinned regardless of child verbosity.
- */
-const createLineRecorder =
-  (forensicTail: BoundedTailHandle, rateLimitTail: BoundedTailHandle) =>
-  (text: string): void => {
-    forensicTail.append(`${text}\n`);
-    rateLimitTail.append(`${text}\n`);
-  };
-
-/** Captures session id / model / usage off one JSON stream line into the shared attempt state. */
-const applyLineMeta = (state: CopilotAttemptState, line: CopilotStreamLine): void => {
-  if (line.sessionId !== undefined && state.sessionId === undefined) {
-    state.sessionId = line.sessionId;
-  }
-  if (line.model !== undefined && state.model === undefined) {
-    state.model = line.model;
-  }
-  // Last-write-wins on usage. Copilot occasionally emits multiple meta lines through a
-  // spawn; whichever lands last is the most current cumulative count.
-  if (line.usage !== undefined) {
-    state.usage = line.usage;
-  }
-};
-
-/** Per-line raw-stdout debug event, published for every recognised JSON stream line. */
-const publishStdoutJsonLine = (deps: HeadlessProviderDeps, line: CopilotStreamLine): void => {
-  // Truncate the raw line like every other stream-originated debug field (see truncateField):
-  // at the debug floor this fires per stdout line, so an untruncated raw envelope would bloat
-  // each capped log-bus entry. The full raw stream is still captured in bodyFile when set.
+/** Raw stdout line as a debug event, truncated like every stream-originated field so log entries stay capped. */
+const publishStdoutJsonLine = (eventBus: EventBus, line: CopilotStreamLine): void => {
   const rawLine = truncateField(line.raw);
-  deps.eventBus.publish({
+  eventBus.publish({
     type: 'log',
     level: 'debug',
     message: 'copilot-provider: stdout json line',
@@ -259,103 +132,66 @@ const publishStdoutJsonLine = (deps: HeadlessProviderDeps, line: CopilotStreamLi
   });
 };
 
-/** Handles one JSON stream line: meta capture, body/raw recording, then the stdout debug event. */
-const handleJsonLine = (
-  deps: HeadlessProviderDeps,
-  state: CopilotAttemptState,
-  recordLine: (text: string) => void,
-  line: CopilotStreamLine
-): void => {
-  applyLineMeta(state, line);
-  if (line.bodyText !== undefined && line.bodyText.length > 0) {
-    recordLine(line.bodyText);
-    publishAssistantEvent(deps.eventBus, PROVIDER_NAME, line.bodyText);
-  } else if (line.sessionId === undefined && line.model === undefined && line.usage === undefined) {
-    // Unrecognised JSON event — keep the raw form so `body.txt` (when bodyFile is set)
-    // captures Copilot's actual stream shapes. NEVER feed this to the signal parser:
-    // Copilot echoes the prompt as `user.message`, which carries literal harness tags.
-    recordLine(line.raw);
-  }
-  publishStdoutJsonLine(deps, line);
-};
+const runCopilotAttempt = async (attemptSession: AiSession, base: AttemptBase): Promise<AttemptOutcome> => {
+  // Next to signals.json, inside a mounted root for every caller. Argv is built (and the model
+  // validated) before the write, so a spawn that never happens leaves no stray file.
+  const promptFile = join(dirname(String(attemptSession.signalsFile)), COPILOT_PROMPT_FILENAME);
+  const built = buildCopilotArgs(attemptSession, promptFile);
+  if (!built.ok) return { kind: 'error', error: built.error };
+  const wrote = await writeTextAtomic(promptFile, attemptSession.prompt);
+  if (!wrote.ok) return { kind: 'error', error: wrote.error };
 
-/** Builds the parser's per-line callback: non-JSON lines record raw, JSON lines fan out via {@link handleJsonLine}. */
-const createOnLine =
-  (deps: HeadlessProviderDeps, state: CopilotAttemptState, recordLine: (text: string) => void) =>
-  (line: CopilotStreamLine): void =>
-    // Non-JSON lines (banner/status); preserve in body.txt but keep out of signal parsing.
-    line.json === undefined ? recordLine(line.raw) : handleJsonLine(deps, state, recordLine, line);
+  const parser = createCopilotStreamParser();
+  // Backs body.txt; its last bytes are also the rate-limit haystack (quota shows up in result text).
+  const forensicTail = createBoundedTail(FORENSIC_BODY_TAIL_CAP);
+  const record = (text: string): void => forensicTail.append(`${text}\n`);
+  let sessionId: string | undefined;
+  let model: string | undefined;
+  let usage: CopilotUsage = {};
 
-/**
- * Builds the per-attempt function passed to `runProviderAttempt` via `createGenerateContext`.
- * Wires the argv build, stream parser, bounded tails, attempt state, and the resulting
- * `onLine` callback, then delegates the actual spawn/exit/retry-classification handling to
- * the shared `runProviderAttempt` scaffold.
- */
-const createCopilotAttempt = (deps: HeadlessProviderDeps, base: AttemptBase) => {
-  return async (attemptSession: AiSession) => {
-    // Validate before writing: an unknown / suspended model fails argv construction, and paying
-    // for an mkdir + atomic write for a spawn that never happens would leave a stray artifact.
-    const validated = validateCopilotModel(attemptSession.model);
-    if (!validated.ok) return { kind: 'error' as const, error: validated.error };
-
-    const promptFile = await materializeCopilotPrompt(attemptSession);
-    if (!promptFile.ok) return { kind: 'error' as const, error: promptFile.error };
-    const built = buildCopilotArgs(attemptSession, promptFile.value);
-    if (!built.ok) return { kind: 'error' as const, error: built.error };
-
-    const parser = createCopilotStreamParser();
-    // Two bounded tails fed in stream order — the forensic tail backs body.txt and the
-    // rate-limit tail is the classifier's scan haystack. Both drop their oldest bytes once
-    // full, so per-spawn stdout footprint is pinned regardless of child verbosity.
-    const forensicTail = createBoundedTail(FORENSIC_BODY_TAIL_CAP);
-    const rateLimitTail = createBoundedTail(RATE_LIMIT_SCAN_TAIL_CAP);
-    const recordLine = createLineRecorder(forensicTail, rateLimitTail);
-    const state = createCopilotAttemptState();
-    const onLine = createOnLine(deps, state, recordLine);
-
-    return runProviderAttempt({
-      ...base,
-      args: built.value,
-      session: attemptSession,
-      // Copilot takes its prompt from `-p` argv, not stdin (no stdin payload exists on this CLI);
-      // omitting `stdin` causes runProviderAttempt to close the child's stdin immediately.
-      rateLimitRe: DEFAULT_RATE_LIMIT_RE,
-      onStdoutChunk: (chunk) => {
-        parser.feed(chunk, onLine);
-      },
-      // Flush any partial line remaining in the buffer — Copilot may terminate without a
-      // trailing newline. The parser drains inline so flush is a no-op in the normal case.
-      flush: () => {
-        parser.flush(onLine);
-      },
-      getSessionId: () => state.sessionId,
-      // Feed the stream body tail into the rate-limit haystack — Copilot reports a quota
-      // throttle in its result-record text, not on stderr. rateLimitTail is already bounded
-      // to RATE_LIMIT_SCAN_TAIL_CAP, so a long session can't build a multi-MB scan string.
-      getStdoutTail: () => {
-        const tail = rateLimitTail.value();
-        return tail.length > 0 ? tail : undefined;
-      },
-      // forensicTail is the accumulated body buffer; operators inspect it when a proposal
-      // comes back empty to decide whether the prompt, the AI, or the validator is at fault.
-      getBody: () => Promise.resolve(Result.ok(forensicTail.value())),
-      emitProviderTokenUsage: (sid) =>
-        emitTokenUsage(deps.eventBus, attemptSession, sid, {
-          provider: 'github-copilot',
-          ...(state.model !== undefined ? { model: state.model } : {}),
-          ...(state.usage.inputTokens !== undefined ? { inputTokens: state.usage.inputTokens } : {}),
-          ...(state.usage.outputTokens !== undefined ? { outputTokens: state.usage.outputTokens } : {}),
-        }),
-    });
+  const onLine = (line: CopilotStreamLine): void => {
+    // Non-JSON banner / status lines go to body.txt only.
+    if (line.json === undefined) {
+      record(line.raw);
+      return;
+    }
+    sessionId ??= line.sessionId;
+    model ??= line.model;
+    // Last write wins: later meta lines carry the more current cumulative count.
+    if (line.usage !== undefined) usage = line.usage;
+    if (line.bodyText !== undefined && line.bodyText.length > 0) {
+      record(line.bodyText);
+      publishAssistantEvent(base.eventBus, PROVIDER_NAME, line.bodyText);
+    } else if (line.sessionId === undefined && line.model === undefined && line.usage === undefined) {
+      // Unrecognised record: keep its raw form for body.txt. Never parse it for signals — Copilot
+      // echoes the prompt as `user.message`, which carries literal harness tags.
+      record(line.raw);
+    }
+    publishStdoutJsonLine(base.eventBus, line);
   };
+
+  return runProviderAttempt({
+    ...base,
+    args: built.value,
+    session: attemptSession,
+    rateLimitRe: DEFAULT_RATE_LIMIT_RE,
+    onStdoutChunk: (chunk) => {
+      parser.feed(chunk, onLine);
+    },
+    flush: () => {
+      parser.flush(onLine);
+    },
+    getSessionId: () => sessionId,
+    getStdoutTail: () => forensicTail.value().slice(-RATE_LIMIT_SCAN_TAIL_CAP) || undefined,
+    getBody: () => Promise.resolve(Result.ok(forensicTail.value())),
+    getUsage: () => ({ ...(model !== undefined ? { model } : {}), ...usage }),
+  });
 };
 
 export const createCopilotProvider = (deps: HeadlessProviderDeps): HeadlessAiProvider =>
   createHeadlessProvider({
     providerSlug: 'copilot',
     deps,
-    defaultCommand: 'copilot',
     resumeStaleRe: RESUME_STALE_RE,
-    createGenerateContext: (base) => ({ attempt: createCopilotAttempt(deps, base) }),
+    createGenerateContext: (base) => ({ attempt: (attemptSession) => runCopilotAttempt(attemptSession, base) }),
   });

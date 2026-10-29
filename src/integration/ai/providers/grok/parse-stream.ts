@@ -2,8 +2,10 @@ import type { EventBus } from '@src/business/observability/event-bus.ts';
 import {
   FORENSIC_BODY_TAIL_CAP,
   RATE_LIMIT_SCAN_TAIL_CAP,
+  createBoundedTail,
 } from '@src/integration/ai/providers/_engine/bounded-tail.ts';
-import { isRecord, numberField, stringField } from '@src/integration/ai/providers/_engine/json-field.ts';
+import { numberField, recordField, stringField } from '@src/integration/ai/providers/_engine/json-field.ts';
+import type { ProviderTokenUsage } from '@src/integration/ai/providers/_engine/run-provider-attempt.ts';
 import { createCappedLineFeed, emitJsonObjectLine } from '@src/integration/ai/providers/_engine/line-feed.ts';
 import {
   publishAssistantEvent,
@@ -43,11 +45,6 @@ export interface GrokMetaUpdate {
   readonly cacheCreationTokens?: number;
 }
 
-const usageOf = (obj: Record<string, unknown>): Record<string, unknown> | undefined => {
-  const usage = obj['usage'];
-  return isRecord(usage) ? usage : undefined;
-};
-
 const usageUpdate = (usage: Record<string, unknown>): Omit<GrokMetaUpdate, 'sessionId'> => {
   const inputTokens = numberField(usage, 'input_tokens');
   const outputTokens = numberField(usage, 'output_tokens');
@@ -61,18 +58,14 @@ const usageUpdate = (usage: Record<string, unknown>): Omit<GrokMetaUpdate, 'sess
   };
 };
 
-/**
- * Does this record carry the turn's authoritative usage object? Only an `end` that actually ships
- * `usage` replaces the running totals — see {@link createGrokAttemptTracker}'s merge note for why
- * the decision is per-RECORD rather than per-field.
- */
+/** Only an `end` that actually ships `usage` replaces the running totals (see `onMeta`). */
 const carriesTurnUsage = (obj: Record<string, unknown>): boolean =>
-  stringField(obj, 'type') === 'end' && usageOf(obj) !== undefined;
+  stringField(obj, 'type') === 'end' && recordField(obj, 'usage') !== undefined;
 
 export const extractGrokMetaUpdate = (obj: Record<string, unknown>): GrokMetaUpdate | undefined => {
   const type = stringField(obj, 'type');
   const sessionId = stringField(obj, 'sessionId');
-  const usage = type === 'usage' || type === 'end' ? usageOf(obj) : undefined;
+  const usage = type === 'usage' || type === 'end' ? recordField(obj, 'usage') : undefined;
   const fromUsage = usage !== undefined ? usageUpdate(usage) : {};
   if (sessionId === undefined && Object.keys(fromUsage).length === 0) return undefined;
   return {
@@ -138,10 +131,7 @@ export interface GrokAttemptTracker {
   readonly consumeChunk: (chunk: string) => void;
   readonly flush: () => void;
   readonly getSessionId: () => string | undefined;
-  readonly getInputTokens: () => number | undefined;
-  readonly getOutputTokens: () => number | undefined;
-  readonly getCacheReadTokens: () => number | undefined;
-  readonly getCacheCreationTokens: () => number | undefined;
+  readonly getUsage: () => ProviderTokenUsage;
   readonly getBody: () => string;
   readonly getStdoutTail: () => string | undefined;
   readonly getStreamError: () => string | undefined;
@@ -153,13 +143,12 @@ export const createGrokAttemptTracker = (eventBus: EventBus): GrokAttemptTracker
   let outputTokens: number | undefined;
   let cacheReadTokens: number | undefined;
   let cacheCreationTokens: number | undefined;
-  let body = '';
-  let assistantTail = '';
+  // The rate-limit tail is this body's last bytes, so one accumulator serves both.
+  const body = createBoundedTail(FORENSIC_BODY_TAIL_CAP);
   let streamError: string | undefined;
   const toolNames = new Map<string, string>();
   const lineFeed = createCappedLineFeed<Record<string, unknown>>('grok-stream', emitJsonObjectLine);
 
-  /** Per-response `usage` lines sum; a first value wins over nothing. */
   const addTokens = (current: number | undefined, next: number | undefined): number | undefined => {
     if (next === undefined) return current;
     if (current === undefined) return next;
@@ -167,18 +156,10 @@ export const createGrokAttemptTracker = (eventBus: EventBus): GrokAttemptTracker
   };
 
   /**
-   * `usage` is a per-response boundary — one per model response — while `end` carries the turn
-   * aggregate and is the only authoritative total. So `usage` lines accumulate and an `end` that
-   * ships a usage object replaces the running total.
-   *
-   * The replace/accumulate decision is made at RECORD level, not per field: an `end` whose usage
-   * object carries only some of the four counters (they are documented "when available") switches
-   * ALL of them to the turn basis, a missing one becoming absent rather than keeping its
-   * accumulated per-response sum. Deciding per field would emit one ledger row mixing two
-   * accounting bases — input/output on the turn total, cache counters on the per-response sum —
-   * which is worse than reporting the cache counters not at all. An `end` with no usage object at
-   * all is not a usage record: the accumulated totals stand, so a turn cut short of a priced `end`
-   * still reports the whole turn rather than its last model response.
+   * `usage` records are per model response and accumulate; an `end` carrying usage is the turn
+   * aggregate and replaces the totals. The replace is per RECORD, not per field: a partial `end`
+   * drops the counters it omits rather than mixing two accounting bases in one ledger row. An
+   * `end` without usage leaves the accumulated totals standing.
    */
   const onMeta = (update: GrokMetaUpdate, replacesTotals: boolean): void => {
     if (update.sessionId !== undefined && sessionId === undefined) sessionId = update.sessionId;
@@ -200,9 +181,7 @@ export const createGrokAttemptTracker = (eventBus: EventBus): GrokAttemptTracker
     const errorText = streamErrorText(obj);
     if (errorText !== undefined) streamError = errorText;
     const text = assistantText(obj);
-    if (text === undefined) return;
-    body = `${body}${text}`.slice(-FORENSIC_BODY_TAIL_CAP);
-    assistantTail = `${assistantTail}${text}`.slice(-RATE_LIMIT_SCAN_TAIL_CAP);
+    if (text !== undefined) body.append(text);
   };
 
   const dispatch = (obj: Record<string, unknown>): void => {
@@ -224,12 +203,14 @@ export const createGrokAttemptTracker = (eventBus: EventBus): GrokAttemptTracker
       lineFeed.flush(dispatch);
     },
     getSessionId: () => sessionId,
-    getInputTokens: () => inputTokens,
-    getOutputTokens: () => outputTokens,
-    getCacheReadTokens: () => cacheReadTokens,
-    getCacheCreationTokens: () => cacheCreationTokens,
-    getBody: () => body,
-    getStdoutTail: () => (assistantTail.length > 0 ? assistantTail : undefined),
+    getUsage: () => ({
+      ...(inputTokens !== undefined ? { inputTokens } : {}),
+      ...(outputTokens !== undefined ? { outputTokens } : {}),
+      ...(cacheReadTokens !== undefined ? { cacheReadTokens } : {}),
+      ...(cacheCreationTokens !== undefined ? { cacheCreationTokens } : {}),
+    }),
+    getBody: body.value,
+    getStdoutTail: () => body.value().slice(-RATE_LIMIT_SCAN_TAIL_CAP) || undefined,
     getStreamError: () => streamError,
   };
 };

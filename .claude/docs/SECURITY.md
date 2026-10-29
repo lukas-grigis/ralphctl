@@ -30,6 +30,11 @@ Codex can't fine-grained-deny edits on existing repo files. Use topology to cons
 re-declares both as `-c sandbox_mode="workspace-write"` and `-c sandbox_workspace_write.writable_roots=[…]`.
 Spawns don't pass `--ephemeral` (resume needs the rollout), so each one leaves a session under `~/.codex/sessions`.
 
+Claude Code caveat: read-only sessions use `bypassPermissions` plus `--disallowedTools`, never
+`--permission-mode plan` — in `claude -p` plan mode asks for approval on every tool, reads included, and
+no human is there to answer, so the run ends with no `signals.json`. Full-auto can't use `acceptEdits`
+either: it still prompts for `Bash` and hangs on stdin. Deny rules win over `bypassPermissions`.
+
 Claude Code caveat: 2.1.302 turned fork subagents (a subagent that copies the parent's whole
 context) on by default in `claude -p`. Every headless claude spawn sets `CLAUDE_CODE_FORK_SUBAGENT=0`
 — whether a fork inherits `--disallowedTools` is unverified, and each fork re-bills the parent's
@@ -51,7 +56,8 @@ project/session directory is the real safety boundary, not the CLI's permission 
 already documented above for OpenAI Codex. One clarification worth keeping in mind when reading
 that flag: `--auto` promotes the tool classes an operator set to `ask`, but per OpenCode's
 permissions documentation it does not override a class set to `deny` — an explicit denial in the
-operator's `opencode.json` stays enforced.
+operator's `opencode.json` stays enforced. The precise headless fix — a generated per-session config
+whose `permission` block denies tool classes and grants `external_directory` per root — is not wired yet.
 
 The interactive adapter (TUI handoff — ideate, plan, refine) has no `--auto` flag at all on
 its default command, so it uses OpenCode's config-level `permission.external_directory` map

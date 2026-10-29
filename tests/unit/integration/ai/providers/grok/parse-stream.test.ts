@@ -62,8 +62,7 @@ describe('createGrokAttemptTracker', () => {
     ]);
     expect(tracker.getBody()).toBe('ping');
     expect(tracker.getSessionId()).toBe('01a047e3-cfea-7b83-8047-31c8c2a39cc8');
-    expect(tracker.getInputTokens()).toBe(12);
-    expect(tracker.getOutputTokens()).toBe(4);
+    expect(tracker.getUsage()).toEqual({ inputTokens: 12, outputTokens: 4 });
   });
 
   it('accumulates per-response usage lines when no end aggregate arrives', () => {
@@ -73,9 +72,7 @@ describe('createGrokAttemptTracker', () => {
       '{"type":"usage","usage":{"input_tokens":3,"output_tokens":2,"cache_read_input_tokens":1}}\n',
       '{"type":"usage","usage":{"input_tokens":4,"output_tokens":1,"cache_read_input_tokens":2}}\n',
     ]);
-    expect(tracker.getInputTokens()).toBe(7);
-    expect(tracker.getOutputTokens()).toBe(3);
-    expect(tracker.getCacheReadTokens()).toBe(3);
+    expect(tracker.getUsage()).toEqual({ inputTokens: 7, outputTokens: 3, cacheReadTokens: 3 });
   });
 
   it('lets the end aggregate replace the accumulated usage rather than adding to it', () => {
@@ -84,8 +81,7 @@ describe('createGrokAttemptTracker', () => {
       '{"type":"usage","usage":{"input_tokens":4,"output_tokens":1}}\n',
       '{"type":"end","sessionId":"sid-agg","usage":{"input_tokens":12,"output_tokens":4}}\n',
     ]);
-    expect(tracker.getInputTokens()).toBe(12);
-    expect(tracker.getOutputTokens()).toBe(4);
+    expect(tracker.getUsage()).toEqual({ inputTokens: 12, outputTokens: 4 });
   });
 
   it('lets a partial end usage object replace ALL four counters, never mixing accounting bases', () => {
@@ -97,10 +93,7 @@ describe('createGrokAttemptTracker', () => {
       '{"type":"usage","usage":{"input_tokens":4,"output_tokens":1,"cache_read_input_tokens":7,"cache_creation_input_tokens":8}}\n',
       '{"type":"end","sessionId":"sid-partial","usage":{"input_tokens":12,"output_tokens":4}}\n',
     ]);
-    expect(tracker.getInputTokens()).toBe(12);
-    expect(tracker.getOutputTokens()).toBe(4);
-    expect(tracker.getCacheReadTokens()).toBeUndefined();
-    expect(tracker.getCacheCreationTokens()).toBeUndefined();
+    expect(tracker.getUsage()).toEqual({ inputTokens: 12, outputTokens: 4 });
   });
 
   it('keeps the accumulated usage when end carries no spend fields', () => {
@@ -110,8 +103,7 @@ describe('createGrokAttemptTracker', () => {
       '{"type":"end","sessionId":"sid-no-spend"}\n',
     ]);
     expect(tracker.getSessionId()).toBe('sid-no-spend');
-    expect(tracker.getInputTokens()).toBe(7);
-    expect(tracker.getOutputTokens()).toBe(3);
+    expect(tracker.getUsage()).toEqual({ inputTokens: 7, outputTokens: 3 });
   });
 
   it('last end wins on usage and first sessionId wins', () => {
@@ -121,8 +113,7 @@ describe('createGrokAttemptTracker', () => {
       '{"type":"end","sessionId":"second","usage":{"input_tokens":99,"output_tokens":88}}\n',
     ]);
     expect(tracker.getSessionId()).toBe('first');
-    expect(tracker.getInputTokens()).toBe(99);
-    expect(tracker.getOutputTokens()).toBe(88);
+    expect(tracker.getUsage()).toEqual({ inputTokens: 99, outputTokens: 88 });
   });
 
   it('skips malformed and unknown types without throwing', () => {
@@ -155,8 +146,12 @@ describe('createGrokAttemptTracker', () => {
     const { tracker } = drive([
       '{"type":"end","sessionId":"sid-cache","usage":{"input_tokens":10,"output_tokens":3,"cache_read_input_tokens":2,"cache_creation_input_tokens":1}}\n',
     ]);
-    expect(tracker.getCacheReadTokens()).toBe(2);
-    expect(tracker.getCacheCreationTokens()).toBe(1);
+    expect(tracker.getUsage()).toEqual({
+      inputTokens: 10,
+      outputTokens: 3,
+      cacheReadTokens: 2,
+      cacheCreationTokens: 1,
+    });
   });
 
   it('reassembles a line split across chunks', () => {
@@ -173,8 +168,7 @@ describe('createGrokAttemptTracker', () => {
     ]);
     expect(tracker.getBody()).toBe('crlf');
     expect(tracker.getSessionId()).toBe('sid-crlf');
-    expect(tracker.getInputTokens()).toBe(7);
-    expect(tracker.getOutputTokens()).toBe(9);
+    expect(tracker.getUsage()).toEqual({ inputTokens: 7, outputTokens: 9 });
   });
 
   it('publishes tool_use / tool_result debug events', () => {

@@ -214,6 +214,12 @@ describe.each(ROWS)('HeadlessAiProvider conformance — $provider', (row) => {
     expect(call.args.join(' ')).toContain(row.promptFileName);
   });
 
+  it('spawns the PROVIDER_TRAITS binary — the one the launch pre-flight probes', async () => {
+    const { fake, promise } = await run();
+    await promise;
+    expect(fake.calls[0]!.command).toBe(PROVIDER_TRAITS[row.provider].binary);
+  });
+
   it('mounts every writable root the session declared, or names its over-grant', async () => {
     const { fake, promise } = await run();
     await promise;
