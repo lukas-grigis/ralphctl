@@ -2,7 +2,6 @@ import { Result } from '@src/domain/result.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
 import type { AttemptWarning } from '@src/domain/entity/attempt.ts';
-import type { AiProvider } from '@src/domain/entity/settings.ts';
 import type { InProgressTask } from '@src/domain/entity/task.ts';
 import type { UpdateTask } from '@src/domain/repository/task/update-task.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
@@ -12,112 +11,58 @@ import type { StorageError } from '@src/domain/value/error/storage-error.ts';
 import type { ValidationError } from '@src/domain/value/error/validation-error.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import type { GenEvalExit, RunTaskVerdict } from '@src/business/task/gen-eval-exit.ts';
-import { applyEscalation, decideEscalation, type EscalationTrigger } from '@src/business/task/escalation-policy.ts';
+import {
+  applyEscalation,
+  decideEscalation,
+  type DecideEscalationProps,
+  type EscalationTrigger,
+} from '@src/business/task/escalation-policy.ts';
 import { budgetedAttemptCount, clearRunningAttemptPlateauWarning } from '@src/domain/entity/task-attempts.ts';
 
 /** {@link GenEvalExit} kind for a loop whose turn budget ran out without a terminal verdict. */
 const BUDGET_EXHAUSTED_EXIT = 'budget-exhausted';
 
+/** The live `settings.harness` slice finalize reads. */
+interface EscalationConfig {
+  /** Synthesises the `budget-exhausted` exit when no leaf wrote a terminal one. */
+  readonly maxTurns: number;
+  /** Gates ALL failure-driven escalation (plateau and budget-exhausted) despite its name. */
+  readonly escalateOnPlateau: boolean;
+  readonly escalationMap: Readonly<Record<string, string>>;
+  /** Budget for legacy tasks without `task.maxAttempts`. */
+  readonly maxAttempts: number;
+  readonly bestOfNCandidates?: number | undefined;
+}
+
 /**
- * Settle a finished gen-eval loop. Maps the loop's terminal `GenEvalExit` to the
- * `AttemptWarning` + `RunTaskVerdict` that downstream `settle-attempt` consumes, then persists
- * the final task once via `taskRepo.update`.
+ * Settle a finished gen-eval loop: map the terminal exit to the verdict + warning settle-attempt
+ * consumes, decide the retry remedy, and persist the task once. A missing `exit` is synthesised as
+ * `budget-exhausted`.
  *
- * If the caller didn't determine a terminal `exit`, the use case synthesises a
- * `budget-exhausted` exit by reading the current harness config — that path covers the case
- * where the loop's `shouldContinue` predicate returned false at iteration N+1 (budget hit) and
- * none of the per-turn leaves wrote a terminal exit to ctx.
- *
- * Mapping rules (the warning/verdict half is fixed per exit kind; the retry half — whether the
- * attempt fails so the outer loop re-enters — is gated by the escalation policy / attempt budget):
- *   passed             → verdict 'passed',    no warning,                       never retries
- *   self-blocked       → verdict 'failed',    blockedReason set (settle blocks), never retries
- *   crashed            → verdict 'failed',    warning { kind: 'crashed' },       retry within maxAttempts
- *                          (no ladder rung), blocks at cap via failCurrentAttempt
- *   plateau            → verdict 'failed',    warning { kind: 'plateau' },       escalation policy
- *   budget-exhausted   → verdict 'failed',    warning { kind: 'budget-exhausted' }, escalation policy
- *   malformed          → verdict 'malformed', warning { kind: 'malformed' },     plain same-model retry
- *
- * `plateau` and `budget-exhausted` (real or synthesized) consult {@link decideEscalation}: while
- * the attempt budget remains they climb the model ladder (or nudge at the top) and set
- * `shouldFailAttempt` so the outer attempt loop re-enters; once the ladder tops out OR the attempt
- * budget is exhausted they keep the work (done-with-warning). `malformed` is the evaluator's
- * failure, not the generator's — it does NOT burn a ladder rung; it gets a plain same-model
- * fresh-attempt retry while budget remains, falling back to done-with-warning when exhausted.
+ *   passed            → 'passed',    no warning,              never retries
+ *   self-blocked      → 'failed',    blockedReason,           never retries
+ *   crashed           → 'failed',    crashed warning,         retries within maxAttempts (no ladder rung)
+ *   plateau           → 'failed',    plateau warning,         escalation policy
+ *   budget-exhausted  → 'failed',    budget warning,          escalation policy
+ *   malformed         → 'malformed', malformed warning,       plain same-model retry (evaluator's fault)
  */
-export interface FinalizeGenEvalProps {
+export interface FinalizeGenEvalProps extends Pick<
+  DecideEscalationProps,
+  | 'generatorModel'
+  | 'generatorProvider'
+  | 'generatorEffort'
+  | 'evaluatorProvider'
+  | 'evaluatorModel'
+  | 'evaluatorEffort'
+> {
   readonly task: InProgressTask;
   readonly sprintId: SprintId;
   readonly exit?: GenEvalExit;
   /** Read when `exit` is undefined to synthesise a `budget-exhausted` outcome. */
   readonly turnsUsed: number;
-  /**
-   * Reads the live harness slice the use case needs:
-   *   - `maxTurns`           — used to synthesise a budget-exhausted exit when the loop
-   *                            terminated without writing a terminal exit.
-   *   - `escalateOnPlateau`  — gates the model-escalation policy. Despite the name (kept for
-   *                            backward compatibility) it now gates ALL failure-driven escalation:
-   *                            plateau AND budget-exhausted exits.
-   *   - `escalationMap`      — user overrides merged over the generator provider's built-in
-   *                            ladder (`DEFAULT_ESCALATION_LADDERS`).
-   *   - `maxAttempts`        — effective attempt budget when `task.maxAttempts` is unset (legacy
-   *                            tasks); wired from `settings.harness.maxAttempts`.
-   *   - `bestOfNCandidates`  — opt-in best-of-N candidate count for the escalation policy's
-   *                            top-of-ladder remedy; wired from `settings.harness.bestOfNCandidates`.
-   *                            OPTIONAL: absent/`0` disables the remedy (the default) — mirrors
-   *                            every other optional escalation-context field on this props type.
-   */
-  readonly readConfig: () => Promise<{
-    readonly maxTurns: number;
-    readonly escalateOnPlateau: boolean;
-    readonly escalationMap: Readonly<Record<string, string>>;
-    readonly maxAttempts: number;
-    readonly bestOfNCandidates?: number | undefined;
-  }>;
+  readonly readConfig: () => Promise<EscalationConfig>;
   readonly taskRepo: UpdateTask;
   readonly logger: Logger;
-  /**
-   * Generator model id the just-finished attempt ran on — read by the escalation policy so
-   * the merged `escalationMap` can look up the next rung. The leaf passes either
-   * `task.escalatedToModel` (when a prior escalation set the override) or the configured
-   * `settings.ai.implement.generator.model`, mirroring the generator-leaf resolution order.
-   */
-  readonly generatorModel: string;
-  /**
-   * Provider the generator role runs on — forwarded to {@link decideEscalation} so the same-model
-   * EFFORT rung (`escalate-effort`) can decide whether the provider exposes a reasoning-effort
-   * dimension. OPTIONAL: when absent (or `undefined`) the policy never returns `escalate-effort` and
-   * the pre-effort-rung behaviour is byte-identical (top-of-ladder falls straight through to the
-   * same-model nudge). The leaf resolves it from the configured generator row.
-   */
-  readonly generatorProvider?: AiProvider | undefined;
-  /**
-   * The generator's currently-resolved reasoning effort (via `resolveEffortForRow`), or `undefined`
-   * for the CLI default. The leaf reads `task.escalatedToEffort ?? configured` so a prior effort bump
-   * is reflected here — the policy then sees the raised effort and stops re-firing the rung. Forwarded
-   * to {@link decideEscalation} alongside {@link generatorProvider}; OPTIONAL for the same reason.
-   */
-  readonly generatorEffort?: string | undefined;
-  /**
-   * Provider the EVALUATOR role runs on — forwarded to {@link decideEscalation} so the same-model
-   * EFFORT rung can compute the evaluator's OWN lockstep bump (never copied from the generator's
-   * target). OPTIONAL: absent → no `evaluator` field on an `escalate-effort` decision, unchanged
-   * from the generator-only behaviour. The leaf resolves it from the configured evaluator row.
-   */
-  readonly evaluatorProvider?: AiProvider | undefined;
-  /**
-   * The model the evaluator role spawns with — fixed for the whole task, never escalated. Read
-   * alongside {@link evaluatorProvider} so the policy can classify the evaluator's own effort
-   * ladder. OPTIONAL for the same reason as {@link evaluatorProvider}.
-   */
-  readonly evaluatorModel?: string | undefined;
-  /**
-   * The evaluator's currently-resolved reasoning effort (`task.escalatedToEvaluatorEffort ??
-   * configured`), or `undefined` for the CLI default — mirrors {@link generatorEffort}'s
-   * resolution order so a prior evaluator effort bump is reflected here and the policy stops
-   * re-firing the rung. OPTIONAL for the same reason as {@link evaluatorProvider}.
-   */
-  readonly evaluatorEffort?: string | undefined;
   readonly eventBus: EventBus;
   readonly clock: () => IsoTimestamp;
 }
@@ -128,22 +73,7 @@ export interface FinalizeGenEvalOutput {
   readonly verdict: RunTaskVerdict;
   readonly warning?: AttemptWarning;
   readonly blockedReason?: string;
-  /**
-   * True when the just-finished attempt should fail (leaving the task `in_progress` for the next
-   * chain invocation, modulo the effective `maxAttempts`) instead of marking it `done`. Set on two
-   * paths: the escalation policy stamping `escalatedFromModel`/`escalatedToModel` (an escalate or
-   * top-of-ladder nudge after a plateau / budget-exhausted exit), and the plain same-model
-   * malformed retry (which fails the attempt WITHOUT stamping the escalation fields). The caller
-   * propagates this onto ctx so settle-attempt fails the running attempt.
-   *
-   * Finalize itself never sets `blockedReason` together with this flag — but a LATER leaf can: a
-   * red post-task-verify stamps `ctx.lastBlockReason` after a retry was granted here. Settle's
-   * precedence resolves that composition in the retry's favour (remedies are spent before
-   * surrendering); the red work never lands because the commit guard keys on the block reason
-   * independently and the retry-diff quarantine stashes the rejected diff before the next
-   * attempt. Once the budget exhausts, this flag stops being granted and the same red verify
-   * blocks the task.
-   */
+  /** Fail the attempt so the task stays `in_progress` for a retry; see settle-attempt's PRECEDENCE note. */
   readonly shouldFailAttempt?: boolean;
 }
 
@@ -174,15 +104,7 @@ const mapExit = (exit: GenEvalExit): { verdict: RunTaskVerdict; warning?: Attemp
   }
 };
 
-/**
- * Exits whose remedy is a generator-model escalation — the model ladder genuinely targets a
- * generator weakness. `plateau` (the generator stalled producing the same failed dimensions) and
- * `budget-exhausted` (the generator never reached a terminal verdict in the turn budget — real or
- * the synthesized exit when no leaf wrote one) both qualify. `malformed` is deliberately excluded:
- * it is the EVALUATOR's failure (no parseable terminal verdict), so escalating the GENERATOR's
- * model would burn a ladder rung on the wrong role — it is routed to a plain same-model retry by
- * the caller. `passed` / `self-blocked` are terminal and never reach this predicate's branch.
- */
+/** `malformed` is excluded: it is the evaluator's failure, so a generator ladder rung would target the wrong role. */
 const isEscalatableExit = (exit: GenEvalExit): exit is Extract<GenEvalExit, { kind: 'plateau' | 'budget-exhausted' }> =>
   exit.kind === 'plateau' || exit.kind === BUDGET_EXHAUSTED_EXIT;
 
@@ -192,77 +114,41 @@ interface Remedy {
   readonly shouldFailAttempt: boolean;
 }
 
-/**
- * Resolve the retry remedy for an escalatable exit (plateau / budget-exhausted). Consults the
- * model-escalation policy: escalate / escalate-effort / nudge / best-of-n grant one more attempt
- * (`applyEscalation` stamps the task; `shouldFailAttempt` makes the outer loop re-enter), while
- * topped-out / budget-exhausted / flag-off keep the work (done-with-warning).
- */
 const resolveEscalatableRemedy = (
   exit: Extract<GenEvalExit, { kind: 'plateau' | 'budget-exhausted' }>,
   props: FinalizeGenEvalProps,
-  cfg: {
-    readonly escalateOnPlateau: boolean;
-    readonly escalationMap: Readonly<Record<string, string>>;
-    readonly maxAttempts: number;
-    readonly bestOfNCandidates?: number | undefined;
-  }
+  cfg: EscalationConfig
 ): Result<Remedy, ValidationError> => {
   const trigger: EscalationTrigger = exit.kind;
   const decision = decideEscalation({
-    task: props.task,
-    generatorModel: props.generatorModel,
+    ...props,
     flagOn: cfg.escalateOnPlateau,
     userMap: cfg.escalationMap,
     fallbackMaxAttempts: cfg.maxAttempts,
-    // Effort-rung context. Both are optional on the policy side: when the leaf did not resolve a
-    // provider (or the row carries no effort dimension the caller could resolve) the policy never
-    // returns `escalate-effort` and behaves exactly as before.
-    generatorProvider: props.generatorProvider,
-    generatorEffort: props.generatorEffort,
-    // Evaluator lockstep context — same optionality: absent context means the policy never
-    // returns an `evaluator` field on the decision.
-    evaluatorProvider: props.evaluatorProvider,
-    evaluatorModel: props.evaluatorModel,
-    evaluatorEffort: props.evaluatorEffort,
-    // Opt-in best-of-N knob — the policy stays pure and never reads settings itself; this is the
-    // one read of `cfg.bestOfNCandidates` on the whole path. Absent/0 disables the remedy.
     bestOfNCandidates: cfg.bestOfNCandidates,
   });
   const applied = applyEscalation({
     task: props.task,
     decision,
     trigger,
-    // Forward WHICH plateau detector fired (undefined on a budget-exhausted trigger, or a legacy
-    // plateau exit that predates this field) so the `model-escalated` event carries the same
-    // attribution the progress journal records.
     ...(exit.kind === 'plateau' && exit.source !== undefined ? { plateauSource: exit.source } : {}),
     eventBus: props.eventBus,
     logger: props.logger,
     clock: props.clock,
   });
   if (!applied.ok) return Result.error(applied.error);
-  // A model escalation, a same-model effort bump, a same-model nudge, and a granted best-of-N
-  // attempt each grant one more attempt: fail the running attempt so the task stays in_progress
-  // and the outer loop re-enters (modulo the effective maxAttempts).
   const shouldFailAttempt =
     decision.kind === 'escalate' ||
     decision.kind === 'escalate-effort' ||
     decision.kind === 'nudge' ||
     decision.kind === 'best-of-n';
-  return Result.ok({ task: applied.value.task, shouldFailAttempt });
+  return Result.ok({ task: applied.value, shouldFailAttempt });
 };
 
-/**
- * Resolve the retry remedy for a malformed exit — the evaluator's failure, not the generator's, so
- * NO ladder rung is burned. Grant a plain same-model fresh-attempt retry while the attempt budget
- * remains (gated by the same flag so an opted-out operator keeps the legacy done-with-warning
- * path); once the budget is exhausted, fall back to done-with-warning. Never stamps the model
- * fields.
- */
+/** Same-model retry while budget remains (same flag gate), else done-with-warning. Never burns a rung. */
 const resolveMalformedRemedy = (
   props: FinalizeGenEvalProps,
-  cfg: { readonly escalateOnPlateau: boolean; readonly maxAttempts: number },
+  cfg: Pick<EscalationConfig, 'escalateOnPlateau' | 'maxAttempts'>,
   log: Logger
 ): Remedy => {
   const effectiveMaxAttempts = props.task.maxAttempts ?? cfg.maxAttempts;
@@ -283,14 +169,11 @@ const resolveMalformedRemedy = (
 };
 
 /**
- * A process crash (watchdog kill / spawn crash) is not a quality plateau — retry regardless of
- * `escalateOnPlateau`, and WITHOUT stamping the escalation model fields (no ladder rung).
- * `failCurrentAttempt` transitions the task to `blocked` on its own once attempts hit the cap — but
- * ONLY when `task.maxAttempts` is set. Legacy tasks (`maxAttempts` undefined) have no cap enforced
- * downstream, so a persistent crash would retry forever across launches; once such a task's recorded
- * attempts reach the configured fallback budget (`cfg.maxAttempts`), block here directly instead.
+ * A crash is not a quality failure: retry regardless of `escalateOnPlateau`, with no ladder rung.
+ * `failCurrentAttempt` blocks at the cap only when `task.maxAttempts` is set, so a legacy task would
+ * retry forever — block it here once it reaches the fallback budget.
  */
-const resolveCrashedRemedy = (props: FinalizeGenEvalProps, cfg: { readonly maxAttempts: number }): Remedy => {
+const resolveCrashedRemedy = (props: FinalizeGenEvalProps, cfg: Pick<EscalationConfig, 'maxAttempts'>): Remedy => {
   const legacyBudgetExhausted =
     props.task.maxAttempts === undefined && budgetedAttemptCount(props.task) >= cfg.maxAttempts;
   return legacyBudgetExhausted
@@ -308,23 +191,17 @@ export const finalizeGenEvalUseCase = async (
   const log = props.logger.named('task.finalize-gen-eval');
 
   const cfg = await props.readConfig();
-  let exit: GenEvalExit;
-  if (props.exit !== undefined) {
-    exit = props.exit;
-  } else {
-    exit = { kind: BUDGET_EXHAUSTED_EXIT, turnsUsed: props.turnsUsed, turnBudget: Math.max(1, cfg.maxTurns) };
-  }
+  const exit: GenEvalExit = props.exit ?? {
+    kind: BUDGET_EXHAUSTED_EXIT,
+    turnsUsed: props.turnsUsed,
+    turnBudget: Math.max(1, cfg.maxTurns),
+  };
 
   log.debug(`finalizing gen-eval (${exit.kind})`, { taskId: props.task.id, exitKind: exit.kind });
 
   const mapped = mapExit(exit);
 
-  // Resolve the retry remedy from the exit kind. `plateau` / `budget-exhausted` (real + synthesized)
-  // consult the model-escalation policy; `malformed` gets a plain same-model retry (no ladder rung);
-  // `passed` / `self-blocked` have no remedy (settle-attempt handles them directly).
-  // A clean `passed` exit strips a softened-plateau warning stamped mid-loop (the grace round
-  // worked exactly as designed — the pass must not render as pass-with-warning downstream).
-  // Other warning kinds (verify-failed) survive: they record real post-pass facts.
+  // A clean pass strips a softened-plateau warning stamped mid-loop: the grace round worked.
   let remedy: Remedy = {
     task: exit.kind === 'passed' ? clearRunningAttemptPlateauWarning(props.task) : props.task,
     ...(mapped.blockedReason !== undefined ? { blockedReason: mapped.blockedReason } : {}),
