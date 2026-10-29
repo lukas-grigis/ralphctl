@@ -12,27 +12,28 @@ import { FLOW_IDS, type FlowId } from '@src/domain/value/flow-id.ts';
 import { PROVIDER_EFFORT_LEVELS } from '@src/domain/value/settings-models/effort.ts';
 
 /**
- * Apply a single dotted-path change to a {@link Settings} record. Pure — does not touch
- * persistence. Both the CLI's `settings set <key> <value>` and the TUI's inline editor route
- * through this function so the supported key vocabulary is one truth.
- *
- * Final domain validation (numeric ranges, enum membership, provider/model coherence) happens
- * at the persistence boundary via `SettingsSchema`, so this only fails loud on shape errors
- * (unknown keys, non-numeric values where a number was required) and on row values the schema's
- * load-time migration would silently rewrite instead of reject: a retired model id, and an effort
- * outside the row provider's vocabulary (checked whole, so a retired level is refused, not `low`).
- *
- * Note: `ai.provider` and `ai.models.<flow>` (the v1 grammar) are rejected as unknown keys
- * here — switching a flow's provider goes through the dedicated `settings-set-provider` flow
- * (which rebuilds the row's model coherently); switching one model goes through
- * `ai.<flow>.model`.
- *
- * `ai.implement.{provider,model,effort}` (the legacy flat-row grammar) is rejected: the row
- * now splits into generator / evaluator sub-rows, so callers must address either role
- * explicitly via `ai.implement.generator.<field>` or `ai.implement.evaluator.<field>`.
+ * Apply one dotted-path change to {@link Settings} — the single key vocabulary behind both the
+ * CLI's `settings set` and the TUI's inline editor. Range / enum / coherence checks happen in
+ * `SettingsSchema` at save; this fails loud on shape errors and on row values the schema's
+ * load-time migration would silently rewrite instead of reject (a retired model, an effort outside
+ * the provider's vocabulary). Provider switches go through `settings-set-provider`, which rebuilds
+ * the model coherently.
  */
-const SETTINGS_KEY_HINT =
-  'supported keys: ai.effort, ai.{flow}.{provider,model,effort} (flow in {refine,plan,readiness,ideate,createPr}), ai.implement.{generator,evaluator}.{provider,model,effort}, ai.implement.agents.{generator,evaluator}, harness.{maxTurns,maxAttempts,rateLimitRetries,idleWatchdogMs,plateauThreshold,correctiveRetries,bestOfNCandidates,escalateOnPlateau,skipPreVerifyOnFreshSetup}, harness.escalationMap.<fromModel>, logging.level, concurrency.maxParallelTasks, ui.notifications.enabled';
+const HARNESS_NUMBER_KEYS = [
+  'maxTurns',
+  'maxAttempts',
+  'rateLimitRetries',
+  'idleWatchdogMs',
+  'plateauThreshold',
+  'correctiveRetries',
+  'bestOfNCandidates',
+] as const;
+const HARNESS_BOOLEAN_KEYS = ['escalateOnPlateau', 'skipPreVerifyOnFreshSetup'] as const;
+
+const isOneOf = <T extends string>(list: readonly T[], raw: string): raw is T =>
+  (list as readonly string[]).includes(raw);
+
+const SETTINGS_KEY_HINT = `supported keys: ai.effort, ai.{flow}.{provider,model,effort} (flow in {${FLOW_IDS.filter((f) => f !== 'implement').join(',')}}), ai.implement.{generator,evaluator}.{provider,model,effort}, ai.implement.agents.{generator,evaluator}, harness.{${[...HARNESS_NUMBER_KEYS, ...HARNESS_BOOLEAN_KEYS].join(',')}}, harness.escalationMap.<fromModel>, logging.level, concurrency.maxParallelTasks, ui.notifications.enabled`;
 
 /** Hint attached to a rejected `ai.<flow>.agents.<role>` key targeting an unsupported binding. */
 const AGENT_BINDING_UNSUPPORTED_HINT =
@@ -132,75 +133,28 @@ const setAiImplementRoleField = (
 const isAiFlowField = (raw: string): raw is 'provider' | 'model' | 'effort' =>
   raw === 'provider' || raw === 'model' || raw === 'effort';
 
-/** `ai.<flow>.<field>` — every flow except `implement`, which splits into roles below. */
-const tryApplyAiFlowKey = (
-  current: Settings,
-  key: string,
-  raw: string
-): Result<Settings, ValidationError> | undefined => {
-  const parts = key.split('.');
-  if (parts.length !== 3 || parts[0] !== 'ai') return undefined;
-  const maybeFlow = parts[1] ?? '';
-  const maybeField = parts[2] ?? '';
-  if (isFlowId(maybeFlow) && maybeFlow !== 'implement' && isAiFlowField(maybeField)) {
-    return setAiFlowField(current, maybeFlow, maybeField, raw);
-  }
-  return undefined;
-};
-
-/**
- * Flat `ai.implement.<field>` is no longer addressable — the row split into generator /
- * evaluator. Surface a focused error that names the correct keys.
- */
-const tryRejectFlatImplementKey = (key: string, raw: string): Result<Settings, ValidationError> | undefined => {
-  const parts = key.split('.');
-  if (parts.length !== 3 || parts[0] !== 'ai') return undefined;
-  const maybeFlow = parts[1] ?? '';
-  const maybeField = parts[2] ?? '';
-  if (maybeFlow !== 'implement' || !isAiFlowField(maybeField)) return undefined;
-  return Result.error(
+/** Flat `ai.implement.<field>` predates the generator / evaluator split; name the keys that replaced it. */
+const rejectFlatImplementKey = (key: string, raw: string, field: string): Result<Settings, ValidationError> =>
+  Result.error(
     new ValidationError({
       field: key,
       value: raw,
       message: `'${key}' is no longer addressable — implement splits into generator and evaluator roles`,
-      hint: `use ai.implement.generator.${maybeField} or ai.implement.evaluator.${maybeField}`,
+      hint: `use ai.implement.generator.${field} or ai.implement.evaluator.${field}`,
     })
   );
-};
-
-/** Per-role implement keys: `ai.implement.{generator,evaluator}.{provider,model,effort}`. */
-const tryApplyAiImplementRoleKey = (
-  current: Settings,
-  key: string,
-  raw: string
-): Result<Settings, ValidationError> | undefined => {
-  const parts = key.split('.');
-  if (parts.length !== 4 || parts[0] !== 'ai' || parts[1] !== 'implement') return undefined;
-  const maybeRole = parts[2] ?? '';
-  const maybeField = parts[3] ?? '';
-  if (isImplementRole(maybeRole) && isAiFlowField(maybeField)) {
-    return setAiImplementRoleField(current, maybeRole, maybeField, raw);
-  }
-  return undefined;
-};
 
 /**
- * `ai.implement.agents.<role>` — bind (or, with an empty value, clear) an agent-definition name
- * to the implement generator/evaluator role. Every other `ai.<flow>.agents.<key>` shape —
- * another flow, or an implement sub-key other than `generator`/`evaluator` — targets a
- * role/flow this release does not support delegating to; that is reported explicitly here
- * rather than falling through to the generic "unknown settings key" error, so a binding is
- * never silently ignored.
+ * `ai.implement.agents.<role>` binds (or, empty, clears) an agent definition. Any other
+ * `ai.<flow>.agents.<key>` is reported explicitly so a binding is never silently ignored.
  */
-const tryApplyAgentsKey = (
+const applyAgentsKey = (
   current: Settings,
   key: string,
-  raw: string
-): Result<Settings, ValidationError> | undefined => {
-  const parts = key.split('.');
-  if (parts.length !== 4 || parts[0] !== 'ai' || parts[2] !== 'agents') return undefined;
-  const flow = parts[1] ?? '';
-  const role = parts[3] ?? '';
+  raw: string,
+  flow: string,
+  role: string
+): Result<Settings, ValidationError> => {
   if (flow !== 'implement' || !isImplementRole(role)) {
     return Result.error(
       new ValidationError({
@@ -226,12 +180,7 @@ const tryApplyAgentsKey = (
 };
 
 /** `ai.effort` — global fallback effort; empty input clears it. */
-const tryApplyAiEffortKey = (
-  current: Settings,
-  key: string,
-  raw: string
-): Result<Settings, ValidationError> | undefined => {
-  if (key !== 'ai.effort') return undefined;
+const applyAiEffortKey = (current: Settings, raw: string): Result<Settings, ValidationError> => {
   const trimmed = raw.trim();
   if (trimmed.length === 0) {
     const { effort: _drop, ...aiWithoutEffort } = current.ai;
@@ -241,16 +190,23 @@ const tryApplyAiEffortKey = (
   return Result.ok({ ...current, ai: { ...current.ai, effort: trimmed } as AiSettings });
 };
 
-/**
- * Dispatch every `ai.*` key shape. Returns `undefined` when `key` starts with `ai.` but
- * matches none of the known sub-grammars, so the caller falls through to the unknown-key error.
- */
-const applyAiKey = (current: Settings, key: string, raw: string): Result<Settings, ValidationError> | undefined =>
-  tryApplyAiFlowKey(current, key, raw) ??
-  tryRejectFlatImplementKey(key, raw) ??
-  tryApplyAiImplementRoleKey(current, key, raw) ??
-  tryApplyAgentsKey(current, key, raw) ??
-  tryApplyAiEffortKey(current, key, raw);
+/** Every `ai.*` shape; `undefined` falls through to the unknown-key error. */
+const applyAiKey = (current: Settings, key: string, raw: string): Result<Settings, ValidationError> | undefined => {
+  if (key === 'ai.effort') return applyAiEffortKey(current, raw);
+  const parts = key.split('.');
+  const [, flow = '', a = '', b = ''] = parts;
+  if (parts.length === 3 && isAiFlowField(a)) {
+    if (flow === 'implement') return rejectFlatImplementKey(key, raw, a);
+    if (isFlowId(flow) && flow !== 'implement') return setAiFlowField(current, flow, a, raw);
+  }
+  if (parts.length === 4) {
+    if (flow === 'implement' && isImplementRole(a) && isAiFlowField(b)) {
+      return setAiImplementRoleField(current, a, b, raw);
+    }
+    if (a === 'agents') return applyAgentsKey(current, key, raw, flow, b);
+  }
+  return undefined;
+};
 
 /**
  * Per-entry escalation-map setter: `harness.escalationMap.<fromModel>` takes the upgraded
@@ -313,34 +269,14 @@ const applyBooleanField = (
 
 /** Fixed, non-templated settings keys — everything outside the `ai.*` / escalation-map grammars. */
 const applyFixedSettingsKey = (current: Settings, key: string, raw: string): Result<Settings, ValidationError> => {
+  const harnessField = key.startsWith('harness.') ? key.slice('harness.'.length) : '';
+  if (isOneOf(HARNESS_NUMBER_KEYS, harnessField)) {
+    return applyNumberField(current, key, raw, (c, n) => ({ ...c, harness: { ...c.harness, [harnessField]: n } }));
+  }
+  if (isOneOf(HARNESS_BOOLEAN_KEYS, harnessField)) {
+    return applyBooleanField(current, key, raw, (c, b) => ({ ...c, harness: { ...c.harness, [harnessField]: b } }));
+  }
   switch (key) {
-    case 'harness.maxTurns':
-    case 'harness.maxAttempts':
-    case 'harness.rateLimitRetries':
-    case 'harness.idleWatchdogMs':
-    case 'harness.plateauThreshold':
-    case 'harness.correctiveRetries':
-    case 'harness.bestOfNCandidates': {
-      const which = key.split('.')[1] as
-        | 'maxTurns'
-        | 'maxAttempts'
-        | 'rateLimitRetries'
-        | 'idleWatchdogMs'
-        | 'plateauThreshold'
-        | 'correctiveRetries'
-        | 'bestOfNCandidates';
-      return applyNumberField(current, key, raw, (c, n) => ({ ...c, harness: { ...c.harness, [which]: n } }));
-    }
-    case 'harness.escalateOnPlateau':
-      return applyBooleanField(current, key, raw, (c, b) => ({
-        ...c,
-        harness: { ...c.harness, escalateOnPlateau: b },
-      }));
-    case 'harness.skipPreVerifyOnFreshSetup':
-      return applyBooleanField(current, key, raw, (c, b) => ({
-        ...c,
-        harness: { ...c.harness, skipPreVerifyOnFreshSetup: b },
-      }));
     case 'logging.level':
       return Result.ok({ ...current, logging: { level: raw as Settings['logging']['level'] } });
     case 'concurrency.maxParallelTasks':
