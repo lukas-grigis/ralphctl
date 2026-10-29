@@ -15,7 +15,16 @@
  * fires once the status is known. Home's empty-sprint card then takes over.
  */
 
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import React, {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useEffectEvent,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import type { ProjectId } from '@src/domain/value/id/project-id.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { Sprint, SprintStatus } from '@src/domain/entity/sprint.ts';
@@ -153,9 +162,7 @@ const useSelectionPersistence = (
   onChange: ((next: SelectionSeed) => void) | undefined
 ): { readonly skipNextPersist: (tuple: SkipPersistTuple) => void } => {
   const { projectId, projectLabel, sprintId, sprintLabel } = selection;
-  // Keep the callback in a ref so re-renders don't churn the persistence effect's deps.
-  const onChangeRef = useRef(onChange);
-  onChangeRef.current = onChange;
+  const persist = useEffectEvent((next: SelectionSeed) => onChange?.(next));
 
   // Set by `followFocusedRun` (via `skipNextPersist`) right before its state writes, to the
   // EXACT tuple it's about to write. The effect below skips a transition when the CURRENT
@@ -187,7 +194,7 @@ const useSelectionPersistence = (
       skipPersistForRef.current = undefined;
       return;
     }
-    onChangeRef.current?.({
+    persist({
       ...(projectId !== undefined ? { projectId } : {}),
       ...(projectLabel !== undefined ? { projectLabel } : {}),
       ...(sprintId !== undefined ? { sprintId } : {}),
@@ -218,12 +225,11 @@ const useDoneOnBootClear = (args: {
   readonly setSprintStatus: (status: SprintStatus | undefined) => void;
 }): void => {
   const { seedSprintId, sprintRepo, sprintIdRef, setSprintId, setSprintLabel, setSprintStatus } = args;
-  const sprintRepoRef = useRef(sprintRepo);
-  sprintRepoRef.current = sprintRepo;
+  const readSprintRepo = useEffectEvent(() => sprintRepo);
 
   useEffect(() => {
     if (seedSprintId === undefined) return undefined;
-    const repo = sprintRepoRef.current;
+    const repo = readSprintRepo();
     if (repo === undefined) return undefined;
     let cancelled = false;
     void repo
