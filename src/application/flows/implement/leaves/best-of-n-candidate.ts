@@ -47,7 +47,7 @@ import {
   bestOfNStashMessage,
   composeCandidateSummary,
   findSignal,
-  signalTexts,
+  candidateSignalTexts,
 } from '@src/application/flows/implement/leaves/best-of-n-record.ts';
 
 // `MAX_BEST_OF_N_CANDIDATES` is NOT re-exported — used only internally, above, for the loop's
@@ -338,7 +338,7 @@ const buildCandidateRecord = async (
     );
   }
   const attribution = input.preOutcome !== undefined ? attributeVerify(input.preOutcome, verifyOutcome) : undefined;
-  const texts = signalTexts(spawn.signals);
+  const texts = candidateSignalTexts(spawn.signals);
   const summary = composeCandidateSummary({
     hadDiff: captured.hadDiff,
     changedFiles: captured.changedFiles,
