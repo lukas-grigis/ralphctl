@@ -27,8 +27,6 @@ import { createFakeAiProvider } from '@tests/fixtures/fake-ai-provider.ts';
 import { createReadinessFlow } from '@src/application/flows/readiness/flow.ts';
 import { createEventBusLogger } from '@src/business/observability/event-bus-logger.ts';
 import { emptySkillSource, noopSkillsAdapter } from '@tests/fixtures/skills-fakes.ts';
-import { readOnlySignalsSession } from '@src/application/flows/_shared/signals-session.ts';
-import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts';
 
 const FAKE_CWD = absolutePath('/tmp/ralph/fake-readiness-cwd');
 
@@ -234,6 +232,12 @@ describe('createReadinessFlow', () => {
       'persist-suggested-skills',
     ]);
 
+    // The AI session runs read-only (no edits, no shell, no auto-approve) with the configured model.
+    const [session] = provider.recordedSessions;
+    expect(session?.model).toBe('claude-sonnet-4-6');
+    expect(session?.cwd).toBe(FAKE_CWD);
+    expect(session?.permissions).toMatchObject({ canModifyRepoFiles: false, canRunShell: false, autoApprove: false });
+
     // The recorder captures every WriteFile call: the audit-[09] sidecar render writes
     // `agents-md-proposal.md` into the engine's per-run forensic dir, then the write leaf
     // lands the final body at the canonical `<repo>/CLAUDE.md` path.
@@ -256,21 +260,6 @@ describe('createReadinessFlow', () => {
     expect(messages.some((m) => m.includes('starting repo'))).toBe(true);
     expect(messages.some((m) => m.includes('provider spawn complete'))).toBe(true);
     expect(messages.some((m) => m.includes('wrote'))).toBe(true);
-  });
-
-  it('AiSession profile — readiness runs read-only with the configured model (no edit, no shell, no auto-approve)', () => {
-    const session = readOnlySignalsSession({
-      cwd: FAKE_CWD,
-      prompt: '#prompt' as unknown as Prompt,
-      model: 'claude-sonnet-4-6',
-      signalsFile: absolutePath('/tmp/run-dir/signals.json'),
-      outputDir: absolutePath('/tmp/run-dir'),
-    });
-    expect(session.model).toBe('claude-sonnet-4-6');
-    expect(session.permissions.canModifyRepoFiles).toBe(false);
-    expect(session.permissions.canRunShell).toBe(false);
-    expect(session.permissions.autoApprove).toBe(false);
-    expect(String(session.outputDir)).toBe('/tmp/run-dir');
   });
 
   it('rejection path — user declines → no file is written', async () => {

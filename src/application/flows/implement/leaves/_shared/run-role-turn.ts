@@ -12,6 +12,7 @@ import type { Logger } from '@src/business/observability/logger.ts';
 import type { WriteFile } from '@src/business/io/write-file.ts';
 import type { HeadlessAiProvider, ProviderUsage } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
 import type { SessionId } from '@src/integration/ai/providers/_engine/session-id.ts';
+import { FULL_AUTO } from '@src/integration/ai/providers/_engine/session-permissions.ts';
 import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/template-loader.ts';
 import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts';
 import type { SkillSource } from '@src/integration/ai/skills/_engine/skill-source.ts';
@@ -21,7 +22,7 @@ import { validateSignalsFileWithCorrectiveRetry } from '@src/integration/ai/cont
 import type { PublishSignal } from '@src/application/flows/_shared/publish-signal.ts';
 import { capProgressBody, progressCapBudgetForModel } from '@src/application/flows/_shared/progress/cap-progress.ts';
 import { composeProjectTooling } from '@src/application/flows/implement/leaves/_shared/compose-project-tooling.ts';
-import { implementSession } from '@src/application/flows/implement/leaves/implement-session.ts';
+import { signalsSession } from '@src/application/flows/_shared/signals-session.ts';
 import {
   readRoundSessionId,
   roundBodyPath,
@@ -84,7 +85,7 @@ export interface RoleLeafDeps extends RoleTurnDeps {
   readonly providerId: string;
   /** Configured model for this role. A per-task escalation may override it at spawn time. */
   readonly model: string;
-  /** Optional reasoning / effort level forwarded into every `implementSession` AiSession. */
+  /** Optional reasoning / effort level forwarded into every spawn of this role. */
   readonly effort?: string;
   /**
    * Pre-composed bound-agent-definition prompt body (raw content — `renderAgentDefinitionSection`
@@ -298,7 +299,11 @@ export interface RoleTurnOutcome<TSig extends AiSignal> {
   readonly usage?: ProviderUsage;
 }
 
-/** One spawn of this role's session, with a per-spawn resume target + forensic body mirror. */
+/**
+ * One spawn of this role's session. cwd is the repo because CLIs discover context files, skills
+ * and `.mcp.json` only from cwd; the sandbox and the sprint dir (for `progress.md`, a sibling of
+ * the sandbox) are mounted as extra roots. FULL_AUTO: the harness's verify gates are the safety net.
+ */
 const spawnRole = async <TSig extends AiSignal>(
   deps: RoleTurnDeps,
   args: RoleTurnArgs<TSig>,
@@ -310,20 +315,21 @@ const spawnRole = async <TSig extends AiSignal>(
   // Best-effort parse — a bad path just omits the forensic mirror, never fails the spawn.
   const bodyFile = AbsolutePath.parse(bodyPath);
   return deps.provider.generate(
-    implementSession(
-      args.workspaceRoot,
-      deps.cwd,
-      deps.sprintDir,
+    signalsSession({
       prompt,
-      args.model,
-      args.signalsFile,
-      args.role,
+      cwd: deps.cwd,
+      additionalRoots: [args.workspaceRoot, deps.sprintDir],
+      model: args.model,
+      permissions: FULL_AUTO,
+      signalsFile: args.signalsFile,
+      outputDir: args.outputDir,
+      role: args.role,
       resume,
-      args.effort,
-      args.signal,
-      bodyFile.ok ? bodyFile.value : undefined,
-      coldPrompt
-    )
+      coldPrompt,
+      effort: args.effort,
+      abortSignal: args.signal,
+      bodyFile: bodyFile.ok ? bodyFile.value : undefined,
+    })
   );
 };
 

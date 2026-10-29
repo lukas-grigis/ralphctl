@@ -154,7 +154,7 @@ export interface ImplementCtx {
   readonly expectedBranch?: string | undefined;
   /**
    * Captured Claude `session_id` from the most recent generator turn of the in-flight task.
-   * Threaded into the next round's `implementSession({ resume })` so the generator continues
+   * Threaded into the next round's spawn's `resume` so the generator continues
    * as ONE conversational thread across all gen-eval rounds for this task — instead of paying
    * Claude's full startup cost (cwd discovery, MCP server re-init, system-prompt reprocess)
    * on every spawn. Cleared by `start-attempt-<id>` when a new task begins so the next task

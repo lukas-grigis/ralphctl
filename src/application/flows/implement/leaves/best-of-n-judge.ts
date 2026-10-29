@@ -6,10 +6,8 @@ import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import { isFatalChainError } from '@src/domain/value/error/is-fatal-chain-error.ts';
 import type { ImplementDeps } from '@src/application/flows/implement/deps.ts';
-import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session.ts';
 import { READ_ONLY } from '@src/integration/ai/providers/_engine/session-permissions.ts';
-import { rootSessionId } from '@src/application/session/session.ts';
-import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts';
+import { signalsSession } from '@src/application/flows/_shared/signals-session.ts';
 import { buildSelectCandidatePrompt } from '@src/integration/ai/prompts/select-candidate/definition.ts';
 import { renderContractSectionFor } from '@src/integration/ai/contract/_engine/render-contract-section.ts';
 import { validateSignalsFile } from '@src/integration/ai/contract/_engine/validate-signals-file.ts';
@@ -23,39 +21,6 @@ import type {
 
 /** Shared logger namespace for every selection-cascade log line. */
 const BEST_OF_N_SELECTION_LOGGER = 'implement.best-of-n.selection';
-
-/**
- * Per-call `AiSession` for one judge spawn — READ_ONLY (no shell, no edits), mirroring every
- * other one-shot review-style flow (readiness / detect-skills / detect-scripts). The prompt
- * itself instructs the judge to compare the two candidate summaries only, never explore the
- * repo (arXiv 2604.16529's setup); READ_ONLY is the closest permission profile this port
- * exposes to "no repository access" — cwd still resolves to the repo (every provider needs
- * SOME cwd + a writable `outputDir` for `signals.json`), but Edit/MultiEdit/Bash are denied.
- */
-const buildJudgeSession = (opts: {
-  readonly cwd: AbsolutePath;
-  readonly prompt: Prompt;
-  readonly model: string;
-  readonly effort: string | undefined;
-  readonly signalsFile: AbsolutePath;
-  readonly outputDir: AbsolutePath;
-  readonly bodyFile: AbsolutePath;
-  readonly abortSignal: AbortSignal | undefined;
-}): AiSession => {
-  const chainSessionId = rootSessionId();
-  return {
-    prompt: opts.prompt,
-    cwd: opts.cwd,
-    model: opts.model,
-    permissions: READ_ONLY,
-    signalsFile: opts.signalsFile,
-    outputDir: opts.outputDir,
-    bodyFile: opts.bodyFile,
-    ...(chainSessionId !== undefined ? { chainSessionId } : {}),
-    ...(opts.effort !== undefined ? { effort: opts.effort } : {}),
-    ...(opts.abortSignal !== undefined ? { abortSignal: opts.abortSignal } : {}),
-  };
-};
 
 /** Build the judge's prompt, spawn the READ_ONLY session, and write its prompt to disk. Returns
  * the judge dir on success; `Result.error` only for a fatal chain error or an I/O failure. */
@@ -90,7 +55,9 @@ const spawnJudge = async (
   const promptWrote = await writeTextAtomic(String(paths.value.promptFile), String(prompt.value));
   if (!promptWrote.ok) return Result.error(promptWrote.error);
 
-  const session = buildJudgeSession({
+  // READ_ONLY: the judge compares the two summaries only and never edits the repo.
+  const session = signalsSession({
+    permissions: READ_ONLY,
     cwd: opts.cwd,
     prompt: prompt.value,
     model: opts.evaluator.model,

@@ -3,7 +3,6 @@ import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { Result } from '@src/domain/result.ts';
 import type { HeadlessAiProvider } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
-import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session.ts';
 import { FULL_AUTO } from '@src/integration/ai/providers/_engine/session-permissions.ts';
 import type { PublishSignal } from '@src/application/flows/_shared/publish-signal.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
@@ -16,7 +15,6 @@ import { isFatalChainError } from '@src/domain/value/error/is-fatal-chain-error.
 import type { ReproductionSignal } from '@src/domain/signal.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
-import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts';
 import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/template-loader.ts';
 import type { ShellScriptRunner } from '@src/integration/io/shell-script-runner.ts';
 import { writeTextAtomic } from '@src/integration/io/fs.ts';
@@ -24,7 +22,7 @@ import { gitStashList, stashEntryMatchesMessage } from '@src/integration/io/git-
 import type { GitRunner } from '@src/integration/io/git-runner.ts';
 import type { WriteFile } from '@src/business/io/write-file.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
-import { rootSessionId } from '@src/application/session/session.ts';
+import { signalsSession } from '@src/application/flows/_shared/signals-session.ts';
 import { deriveHeadlineTaskKind } from '@src/business/task/derive-task-kind.ts';
 import { buildReproducePrompt } from '@src/integration/ai/prompts/reproduce/definition.ts';
 import { renderContractSectionFor } from '@src/integration/ai/contract/_engine/render-contract-section.ts';
@@ -194,38 +192,6 @@ const clampOutput = (raw: string): string => {
   return trimmed.length > VERIFY_TAIL_MAX_CHARS ? `…${trimmed.slice(trimmed.length - VERIFY_TAIL_MAX_CHARS)}` : trimmed;
 };
 
-/**
- * Per-call `AiSession` for the reproduce spawn. FULL_AUTO (not the read-only profile the other
- * one-shot flows use) because the session must write a new test file AND run it — the prompt's
- * `<constraints>` block is what actually keeps the session to reproduction-only work; the
- * harness-side backstop is {@link verifyReproductionFails} below, which discards any artifact
- * whose claimed command does not actually fail on the harness's own re-run.
- */
-const buildReproduceSession = (opts: {
-  readonly cwd: AbsolutePath;
-  readonly prompt: Prompt;
-  readonly model: string;
-  readonly effort: string | undefined;
-  readonly signalsFile: AbsolutePath;
-  readonly outputDir: AbsolutePath;
-  readonly bodyFile: AbsolutePath;
-  readonly abortSignal: AbortSignal | undefined;
-}): AiSession => {
-  const chainSessionId = rootSessionId();
-  return {
-    prompt: opts.prompt,
-    cwd: opts.cwd,
-    model: opts.model,
-    permissions: FULL_AUTO,
-    signalsFile: opts.signalsFile,
-    outputDir: opts.outputDir,
-    bodyFile: opts.bodyFile,
-    ...(chainSessionId !== undefined ? { chainSessionId } : {}),
-    ...(opts.effort !== undefined ? { effort: opts.effort } : {}),
-    ...(opts.abortSignal !== undefined ? { abortSignal: opts.abortSignal } : {}),
-  };
-};
-
 /** Structured outcome of the harness's own re-run — the ONLY authority on whether an artifact is accepted. */
 type VerifyOutcome =
   | { readonly kind: 'accepted'; readonly observedFailure: string }
@@ -343,7 +309,9 @@ const runReproduceSession = async (
   const promptWrote = await writeTextAtomic(String(paths.value.promptFile), String(prompt.value));
   if (!promptWrote.ok) return Result.error(promptWrote.error);
 
-  const session = buildReproduceSession({
+  // FULL_AUTO: the session must write AND run a test; verifyReproductionFails is the backstop.
+  const session = signalsSession({
+    permissions: FULL_AUTO,
     cwd: opts.cwd,
     prompt: prompt.value,
     model: opts.model,

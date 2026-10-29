@@ -9,7 +9,8 @@ import { buildSelectCandidatePrompt } from '@src/integration/ai/prompts/select-c
 import { renderContractSectionFor } from '@src/integration/ai/contract/_engine/render-contract-section.ts';
 import { selectCandidateOutputContract } from '@src/application/flows/implement/leaves/select-candidate.contract.ts';
 import { composeCandidateSummary } from '@src/application/flows/implement/leaves/best-of-n-record.ts';
-import { readOnlySignalsSession } from '@src/application/flows/_shared/signals-session.ts';
+import { signalsSession } from '@src/application/flows/_shared/signals-session.ts';
+import { READ_ONLY } from '@src/integration/ai/providers/_engine/session-permissions.ts';
 import { runPathsFor } from '@src/application/flows/_shared/allocate-run-dir.ts';
 import { gradeSelectCandidate } from '../grade.ts';
 import { type FlowAdapter, validateWith } from './adapter.ts';
@@ -22,9 +23,7 @@ import { buildInProgressTask } from './task.ts';
  * arXiv 2306.05685) exists because a judge can favour a slot, so a single order would measure
  * position bias as much as judgment.
  *
- * The session is `readOnlySignalsSession` — field-for-field what `best-of-n-judge.ts`'s private
- * `buildJudgeSession` returns (READ_ONLY, cwd, outputDir, bodyFile, effort, abortSignal), so the
- * judge builder is reused through its public twin rather than copied or exported.
+ * The session is the same READ_ONLY `signalsSession` `best-of-n-judge.ts` spawns.
  */
 
 /** The `composeCandidateSummary` input a fixture's `candidates/<x>.json` holds. */
@@ -104,15 +103,16 @@ export const selectCandidateAdapter: FlowAdapter = {
     if (!prompt.ok) return Result.error(prompt.error);
 
     return Result.ok({
-      session: readOnlySignalsSession({
+      session: signalsSession({
         cwd: ctx.workspace.repo,
         prompt: prompt.value,
         model: ctx.row.model,
+        permissions: READ_ONLY,
         signalsFile: paths.value.signalsFile,
         outputDir: runDir.value,
         bodyFile: paths.value.bodyFile,
-        ...(ctx.row.effort !== undefined ? { effort: ctx.row.effort } : {}),
-        ...(ctx.abortSignal !== undefined ? { abortSignal: ctx.abortSignal } : {}),
+        effort: ctx.row.effort,
+        abortSignal: ctx.abortSignal,
       }),
       outputDir: runDir.value,
       selfContainedContext: outputContractSection,
