@@ -630,7 +630,6 @@ function runTests(): void {
         locksRoot: implementDeps.locksRoot,
         eventBus: implementDeps.eventBus,
         maxConcurrency: 3,
-        flowId: 'implement',
         sessionId: () => `session-${String(Date.now())}-${String(Math.random()).slice(2, 8)}`,
         buildWaves: () => buildWaveBranches(branchDeps, implementOpts, plan.waves, readConfig),
       });
@@ -935,7 +934,6 @@ function runTests(): void {
         locksRoot: implementDeps.locksRoot,
         eventBus: implementDeps.eventBus,
         maxConcurrency: 3,
-        flowId: 'implement',
         sessionId: () => `session-${String(Date.now())}-${String(Math.random()).slice(2, 8)}`,
         buildWaves: () => buildWaveBranches(branchDeps, implementOpts, plan.waves, readConfig),
       });
@@ -1140,7 +1138,6 @@ function runTests(): void {
         locksRoot: implementDeps.locksRoot,
         eventBus: implementDeps.eventBus,
         maxConcurrency: 3,
-        flowId: 'implement',
         sessionId: () => `session-${String(Date.now())}-${String(Math.random()).slice(2, 8)}`,
         buildWaves: () => buildWaveBranches(branchDeps, implementOpts, plan.waves, readConfig),
       });
@@ -1380,7 +1377,6 @@ function runTests(): void {
         locksRoot: implementDeps.locksRoot,
         eventBus: implementDeps.eventBus,
         maxConcurrency: 3,
-        flowId: 'implement',
         sessionId: () => `session-${String(Date.now())}-${String(Math.random()).slice(2, 8)}`,
         buildWaves: () => buildWaveBranches(branchDeps, implementOpts, plan.waves, readConfig),
       });
@@ -1990,7 +1986,6 @@ function runTests(): void {
         locksRoot: deps.locksRoot,
         eventBus: deps.eventBus,
         maxConcurrency: 2,
-        flowId: 'implement',
         sessionId: () => `session-setup-tree-${String(Math.random()).slice(2, 8)}`,
         buildWaves: () => buildWaveBranches(branchDeps, opts, plan.waves, readConfig),
       });

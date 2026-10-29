@@ -27,8 +27,6 @@ export interface ParallelImplementConfig {
   readonly eventBus: EventBus;
   /** Clamped `[1,5]` `settings.concurrency.maxParallelTasks` — passed verbatim to `runWaves`. */
   readonly maxConcurrency: number;
-  /** `flowId` for the per-branch + per-segment EventBus bridge — always `'implement'`. */
-  readonly flowId: string;
   /** Stable id factory for the prologue / epilogue sub-runners (distinct from branch ids). */
   readonly sessionId: () => string;
   /**
@@ -43,9 +41,11 @@ export interface ParallelImplementConfig {
 const PARALLEL_ELEMENT_NAME = 'implement-parallel';
 const WAVES_NODE_NAME = 'implement-waves';
 
+const FLOW_ID = 'implement';
+
 /**
  * The `>1` parallel implement orchestrator. A hand-written {@link Element} — NOT a chain
- * primitive (§14: `runWaves` is the above-the-chain scheduler, this element only sequences the
+ * primitive (`runWaves` is the above-the-chain scheduler, this element only sequences the
  * prologue / waves / epilogue around it). The launcher runs it on ONE `createRunner` so the TUI
  * subscribes to a single runner, exactly as it does for the serial path.
  *
@@ -61,7 +61,7 @@ const WAVES_NODE_NAME = 'implement-waves';
  *      — fans one branch per task per wave; each branch folds onto the shared sprint branch through
  *      the single fold queue.
  *   3. epilogue runner — ALWAYS runs, on the partially-merged ctx, even when `runWaves` returned an
- *      abort / fatal error (THE B4 durability gate). Its FIRST leaf, `adopt-persisted-blocks`,
+ *      abort / fatal error, so folded work is recorded. Its FIRST leaf, `adopt-persisted-blocks`,
  *      re-reads `tasks.json` and pulls back every row a non-`completed` branch already persisted
  *      (a block, an attempt it opened, or a landed fold's `done`) before `saveTasksLeaf` runs —
  *      `mergeImplementWave` skips a non-`completed` branch entirely, so without this the epilogue
@@ -151,18 +151,13 @@ const runUnderLock = async (
   // task settled `blocked`) — its `runner.ctx.tasks` is authoritative. We capture this independently
   // of `runWaves` because on an aborted wave `runWaves` returns the AbortError verbatim WITHOUT the
   // partially-merged ctx (it never folds the aborted wave's outcomes). This map is the launcher's
-  // own record of "what actually folded", used to build the epilogue ctx on the abort/fatal path —
-  // THE B4 durability gate.
+  // own record of "what actually folded", used to build the epilogue ctx on the abort/fatal path.
   const durablyFolded = new Map<TaskId, Task>();
   const waves = buildWaves();
 
-  // GUARANTEED-teardown registry. Every per-branch EventBus subscription (the bus bridge AND the
-  // durable-fold capture) is captured here so a `finally` can force-detach the lot when the wave
-  // call resolves — even if a branch never delivered a clean terminal (rate-limit drain, fatal-
-  // sibling kill race, mid-wave abort). The per-listener self-detach still fires on a clean
-  // terminal; this is the belt to that braces. Without it, a branch that does NOT self-detach
-  // leaves its closure permanently on the process-wide EventBus, pinning its runner → forked
-  // ImplementCtx → trace ring for the whole TUI session (THE primary leak).
+  // Every per-branch subscription is detached in the `finally` below, even for a branch that never
+  // delivered a clean terminal (rate-limit drain, fatal-sibling kill, mid-wave abort). A bridge left
+  // on the process-wide bus pins its runner → forked ctx → trace ring for the whole TUI session.
   const branchUnsubs = new Set<() => void>();
   const parentChainId = rootSessionId();
 
@@ -176,7 +171,7 @@ const runUnderLock = async (
         merge: mergeImplementWave,
         onBranchRunner: (runner, branch) => {
           branchUnsubs.add(
-            bridgeRunnerToEventBus(runner as Runner<unknown>, config.eventBus, { flowId: config.flowId, parentChainId })
+            bridgeRunnerToEventBus(runner as Runner<unknown>, config.eventBus, { flowId: FLOW_ID, parentChainId })
           );
           branchUnsubs.add(captureDurableFold(runner, branch.id, durablyFolded));
           branchUnsubs.add(forwardBranchSteps(runner, onTrace, onStart));
@@ -185,15 +180,12 @@ const runUnderLock = async (
       signal
     );
   } finally {
-    // Force-detach every per-branch subscription. Detach is idempotent (each unsub is a Set.delete
-    // that no-ops once already removed), so calling it after a branch already self-detached is safe.
-    // This runs on success, failure, AND abort/throw — re-throw (if any) propagates unchanged, so
-    // an AbortError is never swallowed here.
+    // Detach is idempotent; a re-throw (an AbortError included) propagates unchanged.
     for (const unsub of branchUnsubs) unsub();
     branchUnsubs.clear();
   }
 
-  // ── Epilogue (ALWAYS — the B4 durability gate) ────────────────────────────────────────────────
+  // ── Epilogue (ALWAYS) ────────────────────────────────────────────────
   // On success: persist `runWaves`'s fully-merged ctx. On abort/fatal: persist the prologue ctx
   // overlaid with whatever branches durably folded BEFORE the failure, so their `done` (or
   // `blocked`) status is recorded and their commits never re-execute as duplicates.
@@ -213,7 +205,7 @@ const runUnderLock = async (
 /**
  * Re-emit a branch runner's steps and starts through the host so the host trace carries every task's
  * subchain, as it does on the serial path. Tagged `forwardedFrom` so the host's bus bridge doesn't
- * publish what the branch's own bridge already did. Self-detaches on the branch's terminal.
+ * publish what the branch's own bridge already did.
  */
 const forwardBranchSteps = (
   runner: Runner<ImplementCtx>,
@@ -221,12 +213,10 @@ const forwardBranchSteps = (
   onStart: OnStart | undefined
 ): (() => void) => {
   const forwardedFrom = runner.id;
-  const unsub = runner.subscribe((event) => {
+  return runner.subscribe((event) => {
     if (event.type === 'step') onTrace?.({ ...event.entry, forwardedFrom });
     else if (event.type === 'step-started') onStart?.({ ...event.step, forwardedFrom });
-    else if (event.type === 'completed' || event.type === 'failed' || event.type === 'aborted') unsub();
   });
-  return unsub;
 };
 
 /**
@@ -242,23 +232,13 @@ const forwardBranchSteps = (
  * the full list here would let a branch that completed EARLIER be overwritten, on this abort-path
  * overlay, by a LATER-completing sibling's still-pre-wave copy of that same task — the exact
  * sibling-clobber this map exists to avoid.
- *
- * Returns the runner-subscription unsub so the wave-level guaranteed teardown can force-detach it
- * if the branch never delivered a terminal event. The listener self-detaches on a clean terminal;
- * the returned unsub is the belt to that braces (idempotent — calling it twice is a no-op).
  */
-const captureDurableFold = (runner: Runner<ImplementCtx>, branchId: string, into: Map<TaskId, Task>): (() => void) => {
-  const unsub = runner.subscribe((event) => {
-    if (event.type !== 'completed') {
-      if (event.type === 'failed' || event.type === 'aborted') unsub();
-      return;
-    }
+const captureDurableFold = (runner: Runner<ImplementCtx>, branchId: string, into: Map<TaskId, Task>): (() => void) =>
+  runner.subscribe((event) => {
+    if (event.type !== 'completed') return;
     const owned = ownedTask(branchId, event.ctx);
     if (owned !== undefined) into.set(owned.id, owned);
-    unsub();
   });
-  return unsub;
-};
 
 /**
  * Overlay the durably-folded task copies onto a base ctx's `tasks` by id — the abort-path epilogue
@@ -292,12 +272,10 @@ const runSubElement = async (
   onStart: OnStart | undefined
 ): Promise<ElementResult<ImplementCtx>> => {
   const runner = createRunner<ImplementCtx>({ id: config.sessionId(), element, initialCtx });
-  // Capture the bridge unsub (previously discarded — the sub-runner leak). The bridge self-detaches
-  // on the sub-runner's own terminal, but if `runner.start()` throws (programmer-error path) the
-  // self-detach never fires; the `finally` below force-detaches both subscriptions so neither the
-  // bridge nor the trace listener lingers on the EventBus / runner.
+  // The bridge self-detaches on the sub-runner's terminal, but not if `start()` throws, so the
+  // `finally` below detaches it too.
   const unsubBridge = bridgeRunnerToEventBus(runner as Runner<unknown>, config.eventBus, {
-    flowId: config.flowId,
+    flowId: FLOW_ID,
     parentChainId: rootSessionId(),
   });
   // Re-emit every sub-step (and its start) through the host so the host trace stays continuous, and capture
@@ -322,9 +300,6 @@ const runSubElement = async (
   try {
     await runner.start();
   } finally {
-    // Guaranteed teardown — runs on resolve, reject, and abort. Detach is idempotent, so this is
-    // safe even after the bridge already self-detached on terminal. AbortError (if `start()` ever
-    // rethrew one) is never caught here, so it propagates unchanged.
     signal?.removeEventListener('abort', onAbort);
     unsubTrace();
     unsubBridge();

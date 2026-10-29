@@ -161,7 +161,6 @@ const buildParallelElement = (
       locksRoot: implementDeps.locksRoot,
       eventBus: implementDeps.eventBus,
       maxConcurrency: maxParallel,
-      flowId: 'implement',
       sessionId,
       buildWaves: () => buildWaveBranches(branchDeps, implementOpts, plan.waves, readConfig),
     })
