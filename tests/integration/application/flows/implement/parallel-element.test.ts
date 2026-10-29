@@ -160,7 +160,6 @@ const baseConfig = (
   locksRoot: LOCKS_ROOT,
   eventBus: bus,
   maxConcurrency: 3,
-  flowId: 'implement',
   sessionId: (() => {
     let n = 0;
     return () => `sub-${String(n++)}`;

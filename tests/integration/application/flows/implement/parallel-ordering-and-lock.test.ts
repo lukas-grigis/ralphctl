@@ -111,7 +111,6 @@ const baseConfig = (
   locksRoot: LOCKS_ROOT,
   eventBus: stubBus(),
   maxConcurrency: 5,
-  flowId: 'implement',
   sessionId: () => `sub-${String(sessionCounter++)}`,
   buildWaves,
 });
