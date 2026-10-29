@@ -316,7 +316,7 @@ const attemptSettleLeaves = (
     {
       shellScriptRunner: deps.shellScriptRunner,
       taskRepo: deps.taskRepo,
-      // Diff-footprint probe for structured-gate scoping (T11). Shared serial-path runner.
+      // Diff-footprint probe for structured-gate scoping.
       gitRunner: deps.gitRunner,
       clock: deps.clock,
       eventBus: deps.eventBus,
@@ -325,7 +325,7 @@ const attemptSettleLeaves = (
     {
       cwd: repo.path,
       sprintDir: opts.sprintDir,
-      // T6: the effective attempt cap so a `'regressed'` post-verify retries within budget
+      // The effective attempt cap so a `'regressed'` post-verify retries within budget
       // (settle precedence keeps the task in_progress) instead of blocking immediately.
       // SAME value as the loop's `maxIterations` below — shared const, never drifts.
       maxAttempts: effectiveMaxAttempts,
