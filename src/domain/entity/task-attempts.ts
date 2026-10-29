@@ -1,23 +1,14 @@
 import { Result } from '@src/domain/result.ts';
 import {
-  appendVerifyRun,
   type Attempt,
   isFreeAttempt,
   type AttemptUsage,
   type AttemptWarning,
   type Attribution,
   type Evaluation,
-  markBaselineBroken,
-  recordAttemptCommit,
-  recordAttemptCritique,
-  recordAttemptEvaluation,
-  recordAttemptSessionId,
   recordAttemptUsage,
-  recordAttemptVerification,
-  recordAttemptWarning,
   type RecoveryContext,
   type RunningAttempt,
-  setAttribution,
   startAttempt,
   type VerifyRun,
 } from '@src/domain/entity/attempt.ts';
@@ -28,8 +19,6 @@ import { parseRequiredString } from '@src/domain/value/parsers/parse-required-st
 import { requireStatus } from '@src/domain/value/require-status.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import { type ValidationError } from '@src/domain/value/error/validation-error.ts';
-
-const lastAttempt = (task: Task): Attempt | undefined => task.attempts[task.attempts.length - 1];
 
 /** A task interrupted over and over without an attempt finishing must still run out of budget. */
 export const MAX_CONSECUTIVE_FREE_ATTEMPTS = 3;
@@ -46,9 +35,8 @@ export const budgetedAttemptCount = (task: Pick<Task, 'attempts'>): number => {
 };
 
 /**
- * Newest non-blank `critique` across `holder.attempts` — a live task's history or a retired run.
- * Walking back past the running attempt lets a resumed attempt's first generator turn start from the
- * aborted attempt's critique instead of cold. `undefined` when no attempt carries one.
+ * Newest non-blank `critique` across `holder.attempts`. Walking back past the running attempt lets a
+ * resumed attempt's first generator turn start from the aborted attempt's critique instead of cold.
  */
 export const latestCritique = (holder: { readonly attempts: readonly Attempt[] }): string | undefined =>
   holder.attempts.findLast((att) => att.critique !== undefined && att.critique.trim().length > 0)?.critique;
@@ -59,7 +47,7 @@ export const resumesFreeAttempt = (task: Pick<Task, 'attempts'>): boolean => {
 };
 
 export const requireRunningAttempt = (task: TodoTask | InProgressTask): Result<RunningAttempt, InvalidStateError> => {
-  const last = lastAttempt(task);
+  const last = task.attempts.at(-1);
   if (last === undefined || last.status !== 'running') {
     return Result.error(
       new InvalidStateError({
@@ -74,13 +62,12 @@ export const requireRunningAttempt = (task: TodoTask | InProgressTask): Result<R
   return Result.ok(last);
 };
 
-export const replaceLastAttempt = <T extends TodoTask | InProgressTask>(task: T, attempt: Attempt): T => {
-  const next = [...task.attempts];
-  next[task.attempts.length - 1] = attempt;
-  return { ...task, attempts: next };
-};
+export const replaceLastAttempt = <T extends TodoTask | InProgressTask>(task: T, attempt: Attempt): T => ({
+  ...task,
+  attempts: task.attempts.with(-1, attempt),
+});
 
-const updateRunningAttempt = (
+export const updateRunningAttempt = (
   task: InProgressTask,
   fn: (a: RunningAttempt) => RunningAttempt
 ): Result<InProgressTask, InvalidStateError> => {
@@ -90,13 +77,8 @@ const updateRunningAttempt = (
 };
 
 /**
- * Append a fresh `running` attempt and transition to `in_progress`. Idempotent only on a
- * fresh task — if the current last attempt is already `running`, callers must settle it first
- * via `markTaskDone` or `failCurrentAttempt`. A `done`/`blocked` task is rejected.
- *
- * Pass `recovering` when this attempt is opening as a resume of a prior aborted attempt;
- * the value is stamped onto the new `RunningAttempt` so the TUI can render the
- * resume-from-aborted banner without walking the attempt history.
+ * Append a fresh `running` attempt and transition to `in_progress`. A still-running last attempt must
+ * be settled first. `recovering` marks the attempt as a resume of an aborted one.
  */
 export const startNextAttempt = (
   task: Task,
@@ -113,7 +95,7 @@ export const startNextAttempt = (
   );
   if (!guard.ok) return Result.error(guard.error);
 
-  const last = lastAttempt(guard.value);
+  const last = guard.value.attempts.at(-1);
   if (last !== undefined && last.status === 'running') {
     return Result.error(
       new InvalidStateError({
@@ -142,13 +124,12 @@ export const startNextAttempt = (
 };
 
 export const recordRunningAttemptVerification = (task: InProgressTask): Result<InProgressTask, InvalidStateError> =>
-  updateRunningAttempt(task, recordAttemptVerification);
+  updateRunningAttempt(task, (a) => ({ ...a, verification: {} }));
 
 export const recordRunningAttemptEvaluation = (
   task: InProgressTask,
   evaluation: Evaluation
-): Result<InProgressTask, InvalidStateError> =>
-  updateRunningAttempt(task, (a) => recordAttemptEvaluation(a, evaluation));
+): Result<InProgressTask, InvalidStateError> => updateRunningAttempt(task, (a) => ({ ...a, evaluation }));
 
 export const recordRunningAttemptCritique = (
   task: InProgressTask,
@@ -158,86 +139,51 @@ export const recordRunningAttemptCritique = (
   if (!running.ok) return Result.error(running.error);
   const parsed = parseRequiredString('attempt.critique', text);
   if (!parsed.ok) return Result.error(parsed.error);
-  return Result.ok(replaceLastAttempt(task, recordAttemptCritique(running.value, parsed.value)));
+  return Result.ok(replaceLastAttempt(task, { ...running.value, critique: parsed.value }));
 };
 
 export const recordRunningAttemptCommit = (
   task: InProgressTask,
   sha: CommitSha
-): Result<InProgressTask, InvalidStateError> => updateRunningAttempt(task, (a) => recordAttemptCommit(a, sha));
+): Result<InProgressTask, InvalidStateError> => updateRunningAttempt(task, (a) => ({ ...a, commitSha: sha }));
 
-/**
- * Stamp a structured `AttemptWarning` onto the running attempt. Used by:
- *   - `gen-eval-loop` when the inner loop terminates with budget-exhausted / plateau / malformed
- *   - `post-task-verify` when the verify script runs red after commit
- *
- * The warning travels with the attempt into `markTaskDone`. At most one warning per attempt;
- * if the inner loop emits a budget warning and verify then runs red, the verify warning
- * overwrites — the more recent failure is the one the operator should see first.
- */
+/** Overwrites any earlier warning: a red verify after a budget warning is the failure the operator should see. */
 export const recordRunningAttemptWarning = (
   task: InProgressTask,
   warning: AttemptWarning
-): Result<InProgressTask, InvalidStateError> => updateRunningAttempt(task, (a) => recordAttemptWarning(a, warning));
+): Result<InProgressTask, InvalidStateError> => updateRunningAttempt(task, (a) => ({ ...a, warning }));
 
-/** Stamp the generator session id onto the running attempt. */
 export const recordRunningAttemptSessionId = (
   task: InProgressTask,
   sessionId: string
-): Result<InProgressTask, InvalidStateError> => updateRunningAttempt(task, (a) => recordAttemptSessionId(a, sessionId));
+): Result<InProgressTask, InvalidStateError> => updateRunningAttempt(task, (a) => ({ ...a, sessionId }));
 
-/**
- * Stamp raw cost telemetry (token counts + AI wall-clock) onto the running attempt. Called by the
- * settle use case just before the terminal transition, so the figures ride into the persisted
- * terminal attempt. Counts the caller does not have stay absent — see {@link recordAttemptUsage}.
- */
 export const recordRunningAttemptUsage = (
   task: InProgressTask,
   usage: AttemptUsage
 ): Result<InProgressTask, InvalidStateError> => updateRunningAttempt(task, (a) => recordAttemptUsage(a, usage));
 
 /**
- * Remove a SOFTENED-PLATEAU warning from the running attempt when the terminal exit is a clean
- * `passed`. The plateau predicate's work-product softening stamps a `{ kind: 'plateau' }`
- * warning mid-loop while granting a grace round; when that grace round then PASSES, the warning
- * would otherwise survive onto the done attempt and brand a genuine clean pass as
- * pass-with-warning across the journal, the PR body, and the TUI — diluting the
- * done-with-warning signal those surfaces exist to carry. ONLY kind `'plateau'` is stripped: a
- * `verify-failed` (or any other) warning records a real post-pass fact and must survive. No-op
- * when the running attempt carries no warning or a different kind.
+ * Drop a softened-plateau warning when the grace round then passed cleanly, so a genuine pass isn't
+ * branded pass-with-warning. Only kind `plateau` — a `verify-failed` warning records a real fact.
  */
 export const clearRunningAttemptPlateauWarning = (task: InProgressTask): InProgressTask => {
   const guard = requireRunningAttempt(task);
-  if (!guard.ok) return task; // no running attempt — nothing to clear (defensive; callers hold one)
-  const running = guard.value;
-  if (running.warning?.kind !== 'plateau') return task;
-  const { warning: _cleared, ...rest } = running;
-  void _cleared;
-  return replaceLastAttempt(task, rest as typeof running);
+  if (!guard.ok) return task;
+  const { warning, ...rest } = guard.value;
+  return warning?.kind === 'plateau' ? replaceLastAttempt(task, rest) : task;
 };
 
-/**
- * Append a {@link VerifyRun} row to the running attempt's audit array. Used by the harness
- * pre/post verify-script leaves to persist deterministic verification results independent of
- * the AI's `task-verified` self-report.
- */
 export const appendAttemptVerifyRun = (
   task: InProgressTask,
   run: VerifyRun
-): Result<InProgressTask, InvalidStateError> => updateRunningAttempt(task, (a) => appendVerifyRun(a, run));
+): Result<InProgressTask, InvalidStateError> =>
+  updateRunningAttempt(task, (a) => ({ ...a, verifyRuns: [...(a.verifyRuns ?? []), run] }));
 
-/**
- * Stamp the {@link Attribution} verdict on the running attempt. Set by post-task-verify after
- * comparing the pre and post verify-script outcomes.
- */
 export const setAttemptAttribution = (
   task: InProgressTask,
   attribution: Attribution
-): Result<InProgressTask, InvalidStateError> => updateRunningAttempt(task, (a) => setAttribution(a, attribution));
+): Result<InProgressTask, InvalidStateError> => updateRunningAttempt(task, (a) => ({ ...a, attribution }));
 
-/**
- * Set the running attempt's `baselineBroken` flag — pre-task-verify ran red before the AI got
- * a chance to run, so a downstream red verdict may not be the AI's fault.
- */
 export const markAttemptBaselineBroken = (task: InProgressTask): Result<InProgressTask, InvalidStateError> =>
-  updateRunningAttempt(task, markBaselineBroken);
+  updateRunningAttempt(task, (a) => ({ ...a, baselineBroken: true }));
