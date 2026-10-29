@@ -208,19 +208,12 @@ export const removeRun = async (
 };
 
 /** Group entries by flow and sort each group newest-first; entries without a timestamp sort last, lexicographically. */
-export const groupByFlow = (entries: readonly RunEntry[]): Map<string, readonly RunEntry[]> => {
-  const groups = new Map<string, RunEntry[]>();
-  for (const entry of entries) {
-    const bucket = groups.get(entry.flow);
-    if (bucket === undefined) groups.set(entry.flow, [entry]);
-    else bucket.push(entry);
-  }
-  for (const [flow, bucket] of groups) {
-    bucket.sort(compareNewestFirst);
-    groups.set(flow, bucket);
-  }
-  return new Map(Array.from(groups.entries()).sort(([a], [b]) => a.localeCompare(b)));
-};
+export const groupByFlow = (entries: readonly RunEntry[]): Map<string, readonly RunEntry[]> =>
+  new Map(
+    [...Map.groupBy(entries, (e) => e.flow)]
+      .map(([flow, bucket]) => [flow, bucket.toSorted(compareNewestFirst)] as const)
+      .toSorted(([a], [b]) => a.localeCompare(b))
+  );
 
 const compareNewestFirst = (a: RunEntry, b: RunEntry): number => {
   if (a.timestamp === null && b.timestamp === null) return a.runId.localeCompare(b.runId);
