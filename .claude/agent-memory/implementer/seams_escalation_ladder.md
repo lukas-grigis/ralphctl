@@ -63,8 +63,8 @@ domain table so the rung and the spawn clamp can't disagree.
   non-xhigh model) → `max`; `max` → undefined (spent). Never returns ≤ effective. Ladder is
   `low<medium<high<xhigh<max`, and **xhigh-capable is the DEFAULT assumption for any unrecognised
   claude-code model** — only Sonnet 4.6 and Haiku 4.5 are exceptions, and dot-form ids on a claude-code row are custom.
-- **github-copilot / openai-codex**: fixed target `EFFORT_ESCALATION_TARGET='high'` (that constant is now
-  copilot/codex-only); `unset` escalatable, `high|xhigh|max` spent, model ignored.
+- **github-copilot / openai-codex**: fixed `FIXED_EFFORT_RUNG` targets (`high` on copilot, `xhigh` on codex and grok);
+  `unset` escalatable, the table's `spent` set ends the rung, model ignored beyond the catalog check.
 
 **Bounded, not unbounded:** exactly ONE fire for the shipped default and for any xhigh/max start; an
 explicit sub-xhigh claude effort can fire at most TWICE (e.g. medium→xhigh, then xhigh→max on the finalize

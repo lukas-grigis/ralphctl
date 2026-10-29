@@ -68,7 +68,7 @@ export interface ProviderTraits {
    * configured effort does. `Record<AiProvider, ProviderTraits>` then makes answering the question
    * mandatory for a fifth backend.
    *
-   * @see `EFFORT_CAPABLE_PROVIDERS` in `business/task/escalation-map.ts` — the business-layer view
+   * @see `FIXED_EFFORT_RUNG` in `business/task/escalation-map.ts` — the business-layer view
    * of the same question (may this provider be escalated by raising effort?), which is
    * provider-level because escalation only ever runs headless.
    */
