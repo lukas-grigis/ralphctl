@@ -1,22 +1,10 @@
 import type { Attempt, AttemptWarning, Attribution, TerminalAttempt } from '@src/domain/entity/attempt.ts';
 
 /**
- * Turn a task's persisted attempt history into bounded, structured prior-attempt summaries for
- * the next retry's prompt context.
- *
- * Research grounding:
- *  - arXiv 2604.16529 (Meta, Parallel-Distill-Refine) — retries conditioned on the K BEST prior
- *    summaries beat latest-only and random-K, and refinement-context quality is monotonically
- *    predictive of next-iteration success. `selectKBestAttempts` implements the select-K policy.
- *  - arXiv 2508.21433 (JetBrains) — mechanical composition beats LLM summarization on cost at
- *    equal-or-better solve rate. Every function here is a pure string/array transform over
- *    telemetry the harness already persists on `Attempt` — no AI calls, no I/O.
- *
- * `Attempt.evaluation` persists only `status`/`file` (no per-criterion breakdown — that lives on
- * `Task.criteriaVerdicts`, a task-level aggregate across rounds, not addressable per attempt) and
- * `Attempt.commitSha` carries only the SHA (the generator's proposed commit subject is a transient
- * signal, never persisted onto the attempt). Both summaries below render only what the entity
- * actually carries — everything else degrades silently rather than guessing.
+ * Bounded prior-attempt summaries for a retry's prompt context: select-K best attempts, composed
+ * mechanically from persisted `Attempt` fields — no AI call. Research:
+ * `.claude/docs/RESEARCH-REFERENCES.md` (select-K summaries). Only what an attempt actually carries
+ * is rendered: per-criterion verdicts are task-level, and the commit subject is never persisted.
  */
 
 /** Per-line clamp for the critique excerpt folded into one attempt's summary block. */
@@ -103,11 +91,7 @@ const STATUS_SCORE: Readonly<Record<TerminalAttempt['status'], number>> = {
  */
 const ATTRIBUTION_WEIGHT = 10;
 
-/**
- * Quality score backing the select-K policy (arXiv 2604.16529): attribution is primary, status is
- * secondary. No per-attempt evaluator-criteria pass-ratio term is computed — see the file docstring
- * for why that data isn't addressable per attempt.
- */
+/** Select-K quality score: attribution primary, status secondary. */
 const qualityScore = (attempt: TerminalAttempt): number => {
   const attributionScore =
     attempt.attribution !== undefined ? ATTRIBUTION_SCORE[attempt.attribution] : ATTRIBUTION_SCORE_UNKNOWN;
@@ -115,28 +99,19 @@ const qualityScore = (attempt: TerminalAttempt): number => {
 };
 
 /**
- * Select the K best attempts by quality score, per the select-K finding in arXiv 2604.16529.
- * Only settled attempts (`verified` / `failed` / `malformed` / `aborted`) participate — a `running`
- * attempt has no outcome to rank. Equal scores tie-break to the newest attempt (`n` descending)
- * before the cut, so a fresher same-quality attempt is preferred over an older one. `k <= 0` or an
- * empty/all-running input returns `[]`.
- *
- * The selected attempts are returned in CHRONOLOGICAL order (oldest first) so rendering reads as a
- * history, not a leaderboard.
- *
- * Pure. No I/O.
+ * The K best settled attempts (equal scores prefer the newer `n`), returned oldest first so the
+ * section reads as a history, not a leaderboard. `n` is unique within a task's attempts.
  */
 export const selectKBestAttempts = (attempts: readonly Attempt[], k: number): Attempt[] => {
   const settled = attempts.filter(isSettled);
   const ranked = settled
-    .map((attempt, index) => ({ attempt, index, score: qualityScore(attempt) }))
-    .sort((a, b) => b.score - a.score || b.attempt.n - a.attempt.n || b.index - a.index);
+    .map((attempt) => ({ attempt, score: qualityScore(attempt) }))
+    .sort((a, b) => b.score - a.score || b.attempt.n - a.attempt.n);
   const selected = ranked.slice(0, Math.max(0, k));
-  return selected.sort((a, b) => a.attempt.n - b.attempt.n || a.index - b.index).map((s) => s.attempt);
+  return selected.sort((a, b) => a.attempt.n - b.attempt.n).map((s) => s.attempt);
 };
 
-/** Selection width when the caller doesn't specify one. */
-const DEFAULT_K = 3;
+const PRIOR_ATTEMPTS_K = 3;
 
 /**
  * Whole-section character ceiling. Engineering budget, not a paper finding — a backstop against a
@@ -148,24 +123,9 @@ const SECTION_MAX_CHARS = 2400;
 const PRIOR_ATTEMPTS_HEADER =
   'Most instructive prior attempts on this task, with their verification outcomes — both what worked and what failed carry a verdict so the next attempt can build on the former and avoid repeating the latter:';
 
-/** Options for {@link renderPriorAttemptsSection}. */
-export interface RenderPriorAttemptsOptions {
-  /** How many prior attempts to select. Defaults to {@link DEFAULT_K}. */
-  readonly k?: number;
-}
-
-/**
- * Render the "prior attempts" section fed into a retry's prompt context: a header line, then the
- * K best-selected attempt summaries (oldest first). Empty string when there are no eligible
- * (settled) prior attempts, so callers can collapse the section cleanly.
- *
- * Pure. No I/O.
- */
-export const renderPriorAttemptsSection = (
-  attempts: readonly Attempt[],
-  opts: RenderPriorAttemptsOptions = {}
-): string => {
-  const selected = selectKBestAttempts(attempts, opts.k ?? DEFAULT_K);
+/** Header plus the K best summaries; `''` when nothing is settled, so callers collapse the section. */
+export const renderPriorAttemptsSection = (attempts: readonly Attempt[]): string => {
+  const selected = selectKBestAttempts(attempts, PRIOR_ATTEMPTS_K);
   if (selected.length === 0) return '';
 
   const body = [PRIOR_ATTEMPTS_HEADER, ...selected.map(composeAttemptSummary)].join('\n\n');

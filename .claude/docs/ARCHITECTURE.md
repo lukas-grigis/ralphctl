@@ -527,7 +527,7 @@ CLI surface is deliberately smaller than v0.6.x — the interactive chains stay 
 
 ## Result types
 
-`Result<T, E>` and `AsyncResult<T, E>` come from `typescript-result`, but every consumer imports from
+`Result<T, E>` comes from `typescript-result`, but every consumer imports from
 `src/domain/result.ts` — the canonical re-export point. The underlying library may only be imported by that one
 file; ESLint enforces it.
 
