@@ -71,13 +71,10 @@ const readCache = async (path: string): Promise<VersionCheck | null> => {
 };
 
 const fetchLatest = async (url: string, fetchImpl: typeof fetch, timeoutMs: number): Promise<string | null> => {
-  const controller = new AbortController();
-  const timer = setTimeout(() => {
-    controller.abort();
-  }, timeoutMs);
   try {
+    // The timeout also covers the body read.
     const res = await fetchImpl(url, {
-      signal: controller.signal,
+      signal: AbortSignal.timeout(timeoutMs),
       headers: { accept: 'application/json' },
     });
     if (!res.ok) return null;
@@ -86,8 +83,6 @@ const fetchLatest = async (url: string, fetchImpl: typeof fetch, timeoutMs: numb
     return parsed.success ? parsed.data.version : null;
   } catch {
     return null;
-  } finally {
-    clearTimeout(timer);
   }
 };
 
