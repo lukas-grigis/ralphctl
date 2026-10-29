@@ -18,7 +18,7 @@ import { render } from 'ink-testing-library';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { taskFlowProgress } from '@tests/fixtures/flow-progress.ts';
 import { ImplementSidebar } from '@src/application/ui/tui/views/execute-view-internals/implement-sidebar.tsx';
-import { useResponsiveLayout } from '@src/application/ui/tui/views/execute-view-internals/use-responsive-layout.ts';
+import { resolveResponsiveLayout } from '@src/application/ui/tui/views/execute-view-internals/responsive-layout.ts';
 import type { SessionDescriptor } from '@src/application/ui/tui/runtime/session-manager.ts';
 import type { BucketedExecution } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
 import type { TokenUsage } from '@src/application/ui/tui/runtime/use-token-usage.ts';
@@ -114,7 +114,7 @@ interface SidebarRender {
 }
 
 const renderSidebar = (cols: number, rows: number): SidebarRender => {
-  const layout = useResponsiveLayout({ columns: cols, rows, isRunning: true });
+  const layout = resolveResponsiveLayout({ columns: cols, rows, isRunning: true });
   const descriptor = makeDescriptor();
   const bucketed = makeBucketed();
 
@@ -285,25 +285,25 @@ describe('ImplementSidebar visual verification at 240×60', () => {
 // Width formula: Math.max(34, Math.round(cols * 0.4))
 // ---------------------------------------------------------------------------
 
-describe('useResponsiveLayout — sidebarWidth is proportional 2/5 of terminal', () => {
+describe('resolveResponsiveLayout — sidebarWidth is proportional 2/5 of terminal', () => {
   it('200 cols → sidebarWidth = 80 (exactly 2/5)', () => {
-    const layout = useResponsiveLayout({ columns: 200, rows: 50, isRunning: true });
+    const layout = resolveResponsiveLayout({ columns: 200, rows: 50, isRunning: true });
     expect(layout.sidebarWidth).toBe(80);
   });
 
   it('140 cols → sidebarWidth = 56 (exactly 2/5)', () => {
-    const layout = useResponsiveLayout({ columns: 140, rows: 40, isRunning: true });
+    const layout = resolveResponsiveLayout({ columns: 140, rows: 40, isRunning: true });
     expect(layout.sidebarWidth).toBe(56);
   });
 
   it('80 cols (below sidebar breakpoint) → sidebarLayout=false, no sidebarWidth constraint', () => {
-    const layout = useResponsiveLayout({ columns: 80, rows: 40, isRunning: true });
+    const layout = resolveResponsiveLayout({ columns: 80, rows: 40, isRunning: true });
     expect(layout.sidebarLayout).toBe(false);
   });
 
   it('floor: 85 cols → sidebarWidth = max(34, round(85*0.4)) = max(34,34) = 34', () => {
     // 85 * 0.4 = 34 exactly
-    const layout = useResponsiveLayout({ columns: 140, rows: 40, isRunning: true });
+    const layout = resolveResponsiveLayout({ columns: 140, rows: 40, isRunning: true });
     // At 140 cols, 140 * 0.4 = 56 ≥ 34 floor
     expect(layout.sidebarWidth).toBeGreaterThanOrEqual(34);
   });

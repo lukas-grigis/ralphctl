@@ -415,9 +415,8 @@ See [DESIGN-SYSTEM.md](./DESIGN-SYSTEM.md) for tokens, components, view patterns
       cursor survives reorder/eviction. `↑/↓` primary, `j`/`k` alias, `PgUp`/`PgDn` page, `Home`/`End` jump.
       `▴/▾` overflow cues. A view that owns its list cursor passes `suppressScrollArrows` to its `ViewShell`
       (translated to `ScrollRegion`'s internal `suppressArrows`) so `↑/↓` / `PgUp`/`PgDn` aren't double-handled.
-- [x] **Responsive Execute view** — three-column at `xl` (≥180), two-column at `lg` (≥140), compact (no
-      rail column) at `md` (100–139), single-column below `md`. The sidebar rail grows fluidly 36→56 cols at
-      `xl`+ via `resolveRailWidth`. The step tree and strip render `Element.label` when present; long labels
+- [x] **Responsive Execute view** — sidebar layout at `lg`+ (≥140), compact (no
+      rail column) at `md` (100–139), single-column below `md`. The step tree and strip render `Element.label` when present; long labels
       are clipped with `…` to the column budget.
 - [x] **TUI hotkeys** — `b` banner compact ↔ full toggle; `g` progress overlay (reads `progress.md` on
       demand); `y` yank active-task summary to clipboard; `P` cross-project project picker; `S`
