@@ -58,18 +58,15 @@ const CORE_FILE_SPECS = [
   ['mcpConfig', '.mcp.json'],
 ] as const;
 
-type CoreFiles = Record<(typeof CORE_FILE_SPECS)[number][0], ArtifactRef | undefined>;
+/** Only the files that exist have a key, so the set spreads straight into {@link ClaudeArtifacts}. */
+type CoreFiles = Partial<Record<(typeof CORE_FILE_SPECS)[number][0], ArtifactRef>>;
 
-/**
- * Probes the flat, single-file artifacts (root memory files + project config) that live
- * directly under `root`. Short-circuits on the first read error.
- */
 const probeCoreFiles = async (root: string): Promise<Result<CoreFiles, ProbeError>> => {
-  const files = {} as CoreFiles;
+  const files: CoreFiles = {};
   for (const [key, relPath] of CORE_FILE_SPECS) {
     const probed = await probeFile(join(root, relPath));
     if (!probed.ok) return Result.error(probed.error);
-    files[key] = probed.value;
+    if (probed.value !== undefined) files[key] = probed.value;
   }
   return Result.ok(files);
 };
@@ -80,10 +77,6 @@ interface NamedArtifacts {
   readonly agents: readonly NamedArtifactRef[];
 }
 
-/**
- * Probes the named-collection artifacts (skills, commands, subagents) that live under
- * `.claude/<collection>/`.
- */
 const probeNamedArtifacts = async (root: string): Promise<Result<NamedArtifacts, ProbeError>> => {
   const skills = await probeNamedDirCollection(join(root, '.claude/skills'), 'SKILL.md');
   if (!skills.ok) return Result.error(skills.error);
@@ -103,11 +96,7 @@ const buildClaudeArtifacts = (
   hooks: readonly HookRef[]
 ): ClaudeArtifacts => ({
   tool: 'claude-code',
-  ...(coreFiles.claudeMd !== undefined ? { claudeMd: coreFiles.claudeMd } : {}),
-  ...(coreFiles.agentsMd !== undefined ? { agentsMd: coreFiles.agentsMd } : {}),
-  ...(coreFiles.settings !== undefined ? { settings: coreFiles.settings } : {}),
-  ...(coreFiles.settingsLocal !== undefined ? { settingsLocal: coreFiles.settingsLocal } : {}),
-  ...(coreFiles.mcpConfig !== undefined ? { mcpConfig: coreFiles.mcpConfig } : {}),
+  ...coreFiles,
   skills: namedArtifacts.skills,
   commands: namedArtifacts.commands,
   agents: namedArtifacts.agents,
@@ -136,43 +125,25 @@ const readHooks = async (
   return Result.ok(hooks);
 };
 
+const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null;
+
+const objectsIn = (v: unknown): ReadonlyArray<Record<string, unknown>> => (Array.isArray(v) ? v.filter(isObject) : []);
+
 /**
- * Walks a parsed `settings.json` `hooks` field. Claude's hooks shape is `{ <Event>: [ { hooks:
- * [ { type, command }, ... ] } ] }`. We surface every `command` whose string starts with `/`
- * (an absolute path); other shapes (inline shell commands, missing fields) are skipped.
+ * Claude's hooks shape is `{ hooks: { <Event>: [ { hooks: [ { type, command } ] } ] } }`. Only
+ * absolute-path commands are surfaced; inline shell commands and malformed entries are skipped.
  */
 const extractHooks = (settings: unknown, sink: HookRef[]): void => {
-  if (typeof settings !== 'object' || settings === null) return;
-  const hooks = (settings as Record<string, unknown>).hooks;
-  if (typeof hooks !== 'object' || hooks === null) return;
-  for (const [event, matchers] of Object.entries(hooks as Record<string, unknown>)) {
-    extractHookEvent(matchers, event, sink);
-  }
-};
-
-/** Second nesting level: `<Event>`'s matcher array — each matcher carries its own `hooks` list. */
-const extractHookEvent = (matchers: unknown, event: string, sink: HookRef[]): void => {
-  if (!Array.isArray(matchers)) return;
-  for (const matcher of matchers) {
-    extractHookMatcher(matcher, event, sink);
-  }
-};
-
-/** Third nesting level: a single matcher's inner `hooks` list of `{ type, command }` entries. */
-const extractHookMatcher = (matcher: unknown, event: string, sink: HookRef[]): void => {
-  if (typeof matcher !== 'object' || matcher === null) return;
-  const inner = (matcher as Record<string, unknown>).hooks;
-  if (!Array.isArray(inner)) return;
-  for (const entry of inner) {
-    pushHookCommand(entry, event, sink);
-  }
-};
-
-/** Leaf: pushes `entry.command` onto `sink` iff it's an absolute-path string command. */
-const pushHookCommand = (entry: unknown, event: string, sink: HookRef[]): void => {
-  if (typeof entry !== 'object' || entry === null) return;
-  const command = (entry as Record<string, unknown>).command;
-  if (typeof command === 'string' && command.startsWith('/')) {
-    sink.push({ event, script: command as AbsolutePath });
+  const hooks = isObject(settings) ? settings['hooks'] : undefined;
+  if (!isObject(hooks)) return;
+  for (const [event, matchers] of Object.entries(hooks)) {
+    for (const matcher of objectsIn(matchers)) {
+      for (const entry of objectsIn(matcher['hooks'])) {
+        const command = entry['command'];
+        if (typeof command === 'string' && command.startsWith('/')) {
+          sink.push({ event, script: command as AbsolutePath });
+        }
+      }
+    }
   }
 };
