@@ -56,7 +56,7 @@ import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { useEventBusBuffer } from '@src/application/ui/tui/runtime/use-event-bus.ts';
 import { useTerminalSize } from '@src/application/ui/tui/runtime/use-terminal-size.ts';
 import type { AppEvent } from '@src/business/observability/events.ts';
-import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
+import { type OverlayApi, useOverlayState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
 import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx';
 import { fmtElapsed } from '@src/application/ui/tui/theme/duration.ts';
@@ -111,15 +111,12 @@ interface ExecuteProps extends Readonly<Record<string, unknown>> {
 const HARNESS_SIGNAL_LIMIT = 1000;
 const CHAIN_EVENT_LIMIT = 2000;
 
-// `useUiState` doesn't export its return interface, so infer it locally.
-type UiStateApi = ReturnType<typeof useUiState>;
-
 interface ExecuteSessionData {
   readonly session: SessionRecord | undefined;
   readonly sessions: SessionManager;
   readonly sessionList: readonly SessionRecord[];
   readonly router: RouterApi;
-  readonly ui: UiStateApi;
+  readonly ui: OverlayApi;
   readonly deps: AppDeps;
   readonly eventBus: AppDeps['eventBus'];
   readonly signals: readonly SignalBusEntry[];
@@ -140,7 +137,7 @@ const useExecuteSessionData = (sessionId: string): ExecuteSessionData => {
   // Live list of every session for the multi-flow strip (renders only when ≥2 are running).
   const sessionList = useSessions();
   const router = useRouter();
-  const ui = useUiState();
+  const ui = useOverlayState();
   const buses = useBuses();
   const signals = useSinkStream(buses.harness, { limit: HARNESS_SIGNAL_LIMIT });
   const logEntries = useSinkStream(buses.log, { limit: LOG_TAIL_LIMIT });
@@ -318,7 +315,7 @@ const useExecuteRunControls = ({
 };
 
 interface ExecuteViewFrameProps {
-  readonly ui: UiStateApi;
+  readonly ui: OverlayApi;
   readonly descriptor: SessionDescriptor;
   readonly sessionList: readonly SessionRecord[];
   readonly sessionId: string;
@@ -429,7 +426,6 @@ export const ExecuteView = (): React.JSX.Element => {
     descriptor,
     pinnedSprintId,
     deps,
-    setFocusedRunContext: ui.setFocusedRunContext,
     selectionSprintId: selection.sprintId,
     followFocusedRun: selection.followFocusedRun,
   });
@@ -454,9 +450,6 @@ export const ExecuteView = (): React.JSX.Element => {
   useActiveTaskSummary({
     currentTask: bucketedTasks.currentTask,
     currentTaskName: bucketedTasks.currentTaskName,
-    // The setter is its own stable `useCallback`, so reading it off the merged `ui` object does
-    // not re-fire the effect when an unrelated overlay toggle changes that object's identity.
-    setActiveTaskSummaryProvider: ui.setActiveTaskSummaryProvider,
   });
 
   const cancel = useExecuteCancel({

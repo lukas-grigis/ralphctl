@@ -10,18 +10,21 @@ import { useEffect, useMemo, useRef } from 'react';
 import { useApp, useInput, type Key } from 'ink';
 import { countRunning } from '@src/application/ui/tui/runtime/quit-runs.ts';
 import { useRouter, type RouterApi, type ViewEntry } from '@src/application/ui/tui/runtime/router.tsx';
+import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { ViewId } from '@src/application/ui/tui/views/view-registry.tsx';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
-import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
+import {
+  type OverlayApi,
+  useFocusedRun,
+  useOverlayState,
+  useYankProvider,
+} from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { useSessionManager } from '@src/application/ui/tui/runtime/sessions-context.tsx';
 import type { SessionRecord } from '@src/application/ui/tui/runtime/session-manager.ts';
 import { type CopyToClipboard, createCopyToClipboard } from '@src/integration/io/clipboard.ts';
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
-
-type UiStateApi = ReturnType<typeof useUiState>;
-type SelectionApi = ReturnType<typeof useSelection>;
 
 /** Duration of the "Copied to clipboard" toast before the global handler auto-clears it. */
 const CLIPBOARD_TOAST_DURATION_MS = 2000;
@@ -40,7 +43,9 @@ export interface UseGlobalKeysOptions {
 export const useGlobalKeys = (opts: UseGlobalKeysOptions = {}): void => {
   const { exit } = useApp();
   const router = useRouter();
-  const ui = useUiState();
+  const ui = useOverlayState();
+  const { focusedRunSprintId } = useFocusedRun();
+  const { getActiveTaskSummary } = useYankProvider();
   const selection = useSelection();
   const deps = useDeps();
   const sessions = useSessionManager();
@@ -72,7 +77,7 @@ export const useGlobalKeys = (opts: UseGlobalKeysOptions = {}): void => {
     // A prompt mutes the ambient keys, but an open overlay (hiding that prompt) must stay closable.
     if (opts.disabled && !ui.overlayOpen) return;
     if (handleHelpOverlay(ui, input, key)) return;
-    if (handleProgressOverlay(ui, selection, input, key)) return;
+    if (handleProgressOverlay(ui, focusedRunSprintId ?? selection.sprintId, input, key)) return;
     if (handleEvaluationOverlay(ui, input, key)) return;
     if (opts.disabled) return;
     if (handleSessionNav(sessions, router, input, key)) return;
@@ -82,7 +87,7 @@ export const useGlobalKeys = (opts: UseGlobalKeysOptions = {}): void => {
       return;
     }
 
-    if (handleYankCopy(ui, deps, copyToClipboard, clearTimerRef, input)) return;
+    if (handleYankCopy(getActiveTaskSummary, deps, copyToClipboard, clearTimerRef, input)) return;
     handleViewShortcut(input, router, ui);
   });
 };
@@ -107,7 +112,7 @@ const handleQuitChord = (
  * Help toggle is recognised even when the overlay is open — pressing `?` dismisses it. Once open,
  * help mode swallows the rest of the keystrokes; only Esc dismisses.
  */
-const handleHelpOverlay = (ui: UiStateApi, input: string, key: Key): boolean => {
+const handleHelpOverlay = (ui: OverlayApi, input: string, key: Key): boolean => {
   if (input === '?') {
     ui.toggleHelp();
     return true;
@@ -127,12 +132,12 @@ const handleHelpOverlay = (ui: UiStateApi, input: string, key: Key): boolean => 
  * is not the global selection, `g` must still open onto the pinned run instead of silently
  * no-op'ing. Home — neither pinned nor selected — stays a no-op as the spec demands.
  */
-const handleProgressOverlay = (ui: UiStateApi, selection: SelectionApi, input: string, key: Key): boolean => {
+const handleProgressOverlay = (ui: OverlayApi, sprintId: SprintId | undefined, input: string, key: Key): boolean => {
   if (ui.progressOpen) {
     if (key.escape || input === 'g') ui.toggleProgress();
     return true;
   }
-  if (input === 'g' && (ui.focusedRunSprintId ?? selection.sprintId) !== undefined) {
+  if (input === 'g' && sprintId !== undefined) {
     ui.toggleProgress();
     return true;
   }
@@ -149,7 +154,7 @@ const handleProgressOverlay = (ui: UiStateApi, selection: SelectionApi, input: s
  * `flows-view` already binds a view-local `v` of its own. Handling the CLOSE centrally (rather
  * than in each view) is what lets it win over those now-inert view handlers.
  */
-const handleEvaluationOverlay = (ui: UiStateApi, input: string, key: Key): boolean => {
+const handleEvaluationOverlay = (ui: OverlayApi, input: string, key: Key): boolean => {
   if (ui.evaluationTarget === undefined) return false;
   if (key.escape || input === 'v') ui.closeEvaluation();
   return true;
@@ -187,7 +192,7 @@ const handleSessionNav = (
  * operator).
  */
 const handleYankCopy = (
-  ui: UiStateApi,
+  getActiveTaskSummary: () => string | undefined,
   deps: { eventBus: EventBus },
   copyToClipboard: CopyToClipboard,
   clearTimerRef: MutableRefObject<NodeJS.Timeout | undefined>,
@@ -195,7 +200,7 @@ const handleYankCopy = (
 ): boolean => {
   if (input !== 'y') return false;
 
-  const summary = ui.getActiveTaskSummary();
+  const summary = getActiveTaskSummary();
   if (summary === undefined) {
     emitClipboardBanner(deps.eventBus, {
       tier: 'info',
@@ -227,7 +232,7 @@ const handleYankCopy = (
  * The trailing single-letter view shortcuts. Pressing the shortcut for the view you're already
  * on is a no-op — otherwise the breadcrumb stack would balloon as the user mashes the same key.
  */
-const handleViewShortcut = (input: string, router: RouterApi, ui: UiStateApi): boolean => {
+const handleViewShortcut = (input: string, router: RouterApi, ui: OverlayApi): boolean => {
   const navigate = (id: ViewId): void => {
     if (router.current.id === id) return;
     router.push({ id });

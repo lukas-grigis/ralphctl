@@ -14,7 +14,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { render } from 'ink-testing-library';
 import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import { TextPrompt } from '@src/application/ui/tui/prompts/text-prompt.tsx';
-import { UiStateProvider, useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
+import { UiStateProvider, useOverlayState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { RouterProvider, useRouter } from '@src/application/ui/tui/runtime/router.tsx';
 import { SelectionProvider } from '@src/application/ui/tui/runtime/selection-context.tsx';
 import { DepsProvider } from '@src/application/ui/tui/runtime/deps-context.tsx';
@@ -32,13 +32,13 @@ const emptyManager = (): SessionManager =>
   ({ list: () => [], get: () => undefined, subscribe: () => () => undefined }) as unknown as SessionManager;
 
 const GlobalHarness = ({ children }: { readonly children: React.ReactNode }): React.JSX.Element => {
-  const ui = useUiState();
+  const ui = useOverlayState();
   useGlobalKeys({ disabled: ui.promptActive });
   return <>{children}</>;
 };
 
 const ClaimingPrompt = ({ onSubmit }: { readonly onSubmit: (value: string) => void }): React.JSX.Element => {
-  const ui = useUiState();
+  const ui = useOverlayState();
   useEffect(() => ui.claimPrompt(), [ui.claimPrompt]);
   return <TextPrompt message="type" onSubmit={onSubmit} onCancel={() => undefined} />;
 };

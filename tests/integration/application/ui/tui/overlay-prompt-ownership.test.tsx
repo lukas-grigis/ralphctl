@@ -12,7 +12,7 @@ import { Layout } from '@src/application/ui/tui/App.tsx';
 import { ViewShell } from '@src/application/ui/tui/components/view-shell.tsx';
 import { DepsProvider } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { RouterProvider } from '@src/application/ui/tui/runtime/router.tsx';
-import { UiStateProvider, useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
+import { UiStateProvider, useOverlayState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { HintsProvider } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
 import { SelectionProvider } from '@src/application/ui/tui/runtime/selection-context.tsx';
 import { SessionsProvider } from '@src/application/ui/tui/runtime/sessions-context.tsx';
@@ -43,7 +43,7 @@ const storage = (): React.ComponentProps<typeof StorageProvider>['value'] => {
 };
 
 const Page = (): React.JSX.Element => {
-  const ui = useUiState();
+  const ui = useOverlayState();
   return <ViewShell title="Home">{ui.helpOpen ? <Text>HELP OVERLAY</Text> : <Text>PAGE</Text>}</ViewShell>;
 };
 

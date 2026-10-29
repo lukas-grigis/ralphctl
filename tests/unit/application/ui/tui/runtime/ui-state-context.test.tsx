@@ -9,7 +9,11 @@ import React from 'react';
 import { render } from 'ink-testing-library';
 import { Text } from 'ink';
 import { describe, expect, it } from 'vitest';
-import { UiStateProvider, useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
+import {
+  UiStateProvider,
+  useOverlayState,
+  type OverlayApi,
+} from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 
 /**
  * Mounts inside the provider and runs `action(api)` once after a microtask. The deferral
@@ -17,12 +21,9 @@ import { UiStateProvider, useUiState } from '@src/application/ui/tui/runtime/ui-
  * useEffect, so calling setters from inside useEffect would otherwise race the provider's
  * own mount work.
  */
-const makeTrigger = (
-  triggered: { current: boolean },
-  action: (api: ReturnType<typeof useUiState>) => void
-): (() => React.JSX.Element) => {
+const makeTrigger = (triggered: { current: boolean }, action: (api: OverlayApi) => void): (() => React.JSX.Element) => {
   return function Trigger(): React.JSX.Element {
-    const api = useUiState();
+    const api = useOverlayState();
     const apiRef = React.useRef(api);
     apiRef.current = api;
     React.useEffect(() => {
@@ -81,7 +82,7 @@ describe('UiStateProvider.claimEscape', () => {
     const triggered = { current: false };
     let releaseEscape: (() => void) | undefined;
     const Probe = (): React.JSX.Element => {
-      const api = useUiState();
+      const api = useOverlayState();
       return (
         <Text>
           esc={String(api.escapeClaimed)} prompt={String(api.promptActive)}

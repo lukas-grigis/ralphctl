@@ -29,7 +29,7 @@ import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import { DepsProvider } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { StorageProvider } from '@src/application/ui/tui/runtime/storage-context.tsx';
-import { UiStateProvider, useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
+import { UiStateProvider, useOverlayState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { SelectionProvider, useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
 import { EvaluationOverlay } from '@src/application/ui/tui/components/evaluation-overlay.tsx';
 import { ProgressOverlay } from '@src/application/ui/tui/components/progress-overlay.tsx';
@@ -100,7 +100,7 @@ const evaluationTarget = (): EvaluationTarget => ({
 });
 
 const EvaluationOpener = (): React.JSX.Element | null => {
-  const ui = useUiState();
+  const ui = useOverlayState();
   const open = ui.openEvaluation;
   useEffect(() => {
     open(evaluationTarget());

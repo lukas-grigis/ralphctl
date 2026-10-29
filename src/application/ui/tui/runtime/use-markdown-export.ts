@@ -14,7 +14,7 @@ import { join } from 'node:path';
 import { useInput } from 'ink';
 import { useStorage } from '@src/application/ui/tui/runtime/storage-context.tsx';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
-import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
+import { useOverlayState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { useViewHints } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
 import { resolveSprintDir } from '@src/integration/persistence/storage.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
@@ -46,7 +46,7 @@ export interface UseMarkdownExportConfig {
 export const useMarkdownExport = (config: UseMarkdownExportConfig): MarkdownExportRunState => {
   const storage = useStorage();
   const selection = useSelection();
-  const ui = useUiState();
+  const ui = useOverlayState();
   const [run, setRun] = useState<MarkdownExportRunState>({ kind: 'idle' });
 
   // Monotonic run token: a later run (selection change, unmount, or `r` retry) bumps this so an

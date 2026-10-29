@@ -22,7 +22,7 @@ import { DepsProvider } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { StorageProvider } from '@src/application/ui/tui/runtime/storage-context.tsx';
 import { SessionsProvider } from '@src/application/ui/tui/runtime/sessions-context.tsx';
 import { PromptQueueProvider } from '@src/application/ui/tui/prompts/prompt-context.tsx';
-import { UiStateProvider, useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
+import { UiStateProvider, useOverlayState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { HintsProvider, useSuppressGlobalHints } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
 import { SelectionProvider, type SelectionSeed } from '@src/application/ui/tui/runtime/selection-context.tsx';
 import { SystemStatusProvider } from '@src/application/ui/tui/runtime/system-status-context.tsx';
@@ -123,7 +123,7 @@ export const App = ({
  * provider stack with a probe child rather than the full view registry.
  */
 export const Layout = ({ children }: { readonly children: React.ReactNode }): React.JSX.Element => {
-  const ui = useUiState();
+  const ui = useOverlayState();
   const router = useRouter();
   const { rows } = useTerminalSize();
   // Suspend global key bindings while a prompt is in flight so view-level handlers don't fight

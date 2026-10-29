@@ -16,7 +16,7 @@ import { describe, expect, it } from 'vitest';
 import { Text } from 'ink';
 import { Result } from '@src/domain/result.ts';
 import { SprintDetailView } from '@src/application/ui/tui/views/sprint-detail-view.tsx';
-import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
+import { useOverlayState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import type { ViewEntry } from '@src/application/ui/tui/runtime/router.tsx';
 import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
@@ -83,7 +83,7 @@ const initial: ViewEntry = { id: 'sprint-detail', props: { sprintId: FIXED_SPRIN
 
 /** Surfaces the overlay's target as a one-line sentinel: `TARGET:<taskLabel>:<attemptN>:<file>`. */
 const TargetProbe = (): React.JSX.Element => {
-  const ui = useUiState();
+  const ui = useOverlayState();
   const t = ui.evaluationTarget;
   if (t === undefined) return <Text>TARGET:none</Text>;
   return (

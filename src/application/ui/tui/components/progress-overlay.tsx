@@ -27,7 +27,7 @@ import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens
 import { Spinner } from '@src/application/ui/tui/components/spinner.tsx';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
 import { useStorage } from '@src/application/ui/tui/runtime/storage-context.tsx';
-import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
+import { useFocusedRun } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { useTerminalSize } from '@src/application/ui/tui/runtime/use-terminal-size.ts';
 import { fmtDuration } from '@src/application/ui/tui/theme/duration.ts';
 import {
@@ -198,7 +198,7 @@ const ProgressBody = ({
 
 export const ProgressOverlay = (): React.JSX.Element => {
   const selection = useSelection();
-  const ui = useUiState();
+  const focusedRun = useFocusedRun();
   const storage = useStorage();
   const term = useTerminalSize();
   // Frozen "now" at mount so the "(Xs ago)" header doesn't tick mid-view; pressing `g` again
@@ -207,7 +207,7 @@ export const ProgressOverlay = (): React.JSX.Element => {
 
   // When an Execute view is focused, prefer its pinned sprint so `g` opens the run's own
   // progress file rather than whatever the global selection happens to be.
-  const sprintId = ui.focusedRunSprintId ?? selection.sprintId;
+  const sprintId = focusedRun.focusedRunSprintId ?? selection.sprintId;
 
   const state = useProgressFile(sprintId, storage.dataRoot);
 
@@ -224,7 +224,9 @@ export const ProgressOverlay = (): React.JSX.Element => {
   const visibleLines = lines.slice(offset, offset + bodyRows);
 
   const sprintLabel =
-    ui.focusedRunSprintLabel ?? selection.sprintLabel ?? (sprintId !== undefined ? String(sprintId) : '(no sprint)');
+    focusedRun.focusedRunSprintLabel ??
+    selection.sprintLabel ??
+    (sprintId !== undefined ? String(sprintId) : '(no sprint)');
   const modifiedAgo = state.kind === 'ok' || state.kind === 'empty' ? formatAgo(state.modifiedAtMs, now) : undefined;
 
   return (

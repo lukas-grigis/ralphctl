@@ -23,7 +23,7 @@ import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { useRouter } from '@src/application/ui/tui/runtime/router.tsx';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
 import { useAsyncLoad } from '@src/application/ui/tui/runtime/use-async-load.ts';
-import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
+import { useOverlayState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { useViewHints } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
 import { useBreakpoint } from '@src/application/ui/tui/runtime/use-breakpoint.ts';
 import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx';
@@ -119,7 +119,7 @@ export const PickProjectView = (): React.JSX.Element => {
   const deps = useDeps();
   const router = useRouter();
   const selection = useSelection();
-  const ui = useUiState();
+  const ui = useOverlayState();
   const { rows } = useBreakpoint();
   useViewHints([
     { keys: '↑/↓', label: 'move' },

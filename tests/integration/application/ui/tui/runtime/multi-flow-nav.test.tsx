@@ -20,7 +20,7 @@ import type { SessionManager, SessionRecord } from '@src/application/ui/tui/runt
 import { DepsProvider } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { SessionsProvider } from '@src/application/ui/tui/runtime/sessions-context.tsx';
 import { SelectionProvider } from '@src/application/ui/tui/runtime/selection-context.tsx';
-import { UiStateProvider, useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
+import { UiStateProvider, useOverlayState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { RouterProvider, useRouter, type ViewEntry } from '@src/application/ui/tui/runtime/router.tsx';
 import { useGlobalKeys } from '@src/application/ui/tui/runtime/use-global-keys.ts';
 import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
@@ -65,7 +65,7 @@ const Inner = ({
   claimPrompt?: boolean | undefined;
   openOverlay?: boolean | undefined;
 }): React.JSX.Element => {
-  const ui = useUiState();
+  const ui = useOverlayState();
   useGlobalKeys({ disabled: ui.promptActive });
   useEffect(() => (claimPrompt ? ui.claimPrompt() : undefined), [claimPrompt, ui.claimPrompt]);
   // Open the help overlay (a representative overlay) to verify chords are inert while one is up.

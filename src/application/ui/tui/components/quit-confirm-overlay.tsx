@@ -4,7 +4,7 @@ import React, { useState } from 'react';
 import { Box, Text, useApp, useInput } from 'ink';
 import { Card } from '@src/application/ui/tui/components/card.tsx';
 import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
-import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
+import { useOverlayState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { useOptionalPromptQueue } from '@src/application/ui/tui/prompts/prompt-context.tsx';
 import { glyphs, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { plural } from '@src/application/ui/shared/plural.ts';
@@ -26,7 +26,7 @@ export const forcedStopNote = (outcome: AbortAllOutcome): ExitNote | undefined =
 export const QuitConfirmOverlay = ({ runs }: { readonly runs: number }): React.JSX.Element => {
   const { exit } = useApp();
   const deps = useDeps();
-  const ui = useUiState();
+  const ui = useOverlayState();
   const queue = useOptionalPromptQueue();
   const [stopping, setStopping] = useState(false);
 
