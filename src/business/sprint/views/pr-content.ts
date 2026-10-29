@@ -1,6 +1,6 @@
 import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { Task } from '@src/domain/entity/task.ts';
-import type { Attempt, AttemptWarning } from '@src/domain/entity/attempt.ts';
+import type { AttemptWarning } from '@src/domain/entity/attempt.ts';
 import { normalizeRefs } from '@src/domain/value/external-ref.ts';
 
 export interface DerivedPrContent {
@@ -32,8 +32,6 @@ const warningDetail = (w: AttemptWarning): string => {
   }
 };
 
-const lastAttempt = (task: Task): Attempt | undefined => task.attempts[task.attempts.length - 1];
-
 /**
  * Render the `## Completed with warnings` PR-body section — one bullet per done task whose
  * FINAL attempt carries an {@link AttemptWarning}. Shared by both PR-body paths (the
@@ -43,7 +41,7 @@ const lastAttempt = (task: Task): Attempt | undefined => task.attempts[task.atte
  */
 export const renderWarningsSection = (tasks: readonly Task[]): string => {
   const flagged = tasks
-    .map((t) => ({ name: t.name, warning: t.status === 'done' ? lastAttempt(t)?.warning : undefined }))
+    .map((t) => ({ name: t.name, warning: t.status === 'done' ? t.attempts.at(-1)?.warning : undefined }))
     .filter((e): e is { name: string; warning: AttemptWarning } => e.warning !== undefined);
   if (flagged.length === 0) return '';
   const lines = flagged.map((e) => `- ${e.name} — ${warningDetail(e.warning)}`).join('\n');

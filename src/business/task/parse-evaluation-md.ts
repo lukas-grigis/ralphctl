@@ -101,7 +101,7 @@ const splitSections = (
       sections.push({ title: match[1]?.trim().toLowerCase() ?? '', body: [] });
       continue;
     }
-    const current = sections[sections.length - 1];
+    const current = sections.at(-1);
     if (current === undefined) preamble.push(line);
     else current.body.push(line);
   }
@@ -125,7 +125,7 @@ const splitDimensionBlocks = (
       blocks.push({ heading: match[1]?.trim() ?? '', body: [] });
       continue;
     }
-    blocks[blocks.length - 1]?.body.push(line);
+    blocks.at(-1)?.body.push(line);
   }
   return blocks;
 };
@@ -135,7 +135,7 @@ const parseDimensionHeading = (
   heading: string
 ): { readonly dimension: string; readonly verdict: ParsedDimensionVerdict } => {
   const parts = heading.split(VERDICT_SPLIT_RE);
-  const tail = parts.length > 1 ? parts[parts.length - 1]?.trim().toLowerCase() : undefined;
+  const tail = parts.length > 1 ? parts.at(-1)?.trim().toLowerCase() : undefined;
   if (tail !== undefined && DIMENSION_VERDICTS.has(tail as ParsedDimensionVerdict)) {
     return { dimension: parts.slice(0, -1).join(' — ').trim(), verdict: tail as ParsedDimensionVerdict };
   }

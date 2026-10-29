@@ -29,50 +29,23 @@
  */
 export const DISPLAY_TEXT_MAX_CHARS = 400;
 
-const TAB = 0x09;
-const LINE_FEED = 0x0a;
-const C0_LAST = 0x1f;
-const DEL = 0x7f;
-const C1_LAST = 0x9f;
-
 /**
- * Every control code point except the two that legitimately carry layout. Expressed as numeric
- * comparisons rather than literal characters so the source file itself stays free of the control
- * bytes it is here to remove.
- */
-const isStrippedControl = (codePoint: number): boolean =>
-  codePoint !== TAB && codePoint !== LINE_FEED && (codePoint <= C0_LAST || (codePoint >= DEL && codePoint <= C1_LAST));
-
-/**
- * The same predicate as {@link isStrippedControl}, as a single regex scan — the detector for the
- * fast path below. Written with `\u` escapes so the source file still carries no literal control
- * byte; the ranges skip TAB (0x09) and LINE FEED (0x0A) exactly as the predicate does.
+ * Every C0 / C1 control and DEL except TAB and LINE FEED. `\u` escapes keep the source file free of
+ * the control bytes it removes.
  */
 // eslint-disable-next-line no-control-regex -- deliberate: this IS the control-character detector.
-const CONTROL_RE = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/u;
+const CONTROL_RE = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/gu;
 
 /**
- * Strip control characters, then optionally clamp. Omit `maxChars` (or pass a non-positive one) to
- * keep the full length — the TUI wants that; the CLI passes {@link DISPLAY_TEXT_MAX_CHARS}. Both
- * the walk and the clamp work in CODE POINTS, so an astral character is never cut in half; the
- * ellipsis spends one of the budgeted points, so the result never exceeds `maxChars`.
- *
- * Clean text short-circuits on one regex scan rather than a per-code-point array build. That is
- * the overwhelmingly common case, and one caller makes it load-bearing: the TUI's tasks panel runs
- * this over every signal row on every render (~90 ms spinner cadence), including a `task-verified`
- * `output` whose only cap is the 4 MB whole-file limit — the walk costs ~4.5x the scan on a body
- * that size. `text.length` is UTF-16 units and the budget counts code points, so `length <=
- * maxChars` is a conservative "cannot need clamping" test; anything longer falls through to the
- * walk, which decides properly.
+ * Strip control characters, then optionally clamp to `maxChars` CODE POINTS (so an astral character
+ * is never halved; the ellipsis counts against the budget). Omit `maxChars` to keep the full length —
+ * the TUI does; the CLI passes {@link DISPLAY_TEXT_MAX_CHARS}. Hot path: the TUI runs this over
+ * multi-megabyte signal bodies on every render, so the clean, short case costs one scan.
  */
 export const sanitizeDisplayText = (text: string, maxChars?: number): string => {
-  const mayNeedClamp = maxChars !== undefined && maxChars > 0 && text.length > maxChars;
-  if (!mayNeedClamp && !CONTROL_RE.test(text)) return text;
-
-  const kept: string[] = [];
-  for (const character of text) {
-    if (!isStrippedControl(character.codePointAt(0) ?? 0)) kept.push(character);
-  }
-  if (maxChars === undefined || maxChars <= 0 || kept.length <= maxChars) return kept.join('');
-  return `${kept.slice(0, maxChars - 1).join('')}…`;
+  const clean = text.replace(CONTROL_RE, '');
+  // `.length` counts UTF-16 units, an upper bound on code points — so this only skips safe cases.
+  if (maxChars === undefined || maxChars <= 0 || clean.length <= maxChars) return clean;
+  const codePoints = [...clean];
+  return codePoints.length <= maxChars ? clean : `${codePoints.slice(0, maxChars - 1).join('')}…`;
 };
