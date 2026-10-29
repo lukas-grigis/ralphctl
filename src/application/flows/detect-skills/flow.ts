@@ -1,5 +1,3 @@
-import type { ProjectId } from '@src/domain/value/id/project-id.ts';
-import type { RepositoryId } from '@src/domain/value/id/repository-id.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { sequential } from '@src/application/chain/build/sequential.ts';
 import { loadProjectLeaf } from '@src/application/flows/_shared/project/load.ts';
@@ -13,34 +11,19 @@ import { confirmDetectSkillsLeaf } from '@src/application/flows/detect-skills/le
 import { writeDetectSkillsLeaf } from '@src/application/flows/detect-skills/leaves/write.ts';
 
 export interface CreateDetectSkillsFlowOpts {
-  readonly projectId: ProjectId;
-  readonly repositoryId?: RepositoryId;
   readonly model: string;
   /** Resolved effort / reasoning level — optional. */
   readonly effort?: string;
 }
 
-/**
- * Build the detect-skills chain. Mirrors detect-scripts:
- *
- *   sequential('detect-skills', [
- *     load-project,
- *     pick-repository,          // auto when ctx.repositoryId is set or project has one repo
- *     allocate-run-dir-detect-skills,  // materialises <runsRoot>/detect-skills/<run-id>/
- *     propose,                  // AI round-trip → ctx.proposal (both skills may be undefined)
- *     confirm,                  // interactive; auto-declines when proposal is empty
- *     write,                    // no-op when not accepted; updateRepository + save otherwise
- *   ])
- */
 /** Canonical flow id — the sequential trace name, the run-dir segment, and the signal source. */
 const DETECT_SKILLS_FLOW = 'detect-skills';
 
+/** AI-authored setup / verify skills for one repository; mirrors detect-scripts. */
 export const createDetectSkillsFlow = (
   deps: DetectSkillsDeps,
   opts: CreateDetectSkillsFlowOpts
 ): Element<DetectSkillsCtx> => {
-  void opts.projectId;
-  void opts.repositoryId;
   return sequential<DetectSkillsCtx>(DETECT_SKILLS_FLOW, [
     loadProjectLeaf<DetectSkillsCtx>({ projectRepo: deps.projectRepo }),
     pickRepositoryLeaf<DetectSkillsCtx>(

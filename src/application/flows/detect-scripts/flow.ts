@@ -1,5 +1,3 @@
-import type { ProjectId } from '@src/domain/value/id/project-id.ts';
-import type { RepositoryId } from '@src/domain/value/id/repository-id.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { sequential } from '@src/application/chain/build/sequential.ts';
 import { loadProjectLeaf } from '@src/application/flows/_shared/project/load.ts';
@@ -13,41 +11,23 @@ import { confirmDetectScriptsLeaf } from '@src/application/flows/detect-scripts/
 import { writeDetectScriptsLeaf } from '@src/application/flows/detect-scripts/leaves/write.ts';
 
 export interface CreateDetectScriptsFlowOpts {
-  readonly projectId: ProjectId;
-  /**
-   * Optional pre-selected repository. When supplied (e.g. the user launched detect-scripts
-   * from a specific row on the project-detail view), `pickRepositoryLeaf` auto-resolves
-   * without prompting; when omitted, it asks interactively.
-   */
-  readonly repositoryId?: RepositoryId;
   /** Model id from `settings.ai.readiness.model` — the same read-only inventory tier. */
   readonly model: string;
   /** Resolved effort / reasoning level — optional. */
   readonly effort?: string;
 }
 
-/**
- * Build the detect-scripts chain.
- *
- * Shape:
- *
- *   sequential('detect-scripts', [
- *     load-project,
- *     pick-repository,           // auto when ctx.repositoryId is set or project has one repo
- *     allocate-run-dir-detect-scripts,  // materialises <runsRoot>/detect-scripts/<run-id>/
- *     propose,                   // AI round-trip → ctx.proposal (both scripts may be undefined)
- *     confirm,                   // interactive; auto-declines when proposal is empty
- *     write,                     // no-op when not accepted; updateRepository + save otherwise
- *   ])
- */
 /** Canonical flow id — the sequential trace name, the run-dir segment, and the signal source. */
 const DETECT_SCRIPTS_FLOW = 'detect-scripts';
 
+/**
+ * AI inventory of one repository's setup / verify scripts, confirmed by the operator before it is
+ * saved. `ctx.repositoryId` preselects the repository.
+ */
 export const createDetectScriptsFlow = (
   deps: DetectScriptsDeps,
   opts: CreateDetectScriptsFlowOpts
 ): Element<DetectScriptsCtx> => {
-  void opts.projectId;
   return sequential<DetectScriptsCtx>(DETECT_SCRIPTS_FLOW, [
     loadProjectLeaf<DetectScriptsCtx>({ projectRepo: deps.projectRepo }),
     pickRepositoryLeaf<DetectScriptsCtx>(
