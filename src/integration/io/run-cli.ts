@@ -8,13 +8,10 @@ import { onChildDone } from '@src/integration/io/child-exit.ts';
 
 /**
  * Output of a single CLI invocation. `exitCode` is `null` only when the child died by a signal
- * without a numeric code (rare — typically the timer path resolves first with an error).
+ * without a numeric code.
  *
- * Sibling utility to {@link runCommand} (`run-command.ts`): that one is for one-shot probes
- * via `execFile` with no stdin and no cwd; this one wraps `spawn` so we can pipe stdin
- * (`gh issue edit --body-file -`) and pin a working directory (`gh pr create` must run inside
- * the repo it's creating the PR from). All three SCM adapters — `issue-fetcher`,
- * `issue-pusher`, `pull-request-creator` — funnel through here.
+ * Unlike the doctor probes' {@link runCommand}, this pipes stdin (`gh … --body-file -`) and pins a
+ * working directory (`gh pr create` must run inside the repo). The SCM adapters funnel through here.
  */
 export interface CliRunResult {
   readonly stdout: string;
@@ -27,10 +24,7 @@ export interface CliRunOptions {
   readonly stdin?: string;
   /** Working directory for the child. Required by `gh pr create`; left undefined for plain queries. */
   readonly cwd?: string;
-  /**
-   * Hard wall-clock timeout. SCM read paths use 30s; pull-request creation uses 60s because
-   * `gh pr create` blocks on auth + network round-trips. The timer is cleared once the child exits.
-   */
+  /** Hard wall-clock timeout, cleared once the child exits. */
   readonly timeoutMs: number;
 }
 
@@ -61,11 +55,9 @@ const trySpawnChild = (
 };
 
 /**
- * Wire stdout/stderr buffering plus the `error` / done terminal handlers. Both terminal handlers
- * route through `settleOnce`, which the caller has already guarded to fire only once (a done
- * racing an already-timed-out `error`, or vice-versa, must not resolve twice). Done is `close`, or
- * a short drain after `exit` when a process the CLI left behind still holds its pipes, so a call
- * that finished is never reported as a timeout.
+ * Buffer output and wire the terminal handlers through `settleOnce`. Done is `close`, or a short
+ * drain after `exit` when a process the CLI left behind still holds its pipes, so a call that
+ * finished is never reported as a timeout.
  */
 const wireChildOutput = (
   child: ChildProcessWithoutNullStreams,
@@ -117,13 +109,10 @@ const writeStdinBody = (child: ChildProcessWithoutNullStreams, stdin: string | u
 };
 
 /**
- * Run a CLI through the injected {@link Spawn}, buffering stdout/stderr until the child is done
- * or the timeout trips. Every failure mode (missing binary, spawn error, timeout) surfaces as a
- * `StorageError` with `subCode: 'io'` so callers handle one error shape.
- *
- * Non-zero exit codes do NOT produce a `Result.error` — callers inspect `exitCode` themselves
- * because each CLI has its own "not found" / "auth required" / "network" stderr signatures
- * that the SCM adapters classify upstream.
+ * Run a CLI through the injected {@link Spawn}, buffering output until the child is done or the
+ * timeout trips. Every failure to run (missing binary, spawn error, timeout) is a
+ * `StorageError(subCode: 'io')`. A non-zero exit is NOT an error here — callers that classify
+ * stderr ("not found", an unknown flag) need the raw result; the rest use {@link requireCleanExit}.
  */
 export const runCli = (
   spawn: Spawn,
@@ -166,3 +155,30 @@ export const runCli = (
     wireChildOutput(child, command, stdout, stderr, timer, settleOnce);
     writeStdinBody(child, opts.stdin);
   });
+
+/** A non-zero exit as the uniform `<label> failed: <stderr>` `StorageError`. */
+export const requireCleanExit = (
+  result: Result<CliRunResult, StorageError>,
+  label: string,
+  context?: string
+): Result<CliRunResult, StorageError> => {
+  if (!result.ok || result.value.exitCode === 0) return result;
+  const detail = result.value.stderr.trim() || 'unknown error';
+  return Result.error(
+    new StorageError({
+      subCode: 'io',
+      message: `${label} failed: ${detail}${context !== undefined ? ` (${context})` : ''}`,
+    })
+  );
+};
+
+/** Parse a CLI's JSON stdout; malformed output is a `parse` `StorageError` naming `label`. */
+export const parseCliJson = <T>(stdout: string, label: string): Result<T, StorageError> => {
+  try {
+    // Callers type every field optional and default it at the use site. The outer cast is
+    // typescript-result's generic Ok<T> not widening to Result<T, E> on its own.
+    return Result.ok(JSON.parse(stdout) as T) as Result<T, StorageError>;
+  } catch (cause) {
+    return Result.error(new StorageError({ subCode: 'parse', message: `failed to parse ${label} response`, cause }));
+  }
+};

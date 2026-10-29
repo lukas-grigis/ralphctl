@@ -1,8 +1,8 @@
 import { Result } from '@src/domain/result.ts';
-import { StorageError } from '@src/domain/value/error/storage-error.ts';
+import { type StorageError } from '@src/domain/value/error/storage-error.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
 import type { ExternalIssue, ExternalIssueComment, IssueFetcher } from '@src/business/scm/issue-fetcher.ts';
-import { runCli } from '@src/integration/io/run-cli.ts';
+import { parseCliJson, requireCleanExit, runCli } from '@src/integration/io/run-cli.ts';
 import type { Spawn } from '@src/integration/io/spawn.ts';
 import { listGitLabIssueNotes } from '@src/integration/scm/gitlab-notes.ts';
 
@@ -22,7 +22,6 @@ import { listGitLabIssueNotes } from '@src/integration/scm/gitlab-notes.ts';
 
 const CLI_TIMEOUT_MS = 30_000;
 const MAX_COMMENTS = 20;
-const UNKNOWN_ERROR = 'unknown error';
 
 interface ParsedUrl {
   readonly host: 'github' | 'gitlab';
@@ -182,32 +181,12 @@ const fetchGitHub = async (
     ],
     { timeoutMs: CLI_TIMEOUT_MS }
   );
-  if (!result.ok) return Result.error(result.error);
-  if (result.value.exitCode !== 0) {
-    if (looksLikeNotFound(result.value.stderr)) return Result.ok(null);
-    return Result.error(
-      new StorageError({
-        subCode: 'io',
-        message: `gh issue view failed: ${result.value.stderr.trim() || UNKNOWN_ERROR}`,
-      })
-    );
-  }
-  let parsedJson: GhIssueResponse;
-  try {
-    // Why: `gh issue view --json` output is shape-narrowed via the `GhIssueResponse`
-    // interface with every field optional + nullable-checked at each use-site below
-    // (`?.` / `?? ''`). A missing or malformed field collapses to the default rather
-    // than throwing — sufficient for a best-effort issue fetch.
-    parsedJson = JSON.parse(result.value.stdout) as GhIssueResponse;
-  } catch (cause) {
-    return Result.error(
-      new StorageError({
-        subCode: 'parse',
-        message: `failed to parse gh issue response`,
-        cause,
-      })
-    );
-  }
+  if (result.ok && result.value.exitCode !== 0 && looksLikeNotFound(result.value.stderr)) return Result.ok(null);
+  const checked = requireCleanExit(result, 'gh issue view');
+  if (!checked.ok) return Result.error(checked.error);
+  const json = parseCliJson<GhIssueResponse>(checked.value.stdout, 'gh issue');
+  if (!json.ok) return Result.error(json.error);
+  const parsedJson = json.value;
   const comments: ExternalIssueComment[] = (parsedJson.comments ?? []).slice(-MAX_COMMENTS).map((c) => ({
     author: c.author?.login ?? 'unknown',
     body: c.body ?? '',
@@ -254,30 +233,12 @@ const fetchGitLab = async (
     ['issue', 'view', String(parsed.number), '--repo', glabRepoArg(parsed), '--output', 'json'],
     { timeoutMs: CLI_TIMEOUT_MS }
   );
-  if (!result.ok) return Result.error(result.error);
-  if (result.value.exitCode !== 0) {
-    if (looksLikeNotFound(result.value.stderr)) return Result.ok(null);
-    return Result.error(
-      new StorageError({
-        subCode: 'io',
-        message: `glab issue view failed: ${result.value.stderr.trim() || UNKNOWN_ERROR}`,
-      })
-    );
-  }
-  let parsedJson: GlabIssueResponse;
-  try {
-    // Why: `glab issue view --output json` is shape-narrowed via the `GlabIssueResponse`
-    // interface with every field optional + nullable-checked at each use-site below.
-    parsedJson = JSON.parse(result.value.stdout) as GlabIssueResponse;
-  } catch (cause) {
-    return Result.error(
-      new StorageError({
-        subCode: 'parse',
-        message: `failed to parse glab issue response`,
-        cause,
-      })
-    );
-  }
+  if (result.ok && result.value.exitCode !== 0 && looksLikeNotFound(result.value.stderr)) return Result.ok(null);
+  const checked = requireCleanExit(result, 'glab issue view');
+  if (!checked.ok) return Result.error(checked.error);
+  const json = parseCliJson<GlabIssueResponse>(checked.value.stdout, 'glab issue');
+  if (!json.ok) return Result.error(json.error);
+  const parsedJson = json.value;
   const notes = await fetchGitLabNotes(spawn, parsed);
   if (notes.failure !== undefined) {
     logger?.warn(`could not list GitLab notes for ${url}: ${notes.failure} — proceeding without comments`);

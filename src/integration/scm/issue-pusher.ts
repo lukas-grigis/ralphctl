@@ -8,7 +8,7 @@ import {
   parseUrlFromCliStdout,
 } from '@src/business/scm/pull-request-creator.ts';
 import type { GitRunner } from '@src/integration/io/git-runner.ts';
-import { runCli } from '@src/integration/io/run-cli.ts';
+import { parseCliJson, requireCleanExit, runCli } from '@src/integration/io/run-cli.ts';
 import type { Spawn } from '@src/integration/io/spawn.ts';
 import { type GitLabIssueRef, listGitLabIssueNotes } from '@src/integration/scm/gitlab-notes.ts';
 import { parseGitRemoteUrl, parseIssueUrl } from '@src/integration/scm/issue-fetcher.ts';
@@ -31,7 +31,6 @@ import { parseGitRemoteUrl, parseIssueUrl } from '@src/integration/scm/issue-fet
  */
 
 const CLI_TIMEOUT_MS = 30_000;
-const UNKNOWN_ERROR = 'unknown error';
 
 interface GhComment {
   readonly body?: string;
@@ -41,33 +40,19 @@ interface GhIssueCommentsResponse {
   readonly comments?: readonly GhComment[];
 }
 
-const cliFailed = (noun: string, stderr: string, extra?: string): StorageError =>
-  new StorageError({
-    subCode: 'io',
-    message:
-      extra === undefined
-        ? `${noun} failed: ${stderr.trim() || UNKNOWN_ERROR}`
-        : `${noun} failed: ${stderr.trim() || UNKNOWN_ERROR} (${extra})`,
-  });
-
 const commentGitHub = async (
   spawn: Spawn,
   url: string,
   body: string,
   parsed: { owner: string; repo: string; number: number }
 ): Promise<Result<void, StorageError>> => {
-  // `gh issue comment <number> --repo <owner>/<repo> --body-file -` reads body from stdin.
   const r = await runCli(
     spawn,
     'gh',
     ['issue', 'comment', String(parsed.number), '--repo', `${parsed.owner}/${parsed.repo}`, '--body-file', '-'],
     { stdin: body, timeoutMs: CLI_TIMEOUT_MS }
   );
-  if (!r.ok) return Result.error(r.error);
-  if (r.value.exitCode !== 0) {
-    return Result.error(cliFailed('gh issue comment', r.value.stderr, `url=${url}`));
-  }
-  return Result.ok(undefined);
+  return requireCleanExit(r, 'gh issue comment', `url=${url}`).map(() => undefined);
 };
 
 const commentGitLab = async (
@@ -76,10 +61,8 @@ const commentGitLab = async (
   body: string,
   parsed: { hostname: string; owner: string; repo: string; number: number }
 ): Promise<Result<void, StorageError>> => {
-  // `glab issue comment <number> --repo <host>/<owner>/<repo> --message <body>` — glab doesn't
-  // accept the body via stdin (and has no `--body` flag), so we pass it as the `--message` value. Markdown / newlines survive because
-  // spawn marshals each argv element as a separate exec arg (no shell parsing). The host MUST be
-  // prefixed — without it glab defaults to gitlab.com and a self-hosted issue 401s / 404s.
+  // glab has no stdin form for a comment, so the body rides `--message`. The host MUST prefix
+  // `--repo`, or glab defaults to gitlab.com and a self-hosted issue 401s / 404s.
   const r = await runCli(
     spawn,
     'glab',
@@ -94,11 +77,7 @@ const commentGitLab = async (
     ],
     { timeoutMs: CLI_TIMEOUT_MS }
   );
-  if (!r.ok) return Result.error(r.error);
-  if (r.value.exitCode !== 0) {
-    return Result.error(cliFailed('glab issue comment', r.value.stderr, `url=${url}`));
-  }
-  return Result.ok(undefined);
+  return requireCleanExit(r, 'glab issue comment', `url=${url}`).map(() => undefined);
 };
 
 const resolveOriginFromGit = async (
@@ -130,16 +109,16 @@ const createGitHub = async (
   title: string,
   body: string
 ): Promise<Result<{ url: string }, StorageError>> => {
-  const r = await runCli(
-    spawn,
-    'gh',
-    ['issue', 'create', '--repo', `${origin.owner}/${origin.repo}`, '--title', title, '--body-file', '-'],
-    { stdin: body, timeoutMs: CLI_TIMEOUT_MS }
+  const r = requireCleanExit(
+    await runCli(
+      spawn,
+      'gh',
+      ['issue', 'create', '--repo', `${origin.owner}/${origin.repo}`, '--title', title, '--body-file', '-'],
+      { stdin: body, timeoutMs: CLI_TIMEOUT_MS }
+    ),
+    'gh issue create'
   );
   if (!r.ok) return Result.error(r.error);
-  if (r.value.exitCode !== 0) {
-    return Result.error(cliFailed('gh issue create', r.value.stderr));
-  }
   const url = parseUrlFromCliStdout(r.value.stdout);
   if (url === null) {
     return Result.error(new StorageError({ subCode: 'io', message: 'gh issue create succeeded but emitted no URL' }));
@@ -154,25 +133,25 @@ const createGitLab = async (
   body: string
 ): Promise<Result<{ url: string }, StorageError>> => {
   // `--repo HOST/OWNER/REPO` so a self-hosted host is not sent to gitlab.com.
-  const r = await runCli(
-    spawn,
-    'glab',
-    [
-      'issue',
-      'create',
-      '--repo',
-      `${origin.hostname}/${origin.owner}/${origin.repo}`,
-      '--title',
-      title,
-      '--description',
-      body,
-    ],
-    { timeoutMs: CLI_TIMEOUT_MS }
+  const r = requireCleanExit(
+    await runCli(
+      spawn,
+      'glab',
+      [
+        'issue',
+        'create',
+        '--repo',
+        `${origin.hostname}/${origin.owner}/${origin.repo}`,
+        '--title',
+        title,
+        '--description',
+        body,
+      ],
+      { timeoutMs: CLI_TIMEOUT_MS }
+    ),
+    'glab issue create'
   );
   if (!r.ok) return Result.error(r.error);
-  if (r.value.exitCode !== 0) {
-    return Result.error(cliFailed('glab issue create', r.value.stderr));
-  }
   const url = parseUrlFromCliStdout(r.value.stdout);
   if (url === null) {
     return Result.error(new StorageError({ subCode: 'io', message: 'glab issue create succeeded but emitted no URL' }));
@@ -184,46 +163,40 @@ const listGitHubComments = async (
   spawn: Spawn,
   parsed: { owner: string; repo: string; number: number }
 ): Promise<Result<readonly string[], StorageError>> => {
-  const result = await runCli(
-    spawn,
-    'gh',
-    [
-      'issue',
-      'view',
-      String(parsed.number),
-      '--repo',
-      `${parsed.owner}/${parsed.repo}`,
-      '--json',
-      'title,body,state,url,comments',
-    ],
-    { timeoutMs: CLI_TIMEOUT_MS }
+  const result = requireCleanExit(
+    await runCli(
+      spawn,
+      'gh',
+      [
+        'issue',
+        'view',
+        String(parsed.number),
+        '--repo',
+        `${parsed.owner}/${parsed.repo}`,
+        '--json',
+        'title,body,state,url,comments',
+      ],
+      { timeoutMs: CLI_TIMEOUT_MS }
+    ),
+    'gh issue view'
   );
   if (!result.ok) return Result.error(result.error);
-  if (result.value.exitCode !== 0) {
-    return Result.error(cliFailed('gh issue view', result.value.stderr));
-  }
-  let parsedJson: GhIssueCommentsResponse;
-  try {
-    parsedJson = JSON.parse(result.value.stdout) as GhIssueCommentsResponse;
-  } catch (cause) {
-    return Result.error(
-      new StorageError({
-        subCode: 'parse',
-        message: 'failed to parse gh issue response',
-        cause,
-      })
-    );
-  }
-  return Result.ok((parsedJson.comments ?? []).map((c) => c.body ?? ''));
+  return parseCliJson<GhIssueCommentsResponse>(result.value.stdout, 'gh issue').map((json) =>
+    (json.comments ?? []).map((c) => c.body ?? '')
+  );
 };
 
 const listGitLabComments = async (
   spawn: Spawn,
   parsed: GitLabIssueRef
-): Promise<Result<readonly string[], StorageError>> => {
-  const notes = await listGitLabIssueNotes(spawn, parsed);
-  if (!notes.ok) return Result.error(notes.error);
-  return Result.ok(notes.value.map((n) => n.body));
+): Promise<Result<readonly string[], StorageError>> =>
+  (await listGitLabIssueNotes(spawn, parsed)).map((notes) => notes.map((n) => n.body));
+
+const parseIssueUrlOrError = (url: string): Result<NonNullable<ReturnType<typeof parseIssueUrl>>, StorageError> => {
+  const parsed = parseIssueUrl(url);
+  return parsed === null
+    ? Result.error(new StorageError({ subCode: 'parse', message: `unsupported issue URL: ${url}` }))
+    : Result.ok(parsed);
 };
 
 export interface IssuePusherDeps {
@@ -252,30 +225,16 @@ export const createIssuePusher = (deps: IssuePusherDeps): IssuePusher => ({
   },
 
   async listComments(url) {
-    const parsed = parseIssueUrl(url);
-    if (parsed === null) {
-      return Result.error(
-        new StorageError({
-          subCode: 'parse',
-          message: `unsupported issue URL: ${url}`,
-        })
-      );
-    }
-    if (parsed.host === 'github') return listGitHubComments(deps.spawn, parsed);
-    return listGitLabComments(deps.spawn, parsed);
+    const parsed = parseIssueUrlOrError(url);
+    if (!parsed.ok) return Result.error(parsed.error);
+    if (parsed.value.host === 'github') return listGitHubComments(deps.spawn, parsed.value);
+    return listGitLabComments(deps.spawn, parsed.value);
   },
 
   async comment(url, { body }) {
-    const parsed = parseIssueUrl(url);
-    if (parsed === null) {
-      return Result.error(
-        new StorageError({
-          subCode: 'parse',
-          message: `unsupported issue URL: ${url}`,
-        })
-      );
-    }
-    if (parsed.host === 'github') return commentGitHub(deps.spawn, url, body, parsed);
-    return commentGitLab(deps.spawn, url, body, parsed);
+    const parsed = parseIssueUrlOrError(url);
+    if (!parsed.ok) return Result.error(parsed.error);
+    if (parsed.value.host === 'github') return commentGitHub(deps.spawn, url, body, parsed.value);
+    return commentGitLab(deps.spawn, url, body, parsed.value);
   },
 });
