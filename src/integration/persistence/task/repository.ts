@@ -82,8 +82,7 @@ export const createFsTaskRepository = (deps: FsTaskRepositoryDeps): TaskReposito
     async findBySprintId(sprintId) {
       const all = await readAll(sprintId);
       if (!all.ok) return Result.error(all.error);
-      const ordered = [...all.value].sort((a, b) => a.order - b.order);
-      return Result.ok(ordered);
+      return Result.ok(all.value.toSorted((a, b) => a.order - b.order));
     },
 
     async saveAll(sprintId, tasks) {
