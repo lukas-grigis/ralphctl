@@ -29,14 +29,17 @@ export const createDoctorFlow = (deps: DoctorDeps): Element<DoctorCtx> =>
   leaf<DoctorCtx, DoctorInput, DoctorReport>('doctor', {
     useCase: {
       async execute(input) {
-        const probes: ProbeResult[] = [];
-
-        probes.push(...(await probeStorageGroup(input)));
-        probes.push(probeNodeVersion(deps.nodeVersion));
-        probes.push(...(await probeSettingsGroup(deps)));
-        probes.push(...(await probeVcsToolingGroup(deps)));
-        probes.push(...(await probeAiProvidersGroup(deps)));
-        probes.push(...(await probeRepositoriesAndIntegrityGroup(deps)));
+        // Groups are independent and mostly wait on child processes (`gh auth status`, provider
+        // auth probes), so they run concurrently; `Promise.all` keeps the rendering order.
+        const groups = await Promise.all([
+          probeStorageGroup(input),
+          [probeNodeVersion(deps.nodeVersion)],
+          probeSettingsGroup(deps),
+          probeVcsToolingGroup(deps),
+          probeAiProvidersGroup(deps),
+          probeRepositoriesAndIntegrityGroup(deps),
+        ]);
+        const probes: readonly ProbeResult[] = groups.flat();
 
         const hasFailures = probes.some((p) => p.status === 'fail');
         // 'unknown' rows (the environment can't answer, not a defect) don't count against
