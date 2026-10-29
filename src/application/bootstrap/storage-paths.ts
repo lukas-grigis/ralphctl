@@ -7,28 +7,14 @@ import { ValidationError } from '@src/domain/value/error/validation-error.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
 
 /**
- * On-disk layout of the ralphctl home directory:
+ * The single source of truth for the ralphctl home layout (entry naming inside `data/` is in
+ * `.claude/docs/ARCHITECTURE.md`):
  *
- *   <home>/.ralphctl/
- *     data/                 ← root passed to persistence repositories
- *       projects/<id>.json
- *       sprints/<id>/{sprint,execution,tasks}.json
- *       runs/<flow>/<run-id>/{prompt.md,body.txt}
- *                            ← per-run forensic artifacts for non-sprint flows
- *                              (detect-scripts today; readiness / detect-skills follow).
- *                              Symmetric with the sprint chain.log idea — survives the run,
- *                              user-managed lifecycle (rm -rf at will, no auto-GC).
- *     config/               ← reserved for later (settings, profiles)
- *     state/                ← ephemeral coordination state (locks, run metadata)
- *       locks/              ← advisory file locks (per-sprint and per-repository)
- *
- * This module is the single source of truth for those paths. Composition root reads them at
- * startup and threads `dataRoot` into the persistence repository factories. `stateRoot` is
- * threaded into the harness chains for lock acquisition.
- *
- * Home override: `RALPHCTL_HOME` env var, when set to an absolute path, replaces the entire
- * `<home>/.ralphctl` prefix (an unexpanded `${VAR}` / `$(cmd)` in it is refused). Useful for
- * integration tests that spawn real subprocesses.
+ *   <home>/.ralphctl/          ← or `$RALPHCTL_HOME` (absolute; an unexpanded `${VAR}` / `$(cmd)` is refused)
+ *     data/                    ← persistence root: projects/, sprints/, runs/, memory/
+ *     config/                  ← settings.json
+ *     state/locks/             ← advisory file locks
+ *     skills/  agents/         ← operator drop-ins
  */
 
 export const APP_ROOT_DIR = '.ralphctl';
@@ -50,48 +36,25 @@ export interface StoragePaths {
   readonly appRoot: AbsolutePath;
   /** `<appRoot>/data` — root for persistence repositories (projects + sprints). */
   readonly dataRoot: AbsolutePath;
-  /** `<appRoot>/config` — reserved for later. */
+  /** `<appRoot>/config` — `settings.json`. */
   readonly configRoot: AbsolutePath;
   /** `<appRoot>/state` — root for ephemeral coordination state. */
   readonly stateRoot: AbsolutePath;
   /** `<appRoot>/state/locks` — advisory file locks. */
   readonly locksRoot: AbsolutePath;
   /**
-   * `<dataRoot>/runs` — per-flow forensic artifacts for non-sprint flows (rendered prompt,
-   * raw AI response body). Sprint flows persist their own trace under `<dataRoot>/sprints/<id>/`;
-   * `runsRoot` covers the one-shot flows that previously left nothing on disk.
+   * `<dataRoot>/runs/<flow>/<run-id>/` — forensic artifacts (rendered prompt, raw AI body) of the
+   * one-shot flows. User-managed lifecycle: never auto-collected.
    */
   readonly runsRoot: AbsolutePath;
-  /**
-   * `<dataRoot>/memory` — durable, project-scoped memory ledger. Each project keeps its append-only
-   * NDJSON at `<dataRoot>/memory/<projectId>/learnings.ndjson`, holding BOTH `<learning>` and
-   * `<decision>` records (discriminated by the row's `kind` tag) plus a derived, human-browsable
-   * `learnings.md` mirror. Under `dataRoot` (not `state`) because this memory survives across
-   * sprints; user-managed lifecycle.
-   */
+  /** `<dataRoot>/memory` — per-project learnings ledgers; under `data/` because they outlive sprints. */
   readonly memoryRoot: AbsolutePath;
   /**
-   * `<appRoot>/skills` — global, provider-specific operator drop-in skills. The operator
-   * authors `SKILL.md` folders under a per-provider subdirectory (`<skillsRoot>/<providerDir>/
-   * <name>/SKILL.md`); at flow launch the resolved provider's subdir is installed into the
-   * target repo through the same {@link SkillsAdapter} path as bundled skills (same `ralphctl-`
-   * namespace, same `.git/info/exclude` wildcard, same tracked uninstall). There is no
-   * per-project operator location — this global root is the single source.
-   *
-   * NOT created by `ensureStorageRoots`: the directory is operator-authored, and a missing
-   * directory is a valid empty source (no operator skills configured), not an error.
+   * `<appRoot>/skills/<providerDir>/<name>/SKILL.md` — operator drop-in skills, installed like the
+   * bundled ones. Not created by `ensureStorageRoots`: a missing dir is a valid empty source.
    */
   readonly operatorSkillsRoot: AbsolutePath;
-  /**
-   * `<appRoot>/agents` — global, provider-agnostic operator drop-in agent definitions. The
-   * operator authors `<name>.md` files directly under this root (no per-provider subdirectory —
-   * an agent definition's body is provider-agnostic; only the per-provider renderer's placement
-   * differs); at flow launch these compose with the bundled set through
-   * {@link composeAgentDefinitionSources} in `agents/_engine/compose-agent-definition-sources.ts`.
-   *
-   * NOT created by `ensureStorageRoots`: the directory is operator-authored, and a missing
-   * directory is a valid empty source (no operator agent definitions configured), not an error.
-   */
+  /** `<appRoot>/agents/<name>.md` — provider-agnostic operator agent definitions; not created either. */
   readonly operatorAgentDefinitionsRoot: AbsolutePath;
 }
 
@@ -145,33 +108,26 @@ export const resolveStoragePaths = (deps: ResolveStoragePathsDeps = {}): Result<
  * storagePathsFromRoot(...)`. Pure — does not touch the filesystem.
  */
 export const storagePathsFromRoot = (appRoot: AbsolutePath): Result<StoragePaths, ValidationError> => {
-  const dataRoot = AbsolutePath.parse(join(String(appRoot), DATA_SUBDIR));
-  if (!dataRoot.ok) return Result.error(dataRoot.error);
-  const configRoot = AbsolutePath.parse(join(String(appRoot), CONFIG_SUBDIR));
-  if (!configRoot.ok) return Result.error(configRoot.error);
-  const stateRoot = AbsolutePath.parse(join(String(appRoot), STATE_SUBDIR));
-  if (!stateRoot.ok) return Result.error(stateRoot.error);
-  const locksRoot = AbsolutePath.parse(join(String(stateRoot.value), LOCKS_SUBDIR));
-  if (!locksRoot.ok) return Result.error(locksRoot.error);
-  const runsRoot = AbsolutePath.parse(join(String(dataRoot.value), RUNS_SUBDIR));
-  if (!runsRoot.ok) return Result.error(runsRoot.error);
-  const memoryRoot = AbsolutePath.parse(join(String(dataRoot.value), MEMORY_SUBDIR));
-  if (!memoryRoot.ok) return Result.error(memoryRoot.error);
-  const operatorSkillsRoot = AbsolutePath.parse(join(String(appRoot), SKILLS_SUBDIR));
-  if (!operatorSkillsRoot.ok) return Result.error(operatorSkillsRoot.error);
-  const operatorAgentDefinitionsRoot = AbsolutePath.parse(join(String(appRoot), AGENTS_SUBDIR));
-  if (!operatorAgentDefinitionsRoot.ok) return Result.error(operatorAgentDefinitionsRoot.error);
+  const dataRoot = child(appRoot, DATA_SUBDIR);
+  const stateRoot = child(appRoot, STATE_SUBDIR);
   return Result.ok({
     appRoot,
-    dataRoot: dataRoot.value,
-    configRoot: configRoot.value,
-    stateRoot: stateRoot.value,
-    locksRoot: locksRoot.value,
-    runsRoot: runsRoot.value,
-    memoryRoot: memoryRoot.value,
-    operatorSkillsRoot: operatorSkillsRoot.value,
-    operatorAgentDefinitionsRoot: operatorAgentDefinitionsRoot.value,
-  }) as Result<StoragePaths, ValidationError>;
+    dataRoot,
+    configRoot: child(appRoot, CONFIG_SUBDIR),
+    stateRoot,
+    locksRoot: child(stateRoot, LOCKS_SUBDIR),
+    runsRoot: child(dataRoot, RUNS_SUBDIR),
+    memoryRoot: child(dataRoot, MEMORY_SUBDIR),
+    operatorSkillsRoot: child(appRoot, SKILLS_SUBDIR),
+    operatorAgentDefinitionsRoot: child(appRoot, AGENTS_SUBDIR),
+  });
+};
+
+/** A fixed segment joined onto an absolute path is always absolute, so the throw is unreachable. */
+const child = (base: AbsolutePath, name: string): AbsolutePath => {
+  const path = AbsolutePath.parse(join(String(base), name));
+  if (!path.ok) throw path.error;
+  return path.value;
 };
 
 /**
