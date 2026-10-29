@@ -41,20 +41,7 @@
  * `muse-spark-1.2-contributor-free` and added seven; the two with a same-family successor are
  * remapped. The new ids are listed, not health-probed.
  */
-export type OpencodeModel =
-  | 'opencode/big-pickle'
-  | 'opencode/exo-free'
-  | 'opencode/ling-3.0-flash-fin-free'
-  | 'opencode/ling-3.1-flash-free'
-  | 'opencode/longcat-2.5-preview-free'
-  | 'opencode/mimo-v2.6-flash-free'
-  | 'opencode/muse-spark-1.3-contributor-free'
-  | 'opencode/nemotron-3-ultra-free'
-  | 'opencode/nemotron-3.5-lightning-free'
-  | 'opencode/space-bunny-free'
-  | 'opencode/step-5-preview-free';
-
-export const OPENCODE_MODELS: readonly OpencodeModel[] = [
+export const OPENCODE_MODELS = [
   'opencode/big-pickle',
   'opencode/exo-free',
   'opencode/ling-3.0-flash-fin-free',
@@ -67,6 +54,8 @@ export const OPENCODE_MODELS: readonly OpencodeModel[] = [
   'opencode/space-bunny-free',
   'opencode/step-5-preview-free',
 ] as const;
+
+export type OpencodeModel = (typeof OPENCODE_MODELS)[number];
 
 /**
  * Narrow to a catalogued free-tier id — i.e. "is this one of the ids ralphctl itself ships as a
