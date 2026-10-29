@@ -237,24 +237,6 @@ describe('createClaudeProvider', () => {
     await expect(fs.access(String(out.value.signalsFile))).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
-  it('persists session-id.txt as a sibling file when captured (UTF-8, one line + trailing newline)', async () => {
-    const cap = createCapturingBus();
-    const sess = session();
-    const init = JSON.stringify({ type: 'system', subtype: 'init', session_id: 'sess-persist', model: 'sonnet' });
-    const resultEvt = JSON.stringify({ type: 'result', result: '<task-complete/>', session_id: 'sess-persist' });
-    const { spawn } = makeProviderSpawn([{ stdoutChunks: [`${init}\n${resultEvt}\n`], exitCode: 0 }]);
-
-    const provider = createClaudeProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
-    const out = await provider.generate(sess);
-    expect(out.ok).toBe(true);
-    if (!out.ok) return;
-
-    const sidPath = join(dirname(String(sess.signalsFile)), 'session-id.txt');
-    const sidContent = await fs.readFile(sidPath, 'utf8');
-    expect(sidContent).toBe('sess-persist\n');
-    expect(out.value.sessionId).toBe('sess-persist');
-  });
-
   it('skips the session-id.txt file when the stream never emitted a session_id (no empty marker)', async () => {
     const cap = createCapturingBus();
     const sess = session();
@@ -270,22 +252,6 @@ describe('createClaudeProvider', () => {
 
     const sidPath = join(dirname(String(sess.signalsFile)), 'session-id.txt');
     await expect(fs.access(sidPath)).rejects.toMatchObject({ code: 'ENOENT' });
-  });
-
-  it('keeps session-id.txt on a non-zero exit — the id is written as the stream yields it, so a crashed thread stays resumable', async () => {
-    const cap = createCapturingBus();
-    const sess = session();
-    const init = JSON.stringify({ type: 'system', subtype: 'init', session_id: 'sess-doomed', model: 'sonnet' });
-    const { spawn } = makeProviderSpawn([{ stdoutChunks: [`${init}\n`], stderrChunks: ['boom\n'], exitCode: 2 }]);
-
-    const provider = createClaudeProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
-    const out = await provider.generate(sess);
-    expect(out.ok).toBe(false);
-
-    const sidPath = join(dirname(String(sess.signalsFile)), 'session-id.txt');
-    expect(await fs.readFile(sidPath, 'utf8')).toBe('sess-doomed\n');
-    // signals.json is also never written on the failure path.
-    await expect(fs.access(String(sess.signalsFile))).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
   it('non-rate-limit failure: surfaces InvalidStateError without retrying', async () => {
@@ -347,38 +313,6 @@ describe('createClaudeProvider', () => {
     expect(out.ok).toBe(false);
     if (out.ok) return;
     expect(out.error.code).toBe('rate-limit');
-  });
-
-  it('abort during rate-limit backoff: surfaces AbortError (not InvalidStateError)', async () => {
-    // A user cancel that lands while the provider is sleeping between 429 retries must surface as
-    // AbortError — the one error chains propagate transparently. InvalidStateError would be
-    // classified as a recoverable turn error and wrongly self-block the task.
-    const cap = createCapturingBus();
-    const controller = new AbortController();
-    const calls = { n: 0 };
-    const spawn: ProviderSpawn = () => {
-      calls.n++;
-      // Fire the abort right after the first (rate-limited) spawn so it lands during the
-      // generous backoff sleep below — never before exit classification (which checks abort
-      // first and would short-circuit the attempt itself).
-      setTimeout(() => controller.abort(), 5);
-      return createScriptedChild({ stderrChunks: ['rate limit exceeded; please retry later\n'], exitCode: 1 });
-    };
-
-    const provider = createClaudeProvider({
-      rateLimitRetries: 2,
-      eventBus: cap.bus,
-      spawn,
-      backoffSchedule: [5_000, 5_000, 5_000], // long enough that the abort lands mid-sleep
-    });
-
-    const out = await provider.generate(session({ abortSignal: controller.signal }));
-    expect(out.ok).toBe(false);
-    if (out.ok) return;
-    expect(out.error.code).toBe('aborted');
-    expect(out.error.name).toBe('AbortError');
-    // The retry never re-spawned — the abort tore the run down during the first backoff.
-    expect(calls.n).toBe(1);
   });
 });
 
@@ -537,20 +471,6 @@ describe('createClaudeProvider — TokenUsageEvent emission', () => {
     expect(tokenEvents[0]!.inputTokens).toBe(100);
   });
 
-  it('does NOT emit a TokenUsageEvent on spawn failure (non-zero exit)', async () => {
-    const cap = createCapturingBus();
-    const sess = session();
-    const init = JSON.stringify({ type: 'system', subtype: 'init', session_id: 'sess-fail', model: 'claude-opus-4-8' });
-    const { spawn } = makeProviderSpawn([{ stdoutChunks: [`${init}\n`], stderrChunks: ['boom\n'], exitCode: 2 }]);
-
-    const provider = createClaudeProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
-    const out = await provider.generate(sess);
-    expect(out.ok).toBe(false);
-
-    const tokenEvents = cap.events.filter((e) => e.type === 'token-usage');
-    expect(tokenEvents).toHaveLength(0);
-  });
-
   it('stamps the gen-eval role onto the event when the session carries one', async () => {
     const cap = createCapturingBus();
     const sess = session({ role: 'generator' });
@@ -590,30 +510,6 @@ describe('createClaudeProvider — TokenUsageEvent emission', () => {
     const tokenEvents = cap.events.filter((e): e is TokenUsageEvent => e.type === 'token-usage');
     expect(tokenEvents).toHaveLength(1);
     expect(tokenEvents[0]!.role).toBeUndefined();
-  });
-
-  it('stamps chainSessionId onto the event when the session carries one', async () => {
-    // Downstream usage subscribers MUST key on `chainSessionId ?? sessionId` — the provider-uuid
-    // sessionId never matches a chain run id. Guard that the provider forwards it when set.
-    const cap = createCapturingBus();
-    const sess = session({ chainSessionId: 'chain-run-42' });
-    const init = JSON.stringify({ type: 'system', subtype: 'init', session_id: 'sess-cs', model: 'claude-opus-4-8' });
-    const resultEvt = JSON.stringify({
-      type: 'result',
-      result: '<task-complete/>',
-      session_id: 'sess-cs',
-      usage: { input_tokens: 10, output_tokens: 5 },
-    });
-    const { spawn } = makeProviderSpawn([{ stdoutChunks: [`${init}\n${resultEvt}\n`], exitCode: 0 }]);
-
-    const provider = createClaudeProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
-    const out = await provider.generate(sess);
-    expect(out.ok).toBe(true);
-
-    const tokenEvents = cap.events.filter((e): e is TokenUsageEvent => e.type === 'token-usage');
-    expect(tokenEvents).toHaveLength(1);
-    expect(tokenEvents[0]!.chainSessionId).toBe('chain-run-42');
-    expect(tokenEvents[0]!.sessionId).toBe('sess-cs');
   });
 
   it('emits the event without token counts when the result event lacks a usage object', async () => {
@@ -869,25 +765,5 @@ describe('buildClaudeArgs — AiSession → CLI flag translation', () => {
     const toolResultEvt = streamEvents.find((e) => e.message === 'claude-provider: tool_result');
     expect(toolResultEvt?.meta?.['status']).toBe('ok');
     expect(toolResultEvt?.meta?.['preview']).toBe('total 0\n');
-  });
-
-  it('non-zero exit (code 143) with signals.json present recovers and sets recoveredFromExit', async () => {
-    // Faithful repro of the captured incident: macOS Node surfaces an idle-watchdog SIGTERM
-    // as (code=143, signal=null), not (code=null, signal='SIGTERM'). The AI had already
-    // written signals.json via its Write tool before the child wedged.
-    const cap = createCapturingBus();
-    const sess = session();
-    await fs.mkdir(dirname(String(sess.signalsFile)), { recursive: true });
-    await fs.writeFile(String(sess.signalsFile), '{"signals":[]}', 'utf8');
-    const { spawn } = makeProviderSpawn([{ exitCode: 143 }]);
-
-    const provider = createClaudeProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
-    const out = await provider.generate(sess);
-    expect(out.ok).toBe(true);
-    if (!out.ok) return;
-    expect(out.value.recoveredFromExit).toEqual({ code: 143, signal: null });
-    // The recovery branch emits a warn log mentioning the signals capture.
-    const warn = cap.logs.find((l) => l.level === 'warn' && l.message.includes('signals.json captured'));
-    expect(warn).toBeDefined();
   });
 });

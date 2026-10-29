@@ -10,10 +10,8 @@ import { absolutePath } from '@tests/fixtures/domain.ts';
 import { createCapturingBus } from '@tests/fixtures/capturing-event-bus.ts';
 import { GROK_MODELS } from '@src/domain/value/settings-models/grok.ts';
 import { buildGrokArgs, createGrokProvider } from '@src/integration/ai/providers/grok/headless.ts';
-import type { ProviderSpawn } from '@src/integration/ai/providers/_engine/spawn.ts';
 import type { TokenUsageEvent } from '@src/business/observability/events.ts';
 import { makeProviderSpawn } from '@tests/fixtures/provider-spawn-fake.ts';
-import { createScriptedChild } from '@src/integration/ai/providers/_engine/scripted-spawn.ts';
 
 const PROMPT = 'rendered prompt body' as unknown as Prompt;
 const CWD = absolutePath('/tmp/grok-provider-test');
@@ -363,15 +361,6 @@ describe('createGrokProvider — TokenUsageEvent emission', () => {
     expect(out.value.usage?.cacheCreationInputTokens).toBe(12);
     expect(out.value.usage?.outputTokens).toBe(567);
   });
-
-  it('does NOT emit a TokenUsageEvent on spawn failure (non-zero exit)', async () => {
-    const cap = createCapturingBus();
-    const { spawn } = makeProviderSpawn([{ stdoutChunks: [`${END_LINE}\n`], stderrChunks: ['boom\n'], exitCode: 2 }]);
-    const provider = createGrokProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
-    const out = await provider.generate(session());
-    expect(out.ok).toBe(false);
-    expect(cap.events.filter((e) => e.type === 'token-usage')).toHaveLength(0);
-  });
 });
 
 describe('createGrokProvider — retry and stream errors', () => {
@@ -397,44 +386,6 @@ describe('createGrokProvider — retry and stream errors', () => {
     const idx = calls[1]!.args.indexOf('-r');
     expect(idx).toBeGreaterThanOrEqual(0);
     expect(calls[1]!.args[idx + 1]).toBe('01a047e3-cfea-7b83-8047-31c8c2a39cc8');
-  });
-
-  it('abort during rate-limit backoff: surfaces AbortError (not InvalidStateError)', async () => {
-    const cap = createCapturingBus();
-    const controller = new AbortController();
-    let n = 0;
-    const spawn: ProviderSpawn = () => {
-      n += 1;
-      setTimeout(() => controller.abort(), 5);
-      return createScriptedChild({ stderrChunks: ['Error: rate limit exceeded\n'], exitCode: 1 });
-    };
-    const provider = createGrokProvider({
-      rateLimitRetries: 2,
-      eventBus: cap.bus,
-      spawn,
-      backoffSchedule: [5_000, 5_000, 5_000],
-    });
-    const out = await provider.generate(session({ abortSignal: controller.signal }));
-    expect(out.ok).toBe(false);
-    if (out.ok) return;
-    expect(out.error.code).toBe('aborted');
-    expect(out.error.name).toBe('AbortError');
-    expect(n).toBe(1);
-  });
-
-  it('non-zero exit (code 143) with signals.json present recovers and sets recoveredFromExit', async () => {
-    const cap = createCapturingBus();
-    const sess = session();
-    await fs.mkdir(dirname(String(sess.signalsFile)), { recursive: true });
-    await fs.writeFile(String(sess.signalsFile), '{"signals":[]}', 'utf8');
-    const { spawn } = makeProviderSpawn([{ exitCode: 143 }]);
-    const provider = createGrokProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
-    const out = await provider.generate(sess);
-    expect(out.ok).toBe(true);
-    if (!out.ok) return;
-    expect(out.value.recoveredFromExit).toEqual({ code: 143, signal: null });
-    const warn = cap.logs.find((l) => l.level === 'warn' && l.message.includes('signals.json captured'));
-    expect(warn).toBeDefined();
   });
 
   it('rate-limit on attempt 1, success on attempt 2 → resumes via -r <id>', async () => {

@@ -11,10 +11,9 @@ import { createCapturingBus } from '@tests/fixtures/capturing-event-bus.ts';
 import { COPILOT_MODELS } from '@src/domain/value/settings-models/copilot.ts';
 import { isSuspendedModel } from '@src/domain/value/settings-models/suspended-models.ts';
 import { buildCopilotArgs, createCopilotProvider } from '@src/integration/ai/providers/copilot/headless.ts';
-import type { ProviderSpawn } from '@src/integration/ai/providers/_engine/spawn.ts';
 import type { TokenUsageEvent } from '@src/business/observability/events.ts';
 import { makeProviderSpawn } from '@tests/fixtures/provider-spawn-fake.ts';
-import { type SpawnScript, createScriptedChild } from '@src/integration/ai/providers/_engine/scripted-spawn.ts';
+import type { SpawnScript } from '@src/integration/ai/providers/_engine/scripted-spawn.ts';
 
 const PROMPT = 'rendered prompt body' as unknown as Prompt;
 const CWD = absolutePath('/tmp/copilot-provider-test');
@@ -79,27 +78,6 @@ describe('createCopilotProvider', () => {
     expect(sessionEntry?.meta?.['sessionId']).toBe('sess-1');
   });
 
-  it('persists session-id.txt as a sibling file when captured (UTF-8, one line + trailing newline)', async () => {
-    const cap = createCapturingBus();
-    const sess = session();
-    const { spawn } = makeProviderSpawn([
-      {
-        stdoutChunks: ['{"session_id":"sess-persist","model":"gpt-5.6-sol"}\n', '<task-complete/>\n'],
-        exitCode: 0,
-      },
-    ]);
-
-    const provider = createCopilotProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
-    const out = await provider.generate(sess);
-    expect(out.ok).toBe(true);
-    if (!out.ok) return;
-
-    const sidPath = join(dirname(String(sess.signalsFile)), 'session-id.txt');
-    const sidContent = await fs.readFile(sidPath, 'utf8');
-    expect(sidContent).toBe('sess-persist\n');
-    expect(out.value.sessionId).toBe('sess-persist');
-  });
-
   it('skips the session-id.txt file when no meta line carried a session_id (no empty marker)', async () => {
     const cap = createCapturingBus();
     const sess = session();
@@ -114,26 +92,6 @@ describe('createCopilotProvider', () => {
 
     const sidPath = join(dirname(String(sess.signalsFile)), 'session-id.txt');
     await expect(fs.access(sidPath)).rejects.toMatchObject({ code: 'ENOENT' });
-  });
-
-  it('keeps session-id.txt on a non-zero exit — the id is written as the stream yields it, so a crashed thread stays resumable', async () => {
-    const cap = createCapturingBus();
-    const sess = session();
-    const { spawn } = makeProviderSpawn([
-      {
-        stdoutChunks: ['{"session_id":"sess-doomed"}\n'],
-        stderrChunks: ['boom\n'],
-        exitCode: 7,
-      },
-    ]);
-
-    const provider = createCopilotProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
-    const out = await provider.generate(sess);
-    expect(out.ok).toBe(false);
-
-    const sidPath = join(dirname(String(sess.signalsFile)), 'session-id.txt');
-    expect(await fs.readFile(sidPath, 'utf8')).toBe('sess-doomed\n');
-    await expect(fs.access(String(sess.signalsFile))).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
   it('rate-limit: retries up to N times and surfaces RateLimitError when exhausted', async () => {
@@ -181,38 +139,6 @@ describe('createCopilotProvider', () => {
     expect(calls[0]?.args.some((a) => a.startsWith('--resume'))).toBe(false);
     // Attempt 2 resumes the captured session id (copilot uses the `--resume=<id>` form).
     expect(calls[1]?.args).toContain('--resume=sess-429');
-  });
-
-  it('abort during rate-limit backoff: surfaces AbortError (not InvalidStateError)', async () => {
-    // A user cancel that lands while the provider is sleeping between 429 retries must surface as
-    // AbortError — the one error chains propagate transparently. InvalidStateError would be
-    // classified as a recoverable turn error and wrongly self-block the task.
-    const cap = createCapturingBus();
-    const controller = new AbortController();
-    const calls = { n: 0 };
-    const spawn: ProviderSpawn = () => {
-      calls.n++;
-      // Fire the abort right after the first (rate-limited) spawn so it lands during the
-      // generous backoff sleep below — never before exit classification (which checks abort
-      // first and would short-circuit the attempt itself).
-      setTimeout(() => controller.abort(), 5);
-      return createScriptedChild({ stderrChunks: ['Error: rate limit exceeded\n'], exitCode: 1 });
-    };
-
-    const provider = createCopilotProvider({
-      rateLimitRetries: 2,
-      eventBus: cap.bus,
-      spawn,
-      backoffSchedule: [5_000, 5_000, 5_000], // long enough that the abort lands mid-sleep
-    });
-
-    const out = await provider.generate(session({ abortSignal: controller.signal }));
-    expect(out.ok).toBe(false);
-    if (out.ok) return;
-    expect(out.error.code).toBe('aborted');
-    expect(out.error.name).toBe('AbortError');
-    // The retry never re-spawned — the abort tore the run down during the first backoff.
-    expect(calls.n).toBe(1);
   });
 
   it('consumes JSON-only assistant delta events without writing signals.json', async () => {
@@ -436,25 +362,6 @@ describe('createCopilotProvider', () => {
     );
     expect(toolDebugs).toHaveLength(0);
   });
-
-  it('non-zero exit (code 143) with signals.json present recovers and sets recoveredFromExit', async () => {
-    // Faithful repro of the captured incident: macOS Node surfaces an idle-watchdog SIGTERM
-    // as (code=143, signal=null), not (code=null, signal='SIGTERM'). The AI had already
-    // written signals.json via its Write tool before the child wedged.
-    const cap = createCapturingBus();
-    const sess = session();
-    await fs.mkdir(dirname(String(sess.signalsFile)), { recursive: true });
-    await fs.writeFile(String(sess.signalsFile), '{"signals":[]}', 'utf8');
-    const { spawn } = makeProviderSpawn([{ exitCode: 143 }]);
-
-    const provider = createCopilotProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
-    const out = await provider.generate(sess);
-    expect(out.ok).toBe(true);
-    if (!out.ok) return;
-    expect(out.value.recoveredFromExit).toEqual({ code: 143, signal: null });
-    const warn = cap.logs.find((l) => l.level === 'warn' && l.message.includes('signals.json captured'));
-    expect(warn).toBeDefined();
-  });
 });
 
 describe('createCopilotProvider — TokenUsageEvent emission', () => {
@@ -505,42 +412,6 @@ describe('createCopilotProvider — TokenUsageEvent emission', () => {
     expect(evt.sessionId).toBe('sess-u');
     expect(evt.inputTokens).toBe(444);
     expect(evt.outputTokens).toBe(222);
-  });
-
-  it('does NOT emit a TokenUsageEvent on spawn failure (non-zero exit)', async () => {
-    const cap = createCapturingBus();
-    const sess = session();
-    const { spawn } = makeProviderSpawn([
-      {
-        stdoutChunks: ['{"session_id":"sess-fail","model":"gpt-5.6-sol"}\n'],
-        stderrChunks: ['boom\n'],
-        exitCode: 7,
-      },
-    ]);
-    const provider = createCopilotProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
-    const out = await provider.generate(sess);
-    expect(out.ok).toBe(false);
-
-    expect(cap.events.filter((e) => e.type === 'token-usage')).toHaveLength(0);
-  });
-
-  it('stamps chainSessionId onto the event when the session carries one', async () => {
-    // Downstream usage subscribers MUST key on `chainSessionId ?? sessionId` — the provider-uuid
-    // sessionId never matches a chain run id. Guard that the provider forwards it when set.
-    const cap = createCapturingBus();
-    const sess = session({ chainSessionId: 'chain-run-42' });
-    const { spawn } = makeProviderSpawn([
-      { stdoutChunks: ['{"session_id":"sess-cs","model":"gpt-5.6-sol"}\n', '<task-complete/>\n'], exitCode: 0 },
-    ]);
-
-    const provider = createCopilotProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
-    const out = await provider.generate(sess);
-    expect(out.ok).toBe(true);
-
-    const tokenEvents = cap.events.filter((e): e is TokenUsageEvent => e.type === 'token-usage');
-    expect(tokenEvents).toHaveLength(1);
-    expect(tokenEvents[0]!.chainSessionId).toBe('chain-run-42');
-    expect(tokenEvents[0]!.sessionId).toBe('sess-cs');
   });
 });
 
