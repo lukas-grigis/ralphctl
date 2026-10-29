@@ -1,6 +1,6 @@
 import type { Command } from 'commander';
 import { bootstrapApp } from '@src/application/bootstrap/bootstrap-app.ts';
-import { fail } from '@src/application/ui/cli/report-cli-error.ts';
+import { fail, okOrFail } from '@src/application/ui/cli/report-cli-error.ts';
 import {
   BUNDLED_PROMPT_PARTIALS,
   BUNDLED_PROMPT_TEMPLATES,
@@ -29,10 +29,7 @@ const listPromptsAction = async (): Promise<void> => {
   const loaded: LoadedPrompt[] = [];
   for (const entry of requested) {
     const body = await deps.templateLoader.load(entry.name);
-    if (!body.ok) {
-      fail(body.error.message);
-      return;
-    }
+    if (!okOrFail(body)) return;
     if (body.value.trim().length === 0) {
       fail(`prompt template '${entry.name}' resolved to an empty file — the install is incomplete`);
       return;

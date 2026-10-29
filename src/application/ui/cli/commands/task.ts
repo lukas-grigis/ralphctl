@@ -12,7 +12,7 @@ import { formatDiffStat } from '@src/domain/value/diff-stat.ts';
 import { probeTaskQuarantine, type QuarantineProbe } from '@src/application/ui/shared/prior-work.ts';
 import { TaskId } from '@src/domain/value/id/task-id.ts';
 import { bootstrapApp } from '@src/application/bootstrap/bootstrap-app.ts';
-import { fail } from '@src/application/ui/cli/report-cli-error.ts';
+import { fail, okOrFail } from '@src/application/ui/cli/report-cli-error.ts';
 import {
   resolveSprintAndIdForCli,
   resolveSprintForCli,
@@ -31,10 +31,7 @@ const listTasksAction = async (opts: SprintOpt): Promise<void> => {
   const sprintId = await resolveSprintForCli(opts.sprint, storage.stateRoot);
   if (sprintId === undefined) return;
   const result = await deps.taskRepo.findBySprintId(sprintId);
-  if (!result.ok) {
-    fail(result.error.message);
-    return;
-  }
+  if (!okOrFail(result)) return;
   if (result.value.length === 0) {
     process.stdout.write('(no tasks yet — run plan to generate them)\n');
     return;
@@ -50,10 +47,7 @@ const showTaskAction = async (rawTaskId: string, opts: SprintOpt): Promise<void>
   if (ids === undefined) return;
   const { sprintId, id: taskId } = ids;
   const result = await deps.taskRepo.findById(sprintId, taskId);
-  if (!result.ok) {
-    fail(result.error.message);
-    return;
-  }
+  if (!okOrFail(result)) return;
   process.stdout.write(`${JSON.stringify(result.value, null, 2)}\n`);
 };
 
@@ -67,10 +61,7 @@ const evaluationTaskAction = async (rawTaskId: string, opts: SprintOpt): Promise
   if (ids === undefined) return;
   const { sprintId, id: taskId } = ids;
   const loaded = await deps.taskRepo.findById(sprintId, taskId);
-  if (!loaded.ok) {
-    fail(loaded.error.message);
-    return;
-  }
+  if (!okOrFail(loaded)) return;
 
   const latest = latestRecordedEvaluation(loaded.value);
   if (latest === undefined) {
@@ -170,25 +161,16 @@ const unblockTaskAction = async (rawTaskId: string, opts: UnblockOpts): Promise<
   if (ids === undefined) return;
   const { sprintId, id: taskId } = ids;
   const loaded = await deps.taskRepo.findById(sprintId, taskId);
-  if (!loaded.ok) {
-    fail(loaded.error.message);
-    return;
-  }
+  if (!okOrFail(loaded)) return;
   const sprint = await deps.sprintRepo.findById(sprintId);
-  if (!sprint.ok) {
-    fail(sprint.error.message);
-    return;
-  }
+  if (!okOrFail(sprint)) return;
   const plan = await planPriorWork(deps, sprintId, loaded.value, opts.priorWork);
   const result = await unblockTaskLocked(deps, {
     sprint: sprint.value,
     taskId,
     ...(plan.decision !== undefined ? { priorWork: plan.decision } : {}),
   });
-  if (!result.ok) {
-    fail(result.error.message);
-    return;
-  }
+  if (!okOrFail(result)) return;
   // Planner-authored name echoed back at the terminal — same neutering as the list rows.
   const taskRef = String(result.value.task.id);
   process.stdout.write(

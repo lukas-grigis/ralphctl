@@ -11,7 +11,7 @@ import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import { bootstrapApp } from '@src/application/bootstrap/bootstrap-app.ts';
 import { plural } from '@src/application/ui/shared/plural.ts';
 import { confirmDestructive } from '@src/application/ui/cli/confirm-destructive.ts';
-import { fail } from '@src/application/ui/cli/report-cli-error.ts';
+import { fail, okOrFail } from '@src/application/ui/cli/report-cli-error.ts';
 import { resolveSprintId } from '@src/application/ui/cli/resolve-sprint-selection.ts';
 import { activateSprintUseCase } from '@src/business/sprint/activate-sprint.ts';
 import { reopenDoneSprintUseCase } from '@src/business/sprint/reopen-sprint.ts';
@@ -21,6 +21,8 @@ import { ASSERT_SPRINT_STATUS } from '@src/application/flows/_shared/sprint/asse
 import { createRunner } from '@src/application/chain/run/runner.ts';
 import { ensureCanonicalSprintDir } from '@src/integration/persistence/sprint/repository.ts';
 import { createLastSelectionStore } from '@src/integration/persistence/selection/last-selection-store.ts';
+
+const INVALID_SPRINT_ID = 'invalid sprint id: ';
 
 interface RemoveOpts {
   readonly yes?: boolean;
@@ -39,10 +41,7 @@ const showName = (name: string): string => sanitizeDisplayText(name, DISPLAY_TEX
 const listSprintsAction = async (): Promise<void> => {
   const { deps } = await bootstrapApp();
   const result = await deps.sprintRepo.list();
-  if (!result.ok) {
-    fail(result.error.message);
-    return;
-  }
+  if (!okOrFail(result)) return;
   if (result.value.length === 0) {
     process.stdout.write('(no sprints yet — create one in the TUI)\n');
     return;
@@ -57,24 +56,15 @@ const showSprintAction = async (raw?: string): Promise<void> => {
   const id = await resolveSprintId(raw, storage.stateRoot, {
     missingMessage: 'no current sprint pinned — run `ralphctl sprint set-current <id>` or pass an id',
   });
-  if (!id.ok) {
-    fail(id.error.message);
-    return;
-  }
+  if (!okOrFail(id)) return;
   const result = await deps.sprintRepo.findById(id.value.sprintId);
-  if (!result.ok) {
-    fail(result.error.message);
-    return;
-  }
+  if (!okOrFail(result)) return;
   process.stdout.write(`${JSON.stringify(result.value, null, 2)}\n`);
 };
 
 const removeSprintAction = async (raw: string, opts: RemoveOpts): Promise<void> => {
   const id = SprintId.parse(raw);
-  if (!id.ok) {
-    fail(`invalid sprint id: ${id.error.message}`);
-    return;
-  }
+  if (!okOrFail(id, INVALID_SPRINT_ID)) return;
   // Mirrors the TUI's ConfirmCard gate on the same sprintRemoval.remove call
   // (sprints-view.tsx) — the CLI has no interactive overlay, so a TTY-gated y/N prompt
   // (or --yes for scripts) stands in for it.
@@ -87,10 +77,7 @@ const removeSprintAction = async (raw: string, opts: RemoveOpts): Promise<void> 
 
   const { deps, storage } = await bootstrapApp();
   const result = await deps.sprintRemoval.remove(id.value);
-  if (!result.ok) {
-    fail(result.error.message);
-    return;
-  }
+  if (!okOrFail(result)) return;
   // Clear a dangling pin: leaving the removed sprint in last-selection.json would make every defaulting command (and
   // the next TUI boot) resolve to a ghost.
   const store = createLastSelectionStore(storage.stateRoot);
@@ -105,26 +92,17 @@ const removeSprintAction = async (raw: string, opts: RemoveOpts): Promise<void> 
 
 const activateSprintAction = async (raw: string): Promise<void> => {
   const id = SprintId.parse(raw);
-  if (!id.ok) {
-    fail(`invalid sprint id: ${id.error.message}`);
-    return;
-  }
+  if (!okOrFail(id, INVALID_SPRINT_ID)) return;
   const { deps } = await bootstrapApp();
   const loaded = await deps.sprintRepo.findById(id.value);
-  if (!loaded.ok) {
-    fail(loaded.error.message);
-    return;
-  }
+  if (!okOrFail(loaded)) return;
   const result = await activateSprintUseCase({
     sprint: loaded.value,
     sprintRepo: deps.sprintRepo,
     clock: deps.clock,
     logger: deps.logger,
   });
-  if (!result.ok) {
-    fail(result.error.message);
-    return;
-  }
+  if (!okOrFail(result)) return;
   process.stdout.write(`activated sprint '${result.value.slug}' (${String(result.value.id)})\n`);
 };
 
@@ -134,16 +112,10 @@ const activateSprintAction = async (raw: string): Promise<void> => {
  */
 const reopenSprintAction = async (raw: string): Promise<void> => {
   const id = SprintId.parse(raw);
-  if (!id.ok) {
-    fail(`invalid sprint id: ${id.error.message}`);
-    return;
-  }
+  if (!okOrFail(id, INVALID_SPRINT_ID)) return;
   const { deps } = await bootstrapApp();
   const loaded = await deps.sprintRepo.findById(id.value);
-  if (!loaded.ok) {
-    fail(loaded.error.message);
-    return;
-  }
+  if (!okOrFail(loaded)) return;
   const wasAlreadyReview = loaded.value.status === 'review';
   const result = await reopenDoneSprintUseCase({
     sprint: loaded.value,
@@ -151,10 +123,7 @@ const reopenSprintAction = async (raw: string): Promise<void> => {
     clock: deps.clock,
     logger: deps.logger,
   });
-  if (!result.ok) {
-    fail(result.error.message);
-    return;
-  }
+  if (!okOrFail(result)) return;
   const transitionLine = wasAlreadyReview
     ? `sprint '${result.value.slug}' (${String(result.value.id)}) is already in review — nothing to reopen\n`
     : `reopened sprint '${result.value.slug}' (${String(result.value.id)}) done → review\n`;
@@ -211,38 +180,23 @@ const confirmBlockedTasksOrStop = async (
  */
 const closeSprintAction = async (raw: string, opts: CloseOpts): Promise<void> => {
   const id = SprintId.parse(raw);
-  if (!id.ok) {
-    fail(`invalid sprint id: ${id.error.message}`);
-    return;
-  }
+  if (!okOrFail(id, INVALID_SPRINT_ID)) return;
   const { deps, storage } = await bootstrapApp();
   const loaded = await deps.sprintRepo.findById(id.value);
-  if (!loaded.ok) {
-    fail(loaded.error.message);
-    return;
-  }
+  if (!okOrFail(loaded)) return;
   const sprint = loaded.value;
 
   // Status first, confirm second.
   const closable = assertSprintStatus(sprint, ['review'], ASSERT_SPRINT_STATUS);
-  if (!closable.ok) {
-    fail(closable.error.message);
-    return;
-  }
+  if (!okOrFail(closable)) return;
 
   const blockedTasks = await confirmBlockedTasksOrStop(sprint, deps.taskRepo, opts.yes === true);
   if (blockedTasks === undefined) return;
 
   const sprintDir = AbsolutePath.parse(await ensureCanonicalSprintDir(storage.dataRoot, sprint.id, sprint.slug));
-  if (!sprintDir.ok) {
-    fail(sprintDir.error.message);
-    return;
-  }
+  if (!okOrFail(sprintDir)) return;
   const progressPath = AbsolutePath.parse(join(String(sprintDir.value), 'progress.md'));
-  if (!progressPath.ok) {
-    fail(progressPath.error.message);
-    return;
-  }
+  if (!okOrFail(progressPath)) return;
 
   // Always-on durable narrative-tier refresh, mirroring the TUI launcher: regenerate
   // `learnings.md` from the per-project ledger at close whenever a project resolves.
@@ -302,24 +256,15 @@ const closeSprintAction = async (raw: string, opts: CloseOpts): Promise<void> =>
 
 const setCurrentSprintAction = async (raw: string): Promise<void> => {
   const id = SprintId.parse(raw);
-  if (!id.ok) {
-    fail(`invalid sprint id: ${id.error.message}`);
-    return;
-  }
+  if (!okOrFail(id, INVALID_SPRINT_ID)) return;
   const { deps, storage } = await bootstrapApp();
   const sprint = await deps.sprintRepo.findById(id.value);
-  if (!sprint.ok) {
-    fail(sprint.error.message);
-    return;
-  }
+  if (!okOrFail(sprint)) return;
   // Re-load the project so the persisted selection is internally consistent — set-current
   // must always pin a sprint UNDER its project so the TUI can route to the correct project
   // view first.
   const project = await deps.projectRepo.findById(sprint.value.projectId);
-  if (!project.ok) {
-    fail(`project lookup failed: ${project.error.message}`);
-    return;
-  }
+  if (!okOrFail(project, 'project lookup failed: ')) return;
   const store = createLastSelectionStore(storage.stateRoot);
   await store.write({
     projectId: project.value.id,
@@ -334,21 +279,12 @@ const progressSprintAction = async (raw?: string): Promise<void> => {
   const resolved = await resolveSprintId(raw, storage.stateRoot, {
     missingMessage: 'no current sprint pinned — run `ralphctl sprint set-current <id>` or pass an id',
   });
-  if (!resolved.ok) {
-    fail(resolved.error.message);
-    return;
-  }
+  if (!okOrFail(resolved)) return;
   const sprintId = resolved.value.sprintId;
   const sprint = await deps.sprintRepo.findById(sprintId);
-  if (!sprint.ok) {
-    fail(sprint.error.message);
-    return;
-  }
+  if (!okOrFail(sprint)) return;
   const tasks = await deps.taskRepo.findBySprintId(sprintId);
-  if (!tasks.ok) {
-    fail(tasks.error.message);
-    return;
-  }
+  if (!okOrFail(tasks)) return;
   const execution = await deps.sprintExecutionRepo.findById(sprintId);
   const branchLine = execution.ok
     ? execution.value.branch !== null

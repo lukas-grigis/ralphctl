@@ -7,7 +7,7 @@ import { createTicketRemoveFlow } from '@src/application/flows/remove-ticket/flo
 import { bootstrapApp } from '@src/application/bootstrap/bootstrap-app.ts';
 import { plural } from '@src/application/ui/shared/plural.ts';
 import { confirmDestructive } from '@src/application/ui/cli/confirm-destructive.ts';
-import { fail } from '@src/application/ui/cli/report-cli-error.ts';
+import { fail, okOrFail } from '@src/application/ui/cli/report-cli-error.ts';
 import {
   resolveSprintAndIdForCli,
   resolveSprintForCli,
@@ -31,10 +31,7 @@ const listTicketsAction = async (opts: SprintOpt): Promise<void> => {
   const sprintId = await resolveSprintForCli(opts.sprint, storage.stateRoot);
   if (sprintId === undefined) return;
   const sprint = await deps.sprintRepo.findById(sprintId);
-  if (!sprint.ok) {
-    fail(sprint.error.message);
-    return;
-  }
+  if (!okOrFail(sprint)) return;
   if (sprint.value.tickets.length === 0) {
     process.stdout.write('(no tickets on this sprint yet — add one with `ralphctl ticket add`)\n');
     return;
@@ -50,10 +47,7 @@ const showTicketAction = async (rawTicketId: string, opts: SprintOpt): Promise<v
   if (ids === undefined) return;
   const { sprintId, id: ticketId } = ids;
   const sprint = await deps.sprintRepo.findById(sprintId);
-  if (!sprint.ok) {
-    fail(sprint.error.message);
-    return;
-  }
+  if (!okOrFail(sprint)) return;
   const found = sprint.value.tickets.find((t) => t.id === ticketId);
   if (!found) {
     fail(`ticket ${rawTicketId} not found on sprint ${String(sprintId)}`);

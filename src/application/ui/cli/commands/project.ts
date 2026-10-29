@@ -4,7 +4,7 @@ import { ProjectId } from '@src/domain/value/id/project-id.ts';
 import { bootstrapApp } from '@src/application/bootstrap/bootstrap-app.ts';
 import { plural } from '@src/application/ui/shared/plural.ts';
 import { confirmDestructive } from '@src/application/ui/cli/confirm-destructive.ts';
-import { fail } from '@src/application/ui/cli/report-cli-error.ts';
+import { fail, okOrFail } from '@src/application/ui/cli/report-cli-error.ts';
 import { createLastSelectionStore } from '@src/integration/persistence/selection/last-selection-store.ts';
 
 interface RemoveOpts {
@@ -14,10 +14,7 @@ interface RemoveOpts {
 const listProjectsAction = async (): Promise<void> => {
   const { deps } = await bootstrapApp();
   const result = await deps.projectRepo.list();
-  if (!result.ok) {
-    fail(result.error.message);
-    return;
-  }
+  if (!okOrFail(result)) return;
   if (result.value.length === 0) {
     process.stdout.write('(no projects yet — create one in the TUI)\n');
     return;
@@ -40,24 +37,15 @@ const showProjectAction = async (raw?: string): Promise<void> => {
     effectiveRaw = String(pinned.projectId);
   }
   const id = ProjectId.parse(effectiveRaw);
-  if (!id.ok) {
-    fail(`invalid project id: ${id.error.message}`);
-    return;
-  }
+  if (!okOrFail(id, 'invalid project id: ')) return;
   const result = await deps.projectRepo.findById(id.value);
-  if (!result.ok) {
-    fail(result.error.message);
-    return;
-  }
+  if (!okOrFail(result)) return;
   process.stdout.write(`${JSON.stringify(result.value, null, 2)}\n`);
 };
 
 const removeProjectAction = async (raw: string, opts: RemoveOpts): Promise<void> => {
   const id = ProjectId.parse(raw);
-  if (!id.ok) {
-    fail(`invalid project id: ${id.error.message}`);
-    return;
-  }
+  if (!okOrFail(id, 'invalid project id: ')) return;
   // Mirrors the TUI's ConfirmCard gate on the same projectRepo.remove call
   // (projects-view.tsx) — the CLI has no interactive overlay, so a TTY-gated y/N prompt
   // (or --yes for scripts) stands in for it.
@@ -70,10 +58,7 @@ const removeProjectAction = async (raw: string, opts: RemoveOpts): Promise<void>
 
   const { deps, storage } = await bootstrapApp();
   const result = await deps.projectRepo.remove(id.value);
-  if (!result.ok) {
-    fail(result.error.message);
-    return;
-  }
+  if (!okOrFail(result)) return;
   // Clear a dangling pin: a removed project would otherwise keep resolving as the default for `project show` and
   // re-seed the TUI on next launch.
   const store = createLastSelectionStore(storage.stateRoot);

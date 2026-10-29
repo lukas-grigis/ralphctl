@@ -14,7 +14,7 @@ import { DEMO_MARKER_FILENAME, type SeedDemoSummary, seedDemoWorkspace } from '@
 import { seedDemoSettings, type SeededDemoSettings } from '@src/application/demo/seed-settings.ts';
 import { runCommand } from '@src/integration/io/run-command.ts';
 import { createAtomicWriteFile } from '@src/integration/io/write-file-atomic.ts';
-import { fail } from '@src/application/ui/cli/report-cli-error.ts';
+import { fail, okOrFail } from '@src/application/ui/cli/report-cli-error.ts';
 import { prepareScriptedDemo } from '@src/application/demo/scripted-run.ts';
 import type { ProviderSpawn } from '@src/integration/ai/providers/_engine/spawn.ts';
 
@@ -93,26 +93,17 @@ const demoAction = async (opts: DemoOptions): Promise<void> => {
     { runCommand, writeFile: createAtomicWriteFile() },
     { homeDir: homeDir.value, token: randomUUID().slice(0, 8) }
   );
-  if (!seeded.ok) {
-    fail(`seeding failed: ${seeded.error.message}`);
-    return;
-  }
+  if (!okOrFail(seeded, 'seeding failed: ')) return;
 
   const seededSettings = await seedDemoSettings({ homeDir: homeDir.value });
-  if (!seededSettings.ok) {
-    fail(`settings seeding failed: ${seededSettings.error.message}`);
-    return;
-  }
+  if (!okOrFail(seededSettings, 'settings seeding failed: ')) return;
 
   // Scripted mode rewrites the settings this just wrote (claude-only rows, escalation rungs off) and repoints the
   // seeded verify script / acceptance criterion at portable node one-liners.
   let providerSpawn: ProviderSpawn | undefined;
   if (opts.script === true) {
     const scripted = await prepareScriptedDemo({ homeDir: homeDir.value });
-    if (!scripted.ok) {
-      fail(`scripted demo setup failed: ${scripted.error.message}`);
-      return;
-    }
+    if (!okOrFail(scripted, 'scripted demo setup failed: ')) return;
     providerSpawn = scripted.value.providerSpawn;
   }
 
