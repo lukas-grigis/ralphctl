@@ -299,14 +299,12 @@ export const settleAttemptLeaf = (
         ...projectOptionalSettleFields(ctx, deriveSettleWarning(ctx)),
       };
     },
-    // Cleared via the type-derived per-settle reset (see `sprint-scoped-projection.ts`) —
-    // deliberately distinct from `start-attempt`'s reset: `progress-journal` runs right after this
-    // leaf and still needs `ctx.currentRoundNum` / `ctx.lastEvaluation` / the rest of that bucket.
+    // Not start-attempt's reset: progress-journal runs next and still reads `currentRoundNum` etc.
     output: (ctx, settled) => {
       const tasks = (ctx.tasks ?? []).map((t) => (t.id === settled.id ? (settled as Task) : t));
       return {
         ...ctx,
-        ...resetSettleScratch(),
+        ...resetSettleScratch,
         tasks,
       };
     },
