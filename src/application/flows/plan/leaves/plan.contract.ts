@@ -10,7 +10,7 @@ import type { AiOutputContract } from '@src/integration/ai/contract/_engine/type
 import { wrapLegacySignalArray } from '@src/integration/ai/contract/_engine/legacy-array-migration.ts';
 
 /**
- * Per-leaf I/O contract for the plan flow's interactive AI session — audit-[09]. The session
+ * Per-leaf I/O contract for the plan flow's interactive AI session. The session
  * may emit:
  *
  *   - narrative fan-out: `learning`, `note`, `decision`
@@ -25,9 +25,8 @@ import { wrapLegacySignalArray } from '@src/integration/ai/contract/_engine/lega
  *
  * Migration chain:
  *
- *   `migrations[0]` accepts the legacy top-level-array shape today's leaves synthesise (until
- *   Wave 6 lands the prompt-side contract and the AI writes the canonical wrapper itself) and
- *   wraps it into the `{ schemaVersion, signals }` shape the validator expects.
+ *   `migrations[0]` wraps the legacy top-level-array shape (older forensic artifacts) into the
+ *   `{ schemaVersion, signals }` shape the validator expects.
  */
 
 type PlanSignal = LearningSignal | NoteSignal | DecisionSignal | TaskPlanSignal;
@@ -85,7 +84,7 @@ const planExampleSignals: readonly PlanSignal[] = [
 ];
 
 /**
- * Plan contract — audit-[09]. Composed only from `contract/_engine/` building blocks.
+ * Plan contract. Composed only from `contract/_engine/` building blocks.
  */
 export const planOutputContract: AiOutputContract<PlanSignal> = {
   schemaVersion: 1,

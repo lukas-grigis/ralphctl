@@ -20,7 +20,7 @@ import type { AiOutputContract, SidecarRule } from '@src/integration/ai/contract
 import { wrapLegacySignalArray } from '@src/integration/ai/contract/_engine/legacy-array-migration.ts';
 
 /**
- * Per-leaf I/O contract for the gen-eval evaluator turn — audit-[09]. The evaluator may emit:
+ * Per-leaf I/O contract for the gen-eval evaluator turn. The evaluator may emit:
  *
  *   - narrative fan-out: `change`, `learning`, `note`
  *   - task-lifecycle markers: `task-verified`, `task-blocked`
@@ -139,7 +139,7 @@ const evaluatorExampleSignals: readonly EvaluatorSignal[] = [
 ];
 
 /**
- * Evaluator contract — audit-[09]. Composed only from `contract/_engine/` building blocks.
+ * Evaluator contract. Composed only from `contract/_engine/` building blocks.
  */
 export const evaluatorOutputContract: AiOutputContract<EvaluatorSignal> = {
   schemaVersion: 1,

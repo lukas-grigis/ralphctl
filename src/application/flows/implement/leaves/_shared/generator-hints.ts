@@ -1,8 +1,8 @@
 import type { LearningEntry } from '@src/domain/signal.ts';
 
 /**
- * Compose the same-round generator observations the evaluator receives as ENVIRONMENT HINTS
- * (T5). The block is deliberately unverified context — the `renderGeneratorHintsSection` renderer
+ * Compose the same-round generator observations the evaluator receives as ENVIRONMENT HINTS.
+ * The block is deliberately unverified context — the `renderGeneratorHintsSection` renderer
  * frames it adversarially ("unverified claims — never evidence"), so this helper's only job is to
  * supply clean, compact content. The evaluator still runs every `auto` criterion itself.
  *

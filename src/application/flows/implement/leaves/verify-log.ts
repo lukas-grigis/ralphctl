@@ -24,7 +24,7 @@ export const verifyLogPath = (
   attemptN: number
 ): Result<AbsolutePath, ValidationError> => AbsolutePath.parse(verifyLogPathString(sprintDir, taskId, phase, attemptN));
 
-/** Best-effort persist of the full untruncated verify output (audit [01] / [03]) — failures warn, never abort the chain. */
+/** Best-effort persist of the full untruncated verify output — failures warn, never abort the chain. */
 export const persistVerifyLog = async (
   deps: { readonly eventBus: EventBus; readonly clock: () => IsoTimestamp; readonly writeFile?: WriteFile },
   phase: VerifyPhase,

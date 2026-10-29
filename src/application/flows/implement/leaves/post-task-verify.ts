@@ -57,7 +57,7 @@ const SPAWN_ERROR_OUTCOME = 'spawn-error';
  *                          the operator can fix the baseline without losing the AI's work.
  *   - `lastShouldFailAttempt` — set to `true` ON `'regressed'` AND ONLY WHILE the task's attempt
  *                          budget remains (see {@link budgetRemains}). This is the bounded
- *                          red-post-verify RETRY (T6): an evaluator-passed attempt whose harness
+ *                          red-post-verify RETRY: an evaluator-passed attempt whose harness
  *                          post-verify regressed a green baseline gets one more attempt — the same
  *                          retry seam an escalation grant uses — instead of blocking immediately.
  *
@@ -117,7 +117,7 @@ export interface PostTaskVerifyLeafOpts {
   readonly cwd: AbsolutePath;
   readonly verifyScript?: string;
   /**
-   * Structured per-module verify gates (WS3). When present AND non-empty, the leaf runs THESE via
+   * Structured per-module verify gates. When present AND non-empty, the leaf runs THESE via
    * the multi-gate executor in `fail-fast` mode, SCOPED to the attempt's diff footprint (only
    * gates whose `pathPrefix` matches a changed path). Footprint failure / empty → run ALL gates.
    * Absent → the leaf normalises `verifyScript` to a single catch-all gate (one code path). The
@@ -506,7 +506,7 @@ const projectLeafOutput = (ctx: ImplementCtx, out: LeafOutput, opts: PostTaskVer
       ? `verify script regressed baseline (exit=${String(out.run.exitCode)}); harness will not commit on red`
       : `verify script failed (exit=${String(out.run.exitCode)}); harness will not commit on red`
     : undefined;
-  // Bounded red-post-verify RETRY (T6). ONLY a `'regressed'` attribution (an evaluator-passed
+  // Bounded red-post-verify RETRY. ONLY a `'regressed'` attribution (an evaluator-passed
   // attempt that broke a GREEN baseline) qualifies — not raw red (no pre-verify evidence),
   // `baseline-broken` (pre-existing failure, no block at all), `clean`, or `fixed-baseline`.
   // While the task's attempt budget remains we also set `lastShouldFailAttempt`: settle's

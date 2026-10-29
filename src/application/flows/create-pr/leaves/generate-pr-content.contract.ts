@@ -6,7 +6,7 @@ import { brandSignalArray } from '@src/integration/ai/contract/_engine/brand-sig
 import type { AiOutputContract, SidecarRule } from '@src/integration/ai/contract/_engine/types.ts';
 
 /**
- * Per-leaf I/O contract for the create-pr flow's optional AI authoring step — audit-[09].
+ * Per-leaf I/O contract for the create-pr flow's optional AI authoring step.
  *
  * Keeps ONLY `pr-content`. Any narrative fan-out (`learning` / `note` / `decision`) a mounted
  * skill may coach is DROPPED, not rejected: the create-pr session runs post-implement, after
@@ -40,9 +40,8 @@ const isPrContentSignal = (signal: unknown): boolean =>
 
 // Tolerant by design (see the module doc): drop any non-`pr-content` signal a mounted skill may
 // have coached (a stray `<note>` / `<decision>` / `<learning>`) BEFORE validation, then validate
-// the surviving pr-content signals and require exactly one. Filtering first means one stray
-// narrative signal no longer fails the whole array — which would have silently defeated AI PR
-// authoring. A malformed pr-content still fails the pipe; zero pr-content still fails the refine.
+// the surviving pr-content signals and require exactly one, so one stray narrative signal never
+// fails the whole array and defeats AI PR authoring. A malformed pr-content still fails the pipe; zero pr-content still fails the refine.
 const signalsArraySchemaRaw = z
   .array(z.unknown())
   .transform((signals) => signals.filter(isPrContentSignal))
@@ -84,7 +83,7 @@ const createPrExampleSignals: readonly CreatePrSignal[] = [
 ];
 
 /**
- * create-pr contract — audit-[09]. Composed only from `contract/_engine/` building blocks.
+ * create-pr contract. Composed only from `contract/_engine/` building blocks.
  */
 export const generatePrContentOutputContract: AiOutputContract<CreatePrSignal> = {
   schemaVersion: 1,

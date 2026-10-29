@@ -81,7 +81,7 @@ const extractProposal = (
 
 /**
  * Headless AI round-trip. Builds the detect-skills prompt, runs the session against the
- * repository path, validates the audit-[09] `signals.json` the AI wrote, picks the
+ * repository path, validates the `signals.json` the AI wrote, picks the
  * `setup-skill-proposal` / `verify-skill-proposal` signals out for downstream leaves.
  *
  * Either signal may be absent — that's a valid "no skill needed" answer (e.g. an existing

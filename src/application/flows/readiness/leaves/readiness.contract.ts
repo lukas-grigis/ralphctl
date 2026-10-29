@@ -19,7 +19,7 @@ import type { AiOutputContract, SidecarRule } from '@src/integration/ai/contract
 import { wrapLegacySignalArray } from '@src/integration/ai/contract/_engine/legacy-array-migration.ts';
 
 /**
- * Per-leaf I/O contract for the readiness one-shot AI session — audit-[09]. The session may emit:
+ * Per-leaf I/O contract for the readiness one-shot AI session. The session may emit:
  *
  *   - narrative fan-out: `learning`, `note`
  *   - one optional `agents-md-proposal` carrying the tool-native context-file body (`CLAUDE.md`,
@@ -44,11 +44,8 @@ import { wrapLegacySignalArray } from '@src/integration/ai/contract/_engine/lega
  *
  * Migration chain:
  *
- *   `migrations[0]` accepts the legacy top-level-array shape the existing readiness signals
- *   pipeline produces today (the headless adapter parses XML tags into a `HarnessSignal[]`
- *   and the leaf re-writes that array as `signals.json`). Wave 6 swaps the prompt so the AI
- *   writes the canonical `{ schemaVersion, signals }` wrapper directly; the migration becomes
- *   inert at that point but stays in the chain for in-flight forensic artifacts.
+ *   `migrations[0]` accepts the legacy top-level-array shape older forensic artifacts carry;
+ *   the current prompt has the AI write the `{ schemaVersion, signals }` wrapper directly.
  */
 
 type ReadinessSignal =
@@ -117,8 +114,7 @@ const EXAMPLE_TS = '2026-05-22T10:00:00.000Z' as IsoTimestamp;
 
 /**
  * Representative readiness payload. Shows the AI all three sidecar-bearing kinds so it knows
- * the proposal envelope is one signal per artefact, not one signal carrying every body. The
- * Wave-6 prompt swaps the historical XML-tag emission for direct signals.json writes.
+ * the proposal envelope is one signal per artefact, not one signal carrying every body.
  */
 const readinessExampleSignals: readonly ReadinessSignal[] = [
   {
@@ -151,7 +147,7 @@ const readinessExampleSignals: readonly ReadinessSignal[] = [
 ];
 
 /**
- * Readiness contract — audit-[09]. Composed only from `contract/_engine/` building blocks.
+ * Readiness contract. Composed only from `contract/_engine/` building blocks.
  */
 export const readinessOutputContract: AiOutputContract<ReadinessSignal> = {
   schemaVersion: 1,

@@ -20,7 +20,7 @@ export interface CommitTaskLeafDeps {
   readonly logger: Logger;
 }
 
-// Audit-[03] + audit-[09]: commit messages are AI signal bodies — no caps, no truncation.
+// Commit messages are AI signal bodies — no caps, no truncation.
 // `git commit -m <msg>` passes via argv with ARG_MAX headroom in the hundreds of KB; git
 // itself has no length limit. Subject + body land verbatim from the validated
 // `commit-message` signal; when the task carries external refs the harness appends them

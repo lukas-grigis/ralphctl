@@ -65,7 +65,7 @@ export const composeGeneratorFeedForward = (
     taskText: composeTaskText(task),
     nowIso: cfg.clock(),
   });
-  // Episodic memory (R4) derived from this sprint's already-settled sibling tasks. Pure ctx
+  // Episodic memory derived from this sprint's already-settled sibling tasks. Pure ctx
   // read; '' until a sibling has settled (done/blocked) so the prompt placeholder collapses.
   const priorEpisodes = summariseEpisodes(composeTaskEpisodes(ctx.tasks ?? [], taskId, ctx.sprintId));
   return {

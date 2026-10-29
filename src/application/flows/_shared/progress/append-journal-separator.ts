@@ -13,7 +13,7 @@ import { withSprintStateStatus } from '@src/business/sprint/render-sprint-state-
 import type { SprintStatus } from '@src/domain/entity/sprint.ts';
 
 /**
- * Append one status-transition separator line to `<sprintDir>/progress.md` (audit-[07]).
+ * Append one status-transition separator line to `<sprintDir>/progress.md`.
  *
  * Wired immediately after a sprint status transition leaf so the journal records `activated`,
  * `transitioned to review`, and `closed` events in chronological order between task-attempt

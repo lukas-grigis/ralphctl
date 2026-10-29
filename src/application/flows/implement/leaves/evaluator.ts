@@ -60,14 +60,13 @@ import { replaceTask } from '@src/application/flows/implement/leaves/_shared/rep
  * deps for {@link runEvaluatorTurnUseCase}; the use case owns the per-turn business decisions
  * (evaluation recording, plateau detection, malformed detection, critique recording).
  *
- * File-based contract (audit-[09]): the leaf reuses the generator's `ctx.currentRoundNum` so
+ * File-based contract: the leaf reuses the generator's `ctx.currentRoundNum` so
  * generator and evaluator artifacts share the round folder. `session.signalsFile =
  * <workspaceRoot>/rounds/<N>/evaluator/signals.json` is set on the provider call; after the
  * call the leaf {@link validateSignalsFile validates} the file against
  * {@link evaluatorOutputContract}, publishes every validated signal onto the application bus as
  * a typed `ai-signal` event (the one harness-signal channel), then renders the harness-owned
- * `evaluation.md` sidecar via {@link renderSidecars}. The leaf no longer constructs
- * `evaluation.md` directly — sidecar rendering is the only writer.
+ * `evaluation.md` sidecar via {@link renderSidecars} — its only writer.
  *
  * The leaf reads `ctx.plateauHistory` (default `[]`) as `priorTurns` for plateau comparison,
  * appends the new turn record on completion, and writes the new evaluation back to
@@ -93,7 +92,7 @@ interface EvaluatorInput {
   readonly priorTurns: readonly PlateauTurnRecord[];
   readonly currentCommitSubject?: string;
   /**
-   * Pre-composed same-round generator observations (T5) — proposed commit subject, change /
+   * Pre-composed same-round generator observations — proposed commit subject, change /
    * learning / note accumulators from `ImplementCtx`, framed downstream as unverified environment
    * context. Composed in the `input` projection (pure ctx read) and rendered inside the
    * `<generator_hints>` block. Empty string when no generator hints were accumulated this attempt.
@@ -181,7 +180,7 @@ const buildEvaluatorPrompt = async (
     readonly outputContractSection: string;
     readonly priorEvaluatorSessionId: SessionId | undefined;
     /**
-     * Pre-composed `<generator_hints>` body (T5). Threaded into the builder's `generatorHints`
+     * Pre-composed `<generator_hints>` body. Threaded into the builder's `generatorHints`
      * slot only when non-empty so the placeholder collapses cleanly otherwise.
      */
     readonly generatorHints: string;
@@ -414,14 +413,14 @@ const announceRoundVerdict = (
 /**
  * Build this leaf's `input` projection — validates the ctx preconditions the evaluator turn needs
  * (`currentTask`, `taskWorkspaceRoot`, `currentRoundNum`), then composes the same-round
- * `<generator_hints>` block (T5) from pure ctx reads before assembling {@link EvaluatorInput}.
+ * `<generator_hints>` block from pure ctx reads before assembling {@link EvaluatorInput}.
  */
 const makeEvaluatorInput =
   (taskId: TaskId): ((ctx: ImplementCtx) => EvaluatorInput) =>
   (ctx) => {
     const { task, workspaceRoot, roundNum } = requireRoleTurnCtx(ctx, 'evaluator', taskId);
     const currentCommitSubject = ctx.proposedCommitMessage?.subject;
-    // T5: compose the same-round generator hints from the per-attempt ctx accumulators. Pure
+    // Compose the same-round generator hints from the per-attempt ctx accumulators. Pure
     // read — `composeGeneratorHints` caps + clamps so a deep multi-round attempt's accumulators
     // can't balloon the evaluator prompt. Empty across all sources → '' → placeholder collapses.
     const hintsInput: GeneratorHintsInput = {

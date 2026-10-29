@@ -48,7 +48,7 @@ export { runVerifyShell } from '@src/application/flows/implement/leaves/pre-task
  *   - pre=red,  post=red → pre-existing failure (don't blame the AI, warn instead).
  *   - pre=red,  post=green → AI repaired a pre-existing failure (credit it).
  *
- * Red-baseline interactive gate. A red pre-verify no longer falls through silently — the leaf
+ * Red-baseline interactive gate. A red pre-verify never falls through silently — the leaf
  * asks the operator whether to **proceed** on the broken tree, **skip** the task, or **abort**
  * the sprint. Decisions persist on `SprintExecution.baselineBrokenPolicy` ("proceed" only) so
  * the rest of the sprint's tasks don't re-prompt after the operator already opted in for this
@@ -126,7 +126,7 @@ export interface PreTaskVerifyLeafOpts {
   readonly cwd: AbsolutePath;
   readonly verifyScript?: string;
   /**
-   * Structured per-module verify gates (WS3). When present AND non-empty, the leaf runs THESE via
+   * Structured per-module verify gates. When present AND non-empty, the leaf runs THESE via
    * the multi-gate executor in `all-run` mode (no diff scope) — the baseline snapshot needs the
    * COMPLETE picture so post-verify's scoped subset compares like-vs-like per gate. Absent → the
    * leaf normalises `verifyScript` to a single catch-all gate, so one code path runs everything.
@@ -135,7 +135,7 @@ export interface PreTaskVerifyLeafOpts {
   readonly timeoutMs?: number;
   /**
    * Per-sprint state directory. When set, the leaf writes the full untruncated verify-script
-   * output to `<sprintDir>/logs/verify/<task-id>/pre-attempt-<N>.log` per audit [01] / [03].
+   * output to `<sprintDir>/logs/verify/<task-id>/pre-attempt-<N>.log`.
    */
   readonly sprintDir?: AbsolutePath;
   /**

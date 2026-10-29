@@ -141,7 +141,7 @@ export interface AppDeps {
   readonly writeFile: WriteFile;
   /**
    * Append-only writer — used by the progress-journal leaves to grow `<sprintDir>/progress.md` per task-attempt
-   * settlement and status transition (audit-[07]).
+   * settlement and status transition.
    */
   readonly appendFile: AppendFile;
   /**

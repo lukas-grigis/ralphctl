@@ -6,9 +6,9 @@ import type { InProgressTask } from '@src/domain/entity/task.ts';
  * inlines two of these blocks:
  *
  *  - `<pre_verify_results>` — the CURRENT running attempt's `phase: 'pre'` row, so the generator
- *    reviews the baseline state instead of re-running the verify script in its turn (T4).
+ *    reviews the baseline state instead of re-running the verify script in its turn.
  *  - `<retry_feedback>`     — the PREVIOUS attempt's failing `phase: 'post'` row, so a retry knows
- *    the regression it must fix first (T4 stub for T6).
+ *    the regression it must fix first.
  *
  * Both blocks pair the structured `VerifyRun` metadata (command / exit / duration / outcome) with
  * a short tail of the on-disk log. The tail is the caller's job to fetch (best-effort log read,
@@ -102,8 +102,7 @@ export const formatPreVerifyResults = (task: InProgressTask, logTail: string | u
  * Render the RETRY_FEEDBACK block body from the previous SETTLED attempt's FAILING `phase: 'post'`
  * verify run. Returns '' when there is no prior attempt, the prior attempt has no post-verify row,
  * or that row did not fail (`exitCode === 0`) — the renderer collapses the `<retry_feedback>`
- * placeholder cleanly. T6 supplies the authoritative retry policy; until then this surfaces the
- * raw failing-post-verify fact so a retry's prompt names the regression to fix first.
+ * placeholder cleanly. A retry's prompt thus names the regression to fix first.
  *
  * `logTail` is the (already best-effort fetched) tail of
  * `<sprintDir>/logs/verify/<taskId>/post-attempt-<n>.log` for the PRIOR attempt; pass undefined

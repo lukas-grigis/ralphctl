@@ -35,7 +35,7 @@ import type { FoldQueue } from '@src/application/flows/implement/wave-branch.ts'
 import { resetSignalAccumulators } from '@src/application/flows/implement/sprint-scoped-projection.ts';
 
 /**
- * Write the just-settled task-attempt section into `<sprintDir>/progress.md` (audit-[07]) and
+ * Write the just-settled task-attempt section into `<sprintDir>/progress.md` and
  * regenerate the DERIVED sprint-state header band in place.
  *
  * Runs immediately after `settle-attempt-<taskId>` so the attempt's facts (commit sha, verdict,
