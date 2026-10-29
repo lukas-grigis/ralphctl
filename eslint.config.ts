@@ -914,6 +914,30 @@ export default [
     },
   },
 
+  // ── application/ui/cli/** — keep Ink off the one-shot CLI path ─────────────
+  // Loading Ink (and its `es-toolkit/compat` barrel) costs ~300 ms — more than half of every
+  // `ralphctl <command>` invocation. The TUI is reached via a dynamic `import()` only, which
+  // this rule does not see, so a static import here is the regression it fences.
+  {
+    files: ['src/application/ui/cli/**/*.{ts,tsx}'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            resultLibBan,
+            ...['@src/application/ui/tui/launch.ts', 'ink', 'react'].map((name) => ({
+              name,
+              message:
+                'Load the TUI with `await import(...)` at the point of use — a static import puts Ink on every CLI command’s startup path.',
+            })),
+          ],
+          patterns: [],
+        },
+      ],
+    },
+  },
+
   // ── application/chain/** — the chain framework kernel ───────────────────────
   // Generic execution machinery (element / leaf / sequential / loop / guard, the runner, the wave
   // scheduler). Speaks domain vocabulary only — no business use cases, no integration adapters,
