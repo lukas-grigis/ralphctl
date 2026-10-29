@@ -1,18 +1,10 @@
 /**
- * Tracks the user's "current selection" — which project and which sprint the next flow should
- * target. Updated when the user opens a project / sprint detail screen (or explicitly via the
- * sprint detail's "make current" action). The home view reads this to summarise state and the
- * flow launcher reads it to build chain ctx without re-prompting.
+ * The user's "current selection" — which project and sprint the next flow targets. Labels are cached
+ * with the ids so the status bar renders without reloading aggregates.
  *
- * Display labels are cached alongside the ids so the status bar can show "proj: foo · sprint:
- * bar" without re-loading the aggregates on every render.
- *
- * Done-on-boot clear: when the persisted seed includes a `sprintId`, the provider asks the
- * caller's `resolveSprintStatus` (best-effort, optional) whether it's `done`. If yes, both the
- * sprint id AND label are cleared before the user lands on Home — there's no value in pre-
- * selecting a closed sprint when the natural next step is to pick or create another. The clear
- * is async + non-blocking: the initial render still uses the seed, but a `setSprint(undefined)`
- * fires once the status is known. Home's empty-sprint card then takes over.
+ * Done-on-boot clear: if the persisted seed's sprint is `done` (per the optional `resolveSprintStatus`
+ * lookup), both id and label are cleared asynchronously after first paint — pre-selecting a closed
+ * sprint helps nobody — and Home's empty-sprint card takes over.
  */
 
 import React, {
@@ -32,11 +24,9 @@ import type { Result } from '@src/domain/result.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 
 /**
- * Most-recent "I just switched to this sprint" record. Updated by every setter that lands the
- * user on a new sprint id (inline shortcut, picker, sprint-detail `m`, create-sprint reseat).
- * Home reads it to render a transient "✓ now on <name>" line above the menu; the freshness
- * gate (a small window in real-time) lives in Home, not here — the context just records the
- * fact. The record is intentionally NOT persisted across boots; it's purely UI-ephemeral.
+ * Most-recent "I just switched to this sprint" record, set by every setter that lands on a new sprint
+ * id. Home renders a transient "✓ now on <name>" from it (the freshness window lives in Home). Not
+ * persisted across boots.
  */
 export interface LastSprintSwitch {
   readonly sprintId: SprintId;
@@ -52,30 +42,20 @@ interface SelectionApi {
   readonly sprintLabel: string | undefined;
   /** Lifecycle status of the currently-selected sprint — used by the breadcrumb status chip. */
   readonly sprintStatus: SprintStatus | undefined;
-  /**
-   * Last sprint-switch record (see {@link LastSprintSwitch}). `undefined` before any switch in
-   * this session. Updated whenever `setSprint` / `setProjectAndSprint` lands on a non-undefined
-   * id; clearing the sprint (passing `undefined`) does NOT count as a switch and leaves this
-   * record unchanged.
-   */
+  /** Last sprint-switch record; clearing the sprint (`undefined`) does NOT count as a switch. */
   readonly lastSwitch: LastSprintSwitch | undefined;
   setProject(id: ProjectId | undefined, label?: string): void;
   setSprint(id: SprintId | undefined, label?: string, status?: SprintStatus): void;
   /**
-   * Toast-free status refresh for the CURRENTLY selected sprint. Flow chains transition the
-   * sprint's status on disk (plan → planned, implement → review, close-sprint → done) but the
-   * cached `sprintStatus` is only written on manual picks — so the breadcrumb chip goes stale
-   * the moment a flow completes. Views that load a fresh snapshot call this with the loaded
-   * status; the update is a no-op unless `id` still matches the selected sprint (checked
-   * against a live ref, so a stale closure can never clobber a newer pick) and deliberately
-   * does NOT touch `lastSwitch` — refreshing a chip must not replay the "✓ now on …" toast.
+   * Toast-free status refresh for the CURRENT sprint: flows transition its status on disk but the
+   * cached `sprintStatus` only updates on manual picks, so the breadcrumb chip would go stale. A
+   * no-op unless `id` still matches (checked against a live ref, so a stale closure cannot clobber a
+   * newer pick); does NOT touch `lastSwitch`, so a chip refresh never replays the "✓ now on …" toast.
    */
   syncSprintStatus(id: SprintId, status: SprintStatus): void;
   /**
-   * Atomic project + sprint switch — used by the cross-project sprint picker so picking a
-   * sprint from a different project updates both ids in a single state batch. Going through
-   * `setProject` then `setSprint` would clear the sprint mid-flight (setProject zeroes the
-   * sprint cursor as a side effect) and fire `onChange` twice; this setter fires it once.
+   * Atomic project + sprint switch for the cross-project picker: `setProject` then `setSprint` would
+   * zero the sprint mid-flight and fire `onChange` twice; this fires it once.
    */
   setProjectAndSprint(
     projectId: ProjectId,
@@ -85,16 +65,10 @@ interface SelectionApi {
     sprintStatus?: SprintStatus
   ): void;
   /**
-   * Converge the selection onto a focused Execute-view run's pinned project/sprint — for the
-   * Tab / Ctrl+1..9 / Sessions-open case where focus lands on a session pinned to a DIFFERENT
-   * sprint than the current selection, so `n → Flows` (and every other selection-reading
-   * surface) targets what's actually on screen instead of a stale pick.
-   *
-   * Deliberately NOT persisted, unlike {@link setProjectAndSprint}: this fires from a passive
-   * effect reacting to focus changes, not an explicit user pick — a purely exploratory
-   * Tab-cycle through old sessions must never overwrite the next boot's default sprint. `lastSwitch`
-   * IS still recorded so Home's "✓ now on …" toast fires; the switch changes real behaviour
-   * (what the next flow launch targets), so it must not be silent either.
+   * Converge the selection onto a focused Execute run's pinned project/sprint (Tab / Ctrl+1..9 /
+   * Sessions-open) so `n → Flows` targets what is on screen. NOT persisted: it fires from a passive
+   * focus effect, and a Tab-cycle through old sessions must never overwrite the next boot's default.
+   * `lastSwitch` IS recorded — the switch changes what the next launch targets, so it is not silent.
    */
   followFocusedRun(projectId: ProjectId, projectLabel: string, sprintId: SprintId, sprintLabel: string): void;
 }
@@ -108,11 +82,7 @@ export interface SelectionSeed {
   readonly sprintLabel?: string;
 }
 
-/**
- * Slim port used by the done-on-boot clear. Production wires this to the full
- * {@link SprintRepository} via `App.tsx`; tests pass an inline stub. Only `findById` is needed
- * — the provider checks the resolved sprint's status and clears the seed when it's `done`.
- */
+/** Slim port for the done-on-boot clear (production: the full sprint repository; tests: a stub). */
 export interface SprintStatusReader {
   findById(id: SprintId): Promise<Result<Sprint, DomainError>>;
 }
@@ -126,13 +96,7 @@ export interface SelectionProviderProps {
    * file-backed store so the next launch pre-selects the same project.
    */
   readonly onChange?: (next: SelectionSeed) => void;
-  /**
-   * Best-effort lookup for the seeded sprint. When provided AND the seed carries a
-   * `sprintId`, the provider asks for the sprint once on mount; a `done` status clears both
-   * `sprintId` and `sprintLabel` so Home renders the "pick or create a sprint" empty state
-   * instead of waving a stale closed sprint at the user. Failures leave the seed in place —
-   * we never clear on a transient I/O error.
-   */
+  /** Best-effort lookup for the seeded sprint's status (see the module doc); a failed lookup never clears. */
   readonly sprintRepo?: SprintStatusReader;
 }
 
@@ -164,17 +128,11 @@ const useSelectionPersistence = (
   const { projectId, projectLabel, sprintId, sprintLabel } = selection;
   const persist = useEffectEvent((next: SelectionSeed) => onChange?.(next));
 
-  // Set by `followFocusedRun` (via `skipNextPersist`) right before its state writes, to the
-  // EXACT tuple it's about to write. The effect below skips a transition when the CURRENT
-  // values still match this snapshot — value-keyed, not a one-shot flag, because a one-shot
-  // boolean is fragile to ordering: the reconciler can coalesce this update together with an
-  // unrelated one (e.g. the test harness's own post-mount seed) into extra/reordered render +
-  // effect passes, letting an unrelated persist-effect invocation "spend" the flag before the
-  // write it was meant to guard ever becomes visible — confirmed by an intermittent flake where
-  // the converged tuple still reached `onChange`. Matching on the actual values is immune to how
-  // many renders land in between or which effect fires first. Cleared once consumed so a later,
-  // genuinely explicit pick of the identical project+sprint is never mistaken for the same
-  // convergence and skipped.
+  // Set by `followFocusedRun` to the EXACT tuple it is about to write; the effect skips a transition
+  // whose current values still match, then clears it. Value-keyed rather than a one-shot flag
+  // because the reconciler can coalesce updates into extra/reordered effect passes, letting an
+  // unrelated persist "spend" a boolean before the guarded write became visible (an intermittent
+  // flake where the converged tuple still reached `onChange`).
   const skipPersistForRef = useRef<SkipPersistTuple | undefined>(undefined);
 
   const isFirstPersist = useRef(true);
