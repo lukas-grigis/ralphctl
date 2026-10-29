@@ -60,7 +60,7 @@ ProviderUsage on ProviderOutput (providers/_engine/headless-ai-provider.ts)
   → attemptUsageCarry (leaves/_shared/attempt-usage-carry.ts, wraps positiveCountCarry)
   → ctx.currentAttempt{InputTokens,OutputTokens,DurationMs}
   → settle-attempt leaf projection → SettleAttemptProps.usage
-  → recordRunningAttemptUsage (domain/entity/task-attempts.ts), stamped BEFORE the terminal transition
+  → recordAttemptUsage inside settleTask's one updateRunningAttempt stamp, BEFORE the terminal transition
 ```
 
 - The adapter collection seam is `emitTokenUsage(...)`, which RETURNS the payload it published; each
