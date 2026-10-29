@@ -2,11 +2,9 @@ import { Result } from '@src/domain/result.ts';
 import {
   type Attempt,
   isFreeAttempt,
-  type AttemptUsage,
   type AttemptWarning,
   type Attribution,
   type Evaluation,
-  recordAttemptUsage,
   type RecoveryContext,
   type RunningAttempt,
   startAttempt,
@@ -152,16 +150,6 @@ export const recordRunningAttemptWarning = (
   task: InProgressTask,
   warning: AttemptWarning
 ): Result<InProgressTask, InvalidStateError> => updateRunningAttempt(task, (a) => ({ ...a, warning }));
-
-export const recordRunningAttemptSessionId = (
-  task: InProgressTask,
-  sessionId: string
-): Result<InProgressTask, InvalidStateError> => updateRunningAttempt(task, (a) => ({ ...a, sessionId }));
-
-export const recordRunningAttemptUsage = (
-  task: InProgressTask,
-  usage: AttemptUsage
-): Result<InProgressTask, InvalidStateError> => updateRunningAttempt(task, (a) => recordAttemptUsage(a, usage));
 
 /**
  * Drop a softened-plateau warning when the grace round then passed cleanly, so a genuine pass isn't
