@@ -2,7 +2,7 @@ import { promises as fs } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { ValidationError } from '@src/domain/value/error/validation-error.ts';
 import { createFsTemplateLoader, defaultTemplatesDir } from '@src/integration/ai/prompts/_engine/fs-template-loader.ts';
-import { computePlaceholderParity, loadPartialMap } from '@src/integration/ai/prompts/_engine/test-utils.ts';
+import { computePlaceholderParity, loadPartialMap } from '@tests/fixtures/prompt-parity.ts';
 import {
   buildDistillLearningsPrompt,
   distillLearningsPromptDef,
@@ -33,16 +33,6 @@ describe('buildDistillLearningsPrompt — untrusted notice wiring', () => {
 });
 
 describe('distillLearningsPromptDef — completeness', () => {
-  it('placeholder ↔ parameter parity (both directions)', async () => {
-    const rawTemplate = await readTemplate();
-    const partials = await loadPartialMap(distillLearningsPromptDef, loader);
-    const report = computePlaceholderParity({ def: distillLearningsPromptDef, rawTemplate, partials });
-    // No placeholder in the template lacks a parameter spec…
-    expect(report.unsatisfied).toEqual([]);
-    // …and no declared parameter / partial goes unreferenced.
-    expect(report.unreferenced).toEqual([]);
-  });
-
   it('declares exactly the six spec placeholders', async () => {
     const rawTemplate = await readTemplate();
     const partials = await loadPartialMap(distillLearningsPromptDef, loader);

@@ -1,9 +1,7 @@
 import { execFileSync } from 'node:child_process';
-import { promises as fs } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { ValidationError } from '@src/domain/value/error/validation-error.ts';
 import { createFsTemplateLoader, defaultTemplatesDir } from '@src/integration/ai/prompts/_engine/fs-template-loader.ts';
-import { extractPlaceholders } from '@src/integration/ai/prompts/_engine/extract-placeholders.ts';
 import {
   buildCreatePrPrompt,
   createPrPromptDef,
@@ -12,41 +10,6 @@ import {
 } from '@src/integration/ai/prompts/create-pr/definition.ts';
 
 const deps = createFsTemplateLoader(defaultTemplatesDir());
-
-describe('createPrPromptDef — completeness', () => {
-  it('every placeholder in create-pr/template.md is declared by the definition (parameters or partials)', async () => {
-    const path = `${String(defaultTemplatesDir())}/create-pr/template.md`;
-    const template = await fs.readFile(path, 'utf8');
-    const placeholders = extractPlaceholders(template);
-
-    const declared = new Set([
-      ...Object.values(createPrPromptDef.parameters).map((p) => p.placeholder),
-      ...Object.keys(createPrPromptDef.partials ?? {}),
-    ]);
-    for (const placeholder of placeholders) {
-      expect(declared.has(placeholder), `template uses {{${placeholder}}} but the def doesn't declare it`).toBe(true);
-    }
-  });
-
-  it('every placeholder declared by the definition exists in create-pr/template.md', async () => {
-    const path = `${String(defaultTemplatesDir())}/create-pr/template.md`;
-    const template = await fs.readFile(path, 'utf8');
-    const placeholders = new Set(extractPlaceholders(template));
-
-    for (const spec of Object.values(createPrPromptDef.parameters)) {
-      expect(
-        placeholders.has(spec.placeholder),
-        `def declares {{${spec.placeholder}}} but template doesn't use it`
-      ).toBe(true);
-    }
-    for (const placeholder of Object.keys(createPrPromptDef.partials ?? {})) {
-      expect(
-        placeholders.has(placeholder),
-        `def declares partial slot {{${placeholder}}} but template doesn't use it`
-      ).toBe(true);
-    }
-  });
-});
 
 describe('renderTicketSummary', () => {
   it('renders each ticket as a bullet, with link when present', () => {

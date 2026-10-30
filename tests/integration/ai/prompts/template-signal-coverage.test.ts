@@ -2,20 +2,7 @@ import { promises as fs } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import type { PromptDefinition } from '@src/integration/ai/prompts/_engine/definition.ts';
-import { applyFeedbackPromptDef } from '@src/integration/ai/prompts/apply-feedback/definition.ts';
-import { createPrPromptDef } from '@src/integration/ai/prompts/create-pr/definition.ts';
-import { detectScriptsPromptDef } from '@src/integration/ai/prompts/detect-scripts/definition.ts';
-import { detectSkillsPromptDef } from '@src/integration/ai/prompts/detect-skills/definition.ts';
-import { evaluateContinuationPromptDef } from '@src/integration/ai/prompts/evaluate-continuation/definition.ts';
-import { evaluatePromptDef } from '@src/integration/ai/prompts/evaluate/definition.ts';
-import { ideatePromptDef } from '@src/integration/ai/prompts/ideate/definition.ts';
-import { implementCrashResumePromptDef } from '@src/integration/ai/prompts/implement-crash-resume/definition.ts';
-import { implementContinuationPromptDef } from '@src/integration/ai/prompts/implement-continuation/definition.ts';
-import { implementPromptDef } from '@src/integration/ai/prompts/implement/definition.ts';
-import { planPromptDef } from '@src/integration/ai/prompts/plan/definition.ts';
-import { readinessPromptDef } from '@src/integration/ai/prompts/readiness/definition.ts';
-import { refinePromptDef } from '@src/integration/ai/prompts/refine/definition.ts';
+import { ALL_PROMPT_DEFS } from '@tests/fixtures/prompt-defs.ts';
 
 /**
  * Meta-test: every signal kind a flow's `expectedSignals` advertises MUST be mentioned at least
@@ -38,22 +25,6 @@ import { refinePromptDef } from '@src/integration/ai/prompts/refine/definition.t
 const here = dirname(fileURLToPath(import.meta.url));
 const promptsDir = join(here, '..', '..', '..', '..', 'src', 'integration', 'ai', 'prompts');
 
-const FLOWS: ReadonlyArray<{ readonly name: string; readonly def: PromptDefinition<never> }> = [
-  { name: 'refine', def: refinePromptDef as PromptDefinition<never> },
-  { name: 'plan', def: planPromptDef as PromptDefinition<never> },
-  { name: 'ideate', def: ideatePromptDef as PromptDefinition<never> },
-  { name: 'implement', def: implementPromptDef as PromptDefinition<never> },
-  { name: 'implement-continuation', def: implementContinuationPromptDef as PromptDefinition<never> },
-  { name: 'implement-crash-resume', def: implementCrashResumePromptDef as PromptDefinition<never> },
-  { name: 'evaluate', def: evaluatePromptDef as PromptDefinition<never> },
-  { name: 'evaluate-continuation', def: evaluateContinuationPromptDef as PromptDefinition<never> },
-  { name: 'readiness', def: readinessPromptDef as PromptDefinition<never> },
-  { name: 'detect-scripts', def: detectScriptsPromptDef as PromptDefinition<never> },
-  { name: 'detect-skills', def: detectSkillsPromptDef as PromptDefinition<never> },
-  { name: 'apply-feedback', def: applyFeedbackPromptDef as PromptDefinition<never> },
-  { name: 'create-pr', def: createPrPromptDef as PromptDefinition<never> },
-];
-
 const loadTemplateWithPartials = async (flow: string, partialNames: readonly string[]): Promise<string> => {
   const template = await fs.readFile(join(promptsDir, flow, 'template.md'), 'utf8');
   const partialBodies = await Promise.all(
@@ -70,7 +41,8 @@ const loadTemplateWithPartials = async (flow: string, partialNames: readonly str
 const PRE_EXISTING_GAPS: Readonly<Record<string, ReadonlySet<string>>> = {};
 
 describe('prompt template signal coverage', () => {
-  for (const { name, def } of FLOWS) {
+  for (const def of ALL_PROMPT_DEFS) {
+    const name = def.templateName;
     it(`${name}: every expectedSignals entry is mentioned at least once in the template body`, async () => {
       const partialNames = Object.values(def.partials ?? {});
       const body = await loadTemplateWithPartials(name, partialNames);
