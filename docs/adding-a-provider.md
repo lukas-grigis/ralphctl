@@ -165,15 +165,15 @@ export const buildGeminiArgs = (session: AiSession): Result<readonly string[], I
 The factory delegates everything shared to `createHeadlessProvider` in
 `_engine/run-provider-attempt.ts` — it resolves the deps (spawn seam, command, idle threshold,
 child registry), builds the provider name, and wraps each `generate()` in the rate-limit retry
-loop, so no adapter can forget a seam. You supply the slug, the default binary, your CLI's
-"session gone" wording, and a per-`generate()` context holding the attempt function:
+loop, so no adapter can forget a seam. You supply the slug, your CLI's "session gone" wording,
+and a per-`generate()` context holding the attempt function. The spawned binary is not an option:
+it is read from your `PROVIDER_TRAITS` row (`binary`), and `deps.command` is only a test seam.
 
 ```ts
 export const createGeminiProvider = (deps: HeadlessProviderDeps): HeadlessAiProvider =>
   createHeadlessProvider({
     providerSlug: 'gemini',
     deps,
-    defaultCommand: 'gemini',
     resumeStaleRe: RESUME_STALE_RE, // your CLI's "session gone" wording → one cold respawn
     createGenerateContext: (base) => ({
       attempt: async (attemptSession) => {
@@ -191,8 +191,8 @@ export const createGeminiProvider = (deps: HeadlessProviderDeps): HeadlessAiProv
           getSessionId: () => parser.snapshot().sessionId,
           getStdoutTail: () => parser.snapshot().body || undefined,
           getBody: () => Promise.resolve(Result.ok(parser.snapshot().body)),
-          emitProviderTokenUsage: (sessionId) =>
-            emitTokenUsage(deps.eventBus, attemptSession, sessionId, { provider: 'gemini' /* …counts… */ }),
+          // token counts your stream reported; the scaffold publishes the event and persists them
+          getUsage: () => ({ model: attemptSession.model /* , inputTokens, outputTokens, … */ }),
         });
       },
       // cleanup?: async () => {…} — runs once after all attempts (codex deletes its output tempfile)
@@ -202,7 +202,9 @@ export const createGeminiProvider = (deps: HeadlessProviderDeps): HeadlessAiProv
 
 `ProviderSlug` in `_engine/classify-spawn-exit.ts` is the closed union of adapter slugs
 (`ProviderName` derives from it as `<slug>-provider`), so add `'gemini'` there first — and
-`PROVIDER_BY_SLUG` in `run-provider-attempt.ts` needs the matching `AiProvider` entry.
+`PROVIDER_BY_SLUG` in `run-provider-attempt.ts` needs the matching `AiProvider` entry, which is
+also how `createHeadlessProvider` finds the binary in your `PROVIDER_TRAITS` row. The interactive
+spec (`createInteractiveProvider`) takes the same `AiProvider` as `provider` for the same lookup.
 
 `runProviderAttempt` is the shared per-attempt scaffold; three `_engine` helpers do the work
 underneath it (study `claude/headless.ts` for the full shape):
