@@ -239,6 +239,13 @@ export const gitStashInspect = (
   });
 
 /**
+ * Pinned so the user's git config can't break `git apply`: `color.ui=always` would inject ANSI
+ * escapes, `diff.noprefix` / `diff.mnemonicPrefix` would drop or rename the `a/` `b/` prefixes,
+ * and `diff.external` would swap in a non-patch diff.
+ */
+const PATCH_FLAGS = ['-p', '--binary', '--no-color', '--no-ext-diff', '--src-prefix=a/', '--dst-prefix=b/'] as const;
+
+/**
  * `git apply`-able patch of the newest stash entry under `message`, or `undefined` when none
  * matches. Resolved and shown inside one mutex section, like {@link gitStashInspect}; when
  * `--include-untracked` is rejected the tracked-only patch comes back marked `partial`.
@@ -254,7 +261,7 @@ export const gitStashPatch = (
     const [ref] = refs.value;
     if (ref === undefined) return Result.ok(undefined);
 
-    const shown = await showStash(runner, cwd, ['-p', '--binary'], ref, { timeoutMs: GIT_BULK_TIMEOUT_MS });
+    const shown = await showStash(runner, cwd, PATCH_FLAGS, ref, { timeoutMs: GIT_BULK_TIMEOUT_MS });
     if (!shown.ok) return Result.error(shown.error);
     return Result.ok({ patch: shown.value.stdout, partial: shown.value.partial });
   });
