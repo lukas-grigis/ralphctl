@@ -7,7 +7,7 @@
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   SPAWN_CONTEXT_FILENAME,
   recordSpawnContext,
@@ -51,17 +51,13 @@ describe('recordSpawnContext', () => {
 
   it('never writes an environment value outside the terminal/runtime allowlist', () => {
     const secret = 'sk-do-not-persist-this-0123456789';
-    process.env['SPAWN_PROBE_FAKE_TOKEN'] = secret;
-    try {
-      const dir = makeDir();
-      record(dir);
-      const text = readFileSync(join(dir, SPAWN_CONTEXT_FILENAME), 'utf8');
-      expect(text).not.toContain(secret);
-      // The NAME is kept — that is what makes a present-in-one-spawn-absent-in-another diff work.
-      expect(text).toContain('SPAWN_PROBE_FAKE_TOKEN');
-    } finally {
-      delete process.env['SPAWN_PROBE_FAKE_TOKEN'];
-    }
+    vi.stubEnv('SPAWN_PROBE_FAKE_TOKEN', secret);
+    const dir = makeDir();
+    record(dir);
+    const text = readFileSync(join(dir, SPAWN_CONTEXT_FILENAME), 'utf8');
+    expect(text).not.toContain(secret);
+    // The NAME is kept — that is what makes a present-in-one-spawn-absent-in-another diff work.
+    expect(text).toContain('SPAWN_PROBE_FAKE_TOKEN');
   });
 
   it('records the argv, cwd and stream state a frozen session is diagnosed from', () => {
