@@ -19,6 +19,13 @@ import {
   makeProject,
 } from '@tests/fixtures/domain.ts';
 import { renderView, waitForViewReady } from '@tests/integration/application/ui/tui/_harness.tsx';
+import type * as SpinnerModule from '@src/application/ui/tui/runtime/use-spinner-frame.ts';
+
+// A frozen spinner keeps the 30s clock advance below from replaying ~330 spinner renders.
+vi.mock('@src/application/ui/tui/runtime/use-spinner-frame.ts', async (importOriginal) => ({
+  ...(await importOriginal<typeof SpinnerModule>()),
+  useSpinnerFrame: () => 0,
+}));
 
 const project = makeProject({ displayName: 'Mainline' });
 const sprint = makeActiveSprint();
@@ -161,8 +168,7 @@ describe('Home — needs attention', () => {
     expect(result.lastFrame() ?? '').toContain('Refine — Mainline · <1m');
     await vi.advanceTimersByTimeAsync(30_000);
     await until('Refine — Mainline · 1m');
-    result.unmount();
-  }, 60_000); // 30s of fake timers replays every spinner frame as a render — slow on a loaded runner
+  });
 
   it.each([
     [80, 24],
