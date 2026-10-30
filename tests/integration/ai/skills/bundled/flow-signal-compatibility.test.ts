@@ -16,46 +16,13 @@ import { refineOutputContract } from '@src/application/flows/refine/leaves/refin
 import { selectCandidateOutputContract } from '@src/application/flows/implement/leaves/select-candidate.contract.ts';
 
 /**
- * Cross-check: every signal kind a bundled SKILL.md names in backticks must be one the output
- * contract of EVERY flow AND TURN that skill can mount into will tolerate.
- *
- * `skillsForFlow` installs a skill's single SKILL.md verbatim into each phase listed in its
- * `defaultFor`, and the opt-in catalog offers the same body for each phase in `recommendedFor`
- * — there is no per-phase variant. The phases do NOT share a signal union: plan accepts
- * `task-plan` / `learning` / `note` / `decision`, readiness accepts neither `decision` nor any
- * `task-*` kind, and `validateSignalsFile` parses the array all-or-nothing, so ONE stray element
- * discards the whole payload. Corrective retry is wired into the implement flow only, so in
- * plan / ideate / readiness a user-approved session is simply lost.
- *
- * This is the direction `tests/integration/ai/prompts/template-signal-coverage.test.ts` does not
- * cover: that meta-test checks `expectedSignals` ⊆ template mentions, never skill mentions ⊆ what
- * the flow accepts. It regressed once — `ralphctl-iterative-review` (defaultFor: every flow) told
- * the model to surface a blocker as a `task-blocked` signal, a kind plan / ideate / readiness
- * reject outright, and `ralphctl-test-driven-development` / `ralphctl-debugging-and-error-recovery`
- * named `task-complete` and `decision` in prose offered to plan and readiness.
- *
- * The implement flow runs THREE AI turns against three DIFFERENT contracts from the same
- * installed SKILL.md, and a mention has to survive all three: the generator, the evaluator, and
- * — when best-of-N is granted — the judge turn (`select-candidate.contract.ts`), spawned from
- * inside the same per-task skill-install bracket the generator/evaluator turns share. The judge's
- * contract is the narrowest in the whole harness: a one-shot pairwise verdict with no narrative
- * fan-out at all, so it rejects `note` / `decision` / `learning` / everything except
- * `candidate-selection` outright. This regressed once too — `ralphctl-code-review-and-quality`
- * and `ralphctl-iterative-review` both instructed writing a `note` signal unconditionally, which
- * the judge turn silently discarded via the quality-ordering fallback (`readJudgeVerdict` logs a
- * warning and returns `undefined` on a schema failure — non-fatal, but the judge's real verdict is
- * lost). The sibling `evaluator-signal-kind-mentions.test.ts` scans two named skills
- * heading-by-heading against the evaluator contract; it is the narrower check, not the one that
- * covers the evaluator (or judge) turn for the other implement-mounted skills.
- *
- * A skill can make a mention harmless everywhere by gating it on the ACTIVE contract instead of
- * naming a kind unconditionally — "write a `note` signal … when the prompt's output-contract
- * section lists it; otherwise fold the observation into the required signal's own fields". Such a
- * mention can never sink an array it isn't offered into, so `isContractGated` below exempts the
- * whole passage from the mention scan, the same way `isGeneratorScoped` already exempts a
- * generator-only aside. The marker phrase is deliberately literal and narrow (mirrors `NEGATION`'s
- * small fixed vocabulary) — a skill earns the exemption by using the recognised phrase, not by
- * merely intending one.
+ * Every signal kind a bundled SKILL.md names in backticks must be accepted by the output contract of
+ * EVERY flow and turn the skill mounts into (implement = generator + evaluator + best-of-N judge).
+ * One SKILL.md body is installed verbatim per flow, and `validateSignalsFile` parses the array
+ * all-or-nothing, so a single kind a turn rejects discards that turn's whole payload. Mentions gated
+ * on the active contract (`isContractGated`), scoped to one phase, or framed for the generator are
+ * exempt. Complements `tests/integration/ai/prompts/template-signal-coverage.test.ts`
+ * (`expectedSignals` ⊆ template mentions).
  */
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -174,7 +141,7 @@ const splitPassages = (content: string): readonly string[] => {
   return passages;
 };
 
-// Same mention grammar as `evaluator-signal-kind-mentions.test.ts`: a run of backticked tokens
+// Mention grammar: a run of backticked tokens
 // sharing a trailing "signal"/"signals" noun — "a `note` signal", "`decision` or `note` signal",
 // "`note` signals in `signals.json`". A backticked term with nothing named "signal(s)" after it
 // (`` `signals.json` `` itself, `` `type` ``) is not a mention.
@@ -210,8 +177,7 @@ const mentionedKinds = (text: string): readonly string[] => {
 // A parenthetical naming the generator role is a carve-out for the implement flow's generator
 // turn — "(generator role: a `decision` signal too)" — and is stripped before scanning; if
 // "generator" still appears outside every such aside, the whole passage is framed for that role
-// and is skipped. Identical treatment to the sibling evaluator test, for the same reason: the
-// advice is dormant wherever no generator turn exists.
+// and is skipped. The advice is dormant wherever no generator turn exists.
 const stripGeneratorAsides = (passage: string): string => passage.replace(/\([^()]*generator[^()]*\)/giu, ' ');
 const isGeneratorScoped = (strippedPassage: string): boolean => /generator/iu.test(strippedPassage);
 
@@ -349,6 +315,13 @@ describe('bundled skills — the pre-fix wordings this check exists to catch', (
         "- **Execute** — run the project's check gate (lint, typecheck, tests) after each meaningful change, not after the whole diff. Re-read your own diff once before you write a `task-complete` signal. You are the cheapest reviewer the change ever gets.",
       flow: 'implement',
       scope: 'implement',
+    },
+    {
+      label:
+        'ralphctl-code-review-and-quality — unqualified `decision` in Step 4, which the evaluator turn also receives',
+      passage:
+        '- Write a `decision` signal when a Critical or Major finding changes the approach — record what was found and why the current direction was adjusted.',
+      flow: 'implement',
     },
     {
       // Unscoped and unconditional — mounted into implement by default, so the SAME bullet also
