@@ -30,7 +30,7 @@ import { validateSignalsFile } from '@src/integration/ai/contract/_engine/valida
 import { reproduceOutputContract } from '@src/application/flows/implement/leaves/reproduce.contract.ts';
 import { runPathsFor } from '@src/application/flows/_shared/allocate-run-dir.ts';
 import { readCappedProgress } from '@src/application/flows/implement/leaves/_shared/run-role-turn.ts';
-import { VERIFY_TAIL_MAX_CHARS } from '@src/application/flows/implement/leaves/_shared/verify-run-summary.ts';
+import { clampCommandOutput } from '@src/application/flows/implement/leaves/_shared/verify-run-summary.ts';
 import { quarantineStashMessage } from '@src/domain/value/quarantine-stash-message.ts';
 import {
   loadReproductionArtifact,
@@ -182,16 +182,6 @@ const CHECKSUM_ALGORITHM = 'sha256';
 const computeChecksum = (content: string): string =>
   createHash(CHECKSUM_ALGORITHM).update(content, 'utf-8').digest('hex');
 
-/**
- * Keep the END of a captured run — the decisive failure line sits at the bottom of test-runner
- * output. Mirrors `_shared/verify-run-summary.ts`'s clamp so every prompt-embedded command
- * output in the implement chain shares one budget.
- */
-const clampOutput = (raw: string): string => {
-  const trimmed = raw.trim();
-  return trimmed.length > VERIFY_TAIL_MAX_CHARS ? `…${trimmed.slice(trimmed.length - VERIFY_TAIL_MAX_CHARS)}` : trimmed;
-};
-
 /** Structured outcome of the harness's own re-run — the ONLY authority on whether an artifact is accepted. */
 type VerifyOutcome =
   | { readonly kind: 'accepted'; readonly observedFailure: string }
@@ -218,7 +208,7 @@ const verifyReproductionFails = async (
   );
   if (!ran.ok) return isFatalChainError(ran.error) ? { kind: 'fatal', error: ran.error } : { kind: 'discarded' };
   if (ran.value.passed) return { kind: 'discarded' };
-  return { kind: 'accepted', observedFailure: clampOutput(ran.value.output) };
+  return { kind: 'accepted', observedFailure: clampCommandOutput(ran.value.output) };
 };
 
 /**
