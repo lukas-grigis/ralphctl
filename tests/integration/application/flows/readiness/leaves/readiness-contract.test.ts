@@ -259,36 +259,58 @@ describe('proposeReadinessLeaf — audit-[09] contract', () => {
   });
 
   // ── 1a'. Existing context file — the AI emits only additions; the harness appends ─────
-  it('existing CLAUDE.md: appends the emitted sections onto the raw existing bytes (CRLF, spacing kept)', async () => {
-    const existing = '# repo-a\r\n\r\nhand  written\r\n';
-    const claudeMd = join(repoPath, 'CLAUDE.md');
-    await fs.writeFile(claudeMd, existing, 'utf8');
-    const additions: AgentsMdProposalSignal = { ...agentsMdSignal(), content: '## Testing\n\n- run the suite\n' };
+  const additions: AgentsMdProposalSignal = { ...agentsMdSignal(), content: '## Testing\n\n- run the suite\n' };
+
+  /** Runs the claude-code propose leaf over a probe that found the given root files, capturing the prompt. */
+  const proposeWithRootFiles = async (files: { readonly claudeMd?: string; readonly agentsMd?: string }) => {
     const { deps, ctx } = await buildScene({ kind: 'signals', signals: [additions] });
-    const entry = ctx.entries['claude-code'];
-    if (entry === undefined) throw new Error('scene missing entry');
-    const withExisting: ReadinessCtx = {
-      ...ctx,
-      entries: {
-        'claude-code': {
-          ...entry,
-          probedState: presentState(FIXED_NOW, {
-            tool: 'claude-code',
-            claudeMd: { path: absolutePath(claudeMd) },
-            skills: [],
-            commands: [],
-            agents: [],
-            hooks: [],
-          }),
-        },
+    const prompts: string[] = [];
+    const provider: HeadlessAiProvider = {
+      generate: (session) => {
+        prompts.push(session.prompt);
+        return deps.provider.generate(session);
       },
     };
+    const ref = async (name: string, body: string | undefined) => {
+      if (body === undefined) return undefined;
+      const path = join(repoPath, name);
+      await fs.writeFile(path, body, 'utf8');
+      return { path: absolutePath(path) };
+    };
+    const claudeMd = await ref('CLAUDE.md', files.claudeMd);
+    const agentsMd = await ref('AGENTS.md', files.agentsMd);
+    const probedState = presentState(FIXED_NOW, {
+      tool: 'claude-code',
+      ...(claudeMd !== undefined ? { claudeMd } : {}),
+      ...(agentsMd !== undefined ? { agentsMd } : {}),
+      skills: [],
+      commands: [],
+      agents: [],
+      hooks: [],
+    });
+    const entry = ctx.entries['claude-code'];
+    if (entry === undefined) throw new Error('scene missing entry');
+    const result = await proposeReadinessLeaf({ ...deps, provider }, 'claude-code').execute({
+      ...ctx,
+      entries: { 'claude-code': { ...entry, probedState } },
+    });
+    if (!result.ok) throw new Error(`propose failed: ${result.error.error.message}`);
+    return { proposed: result.value.ctx.entries['claude-code']?.proposal?.proposedContent, prompt: prompts[0] ?? '' };
+  };
 
-    const result = await proposeReadinessLeaf(deps, 'claude-code').execute(withExisting);
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    const proposed = result.value.ctx.entries['claude-code']?.proposal?.proposedContent;
+  it('existing CLAUDE.md: appends the emitted sections onto the raw existing bytes (CRLF, spacing kept)', async () => {
+    const existing = '# repo-a\r\n\r\nhand  written\r\n';
+    const { proposed } = await proposeWithRootFiles({ claudeMd: existing, agentsMd: '# shared rules\n' });
     expect(proposed).toBe(`${existing}\r\n## Testing\r\n\r\n- run the suite\r\n`);
+  });
+
+  it('AGENTS.md but no CLAUDE.md: the new CLAUDE.md imports AGENTS.md instead of copying it', async () => {
+    // Claude Code stops loading AGENTS.md once a CLAUDE.md exists, so a copy would drift and an
+    // omission would drop every AGENTS.md rule.
+    const { proposed, prompt } = await proposeWithRootFiles({ agentsMd: '# shared rules\n\n- AGENTS_ONLY_RULE\n' });
+    expect(proposed).toBe('@AGENTS.md\n\n## Testing\n\n- run the suite\n');
+    expect(prompt).toContain('<existing-context>\n\n@AGENTS.md\n\n</existing-context>');
+    expect(prompt).not.toContain('AGENTS_ONLY_RULE');
   });
 
   // ── 1b. Happy path — only setup-skill present (the brief explicitly asked for this case) ─

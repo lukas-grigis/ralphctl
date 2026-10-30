@@ -45,12 +45,17 @@ import { messageOf } from '@src/domain/value/error/error-message.ts';
  *   | additionalRoots         | `--add-dir <root>` (fresh)                                       |
  *   |                         | `-c sandbox_workspace_write.writable_roots=[…]` (resume)         |
  *   | permissions (any)       | `-s workspace-write` (fresh) / `-c sandbox_mode=…` (resume)      |
+ *   | canAccessNetwork &&     | `-c sandbox_workspace_write.network_access=<bool>`               |
+ *   |   canRunShell           |                                                                  |
+ *   | canAccessNetwork        | `-c web_search="live"` with shell, `"cached"` without,           |
+ *   |                         | `"disabled"` when false                                          |
  *   | effort: <level>         | `-c model_reasoning_effort=<level>`                              |
+ *   | role: evaluator         | `-c memories.{use,generate}_memories=false`                      |
  *   | prompt                  | piped to stdin, with a trailing `-`                              |
  *
  * The body is read back from the `-o` tempfile. The session id is `thread_id` on the leading
  * `thread.started` record and is what `exec resume <id>` accepts. `exec` has no `--search`, so
- * `canAccessNetwork` cannot be translated. Debug events map `item.completed` records: agent_message
+ * network access goes through `-c` on both paths. Debug events map `item.completed` records: agent_message
  * → assistant, command_execution / function_call → tool_use, function_call_output → tool_result.
  *
  * Docs: https://developers.openai.com/codex/cli/reference, https://developers.openai.com/codex/noninteractive
@@ -59,6 +64,8 @@ import { messageOf } from '@src/domain/value/error/error-message.ts';
 const PROVIDER_NAME = 'codex-provider';
 
 // `read-only` would block signals.json too, so every profile runs `workspace-write`; topology is the envelope.
+// Over-grant: `canRunShell: false` cannot be enforced, so a READ_ONLY session can still run shell commands —
+// but without network (`network_access` needs `canRunShell` too, see `buildCodexArgs`).
 const CODEX_SANDBOX = 'workspace-write';
 
 interface BuildCodexArgsOpts {
@@ -99,9 +106,20 @@ export const buildCodexArgs = (
       args.push('--add-dir', String(root));
     }
   }
+  // `network_access` defaults to false under workspace-write, which blocks installs and fetches in shell commands.
+  // Codex cannot deny the shell, so shell egress needs both gates: a no-shell profile (READ_ONLY) must not gain
+  // curl through the sandbox. Without shell, web search stays on Codex's `cached` default rather than `live`.
+  const { canAccessNetwork, canRunShell } = session.permissions;
+  const shellNetwork = canAccessNetwork && canRunShell;
+  const webSearch = !canAccessNetwork ? 'disabled' : canRunShell ? 'live' : 'cached';
+  args.push('-c', `sandbox_workspace_write.network_access=${String(shellNetwork)}`, '-c', `web_search="${webSearch}"`);
   // Forwarded verbatim; codex rejects unknown or model-incompatible levels itself.
   if (session.effort !== undefined) {
     args.push('-c', `model_reasoning_effort=${session.effort}`);
+  }
+  // Memories carry over from earlier sessions; the evaluator side stays a fresh-context judge.
+  if (session.role === 'evaluator') {
+    args.push('-c', 'memories.use_memories=false', '-c', 'memories.generate_memories=false');
   }
   // Without the trailing `-`, codex treats stdin as side context and hangs waiting for a prompt arg.
   args.push('-');

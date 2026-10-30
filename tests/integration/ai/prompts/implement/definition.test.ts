@@ -115,6 +115,8 @@ describe('implementPromptDef — completeness', () => {
     expect(template).toContain('{{GIT_BOUNDARY}}');
     expect(template).toContain('Do not special-case tests');
     expect(template).toContain('Stay in scope');
+    expect(template).toContain('validate only at system boundaries');
+    expect(template).toContain("don't add comments or type annotations to code you didn't change");
     expect(template).toContain('stop and report');
   });
 

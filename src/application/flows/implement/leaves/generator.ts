@@ -47,7 +47,7 @@ import {
   formatRetryFeedback,
   lastSettledAttempt,
   runningAttempt,
-  VERIFY_TAIL_MAX_CHARS,
+  VERIFY_LOG_READ_MAX_BYTES,
 } from '@src/application/flows/implement/leaves/_shared/verify-run-summary.ts';
 import type { LogTailReader } from '@src/business/io/log-tail-reader.ts';
 import { createFsLogTailReader } from '@src/integration/io/read-log-tail.ts';
@@ -323,7 +323,7 @@ const readVerifyLogTail = async (
 ): Promise<string | undefined> => {
   const logPath = verifyLogPath(sprintDir, taskId, phase, attemptN);
   if (!logPath.ok) return undefined;
-  return reader(logPath.value, VERIFY_TAIL_MAX_CHARS);
+  return reader(logPath.value, VERIFY_LOG_READ_MAX_BYTES);
 };
 
 /**

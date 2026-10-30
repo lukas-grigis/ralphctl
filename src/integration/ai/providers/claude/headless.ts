@@ -34,7 +34,8 @@ import {
  *   | permissions (any gate shut) | `--permission-mode bypassPermissions --disallowedTools <list>` |
  *   | additionalRoots + outputDir | `--add-dir <root>` per root                                  |
  *   | resume: id                  | `--resume id`                                                |
- *   | effort: <level>             | `--effort <level>`                                           |
+ *   | effort: <level>             | `--effort <level>` + `CLAUDE_CODE_EFFORT_LEVEL=<level>`      |
+ *   | role: evaluator             | `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`                          |
  *   | prompt                      | piped to stdin                                               |
  *
  * stream-json (not `json`) is what gives the idle watchdog a liveness signal: `json` buffers
@@ -51,8 +52,21 @@ const RESUME_STALE_RE = /No conversation found with session ID/i;
 
 const PROVIDER_NAME = 'claude-provider';
 
-// Claude Code 2.1.302 turned fork subagents on in `-p`; off keeps cost bounded and the read-only gate unforked.
-const HEADLESS_ENV: Readonly<Record<string, string>> = { CLAUDE_CODE_FORK_SUBAGENT: '0' };
+/**
+ * Per-spawn environment overlay.
+ *  - Claude Code 2.1.302 turned fork subagents on in `-p`; off keeps cost bounded and the read-only
+ *    gate unforked.
+ *  - `CLAUDE_CODE_EFFORT_LEVEL` outranks `--effort`, so an operator's exported value would silently
+ *    override every effort ralphctl resolves; pinning it to the same level makes the flag stick.
+ *  - Auto memory is shared by every worktree of the repo, so the evaluator side runs without it to
+ *    stay a fresh-context judge; the generator keeps the operator's memory.
+ * Docs: https://code.claude.com/docs/en/env-vars, https://code.claude.com/docs/en/memory
+ */
+const claudeHeadlessEnv = (session: AiSession): Readonly<Record<string, string>> => ({
+  CLAUDE_CODE_FORK_SUBAGENT: '0',
+  ...(session.effort !== undefined ? { CLAUDE_CODE_EFFORT_LEVEL: session.effort } : {}),
+  ...(session.role === 'evaluator' ? { CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1' } : {}),
+});
 
 // One-line previews only: the bus → logger pipeline writes one record per call.
 const previewArgs = (input: unknown): string | undefined => (typeof input === 'string' ? input : previewJson(input));
@@ -165,7 +179,7 @@ export const createClaudeProvider = (deps: HeadlessProviderDeps): HeadlessAiProv
           ...base,
           args: built.value,
           session: attemptSession,
-          env: HEADLESS_ENV,
+          env: claudeHeadlessEnv(attemptSession),
           stdin: attemptSession.prompt,
           rateLimitRe: RATE_LIMIT_RE,
           onStdoutChunk: (chunk) => {

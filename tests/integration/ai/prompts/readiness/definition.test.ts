@@ -226,10 +226,31 @@ describe('buildReadinessPrompt — end-to-end against the real template', () => 
       existingContextFile: 'x',
       detectedArtefacts: 'x',
       targetFileConventions: 'x',
+      targetCliLoads: 'x',
       outputContractSection: SAMPLE_CONTRACT_SECTION,
     });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toBeInstanceOf(ValidationError);
+  });
+
+  it.each([
+    ['claude-code', '`AGENTS.md` only while no `CLAUDE.md` exists'],
+    ['copilot', '`AGENTS.md`, `CLAUDE.md` and `GEMINI.md` together'],
+    ['codex', 'never `CLAUDE.md`'],
+    ['opencode', '`CLAUDE.md` only while no `AGENTS.md` exists'],
+    ['grok', 'Grok loads `AGENTS.md`, `CLAUDE.md`'],
+  ] as const)('tells the model which context files %s loads by itself', async (currentTool, fact) => {
+    const result = await buildReadinessPrompt(deps, {
+      repositoryPath: '/repo/main',
+      currentTool,
+      probedState: absentState(FIXED_NOW),
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
+    });
+    if (!result.ok) throw new Error(`expected ok, got ${result.error.message}`);
+    const loads = /<target_cli_loads>(.*)<\/target_cli_loads>/u.exec(result.value)?.[1] ?? '';
+    expect(loads).toContain(fact);
+    // The rule that consumes it: carry over what the CLI never loads instead of skipping it.
+    expect(result.value.replace(/\s+/g, ' ')).toContain('from a context file it does not load, carry over the rules');
   });
 
   it('embeds the WIRE_TAG = "claude-md" identifier for the claude-code tool', async () => {

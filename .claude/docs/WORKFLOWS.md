@@ -513,7 +513,7 @@ See `PERFORMANCE.md § Verify-gate cost and scoping` for the full picture.
 **Red post-verify retry.** A post-task verify that comes back red with attribution `regressed`
 (evaluator-passed attempt, harness-rejected) now grants a retry within the task's attempt budget
 (`task.maxAttempts ?? harness.maxAttempts`) rather than blocking immediately. The failing verify command
-and log tail are injected into the next attempt's generator prompt via the `RETRY_FEEDBACK_SECTION`
+and the head and tail of its log are injected into the next attempt's generator prompt via the `RETRY_FEEDBACK_SECTION`
 placeholder (the quarantine leaf stashes the rejected diff so the retry starts from the last clean commit).
 Budget exhaustion still transitions to `blocked` and the commit guard independently keys on the block
 reason, so red work never lands regardless of budget.

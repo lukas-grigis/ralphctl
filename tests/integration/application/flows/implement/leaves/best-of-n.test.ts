@@ -680,6 +680,8 @@ describe('best-of-N candidate loop + selection cascade', () => {
     // Both orderings named candidate 2 → it wins, no fallback needed.
     expect(gitState.currentDiff).toBe('diff-2');
     expect(judgeSessions).toHaveLength(2);
+    // The judge runs as the evaluator side, so the adapters keep vendor memory out of it.
+    expect(judgeSessions.map((s) => s.role)).toEqual(['evaluator', 'evaluator']);
     const [forward, swapped] = judgeSessions.map((s) => String(s.prompt));
     expect(forward).toContain(records[0]?.summary);
     expect(swapped).toContain(records[1]?.summary);
