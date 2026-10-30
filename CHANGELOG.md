@@ -37,6 +37,11 @@ to [Semantic Versioning](https://semver.org/).
   handling for states the code already rules out, or comments and type annotations to code it did not change.
   When the evaluator fails work on a project convention, it now cites the context file and line that states it,
   and it no longer fails work on a convention no file or criterion states.
+- **Retries after a red verify can reuse the rejected work.** When a task's verify script fails after an attempt and
+  the task retries, ralphctl sets that attempt's changes aside so the retry starts from the last commit. It now
+  also saves them as a patch under the sprint's `logs/rejected-diff/` folder and tells the retry where it is, as
+  an unverified lead it can check and apply, or ignore. Before, the retry had to redo the work from scratch, and
+  its prompt wrongly suggested the earlier changes were still in the working tree. Nothing is applied for it.
 - **Retries see the first error in a failing verify log.** The verify and reproduction output inlined into the
   generator prompt keeps the start and the end of the log, with the middle cut, instead of only the end. A
   compiler or type checker usually prints the root-cause error first, which the old end-only excerpt dropped.

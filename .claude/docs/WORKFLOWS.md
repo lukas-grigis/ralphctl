@@ -310,7 +310,9 @@ the same wave already completed back to `todo`.
 
 On the task's next attempt after an operator unblock — a relaunch; restore is cross-launch only, because a
 same-run retry within budget stashes its rejected diff under a different key
-(`ralphctl/<sprintId>/<taskId>/attempt-<N>-rejected-diff`), which nothing restores — `restore-blocked-
+(`ralphctl/<sprintId>/<taskId>/attempt-<N>-rejected-diff`), which nothing restores; it also saves a copy
+as `<sprintDir>/logs/rejected-diff/<taskId>/attempt-<N>.patch` (skipped over 256 KiB), which the retry's
+`<retry_feedback>` names as an optional, unverified patch the agent may apply or ignore — `restore-blocked-
 diff.ts` honours the recorded decision. `fresh` never probes the tree and never pops: the entry stays in the
 stash and the reproduce leaf behaves as on a first launch. `continue` (and a legacy fact with no decision)
 looks the stash up by that SAME message key (never a raw stash index) and pops it back, so the
