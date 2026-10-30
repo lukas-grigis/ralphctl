@@ -1,9 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { type Result } from '@src/domain/result.ts';
 import type { TodoTask, VerificationCriterion } from '@src/domain/entity/task.ts';
-import { createTask } from '@src/domain/entity/task-factory.ts';
 import { ValidationError } from '@src/domain/value/error/validation-error.ts';
-import { FIXED_REPOSITORY_ID, makeApprovedTicket } from '@tests/fixtures/domain.ts';
+import { makeTodoTask } from '@tests/fixtures/domain.ts';
 import { createFsTemplateLoader, defaultTemplatesDir } from '@src/integration/ai/prompts/_engine/fs-template-loader.ts';
 import {
   buildSelectCandidatePrompt,
@@ -12,34 +10,12 @@ import {
 
 const deps = createFsTemplateLoader(defaultTemplatesDir());
 
-const unwrap = <T, E>(r: Result<T, E>): T => {
-  if (!r.ok) throw new Error('unexpected error in test fixture');
-  return r.value as T;
-};
-
 const DEFAULT_CRITERIA: readonly VerificationCriterion[] = [
   { id: 'C1', assertion: 'the export endpoint returns 400 for an invalid date', check: 'manual' },
 ];
 
-const makeTaskWith = (overrides: {
-  name?: string;
-  description?: string;
-  verificationCriteria?: readonly VerificationCriterion[];
-}): TodoTask => {
-  const ticket = makeApprovedTicket();
-  return unwrap(
-    createTask({
-      name: overrides.name ?? 'fix-export-date-validation',
-      ...(overrides.description !== undefined ? { description: overrides.description } : {}),
-      steps: ['step 1'],
-      verificationCriteria:
-        overrides.verificationCriteria !== undefined ? [...overrides.verificationCriteria] : DEFAULT_CRITERIA,
-      order: 1,
-      ticketId: ticket.id,
-      repositoryId: FIXED_REPOSITORY_ID,
-    })
-  );
-};
+const makeTaskWith = (overrides: Parameters<typeof makeTodoTask>[0]): TodoTask =>
+  makeTodoTask({ name: 'fix-export-date-validation', verificationCriteria: DEFAULT_CRITERIA, ...overrides });
 
 const SAMPLE_CONTRACT_SECTION = '## Output contract\n\nWrite signals.json. (test fixture body.)';
 const CANDIDATE_A =

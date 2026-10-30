@@ -1,7 +1,7 @@
 import { promises as fs } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { type Result } from '@src/domain/result.ts';
-import type { CriteriaVerdicts, TodoTask, VerificationCriterion } from '@src/domain/entity/task.ts';
+import type { CriteriaVerdicts, TodoTask } from '@src/domain/entity/task.ts';
 import { createTask } from '@src/domain/entity/task-factory.ts';
 import { ValidationError } from '@src/domain/value/error/validation-error.ts';
 import { FIXED_REPOSITORY_ID, makeApprovedTicket, makeTodoTask } from '@tests/fixtures/domain.ts';
@@ -21,31 +21,6 @@ const deps = createFsTemplateLoader(defaultTemplatesDir());
 const unwrap = <T, E>(r: Result<T, E>): T => {
   if (!r.ok) throw new Error('unexpected error in test fixture');
   return r.value as T;
-};
-
-const DEFAULT_CRITERIA: readonly VerificationCriterion[] = [
-  { id: 'C1', assertion: 'runs to completion', check: 'manual' },
-];
-
-const makeTaskWith = (overrides: {
-  name?: string;
-  description?: string;
-  steps?: readonly string[];
-  verificationCriteria?: readonly VerificationCriterion[];
-}): TodoTask => {
-  const ticket = makeApprovedTicket();
-  return unwrap(
-    createTask({
-      name: overrides.name ?? 'do-the-work',
-      ...(overrides.description !== undefined ? { description: overrides.description } : {}),
-      steps: overrides.steps !== undefined ? [...overrides.steps] : ['step 1'],
-      verificationCriteria:
-        overrides.verificationCriteria !== undefined ? [...overrides.verificationCriteria] : DEFAULT_CRITERIA,
-      order: 1,
-      ticketId: ticket.id,
-      repositoryId: FIXED_REPOSITORY_ID,
-    })
-  );
 };
 
 const CONTRACT_PATH = '/tmp/ralph/main-repo/contract.md';
@@ -113,7 +88,7 @@ const SAMPLE_FLOOR_RUBRIC_SECTION = '1. **Correctness** — rationale.\n\n   **V
 
 describe('buildEvaluatePrompt — end-to-end against the real template', () => {
   it('produces a fully-substituted prompt with title, task name, project path, and no leftover placeholders', async () => {
-    const task = makeTaskWith({ name: 'export CSV', description: 'Add CSV export to the report endpoint.' });
+    const task = makeTodoTask({ name: 'export CSV', description: 'Add CSV export to the report endpoint.' });
     const result = await buildEvaluatePrompt(deps, {
       task,
       projectPath: '/tmp/ralph/main-repo',
@@ -136,7 +111,7 @@ describe('buildEvaluatePrompt — end-to-end against the real template', () => {
   });
 
   it('omits the description block entirely when the task has no description', async () => {
-    const task = makeTaskWith({ name: 'short task' });
+    const task = makeTodoTask({ name: 'short task' });
     const result = await buildEvaluatePrompt(deps, {
       task,
       projectPath: '/tmp/ralph/main-repo',
@@ -166,7 +141,7 @@ describe('buildEvaluatePrompt — end-to-end against the real template', () => {
   });
 
   it('omits the extra-dimensions block when task.extraDimensions is unset', async () => {
-    const task = makeTaskWith({});
+    const task = makeTodoTask({});
     const result = await buildEvaluatePrompt(deps, {
       task,
       projectPath: '/tmp/ralph/main-repo',
@@ -180,7 +155,7 @@ describe('buildEvaluatePrompt — end-to-end against the real template', () => {
   });
 
   it('renders generator hints inside a framing block when provided', async () => {
-    const task = makeTaskWith({ name: 'with-hints' });
+    const task = makeTodoTask({ name: 'with-hints' });
     const result = await buildEvaluatePrompt(deps, {
       task,
       projectPath: '/tmp/ralph/main-repo',
@@ -203,7 +178,7 @@ describe('buildEvaluatePrompt — end-to-end against the real template', () => {
   });
 
   it('omits the generator-hints block entirely when generatorHints is absent', async () => {
-    const task = makeTaskWith({ name: 'no-hints' });
+    const task = makeTodoTask({ name: 'no-hints' });
     const result = await buildEvaluatePrompt(deps, {
       task,
       projectPath: '/tmp/ralph/main-repo',
@@ -218,7 +193,7 @@ describe('buildEvaluatePrompt — end-to-end against the real template', () => {
   });
 
   it('inlines the priorProgress body into the `## Prior progress` section', async () => {
-    const task = makeTaskWith({ name: 'with-prior' });
+    const task = makeTodoTask({ name: 'with-prior' });
     const result = await buildEvaluatePrompt(deps, {
       task,
       projectPath: '/tmp/ralph/main-repo',
@@ -233,7 +208,7 @@ describe('buildEvaluatePrompt — end-to-end against the real template', () => {
   });
 
   it('renders all five floor dimensions including robustness, rationale before verdict', async () => {
-    const task = makeTaskWith({ name: 'five-floor rubric' });
+    const task = makeTodoTask({ name: 'five-floor rubric' });
     const result = await buildEvaluatePrompt(deps, {
       task,
       projectPath: '/tmp/ralph/main-repo',
@@ -256,7 +231,7 @@ describe('buildEvaluatePrompt — end-to-end against the real template', () => {
   });
 
   it('renders the prior-criteria-verdicts block (as re-verify context) when the task carries a graded verdict map', async () => {
-    const base = makeTaskWith({
+    const base = makeTodoTask({
       name: 'export CSV',
       verificationCriteria: [
         { id: 'C1', assertion: 'lint passes', check: 'manual' },
@@ -282,7 +257,7 @@ describe('buildEvaluatePrompt — end-to-end against the real template', () => {
   });
 
   it('collapses the prior-criteria-verdicts block on a fresh task with no verdict map', async () => {
-    const task = makeTaskWith({ name: 'export CSV' });
+    const task = makeTodoTask({ name: 'export CSV' });
     const result = await buildEvaluatePrompt(deps, {
       task,
       projectPath: '/tmp/ralph/main-repo',
@@ -296,7 +271,7 @@ describe('buildEvaluatePrompt — end-to-end against the real template', () => {
   });
 
   it('renders the agent-definition section after the base role/success-criteria blocks, leaving them intact', async () => {
-    const task = makeTaskWith({ name: 'export CSV' });
+    const task = makeTodoTask({ name: 'export CSV' });
     const result = await buildEvaluatePrompt(deps, {
       task,
       projectPath: '/tmp/ralph/main-repo',
@@ -318,7 +293,7 @@ describe('buildEvaluatePrompt — end-to-end against the real template', () => {
   });
 
   it('collapses the agent-definition section with no orphan heading when absent', async () => {
-    const task = makeTaskWith({ name: 'export CSV' });
+    const task = makeTodoTask({ name: 'export CSV' });
     const result = await buildEvaluatePrompt(deps, {
       task,
       projectPath: '/tmp/ralph/main-repo',
@@ -363,7 +338,7 @@ describe('buildEvaluatePrompt — end-to-end against the real template', () => {
   });
 
   it('tells the model the user is not watching', async () => {
-    const task = makeTaskWith({ name: 'export CSV' });
+    const task = makeTodoTask({ name: 'export CSV' });
     const result = await buildEvaluatePrompt(deps, {
       task,
       projectPath: '/tmp/ralph/main-repo',
@@ -377,7 +352,7 @@ describe('buildEvaluatePrompt — end-to-end against the real template', () => {
   });
 
   it('nudges Phase 1 reconnaissance toward batched, parallel tool calls', async () => {
-    const task = makeTaskWith({ name: 'export CSV' });
+    const task = makeTodoTask({ name: 'export CSV' });
     const result = await buildEvaluatePrompt(deps, {
       task,
       projectPath: '/tmp/ralph/main-repo',
@@ -391,7 +366,7 @@ describe('buildEvaluatePrompt — end-to-end against the real template', () => {
   });
 
   it('states the evaluator-failure-modes list and the bounded-evidence rule exactly once each', async () => {
-    const task = makeTaskWith({ name: 'export CSV' });
+    const task = makeTodoTask({ name: 'export CSV' });
     const result = await buildEvaluatePrompt(deps, {
       task,
       projectPath: '/tmp/ralph/main-repo',
@@ -409,7 +384,7 @@ describe('buildEvaluatePrompt — end-to-end against the real template', () => {
   });
 
   it('fails defects in code the change owns, records pre-existing ones, and asks critiques to name the pattern', async () => {
-    const task = makeTaskWith({ name: 'export CSV' });
+    const task = makeTodoTask({ name: 'export CSV' });
     const result = await buildEvaluatePrompt(deps, {
       task,
       projectPath: '/tmp/ralph/main-repo',
@@ -433,7 +408,7 @@ describe('buildEvaluatePrompt — end-to-end against the real template', () => {
   });
 
   it('carries no placeholder-checkpoint phase and renders the shared grading rules once', async () => {
-    const task = makeTaskWith({ name: 'export CSV' });
+    const task = makeTodoTask({ name: 'export CSV' });
     const result = await buildEvaluatePrompt(deps, {
       task,
       projectPath: '/tmp/ralph/main-repo',
