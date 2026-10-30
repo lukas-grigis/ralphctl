@@ -31,6 +31,10 @@ to [Semantic Versioning](https://semver.org/).
   once an `AGENTS.md` exists, so readiness for those tools now carries the rules from your `CLAUDE.md` into the
   proposed `AGENTS.md` instead of leaving them out. For Copilot and Grok, which read every file, it still avoids
   repeating them.
+- **Leaner implement diffs and grounded convention critiques.** The generator is now told not to add error
+  handling for states the code already rules out, or comments and type annotations to code it did not change.
+  When the evaluator fails work on a project convention, it now cites the context file and line that states it,
+  and it no longer fails work on a convention no file or criterion states.
 - **CLI commands start about twice as fast.** `ralphctl --version`, `sprint list`, `settings show` and the other
   one-shot commands no longer load the TUI (Ink and React), taking roughly 0.25 s instead of 0.55 s. Bare
   `ralphctl` is unchanged.

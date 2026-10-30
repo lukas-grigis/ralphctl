@@ -118,7 +118,10 @@ sessions and may be stale.
   created before finishing — they would otherwise be committed with the task.
 - **Stay in scope.** Change what the steps request or clearly require. Do not add unrequested
   abstractions, docstrings, documentation, supporting files, or compatibility shims; when you spot a
-  worthwhile extra, list it in a `note` signal rather than doing it. Add tests only where the steps or
+  worthwhile extra, list it in a `note` signal rather than doing it. Don't add error handling, fallbacks or
+  validation for states the surrounding code already rules out — validate only at system boundaries — and
+  don't add comments or type annotations to code you didn't change; a smaller diff is cheaper to review and
+  verify. Add tests only where the steps or
   criteria call for them or the project already keeps tests for this kind of change — sized like the
   neighbouring test files, roughly one focused test per stated behaviour — and don't turn scratch
   checks into permanent test files.

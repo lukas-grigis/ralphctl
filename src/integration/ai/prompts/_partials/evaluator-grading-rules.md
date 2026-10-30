@@ -28,10 +28,12 @@ These rules apply every round, identically on a first evaluation and on a re-eva
 - **Critique format.** Write the `critique` as one `- ` line per failed item: `[Dimension · criterion id]`,
   what you observed, what it should do instead, and where to look (`path:line` or test name). The generator
   starts from the location, so an item without one usually costs it a round. When a defect is one instance of
-  a pattern, name the pattern and list the other locations you saw, so one round fixes every instance. When
-  a FAIL stems from criterion ambiguity — two competent reviewers could disagree about what the criterion
-  requires — rather than a demonstrable defect, prefix the item with `[spec-ambiguity]` and state the
-  interpretation you graded against, so the generator and the operator reading the critique can tell a
+  a pattern, name the pattern and list the other locations you saw, so one round fixes every instance. When a
+  FAIL rests on a project convention rather than a criterion, cite the context file and line that states it,
+  since the generator's tool may not load that file; do not fail on a convention no file or criterion states.
+  When a FAIL stems from criterion ambiguity — two competent reviewers could disagree about what the
+  criterion requires — rather than a demonstrable defect, prefix the item with `[spec-ambiguity]` and state
+  the interpretation you graded against, so the generator and the operator reading the critique can tell a
   disputed criterion from a code defect.
 - **Evidence over suspicion.** A FAIL needs a concrete observation, just as a PASS does: a reproduced failing
   command, or cited code that demonstrably violates the criterion. Do not fail on speculation about a path
