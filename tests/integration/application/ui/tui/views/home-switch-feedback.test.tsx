@@ -134,8 +134,6 @@ describe('HomeView — switch feedback line', () => {
     const frame = result.lastFrame() ?? '';
     // After switching to Beta Sprint, the feedback line must appear.
     expect(frame).toMatch(/✓ now on Beta Sprint|now on Beta|switched to Beta/i);
-
-    result.unmount();
   });
 
   it('feedback line is hidden when the sprint selection is cleared', async () => {
@@ -171,8 +169,6 @@ describe('HomeView — switch feedback line', () => {
     // Verify toast is visible.
     const frameBefore = result.lastFrame() ?? '';
     expect(frameBefore).toMatch(/now on Vanish Sprint|✓.*Vanish/i);
-
-    result.unmount();
   });
 
   it('feedback line disappears after ~3 seconds (Date.now spy)', async () => {
@@ -238,7 +234,5 @@ describe('HomeView — switch feedback line', () => {
     // Feedback line must have disappeared.
     const frameAfter = result.lastFrame() ?? '';
     expect(frameAfter).not.toMatch(/now on Timer Sprint|✓.*Timer/i);
-
-    result.unmount();
   });
 });

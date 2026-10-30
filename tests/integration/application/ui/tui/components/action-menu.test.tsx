@@ -51,8 +51,6 @@ describe('ActionMenu — cost hints', () => {
 
     // Other rows' hints must not appear.
     expect(frame).not.toContain('generator–evaluator loop per task');
-
-    r.unmount();
   });
 
   it('shows the cost hint for the newly-focused row after moving down', async () => {
@@ -70,8 +68,6 @@ describe('ActionMenu — cost hints', () => {
 
     // Ideate's hint is no longer shown (it's no longer focused).
     expect(frame).not.toContain('single AI session');
-
-    r.unmount();
   });
 
   it('shows no cost hint for a row that has none', async () => {
@@ -90,7 +86,5 @@ describe('ActionMenu — cost hints', () => {
     // Neither of the other rows' hints should appear.
     expect(frame).not.toContain('single AI session');
     expect(frame).not.toContain('generator–evaluator loop per task');
-
-    r.unmount();
   });
 });

@@ -33,7 +33,6 @@ describe('TasksPanel done-with-warning', () => {
     expect(frame).toContain(glyphs.warningGlyph);
     expect(frame).toContain('done with warning');
     expect(frame).toContain('evaluator plateaued on C1');
-    r.unmount();
   });
 
   it('shows no warning line for a completed task that is not in the map (clean pass)', () => {
@@ -41,7 +40,6 @@ describe('TasksPanel done-with-warning', () => {
     const r = render(<TasksPanel bucketed={bucketed} running={false} />);
     const frame = r.lastFrame() ?? '';
     expect(frame).not.toContain('done with warning');
-    r.unmount();
   });
 
   it('does not render the warning line for a non-completed task even if a summary is supplied', () => {
@@ -52,6 +50,5 @@ describe('TasksPanel done-with-warning', () => {
     const r = render(<TasksPanel bucketed={bucketed} running={false} warningSummaryById={summaryById} />);
     const frame = r.lastFrame() ?? '';
     expect(frame).not.toContain('done with warning');
-    r.unmount();
   });
 });

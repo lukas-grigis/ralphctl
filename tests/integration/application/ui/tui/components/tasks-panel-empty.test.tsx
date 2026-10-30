@@ -20,7 +20,6 @@ describe('TasksPanel empty + first-run states', () => {
     const frame = r.lastFrame() ?? '';
     expect(frame).toContain('Tasks panel empty');
     expect(frame).toContain('Run plan to generate tasks');
-    r.unmount();
   });
 
   it('renders "waiting for first attempt…" under the active task spinner when no signal has fired yet', () => {
@@ -42,7 +41,6 @@ describe('TasksPanel empty + first-run states', () => {
     expect(frame).toContain('waiting for first attempt…');
     // The kinds bar would emit "kinds:" — it must be suppressed at first-run.
     expect(frame).not.toContain('kinds:');
-    r.unmount();
   });
 
   it('does NOT render the first-run waiting line once any signal has landed', () => {
@@ -70,7 +68,6 @@ describe('TasksPanel empty + first-run states', () => {
     expect(frame).not.toContain('waiting for first attempt');
     // Now that a signal has arrived, the kinds bar should surface its label.
     expect(frame).toContain('kinds:');
-    r.unmount();
   });
 
   it('first-run waiting line attaches to the active (running) task, not completed ones', () => {
@@ -98,6 +95,5 @@ describe('TasksPanel empty + first-run states', () => {
     const r = render(<TasksPanel bucketed={bucketed} running={true} />);
     const frame = r.lastFrame() ?? '';
     expect(frame).toContain('waiting for first attempt…');
-    r.unmount();
   });
 });

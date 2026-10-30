@@ -123,6 +123,5 @@ describe('Execute layouts — `v` opens the evaluation in both width regimes', (
     });
 
     expect(onOpenEvaluation).toHaveBeenCalledWith(taskId);
-    result.unmount();
   });
 });

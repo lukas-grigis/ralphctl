@@ -46,7 +46,7 @@ import { RepositoryId } from '@src/domain/value/id/repository-id.ts';
 import type { TaskId } from '@src/domain/value/id/task-id.ts';
 import type { TicketId } from '@src/domain/value/id/ticket-id.ts';
 
-const unwrap = <T, E>(r: Result<T, E>): T => {
+export const unwrap = <T, E>(r: Result<T, E>): T => {
   if (!r.ok) {
     const err: unknown = r.error;
     const msg = err instanceof Error ? err.message : JSON.stringify(err);

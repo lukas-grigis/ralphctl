@@ -160,6 +160,5 @@ describe('FlowStepsTree', () => {
     const lines = (r.lastFrame() ?? '').split('\n');
     expect(lines).toHaveLength(1);
     expect(lines[0]).toContain('…');
-    r.unmount();
   });
 });

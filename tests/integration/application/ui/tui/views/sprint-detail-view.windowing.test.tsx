@@ -13,19 +13,14 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { Result } from '@src/domain/result.ts';
 import { SprintDetailView } from '@src/application/ui/tui/views/sprint-detail-view.tsx';
-import type { ViewEntry } from '@src/application/ui/tui/runtime/router.tsx';
-import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
-import type { SprintRepository } from '@src/domain/repository/sprint/sprint-repository.ts';
-import type { TaskRepository } from '@src/domain/repository/task/task-repository.ts';
 import type { Task } from '@src/domain/entity/task.ts';
 import { renderView, waitForViewReady } from '@tests/integration/application/ui/tui/_harness.tsx';
 import { tick } from '@tests/integration/application/ui/tui/_keys.ts';
 import { waitForPredicate } from '@tests/integration/application/ui/tui/_wait.ts';
-import { noopLogger } from '@tests/fixtures/noop-logger.ts';
+import { readOnlyDeps, sprintDetailEntry } from '@tests/integration/application/ui/tui/views/_sprint-detail.ts';
 
 const sizeRef = vi.hoisted(() => ({ columns: 120, rows: 24 }));
 
@@ -60,25 +55,7 @@ const makeTask = (n: number): Task =>
     verificationCriteria: [],
   }) as never;
 
-const stubDeps = (sprint: Sprint, tasks: readonly Task[]): AppDeps =>
-  ({
-    sprintRepo: {
-      async findById() {
-        return Result.ok(sprint);
-      },
-    } as unknown as SprintRepository,
-    taskRepo: {
-      async findBySprintId() {
-        return Result.ok([...tasks]);
-      },
-    } as unknown as TaskRepository,
-    projectRepo: {} as never,
-    sprintExecutionRepo: {} as never,
-    settingsRepo: {} as never,
-    logger: noopLogger,
-  }) as unknown as AppDeps;
-
-const initial: ViewEntry = { id: 'sprint-detail', props: { sprintId: FIXED_SPRINT_ID } };
+const initial = sprintDetailEntry(FIXED_SPRINT_ID);
 
 describe('SprintDetailView — task-list windowing (M4 guard)', () => {
   beforeEach(() => {
@@ -97,7 +74,7 @@ describe('SprintDetailView — task-list windowing (M4 guard)', () => {
       tickets: [{ id: 't1' as never, title: 'first', status: 'approved' } as never],
     });
     const tasks = Array.from({ length: TOTAL }, (_, i) => makeTask(i + 1));
-    const { result } = renderView(<SprintDetailView />, { deps: stubDeps(sprint, tasks), initial });
+    const { result } = renderView(<SprintDetailView />, { deps: readOnlyDeps(sprint, tasks), initial });
     await waitForViewReady(result, (f) => f.includes('task-marker-1'));
 
     // Before moving, the last task is well past the rows=24 / 8-card window — it must NOT render.
@@ -128,7 +105,7 @@ describe('SprintDetailView — task-list windowing (M4 guard)', () => {
     const TOTAL = 20;
     const sprint = makeSprint({ status: 'active', tickets: [] });
     const tasks = Array.from({ length: TOTAL }, (_, i) => makeTask(i + 1));
-    const { result } = renderView(<SprintDetailView />, { deps: stubDeps(sprint, tasks), initial });
+    const { result } = renderView(<SprintDetailView />, { deps: readOnlyDeps(sprint, tasks), initial });
     await waitForViewReady(result, (f) => f.includes('task-marker-1'));
 
     const frame = result.lastFrame() ?? '';
@@ -144,7 +121,7 @@ describe('SprintDetailView — task-list windowing (M4 guard)', () => {
       tickets: [{ id: 't1' as never, title: 'first', status: 'approved' } as never],
     });
     const tasks = [makeTask(1), makeTask(2), makeTask(3)];
-    const { result } = renderView(<SprintDetailView />, { deps: stubDeps(sprint, tasks), initial });
+    const { result } = renderView(<SprintDetailView />, { deps: readOnlyDeps(sprint, tasks), initial });
     await waitForViewReady(result, (f) => f.includes('task-marker-1'));
 
     const frame = result.lastFrame() ?? '';

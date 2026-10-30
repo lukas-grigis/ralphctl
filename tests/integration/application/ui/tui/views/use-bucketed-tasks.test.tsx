@@ -51,20 +51,18 @@ describe('useBucketedTasks — maxAttempts seam', () => {
     const bus = createInMemoryEventBus();
     let last: BucketedDerivation | undefined;
     const descriptor = descriptorWith({ maxTurns: 3, maxAttempts: 3 });
-    const r = render(<Probe descriptor={descriptor} bus={bus} onState={(d) => (last = d)} />);
+    render(<Probe descriptor={descriptor} bus={bus} onState={(d) => (last = d)} />);
 
     expect(last?.bucketed?.tasks[0]?.genEvalMaxAttempts).toBe(3);
-    r.unmount();
   });
 
   it('leaves genEvalMaxAttempts undefined when the descriptor omits maxAttempts', () => {
     const bus = createInMemoryEventBus();
     let last: BucketedDerivation | undefined;
     const descriptor = descriptorWith({ maxTurns: 3 });
-    const r = render(<Probe descriptor={descriptor} bus={bus} onState={(d) => (last = d)} />);
+    render(<Probe descriptor={descriptor} bus={bus} onState={(d) => (last = d)} />);
 
     expect(last?.bucketed?.tasks[0]?.genEvalMaxAttempts).toBeUndefined();
-    r.unmount();
   });
 });
 
@@ -89,6 +87,5 @@ describe('useBucketedTasks — capped signal window', () => {
 
     const texts = last?.bucketed?.tasks[0]?.signals.map((s) => (s.type === 'note' ? s.text : ''));
     expect(texts).toEqual(['mid', 'new']);
-    r.unmount();
   });
 });

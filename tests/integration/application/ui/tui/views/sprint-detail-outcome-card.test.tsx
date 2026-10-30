@@ -6,7 +6,6 @@
 
 import { render } from 'ink-testing-library';
 import { describe, expect, it } from 'vitest';
-import type { Result } from '@src/domain/result.ts';
 import type { AttemptWarning } from '@src/domain/entity/attempt.ts';
 import type { InProgressTask, Task } from '@src/domain/entity/task.ts';
 import {
@@ -19,12 +18,14 @@ import { applyCriteriaVerdicts } from '@src/domain/entity/task-criteria.ts';
 import { markTaskBlocked } from '@src/domain/entity/task-lifecycle.ts';
 import { failCurrentAttempt, markTaskDone, recordTaskEscalation } from '@src/domain/entity/task-settle.ts';
 import { OutcomeReportCard } from '@src/application/ui/tui/views/sprint-detail-internals/outcome-card.tsx';
-import { FIXED_LATER, FIXED_LATEST, FIXED_NOW, makeReviewSprint, makeTodoTask } from '@tests/fixtures/domain.ts';
-
-const unwrap = <T, E>(result: Result<T, E>): T => {
-  if (!result.ok) throw new Error(`fixture unwrap failed: ${JSON.stringify(result.error)}`);
-  return result.value as T;
-};
+import {
+  FIXED_LATER,
+  FIXED_LATEST,
+  FIXED_NOW,
+  makeReviewSprint,
+  makeTodoTask,
+  unwrap,
+} from '@tests/fixtures/domain.ts';
 
 const beginAttempt = (task: Task): InProgressTask => unwrap(startNextAttempt(task, FIXED_NOW, 'session-1'));
 

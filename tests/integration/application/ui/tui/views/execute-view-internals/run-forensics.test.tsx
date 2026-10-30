@@ -104,7 +104,7 @@ describe('useRunForensics', () => {
     await fs.writeFile(join(sprintDir, 'progress.md'), '# progress\n', 'utf8');
 
     const seen: ForensicPath[][] = [];
-    const { lastFrame, unmount } = render(
+    const { lastFrame } = render(
       <Probe
         args={{
           enabled: true,
@@ -124,7 +124,6 @@ describe('useRunForensics', () => {
     expect(labels).not.toContain('events.ndjson');
     expect(labels).not.toContain('verify logs');
     expect((seen.at(-1) ?? []).find((f) => f.label === 'progress.md')?.path).toBe(join(sprintDir, 'progress.md'));
-    unmount();
   });
 
   it('picks up events.ndjson and the verify-log dir once they exist', async () => {
@@ -134,7 +133,7 @@ describe('useRunForensics', () => {
     await fs.mkdir(join(sprintDir, 'logs'), { recursive: true });
 
     const seen: ForensicPath[][] = [];
-    const { lastFrame, unmount } = render(
+    const { lastFrame } = render(
       <Probe
         args={{ enabled: true, pinnedSprintId: SPRINT_ID, flowId: 'implement', dataRoot, runsRoot: dataRoot }}
         seen={seen}
@@ -143,7 +142,6 @@ describe('useRunForensics', () => {
     await waitForPredicate(() => (lastFrame() ?? '').includes('events.ndjson'));
     const labels = (seen.at(-1) ?? []).map((f) => f.label);
     expect(labels).toEqual(['progress.md', 'events.ndjson', 'verify logs', 'sprint dir']);
-    unmount();
   });
 
   it('returns nothing when the run has no pinned sprint (the create-sprint case)', async () => {
@@ -153,7 +151,7 @@ describe('useRunForensics', () => {
     const { dataRoot, sprintDir } = await mkSprintDir();
     await fs.writeFile(join(sprintDir, 'progress.md'), '# progress\n', 'utf8');
     const seen: ForensicPath[][] = [];
-    const { lastFrame, unmount } = render(
+    const { lastFrame } = render(
       <>
         <Probe
           args={{ enabled: true, pinnedSprintId: undefined, flowId: 'create-sprint', dataRoot, runsRoot: dataRoot }}
@@ -168,14 +166,13 @@ describe('useRunForensics', () => {
 
     expect(seen.length).toBeGreaterThan(0);
     expect(seen.every((entries) => entries.length === 0)).toBe(true);
-    unmount();
   });
 
   it('returns nothing while disabled (a completed run owes no post-mortem)', async () => {
     const { dataRoot, sprintDir } = await mkSprintDir();
     await fs.writeFile(join(sprintDir, 'progress.md'), '# progress\n', 'utf8');
     const seen: ForensicPath[][] = [];
-    const { lastFrame, unmount } = render(
+    const { lastFrame } = render(
       <>
         <Probe
           args={{ enabled: false, pinnedSprintId: SPRINT_ID, flowId: 'implement', dataRoot, runsRoot: dataRoot }}
@@ -192,7 +189,6 @@ describe('useRunForensics', () => {
 
     expect(seen.length).toBeGreaterThan(0);
     expect(seen.every((entries) => entries.length === 0)).toBe(true);
-    unmount();
   });
 
   it('returns nothing when the sprint directory is gone', async () => {
@@ -205,7 +201,7 @@ describe('useRunForensics', () => {
 
     const { dataRoot: controlRoot } = await mkSprintDir();
     const seen: ForensicPath[][] = [];
-    const { lastFrame, unmount } = render(
+    const { lastFrame } = render(
       <>
         <Probe
           args={{
@@ -226,7 +222,6 @@ describe('useRunForensics', () => {
 
     expect(seen.length).toBeGreaterThan(0);
     expect(seen.every((entries) => entries.length === 0)).toBe(true);
-    unmount();
   });
 
   it('points a one-shot flow at its runs directory, never at a fabricated run id', async () => {
@@ -237,7 +232,7 @@ describe('useRunForensics', () => {
     await fs.mkdir(join(runsRoot, 'readiness'), { recursive: true });
 
     const seen: ForensicPath[][] = [];
-    const { lastFrame, unmount } = render(
+    const { lastFrame } = render(
       <Probe
         args={{
           enabled: true,
@@ -252,6 +247,5 @@ describe('useRunForensics', () => {
     await waitForPredicate(() => (lastFrame() ?? '').includes('run artifacts'));
     const entry = (seen.at(-1) ?? []).find((f) => f.label === 'run artifacts');
     expect(entry?.path).toBe(join(runsRoot, 'readiness'));
-    unmount();
   });
 });

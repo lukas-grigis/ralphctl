@@ -99,7 +99,6 @@ describe('ExecuteView — settled-run `u unblock` hint wiring', () => {
     expect(strip).toContain('home');
     expect(strip).toContain('re-run');
     expect(strip).toContain('unblock');
-    result.unmount();
   });
 
   it('omits the hint when no task is blocked', async () => {
@@ -115,7 +114,6 @@ describe('ExecuteView — settled-run `u unblock` hint wiring', () => {
 
     expect(hintStrip(result.lastFrame() ?? '')).toContain('home');
     expect(hintStrip(result.lastFrame() ?? '')).not.toContain('unblock');
-    result.unmount();
   });
 
   it('omits the hint on a DONE pin, where the panel that owns the `u` handler is gone', async () => {
@@ -135,7 +133,6 @@ describe('ExecuteView — settled-run `u unblock` hint wiring', () => {
     expect(result.lastFrame() ?? '').toContain('Sprint no longer available');
     expect(hintStrip(result.lastFrame() ?? '')).toContain('home');
     expect(hintStrip(result.lastFrame() ?? '')).not.toContain('unblock');
-    result.unmount();
   });
 
   it('never advertises it on a LIVE run, even with a blocked task in the list', async () => {
@@ -162,6 +159,5 @@ describe('ExecuteView — settled-run `u unblock` hint wiring', () => {
     const strip = (result.lastFrame() ?? '').split('\n').find((line) => line.includes('cancel')) ?? '';
     expect(strip).toContain('detach');
     expect(strip).not.toContain('unblock');
-    result.unmount();
   });
 });

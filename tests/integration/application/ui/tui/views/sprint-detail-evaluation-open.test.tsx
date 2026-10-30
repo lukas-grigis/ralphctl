@@ -14,23 +14,18 @@
 import React from 'react';
 import { describe, expect, it } from 'vitest';
 import { Text } from 'ink';
-import { Result } from '@src/domain/result.ts';
 import { SprintDetailView } from '@src/application/ui/tui/views/sprint-detail-view.tsx';
 import { useOverlayState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
-import type { ViewEntry } from '@src/application/ui/tui/runtime/router.tsx';
-import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
-import type { SprintRepository } from '@src/domain/repository/sprint/sprint-repository.ts';
-import type { TaskRepository } from '@src/domain/repository/task/task-repository.ts';
 import type { Task } from '@src/domain/entity/task.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import { recordRunningAttemptEvaluation, startNextAttempt } from '@src/domain/entity/task-attempts.ts';
 import { renderView, waitForViewReady } from '@tests/integration/application/ui/tui/_harness.tsx';
 import { tick } from '@tests/integration/application/ui/tui/_keys.ts';
 import { waitForPredicate } from '@tests/integration/application/ui/tui/_wait.ts';
-import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import { makeTodoTask } from '@tests/fixtures/domain.ts';
+import { readOnlyDeps, sprintDetailEntry } from '@tests/integration/application/ui/tui/views/_sprint-detail.ts';
 
 const FIXED_SPRINT_ID = 'sprint-eval-fixture' as unknown as SprintId;
 const ATTEMPT_STARTED_AT = '2026-08-17T09:00:00.000Z' as IsoTimestamp;
@@ -61,25 +56,7 @@ const evaluatedTask = (name: string, file: string): Task => {
   return evaluated.value;
 };
 
-const stubDeps = (sprint: Sprint, tasks: readonly Task[]): AppDeps =>
-  ({
-    sprintRepo: {
-      async findById() {
-        return Result.ok(sprint);
-      },
-    } as unknown as SprintRepository,
-    taskRepo: {
-      async findBySprintId() {
-        return Result.ok([...tasks]);
-      },
-    } as unknown as TaskRepository,
-    projectRepo: {} as never,
-    sprintExecutionRepo: {} as never,
-    settingsRepo: {} as never,
-    logger: noopLogger,
-  }) as unknown as AppDeps;
-
-const initial: ViewEntry = { id: 'sprint-detail', props: { sprintId: FIXED_SPRINT_ID } };
+const initial = sprintDetailEntry(FIXED_SPRINT_ID);
 
 /** Surfaces the overlay's target as a one-line sentinel: `TARGET:<taskLabel>:<attemptN>:<file>`. */
 const TargetProbe = (): React.JSX.Element => {
@@ -99,7 +76,7 @@ const renderDetail = (tasks: readonly Task[]): ReturnType<typeof renderView> =>
       <TargetProbe />
       <SprintDetailView />
     </>,
-    { deps: stubDeps(makeSprint(), tasks), initial }
+    { deps: readOnlyDeps(makeSprint(), tasks), initial }
   );
 
 describe('SprintDetailView — `v` opens the focused task evaluation', () => {
@@ -115,7 +92,6 @@ describe('SprintDetailView — `v` opens the focused task evaluation', () => {
     await waitForPredicate(() => (result.lastFrame() ?? '').includes('TARGET:wire the migration'));
 
     expect(result.lastFrame() ?? '').toContain('TARGET:wire the migration:1:failed:rounds/2/evaluator/evaluation.md');
-    result.unmount();
   });
 
   it('hands over a target with no file for a legacy row that recorded no artifact path', async () => {
@@ -130,7 +106,6 @@ describe('SprintDetailView — `v` opens the focused task evaluation', () => {
 
     // The chord still opens — the overlay owns the degrade, not the view.
     expect(result.lastFrame() ?? '').toContain('TARGET:legacy task:1:failed:no-file');
-    result.unmount();
   });
 
   it('is inert while the cursor is on a ticket row', async () => {
@@ -142,7 +117,6 @@ describe('SprintDetailView — `v` opens the focused task evaluation', () => {
     result.stdin.write('v');
     await tick(60);
     expect(result.lastFrame() ?? '').toContain('TARGET:none');
-    result.unmount();
   });
 
   it('is inert on a task whose attempts never reached the evaluator', async () => {
@@ -154,7 +128,6 @@ describe('SprintDetailView — `v` opens the focused task evaluation', () => {
     result.stdin.write('v');
     await tick(60);
     expect(result.lastFrame() ?? '').toContain('TARGET:none');
-    result.unmount();
   });
 
   it('advertises the chord in the static action bar', async () => {
@@ -165,6 +138,5 @@ describe('SprintDetailView — `v` opens the focused task evaluation', () => {
     const { result } = renderDetail([task]);
     await waitForViewReady(result, (f) => f.includes('wire the migration'));
     expect(result.lastFrame() ?? '').toContain('v evaluation');
-    result.unmount();
   });
 });

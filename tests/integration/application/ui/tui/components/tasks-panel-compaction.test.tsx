@@ -54,8 +54,6 @@ describe('TasksPanel context-compacted marker', () => {
     expect(frame).toContain('200k');
     expect(frame).toContain('12k');
     expect(frame).toContain('kept: 4 topics');
-
-    r.unmount();
   });
 
   it('uses singular "topic" when exactly one topic was preserved', () => {
@@ -67,8 +65,6 @@ describe('TasksPanel context-compacted marker', () => {
     expect(frame).toContain('kept: 1 topic');
     // Verify it is NOT pluralized.
     expect(frame).not.toContain('kept: 1 topics');
-
-    r.unmount();
   });
 
   it('renders the bare boundary when neither token counts nor topics are reported', () => {
@@ -80,8 +76,6 @@ describe('TasksPanel context-compacted marker', () => {
     expect(frame).toContain('context compacted');
     // No parenthetical detail block when there is nothing to show.
     expect(frame).not.toMatch(/context compacted \(/);
-
-    r.unmount();
   });
 
   it('compaction marker stays inside the available column width (flexGrow + truncate-end)', () => {
@@ -102,8 +96,6 @@ describe('TasksPanel context-compacted marker', () => {
       .map((l) => l.replace(ansiRe, '').length)
       .reduce((m, n) => Math.max(m, n), 0);
     expect(longest).toBeLessThanOrEqual(100);
-
-    r.unmount();
   });
 
   it('does not surface context-compacted in the inline kinds bar (boundaries are not signal kinds)', () => {
@@ -116,7 +108,5 @@ describe('TasksPanel context-compacted marker', () => {
     // The dedented boundary marker is not one of them; rowForSignal returns undefined so
     // collectKinds excludes it, and the kinds bar suppresses entirely when no kinds collected.
     expect(frame).not.toContain('kinds:');
-
-    r.unmount();
   });
 });

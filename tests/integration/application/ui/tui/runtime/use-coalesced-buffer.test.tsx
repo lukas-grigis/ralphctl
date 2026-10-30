@@ -60,7 +60,6 @@ describe('useCoalescedBuffer', () => {
     expect(commits).toBeLessThanOrEqual(2);
     // The trailing window (limit 3) of the LAST values wins.
     expect(r.lastFrame()).toBe('37,38,39');
-    r.unmount();
   });
 
   it('unmount detaches the subscription and cancels the pending flush — no post-unmount commit', async () => {

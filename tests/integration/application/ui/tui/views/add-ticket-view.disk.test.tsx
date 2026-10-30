@@ -22,8 +22,9 @@ import type { IssueFetcher } from '@src/business/scm/issue-fetcher.ts';
 import type { IssuePusher, IssueTrackerOrigin } from '@src/business/scm/issue-pusher.ts';
 import { AddTicketView } from '@src/application/ui/tui/views/add-ticket-view.tsx';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
+import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import { makeDraftSprint, makeProject } from '@tests/fixtures/domain.ts';
-import { ENTER } from '@tests/integration/application/ui/tui/_keys.ts';
+import { ENTER, tick } from '@tests/integration/application/ui/tui/_keys.ts';
 import { waitFor } from '@tests/integration/application/ui/tui/_wait.ts';
 import { renderView } from '@tests/integration/application/ui/tui/_harness.tsx';
 import { createRealFsApp, type RealFsApp } from '@tests/helpers/real-fs-app.ts';
@@ -64,42 +65,13 @@ describe('AddTicketView — disk round-trip', () => {
     expect(beforeSprint.schemaVersion).toBe(1);
     expect(beforeSprint.tickets).toHaveLength(0);
 
-    const { result } = renderView(<AddTicketView />, {
-      deps: app.deps,
-      initial: { id: 'add-ticket', props: { sprintId: sprint.id } },
-    });
-
-    // Step 1: skip link.
-    await waitFor(() => expect(result.lastFrame()).toContain('Issue link'));
+    const result = mount(sprint.id);
+    await fillManualTicket(result, 'Wire-up caching layer', 'Adds a per-request cache to the resolver pipeline');
     result.stdin.write(ENTER);
-
-    // Step 2: title.
-    await waitFor(() => expect(result.lastFrame()).toMatch(/^\s*▸\s*Title/m));
-    result.stdin.write('Wire-up caching layer');
-    await waitFor(() => expect(result.lastFrame()).toContain('Wire-up caching layer'));
-    result.stdin.write(ENTER);
-
-    // Step 3: description (required).
-    await waitFor(() => expect(result.lastFrame()).toContain('Description'));
-    result.stdin.write('Adds a per-request cache to the resolver pipeline');
-    await waitFor(() => expect(result.lastFrame()).toContain('per-request cache'));
-    result.stdin.write(ENTER);
-
-    // Step 4: confirm.
-    await waitFor(() => expect(result.lastFrame()).toContain('Add this ticket?'));
-    result.stdin.write(ENTER);
-
-    // Wait until disk reflects the appended ticket — the save is async + we don't get a
-    // synchronous "save complete" event from the view.
-    await waitFor(async () => {
-      const snap = await readSprintDir(await app.resolveSprintDir(sprint.id));
-      const persisted = snap.json<PersistedSprint>('sprint.json');
-      expect(persisted.tickets).toHaveLength(1);
-    });
+    await waitForTickets(sprint.id, 1);
 
     // Full assertions on what landed on disk.
-    const after = await readSprintDir(await app.resolveSprintDir(sprint.id));
-    const persisted = after.json<PersistedSprint>('sprint.json');
+    const persisted = await readPersisted(sprint.id);
     expect(persisted.schemaVersion).toBe(1);
     expect(persisted.id).toBe(String(sprint.id));
     expect(persisted.status).toBe('draft');
@@ -114,52 +86,17 @@ describe('AddTicketView — disk round-trip', () => {
     const sprint = makeDraftSprint();
     await app.deps.sprintRepo.save(sprint);
 
-    // First add.
-    {
-      const { result } = renderView(<AddTicketView />, {
-        deps: app.deps,
-        initial: { id: 'add-ticket', props: { sprintId: sprint.id } },
-      });
-      await waitFor(() => expect(result.lastFrame()).toContain('Issue link'));
+    for (const [count, title, description] of [
+      [1, 'Ticket one', 'first description'],
+      [2, 'Ticket two', 'second description'],
+    ] as const) {
+      const result = mount(sprint.id);
+      await fillManualTicket(result, title, description);
       result.stdin.write(ENTER);
-      await waitFor(() => expect(result.lastFrame()).toMatch(/^\s*▸\s*Title/m));
-      result.stdin.write('Ticket one');
-      result.stdin.write(ENTER);
-      await waitFor(() => expect(result.lastFrame()).toContain('Description'));
-      result.stdin.write('first description');
-      result.stdin.write(ENTER);
-      await waitFor(() => expect(result.lastFrame()).toContain('Add this ticket?'));
-      result.stdin.write(ENTER);
-      await waitFor(async () => {
-        const snap = await readSprintDir(await app.resolveSprintDir(sprint.id));
-        expect(snap.json<PersistedSprint>('sprint.json').tickets).toHaveLength(1);
-      });
+      await waitForTickets(sprint.id, count);
     }
 
-    // Second add.
-    {
-      const { result } = renderView(<AddTicketView />, {
-        deps: app.deps,
-        initial: { id: 'add-ticket', props: { sprintId: sprint.id } },
-      });
-      await waitFor(() => expect(result.lastFrame()).toContain('Issue link'));
-      result.stdin.write(ENTER);
-      await waitFor(() => expect(result.lastFrame()).toMatch(/^\s*▸\s*Title/m));
-      result.stdin.write('Ticket two');
-      result.stdin.write(ENTER);
-      await waitFor(() => expect(result.lastFrame()).toContain('Description'));
-      result.stdin.write('second description');
-      result.stdin.write(ENTER);
-      await waitFor(() => expect(result.lastFrame()).toContain('Add this ticket?'));
-      result.stdin.write(ENTER);
-      await waitFor(async () => {
-        const snap = await readSprintDir(await app.resolveSprintDir(sprint.id));
-        expect(snap.json<PersistedSprint>('sprint.json').tickets).toHaveLength(2);
-      });
-    }
-
-    const final = await readSprintDir(await app.resolveSprintDir(sprint.id));
-    const persisted = final.json<PersistedSprint>('sprint.json');
+    const persisted = await readPersisted(sprint.id);
     expect(persisted.tickets.map((t) => t.title)).toEqual(['Ticket one', 'Ticket two']);
     expect(persisted.tickets.map((t) => t.description)).toEqual(['first description', 'second description']);
   });
@@ -171,21 +108,12 @@ describe('AddTicketView — disk round-trip', () => {
     const before = await readSprintDir(await app.resolveSprintDir(sprint.id));
     const beforeMtime = before.files['sprint.json'];
 
-    const { result } = renderView(<AddTicketView />, {
-      deps: app.deps,
-      initial: { id: 'add-ticket', props: { sprintId: sprint.id } },
-    });
-
-    await waitFor(() => expect(result.lastFrame()).toContain('Issue link'));
-    result.stdin.write(ENTER);
-    await waitFor(() => expect(result.lastFrame()).toMatch(/^\s*▸\s*Title/m));
-    result.stdin.write('Some title');
-    result.stdin.write(ENTER);
+    const result = mount(sprint.id);
+    await fillManualTicket(result, 'Some title');
     // Description step: press Enter with empty buffer; wizard should NOT advance to confirm.
-    await waitFor(() => expect(result.lastFrame()).toContain('Description'));
     result.stdin.write(ENTER);
     // Give the (non-)save a tick to happen if it would.
-    await new Promise((r) => setTimeout(r, 30));
+    await tick();
 
     const after = await readSprintDir(await app.resolveSprintDir(sprint.id));
     // Same content — no save happened. Catches a regression where the wizard silently
@@ -196,22 +124,16 @@ describe('AddTicketView — disk round-trip', () => {
 
   it('create prompt default No saves locally and does not call IssuePusher.create', async () => {
     const { sprint, deps, createCalls } = await seedWithOrigin();
-    const { result } = renderView(<AddTicketView />, {
-      deps,
-      initial: { id: 'add-ticket', props: { sprintId: sprint.id } },
-    });
+    const result = mount(sprint.id, deps);
 
     await fillManualTicket(result, 'Local only', 'stays on disk');
     result.stdin.write(ENTER);
     await waitFor(() => expect(result.lastFrame()).toContain('Create a tracker issue?'));
     result.stdin.write(ENTER);
 
-    await waitFor(async () => {
-      const snap = await readSprintDir(await app.resolveSprintDir(sprint.id));
-      expect(snap.json<PersistedSprint>('sprint.json').tickets).toHaveLength(1);
-    });
+    await waitForTickets(sprint.id, 1);
 
-    const persisted = (await readSprintDir(await app.resolveSprintDir(sprint.id))).json<PersistedSprint>('sprint.json');
+    const persisted = await readPersisted(sprint.id);
     expect(persisted.tickets[0]?.title).toBe('Local only');
     expect(persisted.tickets[0]?.link).toBeUndefined();
     expect(createCalls).toEqual([]);
@@ -221,10 +143,7 @@ describe('AddTicketView — disk round-trip', () => {
 
   it('create prompt Yes stores the IssuePusher.create URL as the ticket link', async () => {
     const { sprint, deps, createCalls } = await seedWithOrigin();
-    const { result } = renderView(<AddTicketView />, {
-      deps,
-      initial: { id: 'add-ticket', props: { sprintId: sprint.id } },
-    });
+    const result = mount(sprint.id, deps);
 
     await fillManualTicket(result, 'Ship it', 'open a tracker issue');
     result.stdin.write(ENTER);
@@ -243,24 +162,16 @@ describe('AddTicketView — disk round-trip', () => {
     const { sprint, deps, createCalls } = await seedWithOrigin({
       origin: Result.ok(null),
     });
-    const { result } = renderView(<AddTicketView />, {
-      deps,
-      initial: { id: 'add-ticket', props: { sprintId: sprint.id } },
-    });
+    const result = mount(sprint.id, deps);
 
     await fillManualTicket(result, 'No origin', 'skip the prompt');
     result.stdin.write(ENTER);
 
-    await waitFor(async () => {
-      const snap = await readSprintDir(await app.resolveSprintDir(sprint.id));
-      expect(snap.json<PersistedSprint>('sprint.json').tickets).toHaveLength(1);
-    });
+    await waitForTickets(sprint.id, 1);
 
     expect(result.lastFrame()).not.toContain('Create a tracker issue?');
     expect(createCalls).toEqual([]);
-    expect(
-      (await readSprintDir(await app.resolveSprintDir(sprint.id))).json<PersistedSprint>('sprint.json').tickets[0]?.link
-    ).toBeUndefined();
+    expect((await readPersisted(sprint.id)).tickets[0]?.link).toBeUndefined();
   });
 
   it('skips the create prompt when the ticket already has a link', async () => {
@@ -275,10 +186,7 @@ describe('AddTicketView — disk round-trip', () => {
           comments: [],
         }),
     });
-    const { result } = renderView(<AddTicketView />, {
-      deps,
-      initial: { id: 'add-ticket', props: { sprintId: sprint.id } },
-    });
+    const result = mount(sprint.id, deps);
 
     await waitFor(() => expect(result.lastFrame()).toContain('Issue link'));
     result.stdin.write(issueUrl);
@@ -290,26 +198,18 @@ describe('AddTicketView — disk round-trip', () => {
     await waitFor(() => expect(result.lastFrame()).toContain('Add this ticket?'));
     result.stdin.write(ENTER);
 
-    await waitFor(async () => {
-      const snap = await readSprintDir(await app.resolveSprintDir(sprint.id));
-      expect(snap.json<PersistedSprint>('sprint.json').tickets).toHaveLength(1);
-    });
+    await waitForTickets(sprint.id, 1);
 
     expect(result.lastFrame()).not.toContain('Create a tracker issue?');
     expect(createCalls).toEqual([]);
-    expect(
-      (await readSprintDir(await app.resolveSprintDir(sprint.id))).json<PersistedSprint>('sprint.json').tickets[0]?.link
-    ).toBe(issueUrl);
+    expect((await readPersisted(sprint.id)).tickets[0]?.link).toBe(issueUrl);
   });
 
   it('create failure leaves the local ticket in place and says it was saved', async () => {
     const { sprint, deps, createCalls } = await seedWithOrigin({
       create: Result.error(new StorageError({ subCode: 'io', message: 'gh is down' })),
     });
-    const { result } = renderView(<AddTicketView />, {
-      deps,
-      initial: { id: 'add-ticket', props: { sprintId: sprint.id } },
-    });
+    const result = mount(sprint.id, deps);
 
     await fillManualTicket(result, 'Keep locally', 'tracker is down');
     result.stdin.write(ENTER);
@@ -321,7 +221,7 @@ describe('AddTicketView — disk round-trip', () => {
     expect(frame).toContain('gh is down');
     expect(frame).toMatch(/ticket publish/i);
 
-    const persisted = (await readSprintDir(await app.resolveSprintDir(sprint.id))).json<PersistedSprint>('sprint.json');
+    const persisted = await readPersisted(sprint.id);
     expect(persisted.tickets).toHaveLength(1);
     expect(persisted.tickets[0]?.title).toBe('Keep locally');
     expect(persisted.tickets[0]?.link).toBeUndefined();
@@ -335,10 +235,21 @@ describe('AddTicketView — disk round-trip', () => {
     repo: 'y',
   };
 
+  const mount = (sprintId: SprintId, deps: AppDeps = app.deps) =>
+    renderView(<AddTicketView />, { deps, initial: { id: 'add-ticket', props: { sprintId } } }).result;
+
+  const readPersisted = async (sprintId: SprintId): Promise<PersistedSprint> =>
+    (await readSprintDir(await app.resolveSprintDir(sprintId))).json<PersistedSprint>('sprint.json');
+
+  // The save is async and the view emits no "save complete" event, so poll the file.
+  const waitForTickets = (sprintId: SprintId, count: number): Promise<void> =>
+    waitFor(async () => expect((await readPersisted(sprintId)).tickets).toHaveLength(count));
+
+  /** Walk link → title → description; without `description` stop on the Description step. */
   const fillManualTicket = async (
     result: { stdin: { write: (s: string) => void }; lastFrame: () => string | undefined },
     title: string,
-    description: string
+    description?: string
   ): Promise<void> => {
     await waitFor(() => expect(result.lastFrame()).toContain('Issue link'));
     result.stdin.write(ENTER);
@@ -346,6 +257,7 @@ describe('AddTicketView — disk round-trip', () => {
     result.stdin.write(title);
     result.stdin.write(ENTER);
     await waitFor(() => expect(result.lastFrame()).toContain('Description'));
+    if (description === undefined) return;
     result.stdin.write(description);
     result.stdin.write(ENTER);
     await waitFor(() => expect(result.lastFrame()).toContain('Add this ticket?'));

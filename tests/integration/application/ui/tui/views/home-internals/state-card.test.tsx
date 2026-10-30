@@ -51,47 +51,39 @@ describe('StateCard — next-action hint names the flow', () => {
     // A draft sprint with one pending ticket lands on the refine branch.
     const base = makeDraftSprint({ name: 'Drafty' });
     const draft = { ...base, tickets: [makePendingTicket({ title: 'unclear ask' })] } as unknown as Sprint;
-    const { lastFrame, unmount } = render(
-      <StateCard state={snapshot(draft, { pendingTicketCount: 2 })} loading={false} />
-    );
+    const { lastFrame } = render(<StateCard state={snapshot(draft, { pendingTicketCount: 2 })} loading={false} />);
     const frame = lastFrame() ?? '';
     expect(frame).toContain('◆ Refine');
     expect(frame).toContain('clarify');
-    unmount();
   });
 
   it('active + resumable tasks → implement (run the tasks), not a bare key', () => {
     const active = makeActiveSprint();
-    const { lastFrame, unmount } = render(
-      <StateCard state={snapshot(active, { resumableTaskCount: 3 })} loading={false} />
-    );
+    const { lastFrame } = render(<StateCard state={snapshot(active, { resumableTaskCount: 3 })} loading={false} />);
     const frame = lastFrame() ?? '';
     expect(frame).toContain('◆ Implement — 3 tasks pending');
     expect(frame).toContain('3 tasks pending');
     // The old bare-key phrasing must be gone — the hint names the flow now.
     expect(frame).not.toContain('— press n');
-    unmount();
   });
 
   it('review offers every flow the Flows menu lists at that status', () => {
     // `ALLOWED_BY_STATUS` (flows-visibility.ts) and `buildNextSteps` must agree, or the card points at
     // a flow the Flows menu does not list.
     const review = makeReviewSprint();
-    const { lastFrame, unmount } = render(<StateCard state={snapshot(review)} loading={false} />);
+    const { lastFrame } = render(<StateCard state={snapshot(review)} loading={false} />);
     const frame = lastFrame() ?? '';
     expect(frame).toContain('◆ Review');
     expect(frame).toContain('◆ Create PR');
     expect(frame).toContain('◆ Close sprint');
-    unmount();
   });
 
   it('done recommends create-pr — the card used to render nothing at all in this state', () => {
     const done = makeDoneSprint();
-    const { lastFrame, unmount } = render(<StateCard state={snapshot(done)} loading={false} />);
+    const { lastFrame } = render(<StateCard state={snapshot(done)} loading={false} />);
     const frame = lastFrame() ?? '';
     expect(frame).toContain('◆ Create PR');
     expect(frame).toContain('pull request');
-    unmount();
   });
 
   it('done WITH blocked tasks leads with the unblock callout naming the reopen path, ahead of create-pr', () => {
@@ -105,11 +97,10 @@ describe('StateCard — next-action hint names the flow', () => {
       return r.value;
     })();
     const state: AppStateSnapshot = { ...snapshot(done), tasks: [blockedTask] };
-    const { lastFrame, unmount } = render(<StateCard state={state} loading={false} />);
+    const { lastFrame } = render(<StateCard state={state} loading={false} />);
     const frame = lastFrame() ?? '';
     expect(frame).toContain('unblock 1 blocked task');
     expect(frame).toContain('reopens the sprint');
     expect(frame).toContain('◆ Create PR');
-    unmount();
   });
 });

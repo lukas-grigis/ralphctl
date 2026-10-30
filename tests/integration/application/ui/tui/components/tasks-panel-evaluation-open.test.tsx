@@ -58,7 +58,6 @@ describe("TasksPanel — `v` opens the focused card's evaluation", () => {
     r.stdin.write('v');
     await waitForPredicate(() => onOpenEvaluation.mock.calls.length === 1);
     expect(onOpenEvaluation).toHaveBeenCalledWith('task-live');
-    r.unmount();
   });
 
   it('targets the FOCUSED card after the cursor moves, not the active one', async () => {
@@ -78,7 +77,6 @@ describe("TasksPanel — `v` opens the focused card's evaluation", () => {
     r.stdin.write('v');
     await waitForPredicate(() => onOpenEvaluation.mock.calls.length === 1);
     expect(onOpenEvaluation).toHaveBeenCalledWith('task-done');
-    r.unmount();
   });
 
   it('is inert on a card with no recorded verdict', async () => {
@@ -93,7 +91,6 @@ describe("TasksPanel — `v` opens the focused card's evaluation", () => {
     r.stdin.write('v');
     await tick(50);
     expect(onOpenEvaluation).not.toHaveBeenCalled();
-    r.unmount();
   });
 
   it('is inert when the host wires no handler', async () => {
@@ -106,7 +103,6 @@ describe("TasksPanel — `v` opens the focused card's evaluation", () => {
     r.stdin.write('v');
     await tick(50);
     expect(r.lastFrame() ?? '').toBe(before);
-    r.unmount();
   });
 
   it('leaves the sibling chords it was inserted next to alone', async () => {
@@ -134,6 +130,5 @@ describe("TasksPanel — `v` opens the focused card's evaluation", () => {
     r.stdin.write(ENTER);
     await tick(40);
     expect(onOpenEvaluation).not.toHaveBeenCalled();
-    r.unmount();
   });
 });

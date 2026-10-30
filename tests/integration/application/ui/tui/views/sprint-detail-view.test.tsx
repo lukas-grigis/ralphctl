@@ -33,6 +33,7 @@ import {
 import { startNextAttempt } from '@src/domain/entity/task-attempts.ts';
 import { failCurrentAttempt } from '@src/domain/entity/task-settle.ts';
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
+import { readOnlyDeps, sprintDetailEntry } from '@tests/integration/application/ui/tui/views/_sprint-detail.ts';
 
 const FIXED_SPRINT_ID = 'sprint-fixture-id' as unknown as SprintId;
 
@@ -47,34 +48,16 @@ const makeSprint = (overrides: Partial<Sprint>): Sprint =>
     ...overrides,
   }) as unknown as Sprint;
 
-const stubDeps = (sprint: Sprint, tasks: readonly Task[]): AppDeps =>
-  ({
-    sprintRepo: {
-      async findById() {
-        return Result.ok(sprint);
-      },
-    } as unknown as SprintRepository,
-    taskRepo: {
-      async findBySprintId() {
-        return Result.ok([...tasks]);
-      },
-    } as unknown as TaskRepository,
-    projectRepo: {} as never,
-    sprintExecutionRepo: {} as never,
-    settingsRepo: {} as never,
-  }) as unknown as AppDeps;
-
-const initial: ViewEntry = { id: 'sprint-detail', props: { sprintId: FIXED_SPRINT_ID } };
+const initial = sprintDetailEntry(FIXED_SPRINT_ID);
 
 describe('SprintDetailView — phase workspace', () => {
   it('draft sprint with no tickets suggests "Add tickets"', async () => {
     const sprint = makeSprint({ status: 'draft', tickets: [] });
-    const { result } = renderView(<SprintDetailView />, { deps: stubDeps(sprint, []), initial });
+    const { result } = renderView(<SprintDetailView />, { deps: readOnlyDeps(sprint, []), initial });
     await waitForViewReady(result, (f) => f.includes('Add tickets'));
     const frame = result.lastFrame() ?? '';
     expect(frame).toContain('Next phase');
     expect(frame).toContain('Add tickets');
-    result.unmount();
   });
 
   it('draft sprint with pending tickets suggests "Refine"', async () => {
@@ -85,10 +68,9 @@ describe('SprintDetailView — phase workspace', () => {
         { id: 't2' as never, title: 'second', status: 'pending' } as never,
       ],
     });
-    const { result } = renderView(<SprintDetailView />, { deps: stubDeps(sprint, []), initial });
+    const { result } = renderView(<SprintDetailView />, { deps: readOnlyDeps(sprint, []), initial });
     await waitForViewReady(result, (f) => f.includes('Refine 2 pending ticket(s)'));
     expect(result.lastFrame() ?? '').toContain('Refine 2 pending ticket(s)');
-    result.unmount();
   });
 
   it('planned sprint with todo tasks suggests "Implement"; tickets always lead, tasks follow', async () => {
@@ -116,7 +98,7 @@ describe('SprintDetailView — phase workspace', () => {
         repositoryId: 'r1' as never,
       } as never,
     ];
-    const { result } = renderView(<SprintDetailView />, { deps: stubDeps(sprint, tasks), initial });
+    const { result } = renderView(<SprintDetailView />, { deps: readOnlyDeps(sprint, tasks), initial });
     await waitForViewReady(result, (f) => f.includes('Implement 2 resumable task(s)'));
     const frame = result.lastFrame() ?? '';
     expect(frame).toContain('Implement 2 resumable task(s)');
@@ -126,7 +108,6 @@ describe('SprintDetailView — phase workspace', () => {
     expect(ticketsHeader).toBeGreaterThan(-1);
     // Tickets always come first now — the old planned-sprint flip was confusing for users.
     expect(ticketsHeader).toBeLessThan(tasksHeader);
-    result.unmount();
   });
 
   it('review sprint suggests opening a pull request', async () => {
@@ -134,10 +115,9 @@ describe('SprintDetailView — phase workspace', () => {
       status: 'review',
       tickets: [{ id: 't1' as never, title: 'first', status: 'approved' } as never],
     });
-    const { result } = renderView(<SprintDetailView />, { deps: stubDeps(sprint, []), initial });
+    const { result } = renderView(<SprintDetailView />, { deps: readOnlyDeps(sprint, []), initial });
     await waitForViewReady(result, (f) => f.includes('Open a pull request'));
     expect(result.lastFrame() ?? '').toContain('Open a pull request');
-    result.unmount();
   });
 
   it('pressing u on a blocked task flips it to todo and surfaces "✓ unblocked"', async () => {
@@ -200,7 +180,6 @@ describe('SprintDetailView — phase workspace', () => {
     expect(updateCalls[0]?.status).toBe('todo');
     expect(frame).toContain('✓ unblocked');
     expect(frame).toContain('wedged');
-    result.unmount();
   });
 
   it("pressing 'e' on a focused ticket (draft sprint) opens an edit-field picker, then renames the ticket", async () => {
@@ -248,7 +227,6 @@ describe('SprintDetailView — phase workspace', () => {
     expect(save).toHaveBeenCalledTimes(1);
     const saved = save.mock.calls[0]?.[0];
     expect(saved?.tickets?.[0]?.title).toBe('Typo in Title');
-    result.unmount();
   });
 
   it("shows 'u unblock' hint in status bar when a blocked task is focused", async () => {
@@ -297,7 +275,6 @@ describe('SprintDetailView — phase workspace', () => {
     // by ink-testing-library may wrap the label across lines — match a prefix that survives
     // truncation/wrapping ("unbl" is the first four characters of the label "unblock").
     expect(frame).toMatch(/unbl/);
-    result.unmount();
   });
 
   it("hides the 'u unblock' hint when a non-blocked task is focused", async () => {
@@ -345,7 +322,6 @@ describe('SprintDetailView — phase workspace', () => {
     // if the label does not exist, not even the start of the word appears anywhere in the frame.
     expect(frame).toContain('not-stuck');
     expect(frame).not.toMatch(/unbl/);
-    result.unmount();
   });
 
   it("shows 'u unblock' hint when focused on an in_progress task (crashed/aborted)", async () => {
@@ -394,7 +370,6 @@ describe('SprintDetailView — phase workspace', () => {
     expect(frame).toContain('in-progress-stuck');
     // The 'u unblock' hint must appear for in_progress tasks, same as for blocked.
     expect(frame).toMatch(/unbl/);
-    result.unmount();
   });
 
   it('pressing u on an in_progress task with settled attempt resets it to todo', async () => {
@@ -455,7 +430,6 @@ describe('SprintDetailView — phase workspace', () => {
     expect(updateCalls[0]?.status).toBe('todo');
     expect(frame).toContain('✓ unblocked');
     expect(frame).toContain('crashed-task');
-    result.unmount();
   });
 
   it('shows the a/d ticket-CRUD hints on a draft sprint (handlers are draft-gated)', async () => {
@@ -463,7 +437,7 @@ describe('SprintDetailView — phase workspace', () => {
       status: 'draft',
       tickets: [{ id: 't1' as never, title: 'first', status: 'pending' } as never],
     });
-    const { result } = renderView(<SprintDetailView />, { deps: stubDeps(sprint, []), initial });
+    const { result } = renderView(<SprintDetailView />, { deps: readOnlyDeps(sprint, []), initial });
     await waitForViewReady(result, (f) => f.includes('a add'));
     const frame = result.lastFrame() ?? '';
     // The hint strip advertises the ticket add/remove chords only while they are wired up.
@@ -471,7 +445,6 @@ describe('SprintDetailView — phase workspace', () => {
     expect(frame).toContain('d remove');
     // DESIGN-SYSTEM §6.4 — arrows only in the per-view hint strip; j/k stays bound but unadvertised.
     expect(frame).not.toContain('j/k');
-    result.unmount();
   });
 
   it('hides the a/d ticket-CRUD hints on a non-draft sprint (handlers are no-ops there)', async () => {
@@ -479,14 +452,13 @@ describe('SprintDetailView — phase workspace', () => {
       status: 'active',
       tickets: [{ id: 't1' as never, title: 'first', status: 'approved' } as never],
     });
-    const { result } = renderView(<SprintDetailView />, { deps: stubDeps(sprint, []), initial });
+    const { result } = renderView(<SprintDetailView />, { deps: readOnlyDeps(sprint, []), initial });
     await waitForViewReady(result, (f) => f.includes('first'));
     const frame = result.lastFrame() ?? '';
     // Ticket CRUD is draft-only; on an active sprint the chords do nothing, so the footer must
     // not advertise them — the hint shares one source of truth with the gated handler.
     expect(frame).not.toContain('a add');
     expect(frame).not.toContain('d remove');
-    result.unmount();
   });
 
   it('u is a no-op when the focused card is a todo task (no use-case invocation)', async () => {
@@ -536,16 +508,14 @@ describe('SprintDetailView — phase workspace', () => {
     result.stdin.write('u');
     await tick(40);
     expect(updateCalls).toHaveLength(0);
-    result.unmount();
   });
 
   it("shows 'p publish' hint when a ticket is focused", async () => {
     const ticket = makePendingTicket({ title: 'publish-me' });
     const sprint = { ...makeDraftSprint(), tickets: [ticket] } as unknown as Sprint;
-    const { result } = renderView(<SprintDetailView />, { deps: stubDeps(sprint, []), initial });
+    const { result } = renderView(<SprintDetailView />, { deps: readOnlyDeps(sprint, []), initial });
     await waitForViewReady(result, (f) => f.includes('publish-me'));
     expect(result.lastFrame() ?? '').toContain('p publish');
-    result.unmount();
   });
 
   it("hides the 'p publish' hint when a task is focused", async () => {
@@ -565,14 +535,13 @@ describe('SprintDetailView — phase workspace', () => {
       steps: [],
       verificationCriteria: [],
     } as never;
-    const { result } = renderView(<SprintDetailView />, { deps: stubDeps(sprint, [todoTask]), initial });
+    const { result } = renderView(<SprintDetailView />, { deps: readOnlyDeps(sprint, [todoTask]), initial });
     await waitForViewReady(result, (f) => f.includes('not-a-ticket'));
     result.stdin.write('j');
     await tick(40);
     const frame = result.lastFrame() ?? '';
     expect(frame).toContain('not-a-ticket');
     expect(frame).not.toContain('p publish');
-    result.unmount();
   });
 
   it('pressing p on a focused ticket with no link creates the issue and stores the link', async () => {
@@ -630,7 +599,6 @@ describe('SprintDetailView — phase workspace', () => {
     expect(commentCalls).toEqual([]);
     expect(stored.tickets[0]?.link).toBe('https://github.com/x/y/issues/7');
     expect(result.lastFrame() ?? '').toContain('ship it');
-    result.unmount();
   });
 
   it('pressing p on a linked approved ticket comments and does not create', async () => {
@@ -689,7 +657,6 @@ describe('SprintDetailView — phase workspace', () => {
     expect(createCalls).toEqual([]);
     expect(commentCalls).toHaveLength(1);
     expect(commentCalls[0]?.url).toBe('https://github.com/x/y/issues/42');
-    result.unmount();
   });
 
   it('pressing p on tracker failure shows the error and keeps the ticket', async () => {
@@ -743,7 +710,6 @@ describe('SprintDetailView — phase workspace', () => {
     const frame = result.lastFrame() ?? '';
     expect(frame).toContain('stays put');
     expect(saveCalls).toHaveLength(0);
-    result.unmount();
   });
 
   it('pressing p twice while the first publish is in flight creates the issue once', async () => {
@@ -805,7 +771,6 @@ describe('SprintDetailView — phase workspace', () => {
     releaseCreate?.();
     await waitForPredicate(() => (result.lastFrame() ?? '').includes('created'));
     expect(createCalls).toBe(1);
-    result.unmount();
   });
 
   it('hides p publish on a done sprint and pressing p never reaches the tracker', async () => {
@@ -831,7 +796,7 @@ describe('SprintDetailView — phase workspace', () => {
       },
     };
     const deps = {
-      ...stubDeps(sprint, []),
+      ...readOnlyDeps(sprint, []),
       projectRepo: {
         async findById() {
           return Result.ok(makeProject());
@@ -847,6 +812,5 @@ describe('SprintDetailView — phase workspace', () => {
     result.stdin.write('p');
     await tick(40);
     expect(trackerCalls).toBe(0);
-    result.unmount();
   });
 });

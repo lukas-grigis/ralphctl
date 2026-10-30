@@ -108,8 +108,6 @@ describe('HomeView — + hotkey', () => {
     const lastRoute = routedIds[routedIds.length - 1];
     expect(lastRoute).toBeDefined();
     expect(lastRoute).not.toBe('home');
-
-    result.unmount();
   });
 
   it('shows a gating reason or is a no-op when no project is selected and + is pressed', async () => {
@@ -145,7 +143,5 @@ describe('HomeView — + hotkey', () => {
     // The frame may show a gating reason OR the key is simply silent — both are acceptable.
     // We don't assert `hasGatingMessage` since silent is also valid per spec.
     void hasGatingMessage; // referenced to prevent unused-var lint
-
-    result.unmount();
   });
 });

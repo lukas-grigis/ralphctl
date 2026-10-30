@@ -39,7 +39,6 @@ describe('TasksPanel per-attempt round', () => {
     expect(frame).toContain('attempt 2/3');
     expect(frame).toContain('round 1/3');
     expect(frame).not.toContain('round 4/3');
-    r.unmount();
   });
 
   it('keeps a clean "round 1/1" for a single-attempt single-turn config (no attempt counter)', () => {
@@ -52,7 +51,6 @@ describe('TasksPanel per-attempt round', () => {
     // The attempt COUNTER ("attempt 1") must be absent — the first-run "waiting for first
     // attempt…" line is unrelated prose and is matched out with a number-anchored pattern.
     expect(frame).not.toMatch(/attempt \d/);
-    r.unmount();
   });
 
   it('omits the attempt counter on attempt 1 even when the attempt cap is unknown', () => {
@@ -62,7 +60,6 @@ describe('TasksPanel per-attempt round', () => {
 
     expect(frame).toContain('round 2/5');
     expect(frame).not.toMatch(/attempt \d/);
-    r.unmount();
   });
 
   it('renders the attempt counter without a cap when maxAttempts is unknown on a 2nd attempt', () => {
@@ -73,7 +70,6 @@ describe('TasksPanel per-attempt round', () => {
     expect(frame).toContain('attempt 3');
     expect(frame).toContain('round 1/2');
     expect(frame).not.toContain('round 5/2');
-    r.unmount();
   });
 
   it('falls back to a bare round when no per-attempt cap is known (cannot overshoot)', () => {
@@ -82,6 +78,5 @@ describe('TasksPanel per-attempt round', () => {
 
     expect(frame).toContain('round 3');
     expect(frame).not.toContain('round 3/');
-    r.unmount();
   });
 });

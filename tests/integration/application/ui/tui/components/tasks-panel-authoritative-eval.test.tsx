@@ -66,7 +66,6 @@ describe('TasksPanel authoritative eval verdict', () => {
     expect(frame).not.toMatch(/eval\s+failed/);
     // The leaked signal's per-dimension finding must not surface as a verdict either.
     expect(frame).not.toContain('leaked from another lane');
-    r.unmount();
   });
 
   it('isolates cross-task leakage: the active task shows its own passed verdict with a failed signal bucketed to it', async () => {
@@ -117,7 +116,6 @@ describe('TasksPanel authoritative eval verdict', () => {
     expect(frame).toContain('passed');
     expect(frame).not.toMatch(/eval\s+failed/);
     expect(frame).not.toContain('leaked from another lane');
-    r.unmount();
   });
 
   it('renders the malformed verdict with the warning colour token (no per-criterion glyphs)', async () => {
@@ -147,6 +145,5 @@ describe('TasksPanel authoritative eval verdict', () => {
 
     expect(frame).toContain('malformed');
     expect(frame).toContain('attempt 3');
-    r.unmount();
   });
 });

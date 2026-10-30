@@ -61,7 +61,6 @@ describe('ProjectsView removal', () => {
     if (!scan.ok) throw scan.error;
     expect(scan.value.orphanSprints).toEqual([]);
     expect(scan.value.orphanMemoryDirs).toEqual([]);
-    result.unmount();
   });
 
   it('No removes only the project and leaves its sprints and memory as orphans', async () => {
@@ -73,7 +72,6 @@ describe('ProjectsView removal', () => {
     const scan = await app.deps.housekeeping.scan();
     if (!scan.ok) throw scan.error;
     expect(scan.value.orphanSprints).toHaveLength(1);
-    result.unmount();
   });
 
   it('Yes while a flow is running shows the refusal and keeps the project and its sprints', async () => {

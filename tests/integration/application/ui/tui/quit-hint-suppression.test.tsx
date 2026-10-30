@@ -105,16 +105,15 @@ const footerLine = (frame: string): string =>
 
 describe('quit hint suppression off Home', () => {
   it('renders the quit hint on Home', async () => {
-    const { lastFrame, unmount } = mountAt({ id: 'home' });
+    const { lastFrame } = mountAt({ id: 'home' });
     await tick();
     const frame = lastFrame() ?? '';
     expect(frame).toContain(QUIT_KEYS);
     expect(footerLine(frame)).toContain('quit');
-    unmount();
   });
 
   it('suppresses the quit hint on a non-Home view', async () => {
-    const { lastFrame, unmount } = mountAt({ id: 'settings' });
+    const { lastFrame } = mountAt({ id: 'settings' });
     await tick();
     const frame = lastFrame() ?? '';
     // No footer cell advertises the quit chord anywhere on the screen.
@@ -122,11 +121,10 @@ describe('quit hint suppression off Home', () => {
     expect(footerLine(frame)).toBe('');
     // Other footer hints (e.g. home) still render — only quit is suppressed.
     expect(frame).toContain('home');
-    unmount();
   });
 
   it('drops the quit hint when the route transitions Home -> non-Home', async () => {
-    const { lastFrame, unmount } = mountAt({ id: 'home' }, <PushOnMount to={{ id: 'settings' }} />);
+    const { lastFrame } = mountAt({ id: 'home' }, <PushOnMount to={{ id: 'settings' }} />);
     // Home renders the hint first, so waiting for it to disappear is a real transition wait: the
     // push and the suppression effect land in separate renders.
     await waitFor(() => {
@@ -136,6 +134,5 @@ describe('quit hint suppression off Home', () => {
       expect(frame).not.toContain(QUIT_KEYS);
     });
     expect(footerLine(lastFrame() ?? '')).toBe('');
-    unmount();
   });
 });

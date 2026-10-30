@@ -92,7 +92,6 @@ describe('TasksPanelHost — u unblock wiring', () => {
     await waitForPredicate(() => mockUnblock.mock.calls.length === 1);
 
     expect(mockUnblock).toHaveBeenCalledWith(blockedTask, sprintId);
-    r.unmount();
   });
 
   // Regression for the silent-revert defect: pressing `u` while the chain is still running used
@@ -125,7 +124,6 @@ describe('TasksPanelHost — u unblock wiring', () => {
     await tick(50);
 
     expect(mockUnblock).not.toHaveBeenCalled();
-    r.unmount();
   });
 
   it('is inert on a card that is not blocked', async () => {
@@ -151,7 +149,6 @@ describe('TasksPanelHost — u unblock wiring', () => {
     await tick(50);
 
     expect(mockUnblock).not.toHaveBeenCalled();
-    r.unmount();
   });
 
   it('is a safe no-op when the session has no pinned sprint', async () => {
@@ -177,6 +174,5 @@ describe('TasksPanelHost — u unblock wiring', () => {
     await tick(50);
 
     expect(mockUnblock).not.toHaveBeenCalled();
-    r.unmount();
   });
 });

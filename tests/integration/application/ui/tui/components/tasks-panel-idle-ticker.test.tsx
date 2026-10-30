@@ -36,7 +36,6 @@ describe('TasksPanel idle-state ticker', () => {
     const r = render(<TasksPanel bucketed={bucketed} running={true} nowMs={baseMs + 12_000} />);
     const frame = r.lastFrame() ?? '';
     expect(frame).toContain('looking at the parser implementation');
-    r.unmount();
   });
 
   it('omits the ticker when the latest signal is fresh (< 10s old)', () => {
@@ -62,7 +61,6 @@ describe('TasksPanel idle-state ticker', () => {
     // Easiest check: only one occurrence in the frame.
     const occurrences = frame.split('fresh observation').length - 1;
     expect(occurrences).toBe(1);
-    r.unmount();
   });
 
   it('rolls in the prior note when two recent ones exist', () => {
@@ -88,7 +86,6 @@ describe('TasksPanel idle-state ticker', () => {
 
     expect(frame).toContain('most recent note');
     expect(frame).toContain('older note');
-    r.unmount();
   });
 
   it('does not fire on completed tasks even if the last signal is old', () => {
@@ -115,7 +112,6 @@ describe('TasksPanel idle-state ticker', () => {
     expect(frame).toContain('stale completed note');
     // No idle-ticker glyph (↳) should prefix the snippet — it appears in the normal signal list.
     expect(frame).not.toMatch(/↳\s.*stale completed note/);
-    r.unmount();
   });
 
   it('does not fire when the latest signal is something other than note / learning', () => {
@@ -139,6 +135,5 @@ describe('TasksPanel idle-state ticker', () => {
     // The change signal still renders in the signal stream itself.
     const occurrences = frame.split('a change without a follow-up note').length - 1;
     expect(occurrences).toBe(1);
-    r.unmount();
   });
 });

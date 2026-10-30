@@ -55,7 +55,6 @@ describe('HeaderCard per-attempt round', () => {
     expect(frame).toContain('attempt 2/3');
     expect(frame).toContain('round 1/3');
     expect(frame).not.toContain('round 4/3');
-    r.unmount();
   });
 
   it('shows a free resume as the budgeted attempt with a resumed note, not a spent one', () => {
@@ -70,7 +69,6 @@ describe('HeaderCard per-attempt round', () => {
       })
     );
     expect(r.lastFrame() ?? '').toContain('attempt 1/3 · resumed');
-    r.unmount();
   });
 
   it('keeps a clean "round 1/1" for a single-attempt single-turn config (no attempt counter)', () => {
@@ -79,7 +77,6 @@ describe('HeaderCard per-attempt round', () => {
 
     expect(frame).toContain('round 1/1');
     expect(frame).not.toContain('attempt');
-    r.unmount();
   });
 
   it('renders the attempt counter when the attempt cap > 1 even while still on attempt 1', () => {
@@ -89,7 +86,6 @@ describe('HeaderCard per-attempt round', () => {
 
     expect(frame).toContain('attempt 1/3');
     expect(frame).toContain('round 2/5');
-    r.unmount();
   });
 
   it('omits the attempt counter on attempt 1 when the attempt cap is unknown', () => {
@@ -98,7 +94,6 @@ describe('HeaderCard per-attempt round', () => {
 
     expect(frame).toContain('round 2/5');
     expect(frame).not.toContain('attempt');
-    r.unmount();
   });
 
   it('falls back to a bare round when no per-attempt cap is known (cannot overshoot)', () => {
@@ -107,7 +102,6 @@ describe('HeaderCard per-attempt round', () => {
 
     expect(frame).toContain('round 3');
     expect(frame).not.toContain('round 3/');
-    r.unmount();
   });
 
   it('trusts live tracker coords over the division heuristic (the crashed-attempt-1 incident)', () => {
@@ -123,6 +117,5 @@ describe('HeaderCard per-attempt round', () => {
     expect(frame).toContain('round 1/3');
     expect(frame).not.toContain('attempt 1/3');
     expect(frame).not.toContain('round 2/3');
-    r.unmount();
   });
 });

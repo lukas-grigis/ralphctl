@@ -48,7 +48,7 @@ describe('useTokenUsage', () => {
   it('records the latest usage per session across publishes', async () => {
     const bus = createInMemoryEventBus();
     let last: ReadonlyMap<string, TokenUsage> = new Map();
-    const r = render(<Probe bus={bus} onState={(u) => (last = u)} />);
+    render(<Probe bus={bus} onState={(u) => (last = u)} />);
 
     bus.publish({
       type: 'token-usage',
@@ -82,13 +82,12 @@ describe('useTokenUsage', () => {
       inputTokens: 5000,
       outputTokens: 1000,
     });
-    r.unmount();
   });
 
   it('maps the live per-turn fields through alongside the cumulative ones', async () => {
     const bus = createInMemoryEventBus();
     let last: ReadonlyMap<string, TokenUsage> = new Map();
-    const r = render(<Probe bus={bus} onState={(u) => (last = u)} />);
+    render(<Probe bus={bus} onState={(u) => (last = u)} />);
 
     bus.publish({
       type: 'token-usage',
@@ -115,13 +114,12 @@ describe('useTokenUsage', () => {
       liveCacheCreationTokens: 400,
       contextWindow: 200000,
     });
-    r.unmount();
   });
 
   it('replaces prior usage for the same session (latest event wins)', async () => {
     const bus = createInMemoryEventBus();
     let last: ReadonlyMap<string, TokenUsage> = new Map();
-    const r = render(<Probe bus={bus} onState={(u) => (last = u)} />);
+    render(<Probe bus={bus} onState={(u) => (last = u)} />);
 
     bus.publish({
       type: 'token-usage',
@@ -144,26 +142,24 @@ describe('useTokenUsage', () => {
 
     expect(last.get('sess-1')?.inputTokens).toBe(80000);
     expect(last.get('sess-1')?.contextWindow).toBe(200000);
-    r.unmount();
   });
 
   it('ignores other AppEvent types', async () => {
     const bus = createInMemoryEventBus();
     let last: ReadonlyMap<string, TokenUsage> = new Map();
-    const r = render(<Probe bus={bus} onState={(u) => (last = u)} />);
+    render(<Probe bus={bus} onState={(u) => (last = u)} />);
 
     bus.publish({ type: 'chain-started', chainId: 'c1', flowId: 'implement', at: NOW });
     bus.publish({ type: 'log', level: 'info', message: 'noise', at: NOW });
     await drain();
 
     expect(last.size).toBe(0);
-    r.unmount();
   });
 
   it('coalesces a burst of publishes in one window into a single React commit', async () => {
     const bus = createInMemoryEventBus();
     let renders = 0;
-    const r = render(<Probe bus={bus} onRender={() => (renders += 1)} />);
+    render(<Probe bus={bus} onRender={() => (renders += 1)} />);
 
     await drain(5);
     const baseline = renders;
@@ -182,13 +178,12 @@ describe('useTokenUsage', () => {
     const commits = renders - baseline;
     expect(commits).toBeGreaterThanOrEqual(1);
     expect(commits).toBeLessThanOrEqual(2);
-    r.unmount();
   });
 
   it('keys by chainSessionId when present so the runner-id lookup hits', async () => {
     const bus = createInMemoryEventBus();
     let last: ReadonlyMap<string, TokenUsage> = new Map();
-    const r = render(<Probe bus={bus} onState={(u) => (last = u)} />);
+    render(<Probe bus={bus} onState={(u) => (last = u)} />);
 
     // Provider stamps the AI CLI's own uuid in `sessionId` and the chain runner id in
     // `chainSessionId`; the view looks up by the runner id, so the entry must be keyed by it.
@@ -212,13 +207,12 @@ describe('useTokenUsage', () => {
       outputTokens: 10000,
       contextWindow: 200000,
     });
-    r.unmount();
   });
 
   it('falls back to sessionId for legacy events without chainSessionId', async () => {
     const bus = createInMemoryEventBus();
     let last: ReadonlyMap<string, TokenUsage> = new Map();
-    const r = render(<Probe bus={bus} onState={(u) => (last = u)} />);
+    render(<Probe bus={bus} onState={(u) => (last = u)} />);
 
     bus.publish({
       type: 'token-usage',
@@ -231,13 +225,12 @@ describe('useTokenUsage', () => {
 
     expect(last.has('sess-legacy')).toBe(true);
     expect(last.get('sess-legacy')?.inputTokens).toBe(1000);
-    r.unmount();
   });
 
   it('caps retained sessions at the LRU limit and evicts the oldest on a single-window overflow', async () => {
     const bus = createInMemoryEventBus();
     let last: ReadonlyMap<string, TokenUsage> = new Map();
-    const r = render(<Probe bus={bus} onState={(u) => (last = u)} />);
+    render(<Probe bus={bus} onState={(u) => (last = u)} />);
 
     // Publish 105 distinct sessions; the cap is 100. Expect the 5 oldest to be evicted.
     for (let i = 0; i < 105; i += 1) {
@@ -257,13 +250,12 @@ describe('useTokenUsage', () => {
     expect(last.has('sess-4')).toBe(false);
     expect(last.has('sess-5')).toBe(true);
     expect(last.has('sess-104')).toBe(true);
-    r.unmount();
   });
 
   it('promotes a re-seen session to the hot end so the truly-oldest is evicted under overflow', async () => {
     const bus = createInMemoryEventBus();
     let last: ReadonlyMap<string, TokenUsage> = new Map();
-    const r = render(<Probe bus={bus} onState={(u) => (last = u)} />);
+    render(<Probe bus={bus} onState={(u) => (last = u)} />);
 
     // Batch 1: fill to cap - 1 (99) distinct sessions, in order sess-0 (oldest) .. sess-98.
     for (let i = 0; i < TOKEN_USAGE_SESSION_CAP - 1; i += 1) {
@@ -298,6 +290,5 @@ describe('useTokenUsage', () => {
     expect(last.has('sess-1')).toBe(false); // the new truly-oldest is the eviction victim
     expect(last.has('sess-99')).toBe(true);
     expect(last.has('sess-100')).toBe(true);
-    r.unmount();
   });
 });

@@ -59,7 +59,7 @@ describe('StatusBanner — `d` stands down while a prompt owns the keyboard', ()
   it('keeps the banner and delivers the character when a claimed prompt is up', async () => {
     const bus = createInMemoryEventBus();
     const onSubmit = vi.fn();
-    const { stdin, lastFrame, unmount } = render(<Harness bus={bus} withPrompt onSubmit={onSubmit} />);
+    const { stdin, lastFrame } = render(<Harness bus={bus} withPrompt onSubmit={onSubmit} />);
     await tick(50); // let the claim effect commit
 
     publishBanner(bus);
@@ -77,12 +77,11 @@ describe('StatusBanner — `d` stands down while a prompt owns the keyboard', ()
 
     expect(onSubmit).toHaveBeenCalledWith('draft');
     expect(lastFrame() ?? '').toContain(BANNER_TEXT);
-    unmount();
   });
 
   it('still dismisses on `d` when nothing has claimed the keyboard', async () => {
     const bus = createInMemoryEventBus();
-    const { stdin, lastFrame, unmount } = render(<Harness bus={bus} withPrompt={false} onSubmit={() => undefined} />);
+    const { stdin, lastFrame } = render(<Harness bus={bus} withPrompt={false} onSubmit={() => undefined} />);
 
     publishBanner(bus);
     await waitForPredicate(() => (lastFrame() ?? '').includes(BANNER_TEXT));
@@ -91,6 +90,5 @@ describe('StatusBanner — `d` stands down while a prompt owns the keyboard', ()
     await waitForPredicate(() => !(lastFrame() ?? '').includes(BANNER_TEXT));
 
     expect(lastFrame() ?? '').not.toContain(BANNER_TEXT);
-    unmount();
   });
 });

@@ -78,7 +78,6 @@ describe('EvaluatorFailurePanel — per-dimension render', () => {
     expect(frame).toContain('completeness: failed');
     expect(frame).toContain('all good');
     expect(frame).toContain('missing edge case');
-    r.unmount();
   });
 
   it('renders the overall verdict and the recorded timestamp', () => {
@@ -154,7 +153,6 @@ describe('EvaluatorFailurePanel — no excerpt, no keyboard', () => {
     r.stdin.write('d');
     await tick(30);
     expect(r.lastFrame() ?? '').toBe(before);
-    r.unmount();
   });
 });
 
@@ -174,6 +172,5 @@ describe('TasksPanel — the card keeps its one-line verdict', () => {
     // Dimension detail sourced from the bucketed signal stream must never reach the card.
     expect(frame).not.toContain('completeness: failed');
     expect(frame).not.toContain('missing edge case');
-    r.unmount();
   });
 });

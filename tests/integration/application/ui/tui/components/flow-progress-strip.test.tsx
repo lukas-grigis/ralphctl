@@ -67,12 +67,10 @@ describe('FlowProgressStrip', () => {
   it('renders exactly one line even when the text is wider than the budget', () => {
     const r = render(<FlowProgressStrip progress={progress(spine)} width={20} />);
     expect((r.lastFrame() ?? '').split('\n')).toHaveLength(1);
-    r.unmount();
   });
 
   it('renders nothing without a plan', () => {
     const r = render(<FlowProgressStrip progress={undefined} width={96} />);
     expect(r.lastFrame()).toBe('');
-    r.unmount();
   });
 });
