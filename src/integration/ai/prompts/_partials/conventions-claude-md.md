@@ -11,6 +11,8 @@ invocation, not as a tutorial or README.
   is one verifiable claim.
 - Target under 200 lines — adherence drops as the file grows, so brevity is load-bearing. With an existing
   file, add sections only.
+- An existing file that is only an `@AGENTS.md` line imports the repository's `AGENTS.md`: keep that line first
+  and add only Claude-specific sections below it — the imported rules already load.
 
 **"Read on demand" pattern** — for sections that an agent rarely needs mid-task, list them under a
 `## References` heading with paths rather than embedding the content inline:

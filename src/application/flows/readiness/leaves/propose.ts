@@ -128,15 +128,7 @@ const proposeReadinessUseCase = async (
   input: ProposeReadinessInput,
   abortSignal?: AbortSignal
 ): Promise<Result<ProposeReadinessOutput, DomainError>> => {
-  const existingPath = pickExistingContextPath(tool, input.probedState);
-  let existingBody: string | undefined;
-  if (existingPath !== undefined) {
-    try {
-      existingBody = await fs.readFile(existingPath, 'utf8');
-    } catch {
-      existingBody = undefined;
-    }
-  }
+  const existingBody = await readExistingContext(tool, input.probedState);
 
   const engineResult = await setupReadinessUseCase(
     {
@@ -222,8 +214,25 @@ const proposeReadinessUseCase = async (
 };
 
 /**
+ * Claude Code stops loading `AGENTS.md` once a `CLAUDE.md` exists, so a new `CLAUDE.md` starts by
+ * importing it (https://code.claude.com/docs/en/memory). Treated as the existing body: the model
+ * adds only Claude-specific sections below it.
+ */
+const AGENTS_MD_IMPORT = '@AGENTS.md\n';
+
+/** The existing context body the proposal appends to, or undefined for a fresh file (an unreadable one counts as fresh). */
+const readExistingContext = async (tool: AssistantTool, state: ReadinessState): Promise<string | undefined> => {
+  if (isPresent(state) && state.artifacts.tool === 'claude-code') {
+    const { claudeMd, agentsMd } = state.artifacts;
+    if (claudeMd === undefined && agentsMd !== undefined) return AGENTS_MD_IMPORT;
+  }
+  const path = pickExistingContextPath(tool, state);
+  return path === undefined ? undefined : fs.readFile(path, 'utf8').catch(() => undefined);
+};
+
+/**
  * Return the absolute path of the tool-native context file when the probe surfaced one.
- *  - claude-code → `claudeMd` (preferred) or `agentsMd`.
+ *  - claude-code → `claudeMd`.
  *  - copilot     → `copilotInstructions`.
  *  - codex       → `agentsMd`.
  *  - opencode    → `agentsMd`.
@@ -240,7 +249,7 @@ const pickExistingContextPath = (tool: AssistantTool, state: ReadinessState): st
   const a = state.artifacts;
   switch (tool) {
     case 'claude-code':
-      return a.tool === 'claude-code' ? pathOf(a.claudeMd ?? a.agentsMd) : undefined;
+      return a.tool === 'claude-code' ? pathOf(a.claudeMd) : undefined;
     case 'copilot':
       return a.tool === 'copilot' ? pathOf(a.copilotInstructions) : undefined;
     case 'codex':
