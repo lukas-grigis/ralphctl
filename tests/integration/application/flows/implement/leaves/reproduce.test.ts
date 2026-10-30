@@ -296,6 +296,44 @@ describe('reproduceLeaf — guarded reproduction-first leaf', () => {
     expect(result.value.ctx.reproductionArtifact).toBeUndefined();
   });
 
+  it('degrade: harness re-run killed on timeout / output cap → discarded, no artifact (a hang is not a reproduction)', async () => {
+    const task = makeTodoTask({ name: 'fix the null pointer' });
+    await writeTestFile('tests/unit/foo.test.ts', 'x');
+    const provider = fakeProvider({ kind: 'signals', signals: [reproductionSignal()] });
+    const shellScriptRunner = fakeShellRunner(async () =>
+      Result.ok({
+        passed: false,
+        exitCode: null,
+        output: '[timeout exceeded after 300000ms]',
+        durationMs: 0,
+        timedOut: true,
+      })
+    );
+    const leaf = reproduceLeaf(buildDeps(provider, shellScriptRunner), buildOpts(), task.id);
+
+    const result = await leaf.execute(buildCtx(task));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.ctx.reproductionArtifact).toBeUndefined();
+    const loaded = await loadReproductionArtifact(artifactFile());
+    expect(loaded.ok && loaded.value).toBeUndefined();
+  });
+
+  it('ok: a signal-killed re-run that the runner did not kill is still accepted', async () => {
+    const task = makeTodoTask({ name: 'fix the crash' });
+    await writeTestFile('tests/unit/foo.test.ts', 'x');
+    const provider = fakeProvider({ kind: 'signals', signals: [reproductionSignal()] });
+    const shellScriptRunner = fakeShellRunner(async () =>
+      Result.ok({ passed: false, exitCode: null, output: 'Segmentation fault', durationMs: 0 })
+    );
+    const leaf = reproduceLeaf(buildDeps(provider, shellScriptRunner), buildOpts(), task.id);
+
+    const result = await leaf.execute(buildCtx(task));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.ctx.reproductionArtifact?.observedFailure).toBe('Segmentation fault');
+  });
+
   it('not reproduced: reproduced false → no artifact, no harness re-run, no error', async () => {
     const task = makeTodoTask({ name: 'fix the null pointer' });
     const provider = fakeProvider({

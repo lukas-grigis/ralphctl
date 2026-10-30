@@ -47,6 +47,12 @@ to [Semantic Versioning](https://semver.org/).
 - **Fewer needless reproduction runs.** Implement decides whether a task is a bug fix from its name first, and reads
   the description only when the name gives no hint. Before, a feature task whose description merely mentioned
   "fix" or "broken" got an extra AI session that tried to write a failing test before any work started.
+- **A reproduction test that hangs no longer counts.** For bugfix tasks, ralphctl re-runs the reproduction test
+  the AI wrote before it accepts it. A re-run that ralphctl had to kill, because it timed out or printed runaway
+  output, used to count as a reproduction, and the evaluator then re-ran it every round. It is now discarded and
+  the task goes on without a reproduction. The reproduce prompt also asks the AI to put a timeout inside a test
+  for a hang, to assert the behaviour the report asks for rather than only "not today's wrong output", and not to
+  assert details the report never mentions.
 
 ## [0.27.0] - 2026-10-25
 

@@ -59,14 +59,15 @@ import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
  *
  * The harness never takes the session's word for it: after the spawn reports, this leaf re-runs
  * the claimed `runCommand` itself (once, bounded output) and accepts the artifact ONLY when that
- * re-run actually fails — a reproduction that passes proves nothing. On acceptance the leaf
+ * re-run fails on its own (exits non-zero without being killed on timeout or the output cap) — a
+ * reproduction that passes, or one the harness has to kill, proves nothing. On acceptance the leaf
  * checksums the test file's content so the evaluator prompt can later state that an unexplained
  * edit to it during the gen-eval loop is tampering, on the same footing as any other verification
  * tampering it already audits for.
  *
  * Failure tolerance is the point, not an afterthought: a failed session, a missing/invalid
- * `reproduction` signal, or a claimed command that turns out to pass on re-run all degrade to
- * today's behaviour — no reproduction context, logged at warn, task proceeds unaffected. Only a
+ * `reproduction` signal, or a claimed command that passes (or has to be killed) on re-run all
+ * degrade to today's behaviour — no reproduction context, logged at warn, task proceeds unaffected. Only a
  * fatal chain error (abort / exhausted rate limit) propagates.
  *
  * ## A relaunch reuses the reproduction it already has
@@ -185,15 +186,18 @@ const computeChecksum = (content: string): string =>
 /** Structured outcome of the harness's own re-run — the ONLY authority on whether an artifact is accepted. */
 type VerifyOutcome =
   | { readonly kind: 'accepted'; readonly observedFailure: string }
-  | { readonly kind: 'discarded' }
+  | { readonly kind: 'discarded'; readonly cause: 'passed' | 'killed' | 'spawn-failed' }
   | { readonly kind: 'fatal'; readonly error: DomainError };
 
 /**
  * Re-run the session's claimed `runCommand` once against the repo, bounded output. Only a
- * command that actually fails is accepted as a reproduction — a passing re-run means the
- * session's claim does not hold (or the code was fixed in the same session) and proves nothing,
- * so it is discarded rather than threaded forward. A run-time spawn failure degrades the same
- * way; only a fatal chain error (abort / exhausted rate limit) propagates.
+ * command that fails on its own (exits non-zero without being killed on timeout or the output
+ * cap) is accepted as a reproduction — a passing re-run means the session's claim does not hold
+ * (or the code was fixed in the same session) and proves nothing, and a run the runner had to kill
+ * would only burn every evaluator re-run, so both are discarded rather than threaded forward. A
+ * run-time spawn failure degrades the same way; only a fatal chain error (abort / exhausted rate
+ * limit) propagates. A null exit the runner did not cause (a signal crash) still counts: it can be
+ * the defect itself.
  */
 const verifyReproductionFails = async (
   deps: Pick<ReproduceLeafDeps, 'shellScriptRunner'>,
@@ -206,8 +210,12 @@ const verifyReproductionFails = async (
     runCommand,
     abortSignal !== undefined ? { signal: abortSignal } : {}
   );
-  if (!ran.ok) return isFatalChainError(ran.error) ? { kind: 'fatal', error: ran.error } : { kind: 'discarded' };
-  if (ran.value.passed) return { kind: 'discarded' };
+  if (!ran.ok)
+    return isFatalChainError(ran.error)
+      ? { kind: 'fatal', error: ran.error }
+      : { kind: 'discarded', cause: 'spawn-failed' };
+  if (ran.value.passed) return { kind: 'discarded', cause: 'passed' };
+  if (ran.value.timedOut === true) return { kind: 'discarded', cause: 'killed' };
   return { kind: 'accepted', observedFailure: clampCommandOutput(ran.value.output) };
 };
 
@@ -381,7 +389,9 @@ const spawnReproduction = async (
   if (verified.kind === 'fatal') return Result.error(verified.error);
   if (verified.kind === 'discarded') {
     log.warn(
-      `reproduce command for task '${String(taskId)}' did not fail on re-run — a reproduction that passes proves nothing, discarding`,
+      verified.cause === 'killed'
+        ? `reproduce command for task '${String(taskId)}' was killed on re-run (timeout or runaway output) — a run the harness has to kill is not a reproduction, discarding`
+        : `reproduce command for task '${String(taskId)}' did not fail on re-run — a reproduction that passes proves nothing, discarding`,
       { taskId: String(taskId), runCommand: reproduction.runCommand }
     );
     return Result.ok(undefined);
