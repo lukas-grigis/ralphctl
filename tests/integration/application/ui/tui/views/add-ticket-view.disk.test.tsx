@@ -254,11 +254,14 @@ describe('AddTicketView — disk round-trip', () => {
     await waitFor(() => expect(result.lastFrame()).toContain('Issue link'));
     result.stdin.write(ENTER);
     await waitFor(() => expect(result.lastFrame()).toMatch(/^\s*▸\s*Title/m));
+    // Wait for each echo before ENTER — a key written during a useInput re-subscribe can be lost.
     result.stdin.write(title);
+    await waitFor(() => expect(result.lastFrame()).toContain(title));
     result.stdin.write(ENTER);
     await waitFor(() => expect(result.lastFrame()).toContain('Description'));
     if (description === undefined) return;
     result.stdin.write(description);
+    await waitFor(() => expect(result.lastFrame()).toContain(description));
     result.stdin.write(ENTER);
     await waitFor(() => expect(result.lastFrame()).toContain('Add this ticket?'));
   };
