@@ -21,11 +21,10 @@ describe('applySettingsKey — ai.effort global key', () => {
   it('clears the global ai.effort when given an empty string (lines 142-144)', () => {
     // Arrange: seed a global effort first
     const seeded = applySettingsKey(DEFAULT_SETTINGS, 'ai.effort', 'high');
-    expect(seeded.ok).toBe(true);
-    if (!seeded.ok) return;
+    const seededValue = seeded.getOrThrow();
 
     // Act: clear it
-    const cleared = applySettingsKey(seeded.value, 'ai.effort', '');
+    const cleared = applySettingsKey(seededValue, 'ai.effort', '');
     expect(cleared.ok).toBe(true);
     if (cleared.ok) {
       expect(cleared.value.ai.effort).toBeUndefined();
@@ -101,10 +100,9 @@ describe('applySettingsKey — harness numeric keys (shared switch arm)', () => 
 
   it('updates harness.bestOfNCandidates numerically and round-trips through the schema', () => {
     const result = applySettingsKey(DEFAULT_SETTINGS, 'harness.bestOfNCandidates', '3');
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.harness.bestOfNCandidates).toBe(3);
-    expect(SettingsSchema.safeParse(result.value).success).toBe(true);
+    const resultValue = result.getOrThrow();
+    expect(resultValue.harness.bestOfNCandidates).toBe(3);
+    expect(SettingsSchema.safeParse(resultValue).success).toBe(true);
   });
 
   it('rejects a non-numeric value for harness.bestOfNCandidates', () => {
@@ -115,13 +113,11 @@ describe('applySettingsKey — harness numeric keys (shared switch arm)', () => 
 
   it('setting harness.bestOfNCandidates back to 0 disables it and still validates', () => {
     const raised = applySettingsKey(DEFAULT_SETTINGS, 'harness.bestOfNCandidates', '4');
-    expect(raised.ok).toBe(true);
-    if (!raised.ok) return;
-    const disabled = applySettingsKey(raised.value, 'harness.bestOfNCandidates', '0');
-    expect(disabled.ok).toBe(true);
-    if (!disabled.ok) return;
-    expect(disabled.value.harness.bestOfNCandidates).toBe(0);
-    expect(SettingsSchema.safeParse(disabled.value).success).toBe(true);
+    const raisedValue = raised.getOrThrow();
+    const disabled = applySettingsKey(raisedValue, 'harness.bestOfNCandidates', '0');
+    const disabledValue = disabled.getOrThrow();
+    expect(disabledValue.harness.bestOfNCandidates).toBe(0);
+    expect(SettingsSchema.safeParse(disabledValue).success).toBe(true);
   });
 
   it('an out-of-range harness.bestOfNCandidates value (1, 5) is accepted here but rejected by schema validation at the persistence boundary', () => {
@@ -155,10 +151,9 @@ describe('applySettingsKey — ai.implement role fields', () => {
 
   it('clears ai.implement.generator.effort when given empty string', () => {
     const seeded = applySettingsKey(DEFAULT_SETTINGS, 'ai.implement.generator.effort', 'high');
-    expect(seeded.ok).toBe(true);
-    if (!seeded.ok) return;
+    const seededValue = seeded.getOrThrow();
 
-    const cleared = applySettingsKey(seeded.value, 'ai.implement.generator.effort', '');
+    const cleared = applySettingsKey(seededValue, 'ai.implement.generator.effort', '');
     expect(cleared.ok).toBe(true);
     if (cleared.ok) {
       expect(cleared.value.ai.implement.generator.effort).toBeUndefined();
@@ -187,10 +182,9 @@ describe('applySettingsKey — non-implement flow edge cases', () => {
 
   it('clears ai.readiness.effort with empty string', () => {
     const seeded = applySettingsKey(DEFAULT_SETTINGS, 'ai.readiness.effort', 'low');
-    expect(seeded.ok).toBe(true);
-    if (!seeded.ok) return;
+    const seededValue = seeded.getOrThrow();
 
-    const cleared = applySettingsKey(seeded.value, 'ai.readiness.effort', '');
+    const cleared = applySettingsKey(seededValue, 'ai.readiness.effort', '');
     expect(cleared.ok).toBe(true);
     if (cleared.ok) expect(cleared.value.ai.readiness.effort).toBeUndefined();
   });

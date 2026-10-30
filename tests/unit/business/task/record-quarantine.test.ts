@@ -56,12 +56,11 @@ describe('recordQuarantineUseCase', () => {
       logger: noopLogger,
     });
 
-    expect(res.ok).toBe(true);
-    if (!res.ok) return;
-    expect(res.value.quarantinedDiff).toStrictEqual({ stashMessage: STASH, stat: STAT, entries: 1 });
-    expect(res.value.blockedReason).toBe('verify failed: 3 tests red');
+    const resValue = res.getOrThrow();
+    expect(resValue.quarantinedDiff).toStrictEqual({ stashMessage: STASH, stat: STAT, entries: 1 });
+    expect(resValue.blockedReason).toBe('verify failed: 3 tests red');
     expect(calls()).toBe(1);
-    expect(saved()).toStrictEqual(res.value);
+    expect(saved()).toStrictEqual(resValue);
   });
 
   it('records the pointer without a size when the leaf could not measure the stash', async () => {
@@ -73,9 +72,8 @@ describe('recordQuarantineUseCase', () => {
       taskRepo: repo,
       logger: noopLogger,
     });
-    expect(res.ok).toBe(true);
-    if (!res.ok) return;
-    expect(res.value.quarantinedDiff).toStrictEqual({ stashMessage: STASH });
+    const value = res.getOrThrow();
+    expect(value.quarantinedDiff).toStrictEqual({ stashMessage: STASH });
   });
 
   it('is idempotent — re-recording the same fact does not re-write', async () => {
@@ -91,12 +89,11 @@ describe('recordQuarantineUseCase', () => {
       taskRepo: repo,
       logger: noopLogger,
     });
-    expect(first.ok).toBe(true);
-    if (!first.ok) return;
+    const firstValue = first.getOrThrow();
 
     const repo2 = repoWith();
     const second = await recordQuarantineUseCase({
-      task: first.value, // already carries the pointer
+      task: firstValue, // already carries the pointer
       sprintId: SPRINT_ID,
       stashMessage: STASH,
       stat: { ...STAT },
@@ -104,9 +101,8 @@ describe('recordQuarantineUseCase', () => {
       taskRepo: repo2.repo,
       logger: noopLogger,
     });
-    expect(second.ok).toBe(true);
-    if (!second.ok) return;
-    expect(second.value).toBe(first.value);
+    const secondValue = second.getOrThrow();
+    expect(secondValue).toBe(firstValue);
     expect(repo2.calls()).toBe(0);
   });
 
@@ -132,9 +128,8 @@ describe('recordQuarantineUseCase', () => {
       taskRepo: repo,
       logger: noopLogger,
     });
-    expect(second.ok).toBe(true);
-    if (!second.ok) return;
-    expect(second.value.quarantinedDiff).toStrictEqual({ stashMessage: STASH, stat: newer, entries: 2 });
+    const secondValue = second.getOrThrow();
+    expect(secondValue.quarantinedDiff).toStrictEqual({ stashMessage: STASH, stat: newer, entries: 2 });
     expect(calls()).toBe(1);
   });
 

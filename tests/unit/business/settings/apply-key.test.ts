@@ -32,9 +32,8 @@ describe('applySettingsKey', () => {
 
   it('clears a per-flow effort when given an empty string', () => {
     const seeded = applySettingsKey(DEFAULT_SETTINGS, 'ai.plan.effort', 'xhigh');
-    expect(seeded.ok).toBe(true);
-    if (!seeded.ok) return;
-    const cleared = applySettingsKey(seeded.value, 'ai.plan.effort', '');
+    const seededValue = seeded.getOrThrow();
+    const cleared = applySettingsKey(seededValue, 'ai.plan.effort', '');
     expect(cleared.ok).toBe(true);
     if (cleared.ok) expect(cleared.value.ai.plan.effort).toBeUndefined();
   });
@@ -170,18 +169,16 @@ describe('applySettingsKey', () => {
 
   it('clears an agent-definition binding when given an empty string', () => {
     const seeded = applySettingsKey(DEFAULT_SETTINGS, 'ai.implement.agents.evaluator', 'ralphctl-evaluator');
-    expect(seeded.ok).toBe(true);
-    if (!seeded.ok) return;
-    const cleared = applySettingsKey(seeded.value, 'ai.implement.agents.evaluator', '');
+    const seededValue = seeded.getOrThrow();
+    const cleared = applySettingsKey(seededValue, 'ai.implement.agents.evaluator', '');
     expect(cleared.ok).toBe(true);
     if (cleared.ok) expect(cleared.value.ai.implement.agents?.evaluator).toBeUndefined();
   });
 
   it('drops the whole agents block once every role binding is cleared', () => {
     const seeded = applySettingsKey(DEFAULT_SETTINGS, 'ai.implement.agents.evaluator', 'ralphctl-evaluator');
-    expect(seeded.ok).toBe(true);
-    if (!seeded.ok) return;
-    const cleared = applySettingsKey(seeded.value, 'ai.implement.agents.evaluator', '');
+    const seededValue = seeded.getOrThrow();
+    const cleared = applySettingsKey(seededValue, 'ai.implement.agents.evaluator', '');
     expect(cleared.ok).toBe(true);
     if (cleared.ok) expect(cleared.value.ai.implement.agents).toBeUndefined();
   });

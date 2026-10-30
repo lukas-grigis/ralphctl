@@ -139,10 +139,9 @@ describe('unblockTaskUseCase', () => {
       logger: noopLogger,
     });
 
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.task.status).toBe('todo');
-    expect((result.value.task as unknown as { blockedReason?: string }).blockedReason).toBeUndefined();
+    const value = result.getOrThrow();
+    expect(value.task.status).toBe('todo');
+    expect((value.task as unknown as { blockedReason?: string }).blockedReason).toBeUndefined();
     expect(repo.saved()).toHaveLength(1);
     expect(repo.saved()[0]?.status).toBe('todo');
   });
@@ -164,10 +163,9 @@ describe('unblockTaskUseCase', () => {
       logger: noopLogger,
     });
 
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
+    const resultValue = result.getOrThrow();
     // Live budget resets...
-    expect(result.value.task.attempts).toHaveLength(0);
+    expect(resultValue.task.attempts).toHaveLength(0);
     // ...but the persisted result — what actually lands in tasks.json — still carries the forensic
     // record instead of the operator's intervention silently erasing it.
     const persisted = repo.saved()[0];
@@ -196,9 +194,8 @@ describe('unblockTaskUseCase', () => {
       clock: FIXED_CLOCK,
       logger: noopLogger,
     });
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.task.attempts).toHaveLength(0); // live ledger really is reset
+    const resultValue = result.getOrThrow();
+    expect(resultValue.task.attempts).toHaveLength(0); // live ledger really is reset
 
     const persisted = repo.saved()[0];
     if (persisted === undefined) throw new Error('expected a persisted task');
@@ -221,11 +218,10 @@ describe('unblockTaskUseCase', () => {
       logger: noopLogger,
     });
 
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.task.status).toBe('todo');
+    const value = result.getOrThrow();
+    expect(value.task.status).toBe('todo');
     expect(repo.saved()).toHaveLength(0);
-    expect(result.value.sprintReopened).toBeUndefined();
+    expect(value.sprintReopened).toBeUndefined();
   });
 
   it('rejects an in_progress task with InvalidStateError', async () => {
@@ -438,12 +434,11 @@ describe('unblockTaskUseCase', () => {
       logger: noopLogger,
     });
 
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.task.status).toBe('todo');
+    const value = result.getOrThrow();
+    expect(value.task.status).toBe('todo');
     expect(sprintRepo.savedHistory()).toHaveLength(0);
-    expect(result.value.sprintReopened).toBeUndefined();
-    expect(result.value.sprintReopenConflict).toBeUndefined();
+    expect(value.sprintReopened).toBeUndefined();
+    expect(value.sprintReopenConflict).toBeUndefined();
   });
 
   // Crash safety for the done hop: it lands BEFORE the task write, so a process that dies between
@@ -543,15 +538,14 @@ describe('unblockTaskUseCase', () => {
       logger: noopLogger,
     });
 
-    expect(first.ok).toBe(true);
-    if (!first.ok) return;
+    const value = first.getOrThrow();
     expect(current.status).toBe('review');
-    expect(first.value.sprintReopened?.from).toBe('done');
-    expect(first.value.sprintReopened?.sprint.status).toBe('review');
+    expect(value.sprintReopened?.from).toBe('done');
+    expect(value.sprintReopened?.sprint.status).toBe('review');
 
     // The retry sees the revived `todo` task on a `review` sprint and completes the reopen.
     const retry = await unblockTaskUseCase({
-      task: first.value.task,
+      task: value.task,
       sprintId: SPRINT_ID,
       taskRepo: taskRepo.repo,
       sprintRepo,
@@ -559,10 +553,9 @@ describe('unblockTaskUseCase', () => {
       logger: noopLogger,
     });
 
-    expect(retry.ok).toBe(true);
-    if (!retry.ok) return;
+    const retryValue = retry.getOrThrow();
     expect(current.status).toBe('active');
-    expect(retry.value.sprintReopened?.from).toBe('review');
+    expect(retryValue.sprintReopened?.from).toBe('review');
   });
 
   it('reopens a done sprint all the way to active — closed-and-blocked work becomes runnable again', async () => {
@@ -579,9 +572,8 @@ describe('unblockTaskUseCase', () => {
       logger: noopLogger,
     });
 
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.task.status).toBe('todo'); // the task itself is revived either way
+    const resultValue = result.getOrThrow();
+    expect(resultValue.task.status).toBe('todo'); // the task itself is revived either way
     // The sprint hops done → review → active in the same unblock call, re-using the existing
     // review → active step rather than a parallel done → active transition — both saves land.
     const history = sprintRepo.savedHistory();
@@ -589,8 +581,8 @@ describe('unblockTaskUseCase', () => {
     expect(sprintRepo.saved()?.status).toBe('active');
     expect(sprintRepo.saved()?.doneAt).toBeNull();
     // ...and the caller is told, so a closed sprint never reopens without the operator seeing it.
-    expect(result.value.sprintReopened?.from).toBe('done');
-    expect(result.value.sprintReopened?.sprint.status).toBe('active');
+    expect(resultValue.sprintReopened?.from).toBe('done');
+    expect(resultValue.sprintReopened?.sprint.status).toBe('active');
   });
 
   it('fails without touching the task when a done sprint cannot be carried to review', async () => {
@@ -654,14 +646,13 @@ describe('unblockTaskUseCase', () => {
 
     // The task was already revived to todo before the reopen ran — a failed reopen must not roll
     // that back or surface as an error. The operator can re-run unblock to retry the reopen.
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.task.status).toBe('todo');
+    const value = result.getOrThrow();
+    expect(value.task.status).toBe('todo');
     // The sprint never moved off `review` — report it (not `undefined`), or a caller that treats a
     // missing `sprintReopened` as "nothing to say" would show a plain success while the sprint is
     // still stuck short of `active`.
-    expect(result.value.sprintReopened?.from).toBe('review');
-    expect(result.value.sprintReopened?.sprint.status).toBe('review');
+    expect(value.sprintReopened?.from).toBe('review');
+    expect(value.sprintReopened?.sprint.status).toBe('review');
   });
 
   // The exact gap this covers: a `review` sprint's second hop failing is otherwise indistinguishable
@@ -692,11 +683,10 @@ describe('unblockTaskUseCase', () => {
       logger: noopLogger,
     });
 
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.sprintReopened).toBeDefined();
-    expect(result.value.sprintReopened?.from).toBe('review');
-    expect(result.value.sprintReopened?.sprint.status).toBe('review');
+    const resultValue = result.getOrThrow();
+    expect(resultValue.sprintReopened).toBeDefined();
+    expect(resultValue.sprintReopened?.from).toBe('review');
+    expect(resultValue.sprintReopened?.sprint.status).toBe('review');
   });
 
   // Same gap on the already-todo short-circuit (`finishInterruptedReopen`) — a SECOND failed
@@ -726,12 +716,11 @@ describe('unblockTaskUseCase', () => {
       logger: noopLogger,
     });
 
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.task.status).toBe('todo');
-    expect(result.value.sprintReopened).toBeDefined();
-    expect(result.value.sprintReopened?.from).toBe('review');
-    expect(result.value.sprintReopened?.sprint.status).toBe('review');
+    const value = result.getOrThrow();
+    expect(value.task.status).toBe('todo');
+    expect(value.sprintReopened).toBeDefined();
+    expect(value.sprintReopened?.from).toBe('review');
+    expect(value.sprintReopened?.sprint.status).toBe('review');
   });
 
   // Single-active-per-project invariant on the `done` → `review` hop — the same one
@@ -756,18 +745,17 @@ describe('unblockTaskUseCase', () => {
     });
 
     // The task IS revived — the reopen is best-effort, the unblock is not.
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.task.status).toBe('todo');
+    const resultValue = result.getOrThrow();
+    expect(resultValue.task.status).toBe('todo');
     // ...but the sprint stays closed, and the caller is told why + which peer holds the project,
     // so the CLI/TUI can report the outcome truthfully instead of implying a reopen happened.
     expect(sprintRepo.savedHistory()).toHaveLength(0);
-    const conflict = result.value.sprintReopenConflict;
+    const conflict = resultValue.sprintReopenConflict;
     expect(conflict?.code).toBe('conflict');
     expect(conflict?.message).toContain(String(activePeer.slug));
     expect(conflict?.message).toContain('active');
     expect(conflict?.hint).toContain('ralphctl sprint close');
-    expect(result.value.sprintReopened).toBeUndefined();
+    expect(resultValue.sprintReopened).toBeUndefined();
   });
 
   // The log is the ONLY channel some surfaces have for this outcome (the TUI's Recent-log panel
@@ -815,9 +803,8 @@ describe('unblockTaskUseCase', () => {
       logger: noopLogger,
     });
 
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.sprintReopenConflict).toBeUndefined();
+    const value = result.getOrThrow();
+    expect(value.sprintReopenConflict).toBeUndefined();
     expect(sprintRepo.savedHistory().map((s) => s.status)).toEqual(['review', 'active']);
   });
 
@@ -957,11 +944,10 @@ describe('unblockTaskUseCase — prior-work decision', () => {
       priorWork: { choice: 'fresh', stashMessage: MSG },
     });
 
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
+    const value = result.getOrThrow();
     const expected = { stashMessage: MSG, stat: STAT, entries: 1, nextAttempt: 'fresh', decidedAt: FIXED_LATEST };
-    expect(result.value.task.quarantinedDiff).toStrictEqual(expected);
-    expect(result.value.quarantinedDiff).toStrictEqual(expected);
+    expect(value.task.quarantinedDiff).toStrictEqual(expected);
+    expect(value.quarantinedDiff).toStrictEqual(expected);
     expect(repo.saved()[0]?.quarantinedDiff).toStrictEqual(expected);
     expect(infos.some((m) => m.endsWith('next attempt: starts fresh'))).toBe(true);
   });
@@ -980,9 +966,8 @@ describe('unblockTaskUseCase — prior-work decision', () => {
       logger,
     });
 
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.quarantinedDiff).toStrictEqual({ stashMessage: MSG, stat: STAT, entries: 1 });
+    const resultValue = result.getOrThrow();
+    expect(resultValue.quarantinedDiff).toStrictEqual({ stashMessage: MSG, stat: STAT, entries: 1 });
     expect(infos.some((m) => m.includes('next attempt: continues from the rejected diff (no choice recorded)'))).toBe(
       true
     );
@@ -1001,9 +986,8 @@ describe('unblockTaskUseCase — prior-work decision', () => {
       logger,
     });
 
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect('quarantinedDiff' in result.value).toBe(false);
+    const resultValue = result.getOrThrow();
+    expect('quarantinedDiff' in resultValue).toBe(false);
     expect(infos.some((m) => m.includes('next attempt'))).toBe(false);
   });
 
@@ -1024,10 +1008,9 @@ describe('unblockTaskUseCase — prior-work decision', () => {
       priorWork: { choice: 'continue', stashMessage: MSG, stat: STAT },
     });
 
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.task.status).toBe('todo');
-    expect(result.value.quarantinedDiff?.nextAttempt).toBe('continue');
+    const value = result.getOrThrow();
+    expect(value.task.status).toBe('todo');
+    expect(value.quarantinedDiff?.nextAttempt).toBe('continue');
     expect(repo.saved()[0]?.quarantinedDiff?.nextAttempt).toBe('continue');
   });
 
@@ -1050,10 +1033,9 @@ describe('unblockTaskUseCase — prior-work decision', () => {
       priorWork: { choice: 'continue', stashMessage: MSG },
     });
 
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.task.status).toBe('todo');
-    expect(result.value.quarantinedDiff).toStrictEqual({
+    const resultValue = result.getOrThrow();
+    expect(resultValue.task.status).toBe('todo');
+    expect(resultValue.quarantinedDiff).toStrictEqual({
       stashMessage: MSG,
       stat: STAT,
       nextAttempt: 'continue',

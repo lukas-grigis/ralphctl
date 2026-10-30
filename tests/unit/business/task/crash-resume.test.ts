@@ -99,9 +99,8 @@ describe('startAttemptUseCase — crash resume seeding', () => {
 
   it('opens the fresh attempt on the interrupted session when it matches', async () => {
     const { result, writes } = await run(makeInProgressTaskWithRunningAttempt(), round());
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    const fresh = result.value.attempts.at(-1);
+    const value = result.getOrThrow();
+    const fresh = value.attempts.at(-1);
     expect(fresh?.status).toBe('running');
     expect(fresh?.sessionId).toBe('sess-live');
     expect(fresh?.recovering?.cause).toBe('harness-interrupted');
@@ -110,9 +109,8 @@ describe('startAttemptUseCase — crash resume seeding', () => {
 
   it('opens the fresh attempt cold when the recorded session does not match', async () => {
     const { result } = await run(makeInProgressTaskWithRunningAttempt(), round({ model: 'other-model' }));
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.attempts.at(-1)?.sessionId).toBeUndefined();
+    const resultValue = result.getOrThrow();
+    expect(resultValue.attempts.at(-1)?.sessionId).toBeUndefined();
   });
 
   it('never looks a session up for a task that was not interrupted', async () => {

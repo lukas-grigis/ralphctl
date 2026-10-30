@@ -104,33 +104,30 @@ describe('runReviewRoundUseCase', () => {
         },
       })
     );
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.exit).toBe('aborted');
-    expect(result.value.applied).toBe(false);
-    expect(result.value.dirtyTreeReason).toContain('src/a.ts');
-    expect(result.value.dirtyTreeReason).toContain('README.md');
-    expect(result.value.dirtyTreeReason).toContain('git commit failed: pre-commit hook rejected');
+    const value = result.getOrThrow();
+    expect(value.exit).toBe('aborted');
+    expect(value.applied).toBe(false);
+    expect(value.dirtyTreeReason).toContain('src/a.ts');
+    expect(value.dirtyTreeReason).toContain('README.md');
+    expect(value.dirtyTreeReason).toContain('git commit failed: pre-commit hook rejected');
     expect(calls).toEqual([]);
   });
 
   it('omits the commit-error clause when no prior commit failed and caps a long file list', async () => {
     const paths = Array.from({ length: 25 }, (_, i) => `f${String(i)}.ts`);
     const result = await runReviewRoundUseCase(baseDeps({ listUncommittedChanges: async () => Result.ok(paths) }));
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.dirtyTreeReason).toContain('f19.ts');
-    expect(result.value.dirtyTreeReason).not.toContain('f20.ts');
-    expect(result.value.dirtyTreeReason).toContain('and 5 more');
-    expect(result.value.dirtyTreeReason).not.toMatch(/commit error/i);
+    const resultValue = result.getOrThrow();
+    expect(resultValue.dirtyTreeReason).toContain('f19.ts');
+    expect(resultValue.dirtyTreeReason).not.toContain('f20.ts');
+    expect(resultValue.dirtyTreeReason).toContain('and 5 more');
+    expect(resultValue.dirtyTreeReason).not.toMatch(/commit error/i);
   });
 
   it('runs the round when the preflight sees a clean tree', async () => {
     const result = await runReviewRoundUseCase(baseDeps({ listUncommittedChanges: async () => Result.ok([]) }));
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.exit).toBe('continued');
-    expect(result.value.dirtyTreeReason).toBeUndefined();
+    const resultValue = result.getOrThrow();
+    expect(resultValue.exit).toBe('continued');
+    expect(resultValue.dirtyTreeReason).toBeUndefined();
   });
 
   it('proceeds with the round when the preflight git read itself fails', async () => {
