@@ -294,7 +294,7 @@ describe('proposeReadinessLeaf — audit-[09] contract', () => {
       ...ctx,
       entries: { 'claude-code': { ...entry, probedState } },
     });
-    if (!result.ok) throw new Error(`propose failed: ${result.error.message}`);
+    if (!result.ok) throw new Error(`propose failed: ${result.error.error.message}`);
     return { proposed: result.value.ctx.entries['claude-code']?.proposal?.proposedContent, prompt: prompts[0] ?? '' };
   };
 
