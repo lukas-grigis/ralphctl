@@ -413,7 +413,7 @@ export const launchFlow = async (
     ...(effort !== undefined ? { effort } : {}),
   };
 
-  const launch = LAUNCHERS[flowId];
+  const launch = Object.hasOwn(LAUNCHERS, flowId) ? LAUNCHERS[flowId] : undefined;
   const dispatchResult: LaunchResult = launch ? await launch(ctx) : { ok: false, reason: `Unknown flow: ${flowId}` };
 
   return pinLaunchResult(dispatchResult, snapshot, flowId);
