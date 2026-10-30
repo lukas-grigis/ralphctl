@@ -1,6 +1,7 @@
 /**
  * Real-git coverage for `gitStashInspect`: a `-u` stash's numstat must count tracked edits,
  * untracked files and binary files, report every entry under one message, and leave the stack alone.
+ * Also `gitStashPatch`: the patch of such a stash must `git apply` back onto the clean tree.
  */
 
 import { promises as fs } from 'node:fs';
@@ -9,7 +10,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { Result } from '@src/domain/result.ts';
 import { createGitRunner, type GitRunner } from '@src/integration/io/git-runner.ts';
-import { gitStashInspect, gitStashList, gitStashPush } from '@src/integration/io/git-stash.ts';
+import { gitStashInspect, gitStashList, gitStashPatch, gitStashPush } from '@src/integration/io/git-stash.ts';
 import { createFakeProject, type FakeProject } from '@tests/helpers/fake-project.ts';
 
 const MSG = 'ralphctl/s1/t1/blocked-diff';
@@ -102,5 +103,64 @@ describe('gitStashInspect (real git)', () => {
     const result = await gitStashInspect(oldGit, cwd, MSG);
     if (!result.ok) throw result.error;
     expect(result.value.newest?.stat).toEqual({ files: 1, insertions: 2, deletions: 1, partial: true });
+  });
+});
+
+describe('gitStashPatch (real git)', () => {
+  let project: FakeProject;
+  let cwd: AbsolutePath;
+  const runner = createGitRunner();
+
+  beforeEach(async () => {
+    project = await createFakeProject({ seed: { 'a.txt': 'one\ntwo\nthree\n' } });
+    cwd = abs(project.path);
+  });
+
+  afterEach(async () => {
+    await project.cleanup();
+  });
+
+  it('round-trips a -u stash (tracked, untracked and binary) through git apply on the clean tree', async () => {
+    await project.writeFile('a.txt', 'one\nTWO\nthree\n');
+    await project.writeFile('src/new.ts', 'export const x = 1;\n');
+    await fs.writeFile(join(project.path, 'logo.bin'), Buffer.from([0, 1, 2, 0, 255, 0, 3]));
+    expect((await gitStashPush(runner, cwd, MSG)).ok).toBe(true);
+
+    const result = await gitStashPatch(runner, cwd, MSG);
+    if (!result.ok) throw result.error;
+    expect(result.value?.partial).toBe(false);
+    // Inside .git so the patch file itself is not part of the tree it applies to.
+    const patchFile = join(project.path, '.git', 'rejected.patch');
+    await fs.writeFile(patchFile, result.value?.patch ?? '');
+    await project.git('apply', patchFile);
+
+    expect(await project.readFile('a.txt')).toBe('one\nTWO\nthree\n');
+    expect(await project.readFile('src/new.ts')).toBe('export const x = 1;\n');
+    expect([...(await fs.readFile(join(project.path, 'logo.bin')))]).toEqual([0, 1, 2, 0, 255, 0, 3]);
+  });
+
+  it('returns undefined when no entry matches', async () => {
+    const result = await gitStashPatch(runner, cwd, MSG);
+    expect(result.ok && result.value).toBeUndefined();
+  });
+
+  it('falls back to a tracked-only patch marked partial when git rejects --include-untracked', async () => {
+    await project.writeFile('a.txt', 'one\nTWO\nthree\n');
+    await project.writeFile('src/new.ts', 'export const x = 1;\n');
+    expect((await gitStashPush(runner, cwd, MSG)).ok).toBe(true);
+    const oldGit: GitRunner = {
+      run: (dir, args, opts) =>
+        args.includes('--include-untracked')
+          ? Promise.resolve(
+              Result.ok({ stdout: '', stderr: "error: unknown option `include-untracked'", exitCode: 129 })
+            )
+          : runner.run(dir, args, opts),
+    };
+
+    const result = await gitStashPatch(oldGit, cwd, MSG);
+    if (!result.ok) throw result.error;
+    expect(result.value?.partial).toBe(true);
+    expect(result.value?.patch).toContain('a.txt');
+    expect(result.value?.patch).not.toContain('new.ts');
   });
 });
