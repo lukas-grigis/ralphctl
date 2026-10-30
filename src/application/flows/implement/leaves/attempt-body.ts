@@ -351,13 +351,18 @@ const attemptSettleLeaves = (
   // Composed-case cleanup: a granted retry (escalate / nudge / malformed) whose work ALSO
   // failed post-verify red. The commit guard above skipped the red work; this stashes it
   // so the RETRIED attempt's pre-verify starts from the last good commit instead of
-  // hard-blocking on its own predecessor's rejected diff. Must run BEFORE settle-attempt —
+  // hard-blocking on its own predecessor's rejected diff, and saves a copy as a patch the
+  // retry's `<retry_feedback>` offers as optional. Must run BEFORE settle-attempt —
   // settle's output projection clears both flags the guard reads. Green-verify retries
   // commit normally and the stash no-ops on their clean tree.
   guard<ImplementCtx>(
     `quarantine-retry-diff-guard-${String(taskId)}`,
     isRedVerifyRetry,
-    quarantineRetryDiffLeaf({ gitRunner: deps.gitRunner, logger: deps.logger }, { cwd: repo.path }, taskId)
+    quarantineRetryDiffLeaf(
+      { gitRunner: deps.gitRunner, logger: deps.logger, writeFile: deps.writeFile },
+      { cwd: repo.path, sprintDir: opts.sprintDir },
+      taskId
+    )
   ),
   buildSettleAttemptLeaf(deps, repo, taskId),
   // WRITE side of Theme 6 (audit-[B5]). Reads the STILL-POPULATED `currentAttemptLearnings`

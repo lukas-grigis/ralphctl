@@ -6,8 +6,13 @@ import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
-import { gitStashPush } from '@src/integration/io/git-stash.ts';
+import type { WriteFile } from '@src/business/io/write-file.ts';
+import { gitStashPatch, gitStashPush } from '@src/integration/io/git-stash.ts';
 import type { GitRunner } from '@src/integration/io/git-runner.ts';
+import {
+  REJECTED_DIFF_PATCH_MAX_BYTES,
+  rejectedDiffPatchPath,
+} from '@src/application/flows/implement/leaves/verify-log.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 
 /**
@@ -21,8 +26,10 @@ import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
  * rejected diff would stay in the tree and the RETRIED attempt's own pre-task-verify would go red
  * on it, hard-blocking the very retry the policy just granted. Stashing the diff lets the next
  * attempt start from the last good commit; the evaluator critique and the `verify-failed`
- * AttemptWarning carry the learnings forward, so no signal is lost — only the broken bytes move
- * aside, recoverable via `git stash list`.
+ * AttemptWarning carry the learnings forward, and a copy of the set-aside diff is saved as a
+ * patch under {@link rejectedDiffPatchPath} that the retry's `<retry_feedback>` offers as an
+ * optional, unverified lead — never auto-applied. The stash entry itself stays recoverable via
+ * `git stash list`.
  *
  * Guarded at the call site on BOTH flags being set (`lastShouldFailAttempt && lastBlockReason`),
  * and placed BEFORE settle-attempt because settle's output projection clears both flags. On the
@@ -34,11 +41,13 @@ import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 export interface QuarantineRetryDiffLeafDeps {
   readonly gitRunner: GitRunner;
   readonly logger: Logger;
+  readonly writeFile: WriteFile;
 }
 
 export interface QuarantineRetryDiffLeafOpts {
   /** The tree the just-failed attempt ran (and dirtied) against. */
   readonly cwd: AbsolutePath;
+  readonly sprintDir: AbsolutePath;
 }
 
 interface RetryQuarantineInput {
@@ -53,6 +62,49 @@ interface RetryQuarantineInput {
  */
 export const retryStashMessage = (sprintId: SprintId, taskId: TaskId, attemptN: number): string =>
   `ralphctl/${String(sprintId)}/${String(taskId)}/attempt-${String(attemptN)}-rejected-diff`;
+
+/**
+ * Best-effort copy of the just-stashed diff to the patch file the retry prompt names. Any
+ * failure warns and skips the file; an oversize patch is skipped, not truncated, because a
+ * truncated patch cannot apply.
+ */
+const saveRejectedDiffPatch = async (
+  deps: QuarantineRetryDiffLeafDeps,
+  opts: QuarantineRetryDiffLeafOpts,
+  taskId: TaskId,
+  attemptN: number,
+  message: string,
+  log: Logger
+): Promise<void> => {
+  const ctx = { taskId: String(taskId), stashMessage: message };
+  const shown = await gitStashPatch(deps.gitRunner, opts.cwd, message);
+  if (!shown.ok) {
+    log.warn('could not read the set-aside diff — no patch file for the retry', { ...ctx, error: shown.error.message });
+    return;
+  }
+  if (shown.value === undefined || shown.value.patch.length === 0) return;
+  const bytes = Buffer.byteLength(shown.value.patch, 'utf8');
+  if (bytes > REJECTED_DIFF_PATCH_MAX_BYTES) {
+    log.warn('set-aside diff too large — no patch file for the retry', { ...ctx, bytes });
+    return;
+  }
+  const path = rejectedDiffPatchPath(opts.sprintDir, taskId, attemptN);
+  if (!path.ok) {
+    log.warn('could not resolve the patch path — no patch file for the retry', { ...ctx, error: path.error.message });
+    return;
+  }
+  const wrote = await deps.writeFile(path.value, shown.value.patch);
+  if (!wrote.ok) {
+    log.warn('could not write the set-aside patch', { ...ctx, path: String(path.value), error: wrote.error.message });
+    return;
+  }
+  if (shown.value.partial) {
+    log.info('git rejected --include-untracked — the patch omits untracked files', {
+      ...ctx,
+      path: String(path.value),
+    });
+  }
+};
 
 export const quarantineRetryDiffLeaf = (
   deps: QuarantineRetryDiffLeafDeps,
@@ -78,6 +130,7 @@ export const quarantineRetryDiffLeaf = (
             taskId: String(taskId),
             stashMessage: message,
           });
+          await saveRejectedDiffPatch(deps, opts, taskId, input.attemptN, message, log);
         }
         return Result.ok(undefined);
       },

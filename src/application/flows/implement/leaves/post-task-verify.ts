@@ -72,7 +72,8 @@ const SPAWN_ERROR_OUTCOME = 'spawn-error';
  * diff is never committed), and `quarantineRetryDiffLeaf` (guarded on both flags via
  * `isRedVerifyRetry`) stashes the rejected diff so the retried attempt's pre-verify starts clean.
  * The next loop iteration re-enters `start-attempt` with a fresh attempt whose generator prompt now
- * carries the `<retry_feedback>` block (the prior attempt's failing post-verify output). Once the
+ * carries the `<retry_feedback>` block (the prior attempt's failing post-verify output, plus the
+ * path of the set-aside diff saved as an optional patch when one was written). Once the
  * budget exhausts this leaf stops setting the retry flag and the same red verify blocks the task —
  * a human then intervenes (today's behaviour, now reserved for genuine budget exhaustion).
  *
