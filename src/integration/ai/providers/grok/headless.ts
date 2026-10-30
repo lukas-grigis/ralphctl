@@ -41,6 +41,7 @@ import { createGrokAttemptTracker } from '@src/integration/ai/providers/grok/par
  *   |                               | plus `--deny 'Bash(*)'`                                    |
  *   |   !canAccessNetwork           | `--disallowed-tools web_search,web_fetch`                  |
  *   | prompt                        | `--prompt-file <grok-prompt.md>`                           |
+ *   | role: evaluator               | env `GROK_MEMORY=0`                                        |
  *
  * `--prompt-file` (not `-p`, which inlines the body into argv) is the headless switch; Grok does
  * not read piped stdin. Why the edit gate is a cwd-rooted deny RULE rather than a tool removal, the
@@ -166,6 +167,8 @@ const runGrokAttempt = async (attemptSession: AiSession, base: AttemptBase): Pro
     ...base,
     args: built.value,
     session: attemptSession,
+    // Opt-in cross-session memory is shared by every worktree; the evaluator side stays a fresh-context judge.
+    ...(attemptSession.role === 'evaluator' ? { env: { GROK_MEMORY: '0' } } : {}),
     rateLimitRe: DEFAULT_RATE_LIMIT_RE,
     onStdoutChunk: tracker.consumeChunk,
     flush: tracker.flush,

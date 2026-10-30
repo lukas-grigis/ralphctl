@@ -35,6 +35,7 @@ import {
  *   | additionalRoots + outputDir | `--add-dir <root>` per root                                  |
  *   | resume: id                  | `--resume id`                                                |
  *   | effort: <level>             | `--effort <level>` + `CLAUDE_CODE_EFFORT_LEVEL=<level>`      |
+ *   | role: evaluator             | `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`                          |
  *   | prompt                      | piped to stdin                                               |
  *
  * stream-json (not `json`) is what gives the idle watchdog a liveness signal: `json` buffers
@@ -57,11 +58,14 @@ const PROVIDER_NAME = 'claude-provider';
  *    gate unforked.
  *  - `CLAUDE_CODE_EFFORT_LEVEL` outranks `--effort`, so an operator's exported value would silently
  *    override every effort ralphctl resolves; pinning it to the same level makes the flag stick.
- * Docs: https://code.claude.com/docs/en/env-vars
+ *  - Auto memory is shared by every worktree of the repo, so the evaluator side runs without it to
+ *    stay a fresh-context judge; the generator keeps the operator's memory.
+ * Docs: https://code.claude.com/docs/en/env-vars, https://code.claude.com/docs/en/memory
  */
 const claudeHeadlessEnv = (session: AiSession): Readonly<Record<string, string>> => ({
   CLAUDE_CODE_FORK_SUBAGENT: '0',
   ...(session.effort !== undefined ? { CLAUDE_CODE_EFFORT_LEVEL: session.effort } : {}),
+  ...(session.role === 'evaluator' ? { CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1' } : {}),
 });
 
 // One-line previews only: the bus → logger pipeline writes one record per call.

@@ -75,6 +75,12 @@ const unwrapArgs = (s: AiSession, outputFile = FIXED_OUT): readonly string[] => 
   return r.value;
 };
 
+/** The value of every `-c key=value` override, in argv order. */
+const configOverrides = (s: AiSession): readonly string[] => {
+  const args = unwrapArgs(s);
+  return args.filter((_, i) => args[i - 1] === '-c');
+};
+
 describe('createCodexProvider', () => {
   it('happy path: captures sessionId from stdout JSONL and unlinks codex tempfile WITHOUT writing signals.json', async () => {
     const cap = createCapturingBus();
@@ -878,14 +884,23 @@ describe('buildCodexArgs — AiSession → CLI argv translation', () => {
   });
 
   it('emits -c model_reasoning_effort=<level> when session.effort is set (sourced from session, not deps)', () => {
-    const args = unwrapArgs(session({ effort: 'high' }));
-    const cIdx = args.indexOf('-c');
-    expect(cIdx).toBeGreaterThanOrEqual(0);
-    expect(args[cIdx + 1]).toBe('model_reasoning_effort=high');
+    expect(configOverrides(session({ effort: 'high' }))).toContain('model_reasoning_effort=high');
   });
 
   it('omits the reasoning override when session.effort is unset', () => {
-    expect(unwrapArgs(session()).includes('-c')).toBe(false);
+    expect(configOverrides(session()).some((c) => c.startsWith('model_reasoning_effort'))).toBe(false);
+  });
+
+  it.each([
+    ['evaluator', ['memories.use_memories=false', 'memories.generate_memories=false']],
+    ['generator', []],
+  ] as const)('turns memories off for the evaluator side only (%s)', (role, expected) => {
+    for (const resume of [undefined, 'sess-abc' as unknown as SessionId]) {
+      const memories = configOverrides(session({ role, ...(resume !== undefined ? { resume } : {}) })).filter((c) =>
+        c.startsWith('memories.')
+      );
+      expect(memories).toEqual(expected);
+    }
   });
 
   it('ends argv with `-` so codex reads the prompt from stdin', () => {

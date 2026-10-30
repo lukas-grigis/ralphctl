@@ -46,6 +46,7 @@ import { messageOf } from '@src/domain/value/error/error-message.ts';
  *   |                         | `-c sandbox_workspace_write.writable_roots=[…]` (resume)         |
  *   | permissions (any)       | `-s workspace-write` (fresh) / `-c sandbox_mode=…` (resume)      |
  *   | effort: <level>         | `-c model_reasoning_effort=<level>`                              |
+ *   | role: evaluator         | `-c memories.{use,generate}_memories=false`                      |
  *   | prompt                  | piped to stdin, with a trailing `-`                              |
  *
  * The body is read back from the `-o` tempfile. The session id is `thread_id` on the leading
@@ -102,6 +103,10 @@ export const buildCodexArgs = (
   // Forwarded verbatim; codex rejects unknown or model-incompatible levels itself.
   if (session.effort !== undefined) {
     args.push('-c', `model_reasoning_effort=${session.effort}`);
+  }
+  // Memories carry over from earlier sessions; the evaluator side stays a fresh-context judge.
+  if (session.role === 'evaluator') {
+    args.push('-c', 'memories.use_memories=false', '-c', 'memories.generate_memories=false');
   }
   // Without the trailing `-`, codex treats stdin as side context and hangs waiting for a prompt arg.
   args.push('-');
