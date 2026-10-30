@@ -10,7 +10,7 @@ import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import type { InteractivePrompt } from '@src/business/interactive/prompt.ts';
 import { launchFlow, type LauncherDeps } from '@src/application/ui/shared/launcher.ts';
 import { loadAppStateSnapshot } from '@src/application/ui/shared/state-snapshot.ts';
-import { passthroughRunInTerminal } from '@src/application/ui/shared/run-in-terminal.ts';
+import { passthroughRunInTerminal } from '@src/integration/io/run-in-terminal.ts';
 import { makeProject, makeReviewSprint } from '@tests/fixtures/domain.ts';
 import { createRealFsApp, type RealFsApp } from '@tests/helpers/real-fs-app.ts';
 import { holdSprintLock } from '@tests/helpers/hold-flow-lock.ts';

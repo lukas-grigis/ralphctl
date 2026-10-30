@@ -1,21 +1,15 @@
 /**
- * `v` (open evaluation) must work in BOTH Implement width regimes.
- *
- * `ImplementLayout` is a two-branch compositor: at ≥140 cols (`layout.sidebarLayout`) it renders
- * its own `TasksPanelHost`, and below that it hands the caller's
- * PRE-BUILT `tasksPanel` node to `ExecuteLayout`. Only the narrow branch used to carry
- * `onOpenEvaluation` — so the chord was a silent no-op on any wide terminal while the footer kept
- * advertising `v evaluation`. Every other Execute-view test renders at ink-testing-library's
- * default 100 columns, which is exactly why that gap survived.
- *
- * The A/B here drives the same chord through both branches of the compositor with the same
- * fixtures, so a future change that reaches only one branch fails.
+ * `v` (open evaluation) must work in BOTH Execute width regimes. At ≥140 cols `ImplementLayout`
+ * builds its own `TasksPanelHost`; below that `ExecuteLayout` renders the caller's pre-built
+ * `tasksPanel`. Every other Execute-view test renders at ink-testing-library's default 100 columns,
+ * which once hid a wide-terminal no-op chord; this drives the same chord through both branches.
  */
 
 import { describe, expect, it, vi } from 'vitest';
+import { ExecuteLayout } from '@src/application/ui/tui/views/execute-view-internals/layout.tsx';
 import { ImplementLayout } from '@src/application/ui/tui/views/execute-view-internals/implement-layout.tsx';
 import { TasksPanelHost } from '@src/application/ui/tui/views/execute-view-internals/tasks-panel-host.tsx';
-import { useResponsiveLayout } from '@src/application/ui/tui/views/execute-view-internals/use-responsive-layout.ts';
+import { resolveResponsiveLayout } from '@src/application/ui/tui/views/execute-view-internals/responsive-layout.ts';
 import type { SessionDescriptor } from '@src/application/ui/tui/runtime/session-manager.ts';
 import type { BucketedExecution } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
 import type { AppDeps } from '@src/application/bootstrap/wire.ts';
@@ -50,14 +44,13 @@ interface ChordFixture {
 }
 
 /**
- * Renders the compositor at `columns`, mirroring what `execute-view.tsx` threads: the pre-built
- * `tasksPanel` node (narrow branch) AND the `onOpenEvaluation` handler (wide branch).
+ * Renders the layout `body.tsx` would pick at `columns`.
  */
 const renderChordAt = (columns: number, onOpenEvaluation: (taskId: string) => void): ChordFixture => {
   const task = evaluatedTask();
   const taskId = String(task.id);
   const taskState = [task];
-  const layout = useResponsiveLayout({ columns, rows: TERM_ROWS, isRunning: true });
+  const layout = resolveResponsiveLayout({ columns, rows: TERM_ROWS, isRunning: true });
   const bucketed: BucketedExecution = {
     tasks: [{ id: taskId, status: 'running', subSteps: [], evaluations: [], signals: [], genEvalRound: 1 }],
     orphanSignals: [],
@@ -73,45 +66,52 @@ const renderChordAt = (columns: number, onOpenEvaluation: (taskId: string) => vo
   } as unknown as SessionDescriptor;
 
   const { result } = renderView(
-    <ImplementLayout
-      descriptor={descriptor}
-      isRunning
-      sessionId={SESSION_ID}
-      termColumns={columns}
-      termRows={TERM_ROWS}
-      tasksPanel={
-        <TasksPanelHost
-          bucketed={bucketed}
-          descriptor={descriptor}
-          isRunning
-          maxSignalsPerTask={layout.tasksMaxSignals}
-          maxTasks={layout.tasksMaxBlocks}
-          inputActive
-          now={NOW}
-          taskState={taskState}
-          onOpenEvaluation={onOpenEvaluation}
-        />
-      }
-      executionState={undefined}
-      taskState={taskState}
-      now={NOW}
-      tokenUsage={undefined}
-      pinnedSprintStale={false}
-      layout={layout}
-      bucketed={bucketed}
-      inputActive
-      onOpenEvaluation={onOpenEvaluation}
-    />,
+    layout.sidebarLayout ? (
+      <ImplementLayout
+        descriptor={descriptor}
+        isRunning
+        termColumns={columns}
+        executionState={undefined}
+        taskState={taskState}
+        now={NOW}
+        tokenUsage={undefined}
+        layout={layout}
+        bucketed={bucketed}
+        inputActive
+        onOpenEvaluation={onOpenEvaluation}
+      />
+    ) : (
+      <ExecuteLayout
+        progress={undefined}
+        isRunning
+        termColumns={columns}
+        flowStepsRows={layout.flowStepsRows}
+        compactTwoColumn={layout.compactTwoColumn}
+        tasksPanel={
+          <TasksPanelHost
+            bucketed={bucketed}
+            descriptor={descriptor}
+            isRunning
+            maxSignalsPerTask={layout.tasksMaxSignals}
+            maxTasks={layout.tasksMaxBlocks}
+            inputActive
+            now={NOW}
+            taskState={taskState}
+            onOpenEvaluation={onOpenEvaluation}
+          />
+        }
+      />
+    ),
     { deps: {} as unknown as AppDeps, initial: { id: 'execute', props: { sessionId: SESSION_ID } } }
   );
 
   return { taskId, result };
 };
 
-describe('ImplementLayout — `v` opens the evaluation in both width regimes', () => {
+describe('Execute layouts — `v` opens the evaluation in both width regimes', () => {
   it.each([
     { columns: 160, regime: 'wide sidebar layout (≥140 cols)' },
-    { columns: 100, regime: 'narrow ExecuteLayout fallback (<140 cols)' },
+    { columns: 100, regime: 'narrow ExecuteLayout (<140 cols)' },
   ])('fires onOpenEvaluation at $columns cols — $regime', async ({ columns }) => {
     const onOpenEvaluation = vi.fn<(taskId: string) => void>();
     const { taskId, result } = renderChordAt(columns, onOpenEvaluation);

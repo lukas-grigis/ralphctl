@@ -82,7 +82,7 @@ const NO_OVERLAY: TaskOverlay = {};
  * shallow compare EXCEPT it ignores `nowMs`. The host (`tasks-panel.tsx`) re-derives `nowMs` from
  * a polled 1 Hz clock every second, so a naive default `React.memo` would still re-render every
  * card on every tick even though only the idle-ticker leaf (`IdleTickerNotice`, which now owns
- * its own timer — see `use-idle-clock.ts`) ever needed it. Excluding just that one field is what
+ * its own timer — see `use-ticking-clock.ts`) ever needed it. Excluding just that one field is what
  * turns the memo into a real bail-out for the 1 Hz tick without touching the host's prop shape.
  */
 const TASK_BLOCK_IGNORED_KEYS: ReadonlySet<keyof TaskBlockProps> = new Set(['nowMs']);

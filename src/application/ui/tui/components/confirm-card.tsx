@@ -15,7 +15,7 @@ import React, { useEffect } from 'react';
 import { Box } from 'ink';
 import { spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { ConfirmPrompt } from '@src/application/ui/tui/prompts/confirm-prompt.tsx';
-import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
+import { useOverlayState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 
 export interface ConfirmCardProps {
   /** Primary prompt line(s) — supplied as JSX so the host keeps its exact bold/dim wording. */
@@ -31,7 +31,7 @@ export interface ConfirmCardProps {
 export const ConfirmCard = ({ title, body, message, onSubmit, onCancel }: ConfirmCardProps): React.JSX.Element => {
   // Mute the global keys for as long as this card is mounted; the host only mounts it while a
   // removal is pending, so mount/unmount maps 1:1 onto the old per-view conditional claim.
-  const claimPrompt = useUiState().claimPrompt;
+  const claimPrompt = useOverlayState().claimPrompt;
   useEffect(() => claimPrompt(), [claimPrompt]);
 
   return (

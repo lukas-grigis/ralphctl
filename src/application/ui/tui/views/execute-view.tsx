@@ -17,16 +17,14 @@
  *   - `use-cancel-handlers.ts`       — cancel-attempt / cancel-flow handlers
  *   - `use-cancel-scope-stats.ts`    — attempt-elapsed + remaining-task stats
  *   - `use-execute-input.ts`         — keyboard + view-hint registration
- *   - `use-live-clock.ts`            — 1-Hz tick while running
  *   - `use-pinned-sprint-context.ts` — pin availability probe, focused-run context, selection converge
  *   - `use-run-sprint-context.ts`    — the three pin-derived hooks in one call
  *   - `use-run-forensics.ts`         — existence-checked post-mortem paths for a failed run
  *   - `use-settled-next-steps.ts`    — session data → `buildNextSteps` input bag
- *   - `use-responsive-layout.ts`     — width-regime + row-cap derivation
+ *   - `responsive-layout.ts`     — width-regime + row-cap derivation
  *
  * Layout regimes (driven by terminal width):
- *  - ≥180 cols (xl+): three-column — fluid-width rail, flex Tasks, fixed context column.
- *  - 140–179 cols   : two-column — fixed RAIL_WIDTH rail + flex Tasks. No context column.
+ *  - ≥140 cols      : sidebar layout (`ImplementLayout`) — task/steps sidebar + Tasks main area.
  *  - 100–139 cols   : compact — full-width Tasks (or Steps, for flows without task work items).
  *  - <100 cols      : single-column stack.
  *
@@ -39,10 +37,10 @@
  * ↑ / ↓ (and j / k, PgUp / PgDn, g / G) belong to the Tasks panel cursor, not to the page: the
  * ViewShell passes `suppressScrollArrows`, so the page ScrollRegion yields every scroll key. The
  * page still scrolls by mouse wheel, and every section is row-capped so nothing hides below the
- * fold — see `use-responsive-layout.ts` and `result-footer.tsx`.
+ * fold — see `responsive-layout.ts` and `result-footer.tsx`.
  */
 
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Box, Text } from 'ink';
 import { ViewShell } from '@src/application/ui/tui/components/view-shell.tsx';
 import { runnerStatusKind, StatusChip } from '@src/application/ui/tui/components/status-chip.tsx';
@@ -57,7 +55,7 @@ import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { useEventBusBuffer } from '@src/application/ui/tui/runtime/use-event-bus.ts';
 import { useTerminalSize } from '@src/application/ui/tui/runtime/use-terminal-size.ts';
 import type { AppEvent } from '@src/business/observability/events.ts';
-import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
+import { type OverlayApi, useOverlayState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
 import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx';
 import { fmtElapsed } from '@src/application/ui/tui/theme/duration.ts';
@@ -75,7 +73,7 @@ import type { TokenUsage } from '@src/application/ui/tui/runtime/use-token-usage
 import type { LogEvent } from '@src/business/observability/events.ts';
 import type { SprintExecution } from '@src/domain/entity/sprint-execution.ts';
 import type { Task } from '@src/domain/entity/task.ts';
-import type { ResponsiveLayout } from '@src/application/ui/tui/views/execute-view-internals/use-responsive-layout.ts';
+import type { ResponsiveLayout } from '@src/application/ui/tui/views/execute-view-internals/responsive-layout.ts';
 import type { BucketedDerivation } from '@src/application/ui/tui/views/execute-view-internals/use-bucketed-tasks.ts';
 import type { CancelHandlers } from '@src/application/ui/tui/views/execute-view-internals/use-cancel-handlers.ts';
 import type { NextSteps } from '@src/application/ui/shared/next-steps.ts';
@@ -86,9 +84,9 @@ import { ExecuteBody } from '@src/application/ui/tui/views/execute-view-internal
 import { LOG_TAIL_LIMIT } from '@src/application/ui/tui/views/execute-view-internals/log-panel.tsx';
 import { TasksPanelHost } from '@src/application/ui/tui/views/execute-view-internals/tasks-panel-host.tsx';
 import { useActiveTaskSummary } from '@src/application/ui/tui/views/execute-view-internals/use-active-task-summary.ts';
-import { useResponsiveLayout } from '@src/application/ui/tui/views/execute-view-internals/use-responsive-layout.ts';
+import { resolveResponsiveLayout } from '@src/application/ui/tui/views/execute-view-internals/responsive-layout.ts';
 import { useExecuteInput } from '@src/application/ui/tui/views/execute-view-internals/use-execute-input.ts';
-import { useLiveClock } from '@src/application/ui/tui/views/execute-view-internals/use-live-clock.ts';
+import { useTickingClock } from '@src/application/ui/tui/runtime/use-ticking-clock.ts';
 import {
   useExecuteCancel,
   useExecuteProgress,
@@ -112,15 +110,12 @@ interface ExecuteProps extends Readonly<Record<string, unknown>> {
 const HARNESS_SIGNAL_LIMIT = 1000;
 const CHAIN_EVENT_LIMIT = 2000;
 
-// `useUiState` doesn't export its return interface, so infer it locally.
-type UiStateApi = ReturnType<typeof useUiState>;
-
 interface ExecuteSessionData {
   readonly session: SessionRecord | undefined;
   readonly sessions: SessionManager;
   readonly sessionList: readonly SessionRecord[];
   readonly router: RouterApi;
-  readonly ui: UiStateApi;
+  readonly ui: OverlayApi;
   readonly deps: AppDeps;
   readonly eventBus: AppDeps['eventBus'];
   readonly signals: readonly SignalBusEntry[];
@@ -141,7 +136,7 @@ const useExecuteSessionData = (sessionId: string): ExecuteSessionData => {
   // Live list of every session for the multi-flow strip (renders only when ≥2 are running).
   const sessionList = useSessions();
   const router = useRouter();
-  const ui = useUiState();
+  const ui = useOverlayState();
   const buses = useBuses();
   const signals = useSinkStream(buses.harness, { limit: HARNESS_SIGNAL_LIMIT });
   const logEntries = useSinkStream(buses.log, { limit: LOG_TAIL_LIMIT });
@@ -242,13 +237,7 @@ const SessionNotFoundNotice = (): React.JSX.Element => (
   </ViewShell>
 );
 
-/**
- * Not derived inside `useCancelScopeStats` itself so the O(chainEvents) scan that produces
- * `attemptStartedAt` does not re-run on every 1 Hz `useLiveClock` tick — only this cheap
- * subtraction does. `Math.max` guards the initial render: `now` (`useLiveClock`'s `Date.now()`
- * seed) can be fractionally behind an attempt timestamp parsed in the same tick, yielding a
- * small negative delta we clamp to 0.
- */
+/** Clamped at 0: the clock seed can sit fractionally behind an attempt timestamp parsed in the same tick. */
 const computeAttemptElapsedMs = (attemptStartedAt: number | undefined, now: number): number | undefined =>
   attemptStartedAt !== undefined ? Math.max(0, now - attemptStartedAt) : undefined;
 
@@ -313,13 +302,13 @@ const useExecuteRunControls = ({
     hasBlockedTask,
   });
 
-  const now = useLiveClock(isRunning);
+  const now = useTickingClock(isRunning);
 
   return { isRunning, cancelScopeOpen, setCancelScopeOpen, now };
 };
 
 interface ExecuteViewFrameProps {
-  readonly ui: UiStateApi;
+  readonly ui: OverlayApi;
   readonly descriptor: SessionDescriptor;
   readonly sessionList: readonly SessionRecord[];
   readonly sessionId: string;
@@ -334,7 +323,6 @@ interface ExecuteViewFrameProps {
   readonly attemptElapsedMs: number | undefined;
   readonly remainingTaskCount: number;
   readonly cancelHandlers: CancelHandlers;
-  readonly pinnedSprintStale: boolean;
   readonly nextSteps: NextSteps;
 }
 
@@ -359,7 +347,6 @@ const ExecuteViewFrame = ({
   attemptElapsedMs,
   remainingTaskCount,
   cancelHandlers,
-  pinnedSprintStale,
   nextSteps,
 }: ExecuteViewFrameProps): React.JSX.Element => {
   // Wall-clock elapsed since the run started — a display string for the header / footer.
@@ -377,7 +364,7 @@ const ExecuteViewFrame = ({
       // The Tasks panel owns ↑/↓ (and j/k) as its card / row cursor — without this the page
       // ScrollRegion moved the whole viewport on the same keypress that moved the cursor. Every
       // section on this page is row-capped against the terminal height (see
-      // `use-responsive-layout.ts` for the rail / tasks / log budgets and `result-footer.tsx`
+      // `responsive-layout.ts` for the rail / tasks / log budgets and `result-footer.tsx`
       // for the settled card), so yielding the paging keys costs no reachable content; the
       // mouse wheel still scrolls the page regardless of this flag.
       suppressScrollArrows
@@ -396,7 +383,6 @@ const ExecuteViewFrame = ({
           elapsed={elapsed}
           layout={layout}
           termColumns={term.columns}
-          termRows={term.rows}
           tokenUsage={tokenUsage}
           logEntries={logEntries}
           cancelScopeOpen={runControls.cancelScopeOpen}
@@ -405,7 +391,6 @@ const ExecuteViewFrame = ({
           onCancelAttempt={cancelHandlers.onCancelAttempt}
           onCancelFlow={cancelHandlers.onCancelFlow}
           onDismissCancelScope={cancelHandlers.onDismiss}
-          pinnedSprintStale={pinnedSprintStale}
           nextSteps={nextSteps}
           awaiting={flow.awaiting}
           {...bucketedTasks}
@@ -434,7 +419,6 @@ export const ExecuteView = (): React.JSX.Element => {
     descriptor,
     pinnedSprintId,
     deps,
-    setFocusedRunContext: ui.setFocusedRunContext,
     selectionSprintId: selection.sprintId,
     followFocusedRun: selection.followFocusedRun,
   });
@@ -459,9 +443,6 @@ export const ExecuteView = (): React.JSX.Element => {
   useActiveTaskSummary({
     currentTask: bucketedTasks.currentTask,
     currentTaskName: bucketedTasks.currentTaskName,
-    // The setter is its own stable `useCallback`, so reading it off the merged `ui` object does
-    // not re-fire the effect when an unrelated overlay toggle changes that object's identity.
-    setActiveTaskSummaryProvider: ui.setActiveTaskSummaryProvider,
   });
 
   const cancel = useExecuteCancel({
@@ -474,7 +455,10 @@ export const ExecuteView = (): React.JSX.Element => {
     setCancelScopeOpen: runControls.setCancelScopeOpen,
   });
 
-  const layout = useResponsiveLayout({ columns: term.columns, rows: term.rows, isRunning: runControls.isRunning });
+  const layout = useMemo(
+    () => resolveResponsiveLayout({ columns: term.columns, rows: term.rows, isRunning: runControls.isRunning }),
+    [term.columns, term.rows, runControls.isRunning]
+  );
 
   // Early-return for "no session in registry" must come AFTER every hook above so the Hook
   // call order is identical across renders. Hooks below this line do not exist — every Hook
@@ -515,7 +499,6 @@ export const ExecuteView = (): React.JSX.Element => {
       attemptElapsedMs={computeAttemptElapsedMs(cancel.stats.attemptStartedAt, runControls.now)}
       remainingTaskCount={cancel.stats.remainingTaskCount}
       cancelHandlers={cancel.handlers}
-      pinnedSprintStale={pinnedSprintStale}
       nextSteps={nextSteps}
     />
   );

@@ -24,7 +24,7 @@ import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import { createRunner } from '@src/application/chain/run/runner.ts';
 import { createFsTemplateLoader, defaultTemplatesDir } from '@src/integration/ai/prompts/_engine/fs-template-loader.ts';
 import { createAtomicWriteFile } from '@src/integration/io/write-file-atomic.ts';
-import { passthroughRunInTerminal } from '@src/application/ui/shared/run-in-terminal.ts';
+import { passthroughRunInTerminal } from '@src/integration/io/run-in-terminal.ts';
 import { createIdeateFlow } from '@src/application/flows/ideate/flow.ts';
 import type { IdeateCtx } from '@src/application/flows/ideate/ctx.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';

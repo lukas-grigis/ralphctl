@@ -14,10 +14,8 @@
  *     Carries the relative path so the operator can see what was looked for.
  */
 
-import { promises as fs } from 'node:fs';
-import { join } from 'node:path';
 import { useEffect, useState } from 'react';
-import { resolveSprintDir } from '@src/integration/persistence/storage.ts';
+import { readSprintArtifact } from '@src/application/ui/tui/components/overlay-internals/read-sprint-artifact.ts';
 import { evaluationArtifactSprintPath } from '@src/business/task/evaluation-artifact.ts';
 import { parseEvaluationMarkdown, type ParsedEvaluation } from '@src/business/task/parse-evaluation-md.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
@@ -50,7 +48,6 @@ export const useEvaluationFile = (
   const file = target?.file;
 
   useEffect(() => {
-    let cancelled = false;
     if (sprintId === undefined || taskId === undefined || file === undefined) {
       setState({ kind: 'unrecorded' });
       return undefined;
@@ -60,43 +57,26 @@ export const useEvaluationFile = (
       setState({ kind: 'unrecorded' });
       return undefined;
     }
-    const load = async (): Promise<void> => {
-      try {
-        // Tolerant id-prefix resolver so both `<id>--<slug>/` and the legacy bare `<id>/` are
-        // found — a hand-built `sprints/<id>` would split-brain against a slug-renamed dir.
-        const dir = await resolveSprintDir(dataRoot, sprintId);
-        if (cancelled) return;
-        if (dir === undefined) {
-          setState({ kind: 'missing', relativePath });
+    let cancelled = false;
+    void readSprintArtifact(dataRoot, sprintId, relativePath).then((artifact) => {
+      if (cancelled) return;
+      switch (artifact.kind) {
+        case 'ok':
+          setState({
+            kind: 'ok',
+            relativePath,
+            parsed: parseEvaluationMarkdown(artifact.content),
+            rawLines: artifact.lines,
+            modifiedAtMs: artifact.modifiedAtMs,
+          });
           return;
-        }
-        const absolute = join(dir, relativePath);
-        const [stat, content] = await Promise.all([fs.stat(absolute), fs.readFile(absolute, 'utf8')]);
-        if (cancelled) return;
-        const modifiedAtMs = stat.mtimeMs;
-        if (content.trim().length === 0) {
-          setState({ kind: 'empty', relativePath, modifiedAtMs });
+        case 'failed':
+          setState(artifact);
           return;
-        }
-        setState({
-          kind: 'ok',
-          relativePath,
-          parsed: parseEvaluationMarkdown(content),
-          // Strip a trailing newline so the last visible row isn't blank; keep interior empties.
-          rawLines: content.replace(/\n+$/, '').split('\n'),
-          modifiedAtMs,
-        });
-      } catch (cause) {
-        if (cancelled) return;
-        const code = (cause as { code?: string } | undefined)?.code;
-        if (code === 'ENOENT') {
-          setState({ kind: 'missing', relativePath });
-          return;
-        }
-        setState({ kind: 'failed', message: cause instanceof Error ? cause.message : String(cause) });
+        default:
+          setState({ ...artifact, relativePath });
       }
-    };
-    void load();
+    });
     return () => {
       cancelled = true;
     };

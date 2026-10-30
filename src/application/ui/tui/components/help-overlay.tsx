@@ -22,7 +22,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { keySections } from '@src/application/ui/tui/runtime/keyboard-map.ts';
-import { SIGNAL_LABEL_COLOR } from '@src/application/ui/tui/components/tasks-panel.tsx';
+import { SIGNAL_LABEL_COLOR } from '@src/application/ui/tui/components/tasks-panel-internals/signal-rows.tsx';
 import { useActiveHints } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
 import { useTerminalSize } from '@src/application/ui/tui/runtime/use-terminal-size.ts';
 

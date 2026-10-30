@@ -1,5 +1,5 @@
 import type { Element } from '@src/application/chain/element.ts';
-import { createRunner, type Runner } from '@src/application/chain/run/runner.ts';
+import { createRunner } from '@src/application/chain/run/runner.ts';
 import { createReadinessFlow } from '@src/application/flows/readiness/flow.ts';
 import type { ReadinessCtx } from '@src/application/flows/readiness/ctx.ts';
 import { type AiProvider, primaryFlowRow, uniqueProvidersFromAi } from '@src/domain/entity/settings.ts';
@@ -7,22 +7,12 @@ import { toolForProvider } from '@src/integration/ai/readiness/_engine/tool.ts';
 import { createAiProvider } from '@src/application/bootstrap/provider-factory.ts';
 import { createSkillsAdapter } from '@src/integration/ai/skills/adapter-factory.ts';
 import type { InteractivePrompt } from '@src/business/interactive/prompt.ts';
-import type { LaunchContext } from '@src/application/ui/shared/launch/context.ts';
+import { type LaunchContext, providerBaseArgs } from '@src/application/ui/shared/launch/context.ts';
+import { PROVIDER_LABEL } from '@src/application/flows/doctor/probe-helpers.ts';
 import type { LaunchResult } from '@src/application/ui/shared/launcher.ts';
 import { checkCli } from '@src/application/ui/shared/launch/check-cli.ts';
-import type { HeadlessAiProvider } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
-import type { SkillsAdapter } from '@src/integration/ai/skills/_engine/skills-port.ts';
 import type { FlowId } from '@src/domain/value/flow-id.ts';
 import { FLOW_IDS } from '@src/domain/value/flow-id.ts';
-
-/** Human-facing provider names for the launch-time picker. */
-const PROVIDER_LABEL: Record<AiProvider, string> = {
-  'claude-code': 'Claude Code',
-  'github-copilot': 'GitHub Copilot',
-  'openai-codex': 'OpenAI Codex',
-  opencode: 'OpenCode',
-  'xai-grok': 'Grok',
-};
 
 /** Sentinel for the picker's "All providers" entry — distinct from any {@link AiProvider}. */
 const ALL_PROVIDERS = '__all__' as const;
@@ -75,41 +65,12 @@ const flowIdForProvider = (settings: LaunchContext['settings'], provider: AiProv
   throw new Error(`flowIdForProvider: provider ${provider} not referenced in ai settings`);
 };
 
-/** One adapter per provider, even when several per-tool sub-chains reference it. */
-const buildAdapterCaches = (
-  { deps, settings }: LaunchContext,
-  providers: readonly AiProvider[]
-): {
-  readonly providerFor: (provider: AiProvider) => HeadlessAiProvider;
-  readonly skillsAdapterFor: (provider: AiProvider) => SkillsAdapter;
-} => {
-  const providerCache = new Map<AiProvider, HeadlessAiProvider>();
-  const skillsCache = new Map<AiProvider, SkillsAdapter>();
-  for (const provider of providers) {
-    providerCache.set(
-      provider,
-      createAiProvider({
-        flow: flowIdForProvider(settings, provider),
-        ai: settings.ai,
-        harnessConfig: settings.harness,
-        eventBus: deps.app.eventBus,
-        childRegistry: deps.app.childRegistry,
-        ...(deps.app.providerSpawn !== undefined ? { spawn: deps.app.providerSpawn } : {}),
-      })
-    );
-    skillsCache.set(provider, createSkillsAdapter({ provider, logger: deps.app.logger }));
-  }
-  return {
-    providerFor: (provider) => {
-      const adapter = providerCache.get(provider);
-      if (adapter === undefined) throw new Error(`launchReadiness: no provider adapter cached for ${provider}`);
-      return adapter;
-    },
-    skillsAdapterFor: (provider) => {
-      const adapter = skillsCache.get(provider);
-      if (adapter === undefined) throw new Error(`launchReadiness: no skills adapter cached for ${provider}`);
-      return adapter;
-    },
+/** Memoize by key so each adapter is built once per provider, lazily, however many per-tool sub-chains reference it. */
+const memo = <K, V>(build: (key: K) => V): ((key: K) => V) => {
+  const cache = new Map<K, V>();
+  return (key) => {
+    if (!cache.has(key)) cache.set(key, build(key));
+    return cache.get(key)!;
   };
 };
 
@@ -136,7 +97,14 @@ export const launchReadiness = async (ctx: LaunchContext): Promise<LaunchResult>
   if (selection.cancelled) return { ok: false, reason: 'Cancelled.' };
   const scopedProviders = selection.providers;
 
-  const { providerFor, skillsAdapterFor } = buildAdapterCaches(ctx, scopedProviders);
+  const providerFor = memo((provider: AiProvider) =>
+    createAiProvider({
+      flow: flowIdForProvider(settings, provider),
+      ai: settings.ai,
+      ...providerBaseArgs(deps.app, settings),
+    })
+  );
+  const skillsAdapterFor = memo((provider: AiProvider) => createSkillsAdapter({ provider, logger: deps.app.logger }));
 
   const element: Element<ReadinessCtx> = createReadinessFlow(
     {
@@ -174,7 +142,7 @@ export const launchReadiness = async (ctx: LaunchContext): Promise<LaunchResult>
   });
   return {
     ok: true,
-    runner: bridge(runner) as Runner<unknown>,
+    runner: bridge(runner),
     title: `Readiness — ${snapshot.project.displayName}`,
   };
 };

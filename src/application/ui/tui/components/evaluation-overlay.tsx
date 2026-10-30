@@ -23,7 +23,7 @@ import { Box, Text } from 'ink';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { Spinner } from '@src/application/ui/tui/components/spinner.tsx';
 import { useStorage } from '@src/application/ui/tui/runtime/storage-context.tsx';
-import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
+import { useOverlayState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { useTerminalSize } from '@src/application/ui/tui/runtime/use-terminal-size.ts';
 import { fmtDuration } from '@src/application/ui/tui/theme/duration.ts';
 import { EvaluationLine } from '@src/application/ui/tui/components/tasks-panel-internals/evaluation-row.tsx';
@@ -169,7 +169,7 @@ const EvaluationBody = ({
 };
 
 export const EvaluationOverlay = (): React.JSX.Element | null => {
-  const ui = useUiState();
+  const ui = useOverlayState();
   const storage = useStorage();
   const term = useTerminalSize();
   // Frozen "now" at mount so the "(Xs ago)" header doesn't tick mid-view; re-pressing `v`

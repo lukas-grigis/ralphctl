@@ -22,7 +22,7 @@ import type { ProjectId } from '@src/domain/value/id/project-id.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { DEFAULT_SETTINGS } from '@src/business/settings/defaults.ts';
-import { passthroughRunInTerminal } from '@src/application/ui/shared/run-in-terminal.ts';
+import { passthroughRunInTerminal } from '@src/integration/io/run-in-terminal.ts';
 import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
 
 const PROJECT_ID = 'project-fixture-id' as unknown as ProjectId;

@@ -192,7 +192,6 @@ describe('ExecuteView', () => {
       title: 'Implement — Rounds',
       taskNames,
       maxTurns: 10,
-      terminalSubstepName: 'uninstall-skills',
     });
 
     // Seed 5 generator entries — round counter should read 5.
@@ -584,7 +583,6 @@ describe('ExecuteView', () => {
       title: 'Implement — Cancel',
       pinnedSprintId: sprintA,
       taskNames,
-      terminalSubstepName: 'uninstall-skills',
     });
 
     const findById = vi.fn().mockResolvedValue({ ok: false });
@@ -644,7 +642,6 @@ describe('ExecuteView', () => {
       title: 'Implement — Mute',
       pinnedSprintId: sprintA,
       taskNames,
-      terminalSubstepName: 'uninstall-skills',
       maxTurns: 10,
     });
 

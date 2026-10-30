@@ -32,7 +32,7 @@ import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { useRouter } from '@src/application/ui/tui/runtime/router.tsx';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
 import { useAsyncLoad, type AsyncLoadState } from '@src/application/ui/tui/runtime/use-async-load.ts';
-import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
+import { useOverlayState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { useViewHints } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
 import { useBreakpoint } from '@src/application/ui/tui/runtime/use-breakpoint.ts';
 import { useLaunchCreateSprint } from '@src/application/ui/tui/runtime/use-launch-create-sprint.ts';
@@ -261,7 +261,7 @@ export const PickSprintView = (): React.JSX.Element => {
   const deps = useDeps();
   const router = useRouter();
   const selection = useSelection();
-  const ui = useUiState();
+  const ui = useOverlayState();
   const [feedback, setFeedback] = useState<string | undefined>(undefined);
 
   const { state, reload, data, rows, sprintCount, hiddenByDoneFilter, scopeAll, hideDone, setHideDone, toggleScope } =

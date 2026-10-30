@@ -34,7 +34,7 @@ import {
 import { IndentedNotice } from '@src/application/ui/tui/components/tasks-panel-internals/task-header.tsx';
 import { TaskStepTree } from '@src/application/ui/tui/components/tasks-panel-internals/task-step-tree.tsx';
 import type { StepView } from '@src/application/ui/tui/runtime/flow-progress.ts';
-import { useIdleClock } from '@src/application/ui/tui/components/tasks-panel-internals/use-idle-clock.ts';
+import { useTickingClock } from '@src/application/ui/tui/runtime/use-ticking-clock.ts';
 
 /**
  * Eval verdict block under an expanded card: the AUTHORITATIVE one-line verdict, and only that.
@@ -92,7 +92,7 @@ const SignalsSection = ({
 
 /**
  * Idle-ticker hint — the only genuinely 1 Hz-dependent bit of an expanded task card. Owns its
- * own tick internally via {@link useIdleClock} (mirrors the `ElapsedLabel` pattern from
+ * own tick internally via {@link useTickingClock} (mirrors the `ElapsedLabel` pattern from
  * `execute-view-internals/elapsed-label.tsx`) instead of reading a `now` prop that the parent
  * re-renders on every second — so a clock tick re-renders only this leaf, not `TaskBlock` or the
  * rest of the card. `seedNowMs` seeds the leaf's clock on mount (the caller's freshest known
@@ -113,7 +113,7 @@ const IdleTickerNotice = ({
   readonly signals: TaskBucket['signals'];
   readonly seedNowMs: number;
 }): React.JSX.Element | null => {
-  const now = useIdleClock(active, seedNowMs);
+  const now = useTickingClock(active, seedNowMs);
   const idleSnippets = useMemo<readonly string[]>(() => {
     if (!active) return [];
     const latest = signals[signals.length - 1];

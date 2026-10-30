@@ -13,7 +13,7 @@
  * instead of navigated to immediately — the auto-route used to fire in the same tick as the
  * warning render, so the user never actually got to read "No AI CLIs detected" before it
  * scrolled away. `↵` / space / `esc` all continue to the held destination; `esc` is claimed
- * locally (via `useUiState().claimEscape()`) so the global `router.pop()` handler doesn't also
+ * locally (via `useOverlayState().claimEscape()`) so the global `router.pop()` handler doesn't also
  * fire and race the local continue. Every other branch (1 CLI, 2+ CLIs) still auto-routes.
  *
  * The seed-FAILED branch arms the same gate (destination `home`). It has to: the error card
@@ -34,7 +34,7 @@ import { Card } from '@src/application/ui/tui/components/card.tsx';
 import { Spinner } from '@src/application/ui/tui/components/spinner.tsx';
 import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { useRouter, type ViewEntry } from '@src/application/ui/tui/runtime/router.tsx';
-import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
+import { useOverlayState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { useViewKeys } from '@src/application/ui/tui/runtime/use-view-keys.ts';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { createSettingsApplyPresetFlow } from '@src/application/flows/settings-apply-preset/flow.ts';
@@ -94,7 +94,7 @@ interface UseWelcomeSeedingResult {
 const useWelcomeSeeding = (): UseWelcomeSeedingResult => {
   const deps = useDeps();
   const router = useRouter();
-  const claimEscape = useUiState().claimEscape;
+  const claimEscape = useOverlayState().claimEscape;
   const [step, setStep] = useState<Step>('detecting');
   const [chosenPreset, setChosenPreset] = useState<PresetName | undefined>(undefined);
   // Track whether PATH had zero AI CLIs so the seeded copy doesn't claim a detection-based choice

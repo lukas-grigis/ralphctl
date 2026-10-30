@@ -21,6 +21,7 @@ import type { SkillSource } from '@src/integration/ai/skills/_engine/skill-sourc
 import { resolveAgentOverride } from '@src/business/settings/resolve-agent-override.ts';
 import type { AgentDefinition } from '@src/integration/ai/agents/_engine/agent-definition.ts';
 import type { AgentDefinitionAdapter } from '@src/integration/ai/agents/_engine/agent-definition-adapter.ts';
+import { providerBaseArgs } from '@src/application/ui/shared/launch/context.ts';
 import type { RoleAgentBinding } from '@src/application/ui/shared/launch/implement-agent-bindings.ts';
 import type { LauncherDeps } from '@src/application/ui/shared/launcher.ts';
 
@@ -58,17 +59,11 @@ export const buildImplementProviders = (
 } => {
   const generatorProvider = createAiProvider({
     row: implementPair.generator,
-    harnessConfig: effectiveSettings.harness,
-    eventBus: deps.app.eventBus,
-    childRegistry: deps.app.childRegistry,
-    ...(deps.app.providerSpawn !== undefined ? { spawn: deps.app.providerSpawn } : {}),
+    ...providerBaseArgs(deps.app, effectiveSettings),
   });
   const evaluatorProvider = createAiProvider({
     row: implementPair.evaluator,
-    harnessConfig: effectiveSettings.harness,
-    eventBus: deps.app.eventBus,
-    childRegistry: deps.app.childRegistry,
-    ...(deps.app.providerSpawn !== undefined ? { spawn: deps.app.providerSpawn } : {}),
+    ...providerBaseArgs(deps.app, effectiveSettings),
   });
   const generatorResolved = resolveAgentOverride(
     implementPair.generator,

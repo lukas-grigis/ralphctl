@@ -4,7 +4,7 @@ import type { Command } from 'commander';
 import { bootstrapApp } from '@src/application/bootstrap/bootstrap-app.ts';
 import { askLine, confirmDestructive, isYes } from '@src/application/ui/cli/confirm-destructive.ts';
 import { plural } from '@src/application/ui/shared/plural.ts';
-import { fail } from '@src/application/ui/cli/report-cli-error.ts';
+import { fail, okOrFail } from '@src/application/ui/cli/report-cli-error.ts';
 import { registerRunsStatsCommand } from '@src/application/ui/cli/commands/runs-stats.ts';
 import { formatBytes } from '@src/application/ui/shared/format-bytes.ts';
 import {
@@ -69,10 +69,7 @@ export const registerRunsCommand = (program: Command): void => {
 const runListCommand = async (opts: ListOpts): Promise<void> => {
   const { storage } = await bootstrapApp();
   const result = await listRuns(storage.runsRoot);
-  if (!result.ok) {
-    fail(result.error.message);
-    return;
-  }
+  if (!okOrFail(result)) return;
   const entries = opts.flow !== undefined ? result.value.filter((r) => r.flow === opts.flow) : result.value;
   if (entries.length === 0) {
     if (opts.flow !== undefined) {
@@ -152,10 +149,7 @@ const parsePruneFilters = (opts: PruneOpts): PruneFiltersResult => {
   let olderThanMs: number | undefined;
   if (opts.olderThan !== undefined) {
     const parsed = parseDuration(opts.olderThan);
-    if (!parsed.ok) {
-      fail(parsed.error.message);
-      return { ok: false };
-    }
+    if (!okOrFail(parsed)) return { ok: false };
     olderThanMs = parsed.value;
   }
 
@@ -175,10 +169,7 @@ const parsePruneFilters = (opts: PruneOpts): PruneFiltersResult => {
 const resolveScopedRuns = async (flow: string | undefined): Promise<ScopedRunsResult> => {
   const { storage } = await bootstrapApp();
   const result = await listRuns(storage.runsRoot);
-  if (!result.ok) {
-    fail(result.error.message);
-    return { ok: false };
-  }
+  if (!okOrFail(result)) return { ok: false };
 
   const allEntries = result.value;
 
@@ -234,10 +225,7 @@ const runInteractivePrune = async (): Promise<void> => {
   }
   const { storage } = await bootstrapApp();
   const listed = await listRuns(storage.runsRoot);
-  if (!listed.ok) {
-    fail(listed.error.message);
-    return;
-  }
+  if (!okOrFail(listed)) return;
   if (listed.value.length === 0) {
     process.stdout.write(`no runs to prune under ${String(storage.runsRoot)}\n`);
     return;
@@ -302,10 +290,7 @@ const promptPruneFilterChoice = async (rl: Interface): Promise<PruneFiltersResul
     const duration = (await askLine(rl, 'duration (e.g. 7d, 24h, 2w): '))?.trim();
     if (duration === undefined) return reportPromptAborted();
     const parsed = parseDuration(duration);
-    if (!parsed.ok) {
-      fail(parsed.error.message);
-      return { ok: false };
-    }
+    if (!okOrFail(parsed)) return { ok: false };
     return { ok: true, olderThanMs: parsed.value, keepLast: undefined };
   }
   if (criterion === '2') {

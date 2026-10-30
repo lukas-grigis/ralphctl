@@ -22,7 +22,7 @@ import { createSessionManager } from '@src/application/ui/tui/runtime/session-ma
 import { planToElement, taskFlowPlan } from '@tests/fixtures/flow-progress.ts';
 import type { PlanNode } from '@src/application/chain/plan-tree.ts';
 import { renderView, waitForViewReady } from '@tests/integration/application/ui/tui/_harness.tsx';
-import { useResponsiveLayout } from '@src/application/ui/tui/views/execute-view-internals/use-responsive-layout.ts';
+import { resolveResponsiveLayout } from '@src/application/ui/tui/views/execute-view-internals/responsive-layout.ts';
 
 // Hoisted controls — the mock factory reads from this state holder so each test can set its
 // own columns/rows before rendering. `vi.hoisted` ensures the variable exists when the mock
@@ -171,7 +171,7 @@ describe('ExecuteView width regimes', () => {
 // Height-budget regression tests (Bug A)
 // ---------------------------------------------------------------------------
 
-describe('useResponsiveLayout — sidebar height budget never exceeds terminal rows', () => {
+describe('resolveResponsiveLayout — sidebar height budget never exceeds terminal rows', () => {
   const COMMON_SIZES: Array<{ cols: number; rows: number; label: string }> = [
     { cols: 180, rows: 50, label: '180×50' },
     { cols: 140, rows: 35, label: '140×35' },
@@ -181,7 +181,7 @@ describe('useResponsiveLayout — sidebar height budget never exceeds terminal r
   ];
 
   it.each(COMMON_SIZES)('sidebar sections fit within terminal rows at $label', ({ cols, rows }) => {
-    const layout = useResponsiveLayout({ columns: cols, rows, isRunning: true });
+    const layout = resolveResponsiveLayout({ columns: cols, rows, isRunning: true });
 
     // sidebarTaskNavRows + sidebarFlowStepsRows must not exceed the available body rows
     const usedBodyRows = layout.sidebarTaskNavRows + layout.sidebarFlowStepsRows;
@@ -200,7 +200,7 @@ describe('useResponsiveLayout — sidebar height budget never exceeds terminal r
   it('tasksMaxBlocks in sidebar layout grows with terminal height without exceeding it', () => {
     // At 50 rows, running=true: logRows = max(6, min(16, 50-38)) = 12.
     // mainBodyRows = 50 - 10 - 12 = 28. Budget = floor(28/3) = 9.
-    const layout = useResponsiveLayout({ columns: 180, rows: 50, isRunning: true });
+    const layout = resolveResponsiveLayout({ columns: 180, rows: 50, isRunning: true });
     expect(layout.tasksMaxBlocks).toBeGreaterThanOrEqual(3);
     // Must not exceed a reasonable fraction of terminal rows (not the whole screen)
     expect(layout.tasksMaxBlocks).toBeLessThanOrEqual(Math.ceil(50 / 2));

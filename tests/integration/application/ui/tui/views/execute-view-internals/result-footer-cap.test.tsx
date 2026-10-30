@@ -3,7 +3,7 @@
  *
  * The Execute page yields the page-scroll keys to the Tasks cursor (`ViewShell
  * suppressScrollArrows`), so anything that grows past the viewport is unreachable by keyboard.
- * Every other section on the page is capped against terminal rows in `use-responsive-layout.ts`;
+ * Every other section on the page is capped against terminal rows in `responsive-layout.ts`;
  * the settled card is capped in `result-footer.tsx`, and this is its fence. The unbounded input
  * is the error summary — `DomainError.message` carries a provider's stderr tail on a real
  * failure.

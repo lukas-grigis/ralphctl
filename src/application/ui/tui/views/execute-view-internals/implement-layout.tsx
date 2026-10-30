@@ -1,43 +1,24 @@
 /**
- * ImplementLayout — layout compositor for the redesigned Implement view.
+ * ImplementLayout — the ≥140-col Execute composition: [ImplementSidebar | main area]. Narrower
+ * terminals use `ExecuteLayout`; body.tsx picks between them.
  *
- * Two regimes, derived from `layout.sidebarLayout`:
+ * HeaderCard is rendered by `body.tsx` above this row. A flow without task work items (plan,
+ * refine, review, …) swaps the Tasks main area for a full-height Steps tree and drops the
+ * sidebar Steps section.
  *
- *   ≥140 cols (sidebarLayout === true):
- *     [ImplementSidebar | TasksPanelHost]
- *
- *     HeaderCard + BaselineHealthChip are rendered by `body.tsx` above the column row at all
- *     widths (user ask #1). The sidebar is navigation-only (task minimap + flow steps +
- *     TokenBudgetCard at the bottom). A flow without task work items (plan, refine, review, …)
- *     swaps the Tasks main area for a full-height Steps tree and drops the sidebar Steps section.
- *
- *     The keyboard model is a PASSIVE MINIMAP: `TasksPanelHost` is the single input owner.
- *     The sidebar's task list is a read-only mirror that highlights whichever card is focused in
- *     the main area. There is NO separate sidebar focus, NO Tab toggle, ONE cursor.
- *
- *   <140 cols:
- *     Delegates entirely to `ExecuteLayout` — the existing three/two/compact/single logic is
- *     preserved verbatim for narrow terminals.
- *
- * NOTE: <140 cols intentionally uses the legacy layout — see `use-responsive-layout.ts` for the
- * design rationale.
- *
- * Focus model:
- *   - `WideLayout` stores `focusedTaskId` (the id reported by the main-area panel).
- *   - `TasksPanelHost`'s `onFocusedCardChange` fires (deduped) whenever the card cursor moves.
- *   - `ImplementSidebar` receives `focusedTaskId` and highlights that row; it does not capture
- *     any keyboard input.
+ * Passive-minimap keyboard model: `TasksPanelHost` is the single input owner and reports its
+ * focused card via `onFocusedCardChange`; the sidebar only highlights that row (no sidebar
+ * focus, no Tab toggle, one cursor).
  */
 
-import React, { useCallback, useState } from 'react';
+import React, { useState } from 'react';
 import { Box } from 'ink';
 import { spacing } from '@src/application/ui/tui/theme/tokens.ts';
-import { ExecuteLayout } from '@src/application/ui/tui/views/execute-view-internals/layout.tsx';
 import { ImplementSidebar } from '@src/application/ui/tui/views/execute-view-internals/implement-sidebar.tsx';
 import { FlowStepsRail } from '@src/application/ui/tui/views/execute-view-internals/rail.tsx';
 import { SectionHeader } from '@src/application/ui/tui/views/execute-view-internals/section.tsx';
 import { TasksPanelHost } from '@src/application/ui/tui/views/execute-view-internals/tasks-panel-host.tsx';
-import type { ResponsiveLayout } from '@src/application/ui/tui/views/execute-view-internals/use-responsive-layout.ts';
+import type { ResponsiveLayout } from '@src/application/ui/tui/views/execute-view-internals/responsive-layout.ts';
 import type { SessionDescriptor } from '@src/application/ui/tui/runtime/session-manager.ts';
 import type { FlowProgress } from '@src/application/ui/tui/runtime/flow-progress.ts';
 import type { BucketedExecution } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
@@ -45,71 +26,25 @@ import type { SprintExecution } from '@src/domain/entity/sprint-execution.ts';
 import type { Task } from '@src/domain/entity/task.ts';
 import type { TokenUsage } from '@src/application/ui/tui/runtime/use-token-usage.ts';
 
-// ---------------------------------------------------------------------------
-// Props
-// ---------------------------------------------------------------------------
-
 export interface ImplementLayoutProps {
-  // ── Passed straight through to ExecuteLayout (narrow fallback) ───────────
   readonly descriptor: SessionDescriptor;
   /** Flow-progress projection — undefined for a session without a plan tree. */
   readonly progress?: FlowProgress | undefined;
   readonly isRunning: boolean;
-  readonly sessionId: string;
   readonly termColumns: number;
-  readonly termRows: number;
-  /**
-   * Pre-built TasksPanel node used by the narrow (<140 col) ExecuteLayout fallback only.
-   * The wide sidebar path builds its own TasksPanelHost and ignores
-   * this prop — it is built unconditionally in execute-view.tsx because the layout decision is
-   * made after the hook call. A comment in execute-view.tsx documents the narrow-only usage.
-   */
-  readonly tasksPanel: React.ReactNode;
   readonly executionState: SprintExecution | undefined;
   readonly taskState: readonly Task[] | undefined;
   readonly now: number;
   readonly tokenUsage: TokenUsage | undefined;
-  readonly pinnedSprintStale: boolean;
-
-  // ── Sidebar-only ─────────────────────────────────────────────────────────
-  /** Full responsive-layout record — drives the sidebarLayout switch + sidebar sizing. */
   readonly layout: ResponsiveLayout;
-  /** Bucketed task execution state — drives the sidebar task-nav list + TasksPanelHost. */
   readonly bucketed: BucketedExecution | undefined;
-  /**
-   * When true, keyboard input is active for this compositor and its children.
-   * Gating prevents double-consumption when a cancel-scope overlay or other overlay is open.
-   */
+  /** False while an overlay or cancel picker is open — stops the Tasks panel consuming keys. */
   readonly inputActive: boolean;
-  /**
-   * Optional `v` handler — opens the evaluation overlay for a card with a recorded verdict.
-   * Needed by the WIDE branch only: the narrow branch inherits it from the pre-built `tasksPanel`
-   * node, but the wide branch builds its own `TasksPanelHost` and would otherwise leave `v` a
-   * silent no-op while the footer still advertises the chord.
-   */
+  /** `v` handler: opens the evaluation overlay for a card with a recorded verdict. */
   readonly onOpenEvaluation?: (taskId: string) => void;
 }
 
-// ---------------------------------------------------------------------------
-// Wide compositor (sidebarLayout === true, ≥140 cols)
-// ---------------------------------------------------------------------------
-
-interface WideLayoutProps {
-  readonly descriptor: SessionDescriptor;
-  readonly progress: FlowProgress | undefined;
-  readonly isRunning: boolean;
-  readonly termColumns: number;
-  readonly layout: ResponsiveLayout;
-  readonly bucketed: BucketedExecution | undefined;
-  readonly executionState: SprintExecution | undefined;
-  readonly taskState: readonly Task[] | undefined;
-  readonly now: number;
-  readonly tokenUsage?: TokenUsage;
-  readonly inputActive: boolean;
-  readonly onOpenEvaluation?: (taskId: string) => void;
-}
-
-const WideLayout = ({
+export const ImplementLayout = ({
   descriptor,
   progress,
   isRunning,
@@ -122,13 +57,8 @@ const WideLayout = ({
   tokenUsage,
   inputActive,
   onOpenEvaluation,
-}: WideLayoutProps): React.JSX.Element => {
-  // focusedTaskId is the id reported by the main-area panel on every card-cursor change.
-  // The sidebar renders this as a passive highlight — no sidebar input capture.
+}: ImplementLayoutProps): React.JSX.Element => {
   const [focusedTaskId, setFocusedTaskId] = useState<string | undefined>(undefined);
-  const onFocusedCardChange = useCallback((taskId: string | undefined) => {
-    setFocusedTaskId(taskId);
-  }, []);
 
   return (
     <Box flexDirection="column" width={termColumns}>
@@ -177,87 +107,12 @@ const WideLayout = ({
               inputActive={inputActive}
               now={now}
               taskState={taskState}
-              onFocusedCardChange={onFocusedCardChange}
+              onFocusedCardChange={setFocusedTaskId}
               {...(onOpenEvaluation !== undefined ? { onOpenEvaluation } : {})}
             />
           )}
         </Box>
       </Box>
     </Box>
-  );
-};
-
-// ---------------------------------------------------------------------------
-// Public compositor
-// ---------------------------------------------------------------------------
-
-/**
- * Compositor that selects the correct layout regime for the Implement view.
- *
- * At ≥140 cols (`layout.sidebarLayout === true`) it renders [sidebar | main-area]. The
- * HeaderCard + BaselineHealthChip are rendered by `body.tsx` above this compositor at all widths.
- * Below 140 cols it falls back to `ExecuteLayout` unchanged.
- */
-export const ImplementLayout = ({
-  descriptor,
-  progress,
-  isRunning,
-  sessionId,
-  termColumns,
-  // termRows is accepted for interface parity with body.tsx but is not consumed here — the
-  // sidebar height is managed via layout.sidebarTaskNavRows / layout.sidebarFlowStepsRows.
-  tasksPanel,
-  executionState,
-  taskState,
-  now,
-  tokenUsage,
-  pinnedSprintStale,
-  layout,
-  bucketed,
-  inputActive,
-  onOpenEvaluation,
-}: ImplementLayoutProps): React.JSX.Element => {
-  if (layout.sidebarLayout) {
-    return (
-      <WideLayout
-        descriptor={descriptor}
-        progress={progress}
-        isRunning={isRunning}
-        termColumns={termColumns}
-        layout={layout}
-        bucketed={bucketed}
-        executionState={executionState}
-        taskState={taskState}
-        now={now}
-        inputActive={inputActive}
-        {...(tokenUsage !== undefined ? { tokenUsage } : {})}
-        {...(onOpenEvaluation !== undefined ? { onOpenEvaluation } : {})}
-      />
-    );
-  }
-
-  // Narrow fallback — preserve existing behaviour exactly.
-  // `tasksPanel` is the narrow-only pre-built node; the wide path builds its own inside
-  // TasksPanelHost and never touches this prop.
-  return (
-    <ExecuteLayout
-      progress={progress}
-      isRunning={isRunning}
-      sessionId={sessionId}
-      termColumns={termColumns}
-      flowStepsRows={layout.flowStepsRows}
-      threeColRailWidth={layout.threeColRailWidth}
-      labelledRailWidth={layout.labelledRailWidth}
-      contextWidth={layout.contextWidth}
-      threeColumn={layout.threeColumn}
-      twoColumn={layout.twoColumn}
-      compactTwoColumn={layout.compactTwoColumn}
-      tasksPanel={tasksPanel}
-      executionState={executionState}
-      taskState={taskState}
-      now={now}
-      tokenUsage={tokenUsage}
-      pinnedSprintStale={pinnedSprintStale}
-    />
   );
 };

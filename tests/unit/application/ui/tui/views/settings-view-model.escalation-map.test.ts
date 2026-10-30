@@ -9,9 +9,8 @@
 
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_SETTINGS } from '@src/business/settings/defaults.ts';
-import type { Settings } from '@src/domain/entity/settings.ts';
+import { AI_PROVIDERS, type Settings } from '@src/domain/entity/settings.ts';
 import {
-  AI_PROVIDERS,
   buildSections,
   effectiveEscalationChains,
   escalationModelOptions,

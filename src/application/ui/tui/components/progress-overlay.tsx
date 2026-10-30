@@ -16,10 +16,7 @@
  * so the operator can see *why* (missing vs permission denied vs read failure).
  */
 
-import { promises as fs } from 'node:fs';
-import { join } from 'node:path';
 import React, { useEffect, useMemo, useState } from 'react';
-import { resolveSprintDir } from '@src/integration/persistence/storage.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import { Box, Text } from 'ink';
@@ -27,9 +24,10 @@ import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens
 import { Spinner } from '@src/application/ui/tui/components/spinner.tsx';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
 import { useStorage } from '@src/application/ui/tui/runtime/storage-context.tsx';
-import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
+import { useFocusedRun } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { useTerminalSize } from '@src/application/ui/tui/runtime/use-terminal-size.ts';
 import { fmtDuration } from '@src/application/ui/tui/theme/duration.ts';
+import { readSprintArtifact } from '@src/application/ui/tui/components/overlay-internals/read-sprint-artifact.ts';
 import {
   overlayBodyRows,
   useDocumentScroll,
@@ -65,52 +63,22 @@ const formatAgo = (modifiedAtMs: number, now: number): string => {
   return `${fmtDuration(elapsed)} ago`;
 };
 
-/**
- * Loads `<sprintDir>/progress.md` on mount / whenever `sprintId` or `dataRoot` change. The sprint
- * dir is resolved via the tolerant id-prefix resolver so both the new `<id>--<slug>/` and legacy
- * bare `<id>/` names are found — building the bare path here would split-brain against a
- * slug-renamed dir. We don't tail the file; a re-open (close + `g` again) gets the latest snapshot.
- */
+/** Loads `<sprintDir>/progress.md` when `sprintId` or `dataRoot` change. No tailing: re-opening (`g` again) gets a fresh snapshot. */
 const useProgressFile = (sprintId: SprintId | undefined, dataRoot: AbsolutePath): ProgressState => {
   const [state, setState] = useState<ProgressState>({ kind: 'loading' });
 
   useEffect(() => {
-    let cancelled = false;
     if (sprintId === undefined) {
       setState({ kind: 'missing' });
       return undefined;
     }
-    const load = async (): Promise<void> => {
-      try {
-        const dir = await resolveSprintDir(dataRoot, sprintId);
-        if (cancelled) return;
-        if (dir === undefined) {
-          setState({ kind: 'missing' });
-          return;
-        }
-        const progressPath = join(dir, 'progress.md');
-        const [stat, content] = await Promise.all([fs.stat(progressPath), fs.readFile(progressPath, 'utf8')]);
-        if (cancelled) return;
-        const modifiedAtMs = stat.mtimeMs;
-        if (content.trim().length === 0) {
-          setState({ kind: 'empty', modifiedAtMs });
-          return;
-        }
-        // Strip a trailing newline so the last visible row isn't blank; preserve interior empties.
-        const lines = content.replace(/\n+$/, '').split('\n');
-        setState({ kind: 'ok', lines, modifiedAtMs });
-      } catch (cause) {
-        if (cancelled) return;
-        const code = (cause as { code?: string } | undefined)?.code;
-        if (code === 'ENOENT') {
-          setState({ kind: 'missing' });
-          return;
-        }
-        const message = cause instanceof Error ? cause.message : String(cause);
-        setState({ kind: 'failed', message });
-      }
-    };
-    void load();
+    let cancelled = false;
+    void readSprintArtifact(dataRoot, sprintId, 'progress.md').then((artifact) => {
+      if (cancelled) return;
+      setState(
+        artifact.kind === 'ok' ? { kind: 'ok', lines: artifact.lines, modifiedAtMs: artifact.modifiedAtMs } : artifact
+      );
+    });
     return () => {
       cancelled = true;
     };
@@ -198,7 +166,7 @@ const ProgressBody = ({
 
 export const ProgressOverlay = (): React.JSX.Element => {
   const selection = useSelection();
-  const ui = useUiState();
+  const focusedRun = useFocusedRun();
   const storage = useStorage();
   const term = useTerminalSize();
   // Frozen "now" at mount so the "(Xs ago)" header doesn't tick mid-view; pressing `g` again
@@ -207,7 +175,7 @@ export const ProgressOverlay = (): React.JSX.Element => {
 
   // When an Execute view is focused, prefer its pinned sprint so `g` opens the run's own
   // progress file rather than whatever the global selection happens to be.
-  const sprintId = ui.focusedRunSprintId ?? selection.sprintId;
+  const sprintId = focusedRun.focusedRunSprintId ?? selection.sprintId;
 
   const state = useProgressFile(sprintId, storage.dataRoot);
 
@@ -224,7 +192,9 @@ export const ProgressOverlay = (): React.JSX.Element => {
   const visibleLines = lines.slice(offset, offset + bodyRows);
 
   const sprintLabel =
-    ui.focusedRunSprintLabel ?? selection.sprintLabel ?? (sprintId !== undefined ? String(sprintId) : '(no sprint)');
+    focusedRun.focusedRunSprintLabel ??
+    selection.sprintLabel ??
+    (sprintId !== undefined ? String(sprintId) : '(no sprint)');
   const modifiedAgo = state.kind === 'ok' || state.kind === 'empty' ? formatAgo(state.modifiedAtMs, now) : undefined;
 
   return (

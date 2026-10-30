@@ -14,7 +14,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { useSuppressGlobalHints } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
 import { useTerminalSize } from '@src/application/ui/tui/runtime/use-terminal-size.ts';
-import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
+import { useOverlayState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 
 /**
  * Rows of chrome reserved around the scrollable description body when the header is the compact
@@ -53,7 +53,7 @@ interface ReviewScrollableDescriptionProps {
 
 export const ReviewScrollableDescription = ({ text }: ReviewScrollableDescriptionProps): React.JSX.Element => {
   const term = useTerminalSize();
-  const ui = useUiState();
+  const ui = useOverlayState();
   const lines = useMemo<readonly string[]>(() => text.split('\n'), [text]);
   // Mirror ViewShell → Banner: the user `b`-toggle forces the compact strip; otherwise the
   // banner auto-switches on width. Reserve the chrome that matches whichever header is actually

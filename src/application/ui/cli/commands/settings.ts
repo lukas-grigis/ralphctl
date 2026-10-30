@@ -7,7 +7,7 @@ import { createSettingsSetProviderFlow } from '@src/application/flows/settings-s
 import { createSettingsApplyPresetFlow } from '@src/application/flows/settings-apply-preset/flow.ts';
 import { presetAdaptationLines } from '@src/application/ui/shared/preset-notices.ts';
 import { bootstrapApp } from '@src/application/bootstrap/bootstrap-app.ts';
-import { fail } from '@src/application/ui/cli/report-cli-error.ts';
+import { fail, okOrFail } from '@src/application/ui/cli/report-cli-error.ts';
 import type { AiImplementRole } from '@src/domain/entity/settings.ts';
 import { AI_PROVIDERS, isAiProvider } from '@src/domain/entity/settings.ts';
 import { PROVIDER_BINARY } from '@src/integration/system/detect-cli.ts';
@@ -82,10 +82,7 @@ const setSettingsAction = async (key: string, value: string): Promise<void> => {
     return;
   }
   const next = applySettingsKey(current.value.ctx.output!, key, value);
-  if (!next.ok) {
-    fail(next.error.message);
-    return;
-  }
+  if (!okOrFail(next)) return;
   const setFlow = createSettingsSetFlow({ settingsRepo: deps.settingsRepo });
   const saved = await setFlow.execute({ input: { next: next.value } });
   if (!saved.ok) {

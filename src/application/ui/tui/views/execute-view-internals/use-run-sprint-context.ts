@@ -18,7 +18,6 @@ import { useSettledNextSteps } from '@src/application/ui/tui/views/execute-view-
 import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import type { NextSteps } from '@src/application/ui/shared/next-steps.ts';
 import type { SessionDescriptor } from '@src/application/ui/tui/runtime/session-manager.ts';
-import type { FocusedRunCtx } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import type { SprintExecution } from '@src/domain/entity/sprint-execution.ts';
 import type { Task } from '@src/domain/entity/task.ts';
 import type { ProjectId } from '@src/domain/value/id/project-id.ts';
@@ -28,7 +27,6 @@ export interface UseRunSprintContextInput {
   readonly descriptor: SessionDescriptor | undefined;
   readonly pinnedSprintId: SprintId | undefined;
   readonly deps: AppDeps;
-  readonly setFocusedRunContext: (ctx: FocusedRunCtx | undefined) => void;
   readonly selectionSprintId: SprintId | undefined;
   readonly followFocusedRun: (
     projectId: ProjectId,
@@ -50,7 +48,6 @@ export const useRunSprintContext = ({
   descriptor,
   pinnedSprintId,
   deps,
-  setFocusedRunContext,
   selectionSprintId,
   followFocusedRun,
 }: UseRunSprintContextInput): RunSprintContext => {
@@ -60,7 +57,6 @@ export const useRunSprintContext = ({
     pinnedSprintId,
     pinnedSprintLabel: descriptor?.pinnedSprintLabel,
     sprintRepo: deps.sprintRepo,
-    setFocusedRunContext,
     selectionSprintId,
     followFocusedRun,
   });

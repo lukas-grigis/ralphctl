@@ -15,7 +15,7 @@ import { MultiSelectPrompt } from '@src/application/ui/tui/prompts/multi-select-
 import { flowIdToTitle } from '@src/application/ui/shared/flow-title.ts';
 import { useOptionalRouter } from '@src/application/ui/tui/runtime/router.tsx';
 import { useOptionalSessionManager } from '@src/application/ui/tui/runtime/sessions-context.tsx';
-import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
+import { useOverlayState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 
 export interface PromptHostProps {
   readonly queue: PromptQueue;
@@ -39,7 +39,7 @@ const usePromptOrigin = (head: PendingPrompt | undefined): string | undefined =>
 
 export const PromptHost = ({ queue }: PromptHostProps): React.JSX.Element | null => {
   const [head, setHead] = useState<PendingPrompt | undefined>(() => queue.head);
-  const ui = useUiState();
+  const ui = useOverlayState();
   const origin = usePromptOrigin(head);
 
   useEffect(() => {

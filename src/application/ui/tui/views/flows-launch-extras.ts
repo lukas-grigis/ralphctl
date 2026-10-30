@@ -22,7 +22,7 @@ import {
 import { skillsForFlow } from '@src/integration/ai/skills/_engine/registry.ts';
 import type { AppStateSnapshot } from '@src/application/ui/shared/state-snapshot.ts';
 import { getImplementRoleOverrides } from '@src/application/ui/tui/runtime/implement-role-overrides.ts';
-import type { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
+import type { SessionScratchApi } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import type { CustomizePickerResult } from '@src/application/ui/tui/views/flows-customize-picker.ts';
 import type { AiProvider, AiSkillsSettings, Settings } from '@src/domain/entity/settings.ts';
 import type { FlowId } from '@src/domain/value/flow-id.ts';
@@ -69,7 +69,7 @@ export const buildLaunchExtras = (
   picker: CustomizePickerResult,
   entry: FlowEntry,
   chosenRepositoryId: RepositoryId | undefined,
-  ui: ReturnType<typeof useUiState>,
+  ui: SessionScratchApi,
   settings: Settings
 ): LaunchExtras => {
   const implementRoleOverrides =

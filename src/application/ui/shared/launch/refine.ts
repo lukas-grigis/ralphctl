@@ -1,7 +1,7 @@
 import { join } from 'node:path';
 import { ensureCanonicalSprintDir } from '@src/integration/persistence/sprint/repository.ts';
 import type { Element } from '@src/application/chain/element.ts';
-import { createRunner, type Runner } from '@src/application/chain/run/runner.ts';
+import { createRunner } from '@src/application/chain/run/runner.ts';
 import { createRefineFlow } from '@src/application/flows/refine/flow.ts';
 import type { RefineCtx } from '@src/application/flows/refine/ctx.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
@@ -134,5 +134,5 @@ export const launchRefine = async (ctx: LaunchContext): Promise<LaunchResult> =>
     element,
     initialCtx: { sprintId: snapshot.sprint.id },
   });
-  return { ok: true, runner: bridge(runner) as Runner<unknown>, title: `Refine — ${snapshot.sprint.name}` };
+  return { ok: true, runner: bridge(runner), title: `Refine — ${snapshot.sprint.name}` };
 };

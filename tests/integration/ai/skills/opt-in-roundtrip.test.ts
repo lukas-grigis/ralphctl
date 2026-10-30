@@ -30,7 +30,7 @@ import type { Project } from '@src/domain/entity/project.ts';
 import type { ProjectId } from '@src/domain/value/id/project-id.ts';
 import type { Settings } from '@src/domain/entity/settings.ts';
 import { DEFAULT_SETTINGS } from '@src/business/settings/defaults.ts';
-import { passthroughRunInTerminal } from '@src/application/ui/shared/run-in-terminal.ts';
+import { passthroughRunInTerminal } from '@src/integration/io/run-in-terminal.ts';
 import { buildComposedSkillSource } from '@src/application/ui/shared/launcher.ts';
 import type { LauncherDeps } from '@src/application/ui/shared/launcher.ts';
 import type { AppStateSnapshot } from '@src/application/ui/shared/state-snapshot.ts';

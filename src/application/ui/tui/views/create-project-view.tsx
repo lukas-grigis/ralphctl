@@ -31,7 +31,7 @@ import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { expandHome } from '@src/application/ui/tui/runtime/expand-home.ts';
 import { useRouter } from '@src/application/ui/tui/runtime/router.tsx';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
-import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
+import { useOverlayState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { createProjectUseCase } from '@src/business/project/create-project.ts';
 import type { Project } from '@src/domain/entity/project.ts';
@@ -195,7 +195,7 @@ export const CreateProjectView = (): React.JSX.Element => {
   const deps = useDeps();
   const router = useRouter();
   const selection = useSelection();
-  const ui = useUiState();
+  const ui = useOverlayState();
   const [step, setStep] = useState<Step>({ kind: 'name' });
 
   // The wizard owns input focus end-to-end; suspend global keybindings so `n`/`s`/etc don't

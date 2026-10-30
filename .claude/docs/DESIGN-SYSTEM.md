@@ -122,19 +122,16 @@ All terminal-width decisions use the named breakpoints exported from `src/applic
 | ----- | ---------------- | -------------------------------------------- |
 | `sm`  | ≥ 80             | Single-column stack; minimum supported width |
 | `md`  | ≥ 100            | Narrow multi-column; Execute compact mode    |
-| `lg`  | ≥ 140            | Two-column viable (rail + main)              |
-| `xl`  | ≥ 180            | Three-column viable (rail + main + context)  |
-| `xxl` | ≥ 220            | Extra room; rails and context can grow       |
+| `lg`  | ≥ 140            | Execute sidebar layout (sidebar + main)      |
+| `xl`  | ≥ 180            | Sidebar context cards sit side by side       |
+| `xxl` | ≥ 220            | Extra room                                   |
 
 **Helper functions** (all exported from `tokens.ts`):
 
 - `breakpointFor(columns): Breakpoint` — returns the largest satisfied breakpoint key.
-- `fluid(columns, { min, max, ratio }): number` — clamps `floor(columns × ratio)` to `[min, max]`.
-  Use for numeric widths that should grow proportionally but never overwhelm or vanish.
 - `responsive<T>(columns, { sm, md?, lg?, xl?, xxl? }): T` — picks the value for the active breakpoint,
   falling through to the next smaller specified value. `sm` is required as the floor.
-- `listCapacity(rows, { rowHeight?, chromeRows?, min, max? }): number` — the row-count counterpart to
-  `fluid`, for windowed lists. Computes `floor(max(0, rows - chromeRows) / rowHeight)`, floored at `min`
+- `listCapacity(rows, { rowHeight?, chromeRows?, min, max? }): number` — for windowed lists. Computes `floor(max(0, rows - chromeRows) / rowHeight)`, floored at `min`
   and (if supplied) capped at `max`. `chromeRows` defaults to `LIST_CHROME_ROWS` (12 — the `ViewShell`
   header + `StatusBanner` + `PromptHost` + footer stack every view pays); pass an explicit `chromeRows`
   when a view's own chrome (section stamp, summary line, footer hint, …) adds more. `rowHeight` defaults
@@ -146,17 +143,10 @@ All terminal-width decisions use the named breakpoints exported from `src/applic
 `SIGWINCH`, so layouts react cleanly on terminal resize. Import from
 `src/application/ui/tui/runtime/use-breakpoint.ts`.
 
-**First concrete consumer — Execute-view rail width:**
-
-```
-resolveRailWidth(columns):
-  < xl  (< 180)  →  RAIL_WIDTH = 28       (fixed; lg uses two-column, no context column)
-  ≥ xl  (≥ 180)  →  fluid(cols, { min: 36, max: 56, ratio: 0.22 })
-```
-
-At `md` (100–139) the Execute view has no rail column: Tasks takes the full width and the header's main-step strip names the steps.
-`tokens.ts` also exports `CONTEXT_WIDTH` for the right context column — touch those via
-`resolveRailWidth` and the breakpoint helpers, not via new magic numbers.
+**Execute view widths** (`views/execute-view-internals/responsive-layout.ts`): ≥140 cols (`lg`) the sidebar
+layout (`ImplementLayout`) owns the region below the header; at `md` (100–139) Tasks takes the full width and the
+header's main-step strip names the steps; below `md` a single-column stack. `tokens.ts` exports `CONTEXT_WIDTH`
+for the context cards — use it and the breakpoint helpers, not new magic numbers.
 
 ## 3. Layout anatomy
 

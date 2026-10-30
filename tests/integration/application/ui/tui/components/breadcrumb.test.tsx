@@ -23,7 +23,11 @@ import type { SprintStatus } from '@src/domain/entity/sprint.ts';
 import { Breadcrumb } from '@src/application/ui/tui/components/breadcrumb.tsx';
 import { RouterProvider } from '@src/application/ui/tui/runtime/router.tsx';
 import { SelectionProvider, useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
-import { UiStateProvider, useUiState, type FocusedRunCtx } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
+import {
+  UiStateProvider,
+  useFocusedRun,
+  type FocusedRunCtx,
+} from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { waitForPredicate } from '@tests/integration/application/ui/tui/_wait.ts';
 
 // Hoisted size control — vi.hoisted so the variable exists when the mock factory is hoisted.
@@ -64,7 +68,7 @@ const Seed = ({
   focusedRun,
 }: SeedOptions): React.JSX.Element => {
   const selection = useSelection();
-  const ui = useUiState();
+  const ui = useFocusedRun();
   const setProjectRef = React.useRef(selection.setProject);
   setProjectRef.current = selection.setProject;
   const setSprintRef = React.useRef(selection.setSprint);

@@ -20,7 +20,7 @@ import { PathPickerPrompt } from '@src/application/ui/tui/prompts/path-picker-pr
 import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { expandHome } from '@src/application/ui/tui/runtime/expand-home.ts';
 import { useRouter, useViewProps } from '@src/application/ui/tui/runtime/router.tsx';
-import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
+import { useOverlayState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { addRepository } from '@src/domain/entity/project.ts';
 import { createRepository } from '@src/domain/entity/repository.ts';
@@ -55,7 +55,7 @@ const backStep = (step: Step): Step | undefined => {
 export const AddRepositoryView = (): React.JSX.Element => {
   const deps = useDeps();
   const router = useRouter();
-  const ui = useUiState();
+  const ui = useOverlayState();
   const { projectId } = useViewProps<AddRepoProps>();
   const [step, setStep] = useState<Step>({ kind: 'path' });
 
