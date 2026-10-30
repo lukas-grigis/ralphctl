@@ -283,7 +283,8 @@ describe.each(ROWS)('HeadlessAiProvider conformance — $provider', (row) => {
     const call = fake.calls[0]!;
     const inArgv = call.args.join(' ').includes(EFFORT);
     expect(inArgv).toBe(PROVIDER_TRAITS[row.provider].effortForwarding.headless);
-    // The overlay may only mirror the flag — see the interactive suite.
+    // The overlay may only mirror the flag (headless claude pins CLAUDE_CODE_EFFORT_LEVEL, which outranks it);
+    // effort routed through the environment alone is something the declaration does not describe.
     if (!inArgv) expect(Object.values(call.env ?? {}).join('\x00')).not.toContain(EFFORT);
   });
 

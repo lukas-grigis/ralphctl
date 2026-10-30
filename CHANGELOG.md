@@ -16,7 +16,8 @@ to [Semantic Versioning](https://semver.org/).
   and use cached web search; PR drafting has both turned off.
 - **Claude Code effort settings now always take effect.** A `CLAUDE_CODE_EFFORT_LEVEL` exported in your shell used
   to override every effort ralphctl picked — per-flow rows, presets and the escalation ladder — without any sign.
-  ralphctl now sets it to the same level it passes as `--effort`.
+  Headless sessions now set it to the same level they pass as `--effort`. Interactive sessions (refine, plan,
+  ideate) leave it alone, so `/effort` and the `/model` picker keep working there.
 - **The evaluator no longer sees the generator's vendor memory.** Claude Code auto memory, Codex memories and
   Grok memory carry notes from one session into the next, so notes from the generator could reach the evaluator
   grading it. Evaluator sessions and the best-of-N judge now run with that memory turned off; the generator keeps
