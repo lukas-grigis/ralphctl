@@ -243,7 +243,7 @@ logic. Every other attempt of the task, before and after the granted one, takes 
 escalation policy and the attempt budget before settling. `plateau` and `budget-exhausted` exits
 consult `decideEscalation` — escalate/nudge fail the running attempt so the outer loop re-enters on the
 stronger model (a model-rung `escalate` also carries the evaluator's own lockstep effort bump, when it
-has headroom); a plateau at the top of the ladder, already nudged, grants the opt-in `best-of-n` rung
+has headroom); a plateau at the top of the ladder, already nudged, grants the `best-of-n` rung (on by default)
 once per task when configured; topped-out and attempt-budget-exhausted keep the work (done-with-warning).
 `malformed`
 exits (evaluator failure) get a plain same-model fresh-attempt retry (no ladder rung) while budget

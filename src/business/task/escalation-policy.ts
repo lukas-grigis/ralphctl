@@ -44,7 +44,7 @@ interface EvaluatorEffortBump {
  *   - `escalate-effort`  — top of the model ladder: raise the generator's effort on the same model
  *                          ({@link nextEffortRung}); needs `generatorProvider`.
  *   - `nudge`            — no effort headroom: same model, change-of-approach directive (from === to).
- *   - `best-of-n`        — nudged and failed again; opt-in, once per task, samples `n` candidates.
+ *   - `best-of-n`        — nudged and failed again; on by default (`0` turns it off), once per task, samples `n` candidates.
  *   - `topped-out`       — nothing left; keep the work (done-with-warning).
  *   - `flag-off`         — operator opted out; keep the work.
  *   - `budget-exhausted` — no attempt left to retry; keep the work, naming the budget.

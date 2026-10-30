@@ -27,7 +27,7 @@ import { persistBestOfNGrantConsumedLeaf } from '@src/application/flows/implemen
 import { bestOfNSelectionLeaf } from '@src/application/flows/implement/leaves/best-of-n-selection.ts';
 
 /**
- * Best-of-N execution — the escalation policy's opt-in top-of-ladder remedy (see
+ * Best-of-N execution — the escalation policy's top-of-ladder remedy (on by default) (see
  * `business/task/escalation-policy.ts`'s `'best-of-n'` decision). When a task's granted attempt
  * runs, this composite REPLACES round 1's normal generator phase with a candidate-sampling loop
  * (arXiv 2604.16529, RTV: harness-level N-candidate selection) + a selection cascade (adapted from

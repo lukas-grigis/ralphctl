@@ -47,7 +47,7 @@ export type AttemptReadConfig = FinalizeGenEvalProps['readConfig'];
  * Both the serial launcher (`flow.ts`) and the parallel launcher (`ui/shared/launch/implement.ts`)
  * call this rather than each re-listing the same five fields: a field added to
  * `AttemptReadConfig`'s return shape (like `bestOfNCandidates`) used to require updating BOTH
- * call sites by hand, and the parallel one was missed for a full wave — the opt-in best-of-N
+ * call sites by hand, and the parallel one was missed for a full wave — the best-of-N
  * remedy silently never fired on a parallel-launched sprint. One shared builder makes that class
  * of drift impossible: a new field is threaded here once and both launchers pick it up for free.
  */
