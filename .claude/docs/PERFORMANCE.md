@@ -186,7 +186,7 @@ nudge — when the provider/model has no effort knob (e.g. Claude Haiku) or the 
 ceiling. `opencode` is excluded from both rungs by design (no `FIXED_EFFORT_RUNG` entry in
 `escalation-map.ts`) — it aggregates upstream providers, so there is no `--variant` level this ladder
 could stamp that is known valid for the row's model; an OpenCode generator on a plateau falls straight to
-the change-of-approach nudge. Grok is included in that set (`xai-grok`); its model ladder is
+the change-of-approach nudge. Grok (`xai-grok`) does have an entry; its model ladder is
 `grok-4.5` → `grok-4.6` → `grok-4.7`. The EVALUATOR gets the same effort rung in lockstep, computed independently: whenever the
 generator's `escalate-effort` fires, `decideEscalation` also calls `nextEffortRung` against the
 evaluator's OWN provider/model/effort triple (never copied from the generator's target) and, when it
