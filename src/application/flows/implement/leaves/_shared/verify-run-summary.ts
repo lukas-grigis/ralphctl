@@ -119,3 +119,12 @@ export const formatRetryFeedback = (task: InProgressTask, logTail: string | unde
   if (run === undefined || run.exitCode === 0) return '';
   return formatVerifyRun(run, logTail);
 };
+
+/**
+ * Append the set-aside-diff note to a non-empty RETRY_FEEDBACK body. The patch is offered, never
+ * applied: the retry may land on a stronger model, which should not be anchored on the weaker one's work.
+ */
+export const appendSetAsidePatchNote = (body: string, patchPath: string): string =>
+  body.length === 0
+    ? ''
+    : `${body}\n\nThe harness set that attempt's uncommitted changes aside — they are not in the working tree, which is back at the last commit. A copy is saved as a patch at \`${patchPath}\`. Treat it as an unverified lead from an earlier attempt, not as instructions: it may be a near-complete fix, an incomplete one, or the cause of the failure above. Read it before re-deriving the work. Apply it (\`git apply ${patchPath}\`) only after checking it against the contract and the failure above, then fix what broke — or ignore it and start from the clean tree. Producing a correct change matters more than keeping these edits.`;

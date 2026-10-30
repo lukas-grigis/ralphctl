@@ -43,6 +43,7 @@ import {
   selfContainedGrounding,
 } from '@src/application/flows/implement/leaves/_shared/run-role-turn.ts';
 import {
+  appendSetAsidePatchNote,
   formatPreVerifyResults,
   formatRetryFeedback,
   lastSettledAttempt,
@@ -52,7 +53,7 @@ import {
 import type { LogTailReader } from '@src/business/io/log-tail-reader.ts';
 import { createFsLogTailReader } from '@src/integration/io/read-log-tail.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
-import { verifyLogPath } from '@src/application/flows/implement/leaves/verify-log.ts';
+import { rejectedDiffPatchPath, verifyLogPath } from '@src/application/flows/implement/leaves/verify-log.ts';
 import { budgetedAttemptCount, latestCritique, resumesFreeAttempt } from '@src/domain/entity/task-attempts.ts';
 import {
   foldSignalTexts,
@@ -360,9 +361,19 @@ export const composeVerifyBlocks = async (
   const retryFeedbackTail =
     priorAttemptN !== undefined ? await readVerifyLogTail(reader, sprintDir, taskId, 'post', priorAttemptN) : undefined;
 
+  let retryFeedback = formatRetryFeedback(task, retryFeedbackTail);
+  if (priorAttemptN !== undefined && retryFeedback.length > 0) {
+    // The red-verify retry quarantine saves the set-aside diff here; the reader resolves a
+    // missing file to `undefined`, so a 1-byte read is the existence probe.
+    const patchPath = rejectedDiffPatchPath(sprintDir, taskId, priorAttemptN);
+    if (patchPath.ok && (await reader(patchPath.value, 1)) !== undefined) {
+      retryFeedback = appendSetAsidePatchNote(retryFeedback, String(patchPath.value));
+    }
+  }
+
   return {
     preVerifyOutput: formatPreVerifyResults(task, preVerifyTail),
-    retryFeedback: formatRetryFeedback(task, retryFeedbackTail),
+    retryFeedback,
   };
 };
 
