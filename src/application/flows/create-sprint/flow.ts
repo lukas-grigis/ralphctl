@@ -10,23 +10,9 @@ import { interactiveSprintNameLeaf } from '@src/application/flows/create-sprint/
 import { initProgressJournalLeaf } from '@src/application/flows/create-sprint/leaves/init-progress-journal.ts';
 
 /**
- * Build the create-sprint chain.
- *
- * Shape:
- *
- *   sequential('create-sprint', [
- *     load-project,
- *     interactive-sprint-name,
- *     create-sprint,
- *     save-sprint,
- *     save-sprint-execution,
- *   ])
- *
- * No retries: every step here is fast, deterministic, and either user-driven or pure. The two
- * persistence steps run sequentially — sprint first, then execution — so a crash between them
- * leaves a sprint without its paired execution. That's the same trade-off other chains make:
- * the next launch can rerun create-sprint and overwrite cleanly because nothing else holds
- * references yet.
+ * Create a draft sprint. Sprint then execution are saved in sequence, so a crash between them
+ * leaves a sprint without its execution; re-running overwrites cleanly since nothing references
+ * it yet.
  */
 export const createCreateSprintFlow = (deps: CreateSprintDeps): Element<CreateSprintCtx> =>
   sequential<CreateSprintCtx>('create-sprint', [

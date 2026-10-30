@@ -34,7 +34,7 @@ interface DistillWriteInput {
  *  - the new content is written via the {@link WriteFile} port — atomic in production
  *    (write-temp + rename), in-memory in tests.
  *
- * One real file is written per distinct provider (§10) — never a symlink or pointer scheme.
+ * One real file is written per distinct provider — never a symlink or pointer scheme.
  *
  * The leaf returns `true` when it actually wrote (accepted + content present), `false` otherwise.
  * The sub-chain reads that back to know whether ANY provider's write landed — the terminal stamp

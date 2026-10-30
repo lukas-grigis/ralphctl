@@ -484,4 +484,42 @@ describe('runWaves — onBranchRunner hook', () => {
 
     expect(events).toEqual(['started', 'step:a', 'completed']);
   });
+
+  it('a throwing hook stops the pool: no later branch launches after the wave rejects', async () => {
+    const gauge = { count: 0, max: 0 };
+    const gateA = deferred();
+    const entered: string[] = [];
+    const tracked = (id: string, settle: Promise<void>): WaveBranch<Ctx> => {
+      const inner = fakeElement({ name: id, gauge, settle });
+      return {
+        id,
+        element: {
+          name: id,
+          execute: (ctx, signal, onTrace) => {
+            entered.push(id);
+            return inner.execute(ctx, signal, onTrace);
+          },
+        },
+      };
+    };
+    const branches = [tracked('a', gateA.promise), tracked('b', Promise.resolve()), tracked('c', Promise.resolve())];
+
+    await expect(
+      runWaves(
+        [branches],
+        BASE,
+        cfg({
+          maxConcurrency: 2,
+          onBranchRunner: (_runner, branch) => {
+            if (branch.id === 'b') throw new Error('hook boom');
+          },
+        })
+      )
+    ).rejects.toThrow('hook boom');
+
+    // Let `a` settle after the wave already rejected; its worker must not pick up `c`.
+    gateA.resolve();
+    await new Promise((r) => setTimeout(r, 10));
+    expect(entered).toEqual(['a']);
+  });
 });

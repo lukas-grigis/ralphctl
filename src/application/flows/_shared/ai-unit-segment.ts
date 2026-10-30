@@ -122,7 +122,7 @@ export const aiUnitPrelude = <TCtx extends AiUnitCtx>(
       slug: opts.slug,
       write: (ctx, root) => {
         const promptPath = AbsolutePath.parse(join(String(root), 'prompt.md'));
-        // audit-[09]: the AI writes `signals.json` directly under the unit root; the flow's own
+        // The AI writes `signals.json` directly under the unit root; the flow's own
         // leaf validates that file via its output contract.
         const outputPath = AbsolutePath.parse(join(String(root), 'signals.json'));
         if (!promptPath.ok) throw promptPath.error;

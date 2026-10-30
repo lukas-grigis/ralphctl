@@ -15,15 +15,13 @@ import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
 import { ValidationError } from '@src/domain/value/error/validation-error.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
-import { absolutePath, isoTimestamp, makeProject, makeRepository } from '@tests/fixtures/domain.ts';
+import { isoTimestamp, makeProject, makeRepository } from '@tests/fixtures/domain.ts';
 import { createRunner } from '@src/application/chain/run/runner.ts';
 import { createAtomicWriteFile } from '@src/integration/io/write-file-atomic.ts';
 import { createFsTemplateLoader, defaultTemplatesDir } from '@src/integration/ai/prompts/_engine/fs-template-loader.ts';
 import { createFakeAiProvider } from '@tests/fixtures/fake-ai-provider.ts';
 import { createEventBusLogger } from '@src/business/observability/event-bus-logger.ts';
 import { createDetectSkillsFlow } from '@src/application/flows/detect-skills/flow.ts';
-import { readOnlySignalsSession } from '@src/application/flows/_shared/signals-session.ts';
-import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts';
 import { noopSkillsAdapter } from '@tests/fixtures/skills-fakes.ts';
 
 const DETECT_SKILLS_MARKER = 'author two short coding-agent skills';
@@ -161,7 +159,7 @@ describe('createDetectSkillsFlow', () => {
       runsRoot
     );
 
-    const flow = createDetectSkillsFlow(deps, { projectId: project.id, model: 'claude-sonnet-4-6' });
+    const flow = createDetectSkillsFlow(deps, { model: 'claude-sonnet-4-6' });
     const runner = createRunner({ id: 'r-skills-1', element: flow, initialCtx: { projectId: project.id } });
     await runner.start();
 
@@ -182,6 +180,11 @@ describe('createDetectSkillsFlow', () => {
     expect(saves).toHaveLength(1);
     const saved = saves[0]!.repositories[0]!;
     expect(saved.setupSkill).toBe(SETUP_BODY);
+    // The AI session runs read-only (no edits, no shell, no auto-approve) with the configured model.
+    const [session] = deps.provider.recordedSessions;
+    expect(session?.model).toBe('claude-sonnet-4-6');
+    expect(session?.cwd).toBe(repository.path);
+    expect(session?.permissions).toMatchObject({ canModifyRepoFiles: false, canRunShell: false, autoApprove: false });
     expect(saved.verifySkill).toBe(VERIFY_BODY);
 
     // Forensic artifact: rendered prompt persisted under `<runsRoot>/detect-skills/<run-id>/`.
@@ -200,7 +203,7 @@ describe('createDetectSkillsFlow', () => {
     const interactive = scriptedInteractive({ choices: ['reject'] });
     const { deps, saves } = buildDeps(project, { signals: [setupSkillProposal(SETUP_BODY)] }, interactive, runsRoot);
 
-    const flow = createDetectSkillsFlow(deps, { projectId: project.id, model: 'claude-sonnet-4-6' });
+    const flow = createDetectSkillsFlow(deps, { model: 'claude-sonnet-4-6' });
     const runner = createRunner({ id: 'r-skills-2', element: flow, initialCtx: { projectId: project.id } });
     await runner.start();
 
@@ -225,7 +228,7 @@ describe('createDetectSkillsFlow', () => {
       runsRoot
     );
 
-    const flow = createDetectSkillsFlow(deps, { projectId: project.id, model: 'claude-sonnet-4-6' });
+    const flow = createDetectSkillsFlow(deps, { model: 'claude-sonnet-4-6' });
     const runner = createRunner({ id: 'r-skills-3', element: flow, initialCtx: { projectId: project.id } });
     await runner.start();
 
@@ -250,7 +253,7 @@ describe('createDetectSkillsFlow', () => {
     };
     const { deps } = buildDeps(project, { rawBody: permissionAskBody }, recordingInteractive, runsRoot);
 
-    const flow = createDetectSkillsFlow(deps, { projectId: project.id, model: 'claude-sonnet-4-6' });
+    const flow = createDetectSkillsFlow(deps, { model: 'claude-sonnet-4-6' });
     const runner = createRunner({ id: 'r-skills-failsafe', element: flow, initialCtx: { projectId: project.id } });
     await runner.start();
 
@@ -268,7 +271,7 @@ describe('createDetectSkillsFlow', () => {
     const interactive = scriptedInteractive({ choices: ['approve'] });
     const { deps, saves } = buildDeps(project, { signals: [verifySkillProposal(VERIFY_BODY)] }, interactive, runsRoot);
 
-    const flow = createDetectSkillsFlow(deps, { projectId: project.id, model: 'claude-sonnet-4-6' });
+    const flow = createDetectSkillsFlow(deps, { model: 'claude-sonnet-4-6' });
     const runner = createRunner({ id: 'r-skills-4', element: flow, initialCtx: { projectId: project.id } });
     await runner.start();
 
@@ -286,11 +289,7 @@ describe('createDetectSkillsFlow', () => {
     const interactive = scriptedInteractive({ choices: ['approve'] });
     const { deps, saves } = buildDeps(project, { signals: [setupSkillProposal(SETUP_BODY)] }, interactive, runsRoot);
 
-    const flow = createDetectSkillsFlow(deps, {
-      projectId: project.id,
-      repositoryId: repository.id,
-      model: 'claude-sonnet-4-6',
-    });
+    const flow = createDetectSkillsFlow(deps, { model: 'claude-sonnet-4-6' });
     const runner = createRunner({
       id: 'r-skills-5',
       element: flow,
@@ -301,25 +300,5 @@ describe('createDetectSkillsFlow', () => {
     expect(runner.status).toBe('completed');
     expect(saves).toHaveLength(1);
     expect(saves[0]!.repositories[0]!.setupSkill).toBe(SETUP_BODY);
-  });
-
-  it('AiSession profile — runs read-only with the configured model', () => {
-    const repository = makeRepository();
-    const signalsFile = absolutePath('/tmp/runs/detect-skills/r1/signals.json');
-    const outputDir = absolutePath('/tmp/runs/detect-skills/r1');
-    const session = readOnlySignalsSession({
-      cwd: repository.path,
-      prompt: '#prompt' as unknown as Prompt,
-      model: 'claude-sonnet-4-6',
-      signalsFile,
-      outputDir,
-    });
-    expect(session.model).toBe('claude-sonnet-4-6');
-    expect(session.permissions.canModifyRepoFiles).toBe(false);
-    expect(session.permissions.canRunShell).toBe(false);
-    expect(session.permissions.canAccessNetwork).toBe(true);
-    expect(session.cwd).toBe(repository.path);
-    expect(session.signalsFile).toBe(signalsFile);
-    expect(session.outputDir).toBe(outputDir);
   });
 });

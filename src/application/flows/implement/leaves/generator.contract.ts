@@ -1,6 +1,5 @@
 import { z } from 'zod';
 import type {
-  AiSignal,
   ChangeSignal,
   CommitMessageSignal,
   DecisionSignal,
@@ -24,7 +23,7 @@ import type { AiOutputContract, SidecarRule } from '@src/integration/ai/contract
 import { wrapLegacySignalArray } from '@src/integration/ai/contract/_engine/legacy-array-migration.ts';
 
 /**
- * Per-leaf I/O contract for the gen-eval generator turn — audit-[09]. The generator may emit:
+ * Per-leaf I/O contract for the gen-eval generator turn. The generator may emit:
  *
  *   - narrative fan-out: `change`, `learning`, `note`, `decision`
  *   - task-lifecycle markers: `task-verified`, `task-complete`, `task-blocked`
@@ -144,7 +143,7 @@ const generatorExampleSignals: readonly GeneratorSignal[] = [
 ];
 
 /**
- * Generator contract — audit-[09]. Composed only from `contract/_engine/` building blocks.
+ * Generator contract. Composed only from `contract/_engine/` building blocks.
  */
 export const generatorOutputContract: AiOutputContract<GeneratorSignal> = {
   schemaVersion: 1,
@@ -175,6 +174,3 @@ const renderCommitMessage = (signal: CommitMessageSignal): string => {
   if (body !== undefined && body.length > 0) return `${subject}\n\n${body}\n`;
   return `${subject}\n`;
 };
-
-const _signalCheck: GeneratorSignal extends AiSignal ? true : false = true;
-void _signalCheck;

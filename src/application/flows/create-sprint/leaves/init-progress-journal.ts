@@ -15,7 +15,7 @@ import { assertCtxField } from '@src/application/flows/_shared/_engine/assert-ct
 
 /**
  * Write the one-time sprint header into `<sprintDir>/progress.md` immediately after the
- * sprint is saved (audit-[07]). The header carries invariant metadata only — sprint name,
+ * sprint is saved. The header carries invariant metadata only — sprint name,
  * id, created-at. No ticket list (tickets are mutable; `sprint.json` is canonical).
  *
  * The append-only journal grows from here: subsequent task-attempt sections and status

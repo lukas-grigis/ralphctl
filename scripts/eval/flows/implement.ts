@@ -5,7 +5,8 @@ import { buildImplementPrompt } from '@src/integration/ai/prompts/implement/defi
 import { renderContractSectionFor } from '@src/integration/ai/contract/_engine/render-contract-section.ts';
 import { writeTextAtomic } from '@src/integration/io/fs.ts';
 import { generatorOutputContract } from '@src/application/flows/implement/leaves/generator.contract.ts';
-import { implementSession } from '@src/application/flows/implement/leaves/implement-session.ts';
+import { signalsSession } from '@src/application/flows/_shared/signals-session.ts';
+import { FULL_AUTO } from '@src/integration/ai/providers/_engine/session-permissions.ts';
 import { roundBodyPath } from '@src/application/flows/implement/leaves/round-artifacts.ts';
 import {
   resolveRoundPaths,
@@ -63,19 +64,19 @@ export const implementAdapter: FlowAdapter = {
     if (!prompt.ok) return Result.error(prompt.error);
 
     return Result.ok({
-      session: implementSession(
-        ctx.workspace.sandbox,
-        ctx.workspace.repo,
-        ctx.workspace.root,
-        prompt.value,
-        ctx.row.model,
-        paths.value.signalsFile,
-        ROLE,
-        undefined,
-        ctx.row.effort,
-        ctx.abortSignal,
-        bodyFile.value
-      ),
+      session: signalsSession({
+        prompt: prompt.value,
+        cwd: ctx.workspace.repo,
+        additionalRoots: [ctx.workspace.sandbox, ctx.workspace.root],
+        model: ctx.row.model,
+        permissions: FULL_AUTO,
+        signalsFile: paths.value.signalsFile,
+        outputDir: paths.value.outputDir,
+        role: ROLE,
+        effort: ctx.row.effort,
+        abortSignal: ctx.abortSignal,
+        bodyFile: bodyFile.value,
+      }),
       outputDir: paths.value.outputDir,
       selfContainedContext: selfContainedGrounding(ctx.workspace.sandbox, outputContractSection, GENERATOR_GROUNDING),
       nudges: true,

@@ -1,52 +1,50 @@
 import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session.ts';
 import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts';
-import { READ_ONLY } from '@src/integration/ai/providers/_engine/session-permissions.ts';
+import type { SessionId } from '@src/integration/ai/providers/_engine/session-id.ts';
+import type { SessionPermissions } from '@src/integration/ai/providers/_engine/session-permissions.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { rootSessionId } from '@src/application/session/session.ts';
 
-export interface ReadOnlySignalsSessionOpts {
-  /** Working directory the AI session opens in — the repository (or repo-derived) path. */
-  readonly cwd: AbsolutePath;
+export interface SignalsSessionOpts {
   readonly prompt: Prompt;
+  readonly cwd: AbsolutePath;
   readonly model: string;
+  readonly permissions: SessionPermissions;
   readonly signalsFile: AbsolutePath;
-  /** Per-run forensic dir the AI writes `signals.json` into directly (audit-[09]). */
+  /** Dir the AI writes `signals.json` (and sidecar bodies) into — adapters mount it writable. */
   readonly outputDir: AbsolutePath;
-  /** Raw AI response capture — provider-dependent (Claude implements it today). */
-  readonly bodyFile?: AbsolutePath;
-  readonly effort?: string;
-  /** Chain abort signal — threaded so a TUI cancel mid-spawn kills the child. */
-  readonly abortSignal?: AbortSignal;
+  readonly additionalRoots?: readonly AbsolutePath[] | undefined;
+  readonly bodyFile?: AbsolutePath | undefined;
+  readonly effort?: string | undefined;
+  readonly abortSignal?: AbortSignal | undefined;
+  readonly role?: 'generator' | 'evaluator' | undefined;
+  readonly resume?: SessionId | undefined;
+  /** The full prompt behind a resumed slim continuation; dropped when `resume` is absent. */
+  readonly coldPrompt?: Prompt | undefined;
 }
 
 /**
- * Shared per-call `AiSession` profile for every read-only, one-shot AI flow — `readiness`,
- * `detect-scripts`, `detect-skills` — audit-[09] aware: the AI's permission profile stays
- * READ_ONLY for repository navigation, augmented with the Write tool so it can write
- * `signals.json` (and any sidecar bodies) into `outputDir`.
- *
- * Call only within a `runWithSession` scope: `chainSessionId` is captured from the ambient
- * session at call time (omitted when invoked outside one, e.g. a bare test).
+ * The `AiSession` for one signals-contract spawn. Call inside the leaf's `execute` scope:
+ * `chainSessionId` is the ROOT runner id (the key the TUI's token-usage map is read by — a
+ * parallel branch runner shadows the current id), passed as data because integration cannot
+ * import the session helper. Absent outside any session scope.
  */
-export const readOnlySignalsSession = (opts: ReadOnlySignalsSessionOpts): AiSession => {
-  // `rootSessionId()` is read inside the leaf's execute scope (the runner wraps it in
-  // `runWithSession`) and threaded onto the session as DATA so the headless adapter can key
-  // the token-usage event by the runner id without importing the application session helper
-  // across the layer boundary. ROOT, not current: a nested / branch runner shadows the current
-  // id, and the TUI looks the map up by the id it mounted the session with. Undefined out of
-  // session scope → the spread omits it.
+export const signalsSession = (opts: SignalsSessionOpts): AiSession => {
   const chainSessionId = rootSessionId();
   return {
     prompt: opts.prompt,
     cwd: opts.cwd,
     model: opts.model,
-    permissions: READ_ONLY,
+    permissions: opts.permissions,
     signalsFile: opts.signalsFile,
     outputDir: opts.outputDir,
+    ...(opts.additionalRoots !== undefined ? { additionalRoots: opts.additionalRoots } : {}),
+    ...(opts.role !== undefined ? { role: opts.role } : {}),
     ...(chainSessionId !== undefined ? { chainSessionId } : {}),
-    ...(opts.bodyFile !== undefined ? { bodyFile: opts.bodyFile } : {}),
+    ...(opts.resume !== undefined ? { resume: opts.resume } : {}),
+    ...(opts.resume !== undefined && opts.coldPrompt !== undefined ? { coldPrompt: opts.coldPrompt } : {}),
     ...(opts.effort !== undefined ? { effort: opts.effort } : {}),
-    // Thread the chain's abort signal so a TUI cancel mid-spawn kills the child.
     ...(opts.abortSignal !== undefined ? { abortSignal: opts.abortSignal } : {}),
+    ...(opts.bodyFile !== undefined ? { bodyFile: opts.bodyFile } : {}),
   };
 };

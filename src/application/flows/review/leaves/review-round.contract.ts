@@ -8,7 +8,7 @@ import type { AiOutputContract } from '@src/integration/ai/contract/_engine/type
 import { wrapLegacySignalArray } from '@src/integration/ai/contract/_engine/legacy-array-migration.ts';
 
 /**
- * Per-leaf I/O contract for one round of the review (apply-feedback) chain — audit-[09].
+ * Per-leaf I/O contract for one round of the review (apply-feedback) chain.
  * The AI session may emit at most one of two terminal signals:
  *
  *   - `task-complete`        — round applied successfully; harness commits + verifies.

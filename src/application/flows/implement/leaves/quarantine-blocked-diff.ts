@@ -53,7 +53,7 @@ import type { FoldQueue } from '@src/application/flows/implement/wave-branch.ts'
  * stays the subchain's last element (the TUI's task-completion detector keys on it). Gated by a
  * SYNCHRONOUS chain guard at the call site: it runs only when the settled task (read from
  * `ctx.tasks` — `settle-attempt` clears `ctx.currentTask`) is `blocked`, and only on the serial
- * path (the call site gates the splice on `includeBranchPreflight === true`). The guard does NOT
+ * path (the call site splices it only when `worktree` is unset). The guard does NOT
  * probe the tree — the leaf's own `gitStashPush` no-ops on a clean tree, so the dirty-tree check is
  * an effect of the operation, not a precondition.
  *
@@ -177,10 +177,8 @@ export const runQuarantineBlockedDiff = async (
     });
     return Result.ok(undefined);
   }
-  // Elevated to `warn` (not `debug`/`info`): a rejected diff was just quarantined — on the parallel
-  // path this is the fix for the highest-severity finding (verified, committed-then-rejected work
-  // used to be destroyed silently on worktree teardown with nothing logged at all). An operator
-  // watching logs should see every capture on either path, not just the persisted pointer.
+  // `warn`, not `info`: an operator watching logs should see every captured rejected diff on
+  // either path, not just the persisted pointer.
   log.warn('blocked task rejected diff quarantined to git stash', { taskId: String(taskId), stashMessage: message });
   // Append-only pointer next to the task fact. Shared renderer keeps the breadcrumb in the
   // exact shape the inline cap recognises and pins. Best-effort like everything here.

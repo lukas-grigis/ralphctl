@@ -19,6 +19,7 @@ import type {
   BestOfNGenEvalOpts,
 } from '@src/application/flows/implement/leaves/best-of-n-candidate.ts';
 import { replaceTask } from '@src/application/flows/implement/leaves/_shared/replace-task.ts';
+import { foldSignalTexts } from '@src/application/flows/implement/leaves/_shared/signal-texts.ts';
 
 /**
  * Selection cascade over the candidates a best-of-N attempt sampled — the escalation-map ablation
@@ -300,19 +301,12 @@ const selectionUseCase = async (
   return Result.ok(toSelectionOutput(task, winner, bestOfNSummary));
 };
 
-const carryArray = <K extends string, T>(
-  field: K,
-  items: readonly T[],
-  prior: readonly T[] | undefined
-): Partial<Record<K, readonly T[]>> =>
-  items.length > 0 ? ({ [field]: [...(prior ?? []), ...items] } as unknown as Partial<Record<K, readonly T[]>>) : {};
-
 /**
  * Selection leaf — closes out the round-1 candidate substitute: runs the selection cascade over
  * `ctx.bestOfNCandidates`, applies the winner's diff (or none), stamps the running attempt's
  * verification marker, clears the once-consumed grant, merges the winner's narrative signals onto
  * the SAME per-attempt accumulators the real generator leaf feeds — so the evaluator's
- * `<generator_hints>` block (T5) and the progress journal see this round exactly like any other —
+ * `<generator_hints>` block and the progress journal see this round exactly like any other —
  * and stamps `ctx.bestOfNSummary` so the journal's `### Continuation state` block can record that
  * N sessions were spent even though the rest of the attempt looks like a single-turn one.
  * `ctx.bestOfNCandidates` itself is left for `start-attempt` to clear on the next attempt (its
@@ -362,10 +356,7 @@ export const bestOfNSelectionLeaf = (
         bestOfNSummary: out.bestOfNSummary,
         ...(out.proposedCommitMessage !== undefined ? { proposedCommitMessage: out.proposedCommitMessage } : {}),
         ...sessionCarry,
-        ...carryArray('currentAttemptDecisions', out.decisionsEmitted, ctx.currentAttemptDecisions),
-        ...carryArray('currentAttemptChanges', out.changesEmitted, ctx.currentAttemptChanges),
-        ...carryArray('currentAttemptLearnings', out.learningsEmitted, ctx.currentAttemptLearnings),
-        ...carryArray('currentAttemptNotes', out.notesEmitted, ctx.currentAttemptNotes),
+        ...foldSignalTexts(ctx, out),
       };
     },
     label: 'Pick best candidate',

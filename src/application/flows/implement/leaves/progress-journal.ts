@@ -35,7 +35,7 @@ import type { FoldQueue } from '@src/application/flows/implement/wave-branch.ts'
 import { resetSignalAccumulators } from '@src/application/flows/implement/sprint-scoped-projection.ts';
 
 /**
- * Write the just-settled task-attempt section into `<sprintDir>/progress.md` (audit-[07]) and
+ * Write the just-settled task-attempt section into `<sprintDir>/progress.md` and
  * regenerate the DERIVED sprint-state header band in place.
  *
  * Runs immediately after `settle-attempt-<taskId>` so the attempt's facts (commit sha, verdict,
@@ -525,19 +525,11 @@ export const progressJournalLeaf = (
         ...correctiveNudgesCarry,
       };
     },
-    // settle-attempt clears its own per-attempt fields but leaves the signal accumulators (and the
-    // corrective-nudge tallies) for us to read. `resetSignalAccumulators` clears all six (the
-    // type-derived projection over the `merge: 'signal-accum'` bucket — see
-    // `sprint-scoped-projection.ts`) so the next ATTEMPT (and the next task) starts with empty
-    // accumulators. This is the per-attempt reset boundary: the journal leaf is the LAST element of
-    // the attempt-body sequential and runs UNCONDITIONALLY on every loop iteration — including a
-    // red-post-verify retry (T6) where the task settled `in_progress`. So a retried attempt never
-    // inherits the REJECTED attempt's change/learning/note hints (or nudge tally); the next
-    // generator turn (and the evaluator hints derived from these accumulators) sees only its own
-    // attempt's signals, not the prior failed attempt's leftovers.
+    // This leaf is the last element of the attempt body and runs on every iteration, including a
+    // red-post-verify retry, so a retried attempt never inherits the rejected attempt's hints.
     output: (ctx) => ({
       ...ctx,
-      ...resetSignalAccumulators(),
+      ...resetSignalAccumulators,
     }),
     label: 'Update journal',
     internal: true,

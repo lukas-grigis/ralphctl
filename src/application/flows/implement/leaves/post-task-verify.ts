@@ -57,7 +57,7 @@ const SPAWN_ERROR_OUTCOME = 'spawn-error';
  *                          the operator can fix the baseline without losing the AI's work.
  *   - `lastShouldFailAttempt` — set to `true` ON `'regressed'` AND ONLY WHILE the task's attempt
  *                          budget remains (see {@link budgetRemains}). This is the bounded
- *                          red-post-verify RETRY (T6): an evaluator-passed attempt whose harness
+ *                          red-post-verify RETRY: an evaluator-passed attempt whose harness
  *                          post-verify regressed a green baseline gets one more attempt — the same
  *                          retry seam an escalation grant uses — instead of blocking immediately.
  *
@@ -117,7 +117,7 @@ export interface PostTaskVerifyLeafOpts {
   readonly cwd: AbsolutePath;
   readonly verifyScript?: string;
   /**
-   * Structured per-module verify gates (WS3). When present AND non-empty, the leaf runs THESE via
+   * Structured per-module verify gates. When present AND non-empty, the leaf runs THESE via
    * the multi-gate executor in `fail-fast` mode, SCOPED to the attempt's diff footprint (only
    * gates whose `pathPrefix` matches a changed path). Footprint failure / empty → run ALL gates.
    * Absent → the leaf normalises `verifyScript` to a single catch-all gate (one code path). The
@@ -126,21 +126,13 @@ export interface PostTaskVerifyLeafOpts {
    */
   readonly verifyGates?: readonly VerifyGate[];
   readonly timeoutMs?: number;
-  /**
-   * Per-sprint state directory. When set, the leaf writes the full untruncated verify-script
-   * output to `<sprintDir>/logs/verify/<task-id>/post-attempt-<N>.log` per audit [01] / [03].
-   */
+  /** When set, the full untruncated output lands in `<sprintDir>/logs/verify/<task-id>/post-attempt-<N>.log`. */
   readonly sprintDir?: AbsolutePath;
   /**
-   * Effective per-task attempt cap (T6). Resolved at wiring time in `per-task-subchain.ts` as
-   * `task.maxAttempts ?? settings.harness.maxAttempts` — the SAME expression the outer attempt
-   * loop uses for its `maxIterations`, so the leaf's retry budget and the loop's iteration cap can
-   * never disagree. A `'regressed'` post-verify grants the bounded retry only while budget remains
-   * (see {@link budgetRemains}); on the last allowed attempt it blocks instead. Undefined for
-   * legacy callers without a cap wired — those keep the pre-T6 block-immediately behaviour because
-   * {@link budgetRemains} returns `false` when the cap is unknown.
+   * The task's effective attempt cap — the same value the attempt loop's `maxIterations` uses, so
+   * the retry budget and the loop cap never disagree (see {@link budgetRemains}).
    */
-  readonly maxAttempts?: number;
+  readonly maxAttempts: number;
 }
 
 interface LeafInput {
@@ -165,12 +157,7 @@ interface LeafOutput {
   readonly task: InProgressTask;
   readonly run: VerifyRun;
   readonly attribution?: Attribution;
-  /**
-   * Carried into the leaf's `output` projection so {@link legacyVerifyResult} can derive
-   * `lastVerifyResult.stderr` from the spawn output rather than from a persisted tail-bytes
-   * field on the audit row. Wave 8 dropped the latter (audit-[06]); the full untruncated
-   * body now lives in `<sprintDir>/logs/verify/...`.
-   */
+  /** Source of `lastVerifyResult.stderr`; the full body is persisted under `<sprintDir>/logs/verify/`. */
   readonly rawOutput: string;
   readonly spawnErrorMessage?: string;
   /**
@@ -191,11 +178,8 @@ interface LeafOutput {
  * `verify-failed` {@link AttemptWarning} without rewiring. `spawn-error` is folded into
  * `'verify-failed'` (exitCode = -1) — same legacy behaviour as the prior implementation.
  *
- * `stderr` carries the full untruncated spawn output (or the shell's spawn-error message)
- * verbatim per audit-[03]: truncation happens at the display boundary (sprint-detail-view
- * already clips to the first non-blank line + 120 chars when surfacing the warning), never
- * at write time. The on-disk source of truth is `<sprintDir>/logs/verify/<task-id>/...`
- * (audit-[01]); the ctx field is for the in-process settle handoff.
+ * `stderr` carries the full untruncated output (or the spawn-error message): truncation happens at
+ * the display boundary, never at write time.
  */
 const legacyVerifyResult = (
   run: VerifyRun,
@@ -209,22 +193,11 @@ const legacyVerifyResult = (
 };
 
 /**
- * Whether a `'regressed'` post-verify may grant the bounded red-post-verify RETRY (T6) rather than
- * block. Budget is counted by attempts INCLUDING the running one: `start-attempt` appended the
- * running attempt before this leaf, so `attempts.length` already counts it as spent. The retry is
- * granted while `attempts.length < maxAttempts` — i.e. a fresh attempt slot remains under the cap.
- *
- * Worked example (the explicit case the spec pins): with `maxAttempts === 3` and the running
- * attempt being the 3rd (`attempts.length === 3`), `3 < 3` is `false` → NO retry, the task blocks.
- * On the 1st of 3 (`attempts.length === 1`), `1 < 3` is `true` → retry. The comparison matches the
- * domain's own cap check in `failCurrentAttempt` (`attempts.length >= maxAttempts → blocked`), so
- * the leaf and the loop agree on the exact attempt the budget runs out.
- *
- * `cap === undefined` (no budget wired) returns `false` — legacy callers keep blocking immediately,
- * the pre-T6 behaviour.
+ * Whether a `'regressed'` post-verify may grant the bounded retry rather than block. The running
+ * attempt already counts as spent, so on the 3rd of 3 attempts `3 < 3` is false and the task
+ * blocks — the same cap check `failCurrentAttempt` applies.
  */
-const budgetRemains = (task: InProgressTask, cap: number | undefined): boolean =>
-  cap !== undefined && budgetedAttemptCount(task) < cap;
+const budgetRemains = (task: InProgressTask, cap: number): boolean => budgetedAttemptCount(task) < cap;
 
 /**
  * Compute the diff-footprint scope for the structured verify gates, or `undefined` to signal the
@@ -533,7 +506,7 @@ const projectLeafOutput = (ctx: ImplementCtx, out: LeafOutput, opts: PostTaskVer
       ? `verify script regressed baseline (exit=${String(out.run.exitCode)}); harness will not commit on red`
       : `verify script failed (exit=${String(out.run.exitCode)}); harness will not commit on red`
     : undefined;
-  // Bounded red-post-verify RETRY (T6). ONLY a `'regressed'` attribution (an evaluator-passed
+  // Bounded red-post-verify RETRY. ONLY a `'regressed'` attribution (an evaluator-passed
   // attempt that broke a GREEN baseline) qualifies — not raw red (no pre-verify evidence),
   // `baseline-broken` (pre-existing failure, no block at all), `clean`, or `fixed-baseline`.
   // While the task's attempt budget remains we also set `lastShouldFailAttempt`: settle's

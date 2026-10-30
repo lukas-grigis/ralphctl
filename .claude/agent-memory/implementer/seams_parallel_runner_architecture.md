@@ -20,7 +20,8 @@ TCtx` (the implement reducer is `mergeImplementWave`) and `config.onBranchRunner
 - **Each branch runs on its OWN `createRunner({ id: branch.id, … })`.** The runner already wraps
   `element.execute` in `runWithSession(id, …)`, so **passing `branch.id` as the runner id IS the
   per-branch ALS session scope — do not re-wrap in another `runWithSession`.**
-- **Pool bound:** a `Set<Promise<BranchRun>>` + `Promise.race` drain, cap re-clamped to `[1, 5]`
+- **Pool bound:** `min(cap, wave.length)` workers, each launching the next pending branch when its
+  own settles; cap re-clamped to `[1, 5]`
   (`MAX_CONCURRENCY_CEILING = 5`, mirroring the settings clamp). Waves are STRICTLY sequential — wave
   k+1 awaits every branch of k settling AND `merge` folding.
 - **Combined trace is assembled in branch-DECLARATION order** (per-index slots), never completion order.
@@ -73,11 +74,11 @@ the host id as data would have meant six-plus layers; the ALS root fixes every s
 future nested runners for free.
 
 **The rule: anything keyed by BRANCH (logs, per-task signals) keeps `currentSessionId()`; anything keyed
-by SESSION as the TUI sees it uses `rootSessionId()`.** The converted `chainSessionId` stampers are
-`implement/leaves/{implement-session,reproduce,best-of-n-candidate,best-of-n-selection}.ts` and
-`_shared/signals-session.ts`. `review-round.ts` and `create-pr/leaves/generate-pr-content-leaf.ts` still
-read `currentSessionId()` — correct today (single runner, root === current) — but convert them if either
-flow ever nests.
+by SESSION as the TUI sees it uses `rootSessionId()`.** Every signals-contract spawn
+(implement roles, reproduce, best-of-N, review, readiness, detect-*) builds its `AiSession` through
+`_shared/signals-session.ts`, which stamps the root id. `create-pr/leaves/generate-pr-content-leaf.ts`
+still reads `currentSessionId()` — correct today (single runner, root === current) — but convert it if
+that flow ever nests.
 
 ## The ALS helper is lint-fenced out of integration
 

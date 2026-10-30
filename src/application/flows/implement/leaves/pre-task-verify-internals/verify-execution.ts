@@ -391,7 +391,7 @@ export const handleNonFailedOutcome = async (
 
 /**
  * Synthetic green `phase: 'pre'` {@link VerifyRun} — the shared shape both short-circuit paths
- * (carry-baseline and fresh-setup) return so downstream attribution and the T4 PRE_VERIFY_RESULTS
+ * (carry-baseline and fresh-setup) return so downstream attribution and the PRE_VERIFY_RESULTS
  * rendering see an identical baseline regardless of which skip fired. `command: ''` /
  * `durationMs: 0` mark it as not-spawned; the contract is the leaf's only (no audit row appended,
  * `lastPreVerifyOutcome` carries `'success'`).

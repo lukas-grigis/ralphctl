@@ -39,6 +39,7 @@ import {
   runWorktreeSetupScript,
   setupWorktree,
   type WorktreeSetupSpec,
+  type WorktreeTarget,
 } from '@src/application/flows/implement/worktree-setup.ts';
 
 /**
@@ -107,18 +108,8 @@ export const serializeAppendFile = (inner: AppendFile): AppendFile => {
 };
 
 /**
- * Per-branch signal publisher keyed on the branch's `taskId`. Replaces the launcher's old
- * single-slot `currentTaskId` tracker — which keyed off the dead `task-attempt-started` event
- * (zero production publishers) and so always attributed signals to `undefined`. With concurrent
- * branches a single shared mutable slot would cross-attribute signals anyway; binding the taskId
- * at branch-build time is the only correct model.
- *
- * Publishes EVERY validated signal kind (not just `<change>` / `<learning>` / `<note>` — that
- * filter only ever existed because the bus event was a secondary mirror of the app-wide sink; on
- * the single `ai-signal` channel every kind must flow or the TUI goes blind to
- * evaluation/decision/commit signals for parallel-branch tasks) onto the `ai-signal` EventBus
- * event, stamped with THIS branch's taskId so the per-task TUI panel groups it under the right
- * task.
+ * Signal publisher bound to one branch's `taskId`, so concurrent branches never cross-attribute
+ * their signals in the per-task TUI panel.
  */
 export const perBranchSignalPublisher = (eventBus: EventBus, taskId: TaskId): PublishSignal =>
   createPublishSignal(eventBus, 'implement', String(taskId));
@@ -134,7 +125,7 @@ export interface BuildWaveBranchesDeps {
 /**
  * One git worktree per task: start snapshot → setup → per-worktree setup script → forked per-task
  * subchain → fold → quarantine-if-blocked → re-stash-if-interrupted → cleanup. The element is a
- * hand-written {@link Element} (NOT a chain primitive — §14) rather than a plain `sequential`,
+ * hand-written {@link Element} (NOT a chain primitive) rather than a plain `sequential`,
  * because worktree-cleanup MUST run on EVERY exit path including abort: a plain `sequential` skips
  * downstream children once a child aborts, which would strand the worktree. This adapter runs the
  * teardown on every exit path — settled result, abort, AND a throw out of the body — and forwards
@@ -185,14 +176,11 @@ export interface BuildWaveBranchesDeps {
  */
 const withWorktree = (
   deps: BuildWaveBranchesDeps,
-  repoRoot: AbsolutePath,
-  worktreePath: AbsolutePath,
-  branchRef: string,
-  taskId: TaskId,
+  target: WorktreeTarget,
   setup: WorktreeSetupSpec | undefined,
-  progressFile: AbsolutePath,
   buildBody: (onSettled: (ctx: ImplementCtx) => void) => Element<ImplementCtx>
 ): Element<ImplementCtx> => {
+  const { repoRoot, worktreePath, branchRef, taskId, progressFile } = target;
   // Built once, with a no-op callback, purely to expose the body's shape for the TUI's upfront
   // plan (`children` — see `Element`'s docstring: it lets a caller walk the tree without executing
   // it). The real run below builds its OWN body per execution so each call gets an independent
@@ -204,7 +192,6 @@ const withWorktree = (
     children: [bodyShape],
     async execute(ctx, signal, onTrace, onStart): Promise<ElementResult<ImplementCtx>> {
       const quarantinedAtStart = await snapshotQuarantinedDiff(deps, repoRoot, ctx.sprintId, taskId);
-      const target = { repoRoot, worktreePath, branchRef, taskId, progressFile };
       const setupError = await setupWorktree(deps, ctx, target, signal, onTrace, onStart);
       if (setupError !== undefined) {
         // A worktree that never got created has nothing to clean up — return the setup failure as-is
@@ -280,9 +267,8 @@ const withWorktree = (
  * One {@link WaveBranch} per task: its element is the worktree adapter wrapping the forked
  * per-task subchain followed by the serialised fold. `forkCtx` clears per-task ctx and points the
  * `RepoExecConfig` at the task's worktree; the subchain is built with `branch-preflight` OMITTED
- * (each worktree is checked out on its own ref). A per-branch {@link PublishSignal} (see
- * {@link perBranchSignalPublisher}) keyed on the branch's `taskId` is injected so concurrent
- * branches' signals attribute correctly.
+ * (each worktree is checked out on its own ref). Each branch's signal publisher is bound to its
+ * `taskId`, so concurrent branches' signals attribute to the right task.
  *
  * Each branch runs on its own runner (provided by `runWaves`) whose `initialCtx` is the wave's
  * carried base ctx. The branch element forks that carried ctx onto the worktree at EXECUTE time
@@ -315,7 +301,7 @@ const buildOneBranch = (
     taskRepo: holdOwnDoneWrite(deps.implement.taskRepo, task.id),
   };
 
-  const subchainOpts: PerTaskSubchainOpts = { ...perTaskSubchainOpts(opts), includeBranchPreflight: false };
+  const subchainOpts: PerTaskSubchainOpts = { ...perTaskSubchainOpts(opts), worktree: true };
 
   // The per-task subchain is built fresh on the FORKED ctx + worktree repo each time the branch
   // executes (so a re-merged wave ctx flows in). `buildSubchain` captures everything needed.
@@ -345,9 +331,7 @@ const buildOneBranch = (
  * so a block or a retry stays durable the moment it is decided.
  */
 const holdOwnDoneWrite = (taskRepo: TaskRepository, taskId: TaskId): TaskRepository => ({
-  findById: (sprintId, id) => taskRepo.findById(sprintId, id),
-  findBySprintId: (sprintId) => taskRepo.findBySprintId(sprintId),
-  saveAll: (sprintId, tasks) => taskRepo.saveAll(sprintId, tasks),
+  ...taskRepo,
   update: async (sprintId, updated) =>
     updated.id === taskId && updated.status === 'done' ? Result.ok(undefined) : taskRepo.update(sprintId, updated),
 });
@@ -414,13 +398,8 @@ export const buildWorktreeBranch = (
       const fold = foldStep(deps, repo.path, branchRef, task.id);
       const foldResult = await fold.execute(subchainResult.value.ctx, signal, onTrace, onStart);
       if (!foldResult.ok) return foldResult;
-      // Narrow this branch's outcome ctx to carry ONLY its OWN task. `forkCtx` seeds `tasks` with the
-      // full base list (so the subchain leaves can look up sibling deps), but the subchain only
-      // settles THIS task; the others remain at their pre-wave status. Belt-and-braces: ownership is
-      // now enforced by the merge itself (`mergeImplementWave` / `captureDurableFold` both read only
-      // `ownedTask(branch.id, ctx)`), so a wider ctx here can no longer let a later-processed branch
-      // overwrite an earlier branch's settled task — but narrowing at the source keeps that
-      // guarantee structural in two places instead of relying on the reader alone.
+      // Carry ONLY this branch's own task: the forked ctx still holds every sibling at its pre-wave
+      // status. The merge also reads only `ownedTask(…)`; narrowing here keeps that structural twice.
       const own = foldResult.value.ctx.tasks?.find((t) => t.id === task.id);
       const narrowed: ImplementCtx = { ...foldResult.value.ctx, ...(own !== undefined ? { tasks: [own] } : {}) };
       return Result.ok({
@@ -431,7 +410,12 @@ export const buildWorktreeBranch = (
   });
   const script = repo.setupScript?.trim() ?? '';
   const setup = script.length > 0 ? { script, repositoryId: task.repositoryId, policy } : undefined;
-  return withWorktree(deps, repo.path, worktreePath, branchRef, task.id, setup, progressFile, buildBody);
+  return withWorktree(
+    deps,
+    { repoRoot: repo.path, worktreePath, branchRef, taskId: task.id, progressFile },
+    setup,
+    buildBody
+  );
 };
 
 /**

@@ -13,7 +13,7 @@ import { restoredWorkContext } from '@src/domain/entity/task-prior-work.ts';
 import type { TaskId } from '@src/domain/value/id/task-id.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
-import type { AiSignal, HarnessSignal, LearningEntry } from '@src/domain/signal.ts';
+import type { AiSignal, HarnessSignal } from '@src/domain/signal.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
 import { buildImplementPrompt } from '@src/integration/ai/prompts/implement/definition.ts';
@@ -54,6 +54,11 @@ import { createFsLogTailReader } from '@src/integration/io/read-log-tail.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import { verifyLogPath } from '@src/application/flows/implement/leaves/verify-log.ts';
 import { budgetedAttemptCount, latestCritique, resumesFreeAttempt } from '@src/domain/entity/task-attempts.ts';
+import {
+  foldSignalTexts,
+  signalTexts,
+  type SignalTexts,
+} from '@src/application/flows/implement/leaves/_shared/signal-texts.ts';
 
 /**
  * Chain leaf — one generator turn of the gen-eval loop. Wires the integration ports
@@ -111,7 +116,7 @@ interface GeneratorInput {
   readonly roundNum: number;
   /**
    * Captured Claude `session_id` from the prior round's generator turn for this task. Forwarded
-   * to `implementSession({ resume })` so the model continues a single conversational thread
+   * to the spawn's `resume` so the model continues a single conversational thread
    * across rounds. `undefined` on round 1 of a task (or when the prior spawn failed before
    * reporting an id) → fresh session.
    */
@@ -157,7 +162,7 @@ interface GeneratorInput {
   readonly reproduction?: string;
 }
 
-interface GeneratorOutput {
+interface GeneratorOutput extends SignalTexts {
   readonly task: InProgressTask;
   readonly turn: number;
   readonly exit?: GeneratorTurnExit;
@@ -171,30 +176,6 @@ interface GeneratorOutput {
    * adapter never reported an id (failed spawn, non-Claude provider, …).
    */
   readonly capturedSessionId?: SessionId;
-  /**
-   * Decision-signal bodies emitted by this turn. Empty array when the generator emitted no
-   * `<decision>` signals. Accumulates onto `ctx.currentAttemptDecisions` so the journal leaf
-   * can render a deduped `### Decisions` subsection for the attempt (audit-[07] — replaces
-   * the deleted `decisions-log` sink with an in-memory aggregate).
-   */
-  readonly decisionsEmitted: readonly string[];
-  /**
-   * Change-signal bodies emitted by this turn — accumulates onto `ctx.currentAttemptChanges`
-   * so the journal leaf can render the per-attempt `### Changes` subsection.
-   */
-  readonly changesEmitted: readonly string[];
-  /**
-   * Structured learnings emitted by this turn — each a {@link LearningEntry} (Insight + optional
-   * Context + optional Applies-to). Accumulates onto `ctx.currentAttemptLearnings` so the journal
-   * leaf can render the per-attempt `### Learnings` subsection and `append-learnings` can persist
-   * the procedural-memory ledger rows.
-   */
-  readonly learningsEmitted: readonly LearningEntry[];
-  /**
-   * Note-signal bodies emitted by this turn — accumulates onto `ctx.currentAttemptNotes`
-   * so the journal leaf can render the per-attempt `### Notes` subsection.
-   */
-  readonly notesEmitted: readonly string[];
   /**
    * Corrective `signals.json` nudges this turn needed (`0` on a clean first parse) — read from
    * `validateSignalsFileWithCorrectiveRetry`'s `nudgeCount`. Accumulates onto
@@ -222,19 +203,6 @@ interface GeneratorOutput {
  * instead, so the directive stays reserved for the same-model nudge where no fresh capability
  * remains.
  */
-/**
- * Conditional per-attempt array-accumulator carry — returns `{ [field]: [...prior, ...items] }`
- * only when `items` is non-empty, else `{}`. Mirrors `positiveCountCarry`'s (`_shared/nudge-
- * count-carry.ts`) cast-bridged computed-key shape; collapses the per-attempt signal-text
- * accumulators in `generatorOutput` below from one multi-line ternary each to one call each.
- */
-const arrayCarry = <K extends string, T>(
-  field: K,
-  items: readonly T[],
-  prior: readonly T[] | undefined
-): Partial<Record<K, readonly T[]>> =>
-  items.length > 0 ? ({ [field]: [...(prior ?? []), ...items] } as unknown as Partial<Record<K, readonly T[]>>) : {};
-
 export const isPlateauBreakAttempt = (task: InProgressTask): boolean => {
   const lastSettled = lastSettledAttempt(task);
   const stallDriven = lastSettled?.warning?.kind === 'plateau' || lastSettled?.warning?.kind === 'budget-exhausted';
@@ -359,11 +327,11 @@ const readVerifyLogTail = async (
 };
 
 /**
- * Compose the two harness-verify prompt blocks for this turn (T4):
+ * Compose the two harness-verify prompt blocks for this turn:
  *  - `preVerifyOutput`  — the running attempt's `phase: 'pre'` verify run + the tail of
  *    `<sprintDir>/logs/verify/<taskId>/pre-attempt-<runningAttempt.n>.log`.
  *  - `retryFeedback`    — the prior settled attempt's FAILING `phase: 'post'` verify run + the
- *    tail of `post-attempt-<priorAttempt.n>.log` (T4 stub for T6's retry policy).
+ *    tail of `post-attempt-<priorAttempt.n>.log`.
  *
  * Every step is best-effort: a missing attempt, a missing verify row, or an unreadable log
  * degrades to '' (block disappears) or to the structured metadata alone. Never throws, never
@@ -399,46 +367,15 @@ export const composeVerifyBlocks = async (
 };
 
 /**
- * Per-turn signal-text accumulators — mutated in place by {@link accumulateAndEmitSignals}.
- * `correctiveNudgeCount` is a sibling out-channel of the same shape: `callImplement` is bound to
- * the business use case's fixed `Result<readonly HarnessSignal[], DomainError>>` signature, so the
- * nudge tally rides out via this closure-captured mutable object instead of widening that return
- * type.
+ * Per-turn out-channel: `callImplement` is bound to the business use case's fixed
+ * `Result<readonly HarnessSignal[], DomainError>` signature, so the turn's texts, nudge tally and
+ * usage ride out through this closure-captured object instead of widening that return type.
  */
 interface GeneratorTurnAccumulators {
-  readonly decisionsEmitted: string[];
-  readonly changesEmitted: string[];
-  readonly learningsEmitted: LearningEntry[];
-  readonly notesEmitted: string[];
+  texts: SignalTexts;
   correctiveNudgeCount: number;
-  /** This turn's raw provider cost telemetry — rides the same out-channel as the nudge tally. */
   usage: ProviderUsage | undefined;
 }
-
-/**
- * Fan out this turn's validated signals onto the application bus's typed `ai-signal` event (the
- * one harness-signal channel), while pushing each kind's text onto the turn's accumulator arrays
- * for the leaf's `execute` to read back afterward. Every validated signal kind flows — not just
- * the text-bearing subset the legacy sink mirror filtered to.
- */
-const accumulateAndEmitSignals = (
-  deps: Pick<GeneratorLeafDeps, 'publishSignal'>,
-  signals: readonly AiSignal[],
-  accumulators: GeneratorTurnAccumulators
-): void => {
-  for (const sig of signals) {
-    deps.publishSignal(sig);
-    if (sig.type === 'decision') accumulators.decisionsEmitted.push(sig.text);
-    else if (sig.type === 'change') accumulators.changesEmitted.push(sig.text);
-    else if (sig.type === 'learning')
-      accumulators.learningsEmitted.push({
-        text: sig.text,
-        ...(sig.context !== undefined ? { context: sig.context } : {}),
-        ...(sig.appliesTo !== undefined ? { appliesTo: sig.appliesTo } : {}),
-      });
-    else if (sig.type === 'note') accumulators.notesEmitted.push(sig.text);
-  }
-};
 
 /**
  * Publish the discrete `task-round-started` boundary marker — fired BEFORE the AI call so the
@@ -504,7 +441,7 @@ const makeGeneratorCallImplement =
     const outputContractSection = renderContractSectionFor(generatorOutputContract, args.outputDir);
 
     const buildTurnPrompt = async (forceFull: boolean): Promise<Result<Prompt, BuildPromptError>> => {
-      // T4: pre-task verify result + prior attempt's failing post-verify; best-effort — see helper.
+      // Pre-task verify result + prior attempt's failing post-verify; best-effort — see helper.
       const verify = await composeVerifyBlocks(args.logTailReader, deps.sprintDir, taskId, task);
       return buildGeneratorPrompt(deps, { task, input: args.input, outputContractSection, ...verify, forceFull });
     };
@@ -528,12 +465,11 @@ const makeGeneratorCallImplement =
       buildColdPrompt: () => buildTurnPrompt(true),
       selfContainedContext: selfContainedGrounding(args.input.workspaceRoot, outputContractSection),
       onSignals: (signals) => {
-        accumulateAndEmitSignals(deps, signals, args.accumulators);
+        for (const sig of signals) deps.publishSignal(sig);
+        args.accumulators.texts = signalTexts(signals);
       },
     });
     if (!turn.ok) return Result.error(turn.error) as Result<readonly HarnessSignal[], DomainError>;
-    // Cost-visibility out-channel — see GeneratorTurnAccumulators' docstring for why this rides
-    // a mutated field rather than widening `callImplement`'s return type.
     args.accumulators.correctiveNudgeCount = turn.value.nudgeCount;
     args.accumulators.usage = turn.value.usage;
 
@@ -562,14 +498,8 @@ const makeGeneratorExecute =
 
     announceRoundStart(deps, taskId, input.task, roundNum);
 
-    // Per-turn signal accumulators — closure-captured so the leaf can stamp the
-    // emitted texts onto ctx in `output(...)`. The journal leaf reads the aggregate
-    // across all gen-eval rounds for the attempt.
     const accumulators: GeneratorTurnAccumulators = {
-      decisionsEmitted: [],
-      changesEmitted: [],
-      learningsEmitted: [],
-      notesEmitted: [],
+      texts: signalTexts([]),
       correctiveNudgeCount: 0,
       usage: undefined,
     };
@@ -600,7 +530,9 @@ const makeGeneratorExecute =
       task: result.value.task,
       turn: input.turn,
       roundNum,
-      ...accumulators,
+      ...accumulators.texts,
+      correctiveNudgeCount: accumulators.correctiveNudgeCount,
+      usage: accumulators.usage,
       ...(result.value.exit !== undefined ? { exit: result.value.exit } : {}),
       ...(result.value.proposedCommitMessage !== undefined
         ? { proposedCommitMessage: result.value.proposedCommitMessage }
@@ -638,7 +570,7 @@ const makeGeneratorInput =
 /**
  * Merge one generator turn's output into ctx — task/tasks list, round bookkeeping, latest
  * proposed commit message, captured session id, per-attempt signal accumulators, and the
- * per-turn action-kind distribution (R2).
+ * per-turn action-kind distribution.
  */
 const generatorOutput = (ctx: ImplementCtx, out: GeneratorOutput): ImplementCtx => {
   const tasks = (ctx.tasks ?? []).map((t) => (t.id === out.task.id ? out.task : t));
@@ -649,15 +581,8 @@ const generatorOutput = (ctx: ImplementCtx, out: GeneratorOutput): ImplementCtx 
   // A turn that failed to capture an id (provider crash mid-stream) preserves whatever the
   // prior turn captured so the next round still has a thread to resume.
   const sessionCarry = out.capturedSessionId !== undefined ? { priorGeneratorSessionId: out.capturedSessionId } : {};
-  // Accumulate this turn's signal texts onto the per-attempt aggregates. Cleared by the
-  // progress-journal leaf after the attempt settles. Each kind has its own field on ctx so
-  // the journal renderer can drop empty subsections without inspecting the signal type.
-  const decisionsCarry = arrayCarry('currentAttemptDecisions', out.decisionsEmitted, ctx.currentAttemptDecisions);
-  const changesCarry = arrayCarry('currentAttemptChanges', out.changesEmitted, ctx.currentAttemptChanges);
-  const learningsCarry = arrayCarry('currentAttemptLearnings', out.learningsEmitted, ctx.currentAttemptLearnings);
-  const notesCarry = arrayCarry('currentAttemptNotes', out.notesEmitted, ctx.currentAttemptNotes);
   // Cost-visibility tally — accumulates across every turn of the attempt, same lifecycle as the
-  // signal accumulators above. Zero-noise: a turn with no nudge contributes nothing (ctx field
+  // signal accumulators. Zero-noise: a turn with no nudge contributes nothing (ctx field
   // stays undefined until the first nudge fires).
   const generatorNudgesCarry = positiveCountCarry(
     'currentAttemptGeneratorNudges',
@@ -676,10 +601,7 @@ const generatorOutput = (ctx: ImplementCtx, out: GeneratorOutput): ImplementCtx 
     crashResumePending: undefined,
     ...carry,
     ...sessionCarry,
-    ...decisionsCarry,
-    ...changesCarry,
-    ...learningsCarry,
-    ...notesCarry,
+    ...foldSignalTexts(ctx, out),
     ...generatorNudgesCarry,
     ...usageCarry,
   };

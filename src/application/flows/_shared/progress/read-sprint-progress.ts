@@ -4,7 +4,7 @@ import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { capProgressBody, progressCapBudgetForModel } from '@src/application/flows/_shared/progress/cap-progress.ts';
 
 /**
- * Read `<sprintDir>/progress.md` for the inline `## Prior progress` section (audit-[07]), CAPPED to
+ * Read `<sprintDir>/progress.md` for the inline `## Prior progress` section, CAPPED to
  * the same token budget the implement gen-eval loop uses so a long sprint's journal doesn't blow up
  * the planning-prompt token cost. There is no "current task" in planning, so only the recent-siblings
  * bound applies; short journals pass through unchanged. Shared by every planning flow — plan, ideate,

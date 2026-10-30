@@ -13,7 +13,7 @@ import type { ReadinessCtx } from '@src/application/flows/readiness/ctx.ts';
  * Post-write leaf that copies AI-authored skill bodies into the active provider's
  * `<parentDir>/skills/<bare-name>/SKILL.md` after the operator approves the readiness proposal.
  *
- * Per audit-[09], readiness emits two project-tracked skill kinds: `setup-skill-proposal` and
+ * Readiness emits two project-tracked skill kinds: `setup-skill-proposal` and
  * `verify-skill-proposal`. The {@link proposeReadinessLeaf} contract-validation step lands the
  * bodies on `ctx.entries[tool].proposal`; this leaf calls the per-tool skills adapter's
  * bare-name install path to write them.
@@ -21,8 +21,7 @@ import type { ReadinessCtx } from '@src/application/flows/readiness/ctx.ts';
  * Behaviour:
  *  - Matching entry's `accepted !== true` → no-op (the operator declined this tool's proposal).
  *  - Either body undefined → only the present one is installed (each is independent).
- *  - Both bodies undefined → no-op (the AI didn't propose any; today's prompt never does —
- *    Wave 6 lands the prompt-side ask).
+ *  - Both bodies undefined → no-op (the AI proposed none).
  *  - The destination dir for each install is `ctx.repository.path` — the readiness repo. The
  *    skills adapter resolves the per-provider `<parentDir>/skills/<name>/SKILL.md` below that.
  *

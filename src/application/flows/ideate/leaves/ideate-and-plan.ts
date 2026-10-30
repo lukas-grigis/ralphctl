@@ -26,11 +26,11 @@ import type { IdeateCtx } from '@src/application/flows/ideate/ctx.ts';
 
 /**
  * The interactive ideate session: hands the terminal to Claude for the combined refine+plan
- * conversation, validates the AI-written `signals.json` against the audit-[09] ideate
+ * conversation, validates the AI-written `signals.json` against the ideate
  * contract, parses the resolved ticket + task envelope (integration), then delegates the
  * ticket approval + sprint mutation to {@link addApprovedTicketUseCase}.
  *
- * audit-[09] flow (post-Wave-6):
+ * flow:
  *   provider.run → AI writes `signals.json` directly per the contract section in the
  *   prompt → `validateSignalsFile(ideateOutputContract)` → fan-out validated signals to the
  *   bus → `renderSidecars` (no-op, empty rules) → extract the `ideated-tickets` payload's
@@ -47,7 +47,7 @@ export interface IdeateAndPlanLeafDeps {
   readonly runInTerminal: RunInTerminal;
   readonly logger: Logger;
   /**
-   * Output port used to write `signals.json` and any sidecars under the audit-[09] contract.
+   * Output port used to write `signals.json` and any sidecars under the signals contract.
    * Ideate has no sidecars (the structured payload projects onto the sprint draft) but
    * threading `writeFile` keeps the contract loop uniform with other leaves.
    */
@@ -115,7 +115,7 @@ const runInteractiveSession = async (
   );
   if (!session.ok) return Result.error(session.error);
 
-  // audit-[09]: the AI writes `signals.json` directly under the unit root per the
+  // The AI writes `signals.json` directly under the unit root per the
   // contract section in the prompt. The leaf validates that file.
   const outputDirRaw = dirname(String(input.outputFile));
   return AbsolutePath.parse(outputDirRaw);

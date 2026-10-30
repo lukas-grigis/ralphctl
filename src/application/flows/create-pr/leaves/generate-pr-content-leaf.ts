@@ -49,7 +49,7 @@ export interface GeneratePrContentLeafDeps {
   readonly provider: HeadlessAiProvider;
   readonly templateLoader: TemplateLoader;
   /**
-   * Output port used to write `pr-content.md` post-spawn under audit-[09]. The AI writes
+   * Output port used to write `pr-content.md` post-spawn. The AI writes
    * `signals.json` directly into the unit dir; the leaf validates that file and renders
    * sidecars from the validated signals.
    */
@@ -209,7 +209,7 @@ export const generatePrContentLeaf = (deps: GeneratePrContentLeafDeps): Element<
           return Result.ok({});
         }
 
-        // The signalsFile path mirrors the audit-[09] convention: <outputDir>/signals.json.
+        // The signalsFile path mirrors the convention: <outputDir>/signals.json.
         const signalsFilePathResult = AbsolutePath.parse(`${String(input.unitRoot)}/signals.json`);
         if (!signalsFilePathResult.ok) {
           log.warn(

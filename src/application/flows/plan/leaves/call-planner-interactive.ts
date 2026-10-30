@@ -23,14 +23,14 @@ import type { PlanCtx } from '@src/application/flows/plan/ctx.ts';
 
 /**
  * Interactive plan session: hands the terminal to Claude, waits for the AI to write
- * `signals.json` per the audit-[09] contract, validates the file against the plan contract, and
+ * `signals.json` per the signals contract, validates the file against the plan contract, and
  * parses the resolved task list (integration concern) onto `ctx.proposedTasks`.
  *
  * The leaf STOPS at the proposal. The deterministic critic (`check-plan`) and the HITL gate +
  * `draft → planned` transition (`apply-plan`) are separate downstream leaves — that split is what
  * lets the critic's findings reach the human BEFORE the approve/reject decision instead of after it.
  *
- * audit-[09] flow (post-Wave-6):
+ * flow:
  *   provider.run → AI writes `signals.json` directly per the contract section in the
  *   prompt → `validateSignalsFile(planOutputContract)` → fan-out validated signals to the
  *   bus → `renderSidecars` (no-op, empty rules) → extract the `task-plan` payload's
@@ -49,7 +49,7 @@ export interface CallPlannerInteractiveDeps {
   readonly runInTerminal: RunInTerminal;
   readonly logger: Logger;
   /**
-   * Output port used to write `signals.json` and any sidecars under the audit-[09] contract.
+   * Output port used to write `signals.json` and any sidecars under the signals contract.
    * Plan has no sidecars (the structured tasks project onto the sprint), but threading
    * `writeFile` keeps the contract loop uniform with other leaves.
    */
@@ -121,7 +121,7 @@ const runInteractiveSession = async (
   );
   if (!session.ok) return Result.error(session.error);
 
-  // audit-[09]: the AI writes `signals.json` directly under the unit root per the
+  // The AI writes `signals.json` directly under the unit root per the
   // contract section in the prompt. The leaf validates that file.
   const outputDirRaw = dirname(String(input.outputFile));
   return AbsolutePath.parse(outputDirRaw);

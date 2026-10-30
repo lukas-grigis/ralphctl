@@ -61,37 +61,6 @@ export interface CreateIdeateFlowOpts {
 }
 
 /**
- * Build the ideate chain.
- *
- * Shape:
- *
- *   sequential('ideate', [
- *     load-and-assert-sprint(['draft']),
- *     load-project,
- *     load-tasks,                  // existing tasks; ideate-and-plan appends
- *     build-ideate-unit,           // mkdir <sprintDir>/ideate/<run-slug>/
- *     render-prompt-to-file,       // <unit-root>/prompt.md
- *     install-skills,              // copy the ideate flow's skills into the repo cwd
- *     stamp-meta-ideate,           // <unit-root>/meta.json — provider/model attribution
- *     ideate-and-plan,             // interactive Claude → reads <unit-root>/ideate.json
- *     uninstall-skills,            // remove them again
- *     check-plan,                  // zero-token deterministic critic → ctx.planCheck (advisory)
- *     review-ideate,               // HITL gate (requirements + tasks + findings); reject restores the sprint
- *     transition-to-planned,       // draft → planned (same domain transition as plan)
- *     save-tasks,
- *     save-sprint,                 // sprint.status = 'planned'
- *   ])
- *
- * Single-shot per invocation: ideate produces ONE ticket plus its tasks, then transitions the
- * sprint `draft → planned` so Implement (which requires `planned` / `active`) is reachable right
- * after. Re-run for another idea is not supported once planned — re-ideating starts from a fresh
- * draft sprint.
- *
- * Persistence order mirrors plan: tasks first, then sprint. The sprint's `planned` status is the
- * "tasks are ready" signal — saving it last means a crash mid-save leaves the sprint `draft` even
- * if the tasks already landed.
- */
-/**
  * Transition the ctx draft sprint `draft → planned` after `ideate-and-plan` has appended an
  * approved ticket + its tasks. Reuses the SAME domain transition the plan flow runs
  * (`planSprint` — wrapped there by `planSprintUseCase`). Skipped when `review-ideate` rejected, so a
@@ -123,6 +92,11 @@ const transitionToPlannedLeaf = (deps: Pick<IdeateDeps, 'clock'>): Element<Ideat
 /** The tickets the planning session saw; a change to them by another writer fails the commit. */
 const ticketBasis: TicketBasis<IdeateCtx> = (ctx) => ctx.preIdeate?.sprint.tickets ?? ctx.sprint?.tickets ?? [];
 
+/**
+ * Turn one idea into one ticket plus its tasks in a single interactive session, then move the
+ * sprint `draft → planned` so Implement is reachable. Tasks are saved before the sprint, so a
+ * crash mid-save leaves the sprint `draft`.
+ */
 export const createIdeateFlow = (deps: IdeateDeps, opts: CreateIdeateFlowOpts): Element<IdeateCtx> => {
   const slug = `session-${String(Date.now())}`;
 

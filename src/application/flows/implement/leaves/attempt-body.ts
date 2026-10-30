@@ -64,7 +64,7 @@ export const buildAttemptReadConfig = (harness: IterationConfig): AttemptReadCon
 
 /**
  * Fold a role's already-resolved bound agent-definition NAME onto its `GenEvalLoopRoleConfig` —
- * the same `AgentDefinition` {@link buildAgentDefinitionInstallLeaves} installs, read again here
+ * the same `AgentDefinition` the per-task subchain installs, read again here
  * so the FULL prompt's `{{PROJECT_TOOLING}}` catalog can name the same binding
  * `agentDefinitionSection` already announces in prose. A no-op (returns `role` unchanged) when
  * the role has no binding. Split out of `createPerTaskSubchain` so this call site's extra branch
@@ -316,7 +316,7 @@ const attemptSettleLeaves = (
     {
       shellScriptRunner: deps.shellScriptRunner,
       taskRepo: deps.taskRepo,
-      // Diff-footprint probe for structured-gate scoping (T11). Shared serial-path runner.
+      // Diff-footprint probe for structured-gate scoping.
       gitRunner: deps.gitRunner,
       clock: deps.clock,
       eventBus: deps.eventBus,
@@ -325,7 +325,7 @@ const attemptSettleLeaves = (
     {
       cwd: repo.path,
       sprintDir: opts.sprintDir,
-      // T6: the effective attempt cap so a `'regressed'` post-verify retries within budget
+      // The effective attempt cap so a `'regressed'` post-verify retries within budget
       // (settle precedence keeps the task in_progress) instead of blocking immediately.
       // SAME value as the loop's `maxIterations` below — shared const, never drifts.
       maxAttempts: effectiveMaxAttempts,

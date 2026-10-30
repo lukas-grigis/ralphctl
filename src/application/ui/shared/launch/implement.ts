@@ -4,10 +4,10 @@ import type { Element } from '@src/application/chain/element.ts';
 import { createRunner, type Runner } from '@src/application/chain/run/runner.ts';
 import {
   createImplementFlow,
-  IMPLEMENT_TASK_TERMINAL_LEAF,
   planImplementWaves,
   type CreateImplementFlowOpts,
 } from '@src/application/flows/implement/flow.ts';
+import { IMPLEMENT_TASK_TERMINAL_LEAF } from '@src/application/flows/implement/leaves/per-task-subchain.ts';
 import type { ImplementDeps } from '@src/application/flows/implement/deps.ts';
 import {
   buildWaveBranches,
@@ -161,7 +161,6 @@ const buildParallelElement = (
       locksRoot: implementDeps.locksRoot,
       eventBus: implementDeps.eventBus,
       maxConcurrency: maxParallel,
-      flowId: 'implement',
       sessionId,
       buildWaves: () => buildWaveBranches(branchDeps, implementOpts, plan.waves, readConfig),
     })

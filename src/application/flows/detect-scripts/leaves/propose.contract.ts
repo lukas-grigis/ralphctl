@@ -10,7 +10,7 @@ import type { AiOutputContract } from '@src/integration/ai/contract/_engine/type
 import { wrapLegacySignalArray } from '@src/integration/ai/contract/_engine/legacy-array-migration.ts';
 
 /**
- * Per-leaf I/O contract for the detect-scripts one-shot session — audit-[09]. The session may
+ * Per-leaf I/O contract for the detect-scripts one-shot session. The session may
  * emit at most one of each:
  *
  *   - `setup-script` — single shell line for the sprint-start setup gate (optional).

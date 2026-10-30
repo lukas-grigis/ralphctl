@@ -268,7 +268,7 @@ retries with `--description` when glab rejects the flag) and `glab issue comment
 **`AbortError` is the one error chains propagate transparently.** User-initiated cancellation (Ctrl+C, the
 TUI abort hotkey) flows through every wrapper without being absorbed by guards or fallbacks. Anywhere a guard
 or fallback catches errors, it MUST exempt `AbortError`. The chain's `AbortSignal` is now threaded all the
-way into `implementSession()` via `execute(input, signal)` on every headless AI leaf (generator, evaluator,
+way into the spawned `AiSession` (`signalsSession()`) via `execute(input, signal)` on every headless AI leaf (generator, evaluator,
 review, create-pr, readiness, detect-scripts, detect-skills) — the signal reaches the headless provider's
 SIGTERM→SIGKILL kill ladder, abort-aware exit classification, and cancellable rate-limit sleep. Without this
 threading a cancel would let the spawned child run to natural completion, stranding the repo lock and leaving

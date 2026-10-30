@@ -102,7 +102,6 @@ const parallelImplement = (): Element<ImplementCtx> => {
     locksRoot: absolutePath('/locks'),
     eventBus: deps.eventBus,
     maxConcurrency: 2,
-    flowId: 'implement',
     sessionId: () => 'sub',
     buildWaves: () =>
       buildWaveBranches(branchDeps, opts, plan.value.waves, buildAttemptReadConfig(deps.config.harness)),
