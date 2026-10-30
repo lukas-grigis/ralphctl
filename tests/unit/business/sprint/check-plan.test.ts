@@ -77,11 +77,10 @@ const kindsOf = (tasks: readonly TodoTask[], project: Project = makeProject()): 
 describe('checkPlanUseCase — clean plan', () => {
   it('returns an empty report for a well-formed plan', () => {
     const report = checkPlanUseCase({ project: makeProject(), tasks: [makeTodoTask()] });
-    expect(report.ok).toBe(true);
-    if (!report.ok) return;
-    expect(report.value.findings).toEqual([]);
-    expect(report.value.errorCount).toBe(0);
-    expect(report.value.warningCount).toBe(0);
+    const value = report.getOrThrow();
+    expect(value.findings).toEqual([]);
+    expect(value.errorCount).toBe(0);
+    expect(value.warningCount).toBe(0);
   });
 
   it('is infallible — an utterly broken plan still returns Result.ok', () => {
@@ -96,10 +95,9 @@ describe('checkPlanUseCase — structural (error tier)', () => {
     const task = makeTodoTask();
     const selfDep: TodoTask = { ...task, dependsOn: [task.id] };
     const report = checkPlanUseCase({ project: makeProject(), tasks: [selfDep] });
-    expect(report.ok).toBe(true);
-    if (!report.ok) return;
-    expect(report.value.findings[0]?.kind).toBe('task-graph');
-    expect(report.value.findings[0]?.detail).toContain('depends on itself');
+    const reportValue = report.getOrThrow();
+    expect(reportValue.findings[0]?.kind).toBe('task-graph');
+    expect(reportValue.findings[0]?.detail).toContain('depends on itself');
   });
 
   it('reports a dangling dependency', () => {
@@ -116,9 +114,8 @@ describe('checkPlanUseCase — structural (error tier)', () => {
       { ...b, dependsOn: [a.id] },
     ];
     const report = checkPlanUseCase({ project: makeProject(), tasks: linked });
-    expect(report.ok).toBe(true);
-    if (!report.ok) return;
-    expect(report.value.findings[0]?.detail).toContain('dependency cycle');
+    const reportValue = report.getOrThrow();
+    expect(reportValue.findings[0]?.detail).toContain('dependency cycle');
   });
 
   it('reports a repositoryId that is not on the project', () => {
@@ -228,13 +225,10 @@ describe('checkPlanUseCase — verify-gate-criterion', () => {
   it('flags an auto criterion whose command equals the verifyScript', () => {
     const project = projectWith(repoWith({ verifyScript: INCIDENT_GATE }));
     const report = checkPlanUseCase({ project, tasks: [withCriteria([auto(INCIDENT_GATE, 'C2')])] });
-    expect(report.ok).toBe(true);
-    if (!report.ok) return;
-    expect(report.value.findings).toEqual([
-      expect.objectContaining({ kind: 'verify-gate-criterion', criterionId: 'C2' }),
-    ]);
-    expect(report.value.warningCount).toBe(1);
-    expect(report.value.findings[0]?.detail).toContain("repeats the repository's post-task verify gate");
+    const value = report.getOrThrow();
+    expect(value.findings).toEqual([expect.objectContaining({ kind: 'verify-gate-criterion', criterionId: 'C2' })]);
+    expect(value.warningCount).toBe(1);
+    expect(value.findings[0]?.detail).toContain("repeats the repository's post-task verify gate");
   });
 
   it('flags the gate even when the criterion differs only in whitespace', () => {
@@ -307,11 +301,10 @@ describe('checkPlanUseCase — report shape', () => {
   it('tallies errors and warnings separately', () => {
     const bad = withCriteria([auto(''), auto('Run the tests.', 'C2'), manual('C2')]);
     const report = checkPlanUseCase({ project: makeProject(), tasks: [bad] });
-    expect(report.ok).toBe(true);
-    if (!report.ok) return;
-    expect(report.value.errorCount).toBe(1);
-    expect(report.value.warningCount).toBe(2);
-    expect(report.value.errorCount + report.value.warningCount).toBe(report.value.findings.length);
+    const value = report.getOrThrow();
+    expect(value.errorCount).toBe(1);
+    expect(value.warningCount).toBe(2);
+    expect(value.errorCount + value.warningCount).toBe(value.findings.length);
   });
 
   it('orders findings graph-first, then tasks by order ASC, then criteria in array order', () => {
@@ -322,9 +315,8 @@ describe('checkPlanUseCase — report shape', () => {
     const second = withCriteria([], { name: 'first-by-order', order: 1 });
     const dangling: TodoTask = { ...second, dependsOn: ['01900000-0000-7000-8000-0000000000cc' as TaskId] };
     const report = checkPlanUseCase({ project: makeProject(), tasks: [first, dangling] });
-    expect(report.ok).toBe(true);
-    if (!report.ok) return;
-    expect(report.value.findings.map((f) => f.kind)).toEqual([
+    const reportValue = report.getOrThrow();
+    expect(reportValue.findings.map((f) => f.kind)).toEqual([
       'task-graph',
       'no-criteria',
       'prose-command',

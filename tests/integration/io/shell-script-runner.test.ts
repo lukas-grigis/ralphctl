@@ -388,119 +388,35 @@ describe('createShellScriptRunner', () => {
     expect(Object.keys(calls[0]?.options.env ?? {}).length).toBeGreaterThan(1);
   });
 
-  describe('NO_COLOR default', () => {
-    // Persisted setup/verify logs are plain text — ANSI escape codes from vitest / eslint /
-    // tsc render as `^[[1m^[[30m…` garbage when viewed in an editor. The runner sets
-    // NO_COLOR=1 by default; modern Node / Python / Rust / Go / Ruby CLIs honour it. The
-    // default sits BEFORE process.env so a user who exports NO_COLOR= (empty) or
-    // FORCE_COLOR=1 can override; opts.env wins last.
-
-    it('defaults NO_COLOR=1 on the spawn env', async () => {
-      const originalNoColor = process.env['NO_COLOR'];
-      const originalForceColor = process.env['FORCE_COLOR'];
-      delete process.env['NO_COLOR'];
-      delete process.env['FORCE_COLOR'];
-      try {
-        const { spawn, calls } = fakeSpawn({ exitCode: 0 });
-        const runner = createShellScriptRunner({ spawn });
-        await runner.run(cwd, 'true');
-
-        expect(calls[0]?.options.env?.['NO_COLOR']).toBe('1');
-      } finally {
-        if (originalNoColor !== undefined) process.env['NO_COLOR'] = originalNoColor;
-        if (originalForceColor !== undefined) process.env['FORCE_COLOR'] = originalForceColor;
-      }
-    });
-
-    it('lets caller-supplied opts.env override the NO_COLOR default', async () => {
+  // Persisted setup/verify logs are plain text, and pnpm aborts its node_modules purge without a TTY, so the
+  // runner defaults NO_COLOR=1, CI=true and PNPM_CONFIG_FROZEN_LOCKFILE=false. Defaults sit BEFORE
+  // process.env (a user can opt out by exporting the variable, even empty); opts.env wins last.
+  describe('env defaults', () => {
+    type Env = Readonly<Record<string, string | undefined>>;
+    it.each<[string, Env, { env?: Record<string, string> }, Record<string, string>]>([
+      ['defaults NO_COLOR=1', { NO_COLOR: undefined, FORCE_COLOR: undefined }, {}, { NO_COLOR: '1' }],
+      [
+        'defaults CI=true and PNPM_CONFIG_FROZEN_LOCKFILE=false',
+        { CI: undefined, PNPM_CONFIG_FROZEN_LOCKFILE: undefined },
+        {},
+        { CI: 'true', PNPM_CONFIG_FROZEN_LOCKFILE: 'false' },
+      ],
+      ['lets a user-exported NO_COLOR win', { NO_COLOR: 'custom' }, {}, { NO_COLOR: 'custom' }],
+      ['lets a user-exported empty CI opt out', { CI: '' }, {}, { CI: '' }],
+      [
+        'lets a user-exported PNPM_CONFIG_FROZEN_LOCKFILE win',
+        { PNPM_CONFIG_FROZEN_LOCKFILE: 'true' },
+        {},
+        { PNPM_CONFIG_FROZEN_LOCKFILE: 'true' },
+      ],
+      ['lets opts.env override NO_COLOR', { NO_COLOR: undefined }, { env: { NO_COLOR: '' } }, { NO_COLOR: '' }],
+      ['lets opts.env override CI', { CI: 'true' }, { env: { CI: 'false' } }, { CI: 'false' }],
+    ])('%s', async (_title, processEnv, runOpts, expected) => {
+      for (const [key, value] of Object.entries(processEnv)) vi.stubEnv(key, value);
       const { spawn, calls } = fakeSpawn({ exitCode: 0 });
-      const runner = createShellScriptRunner({ spawn });
-      await runner.run(cwd, 'true', { env: { NO_COLOR: '' } });
+      await createShellScriptRunner({ spawn }).run(cwd, 'true', runOpts);
 
-      expect(calls[0]?.options.env?.['NO_COLOR']).toBe('');
-    });
-
-    it('lets a user-exported process.env.NO_COLOR override the default', async () => {
-      const originalNoColor = process.env['NO_COLOR'];
-      process.env['NO_COLOR'] = 'custom';
-      try {
-        const { spawn, calls } = fakeSpawn({ exitCode: 0 });
-        const runner = createShellScriptRunner({ spawn });
-        await runner.run(cwd, 'true');
-
-        expect(calls[0]?.options.env?.['NO_COLOR']).toBe('custom');
-      } finally {
-        if (originalNoColor === undefined) delete process.env['NO_COLOR'];
-        else process.env['NO_COLOR'] = originalNoColor;
-      }
-    });
-  });
-
-  describe('pnpm headless defaults (CI / frozen-lockfile)', () => {
-    // Setup/verify scripts spawn with no TTY. pnpm 11 aborts its node_modules purge without a
-    // TTY (`ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY`) and ignores every confirm-modules-purge
-    // form — `CI=true` is the only env lever that suppresses it. `PNPM_CONFIG_FROZEN_LOCKFILE=false`
-    // neutralises CI's frozen-lockfile flip so a bare `pnpm install` keeps its pre-CI (non-frozen)
-    // behaviour. Defaults sit BEFORE process.env so a user can opt out by exporting `CI=`.
-
-    it('defaults CI=true and PNPM_CONFIG_FROZEN_LOCKFILE=false on the spawn env', async () => {
-      const savedCi = process.env['CI'];
-      const savedFrozen = process.env['PNPM_CONFIG_FROZEN_LOCKFILE'];
-      delete process.env['CI'];
-      delete process.env['PNPM_CONFIG_FROZEN_LOCKFILE'];
-      try {
-        const { spawn, calls } = fakeSpawn({ exitCode: 0 });
-        const runner = createShellScriptRunner({ spawn });
-        await runner.run(cwd, 'pnpm install');
-
-        expect(calls[0]?.options.env?.['CI']).toBe('true');
-        expect(calls[0]?.options.env?.['PNPM_CONFIG_FROZEN_LOCKFILE']).toBe('false');
-      } finally {
-        if (savedCi === undefined) delete process.env['CI'];
-        else process.env['CI'] = savedCi;
-        if (savedFrozen === undefined) delete process.env['PNPM_CONFIG_FROZEN_LOCKFILE'];
-        else process.env['PNPM_CONFIG_FROZEN_LOCKFILE'] = savedFrozen;
-      }
-    });
-
-    it('lets a user-exported process.env.CI override the default (opt-out)', async () => {
-      const savedCi = process.env['CI'];
-      process.env['CI'] = '';
-      try {
-        const { spawn, calls } = fakeSpawn({ exitCode: 0 });
-        const runner = createShellScriptRunner({ spawn });
-        await runner.run(cwd, 'true');
-
-        expect(calls[0]?.options.env?.['CI']).toBe('');
-      } finally {
-        if (savedCi === undefined) delete process.env['CI'];
-        else process.env['CI'] = savedCi;
-      }
-    });
-
-    it('lets caller-supplied opts.env override the CI default', async () => {
-      const { spawn, calls } = fakeSpawn({ exitCode: 0 });
-      const runner = createShellScriptRunner({ spawn });
-      await runner.run(cwd, 'true', { env: { CI: 'false' } });
-
-      expect(calls[0]?.options.env?.['CI']).toBe('false');
-    });
-
-    it('lets a user-exported process.env.PNPM_CONFIG_FROZEN_LOCKFILE override the default', async () => {
-      // Symmetry with the CI opt-out: the frozen-lockfile default also sits before process.env, so a
-      // user who wants the frozen install (e.g. CI parity) can export it and win.
-      const savedFrozen = process.env['PNPM_CONFIG_FROZEN_LOCKFILE'];
-      process.env['PNPM_CONFIG_FROZEN_LOCKFILE'] = 'true';
-      try {
-        const { spawn, calls } = fakeSpawn({ exitCode: 0 });
-        const runner = createShellScriptRunner({ spawn });
-        await runner.run(cwd, 'pnpm install');
-
-        expect(calls[0]?.options.env?.['PNPM_CONFIG_FROZEN_LOCKFILE']).toBe('true');
-      } finally {
-        if (savedFrozen === undefined) delete process.env['PNPM_CONFIG_FROZEN_LOCKFILE'];
-        else process.env['PNPM_CONFIG_FROZEN_LOCKFILE'] = savedFrozen;
-      }
+      expect(calls[0]?.options.env).toMatchObject(expected);
     });
   });
 

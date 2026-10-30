@@ -7,10 +7,7 @@ import { Result } from '@src/domain/result.ts';
 import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
 import type { AppEvent } from '@src/business/observability/events.ts';
 import type { HeadlessAiProvider } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
-import type { ReviewSprint, Sprint } from '@src/domain/entity/sprint.ts';
-import type { SprintRepository } from '@src/domain/repository/sprint/sprint-repository.ts';
-import { withUpdate } from '@tests/fixtures/sprint-repo-update.ts';
-import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
+import type { ReviewSprint } from '@src/domain/entity/sprint.ts';
 import type { TaskRepository } from '@src/domain/repository/task/task-repository.ts';
 import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
 import { RateLimitError } from '@src/domain/value/error/rate-limit-error.ts';
@@ -40,27 +37,11 @@ import { createAppendFile } from '@src/integration/io/append-file-adapter.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import type { ReviewCtx } from '@src/application/flows/review/ctx.ts';
 import { createAtomicWriteFile } from '@src/integration/io/write-file-atomic.ts';
+import { inMemorySprintRepo } from '@tests/fixtures/in-memory-repos.ts';
 
 void makeApprovedTicket;
 const FAKE_CWD = absolutePath('/tmp/ralph/fake-cwd');
 const NOW = isoTimestamp('2026-05-09T10:00:00.000Z');
-
-const inMemorySprintRepo = (initial: Sprint): { repo: SprintRepository; current: () => Sprint } => {
-  let current: Sprint = initial;
-  return {
-    repo: withUpdate({
-      async findById(id: SprintId) {
-        if (current.id === id) return Result.ok(current);
-        return Result.error(new NotFoundError({ entity: 'sprint', id: String(id) }));
-      },
-      async save(sprint: Sprint) {
-        current = sprint;
-        return Result.ok(undefined);
-      },
-    }) as unknown as SprintRepository,
-    current: () => current,
-  };
-};
 
 const noopTaskRepo: TaskRepository = {
   async findBySprintId() {

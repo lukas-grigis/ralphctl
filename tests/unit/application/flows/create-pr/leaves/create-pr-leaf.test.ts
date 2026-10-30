@@ -4,7 +4,6 @@ import type { PullRequestCreator, PullRequestCreatorInput } from '@src/business/
 import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { SprintExecution } from '@src/domain/entity/sprint-execution.ts';
 import { createSprintExecution, setExecutionBranch } from '@src/domain/entity/sprint-execution.ts';
-import type { SprintExecutionRepository } from '@src/domain/repository/sprint/sprint-execution-repository.ts';
 import type { SprintRepository } from '@src/domain/repository/sprint/sprint-repository.ts';
 import type { FindTasksBySprintId } from '@src/domain/repository/task/find-tasks-by-sprint-id.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
@@ -26,6 +25,7 @@ import { emptySkillSource, noopSkillsAdapter } from '@tests/fixtures/skills-fake
 import { createCreatePrLeaf } from '@src/application/flows/create-pr/leaves/create-pr-leaf.ts';
 import type { CreatePrDeps } from '@src/application/flows/create-pr/deps.ts';
 import type { CreatePrCtx } from '@src/application/flows/create-pr/ctx.ts';
+import { inMemoryExecutionRepo } from '@tests/fixtures/in-memory-repos.ts';
 
 /**
  * The create-pr leaf threads PR title + body via this precedence:
@@ -42,21 +42,6 @@ const fakeSprintRepo = (sprint: Sprint): SprintRepository =>
       return Result.error(new NotFoundError({ entity: 'sprint', id: String(id) }));
     },
   }) as SprintRepository;
-
-const inMemoryExecutionRepo = (initial: SprintExecution): SprintExecutionRepository =>
-  ({
-    async findById(id: SprintId) {
-      if (id !== initial.sprintId)
-        return Result.error(new NotFoundError({ entity: 'sprint-execution', id: String(id) }));
-      return Result.ok(initial);
-    },
-    async save() {
-      return Result.ok(undefined);
-    },
-    async remove() {
-      return Result.ok(undefined);
-    },
-  }) as SprintExecutionRepository;
 
 const stubGit: GitRunner = {
   async run() {
@@ -91,7 +76,7 @@ const captureCreator = (): { creator: PullRequestCreator; calls: PullRequestCrea
 
 const buildDeps = (sprint: Sprint, exec: SprintExecution, creator: PullRequestCreator): CreatePrDeps => ({
   sprintRepo: fakeSprintRepo(sprint),
-  sprintExecutionRepo: inMemoryExecutionRepo(exec),
+  sprintExecutionRepo: inMemoryExecutionRepo(exec).repo,
   taskRepo: {
     async findBySprintId() {
       return Result.ok([]);

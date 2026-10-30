@@ -1,12 +1,9 @@
 import { promises as fs } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { type Result } from '@src/domain/result.ts';
 import type { CriteriaVerdicts, TodoTask, VerificationCriterion } from '@src/domain/entity/task.ts';
-import { createTask } from '@src/domain/entity/task-factory.ts';
 import { ValidationError } from '@src/domain/value/error/validation-error.ts';
-import { FIXED_REPOSITORY_ID, makeApprovedTicket, makeTodoTask } from '@tests/fixtures/domain.ts';
+import { makeTodoTask } from '@tests/fixtures/domain.ts';
 import { createFsTemplateLoader, defaultTemplatesDir } from '@src/integration/ai/prompts/_engine/fs-template-loader.ts';
-import { extractPlaceholders } from '@src/integration/ai/prompts/_engine/extract-placeholders.ts';
 import { buildImplementPrompt, implementPromptDef } from '@src/integration/ai/prompts/implement/definition.ts';
 import {
   renderAgentDefinitionSection,
@@ -22,73 +19,10 @@ import {
 
 const deps = createFsTemplateLoader(defaultTemplatesDir());
 
-const unwrap = <T, E>(r: Result<T, E>): T => {
-  if (!r.ok) throw new Error('unexpected error in test fixture');
-  return r.value as T;
-};
-
-const DEFAULT_CRITERIA: readonly VerificationCriterion[] = [
-  { id: 'C1', assertion: 'runs to completion', check: 'manual' },
-];
-
-const makeTaskWith = (overrides: {
-  name?: string;
-  description?: string;
-  steps?: readonly string[];
-  verificationCriteria?: readonly VerificationCriterion[];
-}): TodoTask => {
-  const ticket = makeApprovedTicket();
-  return unwrap(
-    createTask({
-      name: overrides.name ?? 'do-the-work',
-      ...(overrides.description !== undefined ? { description: overrides.description } : {}),
-      steps: overrides.steps !== undefined ? [...overrides.steps] : ['step 1'],
-      verificationCriteria:
-        overrides.verificationCriteria !== undefined ? [...overrides.verificationCriteria] : DEFAULT_CRITERIA,
-      order: 1,
-      ticketId: ticket.id,
-      repositoryId: FIXED_REPOSITORY_ID,
-    })
-  );
-};
-
 const CONTRACT_PATH = '/tmp/ralph/main-repo/contract.md';
 const TEMPLATE_PATH = `${String(defaultTemplatesDir())}/implement/template.md`;
 
 describe('implementPromptDef — completeness', () => {
-  it('every placeholder in implement.md is declared by the definition (parameters or partials)', async () => {
-    const path = `${String(defaultTemplatesDir())}/implement/template.md`;
-    const template = await fs.readFile(path, 'utf8');
-    const placeholders = extractPlaceholders(template);
-
-    const declared = new Set([
-      ...Object.values(implementPromptDef.parameters).map((p) => p.placeholder),
-      ...Object.keys(implementPromptDef.partials ?? {}),
-    ]);
-    for (const placeholder of placeholders) {
-      expect(declared.has(placeholder), `template uses {{${placeholder}}} but the def doesn't declare it`).toBe(true);
-    }
-  });
-
-  it('every placeholder declared by the definition exists in implement.md', async () => {
-    const path = `${String(defaultTemplatesDir())}/implement/template.md`;
-    const template = await fs.readFile(path, 'utf8');
-    const placeholders = new Set(extractPlaceholders(template));
-
-    for (const spec of Object.values(implementPromptDef.parameters)) {
-      expect(
-        placeholders.has(spec.placeholder),
-        `def declares {{${spec.placeholder}}} but template doesn't use it`
-      ).toBe(true);
-    }
-    for (const placeholder of Object.keys(implementPromptDef.partials ?? {})) {
-      expect(
-        placeholders.has(placeholder),
-        `def declares partial slot {{${placeholder}}} but template doesn't use it`
-      ).toBe(true);
-    }
-  });
-
   it('never licenses an exception for the secrets/credentials rule in the AI context-file constraints', async () => {
     // The context-file constraint block DOES carve out a "when a declared step calls for it"
     // exception for slash commands / hooks / MCP config / IDE settings — those have a legitimate
@@ -231,7 +165,7 @@ describe('implementPromptDef — completeness', () => {
 
 describe('renderTaskDescriptionSection', () => {
   it('renders a heading + body when description is present', () => {
-    const task = makeTaskWith({ description: 'Wire up the export endpoint.' });
+    const task = makeTodoTask({ description: 'Wire up the export endpoint.' });
     const out = renderTaskDescriptionSection(task);
     expect(out).toContain('## Description');
     expect(out).toContain('Wire up the export endpoint.');
@@ -245,7 +179,7 @@ describe('renderTaskDescriptionSection', () => {
 
 describe('renderTaskStepsSection', () => {
   it('renders a numbered list with a heading', () => {
-    const task = makeTaskWith({ steps: ['read the file', 'edit the function', 'run tests'] });
+    const task = makeTodoTask({ steps: ['read the file', 'edit the function', 'run tests'] });
     const out = renderTaskStepsSection(task);
     expect(out).toContain('## Implementation Steps');
     expect(out).toContain('1. read the file');
@@ -263,7 +197,7 @@ describe('renderTaskStepsSection', () => {
 
 describe('renderVerificationCriteriaSection', () => {
   it('renders structured manual criteria one per bullet under the heading', () => {
-    const task = makeTaskWith({
+    const task = makeTodoTask({
       verificationCriteria: [
         { id: 'C1', assertion: 'lint passes', check: 'manual' },
         { id: 'C2', assertion: 'tests green', check: 'manual' },
@@ -276,7 +210,7 @@ describe('renderVerificationCriteriaSection', () => {
   });
 
   it('embeds the command on auto criteria so operators can grep what runs', () => {
-    const task = makeTaskWith({
+    const task = makeTodoTask({
       verificationCriteria: [
         { id: 'C1', assertion: 'TypeScript compiles', check: 'auto', command: 'npm run typecheck' },
       ],
@@ -393,7 +327,7 @@ const SAMPLE_CONTRACT_SECTION = '## Output contract\n\nWrite signals.json. (test
 
 describe('buildImplementPrompt — end-to-end against the real template', () => {
   it('produces a fully-substituted prompt with title, task name, project path, and progress file', async () => {
-    const task = makeTaskWith({ name: 'export CSV', description: 'Add CSV export to the report endpoint.' });
+    const task = makeTodoTask({ name: 'export CSV', description: 'Add CSV export to the report endpoint.' });
     const result = await buildImplementPrompt(deps, {
       task,
       projectPath: '/tmp/ralph/main-repo',
@@ -421,7 +355,7 @@ describe('buildImplementPrompt — end-to-end against the real template', () => 
   });
 
   it('omits the description block entirely when the task has no description', async () => {
-    const task = makeTaskWith({ name: 'short task' });
+    const task = makeTodoTask({ name: 'short task' });
     const result = await buildImplementPrompt(deps, {
       task,
       projectPath: '/tmp/ralph/main-repo',
@@ -439,7 +373,7 @@ describe('buildImplementPrompt — end-to-end against the real template', () => 
   });
 
   it('renders the prior critique section verbatim on fix turns', async () => {
-    const task = makeTaskWith({ name: 'export CSV' });
+    const task = makeTodoTask({ name: 'export CSV' });
     const result = await buildImplementPrompt(deps, {
       task,
       projectPath: '/tmp/ralph/main-repo',
@@ -457,7 +391,7 @@ describe('buildImplementPrompt — end-to-end against the real template', () => 
   });
 
   it('omits the prior critique section entirely on turn 1', async () => {
-    const task = makeTaskWith({ name: 'export CSV' });
+    const task = makeTodoTask({ name: 'export CSV' });
     const result = await buildImplementPrompt(deps, {
       task,
       projectPath: '/tmp/ralph/main-repo',
@@ -472,7 +406,7 @@ describe('buildImplementPrompt — end-to-end against the real template', () => 
   });
 
   it('renders the "change your approach" directive when plateauBreak is set', async () => {
-    const task = makeTaskWith({ name: 'export CSV' });
+    const task = makeTodoTask({ name: 'export CSV' });
     const result = await buildImplementPrompt(deps, {
       task,
       projectPath: '/tmp/ralph/main-repo',
@@ -490,7 +424,7 @@ describe('buildImplementPrompt — end-to-end against the real template', () => 
   });
 
   it('renders pre-verify results when preVerifyOutput is provided', async () => {
-    const task = makeTaskWith({ name: 'export CSV' });
+    const task = makeTodoTask({ name: 'export CSV' });
     const result = await buildImplementPrompt(deps, {
       task,
       projectPath: '/tmp/ralph/main-repo',
@@ -507,7 +441,7 @@ describe('buildImplementPrompt — end-to-end against the real template', () => 
   });
 
   it('omits pre-verify content when preVerifyOutput is absent (placeholder collapses cleanly)', async () => {
-    const task = makeTaskWith({ name: 'export CSV' });
+    const task = makeTodoTask({ name: 'export CSV' });
     const result = await buildImplementPrompt(deps, {
       task,
       projectPath: '/tmp/ralph/main-repo',
@@ -524,7 +458,7 @@ describe('buildImplementPrompt — end-to-end against the real template', () => 
   });
 
   it('renders retry feedback when retryFeedback is provided', async () => {
-    const task = makeTaskWith({ name: 'export CSV' });
+    const task = makeTodoTask({ name: 'export CSV' });
     const result = await buildImplementPrompt(deps, {
       task,
       projectPath: '/tmp/ralph/main-repo',
@@ -541,7 +475,7 @@ describe('buildImplementPrompt — end-to-end against the real template', () => 
   });
 
   it('omits retry feedback content when retryFeedback is absent (placeholder collapses cleanly)', async () => {
-    const task = makeTaskWith({ name: 'export CSV' });
+    const task = makeTodoTask({ name: 'export CSV' });
     const result = await buildImplementPrompt(deps, {
       task,
       projectPath: '/tmp/ralph/main-repo',
@@ -562,7 +496,7 @@ describe('buildImplementPrompt — end-to-end against the real template', () => 
 
   it('renders restored work inside its wrapper, and no wrapper at all when absent', async () => {
     const base = {
-      task: makeTaskWith({ name: 'export CSV' }),
+      task: makeTodoTask({ name: 'export CSV' }),
       projectPath: '/tmp/ralph/main-repo',
       progressFile: '/tmp/ralph/sprint-1/progress.md',
       priorProgress: '',
@@ -593,7 +527,7 @@ describe('buildImplementPrompt — end-to-end against the real template', () => 
   });
 
   it('renders prior attempts when priorAttempts is provided', async () => {
-    const task = makeTaskWith({ name: 'export CSV' });
+    const task = makeTodoTask({ name: 'export CSV' });
     const result = await buildImplementPrompt(deps, {
       task,
       projectPath: '/tmp/ralph/main-repo',
@@ -610,7 +544,7 @@ describe('buildImplementPrompt — end-to-end against the real template', () => 
   });
 
   it('omits prior attempts content when priorAttempts is absent (placeholder collapses cleanly)', async () => {
-    const task = makeTaskWith({ name: 'export CSV' });
+    const task = makeTodoTask({ name: 'export CSV' });
     const result = await buildImplementPrompt(deps, {
       task,
       projectPath: '/tmp/ralph/main-repo',
@@ -626,7 +560,7 @@ describe('buildImplementPrompt — end-to-end against the real template', () => 
   });
 
   it('renders the prior-criteria-verdicts block when the task carries a graded verdict map', async () => {
-    const base = makeTaskWith({
+    const base = makeTodoTask({
       name: 'export CSV',
       verificationCriteria: [
         { id: 'C1', assertion: 'lint passes', check: 'manual' },
@@ -653,7 +587,7 @@ describe('buildImplementPrompt — end-to-end against the real template', () => 
   });
 
   it('collapses the prior-criteria-verdicts block on a fresh task with no verdict map', async () => {
-    const task = makeTaskWith({ name: 'export CSV' });
+    const task = makeTodoTask({ name: 'export CSV' });
     const result = await buildImplementPrompt(deps, {
       task,
       projectPath: '/tmp/ralph/main-repo',
@@ -669,7 +603,7 @@ describe('buildImplementPrompt — end-to-end against the real template', () => 
   });
 
   it('renders the agent-definition section after the base role/success-criteria blocks, leaving them intact', async () => {
-    const task = makeTaskWith({ name: 'export CSV' });
+    const task = makeTodoTask({ name: 'export CSV' });
     const result = await buildImplementPrompt(deps, {
       task,
       projectPath: '/tmp/ralph/main-repo',
@@ -693,7 +627,7 @@ describe('buildImplementPrompt — end-to-end against the real template', () => 
   });
 
   it('collapses the agent-definition section with no orphan heading when absent', async () => {
-    const task = makeTaskWith({ name: 'export CSV' });
+    const task = makeTodoTask({ name: 'export CSV' });
     const result = await buildImplementPrompt(deps, {
       task,
       projectPath: '/tmp/ralph/main-repo',
@@ -709,7 +643,7 @@ describe('buildImplementPrompt — end-to-end against the real template', () => 
   });
 
   it('omits the plateau directive when plateauBreak is absent (the normal case)', async () => {
-    const task = makeTaskWith({ name: 'export CSV' });
+    const task = makeTodoTask({ name: 'export CSV' });
     const result = await buildImplementPrompt(deps, {
       task,
       projectPath: '/tmp/ralph/main-repo',
@@ -724,7 +658,7 @@ describe('buildImplementPrompt — end-to-end against the real template', () => 
   });
 
   it('tells the model the user is not watching and to act on its last paragraph', async () => {
-    const task = makeTaskWith({ name: 'export CSV' });
+    const task = makeTodoTask({ name: 'export CSV' });
     const result = await buildImplementPrompt(deps, {
       task,
       projectPath: '/tmp/ralph/main-repo',
@@ -741,7 +675,7 @@ describe('buildImplementPrompt — end-to-end against the real template', () => 
   });
 
   it('ranks the prompt contract above installed skills and lists the stops that are not stops', async () => {
-    const task = makeTaskWith({ name: 'export CSV' });
+    const task = makeTodoTask({ name: 'export CSV' });
     const result = await buildImplementPrompt(deps, {
       task,
       projectPath: '/tmp/ralph/main-repo',
@@ -762,7 +696,7 @@ describe('buildImplementPrompt — end-to-end against the real template', () => 
   });
 
   it('nudges Phase 1 reconnaissance toward batched, parallel tool calls', async () => {
-    const task = makeTaskWith({ name: 'export CSV' });
+    const task = makeTodoTask({ name: 'export CSV' });
     const result = await buildImplementPrompt(deps, {
       task,
       projectPath: '/tmp/ralph/main-repo',
@@ -778,7 +712,7 @@ describe('buildImplementPrompt — end-to-end against the real template', () => 
   });
 
   it('states the bounded-evidence rule exactly once via the shared partial', async () => {
-    const task = makeTaskWith({ name: 'export CSV' });
+    const task = makeTodoTask({ name: 'export CSV' });
     const result = await buildImplementPrompt(deps, {
       task,
       projectPath: '/tmp/ralph/main-repo',

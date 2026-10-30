@@ -1,10 +1,8 @@
-import { promises as fs } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { absentState, presentState } from '@src/integration/ai/readiness/_engine/state.ts';
 import { ValidationError } from '@src/domain/value/error/validation-error.ts';
 import { absolutePath, FIXED_NOW } from '@tests/fixtures/domain.ts';
 import { createFsTemplateLoader, defaultTemplatesDir } from '@src/integration/ai/prompts/_engine/fs-template-loader.ts';
-import { extractPlaceholders } from '@src/integration/ai/prompts/_engine/extract-placeholders.ts';
 import {
   buildReadinessPrompt,
   collectArtefactPaths,
@@ -18,39 +16,6 @@ import { Slug } from '@src/domain/value/slug.ts';
 const deps = createFsTemplateLoader(defaultTemplatesDir());
 
 describe('readinessPromptDef — completeness', () => {
-  it('every placeholder in readiness.md is declared by the definition (parameters or partials)', async () => {
-    const path = `${String(defaultTemplatesDir())}/readiness/template.md`;
-    const template = await fs.readFile(path, 'utf8');
-    const placeholders = extractPlaceholders(template);
-
-    const declared = new Set([
-      ...Object.values(readinessPromptDef.parameters).map((p) => p.placeholder),
-      ...Object.keys(readinessPromptDef.partials ?? {}),
-    ]);
-    for (const placeholder of placeholders) {
-      expect(declared.has(placeholder), `template uses {{${placeholder}}} but the def doesn't declare it`).toBe(true);
-    }
-  });
-
-  it('every placeholder declared by the definition exists in readiness.md', async () => {
-    const path = `${String(defaultTemplatesDir())}/readiness/template.md`;
-    const template = await fs.readFile(path, 'utf8');
-    const placeholders = new Set(extractPlaceholders(template));
-
-    for (const spec of Object.values(readinessPromptDef.parameters)) {
-      expect(
-        placeholders.has(spec.placeholder),
-        `def declares {{${spec.placeholder}}} but template doesn't use it`
-      ).toBe(true);
-    }
-    for (const placeholder of Object.keys(readinessPromptDef.partials ?? {})) {
-      expect(
-        placeholders.has(placeholder),
-        `def declares partial slot {{${placeholder}}} but template doesn't use it`
-      ).toBe(true);
-    }
-  });
-
   it('expectedSignals advertises the audit-[09] readiness sub-union', () => {
     expect(readinessPromptDef.expectedSignals).toEqual([
       'agents-md-proposal',

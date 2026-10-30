@@ -77,683 +77,672 @@ import {
   slug,
 } from '@tests/fixtures/domain.ts';
 
-// ─── skip on Windows — real file-system + git tests are posix-heavy ──────────
-if (process.platform === 'win32') {
-  describe.skip('full-stack implement→review→close (skipped on Windows)', () => {
-    it.skip('placeholder', () => undefined);
-  });
-} else {
-  runTests();
+// Worktrees and shell fixtures are posix-heavy.
+const describePosix = describe.skipIf(process.platform === 'win32');
+
+// ─── Constants ─────────────────────────────────────────────────────────────
+const SPRINT_BRANCH = 'ralphctl/full-stack-test';
+const FAKE_PROJECT_ID = 'proj-fullstack-e2e';
+const FAKE_PROJECT_SLUG = slug('proj-fullstack-e2e');
+
+// ─── Signal builders ───────────────────────────────────────────────────────
+const taskVerified = (output: string): HarnessSignal => ({ type: 'task-verified', output, timestamp: FIXED_NOW });
+const evaluationPassed = (): EvaluationSignal => ({
+  type: 'evaluation',
+  status: 'passed',
+  dimensions: [
+    { dimension: 'correctness', passed: true, finding: 'all good' },
+    { dimension: 'completeness', passed: true, finding: 'steps shipped' },
+    { dimension: 'safety', passed: true, finding: 'inputs validated' },
+    { dimension: 'consistency', passed: true, finding: 'matches siblings' },
+    { dimension: 'robustness', passed: true, finding: 'error paths handled' },
+  ],
+  timestamp: FIXED_NOW,
+});
+const evaluationFailed = (critique: string): EvaluationSignal => ({
+  type: 'evaluation',
+  status: 'failed',
+  dimensions: [
+    { dimension: 'correctness', passed: false, finding: critique },
+    { dimension: 'completeness', passed: true, finding: 'steps shipped' },
+    { dimension: 'safety', passed: true, finding: 'inputs validated' },
+    { dimension: 'consistency', passed: true, finding: 'matches siblings' },
+    { dimension: 'robustness', passed: true, finding: 'error paths handled' },
+  ],
+  critique,
+  timestamp: FIXED_NOW,
+});
+
+// ─── GitRunner fake — serial implement path ────────────────────────────────
+/**
+ * Scripted git runner for the serial implement path. Models a branch-resolved working tree
+ * (pre-set to SPRINT_BRANCH) so resolveBranchLeaf takes the resume path without prompting.
+ * Status starts clean; flips dirty in a commit window then back to clean after each commit.
+ */
+const okGit = (stdout = '', exitCode = 0): Result<GitRunResult, StorageError> =>
+  Result.ok({ stdout, stderr: '', exitCode });
+
+const makeScriptedGit = (): GitRunner => {
+  let head = SPRINT_BRANCH;
+  let preflightStatusesRemaining = 1; // pre-setup preflight-task (dirty-tree gate)
+  let cleanAfterCommit = false;
+  let taskCommits = 0;
+  const sha = (i: number): string =>
+    String(i)
+      .padStart(40, '0')
+      .replace(/[^0-9a-f]/gi, '0');
+
+  return {
+    async run(_, args) {
+      if (args[0] === 'status' && args[1] === '--porcelain') {
+        if (preflightStatusesRemaining > 0) {
+          preflightStatusesRemaining -= 1;
+          return okGit('', 0);
+        }
+        if (cleanAfterCommit) {
+          cleanAfterCommit = false;
+          return okGit('', 0);
+        }
+        return okGit(' M file\n', 0);
+      }
+      if (args[0] === 'add' && args[1] === '-A') return okGit('', 0);
+      if (args[0] === 'stash' && args[1] === 'push') return okGit('Saved working directory\n', 0);
+      if (args[0] === 'commit' && args[1] === '-m') {
+        cleanAfterCommit = true;
+        return okGit('', 0);
+      }
+      if (args[0] === 'rev-parse' && args[1] === 'HEAD') {
+        taskCommits += 1;
+        return okGit(`${sha(taskCommits)}\n`, 0);
+      }
+      if (args[0] === 'rev-parse' && args[1] === '--abbrev-ref' && args[2] === 'HEAD') return okGit(`${head}\n`, 0);
+      if (args[0] === 'show-ref') return okGit(`abc123 refs/heads/${head}\n`, 0);
+      if (args[0] === 'checkout') {
+        const target = args[1] === '-b' ? args[2] : args[1];
+        if (target !== undefined) head = target;
+        return okGit('', 0);
+      }
+      if (args[0] === 'diff' && args[1] === 'HEAD') return okGit('@@ -1 +1 @@\n-old\n+new\n', 0);
+      if (args[0] === 'ls-files') return okGit('', 0);
+      return okGit('', 0);
+    },
+  };
+};
+
+// ─── ShellScriptRunner — always passes ────────────────────────────────────
+const passingShell: ShellScriptRunner = {
+  async run() {
+    return Result.ok({ passed: true, exitCode: 0, output: '', durationMs: 0 });
+  },
+};
+
+// ─── InteractivePrompt — throws on any call ────────────────────────────────
+const unusedInteractive: InteractivePrompt = {
+  async askText() {
+    throw new Error('full-stack: askText not expected');
+  },
+  async askTextArea() {
+    throw new Error('full-stack: askTextArea not expected');
+  },
+  async askChoice() {
+    throw new Error('full-stack: askChoice not expected');
+  },
+  async askMultiChoice() {
+    throw new Error('full-stack: askMultiChoice not expected');
+  },
+  async askConfirm() {
+    throw new Error('full-stack: askConfirm not expected');
+  },
+};
+
+// ─── ImplementDeps builder from real wired repos ──────────────────────────
+/**
+ * Build ImplementDeps from the real wired graph (R1 constraint). The implement launcher
+ * bypasses app.deps.provider and builds per-role providers from settings; so we must
+ * supply the fake directly as generatorProvider/evaluatorProvider here.
+ */
+const buildImplementDeps = (
+  app: RealFsApp,
+  provider: ImplementDeps['generatorProvider'],
+  gitRunner: GitRunner,
+  locksDir: string
+): ImplementDeps => ({
+  sprintRepo: app.deps.sprintRepo,
+  sprintExecutionRepo: app.deps.sprintExecutionRepo,
+  taskRepo: app.deps.taskRepo,
+  generatorProvider: provider,
+  evaluatorProvider: provider,
+  templateLoader: createFsTemplateLoader(defaultTemplatesDir()),
+  publishSignal: () => {},
+  eventBus: createInMemoryEventBus(),
+  logger: noopLogger,
+  clock: () => FIXED_LATER,
+  config: {
+    harness: {
+      maxTurns: 5,
+      maxAttempts: 2,
+      rateLimitRetries: 0,
+      plateauThreshold: 2,
+      correctiveRetries: 2,
+      escalateOnPlateau: false,
+      escalationMap: {},
+      skipPreVerifyOnFreshSetup: false,
+    },
+  },
+  gitRunner,
+  shellScriptRunner: passingShell,
+  fileLocker: createFileLocker(),
+  locksRoot: absolutePath(locksDir),
+  skillsAdapter: noopSkillsAdapter,
+  skillSource: emptySkillSource,
+  generatorAgentDefinitionAdapter: noopAgentDefinitionAdapter,
+  evaluatorAgentDefinitionAdapter: noopAgentDefinitionAdapter,
+  interactive: unusedInteractive,
+  writeFile: createAtomicWriteFile(),
+  appendFile: createAppendFile(),
+  journalMutex: createFoldQueue(),
+  ledgerMutex: createFoldQueue(),
+});
+
+// ─── Fixture setup helpers ─────────────────────────────────────────────────
+interface FullStackFixture {
+  readonly app: RealFsApp;
+  readonly fakeProject: FakeProject;
+  readonly sprintDir: string;
+  readonly progressFile: string;
+  readonly reviewDir: string;
+  readonly feedbackFile: string;
+  readonly locksDir: string;
+  cleanup(): Promise<void>;
 }
 
-function runTests(): void {
-  // ─── Constants ─────────────────────────────────────────────────────────────
-  const SPRINT_BRANCH = 'ralphctl/full-stack-test';
-  const FAKE_PROJECT_ID = 'proj-fullstack-e2e';
-  const FAKE_PROJECT_SLUG = slug('proj-fullstack-e2e');
-
-  // ─── Signal builders ───────────────────────────────────────────────────────
-  const taskVerified = (output: string): HarnessSignal => ({ type: 'task-verified', output, timestamp: FIXED_NOW });
-  const evaluationPassed = (): EvaluationSignal => ({
-    type: 'evaluation',
-    status: 'passed',
-    dimensions: [
-      { dimension: 'correctness', passed: true, finding: 'all good' },
-      { dimension: 'completeness', passed: true, finding: 'steps shipped' },
-      { dimension: 'safety', passed: true, finding: 'inputs validated' },
-      { dimension: 'consistency', passed: true, finding: 'matches siblings' },
-      { dimension: 'robustness', passed: true, finding: 'error paths handled' },
-    ],
-    timestamp: FIXED_NOW,
-  });
-  const evaluationFailed = (critique: string): EvaluationSignal => ({
-    type: 'evaluation',
-    status: 'failed',
-    dimensions: [
-      { dimension: 'correctness', passed: false, finding: critique },
-      { dimension: 'completeness', passed: true, finding: 'steps shipped' },
-      { dimension: 'safety', passed: true, finding: 'inputs validated' },
-      { dimension: 'consistency', passed: true, finding: 'matches siblings' },
-      { dimension: 'robustness', passed: true, finding: 'error paths handled' },
-    ],
-    critique,
-    timestamp: FIXED_NOW,
+/**
+ * Build a fixture with real AppDeps, a fake git project, and persisted domain state.
+ * The execution is pre-set to SPRINT_BRANCH so resolveBranchLeaf takes the resume path
+ * without any interactive prompt.
+ */
+const buildFixture = async (taskCount: number): Promise<FullStackFixture> => {
+  const app = await createRealFsApp();
+  const fakeProject = await createFakeProject({
+    seed: { 'README.md': '# full-stack test repo\n', '.gitignore': 'node_modules/\n' },
   });
 
-  // ─── GitRunner fake — serial implement path ────────────────────────────────
-  /**
-   * Scripted git runner for the serial implement path. Models a branch-resolved working tree
-   * (pre-set to SPRINT_BRANCH) so resolveBranchLeaf takes the resume path without prompting.
-   * Status starts clean; flips dirty in a commit window then back to clean after each commit.
-   */
-  const okGit = (stdout = '', exitCode = 0): Result<GitRunResult, StorageError> =>
-    Result.ok({ stdout, stderr: '', exitCode });
+  // Create the sprint branch in the fake project.
+  await fakeProject.git('checkout', '-b', SPRINT_BRANCH);
 
-  const makeScriptedGit = (): GitRunner => {
-    let head = SPRINT_BRANCH;
-    let preflightStatusesRemaining = 1; // pre-setup preflight-task (dirty-tree gate)
-    let cleanAfterCommit = false;
-    let taskCommits = 0;
-    const sha = (i: number): string =>
-      String(i)
-        .padStart(40, '0')
-        .replace(/[^0-9a-f]/gi, '0');
+  // Create domain fixtures.
+  const ticket = makeApprovedTicket({ title: 'full-stack-ticket' });
+  const sprint = makePlannedSprint({ tickets: [ticket] });
 
-    return {
-      async run(_, args) {
-        if (args[0] === 'status' && args[1] === '--porcelain') {
-          if (preflightStatusesRemaining > 0) {
-            preflightStatusesRemaining -= 1;
-            return okGit('', 0);
-          }
-          if (cleanAfterCommit) {
-            cleanAfterCommit = false;
-            return okGit('', 0);
-          }
-          return okGit(' M file\n', 0);
-        }
-        if (args[0] === 'add' && args[1] === '-A') return okGit('', 0);
-        if (args[0] === 'stash' && args[1] === 'push') return okGit('Saved working directory\n', 0);
-        if (args[0] === 'commit' && args[1] === '-m') {
-          cleanAfterCommit = true;
-          return okGit('', 0);
-        }
-        if (args[0] === 'rev-parse' && args[1] === 'HEAD') {
-          taskCommits += 1;
-          return okGit(`${sha(taskCommits)}\n`, 0);
-        }
-        if (args[0] === 'rev-parse' && args[1] === '--abbrev-ref' && args[2] === 'HEAD') return okGit(`${head}\n`, 0);
-        if (args[0] === 'show-ref') return okGit(`abc123 refs/heads/${head}\n`, 0);
-        if (args[0] === 'checkout') {
-          const target = args[1] === '-b' ? args[2] : args[1];
-          if (target !== undefined) head = target;
-          return okGit('', 0);
-        }
-        if (args[0] === 'diff' && args[1] === 'HEAD') return okGit('@@ -1 +1 @@\n-old\n+new\n', 0);
-        if (args[0] === 'ls-files') return okGit('', 0);
-        return okGit('', 0);
-      },
-    };
-  };
+  // Persist sprint via the real repo.
+  const saveSprint = await app.deps.sprintRepo.save(sprint as Sprint);
+  if (!saveSprint.ok) throw new Error(`save sprint failed: ${saveSprint.error.message}`);
 
-  // ─── ShellScriptRunner — always passes ────────────────────────────────────
-  const passingShell: ShellScriptRunner = {
-    async run() {
-      return Result.ok({ passed: true, exitCode: 0, output: '', durationMs: 0 });
+  // Persist execution (pre-set branch so resolveBranchLeaf takes the resume path).
+  const execution: SprintExecution = setExecutionBranch(createSprintExecution({ sprintId: sprint.id }), SPRINT_BRANCH);
+  const saveExec = await app.deps.sprintExecutionRepo.save(execution);
+  if (!saveExec.ok) throw new Error(`save execution failed: ${saveExec.error.message}`);
+
+  // Create tasks and persist them.
+  const tasks = Array.from({ length: taskCount }, (_, i) =>
+    makeTodoTask({
+      name: `task-${String(i + 1)}`,
+      order: i + 1,
+      ticketId: ticket.id,
+      repositoryId: FIXED_REPOSITORY_ID,
+    })
+  );
+  const saveTasks = await app.deps.taskRepo.saveAll(sprint.id, tasks);
+  if (!saveTasks.ok) throw new Error(`save tasks failed: ${saveTasks.error.message}`);
+
+  // The repo writes the slugged `<id>--<slug>/` dir; point the flow at THAT dir rather than the
+  // helper's bare `<id>/` path so sprint-dir artifacts land beside sprint.json.
+  const sprintDir = (await resolveSprintDir(app.paths.dataRoot, sprint.id)) ?? app.sprintDir(sprint.id);
+  const progressFile = join(sprintDir, 'progress.md');
+  const reviewDir = join(sprintDir, 'review');
+  const feedbackFile = join(sprintDir, 'feedback.md');
+  const locksDir = join(String(app.home), 'locks');
+
+  await fs.mkdir(sprintDir, { recursive: true });
+  await fs.mkdir(reviewDir, { recursive: true });
+  await fs.mkdir(locksDir, { recursive: true });
+
+  return {
+    app,
+    fakeProject,
+    sprintDir,
+    progressFile,
+    reviewDir,
+    feedbackFile,
+    locksDir,
+    async cleanup() {
+      await app.cleanup();
+      await fakeProject.cleanup();
     },
   };
+};
 
-  // ─── InteractivePrompt — throws on any call ────────────────────────────────
-  const unusedInteractive: InteractivePrompt = {
+/**
+ * Load the single sprint from the real repo. Throws when absent.
+ */
+const loadSprint = async (app: RealFsApp) => {
+  const listResult = await app.deps.sprintRepo.list();
+  if (!listResult.ok) throw new Error(`list sprints failed: ${listResult.error.message}`);
+  const sprint = listResult.value[0];
+  if (sprint === undefined) throw new Error('no sprint found in repo');
+  return sprint;
+};
+
+/**
+ * Run the implement flow using real deps and a scripted provider. Returns the runner.
+ */
+const runImplement = async (
+  fixture: FullStackFixture,
+  provider: ImplementDeps['generatorProvider'],
+  overrides: { readonly shellScriptRunner?: ShellScriptRunner; readonly verifyScript?: string } = {}
+) => {
+  const storedSprint = await loadSprint(fixture.app);
+  const tasksResult = await fixture.app.deps.taskRepo.findBySprintId(storedSprint.id);
+  if (!tasksResult.ok) throw new Error('find tasks failed');
+
+  const repoPath = fixture.fakeProject.path;
+  const repoMap = new Map([
+    [
+      FIXED_REPOSITORY_ID,
+      {
+        path: absolutePath(repoPath),
+        name: 'test-repo',
+        ...(overrides.verifyScript !== undefined ? { verifyScript: overrides.verifyScript } : {}),
+      },
+    ],
+  ]);
+
+  const implementDeps: ImplementDeps = {
+    ...buildImplementDeps(fixture.app, provider, makeScriptedGit(), fixture.locksDir),
+    ...(overrides.shellScriptRunner !== undefined ? { shellScriptRunner: overrides.shellScriptRunner } : {}),
+  };
+
+  const flow = createImplementFlow(implementDeps, {
+    sprintId: storedSprint.id,
+    todoTasks: tasksResult.value.filter((t) => t.status === 'todo' || t.status === 'in_progress'),
+    repositories: repoMap,
+    progressFile: absolutePath(fixture.progressFile),
+    sprintDir: absolutePath(fixture.sprintDir),
+    generatorProviderId: 'claude-code',
+    generatorModel: 'claude-opus-4-8',
+    evaluatorProviderId: 'claude-code',
+    evaluatorModel: 'claude-opus-4-8',
+    memoryRoot: fixture.app.paths.memoryRoot,
+    projectId: FAKE_PROJECT_ID,
+    projectSlug: FAKE_PROJECT_SLUG,
+    dirtyTreePolicy: 'cancel',
+  });
+
+  const runner = createRunner<ImplementCtx>({
+    id: `r-implement-${String(storedSprint.id)}`,
+    element: flow,
+    initialCtx: { sprintId: storedSprint.id },
+  });
+
+  await runner.start();
+  return runner;
+};
+
+/**
+ * Run the review flow with a terminating interactive (empty body → auto-done transition).
+ */
+const runReview = async (fixture: FullStackFixture) => {
+  const storedSprint = await loadSprint(fixture.app);
+  const repoPath = fixture.fakeProject.path;
+
+  const terminatingInteractive: InteractivePrompt = {
     async askText() {
-      throw new Error('full-stack: askText not expected');
+      throw new Error('review: askText not expected');
     },
     async askTextArea() {
-      throw new Error('full-stack: askTextArea not expected');
+      // Empty body → review termination round → sprint transitions to done.
+      return Result.ok('');
     },
     async askChoice() {
-      throw new Error('full-stack: askChoice not expected');
+      throw new Error('review: askChoice not expected');
     },
     async askMultiChoice() {
-      throw new Error('full-stack: askMultiChoice not expected');
+      throw new Error('review: askMultiChoice not expected');
     },
     async askConfirm() {
-      throw new Error('full-stack: askConfirm not expected');
+      throw new Error('review: askConfirm not expected');
     },
   };
 
-  // ─── ImplementDeps builder from real wired repos ──────────────────────────
-  /**
-   * Build ImplementDeps from the real wired graph (R1 constraint). The implement launcher
-   * bypasses app.deps.provider and builds per-role providers from settings; so we must
-   * supply the fake directly as generatorProvider/evaluatorProvider here.
-   */
-  const buildImplementDeps = (
-    app: RealFsApp,
-    provider: ImplementDeps['generatorProvider'],
-    gitRunner: GitRunner,
-    locksDir: string
-  ): ImplementDeps => ({
-    sprintRepo: app.deps.sprintRepo,
-    sprintExecutionRepo: app.deps.sprintExecutionRepo,
-    taskRepo: app.deps.taskRepo,
-    generatorProvider: provider,
-    evaluatorProvider: provider,
+  const reviewDeps: ReviewDeps = {
+    sprintRepo: fixture.app.deps.sprintRepo,
+    taskRepo: fixture.app.deps.taskRepo,
+    provider: createFakeAiProvider({
+      signals: {
+        'apply-feedback': [{ type: 'task-complete', timestamp: FIXED_NOW }],
+      },
+    }),
     templateLoader: createFsTemplateLoader(defaultTemplatesDir()),
-    publishSignal: () => {},
     eventBus: createInMemoryEventBus(),
     logger: noopLogger,
     clock: () => FIXED_LATER,
-    config: {
-      harness: {
-        maxTurns: 5,
-        maxAttempts: 2,
-        rateLimitRetries: 0,
-        plateauThreshold: 2,
-        correctiveRetries: 2,
-        escalateOnPlateau: false,
-        escalationMap: {},
-        skipPreVerifyOnFreshSetup: false,
+    interactive: terminatingInteractive,
+    gitRunner: {
+      async run() {
+        return okGit('', 0);
       },
     },
-    gitRunner,
     shellScriptRunner: passingShell,
     fileLocker: createFileLocker(),
-    locksRoot: absolutePath(locksDir),
-    skillsAdapter: noopSkillsAdapter,
-    skillSource: emptySkillSource,
-    generatorAgentDefinitionAdapter: noopAgentDefinitionAdapter,
-    evaluatorAgentDefinitionAdapter: noopAgentDefinitionAdapter,
-    interactive: unusedInteractive,
-    writeFile: createAtomicWriteFile(),
+    locksRoot: absolutePath(fixture.reviewDir),
     appendFile: createAppendFile(),
-    journalMutex: createFoldQueue(),
-    ledgerMutex: createFoldQueue(),
+    writeFile: createAtomicWriteFile(),
+    model: 'claude-opus-4-8',
+  };
+
+  const reviewFlow = createReviewFlow(reviewDeps, {
+    sprintId: storedSprint.id,
+    sprintDir: absolutePath(fixture.sprintDir),
+    reviewRoot: absolutePath(fixture.reviewDir),
+    commitCwd: absolutePath(repoPath),
+    additionalRoots: [absolutePath(repoPath)],
+    repositoriesBlock: '',
+    feedbackFile: absolutePath(fixture.feedbackFile),
+    progressFile: absolutePath(fixture.progressFile),
   });
 
-  // ─── Fixture setup helpers ─────────────────────────────────────────────────
-  interface FullStackFixture {
-    readonly app: RealFsApp;
-    readonly fakeProject: FakeProject;
-    readonly sprintDir: string;
-    readonly progressFile: string;
-    readonly reviewDir: string;
-    readonly feedbackFile: string;
-    readonly locksDir: string;
-    cleanup(): Promise<void>;
-  }
+  const runner = createRunner<ReviewCtx>({
+    id: `r-review-${String(storedSprint.id)}`,
+    element: reviewFlow,
+    initialCtx: { sprintId: storedSprint.id, distillRequested: false },
+  });
 
-  /**
-   * Build a fixture with real AppDeps, a fake git project, and persisted domain state.
-   * The execution is pre-set to SPRINT_BRANCH so resolveBranchLeaf takes the resume path
-   * without any interactive prompt.
-   */
-  const buildFixture = async (taskCount: number): Promise<FullStackFixture> => {
-    const app = await createRealFsApp();
-    const fakeProject = await createFakeProject({
-      seed: { 'README.md': '# full-stack test repo\n', '.gitignore': 'node_modules/\n' },
-    });
+  await runner.start();
+  return runner;
+};
 
-    // Create the sprint branch in the fake project.
-    await fakeProject.git('checkout', '-b', SPRINT_BRANCH);
+/**
+ * Run the close-sprint flow directly on a sprint that is in review status.
+ */
+const runClose = async (fixture: FullStackFixture) => {
+  const storedSprint = await loadSprint(fixture.app);
 
-    // Create domain fixtures.
-    const ticket = makeApprovedTicket({ title: 'full-stack-ticket' });
-    const sprint = makePlannedSprint({ tickets: [ticket] });
+  const closeFlow = createCloseSprintFlow({
+    sprintRepo: fixture.app.deps.sprintRepo,
+    fileLocker: fixture.app.deps.fileLocker,
+    locksRoot: fixture.app.paths.locksRoot,
+    sprintDir: absolutePath(fixture.sprintDir),
+    eventBus: fixture.app.deps.eventBus,
+    clock: () => FIXED_LATER,
+    logger: noopLogger,
+    appendFile: createAppendFile(),
+    writeFile: createAtomicWriteFile(),
+    progressFile: absolutePath(fixture.progressFile),
+  });
 
-    // Persist sprint via the real repo.
-    const saveSprint = await app.deps.sprintRepo.save(sprint as Sprint);
-    if (!saveSprint.ok) throw new Error(`save sprint failed: ${saveSprint.error.message}`);
+  const runner = createRunner<CloseSprintCtx>({
+    id: `r-close-${String(storedSprint.id)}`,
+    element: closeFlow,
+    initialCtx: { sprintId: storedSprint.id, distillRequested: false },
+  });
 
-    // Persist execution (pre-set branch so resolveBranchLeaf takes the resume path).
-    const execution: SprintExecution = setExecutionBranch(
-      createSprintExecution({ sprintId: sprint.id }),
-      SPRINT_BRANCH
-    );
-    const saveExec = await app.deps.sprintExecutionRepo.save(execution);
-    if (!saveExec.ok) throw new Error(`save execution failed: ${saveExec.error.message}`);
+  await runner.start();
+  return runner;
+};
 
-    // Create tasks and persist them.
-    const tasks = Array.from({ length: taskCount }, (_, i) =>
-      makeTodoTask({
-        name: `task-${String(i + 1)}`,
-        order: i + 1,
-        ticketId: ticket.id,
-        repositoryId: FIXED_REPOSITORY_ID,
-      })
-    );
-    const saveTasks = await app.deps.taskRepo.saveAll(sprint.id, tasks);
-    if (!saveTasks.ok) throw new Error(`save tasks failed: ${saveTasks.error.message}`);
+// ─── Passing provider — used by multiple tests ────────────────────────────
+const buildPassingProvider = () =>
+  createWorkspaceMutatingFakeProvider({
+    fileWrites: {
+      implement: { 'output-task.txt': 'task output by fake AI\n' },
+    },
+    signals: {
+      implement: [taskVerified('task done')],
+      evaluate: [evaluationPassed()],
+    },
+  });
 
-    // The repo writes the slugged `<id>--<slug>/` dir; point the flow at THAT dir rather than the
-    // helper's bare `<id>/` path so sprint-dir artifacts land beside sprint.json.
-    const sprintDir = (await resolveSprintDir(app.paths.dataRoot, sprint.id)) ?? app.sprintDir(sprint.id);
-    const progressFile = join(sprintDir, 'progress.md');
-    const reviewDir = join(sprintDir, 'review');
-    const feedbackFile = join(sprintDir, 'feedback.md');
-    const locksDir = join(String(app.home), 'locks');
+// ─── Test suite ────────────────────────────────────────────────────────────
+describePosix('full-stack implement → review → close', () => {
+  let cleanupFns: Array<() => Promise<void>>;
 
-    await fs.mkdir(sprintDir, { recursive: true });
-    await fs.mkdir(reviewDir, { recursive: true });
-    await fs.mkdir(locksDir, { recursive: true });
+  beforeEach(() => {
+    cleanupFns = [];
+  });
 
-    return {
-      app,
-      fakeProject,
-      sprintDir,
-      progressFile,
-      reviewDir,
-      feedbackFile,
-      locksDir,
-      async cleanup() {
-        await app.cleanup();
-        await fakeProject.cleanup();
-      },
-    };
-  };
+  afterEach(async () => {
+    for (const fn of cleanupFns) await fn().catch(() => undefined);
+  });
 
-  /**
-   * Load the single sprint from the real repo. Throws when absent.
-   */
-  const loadSprint = async (app: RealFsApp) => {
-    const listResult = await app.deps.sprintRepo.list();
-    if (!listResult.ok) throw new Error(`list sprints failed: ${listResult.error.message}`);
-    const sprint = listResult.value[0];
-    if (sprint === undefined) throw new Error('no sprint found in repo');
-    return sprint;
-  };
+  // ─── (a) Happy path: implement → review auto-close ────────────────────
+  it('(a) happy path: implement → review auto-close transitions sprint active→review→done, tasks done, progress.md has content', async () => {
+    const fixture = await buildFixture(2);
+    cleanupFns.push(() => fixture.cleanup());
 
-  /**
-   * Run the implement flow using real deps and a scripted provider. Returns the runner.
-   */
-  const runImplement = async (
-    fixture: FullStackFixture,
-    provider: ImplementDeps['generatorProvider'],
-    overrides: { readonly shellScriptRunner?: ShellScriptRunner; readonly verifyScript?: string } = {}
-  ) => {
-    const storedSprint = await loadSprint(fixture.app);
-    const tasksResult = await fixture.app.deps.taskRepo.findBySprintId(storedSprint.id);
-    if (!tasksResult.ok) throw new Error('find tasks failed');
+    // ── Implement phase ──────────────────────────────────────────────────
+    const implementRunner = await runImplement(fixture, buildPassingProvider());
 
-    const repoPath = fixture.fakeProject.path;
-    const repoMap = new Map([
-      [
-        FIXED_REPOSITORY_ID,
-        {
-          path: absolutePath(repoPath),
-          name: 'test-repo',
-          ...(overrides.verifyScript !== undefined ? { verifyScript: overrides.verifyScript } : {}),
-        },
-      ],
-    ]);
+    if (implementRunner.status !== 'completed') {
+      const trace = implementRunner.trace.map((e) => `${e.elementName}:${e.status}`).join('\n');
+      throw new Error(`Implement runner '${implementRunner.status}'.\nTrace:\n${trace}`);
+    }
 
-    const implementDeps: ImplementDeps = {
-      ...buildImplementDeps(fixture.app, provider, makeScriptedGit(), fixture.locksDir),
-      ...(overrides.shellScriptRunner !== undefined ? { shellScriptRunner: overrides.shellScriptRunner } : {}),
-    };
-
-    const flow = createImplementFlow(implementDeps, {
-      sprintId: storedSprint.id,
-      todoTasks: tasksResult.value.filter((t) => t.status === 'todo' || t.status === 'in_progress'),
-      repositories: repoMap,
-      progressFile: absolutePath(fixture.progressFile),
-      sprintDir: absolutePath(fixture.sprintDir),
-      generatorProviderId: 'claude-code',
-      generatorModel: 'claude-opus-4-8',
-      evaluatorProviderId: 'claude-code',
-      evaluatorModel: 'claude-opus-4-8',
-      memoryRoot: fixture.app.paths.memoryRoot,
-      projectId: FAKE_PROJECT_ID,
-      projectSlug: FAKE_PROJECT_SLUG,
-      dirtyTreePolicy: 'cancel',
-    });
-
-    const runner = createRunner<ImplementCtx>({
-      id: `r-implement-${String(storedSprint.id)}`,
-      element: flow,
-      initialCtx: { sprintId: storedSprint.id },
-    });
-
-    await runner.start();
-    return runner;
-  };
-
-  /**
-   * Run the review flow with a terminating interactive (empty body → auto-done transition).
-   */
-  const runReview = async (fixture: FullStackFixture) => {
-    const storedSprint = await loadSprint(fixture.app);
-    const repoPath = fixture.fakeProject.path;
-
-    const terminatingInteractive: InteractivePrompt = {
-      async askText() {
-        throw new Error('review: askText not expected');
-      },
-      async askTextArea() {
-        // Empty body → review termination round → sprint transitions to done.
-        return Result.ok('');
-      },
-      async askChoice() {
-        throw new Error('review: askChoice not expected');
-      },
-      async askMultiChoice() {
-        throw new Error('review: askMultiChoice not expected');
-      },
-      async askConfirm() {
-        throw new Error('review: askConfirm not expected');
-      },
-    };
-
-    const reviewDeps: ReviewDeps = {
-      sprintRepo: fixture.app.deps.sprintRepo,
-      taskRepo: fixture.app.deps.taskRepo,
-      provider: createFakeAiProvider({
-        signals: {
-          'apply-feedback': [{ type: 'task-complete', timestamp: FIXED_NOW }],
-        },
-      }),
-      templateLoader: createFsTemplateLoader(defaultTemplatesDir()),
-      eventBus: createInMemoryEventBus(),
-      logger: noopLogger,
-      clock: () => FIXED_LATER,
-      interactive: terminatingInteractive,
-      gitRunner: {
-        async run() {
-          return okGit('', 0);
-        },
-      },
-      shellScriptRunner: passingShell,
-      fileLocker: createFileLocker(),
-      locksRoot: absolutePath(fixture.reviewDir),
-      appendFile: createAppendFile(),
-      writeFile: createAtomicWriteFile(),
-      model: 'claude-opus-4-8',
-    };
-
-    const reviewFlow = createReviewFlow(reviewDeps, {
-      sprintId: storedSprint.id,
-      sprintDir: absolutePath(fixture.sprintDir),
-      reviewRoot: absolutePath(fixture.reviewDir),
-      commitCwd: absolutePath(repoPath),
-      additionalRoots: [absolutePath(repoPath)],
-      repositoriesBlock: '',
-      feedbackFile: absolutePath(fixture.feedbackFile),
-      progressFile: absolutePath(fixture.progressFile),
-    });
-
-    const runner = createRunner<ReviewCtx>({
-      id: `r-review-${String(storedSprint.id)}`,
-      element: reviewFlow,
-      initialCtx: { sprintId: storedSprint.id, distillRequested: false },
-    });
-
-    await runner.start();
-    return runner;
-  };
-
-  /**
-   * Run the close-sprint flow directly on a sprint that is in review status.
-   */
-  const runClose = async (fixture: FullStackFixture) => {
     const storedSprint = await loadSprint(fixture.app);
 
-    const closeFlow = createCloseSprintFlow({
-      sprintRepo: fixture.app.deps.sprintRepo,
-      fileLocker: fixture.app.deps.fileLocker,
-      locksRoot: fixture.app.paths.locksRoot,
-      sprintDir: absolutePath(fixture.sprintDir),
-      eventBus: fixture.app.deps.eventBus,
-      clock: () => FIXED_LATER,
-      logger: noopLogger,
-      appendFile: createAppendFile(),
-      writeFile: createAtomicWriteFile(),
-      progressFile: absolutePath(fixture.progressFile),
-    });
+    // Tasks should be done and sprint should be in review.
+    const tasksAfterImpl = await fixture.app.deps.taskRepo.findBySprintId(storedSprint.id);
+    if (!tasksAfterImpl.ok) throw new Error('findBySprintId failed');
+    for (const t of tasksAfterImpl.value) {
+      expect(t.status).toBe('done');
+      expect(t.attempts.length).toBeGreaterThan(0);
+    }
+    expect(storedSprint.status).toBe('review');
 
-    const runner = createRunner<CloseSprintCtx>({
-      id: `r-close-${String(storedSprint.id)}`,
-      element: closeFlow,
-      initialCtx: { sprintId: storedSprint.id, distillRequested: false },
-    });
+    // progress.md must exist with content (at least the activation separator).
+    const progressContent = await fs.readFile(fixture.progressFile, 'utf8');
+    expect(progressContent.length).toBeGreaterThan(0);
 
-    await runner.start();
-    return runner;
-  };
+    // ── Review phase (empty body → auto-done) ────────────────────────────
+    const reviewRunner = await runReview(fixture);
 
-  // ─── Passing provider — used by multiple tests ────────────────────────────
-  const buildPassingProvider = () =>
-    createWorkspaceMutatingFakeProvider({
+    if (reviewRunner.status !== 'completed') {
+      const trace = reviewRunner.trace.map((e) => `${e.elementName}:${e.status}`).join('\n');
+      throw new Error(`Review runner '${reviewRunner.status}'.\nTrace:\n${trace}`);
+    }
+
+    const sprintAfterReview = await loadSprint(fixture.app);
+    expect(sprintAfterReview.status).toBe('done');
+  }, 90_000);
+
+  // ─── (b) Implement → close-sprint directly (bypassing review) ─────────
+  it('(b) implement → close-sprint: sprint.json transitions active→review→done through close-sprint flow', async () => {
+    const fixture = await buildFixture(1);
+    cleanupFns.push(() => fixture.cleanup());
+
+    // ── Implement phase ──────────────────────────────────────────────────
+    const implementRunner = await runImplement(fixture, buildPassingProvider());
+
+    if (implementRunner.status !== 'completed') {
+      const trace = implementRunner.trace.map((e) => `${e.elementName}:${e.status}`).join('\n');
+      throw new Error(`Implement runner '${implementRunner.status}'.\nTrace:\n${trace}`);
+    }
+
+    // Sprint should now be in review.
+    const sprintAfterImpl = await loadSprint(fixture.app);
+    expect(sprintAfterImpl.status).toBe('review');
+
+    // Tasks done, non-empty attempts.
+    const tasks = await fixture.app.deps.taskRepo.findBySprintId(sprintAfterImpl.id);
+    if (!tasks.ok) throw new Error('findBySprintId failed');
+    for (const t of tasks.value) {
+      expect(t.status).toBe('done');
+      expect(t.attempts.length).toBeGreaterThan(0);
+    }
+
+    // ── Close-sprint phase ───────────────────────────────────────────────
+    const closeRunner = await runClose(fixture);
+
+    if (closeRunner.status !== 'completed') {
+      const trace = closeRunner.trace.map((e) => `${e.elementName}:${e.status}`).join('\n');
+      throw new Error(`Close runner '${closeRunner.status}'.\nTrace:\n${trace}`);
+    }
+
+    const sprintAfterClose = await loadSprint(fixture.app);
+    expect(sprintAfterClose.status).toBe('done');
+  }, 90_000);
+
+  // ─── (c) Evaluator-rejection round: fail once then pass ───────────────
+  it('(c) evaluator-rejection round: fail once then pass — task eventually done', async () => {
+    const fixture = await buildFixture(1);
+    cleanupFns.push(() => fixture.cleanup());
+
+    let evaluateCallCount = 0;
+
+    const provider = createWorkspaceMutatingFakeProvider({
       fileWrites: {
-        implement: { 'output-task.txt': 'task output by fake AI\n' },
+        implement: { 'output.txt': 'generated\n' },
+        'implement-continuation': { 'output-revised.txt': 'revised\n' },
       },
       signals: {
-        implement: [taskVerified('task done')],
+        implement: [taskVerified('attempt done')],
+        'implement-continuation': [taskVerified('revised done')],
+        evaluate: (session) => {
+          void session;
+          evaluateCallCount += 1;
+          if (evaluateCallCount === 1) return [evaluationFailed('needs more work')];
+          return [evaluationPassed()];
+        },
+        'evaluate-continuation': (session) => {
+          void session;
+          return [evaluationPassed()];
+        },
+      },
+    });
+
+    const implementRunner = await runImplement(fixture, provider);
+
+    if (implementRunner.status !== 'completed') {
+      const trace = implementRunner.trace.map((e) => `${e.elementName}:${e.status}`).join('\n');
+      throw new Error(`Runner '${implementRunner.status}'.\nTrace:\n${trace}`);
+    }
+
+    // Evaluator must have been called more than once (fail then pass pattern).
+    expect(evaluateCallCount).toBeGreaterThanOrEqual(1);
+
+    const storedSprint = await loadSprint(fixture.app);
+    const finalTasks = await fixture.app.deps.taskRepo.findBySprintId(storedSprint.id);
+    if (!finalTasks.ok) throw new Error('findBySprintId failed');
+    expect(finalTasks.value.every((t) => t.status === 'done')).toBe(true);
+    expect(storedSprint.status).toBe('review');
+  }, 90_000);
+
+  // ─── (e) Flaky post-task verify gate: confirm re-run reclassifies it ──
+  it('(e) flaky post-verify: a gate that fails only on its first post-task run passes the harness confirm re-run — task done, attribution clean, flake persisted + journalled', async () => {
+    const fixture = await buildFixture(1);
+    cleanupFns.push(() => fixture.cleanup());
+
+    // A REAL shell gate (the production-wired runner) that fails exactly once: on its first
+    // post-task invocation, recorded by a marker file outside the repo. Pre-verify stays green,
+    // so without the confirm re-run this red would attribute `regressed` and burn the retry.
+    const marker = join(String(fixture.app.home), 'flaky-gate-marker');
+    const verifyScript = [
+      `if [ "$RALPHCTL_LIFECYCLE_EVENT" = "post-task" ] && [ ! -f '${marker}' ];`,
+      `then touch '${marker}'; echo 'flaky failure'; exit 1;`,
+      `fi; echo 'gate ok'`,
+    ].join(' ');
+
+    const implementRunner = await runImplement(fixture, buildPassingProvider(), {
+      shellScriptRunner: fixture.app.deps.shellScriptRunner,
+      verifyScript,
+    });
+    if (implementRunner.status !== 'completed') {
+      const trace = implementRunner.trace.map((e) => `${e.elementName}:${e.status}`).join('\n');
+      throw new Error(`Implement runner '${implementRunner.status}'.\nTrace:\n${trace}`);
+    }
+
+    // The gate really did fail once (the marker exists) and then pass.
+    await expect(fs.access(marker)).resolves.toBeUndefined();
+
+    const storedSprint = await loadSprint(fixture.app);
+    const tasks = await fixture.app.deps.taskRepo.findBySprintId(storedSprint.id);
+    if (!tasks.ok) throw new Error('findBySprintId failed');
+    const task = tasks.value[0];
+    expect(task?.status).toBe('done');
+    // A single attempt — the flake did not spend the retry budget.
+    expect(task?.attempts).toHaveLength(1);
+    const attempt = task?.attempts.at(-1);
+    expect(attempt?.attribution).toBe('clean');
+    expect(attempt?.commitSha).toBeDefined();
+    const post = attempt?.verifyRuns?.find((r) => r.phase === 'post');
+    expect(post?.outcome).toBe('success');
+    expect(post?.flakyFailure).toEqual({ command: verifyScript, exitCode: 1 });
+
+    // Read the raw file back — the field survives the schema round-trip rather than living only
+    // on the in-memory task. The repo writes under the slugged `<id>--<slug>` dir.
+    const sprintsRoot = join(String(fixture.app.paths.dataRoot), 'sprints');
+    const slugged = (await fs.readdir(sprintsRoot)).find((d) => d.startsWith(`${String(storedSprint.id)}--`));
+    if (slugged === undefined) throw new Error('slugged sprint dir not found on disk');
+    const tasksJson = await fs.readFile(join(sprintsRoot, slugged, 'tasks.json'), 'utf8');
+    expect(tasksJson).toContain('"flakyFailure"');
+
+    // The persisted post-verify log carries both runs.
+    const postLog = await fs.readFile(
+      join(fixture.sprintDir, 'logs', 'verify', String(task?.id), 'post-attempt-1.log'),
+      'utf8'
+    );
+    expect(postLog).toContain('flaky failure');
+    expect(postLog).toContain('(confirm re-run) ──');
+    expect(postLog).toContain('gate ok');
+
+    // The journal names the flake — never silent.
+    const progress = await fs.readFile(fixture.progressFile, 'utf8');
+    expect(progress).toContain('- Verify (post):');
+    expect(progress).toContain('failed (exit 1), passed on harness re-run');
+    expect(progress).toContain('- Attribution: clean');
+  }, 90_000);
+
+  // ─── (d) Blocked-task arc ─────────────────────────────────────────────
+  it('(d) blocked-task arc: first task emits task-blocked, sprint transitions to review (done+blocked mix), blocked task has blockKind=self-blocked', async () => {
+    const fixture = await buildFixture(2);
+    cleanupFns.push(() => fixture.cleanup());
+
+    let implementCallCount = 0;
+    const blockingProvider = createWorkspaceMutatingFakeProvider({
+      fileWrites: {
+        implement: { 'output.txt': 'output\n' },
+      },
+      signals: {
+        implement: (session) => {
+          void session;
+          implementCallCount += 1;
+          // First implement call → blocked. Subsequent calls (for the second task) → verified.
+          if (implementCallCount === 1) {
+            return [{ type: 'task-blocked' as const, reason: 'dependency not available', timestamp: FIXED_NOW }];
+          }
+          return [taskVerified('ok')];
+        },
         evaluate: [evaluationPassed()],
       },
     });
 
-  // ─── Test suite ────────────────────────────────────────────────────────────
-  describe('full-stack implement → review → close', () => {
-    let cleanupFns: Array<() => Promise<void>>;
+    const implementRunner = await runImplement(fixture, blockingProvider);
+    expect(implementRunner.status).toBe('completed');
 
-    beforeEach(() => {
-      cleanupFns = [];
-    });
+    const storedSprint = await loadSprint(fixture.app);
+    const finalTasks = await fixture.app.deps.taskRepo.findBySprintId(storedSprint.id);
+    if (!finalTasks.ok) throw new Error('findBySprintId failed');
 
-    afterEach(async () => {
-      for (const fn of cleanupFns) await fn().catch(() => undefined);
-    });
+    const blockedTask = finalTasks.value.find((t) => t.status === 'blocked');
+    const doneTask = finalTasks.value.find((t) => t.status === 'done');
+    expect(blockedTask).toBeDefined();
+    expect(doneTask).toBeDefined();
 
-    // ─── (a) Happy path: implement → review auto-close ────────────────────
-    it('(a) happy path: implement → review auto-close transitions sprint active→review→done, tasks done, progress.md has content', async () => {
-      const fixture = await buildFixture(2);
-      cleanupFns.push(() => fixture.cleanup());
+    // Blocked task must have blockKind 'own' (self-blocked from the signal), not 'upstream'.
+    if (blockedTask?.status === 'blocked') {
+      expect(blockedTask.blockKind).toBe('own');
+    }
 
-      // ── Implement phase ──────────────────────────────────────────────────
-      const implementRunner = await runImplement(fixture, buildPassingProvider());
-
-      if (implementRunner.status !== 'completed') {
-        const trace = implementRunner.trace.map((e) => `${e.elementName}:${e.status}`).join('\n');
-        throw new Error(`Implement runner '${implementRunner.status}'.\nTrace:\n${trace}`);
-      }
-
-      const storedSprint = await loadSprint(fixture.app);
-
-      // Tasks should be done and sprint should be in review.
-      const tasksAfterImpl = await fixture.app.deps.taskRepo.findBySprintId(storedSprint.id);
-      if (!tasksAfterImpl.ok) throw new Error('findBySprintId failed');
-      for (const t of tasksAfterImpl.value) {
-        expect(t.status).toBe('done');
-        expect(t.attempts.length).toBeGreaterThan(0);
-      }
-      expect(storedSprint.status).toBe('review');
-
-      // progress.md must exist with content (at least the activation separator).
-      const progressContent = await fs.readFile(fixture.progressFile, 'utf8');
-      expect(progressContent.length).toBeGreaterThan(0);
-
-      // ── Review phase (empty body → auto-done) ────────────────────────────
-      const reviewRunner = await runReview(fixture);
-
-      if (reviewRunner.status !== 'completed') {
-        const trace = reviewRunner.trace.map((e) => `${e.elementName}:${e.status}`).join('\n');
-        throw new Error(`Review runner '${reviewRunner.status}'.\nTrace:\n${trace}`);
-      }
-
-      const sprintAfterReview = await loadSprint(fixture.app);
-      expect(sprintAfterReview.status).toBe('done');
-    }, 90_000);
-
-    // ─── (b) Implement → close-sprint directly (bypassing review) ─────────
-    it('(b) implement → close-sprint: sprint.json transitions active→review→done through close-sprint flow', async () => {
-      const fixture = await buildFixture(1);
-      cleanupFns.push(() => fixture.cleanup());
-
-      // ── Implement phase ──────────────────────────────────────────────────
-      const implementRunner = await runImplement(fixture, buildPassingProvider());
-
-      if (implementRunner.status !== 'completed') {
-        const trace = implementRunner.trace.map((e) => `${e.elementName}:${e.status}`).join('\n');
-        throw new Error(`Implement runner '${implementRunner.status}'.\nTrace:\n${trace}`);
-      }
-
-      // Sprint should now be in review.
-      const sprintAfterImpl = await loadSprint(fixture.app);
-      expect(sprintAfterImpl.status).toBe('review');
-
-      // Tasks done, non-empty attempts.
-      const tasks = await fixture.app.deps.taskRepo.findBySprintId(sprintAfterImpl.id);
-      if (!tasks.ok) throw new Error('findBySprintId failed');
-      for (const t of tasks.value) {
-        expect(t.status).toBe('done');
-        expect(t.attempts.length).toBeGreaterThan(0);
-      }
-
-      // ── Close-sprint phase ───────────────────────────────────────────────
-      const closeRunner = await runClose(fixture);
-
-      if (closeRunner.status !== 'completed') {
-        const trace = closeRunner.trace.map((e) => `${e.elementName}:${e.status}`).join('\n');
-        throw new Error(`Close runner '${closeRunner.status}'.\nTrace:\n${trace}`);
-      }
-
-      const sprintAfterClose = await loadSprint(fixture.app);
-      expect(sprintAfterClose.status).toBe('done');
-    }, 90_000);
-
-    // ─── (c) Evaluator-rejection round: fail once then pass ───────────────
-    it('(c) evaluator-rejection round: fail once then pass — task eventually done', async () => {
-      const fixture = await buildFixture(1);
-      cleanupFns.push(() => fixture.cleanup());
-
-      let evaluateCallCount = 0;
-
-      const provider = createWorkspaceMutatingFakeProvider({
-        fileWrites: {
-          implement: { 'output.txt': 'generated\n' },
-          'implement-continuation': { 'output-revised.txt': 'revised\n' },
-        },
-        signals: {
-          implement: [taskVerified('attempt done')],
-          'implement-continuation': [taskVerified('revised done')],
-          evaluate: (session) => {
-            void session;
-            evaluateCallCount += 1;
-            if (evaluateCallCount === 1) return [evaluationFailed('needs more work')];
-            return [evaluationPassed()];
-          },
-          'evaluate-continuation': (session) => {
-            void session;
-            return [evaluationPassed()];
-          },
-        },
-      });
-
-      const implementRunner = await runImplement(fixture, provider);
-
-      if (implementRunner.status !== 'completed') {
-        const trace = implementRunner.trace.map((e) => `${e.elementName}:${e.status}`).join('\n');
-        throw new Error(`Runner '${implementRunner.status}'.\nTrace:\n${trace}`);
-      }
-
-      // Evaluator must have been called more than once (fail then pass pattern).
-      expect(evaluateCallCount).toBeGreaterThanOrEqual(1);
-
-      const storedSprint = await loadSprint(fixture.app);
-      const finalTasks = await fixture.app.deps.taskRepo.findBySprintId(storedSprint.id);
-      if (!finalTasks.ok) throw new Error('findBySprintId failed');
-      expect(finalTasks.value.every((t) => t.status === 'done')).toBe(true);
-      expect(storedSprint.status).toBe('review');
-    }, 90_000);
-
-    // ─── (e) Flaky post-task verify gate: confirm re-run reclassifies it ──
-    it('(e) flaky post-verify: a gate that fails only on its first post-task run passes the harness confirm re-run — task done, attribution clean, flake persisted + journalled', async () => {
-      const fixture = await buildFixture(1);
-      cleanupFns.push(() => fixture.cleanup());
-
-      // A REAL shell gate (the production-wired runner) that fails exactly once: on its first
-      // post-task invocation, recorded by a marker file outside the repo. Pre-verify stays green,
-      // so without the confirm re-run this red would attribute `regressed` and burn the retry.
-      const marker = join(String(fixture.app.home), 'flaky-gate-marker');
-      const verifyScript = [
-        `if [ "$RALPHCTL_LIFECYCLE_EVENT" = "post-task" ] && [ ! -f '${marker}' ];`,
-        `then touch '${marker}'; echo 'flaky failure'; exit 1;`,
-        `fi; echo 'gate ok'`,
-      ].join(' ');
-
-      const implementRunner = await runImplement(fixture, buildPassingProvider(), {
-        shellScriptRunner: fixture.app.deps.shellScriptRunner,
-        verifyScript,
-      });
-      if (implementRunner.status !== 'completed') {
-        const trace = implementRunner.trace.map((e) => `${e.elementName}:${e.status}`).join('\n');
-        throw new Error(`Implement runner '${implementRunner.status}'.\nTrace:\n${trace}`);
-      }
-
-      // The gate really did fail once (the marker exists) and then pass.
-      await expect(fs.access(marker)).resolves.toBeUndefined();
-
-      const storedSprint = await loadSprint(fixture.app);
-      const tasks = await fixture.app.deps.taskRepo.findBySprintId(storedSprint.id);
-      if (!tasks.ok) throw new Error('findBySprintId failed');
-      const task = tasks.value[0];
-      expect(task?.status).toBe('done');
-      // A single attempt — the flake did not spend the retry budget.
-      expect(task?.attempts).toHaveLength(1);
-      const attempt = task?.attempts.at(-1);
-      expect(attempt?.attribution).toBe('clean');
-      expect(attempt?.commitSha).toBeDefined();
-      const post = attempt?.verifyRuns?.find((r) => r.phase === 'post');
-      expect(post?.outcome).toBe('success');
-      expect(post?.flakyFailure).toEqual({ command: verifyScript, exitCode: 1 });
-
-      // Read the raw file back — the field survives the schema round-trip rather than living only
-      // on the in-memory task. The repo writes under the slugged `<id>--<slug>` dir.
-      const sprintsRoot = join(String(fixture.app.paths.dataRoot), 'sprints');
-      const slugged = (await fs.readdir(sprintsRoot)).find((d) => d.startsWith(`${String(storedSprint.id)}--`));
-      if (slugged === undefined) throw new Error('slugged sprint dir not found on disk');
-      const tasksJson = await fs.readFile(join(sprintsRoot, slugged, 'tasks.json'), 'utf8');
-      expect(tasksJson).toContain('"flakyFailure"');
-
-      // The persisted post-verify log carries both runs.
-      const postLog = await fs.readFile(
-        join(fixture.sprintDir, 'logs', 'verify', String(task?.id), 'post-attempt-1.log'),
-        'utf8'
-      );
-      expect(postLog).toContain('flaky failure');
-      expect(postLog).toContain('(confirm re-run) ──');
-      expect(postLog).toContain('gate ok');
-
-      // The journal names the flake — never silent.
-      const progress = await fs.readFile(fixture.progressFile, 'utf8');
-      expect(progress).toContain('- Verify (post):');
-      expect(progress).toContain('failed (exit 1), passed on harness re-run');
-      expect(progress).toContain('- Attribution: clean');
-    }, 90_000);
-
-    // ─── (d) Blocked-task arc ─────────────────────────────────────────────
-    it('(d) blocked-task arc: first task emits task-blocked, sprint transitions to review (done+blocked mix), blocked task has blockKind=self-blocked', async () => {
-      const fixture = await buildFixture(2);
-      cleanupFns.push(() => fixture.cleanup());
-
-      let implementCallCount = 0;
-      const blockingProvider = createWorkspaceMutatingFakeProvider({
-        fileWrites: {
-          implement: { 'output.txt': 'output\n' },
-        },
-        signals: {
-          implement: (session) => {
-            void session;
-            implementCallCount += 1;
-            // First implement call → blocked. Subsequent calls (for the second task) → verified.
-            if (implementCallCount === 1) {
-              return [{ type: 'task-blocked' as const, reason: 'dependency not available', timestamp: FIXED_NOW }];
-            }
-            return [taskVerified('ok')];
-          },
-          evaluate: [evaluationPassed()],
-        },
-      });
-
-      const implementRunner = await runImplement(fixture, blockingProvider);
-      expect(implementRunner.status).toBe('completed');
-
-      const storedSprint = await loadSprint(fixture.app);
-      const finalTasks = await fixture.app.deps.taskRepo.findBySprintId(storedSprint.id);
-      if (!finalTasks.ok) throw new Error('findBySprintId failed');
-
-      const blockedTask = finalTasks.value.find((t) => t.status === 'blocked');
-      const doneTask = finalTasks.value.find((t) => t.status === 'done');
-      expect(blockedTask).toBeDefined();
-      expect(doneTask).toBeDefined();
-
-      // Blocked task must have blockKind 'own' (self-blocked from the signal), not 'upstream'.
-      if (blockedTask?.status === 'blocked') {
-        expect(blockedTask.blockKind).toBe('own');
-      }
-
-      // With one done + one blocked: shouldTransitionToReview fires (mixed = transition).
-      expect(storedSprint.status).toBe('review');
-    }, 90_000);
-  });
-}
+    // With one done + one blocked: shouldTransitionToReview fires (mixed = transition).
+    expect(storedSprint.status).toBe('review');
+  }, 90_000);
+});

@@ -64,9 +64,8 @@ describe('runGeneratorTurnUseCase', () => {
       callImplement: async () => Result.ok(signals),
       logger: noopLogger,
     });
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.exit).toEqual({
+    const resultValue = result.getOrThrow();
+    expect(resultValue.exit).toEqual({
       kind: 'self-blocked',
       reason: 'Scope unclear.',
       blockerClass: 'ambiguous-request',
@@ -85,11 +84,10 @@ describe('runGeneratorTurnUseCase', () => {
       callImplement: async () => Result.ok(signals),
       logger: noopLogger,
     });
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.exit).not.toHaveProperty('blockerClass');
-    expect(result.value.exit).not.toHaveProperty('question');
-    expect(result.value.exit).not.toHaveProperty('whatUnblocksMe');
+    const value = result.getOrThrow();
+    expect(value.exit).not.toHaveProperty('blockerClass');
+    expect(value.exit).not.toHaveProperty('question');
+    expect(value.exit).not.toHaveProperty('whatUnblocksMe');
   });
 
   it('blocks the task (self-blocked exit) on a recoverable signals-contract failure — does NOT propagate', async () => {
@@ -153,10 +151,9 @@ describe('runGeneratorTurnUseCase', () => {
       logger: noopLogger,
     });
 
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.exit?.abortCause).toBe('watchdog-killed');
-    expect(result.value.exit?.signalOrExitCode).toBe('SIGTERM');
+    const value = result.getOrThrow();
+    expect(value.exit?.abortCause).toBe('watchdog-killed');
+    expect(value.exit?.signalOrExitCode).toBe('SIGTERM');
   });
 
   it('attributes an unmarked crash as `process-crash`, keeping the reported exit code', async () => {
@@ -174,10 +171,9 @@ describe('runGeneratorTurnUseCase', () => {
       logger: noopLogger,
     });
 
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.exit?.abortCause).toBe('process-crash');
-    expect(result.value.exit?.signalOrExitCode).toBe(1);
+    const resultValue = result.getOrThrow();
+    expect(resultValue.exit?.abortCause).toBe('process-crash');
+    expect(resultValue.exit?.signalOrExitCode).toBe(1);
   });
 
   it.each([
@@ -197,12 +193,11 @@ describe('runGeneratorTurnUseCase', () => {
       callImplement: async () => Result.error(err),
       logger: noopLogger,
     });
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.exit?.kind).toBe('self-blocked');
-    expect(result.value.exit?.reason).toContain(field);
-    expect(result.value.exit?.reason).toContain(message);
-    expect(result.value.exit?.reason).not.toContain('signals.json');
+    const resultValue = result.getOrThrow();
+    expect(resultValue.exit?.kind).toBe('self-blocked');
+    expect(resultValue.exit?.reason).toContain(field);
+    expect(resultValue.exit?.reason).toContain(message);
+    expect(resultValue.exit?.reason).not.toContain('signals.json');
   });
 
   it('propagates an AbortError (user cancel) instead of blocking', async () => {

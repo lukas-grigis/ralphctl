@@ -72,11 +72,10 @@ describe('runEvaluatorTurnUseCase — turnRecord verdict stamp (D2)', () => {
       evaluationFile: EVAL_FILE,
       logger: noopLogger,
     });
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.exit).toBeUndefined();
-    expect(result.value.turnRecord).toBeDefined();
-    expect(result.value.turnRecord?.verdict).toBe('none');
+    const value = result.getOrThrow();
+    expect(value.exit).toBeUndefined();
+    expect(value.turnRecord).toBeDefined();
+    expect(value.turnRecord?.verdict).toBe('none');
   });
 
   it("soften path → turnRecord.verdict is 'warning'", async () => {
@@ -94,16 +93,15 @@ describe('runEvaluatorTurnUseCase — turnRecord verdict stamp (D2)', () => {
       evaluationFile: EVAL_FILE,
       logger: noopLogger,
     });
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.exit).toBeUndefined();
+    const resultValue = result.getOrThrow();
+    expect(resultValue.exit).toBeUndefined();
     // The softening must be recorded as a warning on the attempt.
-    expect(result.value.task.attempts.at(-1)?.warning?.kind).toBe('plateau');
-    expect(result.value.turnRecord).toBeDefined();
+    expect(resultValue.task.attempts.at(-1)?.warning?.kind).toBe('plateau');
+    expect(resultValue.turnRecord).toBeDefined();
     // Mutant-kill: a mutant that drops the verdict stamp on this path would leave 'verdict' as
     // undefined, which would make the warning cap derivable only from a count of 'warning'
     // entries — already broken without this stamp.
-    expect(result.value.turnRecord?.verdict).toBe('warning');
+    expect(resultValue.turnRecord?.verdict).toBe('warning');
   });
 
   it("plateau exit → turnRecord.verdict is 'plateau'", async () => {
@@ -119,14 +117,13 @@ describe('runEvaluatorTurnUseCase — turnRecord verdict stamp (D2)', () => {
       evaluationFile: EVAL_FILE,
       logger: noopLogger,
     });
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.exit?.kind).toBe('plateau');
+    const resultValue = result.getOrThrow();
+    expect(resultValue.exit?.kind).toBe('plateau');
     // The count-based threshold detector always stamps 'threshold' — instrumentation only, no
     // effect on the decision itself.
-    expect(result.value.exit?.kind === 'plateau' && result.value.exit.source).toBe('threshold');
-    expect(result.value.turnRecord).toBeDefined();
-    expect(result.value.turnRecord?.verdict).toBe('plateau');
+    expect(resultValue.exit?.kind === 'plateau' && resultValue.exit.source).toBe('threshold');
+    expect(resultValue.turnRecord).toBeDefined();
+    expect(resultValue.turnRecord?.verdict).toBe('plateau');
   });
 
   it("progress path (critique-shift) → turnRecord.verdict is 'progress'", async () => {
@@ -145,13 +142,12 @@ describe('runEvaluatorTurnUseCase — turnRecord verdict stamp (D2)', () => {
       evaluationFile: EVAL_FILE,
       logger: noopLogger,
     });
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.exit).toBeUndefined();
-    expect(result.value.turnRecord).toBeDefined();
+    const value = result.getOrThrow();
+    expect(value.exit).toBeUndefined();
+    expect(value.turnRecord).toBeDefined();
     // Mutant-kill: a mutant that always stamps 'none' instead of the predicate's actual verdict
     // would let this assertion pass only on the no-plateau path — not on progress.
-    expect(result.value.turnRecord?.verdict).toBe('progress');
+    expect(value.turnRecord?.verdict).toBe('progress');
   });
 });
 
@@ -172,9 +168,8 @@ describe('runEvaluatorTurnUseCase — turnRecord changedFilesHash threading (D2)
       evaluationFile: EVAL_FILE,
       logger: noopLogger,
     });
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.turnRecord?.changedFilesHash).toBe(HASH_B);
+    const resultValue = result.getOrThrow();
+    expect(resultValue.turnRecord?.changedFilesHash).toBe(HASH_B);
   });
 
   it('no changedFilesHash prop → changedFilesHash absent from turnRecord', async () => {
@@ -191,9 +186,8 @@ describe('runEvaluatorTurnUseCase — turnRecord changedFilesHash threading (D2)
       evaluationFile: EVAL_FILE,
       logger: noopLogger,
     });
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.turnRecord?.changedFilesHash).toBeUndefined();
+    const resultValue = result.getOrThrow();
+    expect(resultValue.turnRecord?.changedFilesHash).toBeUndefined();
   });
 
   it('changedFilesHash from props is threaded onto the turnRecord even on the warning path', async () => {
@@ -211,11 +205,10 @@ describe('runEvaluatorTurnUseCase — turnRecord changedFilesHash threading (D2)
       evaluationFile: EVAL_FILE,
       logger: noopLogger,
     });
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
+    const resultValue = result.getOrThrow();
     // Warning path confirmed.
-    expect(result.value.turnRecord?.verdict).toBe('warning');
+    expect(resultValue.turnRecord?.verdict).toBe('warning');
     // Hash carried through.
-    expect(result.value.turnRecord?.changedFilesHash).toBe(HASH_B);
+    expect(resultValue.turnRecord?.changedFilesHash).toBe(HASH_B);
   });
 });

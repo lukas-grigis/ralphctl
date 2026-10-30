@@ -4,16 +4,12 @@
  * timestamp. TZ is pinned for a deterministic timestamp column.
  */
 
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { LearningRecord } from '@src/application/flows/_shared/memory/learning-record.ts';
 import { renderLearningsMd } from '@src/application/flows/_shared/memory/render-learnings-md.ts';
 
-const ORIGINAL_TZ = process.env.TZ;
-beforeAll(() => {
-  process.env.TZ = 'UTC';
-});
-afterAll(() => {
-  process.env.TZ = ORIGINAL_TZ;
+beforeEach(() => {
+  vi.stubEnv('TZ', 'UTC');
 });
 
 const rec = (over: Partial<LearningRecord>): LearningRecord => ({

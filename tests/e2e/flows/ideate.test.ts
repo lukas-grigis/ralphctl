@@ -5,21 +5,14 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Result } from '@src/domain/result.ts';
 import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
-import type { ProjectRepository } from '@src/domain/repository/project/project-repository.ts';
-import type { SprintRepository } from '@src/domain/repository/sprint/sprint-repository.ts';
-import type { TaskRepository } from '@src/domain/repository/task/task-repository.ts';
-import { planSprint, type Sprint } from '@src/domain/entity/sprint.ts';
+import { planSprint } from '@src/domain/entity/sprint.ts';
 import { ConflictError } from '@src/domain/value/error/conflict-error.ts';
 import type { IdeateCtx } from '@src/application/flows/ideate/ctx.ts';
-import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { Task } from '@src/domain/entity/task.ts';
-import type { Project } from '@src/domain/entity/project.ts';
-import type { ProjectId } from '@src/domain/value/id/project-id.ts';
 import type {
   InteractiveAiProvider,
   InteractiveAiProviderInput,
 } from '@src/integration/ai/providers/_engine/interactive-ai-provider.ts';
-import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
 import {
   absolutePath,
   FIXED_LATER,
@@ -37,61 +30,9 @@ import { passthroughRunInTerminal } from '@src/integration/io/run-in-terminal.ts
 import { createIdeateFlow } from '@src/application/flows/ideate/flow.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import { emptySkillSource, noopSkillsAdapter } from '@tests/fixtures/skills-fakes.ts';
-import { withUpdate } from '@tests/fixtures/sprint-repo-update.ts';
+import { inMemorySprintRepo, inMemoryProjectRepo, inMemoryTaskRepo } from '@tests/fixtures/in-memory-repos.ts';
 
 const FAKE_CWD = absolutePath('/tmp/ralph/fake-cwd');
-
-const inMemorySprintRepo = (initial: Sprint): { repo: SprintRepository; current: () => Sprint } => {
-  let current = initial;
-  const repo = withUpdate({
-    async findById(id: SprintId) {
-      if (current.id === id) return Result.ok(current);
-      return Result.error(new NotFoundError({ entity: 'sprint', id: String(id) }));
-    },
-    async save(sprint: Sprint) {
-      current = sprint;
-      return Result.ok(undefined);
-    },
-  }) as unknown as SprintRepository;
-  return { repo, current: () => current };
-};
-
-const inMemoryProjectRepo = (project: Project): ProjectRepository =>
-  ({
-    async findById(id: ProjectId) {
-      if (project.id === id) return Result.ok(project);
-      return Result.error(new NotFoundError({ entity: 'project', id: String(id) }));
-    },
-  }) as ProjectRepository;
-
-const inMemoryTaskRepo = (
-  initial: readonly Task[]
-): { repo: TaskRepository; tasks: () => readonly Task[]; writes: () => ReadonlyArray<readonly Task[]> } => {
-  let store: Task[] = [...initial];
-  const writes: Array<readonly Task[]> = [];
-  const repo = {
-    async findBySprintId() {
-      return Result.ok(store);
-    },
-    async findById(_: SprintId, taskId: Task['id']) {
-      const t = store.find((x) => x.id === taskId);
-      if (!t) return Result.error(new NotFoundError({ entity: 'task', id: String(taskId) }));
-      return Result.ok(t);
-    },
-    async update(_: SprintId, task: Task) {
-      const i = store.findIndex((x) => x.id === task.id);
-      if (i >= 0) store[i] = task;
-      else store = [...store, task];
-      return Result.ok(undefined);
-    },
-    async saveAll(_: SprintId, tasks: readonly Task[]) {
-      writes.push(tasks);
-      store = [...tasks];
-      return Result.ok(undefined);
-    },
-  } as TaskRepository;
-  return { repo, tasks: () => store, writes: () => writes };
-};
 
 const fakeInteractiveAi = (
   jsonResponder: (input: InteractiveAiProviderInput) => string
@@ -392,7 +333,7 @@ describe('createIdeateFlow', () => {
       }
       expect(sprintRepo.current().status).toBe('planned');
       expect(sprintRepo.current().tickets).toHaveLength(1);
-      expect(taskRepo.writes()).toEqual([[theirs]]);
+      expect(taskRepo.saveAlls).toEqual([[theirs]]);
     });
 
     it('rejected: writes neither file — the other plan survives', async () => {
@@ -400,7 +341,7 @@ describe('createIdeateFlow', () => {
 
       expect(runner.status).toBe('completed');
       expect(sprintRepo.current().status).toBe('planned');
-      expect(taskRepo.writes()).toEqual([[theirs]]);
+      expect(taskRepo.saveAlls).toEqual([[theirs]]);
       expect(taskRepo.tasks()).toEqual([theirs]);
     });
   });

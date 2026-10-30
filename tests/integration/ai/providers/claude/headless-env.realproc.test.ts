@@ -1,7 +1,7 @@
 import { promises as fs } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createClaudeProvider } from '@src/integration/ai/providers/claude/headless.ts';
 import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts';
 import { READ_ONLY } from '@src/integration/ai/providers/_engine/session-permissions.ts';
@@ -24,19 +24,15 @@ describe.skipIf(!posix)('claude headless spawn environment', () => {
       '',
     ].join('\n');
     await fs.writeFile(command, script, { mode: 0o755 });
-    process.env['RALPHCTL_ENV_PROBE'] = 'inherited';
-    try {
-      const provider = createClaudeProvider({ rateLimitRetries: 0, eventBus: createCapturingBus().bus, command });
-      await provider.generate({
-        prompt: 'stub prompt' as Prompt,
-        cwd: absolutePath(dir),
-        model: 'claude-sonnet-4-6',
-        permissions: READ_ONLY,
-        signalsFile: absolutePath(join(dir, 'signals.json')),
-      });
-    } finally {
-      delete process.env['RALPHCTL_ENV_PROBE'];
-    }
+    vi.stubEnv('RALPHCTL_ENV_PROBE', 'inherited');
+    const provider = createClaudeProvider({ rateLimitRetries: 0, eventBus: createCapturingBus().bus, command });
+    await provider.generate({
+      prompt: 'stub prompt' as Prompt,
+      cwd: absolutePath(dir),
+      model: 'claude-sonnet-4-6',
+      permissions: READ_ONLY,
+      signalsFile: absolutePath(join(dir, 'signals.json')),
+    });
     expect((await fs.readFile(out, 'utf8')).split('\n')).toEqual(['0', 'inherited', '']);
   });
 });

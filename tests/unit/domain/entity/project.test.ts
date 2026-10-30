@@ -34,9 +34,8 @@ describe('createProject', () => {
       displayName: 'My Demo Project',
       repositories: [makeRepository()],
     });
-    expect(r.ok).toBe(true);
-    if (!r.ok) return;
-    expect(r.value.slug).toBe('my-demo-project');
+    const rValue = r.getOrThrow();
+    expect(rValue.slug).toBe('my-demo-project');
   });
 });
 
@@ -46,9 +45,8 @@ describe('addRepository', () => {
       makeProject(),
       makeRepository({ id: RepositoryId.generate(), slug: 'aux', name: 'aux', path: '/tmp/aux' })
     );
-    expect(r.ok).toBe(true);
-    if (!r.ok) return;
-    expect(r.value.repositories).toHaveLength(2);
+    const rValue = r.getOrThrow();
+    expect(rValue.repositories).toHaveLength(2);
   });
 
   it('rejects duplicate id', () => {
@@ -67,9 +65,8 @@ describe('removeRepository', () => {
     const aux = makeRepository({ id: RepositoryId.generate(), slug: 'aux', name: 'aux', path: '/tmp/aux' });
     const proj = makeProject({ repositories: [makeRepository(), aux] });
     const r = removeRepository(proj, aux.id);
-    expect(r.ok).toBe(true);
-    if (!r.ok) return;
-    expect(r.value.repositories).toHaveLength(1);
+    const rValue = r.getOrThrow();
+    expect(rValue.repositories).toHaveLength(1);
   });
 
   it("returns ValidationError when id doesn't exist", () => {
@@ -81,9 +78,8 @@ describe('removeRepository', () => {
 describe('setProjectDisplayName', () => {
   it('renames the project', () => {
     const r = setProjectDisplayName(makeProject(), 'New Label');
-    expect(r.ok).toBe(true);
-    if (!r.ok) return;
-    expect(r.value.displayName).toBe('New Label');
+    const value = r.getOrThrow();
+    expect(value.displayName).toBe('New Label');
   });
 
   it('rejects whitespace-only input', () => {
@@ -104,9 +100,8 @@ describe('updateRepository', () => {
   it('updates the named field on the matching repository', () => {
     const proj = makeProject();
     const r = updateRepository(proj, FIXED_REPOSITORY_ID, { name: 'renamed' });
-    expect(r.ok).toBe(true);
-    if (!r.ok) return;
-    expect(r.value.repositories[0]?.name).toBe('renamed');
+    const rValue = r.getOrThrow();
+    expect(rValue.repositories[0]?.name).toBe('renamed');
   });
 
   it('updates path through the AbsolutePath brand', () => {
@@ -116,19 +111,17 @@ describe('updateRepository', () => {
     });
     if (!newRepo.ok) throw new Error('seed');
     const r = updateRepository(makeProject(), FIXED_REPOSITORY_ID, { path: newRepo.value.path });
-    expect(r.ok).toBe(true);
-    if (!r.ok) return;
-    expect(r.value.repositories[0]?.path).toBe('/elsewhere/main-repo');
+    const rValue = r.getOrThrow();
+    expect(rValue.repositories[0]?.path).toBe('/elsewhere/main-repo');
   });
 
   it('trims and de-duplicates suggestedSkills on update', () => {
     const r = updateRepository(makeProject(), FIXED_REPOSITORY_ID, {
       suggestedSkills: ['  react-patterns  ', 'pnpm', 'react-patterns', '   '],
     });
-    expect(r.ok).toBe(true);
-    if (!r.ok) return;
+    const rValue = r.getOrThrow();
     // Trimmed, blank-dropped, first-wins de-dupe.
-    expect(r.value.repositories[0]?.suggestedSkills).toEqual(['react-patterns', 'pnpm']);
+    expect(rValue.repositories[0]?.suggestedSkills).toEqual(['react-patterns', 'pnpm']);
   });
 
   it('clears suggestedSkills when patched with an empty / all-blank list', () => {
@@ -142,11 +135,10 @@ describe('updateRepository', () => {
     expect(proj.repositories[0]?.suggestedSkills).toEqual(['react-patterns']);
 
     const r = updateRepository(proj, FIXED_REPOSITORY_ID, { suggestedSkills: ['   '] });
-    expect(r.ok).toBe(true);
-    if (!r.ok) return;
+    const rValue = r.getOrThrow();
     // All-blank list collapses to "no suggestions" → field removed entirely.
-    expect(r.value.repositories[0]?.suggestedSkills).toBeUndefined();
-    expect('suggestedSkills' in (r.value.repositories[0] ?? {})).toBe(false);
+    expect(rValue.repositories[0]?.suggestedSkills).toBeUndefined();
+    expect('suggestedSkills' in (rValue.repositories[0] ?? {})).toBe(false);
   });
 
   it('persists structured verifyGates alongside the verify script (additive)', () => {
@@ -164,9 +156,8 @@ describe('updateRepository', () => {
         { pathPrefix: 'services/web/', command: 'web-verify', timeoutMs: 90_000 },
       ],
     });
-    expect(r.ok).toBe(true);
-    if (!r.ok) return;
-    const saved = r.value.repositories[0];
+    const value = r.getOrThrow();
+    const saved = value.repositories[0];
     // Gates land, AND the legacy verify script is preserved — they coexist.
     expect(saved?.verifyScript).toBe('root-verify');
     expect(saved?.verifyGates).toEqual([
@@ -188,11 +179,10 @@ describe('updateRepository', () => {
     const r = updateRepository(proj, FIXED_REPOSITORY_ID, {
       verifyGates: [{ pathPrefix: 'a/', command: '   ' }],
     });
-    expect(r.ok).toBe(true);
-    if (!r.ok) return;
+    const rValue = r.getOrThrow();
     // Only gate had a blank command → nothing survives → field removed entirely.
-    expect(r.value.repositories[0]?.verifyGates).toBeUndefined();
-    expect('verifyGates' in (r.value.repositories[0] ?? {})).toBe(false);
+    expect(rValue.repositories[0]?.verifyGates).toBeUndefined();
+    expect('verifyGates' in (rValue.repositories[0] ?? {})).toBe(false);
   });
 
   it('rejects a gate with a non-positive timeoutMs', () => {

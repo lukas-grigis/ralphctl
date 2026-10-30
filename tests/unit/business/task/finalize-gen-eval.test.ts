@@ -36,6 +36,20 @@ const cfg =
     bestOfNCandidates: over.bestOfNCandidates,
   });
 
+type FinalizeProps = Parameters<typeof finalizeGenEvalUseCase>[0];
+const run = (over: Pick<FinalizeProps, 'task' | 'exit' | 'turnsUsed'> & Partial<FinalizeProps>) =>
+  finalizeGenEvalUseCase({
+    sprintId,
+    readConfig: config,
+    taskRepo: okRepo,
+    logger: noopLogger,
+    eventBus: newBus(),
+    clock: fixedClock,
+    generatorModel: defaultModel,
+    generatorProvider: 'claude-code',
+    ...over,
+  });
+
 describe('finalizeGenEvalUseCase', () => {
   // ── Core exit-kind mapping — every case asserts the FULL output shape so a mutant that
   // drops the warning, flips the verdict, or inverts shouldFailAttempt must fail. ──────────
@@ -50,101 +64,65 @@ describe('finalizeGenEvalUseCase', () => {
     // leaf does mid-loop when the work-product exemption fires).
     const withWarning = recordRunningAttemptWarning(base, { kind: 'plateau', dimensions: ['correctness'] });
     if (!withWarning.ok) throw withWarning.error;
-    const result = await finalizeGenEvalUseCase({
+    const result = await run({
       task: withWarning.value,
-      sprintId,
       exit: { kind: 'passed' },
       turnsUsed: 2,
-      readConfig: config,
-      taskRepo: okRepo,
-      logger: noopLogger,
-      eventBus: newBus(),
-      clock: fixedClock,
-      generatorModel: defaultModel,
-      generatorProvider: 'claude-code',
     });
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.verdict).toBe('passed');
-    expect(result.value.warning).toBeUndefined();
+    const resultValue = result.getOrThrow();
+    expect(resultValue.verdict).toBe('passed');
+    expect(resultValue.warning).toBeUndefined();
     // Confirm the task entity itself has no warning — the strip must have persisted.
-    const runningAttempt = result.value.task.attempts.at(-1);
+    const runningAttempt = resultValue.task.attempts.at(-1);
     expect(runningAttempt?.warning).toBeUndefined();
-    expect(result.value.blockedReason).toBeUndefined();
-    expect(result.value.shouldFailAttempt).toBeFalsy();
+    expect(resultValue.blockedReason).toBeUndefined();
+    expect(resultValue.shouldFailAttempt).toBeFalsy();
   });
 
   it('passed exit → verdict passed, no warning, no blockedReason, shouldFailAttempt absent', async () => {
     const task = makeInProgressTaskWithRunningAttempt();
-    const result = await finalizeGenEvalUseCase({
+    const result = await run({
       task,
-      sprintId,
       exit: { kind: 'passed' },
       turnsUsed: 1,
-      readConfig: config,
-      taskRepo: okRepo,
-      logger: noopLogger,
-      eventBus: newBus(),
-      clock: fixedClock,
-      generatorModel: defaultModel,
-      generatorProvider: 'claude-code',
     });
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.verdict).toBe('passed');
-    expect(result.value.warning).toBeUndefined();
-    expect(result.value.blockedReason).toBeUndefined();
-    expect(result.value.shouldFailAttempt).toBeFalsy();
+    const value = result.getOrThrow();
+    expect(value.verdict).toBe('passed');
+    expect(value.warning).toBeUndefined();
+    expect(value.blockedReason).toBeUndefined();
+    expect(value.shouldFailAttempt).toBeFalsy();
   });
 
   it('self-blocked exit → verdict failed, blockedReason set, no warning, no shouldFailAttempt', async () => {
     const task = makeInProgressTaskWithRunningAttempt();
-    const result = await finalizeGenEvalUseCase({
+    const result = await run({
       task,
-      sprintId,
       exit: { kind: 'self-blocked', reason: 'no key' },
       turnsUsed: 1,
-      readConfig: config,
-      taskRepo: okRepo,
-      logger: noopLogger,
-      eventBus: newBus(),
-      clock: fixedClock,
-      generatorModel: defaultModel,
-      generatorProvider: 'claude-code',
     });
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.verdict).toBe('failed');
-    expect(result.value.blockedReason).toBe('no key');
-    expect(result.value.warning).toBeUndefined();
-    expect(result.value.shouldFailAttempt).toBeFalsy();
+    const resultValue = result.getOrThrow();
+    expect(resultValue.verdict).toBe('failed');
+    expect(resultValue.blockedReason).toBe('no key');
+    expect(resultValue.warning).toBeUndefined();
+    expect(resultValue.shouldFailAttempt).toBeFalsy();
   });
 
   it('malformed exit (flag-off) → verdict malformed, warning kind=malformed with detail, no blockedReason, no shouldFailAttempt', async () => {
     // flag-off path: shouldFailAttempt must be absent (not just falsy) — a mutant inverting the
     // flag-off guard would incorrectly set it.
     const task = makeInProgressTaskWithRunningAttempt();
-    const result = await finalizeGenEvalUseCase({
+    const result = await run({
       task,
-      sprintId,
       exit: { kind: 'malformed', detail: 'no verdict' },
       turnsUsed: 1,
-      readConfig: config, // escalateOnPlateau: false
-      taskRepo: okRepo,
-      logger: noopLogger,
-      eventBus: newBus(),
-      clock: fixedClock,
-      generatorModel: defaultModel,
-      generatorProvider: 'claude-code',
     });
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.verdict).toBe('malformed');
-    expect(result.value.warning).toBeDefined();
-    expect(result.value.warning?.kind).toBe('malformed');
-    expect((result.value.warning as { kind: 'malformed'; detail: string } | undefined)?.detail).toBe('no verdict');
-    expect(result.value.blockedReason).toBeUndefined();
-    expect(result.value.shouldFailAttempt).toBeFalsy();
+    const resultValue = result.getOrThrow();
+    expect(resultValue.verdict).toBe('malformed');
+    expect(resultValue.warning).toBeDefined();
+    expect(resultValue.warning?.kind).toBe('malformed');
+    expect((resultValue.warning as { kind: 'malformed'; detail: string } | undefined)?.detail).toBe('no verdict');
+    expect(resultValue.blockedReason).toBeUndefined();
+    expect(resultValue.shouldFailAttempt).toBeFalsy();
   });
 
   it('plateau exit (flag-off) → verdict failed, plateau warning attached, no blockedReason, no shouldFailAttempt', async () => {
@@ -152,101 +130,67 @@ describe('finalizeGenEvalUseCase', () => {
     // the warning lands on the failed attempt so a topped-out / budget-exhausted plateau settles
     // done-with-warning instead of masquerading as a clean pass. flag-off: escalation must NOT fire.
     const task = makeInProgressTaskWithRunningAttempt();
-    const result = await finalizeGenEvalUseCase({
+    const result = await run({
       task,
-      sprintId,
       exit: { kind: 'plateau', dimensions: ['correctness'] },
       turnsUsed: 3,
-      readConfig: config, // escalateOnPlateau: false
-      taskRepo: okRepo,
-      logger: noopLogger,
-      eventBus: newBus(),
-      clock: fixedClock,
-      generatorModel: defaultModel,
-      generatorProvider: 'claude-code',
     });
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.verdict).toBe('failed');
+    const value = result.getOrThrow();
+    expect(value.verdict).toBe('failed');
     // Mutant-kill: a mutant returning 'passed' as verdict, or dropping the plateau warning, fails here.
-    expect(result.value.warning).toEqual({ kind: 'plateau', dimensions: ['correctness'] });
-    expect(result.value.blockedReason).toBeUndefined();
-    expect(result.value.shouldFailAttempt).toBeFalsy();
+    expect(value.warning).toEqual({ kind: 'plateau', dimensions: ['correctness'] });
+    expect(value.blockedReason).toBeUndefined();
+    expect(value.shouldFailAttempt).toBeFalsy();
   });
 
   it('budget-exhausted exit explicit (flag-off) → verdict failed, warning with turnsUsed+turnBudget, no shouldFailAttempt', async () => {
     const task = makeInProgressTaskWithRunningAttempt();
-    const result = await finalizeGenEvalUseCase({
+    const result = await run({
       task,
-      sprintId,
       exit: { kind: 'budget-exhausted', turnsUsed: 5, turnBudget: 5 },
       turnsUsed: 5,
-      readConfig: config, // escalateOnPlateau: false
-      taskRepo: okRepo,
-      logger: noopLogger,
-      eventBus: newBus(),
-      clock: fixedClock,
-      generatorModel: defaultModel,
-      generatorProvider: 'claude-code',
     });
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.verdict).toBe('failed');
-    expect(result.value.warning).toBeDefined();
-    expect(result.value.warning?.kind).toBe('budget-exhausted');
-    const w = result.value.warning as { kind: 'budget-exhausted'; turnsUsed: number; turnBudget: number } | undefined;
+    const resultValue = result.getOrThrow();
+    expect(resultValue.verdict).toBe('failed');
+    expect(resultValue.warning).toBeDefined();
+    expect(resultValue.warning?.kind).toBe('budget-exhausted');
+    const w = resultValue.warning as { kind: 'budget-exhausted'; turnsUsed: number; turnBudget: number } | undefined;
     expect(w?.turnsUsed).toBe(5);
     expect(w?.turnBudget).toBe(5);
-    expect(result.value.blockedReason).toBeUndefined();
-    expect(result.value.shouldFailAttempt).toBeFalsy();
+    expect(resultValue.blockedReason).toBeUndefined();
+    expect(resultValue.shouldFailAttempt).toBeFalsy();
   });
 
   it('synthesises budget-exhausted exit when exit is undefined — exit kind, warning, verdict all set', async () => {
     const task = makeInProgressTaskWithRunningAttempt();
-    const result = await finalizeGenEvalUseCase({
+    const result = await run({
       task,
-      sprintId,
       turnsUsed: 7,
       readConfig: cfg({ maxTurns: 7 }),
-      taskRepo: okRepo,
-      logger: noopLogger,
-      eventBus: newBus(),
-      clock: fixedClock,
-      generatorModel: defaultModel,
-      generatorProvider: 'claude-code',
     });
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.exit.kind).toBe('budget-exhausted');
-    expect(result.value.verdict).toBe('failed');
-    expect(result.value.warning).toBeDefined();
-    expect(result.value.warning?.kind).toBe('budget-exhausted');
-    const w = result.value.warning as { kind: 'budget-exhausted'; turnBudget: number } | undefined;
+    const resultValue = result.getOrThrow();
+    expect(resultValue.exit.kind).toBe('budget-exhausted');
+    expect(resultValue.verdict).toBe('failed');
+    expect(resultValue.warning).toBeDefined();
+    expect(resultValue.warning?.kind).toBe('budget-exhausted');
+    const w = resultValue.warning as { kind: 'budget-exhausted'; turnBudget: number } | undefined;
     expect(w?.turnBudget).toBe(7);
-    expect(result.value.blockedReason).toBeUndefined();
+    expect(resultValue.blockedReason).toBeUndefined();
   });
 
   it('clamps an unreasonable maxTurns config to >= 1 — turnBudget in synthesized warning is 1', async () => {
     const task = makeInProgressTaskWithRunningAttempt();
-    const result = await finalizeGenEvalUseCase({
+    const result = await run({
       task,
-      sprintId,
       turnsUsed: 0,
       readConfig: cfg({ maxTurns: 0 }),
-      taskRepo: okRepo,
-      logger: noopLogger,
-      eventBus: newBus(),
-      clock: fixedClock,
-      generatorModel: defaultModel,
-      generatorProvider: 'claude-code',
     });
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.warning?.kind).toBe('budget-exhausted');
-    const w = result.value.warning as { kind: 'budget-exhausted'; turnBudget: number } | undefined;
+    const value = result.getOrThrow();
+    expect(value.warning?.kind).toBe('budget-exhausted');
+    const w = value.warning as { kind: 'budget-exhausted'; turnBudget: number } | undefined;
     expect(w?.turnBudget).toBe(1);
-    expect(result.value.verdict).toBe('failed');
-    expect(result.value.blockedReason).toBeUndefined();
+    expect(value.verdict).toBe('failed');
+    expect(value.blockedReason).toBeUndefined();
   });
 
   it('plateau + escalateOnPlateau=false: legacy path — verdict failed, plateau warning, no escalation event, no blockedReason, no shouldFailAttempt', async () => {
@@ -255,26 +199,20 @@ describe('finalizeGenEvalUseCase', () => {
     const bus = newBus();
     const events: Array<{ type: string }> = [];
     bus.subscribe((e) => events.push(e));
-    const result = await finalizeGenEvalUseCase({
+    const result = await run({
       task,
-      sprintId,
       exit: { kind: 'plateau', dimensions: ['correctness'] },
       turnsUsed: 3,
       readConfig: cfg({ escalateOnPlateau: false, maxAttempts: 5 }),
-      taskRepo: okRepo,
-      logger: noopLogger,
       eventBus: bus,
-      clock: fixedClock,
       generatorModel: 'claude-sonnet-4-6',
-      generatorProvider: 'claude-code',
     });
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.verdict).toBe('failed');
-    expect(result.value.warning).toEqual({ kind: 'plateau', dimensions: ['correctness'] }); // plateau warning attached
-    expect(result.value.shouldFailAttempt).toBeFalsy();
-    expect(result.value.blockedReason).toBeUndefined();
-    expect(result.value.task.escalatedToModel).toBeUndefined();
+    const resultValue = result.getOrThrow();
+    expect(resultValue.verdict).toBe('failed');
+    expect(resultValue.warning).toEqual({ kind: 'plateau', dimensions: ['correctness'] }); // plateau warning attached
+    expect(resultValue.shouldFailAttempt).toBeFalsy();
+    expect(resultValue.blockedReason).toBeUndefined();
+    expect(resultValue.task.escalatedToModel).toBeUndefined();
     expect(events.some((e) => e.type === 'model-escalated')).toBe(false);
   });
 
@@ -285,27 +223,21 @@ describe('finalizeGenEvalUseCase', () => {
     const bus = newBus();
     const events: Array<{ type: string }> = [];
     bus.subscribe((e) => events.push(e));
-    const result = await finalizeGenEvalUseCase({
+    const result = await run({
       task,
-      sprintId,
       exit: { kind: 'plateau', dimensions: ['correctness'] },
       turnsUsed: 3,
       readConfig: cfg({ escalateOnPlateau: true, maxAttempts: 5 }),
-      taskRepo: okRepo,
-      logger: noopLogger,
       eventBus: bus,
-      clock: fixedClock,
       generatorModel: 'claude-sonnet-4-6',
-      generatorProvider: 'claude-code',
     });
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.verdict).toBe('failed');
-    expect(result.value.warning).toEqual({ kind: 'plateau', dimensions: ['correctness'] }); // plateau warning attached
-    expect(result.value.task.escalatedFromModel).toBe('claude-sonnet-4-6');
-    expect(result.value.task.escalatedToModel).toBe('claude-opus-4-8');
-    expect(result.value.shouldFailAttempt).toBe(true);
-    expect(result.value.blockedReason).toBeUndefined();
+    const resultValue = result.getOrThrow();
+    expect(resultValue.verdict).toBe('failed');
+    expect(resultValue.warning).toEqual({ kind: 'plateau', dimensions: ['correctness'] }); // plateau warning attached
+    expect(resultValue.task.escalatedFromModel).toBe('claude-sonnet-4-6');
+    expect(resultValue.task.escalatedToModel).toBe('claude-opus-4-8');
+    expect(resultValue.shouldFailAttempt).toBe(true);
+    expect(resultValue.blockedReason).toBeUndefined();
     expect(events.some((e) => e.type === 'model-escalated')).toBe(true);
   });
 
@@ -316,22 +248,16 @@ describe('finalizeGenEvalUseCase', () => {
     const bus = newBus();
     const events: Array<{ type: string; plateauSource?: string }> = [];
     bus.subscribe((e) => events.push(e as { type: string; plateauSource?: string }));
-    const result = await finalizeGenEvalUseCase({
+    const result = await run({
       task,
-      sprintId,
       exit: { kind: 'plateau', dimensions: ['correctness'], source: 'entropy' },
       turnsUsed: 3,
       readConfig: cfg({ escalateOnPlateau: true, maxAttempts: 5 }),
-      taskRepo: okRepo,
-      logger: noopLogger,
       eventBus: bus,
-      clock: fixedClock,
       generatorModel: 'claude-sonnet-4-6',
-      generatorProvider: 'claude-code',
     });
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.warning).toEqual({ kind: 'plateau', dimensions: ['correctness'], source: 'entropy' });
+    const value = result.getOrThrow();
+    expect(value.warning).toEqual({ kind: 'plateau', dimensions: ['correctness'], source: 'entropy' });
     const escalated = events.find((e) => e.type === 'model-escalated');
     expect(escalated?.plateauSource).toBe('entropy');
   });
@@ -341,23 +267,17 @@ describe('finalizeGenEvalUseCase', () => {
     const bus = newBus();
     const events: Array<{ type: string; plateauSource?: string }> = [];
     bus.subscribe((e) => events.push(e as { type: string; plateauSource?: string }));
-    const result = await finalizeGenEvalUseCase({
+    const result = await run({
       task,
-      sprintId,
       exit: { kind: 'plateau', dimensions: ['correctness'] },
       turnsUsed: 3,
       readConfig: cfg({ escalateOnPlateau: true, maxAttempts: 5 }),
-      taskRepo: okRepo,
-      logger: noopLogger,
       eventBus: bus,
-      clock: fixedClock,
       generatorModel: 'claude-sonnet-4-6',
-      generatorProvider: 'claude-code',
     });
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.warning).toEqual({ kind: 'plateau', dimensions: ['correctness'] });
-    expect('source' in (result.value.warning ?? {})).toBe(false);
+    const resultValue = result.getOrThrow();
+    expect(resultValue.warning).toEqual({ kind: 'plateau', dimensions: ['correctness'] });
+    expect('source' in (resultValue.warning ?? {})).toBe(false);
     const escalated = events.find((e) => e.type === 'model-escalated');
     expect(escalated?.plateauSource).toBeUndefined();
     expect('plateauSource' in (escalated ?? {})).toBe(false);
@@ -372,25 +292,21 @@ describe('finalizeGenEvalUseCase', () => {
     const bus = newBus();
     const events: Array<{ type: string }> = [];
     bus.subscribe((e) => events.push(e));
-    const result = await finalizeGenEvalUseCase({
+    const result = await run({
       task: stamped.value,
-      sprintId,
       exit: { kind: 'plateau', dimensions: ['correctness'] },
       turnsUsed: 3,
       readConfig: cfg({ escalateOnPlateau: true, maxAttempts: 5 }),
-      taskRepo: okRepo,
-      logger: noopLogger,
       eventBus: bus,
-      clock: fixedClock,
       generatorModel: 'claude-opus-5-5',
+      generatorProvider: undefined,
     });
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
+    const resultValue = result.getOrThrow();
     // The ladder is exhausted: a plateau after the top-of-ladder nudge preserves the work.
-    expect(result.value.verdict).toBe('failed');
-    expect(result.value.warning).toEqual({ kind: 'plateau', dimensions: ['correctness'] }); // plateau warning attached
-    expect(result.value.blockedReason).toBeUndefined();
-    expect(result.value.shouldFailAttempt).toBeFalsy();
+    expect(resultValue.verdict).toBe('failed');
+    expect(resultValue.warning).toEqual({ kind: 'plateau', dimensions: ['correctness'] }); // plateau warning attached
+    expect(resultValue.blockedReason).toBeUndefined();
+    expect(resultValue.shouldFailAttempt).toBeFalsy();
     expect(events.some((e) => e.type === 'model-escalated')).toBe(false);
   });
 
@@ -400,27 +316,23 @@ describe('finalizeGenEvalUseCase', () => {
     const bus = newBus();
     const events: Array<{ type: string }> = [];
     bus.subscribe((e) => events.push(e));
-    const result = await finalizeGenEvalUseCase({
+    const result = await run({
       task,
-      sprintId,
       exit: { kind: 'plateau', dimensions: ['correctness'] },
       turnsUsed: 3,
       readConfig: cfg({ escalateOnPlateau: true, maxAttempts: 5 }),
-      taskRepo: okRepo,
-      logger: noopLogger,
       eventBus: bus,
-      clock: fixedClock,
       generatorModel: 'claude-opus-5-5',
+      generatorProvider: undefined,
     });
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
+    const value = result.getOrThrow();
     // Nudge: same model stamped (arms the directive + once-per-task cap), one more attempt granted.
-    expect(result.value.verdict).toBe('failed');
-    expect(result.value.warning).toEqual({ kind: 'plateau', dimensions: ['correctness'] }); // plateau warning attached
-    expect(result.value.task.escalatedFromModel).toBe('claude-opus-5-5');
-    expect(result.value.task.escalatedToModel).toBe('claude-opus-5-5');
-    expect(result.value.shouldFailAttempt).toBe(true);
-    expect(result.value.blockedReason).toBeUndefined();
+    expect(value.verdict).toBe('failed');
+    expect(value.warning).toEqual({ kind: 'plateau', dimensions: ['correctness'] }); // plateau warning attached
+    expect(value.task.escalatedFromModel).toBe('claude-opus-5-5');
+    expect(value.task.escalatedToModel).toBe('claude-opus-5-5');
+    expect(value.shouldFailAttempt).toBe(true);
+    expect(value.blockedReason).toBeUndefined();
     expect(events.some((e) => e.type === 'model-escalated')).toBe(false);
   });
 
@@ -430,26 +342,20 @@ describe('finalizeGenEvalUseCase', () => {
     const bus = newBus();
     const events: Array<{ type: string }> = [];
     bus.subscribe((e) => events.push(e));
-    const result = await finalizeGenEvalUseCase({
+    const result = await run({
       task,
-      sprintId,
       exit: { kind: 'plateau', dimensions: ['correctness'] },
       turnsUsed: 3,
       readConfig: cfg({ escalateOnPlateau: true, maxAttempts: 5 }),
-      taskRepo: okRepo,
-      logger: noopLogger,
       eventBus: bus,
-      clock: fixedClock,
       generatorModel: 'claude-sonnet-4-6',
-      generatorProvider: 'claude-code',
     });
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.verdict).toBe('failed');
-    expect(result.value.warning).toEqual({ kind: 'plateau', dimensions: ['correctness'] }); // plateau warning attached
-    expect(result.value.task.escalatedToModel).toBeUndefined();
-    expect(result.value.blockedReason).toBeUndefined();
-    expect(result.value.shouldFailAttempt).toBeFalsy();
+    const resultValue = result.getOrThrow();
+    expect(resultValue.verdict).toBe('failed');
+    expect(resultValue.warning).toEqual({ kind: 'plateau', dimensions: ['correctness'] }); // plateau warning attached
+    expect(resultValue.task.escalatedToModel).toBeUndefined();
+    expect(resultValue.blockedReason).toBeUndefined();
+    expect(resultValue.shouldFailAttempt).toBeFalsy();
     expect(events.some((e) => e.type === 'model-escalated')).toBe(false);
   });
 
@@ -462,30 +368,24 @@ describe('finalizeGenEvalUseCase', () => {
     const bus = newBus();
     const events: Array<{ type: string; reason?: string }> = [];
     bus.subscribe((e) => events.push(e as { type: string; reason?: string }));
-    const result = await finalizeGenEvalUseCase({
+    const result = await run({
       task,
-      sprintId,
       exit: { kind: 'budget-exhausted', turnsUsed: 5, turnBudget: 5 },
       turnsUsed: 5,
       readConfig: cfg({ escalateOnPlateau: true, maxAttempts: 5 }),
-      taskRepo: okRepo,
-      logger: noopLogger,
       eventBus: bus,
-      clock: fixedClock,
       generatorModel: 'claude-sonnet-4-6',
-      generatorProvider: 'claude-code',
     });
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.verdict).toBe('failed');
-    expect(result.value.warning?.kind).toBe('budget-exhausted');
-    const w = result.value.warning as { kind: 'budget-exhausted'; turnsUsed: number; turnBudget: number } | undefined;
+    const resultValue = result.getOrThrow();
+    expect(resultValue.verdict).toBe('failed');
+    expect(resultValue.warning?.kind).toBe('budget-exhausted');
+    const w = resultValue.warning as { kind: 'budget-exhausted'; turnsUsed: number; turnBudget: number } | undefined;
     expect(w?.turnsUsed).toBe(5);
     expect(w?.turnBudget).toBe(5);
-    expect(result.value.task.escalatedFromModel).toBe('claude-sonnet-4-6');
-    expect(result.value.task.escalatedToModel).toBe('claude-opus-4-8');
-    expect(result.value.shouldFailAttempt).toBe(true);
-    expect(result.value.blockedReason).toBeUndefined();
+    expect(resultValue.task.escalatedFromModel).toBe('claude-sonnet-4-6');
+    expect(resultValue.task.escalatedToModel).toBe('claude-opus-4-8');
+    expect(resultValue.shouldFailAttempt).toBe(true);
+    expect(resultValue.blockedReason).toBeUndefined();
     const escalated = events.find((e) => e.type === 'model-escalated');
     expect(escalated).toBeDefined();
     expect(escalated?.reason).toBe('budget-exhausted');
@@ -497,27 +397,21 @@ describe('finalizeGenEvalUseCase', () => {
     const bus = newBus();
     const events: Array<{ type: string }> = [];
     bus.subscribe((e) => events.push(e));
-    const result = await finalizeGenEvalUseCase({
+    const result = await run({
       task,
-      sprintId,
       // No `exit` — synthesised budget-exhausted.
       turnsUsed: 5,
       readConfig: cfg({ escalateOnPlateau: true, maxAttempts: 5 }),
-      taskRepo: okRepo,
-      logger: noopLogger,
       eventBus: bus,
-      clock: fixedClock,
       generatorModel: 'claude-sonnet-4-6',
-      generatorProvider: 'claude-code',
     });
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.exit.kind).toBe('budget-exhausted');
-    expect(result.value.verdict).toBe('failed');
-    expect(result.value.warning?.kind).toBe('budget-exhausted');
-    expect(result.value.task.escalatedToModel).toBe('claude-opus-4-8');
-    expect(result.value.shouldFailAttempt).toBe(true);
-    expect(result.value.blockedReason).toBeUndefined();
+    const value = result.getOrThrow();
+    expect(value.exit.kind).toBe('budget-exhausted');
+    expect(value.verdict).toBe('failed');
+    expect(value.warning?.kind).toBe('budget-exhausted');
+    expect(value.task.escalatedToModel).toBe('claude-opus-4-8');
+    expect(value.shouldFailAttempt).toBe(true);
+    expect(value.blockedReason).toBeUndefined();
     expect(events.some((e) => e.type === 'model-escalated')).toBe(true);
   });
 
@@ -526,29 +420,23 @@ describe('finalizeGenEvalUseCase', () => {
     const bus = newBus();
     const events: Array<{ type: string }> = [];
     bus.subscribe((e) => events.push(e));
-    const result = await finalizeGenEvalUseCase({
+    const result = await run({
       task,
-      sprintId,
       exit: { kind: 'budget-exhausted', turnsUsed: 5, turnBudget: 5 },
       turnsUsed: 5,
       readConfig: cfg({ escalateOnPlateau: true, maxAttempts: 5 }),
-      taskRepo: okRepo,
-      logger: noopLogger,
       eventBus: bus,
-      clock: fixedClock,
       generatorModel: 'claude-sonnet-4-6',
-      generatorProvider: 'claude-code',
     });
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.verdict).toBe('failed');
-    expect(result.value.warning?.kind).toBe('budget-exhausted');
-    const w = result.value.warning as { kind: 'budget-exhausted'; turnsUsed: number; turnBudget: number } | undefined;
+    const resultValue = result.getOrThrow();
+    expect(resultValue.verdict).toBe('failed');
+    expect(resultValue.warning?.kind).toBe('budget-exhausted');
+    const w = resultValue.warning as { kind: 'budget-exhausted'; turnsUsed: number; turnBudget: number } | undefined;
     expect(w?.turnsUsed).toBe(5);
     expect(w?.turnBudget).toBe(5);
-    expect(result.value.task.escalatedToModel).toBeUndefined();
-    expect(result.value.shouldFailAttempt).toBeFalsy();
-    expect(result.value.blockedReason).toBeUndefined();
+    expect(resultValue.task.escalatedToModel).toBeUndefined();
+    expect(resultValue.shouldFailAttempt).toBeFalsy();
+    expect(resultValue.blockedReason).toBeUndefined();
     expect(events.some((e) => e.type === 'model-escalated')).toBe(false);
   });
 
@@ -558,26 +446,20 @@ describe('finalizeGenEvalUseCase', () => {
     const bus = newBus();
     const events: Array<{ type: string }> = [];
     bus.subscribe((e) => events.push(e));
-    const result = await finalizeGenEvalUseCase({
+    const result = await run({
       task,
-      sprintId,
       exit: { kind: 'budget-exhausted', turnsUsed: 5, turnBudget: 5 },
       turnsUsed: 5,
       readConfig: cfg({ escalateOnPlateau: false, maxAttempts: 5 }),
-      taskRepo: okRepo,
-      logger: noopLogger,
       eventBus: bus,
-      clock: fixedClock,
       generatorModel: 'claude-sonnet-4-6',
-      generatorProvider: 'claude-code',
     });
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.verdict).toBe('failed');
-    expect(result.value.warning?.kind).toBe('budget-exhausted');
-    expect(result.value.shouldFailAttempt).toBeFalsy();
-    expect(result.value.task.escalatedToModel).toBeUndefined();
-    expect(result.value.blockedReason).toBeUndefined();
+    const resultValue = result.getOrThrow();
+    expect(resultValue.verdict).toBe('failed');
+    expect(resultValue.warning?.kind).toBe('budget-exhausted');
+    expect(resultValue.shouldFailAttempt).toBeFalsy();
+    expect(resultValue.task.escalatedToModel).toBeUndefined();
+    expect(resultValue.blockedReason).toBeUndefined();
     expect(events.some((e) => e.type === 'model-escalated')).toBe(false);
   });
 
@@ -590,29 +472,23 @@ describe('finalizeGenEvalUseCase', () => {
     const bus = newBus();
     const events: Array<{ type: string }> = [];
     bus.subscribe((e) => events.push(e));
-    const result = await finalizeGenEvalUseCase({
+    const result = await run({
       task,
-      sprintId,
       exit: { kind: 'malformed', detail: 'no verdict' },
       turnsUsed: 5,
       readConfig: cfg({ escalateOnPlateau: true, maxAttempts: 5 }),
-      taskRepo: okRepo,
-      logger: noopLogger,
       eventBus: bus,
-      clock: fixedClock,
       generatorModel: 'claude-sonnet-4-6',
-      generatorProvider: 'claude-code',
     });
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.verdict).toBe('malformed');
-    expect(result.value.warning?.kind).toBe('malformed');
-    expect((result.value.warning as { kind: 'malformed'; detail: string } | undefined)?.detail).toBe('no verdict');
-    expect(result.value.shouldFailAttempt).toBe(true);
+    const value = result.getOrThrow();
+    expect(value.verdict).toBe('malformed');
+    expect(value.warning?.kind).toBe('malformed');
+    expect((value.warning as { kind: 'malformed'; detail: string } | undefined)?.detail).toBe('no verdict');
+    expect(value.shouldFailAttempt).toBe(true);
     // No model escalation: the evaluator failed, not the generator — no ladder rung is burned.
-    expect(result.value.task.escalatedFromModel).toBeUndefined();
-    expect(result.value.task.escalatedToModel).toBeUndefined();
-    expect(result.value.blockedReason).toBeUndefined();
+    expect(value.task.escalatedFromModel).toBeUndefined();
+    expect(value.task.escalatedToModel).toBeUndefined();
+    expect(value.blockedReason).toBeUndefined();
     expect(events.some((e) => e.type === 'model-escalated')).toBe(false);
   });
 
@@ -621,51 +497,38 @@ describe('finalizeGenEvalUseCase', () => {
     const bus = newBus();
     const events: Array<{ type: string }> = [];
     bus.subscribe((e) => events.push(e));
-    const result = await finalizeGenEvalUseCase({
+    const result = await run({
       task,
-      sprintId,
       exit: { kind: 'malformed', detail: 'no verdict' },
       turnsUsed: 5,
       readConfig: cfg({ escalateOnPlateau: true, maxAttempts: 5 }),
-      taskRepo: okRepo,
-      logger: noopLogger,
       eventBus: bus,
-      clock: fixedClock,
       generatorModel: 'claude-sonnet-4-6',
-      generatorProvider: 'claude-code',
     });
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.verdict).toBe('malformed');
-    expect(result.value.warning?.kind).toBe('malformed');
-    expect(result.value.shouldFailAttempt).toBeFalsy();
-    expect(result.value.task.escalatedToModel).toBeUndefined();
-    expect(result.value.blockedReason).toBeUndefined();
+    const resultValue = result.getOrThrow();
+    expect(resultValue.verdict).toBe('malformed');
+    expect(resultValue.warning?.kind).toBe('malformed');
+    expect(resultValue.shouldFailAttempt).toBeFalsy();
+    expect(resultValue.task.escalatedToModel).toBeUndefined();
+    expect(resultValue.blockedReason).toBeUndefined();
     expect(events.some((e) => e.type === 'model-escalated')).toBe(false);
   });
 
   it('malformed flag-off legacy path: verdict malformed, malformed warning, no shouldFailAttempt, no escalation, no blockedReason', async () => {
     const task = makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 });
-    const result = await finalizeGenEvalUseCase({
+    const result = await run({
       task,
-      sprintId,
       exit: { kind: 'malformed', detail: 'no verdict' },
       turnsUsed: 5,
       readConfig: cfg({ escalateOnPlateau: false, maxAttempts: 5 }),
-      taskRepo: okRepo,
-      logger: noopLogger,
-      eventBus: newBus(),
-      clock: fixedClock,
       generatorModel: 'claude-sonnet-4-6',
-      generatorProvider: 'claude-code',
     });
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.verdict).toBe('malformed');
-    expect(result.value.warning?.kind).toBe('malformed');
-    expect(result.value.shouldFailAttempt).toBeFalsy();
-    expect(result.value.task.escalatedToModel).toBeUndefined();
-    expect(result.value.blockedReason).toBeUndefined();
+    const resultValue = result.getOrThrow();
+    expect(resultValue.verdict).toBe('malformed');
+    expect(resultValue.warning?.kind).toBe('malformed');
+    expect(resultValue.shouldFailAttempt).toBeFalsy();
+    expect(resultValue.task.escalatedToModel).toBeUndefined();
+    expect(resultValue.blockedReason).toBeUndefined();
   });
 
   // ── Crashed: unconditional retry (watchdog kill / spawn crash), no ladder rung ────────────────
@@ -679,31 +542,25 @@ describe('finalizeGenEvalUseCase', () => {
     const bus = newBus();
     const events: Array<{ type: string }> = [];
     bus.subscribe((e) => events.push(e));
-    const result = await finalizeGenEvalUseCase({
+    const result = await run({
       task,
-      sprintId,
       exit: { kind: 'crashed', reason: 'AI process was killed before producing signals.json: exit 143 (SIGTERM)' },
       turnsUsed: 1,
       readConfig: cfg({ escalateOnPlateau: false, maxAttempts: 3 }),
-      taskRepo: okRepo,
-      logger: noopLogger,
       eventBus: bus,
-      clock: fixedClock,
       generatorModel: 'claude-sonnet-4-6',
-      generatorProvider: 'claude-code',
     });
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.verdict).toBe('failed');
-    expect(result.value.warning?.kind).toBe('crashed');
-    expect((result.value.warning as { kind: 'crashed'; detail: string } | undefined)?.detail).toContain(
+    const value = result.getOrThrow();
+    expect(value.verdict).toBe('failed');
+    expect(value.warning?.kind).toBe('crashed');
+    expect((value.warning as { kind: 'crashed'; detail: string } | undefined)?.detail).toContain(
       'AI process was killed before producing signals.json'
     );
-    expect(result.value.shouldFailAttempt).toBe(true);
+    expect(value.shouldFailAttempt).toBe(true);
     // No ladder rung burned — a crash is not a generator weakness.
-    expect(result.value.task.escalatedFromModel).toBeUndefined();
-    expect(result.value.task.escalatedToModel).toBeUndefined();
-    expect(result.value.blockedReason).toBeUndefined();
+    expect(value.task.escalatedFromModel).toBeUndefined();
+    expect(value.task.escalatedToModel).toBeUndefined();
+    expect(value.blockedReason).toBeUndefined();
     expect(events.some((e) => e.type === 'model-escalated')).toBe(false);
   });
 
@@ -713,26 +570,19 @@ describe('finalizeGenEvalUseCase', () => {
     // even on what turns out to be the last allowed attempt, finalize sets shouldFailAttempt=true
     // and never sets blockedReason (finalize must not pre-empt the domain's budget branch).
     const task = makeInProgressTaskWithRunningAttempt({ maxAttempts: 1 });
-    const result = await finalizeGenEvalUseCase({
+    const result = await run({
       task,
-      sprintId,
       exit: { kind: 'crashed', reason: 'AI process was killed before producing signals.json: spawn failed ENOENT' },
       turnsUsed: 1,
       readConfig: cfg({ escalateOnPlateau: true, maxAttempts: 1 }),
-      taskRepo: okRepo,
-      logger: noopLogger,
-      eventBus: newBus(),
-      clock: fixedClock,
       generatorModel: 'claude-sonnet-4-6',
-      generatorProvider: 'claude-code',
     });
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.verdict).toBe('failed');
-    expect(result.value.warning?.kind).toBe('crashed');
-    expect(result.value.shouldFailAttempt).toBe(true);
-    expect(result.value.blockedReason).toBeUndefined();
-    expect(result.value.task.escalatedToModel).toBeUndefined();
+    const resultValue = result.getOrThrow();
+    expect(resultValue.verdict).toBe('failed');
+    expect(resultValue.warning?.kind).toBe('crashed');
+    expect(resultValue.shouldFailAttempt).toBe(true);
+    expect(resultValue.blockedReason).toBeUndefined();
+    expect(resultValue.task.escalatedToModel).toBeUndefined();
   });
 
   // ── Legacy-task budget fallback (task.maxAttempts unset) ──────────────────────────────────────
@@ -740,27 +590,20 @@ describe('finalizeGenEvalUseCase', () => {
   it('legacy task (no maxAttempts) plateau escalate: verdict failed, plateau warning, shouldFailAttempt=true, escalation stamps set', async () => {
     // No `maxAttempts` override → task.maxAttempts is undefined (legacy plan).
     const task = makeInProgressTaskWithRunningAttempt();
-    const result = await finalizeGenEvalUseCase({
+    const result = await run({
       task,
-      sprintId,
       exit: { kind: 'plateau', dimensions: ['correctness'] },
       turnsUsed: 3,
       // Fallback budget 3 > 1 attempt used → escalate.
       readConfig: cfg({ escalateOnPlateau: true, maxAttempts: 3 }),
-      taskRepo: okRepo,
-      logger: noopLogger,
-      eventBus: newBus(),
-      clock: fixedClock,
       generatorModel: 'claude-sonnet-4-6',
-      generatorProvider: 'claude-code',
     });
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.verdict).toBe('failed');
-    expect(result.value.warning).toEqual({ kind: 'plateau', dimensions: ['correctness'] }); // plateau warning attached
-    expect(result.value.task.escalatedToModel).toBe('claude-opus-4-8');
-    expect(result.value.shouldFailAttempt).toBe(true);
-    expect(result.value.blockedReason).toBeUndefined();
+    const resultValue = result.getOrThrow();
+    expect(resultValue.verdict).toBe('failed');
+    expect(resultValue.warning).toEqual({ kind: 'plateau', dimensions: ['correctness'] }); // plateau warning attached
+    expect(resultValue.task.escalatedToModel).toBe('claude-opus-4-8');
+    expect(resultValue.shouldFailAttempt).toBe(true);
+    expect(resultValue.blockedReason).toBeUndefined();
   });
 
   it('legacy task (no maxAttempts) plateau fallback=1 preempts: verdict failed, plateau warning, no shouldFailAttempt, no escalation, no blockedReason', async () => {
@@ -768,27 +611,21 @@ describe('finalizeGenEvalUseCase', () => {
     const bus = newBus();
     const events: Array<{ type: string }> = [];
     bus.subscribe((e) => events.push(e));
-    const result = await finalizeGenEvalUseCase({
+    const result = await run({
       task,
-      sprintId,
       exit: { kind: 'plateau', dimensions: ['correctness'] },
       turnsUsed: 3,
       // Fallback budget 1 === 1 attempt used → budget-exhausted, preserve work.
       readConfig: cfg({ escalateOnPlateau: true, maxAttempts: 1 }),
-      taskRepo: okRepo,
-      logger: noopLogger,
       eventBus: bus,
-      clock: fixedClock,
       generatorModel: 'claude-sonnet-4-6',
-      generatorProvider: 'claude-code',
     });
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.verdict).toBe('failed');
-    expect(result.value.warning).toEqual({ kind: 'plateau', dimensions: ['correctness'] }); // plateau warning attached
-    expect(result.value.task.escalatedToModel).toBeUndefined();
-    expect(result.value.shouldFailAttempt).toBeFalsy();
-    expect(result.value.blockedReason).toBeUndefined();
+    const value = result.getOrThrow();
+    expect(value.verdict).toBe('failed');
+    expect(value.warning).toEqual({ kind: 'plateau', dimensions: ['correctness'] }); // plateau warning attached
+    expect(value.task.escalatedToModel).toBeUndefined();
+    expect(value.shouldFailAttempt).toBeFalsy();
+    expect(value.blockedReason).toBeUndefined();
     expect(events.some((e) => e.type === 'model-escalated')).toBe(false);
   });
 
@@ -800,27 +637,21 @@ describe('finalizeGenEvalUseCase', () => {
     const bus = newBus();
     const events: Array<{ type: string }> = [];
     bus.subscribe((e) => events.push(e));
-    const result = await finalizeGenEvalUseCase({
+    const result = await run({
       task,
-      sprintId,
       exit: { kind: 'crashed', reason: 'AI process was killed before producing signals.json: exit 143 (SIGTERM)' },
       turnsUsed: 1,
       // Fallback budget 1 === 1 attempt already recorded → exhausted.
       readConfig: cfg({ escalateOnPlateau: false, maxAttempts: 1 }),
-      taskRepo: okRepo,
-      logger: noopLogger,
       eventBus: bus,
-      clock: fixedClock,
       generatorModel: 'claude-sonnet-4-6',
-      generatorProvider: 'claude-code',
     });
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.verdict).toBe('failed');
-    expect(result.value.warning?.kind).toBe('crashed');
-    expect(result.value.shouldFailAttempt).toBeFalsy();
-    expect(result.value.blockedReason).toBe('AI process repeatedly crashed; attempt budget exhausted');
-    expect(result.value.task.escalatedToModel).toBeUndefined();
+    const resultValue = result.getOrThrow();
+    expect(resultValue.verdict).toBe('failed');
+    expect(resultValue.warning?.kind).toBe('crashed');
+    expect(resultValue.shouldFailAttempt).toBeFalsy();
+    expect(resultValue.blockedReason).toBe('AI process repeatedly crashed; attempt budget exhausted');
+    expect(resultValue.task.escalatedToModel).toBeUndefined();
     expect(events.some((e) => e.type === 'model-escalated')).toBe(false);
   });
 
@@ -828,9 +659,8 @@ describe('finalizeGenEvalUseCase', () => {
     // finalize is the hop between the turn that saw the ProcessCrashError and the settle that
     // blocks the task — dropping the attribution here would put every crash-block back in the
     // `unknown` abort bucket.
-    const result = await finalizeGenEvalUseCase({
+    const result = await run({
       task: makeInProgressTaskWithRunningAttempt(),
-      sprintId,
       exit: {
         kind: 'crashed',
         reason: 'AI process was killed before producing signals.json: exit 143 (SIGTERM)',
@@ -839,20 +669,14 @@ describe('finalizeGenEvalUseCase', () => {
       },
       turnsUsed: 1,
       readConfig: cfg({ escalateOnPlateau: false, maxAttempts: 1 }),
-      taskRepo: okRepo,
-      logger: noopLogger,
-      eventBus: newBus(),
-      clock: fixedClock,
       generatorModel: 'claude-sonnet-4-6',
-      generatorProvider: 'claude-code',
     });
 
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.exit.kind).toBe('crashed');
-    if (result.value.exit.kind !== 'crashed') return;
-    expect(result.value.exit.abortCause).toBe('watchdog-killed');
-    expect(result.value.exit.signalOrExitCode).toBe('SIGTERM');
+    const resultValue = result.getOrThrow();
+    expect(resultValue.exit.kind).toBe('crashed');
+    if (resultValue.exit.kind !== 'crashed') return;
+    expect(resultValue.exit.abortCause).toBe('watchdog-killed');
+    expect(resultValue.exit.signalOrExitCode).toBe('SIGTERM');
   });
 
   // ── Same-model effort rung (activated end-to-end via generatorProvider + generatorEffort) ──────
@@ -867,30 +691,25 @@ describe('finalizeGenEvalUseCase', () => {
     const bus = newBus();
     const events: Array<{ type: string }> = [];
     bus.subscribe((e) => events.push(e));
-    const result = await finalizeGenEvalUseCase({
+    const result = await run({
       task,
-      sprintId,
       exit: { kind: 'plateau', dimensions: ['correctness'] },
       turnsUsed: 3,
       readConfig: cfg({ escalateOnPlateau: true, maxAttempts: 5 }),
-      taskRepo: okRepo,
-      logger: noopLogger,
       eventBus: bus,
-      clock: fixedClock,
       generatorModel: generatorRow.model,
       generatorProvider: generatorRow.provider,
       generatorEffort: resolveEffort('implement', DEFAULT_SETTINGS),
     });
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.verdict).toBe('failed');
-    expect(result.value.warning).toEqual({ kind: 'plateau', dimensions: ['correctness'] });
+    const value = result.getOrThrow();
+    expect(value.verdict).toBe('failed');
+    expect(value.warning).toEqual({ kind: 'plateau', dimensions: ['correctness'] });
     // The raised effort is stamped so the next generator spawn reads it; the MODEL is untouched.
-    expect(result.value.task.escalatedToEffort).toBe('xhigh');
-    expect(result.value.task.escalatedFromModel).toBeUndefined();
-    expect(result.value.task.escalatedToModel).toBeUndefined();
-    expect(result.value.shouldFailAttempt).toBe(true);
-    expect(result.value.blockedReason).toBeUndefined();
+    expect(value.task.escalatedToEffort).toBe('xhigh');
+    expect(value.task.escalatedFromModel).toBeUndefined();
+    expect(value.task.escalatedToModel).toBeUndefined();
+    expect(value.shouldFailAttempt).toBe(true);
+    expect(value.blockedReason).toBeUndefined();
     // No model bump → no model-escalated event (the banner names the effort bump instead).
     expect(events.some((e) => e.type === 'model-escalated')).toBe(false);
   });
@@ -902,25 +721,19 @@ describe('finalizeGenEvalUseCase', () => {
     const bus = newBus();
     const events: Array<{ type: string }> = [];
     bus.subscribe((e) => events.push(e));
-    const result = await finalizeGenEvalUseCase({
+    const result = await run({
       task,
-      sprintId,
       exit: { kind: 'plateau', dimensions: ['correctness'] },
       turnsUsed: 3,
       readConfig: cfg({ escalateOnPlateau: true, maxAttempts: 5 }),
-      taskRepo: okRepo,
-      logger: noopLogger,
       eventBus: bus,
-      clock: fixedClock,
       generatorModel: 'claude-sonnet-4-6',
-      generatorProvider: 'claude-code',
       generatorEffort: undefined,
     });
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.task.escalatedToModel).toBe('claude-opus-4-8');
-    expect(result.value.task.escalatedToEffort).toBeUndefined();
-    expect(result.value.shouldFailAttempt).toBe(true);
+    const resultValue = result.getOrThrow();
+    expect(resultValue.task.escalatedToModel).toBe('claude-opus-4-8');
+    expect(resultValue.task.escalatedToEffort).toBeUndefined();
+    expect(resultValue.shouldFailAttempt).toBe(true);
     expect(events.some((e) => e.type === 'model-escalated')).toBe(true);
   });
 
@@ -931,26 +744,22 @@ describe('finalizeGenEvalUseCase', () => {
     const bus = newBus();
     const events: Array<{ type: string }> = [];
     bus.subscribe((e) => events.push(e));
-    const result = await finalizeGenEvalUseCase({
+    const result = await run({
       task,
-      sprintId,
       exit: { kind: 'plateau', dimensions: ['correctness'] },
       turnsUsed: 3,
       readConfig: cfg({ escalateOnPlateau: true, maxAttempts: 5 }),
-      taskRepo: okRepo,
-      logger: noopLogger,
       eventBus: bus,
-      clock: fixedClock,
       generatorModel: 'claude-opus-5-5',
       // generatorProvider intentionally omitted.
+      generatorProvider: undefined,
     });
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
+    const resultValue = result.getOrThrow();
     // Same-model nudge stamp (from === to), one more attempt granted, no effort stamp.
-    expect(result.value.task.escalatedFromModel).toBe('claude-opus-5-5');
-    expect(result.value.task.escalatedToModel).toBe('claude-opus-5-5');
-    expect(result.value.task.escalatedToEffort).toBeUndefined();
-    expect(result.value.shouldFailAttempt).toBe(true);
+    expect(resultValue.task.escalatedFromModel).toBe('claude-opus-5-5');
+    expect(resultValue.task.escalatedToModel).toBe('claude-opus-5-5');
+    expect(resultValue.task.escalatedToEffort).toBeUndefined();
+    expect(resultValue.shouldFailAttempt).toBe(true);
     expect(events.some((e) => e.type === 'model-escalated')).toBe(false);
   });
 
@@ -960,54 +769,40 @@ describe('finalizeGenEvalUseCase', () => {
     // only the ceiling exhausts the rung). This is the wiring of `nextEffortRung` returning
     // undefined at the ceiling → the finalize leaf stamps no effort, only the same-model nudge.
     const task = makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 });
-    const result = await finalizeGenEvalUseCase({
+    const result = await run({
       task,
-      sprintId,
       exit: { kind: 'plateau', dimensions: ['correctness'] },
       turnsUsed: 3,
       readConfig: cfg({ escalateOnPlateau: true, maxAttempts: 5 }),
-      taskRepo: okRepo,
-      logger: noopLogger,
-      eventBus: newBus(),
-      clock: fixedClock,
       generatorModel: 'claude-opus-5-5',
-      generatorProvider: 'claude-code',
       generatorEffort: 'max',
     });
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
+    const value = result.getOrThrow();
     // No effort headroom → the top-of-ladder nudge (same-model stamp), never an effort bump.
-    expect(result.value.task.escalatedToEffort).toBeUndefined();
-    expect(result.value.task.escalatedFromModel).toBe('claude-opus-5-5');
-    expect(result.value.task.escalatedToModel).toBe('claude-opus-5-5');
-    expect(result.value.shouldFailAttempt).toBe(true);
+    expect(value.task.escalatedToEffort).toBeUndefined();
+    expect(value.task.escalatedFromModel).toBe('claude-opus-5-5');
+    expect(value.task.escalatedToModel).toBe('claude-opus-5-5');
+    expect(value.shouldFailAttempt).toBe(true);
   });
 
   it('generator at explicit high effort → escalate-effort to xhigh (headroom on an xhigh-capable model)', async () => {
     // opus-5-5 is xhigh-capable, so an explicit `high` still has headroom: the rung climbs to `xhigh`
     // (the raised effort is stamped for the next spawn; a later plateau at xhigh would reach max).
     const task = makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 });
-    const result = await finalizeGenEvalUseCase({
+    const result = await run({
       task,
-      sprintId,
       exit: { kind: 'plateau', dimensions: ['correctness'] },
       turnsUsed: 3,
       readConfig: cfg({ escalateOnPlateau: true, maxAttempts: 5 }),
-      taskRepo: okRepo,
-      logger: noopLogger,
-      eventBus: newBus(),
-      clock: fixedClock,
       generatorModel: 'claude-opus-5-5',
-      generatorProvider: 'claude-code',
       generatorEffort: 'high',
     });
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.task.escalatedToEffort).toBe('xhigh');
+    const resultValue = result.getOrThrow();
+    expect(resultValue.task.escalatedToEffort).toBe('xhigh');
     // The effort rung leaves the model fields untouched.
-    expect(result.value.task.escalatedFromModel).toBeUndefined();
-    expect(result.value.task.escalatedToModel).toBeUndefined();
-    expect(result.value.shouldFailAttempt).toBe(true);
+    expect(resultValue.task.escalatedFromModel).toBeUndefined();
+    expect(resultValue.task.escalatedToModel).toBeUndefined();
+    expect(resultValue.shouldFailAttempt).toBe(true);
   });
 
   // ── Evaluator lockstep effort bump (activated via evaluatorProvider/evaluatorModel/evaluatorEffort) ──
@@ -1026,16 +821,12 @@ describe('finalizeGenEvalUseCase', () => {
         return Result.ok(undefined);
       },
     };
-    const result = await finalizeGenEvalUseCase({
+    const result = await run({
       task,
-      sprintId,
       exit: { kind: 'plateau', dimensions: ['correctness'] },
       turnsUsed: 3,
       readConfig: cfg({ escalateOnPlateau: true, maxAttempts: 5 }),
       taskRepo: repo,
-      logger: noopLogger,
-      eventBus: newBus(),
-      clock: fixedClock,
       generatorModel: generatorRow.model,
       generatorProvider: generatorRow.provider,
       generatorEffort: resolveEffort('implement', DEFAULT_SETTINGS),
@@ -1043,10 +834,9 @@ describe('finalizeGenEvalUseCase', () => {
       evaluatorModel: 'gpt-6-sol',
       evaluatorEffort: undefined,
     });
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.task.escalatedToEffort).toBe('xhigh');
-    expect(result.value.task.escalatedToEvaluatorEffort).toBe('xhigh');
+    const value = result.getOrThrow();
+    expect(value.task.escalatedToEffort).toBe('xhigh');
+    expect(value.task.escalatedToEvaluatorEffort).toBe('xhigh');
     // Both landed together in the single persist call — no separate write for the evaluator field.
     expect(persisted).toHaveLength(1);
     expect(persisted[0]).toEqual({ escalatedToEffort: 'xhigh', escalatedToEvaluatorEffort: 'xhigh' });
@@ -1065,27 +855,21 @@ describe('finalizeGenEvalUseCase', () => {
         return Result.ok(undefined);
       },
     };
-    const result = await finalizeGenEvalUseCase({
+    const result = await run({
       task,
-      sprintId,
       exit: { kind: 'plateau', dimensions: ['correctness'] },
       turnsUsed: 3,
       readConfig: cfg({ escalateOnPlateau: true, maxAttempts: 5 }),
       taskRepo: repo,
-      logger: noopLogger,
-      eventBus: newBus(),
-      clock: fixedClock,
       generatorModel: 'claude-sonnet-4-6',
-      generatorProvider: 'claude-code',
       generatorEffort: undefined,
       evaluatorProvider: 'github-copilot',
       evaluatorModel: 'gpt-5.5',
       evaluatorEffort: undefined,
     });
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.task.escalatedToModel).toBe('claude-opus-4-8');
-    expect(result.value.task.escalatedToEvaluatorEffort).toBe('high');
+    const resultValue = result.getOrThrow();
+    expect(resultValue.task.escalatedToModel).toBe('claude-opus-4-8');
+    expect(resultValue.task.escalatedToEvaluatorEffort).toBe('high');
     // Both landed together in the single persist call — mirrors the escalate-effort lockstep test.
     expect(persisted).toHaveLength(1);
     expect(persisted[0]).toEqual({ escalatedToModel: 'claude-opus-4-8', escalatedToEvaluatorEffort: 'high' });
@@ -1093,23 +877,16 @@ describe('finalizeGenEvalUseCase', () => {
 
   it('plain model escalate: escalatedToEvaluatorEffort is NOT stamped when the caller supplies no evaluator context', async () => {
     const task = makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 });
-    const result = await finalizeGenEvalUseCase({
+    const result = await run({
       task,
-      sprintId,
       exit: { kind: 'plateau', dimensions: ['correctness'] },
       turnsUsed: 3,
       readConfig: cfg({ escalateOnPlateau: true, maxAttempts: 5 }),
-      taskRepo: okRepo,
-      logger: noopLogger,
-      eventBus: newBus(),
-      clock: fixedClock,
       generatorModel: 'claude-sonnet-4-6',
-      generatorProvider: 'claude-code',
     });
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.task.escalatedToModel).toBe('claude-opus-4-8');
-    expect(result.value.task.escalatedToEvaluatorEffort).toBeUndefined();
+    const resultValue = result.getOrThrow();
+    expect(resultValue.task.escalatedToModel).toBe('claude-opus-4-8');
+    expect(resultValue.task.escalatedToEvaluatorEffort).toBeUndefined();
   });
 
   it('top-of-ladder nudge: escalatedToEvaluatorEffort is NOT stamped even when evaluator context is supplied', async () => {
@@ -1118,9 +895,8 @@ describe('finalizeGenEvalUseCase', () => {
     // self-loop user-map entry keeps Haiku at the top of ITS ladder (the default map would
     // otherwise climb it to Sonnet, which is escalatable and not what this test exercises).
     const task = makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 });
-    const result = await finalizeGenEvalUseCase({
+    const result = await run({
       task,
-      sprintId,
       exit: { kind: 'plateau', dimensions: ['correctness'] },
       turnsUsed: 3,
       readConfig: async () => ({
@@ -1129,72 +905,52 @@ describe('finalizeGenEvalUseCase', () => {
         escalationMap: { 'claude-haiku-4-5': 'claude-haiku-4-5' },
         maxAttempts: 5,
       }),
-      taskRepo: okRepo,
-      logger: noopLogger,
-      eventBus: newBus(),
-      clock: fixedClock,
       generatorModel: 'claude-haiku-4-5',
-      generatorProvider: 'claude-code',
       generatorEffort: undefined,
       evaluatorProvider: 'github-copilot',
       evaluatorModel: 'gpt-5.5',
       evaluatorEffort: undefined,
     });
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.task.escalatedFromModel).toBe('claude-haiku-4-5');
-    expect(result.value.task.escalatedToModel).toBe('claude-haiku-4-5');
-    expect(result.value.task.escalatedToEvaluatorEffort).toBeUndefined();
+    const value = result.getOrThrow();
+    expect(value.task.escalatedFromModel).toBe('claude-haiku-4-5');
+    expect(value.task.escalatedToModel).toBe('claude-haiku-4-5');
+    expect(value.task.escalatedToEvaluatorEffort).toBeUndefined();
   });
 
   it('flag-off: escalatedToEvaluatorEffort is NOT stamped even when evaluator context is supplied', async () => {
     const task = makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 });
-    const result = await finalizeGenEvalUseCase({
+    const result = await run({
       task,
-      sprintId,
       exit: { kind: 'plateau', dimensions: ['correctness'] },
       turnsUsed: 3,
       readConfig: cfg({ escalateOnPlateau: false, maxAttempts: 5 }),
-      taskRepo: okRepo,
-      logger: noopLogger,
-      eventBus: newBus(),
-      clock: fixedClock,
       generatorModel: 'claude-opus-5-5',
-      generatorProvider: 'claude-code',
       generatorEffort: undefined,
       evaluatorProvider: 'github-copilot',
       evaluatorModel: 'gpt-5.5',
       evaluatorEffort: undefined,
     });
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.task.escalatedToEvaluatorEffort).toBeUndefined();
-    expect(result.value.shouldFailAttempt).toBeUndefined();
+    const resultValue = result.getOrThrow();
+    expect(resultValue.task.escalatedToEvaluatorEffort).toBeUndefined();
+    expect(resultValue.shouldFailAttempt).toBeUndefined();
   });
 
   it('evaluator already at its own effort ceiling: generator still escalates, evaluator field absent, no evaluator stamp', async () => {
     const task = makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 });
-    const result = await finalizeGenEvalUseCase({
+    const result = await run({
       task,
-      sprintId,
       exit: { kind: 'plateau', dimensions: ['correctness'] },
       turnsUsed: 3,
       readConfig: cfg({ escalateOnPlateau: true, maxAttempts: 5 }),
-      taskRepo: okRepo,
-      logger: noopLogger,
-      eventBus: newBus(),
-      clock: fixedClock,
       generatorModel: 'claude-opus-5-5',
-      generatorProvider: 'claude-code',
       generatorEffort: undefined,
       evaluatorProvider: 'claude-code',
       evaluatorModel: 'claude-opus-5-5',
       evaluatorEffort: 'max',
     });
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.task.escalatedToEffort).toBe('high');
-    expect(result.value.task.escalatedToEvaluatorEffort).toBeUndefined();
+    const resultValue = result.getOrThrow();
+    expect(resultValue.task.escalatedToEffort).toBe('high');
+    expect(resultValue.task.escalatedToEvaluatorEffort).toBeUndefined();
   });
 
   // ── Opt-in best-of-N remedy (activated via readConfig().bestOfNCandidates) ──────────────────────
@@ -1212,25 +968,21 @@ describe('finalizeGenEvalUseCase', () => {
     const bus = newBus();
     const events: Array<{ type: string }> = [];
     bus.subscribe((e) => events.push(e));
-    const result = await finalizeGenEvalUseCase({
+    const result = await run({
       task: nudged,
-      sprintId,
       exit: { kind: 'plateau', dimensions: ['correctness'] },
       turnsUsed: 3,
       readConfig: cfg({ escalateOnPlateau: true, maxAttempts: 5, bestOfNCandidates: 3 }),
-      taskRepo: okRepo,
-      logger: noopLogger,
       eventBus: bus,
-      clock: fixedClock,
       generatorModel: 'claude-opus-5-5',
+      generatorProvider: undefined,
     });
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.verdict).toBe('failed');
-    expect(result.value.task.bestOfNGranted).toBe(true);
-    expect(result.value.task.bestOfNGrantedCandidates).toBe(3);
-    expect(result.value.shouldFailAttempt).toBe(true);
-    expect(result.value.blockedReason).toBeUndefined();
+    const value = result.getOrThrow();
+    expect(value.verdict).toBe('failed');
+    expect(value.task.bestOfNGranted).toBe(true);
+    expect(value.task.bestOfNGrantedCandidates).toBe(3);
+    expect(value.shouldFailAttempt).toBe(true);
+    expect(value.blockedReason).toBeUndefined();
     expect(events.some((e) => e.type === 'model-escalated')).toBe(false);
   });
 
@@ -1245,43 +997,33 @@ describe('finalizeGenEvalUseCase', () => {
       return stamped.value;
     })();
     const readConfig = cfg({ escalateOnPlateau: true, maxAttempts: 5, bestOfNCandidates: 3 });
-    const first = await finalizeGenEvalUseCase({
+    const first = await run({
       task: nudged,
-      sprintId,
       exit: { kind: 'plateau', dimensions: ['correctness'] },
       turnsUsed: 3,
       readConfig,
-      taskRepo: okRepo,
-      logger: noopLogger,
-      eventBus: newBus(),
-      clock: fixedClock,
       generatorModel: 'claude-opus-5-5',
+      generatorProvider: undefined,
     });
-    expect(first.ok).toBe(true);
-    if (!first.ok) return;
-    expect(first.value.task.bestOfNGranted).toBe(true);
+    const firstValue = first.getOrThrow();
+    expect(firstValue.task.bestOfNGranted).toBe(true);
 
     // The granted attempt also failed — same nudged-at-top model, same knob — but the durable
     // bestOfNGranted stamp on the task now blocks a second grant.
-    const second = await finalizeGenEvalUseCase({
-      task: first.value.task,
-      sprintId,
+    const second = await run({
+      task: firstValue.task,
       exit: { kind: 'plateau', dimensions: ['correctness'] },
       turnsUsed: 3,
       readConfig,
-      taskRepo: okRepo,
-      logger: noopLogger,
-      eventBus: newBus(),
-      clock: fixedClock,
       generatorModel: 'claude-opus-5-5',
+      generatorProvider: undefined,
     });
-    expect(second.ok).toBe(true);
-    if (!second.ok) return;
-    expect(second.value.verdict).toBe('failed');
-    expect(second.value.shouldFailAttempt).toBeFalsy();
-    expect(second.value.blockedReason).toBeUndefined();
+    const secondValue = second.getOrThrow();
+    expect(secondValue.verdict).toBe('failed');
+    expect(secondValue.shouldFailAttempt).toBeFalsy();
+    expect(secondValue.blockedReason).toBeUndefined();
     // Work is preserved (done-with-warning), not re-granted.
-    expect(second.value.task.bestOfNGrantedCandidates).toBe(3);
+    expect(secondValue.task.bestOfNGrantedCandidates).toBe(3);
   });
 
   it('nudged-top plateau with bestOfNCandidates unset: tops out exactly as before the remedy existed', async () => {
@@ -1294,22 +1036,17 @@ describe('finalizeGenEvalUseCase', () => {
       if (!stamped.ok) throw stamped.error;
       return stamped.value;
     })();
-    const result = await finalizeGenEvalUseCase({
+    const result = await run({
       task: nudged,
-      sprintId,
       exit: { kind: 'plateau', dimensions: ['correctness'] },
       turnsUsed: 3,
       readConfig: cfg({ escalateOnPlateau: true, maxAttempts: 5 }),
-      taskRepo: okRepo,
-      logger: noopLogger,
-      eventBus: newBus(),
-      clock: fixedClock,
       generatorModel: 'claude-opus-5-5',
+      generatorProvider: undefined,
     });
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.shouldFailAttempt).toBeFalsy();
-    expect(result.value.task.bestOfNGranted).toBeUndefined();
+    const value = result.getOrThrow();
+    expect(value.shouldFailAttempt).toBeFalsy();
+    expect(value.task.bestOfNGranted).toBeUndefined();
   });
 
   it('forwards a StorageError from the repo', async () => {
@@ -1319,18 +1056,11 @@ describe('finalizeGenEvalUseCase', () => {
         return Result.error(new StorageError({ subCode: 'io', message: 'disk dead' }));
       },
     };
-    const result = await finalizeGenEvalUseCase({
+    const result = await run({
       task,
-      sprintId,
       exit: { kind: 'passed' },
       turnsUsed: 1,
-      readConfig: config,
       taskRepo: failing,
-      logger: noopLogger,
-      eventBus: newBus(),
-      clock: fixedClock,
-      generatorModel: defaultModel,
-      generatorProvider: 'claude-code',
     });
     expect(result.ok).toBe(false);
   });

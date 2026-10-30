@@ -68,11 +68,10 @@ describe('publishTicketToTracker', () => {
 
     const r = await publishTicketToTracker({ sprint, ticketId: ticket.id, cwd: CWD, issuePusher: pusher });
 
-    expect(r.ok).toBe(true);
-    if (!r.ok) return;
-    expect(r.value.outcome).toBe('created');
-    expect(r.value.sprint.tickets[0]?.link).toBe(ISSUE_URL);
-    expect(r.value.sprint.tickets[0]?.externalRef).toBe('#42');
+    const value = r.getOrThrow();
+    expect(value.outcome).toBe('created');
+    expect(value.sprint.tickets[0]?.link).toBe(ISSUE_URL);
+    expect(value.sprint.tickets[0]?.externalRef).toBe('#42');
     expect(calls.resolveOrigin).toBe(1);
     expect(calls.create).toEqual([{ title: 'Add the thing', body: '' }]);
     expect(calls.comment).toEqual([]);

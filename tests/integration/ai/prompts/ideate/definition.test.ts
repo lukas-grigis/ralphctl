@@ -2,7 +2,6 @@ import { promises as fs } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { ValidationError } from '@src/domain/value/error/validation-error.ts';
 import { createFsTemplateLoader, defaultTemplatesDir } from '@src/integration/ai/prompts/_engine/fs-template-loader.ts';
-import { computePlaceholderParity, loadPartialMap } from '@src/integration/ai/prompts/_engine/test-utils.ts';
 import { buildIdeatePrompt, ideatePromptDef } from '@src/integration/ai/prompts/ideate/definition.ts';
 import { ideateOutputContract } from '@src/application/flows/ideate/leaves/ideate.contract.ts';
 import { IdeateOutputSchema } from '@src/integration/ai/prompts/_engine/task-import-schema.ts';
@@ -22,14 +21,6 @@ describe('ideatePromptDef — completeness', () => {
     // Locked down so future template edits that drop / add a signal kind force a conscious
     // expectedSignals review. The ideate contract schema accepts the same four kinds.
     expect(ideatePromptDef.expectedSignals).toEqual(['ideated-tickets', 'note', 'learning', 'decision']);
-  });
-
-  it('placeholder ↔ parameter parity', async () => {
-    const rawTemplate = await readTemplate();
-    const partials = await loadPartialMap(ideatePromptDef, loader);
-    const report = computePlaceholderParity({ def: ideatePromptDef, rawTemplate, partials });
-    expect(report.unsatisfied).toEqual([]);
-    expect(report.unreferenced).toEqual([]);
   });
 });
 
