@@ -9,8 +9,8 @@
  */
 
 import React from 'react';
-import { afterEach } from 'vitest';
-import { cleanup, render } from 'ink-testing-library';
+import { onTestFinished } from 'vitest';
+import { render } from 'ink-testing-library';
 import { renderAtSize } from '@tests/helpers/render-at-size.tsx';
 import { tick } from '@tests/integration/application/ui/tui/_keys.ts';
 import { waitForPredicate } from '@tests/integration/application/ui/tui/_wait.ts';
@@ -179,22 +179,16 @@ export const renderView = (child: React.ReactNode, opts: HarnessOptions): Harnes
       </StorageProvider>
     </DepsProvider>
   );
-  const result =
-    opts.size !== undefined
-      ? // Only the `renderAtSize` subset (documented on `size`) exists on this path.
-        (renderAtSize(tree, opts.size) as unknown as RenderResult)
-      : render(tree);
-
-  // Auto-teardown so a failing assertion can never leak the rendered React tree (with its
-  // still-firing setIntervals for blinking carets / spinner frames) into the next test in the
-  // same file. ink-testing-library keeps a module-level `instances` array that grows forever
-  // unless its `cleanup()` is called — `result.unmount()` alone does not drain it. Registering
-  // this here, instead of relying on per-test `result.unmount()`, means cleanup runs whether or
-  // not the body of the test reached its end.
-  afterEach(() => {
-    if (opts.size === undefined) result.unmount();
-    cleanup();
-  });
+  // Only the `renderAtSize` subset (documented on `size`) exists on the sized path. The default
+  // path is torn down by `_setup.ts`; this one is not tracked by ink-testing-library.
+  let result: RenderResult;
+  if (opts.size !== undefined) {
+    const sized = renderAtSize(tree, opts.size);
+    onTestFinished(sized.unmount);
+    result = sized as unknown as RenderResult;
+  } else {
+    result = render(tree);
+  }
 
   return {
     result,
