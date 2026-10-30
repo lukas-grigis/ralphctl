@@ -1,23 +1,9 @@
 /**
- * CS-1D regression: parallel implement path — in_progress-first wave ordering + saveAll/update
- * consistency under the sprint-scoped lock.
- *
- * Two areas:
- *  (a) Wave ordering — a queue where an `in_progress` prerequisite and a dependent `todo` are
- *      both resumable must schedule the prerequisite in wave 0 and the dependent in wave 1,
- *      so the dependent branch only runs after the prerequisite has settled `done`. Verified by
- *      driving `scheduleIntoWaves` directly (the function `planImplementWaves` calls) and then by
- *      wiring the parallel element so it actually executes in that order.
- *
- *  (b) saveAll vs update race — a `saveAll` (the epilogue's `saveTasksLeaf`) racing a concurrent
- *      `update()` (from a branch's settle step) stays consistent under the per-file lock CS-1A
- *      added. The parallel element holds a sprint-scoped lock for its entire duration (prologue →
- *      waves → epilogue), so within a single implement run the serial per-task branches and the
- *      epilogue rewrite can never interleave. A second concurrent run (different process / test)
- *      is serialised by the same sprint-dir lock. The per-file lock backs the case where
- *      `unblockTaskUseCase` does a cascade-saveAll from outside the sprint-scoped lock. This test
- *      exercises the per-file lock path by driving a real `FsTaskRepository` + `FileLocker`
- *      concurrently from outside the sprint-scoped lock, confirming no torn write survives.
+ * Parallel implement path: (a) in_progress-first wave ordering — a resumable `in_progress` prerequisite
+ * lands in wave 0 and its dependent `todo` in wave 1, both via `scheduleIntoWaves` and through the
+ * parallel element; (b) a `saveAll` racing a concurrent `update()` under the real `FsTaskRepository` +
+ * `FileLocker` leaves no torn write (the per-file lock backs `unblockTaskUseCase`'s cascade-saveAll,
+ * which runs outside the sprint-scoped lock).
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
