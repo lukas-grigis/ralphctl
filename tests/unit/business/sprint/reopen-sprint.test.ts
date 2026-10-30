@@ -38,11 +38,10 @@ describe('reopenDoneSprintUseCase', () => {
       logger: noopLogger,
     });
 
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.status).toBe('review');
-    expect(result.value.doneAt).toBeNull();
-    expect(result.value.reviewAt).toBe(FIXED_LATEST);
+    const resultValue = result.getOrThrow();
+    expect(resultValue.status).toBe('review');
+    expect(resultValue.doneAt).toBeNull();
+    expect(resultValue.reviewAt).toBe(FIXED_LATEST);
     expect(repo.saved).toHaveLength(1);
   });
 
@@ -57,9 +56,8 @@ describe('reopenDoneSprintUseCase', () => {
       logger: noopLogger,
     });
 
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.status).toBe('review');
+    const resultValue = result.getOrThrow();
+    expect(resultValue.status).toBe('review');
     expect(repo.saved).toHaveLength(0);
   });
 

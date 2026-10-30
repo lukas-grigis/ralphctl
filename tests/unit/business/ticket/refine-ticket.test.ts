@@ -51,13 +51,12 @@ describe('refineTicketUseCase', () => {
       logger: noopLogger,
       reviewBeforeApprove: review,
     });
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
+    const resultValue = result.getOrThrow();
     // Sprint unchanged, ticket still pending, reviewer was consulted exactly once.
-    expect(result.value.accepted).toBe(false);
-    expect(result.value.ticket).toBe(ticket);
-    expect(result.value.sprint).toBe(sprint);
-    expect(result.value.ticket.status).toBe('pending');
+    expect(resultValue.accepted).toBe(false);
+    expect(resultValue.ticket).toBe(ticket);
+    expect(resultValue.sprint).toBe(sprint);
+    expect(resultValue.ticket.status).toBe('pending');
     expect(review).toHaveBeenCalledTimes(1);
     expect(review).toHaveBeenCalledWith('## Acceptance\n- column foo exists', ticket);
   });
@@ -76,11 +75,10 @@ describe('refineTicketUseCase', () => {
       logger: noopLogger,
       reviewBeforeApprove: review,
     });
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.accepted).toBe(true);
-    expect(result.value.alsoUpdateOrigin).toBe(false);
-    expect(result.value.ticket.status).toBe('approved');
+    const value = result.getOrThrow();
+    expect(value.accepted).toBe(true);
+    expect(value.alsoUpdateOrigin).toBe(false);
+    expect(value.ticket.status).toBe('approved');
     expect(seenProposed).toBe('## Acceptance\n- column foo exists');
   });
 
@@ -94,11 +92,10 @@ describe('refineTicketUseCase', () => {
       logger: noopLogger,
       reviewBeforeApprove: review,
     });
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.accepted).toBe(true);
-    expect(result.value.alsoUpdateOrigin).toBe(true);
-    expect(result.value.ticket.status).toBe('approved');
+    const resultValue = result.getOrThrow();
+    expect(resultValue.accepted).toBe(true);
+    expect(resultValue.alsoUpdateOrigin).toBe(true);
+    expect(resultValue.ticket.status).toBe('approved');
   });
 
   it('on reject the output carries alsoUpdateOrigin: false even when the reviewer requested origin', async () => {
@@ -111,9 +108,8 @@ describe('refineTicketUseCase', () => {
       logger: noopLogger,
       reviewBeforeApprove: review,
     });
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.accepted).toBe(false);
-    expect(result.value.alsoUpdateOrigin).toBe(false);
+    const resultValue = result.getOrThrow();
+    expect(resultValue.accepted).toBe(false);
+    expect(resultValue.alsoUpdateOrigin).toBe(false);
   });
 });

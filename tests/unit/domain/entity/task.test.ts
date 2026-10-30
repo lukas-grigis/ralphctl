@@ -25,13 +25,12 @@ describe('startNextAttempt', () => {
   it('todo → in_progress and appends a running attempt', () => {
     const todo = makeTodoTask();
     const r = startNextAttempt(todo, FIXED_NOW, 'session-1');
-    expect(r.ok).toBe(true);
-    if (!r.ok) return;
-    expect(r.value.status).toBe('in_progress');
-    expect(r.value.attempts).toHaveLength(1);
-    expect(r.value.attempts[0]?.status).toBe('running');
-    expect(r.value.attempts[0]?.n).toBe(1);
-    expect(r.value.attempts[0]?.sessionId).toBe('session-1');
+    const value = r.getOrThrow();
+    expect(value.status).toBe('in_progress');
+    expect(value.attempts).toHaveLength(1);
+    expect(value.attempts[0]?.status).toBe('running');
+    expect(value.attempts[0]?.n).toBe(1);
+    expect(value.attempts[0]?.sessionId).toBe('session-1');
   });
 
   it('rejects when last attempt is still running', () => {
@@ -51,9 +50,8 @@ describe('record* on running attempt', () => {
 
   it('records the structural verification marker (no body)', () => {
     const r = recordRunningAttemptVerification(seed());
-    expect(r.ok).toBe(true);
-    if (!r.ok) return;
-    expect(r.value.attempts.at(-1)?.verification).toEqual({});
+    const rValue = r.getOrThrow();
+    expect(rValue.attempts.at(-1)?.verification).toEqual({});
   });
 
   it('records evaluation', () => {
@@ -61,9 +59,8 @@ describe('record* on running attempt', () => {
       status: 'passed',
       file: 'rounds/1/evaluator/evaluation.md',
     });
-    expect(r.ok).toBe(true);
-    if (!r.ok) return;
-    expect(r.value.attempts.at(-1)?.evaluation?.status).toBe('passed');
+    const rValue = r.getOrThrow();
+    expect(rValue.attempts.at(-1)?.evaluation?.status).toBe('passed');
   });
 
   it('records critique non-empty', () => {
@@ -75,9 +72,8 @@ describe('record* on running attempt', () => {
 
   it('records commit sha', () => {
     const r = recordRunningAttemptCommit(seed(), commitSha('a'.repeat(40)));
-    expect(r.ok).toBe(true);
-    if (!r.ok) return;
-    expect(r.value.attempts.at(-1)?.commitSha).toBe('a'.repeat(40));
+    const rValue = r.getOrThrow();
+    expect(rValue.attempts.at(-1)?.commitSha).toBe('a'.repeat(40));
   });
 });
 
@@ -90,12 +86,10 @@ describe('markTaskDone', () => {
   it('transitions in_progress → done with verified attempt', () => {
     const ip = makeInProgressTaskWithRunningAttempt();
     const verified = recordRunningAttemptVerification(ip);
-    expect(verified.ok).toBe(true);
-    if (!verified.ok) return;
-    const r = markTaskDone(verified.value, FIXED_LATER);
-    expect(r.ok).toBe(true);
-    if (!r.ok) return;
-    const done: DoneTask = r.value;
+    const verifiedValue = verified.getOrThrow();
+    const r = markTaskDone(verifiedValue, FIXED_LATER);
+    const rValue = r.getOrThrow();
+    const done: DoneTask = rValue;
     expect(done.status).toBe('done');
     expect(done.finalAttemptN).toBe(1);
     expect(done.attempts.at(-1)?.status).toBe('verified');
@@ -106,20 +100,18 @@ describe('failCurrentAttempt', () => {
   it('stays in_progress when budget remains', () => {
     const ip = makeInProgressTaskWithRunningAttempt({ maxAttempts: 3 });
     const r = failCurrentAttempt(ip, FIXED_LATER, 'failed');
-    expect(r.ok).toBe(true);
-    if (!r.ok) return;
-    expect(r.value.status).toBe('in_progress');
-    expect(r.value.attempts.at(-1)?.status).toBe('failed');
+    const value = r.getOrThrow();
+    expect(value.status).toBe('in_progress');
+    expect(value.attempts.at(-1)?.status).toBe('failed');
   });
 
   it('transitions to blocked when budget exhausted', () => {
     const ip = makeInProgressTaskWithRunningAttempt({ maxAttempts: 1 });
     const r = failCurrentAttempt(ip, FIXED_LATER, 'failed');
-    expect(r.ok).toBe(true);
-    if (!r.ok) return;
-    expect(r.value.status).toBe('blocked');
-    if (r.value.status !== 'blocked') return;
-    expect(r.value.blockedReason).toContain('attempt budget exhausted');
+    const rValue = r.getOrThrow();
+    expect(rValue.status).toBe('blocked');
+    if (rValue.status !== 'blocked') return;
+    expect(rValue.blockedReason).toContain('attempt budget exhausted');
   });
 
   it('rejects from todo with no running attempt', () => {
@@ -133,22 +125,19 @@ describe('failCurrentAttempt', () => {
     // start-attempt resume path relies on.
     const corrupt: Task = { ...makeInProgressTaskWithRunningAttempt(), status: 'todo' };
     const r = failCurrentAttempt(corrupt, FIXED_LATER, 'aborted');
-    expect(r.ok).toBe(true);
-    if (!r.ok) return;
-    expect(r.value.status).toBe('in_progress');
-    expect(r.value.attempts.at(-1)?.status).toBe('aborted');
+    const rValue = r.getOrThrow();
+    expect(rValue.status).toBe('in_progress');
+    expect(rValue.attempts.at(-1)?.status).toBe('aborted');
   });
 });
 
 describe('block / unblock / reset', () => {
   it('todo → blocked → todo', () => {
     const blocked = markTaskBlocked(makeTodoTask(), 'waiting on infra', 'own');
-    expect(blocked.ok).toBe(true);
-    if (!blocked.ok) return;
-    const back = unblockTask(blocked.value);
-    expect(back.ok).toBe(true);
-    if (!back.ok) return;
-    expect(back.value.status).toBe('todo');
+    const blockedValue = blocked.getOrThrow();
+    const back = unblockTask(blockedValue);
+    const backValue = back.getOrThrow();
+    expect(backValue.status).toBe('todo');
   });
 
   it('resetTaskToTodo rejects when running attempt is unsettled', () => {
@@ -162,9 +151,8 @@ describe('block / unblock / reset', () => {
     expect(failed.ok).toBe(true);
     if (!failed.ok || failed.value.status !== 'in_progress') return;
     const back = resetTaskToTodo(failed.value);
-    expect(back.ok).toBe(true);
-    if (!back.ok) return;
-    expect(back.value.status).toBe('todo');
+    const backValue = back.getOrThrow();
+    expect(backValue.status).toBe('todo');
   });
 });
 
@@ -179,11 +167,10 @@ describe('updateTask', () => {
   it('clears optional fields with null', () => {
     const seed = makeTodoTask();
     const r = updateTask(seed, { description: null, extraDimensions: null, maxAttempts: null });
-    expect(r.ok).toBe(true);
-    if (!r.ok) return;
-    expect(r.value.description).toBeUndefined();
-    expect(r.value.extraDimensions).toBeUndefined();
-    expect(r.value.maxAttempts).toBeUndefined();
+    const value = r.getOrThrow();
+    expect(value.description).toBeUndefined();
+    expect(value.extraDimensions).toBeUndefined();
+    expect(value.maxAttempts).toBeUndefined();
   });
 
   it('rejects a whitespace-only description instead of silently clearing it', () => {
@@ -247,9 +234,8 @@ describe('createTask — field validation', () => {
 
   it('defaults dependsOn to [] when omitted', () => {
     const r = createTask(baseInput());
-    expect(r.ok).toBe(true);
-    if (!r.ok) return;
-    expect(r.value.dependsOn).toEqual([]);
+    const value = r.getOrThrow();
+    expect(value.dependsOn).toEqual([]);
   });
 });
 
@@ -282,18 +268,16 @@ describe('VerificationCriterion invariants', () => {
 
   it('createTask accepts manual criteria without a command', () => {
     const r = createTask(baseTaskInput([{ id: 'C1', assertion: 'looks right', check: 'manual' }]));
-    expect(r.ok).toBe(true);
-    if (!r.ok) return;
-    expect(r.value.verificationCriteria[0]?.command).toBeUndefined();
+    const rValue = r.getOrThrow();
+    expect(rValue.verificationCriteria[0]?.command).toBeUndefined();
   });
 
   it('createTask accepts auto criteria with a non-empty command', () => {
     const r = createTask(
       baseTaskInput([{ id: 'C1', assertion: 'TypeScript compiles', check: 'auto', command: 'npm run typecheck' }])
     );
-    expect(r.ok).toBe(true);
-    if (!r.ok) return;
-    expect(r.value.verificationCriteria[0]?.command).toBe('npm run typecheck');
+    const rValue = r.getOrThrow();
+    expect(rValue.verificationCriteria[0]?.command).toBe('npm run typecheck');
   });
 
   it('createTask rejects auto criteria with no command', () => {
@@ -334,8 +318,7 @@ describe('VerificationCriterion invariants', () => {
     const r = updateTask(todo, {
       verificationCriteria: [{ id: 'C1', assertion: 'manual', check: 'manual' }],
     });
-    expect(r.ok).toBe(true);
-    if (!r.ok) return;
-    expect(r.value.verificationCriteria[0]).toEqual({ id: 'C1', assertion: 'manual', check: 'manual' });
+    const value = r.getOrThrow();
+    expect(value.verificationCriteria[0]).toEqual({ id: 'C1', assertion: 'manual', check: 'manual' });
   });
 });

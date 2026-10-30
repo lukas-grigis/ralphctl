@@ -66,13 +66,12 @@ describe('isUpstreamBlocked — reads the structural discriminant, NOT the reaso
 describe('unblockTask — clean restart (drops block fields, resets budget + escalation)', () => {
   it('strips the blocked-only fields when resetting to todo', () => {
     const back = unblockTask(block(`${BLOCKED_UPSTREAM_REASON_PREFIX} — dep`, 'upstream'));
-    expect(back.ok).toBe(true);
-    if (!back.ok) return;
-    expect(back.value.status).toBe('todo');
-    expect((back.value as unknown as Record<string, unknown>)['blockKind']).toBeUndefined();
-    expect((back.value as unknown as Record<string, unknown>)['blockedReason']).toBeUndefined();
-    expect((back.value as unknown as Record<string, unknown>)['blockCause']).toBeUndefined();
-    expect((back.value as unknown as Record<string, unknown>)['faultSide']).toBeUndefined();
+    const value = back.getOrThrow();
+    expect(value.status).toBe('todo');
+    expect((value as unknown as Record<string, unknown>)['blockKind']).toBeUndefined();
+    expect((value as unknown as Record<string, unknown>)['blockedReason']).toBeUndefined();
+    expect((value as unknown as Record<string, unknown>)['blockCause']).toBeUndefined();
+    expect((value as unknown as Record<string, unknown>)['faultSide']).toBeUndefined();
   });
 
   it("strips the generator's structured blocker triage too, so it never leaks onto the restarted todo task", () => {
@@ -88,12 +87,11 @@ describe('unblockTask — clean restart (drops block fields, resets budget + esc
       whatUnblocksMe: 'A decision on admin-route scope',
     };
     const back = unblockTask(withTriage);
-    expect(back.ok).toBe(true);
-    if (!back.ok) return;
-    expect(back.value.status).toBe('todo');
-    expect((back.value as unknown as Record<string, unknown>)['blockerClass']).toBeUndefined();
-    expect((back.value as unknown as Record<string, unknown>)['question']).toBeUndefined();
-    expect((back.value as unknown as Record<string, unknown>)['whatUnblocksMe']).toBeUndefined();
+    const backValue = back.getOrThrow();
+    expect(backValue.status).toBe('todo');
+    expect((backValue as unknown as Record<string, unknown>)['blockerClass']).toBeUndefined();
+    expect((backValue as unknown as Record<string, unknown>)['question']).toBeUndefined();
+    expect((backValue as unknown as Record<string, unknown>)['whatUnblocksMe']).toBeUndefined();
   });
 
   it('resets the attempt budget and clears model escalation so the retry gets a genuine fresh run', () => {
@@ -114,16 +112,15 @@ describe('unblockTask — clean restart (drops block fields, resets budget + esc
     expect(blocked.value.attempts.length).toBeGreaterThan(0);
 
     const back = unblockTask(blocked.value);
-    expect(back.ok).toBe(true);
-    if (!back.ok) return;
-    expect(back.value.status).toBe('todo');
-    expect(back.value.attempts).toHaveLength(0); // fresh budget
-    expect((back.value as unknown as Record<string, unknown>)['escalatedFromModel']).toBeUndefined();
-    expect((back.value as unknown as Record<string, unknown>)['escalatedToModel']).toBeUndefined();
-    expect((back.value as unknown as Record<string, unknown>)['escalatedToEffort']).toBeUndefined();
-    expect((back.value as unknown as Record<string, unknown>)['escalatedToEvaluatorEffort']).toBeUndefined();
+    const backValue = back.getOrThrow();
+    expect(backValue.status).toBe('todo');
+    expect(backValue.attempts).toHaveLength(0); // fresh budget
+    expect((backValue as unknown as Record<string, unknown>)['escalatedFromModel']).toBeUndefined();
+    expect((backValue as unknown as Record<string, unknown>)['escalatedToModel']).toBeUndefined();
+    expect((backValue as unknown as Record<string, unknown>)['escalatedToEffort']).toBeUndefined();
+    expect((backValue as unknown as Record<string, unknown>)['escalatedToEvaluatorEffort']).toBeUndefined();
     // The cap itself (a planning field) survives — only the consumed budget resets.
-    expect(back.value.maxAttempts).toBe(3);
+    expect(backValue.maxAttempts).toBe(3);
   });
 
   it('drops the unconsumed best-of-N handshake but KEEPS the permanent grant marker', () => {
@@ -141,13 +138,12 @@ describe('unblockTask — clean restart (drops block fields, resets budget + esc
 
     // Assert: the transient handshake is meant to be consumed by the attempt it was issued for, so a
     // clean restart with zero attempts must not re-enter the best-of-N composite and burn N sessions.
-    expect(back.ok).toBe(true);
-    if (!back.ok) return;
-    expect(back.value.attempts).toHaveLength(0);
-    expect((back.value as unknown as Record<string, unknown>)['bestOfNGrantedCandidates']).toBeUndefined();
+    const value = back.getOrThrow();
+    expect(value.attempts).toHaveLength(0);
+    expect((value as unknown as Record<string, unknown>)['bestOfNGrantedCandidates']).toBeUndefined();
     // The PERMANENT marker survives — it is the once-per-task gate `decideEscalation` reads; clearing
     // it would let repeated block/unblock cycles re-grant N candidate sessions without bound.
-    expect(back.value.bestOfNGranted).toBe(true);
+    expect(value.bestOfNGranted).toBe(true);
   });
 
   it('drops criteriaVerdicts so stale k-of-N verdicts do not mislead the next run', () => {
@@ -164,9 +160,8 @@ describe('unblockTask — clean restart (drops block fields, resets budget + esc
     const back = unblockTask(blocked.value);
 
     // Assert: clean restart must shed the stale verdict map.
-    expect(back.ok).toBe(true);
-    if (!back.ok) return;
-    expect((back.value as unknown as Record<string, unknown>)['criteriaVerdicts']).toBeUndefined();
+    const backValue = back.getOrThrow();
+    expect((backValue as unknown as Record<string, unknown>)['criteriaVerdicts']).toBeUndefined();
   });
 });
 
@@ -182,14 +177,13 @@ describe('unblockTask — archives retired state instead of deleting it', () => 
     expect(clearedAttempts.length).toBeGreaterThan(0); // precondition: there is something to archive
 
     const back = unblockTask(blocked.value);
-    expect(back.ok).toBe(true);
-    if (!back.ok) return;
+    const backValue = back.getOrThrow();
 
     // The live ledger is empty — the fresh run starts clean.
-    expect(back.value.attempts).toHaveLength(0);
+    expect(backValue.attempts).toHaveLength(0);
     // But nothing is gone: the same attempts, verdicts and escalation stamp survive in the archive.
-    expect(back.value.retiredAttempts).toHaveLength(1);
-    const [retired] = back.value.retiredAttempts ?? [];
+    expect(backValue.retiredAttempts).toHaveLength(1);
+    const [retired] = backValue.retiredAttempts ?? [];
     expect(retired?.attempts).toEqual(clearedAttempts);
     expect(retired?.criteriaVerdicts).toEqual({ C1: 'failed' });
     expect(retired?.escalatedFromModel).toBe('claude-sonnet-4-6');
@@ -204,14 +198,13 @@ describe('unblockTask — archives retired state instead of deleting it', () => 
     if (!blocked.ok) throw blocked.error;
 
     const back = unblockTask(blocked.value);
-    expect(back.ok).toBe(true);
-    if (!back.ok) return;
+    const backValue = back.getOrThrow();
 
-    const [retired] = back.value.retiredAttempts ?? [];
+    const [retired] = backValue.retiredAttempts ?? [];
     expect(retired).toBeDefined();
     expect((retired as unknown as Record<string, unknown>)['bestOfNGrantedCandidates']).toBeUndefined();
     // The permanent marker still lives on the LIVE task, untouched by archiving.
-    expect(back.value.bestOfNGranted).toBe(true);
+    expect(backValue.bestOfNGranted).toBe(true);
   });
 
   it('accumulates one archive entry per block/unblock cycle, oldest first', () => {
@@ -231,11 +224,10 @@ describe('unblockTask — archives retired state instead of deleting it', () => 
     expect(blocked2.value.retiredAttempts).toHaveLength(1); // carried over from cycle 1
 
     const reopened2 = unblockTask(blocked2.value);
-    expect(reopened2.ok).toBe(true);
-    if (!reopened2.ok) return;
-    expect(reopened2.value.retiredAttempts).toHaveLength(2);
-    expect(reopened2.value.retiredAttempts?.[0]?.attempts).toHaveLength(1); // cycle 1's attempt
-    expect(reopened2.value.retiredAttempts?.[1]?.attempts).toHaveLength(1); // cycle 2's own attempt
+    const value = reopened2.getOrThrow();
+    expect(value.retiredAttempts).toHaveLength(2);
+    expect(value.retiredAttempts?.[0]?.attempts).toHaveLength(1); // cycle 1's attempt
+    expect(value.retiredAttempts?.[1]?.attempts).toHaveLength(1); // cycle 2's own attempt
   });
 
   it('does not grow the archive for a cascade-reset dependent with nothing of its own to keep', () => {
@@ -245,9 +237,8 @@ describe('unblockTask — archives retired state instead of deleting it', () => 
     expect(dependent.attempts).toHaveLength(0);
 
     const back = unblockTask(dependent);
-    expect(back.ok).toBe(true);
-    if (!back.ok) return;
-    expect(back.value.retiredAttempts).toBeUndefined();
+    const backValue = back.getOrThrow();
+    expect(backValue.retiredAttempts).toBeUndefined();
   });
 });
 
@@ -425,9 +416,8 @@ describe('unblockTask — quarantined-diff fact', () => {
 
   it('keeps the fact through the clean restart when no decision is given', () => {
     const back = unblockTask(blockedWithFact());
-    expect(back.ok).toBe(true);
-    if (!back.ok) return;
-    expect(back.value.quarantinedDiff).toStrictEqual({ stashMessage: MSG, stat: STAT, entries: 1 });
+    const value = back.getOrThrow();
+    expect(value.quarantinedDiff).toStrictEqual({ stashMessage: MSG, stat: STAT, entries: 1 });
   });
 
   it("records the operator's decision on the fact", () => {
@@ -435,10 +425,9 @@ describe('unblockTask — quarantined-diff fact', () => {
       decision: { choice: 'fresh', stashMessage: MSG },
       decidedAt: FIXED_LATER,
     });
-    expect(back.ok).toBe(true);
-    if (!back.ok) return;
-    expect(back.value.status).toBe('todo');
-    expect(back.value.quarantinedDiff).toStrictEqual({
+    const backValue = back.getOrThrow();
+    expect(backValue.status).toBe('todo');
+    expect(backValue.quarantinedDiff).toStrictEqual({
       stashMessage: MSG,
       stat: STAT,
       entries: 1,
@@ -449,8 +438,7 @@ describe('unblockTask — quarantined-diff fact', () => {
 
   it('a task with no fact gains none', () => {
     const back = unblockTask(block('attempt budget exhausted', 'own'));
-    expect(back.ok).toBe(true);
-    if (!back.ok) return;
-    expect('quarantinedDiff' in back.value).toBe(false);
+    const backValue = back.getOrThrow();
+    expect('quarantinedDiff' in backValue).toBe(false);
   });
 });
