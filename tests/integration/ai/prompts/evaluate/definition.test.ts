@@ -405,6 +405,8 @@ describe('buildEvaluatePrompt — end-to-end against the real template', () => {
     // The worked PASS example shows the label in use.
     expect(flattened).toContain('pre-existing, not graded:');
     expect(flattened).toContain('name the pattern and list the other locations you saw');
+    expect(flattened).toContain('cite the context file and line that states it');
+    expect(flattened).toContain('do not fail on a convention no file or criterion states');
   });
 
   it('carries no placeholder-checkpoint phase and renders the shared grading rules once', async () => {
