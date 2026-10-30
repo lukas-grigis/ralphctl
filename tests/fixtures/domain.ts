@@ -21,7 +21,13 @@ import {
 import { createSprintExecution, type SprintExecution } from '@src/domain/entity/sprint-execution.ts';
 import { createProject, type Project } from '@src/domain/entity/project.ts';
 import { createRepository, type Repository } from '@src/domain/entity/repository.ts';
-import type { BlockedTask, DoneTask, InProgressTask, TodoTask } from '@src/domain/entity/task.ts';
+import type {
+  BlockedTask,
+  DoneTask,
+  InProgressTask,
+  TodoTask,
+  VerificationCriterion,
+} from '@src/domain/entity/task.ts';
 import { markTaskBlocked } from '@src/domain/entity/task-lifecycle.ts';
 import type { AttemptWarning } from '@src/domain/entity/attempt.ts';
 import { createTask } from '@src/domain/entity/task-factory.ts';
@@ -174,6 +180,9 @@ export const makeTodoTask = (
     dependsOn: TaskId[];
     maxAttempts: number;
     externalRefs: readonly string[];
+    description: string;
+    steps: readonly string[];
+    verificationCriteria: readonly VerificationCriterion[];
   }> = {}
 ): TodoTask => {
   const ticket = makeApprovedTicket();
@@ -183,8 +192,11 @@ export const makeTodoTask = (
       order: overrides.order ?? 1,
       ticketId: overrides.ticketId ?? ticket.id,
       repositoryId: overrides.repositoryId ?? FIXED_REPOSITORY_ID,
-      steps: ['step 1'],
-      verificationCriteria: [{ id: 'C1', assertion: 'runs to completion', check: 'manual' }],
+      steps: [...(overrides.steps ?? ['step 1'])],
+      verificationCriteria: [
+        ...(overrides.verificationCriteria ?? [{ id: 'C1', assertion: 'runs to completion', check: 'manual' }]),
+      ],
+      ...(overrides.description !== undefined ? { description: overrides.description } : {}),
       ...(overrides.dependsOn !== undefined ? { dependsOn: overrides.dependsOn } : {}),
       ...(overrides.maxAttempts !== undefined ? { maxAttempts: overrides.maxAttempts } : {}),
       ...(overrides.externalRefs !== undefined ? { externalRefs: overrides.externalRefs } : {}),
@@ -212,7 +224,7 @@ export const makeDoneTask = (overrides?: {
   return unwrap(markTaskDone(verified, FIXED_LATER));
 };
 
-export const makeBlockedTask = (overrides?: { externalRefs?: readonly string[]; ticketId?: TicketId }): BlockedTask =>
+export const makeBlockedTask = (overrides?: Parameters<typeof makeTodoTask>[0]): BlockedTask =>
   unwrap(markTaskBlocked(makeTodoTask(overrides ?? {}), 'attempt budget exhausted', 'own'));
 
 /**
